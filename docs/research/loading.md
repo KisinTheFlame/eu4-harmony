@@ -139,7 +139,7 @@ Read 2026-11-08 for whether the meshes could load beside the databases.
 
 - `0x14dc5d0` (`pdxmeshobject.cpp`), at the end of the LoadingThread's first step, walks the graphics object's table of mesh objects (`[graphics+0xf0]`, `[graphics+0xec]` buckets of linked entries) and loads each not loaded yet (`[object+0x44]` and `[object+0x40]` clear) through its method `+0x40`, setting `+0x44`; then it makes the meshes' shaders and vertex declarations through the device and keeps them in globals from `0x2349538` to `0x23496a0`.
 - Timed with L4 on: 4.6 and 5.5 s. Sampled, the LoadingThread ran at 139 of about 460 ticks (30%): 39% of those inflating (the zips), 28% opening and looking up files, 9% in the heap, 7% in Direct3D. The meshes' textures are looked up on the pool's threads (`0x15cce80`), whose 97 samples were all in lookups.
-- Of the databases, only the graphical unit types (`0x114a7a0`) is about graphics: it reads `gfx/sprite_packs` and `gfx/sprite_packs_order` (`0x114aa10`, `0x114b160`), 0.03 s; nothing found reads the mesh objects. Not followed: what each mesh's load writes besides its object, and whether the databases read any of it.
+- Of the databases, only the graphical unit types (`0x114a7a0`) is about graphics: it reads `gfx/sprite_packs` and `gfx/sprite_packs_order` (`0x114aa10`, `0x114b160`), 0.03 s; nothing found reads the mesh objects. What a mesh's load writes and whether the databases read it: "Which stretches can run side by side".
 
 ## The startup with L5
 
@@ -185,11 +185,65 @@ Timed 2026-11-08 on master with L5 merged, as "The startup with L5" was but with
 - **The main menu's part**: of the main thread's samples under `0x206260`, 44% under `0x10af270` → `0xfd58b0` → `0xfd5b70` → `0x159e510`, nearly all of them in the framework's drawing of glyphs with DirectWrite; 39% in the map's graphics (`0x10a2e40`, mostly `0x12db850`). The framework's log counted 4,234 to 4,255 glyphs drawn in 2.0 to 2.6 s, twice what it took in "The startup with L4". From 20 s on, 35% of the main thread's samples waited in the kernel under Direct3D 9 and the graphics driver (`NtWaitForSingleObject`, from `0x16d4db0` and the window's shared surface).
 - So the startup's path is now the LoadingThread's 17.6 s from 3.0 to 20.6 s, of which the script reader's databases and events are 9.9 s, then the main thread's 4.5 s, of which the glyphs are about 2 s.
 
+## Which stretches can run side by side
+
+Read 2026-11-09 from the game's code, for which of the stretches of "The startup after L5, broken down" could run beside each other instead of one after another: what each reads, writes and shares with the others. Nothing here was tried in the game. The direct calls of every function and the globals each reads and writes were indexed from the exception directory and the code (capstone, over the whole of `.text`); a function reached only through a vtable was followed by hand.
+
+### What every stretch shares
+
+| What | Safe from several threads | How it is known |
+| --- | --- | --- |
+| Direct3D | yes, each call apart | the device is made by `CreateDeviceEx` with the flags `0x44` (`0x16d911f`), `D3DCREATE_MULTITHREADED` among them; the game reaches it through a table of its own (`0x1fd1150` to `0x1fd1368`, set to `0x16d4a40` to `0x16d8ea0`) |
+| PhysFS's opens, lookups and reads | yes | L4 and L5 |
+| The log | yes | its mutex (`[0x242b8c8]`) |
+| The C runtime's heap | yes | the process heap |
+| A token's lookup or making (`0x170d250`, 1,420 call sites) | yes | it holds the spin lock `[0x242b8b8]` (`0x1581820`) |
+| A dynamic token's making (`0x170d410`, "Creation of dynamic token", 48 call sites, most in the databases' loaders) | **no** | it takes no lock, looks the name up (`0x6e4880`), pushes into the list at `[0x242b8a0]` and may grow the tokens' table (`0x170da50`), which `0x170d250` grows under the lock: a lookup on another thread can meet the table being remade |
+| The timers (`[0x23494a0]`'s method `+8`, `0x15ccc90` → `0x15e4c80`) | **no** | each pushes itself into the list at `[0x23682a0]` and takes itself out on its end, with no lock; made by the map logic (`0x87baa2`), the countries' files (`0x286267`) and the interface, never by the meshes or the map graphics |
+| The loading screen (`0x11bb4f0` → `0x10b3600`) | **no** | each call draws a whole frame, BeginScene to Present, so two threads drawing it would interleave their scenes |
+| The device's reset (`0x14df050`) | **no** | when TestCooperativeLevel gives `D3DERR_DEVICENOTRESET`, every device object is let go (`0x14ddc70`) and made again (`0x14ddd50`) |
+| Globals made on first use (`[0x2456bc0]`, `0x1763260`'s, `0x91670`'s, `0x923f0`'s and the like) | yes, once made | each is made when first null, long before the gfx stage, and only read after |
+
+### The meshes beside the databases: can, on two conditions
+
+`0x14dc5d0` loads the mesh objects of `[graphics+0xf0]` not loaded yet (their method `+0x40`), then the mesh types of `[graphics+0x558]` in `0x14dc390`, each through `0x1589060` (`pdxmeshtype.cpp`: the `.mesh` file's existence, its read by `0x17279f0`, its vertices, normals, tangents and UVs, its vertex and index buffers, its textures through `0x15cf0d0`, its skeleton through `0x15d21c0`), then makes the meshes' and particles' shaders and vertex declarations into the globals from `0x2349538` to `0x23496a0`, and the sprites' vertex declaration `[0x23495b0]` through an object it registers as a device resource (`[0x242bf88]`, vtable `0x1d952c0`, in `[[0x23494b8]+0x518]`). Nearly all its time is `0x14dc390`.
+
+- **What the meshes read**: the mesh types the gfx stage registered, their files, the defines; nothing a database writes. The skeleton's builder does not use the context it is given (`[[0x242bf50]+0x348]+8`); the texture loader's and the mesh types' globals (`[0x242b830]`, `[0x2358a00]`, `[0x2358a30]`, the shaders' cache `[0x242b820]`) are used by graphics code only; `[0x2358a18]` is read. The meshes make no token, dynamic or not, and no timer.
+- **What they make, and who reads it**: their objects, buffers, shaders and globals are read by drawing code only. The databases reach the graphics object twice, both unrelated: the loading screen's text (`0x20878b`, `0x11bb4f0`) and the map's size after the map logic (`0x20c3c7`, `0x14dfb30`, which writes `+0x534` to `+0x540`, which the meshes do not read). The one lookup of a mesh type by name the databases can reach (`0x14db870`) is the map's message text (`0x8c07b0` → `0x6e9860`), which returns at once without a player country (`[[0x233fe78]+0x1e00]`), as at startup.
+- **The loading screen meanwhile**: its window is made before the gfx stage (`0x2024d2` → `0x11bb850`) and drawn before the meshes too (`0x203821`), so it needs nothing of theirs; the meshes' own functions only make resources (vertex and index buffers), and the loading screen's drawing changes the device's state, which a multithreaded device keeps apart.
+- **So**: the mesh types' and mesh objects' loads can run on a thread of their own beside the databases, if (1) the meshes' end (their shaders, the sprites' declaration, their device resource's registration) stays on the LoadingThread after it has waited for that thread, before anything draws a mesh or a particle (the flags do, through `0x10c7280` → `0xde7480` → `0x14dcd30`), and (2) no device reset runs while that thread runs.
+
+### The events beside the databases: cannot
+
+The events (`0x6f3250`) read each file of `events` with the script reader and hand it to each event's read, which reads its triggers and effects; a trigger resolves its names when it is read. The idea group trigger (`0xcb64f0`) takes the idea groups' database from its getter (`0x850750`, the singleton `[0x242bce0]` that `0x208620` loads), looks the name up (`0x8e9f0`) and logs "Invalid idea group for idea_group trigger" when it is not there. So the events need the databases they name loaded first: they can begin only after the databases.
+
+### The map graphics in the main thread's wait: can after the map logic, on four conditions
+
+`0x10a2e40`, on the main thread in the main menu's part `0x206260`, makes the map's graphics object (`0x12d9b70`) and loads it in `0x12db850`, one part at a time with a loading screen text each (`LOAD_GFX_PDXMAP_BORDERS`, `RIVERS`, `TERRAIN`, `STRAITS`, `LAKES`, `TEXTURES`, `TREES`), then the map's trees and terrain (`0x885d90`, `map.cpp`), `0xa42f00`, `0x12daa60`, its shaders (`bloom`, `downsample`, `restorescene`, `mapname`) and its fonts (`tahoma_60`, through the framework's glyphs).
+
+- **What it reads**: the map object `[0x233fed8]`, which the map logic (`0x87b9e0`, called from `0x20c3ab` within the databases) fills; the map's files (`heightmap.bmp`, the terrain's `.dds`); a define (`[0x233ea04]`); and `[[0x233fe78]+0x2260]+0xb0`, a country's index (the trade nodes' setup indexes the countries with it), which the other code found reading it reads as a game starts (`0x210000`, `0x749500`); who sets it was not found, so that it is the same at startup either way is assumed, not shown.
+- **What it makes, and who reads it**: its object `[0x2340078]` is read by code that uses it without a check for null (`0x1448880`, `0x10b6c50`), which so does not run before the main menu in the game as it is; nothing of the startup after it reads what it makes.
+- **What it shares**: the particles' globals (`0x2349600` to `0x2349628`), which the meshes' particles make; the loading screen, which it draws itself at each part; the tokens, which it looks up once, at its end (`0x10ae980` → `0x170d250`); the device's reset.
+- **So**: it can begin on the main thread once the map logic has run, beside the rest of the databases, the events, the flags and the rest of InitGame, if (1) the meshes have ended first, (2) only one thread draws the loading screen at a time (its texts while the LoadingThread runs not drawn, or drawn by one of the two), (3) no dynamic token is made while it looks up its tokens (its last step after the LoadingThread is done, or the dynamic tokens made under the tokens' lock), and (4) no device reset runs meanwhile. It is 2.1 s of the main menu's part; how much of the main thread's wait it could fill depends on where the map logic falls in the databases.
+
+### The flags beside the events: only with the dynamic tokens locked
+
+The flags (`0x10b2b70`, 0.6 s) read the countries' tags and their flags' files and make textures (D3DX), and draw through the meshes' and particles' drawing (`0x10c7280` → `0xde7480` → `0x14dcd30`); they look tokens up (`0x10c7280` → `0x170ded0` → `0x170d250`). The events look tokens up too (`0x170cd10`), and their effects, read through their vtables, were not followed for dynamic tokens. Nothing the events write was found among what the flags read. So the flags could load beside the events only if the dynamic tokens' making takes the tokens' lock as their lookup does; 0.6 s at most.
+
+### The rest of InitGame after the flags: after the events
+
+The triggers' optimization profile (`0xb9b4e0`, about 1.1 s) and the effects' validation work on every trigger and effect the databases and the events read, and the trade nodes' setup (`0xb67830`) on the countries and provinces: they follow the events.
+
+### What the startup's path could become
+
+Of the LoadingThread's 17.6 s (3.0 to 20.6 s) and the main thread's 4.5 s after it: the meshes beside the databases take about 2.2 s off the LoadingThread; the map graphics in the main thread's wait take up to 2.1 s off the main thread's part, the glyphs drawn earlier (the framework's own, "The startup after L5, broken down") up to 2 s more; the flags beside the events at most 0.6 s. The databases and the events stay one after the other: the databases' loaders in their fixed order, the events after them.
+
 ## Not looked into
 
 - Which thread held the open's lock while the LoadingThread waited on it from 10 to 18 s; with L4 the opens to read no longer take it.
 - Why the framework's glyphs took twice as long after L5 as with L4.
-- What a mesh's load writes, and whether the databases read it.
+- What the gfx stage's part before the meshes (`.gfx`, the map, `.gui`) shares with the databases, and whether the databases could begin before it.
+- Whether the events' effects make dynamic tokens.
 - Vanilla's startup and load, without the framework, on the same machine.
 - What `0x1806bf0` keeps of a music file, and whether the game reads every file again when it plays.
 - Which of the game's things the dated nodes are, and how long their lists get.
