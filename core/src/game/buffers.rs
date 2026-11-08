@@ -326,6 +326,14 @@ pub extern "C" fn answers_yes() -> usize {
     1
 }
 
+/// The game's conditions, for a capability that lists those that do not
+/// hold: their scope made and destroyed, and `lines` writing them as the
+/// game's tooltip does.
+pub fn conditions(image: &Image, lines: *const ()) {
+    use super::conditions::{LINES, SCOPE, SCOPE_DESTROY};
+    image.function(SCOPE.rva(), answers_no as *const ()).function(SCOPE_DESTROY.rva(), answers_no as *const ()).function(LINES.rva(), lines);
+}
+
 /// Writes `text`, at most [`game_string::INLINE`] bytes, into the empty
 /// `std::string` at `string`, as a game function writes its reasons.
 pub fn write_inline(string: usize, text: &str) {

@@ -13,14 +13,14 @@ use crate::{
 };
 
 /// Makes a scope: `(scope, country tag by value, province, 0)`.
-const SCOPE: GameFunction<4> = GameFunction::at(0x94590);
+pub(super) const SCOPE: GameFunction<4> = GameFunction::at(0x94590);
 /// Frees what a scope owns, without freeing the scope.
-const SCOPE_DESTROY: GameFunction<1> = GameFunction::at(0x947f0);
+pub(super) const SCOPE_DESTROY: GameFunction<1> = GameFunction::at(0x947f0);
 /// A content trigger's verdict: `(trigger, scope) -> bool`, true when every
 /// condition holds.
-const EVALUATE: GameFunction<2> = GameFunction::at(0xb98200);
+pub(super) const EVALUATE: GameFunction<2> = GameFunction::at(0xb98200);
 /// A content trigger's lines: `(trigger, out, scope, negated, indent, mode)`.
-const LINES: GameFunction<6> = GameFunction::at(0xb97cd0);
+pub(super) const LINES: GameFunction<6> = GameFunction::at(0xb97cd0);
 /// The scope's size.
 const SCOPE_SIZE: usize = 0xd0;
 /// [`LINES`]'s mode for the conditions that do not hold only.
