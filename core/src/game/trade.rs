@@ -21,9 +21,9 @@ use std::collections::BTreeSet;
 /// The world's trade nodes: inline, [`NODE_SIZE`] bytes each, at the
 /// pointer [`NODES`], their count (i32) at [`NODE_COUNT`]; a node's place is
 /// its definition's index, and place 0 is no node.
-const NODES: usize = 0x21b0;
-const NODE_COUNT: usize = 0x21bc;
-const NODE_SIZE: usize = 0x138;
+pub(super) const NODES: usize = 0x21b0;
+pub(super) const NODE_COUNT: usize = 0x21bc;
+pub(super) const NODE_SIZE: usize = 0x138;
 /// A node's fields: its definition; its value and the part its provinces
 /// make, fixed point in ducats; the trade power of all its countries; the
 /// countries' entries, a pointer to [`ENTRY_SIZE`]-byte entries by the
@@ -67,7 +67,7 @@ pub(super) const HOME: usize = 0xad;
 /// The game's share of a country in a node: (node, out, tag), thousandths;
 /// whether a country collects there: (node, tag).
 const SHARE: GameFunction<3> = GameFunction::at(0xb573a0);
-const COLLECTS: GameFunction<2> = GameFunction::at(0xb58e00);
+pub(super) const COLLECTS: GameFunction<2> = GameFunction::at(0xb58e00);
 /// The most nodes, links or flows believed.
 pub(super) const MOST: usize = 10_000;
 

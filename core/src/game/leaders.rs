@@ -399,7 +399,11 @@ mod tests {
         let army = buffers::unit(m, ARMY, cas, true, UNIT_LEADER + 8);
         let fleet = buffers::unit(m, FLEET, cas, false, UNIT_LEADER + 8).u8(SAYS_NO, full.into());
         let leader = |number: u32, kind: LeaderKind, unit: usize| {
-            Object::new(leader::UNIT + 8).u32(leader::ID, leader::TYPE).u32(leader::NUMBER, number).i32(leader::KIND, index(kind) as i32).u64(leader::UNIT, unit as u64)
+            Object::new(leader::UNIT + 8)
+                .u32(leader::ID, leader::TYPE)
+                .u32(leader::NUMBER, number)
+                .i32(leader::KIND, index(kind) as i32)
+                .u64(leader::UNIT, unit as u64)
         };
         let leading = leader(12, LeaderKind::General, army.at()).u8(SAYS_NO, stuck.into());
         let army = army.u64(UNIT_LEADER, leading.at() as u64);
@@ -446,11 +450,20 @@ mod tests {
     fn a_leader_the_panels_would_not_move_is_refused_with_why() {
         let castile = castile(true, true);
         let rejected = |why: &str| (Status::Rejected, why.to_string());
-        assert_eq!(refused(assign(castile.session, args::Assign { leader: 13, army: ArmyId(FLEET) })), rejected("a leader of the kind general leads an army, not a fleet"));
-        assert_eq!(refused(assign(castile.session, args::Assign { leader: 14, army: ArmyId(ARMY) })), rejected("a leader of the kind admiral leads a fleet, not an army"));
+        assert_eq!(
+            refused(assign(castile.session, args::Assign { leader: 13, army: ArmyId(FLEET) })),
+            rejected("a leader of the kind general leads an army, not a fleet")
+        );
+        assert_eq!(
+            refused(assign(castile.session, args::Assign { leader: 14, army: ArmyId(ARMY) })),
+            rejected("a leader of the kind admiral leads a fleet, not an army")
+        );
         assert_eq!(refused(assign(castile.session, args::Assign { leader: 14, army: ArmyId(FLEET) })), rejected("has a leader"));
         assert_eq!(refused(remove(castile.session, args::Remove { army: ArmyId(ARMY) })), rejected("in battle"));
-        assert_eq!(refused(dismiss(castile.session, args::Dismiss { leader: 12 })), rejected("leader 12 leads an army or a fleet; take it from there first (leader.remove)"));
+        assert_eq!(
+            refused(dismiss(castile.session, args::Dismiss { leader: 12 })),
+            rejected("leader 12 leads an army or a fleet; take it from there first (leader.remove)")
+        );
         assert_eq!(refused(dismiss(castile.session, args::Dismiss { leader: 15 })), (Status::NotFound, "the player has no leader 15".into()));
         assert_eq!(refused(remove(castile.session, args::Remove { army: ArmyId(9 << 32 | 54) })).0, Status::NotFound);
         assert!(record::posted().is_empty());

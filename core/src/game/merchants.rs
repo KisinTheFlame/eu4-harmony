@@ -407,4 +407,164 @@ mod tests {
         let ven = Tag(u64::from_le_bytes(*b"VEN\0\0\0\0\0"));
         assert_eq!(policy_written(ven, 42, 3), r#"select_trading_policy={ members={ dummy="VEN" dummy=42 dummy=3 } }"#);
     }
+
+    use crate::game::{
+        buffers::{self, answers_no, answers_yes, write_inline, Image, Object, Provinces},
+        commands::record,
+        envoys::POOLS,
+        trade::{COLLECTS, NODES, NODE_COUNT, NODE_SIZE},
+        Caller, Fail, Status,
+    };
+    use std::cell::Cell;
+
+    /// A province or a policy of the test's the game's tooltip bars, in a
+    /// byte neither uses, read by the game's functions below.
+    const BARRED: usize = 8;
+
+    extern "C" fn may_send(_: usize, location: usize, out: usize) -> usize {
+        if unsafe { *((location + BARRED) as *const u8) } == 0 {
+            return 1;
+        }
+        write_inline(out, b"\xa3no too far");
+        0
+    }
+
+    extern "C" fn may_choose(_: usize, _: usize, policy: usize, out: usize) -> usize {
+        if unsafe { *((policy + BARRED) as *const u8) } == 0 {
+            return 1;
+        }
+        write_inline(out, "no_navy");
+        0
+    }
+
+    thread_local! {
+        /// The trading policies' database of this thread's test.
+        static DATABASE: Cell<usize> = const { Cell::new(0) };
+    }
+
+    extern "C" fn policies() -> usize {
+        DATABASE.with(Cell::get)
+    }
+
+    /// Venice, in a world of the trade nodes `venice` (1, in province 1),
+    /// downstream of which is `genoa` (2, in province 2): its merchant 5
+    /// steers in venice toward genoa, following the trading policy
+    /// `trade_power` there; its merchant 7 is free when `free`; its merchant
+    /// 9 is on its way to genoa when `arriving`. The policies are
+    /// `trade_power`, `price` and `navy`, the last barred.
+    struct Venice {
+        _image: Image,
+        _provinces: Provinces,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn venice(free: bool, arriving: bool) -> Venice {
+        let image = Image::new();
+        image
+            .function(MAY_SEND.rva(), may_send as *const ())
+            .function(MAY_STEER.rva(), answers_yes as *const ())
+            .function(MAY_CHOOSE.rva(), may_choose as *const ())
+            .function(COLLECTS.rva(), answers_no as *const ())
+            .function(POLICIES.rva(), policies as *const ())
+            .function(game_string::DESTROY_AT.rva(), answers_no as *const ());
+        buffers::localisation(&image);
+        let ven = Tag(u64::from_le_bytes(*b"VEN\0\0\0\0\0"));
+        let provinces = Provinces::new(&image, 3);
+        let policy =
+            |key: &str, index: i32, barred: bool| Object::new(POLICY_INDEX + 4).string(POLICY_KEY, key).i32(POLICY_INDEX, index).u8(BARRED, barred.into());
+        let policies = [policy("trade_power", 0, false), policy("price", 1, false), policy("navy", 2, true)];
+        let database = Object::new(POLICY_COUNT + 4)
+            .vector(POLICY_LIST, &policies.iter().map(|p| p.at() as u64).collect::<Vec<_>>())
+            .i32(POLICY_COUNT, policies.len() as i32);
+        DATABASE.with(|d| d.set(database.at()));
+        let definition = |key: &str, index: i32| Object::new(LOCATION + 4).string(KEY, key).string(NAME, key).i32(trade::INDEX, index).i32(LOCATION, index);
+        let genoa = definition("genoa", 2);
+        let link = Object::new(LINK_SIZE).u64(LINK_TO, genoa.at() as u64);
+        let venice = definition("venice", 1).u64(LINKS, link.at() as u64).u64(LINKS + 8, (link.at() + LINK_SIZE) as u64);
+        let entry = ven.index() as usize * ENTRY_SIZE;
+        let entries = |size| Object::new(entry + ENTRY_SIZE).u8(entry + HAS_MERCHANT, size).i32(entry + STEER_LINK, 0);
+        let (in_venice, in_genoa) = (entries(1).u64(entry + POLICY, policies[0].at() as u64), entries(0));
+        let nodes = Object::new(3 * NODE_SIZE);
+        for (place, (definition, entries)) in [(1, (&venice, &in_venice)), (2, (&genoa, &in_genoa))] {
+            nodes.set(place * NODE_SIZE + DEFINITION, &(definition.at() as u64).to_le_bytes());
+            nodes.set(place * NODE_SIZE + ENTRIES, &(entries.at() as u64).to_le_bytes());
+            nodes.set(place * NODE_SIZE + INDEX, &(place as i32).to_le_bytes());
+        }
+        provinces.world_set(NODES, &(nodes.at() as u64).to_le_bytes()).world_set(NODE_COUNT, &3i32.to_le_bytes());
+        let mission = |place: usize| Object::new(MISSION_KIND + 8).u64(MISSION_NODE, (nodes.at() + place * NODE_SIZE) as u64).u8(MISSION_KIND, 1);
+        let merchant = |id: i32, away: bool| buffers::envoy(away, ENVOY_ID + 4).i32(ENVOY_ID, id);
+        let mut merchants = vec![merchant(5, true).points_to(MISSION, mission(1)), merchant(7, !free)];
+        if arriving {
+            merchants.push(merchant(9, true).points_to(MISSION, mission(2)));
+        }
+        let country = Object::country(ven, POOLS + 8).points_to(POOLS, buffers::envoys(vec![(Kind::Merchant, merchants)]));
+        let countries = Object::countries(&[&country]);
+        let session = buffers::session(image.memory(), provinces.world(), ven, country.at(), countries.at(), Caller::Remote);
+        let mut objects = vec![database, genoa, link, venice, in_venice, in_genoa, nodes, country, countries];
+        objects.extend(policies);
+        Venice { _image: image, _provinces: provinces, _objects: objects, session }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("the merchant went") };
+        (status, message)
+    }
+
+    #[test]
+    fn merchants_are_sent_recalled_and_steered_by_the_trade_view_s_commands() {
+        let venice = venice(true, false);
+        send(venice.session, "genoa", Mission::Collect).unwrap();
+        send(venice.session, "genoa", Mission::Steer).unwrap();
+        // The merchant steering in venice turns to collecting there.
+        send(venice.session, "venice", Mission::Collect).unwrap();
+        recall(venice.session, "venice").unwrap();
+        steer_to(venice.session, args::SteerTo { node: "venice".into(), to: "genoa".into() }).unwrap();
+        set_policy(venice.session, args::SetPolicy { node: "venice".into(), policy: "price".into() }).unwrap();
+        assert_eq!(
+            record::posted(),
+            [
+                r#"send_merchant={ province=2 country="VEN" name=7 type=0 }"#,
+                r#"send_merchant={ province=2 country="VEN" name=7 type=1 }"#,
+                r#"send_merchant={ province=1 country="VEN" name=5 type=0 }"#,
+                r#"cancel_merchant={ node=1 country="VEN" }"#,
+                r#"steer_command={ country="VEN" to=0 trade=1 }"#,
+                r#"select_trading_policy={ members={ dummy="VEN" dummy=1 dummy=1 } }"#
+            ]
+        );
+    }
+
+    #[test]
+    fn what_the_trade_view_does_not_offer_is_refused() {
+        let rejected = |why: &str| (Status::Rejected, why.to_string());
+        let venice = venice(false, true);
+        assert_eq!(refused(send(venice.session, "lisbon", Mission::Collect)), (Status::NotFound, "no trade node is named lisbon".into()));
+        // Every merchant is away: the button sends a free one.
+        assert_eq!(refused(send(venice.session, "venice", Mission::Steer)), rejected("TRADE_MERCHANT_"));
+        assert_eq!(refused(recall(venice.session, "genoa")), rejected("the player's merchant is still on its way there"));
+        assert_eq!(
+            refused(steer_to(venice.session, args::SteerTo { node: "venice".into(), to: "lisbon".into() })),
+            (Status::NotFound, "no trade node downstream is named lisbon".into())
+        );
+        let policy = |node: &str, policy: &str| refused(set_policy(venice.session, args::SetPolicy { node: node.into(), policy: policy.into() }));
+        assert_eq!(policy("venice", "trade_power"), rejected("the player already follows trade_power there"));
+        assert_eq!(policy("venice", "navy"), rejected("no_navy"));
+        assert_eq!(policy("genoa", "price"), rejected("the player has no merchant there"));
+        assert_eq!(policy("venice", "plunder"), (Status::NotFound, "no trading policy is named plunder".into()));
+        assert!(record::posted().is_empty());
+    }
+
+    #[test]
+    fn a_merchant_where_the_game_bars_it_or_with_none_free_is_refused() {
+        {
+            let venice = venice(false, false);
+            assert_eq!(refused(send(venice.session, "genoa", Mission::Collect)), (Status::Rejected, "TRADER_FREE_ENV".into()));
+            assert_eq!(refused(recall(venice.session, "genoa")), (Status::Rejected, "the player has no merchant there".into()));
+        }
+        // One world of provinces at a time.
+        let venice = venice(true, false);
+        venice._provinces.u8(2, BARRED, 1);
+        assert_eq!(refused(send(venice.session, "genoa", Mission::Collect)), (Status::Rejected, "too far".into()));
+        assert!(record::posted().is_empty());
+    }
 }

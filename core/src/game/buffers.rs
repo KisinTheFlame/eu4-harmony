@@ -241,7 +241,9 @@ pub fn session(m: &'static Memory, world: usize, player: Tag, country: usize, co
     Session { m, ctx: Ctx { world, date: 0, player, country, countries }, view: View::Full, caller, commands: Commands::Recorded }
 }
 
-// The provinces, for the capabilities that act in one or toward one: the
+// The provinces, envoys, units and the game's answers, for the action
+// capabilities of leaders, mercenaries, merchants, missionaries, missions,
+// parliament, questions, recruiting, sieges, offers and occupation: the
 // world's provinces as the map and the world hold them, each read through
 // the geography the capabilities keep of them.
 
@@ -249,9 +251,18 @@ pub fn session(m: &'static Memory, world: usize, player: Tag, country: usize, co
 /// process's one, so that tests running at once do not read each other's.
 static GEOGRAPHY: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+thread_local! {
+    /// Whether this thread's test holds [`GEOGRAPHY`].
+    static HOLDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// How far a test's world reaches.
+const WORLD: usize = 0x4000;
+
 /// The world's provinces, numbered from 0, the placeholder, to `count - 1`,
 /// each on land with a geometry of its own and no neighbors; the map at its
-/// global in `image`, and the world pointing to the same provinces.
+/// global in `image`, and the world pointing to the same provinces, its
+/// other fields as far as [`WORLD`] set with [`Provinces::world_set`].
 pub struct Provinces {
     array: Object,
     world: Object,
@@ -262,6 +273,8 @@ pub struct Provinces {
 impl Provinces {
     pub fn new(image: &Image, count: usize) -> Self {
         use crate::objects::campaign::{geometry, globals, map, province, world};
+        // A second world on the thread that holds one would wait for itself.
+        assert!(!HOLDING.with(|h| h.replace(true)), "a test has one world of provinces at a time");
         let held = GEOGRAPHY.lock().unwrap_or_else(|e| e.into_inner());
         super::with_state(|s| s.geography.clear());
         let array = Object::new(count * province::SIZE);
@@ -277,13 +290,19 @@ impl Provinces {
         let the_map = Object::new(map::PROVINCES + 0x10).u64(map::PROVINCES, first).u64(map::PROVINCES + 8, end);
         image.u64(globals::MAP, the_map.at() as u64);
         kept.push(the_map);
-        let world = Object::new(world::PROVINCES + 8).u64(world::PROVINCES, first);
+        let world = Object::new(WORLD.max(world::PROVINCES + 8)).u64(world::PROVINCES, first);
         Self { array, world, _kept: kept, _held: held }
     }
 
     /// The world, for [`session`].
     pub fn world(&self) -> usize {
         self.world.at()
+    }
+
+    /// Writes `bytes` at `offset` of the world.
+    pub fn world_set(&self, offset: usize, bytes: &[u8]) -> &Self {
+        self.world.set(offset, bytes);
+        self
     }
 
     /// Where province `id` is.
@@ -313,6 +332,7 @@ impl Provinces {
 impl Drop for Provinces {
     fn drop(&mut self) {
         super::with_state(|s| s.geography.clear());
+        HOLDING.with(|h| h.set(false));
     }
 }
 
@@ -335,17 +355,22 @@ pub fn conditions(image: &Image, lines: *const ()) {
 }
 
 /// A country's pools of envoys ([`super::envoys`]), for its field
-/// `envoys::POOLS`: of each kind, its envoys, each with whether it is away.
-pub fn envoys(kinds: &[(super::envoys::Kind, &[bool])]) -> Object {
-    use super::envoys::{AWAY, ENVOYS};
+/// `envoys::POOLS`: of each kind, its envoys ([`envoy`]).
+pub fn envoys(kinds: Vec<(super::envoys::Kind, Vec<Object>)>) -> Object {
+    use super::envoys::ENVOYS;
     let mut pools = Object::new(0x18);
-    for &(kind, away) in kinds {
-        let envoys: Vec<Object> = away.iter().map(|&a| Object::new(AWAY + 8).u8(AWAY, a.into())).collect();
+    for (kind, envoys) in kinds {
         let mut pool = Object::new(ENVOYS + 0x10).vector(ENVOYS, &envoys.iter().map(|e| e.at() as u64).collect::<Vec<_>>());
         pool.kept.extend(envoys);
         pools = pools.points_to(kind as usize, pool);
     }
     pools
+}
+
+/// An envoy, away or free, `size` bytes or as far as whether it is away.
+pub fn envoy(away: bool, size: usize) -> Object {
+    use super::envoys::AWAY;
+    Object::new(size.max(AWAY + 8)).u8(AWAY, away.into())
 }
 
 /// An army (`land`) or a fleet of `owner`'s with the ID `id`, as
@@ -375,9 +400,24 @@ pub fn units(image: &Image, units: &[&Object]) {
     image.function(super::world::FIND_ID.rva(), find_id as *const ());
 }
 
+/// The game's localisation, which a test's texts stand for by their keys:
+/// a key's text is its first [`game_string::INLINE`] bytes.
+pub fn localisation(image: &Image) {
+    image.function(game_string::LOCALIZE_AT.rva(), localize as *const ());
+}
+
+extern "C" fn localize(out: usize, key: *const std::ffi::c_char) -> usize {
+    let key = unsafe { std::ffi::CStr::from_ptr(key) }.to_bytes();
+    let empty = game_string::empty();
+    unsafe { std::ptr::copy_nonoverlapping(empty.as_ptr() as *const u8, out as *mut u8, game_string::OBJECT) };
+    write_inline(out, &key[..key.len().min(game_string::INLINE)]);
+    0
+}
+
 /// Writes `text`, at most [`game_string::INLINE`] bytes, into the empty
 /// `std::string` at `string`, as a game function writes its reasons.
-pub fn write_inline(string: usize, text: &str) {
+pub fn write_inline(string: usize, text: impl AsRef<[u8]>) {
+    let text = text.as_ref();
     assert!(text.len() <= game_string::INLINE, "{text:?} is longer than a string holds in itself");
     unsafe {
         std::ptr::copy_nonoverlapping(text.as_ptr(), string as *mut u8, text.len());

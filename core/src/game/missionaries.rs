@@ -214,7 +214,9 @@ mod tests {
         }
         let missionary = Object::new(SENDER + 8).u64(SENDER, fra.0);
         provinces.u64(2, BUILDING, missionary.at() as u64).u8(3, BARRED, 1);
-        let france = Object::country(fra, AUTOMATIC + 4).points_to(POOLS, buffers::envoys(&[(Kind::Missionary, &[true, false])])).i32(AUTOMATIC, automatic);
+        let france = Object::country(fra, AUTOMATIC + 4)
+            .points_to(POOLS, buffers::envoys(vec![(Kind::Missionary, vec![buffers::envoy(true, 0), buffers::envoy(false, 0)])]))
+            .i32(AUTOMATIC, automatic);
         let countries = Object::countries(&[&france]);
         let session = buffers::session(image.memory(), provinces.world(), fra, france.at(), countries.at(), Caller::Remote);
         France { _image: image, _provinces: provinces, _objects: vec![missionary, france, countries], session }

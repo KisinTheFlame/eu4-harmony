@@ -30,7 +30,7 @@ const APPEND_AT: usize = 0x932f0;
 pub(crate) const DESTROY_AT: GameFunction<1> = GameFunction::at(0x95660);
 /// The game's localisation lookup: (out, key, values, count); out is a
 /// `std::string` slot it constructs, key a C string.
-const LOCALIZE_AT: GameFunction<4> = GameFunction::at(0x14b34a0);
+pub(crate) const LOCALIZE_AT: GameFunction<4> = GameFunction::at(0x14b34a0);
 /// A value the lookup puts into a text where `$NAME$` stands, 0x68 bytes:
 /// the name (a C string) at `+0`, its kind at `+0x28` (1 for text), the
 /// text a `std::string` at `+0x30`. The game's constructor and destructor
