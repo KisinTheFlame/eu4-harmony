@@ -1,4 +1,4 @@
-//! The mesh types loaded beside the databases (docs/loading.md, L6).
+//! The mesh types loaded beside the databases (docs/plans/startup-side-by-side.md, B1).
 //!
 //! At the end of the gfx stage the LoadingThread loads the meshes
 //! (`0x14dc5d0`): the mesh objects not loaded yet, then every mesh type and
