@@ -1,6 +1,8 @@
 //! Places glyph bitmaps on a texture page, as an atlas: rows ("shelves")
 //! as tall as the tallest glyph in them, filled left to right, each glyph
-//! padded by one pixel so filtering never bleeds a neighbour in.
+//! padded by one pixel so filtering never bleeds a neighbour in. A page may
+//! grow: its glyphs keep their places, its shelves reach across the new
+//! width and new ones open below.
 
 /// Space between glyphs, in pixels.
 const PAD: u32 = 1;
@@ -49,6 +51,20 @@ impl Page {
     pub fn used_height(&self) -> u32 {
         self.next_y
     }
+
+    /// Makes the page `width` × `height`, never smaller than it is.
+    pub fn grow(&mut self, width: u32, height: u32) {
+        self.width = self.width.max(width);
+        self.height = self.height.max(height);
+    }
+
+    /// How much of the page glyphs have claimed, 0 to 1: each shelf as far
+    /// as it is filled. The rest is free, though the end of a shelf takes
+    /// only glyphs about as tall as it.
+    pub fn claimed(&self) -> f32 {
+        let claimed: u64 = self.shelves.iter().map(|s| s.height as u64 * s.next_x as u64).sum();
+        claimed as f32 / (self.width as u64 * self.height as u64).max(1) as f32
+    }
 }
 
 #[cfg(test)]
@@ -68,5 +84,26 @@ mod tests {
         // A glyph far shorter than every shelf, or one too big, needs room the page lacks.
         assert_eq!(page.place(64, 1), None);
         assert_eq!(page.place(5, 5), None);
+    }
+
+    #[test]
+    fn a_grown_page_keeps_its_glyphs_and_fills_the_room_it_gained() {
+        let mut page = Page::new(32, 16);
+        assert_eq!(page.place(15, 15), Some((0, 0)));
+        assert_eq!(page.place(15, 15), Some((16, 0)));
+        assert_eq!(page.claimed(), 1.0);
+        assert_eq!(page.place(15, 15), None);
+        // Taller: a new shelf below.
+        page.grow(32, 32);
+        assert_eq!(page.claimed(), 0.5);
+        assert_eq!(page.place(15, 15), Some((0, 16)));
+        // Wider: the shelves reach across.
+        page.grow(64, 32);
+        assert_eq!(page.place(15, 15), Some((32, 0)));
+        assert_eq!(page.place(15, 15), Some((48, 0)));
+        assert_eq!(page.claimed(), 0.625);
+        // Never smaller.
+        page.grow(16, 16);
+        assert_eq!((page.width, page.height), (64, 32));
     }
 }

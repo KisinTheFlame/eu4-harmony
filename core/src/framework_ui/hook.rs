@@ -40,6 +40,8 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
         // Inside a guard, as all framework code here: a panic must not
         // unwind into the game.
         let device = crate::guarded("frame present", || crate::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()).map(|device| device as *mut c_void));
+        // Between the game's frames, outside any scene.
+        crate::guarded("font pages", crate::unicode::fill::grow_pages);
         crate::guarded("framework UI frame", || {
             if let Some(device) = device {
                 super::frame(device)

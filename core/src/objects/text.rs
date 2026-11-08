@@ -27,6 +27,12 @@ pub mod font {
     pub const PAGE_SIZE: usize = 0x978;
     /// The graphics context, which holds the texture manager.
     pub const CONTEXT: usize = 0x48;
+    /// Main text keeps the last texts it laid out, each in a vertex buffer
+    /// of its own, in `TEXT_SLOTS` slots: here each slot's key, i32, a hash
+    /// of the text and how it is drawn. A slot whose key is 0 is free, and
+    /// the next text not found takes it and is laid out again.
+    pub const TEXT_KEYS: usize = 0x3a28;
+    pub const TEXT_SLOTS: usize = 40;
 }
 
 /// The graphics context, at `[font.CONTEXT]`.
@@ -53,6 +59,18 @@ pub mod textures {
 pub mod renderer {
     /// The `IDirect3DDevice9`.
     pub const DEVICE: usize = 8;
+}
+
+/// The map the game draws, at the application's `MAP`: the names on it are
+/// meshes built from its font's page, which keep their glyphs' places in
+/// fractions of the page's size.
+pub mod map {
+    /// The font its country names are drawn in.
+    pub const NAMES_FONT: usize = 0x4d0;
+    /// Builds every country's name again, when the map has its font, and
+    /// marks the map mode for its refresh at the next frame, which builds
+    /// the other names again: `(map)`.
+    pub const REBUILD_NAMES: crate::points::GameFunction<1> = crate::points::GameFunction::at(0x10a4680);
 }
 
 /// What the renderer's texture creation is told: the format (a
@@ -124,7 +142,22 @@ pub fn points() -> Vec<Point> {
             "font page lookup",
         )
         .uses(&[font::PAGE_INDEX, font::CONTEXT, textures::MANAGER, textures::ENTRIES, textures::ENTRIES + 8, textures::ENTRY_SIZE, font::PAGE_SIZE]),
+        // Main text looking for a text it keeps: each slot's key against
+        // the text's, and the first slot whose key is 0 taken if none is.
+        Point::keep(
+            0x1598de8usize,
+            "49 8d 96 28 3a 00 00 90 44 8b 02 45 3b c3 0f 84 f7 23 00 00 41 83 fd ff 75 13 45 85 c0 75 0e 44 8b e8 89 85 58 23 00 00 \
+             f2 44 0f 11 19 ff c0 48 83 c2 04 48 83 c1 08 83 f8 28",
+            "font text cache keys",
+        )
+        .uses(&[font::TEXT_KEYS, font::TEXT_SLOTS]),
         Point::keep(0x16c2e84usize, "49 8b 4f 60", "texture manager renderer").uses(&[textures::RENDERER]),
+        Point::keep(
+            map::REBUILD_NAMES,
+            "40 53 48 83 ec 20 48 83 b9 d0 04 00 00 00 48 8b d9 74 12 e8 d8 ab 00 00 c6 83 a0 25 00 00 01",
+            "map names built again",
+        )
+        .uses(&[map::NAMES_FONT]),
         // Presenting a frame through the renderer's device.
         Point::keep(0x16d4db6usize, "48 8b d9 48 c7 44 24 20 00 00 00 00 48 8b 49 08 45 33 c9 45 33 c0 33 d2 48 8b 01 ff 90 88 00 00 00", "renderer device")
             .uses(&[renderer::DEVICE]),

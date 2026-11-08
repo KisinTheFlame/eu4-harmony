@@ -175,6 +175,10 @@ pub fn game_frame() {
             #[cfg(feature = "dev-test-switches")]
             if frame.new_session() {
                 game::commands::post_test_commands();
+                if test_switch!(grow_pages) {
+                    log!("test switch grow-pages: every font page grows");
+                    crate::unicode::fill::want_room_everywhere();
+                }
                 if test_switch!(crash) {
                     log!("test switch crash: crashing the game");
                     // An access violation, which the game's crash handling takes.
