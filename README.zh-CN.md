@@ -127,7 +127,7 @@ eu4-harmony game menu return               # 回到主菜单
 | [docs/prototype-log/](docs/prototype-log/) | 在运行中的游戏里试过什么、结果如何，每次一个文件 |
 | [docs/dev-tools.md](docs/dev-tools.md) | 开发工具 |
 
-每项较大的工作在 [docs/](docs/) 里有自己的方案，列在 [AGENTS.md](AGENTS.md) 里。
+每项较大的工作在 [docs/](docs/) 里有自己的方案，和其他文档一起列在 [docs/README.md](docs/README.md) 里。
 
 ## 从源码构建
 
