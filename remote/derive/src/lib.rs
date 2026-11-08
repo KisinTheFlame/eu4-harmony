@@ -143,7 +143,7 @@ fn shaped(input: &DeriveInput) -> syn::Result<Tokens> {
                 quote! {
                     let mut fields = ::std::vec::Vec::new();
                     #pushes
-                    ::eu4_harmony_remote::shape::Shape::Object { class: #class, about: #words, fields }
+                    ::eu4_harmony_remote::shape::object(#class, #words, fields)
                 }
             }
             Fields::Named(named) => {
@@ -197,7 +197,7 @@ fn shaped(input: &DeriveInput) -> syn::Result<Tokens> {
                             quote! {{
                                 let mut fields = ::std::vec::Vec::new();
                                 #pushes
-                                ::eu4_harmony_remote::shape::Shape::Object { class: #variant_class, about: "", fields }
+                                ::eu4_harmony_remote::shape::object(#variant_class, "", fields)
                             }}
                         }
                     };
