@@ -10,9 +10,9 @@ use crate::{
 
 /// `(country + MODIFIERS)`: the country's modifiers, brought up to date;
 /// their values are at its answer's [`VALUES`].
-const OF_COUNTRY: GameFunction<1> = GameFunction::at(0x93d750);
+pub(super) const OF_COUNTRY: GameFunction<1> = GameFunction::at(0x93d750);
 /// `(values, modifier) -> bool`: whether a yes-or-no modifier is set.
-const HAS: GameFunction<2> = GameFunction::at(0x8e7b60);
+pub(super) const HAS: GameFunction<2> = GameFunction::at(0x8e7b60);
 /// Where the getter's answer holds the values the game's getters of one
 /// modifier read.
 pub const VALUES: usize = 8;

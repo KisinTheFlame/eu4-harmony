@@ -425,7 +425,32 @@ extern "C" fn localize(out: usize, key: *const std::ffi::c_char, values: usize, 
     0
 }
 
+/// A content trigger's verdict `(trigger, scope)`, for a test: the byte at
+/// the trigger, which the test sets to 1 for one that holds.
+extern "C" fn verdict(trigger: *const u8, _: usize) -> usize {
+    unsafe { *trigger as usize }
+}
+
+/// A content trigger's lines that do not hold `(trigger, out, ..)`, for a
+/// test: one line, `unmet`.
+extern "C" fn unmet(_: usize, out: usize) -> usize {
+    unsafe { write_reason(out, b"unmet") };
+    0
+}
+
 impl Image {
+    /// The game's conditions, for a test: a trigger holds when its first
+    /// byte is 1, and one that does not says `unmet`; with
+    /// [`Image::strings`].
+    pub fn conditions(&self) -> &Self {
+        use super::conditions::{EVALUATE, LINES, SCOPE, SCOPE_DESTROY};
+        self.strings()
+            .function(SCOPE.rva(), no as *const ())
+            .function(SCOPE_DESTROY.rva(), no as *const ())
+            .function(EVALUATE.rva(), verdict as *const ())
+            .function(LINES.rva(), unmet as *const ())
+    }
+
     /// The game's function a check that writes its reasons has called: the
     /// destructor of the `std::string` it wrote them to.
     pub fn strings(&self) -> &Self {
