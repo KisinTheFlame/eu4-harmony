@@ -51,8 +51,9 @@ panic = false
 # The speed-ups left to the game, so that its own code can be measured against
 # them: their points are not installed. Each is named by its name, its group or
 # "all": pops-polling, fastest-pace and modifier-sums (group "frames"); music,
-# lookups and children ("loading"); background-compression, stored-copy,
-# parallel-saves, save-sum and update-thread ("saving"); army-searches ("ai").
+# lookups, children and opens ("loading"); background-compression,
+# stored-copy, parallel-saves, save-sum and update-thread ("saving");
+# army-searches ("ai").
 game-paths = []
 # The speed-ups whose answers are checked against the game's own, named the
 # same way; those that can be are music, lookups, parallel-saves, army-searches
