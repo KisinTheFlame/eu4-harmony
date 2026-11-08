@@ -38,6 +38,16 @@ For work the framework runs on several threads (a loop over the countries or the
 
 What it gives: each object draws as many numbers as it needs, independent of the other objects and of the threads; a run started with `-seed` repeats, since the one number drawn and the objects' IDs are the same; no lock is taken. The numbers differ from the game's own order of draws, which the ADR allows. A 32-bit generator of good quality, seeded per object, gives numbers of the same distribution as the twister's to callers that take a range of them.
 
+**A stream for each task, not one for each thread** (chosen by the owner, 2026-11-08). The common way to draw on several threads without a lock is a generator for each thread (Java's `ThreadLocalRandom`). Both are safe; they part on what decides an object's numbers:
+
+| | A generator for each thread | A stream for each task |
+| --- | --- | --- |
+| What an object's numbers depend on | the thread it ran on and the tasks that thread ran before it | the one number drawn as the work began, and the object's ID |
+| A game started with `-seed` | goes another way each run, as the threads take the tasks | repeats |
+| Its cost | none beyond the draws | seeding a small generator as each task begins |
+
+The bench that compares builds by their runs (S5, [game-speed.md](../game-speed.md)) and every comparison of a speed-up on and off rest on a run that repeats under `-seed`, which a generator for each thread would take away. It is the way of Java's `SplittableRandom` and of counter-based generators (Philox): the numbers from a seed and an index, whatever runs them. A thread that draws from the global generator outside any task of the framework's, which should not happen, draws from a generator of its own thread, so that it is still safe.
+
 **The world's generator** could be given the same treatment for the AI stage: a stream for each AI country's task, so that its agents' draws no longer race on one generator. That is a repair of the game's own race as much as a speed-up (two threads stepping the twister at once can hand them one number, or tear its 624 words), and its effect on the stage's time was not measured.
 
 ## Not verified
