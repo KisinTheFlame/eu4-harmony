@@ -67,12 +67,19 @@ fn offered(m: &Memory, parliament: usize) -> GResult<Vec<usize>> {
 
 fn choice(m: &Memory, parliament: usize, player: Tag, issue: usize) -> GResult<Choice> {
     let allow = m.ptr(issue + ISSUE_ALLOW)?;
-    let mut reasons = if allow == 0 || conditions::holds(m, allow, player, 0)? { Vec::new() } else { conditions::failing(m, allow, player, 0)? };
-    let debating = m.ptr(parliament + DEBATE)? != 0;
-    if debating {
+    let mut reasons = Vec::new();
+    if allow != 0 && !conditions::holds(m, allow, player, 0)? {
+        // Conditions that do not hold refuse the issue even when the
+        // tooltip lists no line for them.
+        reasons = conditions::failing(m, allow, player, 0)?;
+        if reasons.is_empty() {
+            reasons.push("the issue's conditions do not hold".to_string());
+        }
+    }
+    if m.ptr(parliament + DEBATE)? != 0 {
         reasons.push("a debate is going on".to_string());
     }
-    Ok(if reasons.is_empty() && !debating { Choice::can(Vec::new()) } else { Choice::cannot(reasons, Vec::new()) })
+    Ok(if reasons.is_empty() { Choice::can(Vec::new()) } else { Choice::cannot(reasons, Vec::new()) })
 }
 
 /// The player's parliament as the parliament view shows it.
@@ -250,6 +257,7 @@ mod tests {
     fn an_issue_not_on_offer_or_not_allowed_now_is_refused_with_why() {
         let rejected = |why: &str| (Status::Rejected, why.to_string());
         assert_eq!(refused(debating("peace", britain(false, false))), rejected("no_war"));
+        assert_eq!(refused(debating("unlisted", britain(false, false))), rejected("the issue's conditions do not hold"));
         assert_eq!(refused(debating("free", britain(true, false))), rejected("a debate is going on"));
         assert_eq!(refused(debating("taxes", britain(false, false))), (Status::NotFound, r#"no parliament issue on offer "taxes" for the player"#.into()));
         assert_eq!(refused(debating("free", britain(false, true))), rejected("the player has no parliament"));
