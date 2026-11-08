@@ -5,7 +5,7 @@
 //! [`Machine`], so that the order of its writes of the record against what
 //! it does to the games and the folders is what the tests below follow.
 use super::machine::Machine;
-use super::record::{self, Asking, Claim, Found, GameEnd, Seen, State};
+use super::record::{self, Asking, Claim, Found, GameEnd, Process, Seen, State};
 use crate::Result;
 use eu4_harmony_client::start::{Start, TestGame};
 use std::{
@@ -185,7 +185,14 @@ pub fn start_game<M: Machine>(m: &M, owner: &str, game_dir: &Path, starting: &St
     let log = user.join("eu4-harmony").join("logs").join("core.log");
     let test_game = TestGame { name: owner.to_string(), user_dir: user, core };
     let start = Start { hidden: true, sound: starting.sound, seed: starting.seed, test_game: Some(test_game) };
-    let (id, seconds) = m.start_game(game_dir, &log, &start, wait)?;
+    // A game that ends before its main menu is followed by no `follow.exe`,
+    // so the start records its end, for the release to tell of.
+    let (id, seconds) = m.start_game(game_dir, &log, &start, wait).map_err(|failed| {
+        if let Some(ended) = failed.ended {
+            m.record_end(folder, Process { id: ended.id, started: ended.started }, ended.code);
+        }
+        failed.message
+    })?;
     let game = m.process(id);
     m.locked(|s| s.of_mut(owner).map(|c| c.game = game))?;
     if let Err(e) = m.follow(folder, id, &start.pipe()?) {
@@ -413,6 +420,23 @@ mod tests {
         assert_eq!(claim(&m, &asking("a", true), "", game_dir()).unwrap(), Claimed::Now);
         assert!(m.did().contains(&Did::Waited));
         assert!(m.said().contains("waiting: checkout holds the whole game"));
+    }
+
+    /// A game that crashes before its main menu has no follower, so its
+    /// start records its end, and the release tells of the crash.
+    #[test]
+    fn a_crash_before_the_main_menu_is_told_at_the_release() {
+        let mut m = Recorded::new(State::default());
+        m.ends_before_menu = Some(0xc000_0005);
+        claim(&m, &asking("a", false), "a run", game_dir()).unwrap();
+        let error = start_game(&m, "a", game_dir(), &Starting::default(), Duration::from_secs(300)).unwrap_err();
+        assert!(error.contains("before its main menu"));
+        release(&m, "a").unwrap();
+        assert!(m.did().contains(&Did::RecordEnd(0xc000_0005)));
+        assert!(!m.did().contains(&Did::Follow(GAME.id)));
+        let said = m.said();
+        assert!(said.contains("eu4.exe 40 had ended by 10:00:00: an access violation (exit code 0xc0000005)"), "{said}");
+        assert!(said.contains("the game crashed"), "{said}");
     }
 
     /// Only the claim's own game is ended, never another's.

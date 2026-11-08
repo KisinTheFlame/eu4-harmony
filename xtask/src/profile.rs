@@ -63,8 +63,14 @@
 //! about 0.1 ms for the main thread and less for the others (the report
 //! gives it). What sampling from outside cannot see: the kernel's side of a
 //! stack, and which thread a waiting one waits for, which Windows' own event
-//! tracing gives an administrator; and a stack past the framework's hook
-//! stubs, which have no unwind data.
+//! tracing gives an administrator.
+//!
+//! The framework's jump stubs have no unwind data, and are jumped into from
+//! inside a game function rather than called. The core names each with the
+//! place in the game that jumps to it (`eu4h_jump_stubs`, read from the
+//! process), and a frame that returns into a stub's call into Rust
+//! (`call_rust!`) is stepped over by that frame's layout to the game
+//! function at that place, so that the stack goes on above it.
 use crate::{Args, Result};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -414,6 +420,37 @@ struct Registers {
 
 const RSP: usize = 4;
 
+const RBP: usize = 5;
+
+/// What the framework's call into Rust (`call_rust!`) returns to: `mov
+/// [rsp + 0x48], rax`.
+const CALL_RUST_RETURNS_TO: [u8; 5] = [0x48, 0x89, 0x44, 0x24, 0x48];
+/// The most a return into a stub's call into Rust lies after the stub's
+/// start.
+const STUB_SIZE: u64 = 0x400;
+
+/// Steps over the frame of a jump stub whose call into Rust `registers`
+/// returns into, from the call's return address, to the place in the game
+/// that jumped to the stub: the stub pushed rbp on the stack it was jumped
+/// in with and keeps its frame in rbp (`call_rust!`). None when the address
+/// is no such return.
+fn step_over_stub(module: &Module, registers: &mut Registers, stack: &Stack) -> Option<()> {
+    let rva = u32::try_from(registers.rip.checked_sub(module.base)?).ok()?;
+    if module.image.at(rva, CALL_RUST_RETURNS_TO.len())? != CALL_RUST_RETURNS_TO {
+        return None;
+    }
+    let i = module.stubs.partition_point(|&(stub, _)| stub <= registers.rip).checked_sub(1)?;
+    let (stub, place) = module.stubs[i];
+    if registers.rip - stub >= STUB_SIZE {
+        return None;
+    }
+    let rbp = registers.r[RBP];
+    registers.r[RBP] = stack.u64(rbp)?;
+    registers.r[RSP] = rbp + 8;
+    registers.rip = place;
+    Some(())
+}
+
 /// A copy of a thread's stack, from its stack pointer up.
 #[derive(Default)]
 struct Stack {
@@ -641,7 +678,9 @@ fn frames(modules: &[Module], mut registers: Registers, stack: &Stack) -> Vec<u6
         pcs.push(registers.rip);
         let Some(module) = modules.iter().find(|m| m.base <= registers.rip && registers.rip < m.end) else { break };
         let sp = registers.r[RSP];
-        if unwind(module, module.base, &mut registers, stack, pcs.len() == 1).is_none() || registers.r[RSP] <= sp {
+        let innermost = pcs.len() == 1;
+        let stepped = !innermost && step_over_stub(module, &mut registers, stack).is_some();
+        if (!stepped && unwind(module, module.base, &mut registers, stack, innermost).is_none()) || registers.r[RSP] <= sp {
             break;
         }
     }
@@ -656,6 +695,49 @@ struct Module {
     name: String,
     image: Image,
     functions: Functions,
+    /// Where the core's table of its jump stubs is, if this is the core.
+    stub_table: Option<u64>,
+    /// The core's jump stubs, sorted, each with the place in the game that
+    /// jumps to it.
+    stubs: Vec<(u64, u64)>,
+}
+
+/// The name the core's table of its jump stubs is exported by.
+const STUB_TABLE: &str = "eu4h_jump_stubs";
+/// How many entries the table has room for.
+const STUB_TABLE_KEPT: usize = 256;
+
+/// The RVA of the export `name` of `image`.
+fn export(image: &Image, name: &str) -> Option<u32> {
+    let pe = u32_at(&image.data, 0x3c)? as usize;
+    let directory = u32_at(&image.data, pe + 24 + 112)?;
+    if directory == 0 {
+        return None;
+    }
+    let head = image.at(directory, 40)?;
+    let (names, functions, name_rvas, ordinals) = (u32_at(head, 24)?, u32_at(head, 28)?, u32_at(head, 32)?, u32_at(head, 36)?);
+    for i in 0..names {
+        let at = u32_at(image.at(name_rvas + 4 * i, 4)?, 0)?;
+        if image.at(at, name.len() + 1)? == [name.as_bytes(), &[0]].concat() {
+            let ordinal = u32::from(u16_at(image.at(ordinals + 2 * i, 2)?, 0)?);
+            return u32_at(image.at(functions + 4 * ordinal, 4)?, 0);
+        }
+    }
+    None
+}
+
+/// The jump stubs the core's table at `table` names, sorted; none until the
+/// framework has installed its points.
+fn read_stubs(process: HANDLE, table: u64) -> Vec<(u64, u64)> {
+    let Some(count) = read::<8>(process, table).map(u64::from_le_bytes) else { return Vec::new() };
+    let mut stubs: Vec<(u64, u64)> = (0..count.min(STUB_TABLE_KEPT as u64))
+        .filter_map(|i| {
+            let entry = read::<16>(process, table + 8 + 16 * i)?;
+            Some((u64::from_le_bytes(entry[..8].try_into().ok()?), u64::from_le_bytes(entry[8..].try_into().ok()?)))
+        })
+        .collect();
+    stubs.sort_unstable();
+    stubs
 }
 
 /// Creation time and CPU time (user and kernel), in 100 ns.
@@ -702,6 +784,11 @@ fn take_up_modules(process: HANDLE, modules: &mut Vec<Module>) {
     let mut needed = 0;
     unsafe { EnumProcessModulesEx(process, handles.as_mut_ptr(), (handles.len() * size_of::<HMODULE>()) as u32, &mut needed, LIST_MODULES_ALL) };
     handles.truncate(needed as usize / size_of::<HMODULE>());
+    for module in modules.iter_mut().filter(|m| m.stubs.is_empty()) {
+        if let Some(table) = module.stub_table {
+            module.stubs = read_stubs(process, table);
+        }
+    }
     let known: std::collections::HashSet<u64> = modules.iter().map(|m| m.base).collect();
     let new: Vec<Module> = handles
         .into_iter()
@@ -720,7 +807,10 @@ fn take_up_modules(process: HANDLE, modules: &mut Vec<Module>) {
             path.pop();
             let image = std::fs::read(String::from_utf16_lossy(&path)).ok().and_then(Image::read).unwrap_or_default();
             let functions = Functions::read(&image).unwrap_or_default();
-            Module { base, end: base + u64::from(info.SizeOfImage), name: String::from_utf16_lossy(&name[..len]).to_lowercase(), image, functions }
+            let stub_table = export(&image, STUB_TABLE).map(|rva| base + u64::from(rva));
+            let stubs = stub_table.map(|table| read_stubs(process, table)).unwrap_or_default();
+            let name = String::from_utf16_lossy(&name[..len]).to_lowercase();
+            Module { base, end: base + u64::from(info.SizeOfImage), name, image, functions, stub_table, stubs }
         })
         .collect();
     modules.extend(new);
@@ -1374,6 +1464,8 @@ mod tests {
             name: "eu4.exe".into(),
             image: Image { data, sections: vec![(0, 0x400, 0)] },
             functions: Functions { starts: vec![0x100, 0x300], ends: vec![0x200, 0x400], unwind: vec![0x10, 0x40], primary: vec![0x100, 0x300] },
+            stub_table: None,
+            stubs: Vec::new(),
         }
     }
 
@@ -1437,6 +1529,42 @@ mod tests {
         // returns out of the module.
         let pcs = super::frames(std::slice::from_ref(&module), registers(BASE + 0x250, 0x1000, &[]), &stack);
         assert_eq!(pcs, [BASE + 0x250, BASE + 0x130, 0x7ff0_1234]);
+    }
+
+    const CORE: u64 = 0x7ff8_0000_0000;
+
+    /// The core: a function at 0x100 that takes no stack, and a jump stub at
+    /// 0x300 whose call into Rust returns to 0x340, jumped to from 0x120 in
+    /// the game's first function.
+    fn core() -> Module {
+        let mut data = vec![0u8; 0x400];
+        data[0x10..0x14].copy_from_slice(&[1, 0, 0, 0]);
+        data[0x340..0x345].copy_from_slice(&CALL_RUST_RETURNS_TO);
+        Module {
+            base: CORE,
+            end: CORE + 0x400,
+            name: "eu4_harmony_core.dll".into(),
+            image: Image { data, sections: vec![(0, 0x400, 0)] },
+            functions: Functions { starts: vec![0x100], ends: vec![0x200], unwind: vec![0x10], primary: vec![0x100] },
+            stub_table: None,
+            stubs: vec![(CORE + 0x300, BASE + 0x120)],
+        }
+    }
+
+    #[test]
+    fn a_jump_stub_is_stepped_over_to_the_game_function_that_jumped_to_it() {
+        // The core's function returns into the stub's call into Rust; the
+        // stub pushed the game's rbp at 0x1080, on the stack it was jumped
+        // in with, from 0x120 in the game's first function, whose frame
+        // above holds rdi and the return out of the modules.
+        let jumped = stack(0x1000, 0xc0, &[(0x1000, CORE + 0x340), (0x1080, 0x5555), (0x10a8, 0x77), (0x10b0, 0x7ff0_1234)]);
+        let modules = [module(), core()];
+        let pcs = super::frames(&modules, registers(CORE + 0x150, 0x1000, &[(RBP, 0x1080)]), &jumped);
+        assert_eq!(pcs, [CORE + 0x150, CORE + 0x340, BASE + 0x120, 0x7ff0_1234]);
+        // A return elsewhere in the core is no stub's.
+        let elsewhere = stack(0x1000, 0x10, &[(0x1000, CORE + 0x350)]);
+        let pcs = super::frames(&modules, registers(CORE + 0x150, 0x1000, &[(RBP, 0x1080)]), &elsewhere);
+        assert_eq!(pcs, [CORE + 0x150, CORE + 0x350]);
     }
 
     #[test]

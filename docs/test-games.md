@@ -51,7 +51,7 @@ A claim holds its test game until it is released. `watch`, `renew`, `--lease`, `
 
 - `user\`: the test game's user folder. The claim copies the player's `settings.txt`, `dlc_load.json` (the playset), `dlc_signature`, `game_data.json`, `gameplaysettings.txt`, `messagetypes_custom.txt`, `pdx_settings.txt`, `shortcuts.txt` and the framework's `eu4-harmony\settings.txt`, those that are there, and makes `mod` a junction to the player's `mod` folder, where the playset's descriptors are. `start` copies the saves it is given into `user\save games\`.
 - `core\`: the core and `dev.toml` `start` copied.
-- `follow.exe`: a copy of xtask that follows the test game to its end and writes how it ended into `game-ends.tsv`, as the claim's `watch` did; after an end with 0, as a restart's, it follows the game the test game restarts in its place, found by its pipe. One runs a claim: a start ends the one before.
+- `follow.exe`: a copy of xtask that follows the test game to its end and writes how it ended into `game-ends.tsv`, as the claim's `watch` did; after an end with 0, as a restart's, it follows the game the test game restarts in its place, found by its pipe. One runs a claim: a start ends the one before. A game that ends before its main menu has no follower, and the start writes its end there itself, so that the release tells of a crash at startup too.
 - `kept\`, after the release: `eu4-harmony-logs\`, `game-logs\`, `crashes\` and `game-ends.tsv`. A claim removes the `kept\` of claims released more than 7 days before.
 
 The release removes the junction before the folder, so that the player's `mod` folder is never removed through it.

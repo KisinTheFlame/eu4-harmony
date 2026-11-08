@@ -412,7 +412,7 @@ fn cmd_start(args: &Args) -> Result<()> {
         None => start::WAIT,
     };
     let log = eu4_harmony_folders::UserFolder::new(user_dir(args)?).core_log();
-    start::start(&game, &log, &start::Start { hidden, sound, ..Default::default() }, wait).map(drop)
+    start::start(&game, &log, &start::Start { hidden, sound, ..Default::default() }, wait).map(drop).map_err(String::from)
 }
 
 // ---------- package ----------

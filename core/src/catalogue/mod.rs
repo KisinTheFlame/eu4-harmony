@@ -271,7 +271,7 @@ groups! {
     Army(armies),
     Text(texts),
     Screenshot(screenshot) => screenshot::run(request, game),
-    Console(console),
+    Console(console) => console::run_and_answer_next(request, game),
     Question(questions),
     Offer(offers),
     Events => match events {
