@@ -6,12 +6,20 @@ What is written down about the framework, and where. Terms are in [GLOSSARY.md](
 
 | | |
 | --- | --- |
-| [adr/](adr/) | Decisions that are hard to reverse, one file each, and why they were made |
-| [research/](research/) | What is known about the game's code, with addresses as RVAs into the 1.37.5 baseline |
-| [prototype-log/](prototype-log/) | What was tested in the running game and what came out, one file per run |
-| [performance.md](performance.md) | What the framework costs the game, as measured in the running game |
+| [game/](game/) | What is known of the game, one page for each of its systems |
 | [dev-tools.md](dev-tools.md) | The development tools, what each is for and how to use it |
+| [performance.md](performance.md) | What the framework costs the game, as measured in the running game |
 | [adding-a-capability.md](adding-a-capability.md) | How a capability is added, layer by layer |
+
+What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, its modules' own comments in the code.
+
+## Records
+
+| | |
+| --- | --- |
+| [adr/](adr/) | Decisions that are hard to reverse, one file each, and why they were made |
+| [research/](research/) | The research into the game's code that the pages of [game/](game/) rest on, with addresses as RVAs into the 1.37.5 baseline |
+| [prototype-log/](prototype-log/) | What was tested in the running game and what came out, one file per run |
 
 ## Plans
 

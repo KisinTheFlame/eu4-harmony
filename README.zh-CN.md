@@ -122,7 +122,8 @@ eu4-harmony game menu return               # 回到主菜单
 | [docs/plans/v1.md](docs/plans/v1.md) | 第一版的设计 |
 | [GLOSSARY.md](GLOSSARY.md) | 项目用的术语 |
 | [docs/adr/](docs/adr/) | 难以撤回的决定，以及做出它们的理由 |
-| [docs/research/](docs/research/) | 对游戏代码的了解 |
+| [docs/game/](docs/game/) | 对游戏的认识，每个系统一页 |
+| [docs/research/](docs/research/) | 这些页面所依据的、对游戏代码的调研 |
 | [docs/performance.md](docs/performance.md) | 框架给游戏带来的开销，实测 |
 | [docs/prototype-log/](docs/prototype-log/) | 在运行中的游戏里试过什么、结果如何，每次一个文件 |
 | [docs/dev-tools.md](docs/dev-tools.md) | 开发工具 |
