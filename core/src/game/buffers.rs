@@ -348,6 +348,33 @@ pub fn envoys(kinds: &[(super::envoys::Kind, &[bool])]) -> Object {
     pools
 }
 
+/// An army (`land`) or a fleet of `owner`'s with the ID `id`, as
+/// [`units`] lets the game find it, `size` bytes or as far as its owner.
+pub fn unit(m: &Memory, id: u64, owner: Tag, land: bool, size: usize) -> Object {
+    use crate::objects::campaign::{classes, unit};
+    let class = if land { classes::ARMY } else { classes::FLEET };
+    Object::new(size.max(unit::OWNER + 8)).u64(0, m.at(class) as u64).u64(unit::ID, id).u64(unit::OWNER, owner.0)
+}
+
+thread_local! {
+    /// The units the game's lookup by ID finds, on this test's thread.
+    static UNITS: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The game's lookup of an object by its ID: a unit of [`units`], by where
+/// it holds its ID.
+extern "C" fn find_id(key: *const u64) -> usize {
+    use crate::objects::campaign::unit;
+    let id = unsafe { *key };
+    UNITS.with(|u| u.borrow().iter().find(|&&at| unsafe { *((at + unit::ID) as *const u64) } == id).map_or(0, |at| at + unit::ID_HOLDER))
+}
+
+/// Has the game find `units` by their IDs, and no others.
+pub fn units(image: &Image, units: &[&Object]) {
+    UNITS.with(|u| *u.borrow_mut() = units.iter().map(|o| o.at()).collect());
+    image.function(super::world::FIND_ID.rva(), find_id as *const ());
+}
+
 /// Writes `text`, at most [`game_string::INLINE`] bytes, into the empty
 /// `std::string` at `string`, as a game function writes its reasons.
 pub fn write_inline(string: usize, text: &str) {

@@ -348,6 +348,114 @@ mod tests {
         assert_eq!(given("$COSTLY$ and $COST", "COST", "50"), "$COSTLY$ and $COST");
     }
 
+    use crate::game::{
+        buffers::{self, answers_no, write_inline, Image, Object},
+        commands::record,
+        Caller, Fail, Status, Tag,
+    };
+
+    /// A leader or a unit of the test's says no to the leader's leaving or
+    /// the unit's taking it in a byte neither uses, read by the game's
+    /// functions below.
+    const SAYS_NO: usize = 8;
+
+    extern "C" fn may_leave(leader: usize, text: usize) -> usize {
+        refusing(leader, text, "- in battle")
+    }
+
+    extern "C" fn may_take(_: usize, unit: usize, text: usize) -> usize {
+        refusing(unit, text, "- has a leader")
+    }
+
+    fn refusing(object: usize, text: usize, why: &str) -> usize {
+        if unsafe { *((object + SAYS_NO) as *const u8) } == 0 {
+            return 1;
+        }
+        write_inline(text, why);
+        0
+    }
+
+    /// The army's ID, 7 of type 54, and the fleet's, 8.
+    const ARMY: u64 = 7 << 32 | 54;
+    const FLEET: u64 = 8 << 32 | 54;
+
+    /// Castile, with the general 12 leading its army, the general 13 and the
+    /// admiral 14 leading none, and a fleet; the general 12 may not leave
+    /// its army when `stuck`, and the fleet takes no leader when `full`.
+    struct Castile {
+        _image: Image,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn castile(stuck: bool, full: bool) -> Castile {
+        let image = Image::new();
+        let m = image.memory();
+        image
+            .function(MAY_LEAVE.rva(), may_leave as *const ())
+            .function(MAY_TAKE.rva(), may_take as *const ())
+            .function(game_string::DESTROY_AT.rva(), answers_no as *const ());
+        let cas = Tag(u64::from_le_bytes(*b"CAS\0\0\0\0\0"));
+        let army = buffers::unit(m, ARMY, cas, true, UNIT_LEADER + 8);
+        let fleet = buffers::unit(m, FLEET, cas, false, UNIT_LEADER + 8).u8(SAYS_NO, full.into());
+        let leader = |number: u32, kind: LeaderKind, unit: usize| {
+            Object::new(leader::UNIT + 8).u32(leader::ID, leader::TYPE).u32(leader::NUMBER, number).i32(leader::KIND, index(kind) as i32).u64(leader::UNIT, unit as u64)
+        };
+        let leading = leader(12, LeaderKind::General, army.at()).u8(SAYS_NO, stuck.into());
+        let army = army.u64(UNIT_LEADER, leading.at() as u64);
+        let leaders = [leading, leader(13, LeaderKind::General, 0), leader(14, LeaderKind::Admiral, 0)];
+        let mut next = 0u64;
+        let mut nodes = Vec::new();
+        for l in leaders.iter().rev() {
+            let node = Object::new(NODE_NEXT + 8).u64(0, l.at() as u64).u64(NODE_NEXT, next);
+            next = node.at() as u64;
+            nodes.push(node);
+        }
+        buffers::units(&image, &[&army, &fleet]);
+        let country = Object::country(cas, LEADERS_COUNT + 4).u64(LEADERS, next).i32(LEADERS_COUNT, 3);
+        let countries = Object::countries(&[&country]);
+        let session = buffers::session(m, 0, cas, country.at(), countries.at(), Caller::Remote);
+        let mut objects = vec![army, fleet, country, countries];
+        objects.extend(leaders);
+        objects.extend(nodes);
+        Castile { _image: image, _objects: objects, session }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("the leader was moved") };
+        (status, message)
+    }
+
+    #[test]
+    fn a_leader_is_given_taken_and_dismissed_by_the_panels_commands() {
+        let castile = castile(false, false);
+        assign(castile.session, args::Assign { leader: 14, army: ArmyId(FLEET) }).unwrap();
+        remove(castile.session, args::Remove { army: ArmyId(ARMY) }).unwrap();
+        dismiss(castile.session, args::Dismiss { leader: 13 }).unwrap();
+        assert_eq!(
+            record::posted(),
+            [
+                "assign_leader={ leader={ id=14 type=49 } unit={ id=8 type=54 } }",
+                "assign_leader={ leader={ id=0 type=0 } unit={ id=7 type=54 } }",
+                r#"dismiss_leader={ country="CAS" leader={ id=13 type=49 } }"#
+            ]
+        );
+    }
+
+    #[test]
+    fn a_leader_the_panels_would_not_move_is_refused_with_why() {
+        let castile = castile(true, true);
+        let rejected = |why: &str| (Status::Rejected, why.to_string());
+        assert_eq!(refused(assign(castile.session, args::Assign { leader: 13, army: ArmyId(FLEET) })), rejected("a leader of the kind general leads an army, not a fleet"));
+        assert_eq!(refused(assign(castile.session, args::Assign { leader: 14, army: ArmyId(ARMY) })), rejected("a leader of the kind admiral leads a fleet, not an army"));
+        assert_eq!(refused(assign(castile.session, args::Assign { leader: 14, army: ArmyId(FLEET) })), rejected("has a leader"));
+        assert_eq!(refused(remove(castile.session, args::Remove { army: ArmyId(ARMY) })), rejected("in battle"));
+        assert_eq!(refused(dismiss(castile.session, args::Dismiss { leader: 12 })), rejected("leader 12 leads an army or a fleet; take it from there first (leader.remove)"));
+        assert_eq!(refused(dismiss(castile.session, args::Dismiss { leader: 15 })), (Status::NotFound, "the player has no leader 15".into()));
+        assert_eq!(refused(remove(castile.session, args::Remove { army: ArmyId(9 << 32 | 54) })).0, Status::NotFound);
+        assert!(record::posted().is_empty());
+    }
+
     #[test]
     fn kinds_by_their_words() {
         assert_eq!(kind("explorer").unwrap(), LeaderKind::Explorer);
