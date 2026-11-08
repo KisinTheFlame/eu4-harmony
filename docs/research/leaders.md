@@ -1,6 +1,6 @@
 # Leaders and mercenary companies: recruiting, assigning, dismissing, hiring
 
-Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` on 2026-11-05, statically (disassembly and scripts over the PE file); nothing here was tried in the game. What is marked _inferred_ was concluded from the shape of the code. Localisation texts quoted are the English files'.
+Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` on 2026-11-05, statically (disassembly and scripts over the PE file); the sections up to the last were not tried in the game, and what was tried afterwards is in the last, "What the framework does, and what the game showed". What is marked _inferred_ was concluded from the shape of the code. Localisation texts quoted are the English files'.
 
 ## The leader object
 
