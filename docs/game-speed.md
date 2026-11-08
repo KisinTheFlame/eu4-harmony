@@ -1,6 +1,6 @@
 # Game speed plan
 
-Status: decided (2026-11-04). S0, the sampler, is built and was used for the measurements in [research/main-thread.md](research/main-thread.md); S1 to S4 are built, and S7 researched, in one pull request; S5 and S6 are set aside. S9, the armies' searches on idle threads, is built (2026-11-08) under the ADR that allows reasoned differences, and S10, sets of modifiers added through an index. S8, a save's stall made shorter, was asked for by the owner afterwards (2026-11-04): built in one pull request, its three steps as far as the research found them worth doing (2026-11-05): the file's own steps after the zip stay the game's. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Dependency point, Frame inside a day, Framework settings, Choice bar, Info mark). The bar a change must meet is [ADR making-the-game-faster-leaves-what-it-computes-as-it-is](adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md). What the framework itself costs the game is in [performance.md](performance.md).
+Status: decided (2026-11-04). S0, the sampler, is built and was used for the measurements in [research/main-thread.md](research/main-thread.md); S1 to S4 are built, and S7 researched, in one pull request; S5 and S6 are set aside. S9, the armies' searches on idle threads, is built (2026-11-08) under the ADR that allows reasoned differences, and S10, sets of modifiers added through an index. S8, a save's stall made shorter, was asked for by the owner afterwards (2026-11-04): built in one pull request, its three steps as far as the research found them worth doing (2026-11-05): the file's own steps after the zip stay the game's. How a part is chosen, and the candidates for the next, were written down on 2026-11-08 ("How a part is chosen", "Which part comes next"). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Dependency point, Frame inside a day, Framework settings, Choice bar, Info mark). The bar a change must meet is [ADR making-the-game-faster-leaves-what-it-computes-as-it-is](adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md). What the framework itself costs the game is in [performance.md](performance.md).
 
 ## Goal and scope
 
@@ -40,6 +40,41 @@ From [research/main-thread.md](research/main-thread.md), shares of the main thre
 | The parallel stages' wait | 5% | 4% | | C | S6 |
 
 The game is held back by its main thread: the other threads together ran 1.0 to 1.6 cores of 16.
+
+## How a part is chosen
+
+Every part goes through the same steps, in this order; a step is not skipped because a later one looks more interesting.
+
+1. **The measure.** Days a second at speed 5, late in a game, from the saves of [research/late-game.md](research/late-game.md) ("Saves to test with"), in observe mode in the Ottomans' view, with "Faster time"; and frames a second paused. Measured with `cargo xtask profile` on a test game ([dev-tools.md](dev-tools.md)).
+2. **Where the time goes**: the main thread's time split by part and function, the whole of it, not one part.
+3. **What the code does in the game.** For each part with a large share: what it works out in the game's terms, why the game works it out, what it reads and writes, how often what it reads changes, and who uses what it writes; written into the part's research note. A way to make it faster is proposed from this, not from the addresses alone: work done again when nothing it reads has changed, work done for everyone that only some need, work that waits on other work it does not depend on.
+4. **The candidates, with their bounds.** Each way, with the most it could give (the time it could take off the main thread's path, against the day's length), what it costs to build, what could go wrong, how well step 3 understands the code it changes, and its kind under the ADR ([ADR the-game-may-be-made-faster-with-reasoned-differences](adr/the-game-may-be-made-faster-with-reasoned-differences.md)).
+5. **The owner chooses** among them, from the table ("Which part comes next").
+6. **The cheapest test that can rule it out**: a measurement first, when one can say; then a prototype behind a test switch of the developer build, its gain measured on its own target, the function or wait it takes time from, before and after. A way that does not hold is written down with why, and the next is taken.
+7. **The part built**, as "Every part is done when" says.
+8. **Back to step 2**: each part changes where the time goes.
+
+A question about one way (such as whether the drawing can run apart from the day) is answered within these steps: its bound and its standing against the others first, its research only if it is chosen.
+
+## Which part comes next
+
+As of 2026-11-08, from the 1780.7.1 save in observe mode at speed 5 with "Faster time", S9 built and S10 not yet: 14.5 days a second, 69 ms of the main thread a day, the day 78% and between days 22% ([a late frame's drawing and the driver](prototype-log/2026-11-08-a-late-frames-drawing-and-the-driver.md); [research/late-game.md](research/late-game.md)).
+
+| What | ms a day late | What a change could give, at most | Its game logic understood | Kind |
+| --- | --- | --- | --- | --- |
+| The AI stage's wait: the main thread waiting for the last countries' tasks | 16 to 20 with S9, in runs that went to wars | More of the great powers' agents' work ahead on idle threads, as S9 does for the armies' searches; up to the wait | The stage, the agents' order and the searches ([research/ai.md](research/ai.md), [research/late-game.md](research/late-game.md)); not what the plans decide | C |
+| Each country's daily update (`0x2ee280`), one country after another | 13.6 | Not known: spread over many functions, none alone large | Weak: which of its work changes from day to day is not known | C |
+| The monthly update (`0x75d690`): 266 ms on a month's first day | 9.5 | S10 took `0x8ea420`, which adds sets of modifiers here and elsewhere, from about 104 ms a game month to 41; the rest, `0x2f36c0` (4.6 ms a day), not known | `0x8ea420` well; `0x2f36c0` weak | C |
+| The diplomatic caches' refresh (`0x93fe30`), half after the commands between days, half in the countries' daily updates | 3.6 | Not known: whether it is refreshed again with nothing it reads changed | Partly: what it clears and builds again ([research/dependency-teardown.md](research/dependency-teardown.md)), not what changes them | C |
+| Drawing between days | 5.5 | Drawn while the main thread waits in the AI stage: up to the 5.5, bounded by the wait ([research/drawing-beside-the-day.md](research/drawing-beside-the-day.md)); the Direct3D calls on a thread of their own: up to 3.4, of it 2.0 a wait that may be the graphics card's; the drawing on a thread of its own: set aside | The frame and the drawing's parts; not what the GUI's views write | A or B |
+| The rest between days: the commands but the caches' refresh 1.7, the map's markers 1.2, the GUI's update 0.8, the alerts 0.8 | 4.5 | Not known | Weak | A to C |
+| The provinces' passes | 3.7 | Not known | Weak | C |
+
+What this says, for the owner to choose:
+
+- **The largest parts are the day's own serial work** (each country's daily update, the monthly update, the caches' refresh: about 27 ms a day) **and the least understood.** For them step 3 comes first: research of what they work out in the game, and when it changes, before any way is proposed.
+- **No way is ready now**: S10, the one that was understood well enough, is built.
+- **The drawing's ways are smaller** than the day's parts, and each needs a proof or a measurement first.
 
 ## Behavior
 
@@ -180,6 +215,8 @@ Set aside with S5, which it needs. A faster allocator changes where blocks lie, 
 Research with the sampler and the call trace: the GUI (`0x14dd010`, `0x14dd540`) and the map (`0x10a59a0`) were each about a third of the drawing, and the rest of the in-game frame (`0xdf5860`, `0x10a6d00`, `0x6ea380`, `0x128cd30`) unnamed. Then changes that draw the same frame for less, such as skipping what is hidden, each checked by screenshots of the same scenes before and after.
 
 Researched, nothing built ([research/main-thread.md](research/main-thread.md), "Drawing"): the main thread's drawing is mostly the game's draw calls, inside `d3d9.dll`, up to three map views a frame and the GUI's objects; the GUI already leaves out what is clipped away. No work was found that draws nothing the player sees, so no change is shown to leave the frame as it is; fewer draw calls would be a change to the renderer, a plan of its own.
+
+Drawing apart from the day, asked about on 2026-11-07, is weighed in [research/drawing-beside-the-day.md](research/drawing-beside-the-day.md): not a drawing thread beside the day, which the game's code does not allow, nor a renderer of the framework's own, which would cost as much as the game's presentation, but a frame drawn while the main thread waits for the AI stage, and the Direct3D calls on a thread of their own; neither built.
 
 ### S9 The armies' searches on idle threads
 

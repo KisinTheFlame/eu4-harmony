@@ -141,18 +141,33 @@ pub enum AgentsOrder {
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct WriteWatch {
     /// The function whose writes are watched, as an RVA in hex; none when
     /// empty.
     pub function: String,
     /// How many of its first calls on the main thread are watched.
     pub calls: usize,
+    /// The game days that are to pass one after another, as the watched
+    /// functions see the date, before the watch begins; 0 begins at once.
+    pub after_days: usize,
+    /// Functions, as RVAs in hex, whose next call on the main thread before
+    /// each watched call of `function` has what it reads watched as well;
+    /// that call's writes to what they read are marked.
+    pub reads_before: Vec<String>,
+    /// Modules, by file name, whose threads go on while a call is watched
+    /// (`nvd3dumx.dll`, the graphics driver), what they read and write
+    /// recorded as another thread's.
+    pub let_run: Vec<String>,
+    /// The seconds a watched call may go with nothing read or written before
+    /// the watch is given up, where the main thread waits logged; 0 waits for
+    /// ever.
+    pub give_up_after: u64,
 }
 
 impl Default for WriteWatch {
     fn default() -> Self {
-        Self { function: String::new(), calls: 1 }
+        Self { function: String::new(), calls: 1, after_days: 0, reads_before: Vec::new(), let_run: Vec::new(), give_up_after: 30 }
     }
 }
 
@@ -211,7 +226,27 @@ impl Options {
             let watch = &self.write_watch;
             lines.push(match watch.function.is_empty() {
                 true => "write watch: no function".to_string(),
-                false => format!("write watch: {}, its first {} call(s) on the main thread", watch.function, watch.calls),
+                false => format!(
+                    "write watch: {}, its first {} call(s) on the main thread{}{}{}{}",
+                    watch.function,
+                    watch.calls,
+                    match watch.after_days {
+                        0 => String::new(),
+                        n => format!(" after {n} game days"),
+                    },
+                    match watch.reads_before.is_empty() {
+                        true => String::new(),
+                        false => format!(", each after what {} read(s)", watch.reads_before.join(", ")),
+                    },
+                    match watch.let_run.is_empty() {
+                        true => String::new(),
+                        false => format!(", the threads of {} not held", watch.let_run.join(", ")),
+                    },
+                    match watch.give_up_after {
+                        0 => String::new(),
+                        n => format!(", given up after {n} s with nothing watched"),
+                    }
+                ),
             });
         }
         if built("test-games") {
@@ -279,13 +314,14 @@ mod tests {
         assert_eq!(options.call_trace, CallTrace::default());
         assert_eq!(options.call_trace.calls, 20);
         assert_eq!(options.test_switches, TestSwitches::default());
-        assert_eq!(options.write_watch, WriteWatch { function: String::new(), calls: 1 });
+        assert_eq!(options.write_watch, WriteWatch::default());
+        assert_eq!(options.write_watch.calls, 1);
         assert_eq!(Options::parse("").unwrap(), Options::default());
     }
 
     #[test]
     fn every_option_is_read() {
-        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\ntimes = true\nfields = { \"0x15988e0\" = \"0x20\" }\n\n[heap-census]\n\n[test-switches]\nfail-startup = true\ntest-notice = true\ngame-paths = [\"saving\"]\nchecked = [\"music\", \"lookups\"]\nagents-order = \"reversed\"\npost = [\"a={ }\"]\n\n[write-watch]\nfunction = \"0x74ff30\"\ncalls = 3\n";
+        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\ntimes = true\nfields = { \"0x15988e0\" = \"0x20\" }\n\n[heap-census]\n\n[test-switches]\nfail-startup = true\ntest-notice = true\ngame-paths = [\"saving\"]\nchecked = [\"music\", \"lookups\"]\nagents-order = \"reversed\"\npost = [\"a={ }\"]\n\n[write-watch]\nfunction = \"0x74ff30\"\ncalls = 3\nafter-days = 30\nreads-before = [\"0x10a59a0\"]\nlet-run = [\"nvd3dumx.dll\"]\ngive-up-after = 10\n";
         let options = Options::parse(text).unwrap();
         assert_eq!(options.call_trace.functions, ["0x15988e0", "0x159c600:3"]);
         assert_eq!(options.call_trace.calls, 5);
@@ -296,7 +332,17 @@ mod tests {
         assert_eq!(options.test_switches.checked, ["music", "lookups"]);
         assert_eq!(options.test_switches.agents_order, AgentsOrder::Reversed);
         assert_eq!(options.test_switches.post, ["a={ }"]);
-        assert_eq!(options.write_watch, WriteWatch { function: "0x74ff30".into(), calls: 3 });
+        assert_eq!(
+            options.write_watch,
+            WriteWatch {
+                function: "0x74ff30".into(),
+                calls: 3,
+                after_days: 30,
+                reads_before: vec!["0x10a59a0".into()],
+                let_run: vec!["nvd3dumx.dll".into()],
+                give_up_after: 10
+            }
+        );
     }
 
     #[test]
