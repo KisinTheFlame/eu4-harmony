@@ -255,6 +255,9 @@ pub fn world_session(m: &'static Memory, world: usize, date: i32, player: Tag, c
 /// The game's string destructor in `image`, as one that frees nothing: the
 /// strings a test's game functions write into hold their text in themselves.
 pub fn strings_kept(image: &Image) -> &Image {
+    use crate::called_by_game;
+
+    #[called_by_game]
     extern "C" fn kept(_: usize) -> usize {
         0
     }
@@ -285,6 +288,9 @@ impl Provinces {
         let map = Object::new(map::PROVINCES + 0x10).u64(map::PROVINCES, first).u64(map::PROVINCES + 8, end);
         image.u64(globals::MAP, map.at() as u64);
         let world = Object::new(world::PROVINCES + 8).u64(world::PROVINCES, first);
+        // The capabilities keep the provinces they found by where the map
+        // and the world are, which a test's freed buffers may have been.
+        super::with_state(|s| s.geography.clear());
         Self { provinces, world, _map: map, _geometries: geometries }
     }
 
@@ -297,10 +303,11 @@ impl Provinces {
     pub fn set(&self, id: usize, offset: usize, bytes: &[u8]) {
         self.provinces.set(id * crate::objects::campaign::province::SIZE + offset, bytes);
     }
+}
 
-    /// Where province `id`'s geometry is.
-    pub fn geometry(&self, id: usize) -> usize {
-        self._geometries[id].at()
+impl Drop for Provinces {
+    fn drop(&mut self) {
+        super::with_state(|s| s.geography.clear());
     }
 }
 
