@@ -18,10 +18,13 @@ pub const MARGIN: i32 = 24;
 /// sides, more.
 pub const TITLE: i32 = 66;
 pub const TITLE_CREST: i32 = 120;
-/// Room the gold line along a window's bottom takes.
+/// Room the gold line along a window's bottom takes, and with the game's
+/// long Close button standing on it, as its panels have it.
 pub const FOOTER: i32 = 40;
-/// A window's close button, square, at its top right corner.
-pub const CLOSE: i32 = 36;
+pub const FOOTER_CLOSE: i32 = 60;
+/// A window's Close button, the game's text button, centered along its
+/// bottom, this far above it.
+pub const CLOSE_ABOVE: i32 = 14;
 /// The widths the game's text buttons come in, all as high as
 /// [`BUTTON_HEIGHT`]: a text button takes the widest that its size has room
 /// for, or the narrowest.
@@ -34,7 +37,7 @@ pub const PROGRESS_SIZE: (i32, i32) = (288, 18);
 /// The flag a `flag` game widget is unless it names its sprite, and its
 /// size.
 pub const FLAG_SPRITE: &str = "GFX_shield_thin";
-pub const FLAG_SIZE: (i32, i32) = (62, 62);
+pub const FLAG_SIZE: (i32, i32) = (64, 84);
 /// The room between the items of a column or a row, unless it says.
 const SPACING: i32 = 6;
 
@@ -301,18 +304,19 @@ fn read_window(name: &str, value: &Value, has_text: &dyn Fn(&str) -> bool) -> Re
             })
         }
     };
-    let top = match (crest, title.is_some() || close) {
+    let top = match (crest, title.is_some()) {
         (true, _) => TITLE_CREST,
         (false, true) => TITLE,
         (false, false) => MARGIN,
     };
-    let room = (size.0 - 2 * MARGIN, size.1 - top - FOOTER);
+    let footer = if close { FOOTER_CLOSE } else { FOOTER };
+    let room = (size.0 - 2 * MARGIN, size.1 - top - footer);
     let mut widgets = Vec::new();
     let content = Container::read(table, true)?;
     content.arrange((MARGIN, top), Some(room.0), has_text, &mut widgets, "")?;
     let mut names = HashSet::new();
     for w in &widgets {
-        fits(w, (size.0, size.1 - FOOTER), (0, 0), "the window, above its gold line")?;
+        fits(w, (size.0, size.1 - footer), (0, 0), "the window, above its gold line")?;
         if let Some(name) = &w.name {
             if !names.insert(name.clone()) {
                 return Err(format!("two game widgets are named {name}"));
@@ -627,7 +631,7 @@ mod tests {
                     { "type": "button", "name": "yes", "text": "YES" },
                     { "type": "button", "name": "no", "text": "NO", "size": [100, 34] },
                 ]},
-                { "type": "icon", "name": "seal", "sprite": "GFX_seal", "size": [32, 32], "at": [350, 260] },
+                { "type": "icon", "name": "seal", "sprite": "GFX_seal", "size": [32, 32], "at": [350, 240] },
             ],
         }});
         let window = &read(&windows, &every).unwrap()[0];
@@ -635,7 +639,7 @@ mod tests {
         assert_eq!(at("status"), (MARGIN, TITLE, 200, 20));
         assert_eq!(at("yes"), (MARGIN, TITLE + 20 + SPACING, 149, 31), "the game's text button");
         assert_eq!(at("no"), (MARGIN + 159, TITLE + 20 + SPACING, 79, 31), "the widest that 100 has room for");
-        assert_eq!(at("seal"), (350, 260, 32, 32), "at, from the window's corner");
+        assert_eq!(at("seal"), (350, 240, 32, 32), "at, from the window's corner");
         assert!(window.panel && window.moveable && window.close);
         assert_eq!((window.anchor, window.offset), (Anchor::Center, (0, 0)));
     }
@@ -659,7 +663,7 @@ mod tests {
     #[test]
     fn a_list_lays_its_row_out_from_the_row_s_corner() {
         let windows = json!({ "electors": { "size": [400, 420], "items": [
-            { "type": "list", "name": "countries", "size": [352, 300], "row": { "size": [340, 64], "items": [
+            { "type": "list", "name": "countries", "size": [352, 300], "row": { "size": [340, 90], "items": [
                 { "type": "row", "items": [
                     { "type": "flag", "name": "flag" },
                     { "type": "text", "name": "name", "size": [200, 20] },
@@ -668,8 +672,8 @@ mod tests {
         ]}});
         let window = &read(&windows, &every).unwrap()[0];
         let Kind::List { row, .. } = &window.widget("countries").unwrap().kind else { panic!() };
-        assert_eq!(row.widget("flag").map(|w| (w.x, w.y, w.width)), Some((0, 0, 62)));
-        assert_eq!(row.widget("name").map(|w| (w.x, w.y)), Some((62 + SPACING, 0)));
+        assert_eq!(row.widget("flag").map(|w| (w.x, w.y, w.width)), Some((0, 0, 64)));
+        assert_eq!(row.widget("name").map(|w| (w.x, w.y)), Some((64 + SPACING, 0)));
     }
 
     #[test]
@@ -678,7 +682,7 @@ mod tests {
         assert!(wrong(json!({})).contains("has a size"));
         assert!(wrong(json!({ "size": [100, 100], "title": "MISSING" })).contains("no text \"MISSING\""));
         let too_wide = wrong(json!({ "size": [100, 100], "items": [{ "type": "text", "name": "t", "size": [90, 10] }] }));
-        assert!(too_wide.starts_with("windows.w: t at (24, 66), 90 by 10, does not fit"), "{too_wide}");
+        assert!(too_wide.starts_with("windows.w: t at (24, 24), 90 by 10, does not fit"), "{too_wide}");
         let twice = wrong(json!({ "size": [300, 300], "items": [
             { "type": "text", "name": "t", "size": [9, 9] }, { "type": "text", "name": "t", "size": [9, 9] },
         ]}));

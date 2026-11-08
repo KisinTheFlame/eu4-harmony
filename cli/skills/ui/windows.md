@@ -33,7 +33,8 @@ steps:
    A window is a column of its items under its title; column and row lay
    theirs out with spacing and align; any item may stand at at = { x, y }
    from the window's top left corner instead. Window options: close
-   (true), moveable (true), panel (true: one of the game's big panels,
+   (true: the game's long Close button centered at the bottom, which Esc
+   presses), moveable (true), panel (true: one of the game's big panels,
    which close one another), ribbon ("red" or "blue", the title's; a window
    with no title has none), crest (false: the gold crest above the title,
    whose scrolls hang down the sides, so the items begin lower), anchor ("center", "top_left", ..., "right",
@@ -44,7 +45,7 @@ steps:
    button, which comes 79, 109, 149, 189 or 224 wide and 31 high; or
    sprite and frame for an icon button, with its size), progress (a
    progressbartype sprite, GFX_wargoal_progressbar 288 by 18 unless named,
-   value 0 to 1), flag (a maskedShieldType, GFX_shield_thin 62 by 62
+   value 0 to 1), flag (a maskedShieldType, GFX_shield_thin 64 by 84
    unless named, country = tag), list (size, row = { size, items }, which
    scrolls). Buttons, icons, progress bars and flags take tooltip = key;
    texts take none. Every key is the mod's; a layout that is wrong, or a key

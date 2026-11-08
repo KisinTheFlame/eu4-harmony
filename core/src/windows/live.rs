@@ -732,7 +732,7 @@ fn apply_window(m: &Memory, live: &mut Live, built: &mut Built, want: &WantWindo
 fn build_popup(m: &Memory, mgr: usize, number: u32, popup: &Popup, name: &str, (sw, sh): (i32, i32), shown: i32) -> Result<Built> {
     let root = create(m, mgr, name)?;
     let x = (sw - gui::POPUP_WIDTH) / 2 + CASCADE * shown;
-    let y = (sh - gui::POPUP_HEIGHT) / 2 + CASCADE * shown;
+    let y = (sh - gui::popup_height(popup)) / 2 + CASCADE * shown;
     set_position(m, root, (x, y))?;
     let text = find(m, root, Some(&Kind::Text { text: None, font: layout::Font::Body, align: layout::Align::Start }), gui::TEXT)?;
     write_text(m, text, &game_text::from_str(&popup.text))?;

@@ -72,11 +72,34 @@ pub const HEADER: &str = "eu4h_header";
 pub const SHIELDS: [&str; 2] = ["eu4h_shield_left", "eu4h_shield_right"];
 pub const GOTO: &str = "eu4h_goto";
 const POPUP_BACKGROUND: &str = "SandboxFloaterBackground";
-const CLOSE_SPRITE: &str = "GFX_closebutton2";
 
-/// A pop-up's size, and where its texts stand.
-pub const POPUP_WIDTH: i32 = 460;
-pub const POPUP_HEIGHT: i32 = 300;
+/// A pop-up's width, the game's message pop-up's; its height follows its
+/// text, as the game's does, from the least the game's has.
+pub const POPUP_WIDTH: i32 = 500;
+const POPUP_LEAST: i32 = 262;
+const POPUP_MOST: i32 = 480;
+/// Where its text begins, how wide it runs, how high a line of it is, and
+/// how far its buttons stand above its bottom.
+const POPUP_TEXT_TOP: i32 = 84;
+const POPUP_TEXT_WIDTH: i32 = 440;
+const POPUP_LINE: i32 = 20;
+const POPUP_BUTTONS_ABOVE: i32 = 19 + 31;
+
+/// A pop-up's height for its text: the lines it takes, a full-width
+/// character such as a Chinese one about twice a letter, under its buttons.
+pub fn popup_height(popup: &Popup) -> i32 {
+    let per_line = 60.0;
+    let lines: f64 = popup
+        .text
+        .split('\n')
+        .map(|paragraph| {
+            let width: f64 = paragraph.chars().map(|c| if (c as u32) < 0x2e80 { 1.0 } else { 2.0 }).sum();
+            (width / per_line).ceil().max(1.0)
+        })
+        .sum();
+    let height = POPUP_TEXT_TOP + (lines as i32) * POPUP_LINE + 24 + POPUP_BUTTONS_ABOVE;
+    height.clamp(POPUP_LEAST, POPUP_MOST)
+}
 
 /// The name of the element a game widget is, `index` its place among its
 /// window's or its row's.
@@ -143,12 +166,16 @@ pub fn window(type_name: &str, window: &Window, words: &dyn Fn(&Option<String>) 
             (-60.0 * scale).round() as i32
         );
     }
+    // The gold line along the bottom, through the Close button's middle
+    // when it has one, as a bar it stands on.
     let footer = (f64::from(w - 30) / f64::from(FOOTER_SIZE.0)).min(1.5);
+    let line = (f64::from(FOOTER_SIZE.1) * footer).round() as i32;
+    let close_top = h - layout::CLOSE_ABOVE - layout::BUTTON_HEIGHT;
+    let line_top = if window.close { close_top + layout::BUTTON_HEIGHT / 2 - line / 2 } else { h - 8 - line };
     let _ = writeln!(
         out,
-        "\t\ticonType = {{ name = \"{FOOTER}\" spriteType = \"{FOOTER_SPRITE}\" position = {{ x = {} y = {} }} scale = {footer:.3} alwaystransparent = yes }}",
+        "\t\ticonType = {{ name = \"{FOOTER}\" spriteType = \"{FOOTER_SPRITE}\" position = {{ x = {} y = {line_top} }} scale = {footer:.3} alwaystransparent = yes }}",
         ((f64::from(w) - f64::from(FOOTER_SIZE.0) * footer) / 2.0).round() as i32,
-        h - 8 - (f64::from(FOOTER_SIZE.1) * footer).round() as i32
     );
     // The title on its ribbon, a window of its own the ribbon stretches to.
     if window.title.is_some() {
@@ -160,15 +187,17 @@ pub fn window(type_name: &str, window: &Window, words: &dyn Fn(&Option<String>) 
         let mut band = String::new();
         open_window(&mut band, RIBBON, (width, RIBBON_HEIGHT), false, Some(ribbon));
         out.push_str(&band.replacen("position = { x = 0 y = 0 }", &format!("position = {{ x = {RIBBON_INSET} y = {RIBBON_TOP} }}"), 1));
-        let side = layout::CLOSE + 16;
+        let side = 24;
         text_box(&mut out, TITLE, (side, 7), (width - 2 * side, 28), "vic_22", "centre", &words(&window.title));
         out.push_str("\t}\n");
     }
+    // The game's long Close button, centered along the bottom, in the
+    // game's words, which Esc presses.
     if window.close {
         let _ = writeln!(
             out,
-            "\t\tguiButtonType = {{ name = \"{CLOSE}\" position = {{ x = {} y = 12 }} quadTextureSprite = \"{CLOSE_SPRITE}\" shortcut = \"ESCAPE\" clicksound = close_window }}",
-            w - layout::CLOSE - 12
+            "\t\tguiButtonType = {{ name = \"{CLOSE}\" position = {{ x = {} y = {close_top} }} quadTextureSprite = \"button_type_1\" buttonText = \"CLOSE\" buttonFont = \"vic_18\" shortcut = \"ESCAPE\" clicksound = close_window }}",
+            (w - 149) / 2
         );
     }
     let mut rows = String::new();
@@ -194,19 +223,22 @@ pub fn window(type_name: &str, window: &Window, words: &dyn Fn(&Option<String>) 
 /// built, for the game's formatting and line breaks.
 pub fn popup(type_name: &str, popup: &Popup) -> String {
     let mut out = String::new();
-    open_window(&mut out, type_name, (POPUP_WIDTH, POPUP_HEIGHT), true, Some(POPUP_BACKGROUND));
-    let _ = writeln!(out, "\t\ticonType = {{ name = \"eu4h_band\" spriteType = \"GFX_message_band\" position = {{ x = -15 y = 23 }} }}");
+    let height = popup_height(popup);
+    open_window(&mut out, type_name, (POPUP_WIDTH, height), true, Some(POPUP_BACKGROUND));
+    let _ = writeln!(out, "\t\ticonType = {{ name = \"eu4h_band\" spriteType = \"GFX_message_band\" position = {{ x = -15 y = 18 }} }}");
     if let Some(header) = &popup.header {
         text_box(&mut out, HEADER, (59, 19), (380, 20), "vic_18", "centre", header);
     }
     text_box(&mut out, TITLE, (59, 41), (380, 24), "vic_22", "centre", &popup.title);
     let _ = writeln!(
         out,
-        "\t\tinstantTextBoxType = {{ name = \"{TEXT}\" position = {{ x = 40 y = 100 }} font = \"vic_18\" borderSize = {{ x = 0 y = 0 }} text = \"\" \
-         maxWidth = 420 maxHeight = 150 format = centre scrollbartype = \"standardtext_slider\" }}"
+        "\t\tinstantTextBoxType = {{ name = \"{TEXT}\" position = {{ x = {} y = {POPUP_TEXT_TOP} }} font = \"vic_18\" borderSize = {{ x = 0 y = 0 }} text = \"\" \
+         maxWidth = {POPUP_TEXT_WIDTH} maxHeight = {} format = centre scrollbartype = \"standardtext_slider\" }}",
+        (POPUP_WIDTH - POPUP_TEXT_WIDTH) / 2,
+        height - POPUP_TEXT_TOP - POPUP_BUTTONS_ABOVE - 12
     );
     for (name, x) in SHIELDS.iter().zip([-1, 407]) {
-        let _ = writeln!(out, "\t\tguiButtonType = {{ name = \"{name}\" position = {{ x = {x} y = 19 }} quadTextureSprite = \"standarddialogshield\" }}");
+        let _ = writeln!(out, "\t\tguiButtonType = {{ name = \"{name}\" position = {{ x = {x} y = 30 }} quadTextureSprite = \"standarddialogshield\" }}");
     }
     let shown = shown(popup);
     let places: &[i32] = if shown.len() == 1 { &[175] } else { &[77, 274] };
@@ -214,7 +246,8 @@ pub fn popup(type_name: &str, popup: &Popup) -> String {
         let keys = if i + 1 == shown.len() { " shortcut = \"ESCAPE\" extra_shortcut = \"RETURN\" clicksound = ok_click" } else { "" };
         let _ = writeln!(
             out,
-            "\t\tguiButtonType = {{ name = \"{name}\" position = {{ x = {x} y = 270 }} quadTextureSprite = \"largefloaterbutton\" buttonText = \"{}\" buttonFont = \"vic_18\"{keys} }}",
+            "\t\tguiButtonType = {{ name = \"{name}\" position = {{ x = {x} y = {} }} quadTextureSprite = \"largefloaterbutton\" buttonText = \"{}\" buttonFont = \"vic_18\"{keys} }}",
+            height - POPUP_BUTTONS_ABOVE,
             quoted(text)
         );
     }
@@ -350,7 +383,7 @@ mod tests {
     #[test]
     fn a_window_is_the_game_s_window_type_with_its_rows_beside_it() {
         let layouts = json!({ "reforms": {
-            "size": [400, 340], "title": "TITLE",
+            "size": [400, 360], "title": "TITLE",
             "items": [
                 { "type": "text", "name": "status", "size": [200, 40], "text": "STATUS", "align": "center" },
                 { "type": "button", "name": "go", "text": "GO", "size": [100, 31] },
@@ -363,11 +396,15 @@ mod tests {
         let window = &layout::read(&layouts, &|_| true).unwrap()[0];
         let text = window_text(window);
         assert!(text.starts_with("\twindowType = {\n\t\tname = \"eu4harmony_m_reforms\"\n\t\tbackGround = \"eu4h_background\"\n"), "{text}");
-        assert!(text.contains("size = { x = 400 y = 340 }") && text.contains("moveable = 1"));
+        assert!(text.contains("size = { x = 400 y = 360 }") && text.contains("moveable = 1"));
         assert!(text.contains(&format!("backGround = \"{BACKGROUND}\"")));
         assert!(text.contains(&format!("guiButtonType = {{ name = \"{BACKGROUND}\" quadTextureSprite = \"GFX_eu4harmony_window_background\" }}")));
         assert!(text.contains("name = \"eu4h_title\"") && text.contains("text = \"[TITLE]\""), "{text}");
-        assert!(text.contains("name = \"eu4h_close\" position = { x = 352 y = 12 }") && text.contains("shortcut = \"ESCAPE\""));
+        assert!(
+            text.contains("name = \"eu4h_close\" position = { x = 125 y = 315 } quadTextureSprite = \"button_type_1\" buttonText = \"CLOSE\""),
+            "the game's long Close, centered at the bottom: {text}"
+        );
+        assert!(text.contains("shortcut = \"ESCAPE\""));
         assert!(text.contains("name = \"w_status\" position = { x = 24 y = 66 }") && text.contains("format = centre"), "{text}");
         assert!(
             text.contains("name = \"eu4h_ribbon\"") && text.contains("position = { x = 14 y = 14 }") && text.contains("GFX_eu4harmony_ribbon_red"),
@@ -394,14 +431,14 @@ mod tests {
         assert!(alone.contains("spriteType = \"GFX_message_band\"") && alone.contains("text = \"Our steward\""), "{alone}");
         assert_eq!(alone.matches("standarddialogshield").count(), 2);
         assert!(
-            alone.contains("name = \"eu4h_button_1\" position = { x = 175 y = 270 }") && alone.contains("buttonText = \"OK\""),
+            alone.contains("name = \"eu4h_button_1\" position = { x = 175 y = 212 }") && alone.contains("buttonText = \"OK\""),
             "the game's own OK in the middle: {alone}"
         );
         popup.goto = Some(151);
         popup.buttons = vec!["No \"never\"".into()];
         let two = super::popup("eu4h_popup_2", &popup);
-        assert!(two.contains("name = \"eu4h_goto\" position = { x = 77 y = 270 }") && two.contains("buttonText = \"GOTO\""), "{two}");
-        assert!(two.contains("name = \"eu4h_button_1\" position = { x = 274 y = 270 }") && two.contains("buttonText = \"No 'never'\""), "{two}");
+        assert!(two.contains("name = \"eu4h_goto\" position = { x = 77 y = 212 }") && two.contains("buttonText = \"GOTO\""), "{two}");
+        assert!(two.contains("name = \"eu4h_button_1\" position = { x = 274 y = 212 }") && two.contains("buttonText = \"No 'never'\""), "{two}");
         assert_eq!(two.matches("ESCAPE").count(), 1);
         assert!(
             two.trim_end().ends_with(
