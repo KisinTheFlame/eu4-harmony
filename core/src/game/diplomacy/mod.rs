@@ -1454,4 +1454,95 @@ mod tests {
         assert_eq!(l.seen(first), None);
         assert_eq!((l.sent.len(), l.carried.len()), (KEPT, KEPT));
     }
+
+    mod through_the_layer {
+        use super::super::*;
+        use crate::catalogue::fake::{byz, tur, wal};
+        use crate::game::{
+            buffers::{self, Image, Object},
+            commands::record,
+            Fail,
+        };
+        use crate::objects::campaign::{country as country_fields, globals as campaign};
+        use std::cell::RefCell;
+
+        thread_local! {
+            /// What the game's rival checks answer: whether the player may,
+            /// and the reason when not.
+            static ANSWER: RefCell<(bool, &'static str)> = const { RefCell::new((true, "")) };
+        }
+
+        extern "C" fn may(_: usize, _: usize, reasons: usize) -> usize {
+            let (may, reason) = ANSWER.with(|a| *a.borrow());
+            if !may && reasons != 0 {
+                unsafe { buffers::write_string(reasons, reason) };
+            }
+            may as usize
+        }
+
+        /// Turkey, at war with Byzantium when `at_war`, among the countries
+        /// Turkey and Byzantium, the game's rival checks answering as
+        /// [`ANSWER`] says. Runs `action` over Turkey's session.
+        fn turkey<T>(at_war: bool, action: impl FnOnce(Session) -> GResult<T>) -> GResult<T> {
+            let image = Image::new();
+            buffers::strings_kept(&image).function(CAN_RIVAL.rva(), may as *const ()).function(CAN_DROP_RIVAL.rva(), may as *const ());
+            for (n, rva) in campaign::SPECIAL_COUNTRIES.into_iter().enumerate() {
+                image.i32(rva, 1000 + n as i32);
+            }
+            let hostile = Object::new(country_fields::HOSTILE_SIZE).i32(0, byz().index().into());
+            let count = if at_war { 1 } else { 0 };
+            let turkey = Object::country(tur(), country_fields::HOSTILE_COUNT + 4).points_to(country_fields::HOSTILE, hostile).i32(country_fields::HOSTILE_COUNT, count);
+            let byzantium = Object::country(byz(), country_fields::HOSTILE_COUNT + 4);
+            let countries = Object::countries(&[&turkey, &byzantium]);
+            let result = action(buffers::session(image.memory(), 0, tur(), turkey.at(), countries.at(), Caller::Remote));
+            drop((turkey, byzantium, countries, image));
+            result
+        }
+
+        fn refused<T: std::fmt::Debug>(result: GResult<T>) -> (Status, String) {
+            let Err(Fail { status, message }) = result else { panic!("the action was carried out: {result:?}") };
+            (status, message)
+        }
+
+        #[test]
+        fn diplomacy_takes_another_country_of_the_game_s() {
+            let own = (Status::InvalidArgument, "the player's own country".to_string());
+            let war = Choice { casus_belli: Some("cb_claim".into()), ..Choice::default() };
+            let toward_turkey = [
+                refused(turkey(false, |s| war_goals(s, tur()))),
+                refused(turkey(false, |s| declare_war(s, tur(), &war, &Calls::None))),
+                refused(turkey(false, |s| offer_peace(s, tur()))),
+                refused(turkey(false, |s| propose_alliance(s, tur()))),
+                refused(turkey(false, |s| add_rival(s, tur()))),
+                refused(turkey(false, |s| remove_rival(s, tur()))),
+            ];
+            assert!(toward_turkey.iter().all(|r| *r == own), "{toward_turkey:?}");
+            let unknown = refused(turkey(false, |s| propose_alliance(s, wal())));
+            assert_eq!(unknown.0, Status::NotFound, "{unknown:?}");
+            assert!(record::posted().is_empty());
+        }
+
+        #[test]
+        fn a_declaration_names_its_casus_belli_and_a_white_peace_needs_a_war() {
+            let none = Choice { casus_belli: Some(String::new()), ..Choice::default() };
+            assert_eq!(refused(turkey(false, |s| declare_war(s, byz(), &none, &Calls::All))), (Status::InvalidArgument, "no casus belli: name one by its key, or none".into()));
+            assert_eq!(refused(turkey(false, |s| offer_peace(s, byz()))), (Status::Rejected, "the player is not at war with BYZ".into()));
+            assert!(record::posted().is_empty());
+        }
+
+        #[test]
+        fn a_rival_is_added_and_dropped_as_the_game_s_checks_let_the_player() {
+            turkey(false, |s| add_rival(s, byz())).unwrap();
+            turkey(false, |s| remove_rival(s, byz())).unwrap();
+            assert_eq!(record::posted(), [r#"add_rival={ country="TUR" rival="BYZ" }"#, r#"remove_rival={ country="TUR" rival="BYZ" }"#]);
+            ANSWER.with(|a| *a.borrow_mut() = (false, "Too far away"));
+            assert_eq!(refused(turkey(false, |s| add_rival(s, byz()))), (Status::Rejected, "Too far away".into()));
+            ANSWER.with(|a| *a.borrow_mut() = (false, ""));
+            assert_eq!(
+                refused(turkey(false, |s| remove_rival(s, byz()))),
+                (Status::Rejected, "the game does not let the player drop that rival now, and gives no reason".into())
+            );
+            assert!(record::posted().is_empty());
+        }
+    }
 }
