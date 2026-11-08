@@ -30,7 +30,6 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 | | |
 | --- | --- |
 | [game-speed.md](plans/game-speed.md) | Making the game faster without changing the game it plays; how a part is chosen, and which comes next |
-| [map-text-sdf.md](plans/map-text-sdf.md) | The names on the map drawn from distance fields, sharp at every zoom, with the outline drawn by the map's shader |
 
 ### Built
 
@@ -57,6 +56,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 | [test-games.md](plans/test-games.md) | Test games: several at once, each with a user folder, a core and a pipe of its own |
 | [deepening.md](plans/deepening.md) | Knowledge written out in several places gathered into one module each |
 | [whole-game.md](plans/whole-game.md) | The framework played through the real game from end to end before a release |
+| [map-names-distance-fields.md](plans/map-names-distance-fields.md) | The names on the map drawn from distance fields, sharp at every zoom, with the outline drawn by the map's shader |
 
 ### Replaced
 

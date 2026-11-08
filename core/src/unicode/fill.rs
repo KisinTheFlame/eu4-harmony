@@ -43,6 +43,7 @@ use super::dxt;
 use super::framework_fonts;
 use super::game_text;
 use super::glyphs::{self, Glyph};
+use super::map_field::{self, Shading};
 use super::outline::Outline;
 use super::system_font::{Face, SystemFonts};
 use super::tone::Tone;
@@ -114,8 +115,16 @@ struct Fill {
     face: Face,
     /// The colour the glyphs are drawn in.
     ink: u32,
-    /// The outline drawn around them.
+    /// The outline drawn around them, by the page, or by the map's shader
+    /// when the page holds distance fields.
     outline: Option<Outline>,
+    /// The spread of the distance fields the page holds instead of colors,
+    /// for the map's names (`map_field`).
+    field: Option<u32>,
+    /// The page has mip levels, which the card makes from its first.
+    mips: bool,
+    /// Glyphs were put in the page since its mip levels were last made.
+    mips_stale: bool,
     /// The em size, in pixels.
     em: f32,
     /// From the top of a line to the baseline, in pixels.
@@ -146,6 +155,8 @@ static ROOM_WANTED: AtomicBool = AtomicBool::new(false);
 /// A map font's page grew since the names on the map were last built: they
 /// are built again at the next safe point in a game.
 static MAP_NAMES_STALE: AtomicBool = AtomicBool::new(false);
+/// Some page's mip levels are to be made again at the next safe point.
+static MIPS_STALE: AtomicBool = AtomicBool::new(false);
 
 /// How much of a page may be claimed before it grows: a page that grows
 /// before it is full leaves no character without a glyph until then.
@@ -282,7 +293,18 @@ impl Fill {
             self.staging = Some((w, h, staging(&self.device, w, h)?));
         }
         let (_, _, staging) = self.staging.as_ref().expect("made above");
-        put(&self.device, &self.texture, staging, x, y, width, height, data).map_err(|e| e.to_string())
+        put(&self.device, &self.texture, staging, x, y, width, height, data).map_err(|e| e.to_string())?;
+        self.mips_changed();
+        Ok(())
+    }
+
+    /// The page's first level changed: its mip levels are made again at the
+    /// next safe point.
+    fn mips_changed(&mut self) {
+        if self.mips {
+            self.mips_stale = true;
+            MIPS_STALE.store(true, Ordering::Release);
+        }
     }
 
     fn size(&self) -> (u32, u32) {
@@ -319,17 +341,43 @@ fn surface(texture: &IDirect3DTexture9) -> crate::Result<IDirect3DSurface9> {
 }
 
 /// An empty page texture, `width` × `height`: in video memory, and a render
-/// target, so that a page that grows can be copied into its next one there.
-fn page_texture(device: &IDirect3DDevice9, width: u32, height: u32) -> crate::Result<IDirect3DTexture9> {
+/// target, so that a page that grows can be copied into its next one there;
+/// with `mips`, mip levels the card makes from the first.
+fn page_texture(device: &IDirect3DDevice9, width: u32, height: u32, mips: bool) -> crate::Result<IDirect3DTexture9> {
     let mut texture = None;
+    let (levels, usage) = if mips { (0, D3DUSAGE_RENDERTARGET | D3DUSAGE_AUTOGENMIPMAP) } else { (1, D3DUSAGE_RENDERTARGET) };
     unsafe {
         device
-            .CreateTexture(width, height, 1, D3DUSAGE_RENDERTARGET as u32, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &mut texture, std::ptr::null_mut())
+            .CreateTexture(width, height, levels, usage as u32, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &mut texture, std::ptr::null_mut())
             .map_err(|e| format!("page texture: {e}"))?;
         let texture = texture.ok_or("no page texture")?;
         device.ColorFill(&surface(&texture)?, std::ptr::null(), 0).map_err(|e| format!("page pixels: {e}"))?;
         Ok(texture)
     }
+}
+
+/// `D3DOK_NOAUTOGEN`: the format is there, but the card makes no mip levels
+/// for it.
+const NO_AUTOGEN: i32 = 0x0876_086f;
+
+/// Whether the card makes the mip levels of a page that is a render target.
+fn makes_mips(device: &IDirect3DDevice9) -> bool {
+    let check = || -> windows::core::Result<bool> {
+        let mut made = D3DDEVICE_CREATION_PARAMETERS::default();
+        let mut mode = D3DDISPLAYMODE::default();
+        unsafe {
+            device.GetCreationParameters(&mut made)?;
+            device.GetDisplayMode(0, &mut mode)?;
+            let d3d = device.GetDirect3D()?;
+            // Through the table: the success it answers with when it makes
+            // none is still a success to the wrapper.
+            let usage = (D3DUSAGE_RENDERTARGET | D3DUSAGE_AUTOGENMIPMAP) as u32;
+            let answer =
+                (d3d.vtable().CheckDeviceFormat)(d3d.as_raw(), made.AdapterOrdinal, made.DeviceType, mode.Format, usage, D3DRTYPE_TEXTURE, D3DFMT_A8R8G8B8);
+            Ok(answer.is_ok() && answer.0 != NO_AUTOGEN)
+        }
+    };
+    check().unwrap_or(false)
 }
 
 /// `ink`, with the coverage as alpha, as 0xAARRGGBB pixels.
@@ -391,8 +439,10 @@ fn draw(fill: &mut Fill, scalar: u32, tone: Tone) -> Result<Option<Glyph>, NoRoo
     let Some(face) = fonts.face_for(&fill.face, scalar) else { return Ok(None) };
     let Ok(mut bitmap) = fonts.rasterize(&face, scalar, fill.em) else { return Ok(None) };
     tone.apply(&mut bitmap.alpha);
-    let (bitmap, pixels) = match &fill.outline {
-        Some(outline) if bitmap.width > 0 && bitmap.height > 0 => outline.around(&bitmap, fill.ink),
+    let drawn = bitmap.width > 0 && bitmap.height > 0;
+    let (bitmap, pixels) = match (fill.field, &fill.outline) {
+        (Some(spread), _) if drawn => map_field::field(&bitmap, spread),
+        (None, Some(outline)) if drawn => outline.around(&bitmap, fill.ink),
         _ => {
             let pixels = inked(&bitmap.alpha, fill.ink);
             (bitmap, pixels)
@@ -664,24 +714,38 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<&Ow
     let face = chosen_face(kind);
     let letter = own.and_then(|own| letter(m, font, own));
     let outline = letter.as_ref().and_then(|l| l.outline.clone()).filter(|_| map && current.map_outline);
+    let name = String::from_utf8_lossy(&game_string::read(m, font + objects::font::NAME).unwrap_or_default()).into_owned();
+    // The map's own font holds distance fields when the map's shader can
+    // draw from them.
+    let field = (map && name.as_bytes() == map_field::MAP_FONT)
+        .then(|| {
+            map_field::shader_decodes()
+                .inspect_err(|e| log!("fill: the map font's page holds colors, as the map names' shader cannot draw from distances: {e}"))
+        })
+        .and_then(Result::ok)
+        .map(|()| map_field::spread(outline.as_ref()));
     // The map's names are drawn on the map, which the interface scale does
     // not stretch.
     let density = if map { 1.0 } else { density(m, font) };
     let (em, base) = metrics(fonts, &face, line as f32 * density);
     let mut caps = D3DCAPS9::default();
     unsafe { device.GetDeviceCaps(&mut caps) }.map_err(|e| format!("device caps: {e}"))?;
-    let reach = outline.as_ref().map_or(0, |o| o.reach());
+    let reach = field.unwrap_or_else(|| outline.as_ref().map_or(0, |o| o.reach()));
     let growth = (line as f32 * density + 2.0 * reach as f32) / line as f32;
     let max = (caps.MaxTextureWidth.min(LARGEST), caps.MaxTextureHeight.min(LARGEST));
     let side = page_side(line, growth, max);
     // A page grows by copying it into its next one, a texture to a texture.
     let max = (caps.DevCaps2 & D3DDEVCAPS2_CAN_STRETCHRECT_FROM_TEXTURES as u32 != 0).then_some(max);
     let side = if max.is_some() { first_side(side) } else { side };
+    let mips = field.is_some() && makes_mips(device);
     let creating = crate::heap::Change::begin();
-    let texture = page_texture(device, side, side)?;
+    let texture = page_texture(device, side, side, mips)?;
     log!("fill: {side}x{side} page texture: creating it {}", creating.end());
     // Without the page's pixels: black for a map font, white otherwise.
     let ink = letter.as_ref().map_or(if map { 0 } else { 0x00ff_ffff }, |l| l.ink);
+    if let Some(spread) = field {
+        map_field::shade(Shading { spread, ink, outline: outline.clone() });
+    }
     Ok(Fill {
         device: device.clone(),
         texture,
@@ -690,10 +754,13 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<&Ow
         max,
         wants_room: false,
         kind,
-        name: String::from_utf8_lossy(&game_string::read(m, font + objects::font::NAME).unwrap_or_default()).into_owned(),
+        name,
         face,
         ink,
         outline,
+        field,
+        mips,
+        mips_stale: false,
         em,
         base,
         density,
@@ -815,8 +882,13 @@ pub fn loaded(font: usize) -> bool {
                 }
                 let outline = fill.outline.as_ref().map_or("none".to_string(), |o| format!("{:06x}, {} px", o.color, o.reach()));
                 let grows = fill.max.map_or("keeps its size".to_string(), |(w, h)| format!("grows up to {w}x{h}"));
+                let holds = match (fill.field, fill.mips) {
+                    (Some(spread), true) => format!("distance fields of spread {spread}, with mip levels"),
+                    (Some(spread), false) => format!("distance fields of spread {spread}, without mip levels: the card makes none"),
+                    (None, _) => "colors".to_string(),
+                };
                 log!(
-                    "fill: system page {width}x{height} ({grows}) for font {name:?} ({kind:?}) in {0} at {1:.1} px (baseline {2:.0}), {3:.2} px a GUI unit, ink {4:06x}, outline {outline}",
+                    "fill: system page {width}x{height} ({grows}, holding {holds}) for font {name:?} ({kind:?}) in {0} at {1:.1} px (baseline {2:.0}), {3:.2} px a GUI unit, ink {4:06x}, outline {outline}",
                     fill.face,
                     fill.em,
                     fill.base,
@@ -870,7 +942,7 @@ fn grow(m: &Memory, wrapper: usize, fill: &mut Fill) -> crate::Result<()> {
         return Err("the font's page is not in its entry".into());
     }
     let growing = crate::heap::Change::begin();
-    let texture = page_texture(&fill.device, width, height)?;
+    let texture = page_texture(&fill.device, width, height, fill.mips)?;
     let drawn = RECT { left: 0, top: 0, right: old_width as i32, bottom: old_height as i32 };
     unsafe {
         fill.device.StretchRect(&surface(&fill.texture)?, &drawn, &surface(&texture)?, &drawn, D3DTEXF_NONE).map_err(|e| format!("copying the page: {e}"))?;
@@ -887,6 +959,7 @@ fn grow(m: &Memory, wrapper: usize, fill: &mut Fill) -> crate::Result<()> {
         }
     }
     fill.texture = texture;
+    fill.mips_changed();
     fill.atlas.grow(width, height);
     fill.waiting.clear();
     if fill.kind == Kind::Map {
@@ -936,6 +1009,12 @@ pub fn grow_pages() {
                 log!("fill: the page of font {:?} keeps its size: {e}", fill.name);
                 fill.max = None;
             }
+        }
+    }
+    if MIPS_STALE.swap(false, Ordering::Acquire) {
+        for fill in lock(&PAGES).values_mut().filter(|fill| fill.mips_stale) {
+            fill.mips_stale = false;
+            unsafe { fill.texture.GenerateMipSubLevels() };
         }
     }
     // With the pages free: building the names draws their glyphs.
