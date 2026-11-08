@@ -155,7 +155,8 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Estate>> {
                 continue;
             }
             let name = game_string::key(m, privilege + PRIVILEGE_KEY)?;
-            privileges.push(Privilege { name: content::name(m, &name)?, privilege: name, granted: has, choice: choice(m, ctx.player, entry, privilege, has)? });
+            let shown = content::name_given(m, &name, &[("ESTATE_NAME", &key)])?;
+            privileges.push(Privilege { name: shown, privilege: name, granted: has, choice: choice(m, ctx.player, entry, privilege, has)? });
         }
         listed.push(Estate {
             name: content::name(m, &key)?,
