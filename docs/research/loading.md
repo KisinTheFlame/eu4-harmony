@@ -185,6 +185,24 @@ Timed 2026-11-08 on master with L5 merged, as "The startup with L5" was but with
 - **The main menu's part**: of the main thread's samples under `0x206260`, 44% under `0x10af270` → `0xfd58b0` → `0xfd5b70` → `0x159e510`, nearly all of them in the framework's drawing of glyphs with DirectWrite; 39% in the map's graphics (`0x10a2e40`, mostly `0x12db850`). The framework's log counted 4,234 to 4,255 glyphs drawn in 2.0 to 2.6 s, twice what it took in "The startup with L4". From 20 s on, 35% of the main thread's samples waited in the kernel under Direct3D 9 and the graphics driver (`NtWaitForSingleObject`, from `0x16d4db0` and the window's shared surface).
 - So the startup's path is now the LoadingThread's 17.6 s from 3.0 to 20.6 s, of which the script reader's databases and events are 9.9 s, then the main thread's 4.5 s, of which the glyphs are about 2 s.
 
+## The startup with B1
+
+Timed 2026-11-09 with [B1](../plans/startup-side-by-side.md) on, the mesh types loaded on a thread of the framework's beside the databases, three starts each way, as "The startup after L5, broken down" was ([the run](../prototype-log/2026-11-09-mesh-types-beside-the-databases.md)); no other test game ran. Seconds, B1 on against left to the game:
+
+| Stretch | Function | B1 on | Left to the game |
+| --- | --- | --- | --- |
+| The gfx stage | `0x202850` | 2.11, 2.02, 1.64 | 3.69, 3.03, 3.07 |
+| of that, the meshes on the LoadingThread | `0x14dc5d0` | 0.20, 0.21, 0.17 | 1.74, 1.53, 1.55 |
+| The mesh types | `0x14dc390` | 1.72, 1.92, 1.66, beside | 1.53, 1.35, 1.37 |
+| From the gfx stage's start to InitGame's | | 2.21, 2.13, 1.73 | 3.83, 3.12, 3.19 |
+| The databases | `0x208620` | 4.95, 4.91, 4.56 | 4.93, 4.20, 4.62 |
+| The events | `0x6f3250` | 3.22, 3.05, 2.41 | 3.12, 2.48, 2.52 |
+| The main menu's part ends | `0x206260` | 18.88, 19.64, 16.05 | 21.46, 17.91, 18.28 |
+
+- InitGame begins 1.0 to 1.6 s sooner: the meshes' time left on the LoadingThread is their mesh objects and shaders, about 0.2 s. The mesh types take 0.2 to 0.5 s longer beside the databases than alone; the databases' times overlap either way.
+- The databases ended after the mesh types in every start, so the LoadingThread never waited for them.
+- The stretches after InitGame's start moved by 1 to 2 s from start to start either way, more than B1's gain, so the main menu's own time does not show it in three starts.
+
 ## Which stretches can run side by side
 
 Read 2026-11-09 from the game's code, for which of the stretches of "The startup after L5, broken down" could run beside each other instead of one after another: what each reads, writes and shares with the others. Nothing here was tried in the game. The direct calls of every function and the globals each reads and writes were indexed from the exception directory and the code (capstone, over the whole of `.text`); a function reached only through a vtable was followed by hand.
