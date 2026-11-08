@@ -174,7 +174,12 @@ mod tests {
         let mission = |key: &str, done: bool, can: bool, failing: bool| {
             Object::new(TRIGGER + 8).string(KEY, key).u8(DONE, done.into()).u8(CAN, can.into()).u64(TRIGGER, failing.into())
         };
-        let missions = [mission("done", true, false, false), mission("ready", false, true, false), mission("at_war", false, false, true), mission("after", false, false, false)];
+        let missions = [
+            mission("done", true, false, false),
+            mission("ready", false, true, false),
+            mission("at_war", false, false, true),
+            mission("after", false, false, false),
+        ];
         let addresses: Vec<u64> = missions.iter().map(|m| m.at() as u64).collect();
         let series = Object::new(SERIES_MISSIONS + 0x18)
             .vector(SERIES_MISSIONS + containers::ARRAY_DATA, &addresses)

@@ -90,10 +90,14 @@ mod tests {
     fn france(check: *const ()) -> France {
         let image = Image::new();
         let m = image.memory();
-        image.function(CAN_RECRUIT.rva(), check).function(RECRUIT_PLACE.rva(), answers_yes as *const ()).function(game_string::DESTROY_AT.rva(), answers_no as *const ());
+        image
+            .function(CAN_RECRUIT.rva(), check)
+            .function(RECRUIT_PLACE.rva(), answers_yes as *const ())
+            .function(game_string::DESTROY_AT.rva(), answers_no as *const ());
         let provinces = Provinces::new(&image, 3);
         let fra = Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
-        let infantry = Object::new(unit_type_fields::NAME + game_string::OBJECT).u64(0, m.at(classes::UNIT_TYPE) as u64).string(unit_type_fields::NAME, "w_infantry");
+        let infantry =
+            Object::new(unit_type_fields::NAME + game_string::OBJECT).u64(0, m.at(classes::UNIT_TYPE) as u64).string(unit_type_fields::NAME, "w_infantry");
         let france = Object::country(fra, country::UNIT_TYPES + 8 * country::UNIT_KINDS).points_to(country::UNIT_TYPES, infantry);
         let countries = Object::countries(&[&france]);
         let session = buffers::session(m, provinces.world(), fra, france.at(), countries.at(), Caller::Remote);
