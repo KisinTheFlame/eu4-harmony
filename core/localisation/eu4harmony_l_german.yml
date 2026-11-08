@@ -39,6 +39,8 @@ l_german:
  EU4HARMONY_SETTINGS_FASTEST_SPEED_INFO:0 "Schnellere Zeit: Spät im Spiel vergehen die Tage bei höchster Geschwindigkeit etwa ein Zehntel schneller, aber die Karte wird seltener neu gezeichnet: Sie wirkt ruckeliger und reagiert etwas später auf Klicks."
  EU4HARMONY_SETTINGS_PACE_SMOOTH:0 "Flüssige Karte (wie im Spiel)"
  EU4HARMONY_SETTINGS_PACE_FASTER:0 "Schnellere Zeit"
+ EU4HARMONY_SETTINGS_DRAWING_THREAD:0 "In einem eigenen Thread zeichnen: die Karte folgt der Maus mit der Bildrate des Bildschirms"
+ EU4HARMONY_SETTINGS_DRAWING_UNLIMITED:0 "Bildrate nicht begrenzen"
  EU4HARMONY_SETTINGS_PAGE_REMOTE_CONTROL:0 "Fernsteuerung"
  EU4HARMONY_SETTINGS_REMOTE_FULL_VIEW:0 "Die Fernsteuerung sieht alles"
  EU4HARMONY_SETTINGS_REMOTE_FULL_VIEW_INFO:0 "Ausgeschaltet lesen Programme, die das Spiel über die Fernsteuerung nutzen, nur, was der Spieler sieht: die Karte unter dem Nebel des Krieges und von anderen Ländern, was ihre Fenster zeigen."

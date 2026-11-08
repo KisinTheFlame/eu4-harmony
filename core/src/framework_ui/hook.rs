@@ -63,6 +63,28 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
             }
         });
         crate::guarded("text costs", crate::unicode::costs::log_when_due);
+    } else if crate::drawing::is_drawing_thread() {
+        // The drawing thread's frame, under the presentation lock: what the
+        // main thread does at a present but its safe point and its input,
+        // which it does where the frame was prepared (`crate::drawing`).
+        let device = crate::guarded("frame present", || crate::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()).map(|device| device as *mut c_void));
+        crate::guarded("font pages", crate::unicode::fill::grow_pages);
+        crate::guarded("framework UI frame", || {
+            if let Some(device) = device {
+                super::frame(device)
+            }
+        });
+        crate::guarded("screenshot", || {
+            if let Some(device) = device {
+                crate::game::screenshot::presenting(device)
+            }
+        });
+        crate::guarded("screen size", || {
+            if let Some(device) = device {
+                let (width, height) = unsafe { super::d3d9::Backend::screen(device) };
+                crate::drawing::presented(width as u32, height as u32);
+            }
+        });
     }
     ORIGINAL_PRESENT.get()(renderer)
 }

@@ -35,12 +35,17 @@ fn framework() -> Vec<Point> {
 
 /// The points of the development tools built in that check the game's
 /// bytes: on whenever the tool is built in.
-#[cfg_attr(not(any(feature = "dev-memory", feature = "dev-heap-census")), expect(unused_mut, reason = "only these tools add points"))]
+#[cfg_attr(
+    not(any(feature = "dev-memory", feature = "dev-heap-census", feature = "dev-crossings")),
+    expect(unused_mut, reason = "only these tools add points")
+)]
 fn tools(mut all: Vec<Point>) -> Vec<Point> {
     #[cfg(feature = "dev-memory")]
     all.extend(crate::memory_account::points());
     #[cfg(feature = "dev-heap-census")]
     all.extend(crate::census::points());
+    #[cfg(feature = "dev-crossings")]
+    all.extend(crate::crossings::points());
     all
 }
 
@@ -87,6 +92,8 @@ pub(crate) fn installed(m: Memory) -> Vec<Point> {
         all.extend(trace.points());
         trace.start();
     }
+    #[cfg(feature = "dev-crossings")]
+    crate::crossings::start();
     all
 }
 

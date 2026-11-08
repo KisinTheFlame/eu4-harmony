@@ -99,3 +99,9 @@ let-run = []
 # The seconds a watched call may go with nothing watched before the watch is
 # given up and where the main thread waits is logged; 0 waits for ever.
 give-up-after = 30
+
+# Counts where the day goes into the interface's or the graphics' code, by
+# call stack (docs/plans/drawing-thread.md, C1).
+[crossings]
+# How many game days pass between two reports in the framework log.
+report-every = 30

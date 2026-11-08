@@ -144,9 +144,20 @@ The drawing's own steps, by its calls: the map mode's colors (`0x10a8c30`, at `0
 
 The direct calls of `0x769ea0`, the check for a frame inside a day, by the function they lie in: 6 in the daily update (`0x758430`), 11 in the day's body (`0x75bbe0`), 14 in the monthly update (`0x75d690`), one in the provinces' phase (`0x75b2d0`) and one in the AI's (`0x75b4b0`), before the AI stage (`0x77d8a0`) and not inside it. In the countries' phase (`0x75b0d0`) it is **inside the loop over the countries**: after each country's daily update (`0x2ee280`, at `0x75b20b`), when the country's index is a multiple of 32 (`and eax, 8000001Fh`, at `0x75b212`), it checks for a frame (`0x75b22f`). So the game itself holds that its whole frame, the interface's update included, may run between two countries' daily updates. The loop walks the list at `world+0x1d08`, its count at `+0x1d14` (_inferred_: the active countries, `+0x1d00` in [architecture.md](architecture.md), "The game state"); how many points that gives a late day was not counted.
 
+## The drawing's first steps (read 2026-11-09)
+
+`0x8183b0(idler)`, called by the in-game frame at `0x81591c` with the in-game idler, does two things that read the world before it draws:
+
+1. **The ambient sound** (`0x818614`): when the master volume (`[settings]+0xb4`) is above a floor, `0x6e7a50(idler+0x5a0, [idler+0x11c0], [idler+0x1200])`, the idler's sound object, the graphical map and the camera; it reads the world and the map (_inferred_: the terrain under the camera, from the debug text's volumes).
+2. **The map mode's colors** (`0x818619`–`0x81865c`): when either of the idler's flags `+0x34` and `+0x44` is set and the clock (`0x5bf840`) has reached `[idler+0x38]`, `0x10a8c30([app]+0x360, [idler+0x2c], [idler+0x40])`, the graphical map, the map mode and a second value, after which both flags are cleared.
+
+Then it keeps the frame's times (`[idler+0x11f8]`, a timer made from `[0x23494a0]`, into `0x2458efc` and `0x2458f00`), deals with the camera's lock and a sound while the graphical map's `+0x530` is set (`0x8186c2`–`0x818728`), and goes on to the device check and the drawing proper. After it returns, the in-game frame calls `0xe1ac80(idler+0xb8)` and, while `[graphical map]+0x530` is set, `0x6eb6e0(idler, [idler+0x310])`.
+
+So the drawing can be cut where the drawing proper begins: the two steps that read the world run where the frame calls the drawing, on the main thread, and the rest elsewhere.
+
 ## The camera in a frame (read 2026-11-09)
 
-The camera is updated in the in-game frame's input (`0x830fd0`): it is offered the frame's events (`0x109c9e0`, at `0x83117b`), then updated (`0x109bee0`, at `0x8311b3`): it glides towards its goal (`0x109f240` → `0x109f3e0`, `0x109cd80`), and is kept on the map (`0x109ec30` → `0x109d0e0`) ([camera.md](camera.md)). The main menu's frame (`0x10dc4f0`) and the nudge editor's (`0x1253d80`) call the same two. Later in the in-game frame, between the time step and the map's markers, `0x109c020` is called (at `0x815711`); what it does was not read. So the camera moves once a frame, from the events of that frame, on the main thread; nothing found moves it from the drawing.
+The camera is updated in the in-game frame's input (`0x830fd0`): it is offered the frame's events (`0x109c9e0`, at `0x83117b`), then updated (`0x109bee0`, at `0x8311b3`, only while the application's `+0xb8` is set; its arguments the camera `[idler+0x1200]`, `[idler+0x68]`, `[idler+0x60]`, the input's state and, on the stack, the float at `idler+0x1658`): it takes the frame's movement from the input (`0x109e750`), it glides towards its goal (`0x109f240` → `0x109f3e0`, `0x109cd80`), and is kept on the map (`0x109ec30` → `0x109d0e0`) ([camera.md](camera.md)). The main menu's frame (`0x10dc4f0`) and the nudge editor's (`0x1253d80`) call the same two. Later in the in-game frame, between the time step and the map's markers, `0x109c020` is called (at `0x815711`); what it does was not read. So the camera moves once a frame, from the events of that frame, on the main thread; nothing found moves it from the drawing.
 
 ## Where the day reaches the interface and the graphics (read 2026-11-09)
 
@@ -191,6 +202,43 @@ The same graph followed from the drawing (`0x8183b0`) reaches 1,936 functions, 1
 - **The GUI's drawing** (`0x14dd010`, through `0x14dd350`) reaches nothing by direct calls: it calls each of the frame's 2D objects through its vtable, its `+0xb8`, its `+0x98` and its `+0x58`, which draws. Of every vtable in `.rdata` (runs of pointers to functions' starts), four have a `+0x58` that reaches the world or the country manager by direct calls, and none of the four is a GUI object's: the world's own key reader (`0x751cd0`, vtable `0x1caffe8`) and three others (`0x970f60`, `0xb459d0`, `0x92e420`). So the GUI's objects draw from what they hold, as far as direct calls show; the views set it at their update ([architecture.md](architecture.md), "Presentation"). This agrees with what the write watch saw the GUI's drawing read up to its first wait in the driver, mostly blocks of 0x218, 0x288 and 0x2e0 bytes, the GUI's own objects ("The drawing on a thread of its own while the next day runs").
 
 So, the map mode's colors and the debug text set apart, what the drawing reads of the game state is the map's: its names when made again, its passes and views, and the three fields of every province the 2026-11-08 watch found. What it reads through pointers beyond the map, and the GUI's drawing past the driver's first wait, are still to be watched: the watch held the driver's thread there, which a drawing whose Direct3D calls go nowhere would not need ([drawing-thread.md](../plans/drawing-thread.md), D2).
+
+## The measures of phase 0 (measured 2026-11-09)
+
+On a test game, the 1780.7.1 save in observe mode in the Ottomans' view at speed 5, at the game's own pace ("Smooth map"), hidden, 3840×2160 ([the run](../prototype-log/2026-11-09-drawing-thread-first-runs.md)).
+
+- **M1, the pages a day changes**, by every committed private read-write page of the process and `eu4.exe`'s data hashed as the daily tick (`0xb79520`) begins and again as it returns: on an ordinary day 21 to 37 MB of the process heap's 1.8 GB changed, 0.2 MB of `eu4.exe`'s data, and 19 to 38 MB elsewhere, most of it in two blocks of about 55 MB each outside the heap's regions, which by their size are the countries' and the provinces' arrays ("The drawing on a thread of its own while the next day runs"): 40 to 70 MB a day in all. The month's turn (the tick from 1780.7.31) changed 93 MB of the heap and 74 MB elsewhere, 167 MB. At some 10 GB a second, copying what an ordinary day changed would take 4 to 7 ms of a 50 to 70 ms day on one thread, the month's turn some 17 ms; so the world's double buffer (phase 3) is to copy on several threads, or in the background while the simulation runs on.
+- **M2, the interface's update alone**, by the call trace's times (which add their own cost): a frame's update was about 4.7 ms, the map's markers (`0x10a6d00`) 1.7, the alerts 1.3, the GUI's update 0.8, input 0.5, the outliner 0.4; 3.5 application frames ran a day, 2 of them drawing.
+- **M3, the crossings**, by the call trace on their entries over 55 days: a unit's model made (`0x1448880`) 51 times a day, the first some 18 ms into the day's body; a message (`0x8c07b0`) twice a day; the interface's daily refresh with the minimap once a day, 34 to 49 ms into the body. What else crosses is in "The crossings a late day reaches".
+- **M4, the drawing**: 8.6 ms a frame with the call trace on; with the drawing thread at no limit, paused and without vertical sync, about 196 frames a second, the main thread and the drawing thread then taking turns.
+
+## The crossings a late day reaches (found 2026-11-09)
+
+The development tool `dev-crossings` ([dev-tools.md](../dev-tools.md)) made the interface's and the graphics' code not executable between two of the game's checks for a frame inside a day, and counted the calls into it by stack, over 1,050 days from the 1780.7.1 save. Its code ranges were the game's `0xde6000`–`0x14a6000`, the engine's `0x14d9000`–`0x1500000` and `0x1540000`–`0x1640000`, and `0x169e000`–`0x16fb000`, with `d3d9.dll` and `d3dx9_43.dll`; five functions lying there were found to be no part of the interface and left out: the spin wait the parallel stages and the flags take (`0x1581820`, `SwitchToThread`), a clock (`0x15e4f00`), a string's helper (`0x16f7a20`), a number's formatting (`0x125b470`), and the command queue's insert (`0x1580370`, from the session's posting of a command, `0x14ca2d0`, which the day and the events call). 105,408 calls in 66,786 stretches, 326 stacks. The main thread's, by what crossed:
+
+| What | From | Into |
+| --- | --- | --- |
+| The interface's daily refresh, once a day | the day's body (`0x75c5fc`) → `0x8339f0` | the minimap (`0x10b6c50`, D3DX through the back end), windows' elements (`0x8218c0`, `0x8218dc`, `0x821c64`, `0x821850`), `0x1316660`, `0x1348370`, `0xdc3453` |
+| The interface's monthly refresh | the daily update (`0x758c2f`) → `0x81e280` | `0x14e6170`, `0x14e4570` |
+| A unit made, and let go | the unit's code (`0xd3aff6`, `0xd3b17e`), from battles and the day's end (`0x769bd0`) | its model, made (`0x1448880`) and let go (`0x1449da0`) |
+| A text floating on the map | a combat's losses (`0x21f5f0`), `0x23e620`, a province's month (`0x9f4916`) | `0x6e9860` (`AnimatedMapText`) and a font's lookup (`0x14db870`) |
+| Whether a window is open | the country code (`0x36a540`, from `0x122790`) → the in-game idler's `0x8208a0`, which asks each of its windows (`+0x1110`) | `0x1054a20`: **the simulation reads the interface**, which windows are open |
+| A province's owner told to the map | `0xa00598`, `0xa0e734` | `0x10af990`, which marks the province's map entry (`|= 8`) |
+| Sounds | a country's month (`0x338bd0`, `moneyin`), `0x5c3384`, `0xa636f5` | `pdx_audio` (`0x16a32d0`, `0x16a381d`) |
+| A timer's callback | `0x17114e2`, from triggers (`0xc52e52`) and `0xa392b` | a lookup in the table at `[0x2349598]` (`0x15632d0`), read only |
+
+Other threads crossed too (some 12,000 calls), into `d3d9.dll` and the engine's code, by stacks the tool does not tell apart from the driver's own.
+
+So beside what the direct call graph found, a day reaches the interface in its daily and monthly refreshes, its units' models made and let go, texts floating on the map, sounds, and a query of which windows are open. That last is a read of the interface by the simulation: what the day computes there depends on what the player has open, which a world double buffered between two processes would have to answer from the interface's side.
+
+## The drawing thread tried (2026-11-09)
+
+The drawing thread of [drawing-thread.md](../plans/drawing-thread.md) (T1, T2), built behind the framework setting `drawing_thread`, tried on the same save ([the run](../prototype-log/2026-11-09-drawing-thread-first-runs.md)). What the runs showed of the game:
+
+- **An update reads what the drawing after the last one worked out, and a crossing begins what the next update finishes.** A crossing that makes a unit's model grows the list of its type's models, and the next update makes the arrays the map's drawing walks beside it (`0x1540c70`, under the map's views `0x10a55c0`, reads `[r14 + 0xa0]` beside `[[r14 + 8] + 0x48]`); the game never draws between the two. A drawing thread that drew there read the second array empty (a fault at `0x1540f20` reading 0). So after the day's first crossing the drawing thread waits for the next update, and draws nothing in between.
+- **Not every change of the interface's state by the day goes through code the crossings' tool sees.** With every crossing found waited for, the same fault came once more in about a minute of play: something the day writes of the map's lists inline, without calling the interface's code. What it is was not found; a watch of the data, not of the code, would find it.
+- **What it gave**, in 60 s from the load: the days 16.5 to 18.7 a second against 19.6 with the drawing on the main thread, the main thread waiting for the lock some 1.4 s in 10 s, at about 40 crossings a second, each waiting for the frame the drawing thread was drawing; the drawing thread drew 70 to 99 frames a second, against the 20 to 40 the main thread drew; paused, the two take turns.
+- **The camera on the drawing thread** (`0x109bee0` called there with no events and its own frame's length, the main thread's call given no time): it did not fail; whether the map follows the mouse at the drawing thread's rate was not seen, since a hidden test game moves no mouse, and the update runs only while the application's `+0xb8` is set (_inferred_: its focus, which a hidden window may not have).
 
 ## What to do next
 

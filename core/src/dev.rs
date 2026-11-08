@@ -1,7 +1,7 @@
 //! A developer build: which development tools are built in, each a feature of
 //! its own (`dev-call-trace`, `dev-memory`, `dev-heap-census`,
 //! `dev-command-log`, `dev-test-switches`, `dev-write-watch`,
-//! `dev-test-games`), and their options. A tool built in is on; its options
+//! `dev-test-games`, `dev-crossings`), and their options. A tool built in is on; its options
 //! are in `dev.toml` beside the core, `eu4-harmony\dev.toml` in the game
 //! folder or a test game's own, one section a tool, and a section left out
 //! takes its defaults (`core/dev.toml.example` shows them all). A player's
@@ -13,7 +13,7 @@ use std::sync::OnceLock;
 
 /// The tools: each one's name, its section in dev.toml, and whether it is
 /// built in.
-const TOOLS: [(&str, &str, bool); 7] = [
+const TOOLS: [(&str, &str, bool); 8] = [
     ("call trace", "call-trace", cfg!(feature = "dev-call-trace")),
     ("memory account", "memory-account", cfg!(feature = "dev-memory")),
     ("heap census", "heap-census", cfg!(feature = "dev-heap-census")),
@@ -21,6 +21,7 @@ const TOOLS: [(&str, &str, bool); 7] = [
     ("test switches", "test-switches", cfg!(feature = "dev-test-switches")),
     ("write watch", "write-watch", cfg!(feature = "dev-write-watch")),
     ("test games' pipes", "test-games", cfg!(feature = "dev-test-games")),
+    ("crossings", "crossings", cfg!(feature = "dev-crossings")),
 ];
 
 /// What dev.toml says.
@@ -34,6 +35,7 @@ pub struct Options {
     pub test_switches: TestSwitches,
     pub write_watch: WriteWatch,
     pub test_games: TestGames,
+    pub crossings: Crossings,
     /// The sections dev.toml has, to tell those of tools not built in.
     #[serde(skip)]
     sections: Vec<String>,
@@ -180,6 +182,20 @@ impl Default for WriteWatch {
     }
 }
 
+/// Where the day goes into the interface's or the graphics' code.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Crossings {
+    /// How many game days pass between two reports in the framework log.
+    pub report_every: usize,
+}
+
+impl Default for Crossings {
+    fn default() -> Self {
+        Self { report_every: 30 }
+    }
+}
+
 impl Options {
     pub fn parse(text: &str) -> crate::Result<Self> {
         let mut options: Options = toml::from_str(text).map_err(|e| e.to_string())?;
@@ -232,6 +248,10 @@ impl Options {
                 switches.post.len(),
                 on(switches.grow_pages)
             ));
+        }
+        if built("crossings") {
+            lines
+                .push(format!("crossings: the day's calls into the interface's and the graphics' code, a report every {} day(s)", self.crossings.report_every));
         }
         if built("write-watch") {
             let watch = &self.write_watch;

@@ -412,6 +412,11 @@ pub fn let_go() -> u64 {
     HELD.swap(0, Ordering::Relaxed)
 }
 
+/// Whether frames are held back now, without counting one.
+pub fn holding() -> bool {
+    HOLDING.load(Ordering::Relaxed)
+}
+
 /// Whether the frame the main thread presents now is held back.
 fn held() -> bool {
     let holding = HOLDING.load(Ordering::Relaxed);
@@ -519,9 +524,9 @@ mod tests {
             assert_eq!(on, [setting.page], "{}", setting.key);
             assert_eq!(pages.iter().flat_map(|w| ids(w)).filter(|id| *id == setting.key).count(), 1, "{}", setting.key);
         }
-        // The pace shows under its label with an info mark; a page's note
-        // comes after its settings.
-        assert!(matches!(&pages[3][..], [Widget::Explained { .. }, Widget::Choice { .. }]));
+        // The pace shows under its label with an info mark, the drawing
+        // thread's toggles after it; a page's note comes after its settings.
+        assert!(matches!(&pages[3][..], [Widget::Explained { .. }, Widget::Choice { .. }, _, _]));
         assert!(matches!(pages[1].last(), Some(Widget::Label(note)) if note == "EU4HARMONY_SETTINGS_UNDO"));
     }
 

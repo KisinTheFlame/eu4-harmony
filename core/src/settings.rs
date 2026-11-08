@@ -55,6 +55,12 @@ pub struct Settings {
     /// Whether the game draws frames inside a day at the fastest speed
     /// (docs/plans/game-speed.md, S4).
     pub fastest_speed: Pace,
+    /// Whether a thread of the framework's draws the frames in a game
+    /// (GLOSSARY: Drawing thread; docs/plans/drawing-thread.md).
+    pub drawing_thread: bool,
+    /// Whether the drawing thread draws with no limit, rather than at the
+    /// display's refresh rate.
+    pub drawing_unlimited: bool,
     /// Whether remote control reads the full view rather than the player's
     /// view (GLOSSARY; ADR remote-control-reads-the-players-view).
     pub remote_full_view: bool,
@@ -127,6 +133,8 @@ pub enum Listener {
     Speed,
     /// The music's loudness.
     Sound,
+    /// The drawing thread.
+    Drawing,
 }
 
 impl Listener {
@@ -135,6 +143,7 @@ impl Listener {
             Listener::Achievements => crate::achievements::follow(settings),
             Listener::Speed => crate::speed::set_pace(settings.fastest_speed),
             Listener::Sound => crate::sound::choose(settings),
+            Listener::Drawing => crate::drawing::set(settings.drawing_thread, settings.drawing_unlimited),
         }
     }
 }
@@ -181,7 +190,7 @@ impl Page {
 /// Every [`Setting`], in the order the file writes them and each page of
 /// the settings window shows them; those on the language and fonts page show
 /// after the map's font. Their defaults are [`Settings::default`]'s.
-pub static SETTINGS: [Setting; 9] = [
+pub static SETTINGS: [Setting; 11] = [
     Setting {
         key: "map_outline",
         page: Page::LanguageFonts,
@@ -217,6 +226,18 @@ pub static SETTINGS: [Setting; 9] = [
         page: Page::GameSpeed,
         shows: Shows::Pace { label: "EU4HARMONY_SETTINGS_FASTEST_SPEED", info: "EU4HARMONY_SETTINGS_FASTEST_SPEED_INFO", field: field!(fastest_speed) },
         effect: Effect::WhenSaved { tells: Some(Listener::Speed) },
+    },
+    Setting {
+        key: "drawing_thread",
+        page: Page::GameSpeed,
+        shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_DRAWING_THREAD", field: field!(drawing_thread) },
+        effect: Effect::WhenSaved { tells: Some(Listener::Drawing) },
+    },
+    Setting {
+        key: "drawing_unlimited",
+        page: Page::GameSpeed,
+        shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_DRAWING_UNLIMITED", field: field!(drawing_unlimited) },
+        effect: Effect::WhenSaved { tells: Some(Listener::Drawing) },
     },
     Setting {
         key: "remote_full_view",
@@ -382,6 +403,8 @@ impl Default for Settings {
             achievements_outside_ironman: false,
             achievements_with_changed_checksum: false,
             fastest_speed: Pace::Smooth,
+            drawing_thread: false,
+            drawing_unlimited: false,
             remote_full_view: false,
             music_loudness: true,
             music_leveling: false,
@@ -710,13 +733,17 @@ mod tests {
             achievements_outside_ironman: true,
             achievements_with_changed_checksum: true,
             fastest_speed: Pace::Faster,
+            drawing_thread: true,
+            drawing_unlimited: false,
             remote_full_view: true,
             music_loudness: false,
             music_leveling: true,
         };
         assert_eq!(Settings::parse(&custom.render()), custom);
         assert!(custom.render().starts_with("language=\"braz_por\"\nbody_font=\"SimSun\"\nbody_weight=700\n"));
-        assert!(custom.render().ends_with("\nfastest_speed=\"faster\"\nremote_full_view=yes\nmusic_loudness=no\nmusic_leveling=yes\n"));
+        assert!(custom
+            .render()
+            .ends_with("\nfastest_speed=\"faster\"\ndrawing_thread=yes\ndrawing_unlimited=no\nremote_full_view=yes\nmusic_loudness=no\nmusic_leveling=yes\n"));
         assert_eq!(Settings::parse("fastest_speed=faster").fastest_speed, Pace::Faster);
         assert_eq!(Settings::parse("fastest_speed=\"fastest\"").fastest_speed, Pace::Smooth);
         assert!(custom.render().contains("\nheading_font=\"Microsoft YaHei\"\nheading_weight=700\n"));
@@ -727,7 +754,7 @@ mod tests {
         // As every file written before has it.
         assert_eq!(
             following.render(),
-            "language=\"english\"\nmap_outline=yes\nreturn_without_restart=yes\nsave_ironman_before_load=yes\nachievements_outside_ironman=no\nachievements_with_changed_checksum=no\nfastest_speed=\"smooth\"\nremote_full_view=no\nmusic_loudness=yes\nmusic_leveling=no\n"
+            "language=\"english\"\nmap_outline=yes\nreturn_without_restart=yes\nsave_ironman_before_load=yes\nachievements_outside_ironman=no\nachievements_with_changed_checksum=no\nfastest_speed=\"smooth\"\ndrawing_thread=no\ndrawing_unlimited=no\nremote_full_view=no\nmusic_loudness=yes\nmusic_leveling=no\n"
         );
         assert!(!following.render().contains("_font"));
         assert_eq!(Settings::parse(&following.render()), following);
@@ -860,7 +887,7 @@ mod tests {
         current.take_immediate(&Settings { language: Some(Language::German), body_font: Some(Face::regular("SimSun")), ..Settings::default() });
         assert_eq!(current, Settings::default());
         // Each part is told once.
-        assert_eq!(listeners(), [Listener::Achievements, Listener::Speed, Listener::Sound]);
+        assert_eq!(listeners(), [Listener::Achievements, Listener::Speed, Listener::Drawing, Listener::Sound]);
     }
 
     #[test]

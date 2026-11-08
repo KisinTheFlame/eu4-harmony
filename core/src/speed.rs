@@ -35,9 +35,10 @@ pub struct SpeedUp {
 }
 
 /// Every speed-up, in the order the report names them.
-pub static ALL: [&SpeedUp; 14] = [
+pub static ALL: [&SpeedUp; 15] = [
     &pops::SPEED_UP,
     &pace::SPEED_UP,
+    &crate::drawing::SPEED_UP,
     &crate::loading::music::SPEED_UP,
     &crate::loading::lookups::SPEED_UP,
     &crate::loading::children::SPEED_UP,
@@ -147,7 +148,7 @@ pub fn checked(speed_up: &SpeedUp) -> bool {
 }
 
 /// Answers checked and answers that differed, for each speed-up.
-static COUNTS: [[AtomicU64; 2]; 14] = [const { [AtomicU64::new(0), AtomicU64::new(0)] }; 14];
+static COUNTS: [[AtomicU64; 2]; 15] = [const { [AtomicU64::new(0), AtomicU64::new(0)] }; 15];
 /// A speed-up's first differences are each logged; after these, only when
 /// their count reaches a power of two.
 const LOGGED: u64 = 20;
@@ -252,7 +253,7 @@ mod tests {
         let chosen = Chosen::of(&strings(&["frames"]), &strings(&["army-searches"])).unwrap();
         assert_eq!(
             lines(chosen),
-            ["speed-ups left to the game: pops-polling, fastest-pace, modifier-sums", "speed-ups checked against the game: army-searches"]
+            ["speed-ups left to the game: pops-polling, fastest-pace, drawing-thread, modifier-sums", "speed-ups checked against the game: army-searches"]
         );
     }
 
