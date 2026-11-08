@@ -1,11 +1,11 @@
 # A shorter startup and load
 
-Status: built (2026-11-05), in one pull request: L1 to L3; the faster inflate set aside by the owner. L4, files opened and looked up side by side, and L5, every folder of the search path answered from its listing, asked for and built on 2026-11-08. Where the time went is in [research/loading.md](research/loading.md). The bar is the one the game speed plan meets ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md)): what the game loads stays what it loads, only sooner.
+Status: built (2026-11-05), in one pull request: L1 to L3; the faster inflate set aside by the owner. L4, files opened and looked up side by side, and L5, every folder of the search path answered from its listing, asked for and built on 2026-11-08. L6, the mesh types loaded beside the databases, asked for on 2026-11-09. Where the time went is in [research/loading.md](research/loading.md). The bar is the one the game speed plan meets ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md)): what the game loads stays what it loads, only sooner.
 
 ## Goal and scope
 
 - **Goal**: the game reaches its main menu sooner from its start, and a game sooner from a load, with the same data loaded.
-- **In scope**: the startup's music, the lookups of files in the game's folders, a save's lists as they are read, the threads that open and look up files waiting for each other.
+- **In scope**: the startup's music, the lookups of files in the game's folders, a save's lists as they are read, the threads that open and look up files waiting for each other, the startup's stretches that can run beside each other.
 - **Out of scope**:
   - the databases' own parsing on the LoadingThread, the largest part of the startup, which is the game's script reader on one thread; reading them on several would need each database's order of loading shown not to matter;
   - the pictures' lock;
@@ -77,6 +77,15 @@ Asked for by the owner on 2026-11-08, after [research/loading.md](research/loadi
 - Built (`loading::listed`): where the path's check and the lookup ask an entry (`0x19fb7e5`, `0x19fae6e`), a folder entry's question is answered from the listings when they can; the folder archive's stat answers the rest. The watch is opened and its first `ReadDirectoryChangesW` made when a folder is first asked about, before its first listing; a listing made across a change Windows told of is not kept. The game's writes are observed at the open to write or append (`0x19fa240`), `PHYSFS_mkdir` and `PHYSFS_delete`.
 - Shown: checked (`checked = ["listed-folders"]`), through a start, a save's load and 20 days played, 702,736 answers to the main menu and none differing from the game's stat. Three starts each way, the part on and left to the game, the processor about 45% busy with other test games: the main menu at 19.6, 19.4 and 21.1 s against 27.5, 37.0 and 32.7 s; the databases 4.6 to 5.1 s against 7.4 to 12.4 s, of which the wait for the picture checks 0 against 1.9 to 4.7 s; the meshes 1.7 to 1.9 s against 4.0 to 6.2 s. A lookup took 103 µs on the picture checks' thread (760 µs before), 31 µs on the LoadingThread (480 µs) and 23 µs on the main thread (375 µs). An ironman save loaded each way and written by the game after its load: `gamestate` the same but for the 4 bytes at 510 that every save changes, `meta` but for its UUID and the checksum that ends it, which sums the UUID with the rest, `ai` the same ([the run](prototype-log/2026-11-08-listed-folders.md)).
 
+### L6 The mesh types loaded beside the databases
+
+Asked for by the owner on 2026-11-09, after [research/loading.md](research/loading.md) ("Which stretches can run side by side") found that the meshes can load beside the databases: at the end of the gfx stage the LoadingThread spends about 2.2 s in the meshes (`0x14dc5d0`), nearly all of it in `0x14dc390`, which loads every mesh type (its `.mesh` file, its vertex and index buffers, its textures, its skeleton) and then makes the particles' shaders. Nothing the databases load reads what it makes; what the two use alike (Direct3D, made multithreaded; PhysFS; the log; the heap; the texture lookups) is safe from two threads.
+
+- At the startup's first call, `0x14dc390` runs on a thread of the framework's, and the LoadingThread goes on with the rest of the meshes (the mesh objects before it, the meshes' shaders and the sprites' vertex declaration after it, which neither need it nor are read by it), the rest of the gfx stage and the databases.
+- The LoadingThread waits for that thread as the databases end, at the DLC's metadata (`0x2060f0`), which InitGame calls next: the events, the flags and what follows them, the main menu and every drawing of a mesh or a particle come after it, as they do now. A check of the device (`0x16d8e20`) that finds it lost waits for it too, before the game lets every device object go and makes it again.
+- A later call, such as after the device's reset, loads the mesh types on its caller's thread, as the game does.
+- The mesh types loaded, in the same order, and every other step stay what they were; only the time changes: `setup.log`'s "Loading Animated Map-Sprites" line, which times the meshes from the LoadingThread, counts only what is left on it.
+
 ### Set aside
 
 - **The zips' index**, a lookup going past the zips that do not have its path: with L5 the lookups left on the LoadingThread took 0.23 s of a start, and the picture checks end before the databases do, so what it could take off the startup's path is a few tenths of a second.
@@ -85,4 +94,4 @@ Asked for by the owner on 2026-11-08, after [research/loading.md](research/loadi
 
 ## How it fits together
 
-`loading` is a module of the core: `set_folders(game_dir, user_dir)`, which the core calls before the game reads its music, and its five parts, each a speed-up of `crate::speed` (`music`, `lookups`, `children`, `opens` and `listed-folders`, the group `loading`). A developer build's `game-paths` leaves any of them to the game, and `checked` has the game's own answer taken as well and compared, for `music`, `lookups` and `listed-folders` (the switches `game-loads` and `check-loading` before them did both for all three at once).
+`loading` is a module of the core: `set_folders(game_dir, user_dir)`, which the core calls before the game reads its music, and its six parts, each a speed-up of `crate::speed` (`music`, `lookups`, `children`, `opens`, `listed-folders` and `meshes`, the group `loading`). A developer build's `game-paths` leaves any of them to the game, and `checked` has the game's own answer taken as well and compared, for `music`, `lookups` and `listed-folders` (the switches `game-loads` and `check-loading` before them did both for all three at once).
