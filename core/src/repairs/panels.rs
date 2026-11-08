@@ -16,7 +16,7 @@
 //! return"); here only what owns a window kills it.
 use super::{interface_parts::TAKE_WINDOW_OFF, LettingGo};
 use crate::{
-    hooks::HookFrame,
+    hooks::Call,
     memory::Memory,
     objects::gui::window as gui_window,
     points::{GameFunction, Point},
@@ -52,18 +52,11 @@ fn kill(m: &Memory, window: usize) -> crate::Result<()> {
 }
 
 /// Runs a repair as an owner goes, logging what failed.
-fn going(what: &str, f: impl FnOnce(&Memory) -> crate::Result<()>) {
-    crate::guarded(what, || {
-        let m = crate::hooked_memory();
-        let _letting_go = LettingGo::new("panel's window");
-        if let Err(e) = f(&m) {
-            log!("repair: {what}: not let go: {e}");
-        }
-    });
-}
-
-fn this(frame: *mut HookFrame) -> usize {
-    unsafe { (*frame).args[0] }
+fn going(m: Memory, what: &str, f: impl FnOnce(&Memory) -> crate::Result<()>) {
+    let _letting_go = LettingGo::new("panel's window");
+    if let Err(e) = f(&m) {
+        log!("repair: {what}: not let go: {e}");
+    }
 }
 
 // The main menu's pages, made again at each main menu shown and deleted as
@@ -83,9 +76,9 @@ const START_PANEL_IRONMAN_CHOOSER: usize = 0x298;
 const IRONMAN_CHOOSER: usize = 0x1d7ff88;
 const IRONMAN_CHOOSER_DELETE: GameFunction<2> = GameFunction::at(0x13b7910);
 
-extern "C" fn setup_going(frame: *mut HookFrame) {
-    let setup = this(frame);
-    going("the single player setup's start panel", |m| {
+fn setup_going(call: &mut Call) {
+    let setup = call.arg(0);
+    going(call.memory(), "the single player setup's start panel", |m| {
         let panel = m.ptr(setup + SETUP_START_PANEL)?;
         if panel == 0 {
             return Ok(());
@@ -112,9 +105,9 @@ extern "C" fn setup_going(frame: *mut HookFrame) {
 const HINTS_DELETE: usize = 0x140c210;
 const HINTS_WINDOW: usize = 0xe0;
 
-extern "C" fn hints_going(frame: *mut HookFrame) {
-    let hints = this(frame);
-    going("the tutorial hints' window", |m| kill_field(m, hints, HINTS_WINDOW));
+fn hints_going(call: &mut Call) {
+    let hints = call.arg(0);
+    going(call.memory(), "the tutorial hints' window", |m| kill_field(m, hints, HINTS_WINDOW));
 }
 
 /// `(main menu)`: the main menu's switching out, which kills its window and
@@ -123,9 +116,9 @@ extern "C" fn hints_going(frame: *mut HookFrame) {
 const MAIN_MENU_OUT: usize = 0x10d8330;
 const MAIN_MENU_RIGHT_CLICK_MENU: usize = 0x7c8;
 
-extern "C" fn main_menu_out(frame: *mut HookFrame) {
-    let menu = this(frame);
-    going("the main menu's right click menu", |m| kill_field(m, menu, MAIN_MENU_RIGHT_CLICK_MENU));
+fn main_menu_out(call: &mut Call) {
+    let menu = call.arg(0);
+    going(call.memory(), "the main menu's right click menu", |m| kill_field(m, menu, MAIN_MENU_RIGHT_CLICK_MENU));
 }
 
 // The map manager's, which its destructor deletes.
@@ -162,9 +155,9 @@ const LIST_BOX_TOLD: usize = 0x60;
 const SET_TOLD_SLOT: usize = 0x220;
 const SET_TOLD: GameFunction<2> = GameFunction::at(0xfbf490);
 
-extern "C" fn build_interface_going(frame: *mut HookFrame) {
-    let interface = this(frame);
-    going("the building interface's tabs", |m| {
+fn build_interface_going(call: &mut Call) {
+    let interface = call.arg(0);
+    going(call.memory(), "the building interface's tabs", |m| {
         let begin = m.ptr(interface + BUILD_TABS)?;
         let end = m.ptr(interface + BUILD_TABS + 8)?;
         if begin == 0 || end < begin || (end - begin) / 8 > BUILD_TAB_SIZES.len() {
@@ -229,19 +222,19 @@ const TRADE_COMPANY_WINDOW: usize = 0xb0;
 const SAVE_MENU_DESTRUCTOR: usize = 0x1172a90;
 const SAVE_MENU_WINDOW: usize = 0x30;
 
-extern "C" fn ledger_going(frame: *mut HookFrame) {
-    let ledger = this(frame);
-    going("the ledger's window", |m| kill_field(m, ledger, LEDGER_WINDOW));
+fn ledger_going(call: &mut Call) {
+    let ledger = call.arg(0);
+    going(call.memory(), "the ledger's window", |m| kill_field(m, ledger, LEDGER_WINDOW));
 }
 
-extern "C" fn goto_box_going(frame: *mut HookFrame) {
-    let goto_box = this(frame);
-    going("the goto box's window", |m| kill_field(m, goto_box, GOTO_BOX_WINDOW));
+fn goto_box_going(call: &mut Call) {
+    let goto_box = call.arg(0);
+    going(call.memory(), "the goto box's window", |m| kill_field(m, goto_box, GOTO_BOX_WINDOW));
 }
 
-extern "C" fn trade_interface_going(frame: *mut HookFrame) {
-    let interface = this(frame);
-    going("the trade company's window", |m| {
+fn trade_interface_going(call: &mut Call) {
+    let interface = call.arg(0);
+    going(call.memory(), "the trade company's window", |m| {
         if m.ptr(interface)? != m.at(TRADE_INTERFACE) {
             return Ok(());
         }
@@ -249,9 +242,9 @@ extern "C" fn trade_interface_going(frame: *mut HookFrame) {
     });
 }
 
-extern "C" fn save_menu_going(frame: *mut HookFrame) {
-    let menu = this(frame);
-    going("the load or save window", |m| kill_field(m, menu, SAVE_MENU_WINDOW));
+fn save_menu_going(call: &mut Call) {
+    let menu = call.arg(0);
+    going(call.memory(), "the load or save window", |m| kill_field(m, menu, SAVE_MENU_WINDOW));
 }
 
 // Deleted at the return's switch, and at every in-game load's rebuild.
@@ -284,9 +277,9 @@ const HOT_JOIN_MAP_MANAGER: usize = 0x50;
 const HOT_JOIN_REQUEST: usize = 0xc0;
 const HOT_JOIN_LOST: usize = 0xc8;
 
-extern "C" fn domestic_view_going(frame: *mut HookFrame) {
-    let view = this(frame);
-    going("the domestic view's choosers", |m| {
+fn domestic_view_going(call: &mut Call) {
+    let view = call.arg(0);
+    going(call.memory(), "the domestic view's choosers", |m| {
         if m.ptr(view)? != m.at(DOMESTIC_VIEW) {
             return Ok(());
         }
@@ -295,9 +288,9 @@ extern "C" fn domestic_view_going(frame: *mut HookFrame) {
     });
 }
 
-extern "C" fn government_view_going(frame: *mut HookFrame) {
-    let view = this(frame);
-    going("the government view's reform chooser", |m| {
+fn government_view_going(call: &mut Call) {
+    let view = call.arg(0);
+    going(call.memory(), "the government view's reform chooser", |m| {
         if m.ptr(view)? != m.at(GOVERNMENT_VIEW) {
             return Ok(());
         }
@@ -315,18 +308,18 @@ extern "C" fn government_view_going(frame: *mut HookFrame) {
     });
 }
 
-extern "C" fn lobby_going(frame: *mut HookFrame) {
-    let lobby = this(frame);
-    going("the in-game lobby's window", |m| kill_field(m, lobby, LOBBY_WINDOW));
+fn lobby_going(call: &mut Call) {
+    let lobby = call.arg(0);
+    going(call.memory(), "the in-game lobby's window", |m| kill_field(m, lobby, LOBBY_WINDOW));
 }
 
 /// The hot join's lost window, which its destructor still hides: killed
 /// once it is done.
 static HOT_JOIN_LOST_WINDOW: AtomicUsize = AtomicUsize::new(0);
 
-extern "C" fn hot_join_going(frame: *mut HookFrame) {
-    let hot_join = this(frame);
-    going("the hot join's windows", |m| {
+fn hot_join_going(call: &mut Call) {
+    let hot_join = call.arg(0);
+    going(call.memory(), "the hot join's windows", |m| {
         HOT_JOIN_LOST_WINDOW.store(m.ptr(hot_join + HOT_JOIN_LOST)?, Ordering::Relaxed);
         let request = m.ptr(hot_join + HOT_JOIN_REQUEST)?;
         if request != 0 {
@@ -338,10 +331,10 @@ extern "C" fn hot_join_going(frame: *mut HookFrame) {
     });
 }
 
-extern "C" fn hot_join_gone(_frame: *mut HookFrame) {
+fn hot_join_gone(call: &mut Call) {
     let lost = HOT_JOIN_LOST_WINDOW.swap(0, Ordering::Relaxed);
     if lost != 0 {
-        going("the hot join's lost window", |m| kill(m, lost));
+        going(call.memory(), "the hot join's lost window", |m| kill(m, lost));
     }
 }
 
@@ -359,9 +352,9 @@ const COLONISATION_WINDOW: usize = 0x558;
 /// The colonisation panel's window, killed once the panel is gone.
 static COLONISATION_WINDOW_GOING: AtomicUsize = AtomicUsize::new(0);
 
-extern "C" fn province_view_going(frame: *mut HookFrame) {
-    let view = this(frame);
-    going("the province view's colonisation panel", |m| {
+fn province_view_going(call: &mut Call) {
+    let view = call.arg(0);
+    going(call.memory(), "the province view's colonisation panel", |m| {
         if m.ptr(view)? != m.at(PROVINCE_VIEW) {
             return Ok(());
         }
@@ -378,18 +371,18 @@ extern "C" fn province_view_going(frame: *mut HookFrame) {
     });
 }
 
-extern "C" fn colonisation_going(frame: *mut HookFrame) {
-    let panel = this(frame);
-    going("the colonisation panel's window", |m| {
+fn colonisation_going(call: &mut Call) {
+    let panel = call.arg(0);
+    going(call.memory(), "the colonisation panel's window", |m| {
         COLONISATION_WINDOW_GOING.store(m.ptr(panel + COLONISATION_WINDOW)?, Ordering::Relaxed);
         Ok(())
     });
 }
 
-extern "C" fn colonisation_gone(_frame: *mut HookFrame) {
+fn colonisation_gone(call: &mut Call) {
     let window = COLONISATION_WINDOW_GOING.swap(0, Ordering::Relaxed);
     if window != 0 {
-        going("the colonisation panel's window", |m| kill(m, window));
+        going(call.memory(), "the colonisation panel's window", |m| kill(m, window));
     }
 }
 
@@ -403,9 +396,9 @@ const STATS: usize = 0x1d284c8;
 const STATS_DELETE: GameFunction<2> = GameFunction::at(0xe25030);
 const STATS_WINDOW: usize = 0x28;
 
-extern "C" fn summary_going(frame: *mut HookFrame) {
-    let summary = this(frame);
-    going("the summary's statistics", |m| {
+fn summary_going(call: &mut Call) {
+    let summary = call.arg(0);
+    going(call.memory(), "the summary's statistics", |m| {
         if m.ptr(summary)? != m.at(SUMMARY) {
             return Ok(());
         }
@@ -449,8 +442,8 @@ const FLAGSHIP_DESIGNER_WINDOW: usize = 0x570;
 /// As the map manager an in-process return lets go is going: the last made
 /// first. The country history and the papacy are closed first, as the
 /// papacy open is listed by the GUI; they stay, without their windows.
-pub(super) fn map_manager_going(manager: usize) {
-    going("the map manager's panels", |m| {
+pub(super) fn map_manager_going(m: Memory, manager: usize) {
+    going(m, "the map manager's panels", |m| {
         for (field, close) in [(COUNTRY_HISTORY, CLOSE_COUNTRY_HISTORY), (PAPACY, CLOSE_PAPACY)] {
             let panel = m.ptr(manager + field)?;
             if panel != 0 && m.ptr(panel)? != 0 {

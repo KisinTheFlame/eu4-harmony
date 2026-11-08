@@ -15,7 +15,7 @@
 //! ([`super::session_interface::RETURNS`]).
 use super::LettingGo;
 use crate::{
-    hooks::HookFrame,
+    hooks::Call,
     memory::Memory,
     points::{GameFunction, Point},
 };
@@ -52,26 +52,24 @@ fn since_reset() -> String {
     format!("{} trade nodes the world's clear replaced were deleted", DELETED.swap(0, Ordering::Relaxed))
 }
 
-extern "C" fn replacing(_frame: *mut HookFrame) {
-    crate::guarded("trade nodes replaced", || {
-        let m = crate::hooked_memory();
-        let nodes = (|| {
-            let database = m.ptr(m.at(DATABASE))?;
-            if database == 0 {
-                return Ok(Vec::new());
-            }
-            let (begin, end) = (m.ptr(database + NODES)?, m.ptr(database + NODES + 8)?);
-            (begin..end).step_by(8).map(|at| m.ptr(at)).filter(|n| !matches!(n, Ok(0))).collect::<crate::Result<Vec<_>>>()
-        })();
-        match nodes {
-            Ok(nodes) => {
-                let returns = super::session_interface::RETURNS.load(Ordering::Relaxed);
-                let mut waiting = WAITING.lock().unwrap_or_else(|e| e.into_inner());
-                waiting.extend(nodes.into_iter().filter(|&n| n != m.at(NO_NODE)).map(|n| (n, returns)));
-            }
-            Err(e) => log!("repair: the trade nodes being replaced were not read: {e}"),
+fn replacing(call: &mut Call) {
+    let m = call.memory();
+    let nodes = (|| {
+        let database = m.ptr(m.at(DATABASE))?;
+        if database == 0 {
+            return Ok(Vec::new());
         }
-    });
+        let (begin, end) = (m.ptr(database + NODES)?, m.ptr(database + NODES + 8)?);
+        (begin..end).step_by(8).map(|at| m.ptr(at)).filter(|n| !matches!(n, Ok(0))).collect::<crate::Result<Vec<_>>>()
+    })();
+    match nodes {
+        Ok(nodes) => {
+            let returns = super::session_interface::RETURNS.load(Ordering::Relaxed);
+            let mut waiting = WAITING.lock().unwrap_or_else(|e| e.into_inner());
+            waiting.extend(nodes.into_iter().filter(|&n| n != m.at(NO_NODE)).map(|n| (n, returns)));
+        }
+        Err(e) => log!("repair: the trade nodes being replaced were not read: {e}"),
+    }
 }
 
 /// The world's clear begins: the nodes that waited from before the last

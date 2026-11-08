@@ -23,6 +23,7 @@
 //! broken there skips nothing (0x159fba1).
 use super::glyphs::Glyph;
 use super::{breaks, text_loops};
+use crate::called_by_game;
 use crate::game_string;
 use crate::objects::text::font::{OWN_GLYPHS, SCALE_FROM_GLYPHS};
 use crate::points::Point;
@@ -78,21 +79,19 @@ thread_local! {
 
 /// The glyph for the character at `text[index]`, from the font whose own
 /// table is at `table`.
+#[called_by_game]
 extern "C" fn glyph(table: usize, text: *const u8, index: usize) -> *const Glyph {
-    crate::guarded("fitted text glyph", || {
-        let (glyph, len) = unsafe { text_loops::glyph_at(table - OWN_GLYPHS, text.add(index)) };
-        LOOKED_UP.set(LookedUp { text: text as usize, index, rest: len - 1 });
-        glyph
-    })
+    let (glyph, len) = unsafe { text_loops::glyph_at(table - OWN_GLYPHS, text.add(index)) };
+    LOOKED_UP.set(LookedUp { text: text as usize, index, rest: len - 1 });
+    glyph
 }
 
 /// How many bytes the step at `index` of `string` (a `std::string*`) skips
 /// besides its own.
+#[called_by_game]
 extern "C" fn rest(string: *const u8, index: u32) -> u32 {
-    crate::guarded("fitted text step", || {
-        let text = unsafe { game_string::text(string) }.as_ptr() as usize;
-        LOOKED_UP.replace(LookedUp::default()).rest_at(text, index as usize) as u32
-    })
+    let text = unsafe { game_string::text(string) }.as_ptr() as usize;
+    LOOKED_UP.replace(LookedUp::default()).rest_at(text, index as usize) as u32
 }
 
 /// Replaces `movzx eax, byte [rdx+rax]; mov r15, [r14+rax*8]`.
@@ -195,8 +194,9 @@ extern "C" fn wrap_break_stub() {
 
 /// Where the next line starts when the text of the `std::string` at `string`
 /// breaks at `at`: past a space there, or at the character there.
+#[called_by_game]
 extern "C" fn next_line_start(string: *const u8, at: u32) -> u32 {
-    crate::guarded("text wrap", || at + (unsafe { game_string::text(string) }.get(at as usize) == Some(&b' ')) as u32)
+    at + (unsafe { game_string::text(string) }.get(at as usize) == Some(&b' ')) as u32
 }
 
 /// Replaces `lea r12d, [r15+1]; mov [rbp+0x128], r12d`, where a line broken

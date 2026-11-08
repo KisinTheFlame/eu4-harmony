@@ -3,6 +3,7 @@
 //! stream sums its bytes otherwise than the memory stream the save was
 //! written from, so such a save never matched and turned achievements off.
 //! The file is summed as the save was.
+use crate::called_by_game;
 use crate::points::Point;
 use crate::saves::sum::SaveSum;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -25,22 +26,21 @@ static FILE_STREAM_SUM_AT: AtomicUsize = AtomicUsize::new(0);
 /// A file's stream's sum of `count` of its bytes (-1 for all), as the memory
 /// stream the save was written from summed them; the game's own sum when
 /// the file cannot be read.
+#[called_by_game]
 unsafe extern "C" fn file_stream_sum(stream: usize, count: i32) -> u32 {
-    crate::guarded("save checksum of a file", || {
-        let m = crate::hooked_memory();
-        let mut sum = SaveSum::default();
-        let read = m
-            .ptr(stream + FILE_STREAM_FILE)
-            .and_then(|holder| m.ptr(holder))
-            .and_then(|file| crate::physfs::read_from_start(file, u64::try_from(count).ok(), |bytes| sum.add(bytes)));
-        match read {
-            Ok(()) => sum.value(),
-            Err(e) => {
-                log!("repairs: the save checksum of a file is summed by the game, which never matches the save's: {e}");
-                m.call(FILE_STREAM_SUM_AT.load(Ordering::Relaxed), &[stream, count as u32 as usize]).map_or(0, |v| v as u32)
-            }
+    let m = crate::hooked_memory();
+    let mut sum = SaveSum::default();
+    let read = m
+        .ptr(stream + FILE_STREAM_FILE)
+        .and_then(|holder| m.ptr(holder))
+        .and_then(|file| crate::physfs::read_from_start(file, u64::try_from(count).ok(), |bytes| sum.add(bytes)));
+    match read {
+        Ok(()) => sum.value(),
+        Err(e) => {
+            log!("repairs: the save checksum of a file is summed by the game, which never matches the save's: {e}");
+            m.call(FILE_STREAM_SUM_AT.load(Ordering::Relaxed), &[stream, count as u32 as usize]).map_or(0, |v| v as u32)
         }
-    })
+    }
 }
 
 crate::resume!(SAVE_CHECKSUM_SUM_RESUME: SAVE_CHECKSUM_SUM_NEXT = SAVE_CHECKSUM_SUM_DONE);

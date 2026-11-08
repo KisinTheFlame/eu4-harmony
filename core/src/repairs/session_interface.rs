@@ -5,7 +5,7 @@
 //! it is gone after are counted, for what its interface may show until then.
 use super::LettingGo;
 use crate::{
-    hooks::HookFrame,
+    hooks::Call,
     memory::Memory,
     objects::{
         campaign::{map_manager as manager_fields, message_window},
@@ -90,20 +90,18 @@ impl SessionInterface {
 /// it never lets go of the session's interface goes first
 /// ([`let_session_interface_go`]). Not before: until the idler switch has
 /// switched the map manager out, it uses that interface.
-extern "C" fn map_manager_going(frame: *mut HookFrame) {
-    crate::guarded("map manager destructor", || {
-        let manager = unsafe { (*frame).args[0] };
-        if LEAVING.compare_exchange(manager, 0, Ordering::Relaxed, Ordering::Relaxed).is_err() {
-            return;
-        }
-        let m = crate::hooked_memory();
-        match let_session_interface_go(&m, manager) {
-            Ok(gone) => log!("repair: {gone} parts of the session's interface the map manager leaves were let go"),
-            Err(e) => log!("repair: the session's interface was not let go: {e}"),
-        }
-        super::panels::map_manager_going(manager);
-        GONE.store(true, Ordering::Relaxed);
-    });
+fn map_manager_going(call: &mut Call) {
+    let manager = call.arg(0);
+    if LEAVING.compare_exchange(manager, 0, Ordering::Relaxed, Ordering::Relaxed).is_err() {
+        return;
+    }
+    let m = call.memory();
+    match let_session_interface_go(&m, manager) {
+        Ok(gone) => log!("repair: {gone} parts of the session's interface the map manager leaves were let go"),
+        Err(e) => log!("repair: the session's interface was not let go: {e}"),
+    }
+    super::panels::map_manager_going(m, manager);
+    GONE.store(true, Ordering::Relaxed);
 }
 
 /// The map manager that return lets go is gone, and its interface with it.
@@ -113,7 +111,7 @@ extern "C" fn map_manager_going(frame: *mut HookFrame) {
 /// windows of them in its lists, and its destructor, at a later return, called
 /// into one the GUI's sweep had freed (a pure call), about once in ten rounds
 /// (docs/prototype-log.md, "The windows killed at a return taken out").
-extern "C" fn map_manager_gone(_frame: *mut HookFrame) {
+fn map_manager_gone(_: &mut Call) {
     if GONE.swap(false, Ordering::Relaxed) {
         RETURNS.fetch_add(1, Ordering::Relaxed);
     }
@@ -171,23 +169,21 @@ fn let_message_icons_go(m: &Memory, holder: usize) -> crate::Result<()> {
 /// build empties the message icon holder it made before and makes another
 /// in its place, and the one before stayed, about 10 KB with its alerts. So
 /// it goes first, and the build, finding none, makes the new one.
-extern "C" fn interface_building(frame: *mut HookFrame) {
-    crate::guarded("map manager interface build", || {
-        let manager = unsafe { (*frame).args[0] };
-        let m = crate::hooked_memory();
-        let let_go = (|| {
-            let holder = m.ptr(manager + manager_fields::MESSAGE_ICON_HOLDER)?;
-            if holder == 0 {
-                return Ok(());
-            }
-            m.write(manager + manager_fields::MESSAGE_ICON_HOLDER, &0usize.to_le_bytes())?;
-            let _letting_go = LettingGo::new("message icon holder");
-            let_message_icons_go(&m, holder)
-        })();
-        if let Err(e) = let_go {
-            log!("repair: the message icon holder the build before made was not let go: {e}");
+fn interface_building(call: &mut Call) {
+    let manager = call.arg(0);
+    let m = call.memory();
+    let let_go = (|| {
+        let holder = m.ptr(manager + manager_fields::MESSAGE_ICON_HOLDER)?;
+        if holder == 0 {
+            return Ok(());
         }
-    });
+        m.write(manager + manager_fields::MESSAGE_ICON_HOLDER, &0usize.to_le_bytes())?;
+        let _letting_go = LettingGo::new("message icon holder");
+        let_message_icons_go(&m, holder)
+    })();
+    if let Err(e) = let_go {
+        log!("repair: the message icon holder the build before made was not let go: {e}");
+    }
 }
 
 /// The repair as the world reset sees it ([`super::REPAIRS`]): it counts

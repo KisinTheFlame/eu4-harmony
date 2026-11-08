@@ -96,26 +96,31 @@ usage:
 ";
 
 use eu4_harmony_loc::Language;
-use eu4_harmony_manifest::{descriptor_entry, HarmonyMod, LOCATION_KEYS};
+use eu4_harmony_manifest::{line_entries, line_entry, HarmonyMod, LOCATION_KEYS};
 
 /// Positional arguments and `--key value` / `--flag` options.
+#[derive(Debug)]
 struct Args {
     positional: Vec<String>,
     options: HashMap<String, Option<String>>,
 }
 
 impl Args {
-    fn parse(raw: &[String], flags: &[&str]) -> Result<Self> {
+    /// Reads `raw`, where `flags` take no value and the options in `values`
+    /// take one; any other option is refused, as cargo xtask's are.
+    fn parse(raw: &[String], flags: &[&str], values: &[&str]) -> Result<Self> {
         let mut args = Args { positional: Vec::new(), options: HashMap::new() };
         let mut i = 0;
         while i < raw.len() {
             if let Some(key) = raw[i].strip_prefix("--") {
                 if flags.contains(&key) {
                     args.options.insert(key.to_string(), None);
-                } else {
+                } else if values.contains(&key) {
                     let value = raw.get(i + 1).ok_or_else(|| format!("--{key} needs a value"))?;
                     args.options.insert(key.to_string(), Some(value.clone()));
                     i += 1;
+                } else {
+                    return Err(format!("unknown option --{key}; eu4-harmony help lists each command's"));
                 }
             } else {
                 args.positional.push(raw[i].clone());
@@ -130,19 +135,22 @@ impl Args {
     }
 }
 
+/// The options that name the game's folders.
+const FOLDERS: [&str; 2] = ["user-dir", "game-dir"];
+
 fn main() {
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let result = match raw.first().map(String::as_str) {
-        Some("new") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_new(&a)),
-        Some("link") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_link(&a)),
-        Some("package") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_package(&a)),
-        Some("check") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_check(&a)),
-        Some("types") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_types(&a)),
-        Some("test") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_test(&a)),
-        Some("reload") => Args::parse(&raw[1..], &["watch"]).and_then(|a| cmd_reload(&a)),
-        Some("backup") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_backup(&a)),
-        Some("restore") => Args::parse(&raw[1..], &["keep", "keep-crashes"]).and_then(|a| cmd_restore(&a)),
-        Some("start") => Args::parse(&raw[1..], &["hidden", "sound"]).and_then(|a| cmd_start(&a)),
+        Some("new") => Args::parse(&raw[1..], &[], &["name", "dir", "languages"]).and_then(|a| cmd_new(&a)),
+        Some("link") => Args::parse(&raw[1..], &[], &FOLDERS).and_then(|a| cmd_link(&a)),
+        Some("package") => Args::parse(&raw[1..], &[], &["out"]).and_then(|a| cmd_package(&a)),
+        Some("check") => Args::parse(&raw[1..], &[], &[]).and_then(|a| cmd_check(&a)),
+        Some("types") => Args::parse(&raw[1..], &[], &[]).and_then(|a| cmd_types(&a)),
+        Some("test") => Args::parse(&raw[1..], &[], &[]).and_then(|a| cmd_test(&a)),
+        Some("reload") => Args::parse(&raw[1..], &["watch"], &["test-game"]).and_then(|a| cmd_reload(&a)),
+        Some("backup") => Args::parse(&raw[1..], &[], &FOLDERS).and_then(|a| cmd_backup(&a)),
+        Some("restore") => Args::parse(&raw[1..], &["keep", "keep-crashes"], &FOLDERS).and_then(|a| cmd_restore(&a)),
+        Some("start") => Args::parse(&raw[1..], &["hidden", "sound"], &["timeout", "game-dir", "user-dir"]).and_then(|a| cmd_start(&a)),
         Some("game") => std::process::exit(game::run(&raw[1..])),
         Some("wiki") => wiki::page(&raw[1..]).map(|page| print!("{page}")),
         Some("skills") => skills::page(&raw[1..]).map(|page| print!("{page}")),
@@ -215,7 +223,7 @@ fn start_dir(args: &Args) -> Result<PathBuf> {
 fn strip_location(descriptor: &str) -> String {
     let mut out = String::new();
     for line in descriptor.lines() {
-        if !descriptor_entry(line).is_some_and(|(key, _)| LOCATION_KEYS.contains(&key)) {
+        if !line_entry(line).is_some_and(|(key, _)| LOCATION_KEYS.contains(&key)) {
             out.push_str(line);
             out.push('\n');
         }
@@ -318,8 +326,7 @@ fn cmd_test(args: &Args) -> Result<()> {
     let root = mod_root(&start_dir(args)?)?;
     let manifest = HarmonyMod::read(&root)?.manifest;
     let descriptor = fs::read_to_string(root.join("descriptor.mod")).map_err(|e| e.to_string())?;
-    let name =
-        descriptor.lines().find_map(|l| descriptor_entry(l).filter(|(k, _)| *k == "name").map(|(_, v)| v.to_string())).unwrap_or_else(|| manifest.id.clone());
+    let name = line_entries(&descriptor).find(|(k, _)| *k == "name").map_or_else(|| manifest.id.clone(), |(_, v)| v.to_string());
     let outcome = test::run(&root, manifest, name)?;
     print!("{}", outcome.report);
     if outcome.failed > 0 {
@@ -340,18 +347,10 @@ fn cmd_types(args: &Args) -> Result<()> {
 
 // ---------- link ----------
 
-/// The game folder: `--game-dir`, else `EU4_GAME_DIR`, else the one this
-/// tool is installed in (`<game>\eu4-harmony\eu4-harmony.exe`), else the
-/// Steam library that holds the game.
-fn game_dir(args: &Args) -> Option<PathBuf> {
-    let named = args.value("game-dir").map(PathBuf::from).or_else(|| std::env::var_os("EU4_GAME_DIR").map(PathBuf::from));
-    named.or_else(|| std::env::current_exe().ok().and_then(|exe| installed_in(&exe))).or_else(eu4_harmony_manifest::steam_game_dir)
-}
-
-/// The game folder holding the tool at `exe`, when it is installed there.
-fn installed_in(exe: &Path) -> Option<PathBuf> {
-    let game = exe.parent()?.parent()?;
-    game.join("eu4.exe").is_file().then(|| game.to_path_buf())
+/// The game folder: `--game-dir`, else as every program of EU4 Harmony
+/// finds it ([`eu4_harmony_folders::game_dir`]).
+fn game_dir(args: &Args) -> Result<PathBuf> {
+    eu4_harmony_folders::game_dir(args.value("game-dir").map(Path::new))
 }
 
 /// Writes `<user dir>/mod/eu4-harmony-<id>.mod` pointing at the mod folder.
@@ -370,7 +369,7 @@ fn link_mod(root: &Path, user_dir: &Path) -> Result<PathBuf> {
 fn user_dir(args: &Args) -> Result<PathBuf> {
     match args.value("user-dir") {
         Some(d) => Ok(PathBuf::from(d)),
-        None => eu4_harmony_manifest::user_dir(game_dir(args).as_deref()),
+        None => eu4_harmony_folders::user_dir(game_dir(args).ok().as_deref()),
     }
 }
 
@@ -386,13 +385,13 @@ fn cmd_link(args: &Args) -> Result<()> {
 
 fn cmd_backup(args: &Args) -> Result<()> {
     let [dir] = args.positional.as_slice() else { return Err("usage: eu4-harmony backup <new dir>".into()) };
-    eu4_harmony_client::game_not_running()?;
+    eu4_harmony_client::game::not_running()?;
     backup::backup(&backup::user_folder(&user_dir(args)?)?, Path::new(dir))
 }
 
 fn cmd_restore(args: &Args) -> Result<()> {
     let [dir] = args.positional.as_slice() else { return Err("usage: eu4-harmony restore <dir>".into()) };
-    eu4_harmony_client::game_not_running()?;
+    eu4_harmony_client::game::not_running()?;
     let (keep, keep_crashes) = (args.options.contains_key("keep"), args.options.contains_key("keep-crashes"));
     backup::restore(&backup::user_folder(&user_dir(args)?)?, Path::new(dir), keep, keep_crashes)
 }
@@ -403,7 +402,7 @@ fn cmd_start(args: &Args) -> Result<()> {
     if !args.positional.is_empty() {
         return Err("usage: eu4-harmony start [--hidden] [--sound] [--timeout <seconds>]".into());
     }
-    let game = game_dir(args).ok_or("no game folder: pass --game-dir or set EU4_GAME_DIR")?;
+    let game = game_dir(args)?;
     let (hidden, sound) = (args.options.contains_key("hidden"), args.options.contains_key("sound"));
     if sound && !hidden {
         return Err("--sound is for --hidden: a game started shown plays its sound anyway".into());
@@ -412,7 +411,7 @@ fn cmd_start(args: &Args) -> Result<()> {
         Some(text) => std::time::Duration::from_secs(text.parse().map_err(|_| format!("--timeout {text}: not a number of seconds"))?),
         None => start::WAIT,
     };
-    let log = user_dir(args)?.join("eu4-harmony").join("logs").join("core.log");
+    let log = eu4_harmony_folders::UserFolder::new(user_dir(args)?).core_log();
     start::start(&game, &log, &start::Start { hidden, sound, ..Default::default() }, wait).map(drop)
 }
 
@@ -819,14 +818,12 @@ end)
     }
 
     #[test]
-    fn the_game_folder_is_the_one_the_tool_is_installed_in() {
-        let dir = temp("installed");
-        let exe = dir.join("eu4-harmony").join("eu4-harmony.exe");
-        write(&exe, "MZ").unwrap();
-        assert_eq!(installed_in(&exe), None);
-        write(&dir.join("eu4.exe"), "MZ").unwrap();
-        assert_eq!(installed_in(&exe), Some(dir.clone()));
-        let _ = fs::remove_dir_all(dir);
+    fn an_option_a_command_does_not_take_is_refused() {
+        let raw = |line: &str| line.split(' ').map(String::from).collect::<Vec<_>>();
+        let args = Args::parse(&raw("dir --keep --user-dir u"), &["keep"], &FOLDERS).unwrap();
+        assert_eq!((args.positional.as_slice(), args.value("user-dir"), args.options.contains_key("keep")), (&["dir".to_string()][..], Some("u"), true));
+        assert!(Args::parse(&raw("dir --keep-crash"), &["keep-crashes"], &[]).unwrap_err().contains("unknown option --keep-crash"));
+        assert_eq!(Args::parse(&raw("--out"), &[], &["out"]).err().as_deref(), Some("--out needs a value"));
     }
 
     #[test]

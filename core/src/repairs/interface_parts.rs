@@ -4,7 +4,7 @@
 //! which it never deletes.
 use super::LettingGo;
 use crate::{
-    hooks::HookFrame,
+    hooks::Call,
     objects::{
         campaign::{
             classes,
@@ -35,90 +35,82 @@ static MAP_MODES_WINDOW: AtomicUsize = AtomicUsize::new(0);
 /// and takes off the map manager's windows without killing it, would stay in
 /// the GUI with the map modes' entries; it is kept to be killed once the
 /// panel is gone ([`map_modes_gone`]), as the game kills its other windows.
-extern "C" fn map_modes_going(frame: *mut HookFrame) {
-    crate::guarded("map modes let go", || {
-        let m = crate::hooked_memory();
-        match m.ptr(unsafe { (*frame).args[0] } + map_modes::WINDOW) {
-            Ok(window) => MAP_MODES_WINDOW.store(window, Ordering::Relaxed),
-            Err(e) => log!("repair: the map modes' window was not read: {e}"),
-        }
-    });
+fn map_modes_going(call: &mut Call) {
+    let m = call.memory();
+    match m.ptr(call.arg(0) + map_modes::WINDOW) {
+        Ok(window) => MAP_MODES_WINDOW.store(window, Ordering::Relaxed),
+        Err(e) => log!("repair: the map modes' window was not read: {e}"),
+    }
 }
 
 /// The map modes' panel is gone: its window is killed, and the GUI lets it
 /// go with what it holds at its next sweep.
-extern "C" fn map_modes_gone(_: *mut HookFrame) {
-    crate::guarded("map modes let go", || {
-        let window = MAP_MODES_WINDOW.swap(0, Ordering::Relaxed);
-        if window == 0 {
-            return;
-        }
-        let m = crate::hooked_memory();
-        if let Err(e) = m.vslot(window, gui_window::KILL).and_then(|kill| m.call(kill, &[window])) {
-            log!("repair: the map modes' window was not killed: {e}");
-        }
-    });
+fn map_modes_gone(call: &mut Call) {
+    let window = MAP_MODES_WINDOW.swap(0, Ordering::Relaxed);
+    if window == 0 {
+        return;
+    }
+    let m = call.memory();
+    if let Err(e) = m.vslot(window, gui_window::KILL).and_then(|kill| m.call(kill, &[window])) {
+        log!("repair: the map modes' window was not killed: {e}");
+    }
 }
 
 /// The unit view is being deleted: the bar of the units selected, which its
 /// destructor leaves, would stay in the GUI, shown in the next session when
 /// units were selected; it goes first, as the unit view lets it go when it
 /// makes it again: off the map manager's windows, then killed.
-extern "C" fn unit_view_going(frame: *mut HookFrame) {
-    crate::guarded("unit view delete", || {
-        let m = crate::hooked_memory();
-        let view = unsafe { (*frame).args[0] };
-        let killed = (|| {
-            let bar = m.ptr(view + unit_view::SELECTION_BAR)?;
-            if bar == 0 {
-                return Ok(());
-            }
-            m.write(view + unit_view::SELECTION_BAR, &0usize.to_le_bytes())?;
-            TAKE_WINDOW_OFF.call(&m, [m.ptr(view + unit_view::MAP_MANAGER)?, bar])?;
-            m.call(m.vslot(bar, gui_window::KILL)?, &[bar])?;
-            crate::Result::Ok(())
-        })();
-        if let Err(e) = killed {
-            log!("repair: the unit view's selection bar was not killed: {e}");
+fn unit_view_going(call: &mut Call) {
+    let m = call.memory();
+    let view = call.arg(0);
+    let killed = (|| {
+        let bar = m.ptr(view + unit_view::SELECTION_BAR)?;
+        if bar == 0 {
+            return Ok(());
         }
-    });
+        m.write(view + unit_view::SELECTION_BAR, &0usize.to_le_bytes())?;
+        TAKE_WINDOW_OFF.call(&m, [m.ptr(view + unit_view::MAP_MANAGER)?, bar])?;
+        m.call(m.vslot(bar, gui_window::KILL)?, &[bar])?;
+        crate::Result::Ok(())
+    })();
+    if let Err(e) = killed {
+        log!("repair: the unit view's selection bar was not killed: {e}");
+    }
 }
 
 /// The outliner is being let go: its categories' entries, which the
 /// function letting it go leaves (its headers with their windows among
 /// them), are deleted first as its refresh deletes them: what shows them is
 /// told first, then each goes by its first slot.
-extern "C" fn outliner_going(frame: *mut HookFrame) {
-    crate::guarded("outliner let go", || {
-        let m = crate::hooked_memory();
-        let outliner = unsafe { (*frame).args[0] };
-        let deleted = (|| {
-            let view = m.ptr(outliner + outliner::VIEW)?;
-            if view != 0 {
-                m.call(m.vslot(view, outliner::VIEW_EMPTIED)?, &[view])?;
-            }
-            let mut deleted = 0;
-            for category in 0..outliner::CATEGORY_COUNT {
-                let entries = outliner + outliner::CATEGORIES + category * outliner::CATEGORY_SIZE + outliner::ENTRIES;
-                let mut node = m.ptr(entries + list::HEAD)?;
-                while node != 0 {
-                    let entry = m.ptr(node + list::ITEM)?;
-                    if entry != 0 {
-                        m.write(node + list::ITEM, &0usize.to_le_bytes())?;
-                        let _letting_go = LettingGo::new("outliner's entry");
-                        m.call(m.vslot(entry, 0)?, &[entry, 1])?;
-                        deleted += 1;
-                    }
-                    node = m.ptr(node + list::NEXT)?;
-                }
-            }
-            crate::Result::Ok(deleted)
-        })();
-        match deleted {
-            Ok(n) => log!("repair: {n} entries of the outliner were deleted as it went"),
-            Err(e) => log!("repair: the outliner's entries were not deleted: {e}"),
+fn outliner_going(call: &mut Call) {
+    let m = call.memory();
+    let outliner = call.arg(0);
+    let deleted = (|| {
+        let view = m.ptr(outliner + outliner::VIEW)?;
+        if view != 0 {
+            m.call(m.vslot(view, outliner::VIEW_EMPTIED)?, &[view])?;
         }
-    });
+        let mut deleted = 0;
+        for category in 0..outliner::CATEGORY_COUNT {
+            let entries = outliner + outliner::CATEGORIES + category * outliner::CATEGORY_SIZE + outliner::ENTRIES;
+            let mut node = m.ptr(entries + list::HEAD)?;
+            while node != 0 {
+                let entry = m.ptr(node + list::ITEM)?;
+                if entry != 0 {
+                    m.write(node + list::ITEM, &0usize.to_le_bytes())?;
+                    let _letting_go = LettingGo::new("outliner's entry");
+                    m.call(m.vslot(entry, 0)?, &[entry, 1])?;
+                    deleted += 1;
+                }
+                node = m.ptr(node + list::NEXT)?;
+            }
+        }
+        crate::Result::Ok(deleted)
+    })();
+    match deleted {
+        Ok(n) => log!("repair: {n} entries of the outliner were deleted as it went"),
+        Err(e) => log!("repair: the outliner's entries were not deleted: {e}"),
+    }
 }
 
 /// The repair as the world reset sees it ([`super::REPAIRS`]): it counts

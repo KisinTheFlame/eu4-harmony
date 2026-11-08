@@ -1,11 +1,11 @@
 # Test games plan
 
-Status: decided 2026-11-08, T1 to T4 built; what was tried in the game is in [prototype-log.md](prototype-log.md), "Test games". Terms are in [GLOSSARY.md](../GLOSSARY.md) (Test game, Claim, Lease). It replaces the claim of the whole game of [game-testing.md](game-testing.md), and rests on [research/several-games.md](research/several-games.md), which found that several games run at once. The decision is [ADR test-games-run-side-by-side](adr/test-games-run-side-by-side.md).
+Status: decided 2026-11-08, T1 to T4 built; what was tried in the game is in [prototype-log.md](prototype-log.md), "Test games". The limit of three, the queue and the lease were taken out the same day ([ADR test-games-have-no-limit-or-lease](adr/test-games-have-no-limit-or-lease.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Test game, Claim). It replaces the claim of the whole game of [game-testing.md](game-testing.md), and rests on [research/several-games.md](research/several-games.md), which found that several games run at once. The decision is [ADR test-games-run-side-by-side](adr/test-games-run-side-by-side.md).
 
 ## Goal and scope
 
-- **Goal**: several sessions try things in the game at the same time, each in a test game of its own, which touches neither the player's files nor the framework installed in the game folder; so a claim backs up and puts back nothing, and a session waits only when every test game is taken.
-- **In scope**: the proxy loading a test game's core; the framework reading `-userdir`; the test game's own pipe in a developer build; the command line tool asking a test game; the claim as test games, with a queue; the scenario runner, `cargo xtask profile` and `cargo xtask install` on them; the game-test skill.
+- **Goal**: several sessions try things in the game at the same time, each in a test game of its own, which touches neither the player's files nor the framework installed in the game folder; so a claim backs up and puts back nothing, and a session never waits for another's test game.
+- **In scope**: the proxy loading a test game's core; the framework reading `-userdir`; the test game's own pipe in a developer build; the command line tool asking a test game; the claim as test games; the scenario runner, `cargo xtask profile` and `cargo xtask install` on them; the game-test skill.
 - **Out of scope**: a claim of the whole computer, for installing into the game folder or measuring alone (none for now: a measurement says how many other games ran beside it); a way for the player to end the test games, until it is known whether they keep the player from starting the game (open question below); playing several scenarios of one run in several test games at once.
 
 ## Behavior
@@ -28,13 +28,13 @@ The test game's name is its owner's (the leaf name of the checkout's folder, or 
 
 | Command | What it does |
 | --- | --- |
-| `cargo xtask game claim --purpose <text> [--wait] [--lease <minutes>]` | Claims a test game: its folder, with a user folder made from the player's. Busy, exit 2, when every test game is held or others wait first; `--wait` waits in the queue. Refused while the game folder's proxy cannot load a test game's core |
+| `cargo xtask game claim --purpose <text> [--wait]` | Claims a test game: its folder, with a user folder made from the player's. Busy, exit 2, only while a checkout from before these commands holds the whole game; `--wait` waits until it releases it. Refused while the game folder's proxy cannot load a test game's core |
 | `cargo xtask game start [--save <name>]... [--visible] [--sound] [--seed <n>] [--timeout <seconds>]` | Copies this checkout's built core and `dev.toml` into the test game's `core\`, and each save named from the player's `save games`, then starts the test game hidden and waits for its main menu. Refused while it runs, or when the built core has no test games' pipes |
 | `cargo xtask game stop` | Ends the test game |
 | `cargo xtask game release` | Ends the test game if it runs, keeps its logs and crash folders in `kept\`, removes the rest of its folder, and frees it; says how long it was held and how its games ended |
-| `cargo xtask game status` | Every test game: its holder, purpose, lease and process; the queue; the `eu4.exe` that are no test game's; folders no claim refers to |
+| `cargo xtask game status` | Every test game: its holder, purpose and process; the `eu4.exe` that are no test game's; folders no claim refers to |
 
-Each command of the holder's starts the lease again. `watch`, `renew`, `--player` and `--now` are gone: nothing waits to be put back, so a holder need not be woken before its lease ends, and the player's game is not a claim.
+A claim holds its test game until it is released. `watch`, `renew`, `--lease`, `--player` and `--now` are gone: nothing waits to be put back, nothing is taken from a holder, and the player's game is not a claim.
 
 ### One run
 
@@ -56,23 +56,22 @@ Each command of the holder's starts the lease again. `watch`, `renew`, `--player
 
 The release removes the junction before the folder, so that the player's `mod` folder is never removed through it.
 
-### The queue and the lease
+### How many, and for how long
 
-- At most three test games at once (`CAPACITY`): a game in 1820 took 4.2 GB of memory and 1.3 GB of the graphics card's ([prototype-log.md](prototype-log.md), "Test games").
-- A claim waiting joins the queue in the order it asked, says every 5 seconds that it still waits, and leaves it once it has not for a minute. A free test game goes to the first in the queue only.
-- The lease is 30 minutes, or `--lease`, from the holder's last command, the scenario runner keeping it going while it plays. A lease that ran out costs the holder nothing until a claim waits for a test game with none free: then the claim takes the test game whose lease ran out longest ago, ending its game and keeping its logs as a release does.
+- Any number of test games at once, and a claim holds its own until its holder releases it: no queue, no lease, nothing taken from a holder ([ADR test-games-have-no-limit-or-lease](adr/test-games-have-no-limit-or-lease.md)). A game in 1820 takes 4.2 GB of memory and 1.3 GB of the graphics card's ([prototype-log.md](prototype-log.md), "Test games"); `status` says how many are held.
+- A claim left behind, such as a scenario run's ended by a second Ctrl-C, stays until `cargo xtask game release --owner <name>` releases it.
 
 ### Beside other games
 
 - An `eu4.exe` that is no test game's is the player's, or a test game of a checkout from before these commands, and no command ends it.
-- A checkout from before these commands knows only `game-lock.json`. While any test game is held, `game-lock.json` names a holder `test-games` with a lease of a year, so that such a checkout waits; while such a checkout's claim is there, a claim of a test game waits for it, since that checkout installs into the game folder and backs up the player's files.
+- A checkout from before these commands knows only `game-lock.json`. While any test game is held, `game-lock.json` names a holder `test-games` with a lease of a year, so that such a checkout waits; while such a checkout's claim is there, a claim of a test game waits for it, looking again every 5 seconds, since that checkout installs into the game folder and backs up the player's files.
 - `cargo xtask install` needs no claim, and is refused while any `eu4.exe` runs: Windows keeps a loaded `version.dll` from being replaced.
 
 ## How it fits together
 
-- `proxy/` reads `-harmony_core` (its own copy of the manifest crate's word splitting, which a test compares, so that the proxy links nothing but the core); `core/src/paths.rs` reads the command line once, `-userdir` through `eu4_harmony_manifest::user_dir_of`, and the core's own folder; `core/src/pipe.rs` names the pipe; `eu4_harmony_remote::pipe_of` makes a test game's pipe's name for the core and the client alike.
+- `proxy/` reads `-harmony_core` (its own copy of the folders crate's word splitting, which a test compares, so that the proxy links nothing but the core); `core/src/paths.rs` reads the command line once, `-userdir` through `eu4_harmony_folders::user_dir_of`, and the core's own folder; `core/src/pipe.rs` names the pipe; `eu4_harmony_remote::pipe_of` makes a test game's pipe's name for the core and the client alike.
 - `client/src/start.rs` starts a test game, checking the proxy and the core for the switches they need, and waiting for the main menu on the test game's pipe; `client/src/pipe.rs` names the pipe from `--test-game` or the environment.
-- `xtask/src/claim/`: `record.rs` the claims and the queue and what a claim finds when it looks at them, without files or clock; `course.rs` claiming, starting, stopping, releasing and a run within a claim, over the seam `machine.rs`, which is the computer: the record under its mutex, the processes, the claims' folders and the clock. The course's tests play whole courses over a recorded machine.
+- `xtask/src/claim/`: `record.rs` the claims and what a claim finds when it looks at them, without files or clock; `course.rs` claiming, starting, stopping, releasing and a run within a claim, over the seam `machine.rs`, which is the computer: the record under its mutex, the processes, the claims' folders and the clock. The course's tests play whole courses over a recorded machine.
 - The scenario runner builds each build with `dev-test-games` and copies it into its test game's `core\`; its "player" build is the player's with the test games' pipes only, which the startup report names.
 
 ## Parts
@@ -93,7 +92,7 @@ The proxy's `-harmony_core`, the framework reading `-userdir`, `dev.toml` beside
 
 ### T3 Claims of test games
 
-`cargo xtask game` on test games: the record, the queue, the lease, the claim's folder, `follow.exe`, the marker in `game-lock.json`.
+`cargo xtask game` on test games: the record, the claim's folder, `follow.exe`, the marker in `game-lock.json`.
 
 ### T4 The commands on test games
 

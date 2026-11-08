@@ -14,7 +14,7 @@
 use super::{command_session, context, game, world_context, Fail, GResult};
 use crate::{
     game_string,
-    hooks::HookFrame,
+    hooks::Call,
     memory::Memory,
     objects::session::{self, fields as session_fields},
     points::{GameFunction, Point},
@@ -533,23 +533,21 @@ pub fn listen(heard: fn(&Heard)) {
     LISTENING.store(true, Ordering::Relaxed);
 }
 
-extern "C" fn executing(frame: *mut HookFrame) {
+fn executing(call: &mut Call) {
     EXECUTED.fetch_add(1, Ordering::Relaxed);
     if !LISTENING.load(Ordering::Relaxed) {
         return;
     }
-    crate::guarded("commands", || {
-        let m = crate::hooked_memory();
-        let Ok(command) = m.ptr(unsafe { (*frame).args[0] } + LAMBDA_COMMAND) else { return };
-        let Ok(token) = m.vslot(command, TYPE).and_then(|f| m.call(f, &[command])) else { return };
-        let token = token as u32;
-        let kind = type_name(&m, token).unwrap_or_else(|| format!("token {token}"));
-        let heard = Heard { m, command, token, kind, id: m.u32(command + ID).unwrap_or(0), text: OnceCell::new() };
-        let listeners = LISTENERS.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        for listener in listeners {
-            listener(&heard);
-        }
-    })
+    let m = call.memory();
+    let Ok(command) = m.ptr(call.arg(0) + LAMBDA_COMMAND) else { return };
+    let Ok(token) = m.vslot(command, TYPE).and_then(|f| m.call(f, &[command])) else { return };
+    let token = token as u32;
+    let kind = type_name(&m, token).unwrap_or_else(|| format!("token {token}"));
+    let heard = Heard { m, command, token, kind, id: m.u32(command + ID).unwrap_or(0), text: OnceCell::new() };
+    let listeners = LISTENERS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    for listener in listeners {
+        listener(&heard);
+    }
 }
 
 /// The name of token `token`: a command's type, or the key of an object

@@ -39,7 +39,7 @@
 use super::LettingGo;
 use crate::{
     game::world::FIND_ID,
-    hooks::HookFrame,
+    hooks::Call,
     memory::Memory,
     objects::campaign::{countries as country_list, globals},
     points::Point,
@@ -150,84 +150,78 @@ pub(super) fn world_reset() {
 
 /// A record of a history is being deleted: the persons it holds that are not
 /// null wait, and so does a battle.
-extern "C" fn record_going(frame: *mut HookFrame) {
-    crate::guarded("history record delete", || {
-        let (record, flags) = unsafe { ((*frame).args[0], (*frame).args[1]) };
-        if flags & 1 == 0 {
-            return;
+fn record_going(call: &mut Call) {
+    let (record, flags) = (call.arg(0), call.arg(1));
+    if flags & 1 == 0 {
+        return;
+    }
+    let m = call.memory();
+    let kept = (|| {
+        let class = m.ptr(record)?;
+        if class == m.at(BATTLE_RECORD) {
+            let battle = m.ptr(record + BATTLE)?;
+            return Ok(if battle == 0 { Vec::new() } else { vec![(battle, Left::Battle)] });
         }
-        let m = crate::hooked_memory();
-        let kept = (|| {
-            let class = m.ptr(record)?;
-            if class == m.at(BATTLE_RECORD) {
-                let battle = m.ptr(record + BATTLE)?;
-                return Ok(if battle == 0 { Vec::new() } else { vec![(battle, Left::Battle)] });
-            }
-            if DIPLOMACY_RECORDS.iter().any(|&c| class == m.at(c)) {
-                let relation = m.ptr(record + RELATION)?;
-                let gone = GONE.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|g| g.contains(&relation));
-                return Ok(if relation == 0 || gone { Vec::new() } else { vec![(relation, Left::Relation)] });
-            }
-            let fields: &[usize] = if class == m.at(MONARCH_RECORD) {
-                &MONARCH_PERSONS
-            } else if class == m.at(HEIR_RECORD) || class == m.at(QUEEN_RECORD) {
-                &SMALL_PERSONS
-            } else {
-                return Ok(Vec::new());
-            };
-            let nulls = null_persons(&m)?;
-            let mut persons = Vec::new();
-            for field in fields {
-                let person = m.ptr(record + field)?;
-                if person != 0 && !nulls.contains(&person) {
-                    persons.push((person, Left::Person));
-                }
-            }
-            crate::Result::Ok(persons)
-        })();
-        match kept {
-            Ok(left) if !left.is_empty() => {
-                let resets = RESETS.load(Ordering::Relaxed);
-                let returns = super::session_interface::RETURNS.load(Ordering::Relaxed);
-                let mut waiting = WAITING.lock().unwrap_or_else(|e| e.into_inner());
-                let waiting = waiting.get_or_insert_with(HashMap::new);
-                for (object, kind) in left {
-                    // A relation counts returns, the others world resets.
-                    waiting.entry(object).or_insert((if kind == Left::Relation { returns } else { resets }, kind));
-                }
-            }
-            Ok(_) => {}
-            Err(e) => log!("repair: what a history record holds was not read: {e}"),
+        if DIPLOMACY_RECORDS.iter().any(|&c| class == m.at(c)) {
+            let relation = m.ptr(record + RELATION)?;
+            let gone = GONE.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|g| g.contains(&relation));
+            return Ok(if relation == 0 || gone { Vec::new() } else { vec![(relation, Left::Relation)] });
         }
-    });
+        let fields: &[usize] = if class == m.at(MONARCH_RECORD) {
+            &MONARCH_PERSONS
+        } else if class == m.at(HEIR_RECORD) || class == m.at(QUEEN_RECORD) {
+            &SMALL_PERSONS
+        } else {
+            return Ok(Vec::new());
+        };
+        let nulls = null_persons(&m)?;
+        let mut persons = Vec::new();
+        for field in fields {
+            let person = m.ptr(record + field)?;
+            if person != 0 && !nulls.contains(&person) {
+                persons.push((person, Left::Person));
+            }
+        }
+        crate::Result::Ok(persons)
+    })();
+    match kept {
+        Ok(left) if !left.is_empty() => {
+            let resets = RESETS.load(Ordering::Relaxed);
+            let returns = super::session_interface::RETURNS.load(Ordering::Relaxed);
+            let mut waiting = WAITING.lock().unwrap_or_else(|e| e.into_inner());
+            let waiting = waiting.get_or_insert_with(HashMap::new);
+            for (object, kind) in left {
+                // A relation counts returns, the others world resets.
+                waiting.entry(object).or_insert((if kind == Left::Relation { returns } else { resets }, kind));
+            }
+        }
+        Ok(_) => {}
+        Err(e) => log!("repair: what a history record holds was not read: {e}"),
+    }
 }
 
 /// A person or a battle is destroyed, by the game or the repair: it waits
 /// no more.
-extern "C" fn going(frame: *mut HookFrame) {
-    crate::guarded("person or battle destructor", || {
-        let object = unsafe { (*frame).args[0] };
-        if let Some(waiting) = WAITING.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-            waiting.remove(&object);
-        }
-    });
+fn going(call: &mut Call) {
+    let object = call.arg(0);
+    if let Some(waiting) = WAITING.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        waiting.remove(&object);
+    }
 }
 
 /// A relation is destroyed, by the game or the repair: it waits no more, and
 /// a record that still holds it does not make it wait.
-extern "C" fn relation_going(frame: *mut HookFrame) {
-    crate::guarded("relation destructor", || {
-        let relation = unsafe { (*frame).args[0] };
-        if let Some(waiting) = WAITING.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-            waiting.remove(&relation);
-        }
-        GONE.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashSet::new).insert(relation);
-    });
+fn relation_going(call: &mut Call) {
+    let relation = call.arg(0);
+    if let Some(waiting) = WAITING.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        waiting.remove(&relation);
+    }
+    GONE.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashSet::new).insert(relation);
 }
 
 /// A relation is made where one the game deleted was.
-extern "C" fn relation_made(frame: *mut HookFrame) {
-    let relation = unsafe { (*frame).result };
+fn relation_made(call: &mut Call) {
+    let relation = call.result().unwrap_or(0);
     if relation != 0 {
         if let Some(gone) = GONE.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
             gone.remove(&relation);

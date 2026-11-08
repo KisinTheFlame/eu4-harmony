@@ -6,7 +6,7 @@
 //! a test game unless this checkout holds one, builds each build the
 //! scenarios named need, with the test games' pipes, which its test game's
 //! next start takes up, starts it hidden, hands each scenario the game at
-//! its main menu, tells how it ended, keeps the lease going, and releases
+//! its main menu, tells how it ended, and releases
 //! the claim it made, whatever ends the run: an error, a panic or Ctrl-C
 //! (docs/test-games.md). Only cargo, for the builds, and the game run as
 //! programs of their own.
@@ -16,13 +16,17 @@ mod perf;
 
 pub use game::{Game, Played, Stop};
 
-use crate::{claim, files, repo, Result};
+use crate::{
+    claim::{self, GameEnd},
+    files, repo, Result,
+};
+use eu4_harmony_folders::UserFolder;
 use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant},
 };
 
 /// The builds a scenario may need.
@@ -149,6 +153,9 @@ fn find(name: &str) -> Option<&'static dyn Scenario> {
 
 /// How long a crash dump may take to read before the report goes without it.
 const READING_A_DUMP: Duration = Duration::from_secs(180);
+/// How long a test game that crashed may take to end on its own, its crash
+/// handler writing its dump, before it is ended.
+const CRASH_HANDLER: Duration = Duration::from_secs(60);
 
 const USAGE: &str =
     "cargo xtask scenario [<name>... [--out <dir>] [--wait] [--owner <name>] [--game-dir <dir>] [--<name>.<parameter> <value>]...] | --from-report <dir>";
@@ -277,7 +284,7 @@ fn play_all(playing: &[(&dyn Scenario, Parameters)], owner: &str, game_dir: &Pat
             Some(why) => Err(why.to_string()),
             None => prepare(build, owner),
         };
-        let mut game = Game::new(owner, game_dir.to_path_buf())?;
+        let mut game = Game::new(owner, game_dir)?;
         for (scenario, parameters) in these {
             let entry = match (&ready, stopped()) {
                 (Err(e), _) => not_played(*scenario, parameters, e),
@@ -333,13 +340,13 @@ fn prepare(build: Build, owner: &str) -> Result<()> {
 fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, owner: &str, out: &Path) -> Value {
     println!("playing {}", scenario.name());
     let began = Instant::now();
-    let since = SystemTime::now();
+    let crashes = claim::user_dir(owner).and_then(|user| UserFolder::new(user).crash_folders()).unwrap_or_default();
     let mut record = json!({});
     game.next_scenario();
     game.loads(scenario.saves(parameters));
     // The games that run beside it, which take some of the computer it
     // measures.
-    let beside = crate::game::processes().len().saturating_sub(usize::from(game.runs()));
+    let beside = eu4_harmony_client::game::processes().unwrap_or_default().len().saturating_sub(usize::from(game.runs()));
     // A game that runs is brought to its main menu; one that does not is
     // started by the scenario's first step, which a scenario that times the
     // start takes itself.
@@ -357,7 +364,10 @@ fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, owner
     entry["games_beside"] = json!(beside);
     match ended {
         Err(Stop::Crashed(_)) => {
-            entry["crash"] = crash(owner, since, &out.join(format!("{}-crash.log", scenario.name())));
+            // A game in its crash handler ends on its own once its dump is
+            // written, with the exit code that says how it crashed.
+            game.wait_gone(CRASH_HANDLER);
+            entry["crash"] = crash(owner, &crashes, game.ended(), &out.join(format!("{}-crash.log", scenario.name())));
             game.end();
         }
         Err(Stop::Hung(_)) => game.end(),
@@ -376,19 +386,13 @@ fn not_played(scenario: &dyn Scenario, parameters: &Parameters, why: &str) -> Va
     entry(scenario, parameters, "not played", Some(why))
 }
 
-/// What the newest crash folder of `owner`'s test game since `since` says:
+/// How `owner`'s test game ended, as the claim followed it, and what its
+/// newest crash folder, of those not `known` when the scenario began, says:
 /// its exception, and the stack its dump gives, written to `log` too.
-fn crash(owner: &str, since: SystemTime, log: &Path) -> Value {
-    let Ok(user) = claim::user_dir(owner) else { return Value::Null };
-    let newest = std::fs::read_dir(user.join("crashes"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|e| e.path().is_dir())
-        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
-        .filter(|(modified, _)| *modified >= since)
-        .max();
-    let Some((_, folder)) = newest else { return json!({ "folder": null }) };
+fn crash(owner: &str, known: &[String], ended: Option<GameEnd>, log: &Path) -> Value {
+    let ended = ended.map_or(Value::Null, |end| json!({ "exit_code": format!("0x{:x}", end.code), "said": end.describe() }));
+    let Ok(user) = claim::user_dir(owner) else { return json!({ "folder": null, "ended": ended }) };
+    let Some(folder) = UserFolder::new(user).new_crash_folders(known).pop() else { return json!({ "folder": null, "ended": ended }) };
     let exception: Vec<String> = std::fs::read_to_string(folder.join("exception.txt")).unwrap_or_default().lines().take(12).map(String::from).collect();
     let dump = folder.join("minidump.dmp");
     let mut stack = Vec::new();
@@ -405,7 +409,7 @@ fn crash(owner: &str, since: SystemTime, log: &Path) -> Value {
             stack = lines[lines.len().saturating_sub(24)..].iter().map(|l| l.to_string()).collect();
         }
     }
-    json!({ "folder": folder.display().to_string(), "exception": exception, "stack": stack, "log": log.display().to_string() })
+    json!({ "folder": folder.display().to_string(), "ended": ended, "exception": exception, "stack": stack, "log": log.display().to_string() })
 }
 
 /// The report: a table of the scenarios, then each one's sections.
@@ -432,6 +436,11 @@ fn markdown(report: &Value) -> String {
         let crash = &s["crash"];
         if crash.is_object() {
             md.extend([String::new(), "### The crash".into(), String::new()]);
+            match crash["ended"]["said"].as_str() {
+                Some(said) => md.push(format!("The claim followed the game to its end: {said}.")),
+                None => md.push("The claim saw no end of the game's.".into()),
+            }
+            md.push(String::new());
             if crash["folder"].is_null() {
                 md.push("No crash folder of the game's came of it.".into());
             } else {
@@ -528,14 +537,14 @@ mod tests {
             { "name": "perf", "about": "what one run costs", "build": "player", "outcome": "passed", "ended": null, "minutes": 4.5,
               "parameters": { "country": "MNG" }, "record": { "menu_seconds": 50.0 } },
             { "name": "perf", "about": "what one run costs", "build": "player", "outcome": "crashed", "ended": "the game ended", "minutes": 1.0,
-              "parameters": {}, "record": {}, "crash": { "folder": "C:\\crashes\\eu4_1", "exception": ["EXCEPTION_ACCESS_VIOLATION"], "stack": [] } },
+              "parameters": {}, "record": {}, "crash": { "folder": "C:\\crashes\\eu4_1", "ended": { "exit_code": "0xc0000005", "said": "eu4.exe 7 had ended by 03:00:00: an access violation (exit code 0xc0000005)" }, "exception": ["EXCEPTION_ACCESS_VIOLATION"], "stack": [] } },
         ] });
         let md = markdown(&report);
         assert!(md.starts_with("# Scenarios, 2026-11-05 12:00\n\n| Scenario | Build | Outcome | Ended at | Minutes |\n"), "{md}");
         assert!(md.contains("| perf | player | passed |  | 4.5 |\n| perf | player | crashed | the game ended | 1.0 |"), "{md}");
         assert!(md.contains("## perf\n\nWhat one run costs.\nParameters: country MNG.\n\n| Figure | Value |"), "{md}");
         assert!(
-            md.contains("### The crash\n\nThe game's crash folder: `C:\\crashes\\eu4_1`.\n\nIts exception:\n\n```text\nEXCEPTION_ACCESS_VIOLATION\n```"),
+            md.contains("### The crash\n\nThe claim followed the game to its end: eu4.exe 7 had ended by 03:00:00: an access violation (exit code 0xc0000005).\n\nThe game's crash folder: `C:\\crashes\\eu4_1`.\n\nIts exception:\n\n```text\nEXCEPTION_ACCESS_VIOLATION\n```"),
             "{md}"
         );
         assert!(md.contains("Its dump was not read in time."), "{md}");

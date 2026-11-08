@@ -1,5 +1,5 @@
-//! `cargo xtask game`: claims of test games (GLOSSARY), a few holders at a
-//! time, each with a test game of its own, and starting and stopping it
+//! `cargo xtask game`: claims of test games (GLOSSARY), each holder with a
+//! test game of its own until it releases it, and starting and stopping it
 //! within the claim (docs/test-games.md).
 //!
 //! The claim's course is `course.rs`, over the computer as `machine.rs`
@@ -9,11 +9,14 @@
 mod course;
 mod machine;
 mod record;
+#[cfg(test)]
+pub(crate) mod recorded;
 
 use crate::{Args, Result};
 use course::Claimed;
 pub use course::{Run, Starting};
 use machine::ThisComputer;
+pub use record::GameEnd;
 use record::{Asking, Claim};
 use std::{path::Path, time::Duration};
 
@@ -55,10 +58,7 @@ pub fn user_dir(owner: &str) -> Result<std::path::PathBuf> {
 
 /// The process of `owner`'s test game while it runs.
 pub fn game_of(owner: &str) -> Option<u32> {
-    let claim = held_by(owner).ok()?;
-    let pipe = pipe_of(owner).ok()?;
-    use machine::Machine as _;
-    claim.game.filter(|g| ThisComputer.alive(g)).map(|g| g.id).or_else(|| ThisComputer.serving(&pipe))
+    course::game_of_owner(&ThisComputer, owner)
 }
 
 /// The `eu4.exe` serving the test game `name`'s pipe, if any.
@@ -81,9 +81,9 @@ pub fn run(raw: &[String]) -> Result<i32> {
         "status" => course::status(&ThisComputer).map(|()| 0),
         "start" => start(&args).map(|_| 0),
         "stop" => course::stop(&ThisComputer, &owner(&args)).map(|()| 0),
-        "watch" | "renew" => Err(format!(
-            "game {command} is gone: a test game keeps nothing to put back, and every command of its holder starts the lease again (docs/test-games.md)"
-        )),
+        "watch" | "renew" => {
+            Err(format!("game {command} is gone: a test game keeps nothing to put back, and a claim holds it until it is released (docs/test-games.md)"))
+        }
         other => Err(format!("unknown command game {other:?}; cargo xtask --help lists them")),
     }
 }
@@ -92,10 +92,12 @@ fn claim(args: &Args) -> Result<i32> {
     if args.flag("player") || args.flag("now") {
         return Err("the player's claim is gone: the player's game touches no test game's files (docs/test-games.md)".into());
     }
+    if args.value("lease").is_some() {
+        return Err("--lease is gone: a claim holds its test game until it is released (docs/test-games.md)".into());
+    }
     let asking = Asking { owner: owner(args), wait: args.flag("wait") };
-    let lease = args.value("lease").map_or(Ok(course::LEASE_MINUTES), |v| v.parse().map_err(|_| format!("--lease {v}: minutes")))?;
     let purpose = args.value("purpose").unwrap_or("").to_string();
-    Ok(match course::claim(&ThisComputer, &asking, &purpose, lease, &args.game_dir()?)? {
+    Ok(match course::claim(&ThisComputer, &asking, &purpose, &args.game_dir()?)? {
         Claimed::Busy => EXIT_BUSY,
         Claimed::Now | Claimed::Already => 0,
     })
@@ -110,17 +112,73 @@ fn follow(rest: &[String]) -> Result<()> {
 }
 
 /// Holds a test game for a run of `owner`'s, as the scenario runner's: the
-/// claim `owner` holds already, else a new one with the usual lease,
-/// waiting in the queue with `wait`.
+/// claim `owner` holds already, else a new one, waiting with `wait` while
+/// it is busy.
 pub fn hold_for_run(owner: &str, purpose: &str, wait: bool, game_dir: &Path) -> Result<Run> {
     course::hold_for_run(&ThisComputer, owner, purpose, wait, game_dir)
 }
 
-/// Plays `play` within `run`'s claim, its lease kept going meanwhile; then,
-/// whatever `play` comes to, ends the test game and releases the claim the
-/// run made.
+/// Plays `play` within `run`'s claim; then, whatever `play` comes to, ends
+/// the test game and releases the claim the run made.
 pub fn play_within<T>(run: &Run, interrupted: &(dyn Fn() -> bool + Sync), play: impl FnOnce() -> Result<T>) -> Result<T> {
     course::play_within(&ThisComputer, run, interrupted, play)
+}
+
+/// The test game of a run within a claim, the scenario runner's, as the run
+/// reaches its process: through the claim's machine, so that how a run's
+/// game ends can be tried on a recorded one.
+pub trait RunGame {
+    /// The test game's process while it runs.
+    fn game(&self) -> Option<u32>;
+    /// Starts the test game hidden, waiting up to `wait` for its main menu:
+    /// the seconds it took.
+    fn start(&self, starting: &Starting, wait: Duration) -> Result<f64>;
+    /// Ends the test game, if it runs.
+    fn stop(&self) -> Result<()>;
+    /// How its games have ended so far, as the claim follows them.
+    fn ends(&self) -> Vec<GameEnd>;
+    /// Waits before looking again.
+    fn wait(&self, time: Duration);
+}
+
+/// The test game of `owner`'s run on `m`.
+pub struct InClaim<'m, M> {
+    m: &'m M,
+    owner: String,
+    game_dir: std::path::PathBuf,
+}
+
+impl<M: machine::Machine> RunGame for InClaim<'_, M> {
+    fn game(&self) -> Option<u32> {
+        course::game_of_owner(self.m, &self.owner)
+    }
+
+    fn start(&self, starting: &Starting, wait: Duration) -> Result<f64> {
+        course::start_game(self.m, &self.owner, &self.game_dir, starting, wait)
+    }
+
+    fn stop(&self) -> Result<()> {
+        course::stop(self.m, &self.owner)
+    }
+
+    fn ends(&self) -> Vec<GameEnd> {
+        course::ends_of(self.m, &self.owner)
+    }
+
+    fn wait(&self, time: Duration) {
+        self.m.wait(time);
+    }
+}
+
+/// The test game of `owner`'s run on this computer, started from `game_dir`.
+pub fn run_game(owner: &str, game_dir: &Path) -> InClaim<'static, ThisComputer> {
+    InClaim { m: &ThisComputer, owner: owner.into(), game_dir: game_dir.into() }
+}
+
+/// The test game of `owner`'s run on the recorded computer `m`.
+#[cfg(test)]
+pub fn recorded_run_game<'m>(m: &'m recorded::Recorded, owner: &str) -> InClaim<'m, recorded::Recorded> {
+    InClaim { m, owner: owner.into(), game_dir: recorded::GAME_DIR.into() }
 }
 
 /// Ends `owner`'s test game, if it runs.

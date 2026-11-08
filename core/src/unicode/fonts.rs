@@ -5,40 +5,36 @@
 //! page is filled, after which a font drawn wholly from the system font keeps
 //! none of them; when the game destroys the font, both forget it.
 use super::{fill, glyphs};
-use crate::{hooks::HookFrame, objects::text::font::OWN_GLYPHS, points::Point};
+use crate::{hooks::Call, objects::text::font::OWN_GLYPHS, points::Point};
 
 /// The font method that loads its page, then parses its `.fnt` (font).
 const LOAD: usize = 0x15953c0;
 /// Frees a font's own glyph table as the font goes (the table).
 const DESTROY_TABLE: usize = 0x1594360;
 
-extern "C" fn load_before(frame: *mut HookFrame) {
-    crate::guarded("font load", || fill::loading(unsafe { (*frame).args[0] }))
+fn load_before(call: &mut Call) {
+    fill::loading(call.arg(0));
 }
 
-extern "C" fn load_after(frame: *mut HookFrame) {
-    crate::guarded("font loaded", || {
-        let font = unsafe { (*frame).args[0] };
-        // A load that faulted left no font to fill in or seal.
-        if unsafe { (*frame).fault } != 0 {
-            fill::abandoned(font);
-            return;
-        }
-        // The font's file has been parsed: its glyphs above 0xFF are all in.
-        glyphs::seal(font);
-        if fill::loaded(font) {
-            glyphs::clear(font);
-        }
-    })
+fn load_after(call: &mut Call) {
+    let font = call.arg(0);
+    // A load that faulted left no font to fill in or seal.
+    if call.faulted() {
+        fill::abandoned(font);
+        return;
+    }
+    // The font's file has been parsed: its glyphs above 0xFF are all in.
+    glyphs::seal(font);
+    if fill::loaded(font) {
+        glyphs::clear(font);
+    }
 }
 
-extern "C" fn destroy_before(frame: *mut HookFrame) {
-    crate::guarded("font destroy", || {
-        // The function frees the font's own table, which it is given.
-        let font = unsafe { (*frame).args[0] } - OWN_GLYPHS;
-        glyphs::forget(font);
-        fill::forget(font);
-    })
+fn destroy_before(call: &mut Call) {
+    // The function frees the font's own table, which it is given.
+    let font = call.arg(0) - OWN_GLYPHS;
+    glyphs::forget(font);
+    fill::forget(font);
 }
 
 pub fn points() -> Vec<Point> {

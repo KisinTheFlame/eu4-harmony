@@ -34,6 +34,7 @@
 //! The pool takes other work as well: the save checksum's sum
 //! (`super::sum`).
 use super::{GameToken, EQUALS, NUMBER, WRITE_TOKEN};
+use crate::called_by_game;
 use crate::game::commands::{STREAM_VTABLE, TOKENS_LAST, TOKENS_READY, TOKEN_NAMES, WRITER_VTABLE};
 use crate::memory::Memory;
 use crate::points::{Function, GameFunction, Point};
@@ -175,6 +176,7 @@ type Holder = extern "C" fn(usize) -> usize;
 static ORIGINAL_VALUE_HOLDER: Function<Holder> = Function::new();
 static ORIGINAL_OTHER_HOLDER: Function<Holder> = Function::new();
 
+#[called_by_game]
 extern "C" fn value_holder(value: usize) -> usize {
     match HOLDERS.with(Cell::get) {
         0 => ORIGINAL_VALUE_HOLDER.get()(value),
@@ -186,6 +188,7 @@ extern "C" fn value_holder(value: usize) -> usize {
     }
 }
 
+#[called_by_game]
 extern "C" fn other_holder(value: usize) -> usize {
     match HOLDERS.with(Cell::get) {
         0 => ORIGINAL_OTHER_HOLDER.get()(value),
@@ -200,6 +203,7 @@ extern "C" fn other_holder(value: usize) -> usize {
 /// `0x15bf70`'s object for this thread: its copy on a thread of the pool, the
 /// game's on any other. The stubs of the five places with the function's
 /// code inline call it.
+#[called_by_game]
 extern "C" fn value_object() -> usize {
     match HOLDERS.with(Cell::get) {
         0 => match GAME_VALUE_OBJECT.load(Ordering::Relaxed) {
@@ -401,12 +405,14 @@ extern "C" fn countries_stub() {
     );
 }
 
+#[called_by_game]
 extern "C" fn write_provinces(world: usize, writer: usize) -> bool {
-    crate::guarded("parallel save", || begin(world, writer))
+    begin(world, writer)
 }
 
+#[called_by_game]
 extern "C" fn write_countries(world: usize, writer: usize) -> bool {
-    crate::guarded("parallel save", || countries(world, writer))
+    countries(world, writer)
 }
 
 /// Writes a loop's items on several threads into the writer's stream, and
@@ -1131,15 +1137,14 @@ mod compare {
     use super::*;
 
     /// Where the game's loop ends, `writer` in rsi: where the stream stands.
+    #[called_by_game]
     extern "C" fn end(writer: usize, which: usize) {
-        crate::guarded("parallel save comparison", || {
-            let mut pending = PENDING.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(p) = pending.as_mut().filter(|p| p.writer == writer && p.at[which].is_some()) else { return };
-            match position(crate::hooked_memory(), p.ahead.writings[which].stream) {
-                Ok(at) => p.ended[which] = Some(at),
-                Err(e) => log!("saves: compare-saves: {e}"),
-            }
-        });
+        let mut pending = PENDING.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(p) = pending.as_mut().filter(|p| p.writer == writer && p.at[which].is_some()) else { return };
+        match position(crate::hooked_memory(), p.ahead.writings[which].stream) {
+            Ok(at) => p.ended[which] = Some(at),
+            Err(e) => log!("saves: compare-saves: {e}"),
+        }
     }
 
     /// The pool's bytes of each loop against the game's.

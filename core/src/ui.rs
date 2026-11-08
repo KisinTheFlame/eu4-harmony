@@ -7,10 +7,11 @@
 //! Extensions state what they want (visible, enabled, text, tooltip) and each
 //! host's update hook applies it, so state survives the game rebuilding the
 //! window and never needs a callback inside the game's UI code.
+use crate::called_by_game;
 use crate::{
     game::{self, fail, GResult, Status},
     game_string,
-    hooks::HookFrame,
+    hooks::Call,
     hosts::Host,
     memory::Memory,
     notice,
@@ -350,56 +351,49 @@ fn main_menu_page(m: &Memory, frontend: usize) -> Result<bool> {
     Ok(m.u32(frontend + main_menu::PAGE)? == 0)
 }
 
-extern "C" fn menu_after(frame: *mut HookFrame) {
-    crate::guarded("main menu frame", || {
-        let frame = unsafe { &*frame };
-        let Some(m) = crate::memory().copied() else { return };
-        if frame.fault != 0 || crate::thread_id() != crate::main_thread() {
-            return;
+fn menu_after(call: &mut Call) {
+    let m = call.memory();
+    if call.faulted() || crate::thread_id() != crate::main_thread() {
+        return;
+    }
+    crate::safe_point::main_menu_frame(call.arg(0));
+    crate::unicode::log_once();
+    match main_menu_page(&m, call.arg(0)) {
+        Ok(true) => crate::framework_ui::main_menu_frame(),
+        Ok(false) => {}
+        // The corner button then shows on every page of the main menu.
+        Err(e) => {
+            with_ui(|ui| report_once(ui, format!("main menu page unknown: {e}")));
+            crate::framework_ui::main_menu_frame();
         }
-        crate::safe_point::main_menu_frame(frame.args[0]);
-        crate::unicode::log_once();
-        match main_menu_page(&m, frame.args[0]) {
-            Ok(true) => crate::framework_ui::main_menu_frame(),
-            Ok(false) => {}
-            // The corner button then shows on every page of the main menu.
-            Err(e) => {
-                with_ui(|ui| report_once(ui, format!("main menu page unknown: {e}")));
-                crate::framework_ui::main_menu_frame();
-            }
-        }
-    });
+    }
 }
 
-extern "C" fn panel_after(frame: *mut HookFrame) {
-    crate::guarded("panel update", || {
-        let frame = unsafe { &*frame };
-        let Some(m) = crate::memory().copied() else { return };
-        if frame.fault != 0 || crate::thread_id() != crate::main_thread() || game::context(&m).is_err() {
+fn panel_after(call: &mut Call) {
+    let m = call.memory();
+    if call.faulted() || crate::thread_id() != crate::main_thread() || game::context(&m).is_err() {
+        return;
+    }
+    let panel = call.arg(0);
+    with_ui(|ui| {
+        if ui.fatal.is_some() {
             return;
         }
-        let panel = frame.args[0];
-        with_ui(|ui| {
-            if ui.fatal.is_some() {
-                return;
+        let result = (|| -> Result<()> {
+            if m.ptr(panel)? != m.at(classes::ARMY_PANEL) {
+                return Err("unexpected army panel class".into());
             }
-            let result = (|| -> Result<()> {
-                if m.ptr(panel)? != m.at(classes::ARMY_PANEL) {
-                    return Err("unexpected army panel class".into());
-                }
-                bind(&m, ui, Host::ArmyPanel, panel, m.ptr(panel + army_panel::WINDOW)?)?;
-                apply(&m, ui, Host::ArmyPanel)
-            })();
-            if let Err(e) = result {
-                report_once(ui, e);
-            }
-        });
+            bind(&m, ui, Host::ArmyPanel, panel, m.ptr(panel + army_panel::WINDOW)?)?;
+            apply(&m, ui, Host::ArmyPanel)
+        })();
+        if let Err(e) = result {
+            report_once(ui, e);
+        }
     });
 }
 
 /// Detaches the bindings `which` selects while their objects are still alive.
-fn retire(which: impl Fn(&Binding) -> bool) {
-    let Some(m) = crate::memory().copied() else { return };
+fn retire(m: Memory, which: impl Fn(&Binding) -> bool) {
     with_ui(|ui| {
         if !ui.bindings.iter().any(&which) {
             return;
@@ -412,27 +406,27 @@ fn retire(which: impl Fn(&Binding) -> bool) {
     });
 }
 
-extern "C" fn panel_destroy(frame: *mut HookFrame) {
-    let panel = unsafe { (*frame).args[0] };
-    crate::guarded("panel destroy", || retire(|b| b.host == Host::ArmyPanel && b.holder == panel));
+fn panel_destroy(call: &mut Call) {
+    let panel = call.arg(0);
+    retire(call.memory(), |b| b.host == Host::ArmyPanel && b.holder == panel);
 }
-extern "C" fn panel_recreate(frame: *mut HookFrame) {
-    let panel = unsafe { (*frame).args[0] }.checked_sub(army_panel::INTERFACE);
-    crate::guarded("panel rebuild", || retire(|b| b.host == Host::ArmyPanel && Some(b.holder) == panel));
+fn panel_recreate(call: &mut Call) {
+    let panel = call.arg(0).checked_sub(army_panel::INTERFACE);
+    retire(call.memory(), |b| b.host == Host::ArmyPanel && Some(b.holder) == panel);
 }
-extern "C" fn button_destroy(frame: *mut HookFrame) {
-    let button = unsafe { (*frame).args[0] };
-    crate::guarded("button destroy", || retire(|b| b.bound.iter().any(|x| x.object == button)));
+fn button_destroy(call: &mut Call) {
+    let button = call.arg(0);
+    retire(call.memory(), |b| b.bound.iter().any(|x| x.object == button));
 }
 /// Every teardown path of a root window passes here first (notice-window.md §3).
-extern "C" fn window_kill(frame: *mut HookFrame) {
-    let window = unsafe { (*frame).args[0] };
-    crate::guarded("window kill", || retire(|b| b.root == window));
+fn window_kill(call: &mut Call) {
+    let window = call.arg(0);
+    retire(call.memory(), |b| b.root == window);
 }
 /// Backstop for a root freed without passing the kill hook.
-extern "C" fn window_delete(frame: *mut HookFrame) {
-    let window = unsafe { (*frame).args[0] };
-    crate::guarded("window delete", || retire(|b| b.root == window));
+fn window_delete(call: &mut Call) {
+    let window = call.arg(0);
+    retire(call.memory(), |b| b.root == window);
 }
 
 fn modifiers() -> u32 {
@@ -466,46 +460,43 @@ fn enqueue(context: usize, button: usize, click: u32) {
     }
 }
 
+#[called_by_game]
 extern "system" fn left_click(context: usize, event: usize) {
-    crate::guarded("left click", || {
-        let Some(m) = crate::memory().copied() else { return };
-        if event == 0 {
-            return;
-        }
-        let Ok(button) = m.ptr(event) else { return };
-        enqueue(context, button, CLICK_LEFT);
-        // Mark the click consumed so it does not fall through to the map.
-        let _ = m.write(event + event::CONSUMED, &[1]);
-    });
+    let Some(m) = crate::memory().copied() else { return };
+    if event == 0 {
+        return;
+    }
+    let Ok(button) = m.ptr(event) else { return };
+    enqueue(context, button, CLICK_LEFT);
+    // Mark the click consumed so it does not fall through to the map.
+    let _ = m.write(event + event::CONSUMED, &[1]);
 }
 
+#[called_by_game]
 extern "system" fn right_click(context: usize, button: usize) {
-    crate::guarded("right click", || enqueue(context, button, CLICK_RIGHT));
+    enqueue(context, button, CLICK_RIGHT)
 }
 
 /// Fills the panel's tooltip for our buttons that have one. The game builds
 /// the output aggregate: main text at +0, delayed text at +32.
-extern "C" fn tooltip_after(frame: *mut HookFrame) {
-    crate::guarded("tooltip", || {
-        let frame = unsafe { &*frame };
-        let Some(m) = crate::memory().copied() else { return };
-        if frame.fault != 0 || frame.result != frame.args[1] || crate::thread_id() != crate::main_thread() {
-            return;
+fn tooltip_after(call: &mut Call) {
+    let m = call.memory();
+    if call.result() != Some(call.arg(1)) || crate::thread_id() != crate::main_thread() {
+        return;
+    }
+    let Ok(guard) = UI.try_lock() else { return };
+    let Some(ui) = guard.as_ref() else { return };
+    let Some(binding) = ui.bindings.iter().find(|b| b.host == Host::ArmyPanel && b.holder == call.arg(0)) else { return };
+    let Some(b) = binding.bound.iter().find(|b| b.object == call.arg(2) && b.wrapper.is_some()) else { return };
+    let Some(text) = ui.declared[b.index].desired.tooltip.clone().filter(|t| !t.is_empty()) else { return };
+    drop(guard);
+    let output = call.arg(1);
+    let empty = |offset: usize| game_string::untouched(&m, output + offset);
+    if let (Ok(true), Ok(true)) = (empty(0), empty(game_string::OBJECT)) {
+        if let Err(e) = game_string::append_checked(&m, output, &text) {
+            log!("ui: tooltip append failed: {e}");
         }
-        let Ok(guard) = UI.try_lock() else { return };
-        let Some(ui) = guard.as_ref() else { return };
-        let Some(binding) = ui.bindings.iter().find(|b| b.host == Host::ArmyPanel && b.holder == frame.args[0]) else { return };
-        let Some(b) = binding.bound.iter().find(|b| b.object == frame.args[2] && b.wrapper.is_some()) else { return };
-        let Some(text) = ui.declared[b.index].desired.tooltip.clone().filter(|t| !t.is_empty()) else { return };
-        drop(guard);
-        let output = frame.args[1];
-        let empty = |offset: usize| game_string::untouched(&m, output + offset);
-        if let (Ok(true), Ok(true)) = (empty(0), empty(game_string::OBJECT)) {
-            if let Err(e) = game_string::append_checked(&m, output, &text) {
-                log!("ui: tooltip append failed: {e}");
-            }
-        }
-    });
+    }
 }
 
 /// The army panel, button and window functions the UI hooks or calls.

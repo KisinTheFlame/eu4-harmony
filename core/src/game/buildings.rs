@@ -6,7 +6,7 @@ use super::administration::checks as refuse;
 use super::{action, administration::MOST_CONSTRUCTIONS, context_any, events, game, thousandths, with_state, Ctx, GResult, Session, Tag};
 use crate::{
     game_string,
-    hooks::HookFrame,
+    hooks::Call,
     memory::Memory,
     objects::{
         campaign::{building as fields, construction, country, province as field},
@@ -71,30 +71,28 @@ pub fn points() -> Vec<Point> {
 
 /// A building finished: its province, the building's index, and the
 /// province's owner, heard while the game finishes it, when someone listens.
-extern "C" fn finished(frame: *mut HookFrame) {
-    crate::guarded("building finished", || {
-        if !events::listened(eu4_harmony_remote::events::Kind::BuildingFinished) {
-            return;
+fn finished(call: &mut Call) {
+    if !events::listened(eu4_harmony_remote::events::Kind::BuildingFinished) {
+        return;
+    }
+    let m = &call.memory();
+    let construction = call.arg(0);
+    let read = || -> crate::Result<Option<events::Change>> {
+        if context_any(m).is_err() || m.ptr(construction)? != m.at(CONSTRUCTION_CLASS) {
+            return Ok(None);
         }
-        let Some(m) = crate::memory() else { return };
-        let construction = unsafe { (*frame).args[0] };
-        let read = || -> crate::Result<Option<events::Change>> {
-            if context_any(m).is_err() || m.ptr(construction)? != m.at(CONSTRUCTION_CLASS) {
-                return Ok(None);
-            }
-            let province = m.ptr(construction + PROVINCE)?;
-            let building = m.ptr(construction + construction::MAKES)?;
-            let owner = Tag(m.u64(province + field::OWNER)?);
-            let index = m.u32(building + fields::INDEX)?;
-            let province = m.u32(province + field::ID)?;
-            Ok((index != 0 && owner.valid()).then_some(events::Change::BuildingFinished { province, building: index, country: owner }))
-        };
-        match super::event_costs::BUILDINGS.time(read) {
-            Ok(Some(change)) => events::raise(change),
-            Ok(None) => {}
-            Err(e) => log!("buildings: {e}"),
-        }
-    });
+        let province = m.ptr(construction + PROVINCE)?;
+        let building = m.ptr(construction + construction::MAKES)?;
+        let owner = Tag(m.u64(province + field::OWNER)?);
+        let index = m.u32(building + fields::INDEX)?;
+        let province = m.u32(province + field::ID)?;
+        Ok((index != 0 && owner.valid()).then_some(events::Change::BuildingFinished { province, building: index, country: owner }))
+    };
+    match super::event_costs::BUILDINGS.time(read) {
+        Ok(Some(change)) => events::raise(change),
+        Ok(None) => {}
+        Err(e) => log!("buildings: {e}"),
+    }
 }
 
 /// The buildings the game has, by index, index 0 the placeholder.

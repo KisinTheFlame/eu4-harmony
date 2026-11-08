@@ -44,8 +44,7 @@ pub fn parse_descriptor(text: &str, user_dir: &Path) -> Descriptor {
     let mut version = None;
     let mut path = None;
     let mut archive = None;
-    for line in text.lines() {
-        let Some((key, value)) = eu4_harmony_manifest::descriptor_entry(line) else { continue };
+    for (key, value) in eu4_harmony_manifest::line_entries(text) {
         let value = value.replace('\\', "/");
         match key {
             "name" => name = value,

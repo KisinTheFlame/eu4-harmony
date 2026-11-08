@@ -4,7 +4,7 @@
 //! Ported from eu4-regional-combat's range preview (docs/research/map-modes.md).
 use crate::{
     game::{self, fail, map_coloring::MapColor, GResult, Status},
-    hooks::HookFrame,
+    hooks::Call,
     memory::Memory,
     objects::campaign::{classes, globals, map, map_manager, province},
     points::{GameFunction, Point},
@@ -57,102 +57,92 @@ fn with_state<T>(f: impl FnOnce(&mut State) -> T) -> T {
     f(guard.get_or_insert_with(State::default))
 }
 
-extern "C" fn fill_before(frame: *mut HookFrame) {
-    crate::guarded("map fill", || {
-        let Some(m) = crate::memory() else { return };
-        let a = unsafe { &(*frame).args };
-        let fill = (|| -> Result<Fill> {
-            let d0 = m.i32(a[0] + 8)?;
-            let d1 = m.i32(a[0] + 12)?;
-            let capacity = d0 as i64 * d1 as i64;
-            if d0 <= 0 || d1 <= 0 || capacity > 1_000_000 {
-                return Err("color buffer size".into());
-            }
-            Ok(Fill { data: m.ptr(a[0])?, capacity: capacity as usize, mode: a[1] as i32, option: a[2] as u32 })
-        })();
-        FILLS.with(|s| s.borrow_mut().push(fill.ok()));
-    });
+fn fill_before(call: &mut Call) {
+    let m = &call.memory();
+    let a = [call.arg(0), call.arg(1), call.arg(2)];
+    let fill = (|| -> Result<Fill> {
+        let d0 = m.i32(a[0] + 8)?;
+        let d1 = m.i32(a[0] + 12)?;
+        let capacity = d0 as i64 * d1 as i64;
+        if d0 <= 0 || d1 <= 0 || capacity > 1_000_000 {
+            return Err("color buffer size".into());
+        }
+        Ok(Fill { data: m.ptr(a[0])?, capacity: capacity as usize, mode: a[1] as i32, option: a[2] as u32 })
+    })();
+    FILLS.with(|s| s.borrow_mut().push(fill.ok()));
 }
 
-extern "C" fn fill_after(frame: *mut HookFrame) {
-    crate::guarded("map fill", || {
-        FILLS.with(|s| s.borrow_mut().pop());
-        if unsafe { (*frame).fault } != 0 {
-            with_state(|s| {
-                if let Some(t) = s.ticket.as_mut() {
-                    t.error = Some("color fill unwound".into());
-                }
-            });
-        }
-    });
+fn fill_after(call: &mut Call) {
+    FILLS.with(|s| s.borrow_mut().pop());
+    if call.faulted() {
+        with_state(|s| {
+            if let Some(t) = s.ticket.as_mut() {
+                t.error = Some("color fill unwound".into());
+            }
+        });
+    }
 }
 
 /// After the game's secondary color pass for the paint mode, overwrite our provinces.
-extern "C" fn secondary_after(frame: *mut HookFrame) {
-    crate::guarded("map colors", || {
-        let Some(m) = crate::memory() else { return };
-        let frame = unsafe { &*frame };
-        let Ok(mut guard) = STATE.try_lock() else { return };
-        let Some(s) = guard.as_mut() else { return };
-        if s.ticket.is_none() && s.colors.is_empty() {
-            return;
+fn secondary_after(call: &mut Call) {
+    let m = &call.memory();
+    let Ok(mut guard) = STATE.try_lock() else { return };
+    let Some(s) = guard.as_mut() else { return };
+    if s.ticket.is_none() && s.colors.is_empty() {
+        return;
+    }
+    let result = (|| -> Result<()> {
+        if call.faulted() {
+            return Err("secondary color pass unwound".into());
         }
-        let result = (|| -> Result<()> {
-            if frame.fault != 0 {
-                return Err("secondary color pass unwound".into());
-            }
-            let fill = FILLS.with(|f| f.borrow().last().copied().flatten()).ok_or("no enclosing color fill")?;
-            if fill.option != frame.args[1] as u32 || fill.data.checked_add(fill.capacity * 4) != Some(frame.args[0]) {
-                return Err("secondary buffer does not follow the fill buffer".into());
-            }
-            let map = m.ptr(m.at(globals::MAP))?;
-            let first = m.ptr(map + map::PROVINCES)?;
-            let end = m.ptr(map + map::PROVINCES + 8)?;
-            let bytes = end.checked_sub(first).ok_or("reversed province vector")?;
-            if first == 0 || bytes % province::SIZE != 0 || bytes / province::SIZE > fill.capacity {
-                return Err("province vector exceeds color capacity".into());
-            }
-            if let Some(t) = s.ticket.as_mut() {
-                if t.mode == fill.mode {
-                    t.validated = true;
-                }
-            }
-            if fill.mode != PAINT_MODE || fill.option != PAINT_OPTION || s.colors.is_empty() {
-                return Ok(());
-            }
-            let count = bytes / province::SIZE;
-            for (&id, color) in &s.colors {
-                if id as usize >= count || m.i32(first + id as usize * province::SIZE + province::ID)? != id as i32 {
-                    return Err(format!("province {id} not in the color vector"));
-                }
-                m.write(frame.args[0] + id as usize * 4, color)?;
-            }
-            if let Some(t) = s.ticket.as_mut() {
-                t.applied = true;
-            }
-            Ok(())
-        })();
-        if let Err(e) = result {
-            match s.ticket.as_mut() {
-                Some(t) => t.error = Some(e),
-                None => log!("map: {e}"),
+        let fill = FILLS.with(|f| f.borrow().last().copied().flatten()).ok_or("no enclosing color fill")?;
+        if fill.option != call.arg(1) as u32 || fill.data.checked_add(fill.capacity * 4) != Some(call.arg(0)) {
+            return Err("secondary buffer does not follow the fill buffer".into());
+        }
+        let map = m.ptr(m.at(globals::MAP))?;
+        let first = m.ptr(map + map::PROVINCES)?;
+        let end = m.ptr(map + map::PROVINCES + 8)?;
+        let bytes = end.checked_sub(first).ok_or("reversed province vector")?;
+        if first == 0 || bytes % province::SIZE != 0 || bytes / province::SIZE > fill.capacity {
+            return Err("province vector exceeds color capacity".into());
+        }
+        if let Some(t) = s.ticket.as_mut() {
+            if t.mode == fill.mode {
+                t.validated = true;
             }
         }
-    });
+        if fill.mode != PAINT_MODE || fill.option != PAINT_OPTION || s.colors.is_empty() {
+            return Ok(());
+        }
+        let count = bytes / province::SIZE;
+        for (&id, color) in &s.colors {
+            if id as usize >= count || m.i32(first + id as usize * province::SIZE + province::ID)? != id as i32 {
+                return Err(format!("province {id} not in the color vector"));
+            }
+            m.write(call.arg(0) + id as usize * 4, color)?;
+        }
+        if let Some(t) = s.ticket.as_mut() {
+            t.applied = true;
+        }
+        Ok(())
+    })();
+    if let Err(e) = result {
+        match s.ticket.as_mut() {
+            Some(t) => t.error = Some(e),
+            None => log!("map: {e}"),
+        }
+    }
 }
 
-extern "C" fn renderer_after(frame: *mut HookFrame) {
-    crate::guarded("map renderer", || {
-        let frame = unsafe { &*frame };
-        let Ok(mut guard) = STATE.try_lock() else { return };
-        if let Some(t) = guard.as_mut().and_then(|s| s.ticket.as_mut()) {
-            if frame.fault != 0 {
-                t.error = Some("renderer unwound".into());
-            } else if t.mode == frame.args[1] as i32 {
-                t.rendered = true;
-            }
+fn renderer_after(call: &mut Call) {
+    let Ok(mut guard) = STATE.try_lock() else { return };
+    if let Some(t) = guard.as_mut().and_then(|s| s.ticket.as_mut()) {
+        if call.faulted() {
+            t.error = Some("renderer unwound".into());
+        } else if t.mode == call.arg_as::<i32>(1) {
+            t.rendered = true;
         }
-    });
+    }
 }
 
 /// The color pass the core observes, and the refresh it calls.
