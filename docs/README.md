@@ -30,7 +30,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 | | |
 | --- | --- |
 | [game-speed.md](plans/game-speed.md) | Making the game faster without changing the game it plays; how a part is chosen, and which comes next |
-| [drawing-thread.md](plans/drawing-thread.md) | The frames drawn by a thread of their own at the display's rate, the map's camera with them, while the main thread works the day out; proposed, not decided |
+| [drawing-thread.md](plans/drawing-thread.md) | The simulation, the interface and the drawing apart: the frames drawn by a thread of their own at the display's rate, the crossings made into events, then the world double buffered |
 
 ### Built
 
