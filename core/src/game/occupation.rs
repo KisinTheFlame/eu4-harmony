@@ -132,7 +132,7 @@ mod tests {
     }
 
     use crate::game::{
-        buffers::{self, answers_no, write_inline, Image, Object, Provinces},
+        buffers::{self, no, write_inline, Image, Object, Provinces},
         commands::record,
         Caller, Fail, Status,
     };
@@ -179,10 +179,7 @@ mod tests {
     fn ottomans() -> Ottomans {
         use crate::catalogue::fake::tur;
         let image = Image::new();
-        image
-            .function(CHECK.rva(), check as *const ())
-            .function(DELETE.rva(), free as *const ())
-            .function(game_string::DESTROY_AT.rva(), answers_no as *const ());
+        image.function(CHECK.rva(), check as *const ()).function(DELETE.rva(), free as *const ()).function(game_string::DESTROY_AT.rva(), no as *const ());
         let provinces = Provinces::new(&image, 3);
         provinces.u64(1, province::CONTROLLER, tur().0).u64(2, province::CONTROLLER, tur().0).u8(2, BARRED, 1);
         let (player, ally, other) = (Object::country(tur(), 0), Object::country(dul(), 0), Object::country(game_tag(b"POL", 3), 0));

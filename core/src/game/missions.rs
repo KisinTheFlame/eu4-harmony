@@ -128,7 +128,7 @@ mod tests {
 
     use super::*;
     use crate::game::{
-        buffers::{self, answers_no, write_inline, Image, Object},
+        buffers::{self, no, write_inline, Image, Object},
         commands::record,
         Caller, Fail, Status,
     };
@@ -169,7 +169,7 @@ mod tests {
         image
             .function(COMPLETED.rva(), is_completed as *const ())
             .function(CAN_COMPLETE.rva(), can_complete as *const ())
-            .function(game_string::DESTROY_AT.rva(), answers_no as *const ());
+            .function(game_string::DESTROY_AT.rva(), no as *const ());
         buffers::conditions(&image, lines as *const ());
         let mission = |key: &str, done: bool, can: bool, failing: bool| {
             Object::new(TRIGGER + 8).string(KEY, key).u8(DONE, done.into()).u8(CAN, can.into()).u64(TRIGGER, failing.into())

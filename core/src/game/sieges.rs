@@ -109,7 +109,7 @@ mod tests {
 
     use super::*;
     use crate::game::{
-        buffers::{self, answers_no, answers_yes, write_inline, Image, Object, Provinces},
+        buffers::{self, no, write_inline, yes, Image, Object, Provinces},
         commands::record,
         power::{COST, NO_ID},
         Caller, Fail, Session, Status, Tag,
@@ -142,7 +142,7 @@ mod tests {
         for (_, _, f) in ACTIONS {
             image.function(f.rva(), may);
         }
-        image.function(COST.rva(), fifty as *const ()).function(game_string::DESTROY_AT.rva(), answers_no as *const ()).u64(NO_ID, 0);
+        image.function(COST.rva(), fifty as *const ()).function(game_string::DESTROY_AT.rva(), no as *const ()).u64(NO_ID, 0);
         let provinces = Provinces::new(&image, 4);
         let (sieges, fra) = (Object::new(8), Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0")));
         provinces.u64(2, SIEGE, sieges.at() as u64).u64(3, SIEGE, sieges.at() as u64);
@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn each_button_spends_its_category_of_military_points_on_the_province() {
-        let siege = siege(answers_yes as *const ());
+        let siege = siege(yes as *const ());
         bombard(siege.session, args::Bombard { province: ProvinceId(2) }).unwrap();
         naval_bombard(siege.session, args::NavalBombard { province: ProvinceId(2) }).unwrap();
         assault(siege.session, args::Assault { province: ProvinceId(2) }).unwrap();

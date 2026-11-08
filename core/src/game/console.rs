@@ -278,7 +278,7 @@ mod tests {
         fn running(has: bool, command: &str) -> GResult<String> {
             let image = Image::new();
             let get = if has { console as *const () } else { no_console as *const () };
-            buffers::strings_kept(&image).function(GET.rva(), get).function(RUN.rva(), run as *const ());
+            image.strings().function(GET.rva(), get).function(RUN.rva(), run as *const ());
             let result = super::super::run(buffers::world_session(image.memory(), 0, 0, tur(), 0, Caller::Remote), command);
             drop(image);
             result

@@ -63,7 +63,7 @@ mod tests {
 
     use super::*;
     use crate::game::{
-        buffers::{self, answers_no, answers_yes, write_inline, Image, Object, Provinces},
+        buffers::{self, no, write_inline, yes, Image, Object, Provinces},
         commands::record,
         provinces::{CAN_RECRUIT, RECRUIT_PLACE},
         Caller, Tag,
@@ -90,10 +90,7 @@ mod tests {
     fn france(check: *const ()) -> France {
         let image = Image::new();
         let m = image.memory();
-        image
-            .function(CAN_RECRUIT.rva(), check)
-            .function(RECRUIT_PLACE.rva(), answers_yes as *const ())
-            .function(game_string::DESTROY_AT.rva(), answers_no as *const ());
+        image.function(CAN_RECRUIT.rva(), check).function(RECRUIT_PLACE.rva(), yes as *const ()).function(game_string::DESTROY_AT.rva(), no as *const ());
         let provinces = Provinces::new(&image, 3);
         let fra = Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
         let infantry =
@@ -115,7 +112,7 @@ mod tests {
 
     #[test]
     fn a_regiment_is_recruited_through_the_recruit_command() {
-        let france = france(answers_yes as *const ());
+        let france = france(yes as *const ());
         recruit(france.session, order(2, Kind::Infantry)).unwrap();
         assert_eq!(record::posted(), [r#"buildunit={ country="FRA" province=2 unit="w_infantry" }"#]);
     }

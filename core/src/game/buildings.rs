@@ -188,8 +188,16 @@ fn can_build(m: &Memory, ctx: &Ctx, province: usize, building: usize) -> GResult
     let mut price = 0i32;
     PRICE.call(m, [ctx.country, &mut price as *mut i32 as usize, building, province])?;
     let cost = vec![Amount::new(Resource::Ducats, thousandths(price))];
-    let affordable = price <= m.i32(ctx.country + country::TREASURY)?;
-    Ok(if may as u8 != 0 && affordable { Choice::can(cost) } else { Choice::cannot(super::administration::reasons(&text), cost) })
+    let treasury = m.i32(ctx.country + country::TREASURY)?;
+    if may as u8 != 0 && price <= treasury {
+        return Ok(Choice::can(cost));
+    }
+    let mut reasons = super::administration::reasons(&text);
+    // The check leaves the price to the command's, which says nothing.
+    if price > treasury {
+        reasons.push(format!("the treasury has {} ducats, and this costs {}", thousandths(treasury), thousandths(price)));
+    }
+    Ok(Choice::cannot(reasons, cost))
 }
 
 /// What the building panel offers the player in a province now, and what is
@@ -296,5 +304,136 @@ mod tests {
         assert_eq!(build_text(CAS, 217, 12), r#"constructbuilding={ building=12 province=217 builder="CAS" }"#);
         assert_eq!(cancel_text(CAS, 217, 12), r#"cancel_building={ country="CAS" province=217 building=12 }"#);
         assert_eq!(destroy_text(CAS, 217, 12), r#"destroybuilding={ building=12 country="CAS" province=217 }"#);
+    }
+
+    use crate::catalogue::fake::{byz, tur};
+    use crate::game::{
+        buffers::{self, write_reason, Image, Object, Provinces},
+        commands::record,
+        Caller, Fail, Status,
+    };
+
+    /// The build check: any building but a temple, as the game writes why.
+    extern "C" fn can_build(_: usize, building: usize, _: usize, out: usize) -> usize {
+        if game_string::key(&Memory { base: 0 }, building + fields::NAME).unwrap() == "temple" {
+            unsafe { write_reason(out, b"- needs a tech") };
+            return 0;
+        }
+        1
+    }
+
+    /// Every building's price: 100 ducats.
+    extern "C" fn price(_: usize, out: *mut i32) -> usize {
+        unsafe { *out = 100_000 };
+        0
+    }
+
+    /// The Ottomans with `treasury` thousandths of ducats, and the building
+    /// database of the marketplace, the temple and the workshop (indices 1
+    /// to 3). Province 1 is theirs, with a marketplace, and a workshop half
+    /// built by them; province 2 is Byzantium's, with a marketplace; province
+    /// 3 is theirs, with nothing.
+    struct Ottomans {
+        _image: Image,
+        _provinces: Provinces,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn ottomans(treasury: i32) -> Ottomans {
+        let image = Image::new();
+        image
+            .strings()
+            .function(CAN_BUILD.rva(), can_build as *const ())
+            .function(PRICE.rva(), price as *const ())
+            .function(CAN_CANCEL.rva(), buffers::yes as *const ());
+        let building = |index: u32, key: &str| Object::new(fields::NAME + 0x20).u32(fields::INDEX, index).string(fields::NAME, key);
+        let (none, marketplace, temple, workshop) = (building(0, ""), building(1, "marketplace"), building(2, "temple"), building(3, "workshop"));
+        let database = Object::new(BY_INDEX + 16).vector(BY_INDEX, &[none.at() as u64, marketplace.at() as u64, temple.at() as u64, workshop.at() as u64]);
+        image.u64(DATABASE, database.at() as u64);
+        let slots = Object::new(4 * field::BUILDING_SLOT).u64(field::BUILDING_SLOT, marketplace.at() as u64);
+        let (begin, end) = (slots.at() as u64, (slots.at() + 4 * field::BUILDING_SLOT) as u64);
+        let construction = Object::new(BUILDER + 8)
+            .u32(construction::KIND, BUILDING_CONSTRUCTION)
+            .u64(construction::MAKES, workshop.at() as u64)
+            .i32(construction::PROGRESS, 500)
+            .i32(construction::END, 7)
+            .u64(BUILDER, tur().0);
+        let node = Object::new(list::NODE_SIZE).u64(list::ITEM, construction.at() as u64);
+        let provinces = Provinces::new(&image, 4);
+        provinces.owner(1, tur()).u64(1, field::BUILDINGS, begin).u64(1, field::BUILDINGS + 8, end).u64(1, field::CONSTRUCTIONS, node.at() as u64);
+        provinces.owner(2, byz()).u64(2, field::BUILDINGS, begin).u64(2, field::BUILDINGS + 8, end);
+        provinces.owner(3, tur());
+        let player = Object::country(tur(), country::TREASURY + 4).i32(country::TREASURY, treasury);
+        let countries = Object::countries(&[&player]);
+        let session = buffers::session(image.memory(), provinces.world(), tur(), player.at(), countries.at(), Caller::Remote);
+        let objects = vec![none, marketplace, temple, workshop, database, slots, construction, node, player, countries];
+        Ottomans { _image: image, _provinces: provinces, _objects: objects, session }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("{result:?} was posted") };
+        (status, message)
+    }
+
+    #[test]
+    fn the_panel_offers_cancelling_destroying_and_building_with_the_game_s_reasons() {
+        let player = ottomans(500_000);
+        let (constructing, offers) = options(player.session, 1).unwrap();
+        assert_eq!(constructing, Some(Constructing { building: "workshop".into(), progress: 500, ends: 7, builder: tur() }));
+        let summary: Vec<_> = offers.iter().map(|o| (o.action, o.building.as_str(), o.choice.can)).collect();
+        assert_eq!(summary, [("cancel", "workshop", true), ("destroy", "marketplace", true), ("build", "temple", false), ("build", "workshop", true)]);
+        assert_eq!(
+            (offers[2].choice.reasons.clone(), offers[2].choice.cost.clone()),
+            (vec!["needs a tech".to_string()], vec![Amount::new(Resource::Ducats, 100.0)])
+        );
+        // Another country's building is not the player's to destroy.
+        let (_, theirs) = options(player.session, 2).unwrap();
+        assert_eq!((theirs[0].action, theirs[0].choice.can), ("destroy", false));
+    }
+
+    #[test]
+    fn building_cancelling_and_destroying_post_the_panel_s_commands_by_index() {
+        let player = ottomans(500_000);
+        build(player.session, args::Build { province: ProvinceId(3), building: "workshop".into() }).unwrap();
+        cancel(player.session, args::Cancel { province: ProvinceId(1) }).unwrap();
+        destroy(player.session, args::Destroy { province: ProvinceId(1), building: "marketplace".into() }).unwrap();
+        assert_eq!(
+            record::posted(),
+            [
+                r#"constructbuilding={ building=3 province=3 builder="TUR" }"#,
+                r#"cancel_building={ country="TUR" province=1 building=3 }"#,
+                r#"destroybuilding={ building=1 country="TUR" province=1 }"#,
+            ]
+        );
+    }
+
+    #[test]
+    fn what_the_player_cannot_build_cancel_or_destroy_is_refused() {
+        let player = ottomans(500_000);
+        let session = player.session;
+        assert_eq!(refused(build(session, args::Build { province: ProvinceId(3), building: "temple".into() })), (Status::Rejected, "needs a tech".into()));
+        assert_eq!(
+            refused(build(session, args::Build { province: ProvinceId(3), building: "palace".into() })),
+            (Status::InvalidArgument, "no building palace".into())
+        );
+        assert_eq!(refused(cancel(session, args::Cancel { province: ProvinceId(3) })), (Status::Rejected, "the player is not building in province 3".into()));
+        assert_eq!(
+            refused(destroy(session, args::Destroy { province: ProvinceId(2), building: "marketplace".into() })),
+            (Status::Rejected, "the player does not own province 2".into())
+        );
+        assert_eq!(
+            refused(destroy(session, args::Destroy { province: ProvinceId(1), building: "temple".into() })),
+            (Status::Rejected, "there is no temple in province 1".into())
+        );
+        assert_eq!(refused(build(session, args::Build { province: ProvinceId(0), building: "workshop".into() })).0, Status::NotFound);
+        // A test has one world of provinces at a time.
+        drop(player);
+        let poor = ottomans(50_000);
+        assert_eq!(
+            refused(build(poor.session, args::Build { province: ProvinceId(3), building: "workshop".into() })),
+            (Status::Rejected, "the treasury has 50 ducats, and this costs 100".into())
+        );
+        assert!(record::posted().is_empty());
     }
 }

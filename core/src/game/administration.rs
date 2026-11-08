@@ -591,6 +591,234 @@ mod tests {
         assert_eq!(reasons(&text), ["这", "最", "有"]);
     }
 
+    use crate::catalogue::fake::{byz, tur};
+    use crate::game::{
+        buffers::{self, write_reason, Image, Object, Provinces},
+        commands::record,
+        power::{ABOUT_PROVINCE, COST, NO_ID},
+        Fail,
+    };
+    use std::cell::Cell;
+
+    thread_local! {
+        /// Whether the game's checks refuse, in this test's thread.
+        static REFUSING: Cell<bool> = const { Cell::new(false) };
+    }
+
+    fn check(out: usize) -> usize {
+        if REFUSING.with(Cell::get) {
+            unsafe { write_reason(out, b"- not now") };
+            return 0;
+        }
+        1
+    }
+
+    /// A check whose reasons go to its third argument.
+    extern "C" fn third(_: usize, _: usize, out: usize) -> usize {
+        check(out)
+    }
+
+    /// A check whose reasons go to its fourth argument.
+    extern "C" fn fourth(_: usize, _: usize, _: usize, out: usize) -> usize {
+        check(out)
+    }
+
+    extern "C" fn fifty() -> usize {
+        50
+    }
+
+    /// Changing a culture costs 30 diplomatic points.
+    extern "C" fn thirty() -> usize {
+        30
+    }
+
+    /// The lookup of two values, for a test: the key, then each value as
+    /// ` NAME=text`.
+    extern "C" fn localize_two(
+        out: usize,
+        key: *const std::ffi::c_char,
+        first: *const std::ffi::c_char,
+        first_value: usize,
+        second: *const std::ffi::c_char,
+        second_value: usize,
+    ) -> usize {
+        let name = |n| unsafe { std::ffi::CStr::from_ptr(n) }.to_string_lossy().into_owned();
+        let value = |v| String::from_utf8(game_string::read(&Memory { base: 0 }, v).unwrap()).unwrap();
+        let text = format!("{} {}={} {}={}", name(key), name(first), value(first_value), name(second), value(second_value));
+        unsafe { write_reason(out, text.as_bytes()) };
+        0
+    }
+
+    /// The Ottomans, of Turkish culture, with 100 points of each power but
+    /// `dip` diplomatic; the edicts `edict_a` and `edict_b`. Their province 1
+    /// is Greek, in a state of theirs with an edict set or not, and they are
+    /// coring it; province 2 is Byzantium's; their province 3 is Turkish and
+    /// in no state. The game's checks refuse with `- not now` or let them.
+    struct Ottomans {
+        _image: Image,
+        _provinces: Provinces,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn ottomans(refusing: bool, dip: i32, edict_set: bool) -> Ottomans {
+        REFUSING.with(|r| r.set(refusing));
+        let image = Image::new();
+        image
+            .localisation()
+            .u64(NO_ID, 0)
+            .function(COST.rva(), fifty as *const ())
+            .function(ABOUT_PROVINCE.rva(), buffers::no as *const ())
+            .function(CULTURE_PRICE.rva(), thirty as *const ())
+            .function(LOCALIZE_TWO.rva(), localize_two as *const ())
+            .function(CAN_DEVELOP.rva(), fourth as *const ())
+            .function(CAN_EXPLOIT.rva(), fourth as *const ())
+            .function(CAN_RAISE_AUTONOMY.rva(), third as *const ())
+            .function(CAN_LOWER_AUTONOMY.rva(), third as *const ())
+            .function(CAN_MAKE_STATE.rva(), third as *const ())
+            .function(CAN_MAKE_TERRITORY.rva(), third as *const ())
+            .function(CAN_SET_EDICT.rva(), third as *const ())
+            .function(CAN_CORE.rva(), third as *const ())
+            .function(CAN_CHANGE_CULTURE.rva(), third as *const ());
+        let tokens = image.tokens(&["none", "turkish", "greek"]);
+        let (turkish, greek) = (Object::new(0x18).u32(field::CULTURE_TOKEN, 1), Object::new(0x18).u32(field::CULTURE_TOKEN, 2));
+        let edict = |index: u32, key: &str| Object::new(EDICT_INDEX + 4).string(field::EDICT_KEY, key).u32(EDICT_INDEX, index);
+        let (edict_a, edict_b) = (edict(0, "edict_a"), edict(1, "edict_b"));
+        let database = Object::new(EDICTS_LIST + 16).vector(EDICTS_LIST, &[edict_a.at() as u64, edict_b.at() as u64]);
+        image.u64(EDICTS, database.at() as u64);
+        let enacted = Object::new(field::EDICT_DEFINITION + 8).u64(field::EDICT_DEFINITION, edict_a.at() as u64);
+        let state = Object::new(field::STATE_EDICT + 8).u64(STATE_TAG, tur().0).u64(field::STATE_EDICT, if edict_set { enacted.at() as u64 } else { 0 });
+        let coring = Object::new(construction::COUNTRY + 8).u32(construction::KIND, CORE_CONSTRUCTION).u64(construction::COUNTRY, tur().0);
+        let node = Object::new(list::NODE_SIZE).u64(list::ITEM, coring.at() as u64);
+        let provinces = Provinces::new(&image, 4);
+        provinces.owner(1, tur()).u64(1, field::CULTURE, greek.at() as u64).u64(1, field::STATE, state.at() as u64).u64(
+            1,
+            field::CONSTRUCTIONS,
+            node.at() as u64,
+        );
+        provinces.owner(2, byz()).u64(2, field::CULTURE, greek.at() as u64);
+        provinces.owner(3, tur()).u64(3, field::CULTURE, turkish.at() as u64);
+        let player = Object::country(tur(), country::PRIMARY_CULTURE + 8)
+            .i32(country::POWER, 100)
+            .i32(country::POWER_DIP, dip)
+            .i32(country::POWER + 8, 100)
+            .u64(country::PRIMARY_CULTURE, turkish.at() as u64);
+        let countries = Object::countries(&[&player]);
+        let session = buffers::session(image.memory(), provinces.world(), tur(), player.at(), countries.at(), Caller::Remote);
+        let objects = vec![tokens, turkish, greek, edict_a, edict_b, database, enacted, state, coring, node, player, countries];
+        Ottomans { _image: image, _provinces: provinces, _objects: objects, session }
+    }
+
+    use crate::game::Caller;
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("{result:?} was posted") };
+        (status, message)
+    }
+
+    #[test]
+    fn the_view_offers_every_action_with_its_cost_and_the_state_s_edicts() {
+        let player = ottomans(false, 100, true);
+        let options = options(player.session, args::Options { province: ProvinceId(1) }).unwrap();
+        let can: Vec<_> = options.iter().map(|o| (o.action.as_str(), o.edict.as_deref(), o.choice.can)).collect();
+        assert_eq!(
+            can,
+            [
+                ("develop_tax", None, true),
+                ("develop_production", None, true),
+                ("develop_manpower", None, true),
+                ("exploit_tax", None, true),
+                ("exploit_production", None, true),
+                ("exploit_manpower", None, true),
+                ("raise_autonomy", None, true),
+                ("lower_autonomy", None, true),
+                ("make_state", None, true),
+                ("make_territory", None, true),
+                ("set_edict", Some("edict_a"), true),
+                ("set_edict", Some("edict_b"), true),
+                ("cancel_edict", None, true),
+                ("core", None, true),
+                ("cancel_core", None, true),
+                ("change_culture", None, true),
+                ("cancel_culture", None, false),
+            ]
+        );
+        let cost = |action: &str| options.iter().find(|o| o.action == action).unwrap().choice.cost.clone();
+        assert_eq!(cost("develop_production"), [Amount::new(Resource::Dip, 50.0)]);
+        assert_eq!(cost("core"), [Amount::new(Resource::Adm, 50.0)]);
+        assert_eq!(cost("change_culture"), [Amount::new(Resource::Dip, 30.0)]);
+        // A province in no state of the player's offers no edicts.
+        let elsewhere = super::options(player.session, args::Options { province: ProvinceId(3) }).unwrap();
+        assert!(elsewhere.iter().filter(|o| o.action == "set_edict" || o.action == "cancel_edict").all(|o| !o.choice.can));
+    }
+
+    #[test]
+    fn each_action_posts_its_button_s_command() {
+        let player = ottomans(false, 100, true);
+        let all = [Action::Develop(Development::Tax), Action::Exploit(Development::Production), Action::RaiseAutonomy, Action::LowerAutonomy];
+        for action in
+            all.into_iter().chain([Action::MakeState, Action::MakeTerritory, Action::CancelEdict, Action::Core, Action::CancelCore, Action::ChangeCulture])
+        {
+            act(player.session, 1, action).unwrap();
+        }
+        set_edict(player.session, args::SetEdict { province: ProvinceId(1), edict: "edict_b".into() }).unwrap();
+        assert_eq!(
+            record::posted(),
+            [
+                r#"spend_power_command={ country="TUR" power={ data=1 category=7 skill=0 } }"#,
+                r#"exploit_development={ members={ dummy="TUR" dummy=1 dummy=1 } }"#,
+                r#"increase_autonomy_command={ country="TUR" location=1 }"#,
+                r#"decrease_autonomy_command={ country="TUR" location=1 }"#,
+                "make_state_command={ province=1 }",
+                "abandon_state_command={ province=1 }",
+                r#"enact_edict={ country="TUR" province=1 }"#,
+                r#"spend_power_command={ country="TUR" power={ data=1 category=17 skill=0 } }"#,
+                r#"cancel_build_core={ country="TUR" province=1 }"#,
+                "change_culture={ province=1 culture=turkish }",
+                r#"enact_edict={ country="TUR" province=1 which=1 }"#,
+            ]
+        );
+    }
+
+    #[test]
+    fn the_framework_s_own_refusals_say_what_is_missing() {
+        let player = ottomans(false, 100, true);
+        let session = player.session;
+        assert_eq!(refused(act(session, 1, Action::CancelCulture)), (Status::Rejected, "the player is not changing the culture of province 1".into()));
+        assert_eq!(refused(act(session, 3, Action::CancelCore)), (Status::Rejected, "the player is not coring province 3".into()));
+        assert_eq!(refused(act(session, 3, Action::CancelEdict)), (Status::Rejected, "province 3 is in no state of the player's".into()));
+        assert_eq!(
+            refused(act(session, 3, Action::ChangeCulture)),
+            (Status::Rejected, "the culture of province 3 is the player's primary culture already".into())
+        );
+        assert_eq!(refused(act(session, 2, Action::MakeState)), (Status::Rejected, "the player does not own province 2".into()));
+        assert_eq!(
+            refused(set_edict(session, args::SetEdict { province: ProvinceId(1), edict: "edict_x".into() })),
+            (Status::InvalidArgument, "no edict edict_x".into())
+        );
+        assert_eq!(
+            refused(set_edict(session, args::SetEdict { province: ProvinceId(3), edict: "edict_a".into() })),
+            (Status::Rejected, "province 3 is in no state of the player's".into())
+        );
+        assert_eq!(refused(act(session, 0, Action::Core)).0, Status::NotFound);
+        assert!(record::posted().is_empty());
+    }
+
+    #[test]
+    fn the_game_s_refusals_pass_on_its_reasons() {
+        let refusing = ottomans(true, 100, false);
+        assert_eq!(refused(act(refusing.session, 1, Action::Develop(Development::Manpower))), (Status::Rejected, "not now".into()));
+        assert_eq!(refused(act(refusing.session, 1, Action::CancelEdict)), (Status::Rejected, "no edict is set in the state of province 1".into()));
+        assert_eq!(
+            refused(set_edict(refusing.session, args::SetEdict { province: ProvinceId(1), edict: "edict_a".into() })),
+            (Status::Rejected, "not now".into())
+        );
+        drop(refusing);
+        let poor = ottomans(false, 10, true);
+        assert_eq!(refused(act(poor.session, 1, Action::ChangeCulture)), (Status::Rejected, "NOCHA_NO_POINTS COST=30 VAL=10".into()));
+        assert!(record::posted().is_empty());
+    }
+
     #[test]
     fn every_action_has_its_capability_s_name() {
         let names: Vec<String> = Action::ALL.iter().map(|a| a.name()).collect();

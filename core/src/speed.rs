@@ -248,7 +248,10 @@ mod tests {
     fn the_report_names_what_was_chosen() {
         assert!(lines(Chosen::default()).is_empty());
         let chosen = Chosen::of(&strings(&["frames"]), &strings(&["army-searches"])).unwrap();
-        assert_eq!(lines(chosen), ["speed-ups left to the game: pops-polling, fastest-pace, modifier-sums", "speed-ups checked against the game: army-searches"]);
+        assert_eq!(
+            lines(chosen),
+            ["speed-ups left to the game: pops-polling, fastest-pace, modifier-sums", "speed-ups checked against the game: army-searches"]
+        );
     }
 
     #[test]

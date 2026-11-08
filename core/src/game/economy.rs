@@ -158,8 +158,177 @@ pub fn promote(Session { m, ctx, commands, .. }: Session) -> GResult<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::catalogue::fake::tur;
+    use crate::game::{
+        buffers::{self, write_reason, Image, Object},
+        commands::record,
+        modifiers::{HAS, OF_COUNTRY},
+        power::{COST, FUNCTIONS, NO_ID},
+        Caller, Fail, Status,
+    };
+    use std::cell::Cell;
+
     #[test]
     fn the_loan_command_names_the_country() {
         assert_eq!(super::written_loan(*b"FRA"), r#"take_bank_loan={ country="FRA" }"#);
+    }
+
+    /// What the game's checks answer in this test's thread.
+    #[derive(Clone, Copy)]
+    struct Game {
+        loan: bool,
+        ruin_blocked: bool,
+        reduce: bool,
+        may_not_reduce: bool,
+        promote: bool,
+    }
+
+    const LETS: Game = Game { loan: true, ruin_blocked: false, reduce: true, may_not_reduce: false, promote: true };
+
+    thread_local! {
+        static GAME: Cell<Game> = const { Cell::new(LETS) };
+    }
+
+    fn game() -> Game {
+        GAME.with(Cell::get)
+    }
+
+    extern "C" fn fifty() -> usize {
+        50
+    }
+
+    extern "C" fn may_take_loan(_: usize, text: usize) -> usize {
+        if game().loan {
+            return 1;
+        }
+        unsafe { write_reason(text, b"- in debt") };
+        0
+    }
+
+    extern "C" fn ruin_blocked() -> usize {
+        game().ruin_blocked.into()
+    }
+
+    extern "C" fn may_reduce() -> usize {
+        game().reduce.into()
+    }
+
+    /// The country's modifiers: a buffer of the test's whose values are
+    /// never read but by [`has`].
+    extern "C" fn modifiers(at: usize) -> usize {
+        at
+    }
+
+    extern "C" fn has() -> usize {
+        game().may_not_reduce.into()
+    }
+
+    extern "C" fn may_promote(_: usize, text: usize) -> usize {
+        if game().promote {
+            return 1;
+        }
+        unsafe { write_reason(text, b"Too many traders") };
+        0
+    }
+
+    /// The month and year a date is written as, for a test.
+    extern "C" fn month_year(_: usize, out: usize) -> usize {
+        unsafe { write_reason(out, b"May 1450") };
+        0
+    }
+
+    struct Ottomans {
+        _image: Image,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    /// The Ottomans with 100 administrative points, 2 thousandths of
+    /// inflation, loans of 12 months' income of 50 ducats; the game's checks
+    /// answering as `game` says, every spending costing 50.
+    fn ottomans(game: Game, adm: i32, inflation: i32) -> Ottomans {
+        GAME.with(|g| g.set(game));
+        let image = Image::new();
+        image
+            .localisation()
+            .function(COST.rva(), fifty as *const ())
+            .u64(NO_ID, 0)
+            .u64(FUNCTIONS, 0)
+            .function(MAY_TAKE_LOAN.rva(), may_take_loan as *const ())
+            .function(RUIN_BLOCKED.rva(), ruin_blocked as *const ())
+            .function(MAY_REDUCE_INFLATION.rva(), may_reduce as *const ())
+            .function(OF_COUNTRY.rva(), modifiers as *const ())
+            .function(HAS.rva(), has as *const ())
+            .function(MAY_PROMOTE_MERCANTILISM.rva(), may_promote as *const ())
+            .function(crate::wording::dates::NEXT_MONTH_YEAR.rva(), month_year as *const ());
+        let player = Object::country(tur(), country::MODIFIERS + 8)
+            .i32(country::POWER, adm)
+            .i32(country::INFLATION, inflation)
+            .u8(LOAN_SIZE, 12)
+            .i32(ESTIMATED_LOAN, 50_000)
+            .i32(RUIN_BLOCKED_UNTIL, 1);
+        let countries = Object::countries(&[&player]);
+        let session = buffers::session(image.memory(), 0, tur(), player.at(), countries.at(), Caller::Remote);
+        Ottomans { _image: image, _objects: vec![player, countries], session }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("{result:?} was posted") };
+        (status, message)
+    }
+
+    #[test]
+    fn the_buttons_offer_a_loan_of_months_income_and_their_spendings() {
+        let options = options(ottomans(LETS, 100, 2).session).unwrap();
+        let summary: Vec<_> = options.iter().map(|o| (o.action, o.choice.can, o.choice.cost.clone(), o.gives.clone())).collect();
+        assert_eq!(
+            summary,
+            [
+                (EconomyAction::TakeLoan, true, vec![], vec![Amount::new(Resource::Ducats, 600.0)]),
+                (EconomyAction::ReduceInflation, true, vec![Amount::new(Resource::Adm, 50.0)], vec![]),
+                (EconomyAction::RaiseMercantilism, true, vec![Amount::new(Resource::Dip, 50.0)], vec![]),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_buttons_post_their_commands() {
+        let ottomans = ottomans(LETS, 100, 2);
+        take_bank_loan(ottomans.session).unwrap();
+        reduce(ottomans.session).unwrap();
+        promote(ottomans.session).unwrap();
+        assert_eq!(
+            record::posted(),
+            [
+                r#"take_bank_loan={ country="TUR" }"#,
+                r#"spend_power_command={ country="TUR" power={ category=15 skill=0 } }"#,
+                r#"spend_power_command={ country="TUR" power={ category=26 skill=1 } }"#,
+            ]
+        );
+    }
+
+    #[test]
+    fn a_loan_is_refused_with_the_game_s_reasons_or_the_ruin_rule() {
+        let no_loan = Game { loan: false, ..LETS };
+        assert_eq!(refused(take_bank_loan(ottomans(no_loan, 100, 2).session)), (Status::Rejected, "NO_MORE_BANKLOANS\nin debt".into()));
+        let ruined = Game { ruin_blocked: true, ..LETS };
+        assert_eq!(
+            refused(take_bank_loan(ottomans(ruined, 100, 2).session)),
+            (Status::Rejected, "NO_NATION_RUINING_LOANS DATE=May 1450 OPTION=FE_BLOCK_NATION_RUINING".into())
+        );
+        assert!(record::posted().is_empty());
+    }
+
+    #[test]
+    fn reducing_inflation_is_refused_with_every_reason_the_tooltip_gives() {
+        let refusing = Game { reduce: false, may_not_reduce: true, ..LETS };
+        assert_eq!(
+            refused(reduce(ottomans(refusing, 10, 0).session)),
+            (Status::Rejected, "CAN_NOT_REDUCE_INFLATION_TT VAL=0\nNO_INFLATION VAL=0\nCV_COMBAT_INFLATION_NOPOWER POWER_COST=50 POWER_AVAILABLE=10".into())
+        );
+        let no_promoting = Game { promote: false, ..LETS };
+        assert_eq!(refused(promote(ottomans(no_promoting, 100, 2).session)), (Status::Rejected, "Too many traders".into()));
+        assert!(record::posted().is_empty());
     }
 }

@@ -252,18 +252,6 @@ pub fn world_session(m: &'static Memory, world: usize, date: i32, player: Tag, c
     super::WorldSession { m, world, view: View::Full, caller, commands: Commands::Recorded }
 }
 
-/// The game's string destructor in `image`, as one that frees nothing: the
-/// strings a test's game functions write into hold their text in themselves.
-pub fn strings_kept(image: &Image) -> &Image {
-    use crate::called_by_game;
-
-    #[called_by_game]
-    extern "C" fn kept(_: usize) -> usize {
-        0
-    }
-    image.function(game_string::DESTROY_AT.rva(), kept as *const ())
-}
-
 // The provinces, envoys, units and the game's answers, for the action
 // capabilities of leaders, mercenaries, merchants, missionaries, missions,
 // parliament, questions, recruiting, sieges, offers and occupation: the
@@ -289,6 +277,7 @@ const WORLD: usize = 0x4000;
 pub struct Provinces {
     array: Object,
     world: Object,
+    map: Object,
     _kept: Vec<Object>,
     _held: std::sync::MutexGuard<'static, ()>,
 }
@@ -312,9 +301,8 @@ impl Provinces {
         let end = first + (count * province::SIZE) as u64;
         let the_map = Object::new(map::PROVINCES + 0x10).u64(map::PROVINCES, first).u64(map::PROVINCES + 8, end);
         image.u64(globals::MAP, the_map.at() as u64);
-        kept.push(the_map);
-        let world = Object::new(WORLD.max(world::PROVINCES + 8)).u64(world::PROVINCES, first);
-        Self { array, world, _kept: kept, _held: held }
+        let world = Object::new(WORLD.max(world::PROVINCES.max(world::MAP_MANAGER) + 8)).u64(world::PROVINCES, first);
+        Self { array, world, map: the_map, _kept: kept, _held: held }
     }
 
     /// The world, for [`session`].
@@ -326,6 +314,27 @@ impl Provinces {
     pub fn world_set(&self, offset: usize, bytes: &[u8]) -> &Self {
         self.world.set(offset, bytes);
         self
+    }
+
+    /// The world's object, for a test to set its other fields.
+    pub fn world_object(&self) -> &Object {
+        &self.world
+    }
+
+    /// The map's object, the game's global `MAP`, for a test to set its
+    /// other fields.
+    pub fn map(&self) -> &Object {
+        &self.map
+    }
+
+    /// Where province `id` is.
+    pub fn province(&self, id: u32) -> usize {
+        self.at(id)
+    }
+
+    /// The province `id` owned by `owner`.
+    pub fn owner(&self, id: u32, owner: Tag) -> &Self {
+        self.u64(id, crate::objects::campaign::province::OWNER, owner.0)
     }
 
     /// Where province `id` is.
@@ -359,22 +368,12 @@ impl Drop for Provinces {
     }
 }
 
-/// A game function that answers no, for a test's [`Image::function`].
-pub extern "C" fn answers_no() -> usize {
-    0
-}
-
-/// A game function that answers yes.
-pub extern "C" fn answers_yes() -> usize {
-    1
-}
-
 /// The game's conditions, for a capability that lists those that do not
 /// hold: their scope made and destroyed, and `lines` writing them as the
 /// game's tooltip does.
 pub fn conditions(image: &Image, lines: *const ()) {
     use super::conditions::{LINES, SCOPE, SCOPE_DESTROY};
-    image.function(SCOPE.rva(), answers_no as *const ()).function(SCOPE_DESTROY.rva(), answers_no as *const ()).function(LINES.rva(), lines);
+    image.function(SCOPE.rva(), no as *const ()).function(SCOPE_DESTROY.rva(), no as *const ()).function(LINES.rva(), lines);
 }
 
 /// A country's pools of envoys ([`super::envoys`]), for its field
@@ -426,10 +425,10 @@ pub fn units(image: &Image, units: &[&Object]) {
 /// The game's localisation, which a test's texts stand for by their keys:
 /// a key's text is its first [`game_string::INLINE`] bytes.
 pub fn localisation(image: &Image) {
-    image.function(game_string::LOCALIZE_AT.rva(), localize as *const ());
+    image.function(game_string::LOCALIZE_AT.rva(), localize_key as *const ());
 }
 
-extern "C" fn localize(out: usize, key: *const std::ffi::c_char) -> usize {
+extern "C" fn localize_key(out: usize, key: *const std::ffi::c_char) -> usize {
     let key = unsafe { std::ffi::CStr::from_ptr(key) }.to_bytes();
     let empty = game_string::empty();
     unsafe { std::ptr::copy_nonoverlapping(empty.as_ptr() as *const u8, out as *mut u8, game_string::OBJECT) };
@@ -445,6 +444,153 @@ pub fn write_inline(string: usize, text: impl AsRef<[u8]>) {
     unsafe {
         std::ptr::copy_nonoverlapping(text.as_ptr(), string as *mut u8, text.len());
         *((string + game_string::SIZE) as *mut u64) = text.len() as u64;
+    }
+}
+
+// Batch one's shapes: a world's provinces, and the game's functions a
+// panel's check calls, answering as the test says.
+
+impl Object {
+    /// One of the game's arrays at `offset` (`containers::array`), holding
+    /// `items`.
+    pub fn game_array(mut self, offset: usize, items: &[u64]) -> Self {
+        let items: Box<[u64]> = items.into();
+        self = self.u64(offset + crate::containers::ARRAY_DATA, items.as_ptr() as u64).i32(offset + crate::containers::ARRAY_COUNT, items.len() as i32);
+        self.vectors.push(items);
+        self
+    }
+}
+
+/// Writes `text` into the `std::string` at `string` when there is one, as
+/// the game's checks write their reasons and its lookup a localisation's
+/// text: held in the string itself when it fits, otherwise in memory of its
+/// own, which the test's destructor ([`destroy_string`]) leaves.
+///
+/// # Safety
+/// `string` is null or an empty `std::string` of the framework's, such as
+/// the one [`game_string::written`] gives.
+pub unsafe fn write_reason(string: usize, text: &[u8]) {
+    if string == 0 {
+        return;
+    }
+    unsafe {
+        if text.len() <= game_string::INLINE {
+            std::ptr::copy_nonoverlapping(text.as_ptr(), string as *mut u8, text.len());
+        } else {
+            *(string as *mut usize) = Box::leak(text.to_vec().into_boxed_slice()).as_ptr() as usize;
+            *((string + game_string::CAPACITY) as *mut usize) = text.len();
+        }
+        *((string + game_string::SIZE) as *mut usize) = text.len();
+    }
+}
+
+/// A `std::string`'s destructor, for one whose text is held in itself.
+pub extern "C" fn destroy_string(_: usize) -> usize {
+    0
+}
+
+/// A game function that answers 1: yes, or true.
+pub extern "C" fn yes() -> usize {
+    1
+}
+
+/// A game function that answers 0: no, false, or nothing.
+pub extern "C" fn no() -> usize {
+    0
+}
+
+/// The text of the `std::string` at `string`.
+fn text_of(string: usize) -> Vec<u8> {
+    game_string::read(&Memory { base: 0 }, string).expect("a test's string")
+}
+
+/// The game's `append(this, bytes, count)`, for a test's strings.
+extern "C" fn append(string: usize, bytes: *const u8, count: usize) -> usize {
+    let mut text = text_of(string);
+    text.extend_from_slice(unsafe { std::slice::from_raw_parts(bytes, count) });
+    unsafe { write_reason(string, &text) };
+    0
+}
+
+/// A value of the localisation lookup's, made: its text an empty string.
+extern "C" fn new_value(value: usize) -> usize {
+    let empty = game_string::empty();
+    unsafe { std::ptr::copy_nonoverlapping(empty.as_ptr(), (value + game_string::VALUE_TEXT) as *mut usize, empty.len()) };
+    0
+}
+
+/// The localisation lookup `(out, key, values, count)`, for a test: the
+/// key, then each value as ` NAME=text`, so that a test sees which text the
+/// framework asked for and with what.
+extern "C" fn localize(out: usize, key: *const std::ffi::c_char, values: usize, count: usize) -> usize {
+    let mut text = unsafe { std::ffi::CStr::from_ptr(key) }.to_bytes().to_vec();
+    for i in 0..count {
+        let value = values + i * game_string::VALUE;
+        let name = unsafe { std::ffi::CStr::from_ptr(*(value as *const *const std::ffi::c_char)) };
+        text.extend_from_slice(format!(" {}=", name.to_string_lossy()).as_bytes());
+        text.extend(text_of(value + game_string::VALUE_TEXT));
+    }
+    unsafe { write_reason(out, &text) };
+    0
+}
+
+/// A content trigger's verdict `(trigger, scope)`, for a test: the byte at
+/// the trigger, which the test sets to 1 for one that holds.
+extern "C" fn verdict(trigger: *const u8, _: usize) -> usize {
+    unsafe { *trigger as usize }
+}
+
+/// A content trigger's lines that do not hold `(trigger, out, ..)`, for a
+/// test: none for one that holds, and one line, `unmet`, for one that does
+/// not.
+extern "C" fn unmet(trigger: *const u8, out: usize) -> usize {
+    if unsafe { *trigger } == 0 {
+        unsafe { write_reason(out, b"unmet") };
+    }
+    0
+}
+
+impl Image {
+    /// The game's conditions, for a test: a trigger holds when its first
+    /// byte is 1, and one that does not says `unmet`; with
+    /// [`Image::strings`].
+    pub fn conditions(&self) -> &Self {
+        use super::conditions::{EVALUATE, LINES, SCOPE, SCOPE_DESTROY};
+        self.strings()
+            .function(SCOPE.rva(), no as *const ())
+            .function(SCOPE_DESTROY.rva(), no as *const ())
+            .function(EVALUATE.rva(), verdict as *const ())
+            .function(LINES.rva(), unmet as *const ())
+    }
+
+    /// The game's tokens, the names `names` numbered from 0, as a command's
+    /// type and a culture's key are named by theirs; the names kept in what
+    /// it answers.
+    pub fn tokens(&self, names: &[&str]) -> Object {
+        use super::commands::{TOKENS_LAST, TOKENS_READY, TOKEN_NAMES};
+        let table = names.iter().enumerate().fold(Object::new(names.len() * game_string::OBJECT), |t, (i, name)| t.string(i * game_string::OBJECT, name));
+        self.u64(TOKENS_READY, 1).i32(TOKENS_LAST, names.len() as i32 - 1).u64(TOKEN_NAMES, table.at() as u64);
+        table
+    }
+
+    /// The game's function a check that writes its reasons has called: the
+    /// destructor of the `std::string` it wrote them to.
+    pub fn strings(&self) -> &Self {
+        self.function(game_string::DESTROY_AT.rva(), destroy_string as *const ())
+    }
+
+    /// [`Image::strings`], and the game's localisation lookup as
+    /// [`localize`] answers it, with the values it takes; the localisation's
+    /// table has no text, so that a name is its key's text.
+    pub fn localisation(&self) -> &Self {
+        game_string::APPEND.slot().store(append as *const () as usize, std::sync::atomic::Ordering::Release);
+        self.u64(game_string::LOCALISATION, (self.base + game_string::LOCALISATION + 8) as u64)
+            .u64(game_string::LOCALISATION + 8, 0)
+            .function(game_string::FIND_TEXT.rva(), no as *const ());
+        self.strings()
+            .function(game_string::LOCALIZE_AT.rva(), localize as *const ())
+            .function(game_string::VALUE_NEW.rva(), new_value as *const ())
+            .function(game_string::VALUE_DESTROY.rva(), destroy_string as *const ())
     }
 }
 

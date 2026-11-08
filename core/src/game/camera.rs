@@ -231,7 +231,113 @@ mod checks {
 
 #[cfg(test)]
 mod tests {
-    use super::position;
+    use super::*;
+    use crate::catalogue::fake::tur;
+    use crate::game::{buffers::Image, buffers::Object, buffers::Provinces, commands::Commands, player::Player, Caller, Fail, Status, View};
+    use crate::objects::campaign::{classes, world};
+
+    /// Where a camera looks, `(x, height, z)`, written as the game keeps it.
+    fn put(camera: usize, at: usize, [x, y, z]: [f32; 3]) {
+        for (i, value) in [x, y, z].into_iter().enumerate() {
+            unsafe { *((camera + at + 4 * i) as *mut u32) = value.to_bits() };
+        }
+    }
+
+    /// The map manager turning the camera to a province: its position the
+    /// province's number across, 0 up.
+    extern "C" fn look_at_province(manager: usize, province: usize) -> usize {
+        let id = unsafe { *((province + crate::objects::campaign::province::ID) as *const u32) };
+        put(unsafe { *((manager + layout::IN_MAP_MANAGER) as *const usize) }, fields::LOOK_AT, [id as f32, 0.0, 0.0]);
+        0
+    }
+
+    extern "C" fn look_at_position(manager: usize, x: usize, y: usize) -> usize {
+        put(unsafe { *((manager + layout::IN_MAP_MANAGER) as *const usize) }, fields::LOOK_AT, [x as f32, 0.0, y as f32]);
+        0
+    }
+
+    /// The camera's goal set: at once its height, for a test.
+    extern "C" fn look_from(camera: usize, goal: *const [f32; 3]) -> usize {
+        put(camera, fields::POSITION, unsafe { *goal });
+        0
+    }
+
+    /// A map 4 pixels across and 2 up, its lower row none, 1, 2 and none, and
+    /// its upper row none; the camera looking at 2, 1 from 500, between 100
+    /// and 1000, locked or not.
+    struct Map {
+        _image: Image,
+        _provinces: Provinces,
+        _objects: Vec<Object>,
+        session: WorldSession,
+    }
+
+    fn map(locked: bool) -> Map {
+        let image = Image::new();
+        let m = image.memory();
+        image
+            .function(LOOK_AT_PROVINCE.rva(), look_at_province as *const ())
+            .function(LOOK_AT_POSITION.rva(), look_at_position as *const ())
+            .function(LOOK_FROM.rva(), look_from as *const ())
+            .function(SETTLE.rva(), crate::game::buffers::no as *const ());
+        let provinces = Provinces::new(&image, 3);
+        let ids = Object::new(16).u32(0, 0x0001_0000).u32(4, 0x0000_0002);
+        provinces.map().set(grid::IDS, &(ids.at() as u64).to_le_bytes());
+        provinces.map().set(grid::WIDTH, &4i32.to_le_bytes());
+        provinces.map().set(grid::HEIGHT, &2i32.to_le_bytes());
+        let camera = Object::new(fields::WRAPS + 8)
+            .u64(0, m.at(layout::CLASS) as u64)
+            .i32(fields::MIN_HEIGHT, 100)
+            .i32(fields::MAX_HEIGHT, 1000)
+            .u8(fields::LOCKED, locked.into());
+        put(camera.at(), fields::LOOK_AT, [2.0, 0.0, 1.0]);
+        put(camera.at(), fields::POSITION, [2.0, 500.0, 1.0]);
+        put(camera.at(), fields::GOAL_LOOK_AT, [2.0, 0.0, 1.0]);
+        let manager = Object::new(layout::IN_MAP_MANAGER + 8).u64(0, m.at(classes::MAP_MANAGER) as u64).u64(layout::IN_MAP_MANAGER, camera.at() as u64);
+        provinces.world_object().set(world::MAP_MANAGER, &(manager.at() as u64).to_le_bytes());
+        let world = World { world: provinces.world(), date: 0, countries: 0, player: Player::Plays(tur()) };
+        let session = WorldSession { m, world, view: View::Full, caller: Caller::Remote, commands: Commands::Recorded };
+        Map { _image: image, _provinces: provinces, _objects: vec![ids, camera, manager], session }
+    }
+
+    fn failed(result: GResult<Camera>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("{result:?} was done") };
+        (status, message)
+    }
+
+    #[test]
+    fn the_camera_says_where_it_looks_from_how_high_and_at_which_province() {
+        let camera = camera(map(false).session).unwrap();
+        assert_eq!(camera, Camera { x: 2, y: 1, height: 500, province: None, min_height: 100, max_height: 1000 });
+    }
+
+    #[test]
+    fn the_camera_turns_to_a_province_or_a_position_and_to_a_height() {
+        let map = map(false);
+        let at = look_at(map.session, args::LookAt { province: Some(ProvinceId(1)), x: None, y: None }).unwrap();
+        assert_eq!((at.x, at.y, at.province), (1, 0, Some(1)));
+        let at = look_at(map.session, args::LookAt { province: None, x: Some(2), y: Some(0) }).unwrap();
+        assert_eq!((at.x, at.y, at.province, at.height), (2, 0, Some(2), 500));
+        let high = zoom(map.session, args::Zoom { height: 900 }).unwrap();
+        assert_eq!(high.height, 900);
+    }
+
+    #[test]
+    fn a_move_with_wrong_arguments_or_while_the_camera_is_locked_is_refused() {
+        let free = map(false);
+        let both = args::LookAt { province: Some(ProvinceId(1)), x: Some(1), y: Some(1) };
+        assert_eq!(failed(look_at(free.session, both)), (Status::InvalidArgument, "look_at takes a province, or x and y".into()));
+        let off = args::LookAt { province: None, x: Some(4), y: Some(0) };
+        assert_eq!(failed(look_at(free.session, off.clone())).1, "4, 0 is off the map, which is 4 pixels across and 2 up");
+        assert_eq!(failed(zoom(free.session, args::Zoom { height: 50 })), (Status::InvalidArgument, "the height is from 100 to 1000".into()));
+        assert_eq!(failed(look_at(free.session, args::LookAt { province: Some(ProvinceId(0)), x: None, y: None })).0, Status::NotFound);
+        drop(free);
+        // The arguments are checked before the lock is asked.
+        let locked = map(true);
+        assert_eq!(failed(look_at(locked.session, off)).0, Status::InvalidArgument);
+        assert_eq!(failed(zoom(locked.session, args::Zoom { height: 900 })), (Status::Rejected, "the camera is locked".into()));
+        assert_eq!(failed(look_at(locked.session, args::LookAt { province: Some(ProvinceId(1)), x: None, y: None })).1, "the camera is locked");
+    }
 
     #[test]
     fn a_point_comes_onto_the_map() {

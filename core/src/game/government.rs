@@ -249,4 +249,152 @@ mod tests {
     fn raising_the_rank_names_the_rank_reached() {
         assert_eq!(written_rank(fra(), 2), r#"government_rank_command={ country="FRA" value=2 prestige=yes }"#);
     }
+
+    use crate::game::{
+        buffers::{self, write_reason, Image, Object},
+        commands::record,
+        Caller, Fail, Status,
+    };
+
+    /// Whether the country may enact or change to the reform whose key is at
+    /// `key`: those whose key starts with `ok`.
+    extern "C" fn may(_: usize, key: usize) -> usize {
+        game_string::key(&Memory { base: 0 }, key).unwrap().starts_with("ok").into()
+    }
+
+    /// What enacting a reform in the next tier costs: 50 progress.
+    extern "C" fn select_cost(_: usize, out: *mut i32) -> usize {
+        unsafe { *out = 50_000 };
+        0
+    }
+
+    /// Whether the country may raise its rank: below rank 3.
+    extern "C" fn may_raise(country: usize, reasons: usize) -> usize {
+        if unsafe { *((country + RANK) as *const i32) } < 3 {
+            return 1;
+        }
+        unsafe { write_reason(reasons, b"- highest rank") };
+        0
+    }
+
+    /// A reform with `key`, its `potential` and `trigger` holding or not.
+    fn reform(key: &str, potential: bool, trigger: bool) -> Object {
+        Object::new(TRIGGER + 8).string(REFORM_KEY, key).u8(POTENTIAL, potential.into()).u8(TRIGGER, trigger.into())
+    }
+
+    /// France at `rank` with 30 reform progress, a monarchy of two tiers:
+    /// `power`, where it has adopted `noble_rule` and may change to
+    /// `ok_crown` but is not offered `secret_one`; and `law`, not reached,
+    /// of `ok_courts`, and `merchant_rule`, which it may not enact.
+    struct France {
+        _image: Image,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn france(rank: i32) -> France {
+        let image = Image::new();
+        image.conditions().localisation();
+        image
+            .function(CAN_SELECT.rva(), may as *const ())
+            .function(CAN_CHANGE.rva(), may as *const ())
+            .function(SELECT_COST.rva(), select_cost as *const ())
+            .function(CAN_RAISE.rva(), may_raise as *const ())
+            .i32(CHANGE_COST, 100_000);
+        let [adopted, crown, secret, courts, merchants] = [
+            reform("noble_rule", true, true),
+            reform("ok_crown", true, true),
+            reform("secret_one", false, true),
+            reform("ok_courts", true, true),
+            reform("merchant_rule", true, false),
+        ];
+        let power =
+            Object::new(TIER_REFORMS + 0x18).string(TIER_KEY, "power").game_array(TIER_REFORMS, &[adopted.at() as u64, crown.at() as u64, secret.at() as u64]);
+        let law = Object::new(TIER_REFORMS + 0x18).string(TIER_KEY, "law").game_array(TIER_REFORMS, &[courts.at() as u64, merchants.at() as u64]);
+        let kind = Object::new(TIERS + 0x18).string(TYPE_KEY, "monarchy").game_array(TIERS, &[power.at() as u64, law.at() as u64]);
+        let block = Object::new(16).u64(0, adopted.at() as u64);
+        let map = Object::new(8).u64(0, block.at() as u64);
+        let stack = STACK;
+        let government = Object::new(STACK + STACK_COUNT + 8)
+            .u64(TYPE, kind.at() as u64)
+            .u64(stack + STACK_MAP, map.at() as u64)
+            .u64(stack + STACK_MAP_SIZE, 1)
+            .u64(stack + STACK_FIRST, 0)
+            .u64(stack + STACK_COUNT, 1);
+        let country = Object::country(fra(), REFORM_PROGRESS + 4).u64(GOVERNMENT, government.at() as u64).i32(RANK, rank).i32(REFORM_PROGRESS, 30_000);
+        let countries = Object::countries(&[&country]);
+        let session = buffers::session(image.memory(), 0, fra(), country.at(), countries.at(), Caller::Remote);
+        France {
+            _image: image,
+            _objects: vec![adopted, crown, secret, courts, merchants, power, law, kind, block, map, government, country, countries],
+            session,
+        }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("{result:?} was posted") };
+        (status, message)
+    }
+
+    #[test]
+    fn the_government_says_its_type_rank_progress_reforms_and_rank_choice() {
+        let government = options(france(2).session).unwrap();
+        assert_eq!((government.government.as_str(), government.rank, government.reform_progress), ("monarchy", 2, 30.0));
+        assert_eq!(government.reforms_adopted, ["noble_rule"]);
+        assert!(government.raise_rank.can);
+        let highest = options(france(3).session).unwrap();
+        assert_eq!(highest.raise_rank.reasons, ["highest rank"]);
+    }
+
+    #[test]
+    fn the_view_offers_each_tier_s_potential_reforms_with_their_costs_and_reasons() {
+        let tiers = reforms(france(2).session).unwrap();
+        let summary: Vec<_> = tiers
+            .iter()
+            .map(|t| (t.tier.as_str(), t.reached, t.reforms.iter().map(|r| (r.reform.as_str(), r.adopted, r.choice.can)).collect::<Vec<_>>()))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                ("power", true, vec![("noble_rule", true, false), ("ok_crown", false, true)]),
+                ("law", false, vec![("ok_courts", false, true), ("merchant_rule", false, false)]),
+            ]
+        );
+        assert_eq!(tiers[0].reforms[1].choice.cost, [Amount::new(Resource::ReformProgress, 100.0)]);
+        assert_eq!(tiers[1].reforms[0].choice.cost, [Amount::new(Resource::ReformProgress, 50.0)]);
+        assert_eq!(tiers[1].reforms[1].choice.reasons, ["unmet", "the reform progress is 30, and this costs 50"]);
+        assert_eq!(tiers[0].reforms[1].name, "ok_crown");
+    }
+
+    #[test]
+    fn a_reform_is_enacted_in_the_next_tier_or_changed_to_in_a_reached_one() {
+        let france = france(2);
+        adopt_reform(france.session, args::AdoptReform { reform: "ok_crown".into() }).unwrap();
+        adopt_reform(france.session, args::AdoptReform { reform: "ok_courts".into() }).unwrap();
+        raise_rank(france.session).unwrap();
+        assert_eq!(
+            record::posted(),
+            [
+                r#"change_to_government_reform={ members={ dummy="FRA" dummy="ok_crown" dummy=0 dummy=no } }"#,
+                r#"select_government_reform={ members={ dummy="FRA" dummy="ok_courts" } }"#,
+                r#"government_rank_command={ country="FRA" value=3 prestige=yes }"#,
+            ]
+        );
+    }
+
+    #[test]
+    fn a_reform_adopted_unknown_or_not_allowed_and_a_rank_too_high_are_refused() {
+        let france = france(3);
+        assert_eq!(
+            refused(adopt_reform(france.session, args::AdoptReform { reform: "noble_rule".into() })),
+            (Status::Rejected, "the player has adopted the reform noble_rule already".into())
+        );
+        assert_eq!(
+            refused(adopt_reform(france.session, args::AdoptReform { reform: "merchant_rule".into() })),
+            (Status::Rejected, "unmet\nthe reform progress is 30, and this costs 50".into())
+        );
+        assert_eq!(refused(adopt_reform(france.session, args::AdoptReform { reform: "no_such".into() })).0, Status::NotFound);
+        assert_eq!(refused(raise_rank(france.session)), (Status::Rejected, "highest rank".into()));
+        assert!(record::posted().is_empty());
+    }
 }

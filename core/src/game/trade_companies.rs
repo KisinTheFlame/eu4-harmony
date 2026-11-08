@@ -246,7 +246,7 @@ mod tests {
         /// 3. Runs `action` over Turkey's session.
         fn turkey(in_company: bool, action: impl FnOnce(Session) -> GResult<()>) -> GResult<()> {
             let image = Image::new();
-            buffers::strings_kept(&image).function(MAY_ADD.rva(), may_add as *const ()).function(MAY_REMOVE.rva(), may_remove as *const ());
+            image.strings().function(MAY_ADD.rva(), may_add as *const ()).function(MAY_REMOVE.rva(), may_remove as *const ());
             image.function(MAY_INVEST.rva(), may_invest as *const ()).function(COST.rva(), cost as *const ()).function(NAME.rva(), name as *const ());
             let provinces = Provinces::new(&image, 2);
             provinces.set(1, FLAGS, &[if in_company { IN_TRADE_COMPANY } else { 0 }]);

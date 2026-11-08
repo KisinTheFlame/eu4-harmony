@@ -1485,7 +1485,7 @@ mod tests {
         /// [`ANSWER`] says. Runs `action` over Turkey's session.
         fn turkey<T>(at_war: bool, action: impl FnOnce(Session) -> GResult<T>) -> GResult<T> {
             let image = Image::new();
-            buffers::strings_kept(&image).function(CAN_RIVAL.rva(), may as *const ()).function(CAN_DROP_RIVAL.rva(), may as *const ());
+            image.strings().function(CAN_RIVAL.rva(), may as *const ()).function(CAN_DROP_RIVAL.rva(), may as *const ());
             for (n, rva) in campaign::SPECIAL_COUNTRIES.into_iter().enumerate() {
                 image.i32(rva, 1000 + n as i32);
             }

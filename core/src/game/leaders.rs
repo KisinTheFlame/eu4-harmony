@@ -349,7 +349,7 @@ mod tests {
     }
 
     use crate::game::{
-        buffers::{self, answers_no, write_inline, Image, Object},
+        buffers::{self, no, write_inline, Image, Object},
         commands::record,
         Caller, Fail, Status, Tag,
     };
@@ -394,7 +394,7 @@ mod tests {
         image
             .function(MAY_LEAVE.rva(), may_leave as *const ())
             .function(MAY_TAKE.rva(), may_take as *const ())
-            .function(game_string::DESTROY_AT.rva(), answers_no as *const ());
+            .function(game_string::DESTROY_AT.rva(), no as *const ());
         let cas = Tag(u64::from_le_bytes(*b"CAS\0\0\0\0\0"));
         let army = buffers::unit(m, ARMY, cas, true, UNIT_LEADER + 8);
         let fleet = buffers::unit(m, FLEET, cas, false, UNIT_LEADER + 8).u8(SAYS_NO, full.into());

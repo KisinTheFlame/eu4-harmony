@@ -464,7 +464,7 @@ mod tests {
     fn turkey<T>(army_mission: u32, fleet_mission: u32, action: impl FnOnce(Session) -> GResult<T>) -> GResult<T> {
         let image = Image::new();
         let m = image.memory();
-        buffers::strings_kept(&image).function(world::FIND_ID.rva(), find as *const ()).function(MAY_DISBAND.rva(), may_disband as *const ());
+        image.strings().function(world::FIND_ID.rva(), find as *const ()).function(MAY_DISBAND.rva(), may_disband as *const ());
         image.function(MAY_DRILL.rva(), may_drill as *const ());
         let (tur, byz) = (Tag(u64::from_le_bytes(*b"TUR\0\0\0\0\0")), Tag(u64::from_le_bytes(*b"BYZ\0\0\0\0\0")));
         let kinds = Object::new(MISSION_KIND + 8).u64(MISSION_KIND, mission_kind as *const () as u64);

@@ -135,7 +135,7 @@ mod tests {
 
     use super::*;
     use crate::game::{
-        buffers::{self, answers_no, answers_yes, write_inline, Image, Object, Provinces},
+        buffers::{self, no, write_inline, yes, Image, Object, Provinces},
         commands::record,
         Caller, Fail, Status, Tag,
     };
@@ -159,7 +159,7 @@ mod tests {
 
     fn castile(may_there: *const ()) -> Castile {
         let image = Image::new();
-        image.function(MAY_HIRE_THERE.rva(), may_there).function(game_string::DESTROY_AT.rva(), answers_no as *const ());
+        image.function(MAY_HIRE_THERE.rva(), may_there).function(game_string::DESTROY_AT.rva(), no as *const ());
         let provinces = Provinces::new(&image, 3);
         let company = |key: &str, number, kind| {
             Object::new(TEMPLATE + 8).i32(ID, kind).i32(NUMBER, number).points_to(TEMPLATE, Object::new(TEMPLATE_KEY + 0x20).string(TEMPLATE_KEY, key))
@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn a_listed_company_is_hired_by_its_id_in_the_province() {
-        let castile = castile(answers_yes as *const ());
+        let castile = castile(yes as *const ());
         hire(castile.session, hiring("swiss_guard", 2)).unwrap();
         assert_eq!(record::posted(), [r#"buildunit={ country="CAS" province=2 mercenary={ id=4321 type=59 } category=1 }"#]);
     }

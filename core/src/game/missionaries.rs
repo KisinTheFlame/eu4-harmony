@@ -166,7 +166,7 @@ mod tests {
     }
 
     use crate::game::{
-        buffers::{self, answers_no, answers_yes, write_inline, Image, Object, Provinces},
+        buffers::{self, no, write_inline, yes, Image, Object, Provinces},
         commands::record,
         envoys::POOLS,
         Caller, Fail, Status,
@@ -204,9 +204,9 @@ mod tests {
         image
             .function(CONSTRUCTION.rva(), construction as *const ())
             .function(WHY_NOT.rva(), why_not as *const ())
-            .function(MAY_SEND.rva(), answers_yes as *const ())
-            .function(UPKEEP.rva(), answers_no as *const ())
-            .function(game_string::DESTROY_AT.rva(), answers_no as *const ());
+            .function(MAY_SEND.rva(), yes as *const ())
+            .function(UPKEEP.rva(), no as *const ())
+            .function(game_string::DESTROY_AT.rva(), no as *const ());
         let (fra, eng) = (Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0")), Tag(u64::from_le_bytes(*b"ENG\0\0\0\0\0")));
         let provinces = Provinces::new(&image, 4);
         for id in 1..4 {

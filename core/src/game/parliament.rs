@@ -169,7 +169,7 @@ mod tests {
     }
 
     use crate::game::{
-        buffers::{self, answers_no, write_inline, Image, Object},
+        buffers::{self, no, write_inline, Image, Object},
         commands::record,
         conditions::EVALUATE,
         Caller, Fail, Status,
@@ -204,7 +204,7 @@ mod tests {
 
     fn britain(debating: bool, none: bool) -> Britain {
         let image = Image::new();
-        image.function(EVALUATE.rva(), evaluate as *const ()).function(game_string::DESTROY_AT.rva(), answers_no as *const ());
+        image.function(EVALUATE.rva(), evaluate as *const ()).function(game_string::DESTROY_AT.rva(), no as *const ());
         buffers::conditions(&image, lines as *const ());
         let (peace, unlisted) = (Object::new(16), Object::new(16).u8(LISTED, 0));
         let peace = peace.u8(LISTED, 1);

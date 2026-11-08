@@ -409,7 +409,7 @@ mod tests {
     }
 
     use crate::game::{
-        buffers::{self, answers_no, answers_yes, write_inline, Image, Object, Provinces},
+        buffers::{self, no, write_inline, yes, Image, Object, Provinces},
         commands::record,
         envoys::POOLS,
         trade::{COLLECTS, NODES, NODE_COUNT, NODE_SIZE},
@@ -463,11 +463,11 @@ mod tests {
         let image = Image::new();
         image
             .function(MAY_SEND.rva(), may_send as *const ())
-            .function(MAY_STEER.rva(), answers_yes as *const ())
+            .function(MAY_STEER.rva(), yes as *const ())
             .function(MAY_CHOOSE.rva(), may_choose as *const ())
-            .function(COLLECTS.rva(), answers_no as *const ())
+            .function(COLLECTS.rva(), no as *const ())
             .function(POLICIES.rva(), policies as *const ())
-            .function(game_string::DESTROY_AT.rva(), answers_no as *const ());
+            .function(game_string::DESTROY_AT.rva(), no as *const ());
         buffers::localisation(&image);
         let ven = Tag(u64::from_le_bytes(*b"VEN\0\0\0\0\0"));
         let provinces = Provinces::new(&image, 3);

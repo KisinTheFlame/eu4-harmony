@@ -117,9 +117,84 @@ mod checks {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::catalogue::fake::tur;
+    use crate::game::{
+        buffers::{self, write_reason, Image, Object},
+        commands::record,
+        Caller, Fail, Status,
+    };
+
     #[test]
     fn the_command_names_the_country_and_the_focus() {
         assert_eq!(super::written(*b"FRA", 1), r#"set_national_focus_command={ country="FRA" power=1 }"#);
         assert_eq!(super::written(*b"FRA", super::NONE), r#"set_national_focus_command={ country="FRA" power=3 }"#);
+    }
+
+    /// The focus may change.
+    extern "C" fn may(_: usize, _: usize) -> usize {
+        1
+    }
+
+    /// The focus may not change yet, as the game's line says.
+    extern "C" fn may_not(_: usize, text: usize) -> usize {
+        unsafe { write_reason(text, b"Wait until 1450") };
+        0
+    }
+
+    struct Ottomans {
+        _image: Image,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    /// The Ottomans, their focus `focus` (3 none), the game answering
+    /// whether it may change with `check`.
+    fn ottomans(focus: i32, check: extern "C" fn(usize, usize) -> usize) -> Ottomans {
+        let image = Image::new();
+        image.strings().function(MAY_CHANGE.rva(), check as *const ());
+        let player = Object::country(tur(), FOCUS + 4).i32(FOCUS, focus);
+        let countries = Object::countries(&[&player]);
+        let session = buffers::session(image.memory(), 0, tur(), player.at(), countries.at(), Caller::Remote);
+        Ottomans { _image: image, _objects: vec![player, countries], session }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("{result:?} was posted") };
+        (status, message)
+    }
+
+    #[test]
+    fn the_options_offer_every_other_focus_and_cancelling_the_one_set() {
+        let focus = options(ottomans(1, may).session).unwrap();
+        assert_eq!(focus.focus, Some(PowerKind::Dip));
+        assert_eq!(
+            focus.choose.iter().map(|c| (c.focus, c.choice.can)).collect::<Vec<_>>(),
+            [(PowerKind::Adm, true), (PowerKind::Dip, false), (PowerKind::Mil, true)]
+        );
+        assert!(focus.cancel.can);
+        let none = options(ottomans(NONE, may_not).session).unwrap();
+        assert_eq!((none.focus, none.cancel.can), (None, false));
+        assert_eq!(none.choose[0].choice.reasons, ["Wait until 1450"]);
+    }
+
+    #[test]
+    fn a_focus_is_set_and_removed_by_the_buttons_command() {
+        let ottomans = ottomans(1, may);
+        choose(ottomans.session, args::Choose { focus: PowerKind::Mil }).unwrap();
+        cancel(ottomans.session).unwrap();
+        assert_eq!(record::posted(), [r#"set_national_focus_command={ country="TUR" power=2 }"#, r#"set_national_focus_command={ country="TUR" power=3 }"#]);
+    }
+
+    #[test]
+    fn the_focus_set_already_none_to_cancel_or_a_change_too_soon_is_refused() {
+        assert_eq!(
+            refused(choose(ottomans(1, may).session, args::Choose { focus: PowerKind::Dip })),
+            (Status::Rejected, "the national focus is on dip already".into())
+        );
+        assert_eq!(refused(cancel(ottomans(NONE, may).session)), (Status::Rejected, "no national focus is set".into()));
+        assert_eq!(refused(choose(ottomans(NONE, may_not).session, args::Choose { focus: PowerKind::Adm })), (Status::Rejected, "Wait until 1450".into()));
+        assert_eq!(refused(cancel(ottomans(0, may_not).session)), (Status::Rejected, "Wait until 1450".into()));
+        assert!(record::posted().is_empty());
     }
 }
