@@ -60,4 +60,69 @@ mod tests {
     fn the_command_names_the_country_the_province_and_the_unit_type() {
         assert_eq!(super::written(*b"FRA", 183, "western_medieval_infantry"), r#"buildunit={ country="FRA" province=183 unit="western_medieval_infantry" }"#);
     }
+
+    use super::*;
+    use crate::game::{
+        buffers::{self, answers_no, answers_yes, write_inline, Image, Object, Provinces},
+        commands::record,
+        provinces::{CAN_RECRUIT, RECRUIT_PLACE},
+        Caller, Tag,
+    };
+    use crate::objects::campaign::{classes, country};
+    use eu4_harmony_remote::recruiting::UnitKind as Kind;
+
+    /// The game's recruit check: no, for want of money.
+    extern "C" fn no_money(_: usize, _: usize, _: usize, _: usize, _: usize, _: usize, reasons: usize, _: usize, _: usize, _: usize) -> usize {
+        write_inline(reasons, "  no money\n");
+        0
+    }
+
+    /// France, with an infantry unit type and none of the other kinds, in a
+    /// world of provinces 0 to 2; the game's recruit check answers with
+    /// `check`.
+    struct France {
+        _image: Image,
+        _provinces: Provinces,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn france(check: *const ()) -> France {
+        let image = Image::new();
+        let m = image.memory();
+        image.function(CAN_RECRUIT.rva(), check).function(RECRUIT_PLACE.rva(), answers_yes as *const ()).function(game_string::DESTROY_AT.rva(), answers_no as *const ());
+        let provinces = Provinces::new(&image, 3);
+        let fra = Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
+        let infantry = Object::new(unit_type_fields::NAME + game_string::OBJECT).u64(0, m.at(classes::UNIT_TYPE) as u64).string(unit_type_fields::NAME, "w_infantry");
+        let france = Object::country(fra, country::UNIT_TYPES + 8 * country::UNIT_KINDS).points_to(country::UNIT_TYPES, infantry);
+        let countries = Object::countries(&[&france]);
+        let session = buffers::session(m, provinces.world(), fra, france.at(), countries.at(), Caller::Remote);
+        France { _image: image, _provinces: provinces, _objects: vec![france, countries], session }
+    }
+
+    fn order(province: u32, kind: Kind) -> args::Order {
+        args::Order { province: ProvinceId(province), kind }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("the regiment was recruited") };
+        (status, message)
+    }
+
+    #[test]
+    fn a_regiment_is_recruited_through_the_recruit_command() {
+        let france = france(answers_yes as *const ());
+        recruit(france.session, order(2, Kind::Infantry)).unwrap();
+        assert_eq!(record::posted(), [r#"buildunit={ country="FRA" province=2 unit="w_infantry" }"#]);
+    }
+
+    #[test]
+    fn a_recruit_the_game_or_the_player_cannot_make_is_refused() {
+        let france = france(no_money as *const ());
+        assert_eq!(refused(recruit(france.session, order(1, Kind::Infantry))), (Status::Rejected, "no money".into()));
+        assert_eq!(refused(recruit(france.session, order(1, Kind::Galley))), (Status::Rejected, "the player has no unit type of the kind galley".into()));
+        assert_eq!(refused(recruit(france.session, order(0, Kind::Infantry))).0, Status::NotFound);
+        assert_eq!(refused(recruit(france.session, order(3, Kind::Infantry))).0, Status::NotFound);
+        assert!(record::posted().is_empty());
+    }
 }
