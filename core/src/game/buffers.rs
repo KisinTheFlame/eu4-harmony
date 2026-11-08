@@ -261,12 +261,56 @@ pub fn strings_kept(image: &Image) -> &Image {
     image.function(game_string::DESTROY_AT.rva(), kept as *const ())
 }
 
-/// Writes `text` into the empty `std::string` at `out`, held in itself, as
-/// a test's game function writes its reasons.
+/// The game's provinces 0 to `count` − 1, as the map, a global of the
+/// game's, and the world hold them: each with its ID and a geometry of its
+/// own of that ID, without neighbors; 0 the placeholder, as in the game.
+pub struct Provinces {
+    provinces: Object,
+    /// The world that holds them, for a session's `world`.
+    pub world: Object,
+    _map: Object,
+    _geometries: Vec<Object>,
+}
+
+impl Provinces {
+    pub fn new(image: &Image, count: usize) -> Self {
+        use crate::objects::campaign::{geometry, globals, map, province, world};
+        let provinces = Object::new(count * province::SIZE);
+        let geometries: Vec<Object> = (0..count).map(|id| Object::new(geometry::TERRAIN + 8).u32(geometry::ID, id as u32)).collect();
+        for (id, geometry) in geometries.iter().enumerate() {
+            provinces.set(id * province::SIZE + province::ID, &(id as u32).to_le_bytes());
+            provinces.set(id * province::SIZE + province::GEOMETRY, &(geometry.at() as u64).to_le_bytes());
+        }
+        let (first, end) = (provinces.at() as u64, (provinces.at() + count * province::SIZE) as u64);
+        let map = Object::new(map::PROVINCES + 0x10).u64(map::PROVINCES, first).u64(map::PROVINCES + 8, end);
+        image.u64(globals::MAP, map.at() as u64);
+        let world = Object::new(world::PROVINCES + 8).u64(world::PROVINCES, first);
+        Self { provinces, world, _map: map, _geometries: geometries }
+    }
+
+    /// Where province `id` is.
+    pub fn at(&self, id: usize) -> usize {
+        self.provinces.at() + id * crate::objects::campaign::province::SIZE
+    }
+
+    /// Writes `bytes` at `offset` in province `id`.
+    pub fn set(&self, id: usize, offset: usize, bytes: &[u8]) {
+        self.provinces.set(id * crate::objects::campaign::province::SIZE + offset, bytes);
+    }
+
+    /// Where province `id`'s geometry is.
+    pub fn geometry(&self, id: usize) -> usize {
+        self._geometries[id].at()
+    }
+}
+
+/// Writes `text`, game text, into the empty `std::string` at `out`, held in
+/// itself, as a test's game function writes its reasons.
 ///
 /// # Safety
 /// `out` is a `std::string` the framework gave the game's function to write.
-pub unsafe fn write_string(out: usize, text: &str) {
+pub unsafe fn write_string(out: usize, text: impl AsRef<[u8]>) {
+    let text = text.as_ref();
     assert!(text.len() <= game_string::INLINE, "{text:?} is longer than a string holds in itself");
     std::ptr::copy_nonoverlapping(text.as_ptr(), out as *mut u8, text.len());
     *((out + game_string::SIZE) as *mut u64) = text.len() as u64;
