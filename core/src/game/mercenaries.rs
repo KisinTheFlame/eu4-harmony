@@ -132,4 +132,68 @@ mod tests {
     fn the_command_names_the_company_by_its_id() {
         assert_eq!(super::hire_text(*b"CAS", 219, 4321, 59), r#"buildunit={ country="CAS" province=219 mercenary={ id=4321 type=59 } category=1 }"#);
     }
+
+    use super::*;
+    use crate::game::{
+        buffers::{self, answers_no, answers_yes, write_inline, Image, Object, Provinces},
+        commands::record,
+        Caller, Fail, Status, Tag,
+    };
+
+    /// The game's answer of whether the player may hire a company there:
+    /// no, the province not the player's.
+    extern "C" fn not_owned(_: usize, _: usize, _: usize, text: usize) -> usize {
+        write_inline(text, "- not owned");
+        0
+    }
+
+    /// Castile, whose mercenary view lists the companies `swiss_guard` (ID
+    /// 4321 of type 59) and `free_company`, in a world of provinces 0 to 2;
+    /// the game lets the player hire there as `may_there` answers.
+    struct Castile {
+        _image: Image,
+        _provinces: Provinces,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn castile(may_there: *const ()) -> Castile {
+        let image = Image::new();
+        image.function(MAY_HIRE_THERE.rva(), may_there).function(game_string::DESTROY_AT.rva(), answers_no as *const ());
+        let provinces = Provinces::new(&image, 3);
+        let company = |key: &str, number, kind| {
+            Object::new(TEMPLATE + 8).i32(ID, kind).i32(NUMBER, number).points_to(TEMPLATE, Object::new(TEMPLATE_KEY + 0x20).string(TEMPLATE_KEY, key))
+        };
+        let (swiss, free) = (company("swiss_guard", 4321, 59), company("free_company", 7, 59));
+        let cas = Tag(u64::from_le_bytes(*b"CAS\0\0\0\0\0"));
+        let castile = Object::country(cas, COMPANIES_COUNT + 4).vector(COMPANIES, &[free.at() as u64, swiss.at() as u64]).i32(COMPANIES_COUNT, 2);
+        let countries = Object::countries(&[&castile]);
+        let session = buffers::session(image.memory(), provinces.world(), cas, castile.at(), countries.at(), Caller::Remote);
+        Castile { _image: image, _provinces: provinces, _objects: vec![swiss, free, castile, countries], session }
+    }
+
+    fn hiring(company: &str, province: u32) -> args::Hire {
+        args::Hire { company: company.into(), province: ProvinceId(province) }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("the company was hired") };
+        (status, message)
+    }
+
+    #[test]
+    fn a_listed_company_is_hired_by_its_id_in_the_province() {
+        let castile = castile(answers_yes as *const ());
+        hire(castile.session, hiring("swiss_guard", 2)).unwrap();
+        assert_eq!(record::posted(), [r#"buildunit={ country="CAS" province=2 mercenary={ id=4321 type=59 } category=1 }"#]);
+    }
+
+    #[test]
+    fn a_company_not_listed_or_not_hired_there_is_refused() {
+        let castile = castile(not_owned as *const ());
+        assert_eq!(refused(hire(castile.session, hiring("swiss_guard", 2))), (Status::Rejected, "not owned".into()));
+        assert_eq!(refused(hire(castile.session, hiring("black_army", 2))), (Status::NotFound, r#"the mercenary view lists no company "black_army""#.into()));
+        assert_eq!(refused(hire(castile.session, hiring("swiss_guard", 3))).0, Status::NotFound);
+        assert!(record::posted().is_empty());
+    }
 }
