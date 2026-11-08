@@ -49,7 +49,7 @@ Arguments (numbers are hex, with or without `0x`; addresses are all RVAs):
 - `RVA:N`: N instructions from RVA, which need not be the start of a function;
 - `bytes:RVA:N`: N bytes in hex, in the same format as dependency points;
 - `args:RVA`: how many arguments the function reads, which is how many an observe point on it must forward at least;
-- `uses:`, `refs:`, `slots:` and `chain:` find the instructions that use a field, a global or a vtable, as `core/examples/disasm.rs` describes.
+- `uses:`, `refs:`, `slots:` and `chain:` find the instructions that use a field, a global or a vtable, as `core/examples/disasm.rs` describes. They read operands: a direct `call` or `jmp` to a function is not among what `refs:` finds, so a function with no `refs:` may still be called directly.
 
 It runs `core/examples/disasm.rs` with the core's `analysis` feature. The same analysis runs the offline check, `cargo xtask offline-check`: the core's ignored tests, with `EU4_GAME_DIR` set to the game found, run once in a player's build and once with `--features eu4-harmony-core/dev`.
 
