@@ -36,6 +36,9 @@ pub struct Starting {
     pub seed: Option<u32>,
     /// The saves to copy from the player's into the test game's user folder.
     pub saves: Vec<String>,
+    /// The developer tools' options to start the core with, in place of this
+    /// checkout's `dev.toml`.
+    pub options: Option<String>,
 }
 
 /// What this process sees now, for a look at the record.
@@ -177,7 +180,7 @@ pub fn start_game<M: Machine>(m: &M, owner: &str, game_dir: &Path, starting: &St
         return Err(format!("{owner}'s test game runs already (eu4.exe {id}); cargo xtask game stop ends it"));
     }
     let folder = Path::new(&claim.folder);
-    let core = m.prepare_start(folder, game_dir, &starting.saves)?;
+    let core = m.prepare_start(folder, game_dir, starting)?;
     let user = user_dir(&claim);
     let log = user.join("eu4-harmony").join("logs").join("core.log");
     let test_game = TestGame { name: owner.to_string(), user_dir: user, core };

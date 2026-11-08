@@ -58,6 +58,9 @@ pub struct Game {
     /// The saves the scenario loads, copied into the test game's user folder
     /// at each start.
     saves: Vec<String>,
+    /// The developer tools' options each start gives the core, in place of
+    /// the checkout's `dev.toml`.
+    options: Option<String>,
     /// The game ran since the scenario began: its process missing then is an
     /// end, not a game to start.
     running: bool,
@@ -76,12 +79,28 @@ impl Game {
     /// The test game `run` reaches, asked down the pipe `name` served by
     /// `exe`.
     fn with(run: Box<dyn RunGame>, name: &str, exe: &str) -> Self {
-        Self { run, pipe: (name.into(), exe.into()), client: None, saves: Vec::new(), running: false, ends_before: 0, step: STEP, menu_wait: MAIN_MENU }
+        Self {
+            run,
+            pipe: (name.into(), exe.into()),
+            client: None,
+            saves: Vec::new(),
+            options: None,
+            running: false,
+            ends_before: 0,
+            step: STEP,
+            menu_wait: MAIN_MENU,
+        }
     }
 
     /// The saves the next scenario loads.
     pub fn loads(&mut self, saves: Vec<String>) {
         self.saves = saves;
+    }
+
+    /// The developer tools' options the next start gives the core, in place
+    /// of the checkout's `dev.toml`.
+    pub fn options(&mut self, options: Option<String>) {
+        self.options = options;
     }
 
     /// Whether the test game runs.
@@ -246,7 +265,7 @@ impl Game {
 
     fn start(&mut self) -> Played<f64> {
         self.client = None;
-        let starting = Starting { saves: self.saves.clone(), ..Default::default() };
+        let starting = Starting { saves: self.saves.clone(), options: self.options.clone(), ..Default::default() };
         match self.run.start(&starting, self.menu_wait) {
             Ok(seconds) => {
                 self.running = true;

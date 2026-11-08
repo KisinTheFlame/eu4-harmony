@@ -41,6 +41,9 @@ pub enum Build {
     /// A developer build with the heap census, which slows the game and holds
     /// memory of its own.
     Census,
+    /// A developer build with the test switches, which leave speed-ups to
+    /// the game (core/src/speed.rs).
+    Switches,
 }
 
 impl Build {
@@ -49,6 +52,7 @@ impl Build {
             Self::Player => "player",
             Self::Memory => "memory account",
             Self::Census => "heap census",
+            Self::Switches => "test switches",
         }
     }
 
@@ -59,6 +63,7 @@ impl Build {
             Self::Player => "eu4-harmony-core/dev-test-games",
             Self::Memory => "eu4-harmony-core/dev-test-games,eu4-harmony-core/dev-memory",
             Self::Census => "eu4-harmony-core/dev-test-games,eu4-harmony-core/dev-heap-census",
+            Self::Switches => "eu4-harmony-core/dev-test-games,eu4-harmony-core/dev-test-switches",
         }
     }
 }
@@ -127,7 +132,8 @@ pub trait Scenario: Sync {
     fn name(&self) -> &'static str;
     /// What it plays and measures, in a line.
     fn about(&self) -> &'static str;
-    fn build(&self) -> Build;
+    /// The build it plays on with these parameters.
+    fn build(&self, parameters: &Parameters) -> Build;
     /// About how long it plays with its parameters as the code has them.
     fn minutes(&self) -> u32;
     fn parameters(&self) -> &'static [Parameter];
@@ -136,6 +142,11 @@ pub trait Scenario: Sync {
     fn play(&self, game: &mut Game, parameters: &Parameters, record: &mut Value) -> Played<()>;
     /// The saves of the player's it loads, by their names as `menu.saves`
     /// gives them, copied into its test game before it starts.
+    /// The developer tools' options its core starts with, in place of the
+    /// checkout's `dev.toml`; None for the checkout's.
+    fn options(&self, _parameters: &Parameters) -> Option<String> {
+        None
+    }
     fn saves(&self, _parameters: &Parameters) -> Vec<String> {
         Vec::new()
     }
@@ -279,7 +290,7 @@ fn play_all(playing: &[(&dyn Scenario, Parameters)], owner: &str, game_dir: &Pat
     let stopped = || interrupted().then_some("the run was interrupted");
     let mut played = Vec::new();
     for build in builds(playing) {
-        let these: Vec<&(&dyn Scenario, Parameters)> = playing.iter().filter(|(s, _)| s.build() == build).collect();
+        let these: Vec<&(&dyn Scenario, Parameters)> = playing.iter().filter(|(s, p)| s.build(p) == build).collect();
         let ready = match stopped() {
             Some(why) => Err(why.to_string()),
             None => prepare(build, owner),
@@ -310,7 +321,8 @@ fn play_all(playing: &[(&dyn Scenario, Parameters)], owner: &str, game_dir: &Pat
 fn list() {
     println!("{USAGE}\n\nscenarios:");
     for s in all() {
-        println!("  {} ({} build, about {} min): {}", s.name(), s.build().name(), s.minutes(), s.about());
+        let defaults = Parameters::of(s, &[]).unwrap_or_default();
+        println!("  {} ({} build, about {} min): {}", s.name(), s.build(&defaults).name(), s.minutes(), s.about());
         for p in s.parameters() {
             println!("      --{}.{} {}: {}", s.name(), p.name, p.default, p.about);
         }
@@ -320,9 +332,9 @@ fn list() {
 /// The builds the scenarios need, in the order they are first named.
 fn builds(playing: &[(&dyn Scenario, Parameters)]) -> Vec<Build> {
     let mut builds = Vec::new();
-    for (s, _) in playing {
-        if !builds.contains(&s.build()) {
-            builds.push(s.build());
+    for (s, p) in playing {
+        if !builds.contains(&s.build(p)) {
+            builds.push(s.build(p));
         }
     }
     builds
@@ -344,6 +356,7 @@ fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, owner
     let mut record = json!({});
     game.next_scenario();
     game.loads(scenario.saves(parameters));
+    game.options(scenario.options(parameters));
     // The games that run beside it, which take some of the computer it
     // measures.
     let beside = eu4_harmony_client::game::processes().unwrap_or_default().len().saturating_sub(usize::from(game.runs()));
@@ -379,7 +392,7 @@ fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, owner
 }
 
 fn entry(scenario: &dyn Scenario, parameters: &Parameters, outcome: &str, why: Option<&str>) -> Value {
-    json!({ "name": scenario.name(), "about": scenario.about(), "build": scenario.build().name(), "parameters": parameters.json(), "outcome": outcome, "ended": why })
+    json!({ "name": scenario.name(), "about": scenario.about(), "build": scenario.build(parameters).name(), "parameters": parameters.json(), "outcome": outcome, "ended": why })
 }
 
 fn not_played(scenario: &dyn Scenario, parameters: &Parameters, why: &str) -> Value {
