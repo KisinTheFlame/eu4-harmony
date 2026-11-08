@@ -1,6 +1,6 @@
 # Deepening plan
 
-Status: decided (2026-11-08) from an architecture review of the whole codebase, and built the same day, every part; tried together in the game ([prototype-log/2026-11-08-the-deepening-merged.md](prototype-log/2026-11-08-the-deepening-merged.md)), and what that run left untried in a run of its own ([prototype-log/2026-11-08-the-deepening-tried-to-the-end.md](prototype-log/2026-11-08-the-deepening-tried-to-the-end.md)). D5's tests through the layer leave out what needs the game's own functions in depth to pass, such as a route found by the game's pathfinding or a treaty object; each part's run file says what it left untried.
+Status: decided (2026-11-08) from an architecture review of the whole codebase, and built the same day, every part; tried together in the game ([prototype-log/2026-11-08-the-deepening-merged.md](../prototype-log/2026-11-08-the-deepening-merged.md)), and what that run left untried in a run of its own ([prototype-log/2026-11-08-the-deepening-tried-to-the-end.md](../prototype-log/2026-11-08-the-deepening-tried-to-the-end.md)). D5's tests through the layer leave out what needs the game's own functions in depth to pass, such as a route found by the game's pathfinding or a treaty object; each part's run file says what it left untried.
 
 ## Goal and scope
 
@@ -50,4 +50,4 @@ Each part is one module, or one module made deeper. The parts run in two waves, 
 
 ## Done when
 
-Each part has replaced what it gathers, not added beside it; its tests go through its interface; the workspace builds, tests and passes both clippy runs; the offline checks pass; and the game, tried through the scenarios, behaves as before ([prototype-log/](prototype-log/README.md)).
+Each part has replaced what it gathers, not added beside it; its tests go through its interface; the workspace builds, tests and passes both clippy runs; the offline checks pass; and the game, tried through the scenarios, behaves as before ([prototype-log/](../prototype-log/README.md)).

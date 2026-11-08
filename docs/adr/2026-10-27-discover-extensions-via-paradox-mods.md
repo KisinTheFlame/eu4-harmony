@@ -4,7 +4,7 @@ status: superseded in part by manifest-in-toml-layout-by-convention
 
 # Discover extensions through Paradox mods
 
-The manifest is now `eu4-harmony/manifest.toml` (ADR manifest-in-toml-layout-by-convention); discovery through the playset still holds. An extension's code and texts can now be reloaded in the running game ([extension-reload.md](../extension-reload.md)); which extensions are loaded still follows the playset the game started with, so a changed playset still takes a restart.
+The manifest is now `eu4-harmony/manifest.toml` (ADR manifest-in-toml-layout-by-convention); discovery through the playset still holds. An extension's code and texts can now be reloaded in the running game ([extension-reload.md](../plans/extension-reload.md)); which extensions are loaded still follows the playset the game started with, so a changed playset still takes a restart.
 
 Extensions are distributed with ordinary Paradox mods and declared by `eu4-harmony/manifest.json` in the mod's folder. The framework loads only the extensions of mods enabled in the current playset: it reads the `.mod` descriptor files listed in `dlc_load.json` and finds each mod's folder from the `path=` in it. Extensions are loaded only once, when the game starts; after changing the playset the game has to be restarted. So players subscribe on the Steam Workshop and enable mods in the launcher, with no second way of managing mods, and the game still loads the mods' interface, localisation and other assets itself.
 

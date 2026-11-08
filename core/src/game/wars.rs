@@ -1,6 +1,6 @@
 //! The wars going on and the provinces' owners, watched day by day for the
 //! events of a war declared, a peace made and a province changing owner
-//! (docs/player-actions.md, part A5; docs/research/peace.md, "The events").
+//! (docs/plans/player-actions.md, part A5; docs/research/peace.md, "The events").
 //!
 //! What the game keeps is compared with what it kept the day before: a war
 //! that was not there was declared; countries no longer on a side of a war

@@ -31,7 +31,7 @@ usage:
   cargo xtask game stop | release | status
       Claims of test games: games started from the game folder with a user
       folder, a core and a pipe of their own, any number at once
-      (docs/test-games.md). claim makes the claim's folder, with a user
+      (docs/plans/test-games.md). claim makes the claim's folder, with a user
       folder made from the player's, and prints it; while a checkout from
       before test games holds the whole game it exits with 2, or with --wait
       returns once it holds one. start copies this checkout's built core, which needs
@@ -74,7 +74,7 @@ usage:
   cargo xtask scenario --from-report <dir>
       Plays scenarios in the game, driven through remote control, and
       writes report.json and report.md into <dir> (target\\scenarios\\<time>
-      by default): how each ended and what it found (docs/scenarios.md).
+      by default): how each ended and what it found (docs/plans/scenarios.md).
       With no name it lists them, with their builds and parameters. It
       needs Steam running, claims a test game unless this checkout holds
       one (busy, it waits with --wait), builds each build the

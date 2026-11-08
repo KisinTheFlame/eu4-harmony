@@ -1,6 +1,6 @@
 # Leak finding plan
 
-Status: decided (2026-11-04); M1 to M5 built and tried in the game the same day, M6 on 2026-11-05 ([prototype-log/](prototype-log/), from [The heap census through remote control](prototype-log/2026-11-04-heap-census-through-remote-control.md) to [What grows outside the census](prototype-log/2026-11-05-growth-outside-census-window-cloaked.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Developer build). What the game leaks of a session, and what the repairs let go, is in [sessions.md](sessions.md#known-leaks) and [research/main-menu.md](research/main-menu.md).
+Status: decided (2026-11-04); M1 to M5 built and tried in the game the same day, M6 on 2026-11-05 ([prototype-log/](../prototype-log/), from [The heap census through remote control](../prototype-log/2026-11-04-heap-census-through-remote-control.md) to [What grows outside the census](../prototype-log/2026-11-05-growth-outside-census-window-cloaked.md)). Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Developer build). What the game leaks of a session, and what the repairs let go, is in [sessions.md](sessions.md#known-leaks) and [research/main-menu.md](../research/main-menu.md).
 
 ## Goal and scope
 
@@ -134,7 +134,7 @@ The memory account's game heap is every block of the process's default heap but 
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and clippy pass, for the player build and the developer build;
-- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](prototype-log/).
+- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](../prototype-log/).
 
 ### M1 The census answers through remote control
 

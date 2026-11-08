@@ -1,5 +1,5 @@
 //! A local save's entries copied into its zip's stored blocks
-//! (docs/game-speed.md, S8).
+//! (docs/plans/game-speed.md, S8).
 //!
 //! During a local save the game deflates its entries at level 0
 //! (`super::background`), which still passes the data through zlib and takes

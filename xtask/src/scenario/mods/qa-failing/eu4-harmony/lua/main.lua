@@ -1,4 +1,4 @@
--- QA failing, a test mod of the extensions scenario (docs/whole-game.md):
+-- QA failing, a test mod of the extensions scenario (docs/plans/whole-game.md):
 -- raises an error in every on_day, and calls a capability wrongly, with a
 -- text for a province, in every on_month. Neither stops it.
 return {

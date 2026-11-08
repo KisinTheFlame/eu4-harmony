@@ -1,5 +1,5 @@
 //! The command layer (ADR one-command-layer-in-written-form,
-//! ADR commands-run-at-once, docs/commands.md): posts one of the game's
+//! ADR commands-run-at-once, docs/plans/commands.md): posts one of the game's
 //! commands from its written form, through the game's own reader, check and
 //! post, as the local handler reads back every command it posts, and has the
 //! game execute it at once, as the session's update executes a command at the

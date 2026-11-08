@@ -1,6 +1,6 @@
 # Test games plan
 
-Status: decided 2026-11-08, T1 to T4 built; what was tried in the game is in [Test games](prototype-log/2026-11-08-test-games.md). The limit of three, the queue and the lease were taken out the same day ([ADR test-games-have-no-limit-or-lease](adr/2026-11-08-test-games-have-no-limit-or-lease.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Test game, Claim). It replaces the claim of the whole game of [game-testing.md](game-testing.md), and rests on [research/several-games.md](research/several-games.md), which found that several games run at once. The decision is [ADR test-games-run-side-by-side](adr/2026-11-08-test-games-run-side-by-side.md).
+Status: decided 2026-11-08, T1 to T4 built; what was tried in the game is in [Test games](../prototype-log/2026-11-08-test-games.md). The limit of three, the queue and the lease were taken out the same day ([ADR test-games-have-no-limit-or-lease](../adr/2026-11-08-test-games-have-no-limit-or-lease.md)). Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Test game, Claim). It replaces the claim of the whole game of [game-testing.md](game-testing.md), and rests on [research/several-games.md](../research/several-games.md), which found that several games run at once. The decision is [ADR test-games-run-side-by-side](../adr/2026-11-08-test-games-run-side-by-side.md).
 
 ## Goal and scope
 
@@ -20,7 +20,7 @@ A test game is started from the game folder, so that it has every DLC the player
 | `-harmony_core=<file>` | the proxy, in every build | the core to load instead of `eu4-harmony\eu4_harmony_core.dll`; its `dev.toml` is the one beside it. A core named that does not load ends the game with 3 |
 | `-harmony_test_game=<name>` | the core of a developer build with `dev-test-games` | remote control on `\\.\pipe\eu4-harmony-<name>` instead of `\\.\pipe\eu4-harmony`; a player's build passes it over and says so in `core.log` |
 
-The game restarting itself, as a return to the main menu with the in-process return off does, writes every switch again as `--name="value"` ([research/main-menu.md](research/main-menu.md)); the proxy, the framework and the game read both forms, so the game started in its place is the same test game, hidden.
+The game restarting itself, as a return to the main menu with the in-process return off does, writes every switch again as `--name="value"` ([research/main-menu.md](../research/main-menu.md)); the proxy, the framework and the game read both forms, so the game started in its place is the same test game, hidden.
 
 The test game's name is its owner's (the leaf name of the checkout's folder, or `--owner`): letters, digits, `.`, `_` and `-`. The command line tool asks it with `--test-game <name>` (`game`, `reload`) or with `EU4_HARMONY_TEST_GAME` set; without either it asks the player's pipe, as it always has.
 
@@ -58,7 +58,7 @@ The release removes the junction before the folder, so that the player's `mod` f
 
 ### How many, and for how long
 
-- Any number of test games at once, and a claim holds its own until its holder releases it: no queue, no lease, nothing taken from a holder ([ADR test-games-have-no-limit-or-lease](adr/2026-11-08-test-games-have-no-limit-or-lease.md)). A game in 1820 takes 4.2 GB of memory and 1.3 GB of the graphics card's ([Test games](prototype-log/2026-11-08-test-games.md)); `status` says how many are held.
+- Any number of test games at once, and a claim holds its own until its holder releases it: no queue, no lease, nothing taken from a holder ([ADR test-games-have-no-limit-or-lease](../adr/2026-11-08-test-games-have-no-limit-or-lease.md)). A game in 1820 takes 4.2 GB of memory and 1.3 GB of the graphics card's ([Test games](../prototype-log/2026-11-08-test-games.md)); `status` says how many are held.
 - A claim left behind, such as a scenario run's ended by a second Ctrl-C, stays until `cargo xtask game release --owner <name>` releases it.
 
 ### Beside other games
@@ -79,8 +79,8 @@ The release removes the junction before the folder, so that the player's `mod` f
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and clippy pass, for the player build and with `dev`;
-- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](prototype-log/), saying as plainly what was not verified;
-- [dev-tools.md](dev-tools.md) describes what changed.
+- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](../prototype-log/), saying as plainly what was not verified;
+- [dev-tools.md](../dev-tools.md) describes what changed.
 
 ### T1 A core and a user folder of a test game's own
 
@@ -96,7 +96,7 @@ The proxy's `-harmony_core`, the framework reading `-userdir`, `dev.toml` beside
 
 ### T4 The commands on test games
 
-The scenario runner, `cargo xtask profile --test-game`, `cargo xtask install` without a claim, the game-test skill, AGENTS.md's testing section, [dev-tools.md](dev-tools.md) and [scenarios.md](scenarios.md).
+The scenario runner, `cargo xtask profile --test-game`, `cargo xtask install` without a claim, the game-test skill, AGENTS.md's testing section, [dev-tools.md](../dev-tools.md) and [scenarios.md](scenarios.md).
 
 ## Open questions
 

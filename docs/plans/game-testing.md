@@ -1,12 +1,12 @@
 # Game testing plan
 
-Status: replaced on 2026-11-08 by the claims of test games ([test-games.md](test-games.md), ADR test-games-run-side-by-side): the claim of the whole game, its backup and put back, `watch`, `renew` and the player's claim are gone. What follows is the design as it was, G1 to G5 built and tried (2026-11-05; [Game testing](prototype-log/2026-11-05-game-testing.md)), G6 built and tried (2026-11-06; "Watching the game a claim starts"). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Claim, Hidden start). It builds on the hidden start ([hidden-start.md](hidden-start.md)) and on the development commands ([dev-commands.md](dev-commands.md)).
+Status: replaced on 2026-11-08 by the claims of test games ([test-games.md](test-games.md), ADR test-games-run-side-by-side): the claim of the whole game, its backup and put back, `watch`, `renew` and the player's claim are gone. What follows is the design as it was, G1 to G5 built and tried (2026-11-05; [Game testing](../prototype-log/2026-11-05-game-testing.md)), G6 built and tried (2026-11-06; "Watching the game a claim starts"). Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Claim, Hidden start). It builds on the hidden start ([hidden-start.md](hidden-start.md)) and on the development commands ([dev-commands.md](dev-commands.md)).
 
 ## Goal and scope
 
 - **Goal**: every session on this computer that tries something in the game does it the same way, through one set of commands that hands the game to one holder at a time, fairly, starts it hidden, and puts back everything the run changed: the player's files, the framework files in the game folder and its `dev.toml`. The player, who plays on the same computer, gets the game first when they ask for it.
 - **In scope**: the claim, now `game-lock.ps1` in the game-lock skill, as commands of `cargo xtask game`; a queue of those waiting; the player's claim; the claim's own folder, with what a run leaves to look at; starting and stopping the game within a claim, hidden unless the holder asks to see it; `cargo xtask install`, `perf-run` and `leak-run` on top of it (since replaced by the scenarios of `cargo xtask scenario`, [scenarios.md](scenarios.md)); the skill, renamed game-test, rewritten for the commands.
-- **Out of scope**: more than one game at once ([research/headless.md](research/headless.md), "What it would take"); a playset of the run's own, since the playset is a player file the release puts back anyway; measuring vanilla, which the perf run no longer does: what matters is the framework's own game.
+- **Out of scope**: more than one game at once ([research/headless.md](../research/headless.md), "What it would take"); a playset of the run's own, since the playset is a player file the release puts back anyway; measuring vanilla, which the perf run no longer does: what matters is the framework's own game.
 
 ## Behavior
 
@@ -15,7 +15,7 @@ Status: replaced on 2026-11-08 by the claims of test games ([test-games.md](test
 | Command | What it does |
 | --- | --- |
 | `cargo xtask game claim --purpose <text> [--wait] [--lease <minutes>]` | Claims the game: backs up the player's files and copies the framework files in the game folder, with `eu4-harmony\dev.toml` if there is one, into the claim's folder. Busy without `--wait`: says who holds it and exits with 2. With `--wait`: joins the queue and exits once it holds the game. `--lease` sets the lease, 30 minutes without it |
-| `cargo xtask game start [--visible] [--sound] [--seed <n>] [--timeout <seconds>]` | Starts the game hidden, as `eu4-harmony start --hidden` does and with the same `client/` library, and waits for the main menu, 300 seconds unless `--timeout` says otherwise; a start that has not reached it in time ends the game and fails. `--visible` shows its window at the main menu, as `desktop.show` does, for someone at the computer to watch; `--sound` keeps its sound. Either way it is a hidden start, so `desktop.hide` hides it again and the sound stays as chosen until the game ends. `--seed` passes the game its own `-seed=<n>`, with which a save loaded in a new process plays the same days every time ([research/late-game.md](research/late-game.md), "Whether a game repeats its days"). Refused without the claim |
+| `cargo xtask game start [--visible] [--sound] [--seed <n>] [--timeout <seconds>]` | Starts the game hidden, as `eu4-harmony start --hidden` does and with the same `client/` library, and waits for the main menu, 300 seconds unless `--timeout` says otherwise; a start that has not reached it in time ends the game and fails. `--visible` shows its window at the main menu, as `desktop.show` does, for someone at the computer to watch; `--sound` keeps its sound. Either way it is a hidden start, so `desktop.hide` hides it again and the sound stays as chosen until the game ends. `--seed` passes the game its own `-seed=<n>`, with which a save loaded in a new process plays the same days every time ([research/late-game.md](../research/late-game.md), "Whether a game repeats its days"). Refused without the claim |
 | `cargo xtask game stop` | Ends the game |
 | `cargo xtask game release [--keep-crashes]` | Ends the game if it runs, copies what the run left into the claim's folder, puts back the player's files and the game folder's framework files and `dev.toml` and compares each, and frees the game; prints how each of the claim's games ended and a summary |
 | `cargo xtask game renew` | Starts the lease again |
@@ -71,8 +71,8 @@ Three things the runs showed, which the commands now take care of:
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and clippy pass, for the player build and with `dev`;
-- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](prototype-log/), saying as plainly what was not verified;
-- [dev-tools.md](dev-tools.md) describes what changed.
+- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](../prototype-log/), saying as plainly what was not verified;
+- [dev-tools.md](../dev-tools.md) describes what changed.
 
 ### G1 The claim as commands
 

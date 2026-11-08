@@ -1,6 +1,6 @@
 # The whole game plan
 
-Status: decided (2026-11-08), at the owner's request for stability before the framework is given to players: "a large scenario that tests the whole game once". W1 to W6 built, and the set played to its end the same night ([The whole game played through](prototype-log/2026-11-08-the-whole-game.md)): it found three defects of the framework, an answer's shape that lost fields, `menu` answering `starting` in a game at speed, and leaving a session while time ran, which crashed the game; all three are fixed. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Scenario, Scenario set, Sweep, Test mod). It builds on the scenarios ([scenarios.md](scenarios.md)) and test games ([test-games.md](test-games.md)), and adds no decision of its own that is hard to reverse.
+Status: decided (2026-11-08), at the owner's request for stability before the framework is given to players: "a large scenario that tests the whole game once". W1 to W6 built, and the set played to its end the same night ([The whole game played through](../prototype-log/2026-11-08-the-whole-game.md)): it found three defects of the framework, an answer's shape that lost fields, `menu` answering `starting` in a game at speed, and leaving a session while time ran, which crashed the game; all three are fixed. Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Scenario, Scenario set, Sweep, Test mod). It builds on the scenarios ([scenarios.md](scenarios.md)) and test games ([test-games.md](test-games.md)), and adds no decision of its own that is hard to reverse.
 
 ## Goal and scope
 
@@ -50,7 +50,7 @@ On the player build, `rounds` (10) rounds, each from the main menu:
 1. load `first_save`, let 10 days run, load `second_save` in the game, let 10 days run;
 2. return to the main menu; start a new game as `country`, let 10 days run, write the console's `autosave`, load it in the game, let 10 days run;
 3. return; start a game in observe mode, let 10 days run, put `country` in view, take it out of view, return;
-4. load `ironman_save`, an ironman game; let 10 days run; load `first_save` in the game (an in-game load in ironman, [ADR in-game-load-in-ironman](adr/2026-11-03-in-game-load-in-ironman.md)); return.
+4. load `ironman_save`, an ironman game; let 10 days run; load `first_save` in the game (an in-game load in ironman, [ADR in-game-load-in-ironman](../adr/2026-11-03-in-game-load-in-ironman.md)); return.
 
 Each step must answer as asked: the session's number grows with every new session, its country and date are the save's or the new game's, a return comes to the main menu in this process, the in-process return. Its sections: each round's seconds, and the steps that took longest.
 
@@ -77,7 +77,7 @@ On the player build. A new game in observe mode, at speed 5 for `years` (376, to
 
 ### `checked`: the speed-ups checked against the game
 
-On the developer build with the test switches, its core started with `checked = ["all"]`: every speed-up that can, works out the game's own answer too and keeps that, and counts whether the two agreed. A new game in observe mode, at speed 5 for `years` (20), an `autosave` and its load every 5 years; then the startup report's count of answers checked and differing, speed-up by speed-up. Check: no speed-up whose answers must be the game's differed, in a single answer; those `may_differ` names (`army-searches`, whose differences have their reasons under [ADR the-game-may-be-made-faster-with-reasoned-differences](adr/2026-11-07-the-game-may-be-made-faster-with-reasoned-differences.md)) are counted and not failed. It is the long-run form of what each speed-up's own run checked once.
+On the developer build with the test switches, its core started with `checked = ["all"]`: every speed-up that can, works out the game's own answer too and keeps that, and counts whether the two agreed. A new game in observe mode, at speed 5 for `years` (20), an `autosave` and its load every 5 years; then the startup report's count of answers checked and differing, speed-up by speed-up. Check: no speed-up whose answers must be the game's differed, in a single answer; those `may_differ` names (`army-searches`, whose differences have their reasons under [ADR the-game-may-be-made-faster-with-reasoned-differences](../adr/2026-11-07-the-game-may-be-made-faster-with-reasoned-differences.md)) are counted and not failed. It is the long-run form of what each speed-up's own run checked once.
 
 ## How it fits together
 
@@ -105,8 +105,8 @@ The sweep reads the catalogue from `remote/` as xtask is built, so a capability 
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and clippy pass, for the player build and with `dev`;
-- what it delivers was played in a claim's test game, with the run recorded in a file of its own in [prototype-log/](prototype-log/), saying as plainly what was not verified;
-- [dev-tools.md](dev-tools.md) and [scenarios.md](scenarios.md) describe what changed.
+- what it delivers was played in a claim's test game, with the run recorded in a file of its own in [prototype-log/](../prototype-log/), saying as plainly what was not verified;
+- [dev-tools.md](../dev-tools.md) and [scenarios.md](scenarios.md) describe what changed.
 
 ### W1 The set, the log check and the developers' saves
 

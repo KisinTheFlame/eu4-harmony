@@ -1,5 +1,5 @@
 //! `extensions`: extensions that go wrong, in the real game, on the player
-//! build (docs/whole-game.md). Four test mods are in its test game's
+//! build (docs/plans/whole-game.md). Four test mods are in its test game's
 //! playset (`mods/`): `qa-steady` counts the days and keeps its count as
 //! save data, `qa-failing` raises errors, `qa-looping` loops without end and
 //! `qa-hungry` runs into the memory limit.

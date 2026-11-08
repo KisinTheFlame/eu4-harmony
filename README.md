@@ -38,7 +38,7 @@ Good to know:
 
 ### Settings
 
-**EU4 Harmony settings** has the player language and its fonts, returning to the main menu without restarting the game, achievement rules, game speed, what remote control may see and how even the music is; each setting says there what it does. The details are in [docs/player-language.md](docs/player-language.md), [docs/sessions.md](docs/sessions.md), [docs/game-speed.md](docs/game-speed.md), [docs/music-volume.md](docs/music-volume.md) and [ADR remote-control-reads-the-players-view](docs/adr/2026-11-05-remote-control-reads-the-players-view.md).
+**EU4 Harmony settings** has the player language and its fonts, returning to the main menu without restarting the game, achievement rules, game speed, what remote control may see and how even the music is; each setting says there what it does. The details are in [docs/plans/player-language.md](docs/plans/player-language.md), [docs/plans/sessions.md](docs/plans/sessions.md), [docs/plans/game-speed.md](docs/plans/game-speed.md), [docs/plans/music-volume.md](docs/plans/music-volume.md) and [ADR remote-control-reads-the-players-view](docs/adr/2026-11-05-remote-control-reads-the-players-view.md).
 
 With the framework, the game's own volume sliders go as the square of their position, so each step sounds about as large, where vanilla's last tenth fell off steeply: volumes saved below 100 sound quieter than before, and are set again once.
 
@@ -95,7 +95,7 @@ Where to learn more:
 
 - `eu4-harmony wiki`: every capability with its arguments and results, the handlers and globals (`wiki lua`), the manifest (`wiki manifest`). It needs no game.
 - `eu4-harmony skills`: step-by-step guides for each kind of work (`skills mod` for making a mod, `skills ui`, `skills testing`, …), written for coding agents and readable by anyone.
-- [docs/lua-extensions.md](docs/lua-extensions.md): how extensions work, with errors, the time and memory limits and save data.
+- [docs/plans/lua-extensions.md](docs/plans/lua-extensions.md): how extensions work, with errors, the time and memory limits and save data.
 
 ## Remote control
 
@@ -111,15 +111,15 @@ eu4-harmony game screenshot --out shot.png
 eu4-harmony game menu return               # back to the main menu
 ```
 
-In observe mode, the AI playing every country, `menu start` with no country starts such a game, `session view FRA` puts France in view and `session leave_view` takes it out; what acts as a country then acts as the one in view while the AI goes on playing it, and with none in view fails with `no_country` ([docs/observe-mode.md](docs/observe-mode.md)).
+In observe mode, the AI playing every country, `menu start` with no country starts such a game, `session view FRA` puts France in view and `session leave_view` takes it out; what acts as a country then acts as the one in view while the AI goes on playing it, and with none in view fails with `no_country` ([docs/plans/observe-mode.md](docs/plans/observe-mode.md)).
 
-Remote control is open only to the Windows user playing, only on this computer, and can do only what the player could. Where no capability reaches, it can use the player's mouse and keyboard. `eu4-harmony wiki remote` explains how a game goes and what each exit code means; [docs/remote-control.md](docs/remote-control.md) and [docs/hidden-start.md](docs/hidden-start.md) have the design.
+Remote control is open only to the Windows user playing, only on this computer, and can do only what the player could. Where no capability reaches, it can use the player's mouse and keyboard. `eu4-harmony wiki remote` explains how a game goes and what each exit code means; [docs/plans/remote-control.md](docs/plans/remote-control.md) and [docs/plans/hidden-start.md](docs/plans/hidden-start.md) have the design.
 
 ## Documentation
 
 | | |
 | --- | --- |
-| [docs/v1.md](docs/v1.md) | The design of the first version |
+| [docs/plans/v1.md](docs/plans/v1.md) | The design of the first version |
 | [GLOSSARY.md](GLOSSARY.md) | The terms the project uses |
 | [docs/adr/](docs/adr/) | Decisions that are hard to reverse, and why they were made |
 | [docs/research/](docs/research/) | What is known about the game's code |
@@ -139,7 +139,7 @@ cargo test --release
 cargo xtask release        # pack the player package
 ```
 
-The game is found through `EU4_GAME_DIR` or Steam. To try the build in the game, claim a test game: a game started from the game folder with a user folder, a core and a remote control pipe of its own, so that it touches neither the player's files nor the framework installed in the game folder, and several run side by side ([docs/test-games.md](docs/test-games.md)). The game folder needs a framework from test games on, installed once with no game running (`cargo xtask install`).
+The game is found through `EU4_GAME_DIR` or Steam. To try the build in the game, claim a test game: a game started from the game folder with a user folder, a core and a remote control pipe of its own, so that it touches neither the player's files nor the framework installed in the game folder, and several run side by side ([docs/plans/test-games.md](docs/plans/test-games.md)). The game folder needs a framework from test games on, installed once with no game running (`cargo xtask install`).
 
 ```powershell
 cargo build --release --features eu4-harmony-core/dev-test-games

@@ -21,13 +21,13 @@ times = false
 fields = {}
 
 # Answers remote control's memory: what the process holds, by where it lies,
-# at no cost between two asks (docs/leak-finding.md). No options.
+# at no cost between two asks (docs/plans/leak-finding.md). No options.
 [memory-account]
 
 # Counts the game's live heap blocks by site and generation, logs at every
 # world reset those the earlier sessions left, and answers remote control's
 # memory.leftovers, memory.watch, memory.generation, memory.quarantine and
-# memory.pages (docs/leak-finding.md). Builds the memory account in too. No
+# memory.pages (docs/plans/leak-finding.md). Builds the memory account in too. No
 # options.
 [heap-census]
 

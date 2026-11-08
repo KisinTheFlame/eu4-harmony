@@ -1,5 +1,5 @@
 //! Peace: the peace view, where the player demands terms of a country they
-//! are at war with, or offers terms to it (docs/player-actions.md, part A5).
+//! are at war with, or offers terms to it (docs/plans/player-actions.md, part A5).
 //!
 //! A term is named by its key, as the game names its peace treaty terms
 //! without their `po_` prefix (`demand_provinces`, `humiliate`, `gold`,

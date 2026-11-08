@@ -280,7 +280,7 @@ pub struct Reloaded {
 }
 
 /// Reloads the extension of the mod `id` from its files, in place
-/// (docs/extension-reload.md): the new code is opened first, and only when
+/// (docs/plans/extension-reload.md): the new code is opened first, and only when
 /// it loads is the old one asked for its save data and replaced. On the
 /// main thread, between frames.
 pub fn reload(_: Caller, args::Reload { id }: args::Reload) -> game::GResult<Reloaded> {

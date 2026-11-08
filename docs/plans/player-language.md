@@ -1,6 +1,6 @@
 # Player language plan
 
-Status: L1 to L4 built (2026-11-05); L2 and L3 tried in the game for Simplified Chinese and English ([The player language and fonts by language](prototype-log/2026-11-05-player-language-fonts-language.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Player language, Framework settings, System font). The decision and its reasons are in [ADR player-language-in-the-settings](adr/2026-11-05-player-language-in-the-settings.md).
+Status: L1 to L4 built (2026-11-05); L2 and L3 tried in the game for Simplified Chinese and English ([The player language and fonts by language](../prototype-log/2026-11-05-player-language-fonts-language.md)). Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Player language, Framework settings, System font). The decision and its reasons are in [ADR player-language-in-the-settings](../adr/2026-11-05-player-language-in-the-settings.md).
 
 ## Goal and scope
 
@@ -83,4 +83,4 @@ The default lists, the fonts not chosen left out of the file, the fallback order
 ## Known limits
 
 - **One face for the settings window**: the framework UI draws every text in the body text's face, the language names in the language list too. A Chinese font made for GB2312 has Cyrillic and the pinyin letters (ê, ü) as full-width glyphs, so in such a font Русский and Türkçe come out wide apart.
-- **Legacy escapes' shifted range**: the tools that write legacy escapes for language mods move U+0101 to U+09FF up by 0xE000 before escaping them, and the framework does not move them back, so such a character in a language mod's escaped text comes out as a private-use one. Greek, Cyrillic and the like reach the game as UTF-8 and are not affected ([research/unicode-text.md](research/unicode-text.md)).
+- **Legacy escapes' shifted range**: the tools that write legacy escapes for language mods move U+0101 to U+09FF up by 0xE000 before escaping them, and the framework does not move them back, so such a character in a language mod's escaped text comes out as a private-use one. Greek, Cyrillic and the like reach the game as UTF-8 and are not affected ([research/unicode-text.md](../research/unicode-text.md)).

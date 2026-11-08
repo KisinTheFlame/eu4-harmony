@@ -1,6 +1,6 @@
 //! Decides whether the running `eu4.exe` is a build the core's addresses fit.
 //!
-//! Rule (docs/v1.md): the original sections must sit exactly where they do in
+//! Rule (docs/plans/v1.md): the original sections must sit exactly where they do in
 //! a registered baseline (extra sections appended by a binary patch are fine),
 //! and every dependency point must still hold its expected bytes; `points`
 //! checks the bytes.

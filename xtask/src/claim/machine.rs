@@ -9,7 +9,7 @@
 //! and of `game-lock.json`, their record, which it reads for a claim of a
 //! checkout from before test games and writes [`record::old_holder`] into
 //! while test games are held. Each claim has a folder under `claims\`
-//! (docs/test-games.md): `user\`, the test game's user folder, made from the
+//! (docs/plans/test-games.md): `user\`, the test game's user folder, made from the
 //! player's with a junction to their `mod` folder; `core\`, the core and
 //! `dev.toml` its start copied; `follow.exe`, which follows its games to
 //! their ends into `game-ends.tsv`; and `kept\` after the release.
@@ -494,7 +494,7 @@ fn is_junction(path: &Path) -> bool {
 }
 
 /// The developers' own saves, made for testing and kept apart from the
-/// player's, in the folder of the claims' record (docs/whole-game.md).
+/// player's, in the folder of the claims' record (docs/plans/whole-game.md).
 const SAVES: &str = "saves";
 
 /// Copies each save of `saves`, by its name as `menu.saves` gives it or its

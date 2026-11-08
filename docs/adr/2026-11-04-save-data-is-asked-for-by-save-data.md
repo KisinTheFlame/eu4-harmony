@@ -1,6 +1,6 @@
 # An extension's save data is what `save_data` returns, also across a reload
 
-The framework asks an extension for its data by calling its `save_data` function: whenever the game writes its world, as `on_save` was called before (ADR save-data-is-what-on-save-returns), and before the extension's code is reloaded (docs/extension-reload.md), so the new code gets the old code's state in `on_session` as a loaded save gives it. What the data may hold and where it is written stay as ADR save-data-is-what-on-save-returns and ADR extension-save-data-in-the-save have them. This supersedes ADR save-data-is-what-on-save-returns.
+The framework asks an extension for its data by calling its `save_data` function: whenever the game writes its world, as `on_save` was called before (ADR save-data-is-what-on-save-returns), and before the extension's code is reloaded (docs/plans/extension-reload.md), so the new code gets the old code's state in `on_session` as a loaded save gives it. What the data may hold and where it is written stay as ADR save-data-is-what-on-save-returns and ADR extension-save-data-in-the-save have them. This supersedes ADR save-data-is-what-on-save-returns.
 
 `save_data` is named for what it returns, not for an event: the other handlers are `on_` something that happened, and this one is the framework's question, which must be answered at once and cannot wait. The rename is a breaking change, so `api_version` goes to 0.3.
 

@@ -52,7 +52,7 @@ The Rust version is the one [rust-toolchain.toml](rust-toolchain.toml) names, wh
 
 ## Testing in the game
 
-- Try things in a test game of your own ([docs/test-games.md](docs/test-games.md)): claim it before you use it, start it only through the claim and hidden unless the user asks to see it, and release it as soon as you are done. [.claude/skills/game-test](.claude/skills/game-test/SKILL.md) says how.
+- Try things in a test game of your own ([docs/plans/test-games.md](docs/plans/test-games.md)): claim it before you use it, start it only through the claim and hidden unless the user asks to see it, and release it as soon as you are done. [.claude/skills/game-test](.claude/skills/game-test/SKILL.md) says how.
 - A test game is started from the game folder with a user folder, a core and a pipe of its own: it never touches the player's files or the framework installed in the game folder, and never ends a game that is not its own. Never install into the game folder while the player or a test game runs, and only when the user asks.
 - Leave nothing behind: scratch files, and test games still held.
 - Record the result in a file of its own in [docs/prototype-log/](docs/prototype-log/), one per run.

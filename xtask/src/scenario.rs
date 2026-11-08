@@ -1,6 +1,6 @@
 //! `cargo xtask scenario`: plays scenarios (GLOSSARY), courses of play in
 //! the real game driven through remote control, within one claim, and writes
-//! one report of them (docs/scenarios.md).
+//! one report of them (docs/plans/scenarios.md).
 //!
 //! The runner does everything but the playing: it finds Steam ready, claims
 //! a test game unless this checkout holds one, builds each build the
@@ -8,7 +8,7 @@
 //! next start takes up, starts it hidden, hands each scenario the game at
 //! its main menu, tells how it ended, and releases
 //! the claim it made, whatever ends the run: an error, a panic or Ctrl-C
-//! (docs/test-games.md). Only cargo, for the builds, and the game run as
+//! (docs/plans/test-games.md). Only cargo, for the builds, and the game run as
 //! programs of their own.
 mod extensions;
 mod game;
@@ -156,7 +156,7 @@ pub trait Scenario: Sync {
         Vec::new()
     }
     /// The test mods it puts in its test game's playset: folders of Harmony
-    /// mods (docs/whole-game.md).
+    /// mods (docs/plans/whole-game.md).
     fn mods(&self, _parameters: &Parameters) -> Vec<PathBuf> {
         Vec::new()
     }
@@ -182,7 +182,7 @@ pub struct Set {
 /// The sets, in `cargo xtask scenario`'s list after the scenarios.
 const SETS: &[Set] = &[Set {
     name: "whole",
-    about: "the framework through the real game from end to end, before a release (docs/whole-game.md)",
+    about: "the framework through the real game from end to end, before a release (docs/plans/whole-game.md)",
     scenarios: &["sweep", "sessions", "extensions", "late", "long", "checked", "growth", "perf"],
 }];
 

@@ -1,6 +1,6 @@
 # Observe mode plan
 
-Status: decided with the owner (2026-11-07); built and tried in the game (2026-11-07). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Observe mode, Country in view, Player's view, Session). The decision is [ADR observe-mode-acts-as-the-country-in-view](adr/2026-11-07-observe-mode-acts-as-the-country-in-view.md).
+Status: decided with the owner (2026-11-07); built and tried in the game (2026-11-07). Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Observe mode, Country in view, Player's view, Session). The decision is [ADR observe-mode-acts-as-the-country-in-view](../adr/2026-11-07-observe-mode-acts-as-the-country-in-view.md).
 
 ## Goal and scope
 
@@ -60,7 +60,7 @@ From the game's code (RVAs into 1.37.5):
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and both clippy runs pass, and so do the offline checks against the game's files;
-- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](prototype-log/), saying as plainly what was not verified;
+- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](../prototype-log/), saying as plainly what was not verified;
 - a change players or mod authors notice is in README.md and README.zh-CN.md.
 
 ### O1 A game with no country played

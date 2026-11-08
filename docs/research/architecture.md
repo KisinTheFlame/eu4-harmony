@@ -543,7 +543,7 @@ The framework's dependency points sit in each layer:
 | Map | The map mode's colors `0x10a8c30`, `0x12fd9b0` | `map.rs` |
 | GUI | The army panel, buttons, the edit box | `ui.rs`, `unicode/` |
 
-The framework calls extensions and remote control from the in-game frame, after the session has executed the frame's commands ([safe-points.md](safe-points.md)). Where a capability changes the game, it does what the player's interface does: it posts the command the interface would post (recruiting), or calls the setter or toggle the interface calls (the speed, the pause) ([remote-control.md](../remote-control.md)).
+The framework calls extensions and remote control from the in-game frame, after the session has executed the frame's commands ([safe-points.md](safe-points.md)). Where a capability changes the game, it does what the player's interface does: it posts the command the interface would post (recruiting), or calls the setter or toggle the interface calls (the speed, the pause) ([remote-control.md](../plans/remote-control.md)).
 
 ## Open questions
 

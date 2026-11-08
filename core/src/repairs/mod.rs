@@ -38,7 +38,7 @@ use crate::{memory::Memory, points::Point};
 
 /// While it lives, `repair` lets the game's memory go on this thread: a
 /// developer build's quarantine keeps what is freed then, while it is on
-/// (docs/leak-finding.md, M4). What the game frees later, as the GUI's sweep
+/// (docs/plans/leak-finding.md, M4). What the game frees later, as the GUI's sweep
 /// frees a window a repair killed, is not kept.
 struct LettingGo;
 

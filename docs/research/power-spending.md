@@ -1,6 +1,6 @@
 # Monarch points and the treasury (for `game::power` and A2)
 
-Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe on 2026-11-05 with `cargo xtask disasm`, the token table (u32 token then its name, 0x208 bytes an entry, around `0x207b068`) and scripts over the PE file; what was tried in the game is in [Player actions A2](../prototype-log/2026-11-05-player-actions-a2-points-treasury.md). The fields and the costs' first reading are in [countries.md](countries.md), "What the economy's actions cost" and "National focus"; this file is what the panels' buttons check, say and post. Part A2 of [player-actions.md](../player-actions.md) is built on it.
+Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe on 2026-11-05 with `cargo xtask disasm`, the token table (u32 token then its name, 0x208 bytes an entry, around `0x207b068`) and scripts over the PE file; what was tried in the game is in [Player actions A2](../prototype-log/2026-11-05-player-actions-a2-points-treasury.md). The fields and the costs' first reading are in [countries.md](countries.md), "What the economy's actions cost" and "National focus"; this file is what the panels' buttons check, say and post. Part A2 of [player-actions.md](../plans/player-actions.md) is built on it.
 
 ## The commands
 

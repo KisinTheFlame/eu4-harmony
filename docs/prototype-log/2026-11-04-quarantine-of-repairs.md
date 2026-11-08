@@ -1,6 +1,6 @@
 # 2026-11-04 The quarantine of what the repairs let go (tested by me)
 
-M4 of [leak-finding.md](../leak-finding.md): the developer build with the census (`--features eu4-harmony-core/dev-heap-census`), the quarantine turned on by `memory.quarantine` at the first main menu. One process under the game lock, which backed up and restored the player's files; the framework files in the game folder copied aside first. `tools/leak-run.ps1 -Rounds 10 -Quarantine`, the saves England-1 and 英格兰1444_11_11, new games as France, 30 days.
+M4 of [leak-finding.md](../plans/leak-finding.md): the developer build with the census (`--features eu4-harmony-core/dev-heap-census`), the quarantine turned on by `memory.quarantine` at the first main menu. One process under the game lock, which backed up and restored the player's files; the framework files in the game folder copied aside first. `tools/leak-run.ps1 -Rounds 10 -Quarantine`, the saves England-1 and 英格兰1444_11_11, new games as France, 30 days.
 
 - **The run**: every answer right, no crash, no crash folder; each round 50 to 61 s, against 48 to 57 s without the quarantine.
 - **What it kept**: 1,504,740 blocks, 193.7 MB, about 150,000 blocks and 19 MB a round, from every repair that lets memory go while it runs:

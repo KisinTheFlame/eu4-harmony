@@ -1,6 +1,6 @@
 # Adding a capability
 
-How a capability reaches both extensions and remote clients, layer by layer, and what is done before it is merged. Terms are in [GLOSSARY.md](../GLOSSARY.md); the rules that shape a capability are in [ADR one-capability-catalogue](adr/2026-11-03-one-capability-catalogue.md), [ADR one-command-layer-in-written-form](adr/2026-11-03-one-command-layer-in-written-form.md) and, for the panels' actions, [player-actions.md](player-actions.md).
+How a capability reaches both extensions and remote clients, layer by layer, and what is done before it is merged. Terms are in [GLOSSARY.md](../GLOSSARY.md); the rules that shape a capability are in [ADR one-capability-catalogue](adr/2026-11-03-one-capability-catalogue.md), [ADR one-command-layer-in-written-form](adr/2026-11-03-one-command-layer-in-written-form.md) and, for the panels' actions, [player-actions.md](plans/player-actions.md).
 
 ## Before writing code
 

@@ -1,6 +1,6 @@
 # Scenarios drive the game through remote control only, from Rust in xtask
 
-A scenario plays the game only through remote control, asking its capabilities with their own Rust request and answer types, from code in xtask that runs in the runner's process ([scenarios.md](../scenarios.md)). Nothing clicks at places on the screen or compares images, and nothing runs the command line tool for an answer. So a scenario measures only the framework's own builds, never vanilla, and compares a run with the framework's earlier runs, not with the game without it.
+A scenario plays the game only through remote control, asking its capabilities with their own Rust request and answer types, from code in xtask that runs in the runner's process ([scenarios.md](../plans/scenarios.md)). Nothing clicks at places on the screen or compares images, and nothing runs the command line tool for an answer. So a scenario measures only the framework's own builds, never vanilla, and compares a run with the framework's earlier runs, not with the game without it.
 
 ## Considered Options
 

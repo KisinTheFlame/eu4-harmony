@@ -279,7 +279,7 @@ fn route_after(call: &mut Call) {
 /// Which kinds of event someone listens to: those an extension has a
 /// handler for, and those a remote client has read in this process (every
 /// kind once one read them all). A kind nobody listens to is not worked out
-/// (docs/player-actions.md, "Events").
+/// (docs/plans/player-actions.md, "Events").
 #[derive(Default)]
 struct Listening {
     extensions: BTreeSet<Kind>,

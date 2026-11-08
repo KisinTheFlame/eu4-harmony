@@ -1,6 +1,6 @@
 # 2026-11-05 Game testing (tested by me)
 
-G1 to G4 of [game-testing.md](../game-testing.md), with `cargo xtask game` from this branch's checkout; the game folder held the player's own install, an earlier player build, before and after. The player's playset, a borderless 3840x2160 window.
+G1 to G4 of [game-testing.md](../plans/game-testing.md), with `cargo xtask game` from this branch's checkout; the game folder held the player's own install, an earlier player build, before and after. The player's playset, a borderless 3840x2160 window.
 
 - **A claim**: `claim --purpose …` backed up the player's files into the claim's folder and copied the game folder's `version.dll`, core and command line tool into its `framework\`; the record kept the script's fields and added `folder`, `player` and `taken`.
 - **Starting and stopping**: `install` then `game start` reached the main menu hidden in 50 to 56 s. The first `start` whose output went into a pipe did not return until the game ended: the game had inherited the pipe. With the game made with no handle passed on, it returned at the main menu. `start --timeout 5` ended the game and failed; `stop` ended it.

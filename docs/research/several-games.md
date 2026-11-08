@@ -4,7 +4,7 @@ Whether more than one game can run on this computer at the same time, for develo
 
 ## Why
 
-Every session on the computer that tries something in the game waits for the one claim ([game-testing.md](../game-testing.md)): while one plays a scenario of twenty minutes, the others queue; the run below waited for one itself. The computer has room for more than one game: 61 GB of memory, a graphics card of 16 GB, 16 threads, and a game uses about 4 GB, 1.4 GB and one busy main thread (below).
+Every session on the computer that tries something in the game waits for the one claim ([game-testing.md](../plans/game-testing.md)): while one plays a scenario of twenty minutes, the others queue; the run below waited for one itself. The computer has room for more than one game: 61 GB of memory, a graphics card of 16 GB, 16 threads, and a game uses about 4 GB, 1.4 GB and one busy main thread (below).
 
 ## In short
 
@@ -71,11 +71,11 @@ Two games side by side, each loaded from `observer-1700.1.1.eu4` and run at spee
 1. **The core**: the proxy loads a core named on the command line instead of the installed one; the developer build's options beside it.
 2. **The user folder**: the framework reads `-userdir` as the game does, before `userdir.txt`; the command line tool's `--user-dir` already names one.
 3. **The pipe**: a name per game, taken from the command line, and the command line tool told which game to ask.
-4. **The claim** ([game-testing.md](../game-testing.md)): a game of a holder's own, with a user folder made for it from the player's and a core copied from its checkout's build, started from the game folder and removed at the release; the player's files are then not touched, so nothing of them is backed up or put back. Installing into the game folder, the perf scenario and the player's own game keep the computer to one holder.
+4. **The claim** ([game-testing.md](../plans/game-testing.md)): a game of a holder's own, with a user folder made for it from the player's and a core copied from its checkout's build, started from the game folder and removed at the release; the player's files are then not touched, so nothing of them is backed up or put back. Installing into the game folder, the perf scenario and the player's own game keep the computer to one holder.
 
 Nothing in the game needs to change: the instance check needs no dependency point.
 
-Built on 2026-11-08 as test games ([test-games.md](../test-games.md)), with the pipe a test game's own in a developer build only.
+Built on 2026-11-08 as test games ([test-games.md](../plans/test-games.md)), with the pipe a test game's own in a developer build only.
 
 ## Open questions
 

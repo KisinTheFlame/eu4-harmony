@@ -1,6 +1,6 @@
 # Input plan
 
-Status: decided (2026-11-04); I1 to I4 built the same day, I1 to I3 tried in the game ([Input](prototype-log/2026-11-04-input.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Input, Screen position). The decision and its reasons are in [ADR remote-clients-give-the-players-input](adr/2026-11-04-remote-clients-give-the-players-input.md). How the game reads its input is in [research/input.md](research/input.md); how the framework UI takes its own is in `core/src/framework_ui/input.rs`.
+Status: decided (2026-11-04); I1 to I4 built the same day, I1 to I3 tried in the game ([Input](../prototype-log/2026-11-04-input.md)). Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Input, Screen position). The decision and its reasons are in [ADR remote-clients-give-the-players-input](../adr/2026-11-04-remote-clients-give-the-players-input.md). How the game reads its input is in [research/input.md](../research/input.md); how the framework UI takes its own is in `core/src/framework_ui/input.rs`.
 
 ## Goal and scope
 
@@ -47,7 +47,7 @@ Status: decided (2026-11-04); I1 to I4 built the same day, I1 to I3 tried in the
 
 ### The development tools
 
-`tools/game-input.ps1` and `tools/screenshot.ps1` went: input and screenshots are `eu4-harmony game input …` and `eu4-harmony game screenshot`. `tools/perf-run.ps1`, which measured vanilla too and so sent its own clicks and keys and compared its own screen regions, went later with the rest of `tools/` ([dev-commands.md](dev-commands.md)); what one run costs is now the scenario `perf` ([scenarios.md](scenarios.md)), on the player build only. Earlier runs in [prototype-log/](prototype-log/) keep naming the tools they used.
+`tools/game-input.ps1` and `tools/screenshot.ps1` went: input and screenshots are `eu4-harmony game input …` and `eu4-harmony game screenshot`. `tools/perf-run.ps1`, which measured vanilla too and so sent its own clicks and keys and compared its own screen regions, went later with the rest of `tools/` ([dev-commands.md](dev-commands.md)); what one run costs is now the scenario `perf` ([scenarios.md](scenarios.md)), on the player build only. Earlier runs in [prototype-log/](../prototype-log/) keep naming the tools they used.
 
 ## How it fits together
 
@@ -71,7 +71,7 @@ Inside, an `Action` becomes the steps of each frame (move, press, let go, a whee
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and clippy pass, for the player build and with `dev`, and so do the offline checks against `eu4.exe`;
-- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](prototype-log/), saying as plainly what was not verified;
+- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](../prototype-log/), saying as plainly what was not verified;
 - docs/research holds what was found in the game's code, every new place in it is a dependency point, and README.md and README.zh-CN.md say what changed for players.
 
 ### I1 Where input reaches the game

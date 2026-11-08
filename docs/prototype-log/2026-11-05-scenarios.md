@@ -1,6 +1,6 @@
 # 2026-11-05 Scenarios (tested by me)
 
-SC1 to SC3 of [scenarios.md](../scenarios.md), with `cargo xtask scenario` from this branch's checkout, each run within a claim of its own that the runner made, waited for in the queue with `--wait`, and released. The game hidden throughout; the player's own install in the game folder before and after.
+SC1 to SC3 of [scenarios.md](../plans/scenarios.md), with `cargo xtask scenario` from this branch's checkout, each run within a claim of its own that the runner made, waited for in the queue with `--wait`, and released. The game hidden throughout; the player's own install in the game folder before and after.
 
 - **The list**: `cargo xtask scenario` with no name listed `perf`, `growth` and `leak`, each with its build, its minutes and its parameters with their values.
 - **Busy**: with another checkout holding the game, `cargo xtask scenario perf` without `--wait` said the game was busy and that `--wait` waits in the queue, exited with 1 and made no report folder.

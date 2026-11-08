@@ -1,4 +1,4 @@
-//! A shorter stop for a save, the save the same (docs/game-speed.md, S3 and
+//! A shorter stop for a save, the save the same (docs/plans/game-speed.md, S3 and
 //! S8).
 //!
 //! - `background`: a local save's entries compressed by a thread of the

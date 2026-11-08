@@ -1,4 +1,4 @@
-//! Leaving a session (docs/sessions.md): for the main menu, for a save, or
+//! Leaving a session (docs/plans/sessions.md): for the main menu, for a save, or
 //! for a new game. `super::course::plan` lays out the steps from where the
 //! session goes, whether it is ironman and the framework settings; the
 //! player's ways out and remote control's take the same steps.

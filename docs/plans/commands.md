@@ -1,6 +1,6 @@
 # Commands plan
 
-Status: decided (2026-11-03); C0 built and tried in the game the same day ([Developer builds](prototype-log/2026-11-03-developer-builds.md)); C1 to C3 built and tried in the game the same day. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Command, Developer build). The decisions and their reasons are in [ADR one-command-layer-in-written-form](adr/2026-11-03-one-command-layer-in-written-form.md) and [ADR commands-run-at-once](adr/2026-11-03-commands-run-at-once.md). What the game does with commands, and what was tried in the game before this plan, is in [research/commands.md](research/commands.md) and in the runs of [the command log](prototype-log/2026-11-03-command-log.md), [reading command text back](prototype-log/2026-11-03-reading-command-text-back.md) and [posting commands read from text](prototype-log/2026-11-03-posting-commands-read-text.md).
+Status: decided (2026-11-03); C0 built and tried in the game the same day ([Developer builds](../prototype-log/2026-11-03-developer-builds.md)); C1 to C3 built and tried in the game the same day. Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Command, Developer build). The decisions and their reasons are in [ADR one-command-layer-in-written-form](../adr/2026-11-03-one-command-layer-in-written-form.md) and [ADR commands-run-at-once](../adr/2026-11-03-commands-run-at-once.md). What the game does with commands, and what was tried in the game before this plan, is in [research/commands.md](../research/commands.md) and in the runs of [the command log](../prototype-log/2026-11-03-command-log.md), [reading command text back](../prototype-log/2026-11-03-reading-command-text-back.md) and [posting commands read from text](../prototype-log/2026-11-03-posting-commands-read-text.md).
 
 ## Goal and scope
 
@@ -36,7 +36,7 @@ A tool of developer builds, on the layer: it logs every command heard, or only t
 - **On when built in**: a tool built in is on; no environment variable turns it on. The tools' options are in a developer settings file, `dev.toml` next to the core (in the game folder's `eu4-harmony\`, or a test game's own, [test-games.md](test-games.md)), one section for each tool. `cargo xtask install` copies it there from the repository's `dev.toml`, which is not checked in; `core/dev.toml.example` shows every section and option. Where the folder is, `eu4-harmony backup` and `restore` leave it alone.
 - **Defaults**: a section that is missing takes its defaults: the command log logs every type, the call trace traces nothing, the census counts at every world reset, the test switches are off.
 - **What a developer build says**: the first line of the startup report and of the framework log says "developer build" and lists the tools built in; the report lists each tool's options as they took effect.
-- **Test switches**: making startup fail and showing a test notice move out of player builds into `dev-test-switches`, turned on in `dev.toml`. The test notice's text leaves the player's localisation files. Player builds then hold no hidden switches. The steps in docs/unicode-module.md and the prototype log's notes that use them are changed to match.
+- **Test switches**: making startup fail and showing a test notice move out of player builds into `dev-test-switches`, turned on in `dev.toml`. The test notice's text leaves the player's localisation files. Player builds then hold no hidden switches. The steps in docs/plans/unicode-module.md and the prototype log's notes that use them are changed to match.
 - **Packing**: `cargo xtask release` builds the player build itself before packing it, so what was built last does not matter. `cargo xtask install` installs what was built last, as now.
 - **CI**: the player build is built, tested and checked with clippy, as now; the developer build is built and checked with clippy with `dev`, so the tools keep building.
 
@@ -58,7 +58,7 @@ pub fn listen(heard: fn(&Heard));
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and clippy pass, for the player build and with `dev`, and so do the offline checks against `eu4.exe`;
-- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](prototype-log/);
+- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](../prototype-log/);
 - docs/research holds what was found in the game's code, and README.md and README.zh-CN.md say what changed for players.
 
 ### C0 Developer builds
@@ -75,7 +75,7 @@ Recruiting, declaring war, offering peace and proposing an alliance write their 
 
 ### C3 Army orders and the rest
 
-`army.move` and `army.stop` move onto the game's own commands, as the player's right click makes them ([research/army-orders.md](research/army-orders.md)): a move command to another province, with the route replaced and the fleet's own orders cancelled, and, for the province the army is in, the command that cancels its movement. The game finds the route itself as it runs the command; the framework asks the same route query first, so that a goal with no route is refused with its reason, as now, and reads the route the game set afterwards. The route changes the command makes are the framework's own, as its direct calls' were, so route ownership and the orders heard stay as they are. `time.set_speed` posts one of the game's speed commands for each step, as the speed keys do. Tried in the game against what the two did before by calling the game's functions: the route taken, straits, an army already moving, an army stopped; the speed.
+`army.move` and `army.stop` move onto the game's own commands, as the player's right click makes them ([research/army-orders.md](../research/army-orders.md)): a move command to another province, with the route replaced and the fleet's own orders cancelled, and, for the province the army is in, the command that cancels its movement. The game finds the route itself as it runs the command; the framework asks the same route query first, so that a goal with no route is refused with its reason, as now, and reads the route the game set afterwards. The route changes the command makes are the framework's own, as its direct calls' were, so route ownership and the orders heard stay as they are. `time.set_speed` posts one of the game's speed commands for each step, as the speed keys do. Tried in the game against what the two did before by calling the game's functions: the route taken, straits, an army already moving, an army stopped; the speed.
 
 How every other capability that changes the game reaches it:
 

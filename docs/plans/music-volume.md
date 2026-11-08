@@ -1,16 +1,16 @@
 # Music volume plan
 
-Status: decided with the owner (2026-11-05); V1 to V3 built in one pull request. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Volume curve, Loudness normalization, Music leveling, Framework settings). The decision is [ADR the-framework-sets-the-sound-volumes](adr/2026-11-05-the-framework-sets-the-sound-volumes.md).
+Status: decided with the owner (2026-11-05); V1 to V3 built in one pull request. Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Volume curve, Loudness normalization, Music leveling, Framework settings). The decision is [ADR the-framework-sets-the-sound-volumes](../adr/2026-11-05-the-framework-sets-the-sound-volumes.md).
 
 ## Goal and scope
 
-- **Goal**: music a player turns down stays audible and even. A player found it, at a low volume, coming and going and sometimes silent; the run that measured why is [The music volume the mixer passes to SDL](prototype-log/2026-11-05-music-volume-to-sdl.md).
+- **Goal**: music a player turns down stays audible and even. A player found it, at a low volume, coming and going and sometimes silent; the run that measured why is [The music volume the mixer passes to SDL](../prototype-log/2026-11-05-music-volume-to-sdl.md).
 - **In scope**: the four volume sliders of the game's settings, which go by a volume curve, the square of their position; the music, mixed by the framework at the game's gain as a fraction, with loudness normalization and music leveling as framework settings.
 - **Out of scope**: the game's own settings window and its sliders, which stay as they are; sound effects and ambient sound beyond their volume curve; which track the game picks and when (`songs.txt`); the main menu's own 0.75 on its music, and whatever else the game does to a voice's volume; a capability for mods to play music, a plan of its own if one is wanted.
 
 ## Why the music comes and goes
 
-From the game's code and the run ([research/architecture.md](research/architecture.md), "Sound"):
+From the game's code and the run ([research/architecture.md](../research/architecture.md), "Sound"):
 
 - The mixer gives each voice a gain: master × music × the voice's own for music, all linear in the sliders' percentages, and rounds it times 128 into SDL's volume. The player's master 12 and music 67 put the music at 8 to 10 of 128, about -22 dB; with master at 12, the whole music slider is levels 0 to 15.
 - The vanilla tracks' integrated loudness runs from -9.9 to -24.3 LUFS, and within a track up to 19 LU between quiet and loud passages. At -22 dB, the quiet tracks and passages fall under the sound effects and ambient sound, which the player had at 77 and 76.
@@ -53,7 +53,7 @@ From the game's code and the run ([research/architecture.md](research/architectu
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and both clippy runs pass, and so do the offline checks against the game's files;
-- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](prototype-log/), saying as plainly what was not verified;
+- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](../prototype-log/), saying as plainly what was not verified;
 - a change players notice is in README.md and README.zh-CN.md.
 
 ### V1 The volume curve

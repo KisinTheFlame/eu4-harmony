@@ -1,4 +1,4 @@
-//! Who let a leftover's owner go (docs/leak-finding.md, M3): while the census
+//! Who let a leftover's owner go (docs/plans/leak-finding.md, M3): while the census
 //! watches some sites, every block the game lets go is read first, and a word
 //! of it that points into a live block of a watched site
 //! ([`super::pointers`]) is kept with the block's site and the code that let

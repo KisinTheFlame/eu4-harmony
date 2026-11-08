@@ -3,7 +3,7 @@
 //! the player can take or choose in a panel, such as a decision, a reform, a
 //! policy or a privilege, is allowed by conditions in script; the panel's
 //! tooltip lists them, and a capability refusing one gives those lines as
-//! the game's reasons (docs/player-actions.md).
+//! the game's reasons (docs/plans/player-actions.md).
 use super::{GResult, Tag};
 use crate::{
     game_string,

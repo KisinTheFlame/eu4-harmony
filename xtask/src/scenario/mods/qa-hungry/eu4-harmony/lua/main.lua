@@ -1,4 +1,4 @@
--- QA hungry, a test mod of the extensions scenario (docs/whole-game.md):
+-- QA hungry, a test mod of the extensions scenario (docs/plans/whole-game.md):
 -- grows a table in every on_month until the memory limit refuses it, and
 -- logs the refusal; the table is let go, and the extension goes on.
 return {

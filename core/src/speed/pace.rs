@@ -1,4 +1,4 @@
-//! The pace at the fastest speed (docs/game-speed.md).
+//! The pace at the fastest speed (docs/plans/game-speed.md).
 //!
 //! Between the daily update's phases the game draws a whole frame once a day
 //! has run longer than an interval, the float at `0x245b070` times the

@@ -1,6 +1,6 @@
 # 2026-11-04 Where each round's growth goes (tested by me)
 
-M1b of [leak-finding.md](../leak-finding.md): the developer build with the memory account alone (`--features eu4-harmony-core/dev-memory`), no census, so that the game ran as a player's build does but for what `memory` reads when asked. One process under the game lock, which backed up and restored the player's files; the framework files in the game folder copied aside first. `tools/leak-run.ps1`, ten rounds, the saves England-1 and 英格兰1444_11_11, new games as France, 30 days.
+M1b of [leak-finding.md](../plans/leak-finding.md): the developer build with the memory account alone (`--features eu4-harmony-core/dev-memory`), no census, so that the game ran as a player's build does but for what `memory` reads when asked. One process under the game lock, which backed up and restored the player's files; the framework files in the game folder copied aside first. `tools/leak-run.ps1`, ten rounds, the saves England-1 and 英格兰1444_11_11, new games as France, 30 days.
 
 - **The run**: every answer right, no crash, each round 28 to 35 s (35 to 40 s with the census). Private bytes 3,850 MB at startup, 3,970 MB after the first round, 4,177 MB after the tenth; from round to round between -22 and +56 MB.
 - **The heaps**: seven, and only the process's default heap, which the game's C runtime and the framework share, holds more than half a megabyte: 1,855 MB allocated and 2,349 MB committed at the end. The framework's heap stayed at 1.6 to 1.8 MB.

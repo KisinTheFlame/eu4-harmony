@@ -1,6 +1,6 @@
 # 2026-11-07 An observe-mode game with no country in view (tested by me)
 
-O1 of [observe-mode.md](../observe-mode.md), at `b2622d03`, the player build. The game claimed with `cargo xtask game`, started hidden; `observer-1600.1.1.eu4` (`player="O00"`) copied into the save games folder as `observe-test`, everything driven through `eu4-harmony game`.
+O1 of [observe-mode.md](../plans/observe-mode.md), at `b2622d03`, the player build. The game claimed with `cargo xtask game`, started hidden; `observer-1600.1.1.eu4` (`player="O00"`) copied into the save games folder as `observe-test`, everything driven through `eu4-harmony game`.
 
 - **The save**: `menu.saves` listed it with `player` null; `menu.load observe-test` loaded it, `{"number": 2, "observing": true, "player": "SWE"}`. The game put Sweden in view as it loaded the save, though no country was in view when it was made (the save says `player="O00"` only); the map showed Sweden's fog of war and its top bar.
 - **A change of view**: the camera on Constantinople (`camera.look_at --province 151`), Ctrl and a click at the screen's middle: `session.get` said `TUR`, session 2 still, and `army.list` listed the Ottomans' armies. The eye button left of the minimap took the view out: `player` null, session 2 still.

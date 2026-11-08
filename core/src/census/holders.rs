@@ -1,4 +1,4 @@
-//! Who still points at a leftover (docs/leak-finding.md, M2): the memory the
+//! Who still points at a leftover (docs/plans/leak-finding.md, M2): the memory the
 //! census reads, word by word, each word that points into a leftover
 //! ([`super::pointers`]) taken as a pointer to it. Reading is the census's to
 //! do; this module only takes what was read and tells, for each leftover,

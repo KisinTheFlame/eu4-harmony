@@ -1,4 +1,4 @@
-//! The game's sound volumes and its music (docs/music-volume.md; ADR
+//! The game's sound volumes and its music (docs/plans/music-volume.md; ADR
 //! the-framework-sets-the-sound-volumes):
 //!
 //! - every volume slider goes by a volume curve (GLOSSARY), the square of its
