@@ -281,3 +281,112 @@ mod tests {
         assert_eq!(game_string::read(&m, object.at() + 0x20).unwrap(), b"march");
     }
 }
+
+// Batch one's shapes: a world's provinces, and the game's functions a
+// panel's check calls, answering as the test says.
+
+/// A world of provinces numbered from 0 as the game numbers them, each a
+/// province of the game's with its map data, on land and with no neighbors;
+/// the world, the map's province array and the game's global `MAP` in
+/// `image` laid out as the world's provinces are read (`world::Geography`).
+/// A test sets a province's fields at its address ([`Provinces::province`]).
+pub struct Provinces {
+    world: Object,
+    provinces: Object,
+    _map: Object,
+    _geometries: Vec<Object>,
+}
+
+impl Provinces {
+    pub fn new(image: &Image, count: usize) -> Self {
+        use crate::objects::campaign::{geometry, globals, map, province, world};
+        let provinces = Object::new(count * province::SIZE);
+        let geometries: Vec<Object> = (0..count)
+            .map(|id| {
+                provinces.set(id * province::SIZE + province::ID, &(id as u32).to_le_bytes());
+                let geometry = Object::new(geometry::CLIMATE + 8).u32(geometry::ID, id as u32).u8(geometry::TERRAIN, geometry::LAND);
+                provinces.set(id * province::SIZE + province::GEOMETRY, &(geometry.at() as u64).to_le_bytes());
+                geometry
+            })
+            .collect();
+        let first = provinces.at() as u64;
+        let map = Object::new(map::PROVINCES + 16).u64(map::PROVINCES, first).u64(map::PROVINCES + 8, first + (count * province::SIZE) as u64);
+        image.u64(globals::MAP, map.at() as u64);
+        let world = Object::new(world::PROVINCES + 8).u64(world::PROVINCES, first);
+        // What another test's world left in the topology is not this one's.
+        super::with_state(|s| s.geography.clear());
+        Self { world, provinces, _map: map, _geometries: geometries }
+    }
+
+    /// The world, as a session's `world`.
+    pub fn world(&self) -> usize {
+        self.world.at()
+    }
+
+    /// Where the province `id` is.
+    pub fn province(&self, id: u32) -> usize {
+        self.provinces.at() + id as usize * crate::objects::campaign::province::SIZE
+    }
+
+    /// Writes `bytes` at `offset` of the province `id`.
+    pub fn set(&self, id: u32, offset: usize, bytes: &[u8]) -> &Self {
+        self.provinces.set(id as usize * crate::objects::campaign::province::SIZE + offset, bytes);
+        self
+    }
+
+    pub fn u8(&self, id: u32, offset: usize, value: u8) -> &Self {
+        self.set(id, offset, &[value])
+    }
+
+    pub fn i32(&self, id: u32, offset: usize, value: i32) -> &Self {
+        self.set(id, offset, &value.to_le_bytes())
+    }
+
+    pub fn u64(&self, id: u32, offset: usize, value: u64) -> &Self {
+        self.set(id, offset, &value.to_le_bytes())
+    }
+
+    /// The province `id` owned by `owner`.
+    pub fn owner(&self, id: u32, owner: Tag) -> &Self {
+        self.u64(id, crate::objects::campaign::province::OWNER, owner.0)
+    }
+}
+
+/// Writes `text`, held in the string itself, into the `std::string` at
+/// `string` when there is one, as the game's checks write their reasons.
+///
+/// # Safety
+/// `string` is null or an empty `std::string` of the framework's, such as
+/// the one [`game_string::written`] gives.
+pub unsafe fn write_reason(string: usize, text: &[u8]) {
+    assert!(text.len() <= game_string::INLINE, "a reason a test writes is held in the string itself");
+    if string != 0 {
+        unsafe {
+            std::ptr::copy_nonoverlapping(text.as_ptr(), string as *mut u8, text.len());
+            *((string + game_string::SIZE) as *mut usize) = text.len();
+        }
+    }
+}
+
+/// A `std::string`'s destructor, for one whose text is held in itself.
+pub extern "C" fn destroy_string(_: usize) -> usize {
+    0
+}
+
+/// A game function that answers 1: yes, or true.
+pub extern "C" fn yes() -> usize {
+    1
+}
+
+/// A game function that answers 0: no, false, or nothing.
+pub extern "C" fn no() -> usize {
+    0
+}
+
+impl Image {
+    /// The game's function a check that writes its reasons has called: the
+    /// destructor of the `std::string` it wrote them to.
+    pub fn strings(&self) -> &Self {
+        self.function(game_string::DESTROY_AT.rva(), destroy_string as *const ())
+    }
+}

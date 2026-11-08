@@ -87,8 +87,89 @@ pub fn reopen(session: Session, args::Reopen { province: ProvinceId(province) }:
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::catalogue::fake::{byz, tur};
+    use crate::game::{
+        buffers::{self, write_reason, Image, Object, Provinces},
+        commands::record,
+        Caller, Fail, Status,
+    };
+
     #[test]
     fn the_command_names_the_province_and_the_country() {
         assert_eq!(super::toggle_text(*b"FRA", 183), r#"mothball_fort={ province=183 country="FRA" }"#);
+    }
+
+    /// The fort maintenance box's check, which lets the player toggle any
+    /// fort but province 4's.
+    extern "C" fn may(_: usize, province: usize, text: usize) -> usize {
+        if province == 4 {
+            unsafe { write_reason(text, b"- at war") };
+            return 0;
+        }
+        1
+    }
+
+    /// The Ottomans, owning provinces 1 (an open fort of level 2), 2 (none),
+    /// 3 (a mothballed fort) and 4 (an open fort the game will not let them
+    /// toggle); Byzantium owning province 5, with a fort.
+    struct Ottomans {
+        _image: Image,
+        _provinces: Provinces,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn ottomans() -> Ottomans {
+        let image = Image::new();
+        image.strings().function(MAY_MOTHBALL.rva(), may as *const ());
+        let provinces = Provinces::new(&image, 6);
+        for id in 1..=4 {
+            provinces.owner(id, tur());
+        }
+        provinces.owner(5, byz()).u8(5, HAS_FORT, 1);
+        provinces.u8(1, HAS_FORT, 1).i32(1, FORT_LEVEL, 2);
+        provinces.u8(3, HAS_FORT, 1).u8(3, MOTHBALL, MOTHBALLED);
+        provinces.u8(4, HAS_FORT, 1);
+        let owned = Object::new(16).u32(0, 1).u32(4, 2).u32(8, 3).u32(12, 4);
+        let player = Object::country(tur(), country::OWNED_COUNT + 4).points_to(country::OWNED, owned).i32(country::OWNED_COUNT, 4);
+        let countries = Object::countries(&[&player]);
+        let session = buffers::session(image.memory(), provinces.world(), tur(), player.at(), countries.at(), Caller::Remote);
+        Ottomans { _image: image, _provinces: provinces, _objects: vec![player, countries], session }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("{result:?} was posted") };
+        (status, message)
+    }
+
+    #[test]
+    fn the_list_holds_the_player_s_forts_with_what_the_box_lets_the_player_do() {
+        let ottomans = ottomans();
+        let forts = list(ottomans.session).unwrap();
+        let summary: Vec<_> = forts.iter().map(|f| (f.province.0, f.level, f.mothballed, f.choice.can)).collect();
+        assert_eq!(summary, [(1, 2, false, true), (3, 0, true, true), (4, 0, false, false)]);
+        assert_eq!(forts[2].choice.reasons, ["at war"]);
+    }
+
+    #[test]
+    fn a_fort_is_mothballed_and_reopened_by_the_box_s_command() {
+        let ottomans = ottomans();
+        mothball(ottomans.session, args::Mothball { province: ProvinceId(1) }).unwrap();
+        reopen(ottomans.session, args::Reopen { province: ProvinceId(3) }).unwrap();
+        assert_eq!(record::posted(), [r#"mothball_fort={ province=1 country="TUR" }"#, r#"mothball_fort={ province=3 country="TUR" }"#]);
+    }
+
+    #[test]
+    fn a_fort_the_player_lacks_or_has_in_that_state_already_is_refused() {
+        let ottomans = ottomans();
+        let session = ottomans.session;
+        assert_eq!(refused(mothball(session, args::Mothball { province: ProvinceId(2) })), (Status::Rejected, "province 2 has no fort of the player's".into()));
+        assert_eq!(refused(mothball(session, args::Mothball { province: ProvinceId(5) })), (Status::Rejected, "province 5 has no fort of the player's".into()));
+        assert_eq!(refused(reopen(session, args::Reopen { province: ProvinceId(1) })), (Status::Rejected, "the fort in province 1 is open already".into()));
+        assert_eq!(refused(mothball(session, args::Mothball { province: ProvinceId(3) })), (Status::Rejected, "the fort in province 3 is mothballed already".into()));
+        assert_eq!(refused(mothball(session, args::Mothball { province: ProvinceId(4) })), (Status::Rejected, "at war".into()));
+        assert_eq!(refused(mothball(session, args::Mothball { province: ProvinceId(9) })).0, Status::NotFound);
+        assert!(record::posted().is_empty());
     }
 }
