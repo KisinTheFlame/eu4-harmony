@@ -179,12 +179,16 @@ A whole frame the game draws while a day is still being worked out, once the day
 _Avoid_: inserted frame, nested frame
 
 **Drawing thread**:
-A thread of the framework's that draws the frames the main thread has prepared, from the map's passes to Present, while the main thread goes on with the day (docs/plans/drawing-thread.md). The interface's update stays on the main thread.
+A thread of the framework's that draws the frames at a pace of its own, the display's refresh rate unless the player chooses no limit, while the main thread goes on with the day: the map with a camera that the drawing thread keeps and moves from the mouse and the keys, and the interface's windows as their last update left them (docs/plans/drawing-thread.md). The interface's update stays on the main thread.
 _Avoid_: render thread, graphics thread
 
 **Crossing**:
-A place where the day's code goes into the interface's or the graphics' own state, such as a popup made, the map mode set again or a unit's model made. While the drawing thread draws, the day waits at each crossing.
+A place where the day's code goes into the interface's or the graphics' own state, such as a popup made, the map mode set again or a unit's model made. The day takes the presentation lock at each crossing.
 _Avoid_: callback, UI hook
+
+**Presentation lock**:
+The one lock between the main thread and the drawing thread: the drawing thread holds it for each frame it draws, the main thread for each update of the interface and each crossing, so that the interface's own objects are never used by both at once.
+_Avoid_: render lock, UI mutex
 
 **Safe point**:
 A moment on the game's main thread when game state can be read and changed safely. The framework calls extensions only at safe points.
