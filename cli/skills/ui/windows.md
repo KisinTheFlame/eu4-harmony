@@ -44,7 +44,7 @@ steps:
    button, which comes 79, 109, 149, 189 or 224 wide and 31 high; or
    sprite and frame for an icon button, with its size), progress (a
    progressbartype sprite, GFX_wargoal_progressbar 288 by 18 unless named,
-   value 0 to 1), flag (a maskedShieldType, GFX_shield_thin 64 by 84
+   value 0 to 1), flag (a maskedShieldType, GFX_shield_thin 92 by 92
    unless named, country = tag), list (size, row = { size, items }, which
    scrolls). Buttons, icons, progress bars and flags take tooltip = key;
    texts take none. Every key is the mod's; a layout that is wrong, or a key
@@ -67,17 +67,17 @@ steps:
    button, Esc, or another of the game's big panels opening.
 5. A pop-up, in a handler or a task, which waits for the player:
      local answer = game.popup { header = "MYMOD_STEWARD", title = "MYMOD_ASK",
-       text = "MYMOD_ASK_TEXT", values = { N = 3 }, buttons = { "MYMOD_YES", "MYMOD_NO" },
-       province = 151, shields = { "FRA", "ENG" }, id = "ask" }
+       text = "MYMOD_ASK_TEXT", values = { N = 3 }, agree = "MYMOD_YES", decline = "MYMOD_NO",
+       shields = { "FRA", "ENG" }, id = "ask" }
    It is the game's message pop-up: a header line, the title on the green
    band, a shield at each corner (the player's country unless named), the
-   text, and one or two buttons. With no buttons it has the game's own OK;
-   with a province, the game's Go to on the left, which turns the camera
-   there: two buttons at most, Go to among them. answer is the mod's
-   button's number from 1 (1 for the game's OK), "goto", or "closed" when
-   it closed with none: game.popup.close("ask"), the session's end, or the
-   mod stopped. Esc and Return press the rightmost. Several may be open at
-   once, and remote clients list and answer them (popup.list, popup.answer).
+   text, and one or two buttons. agree stands on the right, pressed by c
+   and Return, the game's own OK when left out; decline on the left, pressed
+   by z and Esc. In place of decline, province = 151 puts the game's Go to
+   on the left, which glides the camera there. answer is "agree", "decline",
+   "goto", or "closed" when it closed with none: game.popup.close("ask"),
+   the session's end, or the mod stopped. Several may be open at once, and
+   remote clients list and answer them (popup.list, popup.answer).
 
 Done when eu4-harmony test passes with mod:window, mod:press, mod:entry,
 mod:close, mod:popups and mod:answer_popup (eu4-harmony skills testing), and

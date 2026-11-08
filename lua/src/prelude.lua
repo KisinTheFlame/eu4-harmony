@@ -128,13 +128,14 @@ game.window = setmetatable({
   end,
 })
 
--- game.popup { title = key, text = key, buttons = { key, ... } } waits for
--- the button the player presses: its number, or "closed".
+-- game.popup { title = key, text = key, agree = key, decline = key } waits
+-- for the button the player presses: "agree", "decline", "goto", or
+-- "closed".
 game.popup = setmetatable(game.popup or {}, {
   __call = function(_, spec)
     can_wait("game.popup", 2)
     if type(spec) ~= "table" then
-      error("game.popup takes a table: { title = key, text = key, buttons = { key, ... } }", 2)
+      error("game.popup takes a table: { title = key, text = key, agree = key, decline = key }", 2)
     end
     return finish("game.popup", show_popup(spec))
   end,

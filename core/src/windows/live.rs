@@ -565,8 +565,7 @@ fn clicks(m: &Memory) {
                         continue;
                     };
                     return match &built.key {
-                        Key::Popup(n) if b.name == gui::GOTO => Some(Was::Popup(*n, super::Pressed::Goto)),
-                        Key::Popup(n) => b.name.strip_prefix("eu4h_button_").and_then(|k| k.parse().ok()).map(|k| Was::Popup(*n, super::Pressed::Button(k))),
+                        Key::Popup(n) => super::Pressed::of(&b.name).map(|pressed| Was::Popup(*n, pressed)),
                         Key::Window(e, w) if b.name == gui::CLOSE => Some(Was::Close(*e, w.clone())),
                         Key::Window(e, w) => Some(Was::Widget(*e, w.clone(), b.name.clone(), b.row.as_ref().map(|(_, r)| *r), right)),
                     };

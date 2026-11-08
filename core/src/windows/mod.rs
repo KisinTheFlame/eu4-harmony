@@ -244,17 +244,40 @@ pub fn close_popup(extension: usize, id: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// A button of a pop-up's pressed: its "Go to", or one of its others by
-/// its number, from 1, the game's own OK the first when the mod gave none.
+/// A button of a pop-up's pressed: its "Go to", its agreeing one (the
+/// game's own OK when the mod gave none) or its declining one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pressed {
     Goto,
-    Button(u32),
+    Agree,
+    Decline,
+}
+
+impl Pressed {
+    /// The button of the element `name`.
+    pub fn of(name: &str) -> Option<Self> {
+        match name {
+            gui::GOTO => Some(Pressed::Goto),
+            gui::AGREE => Some(Pressed::Agree),
+            gui::DECLINE => Some(Pressed::Decline),
+            _ => None,
+        }
+    }
+
+    /// The answer its pop-up's extension has.
+    fn answer(self) -> &'static str {
+        match self {
+            Pressed::Goto => "goto",
+            Pressed::Agree => "agree",
+            Pressed::Decline => "decline",
+        }
+    }
 }
 
 /// Presses a pop-up's button, as the player does: "Go to" turns the camera
-/// to its province first. Its extension has the answer, `"goto"` or the
-/// button's number, at the next frame. Nothing when it is not open.
+/// to its province first, gliding there as the game's own Go to does. Its
+/// extension has the answer, `"goto"`, `"agree"` or `"decline"`, at the
+/// next frame. Nothing when it is not open.
 pub fn press(number: u32, pressed: Pressed) {
     let province = with(|all| all.popups.iter().find(|p| p.number == number).and_then(|p| p.popup.goto));
     if let (Pressed::Goto, Some(province)) = (pressed, province) {
@@ -268,11 +291,7 @@ pub fn press(number: u32, pressed: Pressed) {
             log!("windows: pop-up {number}'s Go to province {province}: {}", e.message);
         }
     }
-    let answer = match pressed {
-        Pressed::Goto => Value::String("goto".into()),
-        Pressed::Button(k) => Value::from(k),
-    };
-    with(|all| all.answer(number, answer));
+    with(|all| all.answer(number, Value::String(pressed.answer().into())));
 }
 
 /// The pop-ups open, oldest first, as `popup.list` gives them: each
@@ -296,7 +315,7 @@ pub fn popups() -> Vec<eu4_harmony_remote::popups::Popup> {
             text: popup.text.clone(),
             buttons: gui::shown(&popup)
                 .into_iter()
-                .map(|(name, words)| if name == gui::GOTO || (popup.buttons.is_empty() && words == "OK") { game_words(&words) } else { words })
+                .map(|(name, words)| if name == gui::GOTO || (name == gui::AGREE && popup.agree.is_none()) { game_words(&words) } else { words })
                 .collect(),
             province: popup.goto,
         })
@@ -311,10 +330,7 @@ pub fn press_popup(number: u32, button: u32) -> Result<(), String> {
     let Some((name, _)) = button.checked_sub(1).and_then(|i| shown.get(i as usize)) else {
         return Err(format!("pop-up {number} has buttons 1 to {}", shown.len()));
     };
-    let pressed = match name.strip_prefix("eu4h_button_") {
-        Some(k) => Pressed::Button(k.parse().unwrap_or(1)),
-        None => Pressed::Goto,
-    };
+    let Some(pressed) = Pressed::of(name) else { return Err(format!("pop-up {number} has no button {button}")) };
     press(number, pressed);
     Ok(())
 }
@@ -406,7 +422,16 @@ mod tests {
     }
 
     fn popup(buttons: Vec<String>) -> Popup {
-        Popup { id: None, header: None, title: "T".into(), text: "".into(), buttons, goto: None, shields: [None, None] }
+        Popup {
+            id: None,
+            header: None,
+            title: "T".into(),
+            text: "".into(),
+            agree: buttons.first().cloned(),
+            decline: buttons.get(1).cloned(),
+            goto: None,
+            shields: [None, None],
+        }
     }
 
     fn seen(e: usize, w: &str, open: bool) -> WindowSeen {

@@ -52,8 +52,9 @@ const CLASSES: &str = r#"---@class eu4.Date
 ---@field title string a localisation key of the mod's
 ---@field text string a localisation key of the mod's
 ---@field values? table<string, any> the keys' $NAME$s
----@field buttons? string[] up to two localisation keys; none for the game's own OK
----@field province? integer the province the game's Go to turns the camera to
+---@field agree? string a localisation key of the mod's, the right button (c, Return); the game's own OK when none
+---@field decline? string a localisation key of the mod's, the left button (z, Esc)
+---@field province? integer the province the game's Go to turns the camera to, on the left in place of decline
 ---@field shields? string[] the left and right shields' countries, the player's where none
 ---@field id? string a name the mod closes it by
 

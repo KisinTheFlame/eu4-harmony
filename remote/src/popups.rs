@@ -34,8 +34,9 @@ pub struct Popup {
     pub header: Option<String>,
     pub title: String,
     pub text: String,
-    /// The buttons' words, left to right as they stand: Go to first when it
-    /// has one, the game's own OK when the mod gave none of its own.
+    /// The buttons' words, left to right as they stand: Go to or the
+    /// declining one, then the agreeing one, the game's own OK when the mod
+    /// gave none.
     pub buttons: Vec<String>,
     /// The province its Go to button turns the camera to.
     pub province: Option<u32>,

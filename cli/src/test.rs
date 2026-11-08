@@ -502,7 +502,7 @@ impl UserData for TestMod {
                 t.set("title", p.popup.title.as_str())?;
                 t.set("text", p.popup.text.as_str())?;
                 t.set("header", p.popup.header.clone())?;
-                t.set("buttons", lua.create_sequence_from(shown(&p.popup))?)?;
+                t.set("buttons", lua.create_sequence_from(shown(&p.popup).into_iter().map(|(_, words)| words))?)?;
                 t.set("province", p.popup.goto)?;
                 t.set("id", p.popup.id.clone())?;
                 list.push(t)?;
@@ -520,11 +520,7 @@ impl UserData for TestMod {
             }
             let p = store.popups.remove(at);
             // Go to stands first; the mod's buttons, or the game's OK, after it.
-            let answer = match (p.popup.goto, button) {
-                (Some(_), 1) => Value::String("goto".into()),
-                (Some(_), n) => Value::from(n - 1),
-                (None, n) => Value::from(n),
-            };
+            let answer = Value::String(shown(&p.popup)[button as usize - 1].0.to_string());
             *p.slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(Ok(answer));
             Ok(())
         });
@@ -677,18 +673,19 @@ fn pressable(this: &TestMod, window: &str, widget: &str, row: Option<u32>) -> Re
     Ok(())
 }
 
-/// A pop-up's buttons' words as they stand, left to right, as remote
-/// control's popup.list gives them: Go to first, then the mod's, or the
-/// game's OK.
-fn shown(popup: &eu4_harmony_lua::Popup) -> Vec<String> {
+/// A pop-up's buttons as they stand, left to right, as remote control's
+/// popup.list gives them, each with the answer it gives: Go to or the
+/// declining one on the left, the agreeing one, or the game's OK, on the
+/// right.
+fn shown(popup: &eu4_harmony_lua::Popup) -> Vec<(&'static str, String)> {
     let mut out = Vec::new();
     if popup.goto.is_some() {
-        out.push("Go to".to_string());
+        out.push(("goto", "Go to".to_string()));
     }
-    if popup.buttons.is_empty() {
-        out.push("OK".to_string());
+    if let Some(words) = &popup.decline {
+        out.push(("decline", words.clone()));
     }
-    out.extend(popup.buttons.iter().cloned());
+    out.push(("agree", popup.agree.clone().unwrap_or_else(|| "OK".to_string())));
     out
 }
 

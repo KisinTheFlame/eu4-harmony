@@ -829,7 +829,7 @@ fn an_extension_sets_its_windows_and_waits_for_a_popup() {
           on_frame = function(game)
             game.window.open("reforms")
             game.window.reforms.status.text = "Ready"
-            local answer = game.popup { title = "TITLE", text = "ASK", values = { N = 2 }, buttons = { "YES", "NO" }, id = "ask" }
+            local answer = game.popup { title = "TITLE", text = "ASK", values = { N = 2 }, agree = "YES", decline = "NO", id = "ask" }
             log("answered " .. tostring(answer))
           end,
           on_day = function(game)
@@ -854,16 +854,17 @@ fn an_extension_sets_its_windows_and_waits_for_a_popup() {
                 header: None,
                 title: "Reforms".into(),
                 text: "Take 2?".into(),
-                buttons: vec!["Yes".into(), "No".into()],
+                agree: Some("Yes".into()),
+                decline: Some("No".into()),
                 goto: None,
                 shields: [None, None],
             }
         );
-        *popups[0].1.lock().unwrap() = Some(Ok(Value::from(2)));
+        *popups[0].1.lock().unwrap() = Some(Ok(Value::from("decline")));
     }
     assert_eq!(e.waiting(), 1);
     e.poll();
-    assert!(host.log.lock().unwrap().iter().any(|l| l == "answered 2"), "{:?}", host.log.lock().unwrap());
+    assert!(host.log.lock().unwrap().iter().any(|l| l == "answered decline"), "{:?}", host.log.lock().unwrap());
     // A property the game widget does not have is the handler's error.
     e.handle("on_day", &[]);
     let errors = errors(&e);
