@@ -84,6 +84,33 @@ Read 2026-11-08 from `0x208620`'s code, and timed in a test game as above, the m
 - So of the databases' 14 s, about 6.5 s on the LoadingThread is opening files, most of it waiting for the threads that open and look up files beside it, each operation of theirs walking the search path under two global locks; the scripts' parsing itself is about 4.5 s of running.
 - What the walks write, and so what reading side by side must make safe (read 2026-11-08 for [L4](../loading.md)): the open links its file into the list of open files (`[0x23391f8]`, the next at `+0x38`) and the close walks the list and takes it out (`0x19f9980`); the lookup of a name in a zip's tree (`0x19f9280`, the hash `h * 33 ^ c` from 5381) moves the entry it finds to the front of its bucket (`0x19f93a1`); a zip's entry read (`0x1a0b420`, from the zip's open `0x1a07580` and stat `0x1a07950`) reads the entry's local header through the zip's own file the first time, its state at `+0x30` (0 a file and 1 a link not read yet, 2 being read, 3 read, 4 a folder, 5 and 6 broken). Nothing else the open, the lookup or the close reaches writes what another thread reads: the path's check (`0x19fb700`) and the archives' opens and stats take no PhysFS lock but the error's (`[0x2339230]`), which keeps each thread's error apart; a memory file's copy counts its users with `lock inc` (`0x19f637b`). The archives' tables: the zip's at `0x1c1d890`, the folder's at `0x1c1d7a0` (open at `+0x40`, stat at `+0x68`).
 
+## The startup with L4
+
+Timed 2026-11-08 as "The startup after L1 to L3" was, after [L4](../loading.md) was built: the same functions with `dev-call-trace`'s `times`, in a test game of the developer build with the test switches, the music kept, five starts alternating L4 on and left to the game (`game-paths = ["opens"]`); other test games held the processor at about 70% ([the run](../prototype-log/2026-11-08-startup-with-l4.md)). Seconds from the framework's bootstrap, two starts each way (the third with L4 on reached the main menu at 31.0 s):
+
+| Stretch | Function | Thread | L4 on | Left to the game |
+| --- | --- | --- | --- | --- |
+| `main` up to the engine's Init | | main | 2.3, 2.5 | 2.4, 2.3 |
+| The engine's Init | `0x14c02b0` | main | 1.1, 1.0 | 0.9, 1.0 |
+| `.gfx`, the map, `shortcuts.txt`, `.gui` | `0x202850` | LoadingThread | 7.6, 6.7 | 6.2, 6.6 |
+| of that, meshes and particles | `0x14dc5d0` | LoadingThread | 5.0, 4.6 | 4.2, 4.5 |
+| The databases | `0x208620` | LoadingThread | 8.3, 8.7 | 15.9, 15.7 |
+| of that, the map logic | `0x87b9e0` | LoadingThread | 0.7, 0.6 | 0.7, 0.6 |
+| of that, the history | `0x7ea2c0` | LoadingThread | 0.7, 0.7 | 2.0, 1.9 |
+| The events, on_actions, disasters | `0x6f3250` | LoadingThread | 2.9, 3.0 | 3.2, 3.1 |
+| Flags and loading screens | `0x10b2b70` | LoadingThread | 1.4, 1.5 | 1.6, 1.4 |
+| The rest of InitGame | `0x2043a0` | LoadingThread | 3.1, 3.3 | 3.2, 4.4 |
+| The data checksum, beside the databases | `0x171cdf0` | a pool thread | 4.0, 4.0 | 13.1, 13.0 |
+| The main menu's RestoreDeviceObjects' part `0x206260` | `0x206260` | main | 2.1, 2.3 | 2.4, 2.4 |
+| of that, the map's graphics | `0x10a2e40` | main | 1.2, 1.3 | 1.4, 1.4 |
+| Then to the main menu's first frame | | main | 0.6, 0.8 | 0.6, 0.6 |
+| The main menu | | | 29.8, 30.1 | 36.7, 37.9 |
+
+- The databases are 7.3 s shorter, nearly all of the 7 s the main menu comes sooner; the history about 1.2 s of it, and the data checksum, on its own thread, a third of what it was.
+- The LoadingThread's path is now 3.6 s to the gfx, 7 s of gfx and meshes, 8.5 s of databases and 7.5 s of events, flags and the rest of InitGame; the main thread waits for it 23.8 s of the 29.8.
+- The glyphs the framework draws before the main menu: about 4,250 in 0.87 to 0.98 s, either way.
+- The gfx and meshes took 0.4 to 1.4 s longer with L4 on in these starts; not looked into, and within what other test games' load moved the stretches before.
+
 ## Not looked into
 
 - Which thread held the open's lock while the LoadingThread waited on it from 10 to 18 s; with L4 the opens to read no longer take it.
