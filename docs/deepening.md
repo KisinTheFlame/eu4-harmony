@@ -1,6 +1,6 @@
 # Deepening plan
 
-Status: decided (2026-11-08) from an architecture review of the whole codebase; being built.
+Status: decided (2026-11-08) from an architecture review of the whole codebase, and built the same day, every part; tried together in the game ([prototype-log/2026-11-08-the-deepening-merged.md](prototype-log/2026-11-08-the-deepening-merged.md)). D5's tests through the layer leave out what needs the game's own functions in depth to pass, such as a route found by the game's pathfinding or a treaty object; each part's run file says what it left untried.
 
 ## Goal and scope
 
