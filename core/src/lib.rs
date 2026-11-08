@@ -43,6 +43,7 @@ pub mod map;
 pub mod memory;
 #[cfg(feature = "dev-memory")]
 mod memory_account;
+mod modifier_sums;
 pub mod mods;
 pub mod notice;
 pub mod objects;
@@ -152,6 +153,7 @@ pub(crate) fn points() -> Vec<points::Point> {
     all.extend(hidden::points());
     all.extend(sound::points());
     all.extend(army_search::points());
+    all.extend(modifier_sums::points());
     #[cfg(feature = "dev-test-switches")]
     all.extend(agents_order::points());
     all
