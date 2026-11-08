@@ -1,6 +1,6 @@
 -- Run once in every extension's Lua state, before its main.lua, with what
 -- the Lua host gives it. It finishes the sandbox and builds `game`.
-local call, WAIT, task, names, set_element, fetch, resuming, resumed = ...
+local call, WAIT, task, names, set_element, fetch, resuming, resumed, set_window, show_popup, close_popup = ...
 
 -- The sandbox (ADR extensions-are-lua-in-a-sandbox): code from text only,
 -- nothing that reads files.
@@ -101,5 +101,46 @@ game.ui = setmetatable({}, {
     })
   end,
 })
+
+-- game.window.open(name), game.window.close(name), and
+-- game.window.<window>.<widget>.<property> = value: set, never read.
+game.window = setmetatable({
+  open = function(name)
+    set_window("open", name)
+  end,
+  close = function(name)
+    set_window("close", name)
+  end,
+}, {
+  __index = function(_, window)
+    return setmetatable({}, {
+      __index = function(_, widget)
+        return setmetatable({}, {
+          __newindex = function(_, property, value)
+            set_window("set", window, widget, property, value)
+          end,
+          __index = function(_, property)
+            error("game.window." .. tostring(window) .. "." .. tostring(widget) .. "." .. tostring(property) .. " is set, not read", 2)
+          end,
+        })
+      end,
+    })
+  end,
+})
+
+-- game.popup { title = key, text = key, buttons = { key, ... } } waits for
+-- the button the player presses: its number, or "closed".
+game.popup = setmetatable(game.popup or {}, {
+  __call = function(_, spec)
+    can_wait("game.popup", 2)
+    if type(spec) ~= "table" then
+      error("game.popup takes a table: { title = key, text = key, buttons = { key, ... } }", 2)
+    end
+    return finish("game.popup", show_popup(spec))
+  end,
+})
+game.popup.close = function(id)
+  close_popup(id)
+end
 
 return game

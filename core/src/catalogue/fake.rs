@@ -125,6 +125,7 @@ impl offers::Layer for Fake {}
 impl parliament::Layer for Fake {}
 impl policies::Layer for Fake {}
 impl questions::Layer for Fake {}
+impl popups::Layer for Fake {}
 impl sieges::Layer for Fake {}
 impl stability::Layer for Fake {}
 impl subjects::Layer for Fake {}

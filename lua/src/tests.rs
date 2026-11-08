@@ -17,6 +17,23 @@ struct TestHost {
     told: Mutex<Vec<String>>,
     /// For each capability run, whether it ran inside an extension's call.
     inside: Mutex<Vec<bool>>,
+    /// The mod's texts by key.
+    texts: Vec<(&'static str, &'static str)>,
+    windows: Mutex<Vec<WindowChange>>,
+    /// The pop-ups shown, each with the slot its answer is put in.
+    popups: Mutex<Vec<(Popup, PopupAnswer)>>,
+}
+
+/// Where a test puts a pop-up's answer.
+type PopupAnswer = Arc<Mutex<Option<super::Answered>>>;
+
+/// A pop-up's answer, once a test gives it.
+struct PopupSlot(PopupAnswer);
+
+impl Pending<super::Answered> for PopupSlot {
+    fn poll(&mut self) -> Option<super::Answered> {
+        self.0.lock().unwrap().take()
+    }
 }
 
 /// A request's answer, once a test gives it.
@@ -37,14 +54,31 @@ impl Host for TestHost {
         self.elements.lock().unwrap().push((element.to_string(), value));
         Ok(())
     }
+    fn window(&self, _: usize, change: WindowChange) -> Result<(), String> {
+        self.windows.lock().unwrap().push(change);
+        Ok(())
+    }
+    fn popup(&self, _: usize, popup: Popup) -> Result<Box<dyn Pending<super::Answered>>, String> {
+        let slot = Arc::new(Mutex::new(None));
+        self.popups.lock().unwrap().push((popup, slot.clone()));
+        Ok(Box::new(PopupSlot(slot)))
+    }
+    fn close_popup(&self, _: usize, id: &str) -> Result<(), String> {
+        for (popup, slot) in self.popups.lock().unwrap().iter() {
+            if popup.id.as_deref() == Some(id) {
+                *slot.lock().unwrap() = Some(Ok(Value::String("closed".into())));
+            }
+        }
+        Ok(())
+    }
     fn paint(&self, _: usize, _: &[(u32, [u8; 4])]) -> Result<(), Error> {
         Ok(())
     }
     fn release_map(&self, _: usize) -> Result<(), Error> {
         Ok(())
     }
-    fn text(&self, _: &str, _: &str) -> Option<String> {
-        None
+    fn text(&self, _: &str, key: &str) -> Option<String> {
+        self.texts.iter().find(|(k, _)| *k == key).map(|(_, t)| t.to_string())
     }
     fn language(&self) -> String {
         "english".into()
@@ -651,6 +685,7 @@ struct TestFeed {
     asked: Vec<String>,
     lost: Vec<usize>,
     clicks: Vec<dispatch::Click>,
+    windows: Vec<dispatch::WindowSeen>,
 }
 
 impl dispatch::Feed for TestFeed {
@@ -668,6 +703,10 @@ impl dispatch::Feed for TestFeed {
         self.asked.push("clicks".into());
         std::mem::take(&mut self.clicks)
     }
+    fn windows(&mut self) -> Vec<dispatch::WindowSeen> {
+        self.asked.push("windows".into());
+        std::mem::take(&mut self.windows)
+    }
 }
 
 #[test]
@@ -682,7 +721,8 @@ fn a_frame_reaches_every_extension_in_its_order() {
           on_battle = function(game, battle) say(ID, "battle", battle.winner, #battle.attackers) end,
           on_session_ended = function(game, reason) say(ID, "ended", reason) end,
           on_map_lost = function(game) say(ID, "map_lost") end,
-          on_button = function(game, name, click) say(ID, "button", name, tostring(click.right)) end,
+          on_button = function(game, name, click) say(ID, "button", name, tostring(click.right), tostring(click.row)) end,
+          on_window = function(game, name, open) say(ID, "window", name, tostring(open)) end,
           on_frame = function(game) say(ID, "frame") end,
         }
     "#;
@@ -716,7 +756,8 @@ fn a_frame_reaches_every_extension_in_its_order() {
     .collect();
     let mut feed = TestFeed {
         lost: vec![1],
-        clicks: vec![dispatch::Click { extension: 0, button: "go".into(), right: true, shift: false, ctrl: false }],
+        clicks: vec![dispatch::Click { extension: 0, button: "go".into(), right: true, shift: false, ctrl: false, row: None }],
+        windows: vec![dispatch::WindowSeen { extension: 1, window: "reforms".into(), open: true }],
         ..Default::default()
     };
     dispatch::frame(&opened, &heard, &mut feed);
@@ -736,7 +777,8 @@ fn a_frame_reaches_every_extension_in_its_order() {
             "first month 12",
             "second month 12",
             "second map_lost",
-            "first button go true",
+            "first button go true nil",
+            "second window reforms true",
             "first frame",
             "second frame",
             "first ended load",
@@ -745,7 +787,7 @@ fn a_frame_reaches_every_extension_in_its_order() {
     );
     // The map and the clicks are asked for when their turn comes, after
     // what was heard.
-    assert_eq!(feed.asked, ["session 3", "map_lost", "clicks"]);
+    assert_eq!(feed.asked, ["session 3", "map_lost", "clicks", "windows"]);
     let listened: Vec<&str> = dispatch::listened(&opened).iter().map(|k| k.name()).collect();
     assert_eq!(listened, ["session", "session_ended", "day", "month", "army_ordered", "battle"]);
 }
@@ -765,4 +807,57 @@ fn an_event_a_test_raises_is_held_to_its_shape() {
     let unknown = dispatch::Heard::new(Kind::ArmyDefeated, json!({ "army": 1, "fleet": 2 })).unwrap_err();
     assert!(unknown.contains("fleet is no field"), "{unknown}");
     assert!(dispatch::Heard::new(Kind::Day, json!([1])).is_err());
+}
+
+/// A mod's extension with windows, on a host that has the texts given.
+fn load_texts(name: &str, main: &str, texts: &[(&'static str, &'static str)]) -> Result<(Arc<Extension>, Arc<TestHost>), String> {
+    let (dir, manifest) = write_mod(name, main, &[]);
+    let host = Arc::new(TestHost { texts: texts.to_vec(), ..TestHost::default() });
+    let m = Mod { id: &manifest.id, name: "T", harmony: dir.join("eu4-harmony"), permissions: &manifest.permissions, data: None };
+    open(0, &m, host.clone()).map(|e| (e, host))
+}
+
+#[test]
+fn an_extension_sets_its_windows_and_waits_for_a_popup() {
+    let main = r#"
+        return {
+          windows = {
+            reforms = { size = { 300, 200 }, title = "TITLE", items = {
+              { type = "text", name = "status", size = { 200, 20 } },
+            }},
+          },
+          on_frame = function(game)
+            game.window.open("reforms")
+            game.window.reforms.status.text = "Ready"
+            local answer = game.popup { title = "TITLE", text = "ASK", values = { N = 2 }, buttons = { "YES", "NO" }, id = "ask" }
+            log("answered " .. tostring(answer))
+          end,
+          on_day = function(game)
+            game.window.reforms.status.frame = 2
+          end,
+        }
+    "#;
+    let texts = [("TITLE", "Reforms"), ("ASK", "Take $N$?"), ("YES", "Yes"), ("NO", "No")];
+    let (e, host) = load_texts("windows", main, &texts).unwrap();
+    assert_eq!(e.windows().len(), 1);
+    e.handle("on_frame", &[]);
+    assert_eq!(
+        *host.windows.lock().unwrap(),
+        [WindowChange::Open("reforms".into()), WindowChange::Set { window: "reforms".into(), widget: "status".into(), value: Property::Text("Ready".into()) },]
+    );
+    {
+        let popups = host.popups.lock().unwrap();
+        assert_eq!(popups[0].0, Popup { id: Some("ask".into()), title: "Reforms".into(), text: "Take 2?".into(), buttons: vec!["Yes".into(), "No".into()] });
+        *popups[0].1.lock().unwrap() = Some(Ok(Value::from(2)));
+    }
+    assert_eq!(e.waiting(), 1);
+    e.poll();
+    assert!(host.log.lock().unwrap().iter().any(|l| l == "answered 2"), "{:?}", host.log.lock().unwrap());
+    // A property the game widget does not have is the handler's error.
+    e.handle("on_day", &[]);
+    let errors = errors(&e);
+    assert!(errors.len() == 1 && errors[0].starts_with("on_day: runtime error: game.window.reforms.status.frame: a text has visible, text"), "{errors:?}");
+    // A layout that is wrong, or a text the mod lacks, keeps it from loading.
+    let wrong = load_texts("windows-wrong", "return { windows = { w = { size = { 100, 100 }, title = \"NONE\" } } }", &texts).err().unwrap();
+    assert!(wrong.contains("main.lua's windows.w: title: the mod has no text \"NONE\""), "{wrong}");
 }

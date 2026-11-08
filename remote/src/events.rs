@@ -231,6 +231,15 @@ events! {
         country: Option<CountryTag>,
     } fields, "What acts as a country acts as the one in view.";
 
+    /// An extension showed the player a pop-up; popup.list has its words
+    /// and buttons.
+    Popup "popup" {
+        /// The pop-up's number, as popup.list and popup.answer take it.
+        popup: u32,
+        /// The id of the mod whose extension showed it.
+        from: String,
+    } fields;
+
     /// A new day, once visibility reflects it. With the game running fast,
     /// days in between may be left out.
     Day "day" {
@@ -399,6 +408,7 @@ impl<T: Names> Names for Vec<T> {
 }
 
 impl Names for u64 {}
+impl Names for u32 {}
 impl Names for i64 {}
 impl Names for bool {}
 impl Names for String {}

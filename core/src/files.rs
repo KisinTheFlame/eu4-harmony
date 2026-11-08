@@ -20,7 +20,9 @@ pub struct File {
 
 /// Every framework file.
 fn all() -> Vec<File> {
-    crate::unicode::framework_fonts::files()
+    let mut all = crate::unicode::framework_fonts::files();
+    all.extend(crate::windows::files());
+    all
 }
 
 /// Mounts the framework's files: once PhysFS is initialized, before the

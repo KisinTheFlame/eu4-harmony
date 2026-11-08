@@ -11,6 +11,7 @@ const GUIDES: &[(&str, &str)] = &[
     ("state", include_str!("../skills/state.md")),
     ("ui", include_str!("../skills/ui.md")),
     ("ui buttons", include_str!("../skills/ui/buttons.md")),
+    ("ui windows", include_str!("../skills/ui/windows.md")),
     ("localisation", include_str!("../skills/localisation.md")),
     ("testing", include_str!("../skills/testing.md")),
     ("game", include_str!("../skills/game.md")),

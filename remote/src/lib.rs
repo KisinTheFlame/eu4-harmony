@@ -449,6 +449,8 @@ groups! {
     Question(questions::QuestionRequest, QuestionAnswer),
     /// What other countries proposed to the player, waiting for an answer.
     Offer(offers::OfferRequest, OfferAnswer),
+    /// The extensions' pop-ups open in the game.
+    Popup(popups::PopupRequest, PopupAnswer),
     /// The events remote control keeps.
     Events(events::EventsRequest, EventsAnswer),
     /// The capabilities, described.

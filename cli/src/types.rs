@@ -45,6 +45,14 @@ const CLASSES: &str = r#"---@class eu4.Date
 ---@field right boolean
 ---@field shift boolean
 ---@field ctrl boolean
+---@field row integer|nil the row of the list the button is in, from 1
+
+---@class eu4.Popup
+---@field title string a localisation key of the mod's
+---@field text string a localisation key of the mod's
+---@field values? table<string, any> the keys' $NAME$s
+---@field buttons string[] one to four localisation keys
+---@field id? string a name the mod closes it by
 
 ---@class eu4.Color
 ---@field r integer 0 to 255
@@ -68,6 +76,16 @@ const CLASSES: &str = r#"---@class eu4.Date
 ---@field enabled boolean set, never read
 ---@field text string|nil set, never read; nil is no text
 ---@field tooltip string|nil set, never read; nil is no tooltip
+
+---@class eu4.Widget
+---@field visible boolean set, never read
+---@field enabled boolean set, never read; a button's
+---@field text string|nil set, never read; a text's or a text button's
+---@field tooltip string|nil set, never read
+---@field frame integer set, never read; an icon's or an icon button's, from 1
+---@field value number set, never read; a progress bar's, 0 to 1
+---@field country string set, never read; a flag's tag
+---@field rows table[] set, never read; a list's, each a table by its row's game widgets' names
 "#;
 
 /// Writes the definitions, and the editor's settings where the mod has none,
@@ -148,16 +166,34 @@ fn game(out: &mut String) {
     let _ = writeln!(out, "--- What handlers get: the game's state and commands, by capability group.\n---@class eu4.Game");
     let _ = writeln!(out, "---@field ui table<string, eu4.Element> {}", lua::ELEMENTS);
     let _ = writeln!(out, "---@field map eu4.game.map");
+    let _ = writeln!(out, "---@field window eu4.game.window|table<string, table<string, eu4.Widget>> {}", lua::WINDOWS);
     for group in &groups {
         let _ = writeln!(out, "---@field {group} eu4.game.{group}");
     }
     out.push('\n');
     for group in groups {
         let table = format!("eu4_game_{group}");
-        let _ = writeln!(out, "---@class eu4.game.{group}\nlocal {table} = {{}}\n");
+        // game.popup is called itself to show one.
+        let overload = match lua::FUNCTIONS.iter().find(|f| f.name == format!("game.{group}")) {
+            Some(f) => {
+                let args: Vec<String> = f.args.iter().map(|a| format!("{}: {}", a.name, a.ty)).collect();
+                let returns: Vec<&str> = f.returns.iter().map(|r| r.ty).collect();
+                format!("\n---@overload fun({}): {}", args.join(", "), returns.join(", "))
+            }
+            None => String::new(),
+        };
+        let _ = writeln!(out, "---@class eu4.game.{group}{overload}\nlocal {table} = {{}}\n");
         for c in game_capabilities().iter().filter(|c| c.group == group) {
             capability(out, &table, c);
         }
+        let prefix = format!("game.{group}.");
+        for f in lua::FUNCTIONS.iter().filter(|f| f.name.starts_with(&prefix)) {
+            function(out, &format!("{table}.{}", &f.name[prefix.len()..]), f);
+        }
+    }
+    let _ = writeln!(out, "---@class eu4.game.window\nlocal eu4_game_window = {{}}\n");
+    for f in lua::FUNCTIONS.iter().filter(|f| f.name.starts_with("game.window.")) {
+        function(out, &format!("eu4_game_window.{}", &f.name["game.window.".len()..]), f);
     }
     let _ = writeln!(out, "---@class eu4.game.map\nlocal eu4_game_map = {{}}\n");
     for f in lua::FUNCTIONS.iter().filter(|f| f.name.starts_with("game.map.")) {

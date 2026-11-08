@@ -61,6 +61,7 @@ pub mod parliament;
 pub mod peace;
 pub mod player;
 pub mod policies;
+pub mod popups;
 pub mod power;
 pub mod provinces;
 pub mod questions;

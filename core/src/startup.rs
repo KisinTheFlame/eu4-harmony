@@ -144,7 +144,8 @@ pub(crate) fn run(game_dir: PathBuf, installed: &str) {
     let data_dir = user_dir.join("eu4-harmony").join("data");
     let outcomes = lua::load(&mods, &logs, &data_dir);
     let included = |i: usize| outcomes[i].included;
-    let ui_notes = splice::build(&mods, included, &mut plan);
+    let mut ui_notes = splice::build(&mods, included, &mut plan);
+    ui_notes.extend(crate::windows::splice_entries(&mut plan));
     for note in &ui_notes {
         log!("ui: {note}");
     }

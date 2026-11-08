@@ -675,6 +675,9 @@ pub mod map_manager {
     pub const POPUPS: usize = 0x78;
     /// What holds the diplomatic message icons, `gui::message_icon_holder`.
     pub const MESSAGE_ICON_HOLDER: usize = 0x1400;
+    /// The panel button strip, the `floating_buttons` window of the
+    /// menubar (docs/research/extension-windows.md §5).
+    pub const PANEL_BUTTONS: usize = 0x1198;
     /// The menubar's message windows, a [`super::list`] of the
     /// [`super::message_window`]s its message list shows, which go with
     /// that list.
@@ -847,6 +850,9 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x9c376usize, "48 8b 0d fb 3a 2a 02 8b 44 24 60 39 81 d0 1d 00 00", "world date").uses(&[WORLD, world::DATE]),
         Point::keep(0x10a5213usize, "48 8b 05 5e ac 29 01 80 b8 10 1e 00 00 00", "daily update flag").uses(&[WORLD, world::DAILY_UPDATE]),
         Point::keep(0xa3595usize, "48 8b 05 dc c8 29 02 48 8b 88 00 1e 00 00", "world map manager").uses(&[WORLD, world::MAP_MANAGER]),
+        // The panel button strip, fetched from the menubar as the interface
+        // is made.
+        Point::keep(0x81c19dusize, "49 89 86 98 11 00 00", "panel button strip").uses(&[map_manager::PANEL_BUTTONS]),
         Point::keep(0x80b241usize, "48 89 86 e0 10 00 00", "map manager minimap").uses(&[map_manager::MINIMAP]),
         // The interface rebuild keeping what the map manager's destructor
         // never lets go.

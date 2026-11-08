@@ -86,6 +86,7 @@ mod startup;
 mod trace;
 pub mod ui;
 pub mod unicode;
+pub mod windows;
 pub mod wording;
 #[cfg(feature = "dev-write-watch")]
 mod write_watch;

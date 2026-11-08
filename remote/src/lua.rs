@@ -118,9 +118,18 @@ pub struct Permission {
 const OTHER_HANDLERS: &[(&str, &[Value], Option<Value>, &str)] = &[
     (
         "on_button",
-        &[value("name", "string", "the button's name in its interface fragment"), value("click", "eu4.Click", "{ right, shift, ctrl }")],
+        &[
+            value("name", "string", "the button's name in its interface fragment, or window.widget for a button of one of this mod's windows"),
+            value("click", "eu4.Click", "{ right, shift, ctrl, row }, row the number of the list's row the button is in"),
+        ],
         None,
         "The player clicked one of this mod's buttons.",
+    ),
+    (
+        "on_window",
+        &[value("name", "string", "the window's name in the windows main.lua returns"), value("open", "boolean", "whether it opened or closed")],
+        None,
+        "One of this mod's windows opened or closed: by the mod, its entry button, its close button, Esc, or another of the game's big panels opening.",
     ),
     ("on_map_lost", &[], None, "Another mod, or the player changing the map mode, took the map this mod painted."),
     ("on_frame", &[], None, "Every frame of a game, after the events above. Keep it short: it runs as often as the game draws."),
@@ -357,6 +366,42 @@ pub const FUNCTIONS: &[Function] = &[
         waits: false,
         permission: None,
     },
+    Function {
+        name: "game.window.open",
+        args: &[value("name", "string", "a window of the windows main.lua returns")],
+        returns: &[],
+        about: "Opens one of the mod's windows, in a game; one of the game's big panels closes the others. on_window hears it.",
+        waits: false,
+        permission: None,
+    },
+    Function {
+        name: "game.window.close",
+        args: &[value("name", "string", "a window of the windows main.lua returns")],
+        returns: &[],
+        about: "Closes one of the mod's windows. on_window hears it.",
+        waits: false,
+        permission: None,
+    },
+    Function {
+        name: "game.popup",
+        args: &[value(
+            "popup",
+            "eu4.Popup",
+            "{ title = key, text = key, values = { NAME = value }, buttons = { key, ... }, id = name }: the mod's localisation keys, one to four buttons, values for the keys' $NAME$s",
+        )],
+        returns: &[value("answer", "integer|string", "the number of the button pressed, from 1, or \"closed\" when it closed without one")],
+        about: "Shows the player a pop-up in the look of the game's dialogs, and waits until a button is pressed. Several may be open at once; it does not pause the game.",
+        waits: true,
+        permission: None,
+    },
+    Function {
+        name: "game.popup.close",
+        args: &[value("id", "string", "the id the pop-ups were shown with")],
+        returns: &[],
+        about: "Closes the mod's open pop-ups of that id; each answers \"closed\".",
+        waits: false,
+        permission: None,
+    },
 ];
 
 /// The globals the framework puts in the sandbox, besides Lua's own and the
@@ -370,6 +415,8 @@ and os.time and os.date for a mod that declares clock. Nothing reaches the proce
 A Lua state holds at most 256 MiB; past that, an allocation raises Lua's not enough memory error.";
 
 /// What `game.ui.<element>` is.
+pub const WINDOWS: &str = "game.window.<window>.<widget>, a game widget of one of the windows main.lua returns by its name, or entry for its entry button, has visible, enabled, text, tooltip, frame, value (a progress bar's, 0 to 1), country (a flag's tag), number (an entry button's) and rows (a list's, a list of tables by its row's game widgets' names), as its kind has them; they are set and never read.";
+
 pub const ELEMENTS: &str = "game.ui.<element>, an element of the mod's interface fragments by its name, has visible, enabled \
 (true or false), text and tooltip (strings), which are set and never read.";
 

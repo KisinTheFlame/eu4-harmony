@@ -33,22 +33,22 @@ const PANEL_RECREATE: usize = 0x1450580;
 const BUTTON_DESTROY: usize = 0x10b5670;
 /// A window's [`window::KILL`]: marks the window and its children dead;
 /// memory is freed later in the frame by the GUI manager's sweep.
-const WINDOW_KILL: usize = 0x1547520;
+pub(crate) const WINDOW_KILL: usize = 0x1547520;
 /// Root window deleting destructor, reached from that sweep.
 const WINDOW_DELETE: usize = 0x1546510;
 const MENU_FRAME: usize = 0x10d2e80;
 const TOOLTIP: usize = 0x1453b70;
-const TEXT_SET: GameFunction<3> = GameFunction::at(0x152ae10);
+pub(crate) const TEXT_SET: GameFunction<3> = GameFunction::at(0x152ae10);
 const SUBSCRIBE: GameFunction<2> = GameFunction::at(0xfbe3f0);
 const SET_RIGHT_CLICK: GameFunction<2> = GameFunction::at(0x1593860);
 const SET_DOUBLE_CLICK: GameFunction<2> = GameFunction::at(0x1593870);
-const SHOW: usize = 0x15aeb30;
-const HIDE: usize = 0x15aead0;
-const SET_ENABLED: GameFunction<2> = GameFunction::at(0xfaab30);
+pub(crate) const SHOW: usize = 0x15aeb30;
+pub(crate) const HIDE: usize = 0x15aead0;
+pub(crate) const SET_ENABLED: GameFunction<2> = GameFunction::at(0xfaab30);
 
 /// A callback the framework subscribes to a button's signal (see
 /// [`callback`]).
-type Callback = Box<[usize; callback::SIZE / 8]>;
+pub(crate) type Callback = Box<[usize; callback::SIZE / 8]>;
 
 #[derive(Default, Clone)]
 struct Desired {
@@ -119,15 +119,97 @@ impl Elements {
     }
 }
 
-struct Bound {
-    index: usize,
-    object: usize,
+/// The framework's listener on a button's click signal: the callback the
+/// game calls back through, which must outlive the subscription, and what
+/// the button reported before. Extension windows' buttons subscribe so too
+/// (`crate::windows`).
+pub(crate) struct Subscription {
+    pub object: usize,
     signal: usize,
-    /// Fake callback wrapper the game calls back through; must outlive the subscription.
-    wrapper: Option<Callback>,
+    pub wrapper: Callback,
     linked: bool,
     old_right_click: u8,
     old_double_click: u8,
+}
+
+impl Subscription {
+    /// A listener for the button `object`'s clicks, after checking its
+    /// signal is the one the framework knows: `left` and `right` are called
+    /// with the wrapper's address and the button. Not yet subscribed.
+    pub(crate) fn new(m: &Memory, object: usize, left: usize, right: usize) -> Result<Self> {
+        let signal = object + button::SIGNAL;
+        if m.ptr(signal)? != m.at(classes::SIGNAL)
+            || m.ptr(signal + signal::AFTER_LISTENERS)? != 0
+            || m.vslot(signal, signal::SUBSCRIBE)? != m.at(SUBSCRIBE)
+            || m.vslot(signal, signal::UNSUBSCRIBE)? != m.at(functions::UNSUBSCRIBE)
+            || m.vslot(object, button::SET_RIGHT_CLICK)? != m.at(SET_RIGHT_CLICK)
+            || m.vslot(object, button::SET_DOUBLE_CLICK)? != m.at(SET_DOUBLE_CLICK)
+        {
+            return Err("unexpected click signal".into());
+        }
+        let mut wrapper: Callback = Box::new([0; callback::SIZE / 8]);
+        wrapper[0] = m.at(classes::CALLBACK);
+        wrapper[callback::CONTEXT / 8] = wrapper.as_ptr() as usize;
+        wrapper[callback::RIGHT_CLICK / 8] = right;
+        // Called for a quick second press too, which the game sends as a
+        // double click, unlike the click function the army panel's own
+        // callbacks use.
+        wrapper[callback::CLICKED / 8] = left;
+        Ok(Self {
+            object,
+            signal,
+            wrapper,
+            linked: false,
+            old_right_click: m.u8(object + button::RIGHT_CLICK)?,
+            old_double_click: m.u8(object + button::DOUBLE_CLICK)?,
+        })
+    }
+
+    /// The context the game calls `left` and `right` with.
+    pub(crate) fn context(&self) -> usize {
+        self.wrapper.as_ptr() as usize
+    }
+
+    pub(crate) fn subscribed(&self, m: &Memory) -> Result<bool> {
+        Ok(crate::containers::items(m, self.signal + signal::LISTENERS, 512)?.contains(&self.context()))
+    }
+
+    /// Subscribes it, and has the button report right and double clicks.
+    pub(crate) fn link(&mut self, m: &Memory) -> Result<()> {
+        self.linked = true;
+        SUBSCRIBE.call(m, [self.signal, self.context()])?;
+        if !self.subscribed(m)? {
+            return Err("subscription did not register".into());
+        }
+        SET_RIGHT_CLICK.call(m, [self.object, 1])?;
+        SET_DOUBLE_CLICK.call(m, [self.object, 1])?;
+        Ok(())
+    }
+
+    /// Unsubscribes it while the button is still alive.
+    pub(crate) fn unlink(&mut self, m: &Memory) -> Result<()> {
+        if !self.linked {
+            return Ok(());
+        }
+        if m.ptr(self.signal)? != m.at(classes::SIGNAL) || m.u8(self.signal + signal::LISTENERS + list::CHANGING)? != 0 {
+            return Err("cannot unsubscribe from a changed or dispatching signal".to_string());
+        }
+        functions::UNSUBSCRIBE.call(m, [self.signal, self.context()])?;
+        if self.subscribed(m)? {
+            return Err("observer still subscribed after unsubscribe".into());
+        }
+        self.linked = false;
+        SET_RIGHT_CLICK.call(m, [self.object, self.old_right_click as usize])?;
+        SET_DOUBLE_CLICK.call(m, [self.object, self.old_double_click as usize])?;
+        Ok(())
+    }
+}
+
+struct Bound {
+    index: usize,
+    object: usize,
+    /// For a button.
+    subscription: Option<Subscription>,
     applied_text: Option<Vec<u8>>,
     applied_enabled: Option<bool>,
 }
@@ -192,7 +274,7 @@ pub fn set_elements(elements: Vec<(Element, Option<usize>)>) {
 
 /// The element of `name` in the window at `root`, through its method at
 /// `offset`, which must be `function`.
-fn lookup(m: &Memory, root: usize, (offset, function): (usize, GameFunction<2>), name: &str) -> Result<usize> {
+pub(crate) fn lookup(m: &Memory, root: usize, (offset, function): (usize, GameFunction<2>), name: &str) -> Result<usize> {
     if m.vslot(root, offset)? != m.at(function) {
         return Err("window has an unexpected lookup method".into());
     }
@@ -201,7 +283,7 @@ fn lookup(m: &Memory, root: usize, (offset, function): (usize, GameFunction<2>),
 }
 
 /// Name an element reports, through the getter shared by all GUI element classes.
-fn element_name(m: &Memory, object: usize) -> Result<Vec<u8>> {
+pub(crate) fn element_name(m: &Memory, object: usize) -> Result<Vec<u8>> {
     if m.vslot(object, element::NAME)? != m.at(functions::ELEMENT_NAME) {
         return Err("element has an unexpected name getter".into());
     }
@@ -232,39 +314,13 @@ fn bind_one(m: &Memory, root: usize, index: usize, d: &Declared) -> Result<Optio
     if element_name(m, object)? != d.element.prefixed.as_bytes() {
         return Err(format!("{} lookup returned another element", d.element.prefixed));
     }
-    let mut bound =
-        Bound { index, object, signal: 0, wrapper: None, linked: false, old_right_click: 0, old_double_click: 0, applied_text: None, applied_enabled: None };
+    let mut bound = Bound { index, object, subscription: None, applied_text: None, applied_enabled: None };
     if d.element.kind == ElementKind::Button {
-        let signal = object + button::SIGNAL;
-        if m.ptr(signal)? != m.at(classes::SIGNAL)
-            || m.ptr(signal + signal::AFTER_LISTENERS)? != 0
-            || m.vslot(signal, signal::SUBSCRIBE)? != m.at(SUBSCRIBE)
-            || m.vslot(signal, signal::UNSUBSCRIBE)? != m.at(functions::UNSUBSCRIBE)
-            || m.vslot(object, button::SET_RIGHT_CLICK)? != m.at(SET_RIGHT_CLICK)
-            || m.vslot(object, button::SET_DOUBLE_CLICK)? != m.at(SET_DOUBLE_CLICK)
-        {
-            return Err(format!("{} has an unexpected click signal", d.element.prefixed));
-        }
-        let mut wrapper: Callback = Box::new([0; callback::SIZE / 8]);
-        wrapper[0] = m.at(classes::CALLBACK);
-        wrapper[callback::CONTEXT / 8] = wrapper.as_ptr() as usize;
-        wrapper[callback::RIGHT_CLICK / 8] = right_click as *const () as usize;
-        // Called for a quick second press too, which the game sends as a
-        // double click, unlike the click function the army panel's own
-        // callbacks use.
-        wrapper[callback::CLICKED / 8] = left_click as *const () as usize;
-        bound.signal = signal;
-        bound.old_right_click = m.u8(object + button::RIGHT_CLICK)?;
-        bound.old_double_click = m.u8(object + button::DOUBLE_CLICK)?;
-        bound.wrapper = Some(wrapper);
+        let subscription = Subscription::new(m, object, left_click as *const () as usize, right_click as *const () as usize)
+            .map_err(|e| format!("{} has an {e}", d.element.prefixed))?;
+        bound.subscription = Some(subscription);
     }
     Ok(Some(bound))
-}
-
-fn subscribed(m: &Memory, b: &Bound) -> Result<bool> {
-    let Some(wrapper) = &b.wrapper else { return Ok(false) };
-    let wrapper = wrapper.as_ptr() as usize;
-    Ok(crate::containers::items(m, b.signal + signal::LISTENERS, 512)?.contains(&wrapper))
 }
 
 /// Detaches every binding `which` selects; their objects must still be alive.
@@ -274,24 +330,12 @@ fn detach(m: &Memory, ui: &mut Ui, which: impl Fn(&Binding) -> bool) -> Result<(
     let mut result = Ok(());
     for mut binding in gone {
         let unlinked = (|| {
-            for b in &mut binding.bound {
-                if !b.linked {
-                    continue;
-                }
-                if m.ptr(b.signal)? != m.at(classes::SIGNAL) || m.u8(b.signal + signal::LISTENERS + list::CHANGING)? != 0 {
-                    return Err("cannot unsubscribe from a changed or dispatching signal".to_string());
-                }
-                functions::UNSUBSCRIBE.call(m, [b.signal, b.wrapper.as_ref().unwrap().as_ptr() as usize])?;
-                if subscribed(m, b)? {
-                    return Err("observer still subscribed after unsubscribe".into());
-                }
-                b.linked = false;
-                SET_RIGHT_CLICK.call(m, [b.object, b.old_right_click as usize])?;
-                SET_DOUBLE_CLICK.call(m, [b.object, b.old_double_click as usize])?;
+            for s in binding.bound.iter_mut().filter_map(|b| b.subscription.as_mut()) {
+                s.unlink(m)?;
             }
             Ok(())
         })();
-        ui.retired.extend(binding.bound.into_iter().filter_map(|b| b.wrapper));
+        ui.retired.extend(binding.bound.into_iter().filter_map(|b| b.subscription.map(|s| s.wrapper)));
         result = result.and(unlinked);
     }
     result
@@ -325,16 +369,8 @@ fn bind(m: &Memory, ui: &mut Ui, host: Host, holder: usize, root: usize) -> Resu
     // Keep every wrapper reachable before the first subscription.
     ui.bindings.push(binding);
     let binding = ui.bindings.last_mut().unwrap();
-    for b in &mut binding.bound {
-        if let Some(wrapper) = &b.wrapper {
-            b.linked = true;
-            SUBSCRIBE.call(m, [b.signal, wrapper.as_ptr() as usize])?;
-            if !subscribed(m, b)? {
-                return Err("subscription did not register".into());
-            }
-            SET_RIGHT_CLICK.call(m, [b.object, 1])?;
-            SET_DOUBLE_CLICK.call(m, [b.object, 1])?;
-        }
+    for s in binding.bound.iter_mut().filter_map(|b| b.subscription.as_mut()) {
+        s.link(m)?;
     }
     log!("ui: bound {} element(s) in {host:?} {holder:#x}", binding.bound.len());
     Ok(())
@@ -471,11 +507,13 @@ fn button_destroy(call: &mut Call) {
 fn window_kill(call: &mut Call) {
     let window = call.arg(0);
     retire(call.memory(), |b| b.root == window);
+    crate::windows::killed(&call.memory(), window);
 }
 /// Backstop for a root freed without passing the kill hook.
 fn window_delete(call: &mut Call) {
     let window = call.arg(0);
     retire(call.memory(), |b| b.root == window);
+    crate::windows::killed(&call.memory(), window);
 }
 
 fn modifiers() -> u32 {
@@ -498,7 +536,7 @@ fn enqueue(context: usize, button: usize, click: u32) {
         .bindings
         .iter()
         .flat_map(|binding| &binding.bound)
-        .find(|b| b.linked && b.object == button && b.wrapper.as_ref().is_some_and(|w| w.as_ptr() as usize == context))
+        .find(|b| b.object == button && b.subscription.as_ref().is_some_and(|s| s.linked && s.context() == context))
     else {
         return;
     };
@@ -531,7 +569,7 @@ fn tooltip_after(call: &mut Call) {
     let Ok(guard) = UI.try_lock() else { return };
     let Some(ui) = guard.as_ref() else { return };
     let Some(binding) = ui.bindings.iter().find(|b| b.host == Host::ArmyPanel && b.holder == call.arg(0)) else { return };
-    let Some(b) = binding.bound.iter().find(|b| b.object == call.arg(2) && b.wrapper.is_some()) else { return };
+    let Some(b) = binding.bound.iter().find(|b| b.object == call.arg(2) && b.subscription.is_some()) else { return };
     let Some(text) = ui.elements.declared[b.index].desired.tooltip.clone().filter(|t| !t.is_empty()) else { return };
     drop(guard);
     let output = call.arg(1);
