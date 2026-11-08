@@ -17,7 +17,7 @@ use super::course::Starting;
 use super::record::{self, GameEnd, Process, State};
 use crate::{built, repo, Result};
 use eu4_harmony_client::game::{self, Game};
-use eu4_harmony_client::start::Start;
+use eu4_harmony_client::start::{Failed, Start};
 use eu4_harmony_folders::UserFolder;
 use std::{
     fs,
@@ -69,7 +69,7 @@ pub trait Machine {
     /// Starts the game from `game_dir` as `start` says, waiting up to `wait`
     /// for its main menu, `log` being the framework's log: its process id,
     /// and the seconds it took. A test game that does not reach it is ended.
-    fn start_game(&self, game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> Result<(u32, f64)>;
+    fn start_game(&self, game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> std::result::Result<(u32, f64), Failed>;
     /// Starts the claim's `follow.exe`, which follows the game `id` and the
     /// games the test game restarts in its place, serving the pipe `pipe`,
     /// to their ends.
@@ -79,6 +79,10 @@ pub trait Machine {
     fn stop_following(&self, folder: &Path);
     /// How the claim's games ended, as its folder records them.
     fn ends(&self, folder: &Path) -> Vec<GameEnd>;
+    /// Records in the claim's `folder` that `game` ended with `code`, seen
+    /// now: a game that ended before its main menu, which no `follow.exe`
+    /// followed.
+    fn record_end(&self, folder: &Path, game: Process, code: u32);
     /// Keeps the test game's logs and crash folders in the claim's `kept\`
     /// and removes the rest of its folder, the junction first; whether there
     /// was a crash folder.
@@ -270,7 +274,7 @@ impl Machine for ThisComputer {
         Ok(dll)
     }
 
-    fn start_game(&self, game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> Result<(u32, f64)> {
+    fn start_game(&self, game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> std::result::Result<(u32, f64), Failed> {
         let began = std::time::Instant::now();
         let game = eu4_harmony_client::start::start(game_dir, log, start, wait)?;
         let id = game.id();
@@ -315,6 +319,10 @@ impl Machine for ThisComputer {
 
     fn ends(&self, folder: &Path) -> Vec<GameEnd> {
         ends_in(folder)
+    }
+
+    fn record_end(&self, folder: &Path, game: Process, code: u32) {
+        write_end(folder, &GameEnd { game, seen: local_time(), code });
     }
 
     fn keep_and_remove(&self, folder: &Path) -> Result<bool> {
@@ -587,6 +595,25 @@ fn spawn_detached(program: &Path, words: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// The local time, `HH:MM:SS`.
+fn local_time() -> String {
+    use windows_sys::Win32::System::SystemInformation::GetLocalTime;
+    let t = unsafe {
+        let mut t = std::mem::zeroed();
+        GetLocalTime(&mut t);
+        t
+    };
+    format!("{:02}:{:02}:{:02}", t.wHour, t.wMinute, t.wSecond)
+}
+
+/// Adds how a game ended to the claim's `game-ends.tsv`.
+fn write_end(folder: &Path, end: &GameEnd) {
+    use std::io::Write;
+    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(folder.join(ENDS)) {
+        let _ = writeln!(file, "{}", end.to_line());
+    }
+}
+
 /// `follow.exe`'s work, `cargo xtask game follow <folder> <id> <pipe>`:
 /// follows the game `id` to its end and writes how it ended into the
 /// claim's `game-ends.tsv`; then, when it ended with 0, as a restart does,
@@ -594,22 +621,13 @@ fn spawn_detached(program: &Path, words: &[String]) -> Result<()> {
 /// restarts in its place, the one that opens its pipe within
 /// [`RESTART_WAIT`].
 pub fn follow_games(folder: &Path, first: u32, pipe: &str) -> Result<()> {
-    use std::io::Write;
-    use windows_sys::Win32::System::SystemInformation::GetLocalTime;
     let mut next = Some(first);
     while let Some(id) = next.take() {
         let Some(held) = Game::open(id) else { return Ok(()) };
         let _ = fs::write(folder.join(FOLLOWING), id.to_string());
         let game = Process { id, started: held.started() };
         let Some(code) = held.wait() else { return Ok(()) };
-        let seen = unsafe {
-            let mut t = std::mem::zeroed();
-            GetLocalTime(&mut t);
-            format!("{:02}:{:02}:{:02}", t.wHour, t.wMinute, t.wSecond)
-        };
-        if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(folder.join(ENDS)) {
-            let _ = writeln!(file, "{}", GameEnd { game, seen, code }.to_line());
-        }
+        write_end(folder, &GameEnd { game, seen: local_time(), code });
         // A restart ends the game with 0; one ended by these commands, or a
         // crash, starts nothing in its place.
         if code != 0 {

@@ -14,6 +14,35 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Why a start failed, and the game's end when it ended before its main
+/// menu, so that whoever started it can keep a record of how it ended.
+#[derive(Debug)]
+pub struct Failed {
+    pub message: String,
+    pub ended: Option<Ended>,
+}
+
+/// A game that ended before its main menu: its process, the time it
+/// started, as [`Game::started`] has it, and its exit code.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Ended {
+    pub id: u32,
+    pub started: u64,
+    pub code: u32,
+}
+
+impl From<String> for Failed {
+    fn from(message: String) -> Self {
+        Self { message, ended: None }
+    }
+}
+
+impl From<Failed> for String {
+    fn from(failed: Failed) -> Self {
+        failed.message
+    }
+}
+
 /// How long the game may take to reach its main menu without `--timeout`.
 pub const WAIT: Duration = Duration::from_secs(300);
 
@@ -117,12 +146,12 @@ fn framework_has(game_dir: &Path, start: &Start) -> Result<()> {
 /// stays to be read once it ends. `log` is the framework's log, which says
 /// why when the game ends first. The player's game starts only with no game
 /// running, a test game only while its pipe is not served.
-pub fn start(game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> Result<Game> {
+pub fn start(game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> std::result::Result<Game, Failed> {
     let pipe = start.pipe()?;
     match &start.test_game {
         None => crate::game::not_running()?,
         Some(game) if pipe::connect(&pipe, pipe::GAME, Instant::now()).is_ok() => {
-            return Err(format!("the test game {} runs already: its pipe is served", game.name));
+            return Err(format!("the test game {} runs already: its pipe is served", game.name).into());
         }
         Some(_) => {}
     }
@@ -148,13 +177,14 @@ pub fn start(game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> Resu
         }
         Err(NoMainMenu::Stopped(code)) => {
             let why = why_it_ended(log, since).unwrap_or_else(|| format!("the framework's log of this start ({}) says nothing of it", log.display()));
-            Err(format!("the game ended (exit code {code}) before its main menu: {why}"))
+            let message = format!("the game ended (exit code {code}) before its main menu: {why}");
+            Err(Failed { message, ended: Some(Ended { id, started: game.started(), code }) })
         }
         Err(NoMainMenu::TimedOut) if start.test_game.is_some() => {
             let _ = crate::game::end_game(id);
-            Err(format!("the test game (process {id}) had not reached its main menu after {} s; it was ended", wait.as_secs()))
+            Err(format!("the test game (process {id}) had not reached its main menu after {} s; it was ended", wait.as_secs()).into())
         }
-        Err(NoMainMenu::TimedOut) => Err(format!("the game (process {id}) had not reached its main menu after {} s; it still runs", wait.as_secs())),
+        Err(NoMainMenu::TimedOut) => Err(format!("the game (process {id}) had not reached its main menu after {} s; it still runs", wait.as_secs()).into()),
     }
 }
 

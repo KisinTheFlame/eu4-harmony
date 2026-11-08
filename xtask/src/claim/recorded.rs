@@ -5,7 +5,7 @@ use super::course::Starting;
 use super::machine::Machine;
 use super::record::{Asking, Claim, GameEnd, Process, State};
 use crate::Result;
-use eu4_harmony_client::start::Start;
+use eu4_harmony_client::start::{Ended, Failed, Start};
 use std::{
     path::{Path, PathBuf},
     sync::Mutex,
@@ -24,6 +24,8 @@ pub(crate) enum Did {
     Follow(u32),
     StopFollowing,
     End(u32),
+    /// A game's end recorded by its start: its exit code.
+    RecordEnd(u32),
     Keep(String),
     Waited,
 }
@@ -49,6 +51,8 @@ pub(crate) struct Recorded {
     pub(crate) meanwhile: Mutex<Option<Meanwhile>>,
     /// How the claim's games ended, as its record has it.
     pub(crate) ended: Mutex<Vec<GameEnd>>,
+    /// The exit code a started game ends with before its main menu.
+    pub(crate) ends_before_menu: Option<u32>,
 }
 
 impl Recorded {
@@ -63,6 +67,7 @@ impl Recorded {
             said: Mutex::new(Vec::new()),
             meanwhile: Mutex::new(None),
             ended: Mutex::new(Vec::new()),
+            ends_before_menu: None,
         }
     }
 
@@ -144,8 +149,12 @@ impl Machine for Recorded {
         self.push(Did::Prepare);
         Ok(folder.join("core").join("eu4_harmony_core.dll"))
     }
-    fn start_game(&self, _: &Path, _: &Path, start: &Start, _: Duration) -> Result<(u32, f64)> {
+    fn start_game(&self, _: &Path, _: &Path, start: &Start, _: Duration) -> std::result::Result<(u32, f64), Failed> {
         self.push(Did::Start);
+        if let Some(code) = self.ends_before_menu {
+            let ended = Ended { id: GAME.id, started: GAME.started, code };
+            return Err(Failed { message: format!("the game ended (exit code {code}) before its main menu"), ended: Some(ended) });
+        }
         self.serving.lock().unwrap().push((start.pipe()?, GAME.id));
         Ok((GAME.id, 30.0))
     }
@@ -158,6 +167,10 @@ impl Machine for Recorded {
     }
     fn ends(&self, _: &Path) -> Vec<GameEnd> {
         self.ended.lock().unwrap().clone()
+    }
+    fn record_end(&self, _: &Path, game: Process, code: u32) {
+        self.push(Did::RecordEnd(code));
+        self.ended.lock().unwrap().push(GameEnd { game, seen: "10:00:00".into(), code });
     }
     fn keep_and_remove(&self, folder: &Path) -> Result<bool> {
         self.push(Did::Keep(folder.display().to_string()));
