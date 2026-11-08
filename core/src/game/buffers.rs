@@ -293,7 +293,7 @@ mod tests {
 pub struct Provinces {
     world: Object,
     provinces: Object,
-    _map: Object,
+    map: Object,
     _geometries: Vec<Object>,
 }
 
@@ -312,15 +312,26 @@ impl Provinces {
         let first = provinces.at() as u64;
         let map = Object::new(map::PROVINCES + 16).u64(map::PROVINCES, first).u64(map::PROVINCES + 8, first + (count * province::SIZE) as u64);
         image.u64(globals::MAP, map.at() as u64);
-        let world = Object::new(world::PROVINCES + 8).u64(world::PROVINCES, first);
+        let world = Object::new(world::PROVINCES.max(world::MAP_MANAGER) + 8).u64(world::PROVINCES, first);
         // What another test's world left in the topology is not this one's.
         super::with_state(|s| s.geography.clear());
-        Self { world, provinces, _map: map, _geometries: geometries }
+        Self { world, provinces, map, _geometries: geometries }
     }
 
     /// The world, as a session's `world`.
     pub fn world(&self) -> usize {
         self.world.at()
+    }
+
+    /// The world's object, for a test to set its other fields.
+    pub fn world_object(&self) -> &Object {
+        &self.world
+    }
+
+    /// The map's object, the game's global `MAP`, for a test to set its
+    /// other fields.
+    pub fn map(&self) -> &Object {
+        &self.map
     }
 
     /// Where the province `id` is.
