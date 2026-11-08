@@ -192,4 +192,126 @@ mod tests {
         assert_eq!(written(por, 1234, false), r#"remove_from_trade_company={ country="POR" province=1234 }"#);
         assert_eq!(invest_written(por, 3, 1234), r#"make_trade_company_investment={ members={ dummy="POR" dummy=3 dummy=1234 } }"#);
     }
+
+    mod through_the_layer {
+        use super::super::*;
+        use crate::catalogue::fake::tur;
+        use crate::game::{
+            buffers::{self, Image, Object, Provinces},
+            commands::record,
+            Caller, Fail, Status,
+        };
+        use std::cell::Cell;
+
+        thread_local! {
+            /// Whether the game's checks let the player add, remove and
+            /// invest.
+            static MAY: Cell<bool> = const { Cell::new(true) };
+        }
+
+        fn may(text: usize, reason: &[u8]) -> usize {
+            let may = MAY.get();
+            if !may && text != 0 {
+                unsafe { buffers::write_string(text, reason) };
+            }
+            may as usize
+        }
+
+        extern "C" fn may_add(_: usize, _: usize, text: usize) -> usize {
+            may(text, b"- Not a coast")
+        }
+
+        extern "C" fn may_remove(_: usize, _: usize, _: usize) -> usize {
+            may(0, b"")
+        }
+
+        /// The game's check of an investment, its failing condition marked
+        /// as the game marks it.
+        extern "C" fn may_invest(_: usize, _: usize, _: usize, _: usize, text: usize) -> usize {
+            may(text, b"\xa3no Too poor")
+        }
+
+        extern "C" fn cost(_: usize, out: *mut i32, _: usize, _: usize, _: usize) -> usize {
+            unsafe { *out = 300_000 };
+            out as usize
+        }
+
+        extern "C" fn name(_: usize, out: usize, _: usize) -> usize {
+            unsafe { buffers::write_string(out, "Local Quarter") };
+            out
+        }
+
+        /// Turkey's province 1, in a trade company when `in_company`, among
+        /// provinces 0 and 1, with the investment `local_quarter`, of index
+        /// 3. Runs `action` over Turkey's session.
+        fn turkey(in_company: bool, action: impl FnOnce(Session) -> GResult<()>) -> GResult<()> {
+            let image = Image::new();
+            buffers::strings_kept(&image).function(MAY_ADD.rva(), may_add as *const ()).function(MAY_REMOVE.rva(), may_remove as *const ());
+            image.function(MAY_INVEST.rva(), may_invest as *const ()).function(COST.rva(), cost as *const ()).function(NAME.rva(), name as *const ());
+            let provinces = Provinces::new(&image, 2);
+            provinces.set(1, FLAGS, &[if in_company { IN_TRADE_COMPANY } else { 0 }]);
+            let quarter = Object::new(KEY + 0x20).i32(INDEX, 3).string(KEY, "local_quarter");
+            let database = Object::new(INVESTMENT_COUNT + 4).vector(INVESTMENTS, &[quarter.at() as u64]).i32(INVESTMENT_COUNT, 1);
+            image.u64(DATABASE, database.at() as u64);
+            let country = Object::country(tur(), 0);
+            let countries = Object::countries(&[&country]);
+            let result = action(buffers::session(image.memory(), provinces.world.at(), tur(), country.at(), countries.at(), Caller::Remote));
+            drop((quarter, database, provinces, country, countries, image));
+            result
+        }
+
+        fn refused(result: GResult<()>) -> (Status, String) {
+            let Err(Fail { status, message }) = result else { panic!("the action was carried out") };
+            (status, message)
+        }
+
+        #[test]
+        fn a_province_is_added_and_removed_as_the_game_lets_the_player() {
+            turkey(false, |s| change(s, 1, true)).unwrap();
+            turkey(true, |s| change(s, 1, false)).unwrap();
+            assert_eq!(record::posted(), [written(tur(), 1, true), written(tur(), 1, false)]);
+            let no_reason = |doing: &str| format!("the game does not let the player {doing} now, and gives no reason");
+            assert_eq!(refused(turkey(true, |s| change(s, 1, true))), (Status::Rejected, no_reason("add the province to a trade company")));
+            assert_eq!(refused(turkey(false, |s| change(s, 1, false))), (Status::Rejected, no_reason("remove the province from its trade company")));
+            MAY.set(false);
+            assert_eq!(refused(turkey(false, |s| change(s, 1, true))), (Status::Rejected, "Not a coast".into()));
+            assert_eq!(refused(turkey(true, |s| change(s, 1, false))), (Status::Rejected, no_reason("remove the province from its trade company")));
+            assert_eq!(refused(turkey(false, |s| change(s, 0, true))).0, Status::NotFound);
+            assert!(record::posted().is_empty());
+        }
+
+        #[test]
+        fn an_investment_is_one_of_the_game_s_made_in_a_province_of_a_trade_company() {
+            turkey(true, |s| invest(s, 1, "local_quarter")).unwrap();
+            assert_eq!(record::posted(), [invest_written(tur(), 3, 1)]);
+            assert_eq!(refused(turkey(true, |s| invest(s, 1, "harbor"))), (Status::NotFound, "no trade company investment is named harbor".into()));
+            assert_eq!(
+                refused(turkey(false, |s| invest(s, 1, "local_quarter"))),
+                (Status::Rejected, "the game does not let the player invest there now, and gives no reason".into())
+            );
+            MAY.set(false);
+            assert_eq!(refused(turkey(true, |s| invest(s, 1, "local_quarter"))), (Status::Rejected, "Too poor".into()));
+            assert!(record::posted().is_empty());
+        }
+
+        #[test]
+        fn the_options_show_the_investments_only_in_a_trade_company() {
+            let read = |in_company| {
+                let mut read = None;
+                turkey(in_company, |s| {
+                    read = Some(options(s, args::Options { province: ProvinceId(1) })?);
+                    Ok(())
+                })
+                .unwrap();
+                read.unwrap()
+            };
+            let outside = read(false);
+            assert!(!outside.in_trade_company && outside.add.can && !outside.remove.can && outside.investments.is_empty());
+            let inside = read(true);
+            assert!(inside.in_trade_company && !inside.add.can && inside.remove.can);
+            let [quarter] = inside.investments.as_slice() else { panic!("{:?}", inside.investments) };
+            assert_eq!((quarter.investment.as_str(), quarter.name.as_str(), quarter.choice.can), ("local_quarter", "Local Quarter", true));
+            assert_eq!(quarter.choice.cost, vec![Amount::new(Resource::Ducats, 300.0)]);
+        }
+    }
 }

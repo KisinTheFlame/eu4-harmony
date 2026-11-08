@@ -343,6 +343,64 @@ mod tests {
         );
     }
 
+    mod through_the_layer {
+        use super::super::*;
+        use crate::catalogue::fake::{game_tag, tur, wal};
+        use crate::game::{
+            buffers::{self, Image, Object},
+            commands::record,
+            Caller, Fail,
+        };
+
+        extern "C" fn not_for_the_overlord(_: usize, _: usize) -> usize {
+            0
+        }
+
+        fn ser() -> Tag {
+            game_tag(b"SER", 2)
+        }
+
+        /// Turkey, its subject Serbia and Wallachia, a country of its own,
+        /// with every interaction where the game keeps it, none for the
+        /// player's country. Runs `action` over Turkey's session.
+        fn turkey(action: impl FnOnce(Session) -> GResult<()>) -> GResult<()> {
+            let image = Image::new();
+            let m = image.memory();
+            for i in INTERACTIONS {
+                image
+                    .u64(i.object, m.at(i.class) as u64)
+                    .i32(i.object + 8, i.token as i32)
+                    .u64(i.class + FOR_OVERLORD, not_for_the_overlord as *const () as u64);
+            }
+            let size = OVERLORD_VALID + 1;
+            let (turkey, wallachia) = (Object::country(tur(), size), Object::country(wal(), size));
+            let serbia = Object::country(ser(), size).u64(country_fields::OVERLORD, tur().0);
+            let countries = Object::countries(&[&turkey, &serbia, &wallachia]);
+            let result = action(buffers::session(m, 0, tur(), turkey.at(), countries.at(), Caller::Remote));
+            drop((turkey, serbia, wallachia, countries, image));
+            result
+        }
+
+        fn refused(result: GResult<()>) -> (Status, String) {
+            let Err(Fail { status, message }) = result else { panic!("the interaction was carried out") };
+            (status, message)
+        }
+
+        #[test]
+        fn an_interaction_is_one_of_the_game_s_with_a_subject_of_the_player_s_that_the_game_offers() {
+            let interact = |subject, interaction: &str, third, province| refused(turkey(|s| super::super::interact(s, subject, interaction, third, province)));
+            assert_eq!(interact(wal(), "scutage", None, None), (Status::Rejected, "WAL is not a subject of the player's".into()));
+            assert_eq!(
+                interact(ser(), "tribute", None, None),
+                (Status::InvalidArgument, "the game has no subject interaction tribute; subject.options lists them".into())
+            );
+            assert_eq!(interact(ser(), "scutage", Some(game_tag(b"HUN", 160)), None).0, Status::NotFound);
+            assert_eq!(interact(ser(), "grant_province", None, Some(0)).0, Status::NotFound);
+            assert_eq!(interact(ser(), "scutage", None, None), (Status::Rejected, "the game does not offer scutage toward SER".into()));
+            assert!(record::posted().is_empty());
+        }
+    }
+
     #[test]
     fn each_interaction_has_its_own_key_object_and_class() {
         for (n, i) in INTERACTIONS.iter().enumerate() {

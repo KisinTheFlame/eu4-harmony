@@ -241,6 +241,88 @@ pub fn session(m: &'static Memory, world: usize, player: Tag, country: usize, co
     Session { m, ctx: Ctx { world, date: 0, player, country, countries }, view: View::Full, caller, commands: Commands::Recorded }
 }
 
+// ---------- the units, diplomacy, peace, time, console, subjects and
+// trade companies' layer tests ----------
+
+/// The world session of the player `player` in the world at `world` on
+/// `date`, among the countries' list at `countries`, as `caller` reads it in
+/// the full view; the commands it posts are recorded.
+pub fn world_session(m: &'static Memory, world: usize, date: i32, player: Tag, countries: usize, caller: Caller) -> super::WorldSession {
+    let world = super::World { world, date, countries, player: super::player::Player::Plays(player) };
+    super::WorldSession { m, world, view: View::Full, caller, commands: Commands::Recorded }
+}
+
+/// The game's string destructor in `image`, as one that frees nothing: the
+/// strings a test's game functions write into hold their text in themselves.
+pub fn strings_kept(image: &Image) -> &Image {
+    use crate::called_by_game;
+
+    #[called_by_game]
+    extern "C" fn kept(_: usize) -> usize {
+        0
+    }
+    image.function(game_string::DESTROY_AT.rva(), kept as *const ())
+}
+
+/// The game's provinces 0 to `count` − 1, as the map, a global of the
+/// game's, and the world hold them: each with its ID and a geometry of its
+/// own of that ID, without neighbors; 0 the placeholder, as in the game.
+pub struct Provinces {
+    provinces: Object,
+    /// The world that holds them, for a session's `world`.
+    pub world: Object,
+    _map: Object,
+    _geometries: Vec<Object>,
+}
+
+impl Provinces {
+    pub fn new(image: &Image, count: usize) -> Self {
+        use crate::objects::campaign::{geometry, globals, map, province, world};
+        let provinces = Object::new(count * province::SIZE);
+        let geometries: Vec<Object> = (0..count).map(|id| Object::new(geometry::TERRAIN + 8).u32(geometry::ID, id as u32)).collect();
+        for (id, geometry) in geometries.iter().enumerate() {
+            provinces.set(id * province::SIZE + province::ID, &(id as u32).to_le_bytes());
+            provinces.set(id * province::SIZE + province::GEOMETRY, &(geometry.at() as u64).to_le_bytes());
+        }
+        let (first, end) = (provinces.at() as u64, (provinces.at() + count * province::SIZE) as u64);
+        let map = Object::new(map::PROVINCES + 0x10).u64(map::PROVINCES, first).u64(map::PROVINCES + 8, end);
+        image.u64(globals::MAP, map.at() as u64);
+        let world = Object::new(world::PROVINCES + 8).u64(world::PROVINCES, first);
+        // The capabilities keep the provinces they found by where the map
+        // and the world are, which a test's freed buffers may have been.
+        super::with_state(|s| s.geography.clear());
+        Self { provinces, world, _map: map, _geometries: geometries }
+    }
+
+    /// Where province `id` is.
+    pub fn at(&self, id: usize) -> usize {
+        self.provinces.at() + id * crate::objects::campaign::province::SIZE
+    }
+
+    /// Writes `bytes` at `offset` in province `id`.
+    pub fn set(&self, id: usize, offset: usize, bytes: &[u8]) {
+        self.provinces.set(id * crate::objects::campaign::province::SIZE + offset, bytes);
+    }
+}
+
+impl Drop for Provinces {
+    fn drop(&mut self) {
+        super::with_state(|s| s.geography.clear());
+    }
+}
+
+/// Writes `text`, game text, into the empty `std::string` at `out`, held in
+/// itself, as a test's game function writes its reasons.
+///
+/// # Safety
+/// `out` is a `std::string` the framework gave the game's function to write.
+pub unsafe fn write_string(out: usize, text: impl AsRef<[u8]>) {
+    let text = text.as_ref();
+    assert!(text.len() <= game_string::INLINE, "{text:?} is longer than a string holds in itself");
+    std::ptr::copy_nonoverlapping(text.as_ptr(), out as *mut u8, text.len());
+    *((out + game_string::SIZE) as *mut u64) = text.len() as u64;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
