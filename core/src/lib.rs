@@ -10,6 +10,20 @@ pub type Result<T> = std::result::Result<T, String>;
 /// Marks a function the game's code calls, which runs under [`guarded`].
 pub(crate) use eu4_harmony_core_macros::called_by_game;
 
+/// A developer build's test switch, `test_switch!(crash)`: as dev.toml's
+/// `[test-switches]` has it, and off in a build without the test switches,
+/// which has no dev.toml to read. The speed-ups' switches are read through
+/// `speed`.
+macro_rules! test_switch {
+    ($switch:ident) => {{
+        #[cfg(feature = "dev-test-switches")]
+        let on = crate::dev::options().test_switches.$switch;
+        #[cfg(not(feature = "dev-test-switches"))]
+        let on = false;
+        on
+    }};
+}
+
 #[macro_use]
 pub mod log;
 #[macro_use]
@@ -60,11 +74,13 @@ pub mod repairs;
 pub mod report;
 pub mod safe_point;
 pub mod saves;
+pub mod saving;
 pub mod sessions;
 pub mod settings;
 pub mod sound;
 pub mod speed;
 pub mod splice;
+mod startup;
 #[cfg(feature = "dev-call-trace")]
 mod trace;
 pub mod ui;
@@ -146,10 +162,10 @@ fn start(m: memory::Memory) -> Result<String> {
     icu::load()?;
     #[cfg(dev_build)]
     dev::load(&paths::core_dir()?)?;
-    #[cfg(feature = "dev-test-switches")]
-    if dev::options().test_switches.fail_startup {
+    if test_switch!(fail_startup) {
         return Err("fail-startup is on in dev.toml's [test-switches]".into());
     }
+    speed::check_switches()?;
     let installed = points::install(m, &points::this_build::installed(m))?;
     #[cfg(feature = "dev-command-log")]
     command_log::start();
@@ -229,6 +245,9 @@ fn report_header(game_dir: Option<&std::path::Path>) {
     for line in dev::report_lines() {
         report::line(line);
     }
+    for line in speed::report_lines() {
+        report::line(line);
+    }
 }
 
 /// Startup failed and nothing was hooked: writes the log and report and tells
@@ -266,159 +285,10 @@ fn fail_startup(reason: String) {
     });
 }
 
-/// A font chosen in the settings that is no longer installed: the player
-/// language's default draws instead, and the player is told once
-/// (ADR framework-succeeds-or-fails-as-a-whole). A weight its font no longer
-/// has draws in the one below it, which only the log tells.
-fn tell_missing_fonts(chosen: &settings::Settings) {
-    let Ok(fonts) = unicode::system_font::SystemFonts::new() else { return };
-    let installed = |family: &str| fonts.has_family(family);
-    for (font, role) in chosen.missing_fonts(installed) {
-        let default = settings::default_face(chosen.language(), role, installed).family;
-        log!("settings: the font {font:?} is not installed; {default} draws instead");
-        notice::post(&format!("font:{font}"), notice::Repeat::Run, notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", &default));
-    }
-    for face in settings::Role::ALL.into_iter().filter_map(|role| chosen.chosen(role)) {
-        if let Some(drawn) = fonts.drawn(face).filter(|drawn| drawn != face) {
-            log!("settings: the font {:?} has no weight {}; {} draws instead", face.family, face.weight, drawn.weight);
-        }
-    }
-}
-
-/// The mods of the playset with an EU4 Harmony manifest, in its order, and
-/// what was skipped, which the player is told of; None when the playset
-/// cannot be read.
-fn discover(user_dir: &std::path::Path) -> Option<(Vec<mods::DiscoveredMod>, Vec<mods::Skipped>)> {
-    let (mods, notes) = match mods::discover(user_dir) {
-        Ok(v) => v,
-        Err(e) => {
-            log!("mod discovery failed: {e}");
-            report::line(format!("mods: discovery failed: {e}"));
-            report::write();
-            return None;
-        }
-    };
-    for note in &notes {
-        log!("discovery: {}", note.text);
-        if let Some(message) = &note.notice {
-            notice::post(&format!("skipped:{}", note.text), notice::Repeat::Run, message.clone());
-        }
-    }
-    // Lets the notice window be tried without a broken mod.
-    #[cfg(feature = "dev-test-switches")]
-    if dev::options().test_switches.test_notice {
-        for number in ["1", "2"] {
-            notice::post(&format!("test:{number}"), notice::Repeat::Run, notice::Message::new("EU4HARMONY_TEST_NOTICE").arg("NUMBER", number));
-        }
-    }
-    for m in &mods {
-        log!(
-            "mod {:?} id={:?} api={} dir={} extension={:?} ui={}",
-            m.descriptor.name,
-            m.manifest.id,
-            m.manifest.api_version,
-            m.dir.display(),
-            m.layout.extension,
-            m.layout.ui.len()
-        );
-    }
-    Some((mods, notes))
-}
-
-/// The report's part on the mods: each one and what came of it, then every
-/// note from discovering, splicing and their texts.
-fn report_mods(mods: &[mods::DiscoveredMod], outcomes: &[lua::LoadOutcome], notes: &[String], plan: &splice::Plan) {
-    report::line(format!("\nMods with an EU4 Harmony manifest, in playset order: {}", mods.len()));
-    for (m, outcome) in mods.iter().zip(outcomes) {
-        report::line(format!(
-            "  {} (id {}, api {}): {}; {} UI fragment(s)",
-            m.descriptor.name,
-            m.manifest.id,
-            m.manifest.api_version,
-            outcome.status,
-            m.layout.ui.len()
-        ));
-        report::line(format!("    {}", m.dir.display()));
-        for file in &m.layout.misplaced {
-            report::line(format!("    eu4-harmony/{file}: the layout has no place for it, so it is not used"));
-        }
-    }
-    for note in notes {
-        report::line(format!("  {note}"));
-    }
-    report::line(format!("UI: {} mod element(s) spliced, {} button-area slot(s)", plan.elements.len(), plan.slots));
-    report::write();
-}
-
-/// Runs once, on the game thread, from the first PhysFS call.
+/// Runs once, on the game thread, from the first PhysFS call: the rest of
+/// startup (`startup`).
 pub(crate) fn deferred_init() {
-    let game_dir = GAME_DIR.get().cloned().unwrap_or_default();
-    let user_dir = match paths::user_dir(&game_dir) {
-        Ok(d) => d,
-        Err(e) => {
-            log!("user dir: {e}");
-            open_fallback_log();
-            return;
-        }
-    };
-    let logs = open_logs(&user_dir);
-    report_header(Some(&game_dir));
-    report::line(format!("user dir: {}", user_dir.display()));
-    if let Some(game) = pipe::test_game() {
-        report::line(format!("test game {game}: remote control on {}", pipe::name()));
-    }
-    log!("user dir {}", user_dir.display());
-    let chosen = settings::load(&user_dir);
-    let language = lang::decide(&user_dir, chosen.language);
-    log!("settings: {chosen:?}");
-    saves::background::set_folder(&user_dir);
-    loading::set_folders(&game_dir, &user_dir);
-    saves::parallel::start();
-    tell_missing_fonts(&chosen);
-    report::line(format!("language: {} ({}); the game runs in {}", language.player.id(), language.reason, language.game.id()));
-    report::line(format!("startup: {}", STARTUP.get().map_or("?", String::as_str)));
-    // Remote control is always on (ADR remote-control-is-always-on).
-    pipe::start();
-    let Some((mods, discovery_notes)) = discover(&user_dir) else { return };
-    // Texts first: an extension may read its own at the top of main.lua.
-    let mut plan = splice::Plan::default();
-    let every: Vec<_> = mods.iter().collect();
-    let loc_notes = loc::install(language, &every, &mut plan);
-    for note in &loc_notes {
-        log!("localisation: {note}");
-    }
-    let data_dir = user_dir.join("eu4-harmony").join("data");
-    let outcomes = lua::load(&mods, &logs, &data_dir);
-    framework_ui::mods_window::set(
-        mods.iter()
-            .map(|m| framework_ui::mods_window::Card {
-                id: m.manifest.id.clone(),
-                name: if m.descriptor.name.is_empty() { m.manifest.id.clone() } else { m.descriptor.name.clone() },
-                version: m.descriptor.version.clone(),
-                description: m.manifest.description.clone(),
-                permissions: m.manifest.permissions.clone(),
-                data_folder: data_dir.join(&m.manifest.id).display().to_string(),
-            })
-            .collect(),
-    );
-    saves::keep_for(lua::mod_ids());
-    let indices = lua::extension_indices(&mods);
-    let included = |i: usize| outcomes[i].included;
-    let ui_notes = splice::build(&mods, included, &mut plan);
-    for note in &ui_notes {
-        log!("ui: {note}");
-    }
-    unicode::framework_fonts::plan(&mut plan);
-    log!("splice plan ready: {} mod element(s), {} button slot(s)", plan.elements.len(), plan.slots);
-    let notes: Vec<String> = discovery_notes
-        .iter()
-        .map(|n| format!("discovery: {}", n.text))
-        .chain(ui_notes.iter().map(|n| format!("ui: {n}")))
-        .chain(loc_notes.iter().map(|n| format!("localisation: {n}")))
-        .collect();
-    report_mods(&mods, &outcomes, &notes, &plan);
-    ui::set_elements(plan.elements.iter().map(|e| (e.clone(), indices.get(&e.owner).copied())).collect());
-    physfs::set_plan(plan);
+    startup::run(GAME_DIR.get().cloned().unwrap_or_default(), STARTUP.get().map_or("?", String::as_str));
 }
 
 /// Called by the proxy from its DllMain. Returns 0 on success.

@@ -1,6 +1,7 @@
 //! A computer for the claim's tests, scripted and recorded: what the claim
 //! did to it, in order, with a clock that moves only when the claim waits.
 //! The claim's course and the scenario runner's game are tested over it.
+use super::course::Starting;
 use super::machine::Machine;
 use super::record::{Asking, Claim, GameEnd, Process, State};
 use crate::Result;
@@ -139,7 +140,7 @@ impl Machine for Recorded {
         }
         Ok(())
     }
-    fn prepare_start(&self, folder: &Path, _: &Path, _: &[String]) -> Result<PathBuf> {
+    fn prepare_start(&self, folder: &Path, _: &Path, _: &Starting) -> Result<PathBuf> {
         self.push(Did::Prepare);
         Ok(folder.join("core").join("eu4_harmony_core.dll"))
     }

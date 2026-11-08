@@ -42,10 +42,11 @@
 //! arguments, the army's own state, the war plan and the offensive the
 //! country follows are checked; what the others changed elsewhere (units
 //! handed between agents, other armies' targets, the strength planned to
-//! arrive in provinces) is not, and is what the developer build's
-//! `check-army-searches` counts.
+//! arrive in provinces) is not, and is what a developer build counts when it
+//! checks the searches (`crate::speed`).
 use crate::called_by_game;
 use crate::points::{Function, Point};
+use crate::speed::{self, SpeedUp};
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering};
@@ -215,6 +216,21 @@ impl Outcome {
             && (self.a, self.b, self.c, self.d) == (other.a, other.b, other.c, other.d)
             && self.out == other.out
     }
+
+    /// What differs from `other`: the province, the score, the four values
+    /// beside it, the output.
+    fn differences(&self, other: &Outcome) -> Vec<&'static str> {
+        [
+            ("the province", self.province == other.province),
+            ("the score", self.score.to_bits() == other.score.to_bits()),
+            ("the values beside the score", (self.a, self.b, self.c, self.d) == (other.a, other.b, other.c, other.d)),
+            ("the output", self.out == other.out),
+        ]
+        .into_iter()
+        .filter(|(_, same)| !same)
+        .map(|(what, _)| what)
+        .collect()
+    }
 }
 
 const PENDING: u8 = 0;
@@ -351,11 +367,9 @@ enum Count {
     /// thought without searching.
     NotThought,
     NotSearched,
-    /// With `check-army-searches`, taken but not what the game's search gives.
-    Different,
 }
 
-static COUNTS: [AtomicU64; 13] = [const { AtomicU64::new(0) }; 13];
+static COUNTS: [AtomicU64; 12] = [const { AtomicU64::new(0) }; 12];
 static LOGGED: AtomicUsize = AtomicUsize::new(0);
 const LOG_EVERY: u64 = 20_000;
 const MOST_LOGGED: usize = 200;
@@ -387,27 +401,9 @@ fn note_prepared(count: u64) {
             get(NotThought),
             get(NotSearched),
             get(Unprepared),
-            if checking() { format!(", {} differing from the game's", get(Different)) } else { String::new() }
+            if speed::checked(&SPEED_UP) { format!(", {} differing from the game's", speed::differences(&SPEED_UP).1) } else { String::new() }
         );
     }
-}
-
-/// A developer build's test switch `check-army-searches`: every search
-/// taken is worked out again as the game does, and a difference counted.
-fn checking() -> bool {
-    #[cfg(feature = "dev-test-switches")]
-    return crate::dev::options().test_switches.check_army_searches;
-    #[cfg(not(feature = "dev-test-switches"))]
-    false
-}
-
-/// A developer build's test switch `game-searches-armies`: the framework
-/// leaves the searches to the game.
-fn left_to_the_game() -> bool {
-    #[cfg(feature = "dev-test-switches")]
-    return crate::dev::options().test_switches.game_searches_armies;
-    #[cfg(not(feature = "dev-test-switches"))]
-    false
 }
 
 /// A hash of the state the search reads of the agent and its army, with its
@@ -595,7 +591,9 @@ pub(crate) extern "C" fn children_begin(king: usize, argument: usize) {
     if let Some(old) = BATCH.with(|b| b.borrow_mut().take()) {
         settle(old);
     }
-    if left_to_the_game() {
+    // The `agents-order` walks call this whether the searches are left to
+    // the game or not.
+    if speed::game_path(&SPEED_UP) {
         return;
     }
     let Some(pool) = pool() else { return };
@@ -742,8 +740,18 @@ unsafe extern "C" fn search(
     }
     // Called off at the think, not begun, and counted there.
     let Some(outcome) = outcome else { return original() };
-    if checking() && !unsafe { search_as_the_game(agent, &given, argument) }.same(&outcome) {
-        add(Count::Different, 1);
+    if speed::checked(&SPEED_UP) {
+        let game = unsafe { search_as_the_game(agent, &given, argument) };
+        speed::compared(&SPEED_UP, game.same(&outcome), || {
+            format!(
+                "an army's search worked out ahead differs in {}: province {} at {}, the game's {} at {}",
+                outcome.differences(&game).join(", "),
+                outcome.province,
+                outcome.score,
+                game.province,
+                game.score
+            )
+        });
     }
     unsafe {
         *score = outcome.score;
@@ -792,18 +800,18 @@ extern "C" fn walked_stub() {
     );
 }
 
-/// The King's walk of its children, where the searches are handed out. The
-/// developer build's `agents-order` walks the King's agents at the same place
-/// instead, and calls [`children_begin`] itself; which of the two startup
-/// installs, `points::this_build` decides.
-pub fn children_walk() -> Point {
-    Point::jump(CHILDREN_WALK, "48 8b 5f 40 48 85 db 74 1a", "King's walk of its children", children_stub as *const () as usize, &CHILDREN_RESUME)
-        .uses(&[CHILDREN])
-}
+/// Checked, every search taken is worked out again as the game does, and a
+/// difference counted; the search worked out ahead is kept.
+pub const SPEED_UP: SpeedUp = SpeedUp { name: "army-searches", group: "ai", points, checkable: true };
 
-/// The searches' points but [`children_walk`].
-pub fn points() -> Vec<Point> {
+/// The searches' points. The first is the King's walk of its children, where
+/// the searches are handed out: the developer build's `agents-order` walks
+/// the King's agents at the same place instead, and calls [`children_begin`]
+/// itself, and `points::this_build` puts its walks in this one's place.
+fn points() -> Vec<Point> {
     vec![
+        Point::jump(CHILDREN_WALK, "48 8b 5f 40 48 85 db 74 1a", "King's walk of its children", children_stub as *const () as usize, &CHILDREN_RESUME)
+            .uses(&[CHILDREN]),
         Point::replace(SEARCH, "4c 89 4c 24 20 89 54 24 10 48 89 4c 24 08 55 53", "army search", search as Search, &ORIGINAL_SEARCH),
         Point::method(CALLBACK, 0, 0x103200, "army search's callback"),
         Point::method(CALLBACK, 8, 0x96f860, "army search's callback's step"),

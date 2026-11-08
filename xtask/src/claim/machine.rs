@@ -13,6 +13,7 @@
 //! player's with a junction to their `mod` folder; `core\`, the core and
 //! `dev.toml` its start copied; `follow.exe`, which follows its games to
 //! their ends into `game-ends.tsv`; and `kept\` after the release.
+use super::course::Starting;
 use super::record::{self, GameEnd, Process, State};
 use crate::{built, repo, Result};
 use eu4_harmony_client::game::{self, Game};
@@ -61,10 +62,10 @@ pub trait Machine {
     /// player's user folder of `game_dir`; removes the `kept\` of claims
     /// released long ago.
     fn make_folder(&self, folder: &Path, game_dir: &Path) -> Result<()>;
-    /// Copies this checkout's built core and `dev.toml` into the claim's
-    /// `folder`, and the saves `saves` names from the player's; the core's
-    /// path.
-    fn prepare_start(&self, folder: &Path, game_dir: &Path, saves: &[String]) -> Result<PathBuf>;
+    /// Copies this checkout's built core and `dev.toml`, or the options
+    /// `starting` gives in its place, into the claim's `folder`, and the
+    /// saves it names from the player's; the core's path.
+    fn prepare_start(&self, folder: &Path, game_dir: &Path, starting: &Starting) -> Result<PathBuf>;
     /// Starts the game from `game_dir` as `start` says, waiting up to `wait`
     /// for its main menu, `log` being the framework's log: its process id,
     /// and the seconds it took. A test game that does not reach it is ended.
@@ -251,19 +252,21 @@ impl Machine for ThisComputer {
         make_user_folder(&player, &folder.join("user"))
     }
 
-    fn prepare_start(&self, folder: &Path, game_dir: &Path, saves: &[String]) -> Result<PathBuf> {
+    fn prepare_start(&self, folder: &Path, game_dir: &Path, starting: &Starting) -> Result<PathBuf> {
         let core = folder.join("core");
         fs::create_dir_all(&core).map_err(|e| format!("cannot make {}: {e}", core.display()))?;
         let dll = core.join("eu4_harmony_core.dll");
         copy(&built().join("eu4_harmony_core.dll"), &dll)?;
         let options = repo().join("dev.toml");
-        if options.is_file() {
+        if let Some(text) = &starting.options {
+            fs::write(core.join("dev.toml"), text).map_err(|e| format!("cannot write {}: {e}", core.join("dev.toml").display()))?;
+        } else if options.is_file() {
             copy(&options, &core.join("dev.toml"))?;
         } else {
             remove_file(&core.join("dev.toml"))?;
         }
         let player = eu4_harmony_folders::user_dir(Some(game_dir))?;
-        copy_saves(&UserFolder::new(player).save_games(), &UserFolder::new(folder.join("user")).save_games(), saves)?;
+        copy_saves(&UserFolder::new(player).save_games(), &UserFolder::new(folder.join("user")).save_games(), &starting.saves)?;
         Ok(dll)
     }
 

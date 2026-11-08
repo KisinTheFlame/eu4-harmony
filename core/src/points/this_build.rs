@@ -8,7 +8,8 @@
 use super::Point;
 use crate::memory::Memory;
 
-/// The framework's own points, which every build installs.
+/// The framework's own points but the speed-ups', which every build
+/// installs.
 fn framework() -> Vec<Point> {
     let mut all = crate::physfs::points();
     all.extend(crate::files::points());
@@ -25,15 +26,8 @@ fn framework() -> Vec<Point> {
     all.extend(crate::unicode::points());
     all.extend(crate::wording::points());
     all.extend(crate::framework_ui::hook::points());
-    all.extend(crate::speed::points());
-    all.extend(crate::saves::background::points());
-    all.extend(crate::saves::parallel::points());
-    all.extend(crate::saves::sum::points());
-    all.extend(crate::saves::update_thread::points());
-    all.extend(crate::loading::points());
     all.extend(crate::hidden::points());
     all.extend(crate::sound::points());
-    all.extend(crate::army_search::points());
     all
 }
 
@@ -50,32 +44,35 @@ fn tools(mut all: Vec<Point>) -> Vec<Point> {
 
 /// Every point this build declares, whether startup installs it or not:
 /// what the offline checks check, and what the framework may use. The
-/// `agents-order` test switch's walks are not among them: they hook the
-/// bytes the army searches' walk of the King's children does, in its place,
-/// and keep the bytes the searches keep, which these check.
+/// speed-ups' are all among them, those dev.toml leaves to the game too. The
+/// `agents-order` test switch's walks are not: they hook the bytes the army
+/// searches' walk of the King's children does, in its place, and keep the
+/// bytes the searches keep, which these check.
 pub(crate) fn declared() -> Vec<Point> {
     let mut all = tools(framework());
-    all.push(crate::army_search::children_walk());
+    all.extend(crate::speed::points());
     all
 }
 
 /// What startup installs in the game whose image is `m`: the framework's
-/// points, the tools', the army searches' walk of the King's children or the
-/// `agents-order` test switch's walks in its place, and the functions
-/// dev.toml has the write watch and the call trace observe, which take the
-/// bytes the game holds there now and check nothing. The tools that observe
-/// those functions start here, before they are hooked.
+/// points, the tools', those of the speed-ups dev.toml does not leave to the
+/// game, the `agents-order` test switch's walks in place of the army
+/// searches' walk of the King's children, and the functions dev.toml has the
+/// write watch and the call trace observe, which take the bytes the game
+/// holds there now and check nothing. The tools that observe those functions
+/// start here, before they are hooked.
 #[cfg_attr(
     not(any(feature = "dev-write-watch", feature = "dev-call-trace")),
     expect(unused_variables, reason = "only the write watch and the call trace look at the game here")
 )]
 pub(crate) fn installed(m: Memory) -> Vec<Point> {
     let mut all = tools(framework());
+    all.extend(crate::speed::installed());
     #[cfg(feature = "dev-test-switches")]
-    let walks = if crate::agents_order::chosen() { crate::agents_order::points() } else { vec![crate::army_search::children_walk()] };
-    #[cfg(not(feature = "dev-test-switches"))]
-    let walks = vec![crate::army_search::children_walk()];
-    all.extend(walks);
+    if crate::agents_order::chosen() {
+        all.retain(|p| !matches!(p.place, super::Place::Rva(crate::army_search::CHILDREN_WALK)));
+        all.extend(crate::agents_order::points());
+    }
     #[cfg(feature = "dev-write-watch")]
     {
         let watch = crate::write_watch::chosen(&m);
@@ -109,7 +106,9 @@ mod tests {
     }
 
     /// Each module that declares points has them collected: by its parent
-    /// module (or, for a repair, its `REPAIR` that names them), whose own points are collected in turn, or here. A module's
+    /// module (or, for a repair, its `REPAIR` that names them), whose own
+    /// points are collected in turn, by the speed-ups' list (as its
+    /// `SPEED_UP`), or here. A module's
     /// points that nothing collects are neither installed nor checked, and
     /// would fail only when the framework first used one of them.
     #[test]
@@ -167,17 +166,20 @@ mod tests {
             let text = &texts[collector];
             (0..module.len()).any(|from| {
                 let path = module[from..].join("::");
-                // A repair is collected as its `REPAIR`, which names its points.
-                text.contains(&format!("{path}::points")) || text.contains(&format!("{path}::REPAIR"))
+                // A repair is collected as its `REPAIR`, and a speed-up as its
+                // `SPEED_UP`, which names its points.
+                text.contains(&format!("{path}::points")) || text.contains(&format!("{path}::REPAIR")) || text.contains(&format!("{path}::SPEED_UP"))
             })
         };
         let this = vec!["points".to_string(), "this_build".to_string()];
+        // Every speed-up, wherever its module, is collected in `speed`'s list.
+        let speed_ups = vec!["speed".to_string()];
         let mut loose = Vec::new();
         for module in &declaring {
             let mut at = module.clone();
             // Up the parents, each collecting the one below, to this module.
             let reached = loop {
-                if collects(&this, &at) {
+                if collects(&this, &at) || (at != speed_ups && collects(&speed_ups, &at)) {
                     break true;
                 }
                 let Some(parent) = at.split_last().map(|(_, parent)| parent.to_vec()) else { break false };

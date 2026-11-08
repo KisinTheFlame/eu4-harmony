@@ -18,6 +18,7 @@ use super::parallel;
 use crate::called_by_game;
 use crate::memory::Memory;
 use crate::points::{Function, Point};
+use crate::speed::SpeedUp;
 use crate::Result;
 use std::ops::Range;
 
@@ -41,7 +42,10 @@ const PARTS_A_THREAD: usize = 4;
 /// What `b` is taken to be where a part begins.
 const GUESS: u32 = 1;
 
-pub fn points() -> Vec<Point> {
+/// Left to the game, its sum takes a byte at a time on the main thread.
+pub const SPEED_UP: SpeedUp = SpeedUp { name: "save-sum", group: "saving", points, checkable: false };
+
+fn points() -> Vec<Point> {
     vec![
         Point::replace(SUM, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48", "memory stream's sum", sum as Sum, &ORIGINAL_SUM),
         // The rest of it: the count, the move to the start, the buffer's
@@ -69,7 +73,7 @@ static ORIGINAL_SUM: Function<Sum> = Function::new();
 extern "C" fn sum(stream: usize, count: i32) -> u32 {
     let m = crate::hooked_memory();
     let count = match counted(m, stream, count) {
-        Ok(count) if count > 0 && count as usize >= FEWEST && !super::game_writes_saves() => count,
+        Ok(count) if count > 0 && count as usize >= FEWEST => count,
         _ => return ORIGINAL_SUM.get()(stream, count),
     };
     crate::guarded("save checksum sum", || match take(m, stream, count) {

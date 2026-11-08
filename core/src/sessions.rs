@@ -324,7 +324,7 @@ fn tell(happened: Vec<Happening>) {
                 crate::repairs::after_history(&crate::hooked_memory());
             }
             Happening::Restarting => {
-                crate::saves::background::wait();
+                crate::saving::background::wait();
                 crate::remote::restarting();
             }
         }
