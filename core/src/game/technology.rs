@@ -6,6 +6,7 @@ use super::{
     power::{self, ADVANCE_TECH},
     GResult, Session, Tag,
 };
+use crate::containers;
 use crate::{
     game_string,
     memory::Memory,
@@ -13,8 +14,9 @@ use crate::{
         campaign::{country, technology as levels},
         gui::functions::ADD_MONTHS,
     },
-    points::Point,
+    points::{GameFunction, Point},
 };
+use eu4_harmony_remote::technology::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind},
     technology::TechnologyOption,
@@ -32,7 +34,7 @@ const KIND: usize = 0x78;
 /// How many months until a country has `cost` points of a kind, at its
 /// monthly gain: `(country, &cost in thousandths, kind)`; 0 or less when it
 /// gains none.
-const MONTHS_UNTIL: usize = 0x380910;
+const MONTHS_UNTIL: GameFunction<3> = GameFunction::at(0x380910);
 /// The most categories and levels believed.
 const MOST: usize = 1000;
 
@@ -65,10 +67,10 @@ fn categories(m: &Memory, country: usize) -> GResult<Vec<Category>> {
         return Err("no technology categories".to_string().into());
     }
     let begin = m.ptr(database + CATEGORY_LIST)?;
-    let count = super::span(begin, m.ptr(database + CATEGORY_LIST + 8)?, 8, MOST)?;
+    let count = containers::span(begin, m.ptr(database + CATEGORY_LIST + 8)?, 8, MOST)?;
     let technology = m.ptr(country + country::TECHNOLOGY)?;
     let level_of = m.ptr(technology + levels::LEVELS)?;
-    let known = super::span(level_of, m.ptr(technology + levels::LEVELS + 8)?, 4, MOST)?;
+    let known = containers::span(level_of, m.ptr(technology + levels::LEVELS + 8)?, 4, MOST)?;
     let mut found = Vec::new();
     for i in 0..count {
         let category = m.ptr(begin + i * 8)?;
@@ -82,7 +84,7 @@ fn categories(m: &Memory, country: usize) -> GResult<Vec<Category>> {
         if index < 0 || index as usize >= known {
             return Err(format!("technology category {index} has no level").into());
         }
-        let last = super::span(m.ptr(category + CATEGORY_LEVELS)?, m.ptr(category + CATEGORY_LEVELS_END)?, 8, MOST)? as i32 - 1;
+        let last = containers::span(m.ptr(category + CATEGORY_LEVELS)?, m.ptr(category + CATEGORY_LEVELS_END)?, 8, MOST)? as i32 - 1;
         found.push(Category { kind, index, level: m.i32(level_of + index as usize * 4)?, last });
     }
     Ok(found)
@@ -127,12 +129,12 @@ fn power_name(kind: PowerKind) -> &'static std::ffi::CStr {
 /// of `kind`: the date at its monthly gain, or that it gains none.
 fn when(m: &Memory, country: usize, date: i32, cost: i32, kind: PowerKind) -> GResult<Vec<String>> {
     let thousandths = cost.saturating_mul(1000);
-    let months = m.call(m.at(MONTHS_UNTIL), &[country, &thousandths as *const i32 as usize, kind as usize])? as i32;
+    let months = MONTHS_UNTIL.call(m, [country, &thousandths as *const i32 as usize, kind as usize])? as i32;
     if months <= 0 {
         return power::tooltip(m, c"RESEARCH_NEVER", &[]);
     }
     let mut day = date;
-    m.call(m.at(ADD_MONTHS), &[&mut day as *mut i32 as usize, months as usize])?;
+    ADD_MONTHS.call(m, [&mut day as *mut i32 as usize, months as usize])?;
     power::tooltip(m, c"RESEARCH_WHEN", &[(c"DATE", power::date_text(m, day)?)])
 }
 
@@ -150,7 +152,7 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<TechnologyOption>
 
 /// Researches the next level of `technology`, as the view's research button
 /// does: the game's spend_power command with the category's index.
-pub fn research(Session { m, ctx, commands, .. }: Session, technology: PowerKind) -> GResult<()> {
+pub fn research(Session { m, ctx, commands, .. }: Session, args::Research { technology }: args::Research) -> GResult<()> {
     let category = category(m, ctx.country, technology)?;
     if category.level >= category.last {
         return Err(checks::last_level(key(technology)));
@@ -184,5 +186,54 @@ mod checks {
         fn the_last_level_names_the_technology() {
             assert_eq!(super::last_level("dip").message, "the dip technology is at its last level");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::{
+        buffers::{self, Image, Object},
+        commands::record,
+        Caller, Fail, Status,
+    };
+
+    /// France at the last level of its administrative and diplomatic
+    /// technologies, of three levels each, and with no military category;
+    /// the categories' database a global of the game's. Runs `action` over
+    /// its session.
+    fn france<T>(action: impl FnOnce(Session) -> GResult<T>) -> GResult<T> {
+        let image = Image::new();
+        let fra = Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
+        let category = |kind: i32, index: i32| Object::new(KIND + 8).i32(KIND, kind).i32(INDEX, index).vector(CATEGORY_LEVELS, &[1, 2, 3]);
+        let (adm, dip) = (category(0, 0), category(1, 1));
+        let database = Object::new(CATEGORY_LIST + 0x10).vector(CATEGORY_LIST, &[adm.at() as u64, dip.at() as u64]);
+        image.u64(CATEGORIES, database.at() as u64);
+        // The levels, two i32 a word: 2 and 2, each category's last.
+        let technology = Object::new(levels::LEVELS + 0x10).vector(levels::LEVELS, &[2 | 2 << 32]);
+        let country = Object::country(fra, country::TECHNOLOGY + 8).points_to(country::TECHNOLOGY, technology);
+        let countries = Object::countries(&[&country]);
+        let result = action(buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote));
+        drop((adm, dip, database, country, countries, image));
+        result
+    }
+
+    fn refused<T>(result: GResult<T>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("the action was carried out") };
+        (status, message)
+    }
+
+    #[test]
+    fn a_technology_at_its_last_level_is_not_researched_and_one_not_kept_is_not_found() {
+        let research = |technology| refused(france(|s| research(s, args::Research { technology })));
+        assert_eq!(research(PowerKind::Adm), (Status::Rejected, "the adm technology is at its last level".into()));
+        assert_eq!(research(PowerKind::Dip), (Status::Rejected, "the dip technology is at its last level".into()));
+        assert_eq!(research(PowerKind::Mil).1, "no Mil technology");
+        assert!(record::posted().is_empty());
+    }
+
+    #[test]
+    fn the_options_need_every_kind_of_technology() {
+        assert_eq!(refused(france(options)).1, "no Mil technology");
     }
 }

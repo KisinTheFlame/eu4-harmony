@@ -123,7 +123,7 @@ So the framework can call `0x4032f0`, `0x4038c0` and `0x381070` with the country
 
 ## What the framework does, and what the game showed
 
-`game::sieges` and `game::forts`; tried on 2026-11-05 ([prototype-log.md](../prototype-log.md), "Player actions A4").
+`game::sieges` and `game::forts`; tried on 2026-11-05 ([Player actions A4](../prototype-log/2026-11-05-player-actions-a4-armies-fleets.md)).
 
 - **The cost**: the framework asks `0x9526d0` with a spending of its own, laid out as the siege view's buttons lay theirs out inside the command (`0x13af964` to `0x13af9b8`): the vtable `0x1c55480`, `+0x08` 0x165, `+0x10` the category, `+0x14` 2, `+0x18` the province, `+0x1c` -1, the rest zero. It answered 50 for both barrages and 5 for the assault, what the payments took.
 - **The answers** `0x4032f0`, `0x4038c0` and `0x381070` gave the tooltip's reasons as written above, among them the cannons' line with the naval barrage's; with no fort, each its own `…_NO_FORT`. `spend_power_command` with categories 40 and 9 made a breach and started the assault, which took the fort.

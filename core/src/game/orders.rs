@@ -1,20 +1,21 @@
 //! Route queries, moving and stopping own land armies with the game's move
 //! command (ADR commands-run-at-once), and the record of which extension set
 //! which route.
-use super::{armies::RouteSource, commands::Commands, events::Change, fail, paused, span, world, Caller, Ctx, GResult, Session, Status, MAX_UNITS};
+use super::{armies::RouteSource, commands::Commands, events::Change, fail, paused, world, Caller, Ctx, GResult, Session, Status, MAX_UNITS};
+use crate::containers;
 use crate::{
     memory::Memory,
     objects::{
         campaign::{classes, geometry, globals, province, route_options, unit},
         list,
     },
-    points::Point,
+    points::{GameFunction, Point},
 };
 use eu4_harmony_checks::armies as checks;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 
-pub const ROUTE_QUERY: usize = 0x96c520;
+pub const ROUTE_QUERY: GameFunction<8> = GameFunction::at(0x96c520);
 pub const MOVE: usize = 0xd50340;
 pub const STOP: usize = 0xd4fcb0;
 
@@ -144,7 +145,7 @@ fn preflight(m: &Memory, ctx: &Ctx, army: usize, caller: Caller) -> GResult<Orde
     }
     let begin = m.ptr(army + unit::REGIMENTS)?;
     let end = m.ptr(army + unit::REGIMENTS + 8)?;
-    span(begin, end, 8, MAX_UNITS)?;
+    containers::span(begin, end, 8, MAX_UNITS)?;
     Ok(OrderState {
         origin,
         path: read_path(m, army + unit::PATH)?,
@@ -281,7 +282,7 @@ impl Orders {
         m.write(options_ptr + route_options::TAG, &route_options::NO_TAG.to_le_bytes())?;
         let mut header = [0u64; list::SIZE / 8];
         let h = header.as_mut_ptr() as usize;
-        let queried = m.call(m.at(ROUTE_QUERY), &[&mut policy as *mut usize as usize, army, origin, goal_address, h, options_ptr, 0, 0]);
+        let queried = ROUTE_QUERY.call(m, [&mut policy as *mut usize as usize, army, origin, goal_address, h, options_ptr, 0, 0]);
         let result = (|| {
             let found = match queried {
                 Ok(v) => v as u8 != 0,
@@ -376,9 +377,9 @@ impl Orders {
 /// with room for `regiments` (all the army's when negative) beside those
 /// aboard already: the route query's test of a step onto the sea, made for
 /// each fleet there (docs/research/units.md).
-const MAY_CARRY: usize = 0x90acf0;
+const MAY_CARRY: GameFunction<3> = GameFunction::at(0x90acf0);
 /// `(ship) → i32`: the regiments a ship carries.
-const SHIP_ROOM: usize = 0xae1a40;
+const SHIP_ROOM: GameFunction<1> = GameFunction::at(0xae1a40);
 
 /// Why a land army finds no route onto the sea zone at `sea`, when that is
 /// the boarding: the player has no fleet there, or none with room for the
@@ -389,23 +390,21 @@ fn boarding_refused(m: &Memory, ctx: &Ctx, army: usize, sea: usize, goal: u32) -
         return Ok(None);
     }
     let mut fleets = Vec::new();
-    let mut node = m.ptr(sea + province::UNITS)?;
-    while node != 0 && fleets.len() < MAX_UNITS {
+    for node in containers::chain(m, m.ptr(sea + province::UNITS)?, list::NEXT, MAX_UNITS)? {
         let unit = m.ptr(node + list::ITEM)?;
         if m.ptr(unit)? == m.at(classes::FLEET) && m.u64(unit + unit::OWNER)? == ctx.player.0 {
             fleets.push(unit);
         }
-        node = m.ptr(node + list::NEXT)?;
     }
     let mut most = 0;
     for &fleet in &fleets {
-        if m.call(m.at(MAY_CARRY), &[fleet, army, -1i32 as u32 as usize])? as u8 != 0 {
+        if MAY_CARRY.call(m, [fleet, army, -1i32 as u32 as usize])? as u8 != 0 {
             return Ok(None);
         }
         let (begin, end) = (m.ptr(fleet + unit::REGIMENTS)?, m.ptr(fleet + unit::REGIMENTS + 8)?);
         let mut room = 0i64;
-        for i in 0..span(begin, end, 8, MAX_UNITS)? {
-            room += m.call(m.at(SHIP_ROOM), &[m.ptr(begin + i * 8)?])? as i32 as i64;
+        for i in 0..containers::span(begin, end, 8, MAX_UNITS)? {
+            room += SHIP_ROOM.call(m, [m.ptr(begin + i * 8)?])? as i32 as i64;
         }
         for aboard in world::aboard(m, fleet)? {
             room -= world::regiments(m, aboard)? as i64;
@@ -420,7 +419,7 @@ fn boarding_refused(m: &Memory, ctx: &Ctx, army: usize, sea: usize, goal: u32) -
 
 /// `(country, std::vector*, army)`: the fleets of the country's that may
 /// carry the army, as the right click's automatic transport gathers them.
-pub const TRANSPORTS: usize = 0x342170;
+pub const TRANSPORTS: GameFunction<3> = GameFunction::at(0x342170);
 
 /// Has the player's fleets carry an own land army to `goal`, as the right
 /// click's automatic transport does once the player accepts its dialog: the
@@ -429,11 +428,11 @@ pub fn transport(session: &Session, army: usize, id: u64, goal: u32) -> GResult<
     let (m, ctx) = (session.m, &session.ctx);
     let mut vector = [0u64; 3];
     let at = vector.as_mut_ptr() as usize;
-    let called = m.call(m.at(TRANSPORTS), &[ctx.country, at, army]);
+    let called = TRANSPORTS.call(m, [ctx.country, at, army]);
     let (begin, end, capacity) = (vector[0] as usize, vector[1] as usize, vector[2] as usize);
     let fleets = (|| -> GResult<Vec<u64>> {
         called?;
-        let count = span(begin, end, 8, MAX_UNITS)?;
+        let count = containers::span(begin, end, 8, MAX_UNITS)?;
         let mut ids = Vec::new();
         for i in 0..count {
             let fleet = m.ptr(begin + i * 8)?;

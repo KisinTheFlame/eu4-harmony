@@ -32,7 +32,7 @@ Measured from the framework's log, Chinese playset, to the main menu:
 
 ## The game speed plan (2026-11-04)
 
-[game-speed.md](game-speed.md)'s S1 to S4, built on the branch of that date: Austria-1 (an ironman save of 1618.9.2, the player's playset), 3840x2160, vsync at 144 Hz; frames counted at the application's frame count and days at the date, 30 to 32 s each, no sampler. Before is the same save the same morning with the framework of that time ([prototype-log.md](prototype-log.md)).
+[game-speed.md](game-speed.md)'s S1 to S4, built on the branch of that date: Austria-1 (an ironman save of 1618.9.2, the player's playset), 3840x2160, vsync at 144 Hz; frames counted at the application's frame count and days at the date, 30 to 32 s each, no sampler. Before is the same save the same morning with the framework of that time ([Game speed S1 to S4](prototype-log/2026-11-04-game-speed-s1-s4.md)).
 
 | | Before | After |
 | --- | --- | --- |
@@ -46,7 +46,7 @@ Measured from the framework's log, Chinese playset, to the main menu:
 - Two more pairs of the paces, later the same run, came out at 11.0 and 6.4 days a second, both paces alike; the machine was busy with other work then (a sample took 2.2 ms against 1.4), and they are left out.
 - The autosave's main thread time, from the shares: about a sixth less. The thread then compressed 61 MB in 1.6 to 2.0 s, to 7.1 to 7.2 MB, smaller than the game's 8.8 MB.
 
-Later in a game (the same day, the build of master at `c6bda5f`): Austria-37_4-1, an ironman save of 1724, the same machine and playset, the game resumed within 0.3 s whenever a message paused it ([prototype-log.md](prototype-log.md)):
+Later in a game (the same day, the build of master at `c6bda5f`): Austria-37_4-1, an ironman save of 1724, the same machine and playset, the game resumed within 0.3 s whenever a message paused it ([Game speed late in a game](prototype-log/2026-11-04-game-speed-late-game.md)):
 
 | | The game's pace | "Faster time" |
 | --- | --- | --- |
@@ -58,7 +58,7 @@ Later in a game (the same day, the build of master at `c6bda5f`): Austria-37_4-1
 
 ## A save's stop (2026-11-05)
 
-[game-speed.md](game-speed.md)'s S8 on its branch: Austria-37_4-1 (an ironman save of 1724, the player's playset), the same machine, loaded three times with `menu.load`, which saves it as it is loaded and as it is left; the stop is the framework's log line from the start of the local save to its end, five saves each way, in one developer build with the test switches, `game-writes-saves` on for "before" ([prototype-log.md](prototype-log.md)).
+[game-speed.md](game-speed.md)'s S8 on its branch: Austria-37_4-1 (an ironman save of 1724, the player's playset), the same machine, loaded three times with `menu.load`, which saves it as it is loaded and as it is left; the stop is the framework's log line from the start of the local save to its end, five saves each way, in one developer build with the test switches, `game-writes-saves` on for "before" ([A save's countries and provinces on threads](prototype-log/2026-11-05-save-countries-provinces-threads.md)).
 
 | | The game's code | The framework's |
 | --- | --- | --- |
@@ -82,7 +82,7 @@ Then the game state's other sections written while the pool writes the loops, th
 
 ## The startup and a load (2026-11-05)
 
-[loading.md](loading.md)'s L1 to L3, one developer build with the test switches, `game-loads` on for the game's own startup and loads; the player's playset, every DLC, the files in the system's cache; other builds held the machine's processor at 67 to 94% ([prototype-log.md](prototype-log.md)).
+[loading.md](loading.md)'s L1 to L3, one developer build with the test switches, `game-loads` on for the game's own startup and loads; the player's playset, every DLC, the files in the system's cache; other builds held the machine's processor at 67 to 94% ([The startup and a load sampled](prototype-log/2026-11-05-startup-load-sampled.md)).
 
 | | The game's | The framework's |
 | --- | --- | --- |
@@ -156,7 +156,7 @@ CPU is given in cores: the process's CPU seconds per second of wall time (the ma
 
 The scenario `perf` ([xtask/src/scenario/perf.rs](../xtask/src/scenario/perf.rs), `cargo xtask scenario perf`, [scenarios.md](scenarios.md)) measures the framework's game only, on the player build (with the test games' pipes, which name the pipe and nothing else): in its test game ([test-games.md](test-games.md)) it starts the game hidden and times the start to the main menu, reads memory 20 s later, starts a new game as Ming with `menu.start` and times it, measures CPU over 30 s paused, then 120 s at speed 5 through `time.set_speed`, `time.resume` and `time.pause`, and reads the dates with `time.get`, from which come the game days a minute. Its start is timed from the start command, not from a menu logo on screen, so its menu seconds are not those of the runs below. With `events` a remote client listens to those kinds of events while the game runs, with `reads` it times `country.get`, `country.budget` and `province.get` afterwards, and it ends at the main menu, where the framework logs what working out the events cost ([The events](#the-events-2026-11-05)).
 
-The figures on this page come from `tools/perf-run.ps1` (since removed), from the framework's log and from `cargo xtask profile`; none yet from the scenario. Its first runs, on 2026-11-05 ([prototype-log.md](prototype-log.md), "Scenarios"), checked that it plays to its end: 47.2 s to the main menu, 9.7 s for `menu.start MNG`, 0.81 cores paused and 1.75 at speed 5, and 487 game days a minute, with 305.6 and 453.3 in two later runs, a spread larger than the framework's setups are likely to differ by. The next measurement of what the framework costs is taken with `cargo xtask scenario perf` and recorded here.
+The figures on this page come from `tools/perf-run.ps1` (since removed), from the framework's log and from `cargo xtask profile`; none yet from the scenario. Its first runs, on 2026-11-05 ([Scenarios](prototype-log/2026-11-05-scenarios.md)), checked that it plays to its end: 47.2 s to the main menu, 9.7 s for `menu.start MNG`, 0.81 cores paused and 1.75 at speed 5, and 487 game days a minute, with 305.6 and 453.3 in two later runs, a spread larger than the framework's setups are likely to differ by. The next measurement of what the framework costs is taken with `cargo xtask scenario perf` and recorded here.
 
 ## Results
 

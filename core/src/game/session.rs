@@ -2,7 +2,7 @@
 //! and its player: the country played, or in observe mode the country in
 //! view, if any.
 use super::{countries, events, game, paused, player, player::Player, world_context, Caller, GResult, WorldSession};
-use eu4_harmony_remote::CountryTag;
+use eu4_harmony_remote::session::args;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Session {
@@ -18,7 +18,7 @@ pub struct Session {
 
 /// Puts `country` in view in observe mode, as the player does (GLOSSARY:
 /// Country in view), and answers the session as it is then.
-pub fn view(s: WorldSession, country: CountryTag) -> GResult<Session> {
+pub fn view(s: WorldSession, args::View { country }: args::View) -> GResult<Session> {
     let tag = countries::find(s, country.0)?;
     player::put_in_view(s.m, &s.world, tag)?;
     session(s.caller)

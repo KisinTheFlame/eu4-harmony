@@ -16,7 +16,9 @@
 //! for a file in a folder, its size and time. The next start fills the
 //! numbers in from there while the file is as it was, and the game reads only
 //! what is new or changed.
-use crate::points::Point;
+use crate::called_by_game;
+use crate::points::{GameFunction, Point};
+use crate::speed::{self, SpeedUp};
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
 use std::path::{Path, PathBuf};
@@ -28,7 +30,7 @@ use std::time::UNIX_EPOCH;
 /// decoder let go when there is one.
 const READ_WHOLE: usize = 0x16a4c62;
 const READ_WHOLE_NEXT: usize = 0x16a4c6d;
-const READ: usize = 0x16a9a40;
+const READ: GameFunction<2> = GameFunction::at(0x16a9a40);
 /// The sound's name, which the game opens the file by, and what it keeps.
 const SOUND_NAME: usize = 0x40;
 const SOUND_SAMPLES: usize = 0xc8;
@@ -39,7 +41,11 @@ const SOUND_RATE: usize = 0xdc;
 /// Where the numbers are kept, in the framework's folder of the user folder.
 const CACHE: &str = "music.txt";
 
-pub fn points() -> Vec<Point> {
+/// Checked, every file is read whole as well, its numbers compared with
+/// those kept and the game's kept.
+pub const SPEED_UP: SpeedUp = SpeedUp { name: "music", group: "loading", points, checkable: true };
+
+fn points() -> Vec<Point> {
     vec![
         Point::jump(READ_WHOLE, "b2 01 48 8d 4b 10 e8 d3 4d 00 00", "music read whole at startup", read_whole_stub as *const () as usize, &READ_WHOLE_RESUME),
         Point::keep(READ, "48 89 5c 24 08 48 89 74 24 20 55 57 41 54 41 56", "music read"),
@@ -104,29 +110,25 @@ struct Kept {
 /// The numbers kept, by the place and the file's name.
 static KEPT_MUSIC: Mutex<Option<HashMap<(String, String), Kept>>> = Mutex::new(None);
 
+#[called_by_game]
 extern "C" fn read_whole(sound: usize) -> usize {
     let m = crate::hooked_memory();
-    let read = || m.call(m.at(READ), &[sound, 1]).unwrap_or(0);
+    let read = || READ.call(&m, [sound, 1]).unwrap_or(0);
     crate::guarded("music", || {
         let name = unsafe { CStr::from_ptr((sound + SOUND_NAME) as *const c_char) };
-        if super::game_loads() {
-            return read();
-        }
         let Some((place, print)) = place_of(name) else { return read() };
         let key = (place, name.to_string_lossy().into_owned());
         let mut all = KEPT_MUSIC.lock().unwrap_or_else(|e| e.into_inner());
         let kept = all.get_or_insert_with(load);
         if let Some(k) = kept.get(&key).filter(|k| k.print == print).cloned() {
-            if !super::checking() {
+            if !speed::checked(&SPEED_UP) {
                 put(sound, &k);
                 return 0;
             }
             drop(all);
             let decoder = read();
             let game = taken(sound, print);
-            if game.as_ref() != Some(&k) {
-                log!("music: check-loading: {:?} kept as {k:?}, read as {game:?}", key.1);
-            }
+            speed::compared(&SPEED_UP, game.as_ref() == Some(&k), || format!("{:?} kept as {k:?}, read as {game:?}", key.1));
             return decoder;
         }
         drop(all);
@@ -174,7 +176,7 @@ fn directory(zip: &str) -> Option<Directory> {
     all.get_or_insert_with(HashMap::new)
         .entry(zip.to_string())
         .or_insert_with(|| {
-            let read = std::fs::File::open(zip).map_err(|e| e.to_string()).and_then(|mut f| crate::saves::file::zip_directory(&mut f, MOST_DIRECTORY));
+            let read = std::fs::File::open(zip).map_err(|e| e.to_string()).and_then(|mut f| crate::zip::directory(&mut f, MOST_DIRECTORY));
             match read {
                 Ok(entries) => Some(Arc::new(prints(entries))),
                 Err(e) => {
@@ -186,7 +188,7 @@ fn directory(zip: &str) -> Option<Directory> {
         .clone()
 }
 
-fn prints(entries: Vec<crate::saves::file::ZipEntry>) -> HashMap<Vec<u8>, Print> {
+fn prints(entries: Vec<crate::zip::Entry>) -> HashMap<Vec<u8>, Print> {
     entries.into_iter().map(|e| (e.name, Print::Entry { crc: e.crc, packed: e.packed as u64, unpacked: e.unpacked as u64 })).collect()
 }
 
@@ -295,10 +297,10 @@ mod tests {
 
     #[test]
     fn an_entry_is_told_by_its_name_in_any_case() {
-        let entry = |crc| crate::saves::file::ZipEntry { name: Vec::new(), method: 8, crc, packed: 5, unpacked: 9, local: 0 };
+        let entry = |crc| crate::zip::Entry { method: crate::zip::DEFLATED, crc, packed: 5, unpacked: 9, ..crate::zip::Entry::stored(b"", b"") };
         let entries = prints(vec![
-            crate::saves::file::ZipEntry { name: b"music/MainTheme.ogg".to_vec(), ..entry(1) },
-            crate::saves::file::ZipEntry { name: b"music/other.ogg".to_vec(), ..entry(2) },
+            crate::zip::Entry { name: b"music/MainTheme.ogg".to_vec(), ..entry(1) },
+            crate::zip::Entry { name: b"music/other.ogg".to_vec(), ..entry(2) },
         ]);
         assert_eq!(entry_print(&entries, b"music/MainTheme.ogg"), Some(Print::Entry { crc: 1, packed: 5, unpacked: 9 }));
         assert_eq!(entry_print(&entries, b"music/maintheme.ogg"), Some(Print::Entry { crc: 1, packed: 5, unpacked: 9 }));

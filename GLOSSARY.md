@@ -136,6 +136,10 @@ _Avoid_: detour (that replaces the function), interceptor, listener
 A defect of the game's own that the framework puts right where the game goes wrong, so that it holds in vanilla's paths too, such as memory a world reset leaks or leaves of a session, the AI changing coalitions on several threads at once, or the overflow in picking a name. Each is a file of its own in one module of the core, `core/src/repairs/`.
 _Avoid_: fix, patch, workaround (where players see them, as on the front page, "bugs fixed" is fine)
 
+**Speed-up**:
+One change the framework makes to how the game does its work so that the game runs faster, such as music it knows without reading it at startup or a save's provinces written on several threads, its differences from the game's own code of a kind ADR the-game-may-be-made-faster-with-reasoned-differences allows. Each is declared once in the core's `speed` module, by a name and a group; a developer build can leave any to the game, or check its answers against the game's.
+_Avoid_: optimization, fast path, patch
+
 ### Capabilities
 
 **Capability**:

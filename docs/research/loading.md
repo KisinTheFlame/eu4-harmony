@@ -23,7 +23,7 @@ From the process's start to the main menu: 46 to 55 s in five starts. In three s
 
 ## A save's load
 
-Austria-37_4-1 (an ironman save of 1724, a game state of 55 MB) loaded from the main menu with `menu.load`: about 10 s to a frame of the game, the ironman save as it is loaded included (prototype-log.md). Of the main thread's samples over those 10 s:
+Austria-37_4-1 (an ironman save of 1724, a game state of 55 MB) loaded from the main menu with `menu.load`: about 10 s to a frame of the game, the ironman save as it is loaded included ([The startup and a load sampled](../prototype-log/2026-11-05-startup-load-sampled.md)). Of the main thread's samples over those 10 s:
 
 - **Reading the save** (`0xd84b80` → `0x74b8a0` → `0x5cdc60` → `0x5cf740` → `0x14e39d0`, the world's entries): 37%.
 - **`0x7e7cd0`**, 24% of its own: a method that many classes share (it is in vtables from `0x1c4fcd0` on, one each 0xd0 bytes, and called directly at `0xa368eb`), which adds an object to a list at `this+0x20`: it walks the whole list first for the object already there (`0x7e7cf0`, by `[node]`, the next at `[node+0x10]`), then walks again from `this+0x28` for the place by `[object+0x10]`, and links a node of 0x20 bytes there. So adding n objects walks the list n times; here from `0xda66a0` (in the vtable at `0x1d21348`) while the save is read. The child is one `0xda66a0` made itself (`new(0x40)` at `0xda6905`, the vtable `0x1d214c8`), read (`0x17068b0`) and then added to its parent with the parent's method `+0x98` (`0xda69e5`); the node's date (`+0x10`) is the least of its children's (`0x7e7f80`, from `0x29c77f8`), and the add's second walk, from the list's end (`this+0x28`) back by date, stops at once when the children come in order of date. The class's name is not in the binary (no RTTI).
@@ -32,7 +32,7 @@ Austria-37_4-1 (an ironman save of 1724, a game state of 55 MB) loaded from the 
 
 ## The startup after L1 to L3
 
-Timed 2026-11-08 with `dev-call-trace`'s `times` on the stretches' functions, in a test game of the developer build with the test games' pipes, the player's playset, every DLC, the music kept (the second start after the claim) and the files in the system's cache; other test games held the machine's processor at 40 to 65%. Seconds from the framework's bootstrap, in two starts that reached the main menu at 41.6 and 37.7 s:
+Timed 2026-11-08 with `dev-call-trace`'s `times` on the stretches' functions, in a test game of the developer build with the test games' pipes, the player's playset, every DLC, the music kept (the second start after the claim) and the files in the system's cache; other test games held the machine's processor at 40 to 65% ([the run](../prototype-log/2026-11-08-startup-after-l1-to-l3.md)). Seconds from the framework's bootstrap, in two starts that reached the main menu at 41.6 and 37.7 s:
 
 | Stretch | Function | Thread | s, s |
 | --- | --- | --- | --- |
@@ -58,7 +58,7 @@ Timed 2026-11-08 with `dev-call-trace`'s `times` on the stretches' functions, in
 
 ## The databases
 
-Read 2026-11-08 from `0x208620`'s code, and timed in a test game as above, the machine's processor about 50% busy with other test games.
+Read 2026-11-08 from `0x208620`'s code, and timed in a test game as above, the machine's processor about 50% busy with other test games ([the run](../prototype-log/2026-11-08-where-the-databases-go.md)).
 
 - **What it does.** `0x208620` loads about 110 databases one after another on the LoadingThread, in an order fixed in its code. For most it takes the database's object from its getter, makes the folder's path (`"/trading_policies"`), and calls the loader with both, which lists the folder's `.txt` files under `common\` and reads each through the lexer (`0x1709570` makes one over a file, as for `technology.txt`). 67 of them it brackets with the process's memory counters (`0x14e44d0` before, `0x14e4500` after) for setup.log's "<Name> Initialized [n KB]"; the rest, among them `estates_preload`, `subject_types`, `great_projects`, `institutions`, `ages`, the personalities, `missions` (`0x8d5bd0`), `decisions` (`0x4882c0`) and `mercenary_companies`, have no line. Nothing of it runs beside it but the picture checks' task it starts first (`0x8effc0`), the data checksum on a pool thread, and the history's files, which pool threads open (below).
 - **Where the time goes.** Timed with `dev-call-trace`'s `times` on the brackets and 13 loaders without them, in two starts of 13.7 and 13.8 s of databases; seconds from the second:

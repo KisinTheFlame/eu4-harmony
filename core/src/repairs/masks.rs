@@ -3,7 +3,11 @@
 //! to, and IDs pass from texture to texture as they load again. The buffer
 //! is let go before a texture smaller than it is written to it.
 use super::LettingGo;
-use crate::{hooks::HookFrame, objects::gui::transparency_mask, points::Point};
+use crate::{
+    hooks::Call,
+    objects::gui::transparency_mask,
+    points::{GameFunction, Point},
+};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// `(bits, count)`: a `std::vector<bool>`'s resize; and where the texture
@@ -12,13 +16,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// frees its buffer and leaves it empty.
 const BIT_VECTOR_RESIZE: usize = 0x6e05c0;
 const MASK_RESIZED: usize = 0x16c302d;
-const WORDS_DESTRUCTOR: usize = 0x943e0;
+const WORDS_DESTRUCTOR: GameFunction<1> = GameFunction::at(0x943e0);
 
 /// The bytes of transparency masks let go since the last world reset.
 static MASK_BYTES: AtomicUsize = AtomicUsize::new(0);
 
 /// The repair as the world reset sees it ([`super::REPAIRS`]).
-pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset) };
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset), ..super::Repair::NONE };
 
 /// What the repair let go since the last world reset, for the log; its
 /// counts start again.
@@ -31,32 +35,29 @@ fn since_reset() -> String {
 /// texture needs, the buffer is let go first, so that the resize makes one
 /// as large as the texture. The loader writes every bit the texture has, so
 /// nothing of the old mask is needed.
-extern "C" fn mask_resizing(frame: *mut HookFrame) {
-    crate::guarded("transparency mask resize", || {
-        let m = crate::hooked_memory();
-        let h = unsafe { &*frame };
-        if h.return_address != m.at(MASK_RESIZED) {
-            return;
+fn mask_resizing(call: &mut Call) {
+    let m = call.memory();
+    if call.caller() != m.at(MASK_RESIZED) {
+        return;
+    }
+    let (mask, bits) = (call.arg(0), call.arg(1));
+    let let_go = (|| {
+        let (begin, capacity) = (m.ptr(mask + transparency_mask::WORDS)?, m.ptr(mask + transparency_mask::CAPACITY)?);
+        let needed = bits.div_ceil(32) * 4;
+        if begin == 0 || capacity <= begin + needed {
+            return Ok(0);
         }
-        let (mask, bits) = (h.args[0], h.args[1]);
-        let let_go = (|| {
-            let (begin, capacity) = (m.ptr(mask + transparency_mask::WORDS)?, m.ptr(mask + transparency_mask::CAPACITY)?);
-            let needed = bits.div_ceil(32) * 4;
-            if begin == 0 || capacity <= begin + needed {
-                return Ok(0);
-            }
-            let _letting_go = LettingGo::new("transparency mask");
-            m.call(m.at(WORDS_DESTRUCTOR), &[mask + transparency_mask::WORDS])?;
-            m.write(mask + transparency_mask::BITS, &0usize.to_le_bytes())?;
-            crate::Result::Ok(capacity - begin)
-        })();
-        match let_go {
-            Ok(bytes) => {
-                MASK_BYTES.fetch_add(bytes, Ordering::Relaxed);
-            }
-            Err(e) => log!("repair: a transparency mask was not let go: {e}"),
+        let _letting_go = LettingGo::new("transparency mask");
+        WORDS_DESTRUCTOR.call(&m, [mask + transparency_mask::WORDS])?;
+        m.write(mask + transparency_mask::BITS, &0usize.to_le_bytes())?;
+        crate::Result::Ok(capacity - begin)
+    })();
+    match let_go {
+        Ok(bytes) => {
+            MASK_BYTES.fetch_add(bytes, Ordering::Relaxed);
         }
-    });
+        Err(e) => log!("repair: a transparency mask was not let go: {e}"),
+    }
 }
 
 pub(super) fn points() -> Vec<Point> {

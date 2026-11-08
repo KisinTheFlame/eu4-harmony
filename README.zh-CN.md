@@ -124,7 +124,7 @@ eu4-harmony game menu return               # 回到主菜单
 | [docs/adr/](docs/adr/) | 难以撤回的决定，以及做出它们的理由 |
 | [docs/research/](docs/research/) | 对游戏代码的了解 |
 | [docs/performance.md](docs/performance.md) | 框架给游戏带来的开销，实测 |
-| [docs/prototype-log.md](docs/prototype-log.md) | 在运行中的游戏里试过什么、结果如何 |
+| [docs/prototype-log/](docs/prototype-log/) | 在运行中的游戏里试过什么、结果如何，每次一个文件 |
 | [docs/dev-tools.md](docs/dev-tools.md) | 开发工具 |
 
 每项较大的工作在 [docs/](docs/) 里有自己的方案，列在 [AGENTS.md](AGENTS.md) 里。
@@ -161,10 +161,11 @@ cargo xtask game release   # 留下日志，删掉其余
 | --- | --- |
 | `proxy/` | 把核心加载进 `eu4.exe` 的 `version.dll` |
 | `core/` | 框架本身：依赖点与启动、能力、运行在真实游戏上的 Lua 宿主、远程控制、框架界面和 Unicode 模块 |
-| `lua/` | 游戏和假游戏共用的 Lua 宿主：沙箱、事件函数、任务、时间限制 |
+| `lua/` | 游戏和假游戏共用的 Lua 宿主：沙箱、事件函数、任务、时间限制，以及扩展按什么顺序收到什么 |
 | `remote/` | 能力目录：每项能力的参数、结果和说明 |
 | `checks/` | 能力调用要经过的检查，以及游戏的历法 |
-| `client/` | 从游戏进程外接触运行中的游戏：远程控制的管道、启动游戏、备份和还原玩家的文件，命令行工具和 `cargo xtask` 共用 |
+| `client/` | 从游戏进程外接触运行中的游戏：远程控制的管道；游戏进程的启动、跟踪到退出码和结束；备份和还原玩家的文件，命令行工具和 `cargo xtask` 共用 |
+| `folders/` | 各个程序以同一方式找到的游戏文件夹和用户文件夹，以及用户文件夹里各项的名字 |
 | `loc/`、`manifest/` | 本地化文件和 Mod 清单，核心和命令行工具共用 |
 | `cli/` | `eu4-harmony.exe`，以及 `new` 生成的模板 Mod |
 | `xtask/` | 仓库自己的开发命令（`cargo xtask`） |

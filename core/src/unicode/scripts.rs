@@ -10,6 +10,7 @@
 //! returns a token peeked before. Their "next token" methods are 0x170e700
 //! (text) and 0x170ebf0 (binary); each returns 1 for a token, 0 at the end.
 use super::legacy;
+use crate::called_by_game;
 use crate::points::{Function, Point};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -51,10 +52,12 @@ unsafe fn next_token(lexer: usize, original: &Function<NextToken>) -> i32 {
     result
 }
 
+#[called_by_game]
 unsafe extern "C" fn text_token(lexer: usize) -> i32 {
     next_token(lexer, &TEXT_ORIGINAL)
 }
 
+#[called_by_game]
 unsafe extern "C" fn binary_token(lexer: usize) -> i32 {
     next_token(lexer, &BINARY_ORIGINAL)
 }

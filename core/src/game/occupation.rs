@@ -8,13 +8,18 @@
 //! same check before the game carries it out.
 use super::peace::checks;
 use super::{action, diplomacy, with_state, GResult, Session, Tag};
-use crate::{game_string, memory::Memory, objects::campaign::province, points::Point};
+use crate::{
+    game_string,
+    memory::Memory,
+    objects::campaign::province,
+    points::{GameFunction, Point},
+};
 use eu4_harmony_remote::choices::Choice;
 
 /// The check: (country, province, allies, reasons), the allies a list the
 /// check fills ([`receivers`]), `reasons` a `std::string` or null, which
 /// gets the button's tooltip when the check says no.
-const CHECK: usize = 0x3dbce0;
+const CHECK: GameFunction<4> = GameFunction::at(0x3dbce0);
 
 /// The list of allies the check fills: the first node, and in each node the
 /// ally's tag and the next node; a node is [`NODE_SIZE`] bytes.
@@ -77,7 +82,7 @@ fn command(ally: Tag, province: u32, player: Tag) -> String {
 fn check(m: &Memory, country: usize, province: usize) -> GResult<(Option<Vec<super::Tag>>, Vec<String>)> {
     let mut list = [0u64; receivers::SIZE / 8];
     let list_at = list.as_mut_ptr() as usize;
-    let checked = game_string::written(m, |s| m.call(m.at(CHECK), &[country, province, list_at, s]));
+    let checked = game_string::written(m, |s| CHECK.call(m, [country, province, list_at, s]));
     let first = unsafe { std::ptr::read_volatile(&list) }[receivers::FIRST / 8] as usize;
     let allies = nodes(m, first);
     let (can, text) = checked?;
@@ -124,5 +129,88 @@ mod tests {
     #[test]
     fn the_command_names_the_ally_to_take_it_and_the_player() {
         assert_eq!(command(game_tag(b"DUL", 2), 151, game_tag(b"TUR", 1)), "transfer_controller_command={ country=\"DUL\" province=151 commander=\"TUR\" }");
+    }
+
+    use crate::game::{
+        buffers::{self, no, write_inline, Image, Object, Provinces},
+        commands::record,
+        Caller, Fail, Status,
+    };
+    use crate::game_heap::DELETE;
+
+    /// A province of the test's the check says no for, in a byte the
+    /// province does not use.
+    const BARRED: usize = 8;
+
+    fn dul() -> Tag {
+        game_tag(b"DUL", 2)
+    }
+
+    /// The check: no for a barred province, else Dulkadir to take it, in a
+    /// node the game would make and free.
+    extern "C" fn check(_: usize, province: usize, list: usize, reasons: usize) -> usize {
+        if unsafe { *((province + BARRED) as *const u8) } != 0 {
+            write_inline(reasons, "- not at war");
+            return 0;
+        }
+        let node = Box::into_raw(Box::new([0u64; receivers::NODE_SIZE / 8])) as usize;
+        unsafe {
+            *((node + receivers::TAG) as *mut u64) = dul().0;
+            *((list + receivers::FIRST) as *mut usize) = node;
+        }
+        1
+    }
+
+    /// The game's heap freeing a node of the check's.
+    extern "C" fn free(node: usize) -> usize {
+        drop(unsafe { Box::from_raw(node as *mut [u64; receivers::NODE_SIZE / 8]) });
+        0
+    }
+
+    /// The Ottomans occupying provinces 1 and 2, the second barred, with
+    /// Dulkadir and Poland in the world.
+    struct Ottomans {
+        _image: Image,
+        _provinces: Provinces,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn ottomans() -> Ottomans {
+        use crate::catalogue::fake::tur;
+        let image = Image::new();
+        image.function(CHECK.rva(), check as *const ()).function(DELETE.rva(), free as *const ()).function(game_string::DESTROY_AT.rva(), no as *const ());
+        let provinces = Provinces::new(&image, 3);
+        provinces.u64(1, province::CONTROLLER, tur().0).u64(2, province::CONTROLLER, tur().0).u8(2, BARRED, 1);
+        let (player, ally, other) = (Object::country(tur(), 0), Object::country(dul(), 0), Object::country(game_tag(b"POL", 3), 0));
+        let countries = Object::countries(&[&player, &ally, &other]);
+        let session = buffers::session(image.memory(), provinces.world(), tur(), player.at(), countries.at(), Caller::Remote);
+        Ottomans { _image: image, _provinces: provinces, _objects: vec![player, ally, other, countries], session }
+    }
+
+    fn refused(result: GResult<Option<Tag>>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("the province was handed over") };
+        (status, message)
+    }
+
+    #[test]
+    fn a_province_is_handed_to_an_ally_the_window_lists() {
+        let ottomans = ottomans();
+        transfer(ottomans.session, 1, dul()).unwrap();
+        assert_eq!(record::posted(), [r#"transfer_controller_command={ country="DUL" province=1 commander="TUR" }"#]);
+        assert_eq!(options(ottomans.session, 1).unwrap().allies, [dul()]);
+    }
+
+    #[test]
+    fn a_province_the_check_bars_or_a_country_the_window_does_not_list_is_refused() {
+        let ottomans = ottomans();
+        assert_eq!(refused(transfer(ottomans.session, 2, dul())), (Status::Rejected, "not at war".into()));
+        assert_eq!(
+            refused(transfer(ottomans.session, 1, game_tag(b"POL", 3))),
+            (Status::Rejected, "the transfer occupation window does not list POL to take province 1".into())
+        );
+        assert_eq!(refused(transfer(ottomans.session, 1, crate::catalogue::fake::tur())), (Status::InvalidArgument, "the player's own country".into()));
+        assert_eq!(refused(transfer(ottomans.session, 3, dul())).0, Status::NotFound);
+        assert!(record::posted().is_empty());
     }
 }

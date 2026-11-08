@@ -4,7 +4,9 @@
 //! through the game's own command (docs/research/government.md,
 //! "Decisions").
 use super::{action, conditions, content, GResult, Session};
+use crate::containers;
 use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
+use eu4_harmony_remote::decisions::args;
 use eu4_harmony_remote::{choices::Choice, decisions::Decision};
 
 /// The decisions' database: `+0x10` and `+0x18` the decisions in load
@@ -42,7 +44,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Decision>> {
         return Ok(Vec::new());
     }
     let (begin, end) = (m.ptr(database + ORDER)?, m.ptr(database + ORDER + 8)?);
-    let count = super::span(begin, end, 8, MOST)?;
+    let count = containers::span(begin, end, 8, MOST)?;
     let mut listed = Vec::new();
     for i in 0..count {
         let decision = m.ptr(begin + i * 8)?;
@@ -70,15 +72,15 @@ fn seed(date: i32, decision: &str) -> u32 {
 }
 
 /// Takes a decision the view lists for the player, as its button does.
-pub fn take(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn take(Session { m, ctx, commands, .. }: Session, args::Take { decision: key }: args::Take) -> GResult<()> {
     let database = m.ptr(m.at(DATABASE))?;
     if database == 0 {
         return Err(content::checks::not_found("decision", &key));
     }
     let (begin, end) = (m.ptr(database + ORDER)?, m.ptr(database + ORDER + 8)?);
-    for i in 0..super::span(begin, end, 8, MOST)? {
+    for i in 0..containers::span(begin, end, 8, MOST)? {
         let decision = m.ptr(begin + i * 8)?;
-        if content::key(m, decision + KEY)? != key || !conditions::holds(m, decision + POTENTIAL, ctx.player, 0)? {
+        if game_string::key(m, decision + KEY)? != key || !conditions::holds(m, decision + POTENTIAL, ctx.player, 0)? {
             continue;
         }
         if !conditions::holds(m, decision + ALLOW, ctx.player, 0)? {
@@ -90,7 +92,7 @@ pub fn take(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<(
 }
 
 fn read(m: &Memory, decision: usize, player: super::Tag) -> GResult<Decision> {
-    let key = game_text::to_utf8(&game_string::read(m, decision + KEY)?);
+    let key = game_string::key(m, decision + KEY)?;
     let title = std::ffi::CString::new(format!("{key}_title")).map_err(|e| e.to_string())?;
     let name = game_text::plain(&game_string::localized(m, title.as_ptr() as usize)?);
     let choice = if conditions::holds(m, decision + ALLOW, player, 0)? {
@@ -111,5 +113,75 @@ mod tests {
             r#"execute_decision_command={ decision="move_capital" scope={ country="FRA" scope_is_valid=yes seed=17 random=17 } }"#
         );
         assert_ne!(super::seed(100, "move_capital"), super::seed(101, "move_capital"));
+    }
+
+    use super::*;
+    use crate::catalogue::fake::tur;
+    use crate::game::{
+        buffers::{self, Image, Object},
+        commands::record,
+        Caller, Fail, Session, Status,
+    };
+
+    /// The decisions' database of `decisions`, each a key, whether its
+    /// `potential` holds, whether its `allow` holds and whether it is major;
+    /// the Ottomans' session of it.
+    struct Decisions {
+        _image: Image,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn decisions(decisions: &[(&str, bool, bool, bool)]) -> Decisions {
+        let image = Image::new();
+        image.conditions().localisation();
+        let made: Vec<Object> = decisions
+            .iter()
+            .map(|&(key, potential, allow, major)| {
+                Object::new(MAJOR + 8).string(KEY, key).u8(POTENTIAL, potential.into()).u8(ALLOW, allow.into()).u8(MAJOR, major.into())
+            })
+            .collect();
+        let database = Object::new(ORDER + 16).vector(ORDER, &made.iter().map(|d| d.at() as u64).collect::<Vec<_>>());
+        image.u64(DATABASE, database.at() as u64);
+        let player = Object::country(tur(), 0);
+        let countries = Object::countries(&[&player]);
+        let session = buffers::session(image.memory(), 0, tur(), player.at(), countries.at(), Caller::Remote);
+        let mut objects = made;
+        objects.extend([database, player, countries]);
+        Decisions { _image: image, _objects: objects, session }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("{result:?} was posted") };
+        (status, message)
+    }
+
+    const SOME: [(&str, bool, bool, bool); 3] = [("move_capital", true, true, false), ("hidden_one", false, true, false), ("form_rome", true, false, true)];
+
+    #[test]
+    fn the_view_lists_the_potential_decisions_major_first_with_what_does_not_hold() {
+        let listed = list(decisions(&SOME).session).unwrap();
+        let summary: Vec<_> = listed.iter().map(|d| (d.decision.as_str(), d.name.as_str(), d.major, d.choice.can)).collect();
+        assert_eq!(summary, [("form_rome", "form_rome_title", true, false), ("move_capital", "move_capital_title", false, true)]);
+        assert_eq!(listed[0].choice.reasons, ["unmet"]);
+    }
+
+    #[test]
+    fn a_decision_is_taken_by_the_view_s_command() {
+        take(decisions(&SOME).session, args::Take { decision: "move_capital".into() }).unwrap();
+        let seed = super::seed(0, "move_capital");
+        assert_eq!(
+            record::posted(),
+            [format!(r#"execute_decision_command={{ decision="move_capital" scope={{ country="TUR" scope_is_valid=yes seed={seed} random={seed} }} }}"#)]
+        );
+    }
+
+    #[test]
+    fn a_decision_not_listed_unknown_or_not_allowed_is_refused() {
+        let decisions = decisions(&SOME);
+        assert_eq!(refused(take(decisions.session, args::Take { decision: "form_rome".into() })), (Status::Rejected, "unmet".into()));
+        assert_eq!(refused(take(decisions.session, args::Take { decision: "hidden_one".into() })).0, Status::NotFound);
+        assert_eq!(refused(take(decisions.session, args::Take { decision: "no_such".into() })).0, Status::NotFound);
+        assert!(record::posted().is_empty());
     }
 }

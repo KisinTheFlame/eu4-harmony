@@ -3,7 +3,13 @@
 //! (docs/research/government.md, "Missions").
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
-use crate::{memory::Memory, points::Point};
+use crate::containers;
+use crate::game_string;
+use crate::{
+    memory::Memory,
+    points::{GameFunction, Point},
+};
+use eu4_harmony_remote::missions::args;
 use eu4_harmony_remote::{choices::Choice, missions::Mission};
 
 /// The country's missions: a game array of columns from `+0x10`, 0x18-byte
@@ -18,8 +24,8 @@ const KEY: usize = 0x10;
 const TRIGGER: usize = 0x70;
 /// `(country, mission) -> bool`, whether the country has completed it;
 /// `(mission, tag) -> bool`, whether it can complete it now.
-const COMPLETED: usize = 0x1796c0;
-const CAN_COMPLETE: usize = 0x8d4fc0;
+const COMPLETED: GameFunction<2> = GameFunction::at(0x1796c0);
+const CAN_COMPLETE: GameFunction<2> = GameFunction::at(0x8d4fc0);
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -39,12 +45,12 @@ pub fn points() -> Vec<Point> {
 /// The player's missions, column by column.
 fn columns(m: &Memory, country: usize) -> GResult<Vec<Vec<usize>>> {
     let missions = country + MISSIONS + COLUMNS;
-    let (data, count) = (m.ptr(missions + content::ARRAY_DATA)?, content::bounded(m.i32(missions + content::ARRAY_COUNT)?)?);
+    let (data, count) = (m.ptr(missions + containers::ARRAY_DATA)?, containers::bounded(m.i32(missions + containers::ARRAY_COUNT)?, containers::MOST)?);
     (0..count)
         .map(|i| {
             let mut missions = Vec::new();
-            for series in content::pointers(m, data + i * COLUMN)? {
-                missions.extend(content::pointers(m, series + SERIES_MISSIONS)?);
+            for series in containers::array(m, data + i * COLUMN, containers::MOST)? {
+                missions.extend(containers::array(m, series + SERIES_MISSIONS, containers::MOST)?);
             }
             Ok(missions)
         })
@@ -52,7 +58,7 @@ fn columns(m: &Memory, country: usize) -> GResult<Vec<Vec<usize>>> {
 }
 
 fn completed(m: &Memory, country: usize, mission: usize) -> GResult<bool> {
-    Ok(m.call(m.at(COMPLETED), &[country, mission])? & 0xff != 0)
+    Ok(COMPLETED.call(m, [country, mission])? & 0xff != 0)
 }
 
 /// Whether the player can complete `mission`, and why not: its conditions
@@ -62,7 +68,7 @@ fn choice(m: &Memory, player: Tag, mission: usize, done: bool) -> GResult<Choice
     if done {
         return Ok(Choice::cannot(vec!["the mission is completed".to_string()], Vec::new()));
     }
-    if m.call(m.at(CAN_COMPLETE), &[mission, player.0 as usize])? & 0xff != 0 {
+    if CAN_COMPLETE.call(m, [mission, player.0 as usize])? & 0xff != 0 {
         return Ok(Choice::can(Vec::new()));
     }
     let mut reasons = conditions::failing(m, mission + TRIGGER, player, 0)?;
@@ -78,7 +84,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Mission>> {
     let mut listed = Vec::new();
     for (column, missions) in columns.iter().enumerate() {
         for &mission in missions {
-            let key = content::key(m, mission + KEY)?;
+            let key = game_string::key(m, mission + KEY)?;
             let done = completed(m, ctx.country, mission)?;
             listed.push(Mission {
                 name: content::name(m, &format!("{key}_title"))?,
@@ -97,10 +103,10 @@ fn written(country: Tag, mission: &str) -> String {
 }
 
 /// Completes one of the player's missions.
-pub fn complete(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn complete(Session { m, ctx, commands, .. }: Session, args::Complete { mission: key }: args::Complete) -> GResult<()> {
     let all: Vec<usize> = columns(m, ctx.country)?.into_iter().flatten().collect();
     for &mission in &all {
-        if content::key(m, mission + KEY)? != key {
+        if game_string::key(m, mission + KEY)? != key {
             continue;
         }
         let choice = choice(m, ctx.player, mission, completed(m, ctx.country, mission)?)?;
@@ -118,5 +124,99 @@ mod tests {
     fn the_command_names_the_country_and_the_mission() {
         let fra = super::Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
         assert_eq!(super::written(fra, "fra_unite_the_kingdom"), r#"complete_mission={ members={ dummy="FRA" dummy="fra_unite_the_kingdom" } }"#);
+    }
+
+    use super::*;
+    use crate::game::{
+        buffers::{self, no, write_inline, Image, Object},
+        commands::record,
+        Caller, Fail, Status,
+    };
+
+    /// A mission of the test's: whether it is completed, and whether it can
+    /// be, in two bytes the game's functions below read.
+    const DONE: usize = 8;
+    const CAN: usize = 9;
+
+    extern "C" fn is_completed(_: usize, mission: usize) -> usize {
+        unsafe { *((mission + DONE) as *const u8) as usize }
+    }
+
+    extern "C" fn can_complete(mission: usize, _: usize) -> usize {
+        unsafe { *((mission + CAN) as *const u8) as usize }
+    }
+
+    /// The conditions' lines: `at_war` does not hold for the mission whose
+    /// trigger is not null, none for the others.
+    extern "C" fn lines(trigger: usize, out: usize) -> usize {
+        if unsafe { *(trigger as *const u64) } != 0 {
+            write_inline(out, "at_war");
+        }
+        0
+    }
+
+    /// France's missions: in one column, a series of `done` (completed),
+    /// `ready` (can be completed), `at_war` (one of its conditions does not
+    /// hold) and `after` (it waits for the missions before it).
+    struct France {
+        _image: Image,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn france() -> France {
+        let image = Image::new();
+        image
+            .function(COMPLETED.rva(), is_completed as *const ())
+            .function(CAN_COMPLETE.rva(), can_complete as *const ())
+            .function(game_string::DESTROY_AT.rva(), no as *const ());
+        buffers::conditions(&image, lines as *const ());
+        let mission = |key: &str, done: bool, can: bool, failing: bool| {
+            Object::new(TRIGGER + 8).string(KEY, key).u8(DONE, done.into()).u8(CAN, can.into()).u64(TRIGGER, failing.into())
+        };
+        let missions = [
+            mission("done", true, false, false),
+            mission("ready", false, true, false),
+            mission("at_war", false, false, true),
+            mission("after", false, false, false),
+        ];
+        let addresses: Vec<u64> = missions.iter().map(|m| m.at() as u64).collect();
+        let series = Object::new(SERIES_MISSIONS + 0x18)
+            .vector(SERIES_MISSIONS + containers::ARRAY_DATA, &addresses)
+            .i32(SERIES_MISSIONS + containers::ARRAY_COUNT, addresses.len() as i32);
+        let column = Object::new(COLUMN).vector(containers::ARRAY_DATA, &[series.at() as u64]).i32(containers::ARRAY_COUNT, 1);
+        let fra = Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
+        let at = MISSIONS + COLUMNS;
+        let country = Object::country(fra, at + 0x18).u64(at + containers::ARRAY_DATA, column.at() as u64).i32(at + containers::ARRAY_COUNT, 1);
+        let countries = Object::countries(&[&country]);
+        let session = buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote);
+        let mut objects = vec![series, column, country, countries];
+        objects.extend(missions);
+        France { _image: image, _objects: objects, session }
+    }
+
+    fn completing(key: &str) -> GResult<()> {
+        complete(france().session, args::Complete { mission: key.into() })
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("the mission was completed") };
+        (status, message)
+    }
+
+    #[test]
+    fn a_mission_the_player_can_complete_is_completed_by_its_key() {
+        completing("ready").unwrap();
+        assert_eq!(record::posted(), [r#"complete_mission={ members={ dummy="FRA" dummy="ready" } }"#]);
+    }
+
+    #[test]
+    fn a_mission_the_player_cannot_complete_is_refused_with_why() {
+        let rejected = |why: &str| (Status::Rejected, why.to_string());
+        assert_eq!(refused(completing("done")), rejected("the mission is completed"));
+        assert_eq!(refused(completing("at_war")), rejected("at_war"));
+        assert_eq!(refused(completing("after")), rejected("the missions before it are not all completed"));
+        assert_eq!(refused(completing("conquer_paris")), (Status::NotFound, r#"no mission "conquer_paris" for the player"#.into()));
+        assert!(record::posted().is_empty());
     }
 }

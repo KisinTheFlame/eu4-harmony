@@ -1,6 +1,6 @@
 # Development commands plan
 
-Status: decided (2026-11-04); X1 to X4 built and tried the same day ([prototype-log.md](prototype-log.md), "Development commands"); X3's `perf-run` and `leak-run` were replaced on 2026-11-05 by the `perf`, `leak` and `growth` scenarios of `cargo xtask scenario` ([scenarios.md](scenarios.md)). The tools are now described in [dev-tools.md](dev-tools.md).
+Status: decided (2026-11-04); X1 to X4 built and tried the same day ([Development commands](prototype-log/2026-11-04-development-commands.md)); X3's `perf-run` and `leak-run` were replaced on 2026-11-05 by the `perf`, `leak` and `growth` scenarios of `cargo xtask scenario` ([scenarios.md](scenarios.md)). The tools are now described in [dev-tools.md](dev-tools.md).
 
 ## Goal and scope
 
@@ -28,7 +28,7 @@ Status: decided (2026-11-04); X1 to X4 built and tried the same day ([prototype-
 
 ### The game folder
 
-Both programs find it the same way: the command's `--game-dir`; else `EU4_GAME_DIR`; else, for `eu4-harmony`, the folder it is installed in (`<game>\eu4-harmony\eu4-harmony.exe`), as now; else the Steam library that holds the game, from `SteamPath` under `HKCU\Software\Valve\Steam` and the libraries `steamapps\libraryfolders.vdf` lists. `cargo xtask game-dir` prints it. The lookup lives in the manifest crate, which both use already for the user folder.
+Both programs find it the same way: the command's `--game-dir`; else `EU4_GAME_DIR`; else, for `eu4-harmony`, the folder it is installed in (`<game>\eu4-harmony\eu4-harmony.exe`), as now; else the Steam library that holds the game, from `SteamPath` under `HKCU\Software\Valve\Steam` and the libraries `steamapps\libraryfolders.vdf` lists. `cargo xtask game-dir` prints it. The lookup lived in the manifest crate at first; it is now the `folders` crate's, with the user folder and the names of what it holds, and an empty `EU4_GAME_DIR` counts as unset for both programs ([deepening.md](deepening.md), D14).
 
 ### `cargo xtask`
 
@@ -52,14 +52,14 @@ Once the scripts are gone, `tools/` goes too:
 - `tools/README.md`, the guide to the development tools (the core's features, `dev.toml`, call tracing, the disassembler and the commands above), becomes `docs/dev-tools.md`, with the other documents;
 - `tools/dev.toml.example` becomes `core/dev.toml.example`, next to the code that reads `dev.toml` (`core/src/dev.rs`), whose test reads the example.
 
-AGENTS.md, README.md, README.zh-CN.md and the plans that name a script or `tools/` name the command or the new place instead; earlier records in [prototype-log.md](prototype-log.md) keep naming the scripts they used.
+AGENTS.md, README.md, README.zh-CN.md and the plans that name a script or `tools/` name the command or the new place instead; earlier runs in [prototype-log/](prototype-log/) keep naming the scripts they used.
 
 ## Parts
 
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and clippy pass, for the player build and with `dev`;
-- what it delivers was tried, in the game where it uses the game, with the run recorded in [prototype-log.md](prototype-log.md), saying as plainly what was not verified;
+- what it delivers was tried, in the game where it uses the game, with the run recorded in a file of its own in [prototype-log/](prototype-log/), saying as plainly what was not verified;
 - the scripts it replaces are removed, and every document that named them names the commands; the last part removes `tools/` itself.
 
 ### X1 `cargo xtask`, installing and packing

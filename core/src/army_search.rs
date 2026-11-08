@@ -42,9 +42,11 @@
 //! arguments, the army's own state, the war plan and the offensive the
 //! country follows are checked; what the others changed elsewhere (units
 //! handed between agents, other armies' targets, the strength planned to
-//! arrive in provinces) is not, and is what the developer build's
-//! `check-army-searches` counts.
+//! arrive in provinces) is not, and is what a developer build counts when it
+//! checks the searches (`crate::speed`).
+use crate::called_by_game;
 use crate::points::{Function, Point};
+use crate::speed::{self, SpeedUp};
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering};
@@ -214,6 +216,21 @@ impl Outcome {
             && (self.a, self.b, self.c, self.d) == (other.a, other.b, other.c, other.d)
             && self.out == other.out
     }
+
+    /// What differs from `other`: the province, the score, the four values
+    /// beside it, the output.
+    fn differences(&self, other: &Outcome) -> Vec<&'static str> {
+        [
+            ("the province", self.province == other.province),
+            ("the score", self.score.to_bits() == other.score.to_bits()),
+            ("the values beside the score", (self.a, self.b, self.c, self.d) == (other.a, other.b, other.c, other.d)),
+            ("the output", self.out == other.out),
+        ]
+        .into_iter()
+        .filter(|(_, same)| !same)
+        .map(|(what, _)| what)
+        .collect()
+    }
 }
 
 const PENDING: u8 = 0;
@@ -350,11 +367,9 @@ enum Count {
     /// thought without searching.
     NotThought,
     NotSearched,
-    /// With `check-army-searches`, taken but not what the game's search gives.
-    Different,
 }
 
-static COUNTS: [AtomicU64; 13] = [const { AtomicU64::new(0) }; 13];
+static COUNTS: [AtomicU64; 12] = [const { AtomicU64::new(0) }; 12];
 static LOGGED: AtomicUsize = AtomicUsize::new(0);
 const LOG_EVERY: u64 = 20_000;
 const MOST_LOGGED: usize = 200;
@@ -386,27 +401,9 @@ fn note_prepared(count: u64) {
             get(NotThought),
             get(NotSearched),
             get(Unprepared),
-            if checking() { format!(", {} differing from the game's", get(Different)) } else { String::new() }
+            if speed::checked(&SPEED_UP) { format!(", {} differing from the game's", speed::differences(&SPEED_UP).1) } else { String::new() }
         );
     }
-}
-
-/// A developer build's test switch `check-army-searches`: every search
-/// taken is worked out again as the game does, and a difference counted.
-fn checking() -> bool {
-    #[cfg(feature = "dev-test-switches")]
-    return crate::dev::options().test_switches.check_army_searches;
-    #[cfg(not(feature = "dev-test-switches"))]
-    false
-}
-
-/// A developer build's test switch `game-searches-armies`: the framework
-/// leaves the searches to the game.
-fn left_to_the_game() -> bool {
-    #[cfg(feature = "dev-test-switches")]
-    return crate::dev::options().test_switches.game_searches_armies;
-    #[cfg(not(feature = "dev-test-switches"))]
-    false
 }
 
 /// A hash of the state the search reads of the agent and its army, with its
@@ -463,7 +460,7 @@ unsafe fn prepare(agent: usize, argument: usize) -> Option<Call> {
         // over the sea (`0xea250` sails it, `0xf1390`), or for an army
         // retreating or with `+0x218` (`0xeb2f8`..`0xeb31e`) or in a battle
         // (`0xeb63d`): of 140,000 searches prepared, none of these searched
-        // (docs/prototype-log.md, 2026-11-08).
+        // (docs/prototype-log/2026-11-08-armies-searches-idle-threads.md).
         if read::<i32>(agent + SEA_TARGET_PROVINCE) > 0
             || read::<usize>(unit + UNIT_IN_BATTLE) != 0
             || read::<u8>(unit + UNIT_RETREATING) != 0
@@ -589,11 +586,14 @@ unsafe fn search_as_the_game(agent: usize, call: &Call, cache: usize) -> Outcome
 /// Once the King has thought: its army agents' searches of today, handed
 /// to the pool. The developer build's `agents-order` calls it from its own
 /// walk.
+#[called_by_game]
 pub(crate) extern "C" fn children_begin(king: usize, argument: usize) {
     if let Some(old) = BATCH.with(|b| b.borrow_mut().take()) {
         settle(old);
     }
-    if left_to_the_game() {
+    // The `agents-order` walks call this whether the searches are left to
+    // the game or not.
+    if speed::game_path(&SPEED_UP) {
         return;
     }
     let Some(pool) = pool() else { return };
@@ -641,6 +641,7 @@ pub(crate) extern "C" fn children_begin(king: usize, argument: usize) {
 
 /// After the King's army agents' day: the searches not taken called off,
 /// those under way waited for.
+#[called_by_game]
 extern "C" fn armies_end() {
     if let Some(batch) = BATCH.with(|b| b.borrow_mut().take()) {
         settle(batch);
@@ -662,6 +663,7 @@ fn job_of(agent: usize) -> Option<Arc<Job>> {
 
 /// The army agent's think: its own search settled first, so that its think
 /// and its search never use its region scores at once.
+#[called_by_game]
 unsafe extern "C" fn think(agent: usize, argument: usize) -> usize {
     if let Some(job) = job_of(agent) {
         job.thought.store(true, Ordering::Relaxed);
@@ -681,6 +683,7 @@ unsafe extern "C" fn think(agent: usize, argument: usize) -> usize {
 }
 
 /// A unit handed to an agent: no search of the country runs meanwhile.
+#[called_by_game]
 unsafe extern "C" fn unit_to_agent(agent: usize, unit: usize) -> usize {
     let gate = if HANDING.with(Cell::get) { None } else { BATCH.with(|b| b.borrow().as_ref().map(|b| b.gate.clone())) };
     let Some(gate) = gate else { return unsafe { ORIGINAL_UNIT_TO_AGENT.get()(agent, unit) } };
@@ -692,6 +695,7 @@ unsafe extern "C" fn unit_to_agent(agent: usize, unit: usize) -> usize {
 }
 
 /// The framework's search: the one worked out ahead when it matches.
+#[called_by_game]
 unsafe extern "C" fn search(
     callback: usize,
     depth: i32,
@@ -736,8 +740,18 @@ unsafe extern "C" fn search(
     }
     // Called off at the think, not begun, and counted there.
     let Some(outcome) = outcome else { return original() };
-    if checking() && !unsafe { search_as_the_game(agent, &given, argument) }.same(&outcome) {
-        add(Count::Different, 1);
+    if speed::checked(&SPEED_UP) {
+        let game = unsafe { search_as_the_game(agent, &given, argument) };
+        speed::compared(&SPEED_UP, game.same(&outcome), || {
+            format!(
+                "an army's search worked out ahead differs in {}: province {} at {}, the game's {} at {}",
+                outcome.differences(&game).join(", "),
+                outcome.province,
+                outcome.score,
+                game.province,
+                game.score
+            )
+        });
     }
     unsafe {
         *score = outcome.score;
@@ -786,17 +800,18 @@ extern "C" fn walked_stub() {
     );
 }
 
-/// Whether the developer build's `agents-order` walks the King's agents, and
-/// calls [`children_begin`] itself.
-fn walked_by_agents_order() -> bool {
-    #[cfg(feature = "dev-test-switches")]
-    return crate::dev::options().test_switches.agents_order != crate::dev::AgentsOrder::Game;
-    #[cfg(not(feature = "dev-test-switches"))]
-    false
-}
+/// Checked, every search taken is worked out again as the game does, and a
+/// difference counted; the search worked out ahead is kept.
+pub const SPEED_UP: SpeedUp = SpeedUp { name: "army-searches", group: "ai", points, checkable: true };
 
-pub fn points() -> Vec<Point> {
-    let mut points = vec![
+/// The searches' points. The first is the King's walk of its children, where
+/// the searches are handed out: the developer build's `agents-order` walks
+/// the King's agents at the same place instead, and calls [`children_begin`]
+/// itself, and `points::this_build` puts its walks in this one's place.
+fn points() -> Vec<Point> {
+    vec![
+        Point::jump(CHILDREN_WALK, "48 8b 5f 40 48 85 db 74 1a", "King's walk of its children", children_stub as *const () as usize, &CHILDREN_RESUME)
+            .uses(&[CHILDREN]),
         Point::replace(SEARCH, "4c 89 4c 24 20 89 54 24 10 48 89 4c 24 08 55 53", "army search", search as Search, &ORIGINAL_SEARCH),
         Point::method(CALLBACK, 0, 0x103200, "army search's callback"),
         Point::method(CALLBACK, 8, 0x96f860, "army search's callback's step"),
@@ -872,12 +887,5 @@ pub fn points() -> Vec<Point> {
         Point::keep(0xf8ea0usize, "48 89 5c 24 18 4c 89 4c 24 20 48 89", "army score of a province").recorded(SCORE.slot()),
         Point::keep(crate::wording::dates::YEAR, "44 8b 01 41 b9 01 00 00 00 41 81 e8", "date's year").recorded(YEAR.slot()),
         Point::keep(0xcfe10usize, "48 83 ec 28 44 8b 11 41 81 ea c0 55", "date's day of the year").recorded(DAY_OF_YEAR.slot()),
-    ];
-    if !walked_by_agents_order() {
-        points.push(
-            Point::jump(CHILDREN_WALK, "48 8b 5f 40 48 85 db 74 1a", "King's walk of its children", children_stub as *const () as usize, &CHILDREN_RESUME)
-                .uses(&[CHILDREN]),
-        );
-    }
-    points
+    ]
 }

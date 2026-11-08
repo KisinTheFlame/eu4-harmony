@@ -300,10 +300,12 @@ pub mod editor {
 
 /// The functions the methods above are, by RVA.
 pub mod functions {
-    pub const FIND_BUTTON: usize = 0x1548700;
-    pub const FIND_TEXT: usize = 0x1548d30;
-    pub const FIND_ICON: usize = 0x15492e0;
-    pub const ELEMENT_NAME: usize = 0xfbf480;
+    use crate::points::GameFunction;
+
+    pub const FIND_BUTTON: GameFunction<2> = GameFunction::at(0x1548700);
+    pub const FIND_TEXT: GameFunction<2> = GameFunction::at(0x1548d30);
+    pub const FIND_ICON: GameFunction<2> = GameFunction::at(0x15492e0);
+    pub const ELEMENT_NAME: GameFunction<1> = GameFunction::at(0xfbf480);
     pub const LEFT_CLICK: usize = 0x836550;
     pub const RIGHT_CLICK: usize = 0x836530;
     pub const SELECTED_ARMY: usize = 0x129270;
@@ -318,9 +320,9 @@ pub mod functions {
     /// about a diplomatic action: it sends the action's answer.
     pub const ACTION_DIALOG_ACCEPT: usize = 0x1066a40;
     /// Adds months to a date: `(&date, months)`.
-    pub const ADD_MONTHS: usize = 0x14c8030;
+    pub const ADD_MONTHS: GameFunction<2> = GameFunction::at(0x14c8030);
     /// Takes a listener off a signal: `(signal, wrapper)`.
-    pub const UNSUBSCRIBE: usize = 0xfbe370;
+    pub const UNSUBSCRIBE: GameFunction<2> = GameFunction::at(0xfbe370);
 }
 
 use super::campaign;
@@ -398,11 +400,11 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x15333d7usize, "48 8d 05 7a df 85 00", "edit box class").uses(&[classes::EDIT_BOX]),
         Point::keep(0x15333e1usize, "48 8d 05 d8 e1 85 00", "editor class").uses(&[classes::EDITOR]),
         // Methods the framework calls or compares.
-        Point::method(classes::WINDOW, window::FIND_BUTTON, FIND_BUTTON, "window button method"),
-        Point::method(classes::WINDOW, window::FIND_TEXT, FIND_TEXT, "window text box method"),
-        Point::method(classes::WINDOW, window::FIND_ICON, FIND_ICON, "window icon method"),
-        Point::method(classes::BUTTON, element::NAME, ELEMENT_NAME, "button name method"),
-        Point::method(classes::TEXT_BOX, element::NAME, ELEMENT_NAME, "text box name method"),
+        Point::method(classes::WINDOW, window::FIND_BUTTON, FIND_BUTTON.rva(), "window button method"),
+        Point::method(classes::WINDOW, window::FIND_TEXT, FIND_TEXT.rva(), "window text box method"),
+        Point::method(classes::WINDOW, window::FIND_ICON, FIND_ICON.rva(), "window icon method"),
+        Point::method(classes::BUTTON, element::NAME, ELEMENT_NAME.rva(), "button name method"),
+        Point::method(classes::TEXT_BOX, element::NAME, ELEMENT_NAME.rva(), "text box name method"),
         Point::method(classes::CALLBACK, callback::LEFT, LEFT_CLICK, "callback left click method"),
         Point::method(classes::CALLBACK, callback::RIGHT, RIGHT_CLICK, "callback right click method"),
         Point::method(classes::ARMY_PANEL, army_panel::SELECTED_ARMY, SELECTED_ARMY, "army panel army method"),

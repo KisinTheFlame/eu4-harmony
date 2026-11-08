@@ -16,7 +16,9 @@
 //! the framework cannot answer for certain (another folder, the framework's
 //! own folder, a name Windows would read otherwise), goes to the game's stat
 //! as before.
-use crate::points::{Function, Point};
+use crate::called_by_game;
+use crate::points::{Function, GameFunction, Point};
+use crate::speed::{self, SpeedUp};
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
 use std::path::Path;
@@ -30,10 +32,14 @@ const STAT: usize = 0x1a061d0;
 /// `PHYSFS_ERR_NOT_FOUND`) and set (`0x19f8510`).
 const STAT_FAILS: usize = 0x1a062a3;
 const NOT_FOUND_MADE: usize = 0x1a06a00;
-const SET_ERROR: usize = 0x19f8510;
+const SET_ERROR: GameFunction<1> = GameFunction::at(0x19f8510);
 const NOT_FOUND: usize = 0xb;
 
-pub fn points() -> Vec<Point> {
+/// Checked, the game's stat answers every path the listings answer missing
+/// as well, and the game's answer is kept.
+pub const SPEED_UP: SpeedUp = SpeedUp { name: "lookups", group: "loading", points, checkable: true };
+
+fn points() -> Vec<Point> {
     vec![
         Point::replace(STAT, "40 55 57 41 54 41 56 41 57 48 81 ec b0 02 00 00", "PhysFS stat", stat as Stat, &ORIGINAL_STAT),
         Point::keep(
@@ -78,21 +84,19 @@ pub fn set_roots(game_dir: &Path) {
     let _ = ROOTS.set((roots, own));
 }
 
+#[called_by_game]
 extern "C" fn stat(path: *const c_char, st: usize, follow: i32) -> i32 {
-    let missing =
-        !path.is_null() && !super::game_loads() && crate::guarded("PhysFS stat", || missing(unsafe { CStr::from_ptr(path) }.to_bytes()) == Some(true));
+    let missing = !path.is_null() && crate::guarded("PhysFS stat", || missing(unsafe { CStr::from_ptr(path) }.to_bytes()) == Some(true));
     if !missing {
         return ORIGINAL_STAT.get()(path, st, follow);
     }
-    if super::checking() {
+    if speed::checked(&SPEED_UP) {
         let game = ORIGINAL_STAT.get()(path, st, follow);
-        if game != 0 {
-            log!("lookups: check-loading: {:?} found by the game, missing from the listings", unsafe { CStr::from_ptr(path) });
-        }
+        speed::compared(&SPEED_UP, game == 0, || format!("{:?} found by the game, missing from the listings", unsafe { CStr::from_ptr(path) }));
         return game;
     }
     let m = crate::hooked_memory();
-    let _ = m.call(m.at(SET_ERROR), &[NOT_FOUND]);
+    let _ = SET_ERROR.call(&m, [NOT_FOUND]);
     let n = ANSWERED.fetch_add(1, Ordering::Relaxed) + 1;
     if n.is_power_of_two() && n >= 1024 {
         log!("lookups: {n} paths answered missing from the folders' listings");

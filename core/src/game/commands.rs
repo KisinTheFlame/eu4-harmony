@@ -14,10 +14,10 @@
 use super::{command_session, context, game, world_context, Fail, GResult};
 use crate::{
     game_string,
-    hooks::HookFrame,
+    hooks::Call,
     memory::Memory,
     objects::session::{self, fields as session_fields},
-    points::Point,
+    points::{GameFunction, Point},
     unicode::game_text,
 };
 use std::cell::OnceCell;
@@ -41,7 +41,7 @@ const CHECK: usize = 0x40;
 const TYPE: usize = 0x50;
 const ID: usize = 0x4c;
 /// `(writer, token)`: writes a token as a key.
-const WRITE_KEY: usize = 0x1709280;
+const WRITE_KEY: GameFunction<2> = GameFunction::at(0x1709280);
 /// The token table: whether it is set up, its last index, and its names, one
 /// `std::string` each.
 pub(crate) const TOKENS_READY: usize = 0x2357b30;
@@ -58,14 +58,14 @@ const STREAM_MODE: usize = 0x171ed90;
 /// tokenizer, strings, name, owns)` with its destructor, the reader's first
 /// token, read into `+0x30`, and the factory `(factory, reader, token)`, an
 /// object of its own, which makes an empty command of the token's type.
-const TOKENIZER: usize = 0x170d1d0;
+const TOKENIZER: GameFunction<3> = GameFunction::at(0x170d1d0);
 const TEXT_TOKENIZER_VTABLE: usize = 0x1dbf958;
-const TEXT_TOKENIZER_DESTROY: usize = 0x170ccb0;
-const READER: usize = 0x17096f0;
-const END_READER: usize = 0x1709950;
-const READ_TOKEN: usize = 0x170ada0;
+const TEXT_TOKENIZER_DESTROY: GameFunction<2> = GameFunction::at(0x170ccb0);
+const READER: GameFunction<5> = GameFunction::at(0x17096f0);
+const END_READER: GameFunction<1> = GameFunction::at(0x1709950);
+const READ_TOKEN: GameFunction<1> = GameFunction::at(0x170ada0);
 const READER_TOKEN: usize = 0x30;
-const MAKE: usize = 0x14c6500;
+const MAKE: GameFunction<3> = GameFunction::at(0x14c6500);
 const FACTORY_VTABLE: usize = 0x1c448b8;
 /// The local handler's post, which writes, reads back and destroys every
 /// command posted: the reader made and read, the command made and read, and
@@ -109,7 +109,7 @@ const LAMBDA_VTABLE: usize = 0x1d8c8b0;
 const LAMBDA_DESTROY: usize = 0x20;
 const LAMBDA_SELF: usize = 0x38;
 const LAMBDA_SIZE: usize = 0x40;
-const RUN_LAMBDA: usize = 0x14d4e70;
+const RUN_LAMBDA: GameFunction<1> = GameFunction::at(0x14d4e70);
 
 /// The memory stream, as the local handler's post makes it: a line, a mode,
 /// whether it writes, a name, and the byte vector it writes to or reads from.
@@ -178,7 +178,7 @@ pub fn points() -> Vec<Point> {
         Point::keep(SESSION_CHECKS, "48 8b 06 48 8b ce ff 50 40", "a queued command checked").uses(&[CHECK]),
         Point::keep(TOKENIZER, "48 89 5c 24 08 57 48 83 ec 20 48 89 51 08 48 8d 05 bb 27 6b 00 48 89 01 41 0f b6 d8", "make a tokenizer"),
         Point::keep(0x8ded9usize, "48 8d 05 78 1a d3 01", "the text tokenizer").uses(&[TEXT_TOKENIZER_VTABLE]),
-        Point::method(TEXT_TOKENIZER_VTABLE, 0, TEXT_TOKENIZER_DESTROY, "text tokenizer destructor"),
+        Point::method(TEXT_TOKENIZER_VTABLE, 0, TEXT_TOKENIZER_DESTROY.rva(), "text tokenizer destructor"),
         Point::keep(READER, "48 89 5c 24 10 4c 89 44 24 18 48 89 4c 24 08 55 56 57 48 83 ec 20 49 8b f9 49 8b f0", "make a reader"),
         Point::keep(END_READER, "40 53 48 83 ec 20 80 b9 80 06 00 00 00 48 8d 05 6c 5e 6b 00", "end a reader"),
         Point::keep(READER_DELETE, "48 89 5c 24 08 57 48 83 ec 20 8b da 48 8b f9 e8 8c 02 00 00 f6 c3 01 74 0d ba a8 06 00 00", "a reader's size")
@@ -440,7 +440,7 @@ fn execute(m: &Memory, session: usize, command: usize) -> GResult<()> {
     lambda.set(0, &m.at(LAMBDA_VTABLE).to_le_bytes());
     lambda.set(LAMBDA_COMMAND, &command.to_le_bytes());
     lambda.set(LAMBDA_SELF, &at.to_le_bytes());
-    let ran = m.call(m.at(RUN_LAMBDA), &[at]).and_then(|_| m.call(m.vslot(at, LAMBDA_DESTROY)?, &[at, 0]));
+    let ran = RUN_LAMBDA.call(m, [at]).and_then(|_| m.call(m.vslot(at, LAMBDA_DESTROY)?, &[at, 0]));
     m.write(m.at(RANDOM_FORBIDDEN), &[random])?;
     m.write(session + session_fields::EXECUTING, &[executing])?;
     ran?;
@@ -533,23 +533,21 @@ pub fn listen(heard: fn(&Heard)) {
     LISTENING.store(true, Ordering::Relaxed);
 }
 
-extern "C" fn executing(frame: *mut HookFrame) {
+fn executing(call: &mut Call) {
     EXECUTED.fetch_add(1, Ordering::Relaxed);
     if !LISTENING.load(Ordering::Relaxed) {
         return;
     }
-    crate::guarded("commands", || {
-        let m = crate::hooked_memory();
-        let Ok(command) = m.ptr(unsafe { (*frame).args[0] } + LAMBDA_COMMAND) else { return };
-        let Ok(token) = m.vslot(command, TYPE).and_then(|f| m.call(f, &[command])) else { return };
-        let token = token as u32;
-        let kind = type_name(&m, token).unwrap_or_else(|| format!("token {token}"));
-        let heard = Heard { m, command, token, kind, id: m.u32(command + ID).unwrap_or(0), text: OnceCell::new() };
-        let listeners = LISTENERS.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        for listener in listeners {
-            listener(&heard);
-        }
-    })
+    let m = call.memory();
+    let Ok(command) = m.ptr(call.arg(0) + LAMBDA_COMMAND) else { return };
+    let Ok(token) = m.vslot(command, TYPE).and_then(|f| m.call(f, &[command])) else { return };
+    let token = token as u32;
+    let kind = type_name(&m, token).unwrap_or_else(|| format!("token {token}"));
+    let heard = Heard { m, command, token, kind, id: m.u32(command + ID).unwrap_or(0), text: OnceCell::new() };
+    let listeners = LISTENERS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    for listener in listeners {
+        listener(&heard);
+    }
 }
 
 /// The name of token `token`: a command's type, or the key of an object
@@ -603,7 +601,7 @@ fn written(m: &Memory, command: usize, token: u32) -> crate::Result<Vec<u8>> {
     writer.set(writer::STREAM, &stream.at().to_le_bytes());
     writer.0[writer::BINARY] = 0;
     let writer = writer.at();
-    let result = m.call(m.at(WRITE_KEY), &[writer, token as usize]).and_then(|_| m.call(m.vslot(command, WRITE_BLOCK)?, &[command, writer])).map(|_| ());
+    let result = WRITE_KEY.call(m, [writer, token as usize]).and_then(|_| m.call(m.vslot(command, WRITE_BLOCK)?, &[command, writer])).map(|_| ());
     // The game grew the vector through the stream.
     let bytes = unsafe { std::ptr::read_volatile(&bytes) };
     let result = result.and_then(|_| m.bytes(bytes[0], bytes[1] - bytes[0]));
@@ -627,12 +625,12 @@ fn read(m: &Memory, text: &[u8]) -> GResult<Option<usize>> {
     name.set(game_string::CAPACITY, &(game_string::INLINE as u64).to_le_bytes());
     let mut factory = m.at(FACTORY_VTABLE).to_le_bytes();
     let (tokenizer, reader) = (tokenizer.at(), reader.at());
-    m.call(m.at(TOKENIZER), &[tokenizer, stream.at(), 0])?;
+    TOKENIZER.call(m, [tokenizer, stream.at(), 0])?;
     unsafe { *(tokenizer as *mut usize) = m.at(TEXT_TOKENIZER_VTABLE) };
-    let made = m.call(m.at(READER), &[reader, tokenizer, strings.as_mut_ptr() as usize, name.at(), 0]).and_then(|_| {
-        let made = m.call(m.at(READ_TOKEN), &[reader]).and_then(|_| {
+    let made = READER.call(m, [reader, tokenizer, strings.as_mut_ptr() as usize, name.at(), 0]).and_then(|_| {
+        let made = READ_TOKEN.call(m, [reader]).and_then(|_| {
             let token = m.u32(reader + READER_TOKEN)?;
-            let command = m.call(m.at(MAKE), &[factory.as_mut_ptr() as usize, reader, token as usize])?;
+            let command = MAKE.call(m, [factory.as_mut_ptr() as usize, reader, token as usize])?;
             if command != 0 {
                 if let Err(e) = m.call(m.vslot(command, READ_BLOCK)?, &[command, reader]) {
                     m.call(m.vslot(command, DESTROY)?, &[command, FREE])?;
@@ -641,10 +639,10 @@ fn read(m: &Memory, text: &[u8]) -> GResult<Option<usize>> {
             }
             Ok(command)
         });
-        m.call(m.at(END_READER), &[reader])?;
+        END_READER.call(m, [reader])?;
         made
     });
-    m.call(m.at(TEXT_TOKENIZER_DESTROY), &[tokenizer, 0])?;
+    TEXT_TOKENIZER_DESTROY.call(m, [tokenizer, 0])?;
     let command = made?;
     Ok((command != 0).then_some(command))
 }

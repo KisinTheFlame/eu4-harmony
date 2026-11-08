@@ -59,7 +59,7 @@ The game blends text with what lies under it in the screen's sRGB values, not in
 
 ### Progress (2026-10-28)
 
-- **Seen working in the game** (details in [prototype-log.md](prototype-log.md)):
+- **Seen working in the game** (details in the runs of 2026-10-27 and 2026-10-28 in [prototype-log/](prototype-log/)):
   - M1a, M1b:
     - the Chinese interface in the main menu and in the game: buttons, tooltips, the outliner, events;
     - paragraph line breaking (scenario introductions, start-of-game introductions, the country history window; fixed-size multi-line text boxes, such as the description on the macro builder's diplomacy page, break lines between Chinese characters through vtable `+0x80`);
@@ -85,13 +85,13 @@ The game blends text with what lies under it in the screen's sRGB values, not in
 ## Acceptance
 
 - Logic that does not depend on the game (walking UTF-8, decoding legacy escapes, line breaking, editing by character, search matching, the atlas) gets unit tests.
-- Each milestone is tested in the game against a checklist, and the results go into [prototype-log.md](prototype-log.md).
+- Each milestone is tested in the game against a checklist, and the results go into a file of their own in [prototype-log/](prototype-log/).
 - For each milestone, the main interface is opened once in each of the four game languages, English, French, German and Spanish, to confirm it differs from vanilla in its fonts only.
 - All dependency points can be checked against an installed eu4.exe without starting the game: `cargo xtask offline-check`, which finds the game through `EU4_GAME_DIR` or Steam.
 
 ### M0 checklist
 
-M0 does not change how the game behaves, so the checklist is a retest of what already works. Install with `cargo build --release` and `cargo xtask install`, and enable regional-combat and a mod made by `eu4-harmony new` in the playset. Tested and passed on 2026-10-27; the results are in [prototype-log.md](prototype-log.md).
+M0 does not change how the game behaves, so the checklist is a retest of what already works. Install with `cargo build --release` and `cargo xtask install`, and enable regional-combat and a mod made by `eu4-harmony new` in the playset. Tested and passed on 2026-10-27; the results are in [M0 test](prototype-log/2026-10-27-m0-dependency-points.md).
 
 1. **Startup report**: `report.txt` has the line `startup: baseline 1.37.5: 58 dependency points match; 34 hooks, 0 writes` (M0's counts; they have grown with every part since).
 2. **Main menu**: the game reaches the main menu as usual, with no new errors in `error.log`.

@@ -87,7 +87,7 @@ impl Scenario for Leak {
         }
     }
 
-    fn build(&self) -> Build {
+    fn build(&self, _: &Parameters) -> Build {
         if self.census {
             Build::Census
         } else {

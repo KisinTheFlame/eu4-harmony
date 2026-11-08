@@ -1,17 +1,18 @@
 //! Recruiting regiments and ships: what can be recruited in a province, and
 //! ordering it.
 use super::Convert;
-use crate::game::{self, provinces::UnitKind};
+use crate::game::{self};
 use eu4_harmony_remote::{
     recruiting::{Recruit, RecruitAnswer, RecruitRequest},
     Error,
 };
+use eu4_harmony_remote::recruiting::args;
 
 layer! {
     run RecruitRequest => RecruitAnswer;
     fn province_snapshot(province: u32) -> game::provinces::Snapshot = session game::provinces::acting_province;
     Options { province } => options(game, province.0);
-    Order => fn recruit(province: u32, kind: UnitKind) -> () = session game::recruiting::recruit;
+    Order => fn recruit -> () = game::recruiting::recruit;
 }
 
 /// What can be recruited in the province, and whether it can now.

@@ -7,10 +7,11 @@
 //! Extensions state what they want (visible, enabled, text, tooltip) and each
 //! host's update hook applies it, so state survives the game rebuilding the
 //! window and never needs a callback inside the game's UI code.
+use crate::called_by_game;
 use crate::{
     game::{self, fail, GResult, Status},
     game_string,
-    hooks::HookFrame,
+    hooks::Call,
     hosts::Host,
     memory::Memory,
     notice,
@@ -19,7 +20,7 @@ use crate::{
         gui::{army_panel, button, callback, classes, element, event, functions, main_menu, signal, window},
         list,
     },
-    points::Point,
+    points::{GameFunction, Point},
     splice::{Element, ElementKind},
     Result,
 };
@@ -37,12 +38,12 @@ const WINDOW_KILL: usize = 0x1547520;
 const WINDOW_DELETE: usize = 0x1546510;
 const MENU_FRAME: usize = 0x10d2e80;
 const TOOLTIP: usize = 0x1453b70;
-const TEXT_SET: usize = 0x152ae10;
-const SUBSCRIBE: usize = 0xfbe3f0;
-const SET_RIGHT_CLICK: usize = 0x1593860;
+const TEXT_SET: GameFunction<3> = GameFunction::at(0x152ae10);
+const SUBSCRIBE: GameFunction<2> = GameFunction::at(0xfbe3f0);
+const SET_RIGHT_CLICK: GameFunction<2> = GameFunction::at(0x1593860);
 const SHOW: usize = 0x15aeb30;
 const HIDE: usize = 0x15aead0;
-const SET_ENABLED: usize = 0xfaab30;
+const SET_ENABLED: GameFunction<2> = GameFunction::at(0xfaab30);
 
 /// A callback the framework subscribes to a button's signal (see
 /// [`callback`]).
@@ -56,12 +57,65 @@ struct Desired {
     tooltip: Option<Vec<u8>>,
 }
 
+impl Desired {
+    /// The text a text box is to show, if any: none while it is hidden, as a
+    /// text box is hidden by emptying it (its show and hide methods are
+    /// unverified on this build).
+    fn text_box(&self) -> Option<Vec<u8>> {
+        if self.visible == Some(false) {
+            Some(Vec::new())
+        } else {
+            self.text.clone()
+        }
+    }
+}
+
 struct Declared {
     element: Element,
     host: Host,
     /// Index of the extension that receives this element's clicks.
     extension: Option<usize>,
     desired: Desired,
+}
+
+/// The elements spliced this run and what their extensions want of them,
+/// apart from the windows that show them: what the hosts' updates apply.
+#[derive(Default)]
+struct Elements {
+    declared: Vec<Declared>,
+}
+
+impl Elements {
+    /// The elements spliced this run, with the extension that owns each.
+    fn declare(&mut self, elements: Vec<(Element, Option<usize>)>) {
+        self.declared =
+            elements.into_iter().map(|(element, extension)| Declared { host: element.host, element, extension, desired: Desired::default() }).collect();
+    }
+
+    /// Changes what `extension` wants of its element `name`.
+    fn want(&mut self, extension: usize, name: &str, change: impl FnOnce(&mut Desired)) -> GResult<()> {
+        match self.declared.iter_mut().find(|d| d.extension == Some(extension) && d.element.name == name) {
+            Some(d) => {
+                change(&mut d.desired);
+                Ok(())
+            }
+            None => fail(Status::NotFound, format!("no element {name:?} declared by this mod")),
+        }
+    }
+
+    /// Forgets what `extension` wanted of its elements.
+    fn forget(&mut self, extension: usize) {
+        for d in self.declared.iter_mut().filter(|d| d.extension == Some(extension)) {
+            d.desired = Desired::default();
+        }
+    }
+
+    /// Hides every element of `extension`'s.
+    fn hide(&mut self, extension: usize) {
+        for d in self.declared.iter_mut().filter(|d| d.extension == Some(extension)) {
+            d.desired.visible = Some(false);
+        }
+    }
 }
 
 struct Bound {
@@ -101,7 +155,7 @@ pub struct Click {
 
 #[derive(Default)]
 struct Ui {
-    declared: Vec<Declared>,
+    elements: Elements,
     bindings: Vec<Binding>,
     /// Wrappers of detached bindings; the game may still hold pointers to them.
     retired: Vec<Callback>,
@@ -131,29 +185,25 @@ fn report_once(ui: &mut Ui, message: String) {
 
 /// Elements spliced this run, with the extension index that owns each.
 pub fn set_elements(elements: Vec<(Element, Option<usize>)>) {
-    with_ui(|ui| {
-        ui.declared =
-            elements.into_iter().map(|(element, extension)| Declared { host: element.host, element, extension, desired: Desired::default() }).collect();
-    });
+    with_ui(|ui| ui.elements.declare(elements));
 }
 
 /// The element of `name` in the window at `root`, through its method at
 /// `offset`, which must be `function`.
-fn lookup(m: &Memory, root: usize, (offset, function): (usize, usize), name: &str) -> Result<usize> {
+fn lookup(m: &Memory, root: usize, (offset, function): (usize, GameFunction<2>), name: &str) -> Result<usize> {
     if m.vslot(root, offset)? != m.at(function) {
         return Err("window has an unexpected lookup method".into());
     }
     let c = format!("{name}\0");
-    m.call(m.at(function), &[root, c.as_ptr() as usize])
+    function.call(m, [root, c.as_ptr() as usize])
 }
 
 /// Name an element reports, through the getter shared by all GUI element classes.
 fn element_name(m: &Memory, object: usize) -> Result<Vec<u8>> {
-    let getter = m.at(functions::ELEMENT_NAME);
-    if m.vslot(object, element::NAME)? != getter {
+    if m.vslot(object, element::NAME)? != m.at(functions::ELEMENT_NAME) {
         return Err("element has an unexpected name getter".into());
     }
-    game_string::read(m, m.call(getter, &[object])?)
+    game_string::read(m, functions::ELEMENT_NAME.call(m, [object])?)
 }
 
 fn bind_one(m: &Memory, root: usize, index: usize, d: &Declared) -> Result<Option<Bound>> {
@@ -206,17 +256,7 @@ fn bind_one(m: &Memory, root: usize, index: usize, d: &Declared) -> Result<Optio
 fn subscribed(m: &Memory, b: &Bound) -> Result<bool> {
     let Some(wrapper) = &b.wrapper else { return Ok(false) };
     let wrapper = wrapper.as_ptr() as usize;
-    let mut node = m.ptr(b.signal + signal::LISTENERS + list::HEAD)?;
-    for _ in 0..512 {
-        if node == 0 {
-            return Ok(false);
-        }
-        if m.ptr(node + list::ITEM)? == wrapper {
-            return Ok(true);
-        }
-        node = m.ptr(node + list::NEXT)?;
-    }
-    Err("signal listener list too long".into())
+    Ok(crate::containers::items(m, b.signal + signal::LISTENERS, 512)?.contains(&wrapper))
 }
 
 /// Detaches every binding `which` selects; their objects must still be alive.
@@ -233,12 +273,12 @@ fn detach(m: &Memory, ui: &mut Ui, which: impl Fn(&Binding) -> bool) -> Result<(
                 if m.ptr(b.signal)? != m.at(classes::SIGNAL) || m.u8(b.signal + signal::LISTENERS + list::CHANGING)? != 0 {
                     return Err("cannot unsubscribe from a changed or dispatching signal".to_string());
                 }
-                m.call(m.at(functions::UNSUBSCRIBE), &[b.signal, b.wrapper.as_ref().unwrap().as_ptr() as usize])?;
+                functions::UNSUBSCRIBE.call(m, [b.signal, b.wrapper.as_ref().unwrap().as_ptr() as usize])?;
                 if subscribed(m, b)? {
                     return Err("observer still subscribed after unsubscribe".into());
                 }
                 b.linked = false;
-                m.call(m.at(SET_RIGHT_CLICK), &[b.object, b.old_right_click as usize])?;
+                SET_RIGHT_CLICK.call(m, [b.object, b.old_right_click as usize])?;
             }
             Ok(())
         })();
@@ -253,7 +293,7 @@ fn bind(m: &Memory, ui: &mut Ui, host: Host, holder: usize, root: usize) -> Resu
         return Ok(());
     }
     detach(m, ui, |b| b.host == host)?;
-    if root == 0 || !ui.declared.iter().any(|d| d.host == host) {
+    if root == 0 || !ui.elements.declared.iter().any(|d| d.host == host) {
         return Ok(());
     }
     // Teardown is noticed through the kill hook, so it must be this window's.
@@ -261,7 +301,7 @@ fn bind(m: &Memory, ui: &mut Ui, host: Host, holder: usize, root: usize) -> Resu
         return Err(format!("{host:?} window has an unexpected kill method"));
     }
     let mut binding = Binding { host, holder, root, bound: Vec::new() };
-    for (index, d) in ui.declared.iter().enumerate().filter(|(_, d)| d.host == host) {
+    for (index, d) in ui.elements.declared.iter().enumerate().filter(|(_, d)| d.host == host) {
         match bind_one(m, root, index, d) {
             Ok(Some(b)) => binding.bound.push(b),
             Ok(None) => {}
@@ -279,11 +319,11 @@ fn bind(m: &Memory, ui: &mut Ui, host: Host, holder: usize, root: usize) -> Resu
     for b in &mut binding.bound {
         if let Some(wrapper) = &b.wrapper {
             b.linked = true;
-            m.call(m.at(SUBSCRIBE), &[b.signal, wrapper.as_ptr() as usize])?;
+            SUBSCRIBE.call(m, [b.signal, wrapper.as_ptr() as usize])?;
             if !subscribed(m, b)? {
                 return Err("subscription did not register".into());
             }
-            m.call(m.at(SET_RIGHT_CLICK), &[b.object, 1])?;
+            SET_RIGHT_CLICK.call(m, [b.object, 1])?;
         }
     }
     log!("ui: bound {} element(s) in {host:?} {holder:#x}", binding.bound.len());
@@ -297,19 +337,18 @@ fn write_text(m: &Memory, object: usize, bytes: &[u8]) -> Result<()> {
     if !bytes.is_empty() {
         game_string::append_checked(m, string.as_mut_ptr() as usize, bytes)?;
     }
-    m.call(m.at(TEXT_SET), &[object, string.as_mut_ptr() as usize, 0])?;
+    TEXT_SET.call(m, [object, string.as_mut_ptr() as usize, 0])?;
     Ok(())
 }
 
 fn apply(m: &Memory, ui: &mut Ui, host: Host) -> Result<()> {
     let Some(binding) = ui.bindings.iter_mut().find(|b| b.host == host) else { return Ok(()) };
     for b in &mut binding.bound {
-        let d = &ui.declared[b.index];
+        let d = &ui.elements.declared[b.index];
         // Text boxes' show/hide methods are unverified on this build; a hidden
         // text box is emulated by an empty text instead.
         if d.element.kind == ElementKind::Text {
-            let wanted = if d.desired.visible == Some(false) { Some(Vec::new()) } else { d.desired.text.clone() };
-            if let Some(text) = wanted {
+            if let Some(text) = d.desired.text_box() {
                 if b.applied_text.as_ref() != Some(&text) {
                     write_text(m, b.object, &text)?;
                     b.applied_text = Some(text);
@@ -333,7 +372,7 @@ fn apply(m: &Memory, ui: &mut Ui, host: Host) -> Result<()> {
                     if m.vslot(b.object, element::ENABLE)? != m.at(SET_ENABLED) {
                         return Err("button enable method changed".into());
                     }
-                    m.call(m.at(SET_ENABLED), &[b.object, enabled as usize])?;
+                    SET_ENABLED.call(m, [b.object, enabled as usize])?;
                     b.applied_enabled = Some(enabled);
                 }
             }
@@ -351,56 +390,49 @@ fn main_menu_page(m: &Memory, frontend: usize) -> Result<bool> {
     Ok(m.u32(frontend + main_menu::PAGE)? == 0)
 }
 
-extern "C" fn menu_after(frame: *mut HookFrame) {
-    crate::guarded("main menu frame", || {
-        let frame = unsafe { &*frame };
-        let Some(m) = crate::memory().copied() else { return };
-        if frame.fault != 0 || crate::thread_id() != crate::main_thread() {
-            return;
+fn menu_after(call: &mut Call) {
+    let m = call.memory();
+    if call.faulted() || crate::thread_id() != crate::main_thread() {
+        return;
+    }
+    crate::safe_point::main_menu_frame(call.arg(0));
+    crate::unicode::log_once();
+    match main_menu_page(&m, call.arg(0)) {
+        Ok(true) => crate::framework_ui::main_menu_frame(),
+        Ok(false) => {}
+        // The corner button then shows on every page of the main menu.
+        Err(e) => {
+            with_ui(|ui| report_once(ui, format!("main menu page unknown: {e}")));
+            crate::framework_ui::main_menu_frame();
         }
-        crate::safe_point::main_menu_frame(frame.args[0]);
-        crate::unicode::log_once();
-        match main_menu_page(&m, frame.args[0]) {
-            Ok(true) => crate::framework_ui::main_menu_frame(),
-            Ok(false) => {}
-            // The corner button then shows on every page of the main menu.
-            Err(e) => {
-                with_ui(|ui| report_once(ui, format!("main menu page unknown: {e}")));
-                crate::framework_ui::main_menu_frame();
-            }
-        }
-    });
+    }
 }
 
-extern "C" fn panel_after(frame: *mut HookFrame) {
-    crate::guarded("panel update", || {
-        let frame = unsafe { &*frame };
-        let Some(m) = crate::memory().copied() else { return };
-        if frame.fault != 0 || crate::thread_id() != crate::main_thread() || game::context(&m).is_err() {
+fn panel_after(call: &mut Call) {
+    let m = call.memory();
+    if call.faulted() || crate::thread_id() != crate::main_thread() || game::context(&m).is_err() {
+        return;
+    }
+    let panel = call.arg(0);
+    with_ui(|ui| {
+        if ui.fatal.is_some() {
             return;
         }
-        let panel = frame.args[0];
-        with_ui(|ui| {
-            if ui.fatal.is_some() {
-                return;
+        let result = (|| -> Result<()> {
+            if m.ptr(panel)? != m.at(classes::ARMY_PANEL) {
+                return Err("unexpected army panel class".into());
             }
-            let result = (|| -> Result<()> {
-                if m.ptr(panel)? != m.at(classes::ARMY_PANEL) {
-                    return Err("unexpected army panel class".into());
-                }
-                bind(&m, ui, Host::ArmyPanel, panel, m.ptr(panel + army_panel::WINDOW)?)?;
-                apply(&m, ui, Host::ArmyPanel)
-            })();
-            if let Err(e) = result {
-                report_once(ui, e);
-            }
-        });
+            bind(&m, ui, Host::ArmyPanel, panel, m.ptr(panel + army_panel::WINDOW)?)?;
+            apply(&m, ui, Host::ArmyPanel)
+        })();
+        if let Err(e) = result {
+            report_once(ui, e);
+        }
     });
 }
 
 /// Detaches the bindings `which` selects while their objects are still alive.
-fn retire(which: impl Fn(&Binding) -> bool) {
-    let Some(m) = crate::memory().copied() else { return };
+fn retire(m: Memory, which: impl Fn(&Binding) -> bool) {
     with_ui(|ui| {
         if !ui.bindings.iter().any(&which) {
             return;
@@ -413,27 +445,27 @@ fn retire(which: impl Fn(&Binding) -> bool) {
     });
 }
 
-extern "C" fn panel_destroy(frame: *mut HookFrame) {
-    let panel = unsafe { (*frame).args[0] };
-    crate::guarded("panel destroy", || retire(|b| b.host == Host::ArmyPanel && b.holder == panel));
+fn panel_destroy(call: &mut Call) {
+    let panel = call.arg(0);
+    retire(call.memory(), |b| b.host == Host::ArmyPanel && b.holder == panel);
 }
-extern "C" fn panel_recreate(frame: *mut HookFrame) {
-    let panel = unsafe { (*frame).args[0] }.checked_sub(army_panel::INTERFACE);
-    crate::guarded("panel rebuild", || retire(|b| b.host == Host::ArmyPanel && Some(b.holder) == panel));
+fn panel_recreate(call: &mut Call) {
+    let panel = call.arg(0).checked_sub(army_panel::INTERFACE);
+    retire(call.memory(), |b| b.host == Host::ArmyPanel && Some(b.holder) == panel);
 }
-extern "C" fn button_destroy(frame: *mut HookFrame) {
-    let button = unsafe { (*frame).args[0] };
-    crate::guarded("button destroy", || retire(|b| b.bound.iter().any(|x| x.object == button)));
+fn button_destroy(call: &mut Call) {
+    let button = call.arg(0);
+    retire(call.memory(), |b| b.bound.iter().any(|x| x.object == button));
 }
 /// Every teardown path of a root window passes here first (notice-window.md §3).
-extern "C" fn window_kill(frame: *mut HookFrame) {
-    let window = unsafe { (*frame).args[0] };
-    crate::guarded("window kill", || retire(|b| b.root == window));
+fn window_kill(call: &mut Call) {
+    let window = call.arg(0);
+    retire(call.memory(), |b| b.root == window);
 }
 /// Backstop for a root freed without passing the kill hook.
-extern "C" fn window_delete(frame: *mut HookFrame) {
-    let window = unsafe { (*frame).args[0] };
-    crate::guarded("window delete", || retire(|b| b.root == window));
+fn window_delete(call: &mut Call) {
+    let window = call.arg(0);
+    retire(call.memory(), |b| b.root == window);
 }
 
 fn modifiers() -> u32 {
@@ -460,53 +492,50 @@ fn enqueue(context: usize, button: usize, click: u32) {
     else {
         return;
     };
-    let d = &ui.declared[b.index];
+    let d = &ui.elements.declared[b.index];
     let Some(extension) = d.extension else { return };
     if ui.clicks.len() < 64 {
         ui.clicks.push(Click { extension, name: d.element.name.clone(), click, modifiers: modifiers() });
     }
 }
 
+#[called_by_game]
 extern "system" fn left_click(context: usize, event: usize) {
-    crate::guarded("left click", || {
-        let Some(m) = crate::memory().copied() else { return };
-        if event == 0 {
-            return;
-        }
-        let Ok(button) = m.ptr(event) else { return };
-        enqueue(context, button, CLICK_LEFT);
-        // Mark the click consumed so it does not fall through to the map.
-        let _ = m.write(event + event::CONSUMED, &[1]);
-    });
+    let Some(m) = crate::memory().copied() else { return };
+    if event == 0 {
+        return;
+    }
+    let Ok(button) = m.ptr(event) else { return };
+    enqueue(context, button, CLICK_LEFT);
+    // Mark the click consumed so it does not fall through to the map.
+    let _ = m.write(event + event::CONSUMED, &[1]);
 }
 
+#[called_by_game]
 extern "system" fn right_click(context: usize, button: usize) {
-    crate::guarded("right click", || enqueue(context, button, CLICK_RIGHT));
+    enqueue(context, button, CLICK_RIGHT)
 }
 
 /// Fills the panel's tooltip for our buttons that have one. The game builds
 /// the output aggregate: main text at +0, delayed text at +32.
-extern "C" fn tooltip_after(frame: *mut HookFrame) {
-    crate::guarded("tooltip", || {
-        let frame = unsafe { &*frame };
-        let Some(m) = crate::memory().copied() else { return };
-        if frame.fault != 0 || frame.result != frame.args[1] || crate::thread_id() != crate::main_thread() {
-            return;
+fn tooltip_after(call: &mut Call) {
+    let m = call.memory();
+    if call.result() != Some(call.arg(1)) || crate::thread_id() != crate::main_thread() {
+        return;
+    }
+    let Ok(guard) = UI.try_lock() else { return };
+    let Some(ui) = guard.as_ref() else { return };
+    let Some(binding) = ui.bindings.iter().find(|b| b.host == Host::ArmyPanel && b.holder == call.arg(0)) else { return };
+    let Some(b) = binding.bound.iter().find(|b| b.object == call.arg(2) && b.wrapper.is_some()) else { return };
+    let Some(text) = ui.elements.declared[b.index].desired.tooltip.clone().filter(|t| !t.is_empty()) else { return };
+    drop(guard);
+    let output = call.arg(1);
+    let empty = |offset: usize| game_string::untouched(&m, output + offset);
+    if let (Ok(true), Ok(true)) = (empty(0), empty(game_string::OBJECT)) {
+        if let Err(e) = game_string::append_checked(&m, output, &text) {
+            log!("ui: tooltip append failed: {e}");
         }
-        let Ok(guard) = UI.try_lock() else { return };
-        let Some(ui) = guard.as_ref() else { return };
-        let Some(binding) = ui.bindings.iter().find(|b| b.host == Host::ArmyPanel && b.holder == frame.args[0]) else { return };
-        let Some(b) = binding.bound.iter().find(|b| b.object == frame.args[2] && b.wrapper.is_some()) else { return };
-        let Some(text) = ui.declared[b.index].desired.tooltip.clone().filter(|t| !t.is_empty()) else { return };
-        drop(guard);
-        let output = frame.args[1];
-        let empty = |offset: usize| game_string::untouched(&m, output + offset);
-        if let (Ok(true), Ok(true)) = (empty(0), empty(game_string::OBJECT)) {
-            if let Err(e) = game_string::append_checked(&m, output, &text) {
-                log!("ui: tooltip append failed: {e}");
-            }
-        }
-    });
+    }
 }
 
 /// The army panel, button and window functions the UI hooks or calls.
@@ -545,10 +574,10 @@ pub fn points() -> Vec<Point> {
         Point::method(classes::WINDOW, window::KILL, WINDOW_KILL, "window kill method"),
         Point::method(classes::BUTTON, element::SHOW, SHOW, "button show method"),
         Point::method(classes::BUTTON, element::HIDE, HIDE, "button hide method"),
-        Point::method(classes::BUTTON, element::ENABLE, SET_ENABLED, "button enable method"),
-        Point::method(classes::BUTTON, button::SET_RIGHT_CLICK, SET_RIGHT_CLICK, "button right-click method"),
-        Point::method(classes::SIGNAL, signal::SUBSCRIBE, SUBSCRIBE, "signal subscribe method"),
-        Point::method(classes::SIGNAL, signal::UNSUBSCRIBE, functions::UNSUBSCRIBE, "signal unsubscribe method"),
+        Point::method(classes::BUTTON, element::ENABLE, SET_ENABLED.rva(), "button enable method"),
+        Point::method(classes::BUTTON, button::SET_RIGHT_CLICK, SET_RIGHT_CLICK.rva(), "button right-click method"),
+        Point::method(classes::SIGNAL, signal::SUBSCRIBE, SUBSCRIBE.rva(), "signal subscribe method"),
+        Point::method(classes::SIGNAL, signal::UNSUBSCRIBE, functions::UNSUBSCRIBE.rva(), "signal unsubscribe method"),
     ]
 }
 
@@ -557,13 +586,7 @@ pub fn take_clicks() -> Vec<Click> {
 }
 
 fn desired(extension: usize, name: &str, f: impl FnOnce(&mut Desired)) -> GResult<()> {
-    with_ui(|ui| match ui.declared.iter_mut().find(|d| d.extension == Some(extension) && d.element.name == name) {
-        Some(d) => {
-            f(&mut d.desired);
-            Ok(())
-        }
-        None => fail(Status::NotFound, format!("no element {name:?} declared by this mod")),
-    })
+    with_ui(|ui| ui.elements.want(extension, name, f))
 }
 
 pub fn set_visible(extension: usize, name: &str, visible: bool) -> GResult<()> {
@@ -582,20 +605,12 @@ pub fn set_tooltip(extension: usize, name: &str, text: Vec<u8>) -> GResult<()> {
 /// Forgets what a reloaded extension set on its elements: its new code sets
 /// them again.
 pub fn forget_extension(extension: usize) {
-    with_ui(|ui| {
-        for d in ui.declared.iter_mut().filter(|d| d.extension == Some(extension)) {
-            d.desired = Desired::default();
-        }
-    });
+    with_ui(|ui| ui.elements.forget(extension));
 }
 
 /// Hides everything a stopped extension added.
 pub fn hide_extension(extension: usize) {
-    with_ui(|ui| {
-        for d in ui.declared.iter_mut().filter(|d| d.extension == Some(extension)) {
-            d.desired.visible = Some(false);
-        }
-    });
+    with_ui(|ui| ui.elements.hide(extension));
 }
 
 /// The own land army shown in the open single-army panel.
@@ -614,4 +629,36 @@ pub fn selected_army(m: &Memory, ctx: &game::Ctx) -> GResult<u64> {
         return Err(eu4_harmony_checks::armies::none_selected().into());
     }
     Ok(m.u64(army + unit::ID)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn element(name: &str, kind: ElementKind) -> Element {
+        Element { owner: 0, window: "unitpanel".into(), host: Host::ArmyPanel, name: name.into(), prefixed: format!("mod_{name}"), kind }
+    }
+
+    #[test]
+    fn an_extension_changes_only_its_own_elements() {
+        let mut elements = Elements::default();
+        elements.declare(vec![(element("go", ElementKind::Button), Some(0)), (element("label", ElementKind::Text), Some(1))]);
+        elements.want(0, "go", |d| d.enabled = Some(false)).unwrap();
+        assert_eq!(elements.want(0, "label", |d| d.visible = Some(true)).unwrap_err().status, Status::NotFound, "extension 1's");
+        assert_eq!(elements.want(0, "stop", |_| ()).unwrap_err().status, Status::NotFound, "none declared");
+        assert_eq!(elements.declared[0].desired.enabled, Some(false));
+        elements.forget(0);
+        assert_eq!(elements.declared[0].desired.enabled, None);
+        elements.hide(1);
+        assert_eq!((elements.declared[0].desired.visible, elements.declared[1].desired.visible), (None, Some(false)));
+    }
+
+    #[test]
+    fn a_hidden_text_box_shows_no_text() {
+        let mut desired = Desired { text: Some(b"12".to_vec()), ..Desired::default() };
+        assert_eq!(desired.text_box(), Some(b"12".to_vec()));
+        desired.visible = Some(false);
+        assert_eq!(desired.text_box(), Some(Vec::new()));
+        assert_eq!(Desired::default().text_box(), None, "nothing asked, nothing written");
+    }
 }

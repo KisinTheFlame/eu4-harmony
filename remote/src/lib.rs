@@ -121,6 +121,51 @@ macro_rules! for_extensions {
     };
 }
 
+/// Where a capability runs, as a type: what the core opens for it before
+/// its capability runs, a session with a country to act as ([`place::Game`]),
+/// one with the world alone ([`place::World`]), or nothing
+/// ([`place::Anywhere`]).
+pub mod place {
+    /// A game going on, acting as a country.
+    pub struct Game;
+    /// A game going on, acting as no country.
+    pub struct World;
+    /// Also at the main menu.
+    pub struct Anywhere;
+}
+
+/// Where a capability runs, as a type of [`place`].
+macro_rules! place {
+    (game) => {
+        $crate::place::Game
+    };
+    (remote_game) => {
+        $crate::place::Game
+    };
+    (world) => {
+        $crate::place::World
+    };
+    (remote_world) => {
+        $crate::place::World
+    };
+    (anywhere) => {
+        $crate::place::Anywhere
+    };
+    (remote_anywhere) => {
+        $crate::place::Anywhere
+    };
+}
+
+/// One capability's arguments, each by its name, as its group's `args`
+/// module declares them: what the core's capability layer takes, so that two
+/// of one type cannot reach it the other way round.
+pub trait Arguments {
+    /// Where the capability runs, a type of [`place`].
+    type Place;
+    /// How many arguments it has.
+    const COUNT: usize;
+}
+
 /// Declares one group of capabilities: its request enum, its answer enum and
 /// their descriptions, from one list. Each capability is written as
 ///
@@ -167,6 +212,46 @@ macro_rules! group {
         #[serde(untagged)]
         pub enum $Answer {
             $( $Variant($Result), )*
+        }
+
+        /// Each capability's arguments, by name, as the core's capability
+        /// layer takes them ([`Arguments`](crate::Arguments)).
+        pub mod args {
+            use super::*;
+
+            $(
+                #[doc = concat!("The arguments of `", $group, ".", $action, "`.")]
+                #[derive(Clone, Debug, PartialEq)]
+                pub struct $Variant {
+                    $( $(#[doc = $arg_doc])* pub $arg: $Ty, )*
+                }
+
+                impl $crate::Arguments for $Variant {
+                    type Place = place!($place);
+                    const COUNT: usize = <[&str]>::len(&[$(stringify!($arg)),*]);
+                }
+
+                impl From<$Variant> for $Request {
+                    fn from(args: $Variant) -> Self {
+                        let $Variant { $($arg),* } = args;
+                        $Request::$Variant { $($arg),* }
+                    }
+                }
+            )*
+
+            /// A request of the group, as its capability's arguments.
+            pub enum Args {
+                $( $Variant($Variant), )*
+            }
+        }
+
+        impl $Request {
+            /// The request as its capability's arguments.
+            pub fn into_args(self) -> args::Args {
+                match self {
+                    $( Self::$Variant { $($arg),* } => args::Args::$Variant(args::$Variant { $($arg),* }), )*
+                }
+            }
         }
 
         impl $crate::GroupRequest for $Request {

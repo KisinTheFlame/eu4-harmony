@@ -8,6 +8,7 @@ use eu4_harmony_remote::{
     occupation::{OccupationAnswer, OccupationRequest, Transferred, Transfers},
     CountryTag, Error,
 };
+use eu4_harmony_remote::occupation::args;
 
 layer! {
     run OccupationRequest => OccupationAnswer + countries::Layer;

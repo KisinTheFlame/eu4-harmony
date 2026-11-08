@@ -1,0 +1,13 @@
+# 2026-11-02 Glyphs on whole pixels (tested by me)
+
+The player found some characters in tooltips blurrier than others, at interface scales 1.5 and 1.6. Runs of `eu4.exe`, started directly, Chinese playset with the unchanged regional-combat extension, at 3840x2160, the player's framework settings (system fonts, FZPingXianYaSongS-R-GB for text); each went to the main menu, `menu.start MNG`, and the mouse was put on the top bar's treasury for its tooltip, with screenshots through `eu4-harmony game screenshot`. Backups as AGENTS.md says. The interface scale in `settings.txt` was set to what each run needed.
+
+- **Probe builds** (not kept): logged the device's render target, viewport and projection where main text and button text draw, and where button text's texture is shown; what they found is in [research/font-textures.md](../research/font-textures.md#where-glyphs-land-on-pixels). At 1.5 the treasury tooltip went through the button text method (358 by 292 GUI units, a texture of 537 by 438), all main text straight to the back buffer.
+- **A call trace broke tooltips**: with the `trace` feature tracing 0x1596660 (15 arguments), its calls got garbage widths (a texture of 2147483647 by 468 pixels for one), and tooltips were black boxes. The trace's log showed 12 of the 15 arguments. That run was ended at once; the trace was set for that process only.
+- **This change** (590 dependency points match; 105 hooks, 8 writes): the tooltip's line "这是你可以用于征募军队", each character fitted to the system font's glyph at the page's size, free to sit between pixels:
+  - at 1.5, root mean square differences of 3.0 to 42.1 before (mean 23.2; only 你, 可 and 募 under 5), 2.9 to 8.7 after (mean 4.8), all eleven at the same place between pixels, (0.75, 0.75);
+  - at 1.6, mean 20.5 before, 7.1 after, at (0.4, 0.9).
+  - The place they share is the texture's on screen, which this change does not move.
+- **Main text** at 1.6: in the start-of-game introduction (the heading font), two copies of 的 in its second line match the one in its first to within 9 of 255 inside the glyph.
+- **Not seen in the running game**: an event window, the outliner, the ledger and other main text in the body font; the framework UI; a bitmap font, which is left as it is (a unit test only); an interface scale of 1; button text whose texture is a power of two.
+- **Cleanup**: each game was closed by ending its process. The player played between runs, so the backup was not put back, which would have undone that game; the interface scale was set back to the player's 1.5, and the backup was deleted. This branch's build was left installed for the player to look at. No crash folder was made.

@@ -1,6 +1,6 @@
 # Scenarios plan
 
-Status: SC1 to SC3 built and tried in the game (2026-11-05); what was not tried is in [prototype-log.md](prototype-log.md). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Scenario, Leak run, Claim, Hidden start). It builds on the claims of test games ([test-games.md](test-games.md)) and on remote control ([remote-control.md](remote-control.md)); the decision behind it is [ADR scenarios-drive-the-game-through-remote-control-only](adr/scenarios-drive-the-game-through-remote-control-only.md).
+Status: SC1 to SC3 built and tried in the game (2026-11-05); what was not tried is in [Scenarios](prototype-log/2026-11-05-scenarios.md). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Scenario, Leak run, Claim, Hidden start). It builds on the claims of test games ([test-games.md](test-games.md)) and on remote control ([remote-control.md](remote-control.md)); the decision behind it is [ADR scenarios-drive-the-game-through-remote-control-only](adr/scenarios-drive-the-game-through-remote-control-only.md).
 
 ## Goal and scope
 
@@ -41,26 +41,28 @@ Whatever ends the run, an error such as a report it cannot write, a scenario's p
 
 Of the processes it runs, only cargo, for the builds, and the game are programs of their own; everything else it does in its own process.
 
+A scenario reaches its test game's process only through the claim, whose `follow.exe` follows each game to its exit code, holding it from the start on, and remote control through the test game's pipe by its name. So how a scenario ends, crashed, hung, failed, and the wait for the main menu across a restart, is tested without the game, on the claim's recorded computer with the client's own test server for the pipe (`xtask/src/scenario/game.rs`).
+
 ### How a scenario ends
 
 | Outcome | When | Then |
 | --- | --- | --- |
 | Passed | Every check held | The next scenario |
 | Failed | A check did not hold | The scenario ends there, with the figures it recorded until then; the game returns to the main menu, and the next one plays |
-| Crashed | The game ended | The report has what the crash dump says; the game is started again for the next one |
+| Crashed | The game ended | The report has how the game ended, its exit code as the claim followed it, and what its crash folder and dump say; the game is started again for the next one |
 | Hung | A step took longer than its time: an answer, the main menu, the days to run | The report says which step; the game is ended and started again for the next one |
 | Not played | Its build could not be built, or the run was interrupted before it began | The report says why; the scenarios of the next build are played |
 | Unfinished | Ctrl-C | The game is ended and the scenarios left are not played; the runner writes the report as far as it got and releases a claim it made |
 
 ### The report
 
-One folder a run, with `report.json`, every answer and figure, and `report.md`: first a table of the scenarios with their build, outcome, the check or step they ended at and how long they played; then each scenario's own sections. The run is recorded in [prototype-log.md](prototype-log.md) by whoever ran it, from the report, saying what was not verified.
+One folder a run, with `report.json`, every answer and figure, and `report.md`: first a table of the scenarios with their build, outcome, the check or step they ended at and how long they played; then each scenario's own sections. The run is recorded in a file of its own in [prototype-log/](prototype-log/) by whoever ran it, from the report, saying what was not verified.
 
 ### The scenarios
 
 - **`leak`**: the leak run on the build with the heap census: rounds of a load, an in-game load, a return, a new game and a return; after each, the memory account and the leftovers; after the last, what holds them and what keeps the free pages; with its parameters, the watch and the quarantine. The sections are those `leak-run` wrote.
 - **`growth`**: the same rounds on the build with the memory account only, which slows nothing, for where each round's growth goes, part by part and heap by heap, with a bound on it per round once the recorded runs settle one.
-- **`perf`**: what `perf-run` measured, on the player build: the seconds to the main menu, memory at it, a new game as Ming and the seconds it takes, CPU and memory paused for 30 s and at speed 5 for 120 s; and game days a minute at speed 5, from the dates. Its check is that it played to its end; its figures go into [performance.md](performance.md) when they measure what the framework costs, as `perf-run`'s did.
+- **`perf`**: what `perf-run` measured, on the player build: the seconds to the main menu, memory at it, a new game as Ming and the seconds it takes, CPU and memory paused for 30 s and at speed 5 for 120 s; and game days a minute at speed 5, from the dates. Its check is that it played to its end; its figures go into [performance.md](performance.md) when they measure what the framework costs, as `perf-run`'s did. With `--perf.game_paths`, the speed-ups it names (by name, group or `all`, by commas) are left to the game: it plays a developer build with the test switches, its core started with those in its own `dev.toml`, so that the same run measures the game's own code ([game-speed.md](game-speed.md), "How it fits together").
 
 ## How it fits together
 
@@ -87,7 +89,7 @@ The claim starts its test game with `client/`, the library under the command lin
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and clippy pass, for the player build and with `dev`;
-- what it delivers was tried in the game, in a claim's test game, with the run recorded in [prototype-log.md](prototype-log.md), saying as plainly what was not verified;
+- what it delivers was tried in the game, in a claim's test game, with the run recorded in a file of its own in [prototype-log/](prototype-log/), saying as plainly what was not verified;
 - [dev-tools.md](dev-tools.md), and the game-test skill where it names a command, describe what changed.
 
 ### SC1 The client library
@@ -104,4 +106,4 @@ The claim starts its test game with `client/`, the library under the command lin
 
 ### Later
 
-Each its own part when it is wanted: the other runs [prototype-log.md](prototype-log.md) records again and again as scenarios (a session's round trip, an extension reload, extension save data through a save, ironman, input); reference figures, to compare a run's figures with earlier ones.
+Each its own part when it is wanted: the other runs [prototype-log/](prototype-log/) records again and again as scenarios (a session's round trip, an extension reload, extension save data through a save, ironman, input); reference figures, to compare a run's figures with earlier ones.

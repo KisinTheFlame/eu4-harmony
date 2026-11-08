@@ -6,14 +6,15 @@ use eu4_harmony_remote::{
     buildings::{BuildingAnswer, BuildingConstruction, BuildingOption, BuildingOptions, BuildingRequest},
     Date, Error, ProvinceId,
 };
+use eu4_harmony_remote::buildings::args;
 
 layer! {
     run BuildingRequest => BuildingAnswer;
     fn building_options(province: u32) -> (Option<layer::Constructing>, Vec<layer::Offer>) = session layer::options;
     Options { province } => options(game, province);
-    Build => fn build(province: u32, building: String) -> () = session layer::build;
-    Cancel => fn cancel_building(province: u32) -> () = session layer::cancel;
-    Destroy => fn destroy_building(province: u32, building: String) -> () = session layer::destroy;
+    Build => fn build -> () = layer::build;
+    Cancel => fn cancel_building -> () = layer::cancel;
+    Destroy => fn destroy_building -> () = layer::destroy;
 }
 
 /// What the building panel offers in the province, and what it builds now.

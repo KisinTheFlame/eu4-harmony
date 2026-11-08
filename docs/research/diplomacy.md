@@ -1,6 +1,6 @@
 # Diplomacy (for `game::diplomacy`)
 
-Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe on 2026-10-29; what was checked in the running game is marked "tested" (prototype-log.md, 2026-10-29, remote control C8). The session that takes the player's commands is in `objects::session`; an offer another country makes to the player, which the player answers, is C7's (GLOSSARY "Offer").
+Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe on 2026-10-29; what was checked in the running game is marked "tested" (2026-10-29, remote control C8: [Diplomacy](../prototype-log/2026-10-29-diplomacy.md) and [Diplomacy after review](../prototype-log/2026-10-29-diplomacy-after-review.md)). The session that takes the player's commands is in `objects::session`; an offer another country makes to the player, which the player answers, is C7's (GLOSSARY "Offer").
 
 ## Diplomatic actions
 

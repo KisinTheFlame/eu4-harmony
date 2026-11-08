@@ -65,7 +65,9 @@ usage:
   cargo xtask offline-check
       Compares every dependency point's bytes with the game's eu4.exe, and
       checks that each observer forwards at least the arguments its function
-      reads: the core's ignored tests, with EU4_GAME_DIR set.
+      reads: the core's ignored tests, with EU4_GAME_DIR set, in a player's
+      build and then in a developer build with every tool, whose points
+      only it declares.
   cargo xtask scenario
   cargo xtask scenario <name>... [--out <dir>] [--wait] [--owner <name>]
                        [--game-dir <dir>] [--<name>.<parameter> <value>]...
@@ -170,7 +172,7 @@ impl Args {
 
     /// `--game-dir`, else the game folder `game::dir` finds.
     fn game_dir(&self) -> Result<PathBuf> {
-        self.value("game-dir").map_or_else(game::dir, |d| Ok(PathBuf::from(d)))
+        eu4_harmony_folders::game_dir(self.value("game-dir").map(Path::new))
     }
 }
 
@@ -222,7 +224,15 @@ fn main() {
             rest,
             "the disassembler",
         ),
-        Some("offline-check") => with_game(&["test", "--release", "-p", "eu4-harmony-core", "--", "--ignored"], rest, "the offline checks"),
+        // A player's build's points, then a developer build's with every
+        // tool, whose points the player's build does not declare.
+        Some("offline-check") => with_game(&["test", "--release", "-p", "eu4-harmony-core", "--", "--ignored"], rest, "the offline checks").and_then(|()| {
+            with_game(
+                &["test", "--release", "-p", "eu4-harmony-core", "--features", "eu4-harmony-core/dev", "--", "--ignored"],
+                rest,
+                "the offline checks of the developer build",
+            )
+        }),
         Some("scenario") => scenario::run(rest),
         Some("profile") => Args::parse(rest, &["tree", "wait", "threads"], &["seconds", "hz", "slice", "root", "depth", "min", "waiting-in", "test-game"])
             .and_then(|a| profile::run(&a)),

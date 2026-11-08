@@ -1,6 +1,6 @@
 # Test games plan
 
-Status: decided 2026-11-08, T1 to T4 built; what was tried in the game is in [prototype-log.md](prototype-log.md), "Test games". The limit of three, the queue and the lease were taken out the same day ([ADR test-games-have-no-limit-or-lease](adr/test-games-have-no-limit-or-lease.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Test game, Claim). It replaces the claim of the whole game of [game-testing.md](game-testing.md), and rests on [research/several-games.md](research/several-games.md), which found that several games run at once. The decision is [ADR test-games-run-side-by-side](adr/test-games-run-side-by-side.md).
+Status: decided 2026-11-08, T1 to T4 built; what was tried in the game is in [Test games](prototype-log/2026-11-08-test-games.md). The limit of three, the queue and the lease were taken out the same day ([ADR test-games-have-no-limit-or-lease](adr/test-games-have-no-limit-or-lease.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Test game, Claim). It replaces the claim of the whole game of [game-testing.md](game-testing.md), and rests on [research/several-games.md](research/several-games.md), which found that several games run at once. The decision is [ADR test-games-run-side-by-side](adr/test-games-run-side-by-side.md).
 
 ## Goal and scope
 
@@ -51,14 +51,14 @@ A claim holds its test game until it is released. `watch`, `renew`, `--lease`, `
 
 - `user\`: the test game's user folder. The claim copies the player's `settings.txt`, `dlc_load.json` (the playset), `dlc_signature`, `game_data.json`, `gameplaysettings.txt`, `messagetypes_custom.txt`, `pdx_settings.txt`, `shortcuts.txt` and the framework's `eu4-harmony\settings.txt`, those that are there, and makes `mod` a junction to the player's `mod` folder, where the playset's descriptors are. `start` copies the saves it is given into `user\save games\`.
 - `core\`: the core and `dev.toml` `start` copied.
-- `follow.exe`: a copy of xtask that follows the test game to its end and writes how it ended into `game-ends.tsv`, as the claim's `watch` did; after an end with 0, as a restart's, it follows the game the test game restarts in its place, found by its pipe. One runs a claim: a start ends the one before.
+- `follow.exe`: a copy of xtask that follows the test game to its end and writes how it ended into `game-ends.tsv`, as the claim's `watch` did; after an end with 0, as a restart's, it follows the game the test game restarts in its place, found by its pipe. One runs a claim: a start ends the one before. A game that ends before its main menu has no follower, and the start writes its end there itself, so that the release tells of a crash at startup too.
 - `kept\`, after the release: `eu4-harmony-logs\`, `game-logs\`, `crashes\` and `game-ends.tsv`. A claim removes the `kept\` of claims released more than 7 days before.
 
 The release removes the junction before the folder, so that the player's `mod` folder is never removed through it.
 
 ### How many, and for how long
 
-- Any number of test games at once, and a claim holds its own until its holder releases it: no queue, no lease, nothing taken from a holder ([ADR test-games-have-no-limit-or-lease](adr/test-games-have-no-limit-or-lease.md)). A game in 1820 takes 4.2 GB of memory and 1.3 GB of the graphics card's ([prototype-log.md](prototype-log.md), "Test games"); `status` says how many are held.
+- Any number of test games at once, and a claim holds its own until its holder releases it: no queue, no lease, nothing taken from a holder ([ADR test-games-have-no-limit-or-lease](adr/test-games-have-no-limit-or-lease.md)). A game in 1820 takes 4.2 GB of memory and 1.3 GB of the graphics card's ([Test games](prototype-log/2026-11-08-test-games.md)); `status` says how many are held.
 - A claim left behind, such as a scenario run's ended by a second Ctrl-C, stays until `cargo xtask game release --owner <name>` releases it.
 
 ### Beside other games
@@ -69,7 +69,7 @@ The release removes the junction before the folder, so that the player's `mod` f
 
 ## How it fits together
 
-- `proxy/` reads `-harmony_core` (its own copy of the manifest crate's word splitting, which a test compares, so that the proxy links nothing but the core); `core/src/paths.rs` reads the command line once, `-userdir` through `eu4_harmony_manifest::user_dir_of`, and the core's own folder; `core/src/pipe.rs` names the pipe; `eu4_harmony_remote::pipe_of` makes a test game's pipe's name for the core and the client alike.
+- `proxy/` reads `-harmony_core` (its own copy of the folders crate's word splitting, which a test compares, so that the proxy links nothing but the core); `core/src/paths.rs` reads the command line once, `-userdir` through `eu4_harmony_folders::user_dir_of`, and the core's own folder; `core/src/pipe.rs` names the pipe; `eu4_harmony_remote::pipe_of` makes a test game's pipe's name for the core and the client alike.
 - `client/src/start.rs` starts a test game, checking the proxy and the core for the switches they need, and waiting for the main menu on the test game's pipe; `client/src/pipe.rs` names the pipe from `--test-game` or the environment.
 - `xtask/src/claim/`: `record.rs` the claims and what a claim finds when it looks at them, without files or clock; `course.rs` claiming, starting, stopping, releasing and a run within a claim, over the seam `machine.rs`, which is the computer: the record under its mutex, the processes, the claims' folders and the clock. The course's tests play whole courses over a recorded machine.
 - The scenario runner builds each build with `dev-test-games` and copies it into its test game's `core\`; its "player" build is the player's with the test games' pipes only, which the startup report names.
@@ -79,7 +79,7 @@ The release removes the junction before the folder, so that the player's `mod` f
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and clippy pass, for the player build and with `dev`;
-- what it delivers was tried in the game, with the run recorded in [prototype-log.md](prototype-log.md), saying as plainly what was not verified;
+- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](prototype-log/), saying as plainly what was not verified;
 - [dev-tools.md](dev-tools.md) describes what changed.
 
 ### T1 A core and a user folder of a test game's own

@@ -3,7 +3,11 @@
 //! (docs/research/government.md, "Parliament").
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
+use crate::containers;
+use crate::game_string;
 use crate::{memory::Memory, points::Point};
+use eu4_harmony_remote::parliament::args;
+use eu4_harmony_remote::ProvinceId;
 use eu4_harmony_remote::{
     choices::Choice,
     parliament::{Issue, Parliament},
@@ -44,14 +48,15 @@ pub fn points() -> Vec<Point> {
 /// The issues of the database.
 fn issues(m: &Memory) -> GResult<Vec<usize>> {
     let database = m.at(DATABASE);
-    let (data, count) = (m.ptr(database + content::ARRAY_DATA)?, content::bounded(m.i32(database + content::ARRAY_COUNT)?)?);
+    let (data, count) = (m.ptr(database + containers::ARRAY_DATA)?, containers::bounded(m.i32(database + containers::ARRAY_COUNT)?, containers::MOST)?);
     Ok((0..count).map(|i| data + i * ISSUE).collect())
 }
 
 /// The issues the player's parliament offers.
 fn offered(m: &Memory, parliament: usize) -> GResult<Vec<usize>> {
     let issues = issues(m)?;
-    let (data, count) = (m.ptr(parliament + OFFER + content::ARRAY_DATA)?, content::bounded(m.i32(parliament + OFFER + content::ARRAY_COUNT)?)?);
+    let (data, count) =
+        (m.ptr(parliament + OFFER + containers::ARRAY_DATA)?, containers::bounded(m.i32(parliament + OFFER + containers::ARRAY_COUNT)?, containers::MOST)?);
     (0..count)
         .map(|i| match issues.get(m.i32(data + i * 4)? as usize) {
             Some(&issue) => Ok(issue),
@@ -62,12 +67,19 @@ fn offered(m: &Memory, parliament: usize) -> GResult<Vec<usize>> {
 
 fn choice(m: &Memory, parliament: usize, player: Tag, issue: usize) -> GResult<Choice> {
     let allow = m.ptr(issue + ISSUE_ALLOW)?;
-    let mut reasons = if allow == 0 || conditions::holds(m, allow, player, 0)? { Vec::new() } else { conditions::failing(m, allow, player, 0)? };
-    let debating = m.ptr(parliament + DEBATE)? != 0;
-    if debating {
+    let mut reasons = Vec::new();
+    if allow != 0 && !conditions::holds(m, allow, player, 0)? {
+        // Conditions that do not hold refuse the issue even when the
+        // tooltip lists no line for them.
+        reasons = conditions::failing(m, allow, player, 0)?;
+        if reasons.is_empty() {
+            reasons.push("the issue's conditions do not hold".to_string());
+        }
+    }
+    if m.ptr(parliament + DEBATE)? != 0 {
         reasons.push("a debate is going on".to_string());
     }
-    Ok(if reasons.is_empty() && !debating { Choice::can(Vec::new()) } else { Choice::cannot(reasons, Vec::new()) })
+    Ok(if reasons.is_empty() { Choice::can(Vec::new()) } else { Choice::cannot(reasons, Vec::new()) })
 }
 
 /// The player's parliament as the parliament view shows it.
@@ -79,13 +91,13 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Parliament> {
     let enacted = m.ptr(parliament + ENACTED)?;
     let mut issues = Vec::new();
     for issue in offered(m, parliament)? {
-        let key = content::key(m, issue + ISSUE_KEY)?;
+        let key = game_string::key(m, issue + ISSUE_KEY)?;
         issues.push(Issue { name: content::name(m, &key)?, issue: key, choice: choice(m, parliament, ctx.player, issue)? });
     }
     Ok(Parliament {
         parliament: true,
         debating: debating(m, parliament)?,
-        enacted: if enacted == 0 { None } else { Some(content::key(m, enacted + ISSUE_KEY)?) },
+        enacted: if enacted == 0 { None } else { Some(game_string::key(m, enacted + ISSUE_KEY)?) },
         issues,
     })
 }
@@ -98,7 +110,7 @@ fn debating(m: &Memory, parliament: usize) -> GResult<Option<String>> {
         return Ok(None);
     }
     let issue = m.ptr(debate + ISSUE_KEY)?;
-    Ok(if issues(m)?.contains(&issue) { Some(content::key(m, issue + ISSUE_KEY)?) } else { None })
+    Ok(if issues(m)?.contains(&issue) { Some(game_string::key(m, issue + ISSUE_KEY)?) } else { None })
 }
 
 fn written_debate(country: Tag, issue: &str) -> String {
@@ -110,13 +122,13 @@ fn written_seat(command: &str, country: Tag, province: u32) -> String {
 }
 
 /// Brings an issue on offer to debate.
-pub fn debate(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn debate(Session { m, ctx, commands, .. }: Session, args::Debate { issue: key }: args::Debate) -> GResult<()> {
     let parliament = m.ptr(ctx.country + PARLIAMENT)?;
     if parliament == 0 {
         return Err(checks::not_now("the player has no parliament"));
     }
     for issue in offered(m, parliament)? {
-        if content::key(m, issue + ISSUE_KEY)? != key {
+        if game_string::key(m, issue + ISSUE_KEY)? != key {
             continue;
         }
         let choice = choice(m, parliament, ctx.player, issue)?;
@@ -129,12 +141,12 @@ pub fn debate(Session { m, ctx, commands, .. }: Session, key: String) -> GResult
 }
 
 /// Gives a province of the player's a seat in parliament.
-pub fn add_seat(session: Session, province: u32) -> GResult<()> {
+pub fn add_seat(session: Session, args::AddSeat { province: ProvinceId(province) }: args::AddSeat) -> GResult<()> {
     seat(session, "add_to_parliament_command", province, "give this province a seat")
 }
 
 /// Takes a province's seat in parliament away.
-pub fn remove_seat(session: Session, province: u32) -> GResult<()> {
+pub fn remove_seat(session: Session, args::RemoveSeat { province: ProvinceId(province) }: args::RemoveSeat) -> GResult<()> {
     seat(session, "remove_from_parliament_command", province, "take this province's seat away")
 }
 
@@ -154,5 +166,102 @@ mod tests {
         let gbr = Tag(u64::from_le_bytes(*b"GBR\0\0\0\0\0"));
         assert_eq!(written_debate(gbr, "restore_integration"), r#"start_debate_command={ country="GBR" which="restore_integration" }"#);
         assert_eq!(written_seat("add_to_parliament_command", gbr, 942), r#"add_to_parliament_command={ country="GBR" province=942 }"#);
+    }
+
+    use crate::game::{
+        buffers::{self, no, write_inline, Image, Object},
+        commands::record,
+        conditions::EVALUATE,
+        Caller, Fail, Status,
+    };
+
+    /// A condition of the test's: whether it holds, and whether the game's
+    /// tooltip lists a line for it when it does not.
+    const HOLDS: usize = 0;
+    const LISTED: usize = 8;
+
+    extern "C" fn evaluate(trigger: usize) -> usize {
+        unsafe { *((trigger + HOLDS) as *const u8) as usize }
+    }
+
+    extern "C" fn lines(trigger: usize, out: usize) -> usize {
+        if unsafe { *((trigger + LISTED) as *const u8) } != 0 {
+            write_inline(out, "no_war");
+        }
+        0
+    }
+
+    /// Great Britain, whose parliament offers the issues `free` (no
+    /// conditions), `peace` (a condition that does not hold, listed as
+    /// `no_war`) and `unlisted` (one that does not hold, which the tooltip
+    /// lists no line for), of the database's four, `taxes` not on offer;
+    /// a debate going on when `debating`. No parliament when `none`.
+    struct Britain {
+        _image: Image,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn britain(debating: bool, none: bool) -> Britain {
+        let image = Image::new();
+        image.function(EVALUATE.rva(), evaluate as *const ()).function(game_string::DESTROY_AT.rva(), no as *const ());
+        buffers::conditions(&image, lines as *const ());
+        let (peace, unlisted) = (Object::new(16), Object::new(16).u8(LISTED, 0));
+        let peace = peace.u8(LISTED, 1);
+        let issues = Object::new(4 * ISSUE)
+            .string(ISSUE_KEY, "free")
+            .string(ISSUE + ISSUE_KEY, "peace")
+            .u64(ISSUE + ISSUE_ALLOW, peace.at() as u64)
+            .string(2 * ISSUE + ISSUE_KEY, "unlisted")
+            .u64(2 * ISSUE + ISSUE_ALLOW, unlisted.at() as u64)
+            .string(3 * ISSUE + ISSUE_KEY, "taxes");
+        image.u64(DATABASE + containers::ARRAY_DATA, issues.at() as u64).i32(DATABASE + containers::ARRAY_COUNT, 4);
+        let offer = Object::new(12).i32(0, 0).i32(4, 1).i32(8, 2);
+        let debate = Object::new(ISSUE_KEY + 8).u64(ISSUE_KEY, issues.at() as u64);
+        let parliament = Object::new(ENACTED + 8)
+            .u64(OFFER + containers::ARRAY_DATA, offer.at() as u64)
+            .i32(OFFER + containers::ARRAY_COUNT, 3)
+            .u64(DEBATE, if debating { debate.at() as u64 } else { 0 });
+        let gbr = Tag(u64::from_le_bytes(*b"GBR\0\0\0\0\0"));
+        let country = Object::country(gbr, PARLIAMENT + 8).u64(PARLIAMENT, if none { 0 } else { parliament.at() as u64 });
+        let countries = Object::countries(&[&country]);
+        let session = buffers::session(image.memory(), 0, gbr, country.at(), countries.at(), Caller::Remote);
+        Britain { _image: image, _objects: vec![peace, unlisted, issues, offer, debate, parliament, country, countries], session }
+    }
+
+    fn debating(issue: &str, britain: Britain) -> GResult<()> {
+        debate(britain.session, args::Debate { issue: issue.into() })
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("the parliament acted") };
+        (status, message)
+    }
+
+    #[test]
+    fn an_issue_on_offer_is_debated_and_a_province_given_a_seat() {
+        debating("free", britain(false, false)).unwrap();
+        add_seat(britain(false, false).session, args::AddSeat { province: ProvinceId(942) }).unwrap();
+        remove_seat(britain(false, false).session, args::RemoveSeat { province: ProvinceId(942) }).unwrap();
+        assert_eq!(
+            record::posted(),
+            [
+                r#"start_debate_command={ country="GBR" which="free" }"#,
+                r#"add_to_parliament_command={ country="GBR" province=942 }"#,
+                r#"remove_from_parliament_command={ country="GBR" province=942 }"#
+            ]
+        );
+    }
+
+    #[test]
+    fn an_issue_not_on_offer_or_not_allowed_now_is_refused_with_why() {
+        let rejected = |why: &str| (Status::Rejected, why.to_string());
+        assert_eq!(refused(debating("peace", britain(false, false))), rejected("no_war"));
+        assert_eq!(refused(debating("unlisted", britain(false, false))), rejected("the issue's conditions do not hold"));
+        assert_eq!(refused(debating("free", britain(true, false))), rejected("a debate is going on"));
+        assert_eq!(refused(debating("taxes", britain(false, false))), (Status::NotFound, r#"no parliament issue on offer "taxes" for the player"#.into()));
+        assert_eq!(refused(debating("free", britain(false, true))), rejected("the player has no parliament"));
+        assert_eq!(refused(add_seat(britain(false, true).session, args::AddSeat { province: ProvinceId(942) })), rejected("the player has no parliament"));
+        assert!(record::posted().is_empty());
     }
 }

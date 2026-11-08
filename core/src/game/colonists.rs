@@ -11,8 +11,9 @@ use crate::{
     game_string,
     memory::Memory,
     objects::campaign::{construction, country, province as field},
-    points::Point,
+    points::{GameFunction, Point},
 };
+use eu4_harmony_remote::colonists::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     colonists::{ColonistOptions, Expulsion},
@@ -21,37 +22,37 @@ use eu4_harmony_remote::{
 
 /// Whether the country may send a colonist to the province:
 /// `(country, province) -> bool`.
-const MAY_SEND: usize = 0x34e7f0;
+const MAY_SEND: GameFunction<2> = GameFunction::at(0x34e7f0);
 /// Why not, as the province view's tooltip says: `(country, out, province,
 /// _)`, constructing `out`.
-const WHY_NOT: usize = 0x34e890;
+const WHY_NOT: GameFunction<4> = GameFunction::at(0x34e890);
 /// The province's colonist construction, or null: `(province)`.
-const CONSTRUCTION: usize = 0xa1ba30;
+const CONSTRUCTION: GameFunction<1> = GameFunction::at(0xa1ba30);
 /// The province's construction of a kind, or null: `(province, kind)`.
-const CONSTRUCTION_OF: usize = 0xa1ba90;
+const CONSTRUCTION_OF: GameFunction<2> = GameFunction::at(0xa1ba90);
 /// The kind of a colonist promoting settlement growth.
 const GROWTH: usize = 0x38a2;
 /// The colonial upkeep a month of the country's colonies and of the provinces
 /// a vector names, in thousandths of ducats before the country's factor:
 /// `(country, i32* out, text or null, i32* factor in thousandths, vector of
 /// provinces or null) -> out`.
-const UPKEEP: usize = 0x34b7a0;
+const UPKEEP: GameFunction<5> = GameFunction::at(0x34b7a0);
 /// The country's factor of the colonial upkeep, thousandths.
 const UPKEEP_FACTOR: usize = 0xe14;
 /// Whether the country may have a colonist promote settlement growth in the
 /// province, and why not: `(country, province, reasons or null) -> bool`,
 /// appending to `reasons`.
-const MAY_GROW: usize = 0x262060;
+const MAY_GROW: GameFunction<3> = GameFunction::at(0x262060);
 /// Whether the country may expel minorities at all: `(tag by value) ->
 /// bool`; whether a province may take expelled minorities: `(province) ->
 /// bool`; whether the colonize button lists a province of the player's to
 /// expel from: `(province) -> bool`; and whether its minority may be
 /// expelled now, and why not: `(province, reasons or null) -> bool`,
 /// appending to `reasons`.
-const MAY_EXPEL_ANY: usize = 0x264ec0;
-const TAKES_EXPELLED: usize = 0x264fb0;
-const LISTED: usize = 0x264f50;
-const MAY_EXPEL: usize = 0x264ff0;
+const MAY_EXPEL_ANY: GameFunction<1> = GameFunction::at(0x264ec0);
+const TAKES_EXPELLED: GameFunction<1> = GameFunction::at(0x264fb0);
+const LISTED: GameFunction<1> = GameFunction::at(0x264f50);
+const MAY_EXPEL: GameFunction<2> = GameFunction::at(0x264ff0);
 /// The most provinces believed.
 const MOST: i32 = 10_000;
 
@@ -95,7 +96,7 @@ fn province(m: &Memory, ctx: &Ctx, id: u32) -> GResult<Province> {
 }
 
 /// What the province view offers the player in province `id`.
-pub fn options(Session { m, ctx, .. }: Session, id: u32) -> GResult<Box<ColonistOptions>> {
+pub fn options(Session { m, ctx, .. }: Session, args::Options { province: ProvinceId(id) }: args::Options) -> GResult<Box<ColonistOptions>> {
     read(m, &ctx, &province(m, &ctx, id)?, id).map(Box::new)
 }
 
@@ -107,7 +108,7 @@ fn upkeep(m: &Memory, ctx: &Ctx, extra: usize) -> GResult<i64> {
     let range = provinces.as_ptr_range();
     let vector = [range.start as usize, range.end as usize, range.end as usize];
     let list = if extra == 0 { 0 } else { vector.as_ptr() as usize };
-    m.call(m.at(UPKEEP), &[ctx.country, &mut out as *mut i32 as usize, 0, &factor as *const i32 as usize, list])?;
+    UPKEEP.call(m, [ctx.country, &mut out as *mut i32 as usize, 0, &factor as *const i32 as usize, list])?;
     Ok(i64::from(out) * i64::from(m.i32(ctx.country + UPKEEP_FACTOR)?) / 1000)
 }
 
@@ -119,21 +120,21 @@ fn cost(m: &Memory, ctx: &Ctx, p: &Province) -> GResult<Vec<Amount>> {
 }
 
 fn read(m: &Memory, ctx: &Ctx, p: &Province, id: u32) -> GResult<ColonistOptions> {
-    let construction = m.call(m.at(CONSTRUCTION), &[p.address])?;
+    let construction = CONSTRUCTION.call(m, [p.address])?;
     let working = construction != 0 && Tag(m.u64(construction + construction::COUNTRY)?) == ctx.player;
     let size = m.i32(p.address + field::COLONY_SIZE)?;
     let colony = size > 0 && m.u8(p.address + field::HIDDEN)? & field::CITY_BIT == 0;
     let cost = cost(m, ctx, p)?;
-    let send = if m.call(m.at(MAY_SEND), &[ctx.country, p.address])? as u8 != 0 {
+    let send = if MAY_SEND.call(m, [ctx.country, p.address])? as u8 != 0 {
         Choice::can(cost.clone())
     } else {
-        let (_, text) = game_string::written(m, |out| m.call(m.at(WHY_NOT), &[ctx.country, out, p.address, 0]))?;
+        let (_, text) = game_string::written(m, |out| WHY_NOT.call(m, [ctx.country, out, p.address, 0]))?;
         Choice::cannot(envoys::lines(&text), cost.clone())
     };
     let recall = if working { Choice::can(Vec::new()) } else { Choice::cannot(Vec::new(), Vec::new()) };
-    let growth = m.call(m.at(CONSTRUCTION_OF), &[p.address, GROWTH])?;
+    let growth = CONSTRUCTION_OF.call(m, [p.address, GROWTH])?;
     let growing = growth != 0 && Tag(m.u64(growth + construction::COUNTRY)?) == ctx.player;
-    let (may, text) = game_string::written(m, |out| m.call(m.at(MAY_GROW), &[ctx.country, p.address, out]))?;
+    let (may, text) = game_string::written(m, |out| MAY_GROW.call(m, [ctx.country, p.address, out]))?;
     let start_growth = if may as u8 != 0 { Choice::can(cost.clone()) } else { Choice::cannot(envoys::lines(&text), cost.clone()) };
     let stop_growth = if growing { Choice::can(Vec::new()) } else { Choice::cannot(Vec::new(), Vec::new()) };
     Ok(ColonistOptions {
@@ -153,7 +154,7 @@ fn read(m: &Memory, ctx: &Ctx, p: &Province, id: u32) -> GResult<ColonistOptions
 /// minority into the province, each with whether the player can now: as
 /// sending a colonist there, and the province's own rules.
 fn expulsions(m: &Memory, ctx: &Ctx, p: &Province, send: &Choice) -> GResult<Vec<Expulsion>> {
-    if m.call(m.at(MAY_EXPEL_ANY), &[ctx.player.0 as usize])? as u8 == 0 || m.call(m.at(TAKES_EXPELLED), &[p.address])? as u8 == 0 {
+    if MAY_EXPEL_ANY.call(m, [ctx.player.0 as usize])? as u8 == 0 || TAKES_EXPELLED.call(m, [p.address])? as u8 == 0 {
         return Ok(Vec::new());
     }
     let count = m.i32(ctx.country + country::OWNED_COUNT)?;
@@ -166,13 +167,13 @@ fn expulsions(m: &Memory, ctx: &Ctx, p: &Province, send: &Choice) -> GResult<Vec
         let address = with_state(|s| s.geography.province_address(m, ctx, from))?;
         let minority = m.ptr(address + field::CULTURE)? != m.ptr(ctx.country + country::PRIMARY_CULTURE)?
             || m.ptr(address + field::RELIGION)? != m.ptr(ctx.country + country::STATE_RELIGION)?;
-        if !minority || m.call(m.at(LISTED), &[address])? as u8 == 0 {
+        if !minority || LISTED.call(m, [address])? as u8 == 0 {
             continue;
         }
         let choice = if !send.can {
             send.clone()
         } else {
-            let (may, text) = game_string::written(m, |out| m.call(m.at(MAY_EXPEL), &[address, out]))?;
+            let (may, text) = game_string::written(m, |out| MAY_EXPEL.call(m, [address, out]))?;
             if may as u8 != 0 {
                 send.clone()
             } else {
@@ -206,7 +207,7 @@ fn written(player: Tag, province: u32, work: Work) -> String {
 }
 
 /// Sends one of the player's colonists to province `id`.
-pub fn send(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
+pub fn send(Session { m, ctx, commands, .. }: Session, args::Send { province: ProvinceId(id) }: args::Send) -> GResult<()> {
     let options = read(m, &ctx, &province(m, &ctx, id)?, id)?;
     if !options.send.can {
         return Err(action::not_allowed("send a colonist there", &options.send.reasons));
@@ -215,7 +216,7 @@ pub fn send(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
 }
 
 /// Recalls the player's colonist from province `id`.
-pub fn recall(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
+pub fn recall(Session { m, ctx, commands, .. }: Session, args::Recall { province: ProvinceId(id) }: args::Recall) -> GResult<()> {
     if !read(m, &ctx, &province(m, &ctx, id)?, id)?.working {
         return Err(envoys::checks::none_there("colonist"));
     }
@@ -224,7 +225,10 @@ pub fn recall(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()>
 
 /// Sends one of the player's colonists to found a colony in province
 /// `province` with the minority expelled from the player's province `from`.
-pub fn expel(Session { m, ctx, commands, .. }: Session, province: u32, from: u32) -> GResult<()> {
+pub fn expel(
+    Session { m, ctx, commands, .. }: Session,
+    args::ExpelMinorities { province: ProvinceId(province), from: ProvinceId(from) }: args::ExpelMinorities,
+) -> GResult<()> {
     let options = read(m, &ctx, &self::province(m, &ctx, province)?, province)?;
     let Some(offered) = options.expel_from.iter().find(|e| e.from.0 == from) else {
         return Err(envoys::checks::no_minority(from));
@@ -264,5 +268,215 @@ mod tests {
         assert_eq!(written(fra, 1000, Work::Expel { from: 183 }), r#"send_colonist={ country="FRA" location=1000 expulsion_province=183 }"#);
         assert_eq!(written(fra, 183, Work::StartGrowth), r#"send_colonist={ country="FRA" location=183 settlement_growth_construction=yes }"#);
         assert_eq!(written(fra, 183, Work::StopGrowth), r#"cancel_colonist={ country="FRA" location=183 settlement_growth_construction=yes }"#);
+    }
+
+    use crate::catalogue::fake::tur;
+    use crate::game::{
+        buffers::{self, write_reason, Image, Object, Provinces},
+        commands::record,
+        Caller, Fail, Status,
+    };
+    use std::cell::Cell;
+
+    /// What the game's checks answer in this test's thread, and where the
+    /// player's colonists work.
+    #[derive(Clone, Copy)]
+    struct Game {
+        send: bool,
+        grow: bool,
+        expel_any: bool,
+        expel: bool,
+        /// The province where a colonist of the player's colonizes, and its
+        /// construction.
+        working: (usize, usize),
+        /// The province where one promotes settlement growth, and its
+        /// construction.
+        growing: (usize, usize),
+    }
+
+    const LETS: Game = Game { send: true, grow: true, expel_any: true, expel: true, working: (0, 0), growing: (0, 0) };
+
+    thread_local! {
+        static GAME: Cell<Game> = const { Cell::new(LETS) };
+    }
+
+    fn game() -> Game {
+        GAME.with(Cell::get)
+    }
+
+    extern "C" fn construction(province: usize) -> usize {
+        let (at, construction) = game().working;
+        if province == at {
+            construction
+        } else {
+            0
+        }
+    }
+
+    extern "C" fn construction_of(province: usize, kind: usize) -> usize {
+        let (at, construction) = game().growing;
+        if province == at && kind == GROWTH {
+            construction
+        } else {
+            0
+        }
+    }
+
+    extern "C" fn may_send() -> usize {
+        game().send.into()
+    }
+
+    extern "C" fn why_not(_: usize, out: usize) -> usize {
+        unsafe { write_reason(out, b"- no colonists") };
+        0
+    }
+
+    /// The upkeep: a ducat a month, two with the province the colonist goes
+    /// to counted.
+    extern "C" fn upkeep(_: usize, out: *mut i32, _: usize, _: usize, list: usize) -> usize {
+        unsafe { *out = if list == 0 { 1000 } else { 2000 } };
+        0
+    }
+
+    extern "C" fn may_grow(_: usize, _: usize, reasons: usize) -> usize {
+        if game().grow {
+            return 1;
+        }
+        unsafe { write_reason(reasons, b"- not a colony") };
+        0
+    }
+
+    extern "C" fn may_expel_any() -> usize {
+        game().expel_any.into()
+    }
+
+    extern "C" fn may_expel(_: usize, reasons: usize) -> usize {
+        if game().expel {
+            return 1;
+        }
+        unsafe { write_reason(reasons, b"- unrest") };
+        0
+    }
+
+    /// The Ottomans, owning province 2, of their culture and religion, and 3,
+    /// of another culture; province 1 is empty land.
+    struct Ottomans {
+        _image: Image,
+        provinces: Provinces,
+        objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn ottomans(game: Game) -> Ottomans {
+        let image = Image::new();
+        image
+            .strings()
+            .function(CONSTRUCTION.rva(), construction as *const ())
+            .function(CONSTRUCTION_OF.rva(), construction_of as *const ())
+            .function(MAY_SEND.rva(), may_send as *const ())
+            .function(WHY_NOT.rva(), why_not as *const ())
+            .function(UPKEEP.rva(), upkeep as *const ())
+            .function(MAY_GROW.rva(), may_grow as *const ())
+            .function(MAY_EXPEL_ANY.rva(), may_expel_any as *const ())
+            .function(TAKES_EXPELLED.rva(), buffers::yes as *const ())
+            .function(LISTED.rva(), buffers::yes as *const ())
+            .function(MAY_EXPEL.rva(), may_expel as *const ());
+        let provinces = Provinces::new(&image, 4);
+        let (turkish, sunni, greek) = (Object::new(8), Object::new(8), Object::new(8));
+        provinces.owner(2, tur()).u64(2, field::CULTURE, turkish.at() as u64).u64(2, field::RELIGION, sunni.at() as u64);
+        provinces.owner(3, tur()).u64(3, field::CULTURE, greek.at() as u64).u64(3, field::RELIGION, sunni.at() as u64);
+        let owned = Object::new(8).u32(0, 2).u32(4, 3);
+        let player = Object::country(tur(), country::OWNED_COUNT + 4)
+            .points_to(country::OWNED, owned)
+            .i32(country::OWNED_COUNT, 2)
+            .u64(country::PRIMARY_CULTURE, turkish.at() as u64)
+            .u64(country::STATE_RELIGION, sunni.at() as u64)
+            .i32(UPKEEP_FACTOR, 1000);
+        let countries = Object::countries(&[&player]);
+        let session = buffers::session(image.memory(), provinces.world(), tur(), player.at(), countries.at(), Caller::Remote);
+        GAME.with(|g| g.set(game));
+        Ottomans { _image: image, provinces, objects: vec![turkish, sunni, greek, player, countries], session }
+    }
+
+    impl Ottomans {
+        /// A colonist of the player's working in province `id`, colonizing or
+        /// promoting settlement growth.
+        fn working(mut self, id: u32, growth: bool) -> Self {
+            let work = Object::new(construction::COUNTRY + 8).u64(construction::COUNTRY, tur().0);
+            let place = (self.provinces.province(id), work.at());
+            GAME.with(|g| g.set(if growth { Game { growing: place, ..g.get() } } else { Game { working: place, ..g.get() } }));
+            self.objects.push(work);
+            self
+        }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("{result:?} was posted") };
+        (status, message)
+    }
+
+    #[test]
+    fn the_view_offers_a_colonist_for_its_upkeep_and_the_minorities_to_expel() {
+        let player = ottomans(LETS);
+        let options = options(player.session, args::Options { province: ProvinceId(1) }).unwrap();
+        assert_eq!((options.working, options.growing, options.size), (false, false, None));
+        assert_eq!(options.send.cost, [Amount::new(Resource::Colonist, 1.0), Amount::new(Resource::MonthlyDucats, 1.0)]);
+        assert!(options.send.can && options.start_growth.can && !options.recall.can && !options.stop_growth.can);
+        assert_eq!(options.expel_from.iter().map(|e| (e.from.0, e.choice.can)).collect::<Vec<_>>(), [(3, true)]);
+        // A test has one world of provinces at a time.
+        drop(player);
+        let no_expelling = ottomans(Game { expel_any: false, ..LETS });
+        assert!(super::options(no_expelling.session, args::Options { province: ProvinceId(1) }).unwrap().expel_from.is_empty());
+    }
+
+    #[test]
+    fn the_buttons_post_their_commands() {
+        let ottomans = ottomans(LETS).working(2, false).working(3, true);
+        let session = ottomans.session;
+        send(session, args::Send { province: ProvinceId(1) }).unwrap();
+        recall(session, args::Recall { province: ProvinceId(2) }).unwrap();
+        expel(session, args::ExpelMinorities { province: ProvinceId(1), from: ProvinceId(3) }).unwrap();
+        change_growth(session, 2, true).unwrap();
+        change_growth(session, 3, false).unwrap();
+        assert_eq!(
+            record::posted(),
+            [
+                r#"send_colonist={ country="TUR" location=1 }"#,
+                r#"cancel_colonist={ country="TUR" location=2 }"#,
+                r#"send_colonist={ country="TUR" location=1 expulsion_province=3 }"#,
+                r#"send_colonist={ country="TUR" location=2 settlement_growth_construction=yes }"#,
+                r#"cancel_colonist={ country="TUR" location=3 settlement_growth_construction=yes }"#,
+            ]
+        );
+    }
+
+    #[test]
+    fn work_the_player_has_not_there_and_no_minority_are_refused() {
+        let player = ottomans(LETS);
+        let session = player.session;
+        assert_eq!(refused(recall(session, args::Recall { province: ProvinceId(1) })), (Status::Rejected, "the player has no colonist there".into()));
+        assert_eq!(refused(change_growth(session, 2, false)), (Status::Rejected, "the player has no colonist promoting settlement growth there".into()));
+        assert_eq!(
+            refused(expel(session, args::ExpelMinorities { province: ProvinceId(1), from: ProvinceId(2) })),
+            (Status::Rejected, "the colonize button lists no minority to expel from province 2".into())
+        );
+        assert_eq!(refused(send(session, args::Send { province: ProvinceId(0) })).0, Status::NotFound);
+        assert!(record::posted().is_empty());
+    }
+
+    #[test]
+    fn the_game_s_reasons_refuse_sending_expelling_and_growth() {
+        let no_colonists = ottomans(Game { send: false, ..LETS });
+        assert_eq!(refused(send(no_colonists.session, args::Send { province: ProvinceId(1) })), (Status::Rejected, "no colonists".into()));
+        // Expelling sends a colonist, so it is refused as sending one is.
+        let expelling = args::ExpelMinorities { province: ProvinceId(1), from: ProvinceId(3) };
+        assert_eq!(refused(expel(no_colonists.session, expelling.clone())), (Status::Rejected, "no colonists".into()));
+        drop(no_colonists);
+        let unrest = ottomans(Game { expel: false, ..LETS });
+        assert_eq!(refused(expel(unrest.session, expelling)), (Status::Rejected, "unrest".into()));
+        drop(unrest);
+        let no_growth = ottomans(Game { grow: false, ..LETS });
+        assert_eq!(refused(change_growth(no_growth.session, 2, true)), (Status::Rejected, "not a colony".into()));
+        assert!(record::posted().is_empty());
     }
 }

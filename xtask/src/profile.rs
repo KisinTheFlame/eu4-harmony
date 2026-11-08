@@ -63,8 +63,14 @@
 //! about 0.1 ms for the main thread and less for the others (the report
 //! gives it). What sampling from outside cannot see: the kernel's side of a
 //! stack, and which thread a waiting one waits for, which Windows' own event
-//! tracing gives an administrator; and a stack past the framework's hook
-//! stubs, which have no unwind data.
+//! tracing gives an administrator.
+//!
+//! The framework's jump stubs have no unwind data, and are jumped into from
+//! inside a game function rather than called. The core names each with the
+//! place in the game that jumps to it (`eu4h_jump_stubs`, read from the
+//! process), and a frame that returns into a stub's call into Rust
+//! (`call_rust!`) is stepped over by that frame's layout to the game
+//! function at that place, so that the stack goes on above it.
 use crate::{Args, Result};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -124,6 +130,54 @@ const FRAME: [(&str, &str); 10] = [
 /// The day's own frame, below which a frame inside a day runs.
 const FRAME_IN_DAY: &str = "0x769ea0";
 
+/// What the places above hold in the 1.37.5 baseline, checked in the game's
+/// file before it is sampled, as the framework checks its dependency points:
+/// on another build of the game the samples would be sorted into the wrong
+/// parts without a word. Each function by its first bytes; the world's and
+/// the application's fields by an instruction of the game's that reads them
+/// from the global.
+const PLACES: [(u32, &str, &str); 18] = [
+    (0x2ee280, "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8d ac", "each country's daily update"),
+    (0x75d690, "88 54 24 10 55 53 56 57 41 54 41 55 41 56 41 57", "the monthly update"),
+    (0x75b4b0, "48 89 5c 24 08 55 56 57 41 54 41 55 41 56 41 57", "the AI"),
+    (0x75b2d0, "48 8b c4 48 89 58 10 48 89 68 18 48 89 70 20 57", "the provinces' passes"),
+    (0x75e260, "48 8b c4 48 89 58 10 48 89 70 18 48 89 78 20 55", "the yearly update"),
+    (0x5cbb00, "48 89 5c 24 10 48 89 6c 24 18 56 57 41 56 48 83", "the autosave"),
+    (0x8183b0, "48 8b c4 48 89 58 08 55 56 57 41 54 41 55 41 56", "drawing"),
+    (0x14c5810, "48 8b c4 48 89 58 10 48 89 78 18 55 48 8d 68 e8", "the GUI update"),
+    (0x20f810, "48 89 5c 24 10 57 48 83 ec 20 48 8b f9 48 8b 81", "commands"),
+    (0x830fd0, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 57", "input"),
+    (0xdf5860, "48 89 4c 24 08 55 53 56 57 41 54 41 55 41 56 41", "the top bar's alerts"),
+    (0x128cd30, "48 89 4c 24 08 55 53 56 57 41 54 41 55 41 56 41", "the outliner"),
+    (0x10a6d00, "48 89 5c 24 10 48 89 6c 24 18 56 48 83 ec 30 33", "the map's markers"),
+    (0x8137c0, "48 8b c4 88 50 10 55 53 56 57 41 54 41 55 41 56", "the in-game frame"),
+    (0x769ea0, "48 8b c4 48 89 58 10 4c 89 40 18 55 56 57 41 54", "the day's own frame"),
+    // mov rcx, [WORLD]; add rcx, WORLD_DATE
+    (0xa3320, "48 8b 0d 51 cb 29 02 48 81 c1 d0 1d 00 00", "the world's date"),
+    // mov rax, [WORLD]; cmp byte [rax + WORLD_DAY], ...
+    (0x10a5213, "48 8b 05 5e ac 29 01 80 b8 10 1e 00 00", "the world's flag of a day running"),
+    // mov rax, [APPLICATION]; mov rcx, [rax + APPLICATION_FRAMES]
+    (0x15e00ef, "48 8b 05 5a be e4 00 48 8b 88 20 03 00 00", "the application's frame count"),
+];
+
+/// Refuses unless the game's file `exe` holds what [`PLACES`] expects at
+/// each place.
+fn check_places(exe: &Image) -> Result<()> {
+    let differ: Vec<String> = PLACES
+        .iter()
+        .filter(|(rva, bytes, _)| {
+            let expected: Vec<u8> = bytes.split(' ').map(|b| u8::from_str_radix(b, 16).expect("a byte in hex")).collect();
+            exe.at(*rva, expected.len()) != Some(expected.as_slice())
+        })
+        .map(|(rva, _, what)| format!("{what} ({rva:#x})"))
+        .collect();
+    if differ.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("this eu4.exe is not the build the profiler knows: it differs at {}", differ.join(", ")))
+    }
+}
+
 pub fn run(args: &Args) -> Result<()> {
     let out = args.positional.first().ok_or("profile needs <out>, or with --tree a .folded file")?;
     if args.flag("tree") {
@@ -145,7 +199,7 @@ fn the_game(test_game: Option<&str>) -> Result<Option<u32>> {
     if let Some(id) = crate::claim::game_of(&crate::claim::owner_of(None)) {
         return Ok(Some(id));
     }
-    match crate::game::processes().as_slice() {
+    match eu4_harmony_client::game::processes()?.as_slice() {
         [] => Ok(None),
         [id] => Ok(Some(*id)),
         several => Err(format!("{} eu4.exe run; --test-game <name> names the one to sample (cargo xtask game status lists them)", several.len())),
@@ -365,6 +419,37 @@ struct Registers {
 }
 
 const RSP: usize = 4;
+
+const RBP: usize = 5;
+
+/// What the framework's call into Rust (`call_rust!`) returns to: `mov
+/// [rsp + 0x48], rax`.
+const CALL_RUST_RETURNS_TO: [u8; 5] = [0x48, 0x89, 0x44, 0x24, 0x48];
+/// The most a return into a stub's call into Rust lies after the stub's
+/// start.
+const STUB_SIZE: u64 = 0x400;
+
+/// Steps over the frame of a jump stub whose call into Rust `registers`
+/// returns into, from the call's return address, to the place in the game
+/// that jumped to the stub: the stub pushed rbp on the stack it was jumped
+/// in with and keeps its frame in rbp (`call_rust!`). None when the address
+/// is no such return.
+fn step_over_stub(module: &Module, registers: &mut Registers, stack: &Stack) -> Option<()> {
+    let rva = u32::try_from(registers.rip.checked_sub(module.base)?).ok()?;
+    if module.image.at(rva, CALL_RUST_RETURNS_TO.len())? != CALL_RUST_RETURNS_TO {
+        return None;
+    }
+    let i = module.stubs.partition_point(|&(stub, _)| stub <= registers.rip).checked_sub(1)?;
+    let (stub, place) = module.stubs[i];
+    if registers.rip - stub >= STUB_SIZE {
+        return None;
+    }
+    let rbp = registers.r[RBP];
+    registers.r[RBP] = stack.u64(rbp)?;
+    registers.r[RSP] = rbp + 8;
+    registers.rip = place;
+    Some(())
+}
 
 /// A copy of a thread's stack, from its stack pointer up.
 #[derive(Default)]
@@ -593,7 +678,9 @@ fn frames(modules: &[Module], mut registers: Registers, stack: &Stack) -> Vec<u6
         pcs.push(registers.rip);
         let Some(module) = modules.iter().find(|m| m.base <= registers.rip && registers.rip < m.end) else { break };
         let sp = registers.r[RSP];
-        if unwind(module, module.base, &mut registers, stack, pcs.len() == 1).is_none() || registers.r[RSP] <= sp {
+        let innermost = pcs.len() == 1;
+        let stepped = !innermost && step_over_stub(module, &mut registers, stack).is_some();
+        if (!stepped && unwind(module, module.base, &mut registers, stack, innermost).is_none()) || registers.r[RSP] <= sp {
             break;
         }
     }
@@ -608,6 +695,49 @@ struct Module {
     name: String,
     image: Image,
     functions: Functions,
+    /// Where the core's table of its jump stubs is, if this is the core.
+    stub_table: Option<u64>,
+    /// The core's jump stubs, sorted, each with the place in the game that
+    /// jumps to it.
+    stubs: Vec<(u64, u64)>,
+}
+
+/// The name the core's table of its jump stubs is exported by.
+const STUB_TABLE: &str = "eu4h_jump_stubs";
+/// How many entries the table has room for.
+const STUB_TABLE_KEPT: usize = 256;
+
+/// The RVA of the export `name` of `image`.
+fn export(image: &Image, name: &str) -> Option<u32> {
+    let pe = u32_at(&image.data, 0x3c)? as usize;
+    let directory = u32_at(&image.data, pe + 24 + 112)?;
+    if directory == 0 {
+        return None;
+    }
+    let head = image.at(directory, 40)?;
+    let (names, functions, name_rvas, ordinals) = (u32_at(head, 24)?, u32_at(head, 28)?, u32_at(head, 32)?, u32_at(head, 36)?);
+    for i in 0..names {
+        let at = u32_at(image.at(name_rvas + 4 * i, 4)?, 0)?;
+        if image.at(at, name.len() + 1)? == [name.as_bytes(), &[0]].concat() {
+            let ordinal = u32::from(u16_at(image.at(ordinals + 2 * i, 2)?, 0)?);
+            return u32_at(image.at(functions + 4 * ordinal, 4)?, 0);
+        }
+    }
+    None
+}
+
+/// The jump stubs the core's table at `table` names, sorted; none until the
+/// framework has installed its points.
+fn read_stubs(process: HANDLE, table: u64) -> Vec<(u64, u64)> {
+    let Some(count) = read::<8>(process, table).map(u64::from_le_bytes) else { return Vec::new() };
+    let mut stubs: Vec<(u64, u64)> = (0..count.min(STUB_TABLE_KEPT as u64))
+        .filter_map(|i| {
+            let entry = read::<16>(process, table + 8 + 16 * i)?;
+            Some((u64::from_le_bytes(entry[..8].try_into().ok()?), u64::from_le_bytes(entry[8..].try_into().ok()?)))
+        })
+        .collect();
+    stubs.sort_unstable();
+    stubs
 }
 
 /// Creation time and CPU time (user and kernel), in 100 ns.
@@ -654,6 +784,11 @@ fn take_up_modules(process: HANDLE, modules: &mut Vec<Module>) {
     let mut needed = 0;
     unsafe { EnumProcessModulesEx(process, handles.as_mut_ptr(), (handles.len() * size_of::<HMODULE>()) as u32, &mut needed, LIST_MODULES_ALL) };
     handles.truncate(needed as usize / size_of::<HMODULE>());
+    for module in modules.iter_mut().filter(|m| m.stubs.is_empty()) {
+        if let Some(table) = module.stub_table {
+            module.stubs = read_stubs(process, table);
+        }
+    }
     let known: std::collections::HashSet<u64> = modules.iter().map(|m| m.base).collect();
     let new: Vec<Module> = handles
         .into_iter()
@@ -672,7 +807,10 @@ fn take_up_modules(process: HANDLE, modules: &mut Vec<Module>) {
             path.pop();
             let image = std::fs::read(String::from_utf16_lossy(&path)).ok().and_then(Image::read).unwrap_or_default();
             let functions = Functions::read(&image).unwrap_or_default();
-            Module { base, end: base + u64::from(info.SizeOfImage), name: String::from_utf16_lossy(&name[..len]).to_lowercase(), image, functions }
+            let stub_table = export(&image, STUB_TABLE).map(|rva| base + u64::from(rva));
+            let stubs = stub_table.map(|table| read_stubs(process, table)).unwrap_or_default();
+            let name = String::from_utf16_lossy(&name[..len]).to_lowercase();
+            Module { base, end: base + u64::from(info.SizeOfImage), name, image, functions, stub_table, stubs }
         })
         .collect();
     modules.extend(new);
@@ -885,7 +1023,9 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, all:
         }
     }
     let mut modules = modules_of(process);
-    let exe_base = modules.iter().find(|m| m.name == "eu4.exe").ok_or("eu4.exe has no module eu4.exe")?.base;
+    let exe = modules.iter().find(|m| m.name == "eu4.exe").ok_or("eu4.exe has no module eu4.exe")?;
+    check_places(&exe.image)?;
+    let exe_base = exe.base;
 
     let before: HashMap<u32, (u64, u64)> = threads.iter().map(|&(t, h)| (t, (thread_times(h).1, cycles(h)))).collect();
     let start_state = world_state(process, exe_base);
@@ -1250,6 +1390,28 @@ fn stretch_table(stretches: &BTreeMap<u32, (Mark, Mark)>, parts: &HashMap<(u32, 
 mod tests {
     use super::*;
 
+    /// Every function the parts are told by is a place checked before
+    /// sampling, and each place's bytes are written as bytes.
+    #[test]
+    fn every_part_s_function_is_checked_in_the_game_s_file() {
+        let checked: Vec<String> = PLACES.iter().map(|(rva, _, _)| format!("{rva:#x}")).collect();
+        for rva in DAY.iter().chain(&FRAME).map(|(_, at)| *at).chain([FRAME_IN_DAY]).filter(|at| at.starts_with("0x")) {
+            assert!(checked.iter().any(|c| c == rva), "{rva} is not checked");
+        }
+        for (_, bytes, what) in PLACES {
+            assert!(bytes.split(' ').all(|b| b.len() == 2 && u8::from_str_radix(b, 16).is_ok()), "{what}");
+        }
+    }
+
+    /// The places hold what they should in the installed game.
+    #[test]
+    #[ignore = "needs the game: EU4_GAME_DIR"]
+    fn the_places_match_the_installed_game() {
+        let exe = std::path::Path::new(&std::env::var_os("EU4_GAME_DIR").expect("EU4_GAME_DIR")).join("eu4.exe");
+        let image = Image::read(std::fs::read(exe).unwrap()).unwrap();
+        assert_eq!(check_places(&image), Ok(()));
+    }
+
     fn frames(text: &str) -> Vec<String> {
         text.split(';').map(String::from).collect()
     }
@@ -1302,6 +1464,8 @@ mod tests {
             name: "eu4.exe".into(),
             image: Image { data, sections: vec![(0, 0x400, 0)] },
             functions: Functions { starts: vec![0x100, 0x300], ends: vec![0x200, 0x400], unwind: vec![0x10, 0x40], primary: vec![0x100, 0x300] },
+            stub_table: None,
+            stubs: Vec::new(),
         }
     }
 
@@ -1365,6 +1529,42 @@ mod tests {
         // returns out of the module.
         let pcs = super::frames(std::slice::from_ref(&module), registers(BASE + 0x250, 0x1000, &[]), &stack);
         assert_eq!(pcs, [BASE + 0x250, BASE + 0x130, 0x7ff0_1234]);
+    }
+
+    const CORE: u64 = 0x7ff8_0000_0000;
+
+    /// The core: a function at 0x100 that takes no stack, and a jump stub at
+    /// 0x300 whose call into Rust returns to 0x340, jumped to from 0x120 in
+    /// the game's first function.
+    fn core() -> Module {
+        let mut data = vec![0u8; 0x400];
+        data[0x10..0x14].copy_from_slice(&[1, 0, 0, 0]);
+        data[0x340..0x345].copy_from_slice(&CALL_RUST_RETURNS_TO);
+        Module {
+            base: CORE,
+            end: CORE + 0x400,
+            name: "eu4_harmony_core.dll".into(),
+            image: Image { data, sections: vec![(0, 0x400, 0)] },
+            functions: Functions { starts: vec![0x100], ends: vec![0x200], unwind: vec![0x10], primary: vec![0x100] },
+            stub_table: None,
+            stubs: vec![(CORE + 0x300, BASE + 0x120)],
+        }
+    }
+
+    #[test]
+    fn a_jump_stub_is_stepped_over_to_the_game_function_that_jumped_to_it() {
+        // The core's function returns into the stub's call into Rust; the
+        // stub pushed the game's rbp at 0x1080, on the stack it was jumped
+        // in with, from 0x120 in the game's first function, whose frame
+        // above holds rdi and the return out of the modules.
+        let jumped = stack(0x1000, 0xc0, &[(0x1000, CORE + 0x340), (0x1080, 0x5555), (0x10a8, 0x77), (0x10b0, 0x7ff0_1234)]);
+        let modules = [module(), core()];
+        let pcs = super::frames(&modules, registers(CORE + 0x150, 0x1000, &[(RBP, 0x1080)]), &jumped);
+        assert_eq!(pcs, [CORE + 0x150, CORE + 0x340, BASE + 0x120, 0x7ff0_1234]);
+        // A return elsewhere in the core is no stub's.
+        let elsewhere = stack(0x1000, 0x10, &[(0x1000, CORE + 0x350)]);
+        let pcs = super::frames(&modules, registers(CORE + 0x150, 0x1000, &[(RBP, 0x1080)]), &elsewhere);
+        assert_eq!(pcs, [CORE + 0x150, CORE + 0x350]);
     }
 
     #[test]

@@ -22,7 +22,7 @@ From the game's code (RVAs into 1.37.5):
 
 ### A game with no country played (O1)
 
-- An observe-mode game is a game: the session starts when it is loaded or started, and ends when the player's own tag changes, as it does for `tag` and `observe`. A change of the country in view does not end it.
+- An observe-mode game is a game: the session starts when it is loaded or started, and ends when the player's own tag changes, as it does for `tag` and `observe`. A change of the country in view does not end it. The game carries out `observe` at its next frame, and `console.run` answers then, so that a request sent after its answer runs in the session that comes ([remote-control.md](remote-control.md), C5).
 - `session.get` answers `{number, player, observing, date}`: `player` is the country acted as (the country played, the country in view, or null), `observing` whether the player observes. `menu.load` and `menu.start` answer the same.
 - A capability that acts as a country fails with `no_country` while the player observes with no country in view. `not_in_game` stays for where there is no game. `describe` says it of every capability as `country`, beside `in_game`, which is unchanged; `eu4-harmony wiki` says it as a sentence of its own.
 - What needs a game but no country works in observe mode: the map and every read, time, the camera, the console, the main menu's capabilities, the interface.
@@ -60,7 +60,7 @@ From the game's code (RVAs into 1.37.5):
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and both clippy runs pass, and so do the offline checks against the game's files;
-- what it delivers was tried in the game, with the run recorded in [prototype-log.md](prototype-log.md), saying as plainly what was not verified;
+- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](prototype-log/), saying as plainly what was not verified;
 - a change players or mod authors notice is in README.md and README.zh-CN.md.
 
 ### O1 A game with no country played

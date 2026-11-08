@@ -8,9 +8,10 @@ use crate::{
     game_string,
     memory::Memory,
     objects::campaign::{country as country_fields, unit},
-    points::Point,
+    points::{GameFunction, Point},
     unicode::game_text,
 };
+use eu4_harmony_remote::leaders::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     leaders::{Leader, LeaderKind, LeaderOption},
@@ -19,16 +20,16 @@ use eu4_harmony_remote::{
 
 /// `(country, kind)`: whether the country may recruit a leader of the kind
 /// now, the check of the recruit command; no reasons.
-const CAN_RECRUIT: usize = 0x307370;
+const CAN_RECRUIT: GameFunction<2> = GameFunction::at(0x307370);
 /// `(tag by value, spending, 0, text or null)`: what a spending costs in
 /// whole monarch points; a leader's spending is 3 plus its kind.
-const POWER_COST: usize = 0x951980;
+const POWER_COST: GameFunction<4> = GameFunction::at(0x951980);
 const LEADER_SPENDING: usize = 3;
 /// `(leader, text)`: whether the leader may leave the unit it leads, with
 /// the tooltip's reasons; `(leader, unit, text)`: whether the unit may take
 /// it.
-const MAY_LEAVE: usize = 0x862a70;
-const MAY_TAKE: usize = 0x862fa0;
+const MAY_LEAVE: GameFunction<2> = GameFunction::at(0x862a70);
+const MAY_TAKE: GameFunction<3> = GameFunction::at(0x862fa0);
 /// The country's leaders, an intrusive list: head, its count; a node holds
 /// the leader at `+0`, the next node at `+0x10`.
 const LEADERS: usize = 0x1468;
@@ -138,7 +139,7 @@ fn dismiss_text(country: [u8; 3], leader: u64) -> String {
 
 /// What a kind of leader costs, in whole points of the power it is paid in.
 fn cost(m: &Memory, ctx: &Ctx, kind: LeaderKind) -> GResult<Amount> {
-    let points = m.call(m.at(POWER_COST), &[ctx.player.0 as usize, LEADER_SPENDING + index(kind), 0, 0])? as i32;
+    let points = POWER_COST.call(m, [ctx.player.0 as usize, LEADER_SPENDING + index(kind), 0, 0])? as i32;
     Ok(Amount::new(if naval(kind) { Resource::Dip } else { Resource::Mil }, points as f64))
 }
 
@@ -183,7 +184,7 @@ fn given(text: &str, name: &str, value: &str) -> String {
 fn option(m: &Memory, ctx: &Ctx, kind: LeaderKind) -> GResult<LeaderOption> {
     let amount = cost(m, ctx, kind)?;
     let cost = vec![amount];
-    if m.call(m.at(CAN_RECRUIT), &[ctx.country, index(kind)])? as u8 != 0 {
+    if CAN_RECRUIT.call(m, [ctx.country, index(kind)])? as u8 != 0 {
         return Ok(LeaderOption { kind, choice: Choice::can(cost) });
     }
     let field = if naval(kind) { country_fields::POWER_DIP } else { country_fields::POWER_MIL };
@@ -241,7 +242,7 @@ fn read(m: &Memory, address: usize) -> GResult<Leader> {
     let unit = m.ptr(address + leader::UNIT)?;
     Ok(Leader {
         id: m.u32(address + leader::NUMBER)?,
-        name: game_text::to_utf8(&game_string::read(m, address + leader::NAME)?),
+        name: game_string::shown(m, address + leader::NAME)?,
         kind,
         fire: m.i32(address + leader::FIRE)?,
         shock: m.i32(address + leader::SHOCK)?,
@@ -268,7 +269,7 @@ fn find(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
 
 /// Recruits a leader of a kind, as the military view's button does, with the
 /// name the game picks.
-pub fn recruit(caller: Caller, word: String) -> GResult<Leader> {
+pub fn recruit(caller: Caller, args::Recruit { kind: word }: args::Recruit) -> GResult<Leader> {
     let kind = kind(&word)?;
     let Session { m, ctx, commands, .. } = Session::open(caller)?;
     let o = option(m, &ctx, kind)?;
@@ -284,7 +285,7 @@ pub fn recruit(caller: Caller, word: String) -> GResult<Leader> {
 }
 
 /// Gives a leader to one of the player's armies or fleets.
-pub fn assign(Session { m, ctx, commands, .. }: Session, id: u32, army: u64) -> GResult<()> {
+pub fn assign(Session { m, ctx, commands, .. }: Session, args::Assign { leader: id, army: ArmyId(army) }: args::Assign) -> GResult<()> {
     let leader = find(m, &ctx, id)?;
     let unit = world::own_unit(m, &ctx, army)?;
     let kind = read(m, leader)?.kind;
@@ -292,9 +293,9 @@ pub fn assign(Session { m, ctx, commands, .. }: Session, id: u32, army: u64) -> 
     if naval(kind) == land {
         return Err(checks::wrong_unit(key(kind), land));
     }
-    let (leaves, text) = game_string::written(m, |t| m.call(m.at(MAY_LEAVE), &[leader, t]))?;
+    let (leaves, text) = game_string::written(m, |t| MAY_LEAVE.call(m, [leader, t]))?;
     let mut reasons = super::reasons(&text);
-    let (takes, text) = game_string::written(m, |t| m.call(m.at(MAY_TAKE), &[leader, unit, t]))?;
+    let (takes, text) = game_string::written(m, |t| MAY_TAKE.call(m, [leader, unit, t]))?;
     reasons.extend(super::reasons(&text));
     if leaves as u8 == 0 || takes as u8 == 0 {
         return Err(action::not_allowed("give this leader to this unit", &reasons));
@@ -305,11 +306,11 @@ pub fn assign(Session { m, ctx, commands, .. }: Session, id: u32, army: u64) -> 
 
 /// Takes the leader from one of the player's armies or fleets, as the
 /// panel's remove button does: the command with the empty leader ID.
-pub fn remove(Session { m, ctx, commands, .. }: Session, army: u64) -> GResult<()> {
+pub fn remove(Session { m, ctx, commands, .. }: Session, args::Remove { army: ArmyId(army) }: args::Remove) -> GResult<()> {
     let unit = world::own_unit(m, &ctx, army)?;
     let leader = m.ptr(unit + UNIT_LEADER)?;
     if leader != 0 && m.ptr(leader + leader::UNIT)? == unit {
-        let (leaves, text) = game_string::written(m, |t| m.call(m.at(MAY_LEAVE), &[leader, t]))?;
+        let (leaves, text) = game_string::written(m, |t| MAY_LEAVE.call(m, [leader, t]))?;
         if leaves as u8 == 0 {
             return Err(action::not_allowed("take the leader from this unit", &super::reasons(&text)));
         }
@@ -319,7 +320,7 @@ pub fn remove(Session { m, ctx, commands, .. }: Session, army: u64) -> GResult<(
 }
 
 /// Dismisses one of the player's leaders that leads no unit.
-pub fn dismiss(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
+pub fn dismiss(Session { m, ctx, commands, .. }: Session, args::Dismiss { leader: id }: args::Dismiss) -> GResult<()> {
     let leader = find(m, &ctx, id)?;
     if m.ptr(leader + leader::UNIT)? != 0 {
         return Err(checks::leads_a_unit(id));
@@ -345,6 +346,127 @@ mod tests {
         assert_eq!(given("You need at least §Y$COST$§W£mil .", "COST", "50"), "You need at least §Y50§W£mil .");
         assert_eq!(given("至少需要$COST|Y$£mil£", "COST", "50"), "至少需要50£mil£");
         assert_eq!(given("$COSTLY$ and $COST", "COST", "50"), "$COSTLY$ and $COST");
+    }
+
+    use crate::game::{
+        buffers::{self, no, write_inline, Image, Object},
+        commands::record,
+        Caller, Fail, Status, Tag,
+    };
+
+    /// A leader or a unit of the test's says no to the leader's leaving or
+    /// the unit's taking it in a byte neither uses, read by the game's
+    /// functions below.
+    const SAYS_NO: usize = 8;
+
+    extern "C" fn may_leave(leader: usize, text: usize) -> usize {
+        refusing(leader, text, "- in battle")
+    }
+
+    extern "C" fn may_take(_: usize, unit: usize, text: usize) -> usize {
+        refusing(unit, text, "- has a leader")
+    }
+
+    fn refusing(object: usize, text: usize, why: &str) -> usize {
+        if unsafe { *((object + SAYS_NO) as *const u8) } == 0 {
+            return 1;
+        }
+        write_inline(text, why);
+        0
+    }
+
+    /// The army's ID, 7 of type 54, and the fleet's, 8.
+    const ARMY: u64 = 7 << 32 | 54;
+    const FLEET: u64 = 8 << 32 | 54;
+
+    /// Castile, with the general 12 leading its army, the general 13 and the
+    /// admiral 14 leading none, and a fleet; the general 12 may not leave
+    /// its army when `stuck`, and the fleet takes no leader when `full`.
+    struct Castile {
+        _image: Image,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn castile(stuck: bool, full: bool) -> Castile {
+        let image = Image::new();
+        let m = image.memory();
+        image
+            .function(MAY_LEAVE.rva(), may_leave as *const ())
+            .function(MAY_TAKE.rva(), may_take as *const ())
+            .function(game_string::DESTROY_AT.rva(), no as *const ());
+        let cas = Tag(u64::from_le_bytes(*b"CAS\0\0\0\0\0"));
+        let army = buffers::unit(m, ARMY, cas, true, UNIT_LEADER + 8);
+        let fleet = buffers::unit(m, FLEET, cas, false, UNIT_LEADER + 8).u8(SAYS_NO, full.into());
+        let leader = |number: u32, kind: LeaderKind, unit: usize| {
+            Object::new(leader::UNIT + 8)
+                .u32(leader::ID, leader::TYPE)
+                .u32(leader::NUMBER, number)
+                .i32(leader::KIND, index(kind) as i32)
+                .u64(leader::UNIT, unit as u64)
+        };
+        let leading = leader(12, LeaderKind::General, army.at()).u8(SAYS_NO, stuck.into());
+        let army = army.u64(UNIT_LEADER, leading.at() as u64);
+        let leaders = [leading, leader(13, LeaderKind::General, 0), leader(14, LeaderKind::Admiral, 0)];
+        let mut next = 0u64;
+        let mut nodes = Vec::new();
+        for l in leaders.iter().rev() {
+            let node = Object::new(NODE_NEXT + 8).u64(0, l.at() as u64).u64(NODE_NEXT, next);
+            next = node.at() as u64;
+            nodes.push(node);
+        }
+        buffers::units(&image, &[&army, &fleet]);
+        let country = Object::country(cas, LEADERS_COUNT + 4).u64(LEADERS, next).i32(LEADERS_COUNT, 3);
+        let countries = Object::countries(&[&country]);
+        let session = buffers::session(m, 0, cas, country.at(), countries.at(), Caller::Remote);
+        let mut objects = vec![army, fleet, country, countries];
+        objects.extend(leaders);
+        objects.extend(nodes);
+        Castile { _image: image, _objects: objects, session }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("the leader was moved") };
+        (status, message)
+    }
+
+    #[test]
+    fn a_leader_is_given_taken_and_dismissed_by_the_panels_commands() {
+        let castile = castile(false, false);
+        assign(castile.session, args::Assign { leader: 14, army: ArmyId(FLEET) }).unwrap();
+        remove(castile.session, args::Remove { army: ArmyId(ARMY) }).unwrap();
+        dismiss(castile.session, args::Dismiss { leader: 13 }).unwrap();
+        assert_eq!(
+            record::posted(),
+            [
+                "assign_leader={ leader={ id=14 type=49 } unit={ id=8 type=54 } }",
+                "assign_leader={ leader={ id=0 type=0 } unit={ id=7 type=54 } }",
+                r#"dismiss_leader={ country="CAS" leader={ id=13 type=49 } }"#
+            ]
+        );
+    }
+
+    #[test]
+    fn a_leader_the_panels_would_not_move_is_refused_with_why() {
+        let castile = castile(true, true);
+        let rejected = |why: &str| (Status::Rejected, why.to_string());
+        assert_eq!(
+            refused(assign(castile.session, args::Assign { leader: 13, army: ArmyId(FLEET) })),
+            rejected("a leader of the kind general leads an army, not a fleet")
+        );
+        assert_eq!(
+            refused(assign(castile.session, args::Assign { leader: 14, army: ArmyId(ARMY) })),
+            rejected("a leader of the kind admiral leads a fleet, not an army")
+        );
+        assert_eq!(refused(assign(castile.session, args::Assign { leader: 14, army: ArmyId(FLEET) })), rejected("has a leader"));
+        assert_eq!(refused(remove(castile.session, args::Remove { army: ArmyId(ARMY) })), rejected("in battle"));
+        assert_eq!(
+            refused(dismiss(castile.session, args::Dismiss { leader: 12 })),
+            rejected("leader 12 leads an army or a fleet; take it from there first (leader.remove)")
+        );
+        assert_eq!(refused(dismiss(castile.session, args::Dismiss { leader: 15 })), (Status::NotFound, "the player has no leader 15".into()));
+        assert_eq!(refused(remove(castile.session, args::Remove { army: ArmyId(9 << 32 | 54) })).0, Status::NotFound);
+        assert!(record::posted().is_empty());
     }
 
     #[test]

@@ -10,6 +10,7 @@ use eu4_harmony_remote::{
     armies::{Army, ArmyAction, ArmyAnswer, ArmyKind, ArmyRequest, Blocked, RouteBy},
     ArmyId, Error, ProvinceId,
 };
+use eu4_harmony_remote::armies::args;
 
 layer! {
     run ArmyRequest => ArmyAnswer;
@@ -20,22 +21,22 @@ layer! {
     Get { army } => get(game, army.0);
     List {} => list(game);
     At { province } => at(game, province.0);
-    RouteTo => fn find_route(army: u64, province: u32) -> Vec<u32> = session layer::find_route;
-    CanStep => fn can_step(army: u64, from: u32, to: u32) -> bool = session layer::can_step;
-    CanAttack => fn can_attack(army: u64, target: u64) -> bool = session layer::can_attack_seen;
+    RouteTo => fn find_route -> Vec<u32> = layer::find_route;
+    CanStep => fn can_step -> bool = layer::can_step;
+    CanAttack => fn can_attack -> bool = layer::can_attack_seen;
     fn move_to(army: u64, province: u32, transports: bool) -> () = session layer::move_to;
     Move { army, province, transports } => game.move_to(army, province, transports.unwrap_or(false));
-    Stop => fn stop(army: u64) -> () = session layer::stop;
-    Selected => fn selected() -> u64 = session layer::selected;
-    Options => fn army_options(army: u64) -> Vec<ArmyAction> = session units::options;
-    Split => fn split(army: u64) -> u64 = session units::split;
-    Merge => fn merge(armies: Vec<ArmyId>) -> () = session units::merge;
-    Disband => fn disband(army: u64) -> () = session units::disband;
-    Consolidate => fn consolidate(army: u64) -> () = session units::consolidate;
-    Drill => fn drill(army: u64) -> () = session units::drill;
-    StopDrill => fn stop_drill(army: u64) -> () = session units::stop_drill;
-    Mission => fn mission(army: u64, mission: String, target: Option<u32>) -> () = session units::mission;
-    StopMission => fn stop_mission(army: u64) -> () = session units::stop_mission;
+    Stop => fn stop -> () = layer::stop;
+    Selected => fn selected -> u64 = layer::selected;
+    Options => fn army_options -> Vec<ArmyAction> = units::options;
+    Split => fn split -> u64 = units::split;
+    Merge => fn merge -> () = units::merge;
+    Disband => fn disband -> () = units::disband;
+    Consolidate => fn consolidate -> () = units::consolidate;
+    Drill => fn drill -> () = units::drill;
+    StopDrill => fn stop_drill -> () = units::stop_drill;
+    Mission => fn mission -> () = units::mission;
+    StopMission => fn stop_mission -> () = units::stop_mission;
 }
 
 fn get(game: &mut (impl Layer + ?Sized), army: u64) -> Result<Army, Error> {

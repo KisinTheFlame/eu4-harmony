@@ -4,15 +4,9 @@
 use super::GResult;
 use crate::{game_string, memory::Memory, unicode::game_text};
 
-/// The game's array type: its data at `+8`, its count (i32) at `+0x14`.
-pub const ARRAY_DATA: usize = 0x8;
-pub const ARRAY_COUNT: usize = 0x14;
-/// The most entries of a database or a list read.
-const MOST: usize = 100_000;
-
 /// The text of the `std::string` at `string`, a content key.
 pub fn key(m: &Memory, string: usize) -> GResult<String> {
-    Ok(game_text::to_utf8(&game_string::read(m, string)?))
+    Ok(game_string::key(m, string)?)
 }
 
 /// The game's text for the localisation key `key`, in the player language,
@@ -20,14 +14,30 @@ pub fn key(m: &Memory, string: usize) -> GResult<String> {
 /// `grant_consessions_to_the_church` names `ESTATE_CHURCH`, is that key's
 /// text, as the game's views show it; the lookup alone leaves it out.
 pub fn name(m: &Memory, key: &str) -> GResult<String> {
+    name_given(m, key, &[])
+}
+
+/// As [`name`], with the `$NAME$`s the view fills in from what the text is
+/// about, as the estates view fills a privilege's `$ESTATE_NAME$` with its
+/// estate's name: each pair a name and the localisation key whose text it
+/// takes.
+pub fn name_given(m: &Memory, key: &str, given: &[(&str, &str)]) -> GResult<String> {
     let names = references(&game_string::unformatted(m, key)?);
     let key = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
     if names.is_empty() {
         return Ok(game_text::plain(&game_string::localized(m, key.as_ptr() as usize)?));
     }
-    let texts = names.iter().map(|name| game_string::localized(m, name.as_ptr() as usize)).collect::<Result<Vec<_>, _>>()?;
+    let sources = names.iter().map(|name| source(name, given)).collect::<Result<Vec<_>, _>>()?;
+    let texts = sources.iter().map(|source| game_string::localized(m, source.as_ptr() as usize)).collect::<Result<Vec<_>, _>>()?;
     let values: Vec<(&std::ffi::CStr, &[u8])> = names.iter().map(|n| n.as_c_str()).zip(texts.iter().map(Vec::as_slice)).collect();
     Ok(game_text::plain(&game_string::localized_with(m, key.as_ptr() as usize, &values)?))
+}
+
+/// The localisation key whose text a `$NAME$` takes: the one `given` pairs
+/// with it, or the name itself.
+fn source(name: &std::ffi::CStr, given: &[(&str, &str)]) -> GResult<std::ffi::CString> {
+    let key = given.iter().find(|(n, _)| n.as_bytes() == name.to_bytes()).map_or(name.to_bytes(), |(_, key)| key.as_bytes());
+    Ok(std::ffi::CString::new(key).map_err(|e| e.to_string())?)
 }
 
 /// The names a localisation text refers to as `$NAME$`, each once.
@@ -40,26 +50,6 @@ fn references(text: &[u8]) -> Vec<std::ffi::CString> {
         }
     }
     names
-}
-
-/// The pointers the game's array at `array` holds.
-pub fn pointers(m: &Memory, array: usize) -> GResult<Vec<usize>> {
-    let (data, count) = (m.ptr(array + ARRAY_DATA)?, m.i32(array + ARRAY_COUNT)?);
-    (0..bounded(count)?).map(|i| Ok(m.ptr(data + i * 8)?)).collect()
-}
-
-/// The pointers of the `std::vector` at `vector`.
-pub fn vector(m: &Memory, vector: usize) -> GResult<Vec<usize>> {
-    let (begin, end) = (m.ptr(vector)?, m.ptr(vector + 8)?);
-    (0..super::span(begin, end, 8, MOST)?).map(|i| Ok(m.ptr(begin + i * 8)?)).collect()
-}
-
-/// A count the game keeps, checked.
-pub fn bounded(count: i32) -> GResult<usize> {
-    match usize::try_from(count) {
-        Ok(n) if n <= MOST => Ok(n),
-        _ => Err(format!("a count of {count}").into()),
-    }
 }
 
 /// Has the game write its reasons for not allowing something into a text of
@@ -117,5 +107,12 @@ mod tests {
         let names = super::references(b"Grant Concessions to the $ESTATE_CHURCH$ and $ESTATE_CHURCH$, 5$ $");
         assert_eq!(names.iter().map(|n| n.to_str().unwrap()).collect::<Vec<_>>(), ["ESTATE_CHURCH"]);
         assert!(super::references(b"no names").is_empty());
+    }
+
+    #[test]
+    fn a_name_the_view_fills_in_takes_the_text_of_the_key_given() {
+        let given = [("ESTATE_NAME", "estate_church")];
+        assert_eq!(super::source(c"ESTATE_NAME", &given).unwrap().as_c_str(), c"estate_church");
+        assert_eq!(super::source(c"ESTATE_CHURCH", &given).unwrap().as_c_str(), c"ESTATE_CHURCH");
     }
 }

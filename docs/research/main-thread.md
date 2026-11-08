@@ -1,6 +1,6 @@
 # Where the main thread's time goes (for making the game faster)
 
-Baseline 1.37.5. All addresses are RVAs, into `eu4.exe` unless another module is named. Measured on 2026-11-04 with `tools/profile.py`, now `cargo xtask profile` ([dev-tools.md](../dev-tools.md)), which samples the main thread's call stack from outside the process, in the running game with the framework installed (the player build that was in the game folder, built on 2026-11-04 at 01:31); the runs are in [prototype-log.md](../prototype-log.md). What is marked _inferred_ was concluded from the shape of the code or from where it lies ([architecture.md](architecture.md), "Where the code lies"), not read through. The frame, the day and the threads are described in [architecture.md](architecture.md); this note adds what they cost.
+Baseline 1.37.5. All addresses are RVAs, into `eu4.exe` unless another module is named. Measured on 2026-11-04 with `tools/profile.py`, now `cargo xtask profile` ([dev-tools.md](../dev-tools.md)), which samples the main thread's call stack from outside the process, in the running game with the framework installed (the player build that was in the game folder, built on 2026-11-04 at 01:31); the runs are in [prototype-log/](../prototype-log/). What is marked _inferred_ was concluded from the shape of the code or from where it lies ([architecture.md](architecture.md), "Where the code lies"), not read through. The frame, the day and the threads are described in [architecture.md](architecture.md); this note adds what they cost.
 
 ## Setup
 
@@ -64,7 +64,7 @@ In these runs the sleep was what the main thread did there: `kernelbase!SleepEx`
 
 ## The autosave
 
-The half-yearly autosave runs in the in-game frame (`0x8137c0` → `0x5cbb00` → `0x5cc160` → `0x5cc6e0`, where the framework's save observer sits, → `0x5c7ac0` → `0x74ba20` → `0x5cde60` → `0x5ce5f0`), and in 1624 mostly inside a frame inside a day. One autosave took about 0.4 to 0.5 s in 1462 and 1.6 to 1.9 s in 1624 (samples per autosave, with the sampler's 7%). Of the 1624 autosaves ([prototype-log.md](../prototype-log.md), the first run at 200 samples a second):
+The half-yearly autosave runs in the in-game frame (`0x8137c0` → `0x5cbb00` → `0x5cc160` → `0x5cc6e0`, where the framework's save observer sits, → `0x5c7ac0` → `0x74ba20` → `0x5cde60` → `0x5ce5f0`), and in 1624 mostly inside a frame inside a day. One autosave took about 0.4 to 0.5 s in 1462 and 1.6 to 1.9 s in 1624 (samples per autosave, with the sampler's 7%). Of the 1624 autosaves ([Where the main thread's time goes](../prototype-log/2026-11-04-main-thread-time-goes.md), the first run at 200 samples a second):
 
 - 55% writing the game state into memory: `0x14e3f00` → the world's writer `0x74ff30` ([saves.md](saves.md)), most of it in `0x2dc6b0` (_inferred_: the countries) and `0x9d6e60` (_inferred_: the provinces);
 - 40% in `0x153b9a0` → `0x153c790` → `0x181e890`, which lies among the third-party code (_inferred_: zlib's deflate compressing the zip; that save is an ironman save, compressed although `compress_autosave=no`);

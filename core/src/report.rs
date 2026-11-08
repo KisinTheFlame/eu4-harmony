@@ -33,6 +33,13 @@ pub fn write() {
     for line in timing {
         text.push_str(&format!("  {line}\n"));
     }
+    let checks = crate::speed::check_lines();
+    if !checks.is_empty() {
+        text.push_str(&format!("\nSpeed-ups checked against the game (as of {}):\n", crate::log::now()));
+        for line in checks {
+            text.push_str(&format!("  {line}\n"));
+        }
+    }
     if let Err(e) = fs::write(path, text) {
         crate::log!("report: {e}");
     }

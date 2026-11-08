@@ -20,88 +20,118 @@
 /// answers each request. Each line is one of
 ///
 /// ```text
+/// Variant => fn method -> Result = capability;
+/// Variant => fn method -> Result = caller capability;
 /// fn method(argument: Type, ...) -> Result = session capability;
-/// Variant => fn method(field: Type, ...) -> Result = session capability;
 /// Variant { field, ... } => game.method(expression, ...);
 /// Variant { field, ... } => function(game, expression, ...);
 /// ```
 ///
-/// A method alone; a method and the request it answers, whose fields are
-/// its arguments; a request answered by a method of another line; a request
-/// answered by a function of the group's own, which takes the game first
-/// and returns a `Result`. Arguments and answers pass through [`Convert`].
-/// What the capability takes first is said before it: `session`, the
-/// session [`Live`] opens for the request (`crate::game::Session`), which
-/// decides whether there is one to read, with a country to act as, before
-/// the capability runs; `world`, the session of a capability that acts as no
-/// country (`crate::game::WorldSession`), also with none in view; or
-/// `caller`, the caller alone, for a capability that runs without a session
-/// or checks something of its own first. `run Request => Answer +
-/// other::Layer;` lets `run` and the group's functions use another group's
-/// slice too. A group whose slice does more than call the layer writes both
-/// itself.
+/// A method and the request it answers, whose capability takes the
+/// request's arguments by their names, as the group's `args` module in
+/// remote control declares them (`eu4_harmony_remote::<group>::args`, which
+/// the group's file imports as `args`); a method alone; a request answered
+/// by a method of another line; a request answered by a function of the
+/// group's own, which takes the game first and returns a `Result`. Answers,
+/// and the arguments a line passes itself, pass through [`Convert`].
+///
+/// What a capability takes first is what [`Live`] opens for it before it
+/// runs ([`Opens`]): for a method and its request, what the capability's
+/// place in remote control says, a session with a country to act as
+/// (`crate::game::Session`), one that acts as no country
+/// (`crate::game::WorldSession`), or the caller alone (`crate::game::Caller`)
+/// for one that runs at the main menu too; or the caller alone when the
+/// line says `caller`, for a capability that checks something of its own
+/// first. A method alone says it before its capability: `session`, `world`
+/// or `caller`. `run Request => Answer + other::Layer;` lets `run` and the
+/// group's functions use another group's slice too. A group whose slice
+/// does more than call the layer writes both itself.
 macro_rules! layer {
-    (@munch $head:tt [$($methods:tt)*] $arms:tt
-        $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty = $takes:ident $capability:path; $($rest:tt)*) => {
-        layer!(@munch $head [$($methods)* { $(#[$doc])* fn $name($($arg: $ty),*) -> $ret = $takes $capability; }] $arms $($rest)*);
+    (@munch $head:tt [$($methods:tt)*] [$($arms:tt)*]
+        $(#[$doc:meta])* $Variant:ident => fn $name:ident -> $ret:ty = caller $capability:path; $($rest:tt)*) => {
+        layer!(@munch $head
+            [$($methods)* { $(#[$doc])* [$Variant] fn $name -> $ret = caller $capability; }]
+            [$($arms)* { $Variant request $name () () }]
+            $($rest)*);
     };
     (@munch $head:tt [$($methods:tt)*] [$($arms:tt)*]
-        $(#[$doc:meta])* $Variant:ident => fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty = $takes:ident $capability:path; $($rest:tt)*) => {
+        $(#[$doc:meta])* $Variant:ident => fn $name:ident -> $ret:ty = $capability:path; $($rest:tt)*) => {
         layer!(@munch $head
-            [$($methods)* { $(#[$doc])* fn $name($($arg: $ty),*) -> $ret = $takes $capability; }]
-            [$($arms)* { $Variant { $($arg),* } method $name($($arg),*) }]
+            [$($methods)* { $(#[$doc])* [$Variant] fn $name -> $ret = place $capability; }]
+            [$($arms)* { $Variant request $name () () }]
             $($rest)*);
+    };
+    (@munch $head:tt [$($methods:tt)*] $arms:tt
+        $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty = $takes:ident $capability:path; $($rest:tt)*) => {
+        layer!(@munch $head [$($methods)* { $(#[$doc])* [] fn $name($($arg: $ty),*) -> $ret = $takes $capability; }] $arms $($rest)*);
     };
     (@munch $head:tt $methods:tt [$($arms:tt)*]
         $Variant:ident { $($field:ident),* $(,)? } => game.$name:ident($($e:expr),* $(,)?); $($rest:tt)*) => {
-        layer!(@munch $head $methods [$($arms)* { $Variant { $($field),* } method $name($($e),*) }] $($rest)*);
+        layer!(@munch $head $methods [$($arms)* { $Variant method $name ($($field),*) ($($e),*) }] $($rest)*);
     };
     (@munch $head:tt $methods:tt [$($arms:tt)*]
         $Variant:ident { $($field:ident),* $(,)? } => $function:ident(game $(, $e:expr)* $(,)?); $($rest:tt)*) => {
-        layer!(@munch $head $methods [$($arms)* { $Variant { $($field),* } function $function($($e),*) }] $($rest)*);
+        layer!(@munch $head $methods [$($arms)* { $Variant function $function ($($field),*) ($($e),*) }] $($rest)*);
     };
     (@munch [] [$($methods:tt)*] []) => {
         layer!(@layer $($methods)*);
         layer!(@bindings None [$($methods)*] []);
     };
     (@munch [$Request:ident $Answer:ident [$($bound:tt)*]] [$($methods:tt)*]
-        [$({ $Variant:ident { $($field:ident),* } $how:ident $call:ident($($e:expr),*) })*]) => {
+        [$({ $Variant:ident $how:ident $call:ident ($($field:ident),*) ($($e:expr),*) })*]) => {
         layer!(@layer $($methods)*);
-        layer!(@bindings $Request [$($methods)*] [$({ $Variant { $($field),* } $how $call($($e),*) })*]);
+        layer!(@bindings $Request [$($methods)*] [$({ $Variant $how $call })*]);
 
         /// Answers one of the group's requests.
         pub fn run(request: $Request, game: &mut (impl Layer $($bound)* + ?Sized)) -> Result<$Answer, eu4_harmony_remote::Error> {
-            Ok(match request {
-                $( $Request::$Variant { $($field),* } => $Answer::$Variant($crate::catalogue::Convert::convert(layer!(@call game $how $call($($e),*))?)), )*
+            Ok(match request.into_args() {
+                $( args::Args::$Variant(arguments) => $Answer::$Variant($crate::catalogue::Convert::convert(
+                    layer!(@call game arguments $Variant $how $call ($($field),*) ($($e),*))?
+                )), )*
             })
         }
     };
     (@munch $($rest:tt)*) => {
         compile_error!(concat!("layer!: a line that is none of its forms: ", stringify!($($rest)*)));
     };
-    (@call $game:ident method $name:ident($($e:expr),*)) => {
+    (@call $game:ident $arguments:ident $Variant:ident request $name:ident () ()) => {
+        $game.$name($arguments)
+    };
+    (@call $game:ident $arguments:ident $Variant:ident method $name:ident ($($field:ident),*) ($($e:expr),*)) => {{
+        let args::$Variant { $($field),* } = $arguments;
         $game.$name($($crate::catalogue::Convert::convert($e)),*)
-    };
-    (@call $game:ident function $function:ident($($e:expr),*)) => {
+    }};
+    (@call $game:ident $arguments:ident $Variant:ident function $function:ident ($($field:ident),*) ($($e:expr),*)) => {{
+        let args::$Variant { $($field),* } = $arguments;
         $function($game, $($e),*)
-    };
-    (@live $caller:ident session $capability:path, $($arg:ident),*) => {
+    }};
+    (@live $caller:ident session $capability:path, [] [$($arg:ident),*]) => {
         $capability(crate::game::Session::open($caller)?, $($arg),*)
     };
-    (@live $caller:ident world $capability:path, $($arg:ident),*) => {
+    (@live $caller:ident world $capability:path, [] [$($arg:ident),*]) => {
         $capability(crate::game::WorldSession::open($caller)?, $($arg),*)
     };
-    (@live $caller:ident caller $capability:path, $($arg:ident),*) => {
+    (@live $caller:ident caller $capability:path, [] [$($arg:ident),*]) => {
         $capability($caller, $($arg),*)
     };
-    (@live $caller:ident $takes:ident $capability:path, $($arg:ident),*) => {
+    (@live $caller:ident caller $capability:path, [$Variant:ident $arguments:ident] []) => {
+        $crate::catalogue::Capability::call($capability, $caller, $arguments)
+    };
+    (@live $caller:ident place $capability:path, [$Variant:ident $arguments:ident] []) => {
+        $crate::catalogue::Capability::call(
+            $capability,
+            <<args::$Variant as eu4_harmony_remote::Arguments>::Place as $crate::catalogue::Opens>::open($caller)?,
+            $arguments,
+        )
+    };
+    (@live $caller:ident $takes:ident $capability:path, $($rest:tt)*) => {
         compile_error!(concat!("layer!: ", stringify!($capability), " takes a session, a world or a caller, not ", stringify!($takes)))
     };
-    (@layer $({ $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),*) -> $ret:ty = $takes:ident $capability:path; })*) => {
+    (@layer $({ $(#[$doc:meta])* [$($Variant:ident)?] fn $name:ident $(($($arg:ident: $ty:ty),*))? -> $ret:ty = $takes:ident $capability:path; })*) => {
         /// The group's slice of the capability layer.
         #[cfg(not(test))]
         pub trait Layer {
-            $( $(#[$doc])* fn $name(&mut self, $($arg: $ty),*) -> crate::game::GResult<$ret>; )*
+            $( $(#[$doc])* fn $name(&mut self, $(arguments: args::$Variant)? $($($arg: $ty),*)?) -> crate::game::GResult<$ret>; )*
         }
 
         /// The group's slice of the capability layer; in a test, what a fake
@@ -110,8 +140,9 @@ macro_rules! layer {
         pub trait Layer {
             $(
                 $(#[$doc])*
-                fn $name(&mut self, $($arg: $ty),*) -> crate::game::GResult<$ret> {
-                    let _ = ($($arg,)*);
+                fn $name(&mut self, $(arguments: args::$Variant)? $($($arg: $ty),*)?) -> crate::game::GResult<$ret> {
+                    $( let _: args::$Variant = arguments; )?
+                    $( let _ = ($($arg,)*); )?
                     Err($crate::catalogue::fake::unscripted(stringify!($name)))
                 }
             )*
@@ -119,37 +150,28 @@ macro_rules! layer {
 
         impl Layer for super::Live {
             $(
-                fn $name(&mut self, $($arg: $ty),*) -> crate::game::GResult<$ret> {
+                fn $name(&mut self, $(arguments: args::$Variant)? $($($arg: $ty),*)?) -> crate::game::GResult<$ret> {
                     let caller = self.0;
-                    layer!(@live caller $takes $capability, $($arg),*)
+                    layer!(@live caller $takes $capability, [$($Variant arguments)?] [$($($arg),*)?])
                 }
             )*
         }
     };
-    (@bindings $Request:ident [$({ $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),*) -> $ret:ty = $takes:ident $capability:path; })*]
-        [$({ $Variant:ident { $($field:ident),* } $how:ident $call:ident($($e:expr),*) })*]) => {
-        /// What the group's lines name, for the test that every capability
-        /// takes its arguments by their names.
+    (@bindings $Request:ident [$({ $(#[$doc:meta])* [$($Variant:ident)?] fn $name:ident $(($($arg:ident: $ty:ty),*))? -> $ret:ty = $takes:ident $capability:path; })*]
+        [$({ $RVariant:ident $how:ident $call:ident })*]) => {
+        /// What the group's lines name, for the test that a request a method
+        /// alone answers acts as a country exactly when the method opens a
+        /// session with one.
         #[cfg(test)]
         pub fn bindings() -> $crate::catalogue::Bindings {
             $crate::catalogue::Bindings {
-                methods: vec![$(
-                    $crate::catalogue::Method {
-                        name: stringify!($name),
-                        arguments: vec![$(stringify!($arg)),*],
-                        types: vec![$(stringify!($ty)),*],
-                        capability: std::any::type_name_of_val(&$capability),
-                        takes: stringify!($takes),
-                    }
-                ),*],
+                methods: vec![$( $crate::catalogue::Method { name: stringify!($name), takes: stringify!($takes) } ),*],
                 requests: vec![$(
                     $crate::catalogue::Answered {
-                        request: stringify!($Variant),
-                        fields: vec![$(stringify!($field)),*],
+                        request: stringify!($RVariant),
                         function: stringify!($how) == "function",
                         call: stringify!($call),
-                        arguments: vec![$(stringify!($e)),*],
-                        country: $Request::country_of(stringify!($Variant)),
+                        country: $Request::country_of(stringify!($RVariant)),
                     }
                 ),*],
             }
@@ -249,7 +271,7 @@ groups! {
     Army(armies),
     Text(texts),
     Screenshot(screenshot) => screenshot::run(request, game),
-    Console(console),
+    Console(console) => console::run_and_answer_next(request, game),
     Question(questions),
     Offer(offers),
     Events => match events {
@@ -329,8 +351,8 @@ impl<T: Game + ?Sized> Catalogue for T {
     }
 }
 
-/// What a group's `layer!` lines name: each method of its slice and the
-/// capability it calls, and each request and what answers it.
+/// What a group's `layer!` lines name: each method of its slice and what
+/// it opens, and each request and what answers it.
 #[cfg(test)]
 #[derive(Default)]
 pub struct Bindings {
@@ -338,30 +360,86 @@ pub struct Bindings {
     pub requests: Vec<Answered>,
 }
 
-/// A method of a group's slice: its arguments and their types, and the
-/// capability it calls, by its path.
+/// A method of a group's slice, and what it takes first: `session`,
+/// `world` or `caller`, or `place` for one whose capability's place says.
 #[cfg(test)]
 pub struct Method {
     pub name: &'static str,
-    pub arguments: Vec<&'static str>,
-    pub types: Vec<&'static str>,
-    pub capability: &'static str,
-    /// What it takes first: `session`, `world` or `caller`.
     pub takes: &'static str,
 }
 
-/// A request, its fields, and the method or the group's function that
-/// answers it, with the expressions it passes.
+/// A request and the method or the group's function that answers it.
 #[cfg(test)]
 pub struct Answered {
     pub request: &'static str,
-    pub fields: Vec<&'static str>,
     pub function: bool,
     pub call: &'static str,
-    pub arguments: Vec<&'static str>,
     /// Whether its capability acts as a country, as remote control
     /// describes it.
     pub country: Option<bool>,
+}
+
+/// What [`Live`] opens for a capability of a place
+/// ([`eu4_harmony_remote::place`]) before it runs: a session with a country
+/// to act as, one that acts as no country, or nothing but the caller.
+pub trait Opens {
+    type Taken;
+    fn open(caller: game::Caller) -> game::GResult<Self::Taken>;
+}
+
+/// A capability as [`Live`] calls it, given what it takes first and its
+/// arguments: one that has arguments takes them after it, by their names
+/// ([`eu4_harmony_remote::Arguments`]), and one without takes nothing more.
+pub trait Capability<Taken, Arguments, Form> {
+    type Output;
+    fn call(self, taken: Taken, arguments: Arguments) -> Self::Output;
+}
+
+/// A [`Capability`] that takes its arguments.
+pub struct WithArguments;
+/// A [`Capability`] of none, which takes only what it takes first.
+pub struct WithNone;
+
+impl<F, T, A, R> Capability<T, A, WithArguments> for F
+where
+    F: FnOnce(T, A) -> R,
+{
+    type Output = R;
+    fn call(self, taken: T, arguments: A) -> R {
+        self(taken, arguments)
+    }
+}
+
+impl<F, T, A: eu4_harmony_remote::Arguments, R> Capability<T, A, WithNone> for F
+where
+    F: FnOnce(T) -> R,
+{
+    type Output = R;
+    fn call(self, taken: T, _: A) -> R {
+        const { assert!(A::COUNT == 0, "a capability with arguments takes them") };
+        self(taken)
+    }
+}
+
+impl Opens for eu4_harmony_remote::place::Game {
+    type Taken = game::Session;
+    fn open(caller: game::Caller) -> game::GResult<game::Session> {
+        game::Session::open(caller)
+    }
+}
+
+impl Opens for eu4_harmony_remote::place::World {
+    type Taken = game::WorldSession;
+    fn open(caller: game::Caller) -> game::GResult<game::WorldSession> {
+        game::WorldSession::open(caller)
+    }
+}
+
+impl Opens for eu4_harmony_remote::place::Anywhere {
+    type Taken = game::Caller;
+    fn open(caller: game::Caller) -> game::GResult<game::Caller> {
+        Ok(caller)
+    }
 }
 
 /// The capability layer itself, called as its caller: remote control, or an
@@ -586,130 +664,11 @@ mod tests {
         assert!(game.calls.is_empty(), "{:?}", game.calls);
     }
 
-    /// The parameters of the function at `path` (as `std::any::type_name`
-    /// writes it), each its name and its type, read from its source.
-    fn parameters(path: &str) -> Result<Vec<(String, String)>, String> {
-        let mut segments: Vec<&str> = path.split("::").collect();
-        let name = segments.pop().ok_or("no name")?;
-        if segments.first() != Some(&"eu4_harmony_core") {
-            return Err(format!("{path} is not the core's"));
-        }
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let module = segments[1..].join("/");
-        let source = [format!("{module}.rs"), format!("{module}/mod.rs")]
-            .iter()
-            .find_map(|file| std::fs::read_to_string(root.join(file)).ok())
-            .ok_or_else(|| format!("no source for {path}"))?;
-        let header = ["pub fn ", "pub(crate) fn ", "pub(super) fn ", "fn "]
-            .iter()
-            .find_map(|start| source.lines().position(|line| line.strip_prefix(start).is_some_and(|rest| rest.starts_with(&format!("{name}(")))));
-        let start = header.ok_or_else(|| format!("no fn {name} in the source of {path}"))?;
-        let text: String = source.lines().skip(start).collect::<Vec<_>>().join(
-            "
-",
-        );
-        let open = text.find('(').unwrap();
-        let (mut depth, mut current, mut parameters) = (0, String::new(), Vec::new());
-        for c in text[open + 1..].chars() {
-            match c {
-                '(' | '[' | '{' | '<' => depth += 1,
-                ')' if depth == 0 => break,
-                ')' | ']' | '}' | '>' => depth -= 1,
-                ',' if depth == 0 => {
-                    parameters.push(std::mem::take(&mut current));
-                    continue;
-                }
-                _ => {}
-            }
-            current.push(c);
-        }
-        parameters.push(current);
-        Ok(parameters
-            .iter()
-            .filter_map(|p| p.rsplit_once(": "))
-            .map(|(name, kind)| (name.trim().trim_start_matches("mut ").to_string(), kind.split_whitespace().collect()))
-            .collect())
-    }
-
-    /// The field an argument passed is made of: its first word, without a
-    /// reference.
-    fn root(expression: &str) -> &str {
-        let expression = expression.trim_start_matches(['&', ' ']);
-        &expression[..expression.find(|c: char| !(c.is_alphanumeric() || c == '_')).unwrap_or(expression.len())]
-    }
-
-    /// Whether two of `types` are the same, so that the arguments of those
-    /// could be passed the other way round and still compile.
-    fn shared(types: &[String], i: usize) -> bool {
-        types.iter().filter(|t| **t == types[i]).count() > 1
-    }
-
-    /// Two arguments of the same type cannot be passed the other way round:
-    /// a capability's parameters of a type it takes more than once, after
-    /// the session or the caller, are named as its binding's arguments; and
-    /// a request's fields passed to a method or to the group's own function
-    /// go to the parameters of their names, where it takes more than one of
-    /// their type, and never to a parameter named after another field.
-    #[test]
-    fn arguments_of_the_same_type_reach_each_capability_by_their_names() {
-        let groups = bindings();
-        let methods: Vec<&Method> = groups.iter().flat_map(|(_, b)| &b.methods).collect();
-        assert!(methods.len() > 140, "only {} methods", methods.len());
-        let mut wrong = Vec::new();
-        for method in &methods {
-            let types: Vec<String> = method.types.iter().map(|t| t.split_whitespace().collect()).collect();
-            let parameters = match parameters(method.capability) {
-                Ok(parameters) if parameters.len() == method.arguments.len() + 1 => parameters,
-                Ok(parameters) => {
-                    wrong.push(format!("{} takes {:?}, its binding passes {:?}", method.capability, &parameters[1..], method.arguments));
-                    continue;
-                }
-                Err(e) => {
-                    wrong.push(e);
-                    continue;
-                }
-            };
-            for (i, argument) in method.arguments.iter().enumerate() {
-                let parameter = &parameters[i + 1].0;
-                if shared(&types, i) && parameter != argument {
-                    wrong.push(format!("{} takes {argument}, of a type it takes twice, as {parameter}", method.capability));
-                }
-            }
-        }
-        for (group, bindings) in &groups {
-            for request in &bindings.requests {
-                let parameters = match request.function {
-                    true => parameters(&format!("eu4_harmony_core::catalogue::{group}::{}", request.call)).map(|p| p[1..].to_vec()),
-                    false => methods
-                        .iter()
-                        .find(|m| m.name == request.call)
-                        .map(|m| m.arguments.iter().zip(&m.types).map(|(a, t)| (a.to_string(), t.split_whitespace().collect())).collect())
-                        .ok_or_else(|| format!("no method {}", request.call)),
-                };
-                let parameters = match parameters {
-                    Ok(parameters) => parameters,
-                    Err(e) => {
-                        wrong.push(e);
-                        continue;
-                    }
-                };
-                let types: Vec<String> = parameters.iter().map(|(_, t)| t.clone()).collect();
-                for (i, argument) in request.arguments.iter().enumerate() {
-                    let (field, parameter) = (root(argument), parameters.get(i).map_or("", |(p, _)| p.as_str()));
-                    let other_field = parameter != field && request.fields.contains(&parameter);
-                    if request.fields.contains(&field) && (other_field || shared(&types, i) && parameter != field) {
-                        wrong.push(format!("{group} {}: {argument} goes to {}'s {parameter}", request.request, request.call));
-                    }
-                }
-            }
-        }
-        assert!(wrong.is_empty(), "{wrong:#?}");
-    }
-
-    /// A request answered by a method of its slice acts as a country, in
-    /// its description, exactly when the method opens a session with a
-    /// country to act as; one that opens a session without is described as
-    /// acting as none.
+    /// A request answered by a method alone acts as a country, in its
+    /// description, exactly when the method opens a session with a country
+    /// to act as; one that opens a session without is described as acting
+    /// as none. A method of its own request opens what its place says, which
+    /// the compiler holds it to.
     #[test]
     fn what_acts_as_a_country_opens_a_session_with_one() {
         let groups = bindings();
@@ -729,7 +688,7 @@ mod tests {
                 }
             }
         }
-        assert!(checked > 100, "only {checked} checked");
+        assert!(checked > 30, "only {checked} checked");
         assert!(wrong.is_empty(), "{wrong:#?}");
     }
 

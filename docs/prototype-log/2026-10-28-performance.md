@@ -1,0 +1,5 @@
+# 2026-10-28 Performance (measured by me)
+
+Framework with bitmap fonts and with system fonts, each two or three times with `tools/perf-run.ps1`; results and method in [performance.md](../performance.md). Backups as above; the runs rotated the three autosaves, which were restored and checked against the backup's hashes. Without the framework but with the Chinese language mod in the playset, the game crashed twice on entering single player, in the Epic Online Services SDK; the two crash folders were removed afterwards, so the dumps are gone.
+
+Then, at the user's request, vanilla in English and the framework in English, three runs each, with the Chinese language mod and the modifier sorting mod taken out of `dlc_load.json` for the runs and put back afterwards. Vanilla in English entered single player without crashing every time. Every framework run advanced fewer days at speed 5 than every vanilla run (about 2.5% on average), which the Chinese runs had been too spread out to show. Saves and settings were restored and checked as before.

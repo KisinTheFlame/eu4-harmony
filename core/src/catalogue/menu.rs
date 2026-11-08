@@ -164,8 +164,8 @@ impl Wait for Starting {
             )));
         }
         let game = at.game()?;
-        let session = match game.session() {
-            Ok(s) if self.observing && s.player.acting().is_some() => game.leave_view(),
+        let session = match game.session(eu4_harmony_remote::session::args::Get {}) {
+            Ok(s) if self.observing && s.player.acting().is_some() => game.leave_view(eu4_harmony_remote::session::args::LeaveView {}),
             session => session,
         };
         match session {
