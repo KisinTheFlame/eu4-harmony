@@ -17,6 +17,7 @@ Status: decided (2026-11-02); S1 to S4 built and tried in the game the same day 
 - The session is taken down as the in-game load takes it down, its interface, then the world reset, here with the game's history, and the main menu is made after it, as at startup (ADR return-to-the-main-menu-in-process). What the world reset and the map manager leave of the session is put back or let go by the framework.
 - The single player setup's back button, which restarts the game in vanilla, goes back to the main menu the same way.
 - The continue box offers the save the game wrote last, as after a restart.
+- A return, a new game or an in-game load that remote control or an extension asks for while time runs pauses the game first, and leaves the session only once it has been still, paused with no day under way, for three game frames. A day's commands, the AI's among them, are executed at the next frame's update of the session; left before it, the next update, the new main menu's or the next session's, executed them on what the return let go, and the game crashed (found by the sweep, [docs/whole-game.md](whole-game.md); research/main-menu.md, "Leaving while time runs"). The player's own ways out pause the game before they leave.
 
 ### An in-game load
 
