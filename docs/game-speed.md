@@ -1,6 +1,6 @@
 # Game speed plan
 
-Status: decided (2026-11-04). S0, the sampler, is built and was used for the measurements in [research/main-thread.md](research/main-thread.md); S1 to S4 are built, and S7 researched, in one pull request; S5 and S6 are set aside. S9, the armies' searches on idle threads, is built (2026-11-08) under the ADR that allows reasoned differences. S8, a save's stall made shorter, was asked for by the owner afterwards (2026-11-04): built in one pull request, its three steps as far as the research found them worth doing (2026-11-05): the file's own steps after the zip stay the game's. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Dependency point, Frame inside a day, Framework settings, Choice bar, Info mark). The bar a change must meet is [ADR making-the-game-faster-leaves-what-it-computes-as-it-is](adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md). What the framework itself costs the game is in [performance.md](performance.md).
+Status: decided (2026-11-04). S0, the sampler, is built and was used for the measurements in [research/main-thread.md](research/main-thread.md); S1 to S4 are built, and S7 researched, in one pull request; S5 and S6 are set aside. S9, the armies' searches on idle threads, is built (2026-11-08) under the ADR that allows reasoned differences, and S10, sets of modifiers added through an index. S8, a save's stall made shorter, was asked for by the owner afterwards (2026-11-04): built in one pull request, its three steps as far as the research found them worth doing (2026-11-05): the file's own steps after the zip stay the game's. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Dependency point, Frame inside a day, Framework settings, Choice bar, Info mark). The bar a change must meet is [ADR making-the-game-faster-leaves-what-it-computes-as-it-is](adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md). What the framework itself costs the game is in [performance.md](performance.md).
 
 ## Goal and scope
 
@@ -183,6 +183,10 @@ Researched, nothing built ([research/main-thread.md](research/main-thread.md), "
 ### S9 The armies' searches on idle threads
 
 Built (2026-11-08) under [ADR the-game-may-be-made-faster-with-reasoned-differences](adr/the-game-may-be-made-faster-with-reasoned-differences.md), the first change inside the day: a country's armies' searches worked out on threads of the framework's while its King's day goes on, taken by each army's think when its arguments and its army are unchanged. Its difference is of the first kind, when: 4.3% of the searches taken give another result than the game's would at the think. It took the search from about 5 ms of the main thread's wait in the AI stage to about 1.5 ms a game day late in a game ([research/late-game.md](research/late-game.md), "The armies' searches on idle threads"). Always on; the developer build's `game-searches-armies` leaves the searches to the game, and `check-army-searches` counts the differences.
+
+### S10 Sets of modifiers added through an index
+
+Built (2026-11-08): the search `0x8ea420` and `0x8ea730` make for each modifier added to a set kept as pairs answered from an index of the set's pairs instead of pair by pair, each answer the game's search's; the rest of the adding stays the game's code. It took the function from about 104 ms of the main thread a game month to about 41, late in a game; 63 million answers checked against the game's search, none differing ([research/late-game.md](research/late-game.md), "Adding sets of modifiers"). Always on; the developer build's `game-sums-modifiers` leaves the game's code as it is, and `check-modifier-sums` checks the answers.
 
 ## Order
 

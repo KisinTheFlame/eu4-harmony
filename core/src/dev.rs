@@ -133,6 +133,14 @@ pub struct TestSwitches {
     /// Every army search the framework worked out ahead is worked out again
     /// as the game does when taken, and a difference counted in the log.
     pub check_army_searches: bool,
+    /// Every search of a set of modifiers made through the framework's
+    /// index is made as the game's too, and a difference counted in the
+    /// log.
+    pub check_modifier_sums: bool,
+    /// The searches of sets of modifiers are the game's own, pair by pair,
+    /// so that the framework's index can be measured against them
+    /// (`core/src/modifier_sums.rs`).
+    pub game_sums_modifiers: bool,
     /// Commands in their written form, posted through the command layer at
     /// the first frame of every game, so that the game's commands can be
     /// tried.
@@ -206,7 +214,7 @@ impl Options {
             let on = |on: bool| if on { "on" } else { "off" };
             let switches = &self.test_switches;
             lines.push(format!(
-                "test switches: fail-startup {}, test-notice {}, crash {}, compare-saves {}, game-writes-saves {}, check-loading {}, game-loads {}, game-ends-dependencies {}, agents-order {}, game-searches-armies {}, check-army-searches {}, {} command(s) to post",
+                "test switches: fail-startup {}, test-notice {}, crash {}, compare-saves {}, game-writes-saves {}, check-loading {}, game-loads {}, game-ends-dependencies {}, agents-order {}, game-searches-armies {}, check-army-searches {}, check-modifier-sums {}, game-sums-modifiers {}, {} command(s) to post",
                 on(switches.fail_startup),
                 on(switches.test_notice),
                 on(switches.crash),
@@ -218,6 +226,8 @@ impl Options {
                 format!("{:?}", switches.agents_order).to_lowercase(),
                 on(switches.game_searches_armies),
                 on(switches.check_army_searches),
+                on(switches.check_modifier_sums),
+                on(switches.game_sums_modifiers),
                 switches.post.len()
             ));
         }
