@@ -898,6 +898,12 @@ fn rebuild_map_names(m: &Memory) -> crate::Result<()> {
     Ok(())
 }
 
+/// Every page asks for room (the test switch `grow-pages`).
+#[cfg(feature = "dev-test-switches")]
+pub fn want_room_everywhere() {
+    lock(&PAGES).values_mut().for_each(Fill::want_room);
+}
+
 /// Pages that asked for room grow: at a safe point, just before the main
 /// thread presents a frame, where it lays out no text, and no text the
 /// framework drew a glyph for is kept with only some of its glyphs on the

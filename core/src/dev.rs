@@ -125,6 +125,10 @@ pub struct TestSwitches {
     /// the first frame of every game, so that the game's commands can be
     /// tried.
     pub post: Vec<String>,
+    /// Every filled font's page grows at the first frame of every game, so
+    /// that a page growing in a game, the names on the map built again with
+    /// it, can be tried (`core/src/unicode/fill.rs`).
+    pub grow_pages: bool,
 }
 
 /// The test switch `agents-order`.
@@ -210,7 +214,7 @@ impl Options {
             let list = |names: &[String]| if names.is_empty() { "none".to_string() } else { names.join(", ") };
             let switches = &self.test_switches;
             lines.push(format!(
-                "test switches: fail-startup {}, test-notice {}, crash {}, panic {}, game-paths {}, checked {}, game-ends-dependencies {}, agents-order {}, {} command(s) to post",
+                "test switches: fail-startup {}, test-notice {}, crash {}, panic {}, game-paths {}, checked {}, game-ends-dependencies {}, agents-order {}, {} command(s) to post, grow-pages {}",
                 on(switches.fail_startup),
                 on(switches.test_notice),
                 on(switches.crash),
@@ -219,7 +223,8 @@ impl Options {
                 list(&switches.checked),
                 on(switches.game_ends_dependencies),
                 format!("{:?}", switches.agents_order).to_lowercase(),
-                switches.post.len()
+                switches.post.len(),
+                on(switches.grow_pages)
             ));
         }
         if built("write-watch") {
