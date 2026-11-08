@@ -8,7 +8,7 @@
 //! with no name, by its place in the layout); a list's row is a window type
 //! of its own, `<window>_<list>`.
 use eu4_harmony_lua::{
-    layout::{self, Align, Font, Kind, Placed, Window},
+    layout::{self, Align, Font, Kind, Placed, Ribbon, Window},
     Popup,
 };
 use std::fmt::Write as _;
@@ -33,8 +33,45 @@ pub const SPRITES: &str = "spriteTypes = {
 		textureFile = \"gfx/interface/country_religion_view_allreligion_bg_large.dds\"
 		borderSize = { x = 12 y = 12 }
 	}
+	corneredTileSpriteType = {
+		name = \"GFX_eu4harmony_ribbon_red\"
+		size = { x = 321 y = 42 }
+		textureFile = \"gfx/interface/band_reorg_red.dds\"
+		borderSize = { x = 32 y = 1 }
+	}
+	corneredTileSpriteType = {
+		name = \"GFX_eu4harmony_ribbon_blue\"
+		size = { x = 321 y = 42 }
+		textureFile = \"gfx/interface/band_reorg_blue.dds\"
+		borderSize = { x = 32 y = 1 }
+	}
 }
 ";
+
+/// A title's ribbon: its window, where it stands and how high it is; the
+/// ribbon runs from one side of the window to the other, but this.
+pub const RIBBON: &str = "eu4h_ribbon";
+const RIBBON_TOP: i32 = 14;
+const RIBBON_HEIGHT: i32 = 42;
+const RIBBON_INSET: i32 = 14;
+
+/// The gold crest above a window's title and the gold line along its
+/// bottom: the game's mission pop-up's, the crest drawn for a window 500
+/// wide, reaching 60 above it and 16 past each side.
+const CREST: &str = "eu4h_crest";
+const CREST_SPRITE: &str = "gfx_header_decoration";
+const CREST_SIZE: (i32, i32) = (532, 201);
+const FOOTER: &str = "eu4h_footer";
+const FOOTER_SPRITE: &str = "gfx_footer_decoration";
+const FOOTER_SIZE: (i32, i32) = (509, 37);
+
+/// A pop-up's parts, as the game's message pop-up has them
+/// (`DefaultPopup` in `interface/eu3dialog.gui`): its small header line,
+/// its title on the green band, its shields, its buttons.
+pub const HEADER: &str = "eu4h_header";
+pub const SHIELDS: [&str; 2] = ["eu4h_shield_left", "eu4h_shield_right"];
+pub const GOTO: &str = "eu4h_goto";
+const POPUP_BACKGROUND: &str = "SandboxFloaterBackground";
 const CLOSE_SPRITE: &str = "GFX_closebutton2";
 
 /// A pop-up's size, and where its texts stand.
@@ -94,10 +131,38 @@ fn quoted(words: &str) -> String {
 pub fn window(type_name: &str, window: &Window, words: &dyn Fn(&Option<String>) -> String) -> String {
     let mut out = String::new();
     let (w, h) = window.size;
-    open_window(&mut out, type_name, (w, h), window.moveable, true);
+    open_window(&mut out, type_name, (w, h), window.moveable, Some(BACKGROUND_SPRITE));
+    // The crest, at most the size it is drawn for, centered.
+    if window.crest {
+        let scale = (f64::from(w) / 500.0).min(1.0);
+        let x = (f64::from(w) - f64::from(CREST_SIZE.0) * scale) / 2.0;
+        let _ = writeln!(
+            out,
+            "\t\ticonType = {{ name = \"{CREST}\" spriteType = \"{CREST_SPRITE}\" position = {{ x = {} y = {} }} scale = {scale:.3} alwaystransparent = yes }}",
+            x.round() as i32,
+            (-60.0 * scale).round() as i32
+        );
+    }
+    let footer = (f64::from(w - 30) / f64::from(FOOTER_SIZE.0)).min(1.5);
+    let _ = writeln!(
+        out,
+        "\t\ticonType = {{ name = \"{FOOTER}\" spriteType = \"{FOOTER_SPRITE}\" position = {{ x = {} y = {} }} scale = {footer:.3} alwaystransparent = yes }}",
+        ((f64::from(w) - f64::from(FOOTER_SIZE.0) * footer) / 2.0).round() as i32,
+        h - 8 - (f64::from(FOOTER_SIZE.1) * footer).round() as i32
+    );
+    // The title on its ribbon, a window of its own the ribbon stretches to.
     if window.title.is_some() {
-        let x = layout::MARGIN + layout::CLOSE;
-        text_box(&mut out, TITLE, (x, 20), (w - 2 * x, 28), "vic_22", "centre", &words(&window.title));
+        let ribbon = match window.ribbon {
+            Ribbon::Red => "GFX_eu4harmony_ribbon_red",
+            Ribbon::Blue => "GFX_eu4harmony_ribbon_blue",
+        };
+        let width = w - 2 * RIBBON_INSET;
+        let mut band = String::new();
+        open_window(&mut band, RIBBON, (width, RIBBON_HEIGHT), false, Some(ribbon));
+        out.push_str(&band.replacen("position = { x = 0 y = 0 }", &format!("position = {{ x = {RIBBON_INSET} y = {RIBBON_TOP} }}"), 1));
+        let side = layout::CLOSE + 16;
+        text_box(&mut out, TITLE, (side, 7), (width - 2 * side, 28), "vic_22", "centre", &words(&window.title));
+        out.push_str("\t}\n");
     }
     if window.close {
         let _ = writeln!(
@@ -110,7 +175,7 @@ pub fn window(type_name: &str, window: &Window, words: &dyn Fn(&Option<String>) 
     for (index, placed) in window.widgets.iter().enumerate() {
         widget(&mut out, placed, index, words);
         if let (Kind::List { row, .. }, Some(name)) = (&placed.kind, &placed.name) {
-            open_window(&mut rows, &row_type(type_name, name), row.size, false, false);
+            open_window(&mut rows, &row_type(type_name, name), row.size, false, None);
             for (i, p) in row.widgets.iter().enumerate() {
                 widget(&mut rows, p, i, words);
             }
@@ -122,41 +187,55 @@ pub fn window(type_name: &str, window: &Window, words: &dyn Fn(&Option<String>) 
     out
 }
 
-/// The `windowType` of a pop-up, at the screen's middle: its title, its
-/// text and its buttons in a row along its bottom, the last pressed by Esc.
+/// The `windowType` of a pop-up, as the game's message pop-up is laid out:
+/// its header, its title on the green band, the shields at its corners,
+/// its text, and its buttons along its bottom, Go to first, Esc pressing
+/// the last. Its words are written into it, its text alone set as it is
+/// built, for the game's formatting and line breaks.
 pub fn popup(type_name: &str, popup: &Popup) -> String {
     let mut out = String::new();
-    open_window(&mut out, type_name, (POPUP_WIDTH, POPUP_HEIGHT), true, true);
-    let margin = layout::MARGIN;
-    text_box(&mut out, TITLE, (margin, 24), (POPUP_WIDTH - 2 * margin, 28), "vic_22", "centre", "");
+    open_window(&mut out, type_name, (POPUP_WIDTH, POPUP_HEIGHT), true, Some(POPUP_BACKGROUND));
+    let _ = writeln!(out, "\t\ticonType = {{ name = \"eu4h_band\" spriteType = \"GFX_message_band\" position = {{ x = -15 y = 23 }} }}");
+    if let Some(header) = &popup.header {
+        text_box(&mut out, HEADER, (59, 19), (380, 20), "vic_18", "centre", header);
+    }
+    text_box(&mut out, TITLE, (59, 41), (380, 24), "vic_22", "centre", &popup.title);
     let _ = writeln!(
         out,
-        "\t\tinstantTextBoxType = {{ name = \"{TEXT}\" position = {{ x = {margin} y = 68 }} font = \"vic_18\" borderSize = {{ x = 0 y = 0 }} text = \"\" \
-         maxWidth = {} maxHeight = 160 format = centre scrollbartype = \"standardtext_slider\" }}",
-        POPUP_WIDTH - 2 * margin
+        "\t\tinstantTextBoxType = {{ name = \"{TEXT}\" position = {{ x = 40 y = 100 }} font = \"vic_18\" borderSize = {{ x = 0 y = 0 }} text = \"\" \
+         maxWidth = 420 maxHeight = 150 format = centre scrollbartype = \"standardtext_slider\" }}"
     );
-    let count = popup.buttons.len() as i32;
-    let width = match count {
-        1 | 2 => 149,
-        3 => 109,
-        _ => 79,
-    };
-    let gap = 12;
-    let total = width * count + gap * (count - 1);
-    let mut x = (POPUP_WIDTH - total) / 2;
-    for (i, words) in popup.buttons.iter().enumerate() {
-        let sprite = button_sprite(width);
-        let escape = if i + 1 == popup.buttons.len() { " shortcut = \"ESCAPE\"" } else { "" };
+    for (name, x) in SHIELDS.iter().zip([-1, 407]) {
+        let _ = writeln!(out, "\t\tguiButtonType = {{ name = \"{name}\" position = {{ x = {x} y = 19 }} quadTextureSprite = \"standarddialogshield\" }}");
+    }
+    let shown = shown(popup);
+    let places: &[i32] = if shown.len() == 1 { &[175] } else { &[77, 274] };
+    for (i, ((name, text), x)) in shown.iter().zip(places).enumerate() {
+        let keys = if i + 1 == shown.len() { " shortcut = \"ESCAPE\" extra_shortcut = \"RETURN\" clicksound = ok_click" } else { "" };
         let _ = writeln!(
             out,
-            "\t\tguiButtonType = {{ name = \"eu4h_button_{}\" position = {{ x = {x} y = {} }} quadTextureSprite = \"{sprite}\" buttonText = \"{}\" buttonFont = \"vic_18\"{escape} }}",
-            i + 1,
-            POPUP_HEIGHT - margin - layout::BUTTON_HEIGHT,
-            quoted(words)
+            "\t\tguiButtonType = {{ name = \"{name}\" position = {{ x = {x} y = 270 }} quadTextureSprite = \"largefloaterbutton\" buttonText = \"{}\" buttonFont = \"vic_18\"{keys} }}",
+            quoted(text)
         );
-        x += width + gap;
     }
     out.push_str("\t}\n");
+    out
+}
+
+/// A pop-up's buttons as they stand, left to right: each its element's
+/// name and its words, or the key of the game's own words for Go to and
+/// OK, which the game puts into its language.
+pub fn shown(popup: &Popup) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    if popup.goto.is_some() {
+        out.push((GOTO.to_string(), "GOTO".to_string()));
+    }
+    if popup.buttons.is_empty() {
+        out.push(("eu4h_button_1".to_string(), "OK".to_string()));
+    }
+    for (i, words) in popup.buttons.iter().enumerate() {
+        out.push((format!("eu4h_button_{}", i + 1), words.clone()));
+    }
     out
 }
 
@@ -173,10 +252,10 @@ pub fn file(types: &[String]) -> String {
 /// Opens a `windowType`; one with a background has it stretched to its
 /// size, as the game's dialogs do: a button of their sprite, which the
 /// window's `backGround` names.
-fn open_window(out: &mut String, name: &str, (w, h): (i32, i32), moveable: bool, background: bool) {
+fn open_window(out: &mut String, name: &str, (w, h): (i32, i32), moveable: bool, background: Option<&str>) {
     let _ = writeln!(out, "\twindowType = {{");
     let _ = writeln!(out, "\t\tname = \"{name}\"");
-    let _ = writeln!(out, "\t\tbackGround = \"{}\"", if background { BACKGROUND } else { "" });
+    let _ = writeln!(out, "\t\tbackGround = \"{}\"", if background.is_some() { BACKGROUND } else { "" });
     let _ = writeln!(out, "\t\tposition = {{ x = 0 y = 0 }}");
     let _ = writeln!(out, "\t\tsize = {{ x = {w} y = {h} }}");
     let _ = writeln!(out, "\t\tmoveable = {}", u8::from(moveable));
@@ -185,8 +264,8 @@ fn open_window(out: &mut String, name: &str, (w, h): (i32, i32), moveable: bool,
     let _ = writeln!(out, "\t\tverticalBorder = \"\"");
     let _ = writeln!(out, "\t\tfullScreen = no");
     let _ = writeln!(out, "\t\tOrientation = \"UPPER_LEFT\"");
-    if background {
-        let _ = writeln!(out, "\t\tguiButtonType = {{ name = \"{BACKGROUND}\" quadTextureSprite = \"{BACKGROUND_SPRITE}\" }}");
+    if let Some(sprite) = background {
+        let _ = writeln!(out, "\t\tguiButtonType = {{ name = \"{BACKGROUND}\" quadTextureSprite = \"{sprite}\" }}");
     }
 }
 
@@ -271,7 +350,7 @@ mod tests {
     #[test]
     fn a_window_is_the_game_s_window_type_with_its_rows_beside_it() {
         let layouts = json!({ "reforms": {
-            "size": [400, 300], "title": "TITLE",
+            "size": [400, 340], "title": "TITLE",
             "items": [
                 { "type": "text", "name": "status", "size": [200, 40], "text": "STATUS", "align": "center" },
                 { "type": "button", "name": "go", "text": "GO", "size": [100, 31] },
@@ -284,12 +363,17 @@ mod tests {
         let window = &layout::read(&layouts, &|_| true).unwrap()[0];
         let text = window_text(window);
         assert!(text.starts_with("\twindowType = {\n\t\tname = \"eu4harmony_m_reforms\"\n\t\tbackGround = \"eu4h_background\"\n"), "{text}");
-        assert!(text.contains("size = { x = 400 y = 300 }") && text.contains("moveable = 1"));
+        assert!(text.contains("size = { x = 400 y = 340 }") && text.contains("moveable = 1"));
         assert!(text.contains(&format!("backGround = \"{BACKGROUND}\"")));
         assert!(text.contains(&format!("guiButtonType = {{ name = \"{BACKGROUND}\" quadTextureSprite = \"GFX_eu4harmony_window_background\" }}")));
         assert!(text.contains("name = \"eu4h_title\"") && text.contains("text = \"[TITLE]\""), "{text}");
         assert!(text.contains("name = \"eu4h_close\" position = { x = 352 y = 12 }") && text.contains("shortcut = \"ESCAPE\""));
-        assert!(text.contains("name = \"w_status\" position = { x = 24 y = 56 }") && text.contains("format = centre"), "{text}");
+        assert!(text.contains("name = \"w_status\" position = { x = 24 y = 66 }") && text.contains("format = centre"), "{text}");
+        assert!(
+            text.contains("name = \"eu4h_ribbon\"") && text.contains("position = { x = 14 y = 14 }") && text.contains("GFX_eu4harmony_ribbon_red"),
+            "the title on its ribbon: {text}"
+        );
+        assert!(text.contains("spriteType = \"gfx_footer_decoration\"") && !text.contains("gfx_header_decoration"), "the gold line, no crest unless asked");
         assert!(text.contains("name = \"w_go\"") && text.contains("quadTextureSprite = \"button_type_6\" buttonText = \"[GO]\""), "{text}");
         assert!(text.contains("iconType = { name = \"w_2\""), "an unnamed game widget by its place");
         assert!(text.contains("listboxType = { name = \"w_rows\""));
@@ -302,14 +386,31 @@ mod tests {
     }
 
     #[test]
-    fn a_pop_up_lays_its_buttons_out_along_its_bottom_and_esc_presses_the_last() {
-        let popup = Popup { id: None, title: "T".into(), text: "X".into(), buttons: vec!["Yes".into(), "No \"never\"".into(), "Later".into()] };
-        let text = super::popup("eu4h_popup_1", &popup);
-        assert!(text.contains("name = \"eu4h_button_1\" position = { x = 54 y = 245 } quadTextureSprite = \"button_type_9\" buttonText = \"Yes\""), "{text}");
-        assert!(text.contains("buttonText = \"No 'never'\""), "a quote would end the string");
-        assert_eq!(text.matches("ESCAPE").count(), 1);
-        assert!(text.contains("name = \"eu4h_button_3\"") && text.trim_end().ends_with("shortcut = \"ESCAPE\" }\n\t}"), "{text}");
-        let whole = file(&[text]);
+    fn a_pop_up_is_the_game_s_message_pop_up_with_go_to_first_and_esc_pressing_the_last() {
+        let mut popup =
+            Popup { id: None, header: Some("Our steward".into()), title: "T".into(), text: "X".into(), buttons: vec![], goto: None, shields: [None, None] };
+        let alone = super::popup("eu4h_popup_1", &popup);
+        assert!(alone.contains("quadTextureSprite = \"SandboxFloaterBackground\""), "the game's dialogs' black");
+        assert!(alone.contains("spriteType = \"GFX_message_band\"") && alone.contains("text = \"Our steward\""), "{alone}");
+        assert_eq!(alone.matches("standarddialogshield").count(), 2);
+        assert!(
+            alone.contains("name = \"eu4h_button_1\" position = { x = 175 y = 270 }") && alone.contains("buttonText = \"OK\""),
+            "the game's own OK in the middle: {alone}"
+        );
+        popup.goto = Some(151);
+        popup.buttons = vec!["No \"never\"".into()];
+        let two = super::popup("eu4h_popup_2", &popup);
+        assert!(two.contains("name = \"eu4h_goto\" position = { x = 77 y = 270 }") && two.contains("buttonText = \"GOTO\""), "{two}");
+        assert!(two.contains("name = \"eu4h_button_1\" position = { x = 274 y = 270 }") && two.contains("buttonText = \"No 'never'\""), "{two}");
+        assert_eq!(two.matches("ESCAPE").count(), 1);
+        assert!(
+            two.trim_end().ends_with(
+                "shortcut = \"ESCAPE\" extra_shortcut = \"RETURN\" clicksound = ok_click }
+	}"
+            ),
+            "{two}"
+        );
+        let whole = file(&[two]);
         assert_eq!(whole.matches('{').count(), whole.matches('}').count());
     }
 }

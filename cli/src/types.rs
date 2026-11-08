@@ -48,10 +48,13 @@ const CLASSES: &str = r#"---@class eu4.Date
 ---@field row integer|nil the row of the list the button is in, from 1
 
 ---@class eu4.Popup
+---@field header? string a localisation key of the mod's, the small line above the title
 ---@field title string a localisation key of the mod's
 ---@field text string a localisation key of the mod's
 ---@field values? table<string, any> the keys' $NAME$s
----@field buttons string[] one to four localisation keys
+---@field buttons? string[] up to two localisation keys; none for the game's own OK
+---@field province? integer the province the game's Go to turns the camera to
+---@field shields? string[] the left and right shields' countries, the player's where none
 ---@field id? string a name the mod closes it by
 
 ---@class eu4.Color

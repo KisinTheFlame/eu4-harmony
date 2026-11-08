@@ -501,7 +501,9 @@ impl UserData for TestMod {
                 t.set("popup", p.number)?;
                 t.set("title", p.popup.title.as_str())?;
                 t.set("text", p.popup.text.as_str())?;
-                t.set("buttons", lua.create_sequence_from(p.popup.buttons.clone())?)?;
+                t.set("header", p.popup.header.clone())?;
+                t.set("buttons", lua.create_sequence_from(shown(&p.popup))?)?;
+                t.set("province", p.popup.goto)?;
                 t.set("id", p.popup.id.clone())?;
                 list.push(t)?;
             }
@@ -512,12 +514,18 @@ impl UserData for TestMod {
             let Some(at) = store.popups.iter().position(|p| p.number == number) else {
                 return Err(mlua::Error::runtime(format!("{}no pop-up {number} is open", here(lua))));
             };
-            let count = store.popups[at].popup.buttons.len() as u32;
+            let count = shown(&store.popups[at].popup).len() as u32;
             if !(1..=count).contains(&button) {
                 return Err(mlua::Error::runtime(format!("{}pop-up {number} has buttons 1 to {count}", here(lua))));
             }
             let p = store.popups.remove(at);
-            *p.slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(Ok(Value::from(button)));
+            // Go to stands first; the mod's buttons, or the game's OK, after it.
+            let answer = match (p.popup.goto, button) {
+                (Some(_), 1) => Value::String("goto".into()),
+                (Some(_), n) => Value::from(n - 1),
+                (None, n) => Value::from(n),
+            };
+            *p.slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(Ok(answer));
             Ok(())
         });
         methods.add_method("army_ordered", |lua, this, army: u64| {
@@ -667,6 +675,21 @@ fn pressable(this: &TestMod, window: &str, widget: &str, row: Option<u32>) -> Re
         return Err(format!("the window {window:?} has no button {widget}{}", if row.is_some() { " in a list's row" } else { "" }));
     }
     Ok(())
+}
+
+/// A pop-up's buttons' words as they stand, left to right, as remote
+/// control's popup.list gives them: Go to first, then the mod's, or the
+/// game's OK.
+fn shown(popup: &eu4_harmony_lua::Popup) -> Vec<String> {
+    let mut out = Vec::new();
+    if popup.goto.is_some() {
+        out.push("Go to".to_string());
+    }
+    if popup.buttons.is_empty() {
+        out.push("OK".to_string());
+    }
+    out.extend(popup.buttons.iter().cloned());
+    out
 }
 
 /// Gives the oldest answer of `capability` still to come.

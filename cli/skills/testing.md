@@ -87,11 +87,14 @@ windows):
                        when row is given: on_button hears "window.widget"
   mod:entry(window)    the window's entry button: opens or closes it
   mod:close(window)    the player closes it, by its close button or Esc
-  mod:popups()         the open pop-ups: { popup, title, text, buttons, id }
-                       each, in the player language
+  mod:popups()         the open pop-ups: { popup, header, title, text,
+                       buttons, province, id } each, in the player language,
+                       buttons left to right: "Go to" first when it has a
+                       province, then the mod's, or the game's "OK"
   mod:answer_popup(popup, button)
-                       presses a pop-up's button, from 1; mod:poll() then
-                       takes the waiting task up with the answer
+                       presses a pop-up's button, from 1 left to right;
+                       mod:poll() then takes the waiting task up with the
+                       answer: "goto", or the mod's button's number
 A window the mod opens or closes itself is heard by on_window at the next
 mod:frame(); the player's are heard at once. Opening one of the mod's big
 panels closes its others, as in the game.

@@ -34,7 +34,9 @@ steps:
    theirs out with spacing and align; any item may stand at at = { x, y }
    from the window's top left corner instead. Window options: close
    (true), moveable (true), panel (true: one of the game's big panels,
-   which close one another), anchor ("center", "top_left", ..., "right",
+   which close one another), ribbon ("red" or "blue", the title's; a window
+   with no title has none), crest (false: the gold crest above the title,
+   whose scrolls hang down the sides, so the items begin lower), anchor ("center", "top_left", ..., "right",
    "bottom_right") with offset = { x, y }, entry (a button on the panel
    button strip left of the minimap, beside the papacy's and the Empire's).
 2. Game widgets: text (size, text = key, font "body" or "heading", align),
@@ -64,12 +66,18 @@ steps:
    opens or closes, whoever did it: the mod, its entry button, its close
    button, Esc, or another of the game's big panels opening.
 5. A pop-up, in a handler or a task, which waits for the player:
-     local answer = game.popup { title = "MYMOD_ASK", text = "MYMOD_ASK_TEXT",
-       values = { N = 3 }, buttons = { "MYMOD_YES", "MYMOD_NO" }, id = "ask" }
-   answer is the button's number from 1, or "closed" when it closed with
-   none: game.popup.close("ask"), the session's end, or the mod stopped.
-   One to four buttons; Esc presses the last. Several may be open at once,
-   and remote clients list and answer them (popup.list, popup.answer).
+     local answer = game.popup { header = "MYMOD_STEWARD", title = "MYMOD_ASK",
+       text = "MYMOD_ASK_TEXT", values = { N = 3 }, buttons = { "MYMOD_YES", "MYMOD_NO" },
+       province = 151, shields = { "FRA", "ENG" }, id = "ask" }
+   It is the game's message pop-up: a header line, the title on the green
+   band, a shield at each corner (the player's country unless named), the
+   text, and one or two buttons. With no buttons it has the game's own OK;
+   with a province, the game's Go to on the left, which turns the camera
+   there: two buttons at most, Go to among them. answer is the mod's
+   button's number from 1 (1 for the game's OK), "goto", or "closed" when
+   it closed with none: game.popup.close("ask"), the session's end, or the
+   mod stopped. Esc and Return press the rightmost. Several may be open at
+   once, and remote clients list and answer them (popup.list, popup.answer).
 
 Done when eu4-harmony test passes with mod:window, mod:press, mod:entry,
 mod:close, mod:popups and mod:answer_popup (eu4-harmony skills testing), and

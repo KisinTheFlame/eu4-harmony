@@ -387,10 +387,10 @@ pub const FUNCTIONS: &[Function] = &[
         args: &[value(
             "popup",
             "eu4.Popup",
-            "{ title = key, text = key, values = { NAME = value }, buttons = { key, ... }, id = name }: the mod's localisation keys, one to four buttons, values for the keys' $NAME$s",
+            "{ header = key, title = key, text = key, values = { NAME = value }, buttons = { key, key }, province = number, shields = { tag, tag }, id = name }: the mod's localisation keys, the header optional; no buttons for the game's own OK, a province for its Go to, two buttons at most; the shields' countries, left and right, the player's where none",
         )],
-        returns: &[value("answer", "integer|string", "the number of the button pressed, from 1, or \"closed\" when it closed without one")],
-        about: "Shows the player a pop-up in the look of the game's dialogs, and waits until a button is pressed. Several may be open at once; it does not pause the game.",
+        returns: &[value("answer", "integer|string", "the number of the mod's button pressed, from 1 (1 for the game's OK), \"goto\", or \"closed\" when it closed without one")],
+        about: "Shows the player a pop-up as the game's message pop-ups are, and waits until a button is pressed. Several may be open at once; it does not pause the game.",
         waits: true,
         permission: None,
     },

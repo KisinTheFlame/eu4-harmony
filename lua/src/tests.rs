@@ -847,7 +847,18 @@ fn an_extension_sets_its_windows_and_waits_for_a_popup() {
     );
     {
         let popups = host.popups.lock().unwrap();
-        assert_eq!(popups[0].0, Popup { id: Some("ask".into()), title: "Reforms".into(), text: "Take 2?".into(), buttons: vec!["Yes".into(), "No".into()] });
+        assert_eq!(
+            popups[0].0,
+            Popup {
+                id: Some("ask".into()),
+                header: None,
+                title: "Reforms".into(),
+                text: "Take 2?".into(),
+                buttons: vec!["Yes".into(), "No".into()],
+                goto: None,
+                shields: [None, None],
+            }
+        );
         *popups[0].1.lock().unwrap() = Some(Ok(Value::from(2)));
     }
     assert_eq!(e.waiting(), 1);

@@ -244,34 +244,79 @@ pub fn close_popup(extension: usize, id: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The pop-ups open, oldest first, as `popup.list` gives them.
-pub fn popups() -> Vec<eu4_harmony_remote::popups::Popup> {
-    with(|all| {
-        all.popups
-            .iter()
-            .map(|p| eu4_harmony_remote::popups::Popup {
-                popup: p.number,
-                mod_id: crate::lua::mod_id(p.extension).unwrap_or_default(),
-                title: p.popup.title.clone(),
-                text: p.popup.text.clone(),
-                buttons: p.popup.buttons.clone(),
-            })
-            .collect()
-    })
+/// A button of a pop-up's pressed: its "Go to", or one of its others by
+/// its number, from 1, the game's own OK the first when the mod gave none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pressed {
+    Goto,
+    Button(u32),
 }
 
-/// Presses the button `button` (from 1) of the pop-up `number`, as the
-/// player does; whether there was such a pop-up and button, or why not.
-pub fn press_popup(number: u32, button: u32) -> Result<(), String> {
-    with(|all| {
-        let Some(open) = all.popups.iter().find(|p| p.number == number) else { return Err(format!("no pop-up {number} is open")) };
-        let count = open.popup.buttons.len() as u32;
-        if !(1..=count).contains(&button) {
-            return Err(format!("pop-up {number} has buttons 1 to {count}"));
+/// Presses a pop-up's button, as the player does: "Go to" turns the camera
+/// to its province first. Its extension has the answer, `"goto"` or the
+/// button's number, at the next frame. Nothing when it is not open.
+pub fn press(number: u32, pressed: Pressed) {
+    let province = with(|all| all.popups.iter().find(|p| p.number == number).and_then(|p| p.popup.goto));
+    if let (Pressed::Goto, Some(province)) = (pressed, province) {
+        let look = crate::game::WorldSession::open(crate::game::Caller::Remote).and_then(|session| {
+            crate::game::camera::look_at(
+                session,
+                eu4_harmony_remote::camera::args::LookAt { province: Some(eu4_harmony_remote::ProvinceId(province)), x: None, y: None },
+            )
+        });
+        if let Err(e) = look {
+            log!("windows: pop-up {number}'s Go to province {province}: {}", e.message);
         }
-        all.answer(number, Value::from(button));
-        Ok(())
-    })
+    }
+    let answer = match pressed {
+        Pressed::Goto => Value::String("goto".into()),
+        Pressed::Button(k) => Value::from(k),
+    };
+    with(|all| all.answer(number, answer));
+}
+
+/// The pop-ups open, oldest first, as `popup.list` gives them: each
+/// button's words as they stand, left to right, the game's own Go to and
+/// OK in the game's language.
+pub fn popups() -> Vec<eu4_harmony_remote::popups::Popup> {
+    let game_words = |key: &str| {
+        crate::memory()
+            .and_then(|m| crate::game_string::unformatted(m, key).ok())
+            .filter(|w| !w.is_empty())
+            .map(|w| crate::unicode::game_text::chars(&w).map(|(c, _)| c).collect())
+            .unwrap_or_else(|| key.to_string())
+    };
+    let open: Vec<(u32, usize, Popup)> = with(|all| all.popups.iter().map(|p| (p.number, p.extension, p.popup.clone())).collect());
+    open.into_iter()
+        .map(|(number, extension, popup)| eu4_harmony_remote::popups::Popup {
+            popup: number,
+            mod_id: crate::lua::mod_id(extension).unwrap_or_default(),
+            header: popup.header.clone(),
+            title: popup.title.clone(),
+            text: popup.text.clone(),
+            buttons: gui::shown(&popup)
+                .into_iter()
+                .map(|(name, words)| if name == gui::GOTO || (popup.buttons.is_empty() && words == "OK") { game_words(&words) } else { words })
+                .collect(),
+            province: popup.goto,
+        })
+        .collect()
+}
+
+/// Presses the button `button` (from 1, left to right as `popup.list`
+/// gives them) of the pop-up `number`, as the player does; or why not.
+pub fn press_popup(number: u32, button: u32) -> Result<(), String> {
+    let shown = with(|all| all.popups.iter().find(|p| p.number == number).map(|p| gui::shown(&p.popup)));
+    let Some(shown) = shown else { return Err(format!("no pop-up {number} is open")) };
+    let Some((name, _)) = button.checked_sub(1).and_then(|i| shown.get(i as usize)) else {
+        return Err(format!("pop-up {number} has buttons 1 to {}", shown.len()));
+    };
+    let pressed = match name.strip_prefix("eu4h_button_") {
+        Some(k) => Pressed::Button(k.parse().unwrap_or(1)),
+        None => Pressed::Goto,
+    };
+    press(number, pressed);
+    Ok(())
 }
 
 /// The extension windows opened and closed since the last frame.
@@ -360,6 +405,10 @@ mod tests {
         all
     }
 
+    fn popup(buttons: Vec<String>) -> Popup {
+        Popup { id: None, header: None, title: "T".into(), text: "".into(), buttons, goto: None, shields: [None, None] }
+    }
+
     fn seen(e: usize, w: &str, open: bool) -> WindowSeen {
         WindowSeen { extension: e, window: w.into(), open }
     }
@@ -386,12 +435,7 @@ mod tests {
         all.change(0, WindowChange::Set { window: "reforms".into(), widget: "status".into(), value: Property::Text("Done".into()) });
         assert_eq!(all.wanted[&(0, "reforms".into())].set["status"]["text"], Property::Text("Done".into()));
         let answer = Slot::default();
-        all.popups.push(Open {
-            number: 1,
-            extension: 0,
-            popup: Popup { id: None, title: "T".into(), text: "".into(), buttons: vec!["OK".into()] },
-            answer: answer.clone(),
-        });
+        all.popups.push(Open { number: 1, extension: 0, popup: popup(vec!["OK".into()]), answer: answer.clone() });
         all.forget(0);
         assert!(all.wanted.is_empty() && all.popups.is_empty());
         assert_eq!(*answer.lock().unwrap(), Some(Ok(json!("closed"))));
@@ -401,12 +445,7 @@ mod tests {
     fn a_pop_up_is_answered_once() {
         let mut all = declared();
         let answer = Slot::default();
-        all.popups.push(Open {
-            number: 4,
-            extension: 1,
-            popup: Popup { id: None, title: "T".into(), text: "".into(), buttons: vec!["A".into(), "B".into()] },
-            answer: answer.clone(),
-        });
+        all.popups.push(Open { number: 4, extension: 1, popup: popup(vec!["A".into(), "B".into()]), answer: answer.clone() });
         assert!(all.answer(4, json!(2)));
         assert!(!all.answer(4, json!(1)), "gone once answered");
         assert_eq!(Taken(answer).poll(), Some(Ok(json!(2))));

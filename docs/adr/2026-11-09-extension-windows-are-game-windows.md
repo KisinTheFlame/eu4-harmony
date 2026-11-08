@@ -6,7 +6,7 @@ An extension's windows and pop-ups are windows of the game's own interface, whic
 
 - **Open the framework UI to extensions, skinned with the game's sprites**: the framework would control every pixel, but lists, tooltips, the game's text formatting and country flags would all be written again, and the windows would only ever resemble the game's.
 - **Mods write the `windowType` in a `.gui` file of their own**: the most freedom, but the mod has to know the game's interface format, and a second way of making the same window would sit beside the Lua layout.
-- **Pop-ups as the game's own dialog** (`eu3dialog.gui`, shown by its callback dialog): it is exactly the game's, but it has two buttons at most, and the game drops a new one while another is open.
+- **Pop-ups as the game's own dialog** (`eu3dialog.gui`, shown by its callback dialog): it is exactly the game's, but the game drops a new one while another is open, and its words, shields and buttons are the game's to fill. The framework's pop-ups are written in its look instead, the message pop-up's, as windows of their own.
 
 ## Consequences
 

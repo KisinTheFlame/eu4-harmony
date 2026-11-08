@@ -13,8 +13,13 @@ use std::collections::HashSet;
 
 /// Room between a window's edges and what it holds.
 pub const MARGIN: i32 = 24;
-/// Room the title takes at a window's top, the margin below it included.
-pub const TITLE: i32 = 56;
+/// Room the title takes at a window's top, on its ribbon, the margin below
+/// it included; with the gold crest above it, whose scrolls hang down its
+/// sides, more.
+pub const TITLE: i32 = 66;
+pub const TITLE_CREST: i32 = 120;
+/// Room the gold line along a window's bottom takes.
+pub const FOOTER: i32 = 40;
 /// A window's close button, square, at its top right corner.
 pub const CLOSE: i32 = 36;
 /// The widths the game's text buttons come in, all as high as
@@ -53,8 +58,19 @@ pub struct Window {
     pub moveable: bool,
     /// One of the game's big panels: opening it closes the others.
     pub panel: bool,
+    /// The color of its title's ribbon.
+    pub ribbon: Ribbon,
+    /// The gold crest above its title, as the game's grander panels have.
+    pub crest: bool,
     pub entry: Option<Entry>,
     pub widgets: Vec<Placed>,
+}
+
+/// The color of a window's title ribbon.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ribbon {
+    Red,
+    Blue,
 }
 
 /// Where a window stands on the screen, before its offset.
@@ -248,7 +264,7 @@ fn read_window(name: &str, value: &Value, has_text: &dyn Fn(&str) -> bool) -> Re
         return Err(format!("a window is named by lowercase letters, digits and _, other than {}", RESERVED_WINDOWS.join(" and ")));
     }
     let table = object(value, "a window")?;
-    known(table, &["size", "title", "close", "anchor", "offset", "moveable", "panel", "entry", "items", "spacing", "align"])?;
+    known(table, &["size", "title", "close", "anchor", "offset", "moveable", "panel", "ribbon", "crest", "entry", "items", "spacing", "align"])?;
     let size = pair(table.get("size"), "size")?.ok_or("a window has a size = { width, height }")?;
     if size.0 <= 0 || size.1 <= 0 {
         return Err("size is a width and a height above 0".into());
@@ -267,6 +283,12 @@ fn read_window(name: &str, value: &Value, has_text: &dyn Fn(&str) -> bool) -> Re
     let offset = pair(table.get("offset"), "offset")?.unwrap_or((0, 0));
     let moveable = flag(table.get("moveable"), "moveable")?.unwrap_or(true);
     let panel = flag(table.get("panel"), "panel")?.unwrap_or(true);
+    let ribbon = match text(table.get("ribbon"), "ribbon")?.as_deref() {
+        None | Some("red") => Ribbon::Red,
+        Some("blue") => Ribbon::Blue,
+        Some(_) => return Err("ribbon is red or blue".into()),
+    };
+    let crest = flag(table.get("crest"), "crest")?.unwrap_or(false);
     let entry = match table.get("entry") {
         None => None,
         Some(value) => {
@@ -279,21 +301,25 @@ fn read_window(name: &str, value: &Value, has_text: &dyn Fn(&str) -> bool) -> Re
             })
         }
     };
-    let top = if title.is_some() || close { TITLE } else { MARGIN };
-    let room = (size.0 - 2 * MARGIN, size.1 - top - MARGIN);
+    let top = match (crest, title.is_some() || close) {
+        (true, _) => TITLE_CREST,
+        (false, true) => TITLE,
+        (false, false) => MARGIN,
+    };
+    let room = (size.0 - 2 * MARGIN, size.1 - top - FOOTER);
     let mut widgets = Vec::new();
     let content = Container::read(table, true)?;
     content.arrange((MARGIN, top), Some(room.0), has_text, &mut widgets, "")?;
     let mut names = HashSet::new();
     for w in &widgets {
-        fits(w, size, (0, 0), "the window")?;
+        fits(w, (size.0, size.1 - FOOTER), (0, 0), "the window, above its gold line")?;
         if let Some(name) = &w.name {
             if !names.insert(name.clone()) {
                 return Err(format!("two game widgets are named {name}"));
             }
         }
     }
-    Ok(Window { name: name.to_string(), size, title, close, anchor, offset, moveable, panel, entry, widgets })
+    Ok(Window { name: name.to_string(), size, title, close, anchor, offset, moveable, panel, ribbon, crest, entry, widgets })
 }
 
 /// A column or a row of game widgets.
@@ -594,14 +620,14 @@ mod tests {
     #[test]
     fn a_column_lays_its_items_out_down_under_the_title() {
         let windows = json!({ "reforms": {
-            "size": [400, 300], "title": "TITLE",
+            "size": [400, 340], "title": "TITLE",
             "items": [
                 { "type": "text", "name": "status", "size": [200, 20] },
                 { "type": "row", "spacing": 10, "items": [
                     { "type": "button", "name": "yes", "text": "YES" },
                     { "type": "button", "name": "no", "text": "NO", "size": [100, 34] },
                 ]},
-                { "type": "icon", "name": "seal", "sprite": "GFX_seal", "size": [32, 32], "at": [350, 250] },
+                { "type": "icon", "name": "seal", "sprite": "GFX_seal", "size": [32, 32], "at": [350, 260] },
             ],
         }});
         let window = &read(&windows, &every).unwrap()[0];
@@ -609,7 +635,7 @@ mod tests {
         assert_eq!(at("status"), (MARGIN, TITLE, 200, 20));
         assert_eq!(at("yes"), (MARGIN, TITLE + 20 + SPACING, 149, 31), "the game's text button");
         assert_eq!(at("no"), (MARGIN + 159, TITLE + 20 + SPACING, 79, 31), "the widest that 100 has room for");
-        assert_eq!(at("seal"), (350, 250, 32, 32), "at, from the window's corner");
+        assert_eq!(at("seal"), (350, 260, 32, 32), "at, from the window's corner");
         assert!(window.panel && window.moveable && window.close);
         assert_eq!((window.anchor, window.offset), (Anchor::Center, (0, 0)));
     }
@@ -632,7 +658,7 @@ mod tests {
 
     #[test]
     fn a_list_lays_its_row_out_from_the_row_s_corner() {
-        let windows = json!({ "electors": { "size": [400, 400], "items": [
+        let windows = json!({ "electors": { "size": [400, 420], "items": [
             { "type": "list", "name": "countries", "size": [352, 300], "row": { "size": [340, 64], "items": [
                 { "type": "row", "items": [
                     { "type": "flag", "name": "flag" },
@@ -652,7 +678,7 @@ mod tests {
         assert!(wrong(json!({})).contains("has a size"));
         assert!(wrong(json!({ "size": [100, 100], "title": "MISSING" })).contains("no text \"MISSING\""));
         let too_wide = wrong(json!({ "size": [100, 100], "items": [{ "type": "text", "name": "t", "size": [90, 10] }] }));
-        assert!(too_wide.starts_with("windows.w: t at (24, 56), 90 by 10, does not fit"), "{too_wide}");
+        assert!(too_wide.starts_with("windows.w: t at (24, 66), 90 by 10, does not fit"), "{too_wide}");
         let twice = wrong(json!({ "size": [300, 300], "items": [
             { "type": "text", "name": "t", "size": [9, 9] }, { "type": "text", "name": "t", "size": [9, 9] },
         ]}));

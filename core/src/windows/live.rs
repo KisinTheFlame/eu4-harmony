@@ -196,7 +196,7 @@ fn place(window: &Window, (sw, sh): (i32, i32)) -> (i32, i32) {
 /// Reads the definitions file `path`, served with `text`, into the game.
 fn read_definitions(m: &Memory, mgr: usize, path: &str, text: String) -> Result<()> {
     log!("windows: reading {} bytes of definitions from {path}", text.len());
-    crate::physfs::serve(path, text.into_bytes());
+    crate::physfs::serve(path, game_text::from_str(&text));
     with_string(m, path.as_bytes(), |p| functions::READ_DEFINITIONS.call(m, [mgr, p]).map(|_| ()))
 }
 
@@ -553,7 +553,7 @@ fn clicks(m: &Memory) {
     enum Was {
         Widget(usize, String, String, Option<u32>, bool),
         Close(usize, String),
-        Popup(u32, u32),
+        Popup(u32, super::Pressed),
         Entry(usize, String),
     }
     let found: Vec<Was> = with_live(|live| {
@@ -565,7 +565,8 @@ fn clicks(m: &Memory) {
                         continue;
                     };
                     return match &built.key {
-                        Key::Popup(n) => b.name.strip_prefix("eu4h_button_").and_then(|k| k.parse().ok()).map(|k| Was::Popup(*n, k)),
+                        Key::Popup(n) if b.name == gui::GOTO => Some(Was::Popup(*n, super::Pressed::Goto)),
+                        Key::Popup(n) => b.name.strip_prefix("eu4h_button_").and_then(|k| k.parse().ok()).map(|k| Was::Popup(*n, super::Pressed::Button(k))),
                         Key::Window(e, w) if b.name == gui::CLOSE => Some(Was::Close(*e, w.clone())),
                         Key::Window(e, w) => Some(Was::Widget(*e, w.clone(), b.name.clone(), b.row.as_ref().map(|(_, r)| *r), right)),
                     };
@@ -586,8 +587,8 @@ fn clicks(m: &Memory) {
                 }
             }),
             Was::Close(extension, window) => with(|all| all.show(extension, &window, false)),
-            Was::Popup(number, button) => {
-                let _ = super::press_popup(number, button);
+            Was::Popup(number, pressed) => {
+                super::press(number, pressed);
             }
             Was::Entry(extension, window) => with(|all| {
                 let open = all.wanted.get(&(extension, window.clone())).is_some_and(|w| w.open);
@@ -733,13 +734,20 @@ fn build_popup(m: &Memory, mgr: usize, number: u32, popup: &Popup, name: &str, (
     let x = (sw - gui::POPUP_WIDTH) / 2 + CASCADE * shown;
     let y = (sh - gui::POPUP_HEIGHT) / 2 + CASCADE * shown;
     set_position(m, root, (x, y))?;
-    let title = find(m, root, Some(&Kind::Text { text: None, font: layout::Font::Body, align: layout::Align::Start }), gui::TITLE)?;
-    write_text(m, title, &game_text::from_str(&popup.title))?;
     let text = find(m, root, Some(&Kind::Text { text: None, font: layout::Font::Body, align: layout::Align::Start }), gui::TEXT)?;
     write_text(m, text, &game_text::from_str(&popup.text))?;
+    // The shields: the countries named, the player's where none is, and
+    // none to show in observe mode with no country in view.
+    let player = game::context(m).ok().map(|ctx| String::from_utf8_lossy(&ctx.player.letters()).into_owned());
+    for (element, tag) in gui::SHIELDS.iter().zip(&popup.shields) {
+        let Some(tag) = tag.clone().or_else(|| player.clone()) else { continue };
+        let shield = find(m, root, None, element)?;
+        if let Err(e) = set_country(m, shield, &tag) {
+            log!("windows: pop-up {number}'s shield {tag}: {e}");
+        }
+    }
     let mut elements = Vec::new();
-    for i in 1..=popup.buttons.len() {
-        let name = format!("eu4h_button_{i}");
+    for (name, _) in gui::shown(popup) {
         let object = find(m, root, None, &name)?;
         elements.push(Bound { name, object, kind: None, subscription: Some(subscribe(m, object)?), row: None });
     }

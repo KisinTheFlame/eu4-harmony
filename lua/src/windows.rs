@@ -5,8 +5,9 @@
 use crate::layout::{self, Kind, Placed, Window};
 use mlua::{Lua, Table, Value as LuaValue};
 
-/// The most buttons a pop-up has.
-pub const BUTTONS: usize = 4;
+/// The most buttons a pop-up has, its "Go to" one included: the game's
+/// message pop-ups have two places, or one in the middle.
+pub const BUTTONS: usize = 2;
 
 /// A change an extension makes to its windows, already checked against
 /// their layouts.
@@ -64,9 +65,18 @@ impl Property {
 pub struct Popup {
     /// The mod's name for it, by which it may close it.
     pub id: Option<String>,
+    /// The small line above the title.
+    pub header: Option<String>,
     pub title: String,
     pub text: String,
+    /// The mod's buttons' words, none for the game's own "OK".
     pub buttons: Vec<String>,
+    /// The province its "Go to" button turns the camera to, which shows
+    /// that button.
+    pub goto: Option<u32>,
+    /// The countries of its left and right shields, by tag; the player's
+    /// where none is given.
+    pub shields: [Option<String>; 2],
 }
 
 /// What a property is called with on a game widget, `what` naming it for
@@ -207,15 +217,17 @@ fn rows(row: &layout::Row, value: &LuaValue, what: &str) -> Result<Vec<Vec<(Stri
 /// or says it has none.
 pub type Words<'a> = &'a dyn Fn(&str, &[(String, String)]) -> Option<String>;
 
-/// `game.popup { title = key, text = key, values = { ... }, buttons = { key, ... }, id = name }`
+/// `game.popup { header = key, title = key, text = key, values = { ... },
+/// buttons = { key, key }, province = number, shields = { tag, tag }, id = name }`
 /// in words: `words` puts a key of the mod's into the player language with
 /// its values, or says it has none.
 pub fn popup(spec: &Table, words: Words, lua: &Lua) -> Result<Popup, String> {
     let fail = |e: mlua::Error| format!("game.popup: {e}");
+    const FIELDS: [&str; 8] = ["header", "title", "text", "values", "buttons", "province", "shields", "id"];
     for pair in spec.pairs::<String, LuaValue>() {
         let (key, _) = pair.map_err(fail)?;
-        if !["title", "text", "values", "buttons", "id"].contains(&key.as_str()) {
-            return Err(format!("game.popup: {key} is not one of title, text, values, buttons, id"));
+        if !FIELDS.contains(&key.as_str()) {
+            return Err(format!("game.popup: {key} is not one of {}", FIELDS.join(", ")));
         }
     }
     let mut values = Vec::new();
@@ -230,21 +242,44 @@ pub fn popup(spec: &Table, words: Words, lua: &Lua) -> Result<Popup, String> {
         let key = key.ok_or_else(|| format!("game.popup has a {field}, a localisation key of the mod's"))?;
         words(&key, &values).ok_or_else(|| format!("game.popup: {field}: the mod has no text {key:?} in its localisation"))
     };
+    let header = match spec.get::<Option<String>>("header").map_err(fail)? {
+        Some(key) => Some(text_of("header", Some(key))?),
+        None => None,
+    };
     let title = text_of("title", spec.get::<Option<String>>("title").map_err(fail)?)?;
     let text = text_of("text", spec.get::<Option<String>>("text").map_err(fail)?)?;
+    let goto = match spec.get::<LuaValue>("province").map_err(fail)? {
+        LuaValue::Nil => None,
+        LuaValue::Integer(p) if p > 0 && p <= i64::from(u32::MAX) => Some(p as u32),
+        _ => return Err("game.popup: province is a province's number, which shows the Go to button".into()),
+    };
     let keys: Vec<String> = match spec.get::<Option<Table>>("buttons").map_err(fail)? {
-        None => return Err("game.popup has buttons, a list of one to four localisation keys".into()),
+        None => Vec::new(),
         Some(t) => t.sequence_values::<String>().collect::<mlua::Result<_>>().map_err(fail)?,
     };
-    if keys.is_empty() || keys.len() > BUTTONS {
-        return Err(format!("game.popup has one to {BUTTONS} buttons, not {}", keys.len()));
+    let room = BUTTONS - usize::from(goto.is_some());
+    if keys.len() > room {
+        return Err(format!("game.popup has at most {room} buttons of the mod's{}, not {}", if goto.is_some() { " beside Go to" } else { "" }, keys.len()));
     }
     let buttons = keys.into_iter().map(|k| text_of("buttons", Some(k))).collect::<Result<_, _>>()?;
+    let mut shields = [None, None];
+    if let Some(t) = spec.get::<Option<Table>>("shields").map_err(fail)? {
+        let tags: Vec<String> = t.sequence_values::<String>().collect::<mlua::Result<_>>().map_err(fail)?;
+        if tags.len() > 2 {
+            return Err("game.popup: shields is { left, right }, two tags at most".into());
+        }
+        for (i, tag) in tags.into_iter().enumerate() {
+            if !(tag.len() == 3 && tag.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())) {
+                return Err(format!("game.popup: shields: {tag:?} is not a country's tag, such as FRA"));
+            }
+            shields[i] = Some(tag);
+        }
+    }
     let id = spec.get::<Option<String>>("id").map_err(fail)?;
     if id.as_deref().is_some_and(|i| !layout::is_name(i)) {
         return Err("game.popup: id is a name of lowercase letters, digits and _".into());
     }
-    Ok(Popup { id, title, text, buttons })
+    Ok(Popup { id, header, title, text, buttons, goto, shields })
 }
 
 #[cfg(test)]
@@ -254,7 +289,7 @@ mod tests {
 
     fn windows() -> Vec<Window> {
         let windows = json!({ "reforms": {
-            "size": [400, 400], "entry": { "sprite": "GFX_x" },
+            "size": [400, 480], "entry": { "sprite": "GFX_x" },
             "items": [
                 { "type": "text", "name": "status", "size": [100, 20] },
                 { "type": "button", "name": "pick", "sprite": "GFX_pick", "size": [30, 30] },
@@ -314,13 +349,26 @@ mod tests {
             "OK" => Some("Fine".into()),
             _ => None,
         };
-        let spec: Table = lua.load(r#"return { title = "T", text = "B", values = { N = 3 }, buttons = { "OK" }, id = "first" }"#).eval().unwrap();
+        let spec: Table = lua
+            .load(r#"return { title = "T", text = "B", values = { N = 3 }, buttons = { "OK" }, province = 151, shields = { "FRA" }, id = "first" }"#)
+            .eval()
+            .unwrap();
         assert_eq!(
             popup(&spec, &words, &lua),
-            Ok(Popup { id: Some("first".into()), title: "Title".into(), text: "Body N=3".into(), buttons: vec!["Fine".into()] })
+            Ok(Popup {
+                id: Some("first".into()),
+                header: None,
+                title: "Title".into(),
+                text: "Body N=3".into(),
+                buttons: vec!["Fine".into()],
+                goto: Some(151),
+                shields: [Some("FRA".into()), None],
+            })
         );
-        let none: Table = lua.load(r#"return { title = "T", text = "B", buttons = {} }"#).eval().unwrap();
-        assert!(popup(&none, &words, &lua).unwrap_err().contains("one to 4 buttons"));
+        let plain: Table = lua.load(r#"return { title = "T", text = "B" }"#).eval().unwrap();
+        assert_eq!(popup(&plain, &words, &lua).map(|p| p.buttons.len()), Ok(0), "the game's own OK");
+        let crowded: Table = lua.load(r#"return { title = "T", text = "B", buttons = { "OK", "OK" }, province = 1 }"#).eval().unwrap();
+        assert!(popup(&crowded, &words, &lua).unwrap_err().contains("at most 1 buttons of the mod's beside Go to"));
         let missing: Table = lua.load(r#"return { title = "T", text = "X", buttons = { "OK" } }"#).eval().unwrap();
         assert!(popup(&missing, &words, &lua).unwrap_err().contains("no text \"X\""));
     }
