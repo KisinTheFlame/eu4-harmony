@@ -150,4 +150,4 @@ Read 2026-11-08 for whether the meshes could load beside the databases.
 - Vanilla's startup and load, without the framework, on the same machine.
 - What `0x1806bf0` keeps of a music file, and whether the game reads every file again when it plays.
 - Which of the game's things the dated nodes are, and how long their lists get.
-- Who fills the picture checks' queue (above), and what each check costs once polled.
+- Where in the modifiers' loading each picture is put in the checks' queue.
