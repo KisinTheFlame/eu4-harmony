@@ -188,3 +188,52 @@ mod checks {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::{
+        buffers::{self, Image, Object},
+        commands::record,
+        Caller, Fail, Status,
+    };
+
+    /// France at the last level of its administrative and diplomatic
+    /// technologies, of three levels each, and with no military category;
+    /// the categories' database a global of the game's. Runs `action` over
+    /// its session.
+    fn france<T>(action: impl FnOnce(Session) -> GResult<T>) -> GResult<T> {
+        let image = Image::new();
+        let fra = Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
+        let category = |kind: i32, index: i32| Object::new(KIND + 8).i32(KIND, kind).i32(INDEX, index).vector(CATEGORY_LEVELS, &[1, 2, 3]);
+        let (adm, dip) = (category(0, 0), category(1, 1));
+        let database = Object::new(CATEGORY_LIST + 0x10).vector(CATEGORY_LIST, &[adm.at() as u64, dip.at() as u64]);
+        image.u64(CATEGORIES, database.at() as u64);
+        // The levels, two i32 a word: 2 and 2, each category's last.
+        let technology = Object::new(levels::LEVELS + 0x10).vector(levels::LEVELS, &[2 | 2 << 32]);
+        let country = Object::country(fra, country::TECHNOLOGY + 8).points_to(country::TECHNOLOGY, technology);
+        let countries = Object::countries(&[&country]);
+        let result = action(buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote));
+        drop((adm, dip, database, country, countries, image));
+        result
+    }
+
+    fn refused<T>(result: GResult<T>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("the action was carried out") };
+        (status, message)
+    }
+
+    #[test]
+    fn a_technology_at_its_last_level_is_not_researched_and_one_not_kept_is_not_found() {
+        let research = |technology| refused(france(|s| research(s, args::Research { technology })));
+        assert_eq!(research(PowerKind::Adm), (Status::Rejected, "the adm technology is at its last level".into()));
+        assert_eq!(research(PowerKind::Dip), (Status::Rejected, "the dip technology is at its last level".into()));
+        assert_eq!(research(PowerKind::Mil).1, "no Mil technology");
+        assert!(record::posted().is_empty());
+    }
+
+    #[test]
+    fn the_options_need_every_kind_of_technology() {
+        assert_eq!(refused(france(options)).1, "no Mil technology");
+    }
+}
