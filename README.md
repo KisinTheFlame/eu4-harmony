@@ -11,7 +11,7 @@ English | [简体中文](README.zh-CN.md)
 
 ## Why EU4 Harmony
 
-- **Every language, everywhere.** Every script shows in the whole game, in fonts made for your language or ones you choose. No font mod needed.
+- **Every language, everywhere.** Every script shows in the whole game, in fonts made for your language or ones you choose, and the names on the map stay sharp however close you zoom. No font mod needed.
 - **No more restarts.** Back to the main menu in seconds instead of 45. Ironman games can load another save too.
 - **A faster game, the same game.** Smoother, about a tenth faster at top speed, a save stops it for a third of the time, and it starts and loads sooner; late in a game the AI's armies plan on idle cores. The game's rules and data stay as they are.
 - **Bugs fixed that vanilla still has.** Heirs no longer get the same name half the time, coalitions and an overlord's fall no longer risk a crash, and loading a save no longer costs you achievements.
