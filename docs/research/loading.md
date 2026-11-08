@@ -30,9 +30,64 @@ Austria-37_4-1 (an ironman save of 1724, a game state of 55 MB) loaded from the 
 - **The interface made after the load** (`0x10da520` → `0x803270`, `0x81af10`): sprite types' textures (`0x156e0a0` → `0x16c35b0`, 22%) and, under them and elsewhere, PhysFS's lookups again: 12.6% in `GetFileAttributesExW`.
 - **The day's setup** (`0x350b80` → `0x2d2520`, `0x7760b0` → `0x2d0b30`): 8 to 14%.
 
+## The startup after L1 to L3
+
+Timed 2026-11-08 with `dev-call-trace`'s `times` on the stretches' functions, in a test game of the developer build with the test games' pipes, the player's playset, every DLC, the music kept (the second start after the claim) and the files in the system's cache; other test games held the machine's processor at 40 to 65%. Seconds from the framework's bootstrap, in two starts that reached the main menu at 41.6 and 37.7 s:
+
+| Stretch | Function | Thread | s, s |
+| --- | --- | --- | --- |
+| `main` up to the defines (DLC, mods, the search path, the listings) | | main | 2.7, 2.3 |
+| The engine's Init, music now kept | `0x14c02b0` | main | 1.0, 0.9 |
+| `.gfx`, the map, `shortcuts.txt`, `.gui` | `0x202850` | LoadingThread | 7.1, 7.4 |
+| of that, meshes and particles | `0x14dc5d0` | LoadingThread | 4.7, 4.8 |
+| The databases | `0x208620` | LoadingThread | 16.7, 15.5 |
+| of that, the map logic | `0x87b9e0` | LoadingThread | 0.7, 0.7 |
+| of that, the history | `0x7ea2c0` | LoadingThread | 1.9, 1.8 |
+| The events, on_actions, disasters | `0x6f3250` | LoadingThread | 3.5, 3.4 |
+| Flags and loading screens | `0x10b2b70` | LoadingThread | 1.6, 1.5 |
+| The rest of InitGame (the triggers' optimization profile `0xb9b4e0` among it) | `0x2043a0` | LoadingThread | 3.6, 3.4 |
+| The data checksum, beside the databases | `0x171cdf0` | a pool thread | 14.5, 13.3 |
+| The main menu's RestoreDeviceObjects' part `0x206260` | `0x206260` | main | 3.9, 2.3 |
+| of that, the map's graphics | `0x10a2e40` | main | 1.8, 1.3 |
+| Then to the main menu's first frame | | main | 1.1, 0.6 |
+
+- **The data checksum** (`0x171cdf0`) starts on a thread of the pool as the databases start and ends before them, so it is not what the startup waits for; it reads and sums every file `checksum_manifest.txt` names, opening each through `0x1718300`.
+- **The LoadingThread waits.** Sampled the same day (`cargo xtask profile --wait --threads --slice 5`, 47 a second), the LoadingThread was found running at 25 to 75% of the ticks of each stretch while it loaded the databases, the rest waiting in the kernel. Where it ran in a wait: in `0x1718300`, the game's only place that opens a file, which takes a byte spin lock (`0x1581820` on the pointer at `0x242b9c0`: `lock cmpxchg`, `pause` with backoff, then `SwitchToThread` from the 16th try) around PhysFS's open (`0x19f7f60`); the checksum's thread opens through the same lock. What it waited on in the kernel the sampler cannot see.
+- **The picture checks poll.** `0x208620` starts them first (`0x208699` → `0x8effc0`, a task with vtable `0x1cc8e98` whose run is `0x8f5830` → `0x8d80d0`). `0x8d80d0` takes a `std::mutex` (`0x1a139cc`/`0x1a137cc`, `_Mtx_lock`), pops an entry from its queue (count at `+0x1c`, entries at `+0x10`), and, with none and `+0xa8` not set, lets the mutex go and takes it again at once (`0x8d8155` back to `0x8d8100`), with no wait between. One pool thread was found running at 94% of the ticks from 20 to 25 s, nearly all in that lock's acquire and release; who fills the queue and sets `+0xa8` was not followed.
+- **Glyphs.** The framework drew about 4,250 glyphs before the main menu, 1.4 to 2.5 s in all as its log counts them (330 to 590 µs each), against 28 ms for 3,143 on 2026-10-28; most on the main thread in the main menu's RestoreDeviceObjects, a few on the LoadingThread as the fonts load. Timed outside the game on the same machine, a glyph of the map font (FZShengShiKaiShuS-EB-GB, 78 px) took 100 to 600 µs in DirectWrite and 160 to 170 µs more for its outline (`outline::around`); one of the body font at 21 px 2 to 260 µs, the spread with what DirectWrite had already read of the font.
+
+## The databases
+
+Read 2026-11-08 from `0x208620`'s code, and timed in a test game as above, the machine's processor about 50% busy with other test games.
+
+- **What it does.** `0x208620` loads about 110 databases one after another on the LoadingThread, in an order fixed in its code. For most it takes the database's object from its getter, makes the folder's path (`"/trading_policies"`), and calls the loader with both, which lists the folder's `.txt` files under `common\` and reads each through the lexer (`0x1709570` makes one over a file, as for `technology.txt`). 67 of them it brackets with the process's memory counters (`0x14e44d0` before, `0x14e4500` after) for setup.log's "<Name> Initialized [n KB]"; the rest, among them `estates_preload`, `subject_types`, `great_projects`, `institutions`, `ages`, the personalities, `missions` (`0x8d5bd0`), `decisions` (`0x4882c0`) and `mercenary_companies`, have no line. Nothing of it runs beside it but the picture checks' task it starts first (`0x8effc0`), the data checksum on a pool thread, and the history's files, which pool threads open (below).
+- **Where the time goes.** Timed with `dev-call-trace`'s `times` on the brackets and 13 loaders without them, in two starts of 13.7 and 13.8 s of databases; seconds from the second:
+
+| Databases | Functions | s |
+| --- | --- | --- |
+| Technologies, the second phase | `0x9b240` → `0xb74120` | 1.93 |
+| Estates: crown land, agendas, privileges, estates | `0x728570` to `0x72e4a0` | 1.55 |
+| History | `0x7ea2c0` | 1.50 |
+| The countries' files ("CountryDatabaseFiles Read") | `0x283d20` to `0x2855b0` | 1.48 |
+| Decisions | `0x4882c0` | 1.29 |
+| `government_mechanics`, the second read | `0x7b8ed0` | 0.81 |
+| `0x46fab0`, after the federation advancements | `0x46fab0` | 0.76 |
+| Map logic | `0x87b9e0` | 0.68 |
+| `custom_ideas` | `0x46cf00` | 0.59 |
+| Missions | `0x8d5bd0` | 0.45 |
+| `scripted_triggers`, `government_reforms`, `scripted_effects` | `0xace660`, `0x7a7520`, `0xacb950` | 0.36, 0.27, 0.25 |
+| The other 90 or so | | 1.9 |
+
+- **Running and waiting.** Sampled at 94 a second with `--threads` in a third start, the LoadingThread was running at 455 of the about 1,280 ticks of the databases (36%), 17% of those in the heap. Decisions, missions and the map logic ran at nearly all their ticks; the technologies, the estates, the countries and the history at a fifth or fewer.
+- **Opening files.** Timed in another start, with `0x1718300` and its spin lock (`0x1581820`) traced: in 14.2 s of databases the LoadingThread opened 3,908 files, 6.4 s in all (1.6 ms an open), and waited 6.7 s on the open's lock (the global at `0x242b9c0`, 7,824 takes); the 431,112 takes of another lock through the same function waited 0.07 s. Beside it the checksum's thread opened 8,478 files, and the pool's threads 3,900 from 22 to 24 s, under the history, waiting 15 s on the lock among them. From 10 to 18 s only the LoadingThread and the checksum's thread opened files: the LoadingThread 100 to 300 a second, waiting 0.4 to 0.9 s of each second on the lock, the checksum's thread about 200 a second.
+- **Inside PhysFS's open.** `PHYSFS_openRead` (`0x19f7f60`) takes PhysFS's own lock (`[0x2339238]`, taken by `0x1a05e60`, given back by `0x1a06150`) and walks the search path: in each entry it checks the path (`0x19fb700`) and asks the archive to open it (`[archiver+0x40]`), until one does. Timed: 61 checks for each of the LoadingThread's opens (238,188), and about 100 for each operation of the other threads; the picture checks' lookups (`0x19f6ea0`) took 16,044 calls and 9.9 s on the other threads in the same stretch, 0.6 ms each, under the same lock. With PhysFS's lock traced as well, 5.5 million takes, the databases took 15.8 s, and the LoadingThread waited 2.6 s in its take.
+- So of the databases' 14 s, about 6.5 s on the LoadingThread is opening files, most of it waiting for the threads that open and look up files beside it, each operation of theirs walking the search path under two global locks; the scripts' parsing itself is about 4.5 s of running.
+
 ## Not looked into
 
+- Which thread holds the open's lock while the LoadingThread waits on it from 10 to 18 s: the checksum's thread opens through it, and its open waits in turn on PhysFS's lock, which the picture checks' lookups take.
+- The databases with the checksum not running, or with the picture checks' lookups not taking PhysFS's lock.
 - Vanilla's startup and load, without the framework, on the same machine.
 - What `0x1806bf0` keeps of a music file, and whether the game reads every file again when it plays.
 - Which of the game's things the dated nodes are, and how long their lists get.
-- The lock the picture tasks wait on.
+- Who fills the picture checks' queue (above), and what each check costs once polled.

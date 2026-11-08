@@ -2334,6 +2334,26 @@ The developer build with the test switches of `claude/parallel-army-search`, fro
 - **Not verified**: other saves and years; a player's game; the build without the test switches in the game (built and checked offline).
 - **Cleanup**: `dev.toml` removed; the releases put back the player's files and the framework files; the profiles and logs deleted from the scratchpad.
 
+## 2026-11-08 Where the startup goes after L1 to L3 (tested by me)
+
+One claim of 26 minutes, the test game started hidden, five starts of master at `05b3181f`: the player build with the test games' pipes, then a developer build with `dev-call-trace` timing the startup's stretches ([research/loading.md](research/loading.md), "The startup after L1 to L3"); other sessions' test games ran beside it, the processor 40 to 96% busy.
+
+- **The player build**: the first start, the claim's user folder without the music kept, reached the main menu in 61 s; the second, sampled with `cargo xtask profile --wait --threads`, in 51 s with the processor 96% busy, and the sampler lost whole stretches of 5 s, so that run gave only the threads' stacks.
+- **The developer build**: two starts in 42 and 38 s; the stretches' times are in research/loading.md. A first start that traced the triggers' optimization profile `0xb9b4e0` too crashed in it, the observer forwarding fewer arguments than it reads; left out after.
+- **Glyphs** outside the game, timed in a test that was not kept: DirectWrite and the outline for the map font and the body font (research/loading.md).
+- **Not verified**: what the LoadingThread waits on in the kernel; the startup with the machine otherwise idle; vanilla.
+- **Cleanup**: `dev.toml` removed; the release kept the logs and the crash folder of the traced start; the profiles deleted from the scratchpad.
+
+## 2026-11-08 Where the databases go (tested by me)
+
+One claim of 30 minutes, the test game started hidden, eight starts of master at `05b3181f` that reached the main menu and two that failed at once, in a developer build with the test games' pipes and `dev-call-trace`, the first to keep the music; other sessions' test games held the processor at about 50% ([research/loading.md](research/loading.md), "The databases").
+
+- **The loaders by name**: 128 traced at once were cut to 16, the observer slots the framework leaves to the trace; so the 67 databases were timed by their memory brackets (`0x14e44d0`, `0x14e4500`) and 13 loaders without one, in two starts that reached the main menu in 36 s, the databases 13.7 and 13.8 s.
+- **Running**: a start sampled with `cargo xtask profile --wait --threads --hz 100` beside the same trace, in 34 s.
+- **Opening files**: a start with the game's open (`0x1718300`) and its spin lock traced, 36 s, the databases 14.2 s; one with PhysFS's lock (`0x1a05e60`) and the path's check (`0x19fb700`) traced, 40 s, the databases 15.8 s, slowed by 5.5 million traced takes. Two starts failed at once, since the framework hooks the functions they traced too: PhysFS's open (`0x19f7f60`) and its stat (`0x1a061d0`).
+- **Not verified**: which thread holds the open's lock while the LoadingThread waits on it; the databases with the checksum or the picture checks' lookups out of the way; the machine otherwise idle.
+- **Cleanup**: `dev.toml` removed; the release kept the logs; the call times and profiles deleted from the scratchpad.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
