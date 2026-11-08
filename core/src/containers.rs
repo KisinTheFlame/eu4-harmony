@@ -8,7 +8,7 @@ use crate::{
     memory::Memory,
     objects::{
         campaign::{countries, globals},
-        list,
+        list, map,
     },
     Result,
 };
@@ -73,6 +73,25 @@ pub fn chain(m: &Memory, first: usize, next: usize, most: usize) -> Result<Vec<u
         node = m.ptr(node + next)?;
     }
     Ok(out)
+}
+
+/// The nodes of a `std::map` whose head is at `head` (`objects::map`), each
+/// with its value from `objects::map::VALUE`; a map of more than `most`
+/// nodes, or one whose nodes lead back to one read before, is refused.
+pub fn map(m: &Memory, head: usize, most: usize) -> Result<Vec<usize>> {
+    let mut seen = BTreeSet::new();
+    let mut pending = vec![m.ptr(head + map::PARENT)?];
+    while let Some(at) = pending.pop() {
+        if at == 0 || m.u8(at + map::NIL)? != 0 {
+            continue;
+        }
+        if seen.len() >= most || !seen.insert(at) {
+            return Err(format!("the map at {head:#x} loops or holds more than {most} nodes"));
+        }
+        pending.push(m.ptr(at + map::LEFT)?);
+        pending.push(m.ptr(at + map::RIGHT)?);
+    }
+    Ok(seen.into_iter().collect())
 }
 
 /// How many `stride`-byte entries a `std::vector` from `begin` to `end`
@@ -152,6 +171,17 @@ mod tests {
         let array = Object::new(0x18).vector(ARRAY_DATA, &[7, 8]).i32(ARRAY_COUNT, 2);
         assert_eq!(super::array(&m, array.at(), MOST).unwrap(), [7, 8]);
         assert!(bounded(-1, MOST).is_err() && bounded(3, 2).is_err());
+    }
+
+    #[test]
+    fn a_map_holds_its_values() {
+        let m = Memory { base: 0 };
+        let head = Object::map(&[3, 1, 2]);
+        let mut values: Vec<u64> = map(&m, head.at(), MOST).unwrap().into_iter().map(|node| m.u64(node + crate::objects::map::VALUE).unwrap()).collect();
+        values.sort();
+        assert_eq!(values, [1, 2, 3]);
+        assert!(map(&m, head.at(), 2).is_err());
+        assert!(map(&m, Object::map(&[]).at(), MOST).unwrap().is_empty());
     }
 
     #[test]

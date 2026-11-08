@@ -8,7 +8,7 @@ use crate::containers;
 use crate::game_string;
 use crate::{
     memory::Memory,
-    objects::campaign::country,
+    objects::{campaign::country, map},
     points::{GameFunction, Point},
 };
 use eu4_harmony_remote::estates::args;
@@ -28,13 +28,6 @@ const ENTRY_LAND: usize = 0x20;
 const ENTRY_GRANTED: usize = 0x90;
 /// A `std::map` node: its left, parent and right nodes, whether it is the
 /// head, and its value, here the privilege.
-mod node {
-    pub const LEFT: usize = 0x0;
-    pub const PARENT: usize = 0x8;
-    pub const RIGHT: usize = 0x10;
-    pub const NIL: usize = 0x19;
-    pub const VALUE: usize = 0x20;
-}
 /// The estates' database, a `std::vector` of pointers, its index what
 /// commands name an estate by; an estate's key and its privileges, a game
 /// array of pointers into the privileges' database.
@@ -74,7 +67,7 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x71b891usize, "8b 5e 18", "estate loyalty").uses(&[ENTRY_LOYALTY]),
         Point::keep(0x71b8fbusize, "8b 5e 20", "estate land share").uses(&[ENTRY_LAND]),
         Point::keep(0x71b9dbusize, "4c 8d 86 90 00 00 00", "estate privileges granted").uses(&[ENTRY_GRANTED]),
-        Point::keep(0x721f20usize, "48 8b 53 20 8b 73 28", "privilege granted node").uses(&[node::VALUE]),
+        Point::keep(0x721f20usize, "48 8b 53 20 8b 73 28", "privilege granted node").uses(&[map::VALUE]),
         // The grant command's check: the estate by its index, the privilege
         // by its index into the database's entries.
         Point::keep(0x2c1757usize, "48 8b 05 fa e6 07 02", "estates database").uses(&[ESTATE_DATABASE]),
@@ -100,22 +93,9 @@ fn entries(m: &Memory, country: usize) -> GResult<Vec<usize>> {
     Ok((0..containers::span(begin, end, ENTRY, MOST)?).map(|i| begin + i * ENTRY).collect())
 }
 
-/// The privileges a `std::map` with its head at `head` holds, in order.
+/// The privileges a `std::map` with its head at `head` holds.
 fn granted(m: &Memory, head: usize) -> GResult<Vec<usize>> {
-    let mut found = Vec::new();
-    let mut pending = vec![m.ptr(head + node::PARENT)?];
-    while let Some(at) = pending.pop() {
-        if at == 0 || m.u8(at + node::NIL)? != 0 {
-            continue;
-        }
-        if found.len() > MOST {
-            return Err("an unexpected map of privileges".to_string().into());
-        }
-        found.push(m.ptr(at + node::VALUE)?);
-        pending.push(m.ptr(at + node::LEFT)?);
-        pending.push(m.ptr(at + node::RIGHT)?);
-    }
-    Ok(found)
+    Ok(containers::map(m, head, MOST)?.into_iter().map(|node| m.ptr(node + map::VALUE)).collect::<crate::Result<_>>()?)
 }
 
 fn privilege_database(m: &Memory) -> GResult<(usize, usize)> {
@@ -292,5 +272,60 @@ mod tests {
         let fra = Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
         assert_eq!(written("grant_privilege", fra, 3, 45), r#"grant_privilege={ members={ dummy="FRA" dummy=3 dummy=45 } }"#);
         assert_eq!(written_interaction(fra, 2), r#"crown_land_interaction={ members={ dummy="FRA" dummy=2 } }"#);
+    }
+
+    use crate::game::{
+        buffers::{self, Image, Object},
+        commands::record,
+        Caller, Fail, Status,
+    };
+
+    /// France with the nobles, whose privileges are `nobles_land` and
+    /// `nobles_army`, the first granted when `granted`; and the session of
+    /// it whose commands are recorded.
+    struct France {
+        _image: Image,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn france(granted: bool) -> France {
+        let image = Image::new();
+        let fra = Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
+        let (land, army) =
+            (Object::new(PRIVILEGE_KEY + 0x20).string(PRIVILEGE_KEY, "nobles_land"), Object::new(PRIVILEGE_KEY + 0x20).string(PRIVILEGE_KEY, "nobles_army"));
+        let privileges = [land.at() as u64, army.at() as u64];
+        let nobles = Object::new(ESTATE_PRIVILEGES + 0x18)
+            .string(ESTATE_KEY, "estate_nobles")
+            .vector(ESTATE_PRIVILEGES + containers::ARRAY_DATA, &privileges)
+            .i32(ESTATE_PRIVILEGES + containers::ARRAY_COUNT, 2);
+        let held = Object::map(if granted { &privileges[..1] } else { &[] });
+        let entry = Object::new(ENTRY).points_to(ENTRY_ESTATE, nobles).points_to(ENTRY_GRANTED, held);
+        let begin = entry.at() as u64;
+        let country = Object::country(fra, ESTATES + 0x10).points_to(ESTATES, entry).u64(ESTATES + 8, begin + ENTRY as u64);
+        let countries = Object::countries(&[&country]);
+        let session = buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote);
+        France { _image: image, _objects: vec![country, countries, land, army], session }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("the action was carried out") };
+        (status, message)
+    }
+
+    #[test]
+    fn a_privilege_is_found_by_its_estate_and_its_key_or_refused() {
+        let grant = |estate: &str, privilege: &str, granted| {
+            refused(grant_privilege(france(granted).session, args::GrantPrivilege { estate: estate.into(), privilege: privilege.into() }))
+        };
+        let revoke = |estate: &str, privilege: &str, granted| {
+            refused(revoke_privilege(france(granted).session, args::RevokePrivilege { estate: estate.into(), privilege: privilege.into() }))
+        };
+        assert_eq!(grant("estate_church", "nobles_land", false), (Status::NotFound, "no estate \"estate_church\" for the player".into()));
+        assert_eq!(grant("estate_nobles", "church_land", false), (Status::NotFound, "no privilege \"church_land\" for the player".into()));
+        assert_eq!(grant("estate_nobles", "nobles_land", true), (Status::Rejected, "estate_nobles has the privilege nobles_land already".into()));
+        assert_eq!(revoke("estate_nobles", "nobles_army", true), (Status::Rejected, "estate_nobles does not have the privilege nobles_army".into()));
+        assert_eq!(revoke("estate_nobles", "nobles_land", false), (Status::Rejected, "estate_nobles does not have the privilege nobles_land".into()));
+        assert!(record::posted().is_empty());
     }
 }

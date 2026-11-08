@@ -8,7 +8,7 @@ use super::{commands::Commands, Caller, Ctx, Session, Tag, View};
 use crate::{
     game_string,
     memory::Memory,
-    objects::{campaign::country, list},
+    objects::{campaign::country, list, map},
 };
 use windows_sys::Win32::System::{
     Diagnostics::Debug::FlushInstructionCache,
@@ -120,6 +120,26 @@ impl Object {
         self = self.u64(offset + list::HEAD, head).u64(offset + list::TAIL, tail).i32(offset + list::COUNT, count as i32);
         self.kept.extend(nodes);
         self
+    }
+
+    /// The head of a `std::map` (`objects::map`) holding `values`, each the
+    /// first 8 bytes of a node's value: a root and a chain of right
+    /// children, every other child the head, as the game's empty ones are.
+    pub fn map(values: &[u64]) -> Self {
+        let head = Self::new(map::NODE_SIZE).u8(map::NIL, 1);
+        let mut nodes: Vec<Object> = values.iter().map(|&v| Self::new(map::NODE_SIZE).u64(map::VALUE, v)).collect();
+        let at = |n: &Object| n.at() as u64;
+        for i in 0..nodes.len() {
+            let parent = if i == 0 { at(&head) } else { at(&nodes[i - 1]) };
+            let right = nodes.get(i + 1).map_or(at(&head), at);
+            nodes[i].set(map::PARENT, &parent.to_le_bytes());
+            nodes[i].set(map::LEFT, &at(&head).to_le_bytes());
+            nodes[i].set(map::RIGHT, &right.to_le_bytes());
+        }
+        let root = nodes.first().map_or(at(&head), at);
+        let mut head = head.u64(map::PARENT, root);
+        head.kept.append(&mut nodes);
+        head
     }
 
     /// A `std::vector` of `items` at `offset`: its begin and end.
