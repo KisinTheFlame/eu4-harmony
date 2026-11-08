@@ -106,4 +106,85 @@ mod tests {
     fn the_spending_names_the_province_and_the_category() {
         assert_eq!(super::power::written(*b"FRA", 37, super::POWER, 183), r#"spend_power_command={ country="FRA" power={ data=183 category=37 skill=2 } }"#);
     }
+
+    use super::*;
+    use crate::game::{
+        buffers::{self, answers_no, answers_yes, write_inline, Image, Object, Provinces},
+        commands::record,
+        power::{COST, NO_ID},
+        Caller, Fail, Session, Status, Tag,
+    };
+    use crate::objects::campaign::province;
+
+    /// The game's cost of a spending: 50 points.
+    extern "C" fn fifty() -> usize {
+        50
+    }
+
+    /// The game's answer of whether the player may: no, the siege too young.
+    extern "C" fn too_early(_: usize, _: usize, text: usize) -> usize {
+        write_inline(text, "too early");
+        0
+    }
+
+    /// France besieging province 2 of provinces 0 to 3, province 3 hidden
+    /// by fog of war with a siege of its own; the game lets the player order
+    /// what `may` answers.
+    struct Siege {
+        _image: Image,
+        _provinces: Provinces,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn siege(may: *const ()) -> Siege {
+        let image = Image::new();
+        for (_, _, f) in ACTIONS {
+            image.function(f.rva(), may);
+        }
+        image.function(COST.rva(), fifty as *const ()).function(game_string::DESTROY_AT.rva(), answers_no as *const ()).u64(NO_ID, 0);
+        let provinces = Provinces::new(&image, 4);
+        let (sieges, fra) = (Object::new(8), Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0")));
+        provinces.u64(2, SIEGE, sieges.at() as u64).u64(3, SIEGE, sieges.at() as u64);
+        provinces.u8(3, province::FOGGED, province::FOGGED_BIT).u8(3, province::HIDDEN, province::HIDDEN_BIT);
+        let france = Object::country(fra, 0);
+        let countries = Object::countries(&[&france]);
+        let session = buffers::session(image.memory(), provinces.world(), fra, france.at(), countries.at(), Caller::Remote);
+        Siege { _image: image, _provinces: provinces, _objects: vec![sieges, france, countries], session }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("the siege action was ordered") };
+        (status, message)
+    }
+
+    #[test]
+    fn each_button_spends_its_category_of_military_points_on_the_province() {
+        let siege = siege(answers_yes as *const ());
+        bombard(siege.session, args::Bombard { province: ProvinceId(2) }).unwrap();
+        naval_bombard(siege.session, args::NavalBombard { province: ProvinceId(2) }).unwrap();
+        assault(siege.session, args::Assault { province: ProvinceId(2) }).unwrap();
+        let spent = |category| format!(r#"spend_power_command={{ country="FRA" power={{ data=2 category={category} skill=2 }} }}"#);
+        assert_eq!(record::posted(), [spent(37), spent(40), spent(9)]);
+    }
+
+    #[test]
+    fn a_siege_the_game_refuses_or_the_player_does_not_see_is_refused() {
+        let siege = siege(too_early as *const ());
+        assert_eq!(refused(assault(siege.session, args::Assault { province: ProvinceId(2) })), (Status::Rejected, "too early".into()));
+        let no_siege = |id| (Status::Rejected, format!("there is no siege in province {id}"));
+        assert_eq!(refused(bombard(siege.session, args::Bombard { province: ProvinceId(1) })), no_siege(1));
+        // What fog of war hides, the player's orders do not reach.
+        assert_eq!(refused(bombard(siege.session, args::Bombard { province: ProvinceId(3) })), no_siege(3));
+        assert_eq!(refused(bombard(siege.session, args::Bombard { province: ProvinceId(4) })).0, Status::NotFound);
+        assert!(record::posted().is_empty());
+    }
+
+    #[test]
+    fn the_options_are_the_three_buttons_with_their_costs_and_the_game_s_answers() {
+        let siege = siege(too_early as *const ());
+        let options = options(siege.session, args::Options { province: ProvinceId(2) }).unwrap();
+        assert_eq!(options.iter().map(|a| a.action.as_str()).collect::<Vec<_>>(), ["bombard", "naval_bombard", "assault"]);
+        assert!(options.iter().all(|a| !a.choice.can && a.choice.reasons == ["too early"] && a.choice.cost == [Amount::new(Resource::Mil, 50.0)]));
+    }
 }

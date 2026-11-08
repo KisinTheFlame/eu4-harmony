@@ -249,10 +249,10 @@ const BASE_MANPOWER: GameFunction<3> = GameFunction::at(0x6de8c0);
 /// Whether a country can recruit a unit type in a province: (country,
 /// province, unit type, special kind, any province, check resources,
 /// reasons, ...), with the reasons appended to a `std::string`.
-const CAN_RECRUIT: GameFunction<10> = GameFunction::at(0x346570);
+pub(super) const CAN_RECRUIT: GameFunction<10> = GameFunction::at(0x346570);
 /// What the recruit command checks after it: (province, unit type); ships
 /// need the province's port.
-const RECRUIT_PLACE: GameFunction<2> = GameFunction::at(0xa1fe50);
+pub(super) const RECRUIT_PLACE: GameFunction<2> = GameFunction::at(0xa1fe50);
 /// The game's local autonomy and unrest as it shows them: (unused, out,
 /// province), as the scope values "local_autonomy" and "unrest".
 const AUTONOMY: GameFunction<3> = GameFunction::at(0x6de950);

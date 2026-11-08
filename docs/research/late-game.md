@@ -231,12 +231,22 @@ Milliseconds of the main thread a game day, from the sampled shares:
 
 **Between days**, 1.53 frames a game day at "Faster time" (the frame count against the days): drawing 4.9 ms a frame, 7.5 ms a day; the rest of what runs between days 5.8 ms ([main-thread.md](main-thread.md), "Drawing", found no drawing left out that the player does not see).
 
+### Adding sets of modifiers
+
+`0x8ea420(set, added)` and its twin `0x8ea730`, which takes the values away, search a set kept as pairs for each modifier added, pair by pair from the first (`0x8ea4d0`, `0x8ea7e2`: the set's pairs at `+0x58`, their count at `+0x64`). The framework replaces those two searches alone (`core/src/modifier_sums.rs`): after four searches in one call of a set of 16 pairs or more, it puts the set's pairs in an index of its thread's, takes up the pairs the game appends as the call goes on, and answers each search from it. Every answer is the first pair holding the modifier, as the game's search gives it; the adding, the appending, the set's growth and the record of the sets added stay the game's code. A set kept by modifier (`+0x10`) writes modifiers into its places as the call goes on, and is searched pair by pair as before. A difference of the second kind, the same answer ([ADR the-game-may-be-made-faster-with-reasoned-differences](../adr/the-game-may-be-made-faster-with-reasoned-differences.md)).
+
+Measured on 2026-11-08 in a test game ([the run](../prototype-log/2026-11-08-modifier-sets-through-an-index.md)), the developer build, the 1780.7.1 save in observe mode at speed 5, 120 s a run, the main thread sampled (`cargo xtask profile --test-game`):
+
+- **The same answers**: with `check-modifier-sums`, 63 million searches through the index made as the game's too, none differing.
+- **The cost, per game month of the main thread**: `0x8ea420`'s own code 101 and 107 ms with the game's code (`game-sums-modifiers`, the framework's points left out), against 16 and 20 ms with the index, and 22 and 24 ms in the framework's search, whose samples the sampler cannot walk past its stub: about 104 ms a month against 41.
+- The monthly update as the sampler counts it went from 323 and 287 ms a month to 257 and 250, the framework's search left out of it; the months of different runs differ, and part of `0x8ea420`'s time is in the days' updates.
+
 ### Where the late day could be shorter
 
 | What | Its time late | What a change could give | Of which kind ([game-speed.md](../game-speed.md)) |
 | --- | --- | --- | --- |
 | The AI | 24 ms a day, 38% | Above, "Whether it can be made faster": little without changing the AI | C |
-| The monthly update | 266 ms a month, 8.8 ms a day | `0x8ea420` looking its pairs up through an index made for the call instead of one by one: the same pairs, in the same order, with the same sums, so that each call's result can be compared with the game's own; up to its share of the month, about 60 ms of the 266, and about 3 ms a day in all. The rest of the month is many countries' and provinces' updates one after another, nothing alone large | C: the simulation's own code. Whether a check call by call stands for the bench (S5) is the owner's to decide |
+| The monthly update | 266 ms a month, 8.8 ms a day | `0x8ea420` looking its pairs up through an index made for the call instead of one by one: built, about 60 ms a month of 104 ("Adding sets of modifiers"). The rest of the month is many countries' and provinces' updates one after another, nothing alone large | C: the simulation's own code, the same answers checked call by call |
 | Each country's daily update | 12 ms a day | One country after another, spread over many functions (units, armies, diplomacy's caches `0x93fe30`, modifiers); none found alone large | C |
 | Drawing between days | 7.5 ms a day | Drawing fewer frames at speed 5, as "Faster time" leaves out those inside a day; not researched | A or B, the player's choice |
 | Running the countries' or the month's updates on the idle threads | up to the most of 21 ms a day and 266 ms a month | Changes the order the game does its work in, as running the AI's agents apart would | C |
@@ -286,7 +296,6 @@ A claim's release removes what a run added to the save games folder, so a copy t
 - That the AI countries' draws from the world's generator race between threads without `-seed`: read from the code (no lock in `0x14c71b0`), not seen apart from a load's new seed, which makes runs differ anyway. What picks the Royal Navy's admiral, which varies with `-seed`; whether `-seed` repeats other saves, earlier years, or longer than half a year as well; whether the agents' order matters in the children's list, the armies' list or both.
 - The write watch saw three army thinks on the main thread, short ones; not a plan, nor one of the long thinks.
 - The tasks timed in one game from 1700 to 1730 only; the route queries counted over one year; the day's phases timed for 306 s from 1780.
-- How large the sets of modifiers `0x8ea420` adds to are, and how much of its own time is the search one by one rather than the adding: inferred from its code and its self time, not measured.
 - What `0x2f36c0` is beyond the functions it calls; whether the countries' daily updates or the month's updates read what another country's writes.
 - One game only, as the AI played it; a game a player plays, with the player's country out of the AI, and other great powers.
 - The game's own pace (frames inside a day) over a long run, and a vanilla game without the framework.

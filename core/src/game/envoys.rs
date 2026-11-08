@@ -6,11 +6,11 @@ use crate::containers;
 use crate::{memory::Memory, points::Point, unicode::game_text};
 
 /// A country's envoys: a pointer to the pools, one per kind at its offset.
-const POOLS: usize = 0x1480;
+pub(super) const POOLS: usize = 0x1480;
 /// A pool's envoys, a vector of pointers.
-const ENVOYS: usize = 0x20;
+pub(super) const ENVOYS: usize = 0x20;
 /// An envoy is away while this byte is set.
-const AWAY: usize = 0x18;
+pub(super) const AWAY: usize = 0x18;
 /// The most envoys of a kind read.
 const MOST: usize = 1_000;
 

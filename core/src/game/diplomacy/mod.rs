@@ -1475,7 +1475,7 @@ mod tests {
         extern "C" fn may(_: usize, _: usize, reasons: usize) -> usize {
             let (may, reason) = ANSWER.with(|a| *a.borrow());
             if !may && reasons != 0 {
-                unsafe { buffers::write_string(reasons, reason) };
+                buffers::write_inline(reasons, reason);
             }
             may as usize
         }

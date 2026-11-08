@@ -264,63 +264,188 @@ pub fn strings_kept(image: &Image) -> &Image {
     image.function(game_string::DESTROY_AT.rva(), kept as *const ())
 }
 
-/// The game's provinces 0 to `count` − 1, as the map, a global of the
-/// game's, and the world hold them: each with its ID and a geometry of its
-/// own of that ID, without neighbors; 0 the placeholder, as in the game.
+// The provinces, envoys, units and the game's answers, for the action
+// capabilities of leaders, mercenaries, merchants, missionaries, missions,
+// parliament, questions, recruiting, sieges, offers and occupation: the
+// world's provinces as the map and the world hold them, each read through
+// the geography the capabilities keep of them.
+
+/// Held while a test's provinces stand in the capabilities' geography, the
+/// process's one, so that tests running at once do not read each other's.
+static GEOGRAPHY: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+thread_local! {
+    /// Whether this thread's test holds [`GEOGRAPHY`].
+    static HOLDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// How far a test's world reaches.
+const WORLD: usize = 0x4000;
+
+/// The world's provinces, numbered from 0, the placeholder, to `count - 1`,
+/// each on land with a geometry of its own and no neighbors; the map at its
+/// global in `image`, and the world pointing to the same provinces, its
+/// other fields as far as [`WORLD`] set with [`Provinces::world_set`].
 pub struct Provinces {
-    provinces: Object,
-    /// The world that holds them, for a session's `world`.
-    pub world: Object,
-    _map: Object,
-    _geometries: Vec<Object>,
+    array: Object,
+    world: Object,
+    _kept: Vec<Object>,
+    _held: std::sync::MutexGuard<'static, ()>,
 }
 
 impl Provinces {
     pub fn new(image: &Image, count: usize) -> Self {
         use crate::objects::campaign::{geometry, globals, map, province, world};
-        let provinces = Object::new(count * province::SIZE);
-        let geometries: Vec<Object> = (0..count).map(|id| Object::new(geometry::TERRAIN + 8).u32(geometry::ID, id as u32)).collect();
-        for (id, geometry) in geometries.iter().enumerate() {
-            provinces.set(id * province::SIZE + province::ID, &(id as u32).to_le_bytes());
-            provinces.set(id * province::SIZE + province::GEOMETRY, &(geometry.at() as u64).to_le_bytes());
-        }
-        let (first, end) = (provinces.at() as u64, (provinces.at() + count * province::SIZE) as u64);
-        let map = Object::new(map::PROVINCES + 0x10).u64(map::PROVINCES, first).u64(map::PROVINCES + 8, end);
-        image.u64(globals::MAP, map.at() as u64);
-        let world = Object::new(world::PROVINCES + 8).u64(world::PROVINCES, first);
-        // The capabilities keep the provinces they found by where the map
-        // and the world are, which a test's freed buffers may have been.
+        // A second world on the thread that holds one would wait for itself.
+        assert!(!HOLDING.with(|h| h.replace(true)), "a test has one world of provinces at a time");
+        let held = GEOGRAPHY.lock().unwrap_or_else(|e| e.into_inner());
         super::with_state(|s| s.geography.clear());
-        Self { provinces, world, _map: map, _geometries: geometries }
+        let array = Object::new(count * province::SIZE);
+        let mut kept = Vec::new();
+        for id in 0..count {
+            let shape = Object::new(geometry::CLIMATE + 8).u32(geometry::ID, id as u32).u8(geometry::TERRAIN, geometry::LAND);
+            array.set(id * province::SIZE + province::ID, &(id as u32).to_le_bytes());
+            array.set(id * province::SIZE + province::GEOMETRY, &(shape.at() as u64).to_le_bytes());
+            kept.push(shape);
+        }
+        let first = array.at() as u64;
+        let end = first + (count * province::SIZE) as u64;
+        let the_map = Object::new(map::PROVINCES + 0x10).u64(map::PROVINCES, first).u64(map::PROVINCES + 8, end);
+        image.u64(globals::MAP, the_map.at() as u64);
+        kept.push(the_map);
+        let world = Object::new(WORLD.max(world::PROVINCES + 8)).u64(world::PROVINCES, first);
+        Self { array, world, _kept: kept, _held: held }
+    }
+
+    /// The world, for [`session`].
+    pub fn world(&self) -> usize {
+        self.world.at()
+    }
+
+    /// Writes `bytes` at `offset` of the world.
+    pub fn world_set(&self, offset: usize, bytes: &[u8]) -> &Self {
+        self.world.set(offset, bytes);
+        self
     }
 
     /// Where province `id` is.
-    pub fn at(&self, id: usize) -> usize {
-        self.provinces.at() + id * crate::objects::campaign::province::SIZE
+    pub fn at(&self, id: u32) -> usize {
+        self.array.at() + id as usize * crate::objects::campaign::province::SIZE
     }
 
-    /// Writes `bytes` at `offset` in province `id`.
-    pub fn set(&self, id: usize, offset: usize, bytes: &[u8]) {
-        self.provinces.set(id * crate::objects::campaign::province::SIZE + offset, bytes);
+    /// Writes `bytes` at `offset` of province `id`.
+    pub fn set(&self, id: u32, offset: usize, bytes: &[u8]) -> &Self {
+        self.array.set(id as usize * crate::objects::campaign::province::SIZE + offset, bytes);
+        self
+    }
+
+    pub fn u8(&self, id: u32, offset: usize, value: u8) -> &Self {
+        self.set(id, offset, &[value])
+    }
+
+    pub fn u64(&self, id: u32, offset: usize, value: u64) -> &Self {
+        self.set(id, offset, &value.to_le_bytes())
+    }
+
+    pub fn i32(&self, id: u32, offset: usize, value: i32) -> &Self {
+        self.set(id, offset, &value.to_le_bytes())
     }
 }
 
 impl Drop for Provinces {
     fn drop(&mut self) {
         super::with_state(|s| s.geography.clear());
+        HOLDING.with(|h| h.set(false));
     }
 }
 
-/// Writes `text`, game text, into the empty `std::string` at `out`, held in
-/// itself, as a test's game function writes its reasons.
-///
-/// # Safety
-/// `out` is a `std::string` the framework gave the game's function to write.
-pub unsafe fn write_string(out: usize, text: impl AsRef<[u8]>) {
+/// A game function that answers no, for a test's [`Image::function`].
+pub extern "C" fn answers_no() -> usize {
+    0
+}
+
+/// A game function that answers yes.
+pub extern "C" fn answers_yes() -> usize {
+    1
+}
+
+/// The game's conditions, for a capability that lists those that do not
+/// hold: their scope made and destroyed, and `lines` writing them as the
+/// game's tooltip does.
+pub fn conditions(image: &Image, lines: *const ()) {
+    use super::conditions::{LINES, SCOPE, SCOPE_DESTROY};
+    image.function(SCOPE.rva(), answers_no as *const ()).function(SCOPE_DESTROY.rva(), answers_no as *const ()).function(LINES.rva(), lines);
+}
+
+/// A country's pools of envoys ([`super::envoys`]), for its field
+/// `envoys::POOLS`: of each kind, its envoys ([`envoy`]).
+pub fn envoys(kinds: Vec<(super::envoys::Kind, Vec<Object>)>) -> Object {
+    use super::envoys::ENVOYS;
+    let mut pools = Object::new(0x18);
+    for (kind, envoys) in kinds {
+        let mut pool = Object::new(ENVOYS + 0x10).vector(ENVOYS, &envoys.iter().map(|e| e.at() as u64).collect::<Vec<_>>());
+        pool.kept.extend(envoys);
+        pools = pools.points_to(kind as usize, pool);
+    }
+    pools
+}
+
+/// An envoy, away or free, `size` bytes or as far as whether it is away.
+pub fn envoy(away: bool, size: usize) -> Object {
+    use super::envoys::AWAY;
+    Object::new(size.max(AWAY + 8)).u8(AWAY, away.into())
+}
+
+/// An army (`land`) or a fleet of `owner`'s with the ID `id`, as
+/// [`units`] lets the game find it, `size` bytes or as far as its owner.
+pub fn unit(m: &Memory, id: u64, owner: Tag, land: bool, size: usize) -> Object {
+    use crate::objects::campaign::{classes, unit};
+    let class = if land { classes::ARMY } else { classes::FLEET };
+    Object::new(size.max(unit::OWNER + 8)).u64(0, m.at(class) as u64).u64(unit::ID, id).u64(unit::OWNER, owner.0)
+}
+
+thread_local! {
+    /// The units the game's lookup by ID finds, on this test's thread.
+    static UNITS: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The game's lookup of an object by its ID: a unit of [`units`], by where
+/// it holds its ID.
+extern "C" fn find_id(key: *const u64) -> usize {
+    use crate::objects::campaign::unit;
+    let id = unsafe { *key };
+    UNITS.with(|u| u.borrow().iter().find(|&&at| unsafe { *((at + unit::ID) as *const u64) } == id).map_or(0, |at| at + unit::ID_HOLDER))
+}
+
+/// Has the game find `units` by their IDs, and no others.
+pub fn units(image: &Image, units: &[&Object]) {
+    UNITS.with(|u| *u.borrow_mut() = units.iter().map(|o| o.at()).collect());
+    image.function(super::world::FIND_ID.rva(), find_id as *const ());
+}
+
+/// The game's localisation, which a test's texts stand for by their keys:
+/// a key's text is its first [`game_string::INLINE`] bytes.
+pub fn localisation(image: &Image) {
+    image.function(game_string::LOCALIZE_AT.rva(), localize as *const ());
+}
+
+extern "C" fn localize(out: usize, key: *const std::ffi::c_char) -> usize {
+    let key = unsafe { std::ffi::CStr::from_ptr(key) }.to_bytes();
+    let empty = game_string::empty();
+    unsafe { std::ptr::copy_nonoverlapping(empty.as_ptr() as *const u8, out as *mut u8, game_string::OBJECT) };
+    write_inline(out, &key[..key.len().min(game_string::INLINE)]);
+    0
+}
+
+/// Writes `text`, at most [`game_string::INLINE`] bytes, into the empty
+/// `std::string` at `string`, as a game function writes its reasons.
+pub fn write_inline(string: usize, text: impl AsRef<[u8]>) {
     let text = text.as_ref();
     assert!(text.len() <= game_string::INLINE, "{text:?} is longer than a string holds in itself");
-    std::ptr::copy_nonoverlapping(text.as_ptr(), out as *mut u8, text.len());
-    *((out + game_string::SIZE) as *mut u64) = text.len() as u64;
+    unsafe {
+        std::ptr::copy_nonoverlapping(text.as_ptr(), string as *mut u8, text.len());
+        *((string + game_string::SIZE) as *mut u64) = text.len() as u64;
+    }
 }
 
 #[cfg(test)]

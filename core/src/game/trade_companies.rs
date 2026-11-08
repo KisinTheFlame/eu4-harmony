@@ -212,7 +212,7 @@ mod tests {
         fn may(text: usize, reason: &[u8]) -> usize {
             let may = MAY.get();
             if !may && text != 0 {
-                unsafe { buffers::write_string(text, reason) };
+                buffers::write_inline(text, reason);
             }
             may as usize
         }
@@ -237,7 +237,7 @@ mod tests {
         }
 
         extern "C" fn name(_: usize, out: usize, _: usize) -> usize {
-            unsafe { buffers::write_string(out, "Local Quarter") };
+            buffers::write_inline(out, "Local Quarter");
             out
         }
 
@@ -255,7 +255,7 @@ mod tests {
             image.u64(DATABASE, database.at() as u64);
             let country = Object::country(tur(), 0);
             let countries = Object::countries(&[&country]);
-            let result = action(buffers::session(image.memory(), provinces.world.at(), tur(), country.at(), countries.at(), Caller::Remote));
+            let result = action(buffers::session(image.memory(), provinces.world(), tur(), country.at(), countries.at(), Caller::Remote));
             drop((quarter, database, provinces, country, countries, image));
             result
         }

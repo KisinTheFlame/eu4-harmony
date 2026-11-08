@@ -269,7 +269,7 @@ mod tests {
             unsafe {
                 *(result as *mut u8) = succeeded as u8;
                 *((text + game_string::CAPACITY) as *mut u64) = game_string::INLINE as u64;
-                buffers::write_string(text, printed);
+                buffers::write_inline(text, printed);
             }
             result
         }

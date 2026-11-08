@@ -47,14 +47,14 @@ test-notice = false
 crash = false
 # The speed-ups left to the game, so that its own code can be measured against
 # them: their points are not installed. Each is named by its name, its group or
-# "all": pops-polling and fastest-pace (group "frames"); music, lookups and
-# children ("loading"); background-compression, stored-copy, parallel-saves,
-# save-sum and update-thread ("saving"); army-searches ("ai").
+# "all": pops-polling, fastest-pace and modifier-sums (group "frames"); music,
+# lookups and children ("loading"); background-compression, stored-copy,
+# parallel-saves, save-sum and update-thread ("saving"); army-searches ("ai").
 game-paths = []
 # The speed-ups whose answers are checked against the game's own, named the
-# same way; those that can be are music, lookups, parallel-saves and
-# army-searches. Each difference is logged, and the startup report counts the
-# answers checked and those that differed.
+# same way; those that can be are music, lookups, parallel-saves, army-searches
+# and modifier-sums. Each difference is logged, and the startup report counts
+# the answers checked and those that differed.
 checked = []
 # A subject relation's end is the game's own: its walk of the subject's
 # supporters refreshes the subject as it goes, which frees the list it walks,

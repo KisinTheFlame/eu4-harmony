@@ -437,7 +437,7 @@ mod tests {
     fn answer(text: usize) -> usize {
         let (may, reason) = ANSWER.with(|a| *a.borrow());
         if !may && text != 0 {
-            unsafe { buffers::write_string(text, reason) };
+            buffers::write_inline(text, reason);
         }
         may as usize
     }

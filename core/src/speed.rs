@@ -35,7 +35,7 @@ pub struct SpeedUp {
 }
 
 /// Every speed-up, in the order the report names them.
-pub static ALL: [&SpeedUp; 11] = [
+pub static ALL: [&SpeedUp; 12] = [
     &pops::SPEED_UP,
     &pace::SPEED_UP,
     &crate::loading::music::SPEED_UP,
@@ -47,6 +47,7 @@ pub static ALL: [&SpeedUp; 11] = [
     &crate::saving::sum::SPEED_UP,
     &crate::saving::update_thread::SPEED_UP,
     &crate::army_search::SPEED_UP,
+    &crate::modifier_sums::SPEED_UP,
 ];
 
 /// Every speed-up's points: what the offline checks check and the framework
@@ -144,7 +145,7 @@ pub fn checked(speed_up: &SpeedUp) -> bool {
 }
 
 /// Answers checked and answers that differed, for each speed-up.
-static COUNTS: [[AtomicU64; 2]; 11] = [const { [AtomicU64::new(0), AtomicU64::new(0)] }; 11];
+static COUNTS: [[AtomicU64; 2]; 12] = [const { [AtomicU64::new(0), AtomicU64::new(0)] }; 12];
 /// A speed-up's first differences are each logged; after these, only when
 /// their count reaches a power of two.
 const LOGGED: u64 = 20;
@@ -236,7 +237,7 @@ mod tests {
     #[test]
     fn only_what_can_be_checked_is_and_the_game_s_path_comes_first() {
         let all = Chosen::of(&[], &strings(&["all"])).unwrap();
-        assert_eq!(all.checked, ["music", "lookups", "parallel-saves", "army-searches"].iter().fold(0, |b, n| b | bit(n)));
+        assert_eq!(all.checked, ["music", "lookups", "parallel-saves", "army-searches", "modifier-sums"].iter().fold(0, |b, n| b | bit(n)));
         let both = Chosen::of(&strings(&["music"]), &strings(&["loading"])).unwrap();
         assert_eq!((both.game_paths, both.checked), (bit("music"), bit("lookups")));
         assert!(Chosen::of(&[], &strings(&["children"])).unwrap_err().contains("cannot be checked"));
@@ -247,7 +248,7 @@ mod tests {
     fn the_report_names_what_was_chosen() {
         assert!(lines(Chosen::default()).is_empty());
         let chosen = Chosen::of(&strings(&["frames"]), &strings(&["army-searches"])).unwrap();
-        assert_eq!(lines(chosen), ["speed-ups left to the game: pops-polling, fastest-pace", "speed-ups checked against the game: army-searches"]);
+        assert_eq!(lines(chosen), ["speed-ups left to the game: pops-polling, fastest-pace, modifier-sums", "speed-ups checked against the game: army-searches"]);
     }
 
     #[test]

@@ -61,6 +61,7 @@ pub mod map;
 pub mod memory;
 #[cfg(feature = "dev-memory")]
 mod memory_account;
+mod modifier_sums;
 pub mod mods;
 pub mod notice;
 pub mod objects;

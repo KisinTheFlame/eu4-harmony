@@ -11,7 +11,7 @@ use crate::{
 /// `(size)`: the game's `operator new`.
 pub const NEW: GameFunction<1> = GameFunction::at(0x1a332d4);
 /// `(block, size)`: the game's `operator delete`.
-const DELETE: GameFunction<2> = GameFunction::at(0x17394f0);
+pub(crate) const DELETE: GameFunction<2> = GameFunction::at(0x17394f0);
 
 pub fn points() -> Vec<Point> {
     vec![
