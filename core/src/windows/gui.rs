@@ -55,16 +55,6 @@ const RIBBON_TOP: i32 = 14;
 const RIBBON_HEIGHT: i32 = 42;
 const RIBBON_INSET: i32 = 14;
 
-/// The gold crest above a window's title and the gold line along its
-/// bottom: the game's mission pop-up's, the crest drawn for a window 500
-/// wide, reaching 60 above it and 16 past each side.
-const CREST: &str = "eu4h_crest";
-const CREST_SPRITE: &str = "gfx_header_decoration";
-const CREST_SIZE: (i32, i32) = (532, 201);
-const FOOTER: &str = "eu4h_footer";
-const FOOTER_SPRITE: &str = "gfx_footer_decoration";
-const FOOTER_SIZE: (i32, i32) = (509, 37);
-
 /// A pop-up's parts, as the game's message pop-up has them
 /// (`DefaultPopup` in `interface/eu3dialog.gui`): its small header line,
 /// its title on the green band, its shields, its buttons.
@@ -155,28 +145,7 @@ pub fn window(type_name: &str, window: &Window, words: &dyn Fn(&Option<String>) 
     let mut out = String::new();
     let (w, h) = window.size;
     open_window(&mut out, type_name, (w, h), window.moveable, Some(BACKGROUND_SPRITE));
-    // The crest, at most the size it is drawn for, centered.
-    if window.crest {
-        let scale = (f64::from(w) / 500.0).min(1.0);
-        let x = (f64::from(w) - f64::from(CREST_SIZE.0) * scale) / 2.0;
-        let _ = writeln!(
-            out,
-            "\t\ticonType = {{ name = \"{CREST}\" spriteType = \"{CREST_SPRITE}\" position = {{ x = {} y = {} }} scale = {scale:.3} alwaystransparent = yes }}",
-            x.round() as i32,
-            (-60.0 * scale).round() as i32
-        );
-    }
-    // The gold line along the bottom, through the Close button's middle
-    // when it has one, as a bar it stands on.
-    let footer = (f64::from(w - 30) / f64::from(FOOTER_SIZE.0)).min(1.5);
-    let line = (f64::from(FOOTER_SIZE.1) * footer).round() as i32;
     let close_top = h - layout::CLOSE_ABOVE - layout::BUTTON_HEIGHT;
-    let line_top = if window.close { close_top + layout::BUTTON_HEIGHT / 2 - line / 2 } else { h - 8 - line };
-    let _ = writeln!(
-        out,
-        "\t\ticonType = {{ name = \"{FOOTER}\" spriteType = \"{FOOTER_SPRITE}\" position = {{ x = {} y = {line_top} }} scale = {footer:.3} alwaystransparent = yes }}",
-        ((f64::from(w) - f64::from(FOOTER_SIZE.0) * footer) / 2.0).round() as i32,
-    );
     // The title on its ribbon, a window of its own the ribbon stretches to.
     if window.title.is_some() {
         let ribbon = match window.ribbon {
@@ -410,7 +379,7 @@ mod tests {
             text.contains("name = \"eu4h_ribbon\"") && text.contains("position = { x = 14 y = 14 }") && text.contains("GFX_eu4harmony_ribbon_red"),
             "the title on its ribbon: {text}"
         );
-        assert!(text.contains("spriteType = \"gfx_footer_decoration\"") && !text.contains("gfx_header_decoration"), "the gold line, no crest unless asked");
+        assert!(!text.contains("gfx_footer_decoration") && !text.contains("gfx_header_decoration"), "no gold line, no crest");
         assert!(text.contains("name = \"w_go\"") && text.contains("quadTextureSprite = \"button_type_6\" buttonText = \"[GO]\""), "{text}");
         assert!(text.contains("iconType = { name = \"w_2\""), "an unnamed game widget by its place");
         assert!(text.contains("listboxType = { name = \"w_rows\""));

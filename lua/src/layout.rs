@@ -14,13 +14,10 @@ use std::collections::HashSet;
 /// Room between a window's edges and what it holds.
 pub const MARGIN: i32 = 24;
 /// Room the title takes at a window's top, on its ribbon, the margin below
-/// it included; with the gold crest above it, whose scrolls hang down its
-/// sides, more.
+/// it included.
 pub const TITLE: i32 = 66;
-pub const TITLE_CREST: i32 = 120;
-/// Room the gold line along a window's bottom takes, and with the game's
-/// long Close button standing on it, as its panels have it.
-pub const FOOTER: i32 = 40;
+/// Room the game's long Close button takes at a window's bottom, as its
+/// panels have it, the margin above it included.
 pub const FOOTER_CLOSE: i32 = 60;
 /// A window's Close button, the game's text button, centered along its
 /// bottom, this far above it.
@@ -63,8 +60,6 @@ pub struct Window {
     pub panel: bool,
     /// The color of its title's ribbon.
     pub ribbon: Ribbon,
-    /// The gold crest above its title, as the game's grander panels have.
-    pub crest: bool,
     pub entry: Option<Entry>,
     pub widgets: Vec<Placed>,
 }
@@ -267,7 +262,7 @@ fn read_window(name: &str, value: &Value, has_text: &dyn Fn(&str) -> bool) -> Re
         return Err(format!("a window is named by lowercase letters, digits and _, other than {}", RESERVED_WINDOWS.join(" and ")));
     }
     let table = object(value, "a window")?;
-    known(table, &["size", "title", "close", "anchor", "offset", "moveable", "panel", "ribbon", "crest", "entry", "items", "spacing", "align"])?;
+    known(table, &["size", "title", "close", "anchor", "offset", "moveable", "panel", "ribbon", "entry", "items", "spacing", "align"])?;
     let size = pair(table.get("size"), "size")?.ok_or("a window has a size = { width, height }")?;
     if size.0 <= 0 || size.1 <= 0 {
         return Err("size is a width and a height above 0".into());
@@ -291,7 +286,6 @@ fn read_window(name: &str, value: &Value, has_text: &dyn Fn(&str) -> bool) -> Re
         Some("blue") => Ribbon::Blue,
         Some(_) => return Err("ribbon is red or blue".into()),
     };
-    let crest = flag(table.get("crest"), "crest")?.unwrap_or(false);
     let entry = match table.get("entry") {
         None => None,
         Some(value) => {
@@ -304,26 +298,22 @@ fn read_window(name: &str, value: &Value, has_text: &dyn Fn(&str) -> bool) -> Re
             })
         }
     };
-    let top = match (crest, title.is_some()) {
-        (true, _) => TITLE_CREST,
-        (false, true) => TITLE,
-        (false, false) => MARGIN,
-    };
-    let footer = if close { FOOTER_CLOSE } else { FOOTER };
+    let top = if title.is_some() { TITLE } else { MARGIN };
+    let footer = if close { FOOTER_CLOSE } else { MARGIN };
     let room = (size.0 - 2 * MARGIN, size.1 - top - footer);
     let mut widgets = Vec::new();
     let content = Container::read(table, true)?;
     content.arrange((MARGIN, top), Some(room.0), has_text, &mut widgets, "")?;
     let mut names = HashSet::new();
     for w in &widgets {
-        fits(w, (size.0, size.1 - footer), (0, 0), "the window, above its gold line")?;
+        fits(w, (size.0, size.1 - footer), (0, 0), "the window, above its Close button")?;
         if let Some(name) = &w.name {
             if !names.insert(name.clone()) {
                 return Err(format!("two game widgets are named {name}"));
             }
         }
     }
-    Ok(Window { name: name.to_string(), size, title, close, anchor, offset, moveable, panel, ribbon, crest, entry, widgets })
+    Ok(Window { name: name.to_string(), size, title, close, anchor, offset, moveable, panel, ribbon, entry, widgets })
 }
 
 /// A column or a row of game widgets.

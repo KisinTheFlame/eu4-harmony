@@ -36,8 +36,7 @@ steps:
    (true: the game's long Close button centered at the bottom, which Esc
    presses), moveable (true), panel (true: one of the game's big panels,
    which close one another), ribbon ("red" or "blue", the title's; a window
-   with no title has none), crest (false: the gold crest above the title,
-   whose scrolls hang down the sides, so the items begin lower), anchor ("center", "top_left", ..., "right",
+   with no title has none), anchor ("center", "top_left", ..., "right",
    "bottom_right") with offset = { x, y }, entry (a button on the panel
    button strip left of the minimap, beside the papacy's and the Empire's).
 2. Game widgets: text (size, text = key, font "body" or "heading", align),
