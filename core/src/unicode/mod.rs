@@ -6,6 +6,7 @@ pub mod atlas;
 pub mod breaks;
 pub mod buttons;
 pub mod costs;
+pub mod distance;
 pub mod dxt;
 pub mod edit_box;
 pub mod fill;
