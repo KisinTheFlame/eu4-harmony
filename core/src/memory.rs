@@ -27,7 +27,8 @@ impl Memory {
     /// whatever another build holds there
     /// (ADR framework-succeeds-or-fails-as-a-whole). The code that declares
     /// points adds the base itself.
-    pub fn at(&self, rva: usize) -> usize {
+    pub fn at(&self, rva: impl Into<usize>) -> usize {
+        let rva = rva.into();
         assert!(crate::points::checks(rva), "the framework used {rva:#x}, which no dependency point checks");
         self.base + rva
     }

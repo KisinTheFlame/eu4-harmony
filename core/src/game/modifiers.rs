@@ -2,13 +2,17 @@
 //! its getters of one modifier take, and its yes-or-no modifiers. Every
 //! group that asks a country's modifiers asks them here.
 use super::GResult;
-use crate::{memory::Memory, objects::campaign::country, points::Point};
+use crate::{
+    memory::Memory,
+    objects::campaign::country,
+    points::{GameFunction, Point},
+};
 
 /// `(country + MODIFIERS)`: the country's modifiers, brought up to date;
 /// their values are at its answer's [`VALUES`].
-const OF_COUNTRY: usize = 0x93d750;
+const OF_COUNTRY: GameFunction<1> = GameFunction::at(0x93d750);
 /// `(values, modifier) -> bool`: whether a yes-or-no modifier is set.
-const HAS: usize = 0x8e7b60;
+const HAS: GameFunction<2> = GameFunction::at(0x8e7b60);
 /// Where the getter's answer holds the values the game's getters of one
 /// modifier read.
 pub const VALUES: usize = 8;
@@ -23,7 +27,7 @@ pub fn points() -> Vec<Point> {
 /// The values of the modifiers of the country at `country`, as the game's
 /// getters of one modifier take them.
 pub fn values(m: &Memory, country: usize) -> GResult<usize> {
-    match m.call(m.at(OF_COUNTRY), &[country + country::MODIFIERS])? {
+    match OF_COUNTRY.call(m, [country + country::MODIFIERS])? {
         0 => Err("no modifier values".to_string().into()),
         modifiers => Ok(modifiers + VALUES),
     }
@@ -33,5 +37,5 @@ pub fn values(m: &Memory, country: usize) -> GResult<usize> {
 /// country at `country`.
 pub fn has(m: &Memory, country: usize, modifier: usize) -> GResult<bool> {
     let values = values(m, country)?;
-    Ok(m.call(m.at(HAS), &[values, modifier])? & 0xff != 0)
+    Ok(HAS.call(m, [values, modifier])? & 0xff != 0)
 }

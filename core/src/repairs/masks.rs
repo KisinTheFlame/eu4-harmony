@@ -3,7 +3,11 @@
 //! to, and IDs pass from texture to texture as they load again. The buffer
 //! is let go before a texture smaller than it is written to it.
 use super::LettingGo;
-use crate::{hooks::Call, objects::gui::transparency_mask, points::Point};
+use crate::{
+    hooks::Call,
+    objects::gui::transparency_mask,
+    points::{GameFunction, Point},
+};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// `(bits, count)`: a `std::vector<bool>`'s resize; and where the texture
@@ -12,7 +16,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// frees its buffer and leaves it empty.
 const BIT_VECTOR_RESIZE: usize = 0x6e05c0;
 const MASK_RESIZED: usize = 0x16c302d;
-const WORDS_DESTRUCTOR: usize = 0x943e0;
+const WORDS_DESTRUCTOR: GameFunction<1> = GameFunction::at(0x943e0);
 
 /// The bytes of transparency masks let go since the last world reset.
 static MASK_BYTES: AtomicUsize = AtomicUsize::new(0);
@@ -44,7 +48,7 @@ fn mask_resizing(call: &mut Call) {
             return Ok(0);
         }
         let _letting_go = LettingGo::new("transparency mask");
-        m.call(m.at(WORDS_DESTRUCTOR), &[mask + transparency_mask::WORDS])?;
+        WORDS_DESTRUCTOR.call(&m, [mask + transparency_mask::WORDS])?;
         m.write(mask + transparency_mask::BITS, &0usize.to_le_bytes())?;
         crate::Result::Ok(capacity - begin)
     })();

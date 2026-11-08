@@ -9,6 +9,9 @@
 use super::{events, orders, with_state, world, Caller, GResult, Session, Tag, View};
 use crate::{memory::Memory, objects::campaign::unit};
 use eu4_harmony_checks::armies as checks;
+use eu4_harmony_remote::armies::args;
+use eu4_harmony_remote::ArmyId;
+use eu4_harmony_remote::ProvinceId;
 
 /// Who set the route an army is following, as the caller sees it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -150,7 +153,7 @@ pub fn can_attack(Session { m, ctx, .. }: Session, id: u64, target: u64, provinc
 
 /// Whether an own land army may attack an army the player sees, wherever
 /// that is.
-pub fn can_attack_seen(Session { m, ctx, .. }: Session, army: u64, target: u64) -> GResult<bool> {
+pub fn can_attack_seen(Session { m, ctx, .. }: Session, args::CanAttack { army: ArmyId(army), target: ArmyId(target) }: args::CanAttack) -> GResult<bool> {
     if !events::visibility_current(m, &ctx) {
         return Err(checks::visibility_not_current().into());
     }
@@ -170,7 +173,7 @@ pub fn can_attack_seen(Session { m, ctx, .. }: Session, army: u64, target: u64) 
 /// Whether an own land army may go from a province to a neighboring one
 /// now: the neighbor is open to it (military access and terrain; forts are
 /// not considered), and so is the strait between them, if any.
-pub fn can_step(session: Session, id: u64, from: u32, to: u32) -> GResult<bool> {
+pub fn can_step(session: Session, args::CanStep { army: ArmyId(id), from: ProvinceId(from), to: ProvinceId(to) }: args::CanStep) -> GResult<bool> {
     Ok(can_enter(session, id, to)? && strait_open(session, id, from, to)?)
 }
 
@@ -178,7 +181,7 @@ pub fn can_step(session: Session, id: u64, from: u32, to: u32) -> GResult<bool> 
 /// `goal` is where the army is. [`Status::NotFound`] when there is none.
 /// Asked by an extension, [`Status::NotReady`] while the game is paused, as
 /// the orders below; remote control asks as the player, paused or not.
-pub fn find_route(Session { m, ctx, caller, .. }: Session, id: u64, goal: u32) -> GResult<Vec<u32>> {
+pub fn find_route(Session { m, ctx, caller, .. }: Session, args::RouteTo { army: ArmyId(id), province: ProvinceId(goal) }: args::RouteTo) -> GResult<Vec<u32>> {
     let army = world::own_unit(m, &ctx, id)?;
     with_state(|s| s.orders.find_route(m, &ctx, &mut s.geography, army, goal, caller))
 }
@@ -202,7 +205,7 @@ pub fn move_to(session: Session, id: u64, goal: u32, transports: bool) -> GResul
 }
 
 /// Stops an own land army where it is.
-pub fn stop(session: Session, id: u64) -> GResult<()> {
+pub fn stop(session: Session, args::Stop { army: ArmyId(id) }: args::Stop) -> GResult<()> {
     let Session { m, ctx, .. } = session;
     let army = world::own_land_army(m, &ctx, id)?;
     let ordered = with_state(|s| s.orders.stop_army(&session, army, id))?;

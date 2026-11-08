@@ -13,7 +13,7 @@ use crate::{
     game_string,
     memory::Memory,
     objects::campaign::{country as country_fields, functions, tag},
-    points::Point,
+    points::{GameFunction, Point},
     unicode::game_text,
 };
 use eu4_harmony_remote::{choices::Choice, subjects::SubjectInteraction as Listed};
@@ -85,11 +85,11 @@ const ONGOING: usize = 0x38;
 /// The `subject` command's check of an interaction, (command, reasons): the
 /// subject is the overlord's, its type allows the interaction, the command
 /// stops it only while it goes on, then the interaction's own conditions.
-const CHECK: usize = 0xaf3e70;
+const CHECK: GameFunction<2> = GameFunction::at(0xaf3e70);
 /// Whether a subject type allows an interaction, (the type's interactions,
 /// interaction); a subject's type is the game's own getter's
 /// ([`functions::SUBJECT_TYPE`]).
-const TYPE_ALLOWS: usize = 0xb22910;
+const TYPE_ALLOWS: GameFunction<2> = GameFunction::at(0xb22910);
 /// A country's overlord's valid byte, the tag's last; the subject's
 /// interactions going on, a bit set of u32 words.
 const OVERLORD_VALID: usize = country_fields::OVERLORD + tag::VALID / 8;
@@ -282,8 +282,8 @@ fn offered(m: &Memory, ctx: &Ctx, subject: usize, object: usize) -> GResult<bool
     if m.call(m.vslot(object, FOR_OVERLORD)?, &[object, ctx.player.0 as usize])? as u8 == 0 {
         return Ok(false);
     }
-    let kind = m.call(m.at(functions::SUBJECT_TYPE), &[subject])?;
-    Ok(kind != 0 && m.call(m.at(TYPE_ALLOWS), &[kind, object])? as u8 != 0)
+    let kind = functions::SUBJECT_TYPE.call(m, [subject])?;
+    Ok(kind != 0 && TYPE_ALLOWS.call(m, [kind, object])? as u8 != 0)
 }
 
 /// Whether the interaction goes on with the subject, as the check reads it.
@@ -309,10 +309,10 @@ fn command(ctx: &Ctx, subject: Tag, i: &Interaction, stop: bool, third_party: Op
 /// reasons when not, as the view's tooltip gives them.
 fn judge(text: &str) -> GResult<(bool, Vec<String>)> {
     let judged = commands::with_command(text, |m, command| {
-        if m.call(m.at(CHECK), &[command, 0])? as u8 != 0 {
+        if CHECK.call(m, [command, 0])? as u8 != 0 {
             return Ok((true, Vec::new()));
         }
-        let said = game_string::written(m, |s| m.call(m.at(CHECK), &[command, s]))?.1;
+        let said = game_string::written(m, |s| CHECK.call(m, [command, s]))?.1;
         Ok((false, super::diplomacy::reasons_said(&said)))
     });
     judged.map_err(|refused| action::refused(refused, USE))

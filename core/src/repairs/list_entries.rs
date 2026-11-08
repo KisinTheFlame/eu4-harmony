@@ -17,7 +17,11 @@ use super::{
     waiting::{self, Moment, Waiting},
     LettingGo,
 };
-use crate::{hooks::Call, memory::Memory, points::Point};
+use crate::{
+    hooks::Call,
+    memory::Memory,
+    points::{GameFunction, Point},
+};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// `(list)`: a list's kill, the method its window's kill calls on it.
@@ -35,7 +39,7 @@ const CONNECTION_ITEM: usize = 0;
 const CONNECTION_NEXT: usize = 0x10;
 /// `(holder)`: a window holder's destructor, which every entry's runs, and
 /// the holder's window, which the list's kill killed and forgot.
-const HOLDER_DESTRUCTOR: usize = 0x152e030;
+const HOLDER_DESTRUCTOR: GameFunction<1> = GameFunction::at(0x152e030);
 const HOLDER_WINDOW: usize = 0x40;
 
 /// The classes of the entries left, each with its deleting destructor: the
@@ -126,7 +130,7 @@ fn world_clearing(m: &Memory) {
                     for text in *texts {
                         crate::game_string::destroy_checked(m, entry + text)?;
                     }
-                    m.call(m.at(HOLDER_DESTRUCTOR), &[entry])?;
+                    HOLDER_DESTRUCTOR.call(m, [entry])?;
                     crate::game_heap::delete(m, entry, *size)?;
                 }
                 None => waiting::delete_by_its_class(m, entry, "list entry")?,

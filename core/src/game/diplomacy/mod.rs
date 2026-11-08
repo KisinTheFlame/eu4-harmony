@@ -23,7 +23,7 @@ use crate::{
         diplomacy::{action, casus_belli, classes, command, factor, globals, send_window, side, sides, war_entry, war_goal, war_goal_type, war_goals, world},
         gui,
     },
-    points::Point,
+    points::{GameFunction, Point},
     unicode::game_text,
 };
 use eu4_harmony_remote::choices;
@@ -38,20 +38,20 @@ pub use panel::{act, options, Details, Offered, What};
 
 /// The constructor of a declaration of war: (action, from, to, flag, date,
 /// war goal), the war goal copied; the flag 0 as the diplomacy panel's.
-const DECLARE_WAR_NEW: usize = 0x500480;
+const DECLARE_WAR_NEW: GameFunction<6> = GameFunction::at(0x500480);
 /// The war goals the game offers a country against another: (from, to,
 /// list, filter), into a [`classes::WAR_GOALS`] list; the filter an empty
 /// `std::function`.
-const WAR_GOAL_LIST: usize = 0xd9eb40;
+const WAR_GOAL_LIST: GameFunction<4> = GameFunction::at(0xd9eb40);
 /// The list's destructor, its vtable's first method: (list, flags), which
 /// destroys the war goals.
-const WAR_GOAL_LIST_DESTROY: usize = 0x114b80;
+const WAR_GOAL_LIST_DESTROY: GameFunction<2> = GameFunction::at(0x114b80);
 /// Carrying out a diplomatic action's command, its vtable's
 /// [`command::CARRY_OUT`]: (command).
 const CARRY_OUT: usize = 0x4e7c50;
 /// The command's destructor, its vtable's [`command::DESTROY`]: (command,
 /// flags), flag 1 freeing it.
-const COMMAND_DESTROY: usize = 0x4e7470;
+const COMMAND_DESTROY: GameFunction<2> = GameFunction::at(0x4e7470);
 const FREE: usize = 1;
 /// The keys of the descriptions the checks append after their reasons.
 const ALLIANCE_DESCRIPTION: usize = 0x1c83dc0;
@@ -68,24 +68,24 @@ const RECORDED_AS_ALLIANCE: [u32; 4] = [ALLIANCE_KIND, 0x3b85, 0x331d, 0x3320];
 /// Whether the AI would accept an action, its base's method at `+0xb8`:
 /// (action, factors), filling the `std::vector` of [`factor`]s given; and
 /// that vector's destructor, (vector).
-const ACCEPTS: usize = 0x4ea1e0;
-const FACTORS_FREE: usize = 0x4183f0;
+const ACCEPTS: GameFunction<2> = GameFunction::at(0x4ea1e0);
+const FACTORS_FREE: GameFunction<1> = GameFunction::at(0x4183f0);
 /// The most factors the game is believed to give.
 const MOST_FACTORS: usize = 1_000;
 
 /// What the declare war window gathers about a declaration of war: (action,
 /// out [`sides`], 1 as the window passes it).
-const GATHER: usize = 0x503e70;
+const GATHER: GameFunction<3> = GameFunction::at(0x503e70);
 /// Frees a `std::vector` of [`side`] items: (vector).
-const SIDES_FREE: usize = 0x124150;
+const SIDES_FREE: GameFunction<1> = GameFunction::at(0x124150);
 /// The declare war window's check whether the player may call the country
 /// of one of its entries ([`war_entry`]): (entry, action, whether the
 /// country is not among those promised land, reasons), the reasons a
 /// `std::string` or null. Its call box asks it before it calls an ally.
-const MAY_CALL: usize = 0xee03f0;
+const MAY_CALL: GameFunction<4> = GameFunction::at(0xee03f0);
 /// A full `std::vector` of tags growing to take one more, as the call box
 /// grows the allies called: (vector, where, the tag's address).
-const TAGS_GROW: usize = 0xdfde0;
+const TAGS_GROW: GameFunction<3> = GameFunction::at(0xdfde0);
 /// The key of the check's reason when the ally is on the other side too.
 const ALLIED_TO_ENEMY: usize = 0x1d1f5e0;
 
@@ -233,7 +233,7 @@ pub fn declare_war(Session { m, ctx, commands, .. }: Session, enemy: Tag, choice
         return Err(checks::no_such_war_goal(choice.casus_belli.as_deref().unwrap_or(NO_CASUS_BELLI), letters(enemy)));
     };
     let mut made = Made::new(m, action::DECLARE_WAR_SIZE);
-    m.call(m.at(DECLARE_WAR_NEW), &[made.at(), ctx.player.0 as usize, enemy.0 as usize, 0, ctx.date as u32 as usize, goal])?;
+    DECLARE_WAR_NEW.call(m, [made.at(), ctx.player.0 as usize, enemy.0 as usize, 0, ctx.date as u32 as usize, goal])?;
     made.built = true;
     verdict(m, made.at())?;
     let (called, passed_over) = call_allies(&mut Window::new(m, &ctx, made.at()), ctx.player, enemy, calls)?;
@@ -301,14 +301,14 @@ pub fn remove_rival(session: Session, rival: Tag) -> GResult<()> {
 /// Whether a country may rival another, and drop it as a rival: (country,
 /// other's tag, reasons), the reasons appended to a `std::string` or null; the
 /// rivals list asks them, and so do the commands' checks.
-const CAN_RIVAL: usize = 0x3d2760;
-const CAN_DROP_RIVAL: usize = 0x3d2970;
+const CAN_RIVAL: GameFunction<3> = GameFunction::at(0x3d2760);
+const CAN_DROP_RIVAL: GameFunction<3> = GameFunction::at(0x3d2970);
 
-fn rival_command(Session { m, ctx, commands, .. }: Session, kind: &str, check: usize, rival: Tag, doing: &str) -> GResult<()> {
+fn rival_command(Session { m, ctx, commands, .. }: Session, kind: &str, check: GameFunction<3>, rival: Tag, doing: &str) -> GResult<()> {
     other(m, &ctx, rival)?;
     let args = |reasons: usize| [ctx.country, rival.0 as usize, reasons];
-    if m.call(m.at(check), &args(0))? as u8 == 0 {
-        let said = game_string::written(m, |s| m.call(m.at(check), &args(s)))?.1;
+    if check.call(m, args(0))? as u8 == 0 {
+        let said = game_string::written(m, |s| check.call(m, args(s)))?.1;
         return Err(super::action::not_allowed(doing, &reasons_said(&said)));
     }
     super::action::post(commands, &format!("{kind}={{ country=\"{}\" rival=\"{}\" }}", letters(ctx.player), letters(rival)), doing)
@@ -334,7 +334,7 @@ pub fn call_to_arms(session: Session, ally: Tag) -> GResult<Ticket> {
 pub(super) fn acceptance(m: &Memory, at: usize) -> GResult<choices::Acceptance> {
     let mut factors = [0usize; 3];
     let factors_at = factors.as_mut_ptr() as usize;
-    let accepts = m.call(m.at(ACCEPTS), &[at, factors_at]);
+    let accepts = ACCEPTS.call(m, [at, factors_at]);
     let factors = unsafe { std::ptr::read_volatile(&factors) };
     let read = accepts.map_err(super::Fail::from).and_then(|accepts| {
         let size = factors[1].wrapping_sub(factors[0]);
@@ -343,12 +343,12 @@ pub(super) fn acceptance(m: &Memory, at: usize) -> GResult<choices::Acceptance> 
         }
         let mut read = Vec::new();
         for item in (factors[0]..factors[1]).step_by(factor::SIZE) {
-            let text = game_text::plain(&game_string::read(m, item + factor::TEXT)?).trim().to_string();
+            let text = game_string::shown(m, item + factor::TEXT)?.trim().to_string();
             read.push(choices::Factor { text, value: m.i32(item + factor::VALUE)? as f64 });
         }
         Ok((accepts as u8 != 0, read))
     });
-    m.call(m.at(FACTORS_FREE), &[factors_at])?;
+    FACTORS_FREE.call(m, [factors_at])?;
     let (accepts, factors) = read?;
     Ok(choices::Acceptance { accepts, total: factors.iter().map(|f| f.value).sum(), factors })
 }
@@ -477,7 +477,7 @@ pub(super) fn send(commands: Commands, m: &Memory, ctx: &Ctx, at: usize, to: Tag
     // The command is made only to be written; the layer posts the one it
     // reads from the text.
     let text = super::commands::text(m, command);
-    m.call(m.at(COMMAND_DESTROY), &[command, FREE])?;
+    COMMAND_DESTROY.call(m, [command, FREE])?;
     let after = ledger(|l| l.carried_count);
     super::action::post(commands, &text?, "send the diplomatic action")?;
     // As the window, so that the panel lets no second one go the same day.
@@ -776,7 +776,7 @@ fn push_tag(m: &Memory, vector: usize, tag: Tag) -> GResult<()> {
         m.write(vector + 8, &(end as u64 + 8).to_le_bytes())?;
     } else {
         let value = tag.0;
-        m.call(m.at(TAGS_GROW), &[vector, end, &value as *const u64 as usize])?;
+        TAGS_GROW.call(m, [vector, end, &value as *const u64 as usize])?;
     }
     Ok(())
 }
@@ -805,7 +805,7 @@ struct Sides<'a> {
 impl<'a> Sides<'a> {
     fn gather(m: &'a Memory, action: usize) -> GResult<Self> {
         let mut sides = Self { m, raw: [0; sides::SIZE / 8] };
-        m.call(m.at(GATHER), &[action, sides.raw.as_mut_ptr() as usize, 1])?;
+        GATHER.call(m, [action, sides.raw.as_mut_ptr() as usize, 1])?;
         Ok(sides)
     }
 
@@ -826,7 +826,7 @@ impl Drop for Sides<'_> {
     fn drop(&mut self) {
         for which in [sides::DECLARER, sides::OTHER] {
             let at = self.raw.as_ptr() as usize + which;
-            if let Err(e) = self.m.call(self.m.at(SIDES_FREE), &[at]) {
+            if let Err(e) = SIDES_FREE.call(self.m, [at]) {
                 log!("diplomacy: freeing the countries gathered: {e}");
             }
         }
@@ -893,7 +893,7 @@ impl<'a> Asking<'a> {
         entry[war_entry::ALLY] = ally as u8;
         entry[war_entry::PROMISE_BOX] = 1;
         let not_promised_land = 1;
-        Ok(self.m.call(self.m.at(MAY_CALL), &[entry.as_ptr() as usize, self.action, not_promised_land, reasons])? as u8 != 0)
+        Ok(MAY_CALL.call(self.m, [entry.as_ptr() as usize, self.action, not_promised_land, reasons])? as u8 != 0)
     }
 }
 
@@ -916,7 +916,7 @@ impl<'a> WarGoalsOffered<'a> {
         let mut offered = Self { m, list, goals: Vec::new() };
         // An empty `std::function`: no filter.
         let filter = [0u64; 8];
-        m.call(m.at(WAR_GOAL_LIST), &[ctx.player.0 as usize, enemy.0 as usize, offered.at(), filter.as_ptr() as usize])?;
+        WAR_GOAL_LIST.call(m, [ctx.player.0 as usize, enemy.0 as usize, offered.at(), filter.as_ptr() as usize])?;
         let count = m.i32(offered.at() + war_goals::COUNT)?;
         if !(0..=MOST_WAR_GOALS as i32).contains(&count) {
             return Err("war goal list bound".to_string().into());
@@ -950,7 +950,7 @@ impl<'a> WarGoalsOffered<'a> {
 
 impl Drop for WarGoalsOffered<'_> {
     fn drop(&mut self) {
-        if let Err(e) = self.m.call(self.m.at(WAR_GOAL_LIST_DESTROY), &[self.at(), 0]) {
+        if let Err(e) = WAR_GOAL_LIST_DESTROY.call(self.m, [self.at(), 0]) {
             log!("diplomacy: freeing the war goals: {e}");
         }
     }
@@ -962,7 +962,7 @@ fn read_goal(m: &Memory, goal: usize) -> GResult<(WarGoal, bool)> {
         if object == 0 {
             return Ok(None);
         }
-        Ok(Some(game_text::to_utf8(&game_string::read(m, object + at)?)))
+        Ok(Some(game_string::key(m, object + at)?))
     };
     let cb = m.ptr(goal + war_goal::CASUS_BELLI)?;
     let province = m.i32(goal + war_goal::PROVINCE)?;
@@ -1109,7 +1109,7 @@ pub fn points() -> Vec<Point> {
     let mut points = vec![
         Point::observe(CARRY_OUT, "48 89 5c 24 18 48 89 6c 24 20 56 57 41 56 48 83", "diplomatic action carried out", 1, Some(carry_out_before), None),
         method(ACTION_COMMAND, command::CARRY_OUT, CARRY_OUT, "diplomatic action command execution"),
-        method(ACTION_COMMAND, command::DESTROY, COMMAND_DESTROY, "diplomatic action command destructor"),
+        method(ACTION_COMMAND, command::DESTROY, COMMAND_DESTROY.rva(), "diplomatic action command destructor"),
         Point::keep(
             COMMAND_DESTROY,
             "48 89 5c 24 08 57 48 83 ec 20 8b fa 48 8b d9 48 8d 05 2a a0 79 01 48 89 01 48 8b 49 50",
@@ -1166,13 +1166,13 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x506670usize, "48 89 5c 24 08 57 48 83 ec 20 48 8b f9 8b da 48 83 c1 58 e8", "call to arms destructor"),
         // Whether the AI accepts an action, with its factors, which every
         // kind inherits, and the factors' destructor.
-        method(PEACE, action::ACCEPTS, ACCEPTS, "peace offer acceptance"),
-        method(CALL, action::ACCEPTS, ACCEPTS, "call to arms acceptance"),
+        method(PEACE, action::ACCEPTS, ACCEPTS.rva(), "peace offer acceptance"),
+        method(CALL, action::ACCEPTS, ACCEPTS.rva(), "call to arms acceptance"),
         Point::keep(ACCEPTS, "48 89 5c 24 08 48 89 74 24 18 57 48 83 ec 20 48 85 d2 48 8b da 48 8b f9", "diplomatic action acceptance"),
         Point::keep(FACTORS_FREE, "48 89 5c 24 10 57 48 83 ec 20 48 8b 19 48 8b f9 48 85 db 74 7f 48 89 74", "factors freed"),
         // The war goals and their list.
         Point::keep(WAR_GOAL_LIST, "48 89 5c 24 10 4c 89 4c 24 20 55 56 57 41 54 41 55 41 56 41 57 48 83 ec 50", "war goals offered"),
-        method(WAR_GOALS, 0, WAR_GOAL_LIST_DESTROY, "war goal list destructor"),
+        method(WAR_GOALS, 0, WAR_GOAL_LIST_DESTROY.rva(), "war goal list destructor"),
         Point::keep(WAR_GOAL_LIST_DESTROY, "48 89 5c 24 08 57 48 83 ec 20 8b da 48 8b f9 e8 bc 14 00 00", "war goal list destructor"),
     ];
     points.extend([

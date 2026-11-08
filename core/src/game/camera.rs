@@ -14,22 +14,23 @@ use crate::{
         camera::{self as layout, camera as fields, grid},
         campaign::globals,
     },
-    points::Point,
+    points::{GameFunction, Point},
 };
+use eu4_harmony_remote::{camera::args, ProvinceId};
 
 /// The map manager looking at a province (rcx the map manager, rdx the
 /// province), at its map data's position, keeping the camera's height.
-const LOOK_AT_PROVINCE: usize = 0x80fe20;
+const LOOK_AT_PROVINCE: GameFunction<2> = GameFunction::at(0x80fe20);
 /// The map manager looking at a map position (rcx the map manager, edx x,
 /// r8d y), keeping the camera's height; where the map wraps, it takes the
 /// copy of the position nearest the camera.
-const LOOK_AT_POSITION: usize = 0x80fd70;
+const LOOK_AT_POSITION: GameFunction<3> = GameFunction::at(0x80fd70);
 /// The camera's goal set to look at a point from its height (rcx the camera,
 /// rdx three f32: x, the height, z), kept on the map; nothing while the
 /// camera is locked.
-const LOOK_FROM: usize = 0x109d140;
+const LOOK_FROM: GameFunction<2> = GameFunction::at(0x109d140);
 /// The camera put at its goal at once (rcx the camera).
-const SETTLE: usize = 0x109cd80;
+const SETTLE: GameFunction<1> = GameFunction::at(0x109cd80);
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -64,33 +65,37 @@ pub fn camera(WorldSession { m, world: ctx, .. }: WorldSession) -> GResult<Camer
     read(m, find(m, &ctx)?.1)
 }
 
-/// Turns the camera to a province, where the game looks at it from, keeping
-/// the height.
-pub fn look_at_province(WorldSession { m, world: ctx, .. }: WorldSession, province: u32) -> GResult<Camera> {
-    if province == 0 {
-        return Err(eu4_harmony_checks::provinces::not_found(0).into());
-    }
-    let (manager, camera) = movable(m, &ctx)?;
-    let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
-    m.call(m.at(LOOK_AT_PROVINCE), &[manager, address])?;
-    settle(m, camera)
-}
-
-/// Turns the camera to a map position, keeping the height.
-pub fn look_at(WorldSession { m, world: ctx, .. }: WorldSession, x: u32, y: u32) -> GResult<Camera> {
-    checks::position(x, y, map_size(m)?)?;
-    let (manager, camera) = movable(m, &ctx)?;
-    m.call(m.at(LOOK_AT_POSITION), &[manager, x as usize, y as usize])?;
+/// Turns the camera to a province, where the game looks at it from, or to a
+/// map position, keeping the height.
+pub fn look_at(WorldSession { m, world: ctx, .. }: WorldSession, args::LookAt { province, x, y }: args::LookAt) -> GResult<Camera> {
+    let camera = match (province, x, y) {
+        (Some(ProvinceId(province)), None, None) => {
+            if province == 0 {
+                return Err(eu4_harmony_checks::provinces::not_found(0).into());
+            }
+            let (manager, camera) = movable(m, &ctx)?;
+            let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
+            LOOK_AT_PROVINCE.call(m, [manager, address])?;
+            camera
+        }
+        (None, Some(x), Some(y)) => {
+            checks::position(x, y, map_size(m)?)?;
+            let (manager, camera) = movable(m, &ctx)?;
+            LOOK_AT_POSITION.call(m, [manager, x as usize, y as usize])?;
+            camera
+        }
+        _ => return super::fail(super::Status::InvalidArgument, "look_at takes a province, or x and y"),
+    };
     settle(m, camera)
 }
 
 /// Raises or lowers the camera to a height, looking at the same position.
-pub fn zoom(WorldSession { m, world: ctx, .. }: WorldSession, height: u32) -> GResult<Camera> {
+pub fn zoom(WorldSession { m, world: ctx, .. }: WorldSession, args::Zoom { height }: args::Zoom) -> GResult<Camera> {
     checks::height(height, limits(m, find(m, &ctx)?.1)?)?;
     let (_, camera) = movable(m, &ctx)?;
     let [x, _, z] = point(m, camera + fields::GOAL_LOOK_AT)?;
     let goal = [x, height as f32, z];
-    m.call(m.at(LOOK_FROM), &[camera, goal.as_ptr() as usize])?;
+    LOOK_FROM.call(m, [camera, goal.as_ptr() as usize])?;
     settle(m, camera)
 }
 
@@ -115,7 +120,7 @@ fn movable(m: &Memory, ctx: &World) -> GResult<(usize, usize)> {
 
 /// Puts the camera at its goal at once, and reads it there.
 fn settle(m: &Memory, camera: usize) -> GResult<Camera> {
-    m.call(m.at(SETTLE), &[camera])?;
+    SETTLE.call(m, [camera])?;
     read(m, camera)
 }
 

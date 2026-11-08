@@ -14,7 +14,12 @@ pub mod sum;
 pub mod update_thread;
 
 use crate::called_by_game;
-use crate::{hooks::Call, memory::Memory, points::Point, Result};
+use crate::{
+    hooks::Call,
+    memory::Memory,
+    points::{GameFunction, Point},
+    Result,
+};
 use eu4_harmony_remote::binary as base64;
 use serde_json::Value;
 use std::{
@@ -33,12 +38,12 @@ const NO_AI: usize = 0x751c98;
 /// The game's writer: one token as given; `{` and `}`, each with a line
 /// break; a quoted string, with a line break; a line break; a line's indent.
 /// Line breaks and indents are written in text saves only.
-const WRITE_TOKEN: usize = 0x1708870;
-const WRITE_OPEN: usize = 0x1708750;
-const WRITE_CLOSE: usize = 0x17087e0;
-const WRITE_QUOTED: usize = 0x1707d90;
-const WRITE_LINE_BREAK: usize = 0x17084a0;
-const WRITE_INDENT: usize = 0x1708560;
+const WRITE_TOKEN: GameFunction<2> = GameFunction::at(0x1708870);
+const WRITE_OPEN: GameFunction<1> = GameFunction::at(0x1708750);
+const WRITE_CLOSE: GameFunction<1> = GameFunction::at(0x17087e0);
+const WRITE_QUOTED: GameFunction<4> = GameFunction::at(0x1707d90);
+const WRITE_LINE_BREAK: GameFunction<1> = GameFunction::at(0x17084a0);
+const WRITE_INDENT: GameFunction<1> = GameFunction::at(0x1708560);
 /// In the world's handler of top-level entries (`0x751cd0`), the branch for an
 /// entry it has no case for begins by calling the content registry, then asks
 /// it about the entry's key; the handler returns at `ENTRY_HANDLED`.
@@ -274,15 +279,15 @@ fn write_entry(m: Memory, writer: usize) -> Result<()> {
     let writes = entry(&data);
     for write in &writes {
         match write {
-            Write::Token(kind, text) => m.call(m.at(WRITE_TOKEN), &[writer, &GameToken::new(*kind, text) as *const _ as usize])?,
-            Write::Open => m.call(m.at(WRITE_OPEN), &[writer])?,
-            Write::Close => m.call(m.at(WRITE_CLOSE), &[writer])?,
+            Write::Token(kind, text) => WRITE_TOKEN.call(&m, [writer, &GameToken::new(*kind, text) as *const _ as usize])?,
+            Write::Open => WRITE_OPEN.call(&m, [writer])?,
+            Write::Close => WRITE_CLOSE.call(&m, [writer])?,
             Write::Quoted(text) => {
                 let text: Vec<u8> = text.bytes().chain([0]).collect();
-                m.call(m.at(WRITE_QUOTED), &[writer, text.as_ptr() as usize, 0, 0])?
+                WRITE_QUOTED.call(&m, [writer, text.as_ptr() as usize, 0, 0])?
             }
-            Write::LineBreak => m.call(m.at(WRITE_LINE_BREAK), &[writer])?,
-            Write::Indent => m.call(m.at(WRITE_INDENT), &[writer])?,
+            Write::LineBreak => WRITE_LINE_BREAK.call(&m, [writer])?,
+            Write::Indent => WRITE_INDENT.call(&m, [writer])?,
         };
     }
     let chunks = writes.iter().filter(|w| matches!(w, Write::Quoted(_))).count();

@@ -2,7 +2,12 @@
 //! favors, as the court view's focus buttons set it
 //! (docs/research/power-spending.md, "National focus").
 use super::{action, power, technology::key, GResult, Session};
-use crate::{game_string, memory::Memory, points::Point};
+use crate::{
+    game_string,
+    memory::Memory,
+    points::{GameFunction, Point},
+};
+use eu4_harmony_remote::focus::args;
 use eu4_harmony_remote::{
     choices::{Choice, PowerKind},
     focus::{Focus, FocusChoice},
@@ -13,7 +18,7 @@ const FOCUS: usize = 0x2868;
 const NONE: i32 = 3;
 /// Whether the country may change its focus now: `(country, text)`, the
 /// text, when not null, given the line saying when it may.
-const MAY_CHANGE: usize = 0x3db490;
+const MAY_CHANGE: GameFunction<2> = GameFunction::at(0x3db490);
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -37,7 +42,7 @@ fn focus_of(m: &Memory, country: usize) -> GResult<Option<PowerKind>> {
 /// Whether the focus may change now, and when not, the game's line saying
 /// when it may.
 fn may_change(m: &Memory, country: usize) -> GResult<(bool, Vec<String>)> {
-    let (may, text) = game_string::written(m, |out| m.call(m.at(MAY_CHANGE), &[country, out]))?;
+    let (may, text) = game_string::written(m, |out| MAY_CHANGE.call(m, [country, out]))?;
     Ok((may & 0xff != 0, if may & 0xff != 0 { Vec::new() } else { power::plain_lines(&text) }))
 }
 
@@ -68,7 +73,7 @@ fn written(country: [u8; 3], focus: i32) -> String {
 }
 
 /// Sets the focus on `kind`, as its button does.
-pub fn choose(Session { m, ctx, commands, .. }: Session, kind: PowerKind) -> GResult<()> {
+pub fn choose(Session { m, ctx, commands, .. }: Session, args::Choose { focus: kind }: args::Choose) -> GResult<()> {
     if focus_of(m, ctx.country)? == Some(kind) {
         return Err(checks::already(key(kind)));
     }

@@ -28,13 +28,13 @@ use crate::objects::gui::{
     editor::{CARET_MOVED, COLUMN, LINE, SELECT_LEFT, SELECT_RIGHT, TEXT},
     functions::{EDITOR_SELECT_LEFT, EDITOR_SELECT_RIGHT},
 };
-use crate::points::{Function, Point};
+use crate::points::{Function, GameFunction, Point};
 use crate::resume;
 use std::cell::RefCell;
 
-const LINE_COL_TO_INDEX: usize = 0x153aa90;
-const SET_CARET: usize = 0x1536f50;
-const ERASE_AT: usize = 0x153ab90;
+const LINE_COL_TO_INDEX: GameFunction<3> = GameFunction::at(0x153aa90);
+const SET_CARET: GameFunction<2> = GameFunction::at(0x1536f50);
+const ERASE_AT: GameFunction<2> = GameFunction::at(0x153ab90);
 const LEFT: usize = 0x15384d6;
 const LEFT_LINE_START: usize = 0x15384eb;
 const LEFT_MOVED: usize = 0x1538513;
@@ -161,13 +161,13 @@ unsafe fn caret(inner: usize) -> (usize, usize) {
 /// goes past the end of the text).
 fn index_of(inner: usize, line: usize, column: usize) -> crate::Result<usize> {
     let m = crate::hooked_memory();
-    m.call(m.at(LINE_COL_TO_INDEX), &[inner, line, column]).map(|i| i as u32 as usize)
+    LINE_COL_TO_INDEX.call(&m, [inner, line, column]).map(|i| i as u32 as usize)
 }
 
 fn erase(inner: usize, at: usize, count: usize) -> crate::Result<()> {
     let m = crate::hooked_memory();
     for _ in 0..count {
-        m.call(m.at(ERASE_AT), &[inner, at])?;
+        ERASE_AT.call(&m, [inner, at])?;
     }
     Ok(())
 }
@@ -236,7 +236,7 @@ fn snap_caret(call: &mut Call) {
         let start = game_text::floor_boundary(unsafe { text(inner) }, at);
         if start != at {
             let m = call.memory();
-            m.call(m.at(SET_CARET), &[inner, start])?;
+            SET_CARET.call(&m, [inner, start])?;
             // The editor's own "caret moved" method, as Up and Down end.
             m.call(m.vslot(inner, CARET_MOVED)?, &[inner])?;
         }

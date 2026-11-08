@@ -16,6 +16,7 @@
 //! no capability runs: there `time` pauses the game at a date remote control
 //! advances it to.
 use super::{context_any, fail, orders, world_context, world_context_any, GResult, InWorld, Status, Tag, World};
+use crate::containers;
 use crate::{
     hooks::Call,
     memory::Memory,
@@ -390,7 +391,7 @@ fn battle(m: &Memory, combat: usize, attacker_won: bool) -> Result<Option<Battle
     let province = m.ptr(combat + COMBAT_PROVINCE)?;
     let countries = |side: usize| -> Result<Vec<Tag>> {
         let (begin, end) = (m.ptr(side + SIDE_COUNTRIES)?, m.ptr(side + SIDE_COUNTRIES + 8)?);
-        let count = super::span(begin, end, COUNTRY_ENTRY, 64).map_err(|e| e.message)?;
+        let count = containers::span(begin, end, COUNTRY_ENTRY, 64)?;
         (0..count).map(|i| Ok(Tag(m.u64(begin + i * COUNTRY_ENTRY + ENTRY_TAG)?))).collect()
     };
     let (attacker, defender) = (m.ptr(combat + battle::SIDES[0])?, m.ptr(combat + battle::SIDES[1])?);

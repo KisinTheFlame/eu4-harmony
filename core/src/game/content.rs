@@ -4,15 +4,9 @@
 use super::GResult;
 use crate::{game_string, memory::Memory, unicode::game_text};
 
-/// The game's array type: its data at `+8`, its count (i32) at `+0x14`.
-pub const ARRAY_DATA: usize = 0x8;
-pub const ARRAY_COUNT: usize = 0x14;
-/// The most entries of a database or a list read.
-const MOST: usize = 100_000;
-
 /// The text of the `std::string` at `string`, a content key.
 pub fn key(m: &Memory, string: usize) -> GResult<String> {
-    Ok(game_text::to_utf8(&game_string::read(m, string)?))
+    Ok(game_string::key(m, string)?)
 }
 
 /// The game's text for the localisation key `key`, in the player language,
@@ -40,26 +34,6 @@ fn references(text: &[u8]) -> Vec<std::ffi::CString> {
         }
     }
     names
-}
-
-/// The pointers the game's array at `array` holds.
-pub fn pointers(m: &Memory, array: usize) -> GResult<Vec<usize>> {
-    let (data, count) = (m.ptr(array + ARRAY_DATA)?, m.i32(array + ARRAY_COUNT)?);
-    (0..bounded(count)?).map(|i| Ok(m.ptr(data + i * 8)?)).collect()
-}
-
-/// The pointers of the `std::vector` at `vector`.
-pub fn vector(m: &Memory, vector: usize) -> GResult<Vec<usize>> {
-    let (begin, end) = (m.ptr(vector)?, m.ptr(vector + 8)?);
-    (0..super::span(begin, end, 8, MOST)?).map(|i| Ok(m.ptr(begin + i * 8)?)).collect()
-}
-
-/// A count the game keeps, checked.
-pub fn bounded(count: i32) -> GResult<usize> {
-    match usize::try_from(count) {
-        Ok(n) if n <= MOST => Ok(n),
-        _ => Err(format!("a count of {count}").into()),
-    }
 }
 
 /// Has the game write its reasons for not allowing something into a text of

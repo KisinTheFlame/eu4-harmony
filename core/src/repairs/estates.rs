@@ -16,8 +16,7 @@
 use super::waiting::{Kind, Moment, Waiting};
 use crate::{
     memory::Memory,
-    objects::campaign::{countries as country_list, globals},
-    points::Point,
+    points::{GameFunction, Point},
 };
 use std::{
     collections::HashSet,
@@ -32,7 +31,7 @@ const ESTATE: usize = 0x1c56838;
 const MODIFIERS: [usize; 2] = [0x58, 0x70];
 /// An estate's modifier's class, and its deleting destructor.
 const MODIFIER: usize = 0x1cacf28;
-const MODIFIER_DELETE: usize = 0x7158b0;
+const MODIFIER_DELETE: GameFunction<2> = GameFunction::at(0x7158b0);
 
 /// What the repair lets go.
 const MODIFIERS_LEFT: Kind = Kind { what: "estate's modifier", class: MODIFIER, delete: MODIFIER_DELETE };
@@ -67,15 +66,9 @@ fn world_clearing(m: &Memory) {
 
 /// Every country's estates' modifiers, each once.
 fn modifiers(m: &Memory) -> crate::Result<Vec<usize>> {
-    let manager = m.ptr(m.at(globals::COUNTRY_MANAGER))?;
-    let list = m.ptr(manager + country_list::LIST)?;
     let mut found = Vec::new();
     let mut seen = HashSet::new();
-    for index in 0..m.i32(manager + country_list::COUNT)?.max(0) as usize {
-        let country = m.ptr(list + index * 8)?;
-        if country == 0 {
-            continue;
-        }
+    for country in crate::containers::countries(m)? {
         let (begin, end) = (m.ptr(country + ESTATES)?, m.ptr(country + ESTATES + 8)?);
         for estate in (begin..end).step_by(ESTATE_SIZE) {
             if m.ptr(estate)? != m.at(ESTATE) {

@@ -9,6 +9,7 @@
 //! the rule is kept here, once.
 use super::LettingGo;
 use crate::memory::Memory;
+use crate::points::GameFunction;
 use std::{
     collections::HashMap,
     sync::{
@@ -135,7 +136,7 @@ impl<K: Copy> Waiting<K> {
 pub(super) struct Kind {
     pub what: &'static str,
     pub class: usize,
-    pub delete: usize,
+    pub delete: GameFunction<2>,
 }
 
 impl Kind {
@@ -147,7 +148,7 @@ impl Kind {
             return Ok(false);
         }
         let _letting_go = LettingGo::new(self.what);
-        m.call(m.at(self.delete), &[object, 1])?;
+        self.delete.call(m, [object, 1])?;
         Ok(true)
     }
 }

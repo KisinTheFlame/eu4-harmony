@@ -16,7 +16,7 @@ use crate::{
         campaign::{country as country_fields, province as province_fields},
         diplomacy::{action, action_list, breakdown, classes},
     },
-    points::Point,
+    points::{GameFunction, Point},
     unicode::game_text,
 };
 use eu4_harmony_remote::choices::{Acceptance, Choice, Factor};
@@ -24,13 +24,13 @@ use eu4_harmony_remote::choices::{Acceptance, Choice, Factor};
 /// The panel's list maker: (the player's country, the other country's tag,
 /// the [`action_list`]), adding each action the panel shows, made for the
 /// player toward the other country.
-const PANEL_ACTIONS: usize = 0x35c230;
+const PANEL_ACTIONS: GameFunction<3> = GameFunction::at(0x35c230);
 /// The factors' list of the calling thread, which the panel's entries fill
 /// to show whether the other country would accept: (the key's address, out),
 /// answering the list; and emptying a list of factors, (list).
-const THREAD_BREAKDOWN: usize = 0xdf320;
+const THREAD_BREAKDOWN: GameFunction<2> = GameFunction::at(0xdf320);
 const BREAKDOWN_KEY: usize = 0x1fd1c38;
-const BREAKDOWN_CLEAR: usize = 0x5ae8a0;
+const BREAKDOWN_CLEAR: GameFunction<1> = GameFunction::at(0x5ae8a0);
 /// A call to arms, whose acceptance the panel asks with the byte at `+0x54`
 /// set.
 const CALL_TO_ARMS: u32 = 0x294d;
@@ -248,7 +248,7 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
                 return Err(invalid(format!("province {id} is not controlled by {}, and the window lists only those it controls", letters(recipient))));
             }
             let cores = m.ptr(address + province_fields::CORES)?;
-            let count = crate::game::span(cores, m.ptr(address + province_fields::CORES + 8)?, 8, MOST_CORES)?;
+            let count = crate::containers::span(cores, m.ptr(address + province_fields::CORES + 8)?, 8, MOST_CORES)?;
             let mut held = false;
             for i in 0..count {
                 held |= Tag(m.u64(cores + i * 8)?) == ctx.player;
@@ -380,11 +380,11 @@ fn acceptance(m: &Memory, at: usize, token: u32) -> GResult<Option<Acceptance>> 
         return Ok(None);
     }
     let mut out = [0u64; 4];
-    let factors = m.call(m.at(THREAD_BREAKDOWN), &[m.at(BREAKDOWN_KEY), out.as_mut_ptr() as usize])?;
+    let factors = THREAD_BREAKDOWN.call(m, [m.at(BREAKDOWN_KEY), out.as_mut_ptr() as usize])?;
     if factors == 0 {
         return Err("the thread has no list of factors".to_string().into());
     }
-    let clear = || m.call(m.at(BREAKDOWN_CLEAR), &[factors]);
+    let clear = || BREAKDOWN_CLEAR.call(m, [factors]);
     clear()?;
     if token == CALL_TO_ARMS {
         m.write(at + CALL_TO_ARMS_ASKING, &[1])?;
@@ -401,11 +401,11 @@ fn acceptance(m: &Memory, at: usize, token: u32) -> GResult<Option<Acceptance>> 
 
 fn read_factors(m: &Memory, factors: usize) -> GResult<Vec<Factor>> {
     let (begin, end) = (m.ptr(factors)?, m.ptr(factors + 8)?);
-    let count = crate::game::span(begin, end, breakdown::SIZE, MOST_FACTORS)?;
+    let count = crate::containers::span(begin, end, breakdown::SIZE, MOST_FACTORS)?;
     (0..count)
         .map(|i| {
             let item = begin + i * breakdown::SIZE;
-            let text = game_text::plain(&game_string::read(m, item + breakdown::TEXT)?).trim().to_string();
+            let text = game_string::shown(m, item + breakdown::TEXT)?.trim().to_string();
             Ok(Factor { text, value: m.i32(item + breakdown::VALUE)? as f64 })
         })
         .collect()
@@ -427,7 +427,7 @@ impl<'a> Panel<'a> {
         list[action_list::ITEMS / 8] = (at + action_list::INLINE) as u64;
         list[action_list::CAPACITY / 8] = ROOM as u64;
         let mut panel = Self { m, list, actions: Vec::new() };
-        m.call(m.at(PANEL_ACTIONS), &[ctx.country, country.0 as usize, at])?;
+        PANEL_ACTIONS.call(m, [ctx.country, country.0 as usize, at])?;
         let (items, count) = panel.items()?;
         for i in 0..count {
             let action = m.ptr(items + i * 8)?;
@@ -581,7 +581,7 @@ mod tests {
         fn offering(acts: &[Act]) -> Self {
             let image = Image::new();
             let m = image.memory();
-            image.function(PANEL_ACTIONS, list_maker as *const ()).function(game_string::DESTROY_AT, destroy_string as *const ());
+            image.function(PANEL_ACTIONS.rva(), list_maker as *const ()).function(game_string::DESTROY_AT.rva(), destroy_string as *const ());
             image.i32(TRUST_STEP_FAVORS, 10).i32(TRUST_STEP_TRUST, 5);
             let player = Object::country(tur(), country_fields::TREASURY + 4).i32(country_fields::TREASURY, 500_000);
             let record = tur().index() as usize * country_fields::RELATION_SIZE;

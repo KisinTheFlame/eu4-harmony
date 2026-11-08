@@ -17,7 +17,7 @@
 //! numbers in from there while the file is as it was, and the game reads only
 //! what is new or changed.
 use crate::called_by_game;
-use crate::points::Point;
+use crate::points::{GameFunction, Point};
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
 use std::path::{Path, PathBuf};
@@ -29,7 +29,7 @@ use std::time::UNIX_EPOCH;
 /// decoder let go when there is one.
 const READ_WHOLE: usize = 0x16a4c62;
 const READ_WHOLE_NEXT: usize = 0x16a4c6d;
-const READ: usize = 0x16a9a40;
+const READ: GameFunction<2> = GameFunction::at(0x16a9a40);
 /// The sound's name, which the game opens the file by, and what it keeps.
 const SOUND_NAME: usize = 0x40;
 const SOUND_SAMPLES: usize = 0xc8;
@@ -108,7 +108,7 @@ static KEPT_MUSIC: Mutex<Option<HashMap<(String, String), Kept>>> = Mutex::new(N
 #[called_by_game]
 extern "C" fn read_whole(sound: usize) -> usize {
     let m = crate::hooked_memory();
-    let read = || m.call(m.at(READ), &[sound, 1]).unwrap_or(0);
+    let read = || READ.call(&m, [sound, 1]).unwrap_or(0);
     crate::guarded("music", || {
         let name = unsafe { CStr::from_ptr((sound + SOUND_NAME) as *const c_char) };
         if super::game_loads() {

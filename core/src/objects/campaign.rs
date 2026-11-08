@@ -65,7 +65,7 @@ pub mod classes {
 pub mod functions {
     /// The subject type a country is to its overlord: `(country)`, null for
     /// none.
-    pub const SUBJECT_TYPE: usize = 0x3d79f0;
+    pub const SUBJECT_TYPE: crate::points::GameFunction<1> = crate::points::GameFunction::at(0x3d79f0);
     /// `()`: answers yes; answers no. Many classes' methods are one of them.
     pub const YES: usize = 0x8f440;
     pub const NO: usize = 0x8f450;
@@ -691,10 +691,14 @@ pub mod map_manager {
     /// Each has its deleting destructor in its vtable's first slot.
     pub const SESSION_WINDOWS: [usize; 19] =
         [0x12e0, 0x558, 0x1450, 0x11b8, 0x11b0, 0x1b80, 0x5ba0, 0x1280, 0x1288, 0x1290, 0x1270, 0x1278, 0x12c0, 0x12a8, 0x12b0, 0x1228, 0x1230, 0x1408, 0x1458];
+    /// Lets its outliner go: `(outliner)`.
+    pub const LET_OUTLINER_GO: crate::points::GameFunction<1> = crate::points::GameFunction::at(0x81dc30);
+    /// Lets its map modes' panel go: `(panel)`.
+    pub const LET_MAP_MODES_GO: crate::points::GameFunction<1> = crate::points::GameFunction::at(0x81de20);
     /// Two more, which the game lets go with a function of their own (the
     /// rebuild calls it before it makes them again): the field and the
-    /// function's RVA.
-    pub const SESSION_OBJECTS: [(usize, usize); 2] = [(0x1418, 0x81dc30), (0x2448, 0x81de20)];
+    /// function.
+    pub const SESSION_OBJECTS: [(usize, crate::points::GameFunction<1>); 2] = [(0x1418, LET_OUTLINER_GO), (0x2448, LET_MAP_MODES_GO)];
     /// The size of [`MESSAGE_ICON_HOLDER`], which its function `0xdffca0`
     /// empties of its icons without freeing it.
     pub const MESSAGE_ICON_HOLDER_SIZE: usize = 0x7000;

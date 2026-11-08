@@ -5,17 +5,22 @@
 //! tooltip lists them, and a capability refusing one gives those lines as
 //! the game's reasons (docs/player-actions.md).
 use super::{GResult, Tag};
-use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
+use crate::{
+    game_string,
+    memory::Memory,
+    points::{GameFunction, Point},
+    unicode::game_text,
+};
 
 /// Makes a scope: `(scope, country tag by value, province, 0)`.
-const SCOPE: usize = 0x94590;
+const SCOPE: GameFunction<4> = GameFunction::at(0x94590);
 /// Frees what a scope owns, without freeing the scope.
-const SCOPE_DESTROY: usize = 0x947f0;
+const SCOPE_DESTROY: GameFunction<1> = GameFunction::at(0x947f0);
 /// A content trigger's verdict: `(trigger, scope) -> bool`, true when every
 /// condition holds.
-const EVALUATE: usize = 0xb98200;
+const EVALUATE: GameFunction<2> = GameFunction::at(0xb98200);
 /// A content trigger's lines: `(trigger, out, scope, negated, indent, mode)`.
-const LINES: usize = 0xb97cd0;
+const LINES: GameFunction<6> = GameFunction::at(0xb97cd0);
 /// The scope's size.
 const SCOPE_SIZE: usize = 0xd0;
 /// [`LINES`]'s mode for the conditions that do not hold only.
@@ -40,7 +45,7 @@ struct Scope<'m> {
 impl<'m> Scope<'m> {
     fn new(m: &'m Memory, country: Tag, province: u32) -> GResult<Box<Self>> {
         let mut scope = Box::new(Self { m, bytes: [0; SCOPE_SIZE / 8] });
-        m.call(m.at(SCOPE), &[scope.address(), country.0 as usize, province as usize, 0])?;
+        SCOPE.call(m, [scope.address(), country.0 as usize, province as usize, 0])?;
         Ok(scope)
     }
 
@@ -52,7 +57,7 @@ impl<'m> Scope<'m> {
 impl Drop for Scope<'_> {
     fn drop(&mut self) {
         let at = self.address();
-        if let Err(e) = self.m.call(self.m.at(SCOPE_DESTROY), &[at]) {
+        if let Err(e) = SCOPE_DESTROY.call(self.m, [at]) {
             crate::log!("a condition's scope was not freed: {e}");
         }
     }
@@ -62,7 +67,7 @@ impl Drop for Scope<'_> {
 /// `province`, when not 0).
 pub fn holds(m: &Memory, trigger: usize, country: Tag, province: u32) -> GResult<bool> {
     let mut scope = Scope::new(m, country, province)?;
-    Ok(m.call(m.at(EVALUATE), &[trigger, scope.address()])? & 0xff != 0)
+    Ok(EVALUATE.call(m, [trigger, scope.address()])? & 0xff != 0)
 }
 
 /// The lines of the content trigger at `trigger` that do not hold for
@@ -71,7 +76,7 @@ pub fn holds(m: &Memory, trigger: usize, country: Tag, province: u32) -> GResult
 pub fn failing(m: &Memory, trigger: usize, country: Tag, province: u32) -> GResult<Vec<String>> {
     let mut scope = Scope::new(m, country, province)?;
     let at = scope.address();
-    let (_, text) = game_string::written(m, |out| m.call(m.at(LINES), &[trigger, out, at, 0, 0, FAILING]))?;
+    let (_, text) = game_string::written(m, |out| LINES.call(m, [trigger, out, at, 0, 0, FAILING]))?;
     Ok(lines(&text))
 }
 

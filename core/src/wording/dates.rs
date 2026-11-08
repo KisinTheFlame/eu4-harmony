@@ -18,7 +18,7 @@ use crate::called_by_game;
 use crate::game_string;
 use crate::lang;
 use crate::loc;
-use crate::points::{Function, Point};
+use crate::points::{Function, GameFunction, Point};
 use crate::unicode::game_text;
 use eu4_harmony_loc::Language;
 
@@ -125,7 +125,7 @@ extern "C" fn year_month_day(date: *const i32, out: *mut u8, extra: usize) -> *m
 
 /// The date as month and year, moved on to the first of the next month,
 /// with a comma: `(&date, out string)`, which the framework replaces.
-pub const NEXT_MONTH_YEAR: usize = 0x6e5b40;
+pub const NEXT_MONTH_YEAR: GameFunction<2> = GameFunction::at(0x6e5b40);
 
 /// `(&date)`: the date's year.
 pub const YEAR: usize = 0xcfd70;

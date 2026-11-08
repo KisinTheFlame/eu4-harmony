@@ -7,7 +7,7 @@ use crate::{
     hooks::Call,
     memory::Memory,
     objects::campaign::{classes, globals, map, map_manager, province},
-    points::Point,
+    points::{GameFunction, Point},
     Result,
 };
 use std::{cell::RefCell, collections::BTreeMap, sync::Mutex};
@@ -15,7 +15,7 @@ use std::{cell::RefCell, collections::BTreeMap, sync::Mutex};
 const FILL: usize = 0x12fd9b0;
 const SECONDARY: usize = 0x12fdcb0;
 const RENDERER: usize = 0x10a8c30;
-const REFRESH: usize = 0x821ff0;
+const REFRESH: GameFunction<4> = GameFunction::at(0x821ff0);
 const PAINT_MODE: i32 = 12;
 const PAINT_OPTION: u32 = 26;
 
@@ -29,16 +29,51 @@ struct Ticket {
     error: Option<String>,
 }
 
+/// Who colors the map and how, apart from the game: the extension whose
+/// coloring shows, the provinces' colors, and the extensions whose
+/// coloring another replaced, to be told.
 #[derive(Default)]
-struct State {
+struct Coloring {
     owner: Option<usize>,
     /// province -> bytes in memory order (B, G, R, A)
     colors: BTreeMap<u32, [u8; 4]>,
+    lost: Vec<usize>,
+}
+
+impl Coloring {
+    /// `extension`'s coloring replaces whichever showed; the extension it
+    /// replaces, another, is to be told.
+    fn paint(&mut self, extension: usize, colors: &[MapColor]) {
+        if let Some(previous) = self.owner.filter(|&p| p != extension) {
+            self.lost.push(previous);
+        }
+        self.owner = Some(extension);
+        self.colors = colors.iter().map(|c| (c.province, [c.rgba[2], c.rgba[1], c.rgba[0], c.rgba[3]])).collect();
+    }
+
+    /// No coloring shows any more.
+    fn clear(&mut self) {
+        self.colors.clear();
+        self.owner = None;
+    }
+
+    /// Whether `extension`'s coloring shows.
+    fn shows(&self, extension: usize) -> bool {
+        self.owner == Some(extension)
+    }
+
+    /// The extensions whose coloring another replaced since the last time.
+    fn take_lost(&mut self) -> Vec<usize> {
+        std::mem::take(&mut self.lost)
+    }
+}
+
+#[derive(Default)]
+struct State {
+    coloring: Coloring,
     /// (manager, mode) to restore
     saved: Option<(usize, i32)>,
     ticket: Option<Ticket>,
-    /// Extensions whose coloring was taken over, to notify.
-    lost: Vec<usize>,
 }
 
 #[derive(Clone, Copy)]
@@ -88,7 +123,7 @@ fn secondary_after(call: &mut Call) {
     let m = &call.memory();
     let Ok(mut guard) = STATE.try_lock() else { return };
     let Some(s) = guard.as_mut() else { return };
-    if s.ticket.is_none() && s.colors.is_empty() {
+    if s.ticket.is_none() && s.coloring.colors.is_empty() {
         return;
     }
     let result = (|| -> Result<()> {
@@ -111,11 +146,11 @@ fn secondary_after(call: &mut Call) {
                 t.validated = true;
             }
         }
-        if fill.mode != PAINT_MODE || fill.option != PAINT_OPTION || s.colors.is_empty() {
+        if fill.mode != PAINT_MODE || fill.option != PAINT_OPTION || s.coloring.colors.is_empty() {
             return Ok(());
         }
         let count = bytes / province::SIZE;
-        for (&id, color) in &s.colors {
+        for (&id, color) in &s.coloring.colors {
             if id as usize >= count || m.i32(first + id as usize * province::SIZE + province::ID)? != id as i32 {
                 return Err(format!("province {id} not in the color vector"));
             }
@@ -152,7 +187,7 @@ pub fn points() -> Vec<Point> {
         Point::observe(SECONDARY, "48 8b c4 89 50 10 55 53 56 57 41 54 41 55 41 56", "map secondary colors", 2, None, Some(secondary_after)),
         Point::observe(RENDERER, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48", "map renderer", 3, None, Some(renderer_after)),
         Point::keep(REFRESH, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48", "map mode refresh"),
-        Point::method(classes::MAP_MANAGER, map_manager::REFRESH, REFRESH, "map mode refresh method"),
+        Point::method(classes::MAP_MANAGER, map_manager::REFRESH, REFRESH.rva(), "map mode refresh method"),
     ]
 }
 
@@ -167,7 +202,7 @@ fn manager(m: &Memory, ctx: &game::Ctx) -> GResult<usize> {
 /// Switches the map mode and confirms the hooks saw the full color pass.
 fn refresh(m: &Memory, manager: usize, mode: i32, require_color: bool) -> GResult<()> {
     with_state(|s| s.ticket = Some(Ticket { mode, ..Default::default() }));
-    let call = m.call(m.at(REFRESH), &[manager, mode as usize, 0, 1]);
+    let call = REFRESH.call(m, [manager, mode as usize, 0, 1]);
     let ticket = with_state(|s| s.ticket.take()).unwrap_or_default();
     call?;
     if m.i32(manager + map_manager::MODE)? != mode || !ticket.validated || !ticket.rendered || (require_color && !ticket.applied) || ticket.error.is_some() {
@@ -198,11 +233,7 @@ pub fn paint(m: &Memory, ctx: &game::Ctx, extension: usize, colors: &[MapColor])
             }
             s.saved = Some((manager, mode));
         }
-        if let Some(previous) = s.owner.filter(|&p| p != extension) {
-            s.lost.push(previous);
-        }
-        s.owner = Some(extension);
-        s.colors = colors.iter().map(|c| (c.province, [c.rgba[2], c.rgba[1], c.rgba[0], c.rgba[3]])).collect();
+        s.coloring.paint(extension, colors);
         Ok(())
     })?;
     if let Err(e) = refresh(m, manager, PAINT_MODE, true) {
@@ -214,8 +245,7 @@ pub fn paint(m: &Memory, ctx: &game::Ctx, extension: usize, colors: &[MapColor])
 
 fn restore(m: &Memory, ctx: &game::Ctx) -> GResult<()> {
     let saved = with_state(|s| {
-        s.colors.clear();
-        s.owner = None;
+        s.coloring.clear();
         s.saved
     });
     if let Some((object, mode)) = saved {
@@ -230,7 +260,7 @@ fn restore(m: &Memory, ctx: &game::Ctx) -> GResult<()> {
 }
 
 pub fn clear(m: &Memory, ctx: &game::Ctx, extension: usize) -> GResult<()> {
-    if with_state(|s| s.owner) != Some(extension) {
+    if !with_state(|s| s.coloring.shows(extension)) {
         return Ok(());
     }
     restore(m, ctx)
@@ -241,9 +271,7 @@ pub fn clear(m: &Memory, ctx: &game::Ctx, extension: usize) -> GResult<()> {
 /// new session's first frame.
 pub fn reset_session() {
     let saved = with_state(|s| {
-        s.colors.clear();
-        s.owner = None;
-        s.lost.clear();
+        s.coloring = Coloring::default();
         s.saved.take()
     });
     let Some(m) = crate::memory() else { return };
@@ -262,7 +290,7 @@ pub fn reset_session() {
 
 /// Extensions whose coloring another extension replaced since the last call.
 pub fn take_lost() -> Vec<usize> {
-    with_state(|s| std::mem::take(&mut s.lost))
+    with_state(|s| s.coloring.take_lost())
 }
 
 /// Releases a stopped extension's coloring.
@@ -271,5 +299,31 @@ pub fn release(m: &Memory, extension: usize) {
         if let Err(e) = clear(m, &ctx, extension) {
             log!("map: release failed: {}", e.message);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn color(province: u32) -> MapColor {
+        MapColor { province, rgba: [1, 2, 3, 4] }
+    }
+
+    #[test]
+    fn the_last_extension_to_color_the_map_shows_and_the_one_it_replaced_is_told() {
+        let mut coloring = Coloring::default();
+        coloring.paint(1, &[color(151)]);
+        assert!(coloring.shows(1));
+        assert_eq!(coloring.colors.get(&151), Some(&[3, 2, 1, 4]), "kept in memory order, B, G, R, A");
+        coloring.paint(1, &[color(152)]);
+        assert!(coloring.take_lost().is_empty(), "an extension replacing its own coloring loses nothing");
+        assert_eq!(coloring.colors.keys().collect::<Vec<_>>(), [&152]);
+        coloring.paint(2, &[color(151)]);
+        assert!(coloring.shows(2) && !coloring.shows(1));
+        assert_eq!(coloring.take_lost(), [1]);
+        assert!(coloring.take_lost().is_empty());
+        coloring.clear();
+        assert!(!coloring.shows(2) && coloring.colors.is_empty());
     }
 }

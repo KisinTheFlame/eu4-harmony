@@ -14,7 +14,11 @@
 //! return has taken the session's interface down after they began to wait
 //! ([`super::waiting`]).
 use super::waiting::{Kind, Moment, Waiting};
-use crate::{hooks::Call, memory::Memory, points::Point};
+use crate::{
+    hooks::Call,
+    memory::Memory,
+    points::{GameFunction, Point},
+};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// `(_, database)`: puts a database of trade nodes in place of the one
@@ -28,7 +32,7 @@ const NODES: usize = 0;
 const NO_NODE: usize = 0x2462c90;
 /// A node's class, and its deleting destructor, which deletes its routes.
 const NODE: usize = 0x1ce9460;
-const NODE_DELETE: usize = 0xb50d60;
+const NODE_DELETE: GameFunction<2> = GameFunction::at(0xb50d60);
 
 /// What the repair lets go.
 const NODES_LEFT: Kind = Kind { what: "trade node", class: NODE, delete: NODE_DELETE };
@@ -87,7 +91,7 @@ pub(super) fn points() -> Vec<Point> {
         // It lets the vector of nodes go, at the database's start (NODES), not
         // the nodes.
         Point::keep(0xb6832dusize, "48 8b cb e8 8b 67 52 ff", "trade node database's nodes let go"),
-        Point::method(NODE, 0, NODE_DELETE, "trade node deleting destructor"),
+        Point::method(NODE, 0, NODE_DELETE.rva(), "trade node deleting destructor"),
         Point::keep(0xb60aa0usize, "48 8d 05 e9 21 90 01", "the trade node that is none").uses(&[NO_NODE]),
     ]
 }
@@ -110,7 +114,7 @@ mod tests {
     #[test]
     fn a_node_that_waited_from_before_a_return_is_deleted_and_counted_and_one_no_longer_a_node_is_kept() {
         let image = Image::new();
-        image.function(NODE_DELETE, delete_node as *const ());
+        image.function(NODE_DELETE.rva(), delete_node as *const ());
         let m = image.memory();
         let node = Object::new(0x40).u64(0, m.at(NODE) as u64);
         let other = Object::new(0x40).u64(0, 0x1234);

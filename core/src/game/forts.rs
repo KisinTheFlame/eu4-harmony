@@ -10,15 +10,16 @@ use crate::{
         country,
         province::{FORT_LEVEL, MOTHBALL, MOTHBALLED},
     },
-    points::Point,
+    points::{GameFunction, Point},
 };
+use eu4_harmony_remote::forts::args;
 use eu4_harmony_remote::{choices::Choice, forts::PlayerFort, ProvinceId};
 
 /// A province's byte that says it has a fort.
 const HAS_FORT: usize = 0x2dd8;
 /// `(tag by value, province ID, text or null)`: whether the country may
 /// mothball or reopen the fort, with the box's reasons.
-const MAY_MOTHBALL: usize = 0x5db5a0;
+const MAY_MOTHBALL: GameFunction<3> = GameFunction::at(0x5db5a0);
 /// The most provinces read.
 const MOST: i32 = 10_000;
 
@@ -39,7 +40,7 @@ fn toggle_text(country: [u8; 3], province: u32) -> String {
 }
 
 fn read(m: &Memory, ctx: &Ctx, id: u32, address: usize) -> GResult<PlayerFort> {
-    let (may, text) = game_string::written(m, |t| m.call(m.at(MAY_MOTHBALL), &[ctx.player.0 as usize, id as usize, t]))?;
+    let (may, text) = game_string::written(m, |t| MAY_MOTHBALL.call(m, [ctx.player.0 as usize, id as usize, t]))?;
     let choice = if may as u8 != 0 { Choice::can(Vec::new()) } else { Choice::cannot(super::reasons(&text), Vec::new()) };
     Ok(PlayerFort { province: ProvinceId(id), level: m.i32(address + FORT_LEVEL)?, mothballed: m.u8(address + MOTHBALL)? == MOTHBALLED, choice })
 }
@@ -76,11 +77,11 @@ fn set(Session { m, ctx, commands, .. }: Session, id: u32, mothball: bool) -> GR
     action::carry_out(commands, &fort.choice, doing, || Ok(toggle_text(ctx.player.letters(), id)))
 }
 
-pub fn mothball(session: Session, province: u32) -> GResult<()> {
+pub fn mothball(session: Session, args::Mothball { province: ProvinceId(province) }: args::Mothball) -> GResult<()> {
     set(session, province, true)
 }
 
-pub fn reopen(session: Session, province: u32) -> GResult<()> {
+pub fn reopen(session: Session, args::Reopen { province: ProvinceId(province) }: args::Reopen) -> GResult<()> {
     set(session, province, false)
 }
 

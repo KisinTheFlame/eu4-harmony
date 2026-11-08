@@ -32,7 +32,7 @@ group! {
     /// view sets with its buttons rather than lists, with the most ducats
     /// the view lets the player ask (or give), the whole that the receiving
     /// side shares.
-    game Terms "terms" {
+    game TermOptions "terms" {
         /// The country the player is at war with.
         country: CountryTag,
         /// The offer tab's terms, instead of the demand tab's.

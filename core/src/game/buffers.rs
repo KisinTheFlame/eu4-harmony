@@ -5,7 +5,11 @@
 //! a [`Session`] made of them ([`session`]), reading and calling them as it
 //! reads and calls the game's: through [`Memory`], under the same guard.
 use super::{commands::Commands, Caller, Ctx, Session, Tag, View};
-use crate::{game_string, memory::Memory, objects::campaign::country};
+use crate::{
+    game_string,
+    memory::Memory,
+    objects::{campaign::country, list, map},
+};
 use windows_sys::Win32::System::{
     Diagnostics::Debug::FlushInstructionCache,
     Memory::{VirtualAlloc, VirtualFree, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_EXECUTE_READWRITE, PAGE_NOACCESS},
@@ -97,6 +101,45 @@ impl Object {
         self = self.u64(offset, object.at() as u64);
         self.kept.push(object);
         self
+    }
+
+    /// One of the game's lists at `offset` (`objects::list`), holding
+    /// `items` in order, each with whether the game removed its node while
+    /// walking the list; the nodes and the items are kept.
+    pub fn list(mut self, offset: usize, items: Vec<(Object, bool)>) -> Self {
+        let count = items.len();
+        let nodes: Vec<Object> =
+            items.into_iter().map(|(item, removed)| Object::new(list::NODE_SIZE).u8(list::REMOVED, removed.into()).points_to(list::ITEM, item)).collect();
+        for i in 0..count {
+            let previous = if i == 0 { 0 } else { nodes[i - 1].at() as u64 };
+            let next = nodes.get(i + 1).map_or(0, |n| n.at() as u64);
+            nodes[i].set(list::PREVIOUS, &previous.to_le_bytes());
+            nodes[i].set(list::NEXT, &next.to_le_bytes());
+        }
+        let (head, tail) = (nodes.first().map_or(0, |n| n.at() as u64), nodes.last().map_or(0, |n| n.at() as u64));
+        self = self.u64(offset + list::HEAD, head).u64(offset + list::TAIL, tail).i32(offset + list::COUNT, count as i32);
+        self.kept.extend(nodes);
+        self
+    }
+
+    /// The head of a `std::map` (`objects::map`) holding `values`, each the
+    /// first 8 bytes of a node's value: a root and a chain of right
+    /// children, every other child the head, as the game's empty ones are.
+    pub fn map(values: &[u64]) -> Self {
+        let head = Self::new(map::NODE_SIZE).u8(map::NIL, 1);
+        let mut nodes: Vec<Object> = values.iter().map(|&v| Self::new(map::NODE_SIZE).u64(map::VALUE, v)).collect();
+        let at = |n: &Object| n.at() as u64;
+        for i in 0..nodes.len() {
+            let parent = if i == 0 { at(&head) } else { at(&nodes[i - 1]) };
+            let right = nodes.get(i + 1).map_or(at(&head), at);
+            nodes[i].set(map::PARENT, &parent.to_le_bytes());
+            nodes[i].set(map::LEFT, &at(&head).to_le_bytes());
+            nodes[i].set(map::RIGHT, &right.to_le_bytes());
+        }
+        let root = nodes.first().map_or(at(&head), at);
+        let mut head = head.u64(map::PARENT, root);
+        head.kept.append(&mut nodes);
+        head
     }
 
     /// A `std::vector` of `items` at `offset`: its begin and end.
@@ -212,9 +255,9 @@ mod tests {
         let image = Image::new();
         let m = image.memory();
         // A global and a function of the game's, at RVAs points check.
-        image.i32(crate::objects::campaign::globals::SPECIAL_COUNTRIES[0], 7).function(super::super::IS_PAUSED, twice as *const ());
+        image.i32(crate::objects::campaign::globals::SPECIAL_COUNTRIES[0], 7).function(super::super::IS_PAUSED.rva(), twice as *const ());
         assert_eq!(m.i32(m.at(crate::objects::campaign::globals::SPECIAL_COUNTRIES[0])).unwrap(), 7);
-        assert_eq!(m.call(m.at(super::super::IS_PAUSED), &[21]).unwrap(), 42);
+        assert_eq!(super::super::IS_PAUSED.call(m, [21]).unwrap(), 42);
     }
 
     #[test]

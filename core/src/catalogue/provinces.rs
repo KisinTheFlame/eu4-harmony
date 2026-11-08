@@ -10,6 +10,7 @@ use eu4_harmony_remote::{
     recruiting::UnitKind,
     Error, ProvinceId, ProvinceList,
 };
+use eu4_harmony_remote::provinces::args;
 
 layer! {
     run ProvinceRequest => ProvinceAnswer;
@@ -19,8 +20,8 @@ layer! {
     fn province_act(province: u32, action: Action) -> () = session game::administration::act;
     List { provinces } => list(game, provinces);
     Neighbors { province } => neighbors(game, province.0);
-    Get => fn province(province: u32) -> layer::Snapshot = world layer::province;
-    Options => fn province_options(province: u32) -> Vec<ProvinceOption> = session game::administration::options;
+    Get => fn province -> layer::Snapshot = layer::province;
+    Options => fn province_options -> Vec<ProvinceOption> = game::administration::options;
     DevelopTax { province } => game.province_act(province, Action::Develop(Kind::Tax));
     DevelopProduction { province } => game.province_act(province, Action::Develop(Kind::Production));
     DevelopManpower { province } => game.province_act(province, Action::Develop(Kind::Manpower));
@@ -31,7 +32,7 @@ layer! {
     LowerAutonomy { province } => game.province_act(province, Action::LowerAutonomy);
     MakeState { province } => game.province_act(province, Action::MakeState);
     MakeTerritory { province } => game.province_act(province, Action::MakeTerritory);
-    SetEdict => fn set_edict(province: u32, edict: String) -> () = session game::administration::set_edict;
+    SetEdict => fn set_edict -> () = game::administration::set_edict;
     CancelEdict { province } => game.province_act(province, Action::CancelEdict);
     Core { province } => game.province_act(province, Action::Core);
     CancelCore { province } => game.province_act(province, Action::CancelCore);
@@ -108,30 +109,14 @@ fn snapshot(s: layer::Snapshot) -> ProvinceSnapshot {
 /// The unit kind a remote client names, as the capability layer has it.
 impl Convert<layer::UnitKind> for UnitKind {
     fn convert(self) -> layer::UnitKind {
-        match self {
-            UnitKind::Infantry => layer::UnitKind::Infantry,
-            UnitKind::Cavalry => layer::UnitKind::Cavalry,
-            UnitKind::Artillery => layer::UnitKind::Artillery,
-            UnitKind::HeavyShip => layer::UnitKind::HeavyShip,
-            UnitKind::LightShip => layer::UnitKind::LightShip,
-            UnitKind::Galley => layer::UnitKind::Galley,
-            UnitKind::Transport => layer::UnitKind::Transport,
-        }
+        self.into()
     }
 }
 
 /// A unit kind as remote clients name it.
 impl Convert<UnitKind> for layer::UnitKind {
     fn convert(self) -> UnitKind {
-        match self {
-            layer::UnitKind::Infantry => UnitKind::Infantry,
-            layer::UnitKind::Cavalry => UnitKind::Cavalry,
-            layer::UnitKind::Artillery => UnitKind::Artillery,
-            layer::UnitKind::HeavyShip => UnitKind::HeavyShip,
-            layer::UnitKind::LightShip => UnitKind::LightShip,
-            layer::UnitKind::Galley => UnitKind::Galley,
-            layer::UnitKind::Transport => UnitKind::Transport,
-        }
+        self.into()
     }
 }
 
