@@ -1,0 +1,9 @@
+# 2026-11-08 The AI stage's wait, measured with S9 and S10 (tested by me)
+
+What the main thread waits for in the AI stage once the armies' searches run on idle threads, and what the support check (`0x106320`) asks ([research/ai-stage-wait.md](../research/ai-stage-wait.md)). Master at `d8978b6d`; on test games, the 1780.7.1 save copied into each one's `save games`, `menu.load`, `console run observe`, `session.view TUR`, speed 5. Two claims, the game hidden.
+
+- **Sampled**: the release build with the test games' pipes; `time.resume`, then `cargo xtask profile --seconds 240 --threads --waiting-in 0x179e90 --slice 60`, 1780.7.2 to 1790.9.2: 3,563 days, 14.85 a second. The main thread waited 252 ms a second in the AI stage, 17.0 ms a game day (13.4, 15.8, 15.5 and 23.3 ms in the four minutes); what ran meanwhile is in the note.
+- **Each country's task timed**: the build with the call trace too, `dev.toml` tracing `0xb0fa0` (its field `0x20`), `0x106320:8` and `0x96c520:8` with `times` and `calls = 3000`; `time advance --days 730`, to 1782.7.1. 83,280 tasks, 16,013 checks, 36,049 route queries; the first 3,000 checks all answered yes.
+- **Ten years of checks**: `dev.toml` tracing `0x106320:8` and `0x96c520:8` alone, `calls = 30000`; `time advance --days 1800` twice, to 1790.5.12. 99,433 checks, 411,719 route queries, 135,240 of them inside a check (on the same thread, between its start and end); of the 27,456 checks whose answer the log held (to 1784), 26,327 yes. The trace's own cost lengthens every call: the route queries' 65.7 ms a day of all threads is under the trace, not a measure of the game alone.
+- **Not verified**: the answers after 1784; how many of a yes check's queries came after its sum passed the bar; a game a player plays.
+- **Cleanup**: `dev.toml` removed; the releases removed the test games' folders but `kept\`, and said the game did not crash; the profile, the time files and the logs in the scratchpad.
