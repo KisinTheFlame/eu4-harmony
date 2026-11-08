@@ -1,6 +1,6 @@
 # The province view's actions (for `game::administration` and `game::buildings`)
 
-Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` on 2026-11-05 with `cargo xtask disasm` and scripts over the PE file (a scan of `.rdata` for the commands' vtables, whose `+0x50` answers the type token, and the token table); what was tried in the running game is marked "tested" (the run is in [prototype-log.md](../prototype-log.md), 2026-11-05, A3). The fields of provinces, countries and constructions used here are in [provinces.md](provinces.md); how a command is posted from its written form is in [commands.md](commands.md).
+Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` on 2026-11-05 with `cargo xtask disasm` and scripts over the PE file (a scan of `.rdata` for the commands' vtables, whose `+0x50` answers the type token, and the token table); what was tried in the running game is marked "tested" (the run is [Player actions A3](../prototype-log/2026-11-05-player-actions-a3-provinces.md), 2026-11-05). The fields of provinces, countries and constructions used here are in [provinces.md](provinces.md); how a command is posted from its written form is in [commands.md](commands.md).
 
 ## The commands and their written forms
 

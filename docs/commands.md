@@ -1,6 +1,6 @@
 # Commands plan
 
-Status: decided (2026-11-03); C0 built and tried in the game the same day ([prototype-log.md](prototype-log.md)); C1 to C3 built and tried in the game the same day. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Command, Developer build). The decisions and their reasons are in [ADR one-command-layer-in-written-form](adr/one-command-layer-in-written-form.md) and [ADR commands-run-at-once](adr/commands-run-at-once.md). What the game does with commands, and what was tried in the game before this plan, is in [research/commands.md](research/commands.md) and [prototype-log.md](prototype-log.md).
+Status: decided (2026-11-03); C0 built and tried in the game the same day ([Developer builds](prototype-log/2026-11-03-developer-builds.md)); C1 to C3 built and tried in the game the same day. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Command, Developer build). The decisions and their reasons are in [ADR one-command-layer-in-written-form](adr/one-command-layer-in-written-form.md) and [ADR commands-run-at-once](adr/commands-run-at-once.md). What the game does with commands, and what was tried in the game before this plan, is in [research/commands.md](research/commands.md) and in the runs of [the command log](prototype-log/2026-11-03-command-log.md), [reading command text back](prototype-log/2026-11-03-reading-command-text-back.md) and [posting commands read from text](prototype-log/2026-11-03-posting-commands-read-text.md).
 
 ## Goal and scope
 
@@ -58,7 +58,7 @@ pub fn listen(heard: fn(&Heard));
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and clippy pass, for the player build and with `dev`, and so do the offline checks against `eu4.exe`;
-- what it delivers was tried in the game, with the run recorded in [prototype-log.md](prototype-log.md);
+- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](prototype-log/);
 - docs/research holds what was found in the game's code, and README.md and README.zh-CN.md say what changed for players.
 
 ### C0 Developer builds

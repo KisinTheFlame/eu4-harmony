@@ -38,7 +38,7 @@ PhysFS asks each folder of its search path for a file in turn, and Windows each 
 A node's add (`0x7e7cd0`) walks the node's whole list for the child before it adds it; reading a save, `0xda66a0` makes each child, reads it and adds it, so the walks grow with the list.
 
 - Built (`loading::children`): where `0xda66a0` calls the add (`0xda69e5`), the framework marks the thread; the add, on that thread, clears the mark and goes past the walk, as it does when the walk does not find the child. The child is one `0xda66a0` made itself, in no list yet. Every other add, and the adds the add makes, walk as before.
-- Shown: a save written after a load with the framework's adds and one with the game's (`game-loads`), the same load of the same save: the same entries but for what every save changes (prototype-log.md).
+- Shown: a save written after a load with the framework's adds and one with the game's (`game-loads`), the same load of the same save: the same entries but for what every save changes ([The startup and a load sampled](prototype-log/2026-11-05-startup-load-sampled.md)).
 
 ### Set aside
 

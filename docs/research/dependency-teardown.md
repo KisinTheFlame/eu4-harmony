@@ -1,6 +1,6 @@
 # A subject relation's end, and the crash in it
 
-Baseline 1.37.5. All addresses are RVAs. Found on 2026-11-06 from a player's crash (an observer game with mods, 1478, crashed in `0xa5e14f`), its minidump, the three half-yearly saves before it, and reading eu4.exe with a Capstone script; the defect and its repair were then tried in the running game (prototype-log.md, 2026-11-06, "A subject relation's end").
+Baseline 1.37.5. All addresses are RVAs. Found on 2026-11-06 from a player's crash (an observer game with mods, 1478, crashed in `0xa5e14f`), its minidump, the three half-yearly saves before it, and reading eu4.exe with a Capstone script; the defect and its repair were then tried in the running game ([A subject relation's end](../prototype-log/2026-11-06-subject-relation-end.md), 2026-11-06).
 
 ## What crashed
 

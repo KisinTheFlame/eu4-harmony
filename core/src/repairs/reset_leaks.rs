@@ -44,7 +44,8 @@ static FACTIONS: AtomicUsize = AtomicUsize::new(0);
 static AGENTS: AtomicUsize = AtomicUsize::new(0);
 
 /// The repair as the world reset sees it ([`super::REPAIRS`]).
-pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset) };
+pub(super) const REPAIR: super::Repair =
+    super::Repair { points, since_reset: Some(since_reset), world_clearing: Some(delete_rebel_factions), ..super::Repair::NONE };
 
 /// What the repair let go since the last world reset, for the log; its
 /// counts start again.
@@ -104,19 +105,25 @@ fn company_going(call: &mut Call) {
     }
 }
 
-/// The world's own reset begins to clear the world: every country's rebel
-/// factions, whose vector a country's clear (`0x2e1a30`) lets go without
-/// them, are deleted first, before any country is cleared. Not as each
-/// country is: a country's clear destroys its history, whose records may
-/// hold leaders of another country's factions (rebels that went over to it,
-/// `0xa9e160`), and a faction's destructor deletes its leaders whoever holds
-/// them. A faction's destructor takes it off its countries' vectors and,
-/// with the world being cleared, leaves its provinces be.
+/// The world's own reset begins to clear the world, before any country is
+/// cleared: the repairs act on it in turn ([`super::REPAIRS`]), this one
+/// first of those that do ([`delete_rebel_factions`]).
 #[called_by_game]
 extern "C" fn world_clearing() {
-    let m = crate::hooked_memory();
+    super::world_clearing(&crate::hooked_memory());
+}
+
+/// As the world's clear begins: every country's rebel factions, whose vector
+/// a country's clear (`0x2e1a30`) lets go without them, are deleted first,
+/// before any country is cleared. Not as each country is: a country's clear
+/// destroys its history, whose records may hold leaders of another country's
+/// factions (rebels that went over to it, `0xa9e160`), and a faction's
+/// destructor deletes its leaders whoever holds them. A faction's destructor
+/// takes it off its countries' vectors and, with the world being cleared,
+/// leaves its provinces be.
+fn delete_rebel_factions(m: &Memory) {
     let deleted = (|| {
-        for country in crate::containers::countries(&m)? {
+        for country in crate::containers::countries(m)? {
             let vector = country + country::REBEL_FACTIONS;
             let (begin, end) = (m.ptr(vector)?, m.ptr(vector + 8)?);
             let factions = (begin..end).step_by(8).map(|at| m.ptr(at)).collect::<crate::Result<Vec<_>>>()?;
@@ -133,10 +140,6 @@ extern "C" fn world_clearing() {
     if let Err(e) = deleted {
         log!("repair: the rebel factions were not deleted: {e}");
     }
-    super::histories::world_clearing(&m);
-    super::trade_nodes::world_clearing(&m);
-    super::estates::world_clearing(&m);
-    super::list_entries::world_clearing(&m);
 }
 
 /// The items of one of the game's lists.

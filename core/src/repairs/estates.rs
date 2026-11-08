@@ -12,18 +12,15 @@
 //! So as the world's clear begins, before any country is cleared, every
 //! country's estates' modifiers wait, and are deleted as a later clear begins
 //! once a return has taken the session's interface down after they began to
-//! wait ([`super::session_interface::RETURNS`]), as the trade nodes are.
-use super::LettingGo;
+//! wait ([`super::waiting`]), as the trade nodes are.
+use super::waiting::{Kind, Moment, Waiting};
 use crate::{
     memory::Memory,
     points::{GameFunction, Point},
 };
 use std::{
     collections::HashSet,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Mutex,
-    },
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 /// A country's vector of estates (begin, end), each of [`ESTATE_SIZE`] bytes.
@@ -36,14 +33,16 @@ const MODIFIERS: [usize; 2] = [0x58, 0x70];
 const MODIFIER: usize = 0x1cacf28;
 const MODIFIER_DELETE: GameFunction<2> = GameFunction::at(0x7158b0);
 
-/// The modifiers of the estates cleared, each with the returns there had
-/// been as it began to wait.
-static WAITING: Mutex<Vec<(usize, u32)>> = Mutex::new(Vec::new());
+/// What the repair lets go.
+const MODIFIERS_LEFT: Kind = Kind { what: "estate's modifier", class: MODIFIER, delete: MODIFIER_DELETE };
+
+/// The modifiers of the estates cleared.
+static WAITING: Waiting<()> = Waiting::new();
 /// The modifiers deleted since the last world reset, for the log.
 static DELETED: AtomicUsize = AtomicUsize::new(0);
 
 /// The repair as the world reset sees it ([`super::REPAIRS`]).
-pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset) };
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset), world_clearing: Some(world_clearing), ..super::Repair::NONE };
 
 /// What the repair let go since the last world reset, for the log; its
 /// counts start again.
@@ -53,34 +52,13 @@ fn since_reset() -> String {
 
 /// The world's clear begins: the modifiers that waited from before the last
 /// return are deleted, and those of the estates it is about to clear wait.
-pub(super) fn world_clearing(m: &Memory) {
-    let returns = super::session_interface::RETURNS.load(Ordering::Relaxed);
-    let due: Vec<usize> = {
-        let mut waiting = WAITING.lock().unwrap_or_else(|e| e.into_inner());
-        let due = waiting.iter().filter(|(_, since)| *since < returns).map(|(modifier, _)| *modifier).collect();
-        waiting.retain(|(_, since)| *since >= returns);
-        due
-    };
-    let deleted = (|| {
-        for modifier in due {
-            if m.ptr(modifier)? != m.at(MODIFIER) {
-                log!("repair: an estate's modifier left was not one, {modifier:#x}; kept");
-                continue;
-            }
-            let _letting_go = LettingGo::new("estate's modifier");
-            MODIFIER_DELETE.call(m, [modifier, 1])?;
-            DELETED.fetch_add(1, Ordering::Relaxed);
-        }
-        crate::Result::Ok(())
-    })();
-    if let Err(e) = deleted {
-        log!("repair: the estates' modifiers left were not all deleted: {e}");
-    }
+fn world_clearing(m: &Memory) {
+    WAITING.let_go_due(m, Moment::Return, &MODIFIERS_LEFT, &DELETED);
     match modifiers(m) {
         Ok(found) => {
-            let mut waiting = WAITING.lock().unwrap_or_else(|e| e.into_inner());
-            let already: HashSet<usize> = waiting.iter().map(|(modifier, _)| *modifier).collect();
-            waiting.extend(found.into_iter().filter(|modifier| !already.contains(modifier)).map(|modifier| (modifier, returns)));
+            for modifier in found {
+                WAITING.wait(modifier, (), Moment::Return);
+            }
         }
         Err(e) => log!("repair: the estates' modifiers were not read: {e}"),
     }

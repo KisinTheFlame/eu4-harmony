@@ -2,7 +2,8 @@
 //! never meets, as it restarts instead: the popups its message windows
 //! hold, let go before an in-process return takes the interface down, and
 //! what the map manager's destructor leaves, let go as it goes. The returns
-//! it is gone after are counted, for what its interface may show until then.
+//! it is gone after pass for what its interface may show until then
+//! ([`super::waiting`]).
 use super::LettingGo;
 use crate::{
     hooks::Call,
@@ -13,7 +14,7 @@ use crate::{
     },
     points::{GameFunction, Point},
 };
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 /// `(map manager)`: the map manager's destructor, which its deleting
 /// destructor (its vtable's first slot) calls as the application's idler
@@ -41,10 +42,6 @@ pub struct SessionInterface {
 static LEAVING: AtomicUsize = AtomicUsize::new(0);
 /// The map manager that return lets go is gone ([`map_manager_gone`]).
 static GONE: AtomicBool = AtomicBool::new(false);
-
-/// The returns whose session's interface is gone: what the session's
-/// interface may still have shown can go after one.
-pub static RETURNS: AtomicU32 = AtomicU32::new(0);
 
 impl SessionInterface {
     /// Before an in-process return takes the session's interface down. A
@@ -104,16 +101,17 @@ fn map_manager_going(call: &mut Call) {
     GONE.store(true, Ordering::Relaxed);
 }
 
-/// The map manager that return lets go is gone, and its interface with it.
+/// The map manager that return lets go is gone, and its interface with it:
+/// a return has passed for what waits for one ([`super::waiting`]).
 ///
 /// Killing the windows its builds made that nothing killed, which stay in the
 /// GUI, was tried (2026-11-06) and taken out: one of the GUI's objects keeps
 /// windows of them in its lists, and its destructor, at a later return, called
 /// into one the GUI's sweep had freed (a pure call), about once in ten rounds
-/// (docs/prototype-log.md, "The windows killed at a return taken out").
+/// (docs/prototype-log/2026-11-07-windows-killed-at-return-taken-out.md).
 fn map_manager_gone(_: &mut Call) {
     if GONE.swap(false, Ordering::Relaxed) {
-        RETURNS.fetch_add(1, Ordering::Relaxed);
+        super::waiting::Moment::Return.passed();
     }
 }
 
@@ -188,7 +186,7 @@ fn interface_building(call: &mut Call) {
 
 /// The repair as the world reset sees it ([`super::REPAIRS`]): it counts
 /// nothing.
-pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: None };
+pub(super) const REPAIR: super::Repair = super::Repair { points, ..super::Repair::NONE };
 
 pub(super) fn points() -> Vec<Point> {
     vec![

@@ -464,7 +464,7 @@ unsafe fn prepare(agent: usize, argument: usize) -> Option<Call> {
         // over the sea (`0xea250` sails it, `0xf1390`), or for an army
         // retreating or with `+0x218` (`0xeb2f8`..`0xeb31e`) or in a battle
         // (`0xeb63d`): of 140,000 searches prepared, none of these searched
-        // (docs/prototype-log.md, 2026-11-08).
+        // (docs/prototype-log/2026-11-08-armies-searches-idle-threads.md).
         if read::<i32>(agent + SEA_TARGET_PROVINCE) > 0
             || read::<usize>(unit + UNIT_IN_BATTLE) != 0
             || read::<u8>(unit + UNIT_RETREATING) != 0

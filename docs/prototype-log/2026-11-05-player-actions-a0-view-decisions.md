@@ -1,0 +1,10 @@
+# 2026-11-05 Player actions A0: the view, months and years, decisions (tested by me)
+
+A0 of [player-actions.md](../player-actions.md), a player build of this branch, within a claim, started hidden; the player's playset, a 3840x2160 window. A new game as France at 1444.11.11, played to 1445.1.10 through remote control, then the main menu, then a new game as France again.
+
+- **`decision.list`** listed 6 decisions for France, none major, none takeable, each with its failing conditions in the player language as the decisions view's tooltip writes them: "国家火器军团" with "军事科技至少6" and "拥有至少20.0% 陆军职业化"; "贞德的命运" with its nested conditions, each header (`所有属于法兰西地区的省份:`, `以下条件至少满足一个:`) a line of its own and the indent gone. Not compared with the decisions view on screen.
+- **Events**: `events --kinds week` was refused (`invalid_argument`, "no event is called week"). After a read of `--kinds month,year`, 60 days at speed 5 gave `month` at 1444.12.1 and at 1445.1.1, then `year` at 1445.1.1, numbered among the days; read with `--kinds day --countries ENG`, the days passed the countries asked for, as events naming none do.
+- **The player's view**: with the setting off, `army.at` gave no army for London (236, England's, `visible` false) or Stockholm (1, Sweden's), and one for France's own 183.
+- **The full view**: the settings window showed "远程控制" with the toggle "远程控制可以看到全部" off and its explanation; turned on and saved, the settings file had `remote_full_view=yes`, and in a new game `army.at 236` gave England's army of 14 regiments while London stayed `visible` false.
+- **Not tried**: an extension's `on_month` and `on_year` and `army.at` (only remote control was used); an event kind worked out only after a remote read asked for it (the read came before the days); a decision the player can take; the decisions view on screen.
+- **Cleanup**: the release put the player's files back (every file as the backup had it) and the game folder's framework files; the screenshots were deleted.

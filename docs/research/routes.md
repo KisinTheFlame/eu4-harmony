@@ -1,6 +1,6 @@
 # Routes: finding one, moving, stopping (for `game::orders`)
 
-Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` while regional-combat was developed (2026-10-26), and checked again with `core/examples/disasm.rs` on 2026-11-03: every address below that the framework uses, and those marked "checked", hold the bytes or instructions described. What was seen in the running game on 2026-10-26, before the framework existed, is marked "seen 2026-10-26"; it is not in [prototype-log.md](../prototype-log.md). What was checked in the running game through the framework is marked "tested", from that log. Everything else was read from the code only. How a right click becomes a move or a stop, and how `game::events` hears the player's orders, is in [army-orders.md](army-orders.md).
+Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` while regional-combat was developed (2026-10-26), and checked again with `core/examples/disasm.rs` on 2026-11-03: every address below that the framework uses, and those marked "checked", hold the bytes or instructions described. What was seen in the running game on 2026-10-26, before the framework existed, is marked "seen 2026-10-26"; it is not in [prototype-log/](../prototype-log/). What was checked in the running game through the framework is marked "tested", from that log. Everything else was read from the code only. How a right click becomes a move or a stop, and how `game::events` hears the player's orders, is in [army-orders.md](army-orders.md).
 
 ## A route
 

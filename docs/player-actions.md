@@ -1,6 +1,6 @@
 # Player actions plan
 
-Status: built (2026-11-05), every part; what each did not verify is in its section below and in [prototype-log.md](prototype-log.md). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Content key, Player's view, Full view, Capability, Command). The decisions and their reasons are in [ADR remote-control-reads-the-players-view](adr/remote-control-reads-the-players-view.md), and build on [ADR one-capability-catalogue](adr/one-capability-catalogue.md), [ADR one-command-layer-in-written-form](adr/one-command-layer-in-written-form.md) and [ADR remote-control-uses-capabilities](adr/remote-control-uses-capabilities.md). How a capability is added, layer by layer, is [adding-a-capability.md](adding-a-capability.md).
+Status: built (2026-11-05), every part; what each did not verify is in its section below and in its run in [prototype-log/](prototype-log/). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Content key, Player's view, Full view, Capability, Command). The decisions and their reasons are in [ADR remote-control-reads-the-players-view](adr/remote-control-reads-the-players-view.md), and build on [ADR one-capability-catalogue](adr/one-capability-catalogue.md), [ADR one-command-layer-in-written-form](adr/one-command-layer-in-written-form.md) and [ADR remote-control-uses-capabilities](adr/remote-control-uses-capabilities.md). How a capability is added, layer by layer, is [adding-a-capability.md](adding-a-capability.md).
 
 ## Goal and scope
 
@@ -52,7 +52,7 @@ eu4-harmony game peace demand ENG --terms '…'
 - Under the player's view a read leaves out what the player's interface does not show: fields of another country its panels do not show are null, and what fog of war hides is not listed, as `army.at` does now. Each part says, for each read it adds, what the player's view leaves out.
 - `army.at` gives extensions the armies under fog of war too.
 
-What each read leaves out in the player's view, read by read, as compared in the game on 2026-11-05 (a new game as Ming, each read under both views and beside the game's panels: [prototype-log.md](prototype-log.md)). "Another's province" is one another country owns; a province no country owns counts as the player's own. "Undiscovered" is terra incognita to the player, as the fog of war refresh reads it ([research/fog-of-war.md](research/fog-of-war.md)).
+What each read leaves out in the player's view, read by read, as compared in the game on 2026-11-05 (a new game as Ming, each read under both views and beside the game's panels: [the run](prototype-log/2026-11-05-player-actions-events-cost.md)). "Another's province" is one another country owns; a province no country owns counts as the player's own. "Undiscovered" is terra incognita to the player, as the fog of war refresh reads it ([research/fog-of-war.md](research/fog-of-war.md)).
 
 | Read | Left out in the player's view |
 | --- | --- |
@@ -93,7 +93,7 @@ Each part after the foundations is built in a session of its own, in its own wor
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and clippy pass, for the player build and with `dev`, and so do the offline checks against `eu4.exe`;
-- every capability it adds was tried in the game, its refusals among them, with the run recorded in [prototype-log.md](prototype-log.md), saying as plainly what was not verified;
+- every capability it adds was tried in the game, its refusals among them, with the run recorded in a file of its own in [prototype-log/](prototype-log/), saying as plainly what was not verified;
 - docs/research holds what was found in the game's code, every new place in it is a dependency point, its section below lists the capabilities it added, and README.md and README.zh-CN.md say what changed for players.
 
 ### A0 Foundations
@@ -112,7 +112,7 @@ What the player's view leaves out follows the game's panels: the diplomacy view 
 
 Researching technology; choosing and cancelling the national focus; raising stability; reducing inflation; raising mercantilism; taking and repaying loans. Each with its `Choice` in an `options` or `list` read.
 
-Built 2026-11-05 ([research/power-spending.md](research/power-spending.md); tried in the game, [prototype-log.md](prototype-log.md), "Player actions A2"):
+Built 2026-11-05 ([research/power-spending.md](research/power-spending.md); tried in the game, [Player actions A2](prototype-log/2026-11-05-player-actions-a2-points-treasury.md)):
 
 - `technology.options` (the three technologies, each level and its next level's `Choice`), `technology.research` (`adm`, `dip`, `mil`): the technology view's research button, the game's `spend_power_command`.
 - `focus.options` (the focus set, choosing each kind, cancelling), `focus.choose`, `focus.cancel`: the court view's focus buttons, `set_national_focus_command`. Choosing the focus set already is refused by the framework (in the game that button removes it, which is `focus.cancel`).
@@ -120,14 +120,14 @@ Built 2026-11-05 ([research/power-spending.md](research/power-spending.md); trie
 - `economy.options` (`take_loan` with the loan's ducats in `gives`, `reduce_inflation`, `raise_mercantilism`), `economy.take_loan`, `economy.reduce_inflation`, `economy.raise_mercantilism`: the economy view's buttons and the trade view's mercantilism button, in one group because they are the treasury's spending.
 - `loan.list` (each loan with its repay `Choice`, the price the amount and the interest left), `loan.repay`: the loan window, repaying as a player who confirms.
 - The argument kind `power_kind`; `game::power` builds the game's power spending for its cost and command, and writes tooltip lines with the game's localisation and values, for later parts' spending (developing, coring, culture) to use; the conditions of `common/scripted_functions` (`can_increase_stability`, `can_reduce_inflation`, and those A3 needs) give their failing lines.
-- Verified in the follow-ups run (2026-11-05, [prototype-log.md](prototype-log.md)): the bank loans' limit (Muscovy refused at its 56th, the second reason then losing its `- `), mercantilism at its most, every technology at its last level (its `options` entry now says so, as research does).
+- Verified in [the follow-ups run](prototype-log/2026-11-05-player-actions-follow-ups.md) (2026-11-05): the bank loans' limit (Muscovy refused at its 56th, the second reason then losing its `- `), mercantilism at its most, every technology at its last level (its `options` entry now says so, as research does).
 - Not verified: a refusal by the rule against ruining a nation, by `can_increase_stability` or `can_reduce_inflation` (empty in the unmodded game), by `may_not_reduce_inflation`, a loan from another country or an estate, and remote control's player's view (every read here is the player's own country). The focus's text is the game's; a mod's own `tooltip` on a scripted function's condition is not shown.
 
 ### A3 Province administration
 
 Developing and exploiting development; raising and lowering autonomy; making a state or a territory; setting and cancelling state edicts; coring and cancelling a core; changing culture; building, cancelling and destroying buildings. The event of a building finished.
 
-Built and tried in the game on 2026-11-05 ([prototype-log.md](prototype-log.md); what was found in the game's code is [research/province-view.md](research/province-view.md)):
+Built and tried in the game on 2026-11-05 ([the run](prototype-log/2026-11-05-player-actions-a3-provinces.md); what was found in the game's code is [research/province-view.md](research/province-view.md)):
 
 - **The province view**, in the `province` group, one capability a button: `develop_tax`, `develop_production`, `develop_manpower`, `exploit_tax`, `exploit_production`, `exploit_manpower`, `raise_autonomy`, `lower_autonomy`, `make_state`, `make_territory`, `set_edict` (an edict by its content key), `cancel_edict`, `core`, `cancel_core`, `change_culture` (to the player's primary culture, as the button does) and `cancel_culture`; and `province.options`, each of them with its `Choice`, setting an edict one entry an edict. Each refuses with the reasons its button's tooltip gives, from the game's own check; the prices are the game's, in monarch points.
 - **The building panel**, a group of its own, `building`: `building.options` (each building the game has, to build where it does not stand and to destroy where it does, with its price in ducats and the game's reasons; what is being built, its progress, end and builder; cancelling it), `building.build`, `building.cancel` and `building.destroy`, a building by its content key.
@@ -140,7 +140,7 @@ Built and tried in the game on 2026-11-05 ([prototype-log.md](prototype-log.md);
 
 Fleets moving, `army.move` taking `transports` for a goal across the sea, armies embarking and landing; merging, splitting and disbanding; recruiting and assigning leaders; hiring mercenaries; bombarding, naval bombarding and assaulting; mothballing and reopening forts; drilling; consolidating regiments; fleet missions. The event of a battle fought.
 
-Added (tried in the game, [prototype-log.md](prototype-log.md), 2026-11-05; found in the game's code in [research/leaders.md](research/leaders.md), [research/units.md](research/units.md), [research/sieges.md](research/sieges.md) and [research/battles.md](research/battles.md)):
+Added (tried in the game, [the run](prototype-log/2026-11-05-player-actions-a4-armies-fleets.md), 2026-11-05; found in the game's code in [research/leaders.md](research/leaders.md), [research/units.md](research/units.md), [research/sieges.md](research/sieges.md) and [research/battles.md](research/battles.md)):
 
 - `army`: `army.move` and `army.route_to` for fleets too, and `army.get` of a fleet with its sea zone, ships and route; `army.move` with `transports`, as the right click's automatic transport (`start_auto_fleet_transport`, with the fleets the game finds for it); `army.options` (split, merge with the player's others of its kind in its province, disband, consolidate, drill or stop_drill, a fleet's patrol and evade), each with the game's own answer and reasons where the game has a function for them, and the command's check otherwise (split, patrol, evade); `army.split` (in half, as the button), `army.merge`, `army.disband` (as a player who confirms), `army.consolidate`, `army.drill`, `army.stop_drill`, `army.mission` (protect_trade, privateer and hunt_pirates by a trade node's number; hunt_fleets, blockade and intercept by a sea region's number; patrol and evade toward where the fleet was moved) and `army.stop_mission`.
 - `leader`: `leader.options` (general, admiral, conquistador, explorer, with the cost in mil or dip points and the tooltip's reasons), `leader.recruit` (with a name the game picks), `leader.list`, `leader.assign`, `leader.remove`, `leader.dismiss`.
@@ -152,7 +152,7 @@ Added (tried in the game, [prototype-log.md](prototype-log.md), 2026-11-05; foun
 
 Decided here: the siege view's buttons are a group of their own (`siege`), as is the fort box (`fort`), each named after what the player does; a mission's target is the game's number for its trade node or sea region, and no read lists them yet; hiring takes the province, which the player picks; a leader is named by its number (`id`), which the game writes `{ id=N type=49 }`.
 
-Followed up (tried in the game, [prototype-log.md](prototype-log.md), "Player actions follow-up: armies aboard fleets"): an army boards a fleet of the player's by `army.move` onto its sea zone, which the game allows only when one fleet there has room for the whole army; `army.get` says which fleet an army is aboard (`aboard`) and a fleet's regiments aboard (`carrying`); armies aboard move with their fleet and land by `army.move` to a coastal province; a move onto the sea that finds no route says when the player has no fleet there, or none with room, and the most room one has.
+Followed up (tried in the game, [Player actions follow-up: armies aboard fleets](prototype-log/2026-11-05-player-actions-armies-aboard-fleets.md)): an army boards a fleet of the player's by `army.move` onto its sea zone, which the game allows only when one fleet there has room for the whole army; `army.get` says which fleet an army is aboard (`aboard`) and a fleet's regiments aboard (`carrying`); armies aboard move with their fleet and land by `army.move` to a coastal province; a move onto the sea that finds no route says when the player has no fleet there, or none with room, and the most room one has.
 
 Not verified in the game: boarding a fleet that is in a battle (no naval battle came about in the run); an artillery barrage carried out; what a fleet mission does once taken; remote control hearing a battle the player only sees; the full view's every battle. The event's cost was measured on 2026-11-05: 1.1 µs a combat's results ([performance.md](performance.md#the-events-2026-11-05)). Since then `siege.options` in the player's view finds no siege in a province fog of war hides; not tried in the game.
 
@@ -160,7 +160,7 @@ Not verified in the game: boarding a fleet that is in a battle (no naval battle 
 
 Handing over occupied provinces; calling allies into a war; peace terms (`peace.terms`, `peace.evaluate`, `peace.demand`, `peace.offer`), every term the peace view offers. The events of a war declared, a peace made, a province changing owner.
 
-Added ([research/peace.md](research/peace.md), tried in the game: [prototype-log.md](prototype-log.md), 2026-11-05, A5):
+Added ([research/peace.md](research/peace.md), tried in the game: [the run](prototype-log/2026-11-05-player-actions-a5-war-peace.md), 2026-11-05):
 
 - **`peace`**, the peace view: `peace.terms` (every term the view offers, on the demand tab or with `offer` the offer tab, each a `Choice` with its war score cost; `gold` with the most ducats the view lets the player set), `peace.evaluate` (a composition's `Choice`, its war score cost and the AI's `acceptance` with its factors, as the send button and the accept or decline icon tell it), `peace.demand` and `peace.offer` (sent as the send button sends it, answered as `diplomacy.offer_peace` is). A term is named by the game's key without `po_` (`demand_provinces`, `humiliate`, `gold`) or a scripted peace treaty's key, with the `province`, the other `country`, the `region` or the `amount` that tell it apart; the argument is the new kind `terms`, a JSON list. The plan's example, which named a province term `province`, names it so now.
 - **`occupation`**, the transfer occupation window: `occupation.options` (the button's `Choice` and the allies the window lists) and `occupation.transfer`, the game's own transfer command.
@@ -174,7 +174,7 @@ Added ([research/peace.md](research/peace.md), tried in the game: [prototype-log
 
 Every action the diplomacy panel offers the player, with `diplomacy.options`; rivals; annexing and integrating subjects and cancelling it; subject interactions.
 
-Added (research in [research/diplomacy.md](research/diplomacy.md#the-diplomacy-panel) and [research/subjects.md](research/subjects.md); the run in [prototype-log.md](prototype-log.md), 2026-11-05):
+Added (research in [research/diplomacy.md](research/diplomacy.md#the-diplomacy-panel) and [research/subjects.md](research/subjects.md); [the run](prototype-log/2026-11-05-player-actions-a6-diplomacy.md), 2026-11-05):
 
 - `diplomacy.options <country>`: what the panel offers toward a country, made by the game's own list maker as the panel makes it, in its order, each entry `action` (the capability that sends it), `key` (the type's key in saves, or a scripted action's content key), `name` (the button's text), the `Choice` (reasons from the panel's and the window's checks), `description` (what the tooltip says after the reasons) and, where the panel shows it, `acceptance` (the factors the other country's AI weighs, their sum, accepting at 1 or more). `cost` stays empty: the panel shows no price beside its buttons; what an action costs is in its description. The same in both views: the panel shows all of it.
 - A capability for every button of the panel, 113 of them, named after what the player does (`cancel_alliance`, `arrange_royal_marriage`, `break_royal_marriage`, `improve_relations`, `fabricate_claim`, `guarantee`, `ask_military_access`, `offer_fleet_basing`, `revoke_military_access`, `embargo`, `warn`, `influence`, `send_gift`, `subsidize_war`, the `trade_favors_*`, `sell_province`, `offer_condottieri`, `support_independence`, `support_rebels`, `insult`, `threaten_war`, `claim_throne`, `transfer_trade_power`, `offer_vassalization`, `share_knowledge`, `annex`, `integrate`, `cancel_annexation`, `cancel_integration`, …), and `scripted_action` for `common/new_diplomatic_actions` by content key. Each sends the panel's own action, with what the window it opens has the player choose written into it as that window does (a province, a country, an army, an amount, a price); a proposal is answered `accepted` or `declined`, any other action `done`. `call_to_arms` is A5's capability, sent as one of the panel's acts.
@@ -208,7 +208,7 @@ Not verified in the game: taking a seat away, which the game's check refused in 
 
 Missionaries and the number of automatic missionaries; colonists; trade companies and their investments; centers of trade; merchants.
 
-Added (what was found is in [research/envoys.md](research/envoys.md), the run in [prototype-log.md](prototype-log.md)):
+Added (what was found is in [research/envoys.md](research/envoys.md), [the run](prototype-log/2026-11-05-player-actions-a8-missionaries.md)):
 
 - `missionary.options`, `missionary.send`, `missionary.recall` (the province view's missionary button, its cost a missionary and its upkeep a month), `missionary.automatic`, `missionary.raise_automatic`, `missionary.lower_automatic` (the religion view's automatic missionaries).
 - `colonist.options`, `colonist.send`, `colonist.recall` (the province view's colonize buttons; the cost a colonist and the colonial upkeep a month its work adds, as the game counts it for the province now), `colonist.expel_minorities` (the colonize button's list of the player's provinces whose minority it can expel into a new colony in a colonial region), `colonist.start_settlement_growth`, `colonist.stop_settlement_growth` (the province view's settlement growth button).

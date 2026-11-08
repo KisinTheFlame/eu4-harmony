@@ -1,6 +1,6 @@
 # Scenarios plan
 
-Status: SC1 to SC3 built and tried in the game (2026-11-05); what was not tried is in [prototype-log.md](prototype-log.md). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Scenario, Leak run, Claim, Hidden start). It builds on the claims of test games ([test-games.md](test-games.md)) and on remote control ([remote-control.md](remote-control.md)); the decision behind it is [ADR scenarios-drive-the-game-through-remote-control-only](adr/scenarios-drive-the-game-through-remote-control-only.md).
+Status: SC1 to SC3 built and tried in the game (2026-11-05); what was not tried is in [Scenarios](prototype-log/2026-11-05-scenarios.md). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Scenario, Leak run, Claim, Hidden start). It builds on the claims of test games ([test-games.md](test-games.md)) and on remote control ([remote-control.md](remote-control.md)); the decision behind it is [ADR scenarios-drive-the-game-through-remote-control-only](adr/scenarios-drive-the-game-through-remote-control-only.md).
 
 ## Goal and scope
 
@@ -56,7 +56,7 @@ A scenario reaches its test game's process only through the claim, whose `follow
 
 ### The report
 
-One folder a run, with `report.json`, every answer and figure, and `report.md`: first a table of the scenarios with their build, outcome, the check or step they ended at and how long they played; then each scenario's own sections. The run is recorded in [prototype-log.md](prototype-log.md) by whoever ran it, from the report, saying what was not verified.
+One folder a run, with `report.json`, every answer and figure, and `report.md`: first a table of the scenarios with their build, outcome, the check or step they ended at and how long they played; then each scenario's own sections. The run is recorded in a file of its own in [prototype-log/](prototype-log/) by whoever ran it, from the report, saying what was not verified.
 
 ### The scenarios
 
@@ -89,7 +89,7 @@ The claim starts its test game with `client/`, the library under the command lin
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and clippy pass, for the player build and with `dev`;
-- what it delivers was tried in the game, in a claim's test game, with the run recorded in [prototype-log.md](prototype-log.md), saying as plainly what was not verified;
+- what it delivers was tried in the game, in a claim's test game, with the run recorded in a file of its own in [prototype-log/](prototype-log/), saying as plainly what was not verified;
 - [dev-tools.md](dev-tools.md), and the game-test skill where it names a command, describe what changed.
 
 ### SC1 The client library
@@ -106,4 +106,4 @@ The claim starts its test game with `client/`, the library under the command lin
 
 ### Later
 
-Each its own part when it is wanted: the other runs [prototype-log.md](prototype-log.md) records again and again as scenarios (a session's round trip, an extension reload, extension save data through a save, ironman, input); reference figures, to compare a run's figures with earlier ones.
+Each its own part when it is wanted: the other runs [prototype-log/](prototype-log/) records again and again as scenarios (a session's round trip, an extension reload, extension save data through a save, ironman, input); reference figures, to compare a run's figures with earlier ones.
