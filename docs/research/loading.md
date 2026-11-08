@@ -111,10 +111,42 @@ Timed 2026-11-08 as "The startup after L1 to L3" was, after [L4](../loading.md) 
 - The glyphs the framework draws before the main menu: about 4,250 in 0.87 to 0.98 s, either way.
 - The gfx and meshes took 0.4 to 1.4 s longer with L4 on in these starts; not looked into, and within what other test games' load moved the stretches before.
 
+## The databases with L4
+
+Timed 2026-11-08 in a test game with L4 on, as "The databases" was: the 67 memory brackets and 12 loaders without one, three starts, the databases 9.5, 9.8 and 8.5 s ([the run](../prototype-log/2026-11-08-databases-and-meshes.md)). Each start's brackets ran in the order of `0x208620`'s code but for the history's opening one, which was not in `call-times.tsv`, so the history's time is counted with the dynasty colors before it. Seconds, three starts:
+
+| Databases | Functions | s |
+| --- | --- | --- |
+| Waiting for the picture checks, after the history | `0x8f0350` | 3.26, 3.31, 2.75 |
+| Decisions | `0x4882c0` | 1.44, 1.47, 1.28 |
+| `customizable_localization` (the folder's name set at `0x7e510`) | `0x46fab0` | 0.82, 0.83, 0.74 |
+| Dynasty colors and the history | `0x5b91f0`, `0x7ea2c0` | 0.78, 0.77, 0.65 |
+| Map logic | `0x87b9e0` | 0.67, 0.69, 0.64 |
+| Missions | `0x8d5bd0` | 0.51, 0.53, 0.47 |
+| The countries' files, before `country_colors` | `0x283d20` and the rest | 0.38, 0.43, 0.34 |
+| Estates | `0x728570` to `0x72e4a0` | 0.38, 0.40, 0.35 |
+| Technologies, the second phase | `0xb74120` | 0.21, 0.23, 0.19 |
+| The other 90 or so | | about 0.7 |
+
+- **The picture checks' wait.** The task the databases start first (`0x8effc0`) checks, on a pool thread, that each picture the modifiers name exists: `0x8d80d0` takes a name from its queue, makes the picture's path (`0x8ef620`) and asks the texture manager (`[0x23494a0]`, its method `+0x30`), which asks PhysFS; a picture that is not there adds "The image for '…' does not exist as a picture!" to a list (`[0x2358128]`). The answers go nowhere else. At the databases' end `0x8f0350` (`modifier.cpp`) sets that no more will come (`[0x2358148]`, under the mutex `[0x23580a0]`), waits for the task (`0x17139c0` on `[0x2358098]`) and writes the list to the log. Timed in another start: the checks' thread made 16,031 lookups (`0x19fad70`) one after another from the databases' start, 11.3 s in all, 0.7 ms each, and finished 4.75 s after the history; the LoadingThread waited all of that in `0x17139c0`, and sampled, ran at none of its ticks.
+- **What a lookup costs.** Traced on the checks' thread in a third start (slowed by 6 million traced calls): each lookup checked 139 of the search path's entries (`0x19fb700`, 2,228,309 calls); the zips' stats (`0x1a07950`) were 232 a lookup at 0.5 µs, the tree's lookups (`0x19f9280`) among them; the folders' stats (`0x1a07080`, the folder archive's) 20 a lookup at 29 µs, 77% of the lookup's time. L2 answered about half of them from the listings (131,072 by the end of the startup); the others asked Windows: the user folder and the local mod's folder, which L2 leaves to the game, and the paths the listings have.
+- **Running.** Sampled at 100 a second in the same start as the brackets, the LoadingThread ran at 400 ticks of the databases' about 850 (47%): decisions 113, `customizable_localization` 68, the map logic 47, missions 43, the history 17.
+- **The other threads' lookups**: in the start that timed them, the LoadingThread made 7,258 lookups, 3.5 s in all, and the main thread 3,601, 1.35 s.
+
+## The meshes
+
+Read 2026-11-08 for whether the meshes could load beside the databases.
+
+- `0x14dc5d0` (`pdxmeshobject.cpp`), at the end of the LoadingThread's first step, walks the graphics object's table of mesh objects (`[graphics+0xf0]`, `[graphics+0xec]` buckets of linked entries) and loads each not loaded yet (`[object+0x44]` and `[object+0x40]` clear) through its method `+0x40`, setting `+0x44`; then it makes the meshes' shaders and vertex declarations through the device and keeps them in globals from `0x2349538` to `0x23496a0`.
+- Timed with L4 on: 4.6 and 5.5 s. Sampled, the LoadingThread ran at 139 of about 460 ticks (30%): 39% of those inflating (the zips), 28% opening and looking up files, 9% in the heap, 7% in Direct3D. The meshes' textures are looked up on the pool's threads (`0x15cce80`), whose 97 samples were all in lookups.
+- Of the databases, only the graphical unit types (`0x114a7a0`) is about graphics: it reads `gfx/sprite_packs` and `gfx/sprite_packs_order` (`0x114aa10`, `0x114b160`), 0.03 s; nothing found reads the mesh objects. Not followed: what each mesh's load writes besides its object, and whether the databases read any of it.
+
 ## Not looked into
 
 - Which thread held the open's lock while the LoadingThread waited on it from 10 to 18 s; with L4 the opens to read no longer take it.
-- What is left of the LoadingThread's waits with L4.
+- What is left of the LoadingThread's waits with L4 besides the picture checks.
+- Which folders' stats are the user folder's and which the local mod's.
+- What a mesh's load writes, and whether the databases read it.
 - Vanilla's startup and load, without the framework, on the same machine.
 - What `0x1806bf0` keeps of a music file, and whether the game reads every file again when it plays.
 - Which of the game's things the dated nodes are, and how long their lists get.
