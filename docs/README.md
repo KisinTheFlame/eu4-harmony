@@ -30,6 +30,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 | | |
 | --- | --- |
 | [game-speed.md](plans/game-speed.md) | Making the game faster without changing the game it plays; how a part is chosen, and which comes next |
+| [map-text-sdf.md](plans/map-text-sdf.md) | The names on the map drawn from distance fields, sharp at every zoom, with the outline drawn by the map's shader |
 
 ### Built
 
