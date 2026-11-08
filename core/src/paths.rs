@@ -38,7 +38,7 @@ pub fn command_line() -> &'static str {
 
 /// The folder this core's DLL was loaded from: `eu4-harmony\` in the game
 /// folder, or the test game's own, which `-harmony_core` names
-/// (docs/test-games.md).
+/// (docs/plans/test-games.md).
 pub fn core_dir() -> Result<PathBuf> {
     use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleExW, GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT};
     let mut module = std::ptr::null_mut();

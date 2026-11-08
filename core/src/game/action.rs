@@ -1,5 +1,5 @@
 //! What the player does in a panel, carried out as the panel carries it out
-//! (docs/player-actions.md): refused with the game's reasons when the game
+//! (docs/plans/player-actions.md): refused with the game's reasons when the game
 //! does not let the player do it, and otherwise the command the button
 //! posts, posted through the session's commands ([`Commands`]). Every action
 //! refuses in the same words here, named by what the player does, as "raise

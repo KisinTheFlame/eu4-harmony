@@ -1,5 +1,5 @@
 //! The quarantine of what the framework's repairs let go
-//! (docs/leak-finding.md, M4): while it is on, a block freed on a thread
+//! (docs/plans/leak-finding.md, M4): while it is on, a block freed on a thread
 //! where a repair is letting memory go ([`begin`] to [`end`]) is kept
 //! instead of freed and filled with [`PATTERN`]; every [`EVERY`] what it
 //! keeps is compared with the pattern, and the first write to each block is

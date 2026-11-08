@@ -413,7 +413,7 @@ pub fn points() -> Vec<Point> {
 
 /// A tooltip's reasons, as the game wrote them into a string: plain lines,
 /// without color codes, the bullet a line may start with, or empty lines
-/// (docs/player-actions.md, "Choices, reasons, costs").
+/// (docs/plans/player-actions.md, "Choices, reasons, costs").
 pub fn reasons(text: &[u8]) -> Vec<String> {
     crate::unicode::game_text::plain(text).lines().map(|l| unbulleted(l).trim_end()).filter(|l| !l.is_empty()).map(str::to_string).collect()
 }

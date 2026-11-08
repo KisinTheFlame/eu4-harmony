@@ -1,6 +1,6 @@
 # 2026-11-08 The deepening, all its parts merged (tested by me)
 
-Every part of [deepening.md](../deepening.md) together, on `claude/improve-codebase-architecture-80be67` at `8e244bc3`, with master up to `630fa045` merged in. Test games of this checkout's, every game started hidden; the player's saves `England-1`, `英格兰1444_11_11` and `Austria-1`, copied into the test games.
+Every part of [deepening.md](../plans/deepening.md) together, on `claude/improve-codebase-architecture-80be67` at `8e244bc3`, with master up to `630fa045` merged in. Test games of this checkout's, every game started hidden; the player's saves `England-1`, `英格兰1444_11_11` and `Austria-1`, copied into the test games.
 
 - **Checks**: `cargo fmt --check`, the release build, `cargo test --release` for the workspace and the core's tests with `--features dev`, both clippy runs, and `cargo xtask offline-check`, which now checks the developer build's points too, all passed. The core's tests passed three times in a row.
 - **`cargo xtask scenario perf growth leak --growth.rounds 2 --leak.rounds 2`**: one claim of 12 minutes, each scenario passed, every game ended with exit code 1, no crash folder, and no fatal error or panic in the framework's logs.

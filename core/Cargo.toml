@@ -106,7 +106,7 @@ dev-test-switches = ["dep:toml"]
 dev-write-watch = ["analysis", "dep:toml"]
 # Serves remote control on the test game's own pipe, the one
 # -harmony_test_game names, so that test games run side by side
-# (src/pipe.rs, docs/test-games.md).
+# (src/pipe.rs, docs/plans/test-games.md).
 dev-test-games = ["dep:toml"]
 
 [[example]]

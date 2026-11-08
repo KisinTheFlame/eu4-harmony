@@ -1,6 +1,6 @@
 # 2026-11-03 Regional combat in Lua (tested by me)
 
-L6 of [lua-extensions.md](../lua-extensions.md): the regional combat mod rewritten in Lua (its own repository, branch `lua`), in the running game. Its descriptor in `mod\` and the playset were the player's own. One run of `eu4.exe`, started directly, driven by `eu4-harmony game`, clicked with `tools/game-input.ps1`: a new game as France, war declared on England on 1444.12.12 (`diplomacy.declare_war`, a core casus belli), time advanced to 1445.4, `menu.load autosave`. The game was claimed with the game-lock skill, which backed up the player's files first.
+L6 of [lua-extensions.md](../plans/lua-extensions.md): the regional combat mod rewritten in Lua (its own repository, branch `lua`), in the running game. Its descriptor in `mod\` and the playset were the player's own. One run of `eu4.exe`, started directly, driven by `eu4-harmony game`, clicked with `tools/game-input.ps1`: a new game as France, war declared on England on 1444.12.12 (`diplomacy.declare_war`, a core casus belli), time advanced to 1445.4, `menu.load autosave`. The game was claimed with the game-lock skill, which backed up the player's files first.
 
 - **Startup**: "Regional Combat (EU4 Harmony) (id regional-combat, api 0.2): extension lua/main.lua loaded; 2 UI fragment(s)".
 - **The button**: the Paris army selected from the outliner showed the "区域" button in the button area with its Chinese tooltip; a left click turned the task on, "center 183 radius 5", and the button's glow showed.

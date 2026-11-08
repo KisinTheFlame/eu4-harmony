@@ -1,4 +1,4 @@
-//! Saves compressed in the background (docs/game-speed.md, S3).
+//! Saves compressed in the background (docs/plans/game-speed.md, S3).
 //!
 //! The game compresses a save's entries into its zip on the main thread, at
 //! zlib's level 3: about 40% of an ironman autosave's time late in a game

@@ -1,5 +1,5 @@
-//! The speed-ups: each a change that makes the game faster (docs/game-speed.md,
-//! docs/loading.md; ADR the-game-may-be-made-faster-with-reasoned-differences),
+//! The speed-ups: each a change that makes the game faster (docs/plans/game-speed.md,
+//! docs/plans/loading.md; ADR the-game-may-be-made-faster-with-reasoned-differences),
 //! declared once with its name, the group it is named with, its dependency
 //! points, and whether what it answers can be checked against the game's own
 //! answer.

@@ -1,4 +1,4 @@
--- QA steady, a test mod of the extensions scenario (docs/whole-game.md):
+-- QA steady, a test mod of the extensions scenario (docs/plans/whole-game.md):
 -- counts the days and months of a session, reads the country played each
 -- day, and keeps the counts as its save data, logging what it gets back.
 local days, months, reads = 0, 0, 0

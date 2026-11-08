@@ -1,7 +1,7 @@
 //! The claim's course: claiming a test game, starting and stopping it,
 //! releasing it, which keeps its logs and removes the rest of it; and a run,
 //! such as the scenario runner's, played within a claim from holding it to
-//! giving it back (docs/test-games.md). It reaches the computer only through
+//! giving it back (docs/plans/test-games.md). It reaches the computer only through
 //! [`Machine`], so that the order of its writes of the record against what
 //! it does to the games and the folders is what the tests below follow.
 use super::machine::Machine;
@@ -40,7 +40,7 @@ pub struct Starting {
     /// checkout's `dev.toml`.
     pub options: Option<String>,
     /// Test mods, folders of Harmony mods, put in the test game's playset
-    /// (docs/whole-game.md); a start with none takes them out.
+    /// (docs/plans/whole-game.md); a start with none takes them out.
     pub mods: Vec<PathBuf>,
 }
 

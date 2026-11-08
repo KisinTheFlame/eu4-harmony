@@ -1,5 +1,5 @@
 //! A save's dated nodes added to their parent without walking its list
-//! (docs/loading.md).
+//! (docs/plans/loading.md).
 //!
 //! A node of the game's (the method `+0x98` at `0x7e7cd0`, which many classes
 //! share) adds a child to its list (`+0x20`) after walking the whole list for

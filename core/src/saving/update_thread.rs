@@ -1,5 +1,5 @@
 //! The thread the game keeps updating while it writes a save, woken when the
-//! save is written (docs/game-speed.md, S8).
+//! save is written (docs/plans/game-speed.md, S8).
 //!
 //! While a save is written (`0x5cde60`), a thread of the game's,
 //! "SaveSessionUpdateThread", calls `0x5c4460` over and over until it is told

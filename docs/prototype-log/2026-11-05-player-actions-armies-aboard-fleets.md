@@ -1,6 +1,6 @@
 # 2026-11-05 Player actions follow-up: armies aboard fleets (tested by me)
 
-The follow-up of A4's transport ([player-actions.md](../player-actions.md), A4), a developer build with the command log of branch `claude/player-actions-fu-transport-ba816d`, within a claim, started hidden; the player's playset. A new game as England at 1444.11.11, driven through remote control only, to 1445.3.29.
+The follow-up of A4's transport ([player-actions.md](../plans/player-actions.md), A4), a developer build with the command log of branch `claude/player-actions-fu-transport-ba816d`, within a claim, started hidden; the player's playset. A new game as England at 1444.11.11, driven through remote control only, to 1445.3.29.
 
 - **Why A4 found no route onto the sea**: the route's step from land onto a sea zone is open only when one fleet there has room for the whole army: the game asks each fleet whether its ships' room (one regiment for each transport, nothing for the warships in the unmodded game) less the regiments aboard holds every regiment of the army ([research/units.md](../research/units.md), [research/routes.md](../research/routes.md)). England's armies have 13 and 14 regiments. The route query is the right click's own; the right click then offers the automatic transport instead.
 - **Refusals**: with no fleet in the Thames sea zone (1270), `army.move <london army> 1270` was refused "the player has no fleet in 1270 to board"; with the 9-ship fleet there, the 14-regiment army "no fleet of the player's in 1270 has room for the army's 14 regiments: the most is 0".

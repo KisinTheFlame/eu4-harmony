@@ -1,4 +1,4 @@
-//! Files opened and looked up side by side (docs/loading.md, L4).
+//! Files opened and looked up side by side (docs/plans/loading.md, L4).
 //!
 //! Two global locks let one thread at a time open or look up a file: the
 //! game's own spin lock around every PhysFS open (`0x1718300`) and every

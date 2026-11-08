@@ -1,6 +1,6 @@
 # Input: where the game reads the mouse and keyboard
 
-What remote control's input (docs/input.md, I1) relies on. Addresses are RVAs into the 1.37.5 baseline. How SDL's events reach the game is in [architecture.md](architecture.md) (the main loop, idlers) and [text-input.md](text-input.md) (text and edit boxes).
+What remote control's input (docs/plans/input.md, I1) relies on. Addresses are RVAs into the 1.37.5 baseline. How SDL's events reach the game is in [architecture.md](architecture.md) (the main loop, idlers) and [text-input.md](text-input.md) (text and edit boxes).
 
 ## From Windows to the game
 

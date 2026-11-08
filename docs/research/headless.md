@@ -90,7 +90,7 @@ What a game that runs unseen could still do to the program the player works in: 
 
 ## What the hidden start relies on
 
-Read from `eu4.exe` on 2026-11-04 with `cargo xtask disasm`, for the hidden start ([hidden-start.md](../hidden-start.md)), and tried in the game the same day ([The hidden start](../prototype-log/2026-11-04-hidden-start.md)).
+Read from `eu4.exe` on 2026-11-04 with `cargo xtask disasm`, for the hidden start ([hidden-start.md](../plans/hidden-start.md)), and tried in the game the same day ([The hidden start](../prototype-log/2026-11-04-hidden-start.md)).
 
 - **The window's flags.** Both paths of `0x14c3dd0` (full screen, and borderless or windowed) leave the flags at `[rsp+0x28]` and meet at `0x14c40af` (`mov edx, 0x2fff0000`), the last instruction before the arguments of `SDL_CreateWindow` are moved into place. Leaving `SDL_WINDOW_SHOWN` out is not enough: SDL 2 shows every window made without `SDL_WINDOW_HIDDEN` (8) as it finishes making it. Tried: without `SHOWN` alone, the window was shown 0.8 s after the framework started and took the focus; with `HIDDEN`, it stayed hidden.
 - **The window's class** is SDL's, `SDL_app`, and its title `Europa Universalis IV`; besides it, the process has the hidden windows `Default IME`, `MSCTFIME UI` and, early in the start, `PdxDetectWindow`.
@@ -108,7 +108,7 @@ Read from `eu4.exe` on 2026-11-04 with `cargo xtask disasm`, for the hidden star
    - hold the cursor where it moves no camera (remote control's input already answers `0x14e5e50` itself);
    - give a way back to the window, such as a capability that shows it again, since the player has nothing to click.
 
-   [hidden-start.md](../hidden-start.md) has it.
+   [hidden-start.md](../plans/hidden-start.md) has it.
 2. **Not drawn: feasible, size of the gain unknown.** Skipping the idler's drawing (`0x8183b0` in a game, the main menu's frame draws the same way) and drawing only the frames a screenshot asks for would idle the graphics card; whether it makes days faster depends on how much of the main thread's frame the drawing takes at speed 5, which was not measured (the day's update runs whole frames inside it, [architecture.md](architecture.md), "Frames inside a day"). What the views update while drawing, and what a skipped frame would leave stale, is not known.
 3. **No graphics card: not feasible as the game is.** The device must be a hardware one. Untried routes: Windows' Basic Render Driver, which may or may not take a Direct3D 9 hardware device; `-opengl` with a software OpenGL in the game folder. Steam must also be running and signed in, and the game is licensed per player, so a build machine could not hold it anyway.
 4. **Several at once: feasible.** The instance check finds nothing and Steam runs the game twice; it takes each game started from the game folder with a user folder of its own (`-userdir`), a core and a pipe of its own, and a claim per game ([several-games.md](several-games.md)).

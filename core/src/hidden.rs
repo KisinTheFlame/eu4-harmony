@@ -1,6 +1,6 @@
 //! The hidden start (GLOSSARY): the game started with `-harmony_hidden` on
 //! its command line runs with nothing of it on the player's desktop, and with
-//! no sound unless `-harmony_sound` is there too (docs/hidden-start.md). The
+//! no sound unless `-harmony_sound` is there too (docs/plans/hidden-start.md). The
 //! switches are read once, as the framework starts; this module answers
 //! whether the game is hidden now, and its points keep the game from showing
 //! itself:

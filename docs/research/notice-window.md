@@ -10,7 +10,7 @@ The method is the same as in `ui-injection.md`: static analysis only, without st
 
 Items marked **verified** were seen directly in decompiled code or in the bytes; items marked **inferred** are judgements from structure. All function prototypes in the pseudocode are tentative.
 
-The framework does not host its notice window this way: ADR notice-window-in-vanilla-hosts, which followed this study's recommendation, was superseded by [ADR framework-draws-its-own-ui](../adr/framework-draws-its-own-ui.md), and notices are drawn in the framework UI's own window (`core/src/notice.rs`). The recommendations and the suggested implementation below are what was concluded then; the findings on the game's windows, their lifecycle and their destruction still describe the game.
+The framework does not host its notice window this way: ADR notice-window-in-vanilla-hosts, which followed this study's recommendation, was superseded by [ADR framework-draws-its-own-ui](../adr/2026-10-27-framework-draws-its-own-ui.md), and notices are drawn in the framework UI's own window (`core/src/notice.rs`). The recommendations and the suggested implementation below are what was concluded then; the findings on the game's windows, their lifecycle and their destruction still describe the game.
 
 ## Conclusion
 

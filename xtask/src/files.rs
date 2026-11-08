@@ -43,7 +43,7 @@ pub fn install(args: &Args) -> Result<()> {
         return Err(format!("no eu4.exe in {}", root.display()));
     }
     // A loaded version.dll cannot be replaced: no game may run, the test
-    // games included (docs/test-games.md).
+    // games included (docs/plans/test-games.md).
     eu4_harmony_client::game::not_running()?;
 
     if args.flag("uninstall") {

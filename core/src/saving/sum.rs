@@ -1,4 +1,4 @@
-//! The save checksum's sum taken on several threads (docs/game-speed.md, S8).
+//! The save checksum's sum taken on several threads (docs/plans/game-speed.md, S8).
 //!
 //! The save checksum is an MD5 of a sum of the entry's bytes
 //! (docs/research/saves.md, "The checksum"). The sum, a memory stream's method

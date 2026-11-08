@@ -1,6 +1,6 @@
 //! The claims of test games, as data, and what a claim finds when it looks at
 //! them: the decisions, without the files, the mutex or the clock
-//! (docs/test-games.md).
+//! (docs/plans/test-games.md).
 //!
 //! The record is `claims.json`: each claim, with its test game's folder. A
 //! claim holds its test game until it is released, and any number are held
@@ -194,7 +194,7 @@ impl State {
 pub fn old_holder(now: u64, since: &str) -> Value {
     json!({
         "owner": OLD_HOLDER,
-        "purpose": "test games run side by side; update this checkout from master to claim one (docs/test-games.md)",
+        "purpose": "test games run side by side; update this checkout from master to claim one (docs/plans/test-games.md)",
         "checkout": "",
         "since": since,
         "renewed": now,

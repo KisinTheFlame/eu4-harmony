@@ -1,6 +1,6 @@
 # 2026-11-08 Every function the game calls guarded, and a build's points in one module (tested by me)
 
-The observer seam that guards every observer and gives it a `Call`, `#[called_by_game]` on every other function the game calls, and `points::this_build` ([deepening.md](../deepening.md), D1 and D10), before master's panic logging and army searches were merged in. `cargo xtask scenario perf growth leak --growth.rounds 2 --leak.rounds 2`, one claim of 9 minutes, the games started hidden.
+The observer seam that guards every observer and gives it a `Call`, `#[called_by_game]` on every other function the game calls, and `points::this_build` ([deepening.md](../plans/deepening.md), D1 and D10), before master's panic logging and army searches were merged in. `cargo xtask scenario perf growth leak --growth.rounds 2 --leak.rounds 2`, one claim of 9 minutes, the games started hidden.
 
 - **perf** (player build): passed: the game started hidden, reached the main menu in 44 s, played the new game as Ming paused and at speed 5, and returned to the main menu.
 - **growth** (memory account build), two rounds: passed: each round loaded the first save, made an in-game load of the second, returned to the main menu, started a new game and returned, with the observers of sessions, saves, the world reset, the repairs and the framework UI all converted; no fatal error in the log, and the release found both games ended by the run (exit code 1).

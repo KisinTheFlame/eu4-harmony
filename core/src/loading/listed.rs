@@ -1,5 +1,5 @@
 //! Every folder of PhysFS's search path answered from its listing, kept up to
-//! date (docs/loading.md, L5).
+//! date (docs/plans/loading.md, L5).
 //!
 //! A lookup of a file checks the search path's entries in turn, and for a
 //! folder PhysFS asks Windows about the path and about each folder on its

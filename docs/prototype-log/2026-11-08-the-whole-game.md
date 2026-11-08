@@ -1,6 +1,6 @@
 # 2026-11-08 The whole game played through (tested by me)
 
-The scenario set `whole` and its scenarios ([whole-game.md](../whole-game.md)), on the branch of this work, played in test games of my own, each started hidden from the game folder with the player's playset (the Chinese one, regional combat among its Harmony mods) and every DLC. First short runs of each scenario, two of them side by side in two test games, then the whole set with its parameters as the code has them.
+The scenario set `whole` and its scenarios ([whole-game.md](../plans/whole-game.md)), on the branch of this work, played in test games of my own, each started hidden from the game folder with the player's playset (the Chinese one, regional combat among its Harmony mods) and every DLC. First short runs of each scenario, two of them side by side in two test games, then the whole set with its parameters as the code has them.
 
 ## The short runs, and what they found
 

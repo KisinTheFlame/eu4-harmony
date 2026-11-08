@@ -1,0 +1,83 @@
+# Countries
+
+A country is what a player or the AI plays: a tag such as `FRA`, with its treasury, manpower, stability, prestige and monarch points, its technology and ideas, its government and estates, its ruler and heir, its subjects and its wars. The game keeps every tag there is, living or not, and runs each living country through a day and a month of its own; the rest of the game reads a country's state, and much of what it reads is worked out again from that state when it changes. How countries deal with each other is [diplomacy.md](diplomacy.md); their armies and fleets are [military.md](military.md); the AI that plays them is [ai.md](ai.md).
+
+## A country and its tag
+
+- **One array of every tag**, indexed by the tag's number: the world finds a country by its tag through it everywhere ([research/countries.md](../research/countries.md#the-country-array)). Late in a game most tags are not living: in 1780, 118 living countries against 1,380 tags ([research/country-knowledge.md](../research/country-knowledge.md#what-it-works-out)).
+- **The game's numbers are thousandths**: treasury, stability, prestige, manpower (whose thousandths are men), inflation and the like are whole numbers of thousandths of their value; monarch points are whole points ([research/countries.md](../research/countries.md)).
+- **The three kinds of monarch power** are always in the same order, administrative, diplomatic, military, and most of what a country buys is paid in one of them ([research/countries.md](../research/countries.md)).
+
+## What a country has
+
+- **Technology**: a level in each technology category; the categories, and which kind of power each is bought with, are the game's data, read from its files, so the order of the categories is not fixed in code ([research/countries.md](../research/countries.md#technology)). The next level costs points worked out from the category, the level and how far ahead of its time it is; at the last level the button is gone ([research/power-spending.md](../research/power-spending.md#technology)).
+- **Ideas**: the idea groups taken, each with the count of its ideas bought; the national ideas come first and are free. How many groups a country may take comes from its technology. The next idea of a group is the one after those bought ([research/countries.md](../research/countries.md#ideas), [research/government.md](../research/government.md#ideas)).
+- **Governing capacity**: the capacity used, and a maximum worked out from technology and modifiers ([research/countries.md](../research/countries.md#governing-capacity)).
+- **Money**: a ledger of the month's income in 19 categories and expenses in 38, with last month's and last year's beside them, as the economy view lists them; inflation and mercantilism; and loans, each with its lender (none for a bank loan), interest, amount in whole ducats and due date ([research/countries.md](../research/countries.md#money-the-ledger-loans-inflation-mercantilism)).
+- **Government**: a government type with its reforms, chosen tier by tier, the next tier paid with reform progress; a rank, 1 to 3 in the unmodded game, raised at no cost once its conditions hold (development, prestige, not a subject or a junior partner, not held back by the Empire), which gives prestige; three sets of policies, administrative, diplomatic and military; the national focus, which may change again only some years after the last change, fewer the higher the rank ([research/government.md](../research/government.md), [research/countries.md](../research/countries.md#national-focus)).
+- **Estates**: each with its loyalty, its share of the land and the privileges granted; its influence is not kept but worked out from modifiers whenever it is asked ([research/countries.md](../research/countries.md#estates-and-parliament), [research/government.md](../research/government.md#estates)). Every day each country checks its estates' privileges and its reforms against their conditions, to take back what no longer holds ([research/country-daily-update.md](../research/country-daily-update.md#the-estates)).
+- **Parliament**, for a country with one: the issues on offer, the debate going on, the issue enacted; seats belong to provinces ([research/government.md](../research/government.md#parliament)).
+- **Missions and decisions**: the missions in columns of series, each completed or not; decisions taken from the decisions view, each with its conditions ([research/government.md](../research/government.md#decisions-and-missions), [scripts.md](scripts.md)).
+- **Rebel factions** against the country: each with its type, name, progress, the country it would make independent, its religion, culture and provinces ([research/countries.md](../research/countries.md#rebels)).
+- **Each kind of content is the game's data**, read from its folder under `common/` (ideas, policies, reforms, estates and their privileges, ranks, rebel types, parliament issues, subject types), so a mod's additions are among them and are found by their keys ([research/countries.md](../research/countries.md#the-databases-for-looking-a-key-up)).
+
+## Spending monarch power and money
+
+- **One kind of action for every use of monarch power**: buying an idea or a technology, raising stability, reducing inflation, promoting mercantilism, a general, a core, moving the capital and about forty more. Each is a spending of a kind and a kind of power; the game works out its cost from the game's defines and the country's modifiers, and checks it by its kind (stability only below +3, for instance) ([research/countries.md](../research/countries.md#what-the-economys-actions-cost), [research/power-spending.md](../research/power-spending.md#the-power-spending)).
+- **The checks are the interface's as much as the command's**: the command that sets the national focus does not check its cooldown, only the court view's button does; the command that repays a loan does not compare the price with the treasury, only the loan window does ([research/power-spending.md](../research/power-spending.md#the-commands)).
+- **A bank loan** is the country's loan size times its estimated loan, which follows its income at once: developing a province's tax raised the loan offered the same moment. A country may take bank loans up to a number of its own, at least three ([research/power-spending.md](../research/power-spending.md#the-economy)).
+
+## Rulers and their names
+
+- **A ruler, an heir and a consort** are one kind of person: a given name with the regnal number in it ("Louis XI"), a dynasty, a culture, a religion. Their full name is the given name, a space and the dynasty, in that order, fixed in code; generals and advisors keep one string, given name and family name already joined ([research/names.md](../research/names.md#people)).
+- **A new heir's name is drawn from the country's list** by its weights; the game's arithmetic overflows when it weighs both sexes, so the list's first name is drawn about half the time, and the heir takes that name's sex then too ([research/names.md](../research/names.md#picking-a-name-from-a-list)).
+- **Cultures and culture groups** are the game's data; the East Asian groups are those whose people put the family name first, which the game's full names do not ([research/names.md](../research/names.md#cultures)).
+
+## Subjects
+
+- **What kind of subject a country is** (a vassal, a personal union, a tributary, an appanage, 26 kinds in the unmodded game, more with mods) is not kept in the country but in the relation between overlord and subject; the country keeps its overlord and its list of subjects ([research/countries.md](../research/countries.md#a-countrys-snapshot-countriessnapshot)).
+- **An overlord deals with its subjects through 41 subject interactions**, a fixed set in code (placating rulers, seizing territory, sending officers, siphoning income and the rest): the subject's type allows each or not, and an interaction that goes on is stopped by sending it again ([research/subjects.md](../research/subjects.md#the-interactions)). Annexing and integrating are diplomatic actions ([diplomacy.md](diplomacy.md)).
+- **A subject relation that ends** (an overlord annexed or destroyed, independence, a release) walks the subject's list of the countries it shares a support of independence with, and refreshes the subject's knowledge inside that walk, which clears and rebuilds the very list being walked: the walk then goes on through freed memory or another list, and the game can crash. The list also mixes both directions, the countries supporting the subject's independence and those whose independence it supports, so ending one relation ends a support the subject gave ([research/dependency-teardown.md](../research/dependency-teardown.md)).
+
+## What a country knows of itself
+
+- **Seventy facts kept ready**: the counts of the country's provinces by kind, averages over them (unrest, autonomy), its allies and other relations as lists, its neighbors and border, its leaders, buildings and religions counted. Scripts, the AI and the interface read these instead of walking the country's provinces and relations again ([research/country-knowledge.md](../research/country-knowledge.md#what-it-works-out)). So the lists of allies, guarantees and the like that the rest of the game reads ([research/countries.md](../research/countries.md#a-countrys-snapshot-countriessnapshot)) are worked out from the country's relations, not kept for themselves.
+- **They are worked out again** (`0x93fe30`) at once, from 228 places in the game's code (a diplomatic action refreshes both countries), or once a day in the country's daily update when something has asked for it. Late in a game there are about twelve refreshes a game day, of all the countries together ([research/country-knowledge.md](../research/country-knowledge.md#when-it-runs)).
+
+## A country's day and month
+
+- **Each country's daily update**, one country after another on the main thread, is its simulation for the day: its units' days, its knowledge refreshed when asked, the AI's sums of its strength, its estates and reforms checked, its modifiers made again ([research/country-daily-update.md](../research/country-daily-update.md), [day.md](day.md)).
+- **Each country's month**, on a month's first day: the AI's budget, the modifiers made again, cores lost that were neither owned nor fought over for years, mercenary companies no longer available, triggered modifiers gained and lost, its units' month. It draws from the game's one random generator, so the countries' months run in their order ([research/monthly-update.md](../research/monthly-update.md#a-countrys-month), [day.md](day.md)).
+
+## Wars and coalitions
+
+- **The world keeps the wars going on and those ended.** A war has its name, its attackers and defenders, the first of each side its leader, and its participants ([research/countries.md](../research/countries.md#wars)). How wars begin and end is [diplomacy.md](diplomacy.md); their battles [military.md](military.md).
+- **A coalition** is a list of members kept on the country it is against. A country joins in its daily update, on the main thread; the AI takes countries off a coalition as it weighs what another country means to it, on the game's worker threads, up to four at once, and nothing locks the list, so two threads unlinking together corrupt the game's heap ([research/countries.md](../research/countries.md#a-coalition)).
+
+## Achievements
+
+- **One check decides whether achievements can be earned**: not multiplayer, after a load, the player's country the one the achievements in progress were begun with, the save's checksum matched, the major DLCs, the game's checksum the unmodded game's, ironman, and the game's settings (difficulty at least normal, no custom nations beyond one, no custom development, lucky nations off, end-game tags not blocked). Nothing in it is about the game console, the start date or mods as such: a mod changes the game's checksum ([research/achievements.md](../research/achievements.md#the-check)).
+- **It is asked whenever its answer is wanted**, and keeps nothing; but the list of achievements in progress is built only as a session begins, so a change in the middle of one counts from the next ([research/achievements.md](../research/achievements.md#who-asks)).
+- **Once off, they stay off**: a game played once with the game's checksum not the unmodded one, or loaded once from a modified save, salts every save after it so that it fails the save checksum. And a save loaded in a session failed that checksum in the unmodded game whatever it held ([research/achievements.md](../research/achievements.md#who-asks), [program.md](program.md)).
+
+## A country's armies defeated
+
+- **A land battle is decided in its daily update**, and a lost one either sends the loser's units off in retreat or overruns and destroys them; an army that lost and retreats, one that was destroyed, one taken out of a siege or by a script all leave the same traces, so the game holds no single fact that says a country's army was defeated ([research/defeat.md](../research/defeat.md), [military.md](military.md)).
+
+## What the framework relies on
+
+- The country array and a country's tag, its snapshot (treasury, manpower, stability, prestige, points, allies, subjects and their types, rivals, wars) and the fields of the player-actions reads, all dependency points ([plans/remote-control.md](../plans/remote-control.md), [plans/player-actions.md](../plans/player-actions.md)).
+- The power spendings, the national focus, loans, ideas, policies, reforms, rank, estates, parliament, decisions and missions as the panels' buttons send them, with the game's own checks and reasons ([plans/player-actions.md](../plans/player-actions.md), [research/power-spending.md](../research/power-spending.md), [research/government.md](../research/government.md)).
+- The subject interactions and rivals ([research/subjects.md](../research/subjects.md)).
+- Repairs: the coalition list's joins and leaves take turns ([research/countries.md](../research/countries.md#a-coalition)); a subject relation's end refreshes its subject once, after the walk ([research/dependency-teardown.md](../research/dependency-teardown.md#the-repair)); a name drawn by its weights; the in-game load keeps achievements ([research/names.md](../research/names.md#picking-a-name-from-a-list), [research/achievements.md](../research/achievements.md#who-asks), [ADR achievement-rules-can-be-relaxed](../adr/2026-11-04-achievement-rules-can-be-relaxed.md)).
+- Names in the player language: East Asian rulers family name first, battles named by the language's own order ([research/names.md](../research/names.md#what-the-framework-does)).
+- An own army defeated, heard at the two settlements of a battle ([research/defeat.md](../research/defeat.md#what-the-framework-hears)).
+
+## What is not known yet
+
+- **Where the notes disagree**, the later note answers what the earlier left open: [research/countries.md](../research/countries.md#not-known) did not find the function that answers an estate's influence, which idea of a group is next, or how a reform is found by its key; [research/government.md](../research/government.md) found all three. Neither was read back in the game for these.
+- What every reader of a country's knowledge expects of how new it is, and what some of its facts are ([research/country-knowledge.md](../research/country-knowledge.md#not-verified)).
+- Parliament's seats and the debate's layout; how many bank loans a country is allowed; where the game reads `can_change_national_focus`; what locks a country's envoys when it is a subject ([research/countries.md](../research/countries.md#not-known), [research/government.md](../research/government.md#not-established), [research/power-spending.md](../research/power-spending.md#not-known), [research/envoys.md](../research/envoys.md#envoys)).
+- Why a subject's support-of-independence list mixes both directions ([research/dependency-teardown.md](../research/dependency-teardown.md#the-defect)).
+- Which of the achievement check's inputs stand for multiplayer and another human in the session ([research/achievements.md](../research/achievements.md#not-settled)).
+- Whether an army overrun is heard defeated twice; an army that survives a defeat, a retreat with nowhere to go, a naval battle ([research/defeat.md](../research/defeat.md#in-the-running-game)).
