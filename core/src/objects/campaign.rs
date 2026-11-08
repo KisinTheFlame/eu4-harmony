@@ -656,6 +656,8 @@ pub mod side {
 pub mod map_manager {
     /// The current map mode, i32.
     pub const MODE: usize = 0x2c;
+    /// The application, as every idler keeps it (`objects::application`).
+    pub const APPLICATION: usize = 0x330;
     /// Its pause state (see [`super::pause`]).
     pub const PAUSE: usize = 0x418;
     /// Its methods, by vtable offset: the refresh, and the one that answers

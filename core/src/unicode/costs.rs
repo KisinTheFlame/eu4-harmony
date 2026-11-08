@@ -1,6 +1,6 @@
 //! What the module's own work costs while the game runs: how often, and how
-//! long, it worked out line breaks and drew glyphs and pages for filled
-//! fonts. Logged once the main menu shows, then again when there is more to
+//! long, it worked out line breaks, drew glyphs and pages for filled fonts
+//! and grew those pages. Logged once the main menu shows, then again when there is more to
 //! say, at most every ten minutes, from the frame the main thread presents.
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -53,6 +53,8 @@ pub static BREAKS_KEPT: Cost = Cost::new();
 pub static GLYPHS: Cost = Cost::new();
 /// Pages made for a filled font.
 pub static PAGES: Cost = Cost::new();
+/// Pages that grew.
+pub static GROWN: Cost = Cost::new();
 
 fn summary() -> String {
     let (questions, _) = BREAK_QUESTIONS.get();
@@ -60,9 +62,10 @@ fn summary() -> String {
     let (kept, _) = BREAKS_KEPT.get();
     let (glyphs, glyphs_time) = GLYPHS.get();
     let (pages, pages_time) = PAGES.get();
+    let (grown, grown_time) = GROWN.get();
     let each = |n: u64, t: Duration| if n == 0 { Duration::ZERO } else { t / n as u32 };
     format!(
-        "{questions} line break questions, {kept} texts' breaks found kept, {breaks} worked out in {breaks_time:.1?} ({:.1?} each); {glyphs} glyphs drawn in {glyphs_time:.1?} ({:.1?} each); {pages} font pages made in {pages_time:.1?}",
+        "{questions} line break questions, {kept} texts' breaks found kept, {breaks} worked out in {breaks_time:.1?} ({:.1?} each); {glyphs} glyphs drawn in {glyphs_time:.1?} ({:.1?} each); {pages} font pages made in {pages_time:.1?}, {grown} grown in {grown_time:.1?}",
         each(breaks, breaks_time),
         each(glyphs, glyphs_time),
     )

@@ -13,6 +13,8 @@ pub const MAIN_MENU_ARGS: (usize, usize) = (0x350, 0x358);
 /// startup's that fills it in, which whatever touches it waits for first.
 pub const CONTINUE: usize = 0x5d8;
 pub const CONTINUE_TASK: usize = 0x5d0;
+/// The map the game draws (`objects::text::map`).
+pub const MAP: usize = 0x360;
 
 use crate::points::Point;
 
@@ -25,5 +27,9 @@ pub fn points() -> Vec<Point> {
         // Setting the continue information, after its task.
         Point::keep(0x2110d0usize, "48 8b 89 d0 05 00 00 48 85 c9 74 05 e8 df 28 50 01", "continue task").uses(&[CONTINUE_TASK]),
         Point::keep(0x210aa8usize, "48 8b b6 d8 05 00 00", "continue information").uses(&[CONTINUE]),
+        // The map manager's frame building the names on the map again,
+        // through its application's map.
+        Point::keep(0x8152aausize, "49 8b 8d 30 03 00 00 48 8b 89 60 03 00 00 e8 b3 9f 89 00", "map manager's map")
+            .uses(&[crate::objects::campaign::map_manager::APPLICATION, MAP]),
     ]
 }
