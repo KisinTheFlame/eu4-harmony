@@ -352,6 +352,17 @@ impl Provinces {
     }
 }
 
+impl Object {
+    /// One of the game's arrays at `offset` (`containers::array`), holding
+    /// `items`.
+    pub fn game_array(mut self, offset: usize, items: &[u64]) -> Self {
+        let items: Box<[u64]> = items.into();
+        self = self.u64(offset + crate::containers::ARRAY_DATA, items.as_ptr() as u64).i32(offset + crate::containers::ARRAY_COUNT, items.len() as i32);
+        self.vectors.push(items);
+        self
+    }
+}
+
 /// Writes `text` into the `std::string` at `string` when there is one, as
 /// the game's checks write their reasons and its lookup a localisation's
 /// text: held in the string itself when it fits, otherwise in memory of its
@@ -432,9 +443,12 @@ extern "C" fn verdict(trigger: *const u8, _: usize) -> usize {
 }
 
 /// A content trigger's lines that do not hold `(trigger, out, ..)`, for a
-/// test: one line, `unmet`.
-extern "C" fn unmet(_: usize, out: usize) -> usize {
-    unsafe { write_reason(out, b"unmet") };
+/// test: none for one that holds, and one line, `unmet`, for one that does
+/// not.
+extern "C" fn unmet(trigger: *const u8, out: usize) -> usize {
+    if unsafe { *trigger } == 0 {
+        unsafe { write_reason(out, b"unmet") };
+    }
     0
 }
 
@@ -458,9 +472,13 @@ impl Image {
     }
 
     /// [`Image::strings`], and the game's localisation lookup as
-    /// [`localize`] answers it, with the values it takes.
+    /// [`localize`] answers it, with the values it takes; the localisation's
+    /// table has no text, so that a name is its key's text.
     pub fn localisation(&self) -> &Self {
         game_string::APPEND.slot().store(append as *const () as usize, std::sync::atomic::Ordering::Release);
+        self.u64(game_string::LOCALISATION, (self.base + game_string::LOCALISATION + 8) as u64)
+            .u64(game_string::LOCALISATION + 8, 0)
+            .function(game_string::FIND_TEXT.rva(), no as *const ());
         self.strings()
             .function(game_string::LOCALIZE_AT.rva(), localize as *const ())
             .function(game_string::VALUE_NEW.rva(), new_value as *const ())

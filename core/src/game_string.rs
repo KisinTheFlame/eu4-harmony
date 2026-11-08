@@ -44,8 +44,8 @@ pub(crate) const VALUE_TEXT: usize = 0x30;
 const TEXT_KIND: u64 = 1;
 /// The localisation, and its lookup `(table, hash)` of a key's text, which
 /// [`LOCALIZE_AT`] calls first.
-const LOCALISATION: usize = 0x2357b20;
-const FIND_TEXT: GameFunction<2> = GameFunction::at(0x16fb030);
+pub(crate) const LOCALISATION: usize = 0x2357b20;
+pub(crate) const FIND_TEXT: GameFunction<2> = GameFunction::at(0x16fb030);
 
 pub fn points() -> Vec<Point> {
     // The append itself: the size and capacity, the inline test, the text.
