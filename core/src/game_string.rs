@@ -24,22 +24,22 @@ const MOST: usize = 1 << 20;
 type Append = unsafe extern "C" fn(usize, *const u8, usize) -> usize;
 
 /// The game's `append(this, bytes, count)`, recorded at startup.
-static APPEND: Function<Append> = Function::new();
+pub(crate) static APPEND: Function<Append> = Function::new();
 const APPEND_AT: usize = 0x932f0;
 /// The game's destructor, which frees the text when it is not inline.
 pub(crate) const DESTROY_AT: GameFunction<1> = GameFunction::at(0x95660);
 /// The game's localisation lookup: (out, key, values, count); out is a
 /// `std::string` slot it constructs, key a C string.
-const LOCALIZE_AT: GameFunction<4> = GameFunction::at(0x14b34a0);
+pub(crate) const LOCALIZE_AT: GameFunction<4> = GameFunction::at(0x14b34a0);
 /// A value the lookup puts into a text where `$NAME$` stands, 0x68 bytes:
 /// the name (a C string) at `+0`, its kind at `+0x28` (1 for text), the
 /// text a `std::string` at `+0x30`. The game's constructor and destructor
 /// of one, as its callers build an array of them on the stack.
-const VALUE_NEW: GameFunction<1> = GameFunction::at(0x8f670);
-const VALUE_DESTROY: GameFunction<1> = GameFunction::at(0x8ee90);
-const VALUE: usize = 0x68;
+pub(crate) const VALUE_NEW: GameFunction<1> = GameFunction::at(0x8f670);
+pub(crate) const VALUE_DESTROY: GameFunction<1> = GameFunction::at(0x8ee90);
+pub(crate) const VALUE: usize = 0x68;
 const VALUE_KIND: usize = 0x28;
-const VALUE_TEXT: usize = 0x30;
+pub(crate) const VALUE_TEXT: usize = 0x30;
 /// [`VALUE_KIND`] of a value given as text.
 const TEXT_KIND: u64 = 1;
 /// The localisation, and its lookup `(table, hash)` of a key's text, which

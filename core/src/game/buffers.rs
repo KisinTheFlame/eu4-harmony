@@ -352,19 +352,26 @@ impl Provinces {
     }
 }
 
-/// Writes `text`, held in the string itself, into the `std::string` at
-/// `string` when there is one, as the game's checks write their reasons.
+/// Writes `text` into the `std::string` at `string` when there is one, as
+/// the game's checks write their reasons and its lookup a localisation's
+/// text: held in the string itself when it fits, otherwise in memory of its
+/// own, which the test's destructor ([`destroy_string`]) leaves.
 ///
 /// # Safety
 /// `string` is null or an empty `std::string` of the framework's, such as
 /// the one [`game_string::written`] gives.
 pub unsafe fn write_reason(string: usize, text: &[u8]) {
-    assert!(text.len() <= game_string::INLINE, "a reason a test writes is held in the string itself");
-    if string != 0 {
-        unsafe {
+    if string == 0 {
+        return;
+    }
+    unsafe {
+        if text.len() <= game_string::INLINE {
             std::ptr::copy_nonoverlapping(text.as_ptr(), string as *mut u8, text.len());
-            *((string + game_string::SIZE) as *mut usize) = text.len();
+        } else {
+            *(string as *mut usize) = Box::leak(text.to_vec().into_boxed_slice()).as_ptr() as usize;
+            *((string + game_string::CAPACITY) as *mut usize) = text.len();
         }
+        *((string + game_string::SIZE) as *mut usize) = text.len();
     }
 }
 
@@ -383,10 +390,55 @@ pub extern "C" fn no() -> usize {
     0
 }
 
+/// The text of the `std::string` at `string`.
+fn text_of(string: usize) -> Vec<u8> {
+    game_string::read(&Memory { base: 0 }, string).expect("a test's string")
+}
+
+/// The game's `append(this, bytes, count)`, for a test's strings.
+extern "C" fn append(string: usize, bytes: *const u8, count: usize) -> usize {
+    let mut text = text_of(string);
+    text.extend_from_slice(unsafe { std::slice::from_raw_parts(bytes, count) });
+    unsafe { write_reason(string, &text) };
+    0
+}
+
+/// A value of the localisation lookup's, made: its text an empty string.
+extern "C" fn new_value(value: usize) -> usize {
+    let empty = game_string::empty();
+    unsafe { std::ptr::copy_nonoverlapping(empty.as_ptr(), (value + game_string::VALUE_TEXT) as *mut usize, empty.len()) };
+    0
+}
+
+/// The localisation lookup `(out, key, values, count)`, for a test: the
+/// key, then each value as ` NAME=text`, so that a test sees which text the
+/// framework asked for and with what.
+extern "C" fn localize(out: usize, key: *const std::ffi::c_char, values: usize, count: usize) -> usize {
+    let mut text = unsafe { std::ffi::CStr::from_ptr(key) }.to_bytes().to_vec();
+    for i in 0..count {
+        let value = values + i * game_string::VALUE;
+        let name = unsafe { std::ffi::CStr::from_ptr(*(value as *const *const std::ffi::c_char)) };
+        text.extend_from_slice(format!(" {}=", name.to_string_lossy()).as_bytes());
+        text.extend(text_of(value + game_string::VALUE_TEXT));
+    }
+    unsafe { write_reason(out, &text) };
+    0
+}
+
 impl Image {
     /// The game's function a check that writes its reasons has called: the
     /// destructor of the `std::string` it wrote them to.
     pub fn strings(&self) -> &Self {
         self.function(game_string::DESTROY_AT.rva(), destroy_string as *const ())
+    }
+
+    /// [`Image::strings`], and the game's localisation lookup as
+    /// [`localize`] answers it, with the values it takes.
+    pub fn localisation(&self) -> &Self {
+        game_string::APPEND.slot().store(append as *const () as usize, std::sync::atomic::Ordering::Release);
+        self.strings()
+            .function(game_string::LOCALIZE_AT.rva(), localize as *const ())
+            .function(game_string::VALUE_NEW.rva(), new_value as *const ())
+            .function(game_string::VALUE_DESTROY.rva(), destroy_string as *const ())
     }
 }

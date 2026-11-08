@@ -34,12 +34,12 @@ const DATA: usize = 0x18;
 const SECOND: usize = 0x1c;
 const ABOUT_ID: usize = 0x28;
 /// The ID of none, which the game copies into each spending it builds.
-const NO_ID: usize = 0x233fea8;
+pub(super) const NO_ID: usize = 0x233fea8;
 /// A spending's cost in whole monarch points: `(spending, tag, text, 0)`.
-const COST: GameFunction<4> = GameFunction::at(0x9526d0);
+pub(super) const COST: GameFunction<4> = GameFunction::at(0x9526d0);
 /// Whether the spend_power command's check lets the country spend it:
 /// `(spending, tag)`.
-const CHECK: GameFunction<2> = GameFunction::at(0x94f250);
+pub(super) const CHECK: GameFunction<2> = GameFunction::at(0x94f250);
 /// The game's constructor of a spending about a province, `(spending, kind,
 /// province, power)`, which reads the province's ID as its first value. A
 /// spending needs no destructor: its vtable's slot `+0x28` is `ret`.
@@ -54,7 +54,7 @@ pub const PROMOTE_MERCANTILISM: i32 = 26;
 /// first use by its getters; null before), and the place in it of each this
 /// part reads: a vector of conditions, data at `+0x18` and count at `+0x24`,
 /// each with a `potential` at `+0x30` and an `allow` at `+0xa8`.
-const FUNCTIONS: usize = 0x242bdd8;
+pub(super) const FUNCTIONS: usize = 0x242bdd8;
 pub const CAN_REDUCE_INFLATION: usize = 0x78;
 pub const CAN_INCREASE_STABILITY: usize = 0xc8;
 const FUNCTION_DATA: usize = 0x18;

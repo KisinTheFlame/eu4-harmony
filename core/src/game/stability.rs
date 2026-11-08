@@ -57,3 +57,61 @@ pub fn raise(session: Session) -> GResult<()> {
     action::allowed(&choice(session)?, "raise stability")?;
     power::spend(session.commands, session.ctx.player, BOOST_STABILITY, PowerKind::Adm, 0, "raise stability")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalogue::fake::tur;
+    use crate::game::{
+        buffers::{self, Image, Object},
+        commands::record,
+        power::{COST, FUNCTIONS, NO_ID},
+        Caller, Fail, Status,
+    };
+    use crate::objects::campaign::country;
+
+    /// What a spending costs: 50 points.
+    extern "C" fn fifty() -> usize {
+        50
+    }
+
+    /// The Ottomans at `stability` thousandths, with `adm` administrative
+    /// points, raising stability costing 50; no scripted function forbids
+    /// it.
+    struct Ottomans {
+        _image: Image,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn ottomans(stability: i32, adm: i32) -> Ottomans {
+        let image = Image::new();
+        image.localisation().function(COST.rva(), fifty as *const ()).u64(NO_ID, 0).u64(FUNCTIONS, 0);
+        let player = Object::country(tur(), STABILITY + 4).i32(STABILITY, stability).i32(country::POWER, adm);
+        let countries = Object::countries(&[&player]);
+        let session = buffers::session(image.memory(), 0, tur(), player.at(), countries.at(), Caller::Remote);
+        Ottomans { _image: image, _objects: vec![player, countries], session }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("{result:?} was posted") };
+        (status, message)
+    }
+
+    #[test]
+    fn stability_is_raised_with_the_button_s_spending_for_its_cost() {
+        let ottomans = ottomans(1000, 100);
+        let options = options(ottomans.session).unwrap();
+        assert!(options[0].choice.can);
+        assert_eq!(options[0].choice.cost, [Amount::new(Resource::Adm, 50.0)]);
+        raise(ottomans.session).unwrap();
+        assert_eq!(record::posted(), [r#"spend_power_command={ country="TUR" power={ category=2 skill=0 } }"#]);
+    }
+
+    #[test]
+    fn stability_at_its_most_or_too_few_points_are_refused_with_the_button_s_tooltip() {
+        assert_eq!(refused(raise(ottomans(3000, 100).session)), (Status::Rejected, "STABILITY_BOOST_MAXED".into()));
+        assert_eq!(refused(raise(ottomans(0, 10).session)), (Status::Rejected, "STABILITY_BOOST_NOPOWER POWER_COST=50 POWER_AVAILABLE=10".into()));
+        assert!(record::posted().is_empty());
+    }
+}
