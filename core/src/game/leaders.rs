@@ -3,7 +3,7 @@
 //! game's own commands, as the military view and the unit panels post them
 //! (docs/research/leaders.md).
 use super::units::checks;
-use super::{action, modifiers, world, Caller, Ctx, GResult, Session};
+use super::{action, army, modifiers, Caller, Ctx, GResult, Session};
 use crate::{
     game_string,
     memory::Memory,
@@ -287,9 +287,9 @@ pub fn recruit(caller: Caller, args::Recruit { kind: word }: args::Recruit) -> G
 /// Gives a leader to one of the player's armies or fleets.
 pub fn assign(Session { m, ctx, commands, .. }: Session, args::Assign { leader: id, army: ArmyId(army) }: args::Assign) -> GResult<()> {
     let leader = find(m, &ctx, id)?;
-    let unit = world::own_unit(m, &ctx, army)?;
+    let unit = army::own(m, &ctx, army)?;
     let kind = read(m, leader)?.kind;
-    let land = m.ptr(unit)? == m.at(crate::objects::campaign::classes::ARMY);
+    let land = army::is_army(m, unit)?;
     if naval(kind) == land {
         return Err(checks::wrong_unit(key(kind), land));
     }
@@ -307,7 +307,7 @@ pub fn assign(Session { m, ctx, commands, .. }: Session, args::Assign { leader: 
 /// Takes the leader from one of the player's armies or fleets, as the
 /// panel's remove button does: the command with the empty leader ID.
 pub fn remove(Session { m, ctx, commands, .. }: Session, args::Remove { army: ArmyId(army) }: args::Remove) -> GResult<()> {
-    let unit = world::own_unit(m, &ctx, army)?;
+    let unit = army::own(m, &ctx, army)?;
     let leader = m.ptr(unit + UNIT_LEADER)?;
     if leader != 0 && m.ptr(leader + leader::UNIT)? == unit {
         let (leaves, text) = game_string::written(m, |t| MAY_LEAVE.call(m, [leader, t]))?;

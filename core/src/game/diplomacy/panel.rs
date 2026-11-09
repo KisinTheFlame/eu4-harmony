@@ -299,7 +299,7 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
         Act::DemandUnlawfulTerritory => i32_at(FIELDS, province()?.0 as i64),
         Act::OfferCondottieri => {
             let id = details.army.map(|a| a.0).ok_or_else(|| invalid("offer_condottieri needs an army".into()))?;
-            let army = crate::game::world::own_land_army(m, ctx, id)?;
+            let army = crate::game::army::own_land(m, ctx, id)?;
             i32_at(FIELDS, need(details.price, "a price")? as i64 * 1000)?;
             m.write(at + CONDOTTIERI_ARMY, &(army as u64).to_le_bytes())?;
             Ok(m.write(at + CONDOTTIERI_ARMY + 8, &id.to_le_bytes())?)

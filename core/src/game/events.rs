@@ -15,12 +15,12 @@
 //! capabilities call. The one exception is the end of the daily update, which
 //! no capability runs: there `time` pauses the game at a date remote control
 //! advances it to.
-use super::{context_any, fail, orders, world_context, world_context_any, GResult, InWorld, Status, Tag, World};
+use super::{army, context_any, fail, orders, world_context, world_context_any, GResult, InWorld, Status, Tag, World};
 use crate::containers;
 use crate::{
     hooks::Call,
     memory::Memory,
-    objects::campaign::{battle, classes, list, side, unit, world},
+    objects::campaign::{battle, list, side, unit, world},
     points::Point,
     Result,
 };
@@ -224,7 +224,7 @@ pub fn raise(change: Change) {
 /// Own land army at `address`, if it is one.
 fn own_army_id(m: &Memory, address: usize) -> Option<u64> {
     let ctx = context_any(m).ok()?;
-    if address == 0 || m.ptr(address).ok()? != m.at(classes::ARMY) || m.u64(address + unit::OWNER).ok()? != ctx.player.0 {
+    if !army::is_own_army(m, ctx.player, address).ok()? {
         return None;
     }
     m.u64(address + unit::ID).ok()
@@ -346,7 +346,7 @@ fn defeat_before(call: &mut Call) {
                 return Err("defeated side roster cycle".into());
             }
             let army = m.ptr(node + list::ITEM)?;
-            if m.ptr(army)? != m.at(classes::ARMY) {
+            if !army::is_army(m, army).map_err(|e| e.message)? {
                 return Ok(Vec::new());
             }
             if Tag(m.u64(army + unit::OWNER)?) == player {
