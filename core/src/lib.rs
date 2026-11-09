@@ -57,6 +57,7 @@ pub mod lang;
 pub mod loading;
 pub mod loc;
 pub mod lua;
+mod main_thread;
 pub mod map;
 pub mod memory;
 #[cfg(feature = "dev-memory")]

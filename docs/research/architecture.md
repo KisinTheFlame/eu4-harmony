@@ -171,7 +171,7 @@ The program has three layers: third-party libraries, the Clausewitz engine and t
 **The run** `0x14c2d00`:
 
 1. `UpdateWindow`.
-2. Pins the main thread to one CPU (`GetProcessAffinityMask`, `SetThreadAffinityMask` at `0x14c2db4`): of the process's processors, the one numbered `count / 2 + 1` from the lowest, the same in every game on a computer ([headless.md](headless.md), "One game per machine"; a hidden start leaves it out).
+2. Pins the main thread to one CPU (`GetProcessAffinityMask`, `SetThreadAffinityMask` at `0x14c2db4`): of the process's processors, the one numbered `count / 2 + 1` from the lowest, the same in every game on a computer ([headless.md](headless.md), "One game per machine"; the framework leaves it out).
 3. Runs the frame `0x14c25a0(app, 1)` until `+0x83` or `+0x2f8` is set.
 4. Calls the after-loop method.
 5. Restarts `eu4.exe` when `+0x84` is set (`0x14c3a10`; [time.md](time.md)).
@@ -219,7 +219,7 @@ No thread name reaches Windows (no `SetThreadDescription`, no `0x406D1388` excep
 
 | Thread | Made at | What it does |
 | --- | --- | --- |
-| Main | the process | Everything in the frame: input, commands, the game state, the interface, drawing; above normal priority, pinned to one CPU (not in a hidden start) |
+| Main | the process | Everything in the frame: input, commands, the game state, the interface, drawing; above normal priority, pinned to one CPU (not with the framework) |
 | LoadingThread | `0x878043`, entry `0x874010` | The startup load; it registers itself as "Main Thread" too |
 | "Short Task" ×max(cores − 1, 1) | `0x1712f50`, entry `0x1712d40` | The engine's parallel work: the daily update's parallel stages (`0x1798a0`), database loading |
 | "Long Task" ×max(cores − 1, 1) | the same | Longer jobs at below normal priority: parts of InitGame, out-of-sync saves |

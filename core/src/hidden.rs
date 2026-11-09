@@ -33,12 +33,6 @@
 //! shown later stays opted out: it is a game started for remote control or
 //! a test, which is to run as fast when its window is behind others, and a
 //! shown window is throttled by Windows as any other then anyway.
-//!
-//! The game pins its main thread to one processor, the one in the middle of
-//! those it may run on, the same in every game on a computer: several games
-//! started hidden side by side, as tests are, would share one processor for
-//! their main threads. A hidden start leaves its main thread unpinned
-//! (docs/research/headless.md).
 use crate::called_by_game;
 use crate::points::{Function, Point};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -232,19 +226,11 @@ const CRASH_MINIMIZES_NEXT: usize = 0x165469b;
 const MINIMIZE_WINDOW: usize = 0x1735340;
 /// Starts `CrashReporter.exe` and waits for it.
 const START_CRASH_REPORTER: usize = 0x164f950;
-/// The application's run pins the main thread:
-/// `SetThreadAffinityMask(GetCurrentThread(), mask)`, whose result nothing
-/// reads.
-const MAIN_THREAD_PINNED: usize = 0x14c2db4;
-const MAIN_THREAD_PINNED_NEXT: usize = 0x14c2dba;
-/// `SetThreadAffinityMask`'s import slot.
-const SET_THREAD_AFFINITY_IMPORT: usize = 0x1b66850;
 
 crate::resume!(WINDOW_MADE_RESUME: WINDOW_MADE_AT = WINDOW_MADE_NEXT);
 crate::resume!(INIT_SHOWS_RESUME: INIT_SHOWS_AT = INIT_SHOWS_NEXT);
 crate::resume!(SUPPRESS_RESUME: SUPPRESS_AT = SUPPRESS_STORED_NEXT);
 crate::resume!(CRASH_MINIMIZES_RESUME: CRASH_MINIMIZES_AT = CRASH_MINIMIZES_NEXT);
-crate::resume!(PINNED_RESUME: PINNED_AT = MAIN_THREAD_PINNED_NEXT);
 
 type WarpCursor = unsafe extern "C" fn(usize, *const [i32; 2]);
 type MinimizeWindow = unsafe extern "C" fn(usize);
@@ -271,8 +257,6 @@ pub fn points() -> Vec<Point> {
             start_crash_reporter as StartCrashReporter,
             &ORIGINAL_REPORTER,
         ),
-        Point::jump(MAIN_THREAD_PINNED, "ff 15 96 3a 6a 00", "main thread pinned", pin_stub as *const () as usize, &PINNED_RESUME)
-            .uses(&[SET_THREAD_AFFINITY_IMPORT]),
     ]
 }
 
@@ -374,28 +358,6 @@ extern "C" fn crash_minimizes_stub() {
         "jmp qword ptr [rip + {next}]",
         crash_minimizes = sym crash_minimizes,
         next = sym CRASH_MINIMIZES_AT,
-    );
-}
-
-/// The run's pin of the main thread to one processor: a hidden start leaves
-/// the thread on any processor the process may use.
-#[called_by_game]
-extern "C" fn pin(thread: usize, mask: usize) {
-    use windows_sys::Win32::System::Threading::SetThreadAffinityMask;
-    if hidden_start() {
-        log!("hidden start: the main thread is not pinned to processor {}", mask.trailing_zeros());
-    } else {
-        unsafe { SetThreadAffinityMask(thread as _, mask) };
-    }
-}
-
-#[unsafe(naked)]
-extern "C" fn pin_stub() {
-    std::arch::naked_asm!(
-        crate::call_rust!(call pin),
-        "jmp qword ptr [rip + {next}]",
-        pin = sym pin,
-        next = sym PINNED_AT,
     );
 }
 
