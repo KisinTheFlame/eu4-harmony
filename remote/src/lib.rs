@@ -420,12 +420,6 @@ impl Request {
     pub fn needs_place(&self) -> bool {
         self.in_game() || matches!(self, Self::Menu(r) if r.needs_place())
     }
-
-    /// Whether it gives the game input: the requests after it run once the
-    /// game has had it.
-    pub fn gives_input(&self) -> bool {
-        matches!(self, Self::Input(r) if !matches!(r, input::InputRequest::Get {}))
-    }
 }
 
 groups! {
