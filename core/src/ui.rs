@@ -569,7 +569,8 @@ fn window_delete(call: &mut Call) {
     crate::windows::killed(&call.memory(), window);
 }
 
-fn modifiers() -> u32 {
+/// The keys held down now, as [`MODIFIER_SHIFT`] and [`MODIFIER_CTRL`].
+pub(crate) fn modifiers() -> u32 {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_SHIFT};
     let mut out = 0;
     if unsafe { GetKeyState(VK_SHIFT as i32) } < 0 {

@@ -79,8 +79,9 @@ const CASCADE: i32 = 24;
 static OPENING: AtomicBool = AtomicBool::new(false);
 
 /// The clicks the game reported since the last frame: the wrapper's
-/// address, the button, whether it was a right click.
-static CLICKED: Mutex<Vec<(usize, usize, bool)>> = Mutex::new(Vec::new());
+/// address, the button, whether it was a right click, and the keys held
+/// down with it ([`ui::modifiers`]), read as it came, when they still are.
+static CLICKED: Mutex<Vec<(usize, usize, bool, u32)>> = Mutex::new(Vec::new());
 
 /// What the framework built.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -262,7 +263,7 @@ fn find(m: &Memory, root: usize, kind: Option<&Kind>, name: &str) -> Result<usiz
 extern "system" fn left_click(context: usize, button: usize) {
     if let Ok(mut clicked) = CLICKED.lock() {
         if clicked.len() < 64 {
-            clicked.push((context, button, false));
+            clicked.push((context, button, false, ui::modifiers()));
         }
     }
 }
@@ -271,7 +272,7 @@ extern "system" fn left_click(context: usize, button: usize) {
 extern "system" fn right_click(context: usize, button: usize) {
     if let Ok(mut clicked) = CLICKED.lock() {
         if clicked.len() < 64 {
-            clicked.push((context, button, true));
+            clicked.push((context, button, true, ui::modifiers()));
         }
     }
 }
@@ -554,13 +555,9 @@ fn clicks(m: &Memory) {
     if clicked.is_empty() {
         return;
     }
-    let modifiers = {
-        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_SHIFT};
-        (unsafe { GetKeyState(VK_SHIFT as i32) } < 0, unsafe { GetKeyState(VK_CONTROL as i32) } < 0)
-    };
     // Who each click is for, found under the lock, done after it.
     enum Was {
-        Widget(usize, String, String, Option<u32>, bool),
+        Widget(usize, String, String, Option<u32>, bool, u32),
         Close(usize, String),
         Popup(u32, super::Pressed),
         Shield(u32, usize),
@@ -569,7 +566,7 @@ fn clicks(m: &Memory) {
     let found: Vec<Was> = with_live(|live| {
         clicked
             .into_iter()
-            .filter_map(|(context, button, right)| {
+            .filter_map(|(context, button, right, modifiers)| {
                 for built in &live.built {
                     let Some(b) = built.elements.iter().find(|b| b.object == button && b.subscription.as_ref().is_some_and(|s| s.context() == context)) else {
                         continue;
@@ -580,7 +577,7 @@ fn clicks(m: &Memory) {
                             None => super::Pressed::of(&b.name).map(|pressed| Was::Popup(*n, pressed)),
                         },
                         Key::Window(e, w) if b.name == gui::CLOSE => Some(Was::Close(*e, w.clone())),
-                        Key::Window(e, w) => Some(Was::Widget(*e, w.clone(), b.name.clone(), b.row.as_ref().map(|(_, r)| *r), right)),
+                        Key::Window(e, w) => Some(Was::Widget(*e, w.clone(), b.name.clone(), b.row.as_ref().map(|(_, r)| *r), right, modifiers)),
                     };
                 }
                 live.entries
@@ -592,9 +589,10 @@ fn clicks(m: &Memory) {
     });
     for was in found {
         match was {
-            Was::Widget(extension, window, widget, row, right) => with(|all| {
+            Was::Widget(extension, window, widget, row, right, modifiers) => with(|all| {
                 if all.clicks.len() < 64 {
-                    all.clicks.push(Click { extension, button: format!("{window}.{widget}"), right, shift: modifiers.0, ctrl: modifiers.1, row });
+                    let (shift, ctrl) = (modifiers & ui::MODIFIER_SHIFT != 0, modifiers & ui::MODIFIER_CTRL != 0);
+                    all.clicks.push(Click { extension, button: format!("{window}.{widget}"), right, shift, ctrl, row });
                 }
             }),
             Was::Close(extension, window) => with(|all| all.show(extension, &window, false)),
