@@ -213,13 +213,13 @@ const SETS: &[Set] = &[
             "growth",
             "perf",
         ],
-        jobs: 6,
+        jobs: claim::AT_ONCE,
     },
     Set {
         name: "release",
         about: "whole, and the long game played through in one, before a release (docs/plans/whole-game.md)",
         scenarios: &["whole", "long"],
-        jobs: 6,
+        jobs: claim::AT_ONCE,
     },
 ];
 
@@ -323,6 +323,12 @@ pub fn run(raw: &[String]) -> Result<()> {
 
     let owner = asked.owner.clone().unwrap_or_else(|| claim::owner_of(None));
     let jobs = asked.jobs.unwrap_or_else(|| SETS.iter().filter(|set| asked.names.contains(&set.name.to_string())).map(|set| set.jobs).max().unwrap_or(1));
+    // More would only wait at their starts for one of the test games that
+    // run at once on the computer.
+    if jobs > claim::AT_ONCE {
+        println!("--jobs {jobs}: {} at a time, as at most {} test games run at once", claim::AT_ONCE, claim::AT_ONCE);
+    }
+    let jobs = jobs.min(claim::AT_ONCE);
     if jobs > 1 && playing.len() > 1 {
         let out = asked.out.clone().unwrap_or_else(|| repo().join("target").join("scenarios").join(stamp().1));
         std::fs::create_dir_all(&out).map_err(|e| format!("cannot make {}: {e}", out.display()))?;
@@ -772,7 +778,7 @@ mod tests {
 
     #[test]
     fn whole_plays_the_long_game_in_stretches_and_release_plays_it_through() {
-        assert_eq!(SETS.iter().find(|set| set.name == "whole").map(|set| set.jobs), Some(6));
+        assert_eq!(SETS.iter().find(|set| set.name == "whole").map(|set| set.jobs), Some(claim::AT_ONCE));
         let alone: Vec<&str> = all().iter().filter(|s| s.alone()).map(|s| s.name()).collect();
         assert_eq!(alone, ["perf"]);
         let whole = expanded(&words("whole"));

@@ -16,7 +16,7 @@ use crate::{Args, Result};
 pub use course::{Run, Starting};
 use machine::ThisComputer;
 use record::Claim;
-pub use record::GameEnd;
+pub use record::{GameEnd, AT_ONCE};
 use std::{path::Path, time::Duration};
 
 /// `--owner`, else the leaf name of this checkout's folder.

@@ -78,8 +78,9 @@ usage:
       needs Steam running, claims a test game unless this checkout holds
       one, builds each build the scenarios need with the test games' pipes,
       starts the test game hidden with it, and releases the claim it made. --<name>.<parameter> changes a parameter for this run.
-      --jobs <n> plays n scenarios at a time (whole and release: 6 unless
-      given), each in a test game of its own claimed as <owner>-<scenario>,
+      --jobs <n> plays n scenarios at a time, at most the 4 test games that
+      run at once (whole and release: 4 unless given), each in a test game
+      of its own claimed as <owner>-<scenario>,
       the longest first, its builds made first and set aside in the report's
       folder; perf, which measures what the game costs the computer, plays
       alone after the rest, once other games have ended or 20 minutes passed.
