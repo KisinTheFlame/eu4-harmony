@@ -7,7 +7,8 @@ name; the army panel, single_unitpanel, is the one host there is now.
 Coordinates are relative to the host window. A fragment in
 eu4-harmony/ui/<window>/buttons/ goes in that window's button area instead
 (eu4-harmony skills ui buttons). A window of the mod's own, laid out in
-Lua, and pop-ups need no fragment (eu4-harmony skills ui windows).
+Lua, and pop-ups need no fragment (eu4-harmony skills ui windows). How
+any of them should look and behave: eu4-harmony skills ui design.
 
 - Name every element you will reach from Lua. The framework prefixes the
   names it splices, so they never clash; Lua uses the names as written.
