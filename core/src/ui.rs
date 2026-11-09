@@ -397,23 +397,23 @@ fn bind(m: &Memory, ui: &mut Ui, host: Host, holder: usize, root: usize) -> Resu
 /// The frame under the button area of the window at `root`, checked to be
 /// the framework's.
 fn bind_frame(m: &Memory, root: usize) -> Result<usize> {
-    let frame = lookup(m, root, (window::FIND_BUTTON, functions::FIND_BUTTON), crate::splice::FRAME)?;
-    if frame == 0 || m.ptr(frame)? != m.at(classes::BUTTON) || element_name(m, frame)? != crate::splice::FRAME.as_bytes() {
+    let frame = lookup(m, root, (window::FIND_ICON, functions::FIND_ICON), crate::splice::FRAME)?;
+    if frame == 0 || element_name(m, frame)? != crate::splice::FRAME.as_bytes() {
         return Err("not found".into());
     }
     Ok(frame)
 }
 
-/// Shows or hides a button as `visible`, through the methods the framework
+/// Shows or hides an icon as `visible`, through the methods the framework
 /// knows.
-fn show_button(m: &Memory, object: usize, visible: bool) -> Result<()> {
+fn show_icon(m: &Memory, object: usize, visible: bool) -> Result<()> {
     if (m.u8(object + element::VISIBLE)? != 0) == visible {
         return Ok(());
     }
-    let (slot, target) = if visible { (element::SHOW, SHOW) } else { (element::HIDE, HIDE) };
+    let (slot, known) = if visible { (element::SHOW, &functions::ICON_SHOWS) } else { (element::HIDE, &functions::ICON_HIDES) };
     let method = m.vslot(object, slot)?;
-    if method != m.at(target) {
-        return Err("button show/hide method changed".into());
+    if !known.iter().any(|&k| m.at(k) == method) {
+        return Err("icon show/hide method changed".into());
     }
     m.call(method, &[object]).map(|_| ())
 }
@@ -475,7 +475,7 @@ fn apply(m: &Memory, ui: &mut Ui, host: Host) -> Result<()> {
                 break;
             }
         }
-        show_button(m, frame, any)?;
+        show_icon(m, frame, any)?;
     }
     Ok(())
 }

@@ -205,13 +205,13 @@ pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool, plan: &mut
 }
 
 /// The frame under `count` slots of `area`: the framework's window
-/// background, which catches the clicks on it, silently, so that they do
-/// not reach the map.
+/// background, an icon, which neither lights up under the pointer nor lets
+/// the clicks on it reach the map.
 fn frame(area: &hosts::ButtonArea, count: i32) -> String {
     let ((x, y), (w, h)) = area.frame(count);
     format!(
         "
-		guiButtonType = {{ name = \"{FRAME}\" position = {{ x = {x} y = {y} }} size = {{ x = {w} y = {h} }} quadTextureSprite = \"{}\" no_clicksound = yes }}
+		iconType = {{ name = \"{FRAME}\" position = {{ x = {x} y = {y} }} size = {{ x = {w} y = {h} }} spriteType = \"{}\" }}
 ",
         crate::windows::BACKGROUND_SPRITE
     )
@@ -248,7 +248,7 @@ mod tests {
         let (frame, button) = (out.find("eu4h_button_area").unwrap(), out.find("BUTTON").unwrap());
         assert!(frame < button, "{out}");
         assert!(out.contains("position = { x = 504 y = 69 } size = { x = 116 y = 392 }"), "two columns: {out}");
-        assert!(out.contains("no_clicksound = yes"));
+        assert!(out.contains("iconType = { name = \"eu4h_button_area\""), "an icon, which no pointer lights up: {out}");
     }
 
     #[test]
