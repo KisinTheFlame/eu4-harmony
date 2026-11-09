@@ -27,7 +27,6 @@ permissions:
 env:
   CARGO_PROFILE_RELEASE_OPT_LEVEL: "0"
   CARGO_PROFILE_RELEASE_LTO: "false"
-  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
 
 # The build, the tests and the developer build each compile the whole
 # workspace once, and none needs another's result, so each is a job of its own

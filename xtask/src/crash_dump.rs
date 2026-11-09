@@ -4,8 +4,8 @@
 //! The game writes a folder per crash under the user folder's `crashes\`
 //! (`eu4_<date>_<time>`), with `minidump.dmp` and `exception.txt`; the
 //! framework's logs are in its `eu4-harmony\logs\`.
-use crate::{built, Result};
-use std::ffi::CString;
+use crate::{built, built_package, Result};
+use std::{ffi::CString, path::PathBuf};
 use windows::{
     core::PCSTR,
     Win32::System::Diagnostics::Debug::Extensions::{DebugCreate, IDebugClient, IDebugControl, DEBUG_EXECUTE_DEFAULT, DEBUG_OUTCTL_THIS_CLIENT},
@@ -22,15 +22,18 @@ pub fn run(raw: &[String]) -> Result<()> {
     if commands.is_empty() {
         return Err(usage.into());
     }
-    read(dump, log, &built(), symbols, commands)
+    // The release build's symbols, or the player package's, whichever the
+    // dump's core was built as: the debugger takes the ones that match it.
+    read(dump, log, &[built(), built_package()], symbols, commands)
 }
 
 /// Runs `commands` on the crash dump `dump`, writing their output to `log`,
-/// with the symbols of the build in `build` and the system's cached in
+/// with the symbols of the builds in `builds` and the system's cached in
 /// `symbols`.
-pub fn read(dump: &str, log: &str, build: &std::path::Path, symbols: &str, commands: &[String]) -> Result<()> {
+pub fn read(dump: &str, log: &str, builds: &[PathBuf], symbols: &str, commands: &[String]) -> Result<()> {
     let text = |s: &str| CString::new(s).map_err(|_| format!("{s:?} holds a null character"));
-    let path = format!(".sympath {};srv*{symbols}*https://msdl.microsoft.com/download/symbols", build.display());
+    let builds: Vec<String> = builds.iter().map(|b| b.display().to_string()).collect();
+    let path = format!(".sympath {};srv*{symbols}*https://msdl.microsoft.com/download/symbols", builds.join(";"));
     let (dump, log, path) = (text(dump)?, text(log)?, text(&path)?);
     let commands: Vec<CString> = commands.iter().map(|c| text(c)).collect::<Result<_>>()?;
     let ran = || -> windows::core::Result<()> {

@@ -191,6 +191,12 @@ fn built() -> PathBuf {
     repo().join("target").join("x86_64-pc-windows-msvc").join("release")
 }
 
+/// Where `cargo xtask release` builds the player package before packing it,
+/// in the profile of its own that Cargo.toml gives it.
+fn built_package() -> PathBuf {
+    built().with_file_name(files::PACKAGE_PROFILE)
+}
+
 /// Cargo, run from the repository: the one running this command.
 fn cargo() -> std::process::Command {
     let mut cargo = std::process::Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
