@@ -106,7 +106,7 @@ A course of play in the real game on one build, driven through remote control fr
 _Avoid_: integration test, game test (a test is a mod's, against the fake game)
 
 **Scenario set**:
-A name for several scenarios played together in one run, as if named one by one, each with its own outcome in the report: `whole` plays the framework through the real game from end to end (docs/plans/whole-game.md).
+A name for several scenarios played together in one run, as if named one by one, each with its own outcome in the report: `whole` plays the framework through the real game from end to end, and `release` adds the long game played through in one (docs/plans/whole-game.md). A set may name another set.
 _Avoid_: suite, test plan
 
 **Sweep**:

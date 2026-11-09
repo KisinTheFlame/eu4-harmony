@@ -45,13 +45,6 @@ impl Scenario for Extensions {
         15
     }
 
-    /// Its extensions run into the time limit, wall time, and qa-hungry is to
-    /// reach the memory limit first: with other games beside it, qa-hungry
-    /// was stopped by the time limit before it did.
-    fn alone(&self) -> bool {
-        true
-    }
-
     fn parameters(&self) -> &'static [Parameter] {
         &[
             Parameter { name: "country", default: "FRA", about: "the country of the new game" },

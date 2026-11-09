@@ -4,6 +4,10 @@
 //! - `long`: a game in observe mode from 1444 to the end of the game, a
 //!   year at a time, the autosave written and loaded every so many years,
 //!   the game's memory kept under a bound;
+//! - `long-1444` to `long-1820`: the same game in stretches that play side by
+//!   side, each from a new game in 1444 or from one of the developers' saves
+//!   of that game (`late`'s), to the date of the next, with the same checks
+//!   and an autosave loaded in each;
 //! - `checked`: the same for fewer years on the developer build with the
 //!   test switches, every speed-up that can checking its answers against the
 //!   game's, none of which may differ.
@@ -24,10 +28,52 @@ pub struct Late;
 pub struct Long {
     /// The speed-ups checked against the game: `checked`; or not: `long`.
     pub checked: bool,
+    /// The stretch of the game it plays, for a segment; the whole game for
+    /// `long` and `checked`.
+    pub segment: Option<Segment>,
 }
 
-pub const LONG: Long = Long { checked: false };
-pub const CHECKED: Long = Long { checked: true };
+/// A stretch of the long game: its name, the developers' save it begins
+/// from (a new game in 1444 for none), the date it runs to, and about how
+/// many minutes it plays.
+pub struct Segment {
+    pub name: &'static str,
+    pub from: Option<&'static str>,
+    pub to: (i32, u32, u32),
+    pub minutes: u32,
+}
+
+pub const LONG: Long = Long { checked: false, segment: None };
+pub const CHECKED: Long = Long { checked: true, segment: None };
+
+/// The long game in stretches, which together play what `long` plays: from
+/// 1444.11.11 to 1820.11.11, `long`'s 376 years.
+pub const SEGMENTS: [Long; 7] = [
+    segment("long-1444", None, (1600, 1, 1), 60),
+    segment("long-1600", Some("observer-1600.1.1"), (1700, 1, 1), 50),
+    segment("long-1700", Some("observer-1700.1.1"), (1760, 7, 1), 40),
+    segment("long-1760", Some("observer-1760.7.1"), (1780, 7, 1), 20),
+    segment("long-1780", Some("observer-1780.7.1"), (1800, 7, 1), 20),
+    segment("long-1800", Some("observer-1800.7.1"), (1820, 7, 1), 20),
+    segment("long-1820", Some("observer-1820.7.1"), (1820, 11, 11), 5),
+];
+
+const fn segment(name: &'static str, from: Option<&'static str>, to: (i32, u32, u32), minutes: u32) -> Long {
+    Long { checked: false, segment: Some(Segment { name, from, to, minutes }) }
+}
+
+impl Segment {
+    fn end(&self) -> Date {
+        Date::from_ymd(self.to.0, self.to.1, self.to.2).expect("a segment's date")
+    }
+}
+
+/// After which of a stretch's years, numbered from 1, the autosave is
+/// written and loaded: every `save_every`, and once in a stretch too short
+/// for that, after its middle year; never after its last.
+fn loads_after(year: u32, years: u32, save_every: u32) -> bool {
+    year < years && (year.is_multiple_of(save_every) || (years <= save_every && year == years.div_ceil(2)))
+}
 
 /// The days a year is let run.
 const YEAR: u32 = 365;
@@ -102,15 +148,17 @@ impl Scenario for Late {
 
 impl Scenario for Long {
     fn name(&self) -> &'static str {
-        if self.checked {
-            "checked"
-        } else {
-            "long"
+        match &self.segment {
+            Some(segment) => segment.name,
+            None if self.checked => "checked",
+            None => "long",
         }
     }
 
     fn about(&self) -> &'static str {
-        if self.checked {
+        if self.segment.is_some() {
+            "a stretch of the long game in observe mode, from 1444 or a developers' save to the next, the autosave loaded in it, memory under a bound"
+        } else if self.checked {
             "a game in observe mode from 1444 for some years with every speed-up checking its answers against the game's, none differing"
         } else {
             "a game in observe mode from 1444 to the end of the game, the autosave loaded every so many years, memory under a bound"
@@ -130,11 +178,15 @@ impl Scenario for Long {
     }
 
     fn minutes(&self) -> u32 {
-        if self.checked {
-            40
-        } else {
-            240
+        match &self.segment {
+            Some(segment) => segment.minutes,
+            None if self.checked => 40,
+            None => 240,
         }
+    }
+
+    fn saves(&self, _: &Parameters) -> Vec<String> {
+        self.segment.as_ref().and_then(|s| s.from).map(String::from).into_iter().collect()
     }
 
     fn parameters(&self) -> &'static [Parameter] {
@@ -153,31 +205,49 @@ impl Scenario for Long {
                 about: "the speed-ups whose differences have their reasons (ADR the-game-may-be-made-faster-with-reasoned-differences), by commas: counted, not failed",
             },
         ];
-        if self.checked {
-            &CHECKED
-        } else {
-            &LONG
+        const SEGMENT: [Parameter; 2] = [
+            Parameter { name: "save_every", default: "20", about: "the years between two autosaves loaded in the game; at least one is" },
+            Parameter { name: "memory_mb", default: "8000", about: "the game's private bytes, in MB, it must stay under" },
+        ];
+        match (&self.segment, self.checked) {
+            (Some(_), _) => &SEGMENT,
+            (None, true) => &CHECKED,
+            (None, false) => &LONG,
         }
     }
 
     fn play(&self, game: &mut Game, parameters: &Parameters, record: &mut Value) -> Played<()> {
-        let years = parameters.number("years")?;
         let save_every = parameters.number("save_every")?.max(1);
         let memory_mb = parameters.number("memory_mb")? as u64;
         let user = game.user()?;
         let mark = Mark::of(&user);
-        let session: Session = game.ask(&MenuRequest::Start { country: None })?;
-        game.check(session.observing, format!("menu.start in observe mode answered {session:?}"))?;
+        let session = match self.segment.as_ref().and_then(|s| s.from) {
+            Some(save) => {
+                let loaded: Session = game.ask(&MenuRequest::Load { save: save.into() })?;
+                if !loaded.observing {
+                    game.console("observe")?;
+                }
+                game.session()?
+            }
+            None => game.ask(&MenuRequest::Start { country: None })?,
+        };
+        game.check(session.observing, format!("the game began in observe mode, answered {session:?}"))?;
+        // A year at a time; a segment's last stretch ends on its date.
+        let lengths: Vec<u32> = match &self.segment {
+            Some(segment) => stretches(days_between(session.date, segment.end())),
+            None => vec![YEAR; parameters.number("years")? as usize],
+        };
+        let years = lengths.len() as u32;
         *record = json!({ "began": session.date.to_string(), "years": [], "loads": [] });
-        for year in 1..=years {
+        for (year, days) in (1..=years).zip(lengths) {
             let before = game.session()?.date;
-            let stretch = Stretch::run(game, YEAR, &format!("year {year}"))?;
+            let stretch = Stretch::run(game, days, &format!("year {year}"))?;
             let after = game.session()?.date;
-            game.check(days_between(before, after) >= YEAR as i32, format!("year {year} ran from {before} to {after}"))?;
+            game.check(days_between(before, after) >= days as i32, format!("year {year} ran from {before} to {after}"))?;
             let private = stretch["priv"].as_u64().unwrap_or(0);
             record["years"].as_array_mut().expect("years").push(stretch);
             game.check(private < memory_mb, format!("the game's private bytes are {private} MB on {after}, over {memory_mb} MB"))?;
-            if year % save_every == 0 && year < years {
+            if loads_after(year, years, save_every) {
                 let began = Instant::now();
                 let again = game.autosave_and_load()?;
                 game.check(again.date == after && again.observing, format!("the autosave of {after} loaded as {again:?}"))?;
@@ -280,6 +350,16 @@ fn stretches_table<'a>(title: &str, stretches: impl Iterator<Item = &'a Value>) 
     md
 }
 
+/// A stretch of `days` in years and the days left after them.
+fn stretches(days: i32) -> Vec<u32> {
+    let days = days.max(0) as u32;
+    let mut lengths = vec![YEAR; (days / YEAR) as usize];
+    if !days.is_multiple_of(YEAR) {
+        lengths.push(days % YEAR);
+    }
+    lengths
+}
+
 /// Words joined with commas.
 fn listed(text: &str) -> Vec<String> {
     text.split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect()
@@ -302,5 +382,35 @@ mod tests {
         let md = LONG.report(&record).join("\n");
         assert!(md.contains("| year 10 | 1454.11.11 | 600.0 | 3000 | 3500 |") && md.contains("| year 12 |") && !md.contains("| year 3 |"), "{md}");
         assert!(md.contains("The slowest: year 7, to 1451.11.11, at 100.0 days a minute.") && md.contains("1449.11.11 (40.0 s)"), "{md}");
+    }
+
+    #[test]
+    fn the_segments_play_long_s_years_from_save_to_save() {
+        let names: Vec<&str> = SEGMENTS.iter().map(|s| s.name()).collect();
+        assert_eq!(names, ["long-1444", "long-1600", "long-1700", "long-1760", "long-1780", "long-1800", "long-1820"]);
+        // Each begins where the one before ends, the first on a new game.
+        assert!(SEGMENTS[0].segment.as_ref().unwrap().from.is_none());
+        for pair in SEGMENTS.windows(2) {
+            let (a, b) = (pair[0].segment.as_ref().unwrap(), pair[1].segment.as_ref().unwrap());
+            let save = format!("observer-{}.{}.{}", a.to.0, a.to.1, a.to.2);
+            assert_eq!(b.from, Some(save.as_str()), "{}", b.name);
+        }
+        // The last ends where long does, 376 years after 1444.11.11.
+        assert_eq!(SEGMENTS[6].segment.as_ref().unwrap().to, (1820, 11, 11));
+        assert_eq!(SEGMENTS[1].saves(&Parameters::of(&SEGMENTS[1], &[]).unwrap()), ["observer-1600.1.1"]);
+        assert!(SEGMENTS[0].saves(&Parameters::of(&SEGMENTS[0], &[]).unwrap()).is_empty());
+    }
+
+    #[test]
+    fn a_stretch_runs_in_years_and_loads_its_autosave_at_least_once() {
+        assert_eq!(stretches(3 * 365 + 10), [365, 365, 365, 10]);
+        assert_eq!(stretches(130), [130]);
+        // 20 years, every 20: once, after the middle; 100 years: after 20,
+        // 40, 60 and 80; one year: never.
+        let loads = |years: u32, every: u32| (1..=years).filter(|&y| loads_after(y, years, every)).collect::<Vec<_>>();
+        assert_eq!(loads(20, 20), [10]);
+        assert_eq!(loads(100, 20), [20, 40, 60, 80]);
+        assert_eq!(loads(1, 20), Vec::<u32>::new());
+        assert_eq!(loads(376, 50), [50, 100, 150, 200, 250, 300, 350]);
     }
 }
