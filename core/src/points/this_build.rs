@@ -27,6 +27,7 @@ fn framework() -> Vec<Point> {
     all.extend(crate::wording::points());
     all.extend(crate::framework_ui::hook::points());
     all.extend(crate::hidden::points());
+    all.extend(crate::main_thread::points());
     all.extend(crate::sound::points());
     all
 }

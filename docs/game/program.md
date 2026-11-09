@@ -41,7 +41,7 @@
 
 ## Threads
 
-- **The main thread does nearly everything**: input, commands, the game state, the interface and drawing. The game raises its priority and pins it to one processor, the same one in every game on a computer, so several games side by side share it for their main threads; a hidden start leaves the pin out ([research/architecture.md](../research/architecture.md), "Threads"; [research/headless.md](../research/headless.md), "One game per machine").
+- **The main thread does nearly everything**: input, commands, the game state, the interface and drawing. The game raises its priority and pins it to one processor, the same one in every game on a computer, so several games side by side share it for their main threads; the framework leaves the pin out ([research/architecture.md](../research/architecture.md), "Threads"; [research/headless.md](../research/headless.md), "One game per machine").
 - **Beside it**: the LoadingThread at startup; two pools of worker threads, one fewer than the processor's cores each, for the day's parallel stages and loading; sound's two threads; a thread that keeps the network polled while a save is written or read; and TBB's workers in a few places ([research/architecture.md](../research/architecture.md), "Threads"). What runs in parallel inside a day is on [day.md](day.md).
 - **Shared, and what is safe from several threads**: the Direct3D device is made multithreaded, the file system's opens and lookups, the log and the heap are safe; making a new script word while the program runs, the timers and drawing the loading screen are not ([research/loading.md](../research/loading.md), "What every stretch shares").
 
