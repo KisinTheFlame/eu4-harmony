@@ -15,6 +15,10 @@ pub mod globals {
 /// Classes, by vtable RVA.
 pub mod classes {
     pub const BUTTON: usize = 0x1d58218;
+    /// What a window builds the button its definition names by `backGround`
+    /// as: a button of its own input (`+0x48`, `0x1571570`) with a button's
+    /// enable method and state.
+    pub const BACKGROUND: usize = 0x1d954b0;
     pub const TEXT_BOX: usize = 0x1d8fd10;
     /// A button's click signal.
     pub const SIGNAL: usize = 0x1d581f8;
@@ -46,6 +50,18 @@ pub mod manager {
     /// [`super::edit_box::LISTENER`] once one takes it, or null. The game
     /// may leave it set after the box lets go, so check the box too.
     pub const FOCUSED_LISTENER: usize = 0x210;
+    /// The scene the windows are drawn in, whose size is
+    /// [`super::scene::SIZE`].
+    pub const SCENE: usize = 0xc0;
+    /// Its method that builds a window from its definition, by vtable
+    /// offset: [`super::functions::CREATE_WINDOW`].
+    pub const CREATE_WINDOW: usize = 0x48;
+}
+
+/// The scene, at [`manager::SCENE`].
+pub mod scene {
+    /// The screen's width and height in GUI units, i32 each.
+    pub const SIZE: usize = 0x490;
 }
 
 /// What buttons and text boxes share.
@@ -62,6 +78,16 @@ pub mod element {
     pub const ENABLE: usize = 0x80;
     pub const SHOW: usize = 0x88;
     pub const HIDE: usize = 0x90;
+    /// Its method that takes the mouse's input (see [`super::mouse_input`]).
+    pub const INPUT: usize = 0x48;
+    /// A button's or an icon's: its place as resolved (into an i64 x, y),
+    /// its frame (an i32, from 1; a progress bar's value, 0 to 100), the
+    /// country index of a flag (an i32), and its place set by its
+    /// orientation (an i64 x | y << 32).
+    pub const PLACED: usize = 0x98;
+    pub const FRAME: usize = 0xa8;
+    pub const INDEX: usize = 0x1b0;
+    pub const PLACE: usize = 0x288;
 }
 
 pub mod button {
@@ -73,6 +99,25 @@ pub mod button {
     /// Whether it reports double clicks, u8, and the method that sets it.
     pub const DOUBLE_CLICK: usize = 0x162;
     pub const SET_DOUBLE_CLICK: usize = 0x160;
+    /// Its method that gives a flag its country, by vtable offset: with a
+    /// pointer to the country's tag (u64) and the u8s 1 and 0.
+    pub const SET_COUNTRY: usize = 0x218;
+}
+
+/// The mouse's input as an element takes it, through its method
+/// [`element::INPUT`]: what happened ([`mouse_input::PRESSED`],
+/// [`mouse_input::RELEASED`], or [`mouse_input::DOUBLE`] for a press that
+/// soon follows another), with which button, from which device.
+pub mod mouse_input {
+    pub const KIND: usize = 0x14;
+    pub const BUTTON: usize = 0x18;
+    pub const DEVICE: usize = 0x50;
+    pub const PRESSED: u32 = 3;
+    pub const RELEASED: u32 = 4;
+    pub const DOUBLE: u32 = 5;
+    /// The right mouse button, and the mouse as the device.
+    pub const RIGHT: u32 = 2;
+    pub const MOUSE: u32 = 0;
 }
 
 /// A signal: the callbacks subscribed to it, a list (see
@@ -118,6 +163,9 @@ pub mod window {
     pub const GUI: usize = 0x30;
     /// Whether it is open, u8.
     pub const OPEN: usize = 0xf5;
+    /// Its background, the element its definition names by `backGround`,
+    /// which is not among its elements by name; null when it has none.
+    pub const BACKGROUND: usize = 0x520;
     /// Methods, by vtable offset: the button, text box or icon of a name (a
     /// NUL-terminated string), and the start of its teardown.
     pub const FIND_BUTTON: usize = 0x68;
@@ -127,6 +175,21 @@ pub mod window {
     /// The method that answers its [`super::list_box`] of a name, given as a
     /// `std::string`, by vtable offset.
     pub const FIND_LIST_BOX: usize = 0x1a8;
+    /// The method that answers its subwindow of a name, given as a
+    /// `std::string`, by vtable offset.
+    pub const FIND_WINDOW: usize = 0x1c0;
+    /// Its method that puts it at a place on the screen (an i64 x | y << 32,
+    /// GUI units from the screen's top left), by vtable offset; and that
+    /// place, where dragging it moves it, i32 x and y.
+    pub const SET_POSITION: usize = 0x30;
+    pub const POSITION: usize = 0x598;
+}
+
+/// A window's interface, [`classes::WINDOW_GUI`], at [`window::GUI`]: its
+/// methods that show and hide the window, by vtable offset.
+pub mod window_gui {
+    pub const SHOW: usize = 0x88;
+    pub const HIDE: usize = 0x90;
 }
 
 /// A list box, in a window.
@@ -135,6 +198,17 @@ pub mod list_box {
     /// the address of the first node of a linked list (null when empty),
     /// each node the entry at 0 and the next node at 0x10.
     pub const ENTRIES: usize = 0x58;
+    /// Its methods that take a row (a [`super::list_entry`], and a u8 to lay
+    /// the rows out) and that deletes every row, by vtable offset.
+    pub const ADD: usize = 0x20;
+    pub const CLEAR: usize = 0xb8;
+}
+
+/// A list box's row, [`SIZE`] bytes of the game's heap, which the list box
+/// owns once it has it: the window it is built from, at [`WINDOW`].
+pub mod list_entry {
+    pub const SIZE: usize = 0x50;
+    pub const WINDOW: usize = 0x40;
 }
 
 pub mod army_panel {
@@ -325,6 +399,41 @@ pub mod functions {
     pub const ADD_MONTHS: GameFunction<2> = GameFunction::at(0x14c8030);
     /// Takes a listener off a signal: `(signal, wrapper)`.
     pub const UNSUBSCRIBE: GameFunction<2> = GameFunction::at(0xfbe370);
+    /// Extension windows (docs/research/extension-windows.md,
+    /// window-elements.md): reading an interface file again
+    /// `(manager, std::string* path)`, which replaces the definitions of the
+    /// same names; building a window from its definition
+    /// `(manager, std::string* name)`; a window's interface's show and hide;
+    /// a window's place; a window's list box by name `(window, std::string*)`.
+    pub const READ_DEFINITIONS: GameFunction<2> = GameFunction::at(0x14eb7d0);
+    pub const CREATE_WINDOW: GameFunction<2> = GameFunction::at(0x14e9030);
+    pub const WINDOW_SHOW: usize = 0x1547d90;
+    pub const WINDOW_HIDE: usize = 0x1547b00;
+    pub const SET_POSITION: GameFunction<2> = GameFunction::at(0x15472e0);
+    pub const FIND_LIST_BOX: GameFunction<2> = GameFunction::at(0x1548420);
+    /// `(window, std::string* name, report)`: its subwindow of the name, from
+    /// the list it keeps at `+0x958`, or 0; with `report` set, a miss is also
+    /// written in the game's error.log.
+    pub const FIND_WINDOW: GameFunction<3> = GameFunction::at(0x15481a0);
+    /// A button's frame, and the icons' (two classes of them).
+    pub const BUTTON_FRAME: usize = 0x15aeda0;
+    pub const ICON_FRAMES: [usize; 2] = [0x1585ed0, 0x1572280];
+    pub const ICON_SHOWS: [usize; 2] = [0x1585e80, 0x1571d80];
+    pub const ICON_HIDES: [usize; 2] = [0x1585eb0, 0x1571da0];
+    /// A flag's country, and the index beside it.
+    pub const SET_COUNTRY: GameFunction<2> = GameFunction::at(0x10b56b0);
+    pub const SET_INDEX: GameFunction<2> = GameFunction::at(0xfaab90);
+    /// A row: built `(entry, manager, std::string* window type)`, added
+    /// `(list, entry, lay out)`; every row deleted `(list)`.
+    pub const LIST_ENTRY: GameFunction<3> = GameFunction::at(0x152df80);
+    pub const LIST_ADD: GameFunction<3> = GameFunction::at(0x152e910);
+    pub const LIST_CLEAR: GameFunction<1> = GameFunction::at(0x15320f0);
+    /// A button's place by its orientation, an icon's as resolved (two
+    /// classes of them: an `iconType`'s first), and the place either
+    /// resolved.
+    pub const BUTTON_PLACE: GameFunction<2> = GameFunction::at(0x15ae930);
+    pub const ICON_PLACES: [usize; 2] = [0x1585c80, 0x1571cf0];
+    pub const PLACED: GameFunction<2> = GameFunction::at(0x1571dc0);
 }
 
 use super::campaign;
@@ -474,5 +583,51 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x10dc29eusize, "c6 83 14 07 00 00 01", "main menu start accepted").uses(&[main_menu::LAUNCH_ACCEPTED]),
         Point::keep(0x10da695usize, "80 bf 15 07 00 00 00", "main menu start").uses(&[main_menu::LAUNCH]),
         Point::keep(0x10daed7usize, "48 8b 8f 30 03 00 00 e8 4d 76 3e 00", "main menu switches idler").uses(&[main_menu::APPLICATION]),
+        // Extension windows (docs/research/extension-windows.md,
+        // window-elements.md): their definitions read, a window built in the
+        // scene, shown, hidden and placed.
+        Point::keep(READ_DEFINITIONS, "48 89 5c 24 10 48 89 74 24 18 48 89 7c 24 20 55 48 8d ac 24 f0 f7 ff ff", "reading an interface file"),
+        Point::keep(CREATE_WINDOW, "48 89 5c 24 10 57 48 83 ec 40 48 8b f9 48 8b da 48 81 c1 c8 00 00 00", "building a window"),
+        Point::keep(0x14e9099usize, "48 8b 97 c0 00 00 00", "window scene").uses(&[manager::SCENE]),
+        Point::keep(0x14e90b2usize, "4c 8b 8a 90 04 00 00", "scene size").uses(&[scene::SIZE]),
+        Point::keep(WINDOW_SHOW, "40 53 48 83 ec 30 80 b9 c5 00 00 00 00 48 8b d9", "window show"),
+        Point::keep(WINDOW_HIDE, "48 89 5c 24 10 57 48 83 ec 30 48 8b f9 48 8b 89 00 0a 00 00", "window hide"),
+        Point::keep(SET_POSITION, "48 83 ec 28 4c 8b 99 30 0a 00 00 4c 8b c2 48 89 91 98 05 00 00", "window position").uses(&[window::POSITION]),
+        Point::keep(FIND_LIST_BOX, "48 83 ec 28 48 83 7a 18 10 48 8b 01", "window list box by name"),
+        Point::keep(FIND_WINDOW, "48 89 5c 24 10 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8d 6c 24 d0", "window subwindow by name"),
+        Point::method(classes::WINDOW, window::SET_POSITION, SET_POSITION.rva(), "window position method"),
+        Point::method(classes::WINDOW, window::FIND_LIST_BOX, FIND_LIST_BOX.rva(), "window list box method"),
+        Point::method(classes::WINDOW, window::FIND_WINDOW, FIND_WINDOW.rva(), "window subwindow method"),
+        Point::keep(0x1570eaausize, "48 8d 05 ff 45 82 00 48 89 07", "window background constructor's vtable").uses(&[classes::BACKGROUND]),
+        Point::method(classes::BACKGROUND, element::ENABLE, 0xfaab30, "window background enable method"),
+        // The root's show takes its background and marks itself open.
+        Point::keep(0x1547cefusize, "48 8b 8b 20 05 00 00 c6 83 f5 00 00 00 01", "window background").uses(&[window::BACKGROUND, window::OPEN]),
+        Point::method(classes::WINDOW_GUI, window_gui::SHOW, WINDOW_SHOW, "window show method"),
+        Point::method(classes::WINDOW_GUI, window_gui::HIDE, WINDOW_HIDE, "window hide method"),
+        // Their elements: frames, icons shown and hidden, flags.
+        Point::keep(BUTTON_FRAME, "89 91 70 02 00 00 48 8b 89 90 02 00 00 0f bf d2 48 8b 01 48 ff a0 a8 00", "button frame"),
+        Point::keep(ICON_FRAMES[0], "48 8b 89 68 01 00 00 48 8b 01 48 ff a0 a8 00 00 00", "icon frame"),
+        Point::keep(ICON_FRAMES[1], "40 53 48 83 ec 20 89 91 e4 01 00 00 48 8b d9", "icon box frame"),
+        Point::keep(ICON_SHOWS[0], "80 b9 e1 01 00 00 00 75 1f c6 81 c5 00 00 00 01", "icon show"),
+        Point::keep(ICON_SHOWS[1], "c6 81 c5 00 00 00 01 48 8b 89 68 01 00 00", "icon box show"),
+        Point::keep(ICON_HIDES[0], "c6 81 c5 00 00 00 00 c7 81 94 01 00 00 00 00 00", "icon hide"),
+        Point::keep(ICON_HIDES[1], "c6 81 c5 00 00 00 00 48 8b 89 68 01 00 00", "icon box hide"),
+        Point::keep(SET_COUNTRY, "48 85 d2 74 5f 48 89 74 24 18 41 56 48 83 ec 30 48 8b 01 48 8b f2", "flag country"),
+        Point::keep(SET_INDEX, "89 91 38 01 00 00 c3", "flag index"),
+        Point::method(classes::BUTTON, element::FRAME, BUTTON_FRAME, "button frame method"),
+        Point::method(classes::BUTTON, button::SET_COUNTRY, SET_COUNTRY.rva(), "button country method"),
+        Point::method(classes::BUTTON, element::INDEX, SET_INDEX.rva(), "button index method"),
+        // Lists: a row built from its window type, added, every row deleted.
+        Point::keep(LIST_ENTRY, "48 89 5c 24 10 48 89 74 24 18 48 89 4c 24 08 57 48 83 ec 20 49 8b f0", "list row"),
+        Point::keep(0x152e00eusize, "ff 50 48 90 48 89 43 40", "list row window").uses(&[manager::CREATE_WINDOW, list_entry::WINDOW]),
+        Point::keep(LIST_ADD, "48 89 5c 24 18 55 56 57 41 54 41 55 41 56 41 57 48 83 ec 40 45 0f b6 e0", "list add"),
+        Point::keep(LIST_CLEAR, "48 89 6c 24 10 48 89 74 24 18 57 48 83 ec 20 48 8b f1 33 ed 89 a9 88 02", "list clear"),
+        // The panel button strip's places.
+        Point::keep(BUTTON_PLACE, "48 89 54 24 10 53 48 83 ec 20 8b 91 30 02 00 00 4c 8d 81 34 02 00 00", "button place"),
+        Point::keep(ICON_PLACES[0], "48 89 54 24 10 53 48 83 ec 20 80 b9 e3 01 00 00 00 48 8b d9 48 89 91 98", "icon place"),
+        Point::keep(ICON_PLACES[1], "48 83 ec 28 48 89 91 78 01 00 00 48 8b 89 68 01 00 00", "icon box place"),
+        Point::keep(PLACED, "48 8b 81 78 01 00 00 48 89 02 48 8b c2 c3", "element place"),
+        Point::method(classes::BUTTON, element::PLACE, BUTTON_PLACE.rva(), "button place method"),
+        Point::method(classes::BUTTON, element::PLACED, PLACED.rva(), "button placed method"),
     ]
 }

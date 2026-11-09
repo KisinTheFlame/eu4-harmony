@@ -189,7 +189,13 @@ pub fn game_frame() {
                     panic!("the test switch panic is on");
                 }
             }
-            let heard = game::event_costs::EVENTS.time(|| frame.heard());
+            let mut heard = game::event_costs::EVENTS.time(|| frame.heard());
+            // The pop-ups extensions showed since the last frame.
+            heard.extend(
+                crate::windows::take_shown()
+                    .into_iter()
+                    .map(|(popup, from)| game::Heard { event: eu4_harmony_remote::events::Event::Popup { popup, from }, seen: true }),
+            );
             LISTENERS.frame(frame.session(), &heard);
         }
         // A frame the game is not ready in comes and goes: the frame's

@@ -48,9 +48,12 @@ struct Spliced {
 struct State {
     plan: Option<Plan>,
     open: HashMap<usize, Spliced>,
+    /// Files the framework serves with bytes of its own, by normalized
+    /// path, whatever the file found holds.
+    served: HashMap<String, Vec<u8>>,
 }
 
-static STATE: LazyLock<Mutex<State>> = LazyLock::new(|| Mutex::new(State { plan: None, open: HashMap::new() }));
+static STATE: LazyLock<Mutex<State>> = LazyLock::new(|| Mutex::new(State { plan: None, open: HashMap::new(), served: HashMap::new() }));
 static INIT_ONCE: Once = Once::new();
 
 fn state() -> std::sync::MutexGuard<'static, State> {
@@ -60,6 +63,13 @@ fn state() -> std::sync::MutexGuard<'static, State> {
 /// Installs the splice plan; files opened from now on are served spliced.
 pub fn set_plan(plan: Plan) {
     state().plan = Some(plan);
+}
+
+/// Serves the file at `path`, one PhysFS finds (a framework file), with
+/// `data` from now on, whatever it holds: what the framework writes after
+/// startup for the game to read again (`crate::windows`).
+pub fn serve(path: &str, data: Vec<u8>) {
+    state().served.insert(normalize(path), data);
 }
 
 /// The archive or folder PhysFS reads `path` from, as it names it.
@@ -107,6 +117,12 @@ unsafe extern "C" fn open_read_detour(path: *const c_char) -> File {
         }
         let raw = c_str(path);
         let normalized = normalize(&raw);
+        let served = state().served.get(&normalized).cloned();
+        if let Some(data) = served {
+            log!("served {raw:?}: {} bytes", data.len());
+            state().open.insert(handle as usize, Spliced { data, cursor: 0 });
+            return;
+        }
         if !state().plan.as_ref().is_some_and(|p| p.may_add_to(&normalized)) {
             return;
         }

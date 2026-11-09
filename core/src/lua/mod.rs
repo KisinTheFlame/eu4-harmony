@@ -22,7 +22,7 @@ use crate::{
 };
 use eu4_harmony_lua::{
     dispatch::{self, Heard},
-    fetch, Answered, Arg, Called, Element, Extension, Host, Mod, Pending,
+    fetch, Answered, Arg, Called, Element, Extension, Host, Mod, Pending, Popup, WindowChange,
 };
 use eu4_harmony_remote::extensions::args;
 use eu4_harmony_remote::{Code, Error, Request, Response};
@@ -134,6 +134,18 @@ impl Host for Live {
         result.map_err(|e| e.message)
     }
 
+    fn window(&self, extension: usize, change: WindowChange) -> Result<(), String> {
+        crate::windows::change(extension, change)
+    }
+
+    fn popup(&self, extension: usize, popup: Popup) -> Result<u32, String> {
+        crate::windows::popup(extension, popup)
+    }
+
+    fn close_popup(&self, extension: usize, popup: u32) -> Result<(), String> {
+        crate::windows::close_popup(extension, popup)
+    }
+
     fn paint(&self, extension: usize, colors: &[(u32, [u8; 4])]) -> Result<(), Error> {
         let colors: Vec<_> = colors.iter().map(|&(province, rgba)| map_coloring::MapColor { province, rgba }).collect();
         map_coloring::paint(Caller::Extension(extension), &colors).map_err(Error::from)
@@ -183,6 +195,7 @@ impl Host for Live {
     fn stopped(&self, extension: &Extension, reason: &str) {
         log!("extension {:?} stopped: {reason}", extension.id());
         ui::hide_extension(extension.index());
+        crate::windows::forget(extension.index());
         if let Some(m) = crate::memory() {
             map::release(m, extension.index());
             crate::notice::post(
@@ -245,6 +258,7 @@ pub fn load(mods: &[DiscoveredMod], log_dir: &Path, data_dir: &Path) -> Vec<Load
         match result {
             Ok(extension) => {
                 log!("extension {:?} loaded", m.manifest.id);
+                declare_windows(&extension);
                 opened.push(Opened {
                     id: m.manifest.id.clone(),
                     name: m.descriptor.name.clone(),
@@ -268,6 +282,12 @@ pub fn load(mods: &[DiscoveredMod], log_dir: &Path, data_dir: &Path) -> Vec<Load
     *EXTENSIONS.write().unwrap_or_else(|e| e.into_inner()) = loaded;
     *OPENED.lock().unwrap_or_else(|e| e.into_inner()) = opened;
     outcomes
+}
+
+/// The windows an extension's main.lua returns, for the framework to build.
+fn declare_windows(extension: &Extension) {
+    let id = extension.id().to_string();
+    crate::windows::declare(extension.index(), &id, extension.windows(), |key| crate::loc::mod_text(&id, key).map(|t| eu4_harmony_loc::fill(&t, &[])));
 }
 
 /// What an extension reload came to.
@@ -312,8 +332,16 @@ fn reload_now(id: &str) -> game::GResult<Reloaded> {
     if let Some(why) = manifest.unsupported(eu4_harmony_remote::API_VERSION) {
         return Err(rejected(why));
     }
+    // The new texts first: the new code's windows are checked against them.
+    let (problems, earlier) = crate::loc::reload_mod(id, &harmony);
     let opening = Mod { id, name: &name, harmony: harmony.clone(), permissions: &permissions, data: Some(data) };
-    let new = eu4_harmony_lua::open(index, &opening, host).map_err(|e| rejected(format!("the new code did not load, and the old goes on: {e}")))?;
+    let new = match eu4_harmony_lua::open(index, &opening, host) {
+        Ok(new) => new,
+        Err(e) => {
+            crate::loc::restore_mod(id, earlier);
+            return Err(rejected(format!("the new code did not load, and the old goes on: {e}")));
+        }
+    };
     let Some(old) = extensions().get(index).cloned() else { return refuse(game::Status::NotFound, format!("no extension of a mod {id:?} is loaded")) };
     let session = crate::sessions::going_on();
     // A stopped extension's code is not run again, save_data included.
@@ -328,11 +356,12 @@ fn reload_now(id: &str) -> game::GResult<Reloaded> {
     };
     old.session_over();
     ui::forget_extension(index);
+    declare_windows(&new);
     if let Some(m) = crate::memory() {
         map::release(m, index);
     }
     EXTENSIONS.write().unwrap_or_else(|e| e.into_inner())[index] = new.clone();
-    for problem in crate::loc::reload_mod(id, &harmony) {
+    for problem in problems {
         log!("extension {id:?} reloaded: localisation/{problem}");
     }
     log!("extension {id:?} reloaded{}", lost.as_ref().map(|l| format!("; its state was not carried: {l}")).unwrap_or_default());
@@ -395,6 +424,7 @@ fn frame(heard: &[game::Heard]) {
     let mut feed = Fed { began: false };
     dispatch::frame(&all, &heard, &mut feed);
     game::events::extensions_listen(dispatch::listened(&all).into_iter().collect());
+    crate::windows::frame();
     refresh_report(feed.began);
 }
 
@@ -429,13 +459,25 @@ impl dispatch::Feed for Fed {
             right: c.click == ui::CLICK_RIGHT,
             shift: c.modifiers & ui::MODIFIER_SHIFT != 0,
             ctrl: c.modifiers & ui::MODIFIER_CTRL != 0,
+            row: None,
         };
-        ui::take_clicks().into_iter().map(click).collect()
+        let mut clicks: Vec<dispatch::Click> = ui::take_clicks().into_iter().map(click).collect();
+        clicks.extend(crate::windows::take_clicks());
+        clicks
+    }
+
+    fn windows(&mut self) -> Vec<dispatch::WindowSeen> {
+        crate::windows::take_seen()
+    }
+
+    fn popups_pressed(&mut self) -> Vec<dispatch::PopupPressed> {
+        crate::windows::take_popups_pressed()
     }
 }
 
 fn tell_ended(end: crate::sessions::End) {
     dispatch::hear(&extensions(), &Heard::of(&end.event()), &mut Fed { began: false });
+    crate::windows::session_ended();
     let Some(began) = SESSION_CLOCKS.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };
     let now = Clocks::now();
     let (wall, main, game) = (now.wall - began.wall, now.main.saturating_sub(began.main), now.game.saturating_sub(began.game));
@@ -540,6 +582,15 @@ mod tests {
             Called::Done(Err(Error::new(Code::NotInGame, "no game in a test")))
         }
         fn set_element(&self, _: usize, _: &str, _: Element) -> Result<(), String> {
+            Ok(())
+        }
+        fn window(&self, _: usize, _: WindowChange) -> Result<(), String> {
+            Ok(())
+        }
+        fn popup(&self, _: usize, _: Popup) -> Result<u32, String> {
+            Err("no game in a test".into())
+        }
+        fn close_popup(&self, _: usize, _: u32) -> Result<(), String> {
             Ok(())
         }
         fn paint(&self, _: usize, _: &[(u32, [u8; 4])]) -> Result<(), Error> {

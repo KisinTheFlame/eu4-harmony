@@ -394,6 +394,7 @@ macro_rules! capability_groups {
             Screenshot(screenshot: Layer) => screenshot::run(request, game),
             Console(console) => console::run_and_answer_next(request, game),
             Question(questions),
+            Popup(popups),
             Offer(offers),
             Events => match events {
                 Some(events) => events::run(request, events, now),

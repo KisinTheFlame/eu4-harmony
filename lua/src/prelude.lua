@@ -1,6 +1,6 @@
 -- Run once in every extension's Lua state, before its main.lua, with what
 -- the Lua host gives it. It finishes the sandbox and builds `game`.
-local call, WAIT, task, names, set_element, fetch, resuming, resumed = ...
+local call, WAIT, task, names, set_element, fetch, resuming, resumed, set_window, show_popup, close_popup = ...
 
 -- The sandbox (ADR extensions-are-lua-in-a-sandbox): code from text only,
 -- nothing that reads files.
@@ -102,4 +102,83 @@ game.ui = setmetatable({}, {
   end,
 })
 
-return game
+-- game.window.open(name), game.window.close(name), and
+-- game.window.<window>.<widget>.<property> = value: set, never read.
+game.window = setmetatable({
+  open = function(name)
+    set_window("open", name)
+  end,
+  close = function(name)
+    set_window("close", name)
+  end,
+}, {
+  __index = function(_, window)
+    return setmetatable({}, {
+      __index = function(_, widget)
+        return setmetatable({}, {
+          __newindex = function(_, property, value)
+            set_window("set", window, widget, property, value)
+          end,
+          __index = function(_, property)
+            error("game.window." .. tostring(window) .. "." .. tostring(widget) .. "." .. tostring(property) .. " is set, not read", 2)
+          end,
+        })
+      end,
+    })
+  end,
+})
+
+-- game.popup { title = key, text = key, buttons = { { text = key, action =
+-- function(game, popup) ... end }, ... } } shows a pop-up and gives it back
+-- at once; it waits for nothing. A button's action runs when it is pressed,
+-- and the pop-up closes after it unless it answers { close = false }; a
+-- button with no action closes it. popup:close() closes it from anywhere.
+local actions = {}
+
+local function handle(number)
+  return setmetatable({ number = number }, {
+    __index = {
+      close = function(popup)
+        actions[popup.number] = nil
+        close_popup(popup.number)
+      end,
+    },
+  })
+end
+
+game.popup = setmetatable(game.popup or {}, {
+  __call = function(_, spec)
+    if type(spec) ~= "table" then
+      error("game.popup takes a table: { title = key, text = key, buttons = { { text = key, action = function } } }", 2)
+    end
+    local number = show_popup(spec)
+    local kept = {}
+    for i, button in ipairs(type(spec.buttons) == "table" and spec.buttons or {}) do
+      kept[i] = button.action
+    end
+    actions[number] = kept
+    return handle(number)
+  end,
+})
+
+-- A button of the pop-up `number` pressed: its action, and the pop-up
+-- closed after it unless it says not to, or when it fails.
+local function press(number, button)
+  local action = actions[number] and actions[number][button]
+  local keep = false
+  if action then
+    local ok, answer = pcall(action, game, handle(number))
+    if not ok then
+      actions[number] = nil
+      close_popup(number)
+      error(answer, 0)
+    end
+    keep = type(answer) == "table" and answer.close == false
+  end
+  if not keep then
+    actions[number] = nil
+    close_popup(number)
+  end
+end
+
+return game, press

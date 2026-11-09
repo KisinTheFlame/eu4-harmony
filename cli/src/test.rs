@@ -8,7 +8,7 @@
 use crate::fake::{check, code_named, Answer, Fake};
 use eu4_harmony_lua::{
     dispatch::{self, Heard},
-    fetch, values, Extension, Mod,
+    fetch, layout, values, Extension, Mod,
 };
 use eu4_harmony_manifest::Manifest;
 use eu4_harmony_remote::{
@@ -18,6 +18,7 @@ use eu4_harmony_remote::{
 use mlua::{Function, Lua, LuaOptions, StdLib, Table, UserData, UserDataMethods, Value as LuaValue, Variadic};
 use serde_json::Value;
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -207,6 +208,7 @@ fn open(lua: &Lua, at: &Opened) -> Result<TestMod, String> {
         data: Some(at.scratch.join(n.to_string()).join(&at.manifest.id)),
     };
     let extension = eu4_harmony_lua::open(0, &m, fake.clone())?;
+    fake.store().layouts = extension.windows().to_vec();
     Ok(TestMod { extension, fake, calendar: Mutex::default() })
 }
 
@@ -227,8 +229,9 @@ struct Calendar {
 }
 
 /// What the fake game gives a dispatch: the save data a test starts a
-/// session with. Maps and clicks are raised one at a time instead.
-struct Fed(Option<Value>);
+/// session with, and at a frame the windows the mod opened or closed itself.
+/// Maps and clicks are raised one at a time instead.
+struct Fed(Option<Value>, Vec<dispatch::WindowSeen>);
 
 impl dispatch::Feed for Fed {
     fn session_begins(&mut self, _: u64) {}
@@ -242,6 +245,14 @@ impl dispatch::Feed for Fed {
     }
 
     fn clicks(&mut self) -> Vec<dispatch::Click> {
+        Vec::new()
+    }
+
+    fn windows(&mut self) -> Vec<dispatch::WindowSeen> {
+        std::mem::take(&mut self.1)
+    }
+
+    fn popups_pressed(&mut self) -> Vec<dispatch::PopupPressed> {
         Vec::new()
     }
 }
@@ -259,7 +270,7 @@ impl TestMod {
 
     /// The mod hears `heard`, a session's start with `saved`.
     fn hear(&self, lua: &Lua, heard: &Heard, saved: Option<Value>) {
-        dispatch::hear(std::slice::from_ref(&self.extension), heard, &mut Fed(saved));
+        dispatch::hear(std::slice::from_ref(&self.extension), heard, &mut Fed(saved, Vec::new()));
         self.note(lua);
     }
 
@@ -426,14 +437,95 @@ impl UserData for TestMod {
             Ok(())
         });
         methods.add_method("frame", |lua, this, ()| {
-            dispatch::frame(std::slice::from_ref(&this.extension), &[], &mut Fed(None));
+            let seen = std::mem::take(&mut this.fake.store().seen);
+            dispatch::frame(std::slice::from_ref(&this.extension), &[], &mut Fed(None, seen));
             this.note(lua);
             Ok(())
         });
         methods.add_method("button", |lua, this, (name, click): (String, Option<Table>)| {
             let flag = |key: &str| -> mlua::Result<bool> { Ok(click.as_ref().map(|t| t.get::<Option<bool>>(key)).transpose()?.flatten().unwrap_or(false)) };
-            let click = dispatch::Click { extension: this.extension.index(), button: name, right: flag("right")?, shift: flag("shift")?, ctrl: flag("ctrl")? };
+            let click = dispatch::Click {
+                extension: this.extension.index(),
+                button: name,
+                right: flag("right")?,
+                shift: flag("shift")?,
+                ctrl: flag("ctrl")?,
+                row: None,
+            };
             dispatch::click(std::slice::from_ref(&this.extension), &click);
+            this.note(lua);
+            Ok(())
+        });
+
+        // The mod's windows and pop-ups, as the player uses them.
+        methods.add_method("press", |lua, this, (window, widget, click): (String, String, Option<Table>)| {
+            let flag = |key: &str| -> mlua::Result<bool> { Ok(click.as_ref().map(|t| t.get::<Option<bool>>(key)).transpose()?.flatten().unwrap_or(false)) };
+            let row = click.as_ref().map(|t| t.get::<Option<u32>>("row")).transpose()?.flatten();
+            pressable(this, &window, &widget, row).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?;
+            let click = dispatch::Click {
+                extension: this.extension.index(),
+                button: format!("{window}.{widget}"),
+                right: flag("right")?,
+                shift: flag("shift")?,
+                ctrl: flag("ctrl")?,
+                row,
+            };
+            dispatch::click(std::slice::from_ref(&this.extension), &click);
+            this.note(lua);
+            Ok(())
+        });
+        methods.add_method("entry", |lua, this, window: String| {
+            let has_entry = this.extension.windows().iter().any(|w| w.name == window && w.entry.is_some());
+            if !has_entry {
+                return Err(mlua::Error::runtime(format!("{}the mod's window {window:?} has no entry button", here(lua))));
+            }
+            let open = this.fake.store().windows.get(&window).is_some_and(|w| w.open);
+            let seen = this.fake.store().show(this.extension.index(), &window, !open);
+            for seen in seen {
+                dispatch::window(std::slice::from_ref(&this.extension), &seen);
+            }
+            this.note(lua);
+            Ok(())
+        });
+        methods.add_method("close", |lua, this, window: String| {
+            if !this.fake.store().windows.get(&window).is_some_and(|w| w.open) {
+                return Err(mlua::Error::runtime(format!("{}the mod's window {window:?} is not open", here(lua))));
+            }
+            let seen = this.fake.store().show(this.extension.index(), &window, false);
+            for seen in seen {
+                dispatch::window(std::slice::from_ref(&this.extension), &seen);
+            }
+            this.note(lua);
+            Ok(())
+        });
+        methods.add_method("popups", |lua, this, ()| {
+            let list = lua.create_table()?;
+            for p in &this.fake.store().popups {
+                let t = lua.create_table()?;
+                t.set("popup", p.number)?;
+                t.set("title", p.popup.title.as_str())?;
+                t.set("text", p.popup.text.as_str())?;
+                t.set("header", p.popup.header.clone())?;
+                t.set("buttons", lua.create_sequence_from(shown(&p.popup))?)?;
+                list.push(t)?;
+            }
+            Ok(list)
+        });
+        methods.add_method("answer_popup", |lua, this, (number, button): (u32, u32)| {
+            let count = {
+                let store = this.fake.store();
+                let Some(p) = store.popups.iter().find(|p| p.number == number) else {
+                    return Err(mlua::Error::runtime(format!("{}no pop-up {number} is open", here(lua))));
+                };
+                shown(&p.popup).len() as u32
+            };
+            if !(1..=count).contains(&button) {
+                return Err(mlua::Error::runtime(format!("{}pop-up {number} has buttons 1 to {count}", here(lua))));
+            }
+            // The button's action runs, as at the game's next frame, and
+            // closes the pop-up unless it says not to.
+            let pressed = dispatch::PopupPressed { extension: this.extension.index(), popup: number, button };
+            dispatch::popup_pressed(std::slice::from_ref(&this.extension), &pressed);
             this.note(lua);
             Ok(())
         });
@@ -480,6 +572,45 @@ impl UserData for TestMod {
             }
             Ok(element)
         });
+        methods.add_method("window", |lua, this, name: String| {
+            if !this.extension.windows().iter().any(|w| w.name == name) {
+                return Err(mlua::Error::runtime(format!("{}the mod has no window {name:?}", here(lua))));
+            }
+            let store = this.fake.store();
+            let t = lua.create_table()?;
+            let Some(window) = store.windows.get(&name) else {
+                t.set("open", false)?;
+                return Ok(t);
+            };
+            let properties = |p: &BTreeMap<&'static str, Value>| -> mlua::Result<Table> {
+                let t = lua.create_table()?;
+                for (name, value) in p {
+                    t.set(*name, values::to_lua(lua, value)?)?;
+                }
+                Ok(t)
+            };
+            for (widget, p) in &window.widgets {
+                t.set(widget.as_str(), properties(p)?)?;
+            }
+            for (list, rows) in &window.rows {
+                let widget: Table = match t.get::<Option<Table>>(list.as_str())? {
+                    Some(w) => w,
+                    None => lua.create_table()?,
+                };
+                let all = lua.create_table()?;
+                for row in rows {
+                    let r = lua.create_table()?;
+                    for (name, p) in row {
+                        r.set(name.as_str(), properties(p)?)?;
+                    }
+                    all.push(r)?;
+                }
+                widget.set("rows", all)?;
+                t.set(list.as_str(), widget)?;
+            }
+            t.set("open", window.open)?;
+            Ok(t)
+        });
         methods.add_method("map", |lua, this, ()| match &this.fake.store().map {
             None => Ok(LuaValue::Nil),
             Some(colors) => {
@@ -515,6 +646,45 @@ impl UserData for TestMod {
         methods.add_method("waiting", |_, this, ()| Ok(this.extension.waiting()));
         methods.add_method("told", |lua, this, ()| lua.create_sequence_from(this.fake.store().told.clone()));
         methods.add_method("stopped", |_, this, ()| Ok(this.extension.stopped()));
+    }
+}
+
+/// Whether the player can press `widget` of the mod's `window`, in the
+/// list's row `row` when one is given, or why not.
+fn pressable(this: &TestMod, window: &str, widget: &str, row: Option<u32>) -> Result<(), String> {
+    let Some(layout) = this.extension.windows().iter().find(|w| w.name == window) else { return Err(format!("the mod has no window {window:?}")) };
+    if !this.fake.store().windows.get(window).is_some_and(|w| w.open) {
+        return Err(format!("the mod's window {window:?} is not open"));
+    }
+    let button = |w: &layout::Placed| matches!(w.kind, layout::Kind::Button { .. });
+    let found = match row {
+        None => layout.widget(widget).is_some_and(button),
+        Some(n) => {
+            let rows = this.fake.store().windows.get(window).map(|w| w.rows.clone()).unwrap_or_default();
+            let in_list = layout.widgets.iter().find_map(|w| match &w.kind {
+                layout::Kind::List { row, .. } if row.widget(widget).is_some_and(button) => w.name.clone(),
+                _ => None,
+            });
+            match in_list {
+                Some(list) if (1..=rows.get(&list).map_or(0, Vec::len) as u32).contains(&n) => true,
+                Some(list) => return Err(format!("the list {list} has no row {n}")),
+                None => false,
+            }
+        }
+    };
+    if !found {
+        return Err(format!("the window {window:?} has no button {widget}{}", if row.is_some() { " in a list's row" } else { "" }));
+    }
+    Ok(())
+}
+
+/// A pop-up's buttons' words as they stand, left to right, as remote
+/// control's popup.list gives them: the game's OK when the mod gave none.
+fn shown(popup: &eu4_harmony_lua::Popup) -> Vec<String> {
+    if popup.buttons.is_empty() {
+        vec!["OK".to_string()]
+    } else {
+        popup.buttons.clone()
     }
 }
 

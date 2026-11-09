@@ -56,14 +56,29 @@ pub fn mod_text(id: &str, key: &str) -> Option<String> {
     MODS.read().unwrap_or_else(|e| e.into_inner()).get(id)?.text(lang::player(), key)
 }
 
+/// The texts a mod had before an extension reload read them again, which
+/// [`restore_mod`] puts back when the new code does not load.
+pub struct Earlier(Option<Catalog>);
+
 /// Reads the mod `id`'s localisation again from its `eu4-harmony/` folder,
-/// for an extension reload: `text.get` gives the new texts. What was spliced
-/// into the game's own localisation at startup stays. Returns problems for
-/// the log.
-pub fn reload_mod(id: &str, harmony: &std::path::Path) -> Vec<String> {
+/// for an extension reload, before its new code loads: the new code's
+/// layouts are checked against them, and `text.get` gives them. What was
+/// spliced into the game's own localisation at startup stays. Returns
+/// problems for the log, and the texts it took the place of.
+pub fn reload_mod(id: &str, harmony: &std::path::Path) -> (Vec<String>, Earlier) {
     let (catalog, problems) = format::load_dir(&harmony.join("localisation"));
-    MODS.write().unwrap_or_else(|e| e.into_inner()).insert(id.to_string(), catalog);
-    problems
+    let earlier = MODS.write().unwrap_or_else(|e| e.into_inner()).insert(id.to_string(), catalog);
+    (problems, Earlier(earlier))
+}
+
+/// Puts back the texts the mod `id` had before [`reload_mod`], for the old
+/// code that goes on.
+pub fn restore_mod(id: &str, Earlier(earlier): Earlier) {
+    let mut mods = MODS.write().unwrap_or_else(|e| e.into_inner());
+    match earlier {
+        Some(catalog) => mods.insert(id.to_string(), catalog),
+        None => mods.remove(id),
+    };
 }
 
 /// The vanilla file the mods' keys are appended to. The game loads it in
@@ -138,8 +153,44 @@ mod tests {
         assert!(framework(Language::English, "EU4HARMONY_NOT_LOADED", &[("MOD", "X"), ("DETAIL", "d")]).contains("\"X\" was not loaded:\nd"));
     }
 
+    /// Held by the tests that change the mods' texts, which are the whole
+    /// process's.
+    static MODS_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn a_reload_s_texts_go_back_when_its_code_does_not_load() {
+        let _held = MODS_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("eu4h-reload-loc-{}", std::process::id()));
+        let loc = dir.join("localisation");
+        std::fs::create_dir_all(&loc).unwrap();
+        std::fs::write(
+            loc.join("r_l_english.yml"),
+            "l_english:
+ R_OLD:0 \"Old\"
+",
+        )
+        .unwrap();
+        let (_, first) = reload_mod("r", &dir);
+        std::fs::write(
+            loc.join("r_l_english.yml"),
+            "l_english:
+ R_NEW:0 \"New\"
+",
+        )
+        .unwrap();
+        let (problems, earlier) = reload_mod("r", &dir);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(mod_text("r", "R_NEW").as_deref(), Some("New"), "the new code is checked against the new texts");
+        restore_mod("r", earlier);
+        assert_eq!((mod_text("r", "R_OLD").as_deref(), mod_text("r", "R_NEW")), (Some("Old"), None), "the old code goes on with its own");
+        restore_mod("r", first);
+        assert_eq!(mod_text("r", "R_OLD"), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn mod_keys_are_appended_to_the_game_language_file() {
+        let _held = MODS_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("eu4h-loc-{}", std::process::id()));
         let loc = dir.join("eu4-harmony").join("localisation");
         std::fs::create_dir_all(&loc).unwrap();

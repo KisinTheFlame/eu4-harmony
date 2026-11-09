@@ -18,7 +18,8 @@ group! {
     world Get "get" {} -> Camera, "the camera: x and y, the map position it looks at; height; province, the province there (null where the map has none); min_height and max_height";
     /// Turns the camera to a province, at the position the game itself
     /// looks at it from, or to a map position, keeping the height: a
-    /// province, or x and y. At once: the next frame shows it.
+    /// province, or x and y. At once, the next frame showing it, or gliding
+    /// there over some frames as the game's own moves do.
     world LookAt "look_at" {
         /// The province.
         province: Option<ProvinceId>,
@@ -26,7 +27,10 @@ group! {
         x: Option<u32>,
         /// Pixels from the map's bottom edge.
         y: Option<u32>,
-    } -> Camera, "the camera afterwards, as camera.get answers it";
+        /// Whether the camera glides there, as the game's own moves do;
+        /// false when left out, at once.
+        glide: Option<bool>,
+    } -> Camera, "the camera afterwards, as camera.get answers it; where it is going when it glides";
     /// Raises or lowers the camera, looking at the same position. At once:
     /// the next frame shows it.
     world Zoom "zoom" {

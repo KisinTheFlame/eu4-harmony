@@ -69,7 +69,7 @@ pub fn run(raw: &[String]) -> Result<()> {
     if command == "follow" {
         return follow(rest);
     }
-    let args = Args::parse_repeated(rest, &["sound", "visible"], &["purpose", "owner", "timeout", "game-dir", "seed"], &["save"])?;
+    let args = Args::parse_repeated(rest, &["sound", "visible"], &["purpose", "owner", "timeout", "game-dir", "seed"], &["save", "mod"])?;
     match command.as_str() {
         "claim" => course::claim(&ThisComputer, &owner(&args), args.value("purpose").unwrap_or(""), &args.game_dir()?).map(|_| ()),
         "release" => course::release(&ThisComputer, &owner(&args)),
@@ -178,14 +178,16 @@ pub fn start_game_as(owner: &str, game_dir: &Path, starting: &Starting, wait: Du
 /// shows it. The start is a hidden start either way, so that `--sound`
 /// chooses the sound and the game can be hidden again. `--seed` starts it
 /// with the game's own `-seed`; each `--save` copies a save of the player's
-/// into the test game's user folder first.
+/// into the test game's user folder first, and each `--mod` puts a mod's
+/// folder in its playset, as a scenario's test mods are.
 fn start(args: &Args) -> Result<f64> {
     let wait = args
         .value("timeout")
         .map_or(Ok(eu4_harmony_client::start::WAIT), |v| v.parse().map(Duration::from_secs).map_err(|_| format!("--timeout {v}: seconds")))?;
     let seed = args.value("seed").map(|v| v.parse::<u32>().map_err(|_| format!("--seed {v}: a whole number below 2^32"))).transpose()?;
     let owner = owner(args);
-    let starting = Starting { sound: args.flag("sound"), seed, saves: args.values("save"), options: None, mods: Vec::new(), build: None };
+    let mods = args.values("mod").into_iter().map(std::path::PathBuf::from).collect();
+    let starting = Starting { sound: args.flag("sound"), seed, saves: args.values("save"), options: None, mods, build: None };
     let took = start_game_as(&owner, &args.game_dir()?, &starting, wait)?;
     if args.flag("visible") {
         show(&pipe_of(&owner)?).map_err(|why| format!("the game runs hidden at its main menu, not shown: {why}; eu4-harmony game desktop show shows it"))?;

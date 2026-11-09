@@ -1,0 +1,9 @@
+# 2026-11-09 The entry buttons' backgrounds, and a reload's new texts (tested by me)
+
+Asked by the owner: on the panel button strip some round buttons had a blue box under them down to the screen's edge and some had none, and the papacy's was partly covered. One claim, the test game started hidden four times with the council demo (`--mod`, a mod of the scratchpad's, not in the repository), the save Austria-1 (Sardinia-Piedmont, 1619) loaded each time.
+
+- **What it was**: the game's buttons on the strip each have a background, the round frame's box with the number, `menubar_floating_bg_k`. The council's entry button had none under it, and the papacy's button, the first slot, had its box drawn over its own frame. A log line added for the run (not committed) showed the entry button's background's `+0x288` was `0x1585c80`, an `iconType`'s, where the framework knew only `0x1571cf0`: it never moved the background, which stayed at its spliced place, slot 1's, and, spliced last, was drawn over the papacy's button.
+- **After**: with either method taken, the council's button stood on its own box, and the papacy's showed whole, its number 162 under it, which the stray box had hidden.
+- **A reload's new texts**: `extension.reload` of the demo with a window whose tooltip used a key new in its localisation was refused, "the mod has no text"; the layouts were checked against the texts the mod had before, and the new ones were read only after. With the texts read first, and put back when the new code does not load, the reload went through. The putting back is covered by a unit test, not tried in the game.
+- **Not verified**: the strip at other resolutions, and with more entry buttons than the one.
+- The game did not crash; the computer ran about ten other test games at the time, and a screenshot once waited a minute for a frame.

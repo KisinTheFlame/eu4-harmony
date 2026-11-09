@@ -7,10 +7,12 @@
 //!    start with the save data it began from;
 //! 3. hears that its map coloring was taken over (`on_map_lost`);
 //! 4. hears its buttons clicked (`on_button`);
-//! 5. has its `on_frame` called.
+//! 5. hears its windows opened and closed (`on_window`);
+//! 6. has its `on_frame` called.
 //!
 //! The host feeds a frame ([`Feed`]) with what only it knows: a session's
-//! save data, the maps lost and the clicks, each asked for when its turn
+//! save data, the maps lost, the clicks and the windows opened or closed,
+//! each asked for when its turn
 //! comes, since a handler before may change it.
 use crate::{Arg, Extension};
 use eu4_harmony_remote::events::{Event, Kind, EVENTS};
@@ -79,11 +81,32 @@ fn type_name(value: &Value) -> &'static str {
 pub struct Click {
     /// The index of the extension whose button it is.
     pub extension: usize,
-    /// The button's name in its interface fragment.
+    /// The button's name in its interface fragment, or `<window>.<widget>`
+    /// for a button of an extension window.
     pub button: String,
     pub right: bool,
     pub shift: bool,
     pub ctrl: bool,
+    /// The row of the list the button is in, from 1.
+    pub row: Option<u32>,
+}
+
+/// A button of one of an extension's pop-ups pressed, by the player or a
+/// remote client.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PopupPressed {
+    pub extension: usize,
+    pub popup: u32,
+    /// From 1, left to right.
+    pub button: u32,
+}
+
+/// One of an extension's windows opened or closed, by whoever did it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WindowSeen {
+    pub extension: usize,
+    pub window: String,
+    pub open: bool,
 }
 
 /// What the host gives a frame besides what happened.
@@ -98,6 +121,11 @@ pub trait Feed {
     fn map_lost(&mut self) -> Vec<usize>;
     /// The buttons clicked since the last frame, in order.
     fn clicks(&mut self) -> Vec<Click>;
+    /// The extension windows opened and closed since the last frame, in
+    /// order.
+    fn windows(&mut self) -> Vec<WindowSeen>;
+    /// The pop-ups' buttons pressed since the last frame, in order.
+    fn popups_pressed(&mut self) -> Vec<PopupPressed>;
 }
 
 /// Dispatches one of the game's safe frames to `extensions`, in the order
@@ -114,6 +142,12 @@ pub fn frame(extensions: &[Arc<Extension>], heard: &[Heard], feed: &mut dyn Feed
     }
     for click in feed.clicks() {
         self::click(extensions, &click);
+    }
+    for seen in feed.windows() {
+        window(extensions, &seen);
+    }
+    for pressed in feed.popups_pressed() {
+        popup_pressed(extensions, &pressed);
     }
     for e in extensions {
         e.handle("on_frame", &[]);
@@ -160,8 +194,22 @@ pub fn map_lost(extensions: &[Arc<Extension>], extension: usize) {
 /// The extension whose button was clicked hears it.
 pub fn click(extensions: &[Arc<Extension>], click: &Click) {
     if let Some(e) = extensions.iter().find(|e| e.index() == click.extension) {
-        let how = Arg::Click { right: click.right, shift: click.shift, ctrl: click.ctrl };
+        let how = Arg::Click { right: click.right, shift: click.shift, ctrl: click.ctrl, row: click.row };
         e.handle("on_button", &[Arg::Text(click.button.clone()), how]);
+    }
+}
+
+/// The extension whose pop-up's button was pressed runs its action.
+pub fn popup_pressed(extensions: &[Arc<Extension>], pressed: &PopupPressed) {
+    if let Some(e) = extensions.iter().find(|e| e.index() == pressed.extension) {
+        e.press_popup(pressed.popup, pressed.button);
+    }
+}
+
+/// The extension whose window opened or closed hears it.
+pub fn window(extensions: &[Arc<Extension>], seen: &WindowSeen) {
+    if let Some(e) = extensions.iter().find(|e| e.index() == seen.extension) {
+        e.handle("on_window", &[Arg::Text(seen.window.clone()), Arg::Json(Value::Bool(seen.open))]);
     }
 }
 

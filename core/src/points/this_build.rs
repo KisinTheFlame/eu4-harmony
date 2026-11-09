@@ -18,6 +18,7 @@ fn framework() -> Vec<Point> {
     all.extend(crate::game_heap::points());
     all.extend(crate::game::points());
     all.extend(crate::ui::points());
+    all.extend(crate::windows::points());
     all.extend(crate::map::points());
     all.extend(crate::saves::points());
     all.extend(crate::repairs::points());
