@@ -50,7 +50,7 @@ crash = false
 panic = false
 # The speed-ups left to the game, so that its own code can be measured against
 # them: their points are not installed. Each is named by its name, its group or
-# "all": pops-polling, fastest-pace and modifier-sums (group "frames"); music,
+# "all": pops-polling, drawing-thread and modifier-sums (group "frames"); music,
 # lookups, children, opens and listed-folders ("loading");
 # background-compression, stored-copy, parallel-saves, save-sum and
 # update-thread ("saving"); army-searches ("ai").

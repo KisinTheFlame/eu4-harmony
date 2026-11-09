@@ -267,9 +267,10 @@ unsafe extern "C" fn map_text(idler: usize, province: u32, kind: usize, text: us
         let m = crate::hooked_memory();
         if let (Ok(kind_text), Ok(text_text)) = (game_string::read(&m, kind), game_string::read(&m, text)) {
             // The strings are the call's to destroy.
-            let destroyed = game_string::destroy_checked(&m, kind).and_then(|_| game_string::destroy_checked(&m, text));
-            if let Err(e) = destroyed {
-                log!("drawing: a floating text's strings could not be destroyed: {e}");
+            let destroy: unsafe extern "C" fn(usize) = unsafe { std::mem::transmute(m.at(game_string::DESTROY_AT.rva())) };
+            unsafe {
+                destroy(kind);
+                destroy(text);
             }
             DEFERRED.lock().unwrap_or_else(|e| e.into_inner()).push(Deferred::MapText { idler, province, kind: kind_text, text: text_text, number, last });
             DEFERRED_COUNT.fetch_add(1, Ordering::Relaxed);
@@ -300,20 +301,19 @@ fn do_deferred(m: &Memory) {
     let idler = m.ptr(m.at(APP)).and_then(|app| m.ptr(app + APP_IDLER)).unwrap_or(0);
     let interface = m.ptr(m.at(WORLD)).and_then(|world| m.ptr(world + WORLD_INTERFACE)).unwrap_or(0);
     for d in deferred {
-        let done = match d {
-            Deferred::MapText { idler: of, province, kind, text, number, last } if of == idler => {
+        match d {
+            Deferred::MapText { idler: of, province, kind, text, number, last } if of == idler => unsafe {
                 // Made as the game makes them, for the call to destroy.
                 let (mut kind_s, mut text_s) = (game_string::empty(), game_string::empty());
                 let (kind_at, text_at) = (kind_s.as_mut_ptr() as usize, text_s.as_mut_ptr() as usize);
-                game_string::append_checked(m, kind_at, &kind)
-                    .and_then(|_| game_string::append_checked(m, text_at, &text))
-                    .and_then(|_| m.call(ORIGINAL_MAP_TEXT.address(), &[of, province as usize, kind_at, text_at, number, last]))
-            }
-            Deferred::DailyRefresh { interface: of } if of == interface => m.call(ORIGINAL_DAILY_REFRESH.address(), &[of]),
-            _ => Ok(0),
-        };
-        if let Err(e) = done {
-            log!("drawing: a call deferred from the day failed: {e}");
+                game_string::append(kind_at, &kind);
+                game_string::append(text_at, &text);
+                ORIGINAL_MAP_TEXT.get()(of, province, kind_at, text_at, number, last);
+            },
+            Deferred::DailyRefresh { interface: of } if of == interface => unsafe {
+                ORIGINAL_DAILY_REFRESH.get()(of);
+            },
+            _ => {}
         }
     }
 }
@@ -397,7 +397,9 @@ fn move_camera(m: &Memory, idler: usize, length: f32) -> crate::Result<()> {
         return Ok(());
     }
     let camera = m.ptr(idler + IDLER_CAMERA)?;
-    CAMERA_UPDATE.call(m, [camera, m.ptr(idler + IDLER_CAMERA_A)?, m.ptr(idler + IDLER_CAMERA_B)?, NO_EVENTS.as_ptr() as usize, length.to_bits() as usize])?;
+    let update: unsafe extern "C" fn(usize, usize, usize, usize, f32) -> usize = unsafe { std::mem::transmute(m.at(CAMERA_UPDATE.rva())) };
+    let (a, b) = (m.ptr(idler + IDLER_CAMERA_A)?, m.ptr(idler + IDLER_CAMERA_B)?);
+    unsafe { update(camera, a, b, NO_EVENTS.as_ptr() as usize, length) };
     Ok(())
 }
 
@@ -488,9 +490,8 @@ static DRAWN_SEQ: AtomicU64 = AtomicU64::new(0);
 static DAY_RAN: AtomicBool = AtomicBool::new(false);
 /// The longest a frame waits so.
 const PACE_AT_MOST: Duration = Duration::from_millis(50);
-/// The drawing thread failed: the main thread draws from then on.
-static FAILED: AtomicBool = AtomicBool::new(false);
-/// Whether the setting has the drawing thread on, as last told.
+/// Whether the drawing thread draws the frames: its speed-up not left to the
+/// game.
 static ON: AtomicBool = AtomicBool::new(false);
 static UNLIMITED: AtomicBool = AtomicBool::new(false);
 /// The frames the drawing thread drew, and the main thread's waits for the
@@ -513,10 +514,6 @@ static CROSSINGS: AtomicU64 = AtomicU64::new(0);
 static BY_CROSSING: Mutex<Vec<(usize, u64, u64)>> = Mutex::new(Vec::new());
 /// The crossing that held the frames back since the last update, and when.
 static HELD_BACK_BY: Mutex<Option<(usize, Instant)>> = Mutex::new(None);
-/// The drawing thread's frames that faulted, and how many it may before the
-/// main thread draws again.
-static FAULTS: AtomicU64 = AtomicU64::new(0);
-const MOST_FAULTS: u64 = 5;
 /// The frames the main thread drew itself, the drawing thread not having.
 static HERE: AtomicU64 = AtomicU64::new(0);
 /// The back buffer's size, as the drawing thread's last frame presented it.
@@ -558,23 +555,25 @@ fn main_give(s: &mut MainSide) {
 
 /// Whether the drawing thread draws the frames now.
 fn drawing_on() -> bool {
-    ON.load(Ordering::Relaxed) && !FAILED.load(Ordering::Relaxed) && DRAWING_THREAD.load(Ordering::Relaxed) != 0
+    ON.load(Ordering::Relaxed) && DRAWING_THREAD.load(Ordering::Relaxed) != 0
 }
 
 fn on_main() -> bool {
     crate::thread_id() == crate::main_thread()
 }
 
-/// Tells the drawing thread the settings it runs with: at startup, and when
-/// settings are saved. Starts the thread the first time it is turned on.
-pub fn set(on: bool, unlimited: bool) {
+/// Tells the drawing thread the setting it runs with: at startup, and when
+/// settings are saved. Starts the thread the first time, unless the speed-up
+/// is left to the game, whose points are then not installed.
+pub fn set(unlimited: bool) {
+    let on = !crate::speed::game_path(&SPEED_UP);
     UNLIMITED.store(unlimited, Ordering::Relaxed);
     ON.store(on, Ordering::Relaxed);
-    if on && DRAWING_THREAD.load(Ordering::Relaxed) == 0 && !FAILED.load(Ordering::Relaxed) {
+    if on && DRAWING_THREAD.load(Ordering::Relaxed) == 0 {
         let spawned = std::thread::Builder::new().name("eu4-harmony drawing".into()).stack_size(32 << 20).spawn(|| crate::guarded("drawing thread", run));
         if let Err(e) = spawned {
             log!("drawing: no drawing thread ({e}): the main thread draws");
-            FAILED.store(true, Ordering::Relaxed);
+            ON.store(false, Ordering::Relaxed);
         }
     }
     log!(
@@ -738,8 +737,7 @@ extern "C" fn frame_draws(idler: usize) {
         return;
     }
     if let Err(e) = first_steps(&m, idler) {
-        log!("drawing: the drawing's first steps failed, the main thread draws from now on: {e}");
-        FAILED.store(true, Ordering::Relaxed);
+        log!("drawing: the drawing's first steps could not read the game: {e}");
         return;
     }
     PREPARED.store(idler, Ordering::Release);
@@ -767,15 +765,17 @@ fn first_steps(m: &Memory, idler: usize) -> crate::Result<()> {
     let volume = f32::from_bits(m.u32(settings + MASTER_VOLUME)?);
     let floor = f32::from_bits(m.u32(m.at(VOLUME_FLOOR))?);
     if volume > floor {
-        AMBIENT.call(m, [idler + IDLER_SOUND, m.ptr(idler + IDLER_MAP)?, m.ptr(idler + IDLER_CAMERA)?])?;
+        let (map, camera) = (m.ptr(idler + IDLER_MAP)?, m.ptr(idler + IDLER_CAMERA)?);
+        unsafe { direct3(m, AMBIENT)(idler + IDLER_SOUND, map, camera) };
     }
     if m.u8(idler + IDLER_COLORS_DUE)? != 0 || m.u8(idler + IDLER_COLORS_ASKED)? != 0 {
         let mut now = 0i64;
-        let at = CLOCK.call(m, [&mut now as *mut i64 as usize])?;
+        let at = unsafe { direct1(m, CLOCK)(&mut now as *mut i64 as usize) };
         let now = if at != 0 { m.u64(at)? as i64 } else { now };
         if now >= m.u64(idler + IDLER_COLORS_AT)? as i64 {
             let map = m.ptr(m.ptr(m.at(APP))? + APP_MAP)?;
-            COLORS.call(m, [map, m.u32(idler + IDLER_MAP_MODE)? as usize, m.u32(idler + IDLER_MAP_MODE_ARG)? as usize])?;
+            let (mode, arg) = (m.u32(idler + IDLER_MAP_MODE)? as usize, m.u32(idler + IDLER_MAP_MODE_ARG)? as usize);
+            unsafe { direct3(m, COLORS)(map, mode, arg) };
             m.write(idler + IDLER_COLORS_DUE, &[0])?;
             m.write(idler + IDLER_COLORS_ASKED, &[0])?;
         }
@@ -821,9 +821,19 @@ fn draw_here(m: &Memory, idler: usize) {
     while PRESENTING.load(Ordering::Acquire) {
         std::thread::yield_now();
     }
-    if let Err(e) = DRAWING.call(m, [idler]) {
-        log!("drawing: the frame's drawing failed: {e}");
-    }
+    HERE.fetch_add(1, Ordering::Relaxed);
+    unsafe { direct1(m, DRAWING)(idler) };
+}
+
+/// A game function the drawing calls, called as the game calls it, with no
+/// guard: a fault in it ends the game as the game's own would.
+fn direct1(m: &Memory, function: GameFunction<1>) -> unsafe extern "C" fn(usize) -> usize {
+    unsafe { std::mem::transmute::<usize, unsafe extern "C" fn(usize) -> usize>(m.at(function.rva())) }
+}
+
+/// [`direct1`], for a function of three arguments.
+fn direct3(m: &Memory, function: GameFunction<3>) -> unsafe extern "C" fn(usize, usize, usize) -> usize {
+    unsafe { std::mem::transmute::<usize, unsafe extern "C" fn(usize, usize, usize) -> usize>(m.at(function.rva())) }
 }
 
 /// The display's refresh rate, 60 when Windows does not say.
@@ -903,31 +913,14 @@ fn run() {
         // for its update; the main thread's update of it then passes no time.
         if idler != 0 && current == idler && CAMERA_MOVED_THERE.load(Ordering::Relaxed) != 0 {
             if let Err(e) = move_camera(&m, idler, length) {
-                log!("drawing: the camera's update failed, the main thread moves it from now on: {e}");
-                CAMERA_MOVED_THERE.store(0, Ordering::Relaxed);
+                log!("drawing: the camera's update could not read the game: {e}");
             }
         }
         if idler != 0 && current == idler && !CHANGED.load(Ordering::Acquire) && !must_draw_here(&m) {
             DRAWING_LENGTH.store(length.to_bits(), Ordering::Relaxed);
-            match DRAWING.call(&m, [idler]) {
-                Ok(_) => {
-                    DRAWN.fetch_add(1, Ordering::Relaxed);
-                    DRAWN_SEQ.store(seq, Ordering::Release);
-                }
-                Err(e) => {
-                    // Most likely a structure of the interface's a crossing not
-                    // caught began to change: the frame waits for the update
-                    // that finishes it, as after a crossing.
-                    CHANGED.store(true, Ordering::Release);
-                    let faults = FAULTS.fetch_add(1, Ordering::Relaxed) + 1;
-                    if faults >= MOST_FAULTS {
-                        log!("drawing: the drawing thread's frame failed {faults} times, the main thread draws from now on: {e}");
-                        FAILED.store(true, Ordering::Relaxed);
-                    } else {
-                        log!("drawing: the drawing thread's frame failed, left out: {e}");
-                    }
-                }
-            }
+            unsafe { direct1(&m, DRAWING)(idler) };
+            DRAWN.fetch_add(1, Ordering::Relaxed);
+            DRAWN_SEQ.store(seq, Ordering::Release);
         }
         LOCK.give();
         if logged.elapsed() >= Duration::from_secs(10) {
