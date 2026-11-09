@@ -563,9 +563,11 @@ static DRAWING_THREAD: AtomicU32 = AtomicU32::new(0);
 /// The in-game idler whose frame the main thread prepared last, 0 for none.
 static PREPARED: AtomicUsize = AtomicUsize::new(0);
 /// A crossing changed the interface's state since the last frame prepared:
-/// what it began (a unit's model made, its type's list grown) the next
+/// what it began (a unit's model let go, still on the map's lists) the next
 /// update finishes, and the game never draws between the two, so neither
-/// does the drawing thread.
+/// does the drawing thread. A crossing in an update comes before the frame
+/// is prepared, which clears it; one in a day or at the safe frame after the
+/// update, after it.
 static CHANGED: AtomicBool = AtomicBool::new(false);
 /// How many frames the main thread prepared, and the last of them drawn. The
 /// game's frames are paced by Present, which waits for the display; the main
@@ -773,12 +775,15 @@ pub fn crossing(into: usize) {
         return;
     }
     main_side(|s| {
-        if s.in_day {
-            if !CHANGED.swap(true, Ordering::AcqRel) {
-                *HELD_BACK_BY.lock().unwrap_or_else(|e| e.into_inner()) = Some((into, Instant::now()));
-            }
-            count_crossing(into, 1, 0);
+        // Wherever it comes: one in an update is followed by the frame's
+        // drawing, which forgets it; one after the frame was prepared (in a
+        // day, or at the safe frame after the update) changes what the
+        // prepared frame draws, so the drawing thread waits for the next
+        // update.
+        if !CHANGED.swap(true, Ordering::AcqRel) {
+            *HELD_BACK_BY.lock().unwrap_or_else(|e| e.into_inner()) = Some((into, Instant::now()));
         }
+        count_crossing(into, 1, 0);
         if s.in_day && !s.holds {
             CROSSINGS.fetch_add(1, Ordering::Relaxed);
             main_take(s, AT_CROSSING);
