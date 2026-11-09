@@ -242,7 +242,7 @@ impl Machine for ThisComputer {
         let core = folder.join("core");
         fs::create_dir_all(&core).map_err(|e| format!("cannot make {}: {e}", core.display()))?;
         let dll = core.join("eu4_harmony_core.dll");
-        copy(&built().join("eu4_harmony_core.dll"), &dll)?;
+        copy(&starting.build.clone().unwrap_or_else(built).join("eu4_harmony_core.dll"), &dll)?;
         let options = repo().join("dev.toml");
         if let Some(text) = &starting.options {
             fs::write(core.join("dev.toml"), text).map_err(|e| format!("cannot write {}: {e}", core.join("dev.toml").display()))?;

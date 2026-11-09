@@ -73,6 +73,10 @@ impl Scenario for Perf {
         5
     }
 
+    fn alone(&self) -> bool {
+        true
+    }
+
     fn parameters(&self) -> &'static [Parameter] {
         &[
             Parameter { name: "country", default: "MNG", about: "the country of the new game" },

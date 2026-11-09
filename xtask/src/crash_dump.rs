@@ -22,14 +22,15 @@ pub fn run(raw: &[String]) -> Result<()> {
     if commands.is_empty() {
         return Err(usage.into());
     }
-    read(dump, log, symbols, commands)
+    read(dump, log, &built(), symbols, commands)
 }
 
 /// Runs `commands` on the crash dump `dump`, writing their output to `log`,
-/// with symbols cached in `symbols`.
-pub fn read(dump: &str, log: &str, symbols: &str, commands: &[String]) -> Result<()> {
+/// with the symbols of the build in `build` and the system's cached in
+/// `symbols`.
+pub fn read(dump: &str, log: &str, build: &std::path::Path, symbols: &str, commands: &[String]) -> Result<()> {
     let text = |s: &str| CString::new(s).map_err(|_| format!("{s:?} holds a null character"));
-    let path = format!(".sympath {};srv*{symbols}*https://msdl.microsoft.com/download/symbols", built().display());
+    let path = format!(".sympath {};srv*{symbols}*https://msdl.microsoft.com/download/symbols", build.display());
     let (dump, log, path) = (text(dump)?, text(log)?, text(&path)?);
     let commands: Vec<CString> = commands.iter().map(|c| text(c)).collect::<Result<_>>()?;
     let ran = || -> windows::core::Result<()> {
