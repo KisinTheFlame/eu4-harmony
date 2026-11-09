@@ -74,6 +74,8 @@ pub mod element {
     pub const ENABLE: usize = 0x80;
     pub const SHOW: usize = 0x88;
     pub const HIDE: usize = 0x90;
+    /// Its method that takes the mouse's input (see [`super::mouse_input`]).
+    pub const INPUT: usize = 0x48;
     /// A button's or an icon's: its place as resolved (into an i64 x, y),
     /// its frame (an i32, from 1; a progress bar's value, 0 to 100), the
     /// country index of a flag (an i32), and its place set by its
@@ -96,6 +98,22 @@ pub mod button {
     /// Its method that gives a flag its country, by vtable offset: with a
     /// pointer to the country's tag (u64) and the u8s 1 and 0.
     pub const SET_COUNTRY: usize = 0x218;
+}
+
+/// The mouse's input as an element takes it, through its method
+/// [`element::INPUT`]: what happened ([`mouse_input::PRESSED`],
+/// [`mouse_input::RELEASED`], or [`mouse_input::DOUBLE`] for a press that
+/// soon follows another), with which button, from which device.
+pub mod mouse_input {
+    pub const KIND: usize = 0x14;
+    pub const BUTTON: usize = 0x18;
+    pub const DEVICE: usize = 0x50;
+    pub const PRESSED: u32 = 3;
+    pub const RELEASED: u32 = 4;
+    pub const DOUBLE: u32 = 5;
+    /// The right mouse button, and the mouse as the device.
+    pub const RIGHT: u32 = 2;
+    pub const MOUSE: u32 = 0;
 }
 
 /// A signal: the callbacks subscribed to it, a list (see

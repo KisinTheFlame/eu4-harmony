@@ -17,7 +17,7 @@ use crate::{
     notice,
     objects::{
         campaign::unit,
-        gui::{army_panel, button, callback, classes, element, functions, main_menu, signal, window},
+        gui::{army_panel, button, callback, classes, element, functions, main_menu, mouse_input, signal, window},
         list,
     },
     points::{GameFunction, Point},
@@ -45,6 +45,14 @@ const SET_DOUBLE_CLICK: GameFunction<2> = GameFunction::at(0x1593870);
 pub(crate) const SHOW: usize = 0x15aeb30;
 pub(crate) const HIDE: usize = 0x15aead0;
 pub(crate) const SET_ENABLED: GameFunction<2> = GameFunction::at(0xfaab30);
+/// A button's [`element::INPUT`] `(button, input, …)`, which hands the input
+/// to the elements' base `0x1592bd0` unless the button is disabled.
+const BUTTON_INPUT: usize = 0x15aefc0;
+
+/// The buttons the framework's subscriptions take right clicks of
+/// ([`Subscription::link`]): on them a quick second right press is a press
+/// ([`button_input`]).
+static TAKING_RIGHT: Mutex<Vec<usize>> = Mutex::new(Vec::new());
 
 /// A callback the framework subscribes to a button's signal (see
 /// [`callback`]).
@@ -186,6 +194,10 @@ impl Subscription {
         }
         SET_RIGHT_CLICK.call(m, [self.object, 1])?;
         SET_DOUBLE_CLICK.call(m, [self.object, 1])?;
+        let mut taking = TAKING_RIGHT.lock().unwrap_or_else(|e| e.into_inner());
+        if !taking.contains(&self.object) {
+            taking.push(self.object);
+        }
         Ok(())
     }
 
@@ -202,6 +214,7 @@ impl Subscription {
             return Err("observer still subscribed after unsubscribe".into());
         }
         self.linked = false;
+        TAKING_RIGHT.lock().unwrap_or_else(|e| e.into_inner()).retain(|&b| b != self.object);
         SET_RIGHT_CLICK.call(m, [self.object, self.old_right_click as usize])?;
         SET_DOUBLE_CLICK.call(m, [self.object, self.old_double_click as usize])?;
         Ok(())
@@ -545,6 +558,7 @@ fn panel_recreate(call: &mut Call) {
 }
 fn button_destroy(call: &mut Call) {
     let button = call.arg(0);
+    TAKING_RIGHT.lock().unwrap_or_else(|e| e.into_inner()).retain(|&b| b != button);
     retire(call.memory(), |b| b.bound.iter().any(|x| x.object == button));
 }
 /// Every teardown path of a root window passes here first (notice-window.md §3).
@@ -604,6 +618,31 @@ extern "system" fn right_click(context: usize, button: usize) {
     enqueue(context, button, CLICK_RIGHT)
 }
 
+/// Before one of the framework's buttons takes the mouse's input: the game
+/// takes a right press that soon follows another as a double click, and on
+/// every button drops it, so that the second of two quick right clicks does
+/// nothing (docs/research/interface-bindings.md, "From input to a click").
+/// On the framework's buttons it is made a press, whose release is then a
+/// right click as the first's was.
+fn button_input(call: &mut Call) {
+    let (button, input) = (call.arg(0), call.arg(1));
+    let Ok(taking) = TAKING_RIGHT.try_lock() else { return };
+    if !taking.contains(&button) {
+        return;
+    }
+    drop(taking);
+    let m = call.memory();
+    let field = |at: usize| m.u32(input + at).ok();
+    if field(mouse_input::KIND) == Some(mouse_input::DOUBLE)
+        && field(mouse_input::BUTTON) == Some(mouse_input::RIGHT)
+        && field(mouse_input::DEVICE) == Some(mouse_input::MOUSE)
+    {
+        if let Err(e) = m.write(input + mouse_input::KIND, &mouse_input::PRESSED.to_le_bytes()) {
+            log!("ui: a quick second right click stays a double click: {e}");
+        }
+    }
+}
+
 /// Fills the panel's tooltip for our buttons that have one. The game builds
 /// the output aggregate: main text at +0, delayed text at +32.
 fn tooltip_after(call: &mut Call) {
@@ -633,6 +672,14 @@ pub fn points() -> Vec<Point> {
         Point::observe(PANEL_DESTROY, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18 41", "army panel destructor", 2, Some(panel_destroy), None),
         Point::observe(PANEL_RECREATE, "40 53 48 83 ec 40 48 8b d9 48 8b 05 e8 f8 ee 00", "army panel rebuild", 1, Some(panel_recreate), None),
         Point::observe(BUTTON_DESTROY, "48 89 5c 24 08 57 48 83 ec 20 8b da 48 8b f9 e8", "button destructor", 2, Some(button_destroy), None),
+        Point::observe(BUTTON_INPUT, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48 8b d9 49 8b f8 48 8b 89", "button input", 3, Some(button_input), None),
+        Point::method(classes::BUTTON, element::INPUT, BUTTON_INPUT, "button input method"),
+        // The base reads what happened, the device and the mouse button,
+        // and drops a right double click (0x1592da5: neither 3 nor 4).
+        Point::keep(0x1592c33usize, "8b 4e 50 83 f8 03 75 7c 85 c9 75 3e 39 46 14", "element input's device and kind")
+            .uses(&[mouse_input::DEVICE, mouse_input::KIND]),
+        Point::keep(0x1592d23usize, "8b 4e 18 83 f9 01 75 7a 83 f8 05", "element input's mouse button").uses(&[mouse_input::BUTTON]),
+        Point::keep(0x1592da5usize, "83 f8 03 75 7f 83 f9 02 0f 85 03 01 00 00", "element input's right press"),
         Point::observe(
             WINDOW_KILL,
             "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57 48 83 ec 20 c6 81 f4 00 00 00 01",
