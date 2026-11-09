@@ -153,8 +153,13 @@ mod tests {
         assert!(framework(Language::English, "EU4HARMONY_NOT_LOADED", &[("MOD", "X"), ("DETAIL", "d")]).contains("\"X\" was not loaded:\nd"));
     }
 
+    /// Held by the tests that change the mods' texts, which are the whole
+    /// process's.
+    static MODS_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn a_reload_s_texts_go_back_when_its_code_does_not_load() {
+        let _held = MODS_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("eu4h-reload-loc-{}", std::process::id()));
         let loc = dir.join("localisation");
         std::fs::create_dir_all(&loc).unwrap();
@@ -185,6 +190,7 @@ mod tests {
 
     #[test]
     fn mod_keys_are_appended_to_the_game_language_file() {
+        let _held = MODS_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("eu4h-loc-{}", std::process::id()));
         let loc = dir.join("eu4-harmony").join("localisation");
         std::fs::create_dir_all(&loc).unwrap();
