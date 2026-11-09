@@ -1,6 +1,6 @@
 //! The player's files: installed into the game folder as last built, and
 //! packed for players.
-use crate::{built, cargo, repo, run, Args, Result};
+use crate::{built, built_package, cargo, repo, run, Args, Result};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -30,6 +30,10 @@ const OLD_PROXY: &str = "version.dll.old-";
 
 /// The packages that build them.
 const PLAYER_PACKAGES: [&str; 3] = ["eu4-harmony-proxy", "eu4-harmony-core", "eu4-harmony-cli"];
+
+/// The Cargo profile the player package is built in: the release build in
+/// one unit, which the release build is not (Cargo.toml).
+pub const PACKAGE_PROFILE: &str = "player";
 
 /// Whether `path` is our proxy: it names the core's bootstrap export, which
 /// a foreign DLL does not.
@@ -84,15 +88,21 @@ pub fn install(args: &Args) -> Result<()> {
 /// build. Only they are built, so that this command's own program, which
 /// runs, is not built again.
 pub fn build(feature: Option<&str>) -> Result<()> {
+    build_in("release", feature)
+}
+
+/// Builds the player's packages in the Cargo profile `profile`, with the
+/// core's `feature` if there is one.
+fn build_in(profile: &str, feature: Option<&str>) -> Result<()> {
     let mut build = cargo();
-    build.args(["build", "--release", "--locked"]);
+    build.args(["build", "--profile", profile, "--locked"]);
     for package in PLAYER_PACKAGES {
         build.args(["-p", package]);
     }
     if let Some(feature) = feature {
         build.args(["--features", feature]);
     }
-    run(build, "cargo build --release")
+    run(build, &format!("cargo build --profile {profile}"))
 }
 
 /// Copies the files as last built into the game folder `root`.
@@ -156,12 +166,13 @@ pub fn release(args: &Args) -> Result<()> {
     let out = std::path::absolute(&out).map_err(|e| format!("{}: {e}", out.display()))?;
     let zip = PathBuf::from(format!("{}.zip", out.display()));
 
-    // With no features, so a developer build built last is never packed.
-    build(None)?;
-    let from = built();
+    // In a profile of its own (Cargo.toml), with no features: a release
+    // build, or a developer build, built last is never packed.
+    build_in(PACKAGE_PROFILE, None)?;
+    let from = built_package();
     for (name, _) in PLAYER_FILES {
         if !from.join(name).is_file() {
-            return Err(format!("missing {} after cargo build --release", from.join(name).display()));
+            return Err(format!("missing {} after cargo build --profile {PACKAGE_PROFILE}", from.join(name).display()));
         }
     }
     if out.exists() {

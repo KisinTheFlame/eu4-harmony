@@ -645,7 +645,7 @@ fn crash(owner: &str, known: &[String], ended: Option<GameEnd>, build: &Path, lo
     if dump.is_file() {
         let (dump_text, log_text) = (dump.display().to_string(), log.display().to_string());
         let build = build.to_path_buf();
-        let reading = std::thread::spawn(move || crate::crash_dump::read(&dump_text, &log_text, &build, "C:\\symbols", &[".ecxr".into(), "kn 20".into()]));
+        let reading = std::thread::spawn(move || crate::crash_dump::read(&dump_text, &log_text, &[build], "C:\\symbols", &[".ecxr".into(), "kn 20".into()]));
         let deadline = Instant::now() + READING_A_DUMP;
         while !reading.is_finished() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(500));

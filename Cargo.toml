@@ -32,6 +32,13 @@ allow_attributes_without_reason = "warn"
 lto = "thin"
 # The core is one large crate. In one unit LLVM optimizes all of it on one
 # thread, about 80 s after any change to it; sixteen let as many threads share
-# it, about 20 s, for a DLL about 8% larger.
+# it, about 20 s, for a DLL about 8% larger. The player package is built in
+# one (profile.player).
 codegen-units = 16
 debug = "line-tables-only"
+
+# The player package, which `cargo xtask release` builds and packs: the
+# release build in one unit, so that LLVM optimizes the core as a whole.
+[profile.player]
+inherits = "release"
+codegen-units = 1
