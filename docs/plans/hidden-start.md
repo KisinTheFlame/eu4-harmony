@@ -1,6 +1,6 @@
 # Hidden start plan
 
-Status: H1 to H4 done (2026-11-04). Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Hidden start). What the game does when it is not seen, what could still reach the player's desktop and what the hidden start relies on is in [research/headless.md](../research/headless.md); the runs are [The game unseen](../prototype-log/2026-11-04-game-unseen.md) and [The hidden start](../prototype-log/2026-11-04-hidden-start.md).
+Status: H1 to H4 done (2026-11-04). Since 2026-11-10 a hidden start opts the process out of Windows' power throttling, which gave hidden games a tenth of a core and a twentieth of their speed ([A hidden game at full speed](../prototype-log/2026-11-10-hidden-start-at-full-speed.md)). Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Hidden start). What the game does when it is not seen, what could still reach the player's desktop and what the hidden start relies on is in [research/headless.md](../research/headless.md); the runs are [The game unseen](../prototype-log/2026-11-04-game-unseen.md) and [The hidden start](../prototype-log/2026-11-04-hidden-start.md).
 
 ## Goal and scope
 
