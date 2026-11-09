@@ -228,6 +228,11 @@ pub fn selected(Session { m, ctx, .. }: Session) -> GResult<u64> {
     crate::ui::selected_army(m, &ctx)
 }
 
+/// The group's dependency points: none of its own.
+pub fn points() -> Vec<crate::points::Point> {
+    Vec::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

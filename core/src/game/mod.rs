@@ -19,68 +19,52 @@
 //! defeat.md, time.md, fog-of-war.md).
 pub mod action;
 pub mod administration;
-pub mod armies;
 pub mod army;
 #[cfg(test)]
 pub mod buffers;
-pub mod buildings;
-pub mod camera;
-pub mod centers_of_trade;
-pub mod colonists;
 pub mod commands;
 pub mod conditions;
-pub mod console;
 pub mod content;
-pub mod countries;
-pub mod decisions;
-pub mod desktop;
-pub mod diplomacy;
-pub mod economy;
 pub mod envoys;
-pub mod estates;
 pub mod event_costs;
 pub mod events;
-pub mod extensions;
-pub mod focus;
-pub mod forts;
 pub mod frame;
-pub mod government;
-pub mod ideas;
-pub mod input;
 pub mod interface;
-pub mod leaders;
-pub mod loans;
 pub mod map_coloring;
-pub mod menu;
-pub mod mercenaries;
-pub mod merchants;
-pub mod missionaries;
-pub mod missions;
 pub mod modifiers;
-pub mod occupation;
-pub mod offers;
 pub mod orders;
-pub mod parliament;
-pub mod peace;
 pub mod player;
-pub mod policies;
 pub mod power;
-pub mod provinces;
-pub mod questions;
-pub mod recruiting;
-pub mod screenshot;
-pub mod session;
-pub mod sieges;
-pub mod stability;
-pub mod subjects;
-pub mod technology;
-pub mod texts;
-pub mod time;
-pub mod trade;
-pub mod trade_companies;
 pub mod units;
 pub mod wars;
 pub mod world;
+
+/// Declares each capability group's module of the layer, and collects the
+/// groups' dependency points ([`group_points`]), from the catalogue's list
+/// of the groups (`crate::catalogue::capability_groups`).
+macro_rules! layer_modules {
+    (@munch [$($modules:tt)*] $(#[$attr:meta])* $Group:ident($module:ident $(: Layer)?) $(=> $outcome:expr)?, $($rest:tt)*) => {
+        layer_modules!(@munch [$($modules)* { $(#[$attr])* $module }] $($rest)*);
+    };
+    (@munch $modules:tt $(#[$attr:meta])* $Group:ident => $outcome:expr, $($rest:tt)*) => {
+        layer_modules!(@munch $modules $($rest)*);
+    };
+    (@munch [$({ $(#[$attr:meta])* $module:ident })*]) => {
+        $( $(#[$attr])* pub mod $module; )*
+
+        /// The capability groups' dependency points.
+        fn group_points() -> Vec<Point> {
+            let mut points = Vec::new();
+            $( $(#[$attr])* points.extend($module::points()); )*
+            points
+        }
+    };
+    (fn dispatch($($name:ident),*); $($lines:tt)*) => {
+        layer_modules!(@munch [] $($lines)*);
+    };
+}
+
+crate::catalogue::capability_groups!(layer_modules);
 
 use crate::{
     memory::Memory,
@@ -365,53 +349,19 @@ pub const MAX_UNITS: usize = 100_000;
 /// Game functions the game-state capabilities call or observe.
 pub fn points() -> Vec<Point> {
     let mut points = vec![Point::keep(IS_PAUSED, "40 53 48 83 ec 20 80 79 48 00 48 8b d9 74 0e", "pause query")];
+    points.extend(group_points());
     points.extend(commands::points());
     points.extend(world::points());
     points.extend(army::points());
     points.extend(orders::points());
     points.extend(events::points());
-    points.extend(camera::points());
-    points.extend(countries::points());
-    points.extend(provinces::points());
-    points.extend(console::points());
-    points.extend(time::points());
     points.extend(player::points());
-    points.extend(questions::points());
-    points.extend(menu::points());
-    points.extend(diplomacy::points());
-    points.extend(subjects::points());
-    points.extend(input::points());
     points.extend(conditions::points());
-    points.extend(decisions::points());
     points.extend(power::points());
     points.extend(modifiers::points());
-    points.extend(technology::points());
-    points.extend(focus::points());
-    points.extend(stability::points());
-    points.extend(economy::points());
-    points.extend(loans::points());
-    points.extend(peace::points());
-    points.extend(occupation::points());
-    points.extend(ideas::points());
-    points.extend(policies::points());
-    points.extend(government::points());
-    points.extend(estates::points());
-    points.extend(parliament::points());
-    points.extend(missions::points());
     points.extend(administration::points());
-    points.extend(buildings::points());
-    points.extend(leaders::points());
-    points.extend(mercenaries::points());
-    points.extend(forts::points());
-    points.extend(sieges::points());
     points.extend(units::points());
     points.extend(envoys::points());
-    points.extend(missionaries::points());
-    points.extend(colonists::points());
-    points.extend(trade_companies::points());
-    points.extend(centers_of_trade::points());
-    points.extend(merchants::points());
-    points.extend(trade::points());
     points
 }
 

@@ -3,6 +3,11 @@
 use crate::catalogue::Convert;
 use eu4_harmony_remote::extensions::Reloaded;
 
+/// The group's dependency points: none of its own.
+pub fn points() -> Vec<crate::points::Point> {
+    Vec::new()
+}
+
 crate::catalogue::bind! {
     eu4_harmony_remote::extensions: ExtensionRequest => ExtensionAnswer;
     Reload => caller crate::lua::reload;

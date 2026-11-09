@@ -65,6 +65,11 @@ fn no_unit_type(kind: &str) -> Fail {
     Fail::new(Status::Rejected, format!("the player has no unit type of the kind {kind}"))
 }
 
+/// The group's dependency points: none of its own.
+pub fn points() -> Vec<crate::points::Point> {
+    Vec::new()
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

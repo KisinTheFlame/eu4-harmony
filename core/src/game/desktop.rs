@@ -39,6 +39,11 @@ fn hide(caller: Caller) -> GResult<Desktop> {
     Ok(now())
 }
 
+/// The group's dependency points: none of its own.
+pub fn points() -> Vec<crate::points::Point> {
+    Vec::new()
+}
+
 crate::catalogue::bind! {
     eu4_harmony_remote::desktop: DesktopRequest => DesktopAnswer;
     Get => caller desktop;

@@ -105,9 +105,10 @@ mod tests {
     }
 
     /// Each module that declares points has them collected: by its parent
-    /// module (or, for a repair, its `REPAIR` that names them), whose own
-    /// points are collected in turn, by the speed-ups' list (as its
-    /// `SPEED_UP`), or here. A module's
+    /// module (or, for a repair, its `REPAIR` that names them; for a
+    /// capability group's module of the layer, the catalogue's list of the
+    /// groups), whose own points are collected in turn, by the speed-ups'
+    /// list (as its `SPEED_UP`), or here. A module's
     /// points that nothing collects are neither installed nor checked, and
     /// would fail only when the framework first used one of them.
     #[test]
@@ -161,7 +162,20 @@ mod tests {
                 }
             }
         }
+        // A capability group's module of the layer is collected by the
+        // layer, from the catalogue's list of the groups, which names it.
+        let catalogue = vec!["catalogue".to_string()];
+        let listed = |module: &[String]| match module {
+            [game, name] if game == "game" => {
+                let list = &texts[&catalogue];
+                list.contains(&format!("({name})")) || list.contains(&format!("({name}: Layer)"))
+            }
+            _ => false,
+        };
         let collects = |collector: &[String], module: &[String]| {
+            if collector == ["game"] && listed(module) {
+                return true;
+            }
             let text = &texts[collector];
             (0..module.len()).any(|from| {
                 let path = module[from..].join("::");

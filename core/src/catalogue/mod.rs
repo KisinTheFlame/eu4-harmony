@@ -289,11 +289,11 @@ use std::{
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
-/// Declares the groups once, in one list: [`Game`], the slices of the
-/// capability layer of the groups that have one, and `dispatch`, which runs
-/// a request in its group. After the names `dispatch` gives its request,
-/// game, events (remote control's, when its caller keeps them) and time,
-/// each line is one of
+/// Declares, from the list of the groups ([`capability_groups`]), [`Game`],
+/// the slices of the capability layer of the groups that have one, and
+/// `dispatch`, which runs a request in its group. After the names
+/// `dispatch` gives its request, game, events (remote control's, when its
+/// caller keeps them) and time, each line is one of
 ///
 /// ```text
 /// Group(module),
@@ -303,12 +303,13 @@ use std::{
 /// Group => outcome,
 /// ```
 ///
-/// A group bound to the layer in the layer's module ([`bind`]), answered at
+/// A group bound to the layer in its layer module ([`bind`]), answered at
 /// once, or as the expression gives its [`Outcome`] (its module here is
-/// declared beside this list); a group with a slice of the layer, whose
+/// declared beside the list); a group with a slice of the layer, whose
 /// `run(request, game)` answers at once, or whose [`Outcome`] the
-/// expression gives; a group of neither. The module of a group with a slice
-/// is declared here, as remote control's groups declare theirs.
+/// expression gives; a group of neither. The module here of a group with a
+/// slice is declared here, as remote control's groups declare theirs; the
+/// capability layer declares each group's module of its own.
 macro_rules! groups {
     (@munch $names:tt [$($slices:tt)*] [$($bound:tt)*] [$($arms:tt)*]
         $(#[$attr:meta])* $Group:ident($module:ident: Layer) => $outcome:expr, $($rest:tt)*) => {
@@ -375,59 +376,71 @@ macro_rules! groups {
 /// The modules of the bound groups that do more than answer at once.
 pub mod console;
 
-groups! {
-    fn dispatch(request, game, events, now);
-    Session(session: Layer),
-    Time(time: Layer) => time::run(request, game, events),
-    Country(countries: Layer),
-    Province(provinces: Layer),
-    Army(armies: Layer),
-    Text(texts: Layer),
-    Screenshot(screenshot: Layer) => screenshot::run(request, game),
-    Console(console) => console::run_and_answer_next(request, game),
-    Question(questions),
-    Offer(offers),
-    Events => match events {
-        Some(events) => events::run(request, events, now),
-        None => Outcome::Done(Err(events::unkept())),
-    },
-    Describe => Outcome::Done(Ok(Answer::Describe(describe::run(request)))),
-    Camera(camera),
-    Recruit(recruiting: Layer),
-    Menu(menu: Layer) => menu::run(request, game),
-    Diplomacy(diplomacy: Layer) => diplomacy::run(request, game, now),
-    Extension(extensions),
-    #[cfg(feature = "dev-memory")]
-    Memory => Outcome::Done(crate::memory_account::answer(request).map(Answer::Memory)),
-    Input(input: Layer) => input::run(request, game),
-    Desktop(desktop),
-    Decision(decisions),
-    Subject(subjects),
-    Idea(ideas),
-    Policy(policies),
-    Government(government),
-    Estate(estates),
-    Parliament(parliament),
-    Mission(missions),
-    Building(buildings),
-    Technology(technology),
-    Focus(focus),
-    Stability(stability),
-    Economy(economy),
-    Loan(loans),
-    Leader(leaders),
-    Mercenary(mercenaries),
-    Fort(forts),
-    Siege(sieges),
-    Peace(peace: Layer) => peace::run(request, game, now),
-    Occupation(occupation),
-    Missionary(missionaries),
-    Colonist(colonists),
-    TradeCompany(trade_companies),
-    CenterOfTrade(centers_of_trade),
-    Merchant(merchants),
-    Trade(trade),
+/// The capability groups, once, as [`groups!`] takes them: each group's
+/// line, read here, where [`groups!`] declares [`Game`] and `dispatch`,
+/// and by the capability layer (`crate::game`), which declares the layer's
+/// module of each group named with a module and collects its dependency
+/// points. A new group is one line here.
+macro_rules! capability_groups {
+    ($then:ident) => {
+        $then! {
+            fn dispatch(request, game, events, now);
+            Session(session: Layer),
+            Time(time: Layer) => time::run(request, game, events),
+            Country(countries: Layer),
+            Province(provinces: Layer),
+            Army(armies: Layer),
+            Text(texts: Layer),
+            Screenshot(screenshot: Layer) => screenshot::run(request, game),
+            Console(console) => console::run_and_answer_next(request, game),
+            Question(questions),
+            Offer(offers),
+            Events => match events {
+                Some(events) => events::run(request, events, now),
+                None => Outcome::Done(Err(events::unkept())),
+            },
+            Describe => Outcome::Done(Ok(Answer::Describe(describe::run(request)))),
+            Camera(camera),
+            Recruit(recruiting: Layer),
+            Menu(menu: Layer) => menu::run(request, game),
+            Diplomacy(diplomacy: Layer) => diplomacy::run(request, game, now),
+            Extension(extensions),
+            #[cfg(feature = "dev-memory")]
+            Memory => Outcome::Done(crate::memory_account::answer(request).map(Answer::Memory)),
+            Input(input: Layer) => input::run(request, game),
+            Desktop(desktop),
+            Decision(decisions),
+            Subject(subjects),
+            Idea(ideas),
+            Policy(policies),
+            Government(government),
+            Estate(estates),
+            Parliament(parliament),
+            Mission(missions),
+            Building(buildings),
+            Technology(technology),
+            Focus(focus),
+            Stability(stability),
+            Economy(economy),
+            Loan(loans),
+            Leader(leaders),
+            Mercenary(mercenaries),
+            Fort(forts),
+            Siege(sieges),
+            Peace(peace: Layer) => peace::run(request, game, now),
+            Occupation(occupation),
+            Missionary(missionaries),
+            Colonist(colonists),
+            TradeCompany(trade_companies),
+            CenterOfTrade(centers_of_trade),
+            Merchant(merchants),
+            Trade(trade),
+        }
+    };
 }
+pub(crate) use capability_groups;
+
+capability_groups!(groups);
 
 /// Runs a request of a bound group, as `game` calls the layer: `run` with
 /// its caller, or, in a fake game, which calls it as no one, not at all.
