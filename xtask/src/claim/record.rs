@@ -4,8 +4,12 @@
 //!
 //! The record is `claims.json`: each claim, with its test game's folder. A
 //! claim holds its test game until it is released, and any number are held
-//! at once.
+//! at once; at most [`AT_ONCE`] of their games run at once.
 use serde_json::{json, Value};
+
+/// How many test games run at once at most, counting those being started:
+/// a game in 1820 takes 4.2 GB of memory and 1.3 GB of the graphics card's.
+pub const AT_ONCE: usize = 4;
 
 /// A process, by its id and when it started: a later process given the same
 /// id is not it.
@@ -106,6 +110,10 @@ pub struct Claim {
     pub ready: bool,
     /// The test game's process, once it is started.
     pub game: Option<Process>,
+    /// The process starting the test game, while it does: the start holds
+    /// one of the [`AT_ONCE`] places from before its game runs, and gives it
+    /// up if its process ends.
+    pub starting: Option<Process>,
 }
 
 impl Claim {
@@ -120,6 +128,7 @@ impl Claim {
             maker: Process::from_json(&value["maker"]),
             ready: value["ready"].as_bool().unwrap_or(false),
             game: Process::from_json(&value["game"]),
+            starting: Process::from_json(&value["starting"]),
         })
     }
 
@@ -133,6 +142,7 @@ impl Claim {
             "maker": self.maker.map(Process::to_json),
             "ready": self.ready,
             "game": self.game.map(Process::to_json),
+            "starting": self.starting.map(Process::to_json),
         })
     }
 
@@ -219,6 +229,7 @@ mod tests {
             maker: None,
             ready: true,
             game: None,
+            starting: None,
         }
     }
 
@@ -241,6 +252,7 @@ mod tests {
         let mut held = claim("a");
         held.game = Some(OTHER);
         held.maker = Some(ME);
+        held.starting = Some(ME);
         let s = State { claims: vec![held] };
         assert_eq!(State::from_json(&s.to_json()), s);
         let older = json!({ "claims": [{ "owner": "b", "folder": "C:\\b", "renewed": 5, "leaseMinutes": 30, "ready": true }], "waiting": [] });

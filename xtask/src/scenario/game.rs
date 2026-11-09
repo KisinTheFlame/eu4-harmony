@@ -95,7 +95,7 @@ pub struct Game {
 
 impl Game {
     pub fn new(owner: &str, game_dir: &Path) -> crate::Result<Self> {
-        let mut game = Self::with(Box::new(claim::run_game(owner, game_dir)), &claim::pipe_of(owner)?, pipe::GAME);
+        let mut game = Self::with(Box::new(claim::run_game(owner, game_dir, super::interrupted)), &claim::pipe_of(owner)?, pipe::GAME);
         game.user = Some(UserFolder::new(claim::user_dir(owner)?));
         Ok(game)
     }
@@ -420,6 +420,7 @@ impl Game {
                 self.running = true;
                 Ok(seconds)
             }
+            Err(_) if super::interrupted() => Err(Stop::Interrupted),
             Err(e) if e.contains("the game ended") => Err(Stop::Crashed(format!("the start: {e}"))),
             Err(e) => Err(Stop::Hung(format!("the start: {e}"))),
         }
