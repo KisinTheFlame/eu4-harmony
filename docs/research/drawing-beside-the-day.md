@@ -267,6 +267,15 @@ The same watch with the day's reads before it (`0xb79520`, two rounds, each give
 
 The drawing's tail after Present (`0x81aa92`–`0x81aab0`): the idler's word at `+0x1608` cleared, and the clock at `[idler + 0x11f8]` read (its method `+0x28`) into `0x2458f00`. Present itself (`0x14ddc40` → `[0x1fd1300]`) touches the device and the renderer's `+0x530`.
 
+## What the whole scenario set found (2026-11-09)
+
+The `whole` scenario set ([whole-game.md](../plans/whole-game.md)) on the build with the drawing thread a fixed part and no fallback crashed in all eight of its scenarios, all on the drawing thread ([the runs](../prototype-log/2026-11-09-drawing-thread-whole.md)):
+
+- **Six in the drawing's tail after Present** (`0x81aaa3`, `mov rax, [rcx]` with `rcx` the clock at `[idler + 0x11f8]`, read as 0, -1 or another value of memory reused), at a return to the main menu or a start. The drawing thread lets the lock go for Present; the main thread, taking it, ran the application's frame, which switched the idler (`0x14c2839`, "The application's idler switch" in [main-menu.md](main-menu.md)) and deleted the one the drawing thread's frame was drawing; the frame then ended on it. At a start, the new idler can also be made where the last prepared one was, and was drawn before its first update. The main thread was found waiting for the lock in every dump, as it waits for the frame it let end.
+- **Two at `0x1540f20`**, in long play: a mesh object let go while drawn, by a path no crossing caught. The crossings' tool could not have shown it: a page it opens stays open until the next check for a frame, so it records a stretch's first call into each page, not each path into it (the unit's destructor letting its model go, `0xd3b166`, is in none of its stacks for that reason).
+
+So the idler switch lets the drawing thread end its frame first (the main thread lets the lock go there until it has, and the prepared idler is forgotten), and the mesh object's destructor (`0x153e560`, the vtable's first slot: it takes the object off its mesh's listeners, `mesh+0x140`, and lets its lists go) is a crossing in the day whatever leads there.
+
 ## A function's parts in the exception directory
 
 The compiler splits some functions into parts, each an entry of its own in the exception directory, the later ones chained to the one before (`UNW_FLAG_CHAININFO`) and beginning where it ends: `0x10a6d00`, the map's markers' update, has its prologue to `0x10a6d11` and its body from there. 20,028 of the 79,914 entries of the 1.37.5 `eu4.exe` are such parts. The framework's count of the arguments a function reads looked at the first part alone, and found none for `0x10a6d00`, which reads four (the write watch's observer of it then forwarded none, and the game crashed at `0x10a6d16`); it now takes in the parts that follow (`analysis::bounds`).
@@ -291,4 +300,5 @@ The compiler splits some functions into parts, each an entry of its own in the e
 - How long the interface's update takes at each of the game's points for a frame inside a day, and whether the game's state there is whole for every view (the game draws its own frames there, but only once its interval has passed).
 - What the drawing reads through pointers outside the map, and the GUI's drawing past its first Direct3D call.
 - Which instruction of the day read the map interface's `+0x308`, which the drawing writes; whether anything of the simulation reads the provinces in view.
+- Which path of the day let the mesh objects go that the destructor's crossing now catches.
 - What the day's remaining crossings leave for the update (the monthly refresh, the minimap, a province's new owner told to the map), and whether any can wait for the next frame as the daily refresh does.
