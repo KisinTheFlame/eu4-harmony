@@ -13,7 +13,7 @@
 
 - **任何文字，处处显示。** 任何文字在整个游戏里都能显示，默认用为你的语言准备的字体，也可以自己选；地图上的地名拉到多近都清晰。不用装字体 Mod。
 - **不再重启。** 几秒回到主菜单，而不是 45 秒。铁人局也能读取别的存档。
-- **更快的游戏，同一局游戏。** 更流畅，最快速度下快约一成，存档时的卡顿只剩约三分之一，启动和读档也更快；游戏后期，AI 的军队在空闲的核心上规划路线。游戏的规则和数据都保持原样。
+- **更快的游戏，同一局游戏。** 地图在单独的线程上按显示器刷新率绘制，计算日更新时也不停，存档时的卡顿只剩约三分之一，启动和读档也更快；游戏后期，AI 的军队在空闲的核心上规划路线。游戏的规则和数据都保持原样。
 - **修好原版至今还有的 bug。** 继承人不会再一半概率重名，反侵略联盟和宗主国覆灭不再有崩溃风险，读档也不会再让你丢掉成就。
 - **成就规则由你定。** 可选：非铁人或开着 Mod 也能拿成就。
 - **Mod 能做更多。** 几行 Lua，Mod 就能读取游戏、添加按钮，并在游戏的各个面板里做你能做的事（建造、发展、研究、选理念和改革、贸易、宣战与议和、每一种外交行动），不允许时给出游戏自己的原因。Mod 还能弹出弹窗，打开自己的窗口，样式与游戏原生一致，布局用 Lua 写，入口按钮就在小地图左侧，和教廷、神罗的按钮排在一起（[docs/plans/extension-windows.md](docs/plans/extension-windows.md)）。
@@ -38,7 +38,7 @@
 
 ### 设置
 
-**EU4 Harmony settings** 里可以设置玩家语言和字体、返回主菜单时不重启游戏、成就规则、游戏速度（其中有一项试用中的设置：用单独的线程绘制画面，在计算日更新的同时，地图也能按显示器刷新率跟随鼠标）、远程控制能看到什么，以及音乐的响度是否统一；每一项在窗口里都有说明。细节见 [docs/plans/player-language.md](docs/plans/player-language.md)、[docs/plans/sessions.md](docs/plans/sessions.md)、[docs/plans/game-speed.md](docs/plans/game-speed.md)、[docs/plans/drawing-thread.md](docs/plans/drawing-thread.md)、[docs/plans/music-volume.md](docs/plans/music-volume.md) 和 [ADR remote-control-reads-the-players-view](docs/adr/2026-11-05-remote-control-reads-the-players-view.md)。
+**EU4 Harmony settings** 里可以设置玩家语言和字体、返回主菜单时不重启游戏、成就规则、帧率是否限制、远程控制能看到什么，以及音乐的响度是否统一；每一项在窗口里都有说明。细节见 [docs/plans/player-language.md](docs/plans/player-language.md)、[docs/plans/sessions.md](docs/plans/sessions.md)、[docs/plans/game-speed.md](docs/plans/game-speed.md)、[docs/plans/drawing-thread.md](docs/plans/drawing-thread.md)、[docs/plans/music-volume.md](docs/plans/music-volume.md) 和 [ADR remote-control-reads-the-players-view](docs/adr/2026-11-05-remote-control-reads-the-players-view.md)。
 
 装上框架后，游戏自己的音量滑块按位置的平方变化，每一格听起来变化差不多大；原版在最后一成会陡降到静音。原来低于 100 的音量会比以前轻，需要重新调一次。
 

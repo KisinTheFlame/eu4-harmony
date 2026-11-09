@@ -175,7 +175,7 @@ A sensitive capability as a mod's manifest declares it. In this version the play
 _Avoid_: grant, right, access
 
 **Frame inside a day**:
-A whole frame the game draws while a day is still being worked out, once the day has taken longer than an interval since the last one: 50 ms at the fastest speed. It executes no commands and draws no random numbers.
+A whole frame the game runs while a day is still being worked out, once the day has taken longer than an interval since the last one: 50 ms at the fastest speed. It executes no commands and draws no random numbers. With the drawing thread it takes the input and updates the interface, and draws nothing.
 _Avoid_: inserted frame, nested frame
 
 **Drawing thread**:
