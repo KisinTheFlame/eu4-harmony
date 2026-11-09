@@ -95,6 +95,13 @@ const DEBUG_COUNTRY: usize = 0x2340040;
 /// The application's frame: the application and whether it is a normal one
 /// (0 for a frame inside a day).
 const APP_FRAME: usize = 0x14c25a0;
+/// What ends the application's run after a frame (`0x14c2d00`, its loop's
+/// checks at `0x14c2dd0` and `0x14c2e18`): `+0x83`, set when the game quits,
+/// and `+0x2f8`, the event pump's answer that it is to (`0x14c267c`). The run
+/// then takes the game's interface and graphics down (`[app]+0x50` at
+/// `0x14c2e27`).
+const APP_QUITS: usize = 0x83;
+const APP_PUMP_QUITS: usize = 0x2f8;
 /// The game's check for a frame inside a day, between the day's phases.
 const FRAME_CHECK: usize = 0x769ea0;
 /// The camera's update in the in-game frame's input (docs/plans/drawing-thread.md,
@@ -159,6 +166,9 @@ fn points() -> Vec<Point> {
         Point::keep(AMBIENT, "48 8b c4 4c 89 40 18 48 89 50 10 48 89 48 08 55 53 56 57", "the ambient sound"),
         Point::keep(CLOCK, "48 89 5c 24 08 57 48 83 ec 20 48 8b d9", "the colors' clock"),
         Point::observe(APP_FRAME, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18", "the application's frame", 2, Some(app_frame_before), Some(app_frame_after)),
+        // cmp [rsi + 0x2f8], r14b; cmp [rsi + 0x83], r14b: the run's loop.
+        Point::keep(0x14c2dd0, "44 38 b6 f8 02 00 00 75 48", "the run's loop, the pump's quit").uses(&[APP_PUMP_QUITS]),
+        Point::keep(0x14c2e18, "44 38 b6 83 00 00 00 74 af", "the run's loop, the quit").uses(&[APP_QUITS]),
         Point::observe(
             FRAME_CHECK,
             "48 8b c4 48 89 58 10 4c 89 40 18 55 56 57",
@@ -666,9 +676,12 @@ fn main_give(s: &mut MainSide) {
     }
 }
 
+/// The game quits, and the drawing thread draws no more ([`stop`]).
+static STOPPED: AtomicBool = AtomicBool::new(false);
+
 /// Whether the drawing thread draws the frames now.
 fn drawing_on() -> bool {
-    ON.load(Ordering::Relaxed) && DRAWING_THREAD.load(Ordering::Relaxed) != 0
+    ON.load(Ordering::Relaxed) && DRAWING_THREAD.load(Ordering::Relaxed) != 0 && !STOPPED.load(Ordering::Acquire)
 }
 
 fn on_main() -> bool {
@@ -711,16 +724,40 @@ fn app_frame_before(_: &mut Call) {
     do_deferred(&crate::hooked_memory());
 }
 
-fn app_frame_after(_: &mut Call) {
+fn app_frame_after(call: &mut Call) {
     if !on_main() {
         return;
     }
+    let m = call.memory();
+    let app = call.arg(0);
+    let quits = [APP_QUITS, APP_PUMP_QUITS].iter().any(|&at| m.u8(app + at).is_ok_and(|b| b != 0));
     main_side(|s| {
         if s.frames.pop() == Some(true) {
             s.crossing = false;
             main_give(s);
         }
     });
+    if quits {
+        stop();
+    }
+}
+
+/// The game quits: its run takes the interface and the graphics down after
+/// this frame, which the drawing thread must not draw meanwhile. It ends the
+/// frame it is in, as at an idler's switch, and draws no more; the main
+/// thread keeps the lock to the end, so that a frame the drawing thread
+/// began to wait for before it was stopped never begins.
+fn stop() {
+    STOPPED.store(true, Ordering::Release);
+    main_side(|s| main_take(s, AT_FRAME));
+    if IN_FRAME.load(Ordering::Acquire) {
+        main_side(main_give);
+        while IN_FRAME.load(Ordering::Acquire) {
+            std::thread::yield_now();
+        }
+        main_side(|s| main_take(s, AT_FRAME));
+    }
+    log!("drawing: the game quits; the drawing thread draws no more");
 }
 
 /// Waits for the drawing thread to draw the last frame prepared, unless it
