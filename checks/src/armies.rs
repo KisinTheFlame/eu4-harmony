@@ -50,13 +50,13 @@ pub fn paused() -> Refusal {
     Refusal::new(Status::NotReady, "game is paused")
 }
 
-/// The refusal of a fleet where a capability takes a land army.
 /// The refusal of a transport when the player has no fleet that may carry
 /// the army.
 pub fn no_transports() -> Refusal {
     Refusal::new(Status::Rejected, "the player has no fleet that may carry this army")
 }
 
+/// The refusal of a fleet where a capability takes a land army.
 pub fn not_land() -> Refusal {
     Refusal::new(Status::InvalidArgument, "not a land army")
 }
