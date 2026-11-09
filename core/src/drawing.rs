@@ -789,14 +789,19 @@ pub fn day_begins() {
 }
 
 /// The daily update has returned (`game::events`): the frame it ran in has
-/// the lock again.
+/// the lock again, and does what the day deferred. Done at the next frame's
+/// beginning instead, the interface's daily refresh, a crossing (the
+/// minimap), held the drawing back through the whole of the next day, for
+/// that frame's preparation came after it: at speed 5 the drawing stood
+/// still for most of the time. Here only the rest of this frame's update
+/// comes before the preparation.
 pub fn day_ends() {
     if !on_main() {
         return;
     }
-    main_side(|s| {
+    let holds = main_side(|s| {
         if !s.in_day {
-            return;
+            return false;
         }
         s.in_day = false;
         s.crossing = false;
@@ -804,7 +809,11 @@ pub fn day_ends() {
             main_take(s, AT_DAY_END);
             s.day_gave = false;
         }
+        s.holds
     });
+    if holds {
+        do_deferred(&crate::hooked_memory());
+    }
 }
 
 fn frame_check_before(call: &mut Call) {
