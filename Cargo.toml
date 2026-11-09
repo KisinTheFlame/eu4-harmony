@@ -30,5 +30,8 @@ allow_attributes_without_reason = "warn"
 
 [profile.release]
 lto = "thin"
-codegen-units = 1
+# The core is one large crate. In one unit LLVM optimizes all of it on one
+# thread, about 80 s after any change to it; sixteen let as many threads share
+# it, about 20 s, for a DLL about 8% larger.
+codegen-units = 16
 debug = "line-tables-only"
