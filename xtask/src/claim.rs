@@ -182,7 +182,7 @@ fn start(args: &Args) -> Result<f64> {
     let seed = args.value("seed").map(|v| v.parse::<u32>().map_err(|_| format!("--seed {v}: a whole number below 2^32"))).transpose()?;
     let owner = owner(args);
     let mods = args.values("mod").into_iter().map(std::path::PathBuf::from).collect();
-    let starting = Starting { sound: args.flag("sound"), seed, saves: args.values("save"), options: None, mods };
+    let starting = Starting { sound: args.flag("sound"), seed, saves: args.values("save"), options: None, mods, build: None };
     let took = start_game_as(&owner, &args.game_dir()?, &starting, wait)?;
     if args.flag("visible") {
         show(&pipe_of(&owner)?).map_err(|why| format!("the game runs hidden at its main menu, not shown: {why}; eu4-harmony game desktop show shows it"))?;

@@ -78,6 +78,9 @@ pub struct Game {
     options: Option<String>,
     /// The test mods each start puts in the test game's playset.
     mods: Vec<PathBuf>,
+    /// The build each start copies the core of; None for this checkout's
+    /// last build.
+    build: Option<PathBuf>,
     /// The saves, options and test mods the running game was started with.
     started_with: Option<(Vec<String>, Option<String>, Vec<PathBuf>)>,
     /// The game ran since the scenario began: its process missing then is an
@@ -108,12 +111,19 @@ impl Game {
             saves: Vec::new(),
             options: None,
             mods: Vec::new(),
+            build: None,
             started_with: None,
             running: false,
             ends_before: 0,
             step: STEP,
             menu_wait: MAIN_MENU,
         }
+    }
+
+    /// The build each start copies the core of, in place of this checkout's
+    /// last build.
+    pub fn build(&mut self, build: PathBuf) {
+        self.build = Some(build);
     }
 
     /// The saves the next scenario loads.
@@ -402,7 +412,8 @@ impl Game {
 
     fn start(&mut self) -> Played<f64> {
         self.client = None;
-        let starting = Starting { saves: self.saves.clone(), options: self.options.clone(), mods: self.mods.clone(), ..Default::default() };
+        let starting =
+            Starting { saves: self.saves.clone(), options: self.options.clone(), mods: self.mods.clone(), build: self.build.clone(), ..Default::default() };
         self.started_with = Some((self.saves.clone(), self.options.clone(), self.mods.clone()));
         match self.run.start(&starting, self.menu_wait) {
             Ok(seconds) => {

@@ -28,9 +28,12 @@ use crate::{
 use eu4_harmony_folders::UserFolder;
 use serde_json::{json, Value};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, VecDeque},
     path::{Path, PathBuf},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
     time::{Duration, Instant},
 };
 
@@ -141,6 +144,11 @@ pub trait Scenario: Sync {
     fn build(&self, parameters: &Parameters) -> Build;
     /// About how long it plays with its parameters as the code has them.
     fn minutes(&self) -> u32;
+    /// Whether it plays with no other test game running beside it, as one
+    /// that measures what the game costs the computer does.
+    fn alone(&self) -> bool {
+        false
+    }
     fn parameters(&self) -> &'static [Parameter];
     /// Plays the game, handed at its main menu, keeping in `record` what it
     /// found as it goes: a scenario that ends early keeps what it had.
@@ -177,6 +185,8 @@ pub struct Set {
     pub name: &'static str,
     pub about: &'static str,
     pub scenarios: &'static [&'static str],
+    /// How many of them play at once unless `--jobs` says.
+    pub jobs: usize,
 }
 
 /// The sets, in `cargo xtask scenario`'s list after the scenarios.
@@ -184,6 +194,7 @@ const SETS: &[Set] = &[Set {
     name: "whole",
     about: "the framework through the real game from end to end, before a release (docs/plans/whole-game.md)",
     scenarios: &["sweep", "sessions", "extensions", "late", "long", "checked", "growth", "perf"],
+    jobs: 4,
 }];
 
 /// The names asked for, each set's in its place by the scenarios it names.
@@ -204,7 +215,7 @@ const READING_A_DUMP: Duration = Duration::from_secs(180);
 const CRASH_HANDLER: Duration = Duration::from_secs(60);
 
 const USAGE: &str =
-    "cargo xtask scenario [<name>... [--out <dir>] [--owner <name>] [--game-dir <dir>] [--<name>.<parameter> <value>]...] | --from-report <dir>";
+    "cargo xtask scenario [<name>... [--out <dir>] [--owner <name>] [--jobs <n>] [--game-dir <dir>] [--<name>.<parameter> <value>]...] | --from-report <dir>";
 
 /// What the command line asked for.
 #[derive(Debug, Default, PartialEq)]
@@ -212,6 +223,8 @@ struct Asked {
     names: Vec<String>,
     out: Option<PathBuf>,
     owner: Option<String>,
+    /// How many scenarios play at once, each in a test game of its own.
+    jobs: Option<usize>,
     game_dir: Option<PathBuf>,
     from_report: Option<PathBuf>,
     /// Scenario, parameter and value.
@@ -226,6 +239,10 @@ fn parse(raw: &[String]) -> Result<Asked> {
         match word.strip_prefix("--") {
             Some("out") => asked.out = Some(value("out")?.into()),
             Some("owner") => asked.owner = Some(value("owner")?),
+            Some("jobs") => {
+                let n = value("jobs")?;
+                asked.jobs = Some(n.parse().ok().filter(|&n| n > 0).ok_or_else(|| format!("--jobs {n}: a whole number above 0"))?);
+            }
             Some("game-dir") => asked.game_dir = Some(value("game-dir")?.into()),
             Some("from-report") => asked.from_report = Some(value("from-report")?.into()),
             Some(key) => match key.split_once('.') {
@@ -268,6 +285,15 @@ pub fn run(raw: &[String]) -> Result<()> {
     crate::game::steam_ready()?;
 
     let owner = asked.owner.clone().unwrap_or_else(|| claim::owner_of(None));
+    let jobs = asked.jobs.unwrap_or_else(|| SETS.iter().filter(|set| asked.names.contains(&set.name.to_string())).map(|set| set.jobs).max().unwrap_or(1));
+    if jobs > 1 && playing.len() > 1 {
+        let out = asked.out.clone().unwrap_or_else(|| repo().join("target").join("scenarios").join(stamp().1));
+        std::fs::create_dir_all(&out).map_err(|e| format!("cannot make {}: {e}", out.display()))?;
+        let interrupts = Interrupts::catch();
+        let ended = play_at_once(&playing, &owner, jobs, &game_dir, &out);
+        drop(interrupts);
+        return ended;
+    }
     let run = claim::hold_for_run(&owner, &format!("scenarios {}", asked.names.join(", ")), &game_dir)?;
     let interrupts = Interrupts::catch();
     let ended = claim::play_within(&run, &interrupted, || {
@@ -334,12 +360,16 @@ fn play_all(playing: &[(&dyn Scenario, Parameters)], owner: &str, game_dir: &Pat
             let entry = match (&ready, stopped()) {
                 (Err(e), _) => not_played(*scenario, parameters, e),
                 (Ok(()), Some(why)) => not_played(*scenario, parameters, why),
-                (Ok(()), None) => play(*scenario, parameters, &mut game, owner, out),
+                (Ok(()), None) => play(*scenario, parameters, &mut game, owner, &crate::built(), out),
             };
             played.push(entry);
         }
     }
+    reported(owner, &played, out)
+}
 
+/// Writes the report of the scenarios `played`; fails when one did not pass.
+fn reported(owner: &str, played: &[Value], out: &Path) -> Result<()> {
     let report = json!({ "date": stamp().0, "owner": owner, "scenarios": played });
     write(&out.join("report.json"), &serde_json::to_string_pretty(&report).expect("JSON"))?;
     write(&out.join("report.md"), &markdown(&report))?;
@@ -349,6 +379,96 @@ fn play_all(playing: &[(&dyn Scenario, Parameters)], owner: &str, game_dir: &Pat
         return Err(format!("{failed} of {} scenarios did not pass", played.len()));
     }
     Ok(())
+}
+
+/// Plays the scenarios `jobs` at a time, each in a test game of its own
+/// claimed as `<owner>-<scenario>`, the longest first, and those that play
+/// alone after the rest; and writes the report, in the order they were
+/// named. Each build they need is made first and copied aside, into the
+/// report's folder, so that its scenarios start it however many builds follow.
+fn play_at_once(playing: &[(&dyn Scenario, Parameters)], owner: &str, jobs: usize, game_dir: &Path, out: &Path) -> Result<()> {
+    let mut made: Vec<(Build, std::result::Result<PathBuf, String>)> = Vec::new();
+    for build in builds(playing) {
+        let copy = match interrupted() {
+            true => Err("the run was interrupted".to_string()),
+            false => {
+                println!("building the {} build", build.name());
+                files::build(Some(build.features())).and_then(|()| set_aside(build, out))
+            }
+        };
+        made.push((build, copy));
+    }
+    let build_of = |i: usize| {
+        let (s, p) = &playing[i];
+        made.iter().find(|(b, _)| *b == s.build(p)).map(|(_, copy)| copy.clone()).expect("every build was made")
+    };
+    let mut together: Vec<usize> = (0..playing.len()).filter(|&i| !playing[i].0.alone()).collect();
+    together.sort_by_key(|&i| std::cmp::Reverse(playing[i].0.minutes()));
+    let queue = Mutex::new(VecDeque::from(together));
+    let played: Mutex<Vec<Option<Value>>> = Mutex::new(vec![None; playing.len()]);
+    let play_one = |i: usize| {
+        let (scenario, parameters) = &playing[i];
+        let entry = play_claimed(*scenario, parameters, &format!("{owner}-{}", scenario.name()), &build_of(i), game_dir, out);
+        played.lock().unwrap_or_else(|e| e.into_inner())[i] = Some(entry);
+    };
+    std::thread::scope(|s| {
+        for _ in 0..jobs {
+            s.spawn(|| loop {
+                // Taken off the queue first, so that the lock is not held
+                // while the scenario plays.
+                let next = queue.lock().unwrap_or_else(|e| e.into_inner()).pop_front();
+                match next {
+                    Some(i) => play_one(i),
+                    None => break,
+                }
+            });
+        }
+    });
+    for i in (0..playing.len()).filter(|&i| playing[i].0.alone()) {
+        play_one(i);
+    }
+    let played: Vec<Value> = played.into_inner().unwrap_or_else(|e| e.into_inner()).into_iter().flatten().collect();
+    reported(owner, &played, out)
+}
+
+/// Copies the core just built, and its symbols, into the report's folder:
+/// where its scenarios start it from, and where their crash dumps are read
+/// with.
+fn set_aside(build: Build, out: &Path) -> Result<PathBuf> {
+    let to = out.join("builds").join(build.name().replace(' ', "-"));
+    std::fs::create_dir_all(&to).map_err(|e| format!("cannot make {}: {e}", to.display()))?;
+    for file in ["eu4_harmony_core.dll", "eu4_harmony_core.pdb"] {
+        let from = crate::built().join(file);
+        std::fs::copy(&from, to.join(file)).map_err(|e| format!("cannot copy {} to {}: {e}", from.display(), to.display()))?;
+    }
+    Ok(to)
+}
+
+/// Plays one scenario in a test game of its own, claimed as `owner` for it
+/// and released after, with the core of `build`.
+fn play_claimed(
+    scenario: &dyn Scenario,
+    parameters: &Parameters,
+    owner: &str,
+    build: &std::result::Result<PathBuf, String>,
+    game_dir: &Path,
+    out: &Path,
+) -> Value {
+    let build = match (build, interrupted()) {
+        (Err(e), _) => return not_played(scenario, parameters, e),
+        (Ok(_), true) => return not_played(scenario, parameters, "the run was interrupted"),
+        (Ok(build), false) => build,
+    };
+    let run = match claim::hold_for_run(owner, &format!("scenario {}", scenario.name()), game_dir) {
+        Ok(run) => run,
+        Err(e) => return not_played(scenario, parameters, &format!("no test game for it: {e}")),
+    };
+    let played = claim::play_within(&run, &interrupted, || {
+        let mut game = Game::new(owner, game_dir)?;
+        game.build(build.clone());
+        Ok(play(scenario, parameters, &mut game, owner, build, out))
+    });
+    played.unwrap_or_else(|e| not_played(scenario, parameters, &e))
 }
 
 /// Lists the scenarios.
@@ -393,7 +513,7 @@ fn prepare(build: Build, owner: &str) -> Result<()> {
 }
 
 /// Plays one scenario; its entry in the report.
-fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, owner: &str, out: &Path) -> Value {
+fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, owner: &str, build: &Path, out: &Path) -> Value {
     println!("playing {}", scenario.name());
     let began = Instant::now();
     let user = claim::user_dir(owner).map(UserFolder::new);
@@ -435,7 +555,7 @@ fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, owner
             // A game in its crash handler ends on its own once its dump is
             // written, with the exit code that says how it crashed.
             game.wait_gone(CRASH_HANDLER);
-            entry["crash"] = crash(owner, &crashes, game.ended(), &out.join(format!("{}-crash.log", scenario.name())));
+            entry["crash"] = crash(owner, &crashes, game.ended(), build, &out.join(format!("{}-crash.log", scenario.name())));
             game.end();
         }
         Err(Stop::Hung(_)) => game.end(),
@@ -457,7 +577,7 @@ fn not_played(scenario: &dyn Scenario, parameters: &Parameters, why: &str) -> Va
 /// How `owner`'s test game ended, as the claim followed it, and what its
 /// newest crash folder, of those not `known` when the scenario began, says:
 /// its exception, and the stack its dump gives, written to `log` too.
-fn crash(owner: &str, known: &[String], ended: Option<GameEnd>, log: &Path) -> Value {
+fn crash(owner: &str, known: &[String], ended: Option<GameEnd>, build: &Path, log: &Path) -> Value {
     let ended = ended.map_or(Value::Null, |end| json!({ "exit_code": format!("0x{:x}", end.code), "said": end.describe() }));
     let Ok(user) = claim::user_dir(owner) else { return json!({ "folder": null, "ended": ended }) };
     let Some(folder) = UserFolder::new(user).new_crash_folders(known).pop() else { return json!({ "folder": null, "ended": ended }) };
@@ -466,7 +586,8 @@ fn crash(owner: &str, known: &[String], ended: Option<GameEnd>, log: &Path) -> V
     let mut stack = Vec::new();
     if dump.is_file() {
         let (dump_text, log_text) = (dump.display().to_string(), log.display().to_string());
-        let reading = std::thread::spawn(move || crate::crash_dump::read(&dump_text, &log_text, "C:\\symbols", &[".ecxr".into(), "kn 20".into()]));
+        let build = build.to_path_buf();
+        let reading = std::thread::spawn(move || crate::crash_dump::read(&dump_text, &log_text, &build, "C:\\symbols", &[".ecxr".into(), "kn 20".into()]));
         let deadline = Instant::now() + READING_A_DUMP;
         while !reading.is_finished() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(500));
@@ -586,6 +707,15 @@ mod tests {
         assert_eq!(asked.parameters, [("leak".to_string(), "rounds".to_string(), "1".to_string())]);
         assert!(parse(&words("--rounds 1")).unwrap_err().contains("unknown option --rounds"));
         assert!(parse(&words("perf --out")).unwrap_err().contains("--out needs a value"));
+        assert_eq!(parse(&words("whole --jobs 3")).unwrap().jobs, Some(3));
+        assert!(parse(&words("whole --jobs 0")).unwrap_err().contains("a whole number above 0"));
+    }
+
+    #[test]
+    fn the_whole_set_plays_four_at_once_and_what_measures_time_alone() {
+        assert_eq!(SETS.iter().find(|set| set.name == "whole").map(|set| set.jobs), Some(4));
+        let alone: Vec<&str> = all().iter().filter(|s| s.alone()).map(|s| s.name()).collect();
+        assert_eq!(alone, ["perf", "extensions"]);
     }
 
     #[test]

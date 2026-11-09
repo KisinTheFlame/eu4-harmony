@@ -36,6 +36,10 @@ pub struct Starting {
     /// Test mods, folders of Harmony mods, put in the test game's playset
     /// (docs/plans/whole-game.md); a start with none takes them out.
     pub mods: Vec<PathBuf>,
+    /// The folder of the build to start the core of, in place of this
+    /// checkout's last build: a copy of a build of its, made aside so that
+    /// another build may follow while this one plays.
+    pub build: Option<PathBuf>,
 }
 
 /// What this process sees now, for a look at the record.
