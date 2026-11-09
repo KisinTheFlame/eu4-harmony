@@ -183,6 +183,10 @@ fn points() -> Vec<Point> {
         // call [rax + 0x2a8]: the day's call of the interface's daily refresh.
         Point::keep(0x75c5e7, "49 8b 8d 00 1e 00 00 48 85 c9 74 09 48 8b 01 ff 90 a8 02 00 00", "the day's daily refresh of the interface")
             .uses(&[WORLD_INTERFACE, 0x2a8]),
+        Point::observe(SCENE_BEGINS, "48 89 5c 24 08 57 48 83 ec 20 48 8b f9", "the renderer begins a scene", 1, Some(scene_begins), None),
+        // mov qword ptr [rdi + 0x108], 0: the vertex declaration it keeps
+        // forgotten.
+        Point::keep(0x16d4e2f, "48 c7 87 08 01 00 00 00 00 00 00", "a scene forgets the renderer's vertex declaration").uses(&[RENDERER_DECLARATION]),
         Point::observe(MESH_LET_GO, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18", "a mesh object's destructor", 2, Some(mesh_let_go), None),
         // lea rbx, [rdi + 0x78]; cmp rbx, rsi: the application's frame
         // switches its idler, the pending one at hand.
@@ -322,6 +326,25 @@ fn do_deferred(m: &Memory) {
         }
     }
 }
+
+/// The renderer's BeginScene (`0x16d4e00`, its table's `[0x1fd1290]`): the
+/// one renderer of the game's, which both threads draw through, forgets the
+/// vertex declaration it keeps (`+0x108`) as a scene begins, and the drawing
+/// reads it as it draws a mesh's part (`0x16d4fa0`). A scene the main thread
+/// begins in a day (drawing into a texture) is a crossing, whatever led
+/// there; the drawing thread's own scenes are its frames.
+const SCENE_BEGINS: usize = 0x16d4e00;
+const RENDERER_DECLARATION: usize = 0x108;
+
+fn scene_begins(call: &mut Call) {
+    if on_main() {
+        crossing(call.observed().unwrap_or(0));
+    } else if drawing_on() && !is_drawing_thread() && !OTHER_SCENE_LOGGED.swap(true, Ordering::Relaxed) {
+        log!("drawing: thread {} began a scene of the renderer, which the drawing thread may be drawing with", crate::thread_id());
+    }
+}
+
+static OTHER_SCENE_LOGGED: AtomicBool = AtomicBool::new(false);
 
 /// A mesh object's destructor (`pdxmeshobject.cpp`, vtable `0x1d92408`): the
 /// object and whether to free it. The drawing draws mesh objects; one let go
@@ -820,11 +843,8 @@ fn crossings_logged(base: usize) -> String {
 #[called_by_game]
 extern "C" fn frame_draws(idler: usize) {
     let m = crate::hooked_memory();
-    // This frame's update has finished whatever the day's crossings began.
-    CHANGED.store(false, Ordering::Release);
-    if let Some((into, at)) = HELD_BACK_BY.lock().unwrap_or_else(|e| e.into_inner()).take() {
-        count_crossing(into, 0, at.elapsed().as_micros() as u64);
-    }
+    // A frame the main thread draws itself leaves the last one prepared
+    // behind: its scenes are crossings, which hold it back.
     if !drawing_on() || must_draw_here(&m) {
         draw_here(&m, idler);
         return;
@@ -832,6 +852,13 @@ extern "C" fn frame_draws(idler: usize) {
     if let Err(e) = first_steps(&m, idler) {
         log!("drawing: the drawing's first steps could not read the game: {e}");
         return;
+    }
+    // This frame's update, and its first steps, which may draw the map
+    // mode's colors in a scene of their own, have finished whatever the
+    // crossings before began.
+    CHANGED.store(false, Ordering::Release);
+    if let Some((into, at)) = HELD_BACK_BY.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        count_crossing(into, 0, at.elapsed().as_micros() as u64);
     }
     PREPARED.store(idler, Ordering::Release);
     PREPARED_SEQ.fetch_add(1, Ordering::AcqRel);
