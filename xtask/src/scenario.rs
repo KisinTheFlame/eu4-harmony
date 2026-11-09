@@ -204,14 +204,13 @@ const READING_A_DUMP: Duration = Duration::from_secs(180);
 const CRASH_HANDLER: Duration = Duration::from_secs(60);
 
 const USAGE: &str =
-    "cargo xtask scenario [<name>... [--out <dir>] [--wait] [--owner <name>] [--game-dir <dir>] [--<name>.<parameter> <value>]...] | --from-report <dir>";
+    "cargo xtask scenario [<name>... [--out <dir>] [--owner <name>] [--game-dir <dir>] [--<name>.<parameter> <value>]...] | --from-report <dir>";
 
 /// What the command line asked for.
 #[derive(Debug, Default, PartialEq)]
 struct Asked {
     names: Vec<String>,
     out: Option<PathBuf>,
-    wait: bool,
     owner: Option<String>,
     game_dir: Option<PathBuf>,
     from_report: Option<PathBuf>,
@@ -225,7 +224,6 @@ fn parse(raw: &[String]) -> Result<Asked> {
     while let Some(word) = words.next() {
         let mut value = |key: &str| words.next().cloned().ok_or_else(|| format!("--{key} needs a value"));
         match word.strip_prefix("--") {
-            Some("wait") => asked.wait = true,
             Some("out") => asked.out = Some(value("out")?.into()),
             Some("owner") => asked.owner = Some(value("owner")?),
             Some("game-dir") => asked.game_dir = Some(value("game-dir")?.into()),
@@ -270,7 +268,7 @@ pub fn run(raw: &[String]) -> Result<()> {
     crate::game::steam_ready()?;
 
     let owner = asked.owner.clone().unwrap_or_else(|| claim::owner_of(None));
-    let run = claim::hold_for_run(&owner, &format!("scenarios {}", asked.names.join(", ")), asked.wait, &game_dir)?;
+    let run = claim::hold_for_run(&owner, &format!("scenarios {}", asked.names.join(", ")), &game_dir)?;
     let interrupts = Interrupts::catch();
     let ended = claim::play_within(&run, &interrupted, || {
         let out = asked.out.clone().unwrap_or_else(|| repo().join("target").join("scenarios").join(stamp().1));
@@ -582,9 +580,9 @@ mod tests {
 
     #[test]
     fn the_command_line_names_scenarios_and_their_parameters() {
-        let asked = parse(&words("perf leak --wait --leak.rounds 1 --out D:\\r")).unwrap();
+        let asked = parse(&words("perf leak --leak.rounds 1 --out D:\\r")).unwrap();
         assert_eq!(asked.names, ["perf", "leak"]);
-        assert!(asked.wait && asked.out == Some(PathBuf::from("D:\\r")));
+        assert!(asked.out == Some(PathBuf::from("D:\\r")));
         assert_eq!(asked.parameters, [("leak".to_string(), "rounds".to_string(), "1".to_string())]);
         assert!(parse(&words("--rounds 1")).unwrap_err().contains("unknown option --rounds"));
         assert!(parse(&words("perf --out")).unwrap_err().contains("--out needs a value"));

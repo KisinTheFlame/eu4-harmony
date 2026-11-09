@@ -5,7 +5,7 @@
 //! [`Machine`], so that the order of its writes of the record against what
 //! it does to the games and the folders is what the tests below follow.
 use super::machine::Machine;
-use super::record::{self, Asking, Claim, Found, GameEnd, Process, Seen, State};
+use super::record::{self, Claim, Found, GameEnd, Process, Seen, State};
 use crate::Result;
 use eu4_harmony_client::start::{Start, TestGame};
 use std::{
@@ -14,9 +14,6 @@ use std::{
     time::Duration,
 };
 
-/// How often a waiting claim looks again.
-const WAIT_EVERY: Duration = Duration::from_secs(5);
-
 /// What a claim came to.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Claimed {
@@ -24,9 +21,6 @@ pub enum Claimed {
     Now,
     /// This owner held one already.
     Already,
-    /// A checkout from before test games holds the whole game, or the
-    /// owner's claim is being made, and the claim did not wait.
-    Busy,
 }
 
 /// How a test game is started.
@@ -85,10 +79,10 @@ pub fn ends_of<M: Machine>(m: &M, owner: &str) -> Vec<GameEnd> {
     held_by(m, owner).map(|c| m.ends(Path::new(&c.folder))).unwrap_or_default()
 }
 
-/// Claims a test game as `asking` asks: the record names the claim's folder
-/// and the process making it, then the folder is made, and only then is the
+/// Claims a test game for `owner`: the record names the claim's folder and
+/// the process making it, then the folder is made, and only then is the
 /// claim ready. It holds the test game until it is released.
-pub fn claim<M: Machine>(m: &M, asking: &Asking, purpose: &str, game_dir: &Path) -> Result<Claimed> {
+pub fn claim<M: Machine>(m: &M, owner: &str, purpose: &str, game_dir: &Path) -> Result<Claimed> {
     if !m.proxy_loads_cores(game_dir) {
         return Err(format!(
             "the framework's proxy in {} cannot load a test game's core: install a build from test games on (cargo xtask install, with no game running)",
@@ -96,50 +90,37 @@ pub fn claim<M: Machine>(m: &M, asking: &Asking, purpose: &str, game_dir: &Path)
         ));
     }
     let claims = m.claims()?;
-    let mut said = String::new();
-    loop {
-        let seen = seen(m);
-        let mut folder = PathBuf::new();
-        let (found, cut) = m.locked(|s| {
-            let (found, cut) = record::look(asking, s, &seen);
-            if found == Found::Free {
-                let (since, stamp) = m.stamps();
-                folder = claims.join(format!("{}-{stamp}", asking.owner));
-                s.claims.push(Claim {
-                    owner: asking.owner.clone(),
-                    purpose: purpose.to_string(),
-                    checkout: crate::repo().display().to_string(),
-                    since,
-                    folder: folder.display().to_string(),
-                    maker: Some(m.me()),
-                    ready: false,
-                    game: None,
-                });
-            }
-            (found, cut)
-        })?;
-        for c in &cut {
-            m.say(&format!("{}'s claim was cut short while it was made; its folder goes", c.owner));
-            m.remove_folder(Path::new(&c.folder))?;
+    let seen = seen(m);
+    let mut folder = PathBuf::new();
+    let (found, cut) = m.locked(|s| {
+        let (found, cut) = record::look(owner, s, &seen);
+        if found == Found::Free {
+            let (since, stamp) = m.stamps();
+            folder = claims.join(format!("{owner}-{stamp}"));
+            s.claims.push(Claim {
+                owner: owner.to_string(),
+                purpose: purpose.to_string(),
+                checkout: crate::repo().display().to_string(),
+                since,
+                folder: folder.display().to_string(),
+                maker: Some(m.me()),
+                ready: false,
+                game: None,
+            });
         }
-        match found {
-            Found::Held => {
-                m.say(&format!("already held: {}", held_by(m, &asking.owner)?.describe()));
-                return Ok(Claimed::Already);
-            }
-            Found::Busy(who) if !asking.wait => {
-                m.say(&format!("busy: {who}"));
-                return Ok(Claimed::Busy);
-            }
-            Found::Busy(who) => {
-                if who != said {
-                    m.say(&format!("waiting: {who}"));
-                    said = who;
-                }
-                m.wait(WAIT_EVERY);
-            }
-            Found::Free => return make(m, &asking.owner, &folder, game_dir),
+        (found, cut)
+    })?;
+    for c in &cut {
+        m.say(&format!("{}'s claim was cut short while it was made; its folder goes", c.owner));
+        m.remove_folder(Path::new(&c.folder))?;
+    }
+    match found {
+        Found::Held => {
+            m.say(&format!("already held: {}", held_by(m, owner)?.describe()));
+            Ok(Claimed::Already)
         }
+        Found::BeingMade(why) => Err(why),
+        Found::Free => make(m, owner, &folder, game_dir),
     }
 }
 
@@ -238,9 +219,6 @@ pub fn release<M: Machine>(m: &M, owner: &str) -> Result<()> {
 /// what no claim refers to.
 pub fn status<M: Machine>(m: &M) -> Result<()> {
     let state: State = m.locked(|s| s.clone())?;
-    if let Some(old) = &state.old {
-        m.say(old);
-    }
     m.say(&format!("{} test games held", state.claims.len()));
     let mut theirs = Vec::new();
     for c in &state.claims {
@@ -281,16 +259,13 @@ pub struct Run {
 const RUN_LOOKS_EVERY: Duration = Duration::from_secs(1);
 
 /// Holds a test game for a run of `owner`'s: the claim `owner` holds
-/// already, else a new one, waiting with `wait` while it is busy.
-pub fn hold_for_run<M: Machine>(m: &M, owner: &str, purpose: &str, wait: bool, game_dir: &Path) -> Result<Run> {
+/// already, else a new one.
+pub fn hold_for_run<M: Machine>(m: &M, owner: &str, purpose: &str, game_dir: &Path) -> Result<Run> {
     if held_by(m, owner).is_ok() {
         return Ok(Run { owner: owner.into(), made: false });
     }
-    let asking = Asking { owner: owner.into(), wait };
-    match claim(m, &asking, purpose, game_dir)? {
-        Claimed::Busy => Err("no test game can be claimed now; --wait waits until one can".into()),
-        Claimed::Now | Claimed::Already => Ok(Run { owner: owner.into(), made: true }),
-    }
+    claim(m, owner, purpose, game_dir)?;
+    Ok(Run { owner: owner.into(), made: true })
 }
 
 /// Ends the run's test game, if it runs.
@@ -358,7 +333,7 @@ mod tests {
     #[test]
     fn a_claim_s_course_from_claiming_to_releasing() {
         let m = Recorded::new(State::default());
-        assert_eq!(claim(&m, &asking("a", false), "a run", game_dir()).unwrap(), Claimed::Now);
+        assert_eq!(claim(&m, "a", "a run", game_dir()).unwrap(), Claimed::Now);
         start_game(&m, "a", game_dir(), &Starting::default(), Duration::from_secs(300)).unwrap();
         assert!(start_game(&m, "a", game_dir(), &Starting::default(), Duration::from_secs(300)).unwrap_err().contains("runs already"));
         release(&m, "a").unwrap();
@@ -386,7 +361,7 @@ mod tests {
     fn a_folder_that_cannot_be_made_gives_the_test_game_back() {
         let mut m = Recorded::new(State::default());
         m.fail_folder = true;
-        assert!(claim(&m, &asking("a", false), "", game_dir()).unwrap_err().contains("the disk is full"));
+        assert!(claim(&m, "a", "", game_dir()).unwrap_err().contains("the disk is full"));
         assert_eq!(m.state.lock().unwrap().claims.len(), 0);
         assert!(m.did().contains(&Did::RemoveFolder("C:\\claims\\a-1000".into())));
     }
@@ -397,7 +372,7 @@ mod tests {
     fn a_proxy_from_before_test_games_is_refused() {
         let mut m = Recorded::new(State::default());
         m.proxy = false;
-        assert!(claim(&m, &asking("a", true), "", game_dir()).unwrap_err().contains("cargo xtask install"));
+        assert!(claim(&m, "a", "", game_dir()).unwrap_err().contains("cargo xtask install"));
         assert_eq!(m.did(), []);
     }
 
@@ -406,23 +381,11 @@ mod tests {
     #[test]
     fn a_claim_gets_a_test_game_however_many_are_held() {
         let claims = (0..10).map(|i| held(&format!("h{i}"))).collect();
-        let m = Recorded::new(State { claims, ..State::default() });
+        let m = Recorded::new(State { claims });
         m.serving.lock().unwrap().push((pipe_of("h1").unwrap(), 77));
-        assert_eq!(claim(&m, &asking("a", false), "", game_dir()).unwrap(), Claimed::Now);
+        assert_eq!(claim(&m, "a", "", game_dir()).unwrap(), Claimed::Now);
         assert_eq!(m.state.lock().unwrap().claims.len(), 11);
         assert!(!m.did().iter().any(|d| matches!(d, Did::End(_) | Did::Keep(_) | Did::Waited)));
-    }
-
-    /// A claim waits while a checkout from before test games holds the whole
-    /// game.
-    #[test]
-    fn a_claim_waits_while_an_older_checkout_holds_the_whole_game() {
-        let m = Recorded::new(State { old: Some("checkout holds the whole game".into()), ..State::default() });
-        assert_eq!(claim(&m, &asking("a", false), "", game_dir()).unwrap(), Claimed::Busy);
-        *m.meanwhile.lock().unwrap() = Some(Box::new(|s: &mut State| s.old = None));
-        assert_eq!(claim(&m, &asking("a", true), "", game_dir()).unwrap(), Claimed::Now);
-        assert!(m.did().contains(&Did::Waited));
-        assert!(m.said().contains("waiting: checkout holds the whole game"));
     }
 
     /// A game that crashes before its main menu has no follower, so its
@@ -431,7 +394,7 @@ mod tests {
     fn a_crash_before_the_main_menu_is_told_at_the_release() {
         let mut m = Recorded::new(State::default());
         m.ends_before_menu = Some(0xc000_0005);
-        claim(&m, &asking("a", false), "a run", game_dir()).unwrap();
+        claim(&m, "a", "a run", game_dir()).unwrap();
         let error = start_game(&m, "a", game_dir(), &Starting::default(), Duration::from_secs(300)).unwrap_err();
         assert!(error.contains("before its main menu"));
         release(&m, "a").unwrap();
@@ -445,7 +408,7 @@ mod tests {
     /// Only the claim's own game is ended, never another's.
     #[test]
     fn stopping_ends_only_the_claim_s_own_game() {
-        let m = Recorded::new(State { claims: vec![held("a"), held("b")], ..State::default() });
+        let m = Recorded::new(State { claims: vec![held("a"), held("b")] });
         m.serving.lock().unwrap().extend([(pipe_of("a").unwrap(), 1), (pipe_of("b").unwrap(), 2), (eu4_harmony_remote::PIPE.into(), 3)]);
         stop(&m, "a").unwrap();
         assert_eq!(m.did(), [Did::End(1)]);
@@ -458,13 +421,13 @@ mod tests {
     #[test]
     fn a_run_releases_only_the_claim_it_made() {
         let m = Recorded::new(State::default());
-        let run = hold_for_run(&m, "a", "scenarios", false, game_dir()).unwrap();
+        let run = hold_for_run(&m, "a", "scenarios", game_dir()).unwrap();
         let failed: Result<()> = play_within(&m, &run, &|| false, || Err("a check failed".into()));
         assert_eq!(failed.unwrap_err(), "a check failed");
         assert!(m.state.lock().unwrap().claims.is_empty());
 
-        let m = Recorded::new(State { claims: vec![held("a")], ..State::default() });
-        let run = hold_for_run(&m, "a", "scenarios", false, game_dir()).unwrap();
+        let m = Recorded::new(State { claims: vec![held("a")] });
+        let run = hold_for_run(&m, "a", "scenarios", game_dir()).unwrap();
         play_within(&m, &run, &|| false, || Ok(())).unwrap();
         assert_eq!(m.state.lock().unwrap().claims.len(), 1);
     }

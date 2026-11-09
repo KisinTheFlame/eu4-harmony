@@ -1,4 +1,10 @@
+---
+status: superseded in part by checkouts-before-test-games-are-not-held-back
+---
+
 # Test games have no limit and no lease
+
+The waiting for a checkout from before test games and the lease each claim was written with for such checkouts are superseded by ADR checkouts-before-test-games-are-not-held-back: a claim no longer reads or writes `game-lock.json`.
 
 A claim holds its test game until its holder releases it, and any number of test games are held at once: no queue, no lease, nothing taken from a holder. A claim waits only while a checkout from before test games holds the whole game. This supersedes the limit of three, the queue and the lease of ADR test-games-run-side-by-side.
 

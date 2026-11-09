@@ -3,7 +3,7 @@
 //! The claim's course and the scenario runner's game are tested over it.
 use super::course::Starting;
 use super::machine::Machine;
-use super::record::{Asking, Claim, GameEnd, Process, State};
+use super::record::{Claim, GameEnd, Process, State};
 use crate::Result;
 use eu4_harmony_client::start::{Ended, Failed, Start};
 use std::{
@@ -34,9 +34,6 @@ pub(crate) const ME: Process = Process { id: 10, started: 1 };
 pub(crate) const GAME: Process = Process { id: 40, started: 4 };
 pub(crate) const GAME_DIR: &str = "E:\\game";
 
-/// What changes the record while the claim waits.
-pub(crate) type Meanwhile = Box<dyn FnOnce(&mut State) + Send>;
-
 /// The computer, scripted and recorded: its clock moves only when the
 /// claim waits, the games serving pipes are those in `serving`.
 pub(crate) struct Recorded {
@@ -47,8 +44,6 @@ pub(crate) struct Recorded {
     pub(crate) proxy: bool,
     pub(crate) fail_folder: bool,
     pub(crate) said: Mutex<Vec<String>>,
-    /// Run once, the first time the claim waits.
-    pub(crate) meanwhile: Mutex<Option<Meanwhile>>,
     /// How the claim's games ended, as its record has it.
     pub(crate) ended: Mutex<Vec<GameEnd>>,
     /// The exit code a started game ends with before its main menu.
@@ -65,7 +60,6 @@ impl Recorded {
             proxy: true,
             fail_folder: false,
             said: Mutex::new(Vec::new()),
-            meanwhile: Mutex::new(None),
             ended: Mutex::new(Vec::new()),
             ends_before_menu: None,
         }
@@ -102,18 +96,12 @@ impl Machine for Recorded {
     fn claims(&self) -> Result<PathBuf> {
         Ok(PathBuf::from("C:\\claims"))
     }
-    fn now(&self) -> u64 {
-        *self.now.lock().unwrap()
-    }
     fn stamps(&self) -> (String, String) {
-        ("2026-11-08 10:00".into(), format!("{}", self.now()))
+        ("2026-11-08 10:00".into(), format!("{}", *self.now.lock().unwrap()))
     }
     fn wait(&self, time: Duration) {
         *self.now.lock().unwrap() += time.as_secs();
         self.push(Did::Waited);
-        if let Some(meanwhile) = self.meanwhile.lock().unwrap().take() {
-            meanwhile(&mut self.state.lock().unwrap());
-        }
     }
     fn me(&self) -> Process {
         ME
@@ -201,15 +189,11 @@ pub(crate) fn held(owner: &str) -> Claim {
     }
 }
 
-pub(crate) fn asking(owner: &str, wait: bool) -> Asking {
-    Asking { owner: owner.into(), wait }
-}
-
 pub(crate) fn game_dir() -> &'static Path {
     Path::new(GAME_DIR)
 }
 
 /// The record with `claims` and no queue.
 pub(crate) fn state(claims: Vec<Claim>) -> State {
-    State { claims, ..State::default() }
+    State { claims }
 }

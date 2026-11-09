@@ -4,11 +4,7 @@
 //!
 //! The record is `claims.json`: each claim, with its test game's folder. A
 //! claim holds its test game until it is released, and any number are held
-//! at once. A checkout from before test games knows only `game-lock.json`,
-//! its claim of the whole game; [`OLD_HOLDER`] is the holder that file names
-//! while test games are held, so that such a checkout waits, and a record of
-//! its own there, a claim that backed up the player's files, keeps every
-//! test game waiting until it is released.
+//! at once.
 use serde_json::{json, Value};
 
 /// A process, by its id and when it started: a later process given the same
@@ -94,14 +90,6 @@ pub struct Seen<'a> {
     pub alive: Box<dyn Fn(&Process) -> bool + 'a>,
 }
 
-/// The holder `game-lock.json` names while test games are held, for the
-/// checkouts from before them.
-pub const OLD_HOLDER: &str = "test-games";
-/// The lease each claim is written with for checkouts from before the lease
-/// was taken out, which drop a claim without one from the record and take
-/// one whose lease ran out: from 1970, a hundred years.
-const OLD_LEASE_MINUTES: u64 = 100 * 365 * 24 * 60;
-
 /// One claim of a test game.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Claim {
@@ -142,8 +130,6 @@ impl Claim {
             "checkout": self.checkout,
             "since": self.since,
             "folder": self.folder,
-            "renewed": 0,
-            "leaseMinutes": OLD_LEASE_MINUTES,
             "maker": self.maker.map(Process::to_json),
             "ready": self.ready,
             "game": self.game.map(Process::to_json),
@@ -161,18 +147,16 @@ impl Claim {
     }
 }
 
-/// The claims, and the claim of the whole game a checkout from before test
-/// games holds, as its own line.
+/// The claims.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct State {
     pub claims: Vec<Claim>,
-    pub old: Option<String>,
 }
 
 impl State {
     pub fn from_json(value: &Value) -> Self {
         let list = |key: &str| value[key].as_array().cloned().unwrap_or_default();
-        Self { claims: list("claims").iter().filter_map(Claim::from_json).collect(), old: None }
+        Self { claims: list("claims").iter().filter_map(Claim::from_json).collect() }
     }
 
     pub fn to_json(&self) -> Value {
@@ -188,69 +172,29 @@ impl State {
     }
 }
 
-/// What `game-lock.json` holds while test games are held: a holder that
-/// checkouts from before them take for one with a lease of a year and its
-/// backup done, so that they wait.
-pub fn old_holder(now: u64, since: &str) -> Value {
-    json!({
-        "owner": OLD_HOLDER,
-        "purpose": "test games run side by side; update this checkout from master to claim one (docs/plans/test-games.md)",
-        "checkout": "",
-        "since": since,
-        "renewed": now,
-        "leaseMinutes": 525_600,
-        "backup": "none: test games touch none of the player's files",
-    })
-}
-
-/// The claim of the whole game `game-lock.json` holds, when it is a
-/// checkout's from before test games and not [`OLD_HOLDER`]: who holds it,
-/// in a line.
-pub fn old_claim(value: &Value) -> Option<String> {
-    let owner = value["owner"].as_str()?;
-    (owner != OLD_HOLDER).then(|| {
-        format!(
-            "{owner}, a checkout from before test games, holds the whole game ({}); it backed up the player's files, and its own release puts them back",
-            value["purpose"].as_str().unwrap_or("")
-        )
-    })
-}
-
-/// What a claim asks for.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Asking {
-    pub owner: String,
-    /// It waits while it is busy.
-    pub wait: bool,
-}
-
-/// What a claim finds.
+/// What a claim of `owner`'s finds.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Found {
     /// It holds a test game already.
     Held,
-    /// Its own claim is being made by another process, or a checkout from
-    /// before test games holds the whole game.
-    Busy(String),
+    /// Its claim is being made by another process.
+    BeingMade(String),
     /// A test game is its, to make.
     Free,
 }
 
-/// What `asking` finds, the record as it is; takes out the claims cut short
-/// while they were made, which it returns for their folders to be removed.
-pub fn look(asking: &Asking, state: &mut State, seen: &Seen) -> (Found, Vec<Claim>) {
+/// What a claim of `owner`'s finds, the record as it is; takes out the
+/// claims cut short while they were made, which it returns for their
+/// folders to be removed.
+pub fn look(owner: &str, state: &mut State, seen: &Seen) -> (Found, Vec<Claim>) {
     let (cut, kept): (Vec<Claim>, Vec<Claim>) = state.claims.drain(..).partition(|c| c.cut_short(seen));
     state.claims = kept;
-    if let Some(own) = state.of(&asking.owner) {
-        if !own.ready {
-            return (Found::Busy(format!("{}'s claim is being made by process {}", own.owner, own.maker.map_or(0, |p| p.id))), cut);
-        }
-        return (Found::Held, cut);
-    }
-    match &state.old {
-        Some(old) => (Found::Busy(old.clone()), cut),
-        None => (Found::Free, cut),
-    }
+    let found = match state.of(owner) {
+        Some(own) if !own.ready => Found::BeingMade(format!("{}'s claim is being made by process {}", own.owner, own.maker.map_or(0, |p| p.id))),
+        Some(_) => Found::Held,
+        None => Found::Free,
+    };
+    (found, cut)
 }
 
 #[cfg(test)]
@@ -278,12 +222,8 @@ mod tests {
         }
     }
 
-    fn asking(owner: &str, wait: bool) -> Asking {
-        Asking { owner: owner.into(), wait }
-    }
-
     fn state(claims: Vec<Claim>) -> State {
-        State { claims, ..State::default() }
+        State { claims }
     }
 
     #[test]
@@ -301,10 +241,8 @@ mod tests {
         let mut held = claim("a");
         held.game = Some(OTHER);
         held.maker = Some(ME);
-        let s = State { claims: vec![held], old: None };
+        let s = State { claims: vec![held] };
         assert_eq!(State::from_json(&s.to_json()), s);
-        let written = &s.to_json()["claims"][0];
-        assert!(written["renewed"].as_u64().unwrap() + 60 * written["leaseMinutes"].as_u64().unwrap() > 3_000_000_000);
         let older = json!({ "claims": [{ "owner": "b", "folder": "C:\\b", "renewed": 5, "leaseMinutes": 30, "ready": true }], "waiting": [] });
         assert_eq!(State::from_json(&older).claims.len(), 1);
     }
@@ -313,15 +251,15 @@ mod tests {
     #[test]
     fn a_test_game_goes_to_whoever_asks() {
         let mut s = state((0..10).map(|i| claim(&format!("h{i}"))).collect());
-        assert_eq!(look(&asking("a", false), &mut s, &seen()).0, Found::Free);
+        assert_eq!(look("a", &mut s, &seen()).0, Found::Free);
         s.claims.push(claim("a"));
-        assert_eq!(look(&asking("a", false), &mut s, &seen()).0, Found::Held);
-        assert_eq!(look(&asking("b", false), &mut s, &seen()).0, Found::Free);
+        assert_eq!(look("a", &mut s, &seen()).0, Found::Held);
+        assert_eq!(look("b", &mut s, &seen()).0, Found::Free);
     }
 
     /// A claim whose process ended before its folder was made goes, and its
-    /// folder is to be removed; one whose process still makes it keeps its
-    /// owner waiting.
+    /// folder is to be removed; one whose process still makes it is its
+    /// owner's to wait for.
     #[test]
     fn a_claim_cut_short_while_it_was_made_goes() {
         let mut making = claim("a");
@@ -329,21 +267,9 @@ mod tests {
         let mut cut = claim("b");
         (cut.ready, cut.maker) = (false, Some(GONE));
         let mut s = state(vec![making, cut]);
-        let (found, gone) = look(&asking("a", false), &mut s, &seen());
-        assert!(matches!(found, Found::Busy(why) if why.contains("being made by process 20")));
+        let (found, gone) = look("a", &mut s, &seen());
+        assert!(matches!(found, Found::BeingMade(why) if why.contains("being made by process 20")));
         assert_eq!(gone.iter().map(|c| c.owner.as_str()).collect::<Vec<_>>(), ["b"]);
         assert_eq!(s.claims.len(), 1);
-    }
-
-    /// A claim of the whole game by a checkout from before test games keeps
-    /// every test game waiting; the holder test games write for those
-    /// checkouts is not one.
-    #[test]
-    fn a_whole_game_claim_of_an_older_checkout_keeps_test_games_waiting() {
-        assert_eq!(old_claim(&old_holder(100, "now")), None);
-        let theirs = json!({ "owner": "checkout", "purpose": "perf", "renewed": 1 });
-        let line = old_claim(&theirs).unwrap();
-        let mut s = State { old: Some(line.clone()), ..State::default() };
-        assert_eq!(look(&asking("a", true), &mut s, &seen()).0, Found::Busy(line));
     }
 }
