@@ -266,6 +266,14 @@ pub fn abandon_group(Session { m, ctx, commands, .. }: Session, args::AbandonGro
     action::post(commands, &written("abandon_idea_group", ctx.player, &key), "abandon this idea group")
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::ideas: IdeaRequest => IdeaAnswer;
+    List => list;
+    TakeGroup => take_group;
+    Buy => buy;
+    AbandonGroup => abandon_group;
+}
+
 #[cfg(test)]
 mod tests {
     use super::{written, written_buy, Tag};

@@ -15,9 +15,9 @@ use crate::{
     },
     points::{GameFunction, Point},
 };
-use eu4_harmony_remote::buildings::args;
+use eu4_harmony_remote::buildings::{args, BuildingConstruction, BuildingOption, BuildingOptions};
 use eu4_harmony_remote::choices::{Amount, Choice, Resource};
-use eu4_harmony_remote::ProvinceId;
+use eu4_harmony_remote::{Date, ProvinceId};
 
 /// The building database, made by its getter: its buildings by index, a
 /// vector of pointers at `+0x10`, index 0 the placeholder for none.
@@ -155,24 +155,6 @@ fn construction(m: &Memory, province: usize) -> GResult<Option<usize>> {
     Ok(None)
 }
 
-/// A building being built, as the framework reads it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Constructing {
-    pub building: String,
-    /// In thousandths, 0 to 1000.
-    pub progress: i32,
-    pub ends: i32,
-    pub builder: Tag,
-}
-
-/// One thing the building panel offers: `build`, `cancel` or `destroy`.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Offer {
-    pub action: &'static str,
-    pub building: String,
-    pub choice: Choice,
-}
-
 fn province_address(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
     if id == 0 {
         return Err(eu4_harmony_checks::provinces::not_found(0).into());
@@ -203,7 +185,8 @@ fn can_build(m: &Memory, ctx: &Ctx, province: usize, building: usize) -> GResult
 /// What the building panel offers the player in a province now, and what is
 /// being built there; in the player's view not in another country's
 /// province, as the province view does not show it.
-pub fn options(Session { m, ctx, view, .. }: Session, id: u32) -> GResult<(Option<Constructing>, Vec<Offer>)> {
+pub fn options(Session { m, ctx, view, .. }: Session, args::Options { province: asked }: args::Options) -> GResult<BuildingOptions> {
+    let ProvinceId(id) = asked;
     let province = province_address(m, &ctx, id)?;
     let owner = Some(Tag(m.u64(province + field::OWNER)?)).filter(|t| t.valid());
     let owned = owner == Some(ctx.player);
@@ -217,12 +200,12 @@ pub fn options(Session { m, ctx, view, .. }: Session, id: u32) -> GResult<(Optio
             let (may, text) = game_string::written(m, |out| CAN_CANCEL.call(m, [province, building, ctx.player.0 as usize, out]).map_err(super::Fail::from))?;
             let choice = if may as u8 != 0 { Choice::can(Vec::new()) } else { Choice::cannot(super::administration::reasons(&text), Vec::new()) };
             let key = key(m, building)?;
-            offers.push(Offer { action: "cancel", building: key.clone(), choice });
-            Some(Constructing {
+            offers.push(offer("cancel", key.clone(), choice));
+            Some(BuildingConstruction {
                 building: key,
-                progress: m.i32(construction + construction::PROGRESS)?,
-                ends: m.i32(construction + construction::END)?,
-                builder,
+                progress: thousandths(m.i32(construction + construction::PROGRESS)?),
+                finished: Date(m.i32(construction + construction::END)?),
+                builder: crate::catalogue::tag(builder),
             })
         }
     };
@@ -230,12 +213,18 @@ pub fn options(Session { m, ctx, view, .. }: Session, id: u32) -> GResult<(Optio
         let key = key(m, building)?;
         if stands(m, province, index as u32)? {
             let choice = if owned { Choice::can(Vec::new()) } else { Choice::cannot(Vec::new(), Vec::new()) };
-            offers.push(Offer { action: "destroy", building: key, choice });
+            offers.push(offer("destroy", key, choice));
         } else {
-            offers.push(Offer { action: "build", building: key, choice: can_build(m, &ctx, province, building)? });
+            offers.push(offer("build", key, can_build(m, &ctx, province, building)?));
         }
     }
-    Ok((constructing, offers))
+    Ok(BuildingOptions { province: asked, constructing, options: offers })
+}
+
+/// One thing the building panel offers: the capability that does it,
+/// `build`, `cancel` or `destroy`, for a building.
+fn offer(action: &str, building: String, choice: Choice) -> BuildingOption {
+    BuildingOption { action: action.into(), building, choice }
 }
 
 fn letters(tag: Tag) -> String {
@@ -291,6 +280,14 @@ pub fn destroy(Session { m, ctx, commands, .. }: Session, args::Destroy { provin
         return Err(refuse::building_absent(&key, id));
     }
     action::post(commands, &destroy_text(ctx.player, id, index), "destroy it")
+}
+
+crate::catalogue::bind! {
+    eu4_harmony_remote::buildings: BuildingRequest => BuildingAnswer;
+    Options => options;
+    Build => build;
+    Cancel => cancel;
+    Destroy => destroy;
 }
 
 #[cfg(test)]
@@ -379,17 +376,20 @@ mod tests {
     #[test]
     fn the_panel_offers_cancelling_destroying_and_building_with_the_game_s_reasons() {
         let player = ottomans(500_000);
-        let (constructing, offers) = options(player.session, 1).unwrap();
-        assert_eq!(constructing, Some(Constructing { building: "workshop".into(), progress: 500, ends: 7, builder: tur() }));
-        let summary: Vec<_> = offers.iter().map(|o| (o.action, o.building.as_str(), o.choice.can)).collect();
+        let BuildingOptions { constructing, options: offers, .. } = options(player.session, args::Options { province: ProvinceId(1) }).unwrap();
+        assert_eq!(
+            constructing,
+            Some(BuildingConstruction { building: "workshop".into(), progress: 0.5, finished: Date(7), builder: crate::catalogue::tag(tur()) })
+        );
+        let summary: Vec<_> = offers.iter().map(|o| (o.action.as_str(), o.building.as_str(), o.choice.can)).collect();
         assert_eq!(summary, [("cancel", "workshop", true), ("destroy", "marketplace", true), ("build", "temple", false), ("build", "workshop", true)]);
         assert_eq!(
             (offers[2].choice.reasons.clone(), offers[2].choice.cost.clone()),
             (vec!["needs a tech".to_string()], vec![Amount::new(Resource::Ducats, 100.0)])
         );
         // Another country's building is not the player's to destroy.
-        let (_, theirs) = options(player.session, 2).unwrap();
-        assert_eq!((theirs[0].action, theirs[0].choice.can), ("destroy", false));
+        let theirs = options(player.session, args::Options { province: ProvinceId(2) }).unwrap().options;
+        assert_eq!((theirs[0].action.as_str(), theirs[0].choice.can), ("destroy", false));
     }
 
     #[test]

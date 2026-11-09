@@ -179,6 +179,13 @@ mod checks {
     }
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::offers: OfferRequest => OfferAnswer;
+    List => offers;
+    Accept => accept;
+    Decline => decline;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

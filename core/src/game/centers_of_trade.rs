@@ -109,6 +109,13 @@ pub fn change(Session { m, ctx, commands, .. }: Session, id: u32, up: bool) -> G
     action::carry_out(commands, choice, doing, || Ok(written(ctx.player, id, if up { level + 1 } else { level - 1 })))
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::centers_of_trade: CenterOfTradeRequest => CenterOfTradeAnswer;
+    Options => options;
+    Upgrade { province } => session change(province, true);
+    Downgrade { province } => session change(province, false);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

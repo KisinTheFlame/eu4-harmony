@@ -391,6 +391,18 @@ pub fn set_policy(Session { m, ctx, commands, .. }: Session, args::SetPolicy { n
     action::post(commands, &text, "choose that trading policy there")
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::merchants: MerchantRequest => MerchantAnswer;
+    List => list;
+    Options { node } => session options(node.as_str());
+    Collect { node } => session send(node.as_str(), Mission::Collect);
+    Steer { node } => session send(node.as_str(), Mission::Steer);
+    Recall { node } => session recall(node.as_str());
+    SteerTo => steer_to;
+    Policies { node } => session policies(node.as_str());
+    SetPolicy => set_policy;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

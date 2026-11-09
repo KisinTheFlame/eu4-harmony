@@ -262,6 +262,15 @@ pub fn interact(Session { m, ctx, commands, .. }: Session, args::Interact { inte
     Err(checks::not_found("crown land interaction", &key))
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::estates: EstateRequest => EstateAnswer;
+    List => list;
+    Interactions => interactions_list;
+    GrantPrivilege => grant_privilege;
+    RevokePrivilege => revoke_privilege;
+    Interact => interact;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

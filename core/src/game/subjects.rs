@@ -327,6 +327,12 @@ fn letters(tag: Tag) -> String {
     String::from_utf8_lossy(&tag.letters()).into_owned()
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::subjects: SubjectRequest => SubjectAnswer;
+    Options => options;
+    Interact => interact;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -157,6 +157,14 @@ fn seat(Session { m, ctx, commands, .. }: Session, command: &str, province: u32,
     action::post(commands, &written_seat(command, ctx.player, province), what)
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::parliament: ParliamentRequest => ParliamentAnswer;
+    Options => options;
+    Debate => debate;
+    AddSeat => add_seat;
+    RemoveSeat => remove_seat;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

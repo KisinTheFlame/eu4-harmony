@@ -215,6 +215,13 @@ mod checks {
     }
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::camera: CameraRequest => CameraAnswer;
+    Get => camera;
+    LookAt => look_at;
+    Zoom => zoom;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

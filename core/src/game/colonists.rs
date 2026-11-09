@@ -256,6 +256,16 @@ pub fn change_growth(Session { m, ctx, commands, .. }: Session, id: u32, start: 
     action::post(commands, &written(ctx.player, id, Work::StartGrowth), "promote settlement growth there")
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::colonists: ColonistRequest => ColonistAnswer;
+    Options => options;
+    Send => send;
+    Recall => recall;
+    ExpelMinorities => expel;
+    StartSettlementGrowth { province } => session change_growth(province, true);
+    StopSettlementGrowth { province } => session change_growth(province, false);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
