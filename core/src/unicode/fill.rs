@@ -46,7 +46,7 @@ use super::game_text;
 use super::glyphs::{self, Glyph};
 use super::map_field::{self, Shading};
 use super::outline::Outline;
-use super::pages::{self, lock, Drawn, Game, Made, NoRoom, Pages, Texture};
+use super::pages::{self, Drawn, Game, Made, NoRoom, Pages, Shared, Texture};
 use super::system_font::{Face, SystemFonts};
 use super::tone::Tone;
 use crate::game_string;
@@ -57,7 +57,7 @@ use crate::points::Point;
 use crate::settings;
 use std::cell::RefCell;
 use std::ffi::c_void;
-use std::sync::{LazyLock, Mutex};
+use std::sync::LazyLock;
 use windows::core::Interface;
 use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::Graphics::Direct3D9::*;
@@ -161,7 +161,7 @@ struct Look {
 }
 
 static SYSTEM: LazyLock<Option<SystemFonts>> = LazyLock::new(|| SystemFonts::new().ok());
-static PAGES: LazyLock<Mutex<Pages<PageTexture, Look>>> = LazyLock::new(Default::default);
+static PAGES: LazyLock<Shared<PageTexture, Look>> = LazyLock::new(Default::default);
 
 /// The largest page: glyphs' places are read as signed 16-bit numbers.
 const LARGEST: u32 = 16384;
@@ -400,7 +400,7 @@ fn draw(look: &Look, scalar: u32, tone: Tone) -> Option<Drawn> {
 /// hold: drawn into its page the first time. Null when the font is not filled
 /// or no system font has the character.
 pub fn glyph(font: usize, scalar: u32) -> *const Glyph {
-    let glyph = lock(&PAGES).glyph(font, scalar, draw);
+    let glyph = PAGES.lock().glyph(font, scalar, draw);
     match glyph {
         // The page keeps what it drew for every font that draws from it; the
         // font gets the record the game reads in its glyph table, where the
@@ -415,7 +415,7 @@ pub fn glyph(font: usize, scalar: u32) -> *const Glyph {
 
 /// The device a filled font's page lives on; None for a font not filled.
 pub fn device_of(font: usize) -> Option<IDirect3DDevice9> {
-    let pages = lock(&PAGES);
+    let pages = PAGES.lock();
     let (wrapper, _) = pages.owner(font)?;
     pages.texture(wrapper).map(|texture| texture.device.clone())
 }
@@ -745,7 +745,7 @@ pub fn loaded(font: usize) -> bool {
         let kind = kind(&name, m.i32(font + objects::font::LINE_HEIGHT)?);
         let framework_font = framework_fonts::named(&name);
         let name = String::from_utf8_lossy(&name);
-        let mut pages = lock(&PAGES);
+        let mut pages = PAGES.lock();
         match pages.with(wrapper) {
             // The page's glyphs are its first font's, in that font's face.
             Some(look) if look.face != chosen_face(kind) => {
@@ -870,7 +870,7 @@ fn rebuild_map_names(m: &Memory) -> crate::Result<bool> {
 /// Every page asks for room (the test switch `grow-pages`).
 #[cfg(feature = "dev-test-switches")]
 pub fn want_room_everywhere() {
-    lock(&PAGES).want_room_everywhere();
+    PAGES.lock().want_room_everywhere();
 }
 
 /// Pages that asked for room grow, at the frame the main thread presents
@@ -881,12 +881,12 @@ pub fn grow_pages() {
 }
 
 fn destroy_before(call: &mut Call) {
-    lock(&PAGES).destroyed(call.arg(0));
+    PAGES.lock().destroyed(call.arg(0));
 }
 
 /// The font is being destroyed.
 pub fn forget(font: usize) {
-    lock(&PAGES).forget(font);
+    PAGES.lock().forget(font);
 }
 
 pub fn points() -> Vec<Point> {

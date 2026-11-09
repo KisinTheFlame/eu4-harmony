@@ -15,11 +15,19 @@ use super::costs;
 use super::glyphs::Glyph;
 use super::tone::Tone;
 use std::collections::{HashMap, HashSet};
+use std::ops::{Deref, DerefMut};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 /// How much of a page may be claimed before it grows: a page that grows
 /// before it is full leaves no character without a glyph until then.
 const FULL_ENOUGH: f32 = 0.75;
+
+/// What is due at the next present: some page is to grow or to make its mip
+/// levels, which takes the pages' lock ...
+const GROW: u8 = 1;
+/// ... and the names on the map are to be built again, which does not.
+const NAMES: u8 = 2;
 
 /// The texture a page's glyphs are written into.
 pub trait Texture: Sized {
@@ -164,13 +172,14 @@ pub struct Pages<T, L> {
     pages: HashMap<usize, (Page<T>, L)>,
     /// The page wrapper each font draws from, and in which tone.
     owners: HashMap<usize, (usize, Tone)>,
-    /// A map font's page grew since the names on the map were last built.
-    map_names_stale: bool,
+    /// What became due at the next present while the lock was held, handed
+    /// to [`Shared`] as it is let go.
+    due: u8,
 }
 
 impl<T, L> Default for Pages<T, L> {
     fn default() -> Self {
-        Self { pages: HashMap::new(), owners: HashMap::new(), map_names_stale: false }
+        Self { pages: HashMap::new(), owners: HashMap::new(), due: 0 }
     }
 }
 
@@ -192,10 +201,6 @@ impl<T: Texture, L> Pages<T, L> {
             full: false,
         };
         self.pages.insert(wrapper, (page, with));
-    }
-
-    pub fn has(&self, wrapper: usize) -> bool {
-        self.pages.contains_key(&wrapper)
     }
 
     /// What the page at `wrapper` draws its glyphs with.
@@ -251,7 +256,11 @@ impl<T: Texture, L> Pages<T, L> {
     /// with `draw` the first time.
     pub fn glyph_in(&mut self, wrapper: usize, scalar: u32, tone: Tone, draw: impl FnOnce(&L, u32, Tone) -> Option<Drawn>) -> Result<Option<Glyph>, NoRoom> {
         let Some((page, with)) = self.pages.get_mut(&wrapper) else { return Ok(None) };
-        page.glyph((scalar, tone), || draw(with, scalar, tone))
+        let glyph = page.glyph((scalar, tone), || draw(with, scalar, tone));
+        if page.wants_room || page.mips_stale {
+            self.due |= GROW;
+        }
+        glyph
     }
 
     /// Gives the page at `wrapper` its next size now, when it has one: a
@@ -273,9 +282,7 @@ impl<T: Texture, L> Pages<T, L> {
         page.mips_stale = true;
         page.atlas.grow(size.0, size.1);
         page.waiting.clear();
-        if page.map {
-            self.map_names_stale = true;
-        }
+        self.due |= if page.map { GROW | NAMES } else { GROW };
         let ((old_width, old_height), (width, height)) = (from, size);
         log!("fill: the page of font {:?} grew from {old_width}x{old_height} to {width}x{height}, for {} fonts: {}", page.name, fonts.len(), growing.end());
         Ok(())
@@ -284,12 +291,12 @@ impl<T: Texture, L> Pages<T, L> {
     /// Every page asks for room (the test switch `grow-pages`).
     pub fn want_room_everywhere(&mut self) {
         self.pages.values_mut().for_each(|(page, _)| page.want_room());
+        self.due |= GROW;
     }
 
     /// Pages that asked for room grow, a page that cannot keeping its size
-    /// from then on, and those written since make their mip levels; returns
-    /// whether the names on the map are to be built again.
-    fn presented(&mut self, game: &mut impl Game<T>) -> bool {
+    /// from then on, and those written since make their mip levels.
+    fn presented(&mut self, game: &mut impl Game<T>) {
         let growing: Vec<usize> = self.pages.iter().filter(|(_, (page, _))| page.wants_room).map(|(&wrapper, _)| wrapper).collect();
         for wrapper in growing {
             if let Err(e) = costs::GROWN.time(|| self.grow(wrapper, game)) {
@@ -302,24 +309,75 @@ impl<T: Texture, L> Pages<T, L> {
             page.mips_stale = false;
             page.texture.make_mips();
         }
-        self.map_names_stale
+        // Done here: the pages grown since were given their mip levels.
+        self.due &= !GROW;
     }
 }
 
-pub fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
+/// The pages, and what is due at the next present, which is read without
+/// taking their lock: a font that loads on another thread holds it while it
+/// draws its glyphs, and a frame with nothing to do waits on no font.
+pub struct Shared<T, L> {
+    pages: Mutex<Pages<T, L>>,
+    due: AtomicU8,
+}
+
+impl<T, L> Default for Shared<T, L> {
+    fn default() -> Self {
+        Self { pages: Mutex::new(Pages::default()), due: AtomicU8::new(0) }
+    }
+}
+
+impl<T, L> Shared<T, L> {
+    pub fn lock(&self) -> Guard<'_, T, L> {
+        Guard { pages: self.pages.lock().unwrap_or_else(|e| e.into_inner()), due: &self.due }
+    }
+}
+
+/// The pages while their lock is held; what became due meanwhile is handed
+/// on as it is let go.
+pub struct Guard<'a, T, L> {
+    pages: MutexGuard<'a, Pages<T, L>>,
+    due: &'a AtomicU8,
+}
+
+impl<T, L> Deref for Guard<'_, T, L> {
+    type Target = Pages<T, L>;
+
+    fn deref(&self) -> &Pages<T, L> {
+        &self.pages
+    }
+}
+
+impl<T, L> DerefMut for Guard<'_, T, L> {
+    fn deref_mut(&mut self) -> &mut Pages<T, L> {
+        &mut self.pages
+    }
+}
+
+impl<T, L> Drop for Guard<'_, T, L> {
+    fn drop(&mut self) {
+        let due = std::mem::take(&mut self.pages.due);
+        if due != 0 {
+            self.due.fetch_or(due, Ordering::Release);
+        }
+    }
 }
 
 /// What the pages do at the frame the main thread presents: just before it,
 /// where the main thread lays out no text, and no text the framework drew a
-/// glyph for is kept with only some of its glyphs on a page's new size. With
-/// the pages free, since building the names on the map draws their glyphs,
-/// the names are built again, once a game is going on: outside a game the
-/// map shows no names, but a game started from the main menu draws those it
-/// built there (tested: a page grown at the main menu left a new game's
-/// country names out).
-pub fn present<T: Texture, L>(pages: &Mutex<Pages<T, L>>, game: &mut impl Game<T>) {
-    if !lock(pages).presented(game) {
+/// glyph for is kept with only some of its glyphs on a page's new size. Only
+/// a frame with a page to grow or to give its mip levels takes the pages'
+/// lock. With the pages free, since building the names on the map draws
+/// their glyphs, the names are built again, once a game is going on: outside
+/// a game the map shows no names, but a game started from the main menu
+/// draws those it built there (tested: a page grown at the main menu left a
+/// new game's country names out).
+pub fn present<T: Texture, L>(shared: &Shared<T, L>, game: &mut impl Game<T>) {
+    if shared.due.fetch_and(!GROW, Ordering::AcqRel) & GROW != 0 {
+        shared.lock().presented(game);
+    }
+    if shared.due.load(Ordering::Acquire) & NAMES == 0 {
         return;
     }
     let built = match game.build_map_names() {
@@ -330,17 +388,17 @@ pub fn present<T: Texture, L>(pages: &Mutex<Pages<T, L>>, game: &mut impl Game<T
         }
     };
     if built {
-        lock(pages).map_names_stale = false;
+        shared.due.fetch_and(!NAMES, Ordering::Release);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{grown, present, Drawn, Game, Made, NoRoom, Pages, Texture};
+    use super::{grown, present, Drawn, Game, Made, NoRoom, Shared, Texture};
     use crate::unicode::glyphs::Glyph;
     use crate::unicode::tone::Tone;
     use std::cell::Cell;
-    use std::sync::Mutex;
+    use std::time::Duration;
 
     /// A page's texture in memory: one byte a pixel, each glyph's first.
     struct Memory {
@@ -418,11 +476,13 @@ mod tests {
 
     /// Pages with one, of `size`, growing up to `max`, which `FONT` draws
     /// from in light text.
-    fn pages(size: (u32, u32), max: Option<(u32, u32)>, map: bool) -> Mutex<Pages<Memory, ()>> {
-        let mut pages = Pages::default();
+    fn pages(size: (u32, u32), max: Option<(u32, u32)>, map: bool) -> Shared<Memory, ()> {
+        let shared = Shared::default();
+        let mut pages = shared.lock();
         pages.add(WRAPPER, Made { texture: Memory::new(size), size, max, name: "vic_18".into(), map }, ());
         pages.draws_from(FONT, WRAPPER, Tone::Light);
-        Mutex::new(pages)
+        drop(pages);
+        shared
     }
 
     /// A glyph 15 pixels square, its pixels the character's byte, drawn as
@@ -434,8 +494,8 @@ mod tests {
         }
     }
 
-    fn glyph(pages: &Mutex<Pages<Memory, ()>>, scalar: u32, draws: &Cell<u32>) -> Option<Glyph> {
-        pages.lock().unwrap().glyph(FONT, scalar, square(draws))
+    fn glyph(pages: &Shared<Memory, ()>, scalar: u32, draws: &Cell<u32>) -> Option<Glyph> {
+        pages.lock().glyph(FONT, scalar, square(draws))
     }
 
     #[test]
@@ -447,7 +507,7 @@ mod tests {
         assert_eq!(glyph(&pages, 'a' as u32, &draws), Some(a));
         assert_eq!(draws.get(), 2);
         assert_eq!(((a.x, a.y), (b.x, b.y)), ((0, 0), (16, 0)));
-        let pages = pages.lock().unwrap();
+        let pages = pages.lock();
         let texture = pages.texture(WRAPPER).unwrap();
         assert_eq!((texture.at(0, 0), texture.at(16 + 14, 14)), (b'a', b'b'));
     }
@@ -460,11 +520,11 @@ mod tests {
             draws.set(draws.get() + 1);
             None
         };
-        assert_eq!(pages.lock().unwrap().glyph(FONT, 0x4e00, none), None);
-        assert_eq!(pages.lock().unwrap().glyph(FONT, 0x4e00, none), None);
+        assert_eq!(pages.lock().glyph(FONT, 0x4e00, none), None);
+        assert_eq!(pages.lock().glyph(FONT, 0x4e00, none), None);
         assert_eq!(draws.get(), 1);
         // A font that draws from no page gets none, and draws nothing.
-        assert_eq!(pages.lock().unwrap().glyph(FONT + 8, 'a' as u32, none), None);
+        assert_eq!(pages.lock().glyph(FONT + 8, 'a' as u32, none), None);
         assert_eq!(draws.get(), 1);
     }
 
@@ -484,13 +544,13 @@ mod tests {
         assert_eq!(draws.get(), 5);
         present(&pages, &mut world);
         assert_eq!(world.taken, vec![(WRAPPER, vec![FONT], (32, 64))]);
-        assert_eq!(pages.lock().unwrap().size(WRAPPER), Some((32, 64)));
+        assert_eq!(pages.lock().size(WRAPPER), Some((32, 64)));
         let e = glyph(&pages, 'e' as u32, &draws).unwrap();
         assert_eq!(glyph(&pages, 'e' as u32, &draws), Some(e));
         assert_eq!(draws.get(), 6);
         assert_eq!((e.x, e.y), (0, 32));
         // The glyphs drawn before kept their places, and their pixels.
-        let pages = pages.lock().unwrap();
+        let pages = pages.lock();
         assert_eq!(pages.texture(WRAPPER).unwrap().at(16, 16), b'd');
     }
 
@@ -531,13 +591,13 @@ mod tests {
             glyph(&pages, 'a' as u32 + c, &draws);
         }
         present(&pages, &mut world);
-        assert_eq!(pages.lock().unwrap().size(WRAPPER), Some((32, 32)));
+        assert_eq!(pages.lock().size(WRAPPER), Some((32, 32)));
         world.refuse = false;
-        pages.lock().unwrap().want_room_everywhere();
+        pages.lock().want_room_everywhere();
         assert_eq!(glyph(&pages, 'z' as u32, &draws), None);
         present(&pages, &mut world);
         assert!(world.taken.is_empty());
-        assert_eq!(pages.lock().unwrap().size(WRAPPER), Some((32, 32)));
+        assert_eq!(pages.lock().size(WRAPPER), Some((32, 32)));
     }
 
     #[test]
@@ -567,6 +627,43 @@ mod tests {
         assert_eq!((world.taken.len(), world.names_built), (2, 1));
     }
 
+    /// Whether a present returns while another thread holds the pages' lock,
+    /// as a font loading does; the lock is let go after `wait` either way.
+    fn presents_while_held(pages: &Shared<Memory, ()>, world: &mut World, wait: Duration) -> bool {
+        let held = pages.lock();
+        let (done, finished) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(move || {
+                present(pages, world);
+                done.send(()).ok();
+            });
+            let returned = finished.recv_timeout(wait).is_ok();
+            drop(held);
+            returned
+        })
+    }
+
+    #[test]
+    fn a_present_with_nothing_to_do_does_not_wait_on_the_pages() {
+        let pages = pages((32, 32), Some((64, 64)), true);
+        let mut world = World::default();
+        let draws = Cell::new(0);
+        glyph(&pages, 'a' as u32, &draws);
+        // The glyph's mip levels are due: that present takes the lock.
+        present(&pages, &mut world);
+        assert!(presents_while_held(&pages, &mut world, Duration::from_secs(5)));
+        // A page that wants room waits for the font holding the lock.
+        for c in 0..5 {
+            glyph(&pages, 'b' as u32 + c, &draws);
+        }
+        assert!(!presents_while_held(&pages, &mut world, Duration::from_millis(200)));
+        assert_eq!(world.taken.len(), 1);
+        // Names due at the main menu are looked at every frame, without the
+        // lock.
+        assert!(presents_while_held(&pages, &mut world, Duration::from_secs(5)));
+        assert_eq!(world.names_built, 0);
+    }
+
     #[test]
     fn mip_levels_are_made_once_after_glyphs_are_written() {
         let pages = pages((64, 64), None, false);
@@ -576,11 +673,11 @@ mod tests {
         glyph(&pages, 'b' as u32, &draws);
         present(&pages, &mut world);
         present(&pages, &mut world);
-        assert_eq!(pages.lock().unwrap().texture(WRAPPER).unwrap().mips.get(), 1);
+        assert_eq!(pages.lock().texture(WRAPPER).unwrap().mips.get(), 1);
         // A glyph already drawn writes nothing.
         glyph(&pages, 'a' as u32, &draws);
         present(&pages, &mut world);
-        assert_eq!(pages.lock().unwrap().texture(WRAPPER).unwrap().mips.get(), 1);
+        assert_eq!(pages.lock().texture(WRAPPER).unwrap().mips.get(), 1);
     }
 
     #[test]
@@ -588,19 +685,19 @@ mod tests {
         let pages = pages((32, 32), Some((64, 64)), false);
         let mut world = World::default();
         let draws = Cell::new(0);
-        pages.lock().unwrap().draws_from(FONT + 8, WRAPPER, Tone::Dark);
-        pages.lock().unwrap().draws_from(FONT + 16, WRAPPER, Tone::Light);
-        pages.lock().unwrap().forget(FONT + 16);
+        pages.lock().draws_from(FONT + 8, WRAPPER, Tone::Dark);
+        pages.lock().draws_from(FONT + 16, WRAPPER, Tone::Light);
+        pages.lock().forget(FONT + 16);
         // Light and dark glyphs of one character are glyphs of their own.
         let light = glyph(&pages, 'a' as u32, &draws).unwrap();
-        let dark = pages.lock().unwrap().glyph(FONT + 8, 'a' as u32, square(&draws)).unwrap();
+        let dark = pages.lock().glyph(FONT + 8, 'a' as u32, square(&draws)).unwrap();
         assert_ne!((light.x, light.y), (dark.x, dark.y));
-        pages.lock().unwrap().want_room_everywhere();
+        pages.lock().want_room_everywhere();
         present(&pages, &mut world);
         assert_eq!(world.taken, vec![(WRAPPER, vec![FONT, FONT + 8], (32, 64))]);
         // The game destroyed the page: its fonts draw from nothing.
-        pages.lock().unwrap().destroyed(WRAPPER);
-        assert_eq!(pages.lock().unwrap().owner(FONT), None);
+        pages.lock().destroyed(WRAPPER);
+        assert_eq!(pages.lock().owner(FONT), None);
         assert_eq!(glyph(&pages, 'b' as u32, &draws), None);
     }
 
@@ -609,7 +706,7 @@ mod tests {
         let pages = pages((32, 32), Some((64, 64)), false);
         let mut world = World::default();
         let draws = Cell::new(0);
-        let mut pages = pages.lock().unwrap();
+        let mut pages = pages.lock();
         for c in 0..4 {
             pages.glyph_in(WRAPPER, 'a' as u32 + c, Tone::Light, square(&draws)).unwrap();
         }
