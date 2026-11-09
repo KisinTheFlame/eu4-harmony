@@ -1,0 +1,35 @@
+# Second deepening plan
+
+Status: decided (2026-11-09) from an architecture review of the parts changed most since the [first deepening](deepening.md); in progress.
+
+## Goal and scope
+
+- **Goal**: as in the first deepening, knowledge that is written out in several places today lives in one module behind a small interface, so that a change or a fix lands once and is tested at that interface, through the same seam its callers use.
+- **In scope**: the parts below, in `core`, `remote`, `lua` and `cli`.
+- **Out of scope**: what the first deepening built or chose to keep as it is; typed views over the game's objects in place of reading fields at offsets, whose leverage at each place is small and which would touch every capability group; and the step from a `Change` to an `Event`, which earns its keep because hooks fire inside the game's functions, where reading a building's key has to wait. Nothing here changes what players, extensions or remote clients see.
+
+## Parts
+
+Each part is one module, or one module made deeper. The parts run in two waves, so that two never change the same files at once.
+
+### Wave 1
+
+**E1. A diplomatic act declared once.** Today each act is written three times by hand, in the remote catalogue's diplomacy group, in the `acts!` table and in `panel_acts!` or a hand-written arm of `detailed()`, and the three agree only by their names as strings. An act the catalogue declares and `panel_acts!` lacks fails at runtime as an internal error, which only the sweep finds. The details an act takes travel in positional slots (`second` is a price for one act, a duration for another), so what a slot means is split between the catalogue and the panel. The act is declared once, beside its row in `acts!`, with the details it takes by name; the catalogue's diplomacy group finds the act by the request's own name and fills its details from the arguments by name, and the answer's wrapping comes from the group's declaration instead of a closure per act. A test fails when a diplomacy capability that answers with an outcome names no act.
+
+**E2. A font page's life in one module, behind its texture.** The Unicode module's `Fill` holds the page's Direct3D objects, its bookkeeping and the font's layout together, and module-wide statics add more of its state; the page's course (a glyph drawn or waiting for room, room asked for, the page grown at the next present, the waiting glyphs drawn once, the mips and the map's names made stale, the names made again only once a game goes on) runs through five functions between Direct3D calls. Its recent defects were all in how those pieces are called, which its tests, of pure helpers only, cannot reach. One module keeps the page's bookkeeping and decides when it grows; it reaches the texture through a small interface, made, written a rectangle at a time, grown with a copy and given its mips, with Direct3D 9Ex in the game and a texture in memory in the tests. `fill.rs` keeps the hooks, the writes into the game's font objects and the drawing of a system font's glyphs. The tests drive a page through its whole course.
+
+**E3. An army read through one module.** `game/world.rs` gathers free functions by what they read rather than by what they are about: about thirteen of them concern one army (whether it is the player's own, a land army, seen, where it is, its regiments, who is aboard, whether it may enter or attack), each with one to three callers among armies, units, orders, leaders and the diplomatic panel. One module reads a unit: found by its ID with the checks that make it the player's, seen and of the right kind, and its refusals, record, place, regiments and passengers. `world.rs` keeps the map's geography and the list of countries.
+
+**E4. Holding the queue back is part of an answer.** That requests after an input wait until the game has had it is a rule of the input group alone, yet it adds a method (`handled`) to the `Catalogue` seam that every adapter implements, a variant to `Outcome`, a field to the remote control engine and a method to the shared crate's `Request`. An answer can instead carry what holds the queue back, which the input group gives and the engine honours without knowing why; `handled` and the input-only variant leave the seam.
+
+### Wave 2
+
+**E5. A game object's field named in one place.** The test that each game address is named in one file covers the game's code and data, not the offsets of fields in its objects, so the same field can be declared twice, as the country's stability is in `game/stability.rs` and `objects/campaign.rs`. Fields of the game's objects are declared in `objects/`, and a test fails when a capability group declares one of its own.
+
+**E6. A capability's layer function answers in the catalogue's own types.** Two ways of binding a capability live side by side. About thirty groups bind each request in one line to a layer function that takes the request's arguments and returns the catalogue's result. The older groups (countries, provinces, armies, questions, offers, session, camera, occupation, peace, subjects, diplomacy) look up the country of a tag in the catalogue before calling the layer, about thirty times, and copy a mirror type of the layer's field by field into the catalogue's, applying fixed-point scaling there, in fifteen conversions; the fake game builds the mirror types, so its tests check the copying rather than what the layer gives. Every layer function takes its arguments, finds the country itself through one lookup with one wording of its refusal, and returns the catalogue's own type; the mirror types and their conversions go. Code stays in the catalogue only where a capability composes others or waits.
+
+**E7. A capability group declared in one list.** A group that only passes requests to its layer functions still has a trait of its own in the catalogue with one real adapter, an empty implementation of it in the fake, method names unique across every trait, and a line in two lists of groups, in the core and the shared crate; adding a group touches seven files and five lists kept in step by hand. Groups that only pass through bind their requests directly to the layer's functions, and the fake answers what it has not been given by the request, as remote control's own tests do; only the groups the fake gives answers of its own keep a trait, which there is a real seam. One list declares a group's module, how the fake treats it and its dependency points.
+
+## Done when
+
+Each part has replaced what it gathers, not added beside it; its tests go through its interface; the workspace builds, tests and passes both clippy runs; the offline checks pass; and the game, tried through the scenarios, behaves as before ([prototype-log/](../prototype-log/README.md)).
