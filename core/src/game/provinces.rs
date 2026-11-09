@@ -3,7 +3,7 @@
 //! autonomy, culture, religion, unrest, trade, state, cores and claims, what
 //! is being built or done there, and what the player can recruit there
 //! (docs/research/provinces.md).
-use super::{commands, context, events, player::Eyes, thousandths, with_state, Ctx, GResult, InWorld, Session, Tag, World, WorldSession};
+use super::{commands, events, player::Eyes, thousandths, with_state, Ctx, GResult, InWorld, Tag, World, WorldSession};
 use crate::containers;
 use crate::{
     game_string,
@@ -14,10 +14,10 @@ use crate::{
     unicode::game_text,
 };
 use eu4_harmony_remote::provinces::args;
-use eu4_harmony_remote::ProvinceId;
 use eu4_harmony_remote::{
-    provinces::{Construction, StateKind},
-    CountryTag, Date,
+    provinces::{self as remote, Construction, Development, Fort, ProvinceKind, ProvinceSnapshot, StateKind},
+    recruiting::Recruit,
+    CountryTag, Date, ProvinceId, ProvinceList,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -39,21 +39,37 @@ pub struct Neighbor {
     pub strait: bool,
 }
 
-/// Every province, indexed by ID; index 0 is a placeholder with nothing set.
-/// In the player's view a province the player has not discovered has no
-/// owner or controller, as the map shows it.
-pub fn provinces(WorldSession { m, world, view, .. }: WorldSession) -> GResult<Vec<Province>> {
+/// The provinces asked for that there are, in their order, or every
+/// province. In the player's view a province the player has not discovered
+/// has no owner or controller, as the map shows it.
+pub fn list(WorldSession { m, world, view, .. }: WorldSession, args::List { provinces: asked }: args::List) -> GResult<Vec<remote::Province>> {
     let visible = events::visibility_current(m, &world);
-    let provinces = with_state(|s| s.geography.provinces(m, &world, visible))?;
-    discovered(m, &world, Eyes::of(view, world.player), provinces)
+    let provinces = match asked {
+        // The geography's whole list starts with a placeholder for number 0.
+        None => with_state(|s| s.geography.provinces(m, &world, visible))?.into_iter().filter(|p| p.id != 0).collect(),
+        Some(ProvinceList(ids)) => {
+            let ids: Vec<u32> = ids.iter().map(|id| id.0).collect();
+            with_state(|s| s.geography.named_provinces(m, &world, visible, &ids))?
+        }
+    };
+    Ok(discovered(m, &world, Eyes::of(view, world.player), provinces)?.into_iter().map(listed).collect())
 }
 
-/// The provinces numbered in `ids` that there are, in their order, as
-/// [`provinces`] has them.
-pub fn named(WorldSession { m, world, view, .. }: WorldSession, ids: Vec<u32>) -> GResult<Vec<Province>> {
-    let visible = events::visibility_current(m, &world);
-    let provinces = with_state(|s| s.geography.named_provinces(m, &world, visible, &ids))?;
-    discovered(m, &world, Eyes::of(view, world.player), provinces)
+/// A province as the list gives it.
+fn listed(p: Province) -> remote::Province {
+    let tag = |tag: Option<Tag>| tag.map(|t| CountryTag(t.letters()));
+    remote::Province {
+        id: ProvinceId(p.id),
+        kind: match (p.land, p.lake, p.impassable) {
+            (_, true, _) => ProvinceKind::Lake,
+            (true, _, true) => ProvinceKind::Wasteland,
+            (true, _, false) => ProvinceKind::Land,
+            (false, _, _) => ProvinceKind::Sea,
+        },
+        visible: p.visible,
+        owner: tag(p.owner),
+        controller: tag(p.controller),
+    }
 }
 
 /// `provinces` with the owner and controller of those `eyes` see as terra
@@ -73,27 +89,15 @@ fn discovered(m: &Memory, world: &World, eyes: Eyes, mut provinces: Vec<Province
 
 /// The passable land provinces next to a province; none for a province an
 /// army cannot stand on.
-pub fn neighbors(WorldSession { m, world, .. }: WorldSession, province: u32) -> GResult<Vec<Neighbor>> {
-    with_state(|s| s.geography.neighbors(m, &world, province))
+pub fn neighbors(
+    WorldSession { m, world, .. }: WorldSession,
+    args::Neighbors { province: ProvinceId(province) }: args::Neighbors,
+) -> GResult<Vec<remote::Neighbor>> {
+    let neighbors = with_state(|s| s.geography.neighbors(m, &world, province))?;
+    Ok(neighbors.into_iter().map(|n| remote::Neighbor { province: ProvinceId(n.to), strait: n.strait }).collect())
 }
 
 // ---------- the snapshot ----------
-
-/// Base tax, production and manpower, in thousandths, as the game's own
-/// getters give them.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Development {
-    pub tax: i32,
-    pub production: i32,
-    pub manpower: i32,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Fort {
-    /// The fort level that defends it now; 0 for none.
-    pub level: i32,
-    pub mothballed: bool,
-}
 
 /// A kind of regiment or ship a country recruits; the game's own order of
 /// kinds, which a country's unit types are kept by.
@@ -154,91 +158,28 @@ impl UnitKind {
     }
 }
 
-/// Whether the player can recruit one regiment or ship of a kind in a
-/// province now.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Recruit {
-    pub kind: UnitKind,
-    /// The key of the unit type the player recruits of this kind, such as
-    /// `western_medieval_infantry`; None when the player has none.
-    pub unit_type: Option<String>,
-    pub allowed: bool,
-    /// Why not, in the game's words, from its localisation for the language
-    /// in the game's settings (not the player language), as plain text
-    /// ([`game_text::plain`]); empty when it is allowed or the game gives no
-    /// reason.
-    pub reasons: Vec<String>,
-}
-
-/// All of one province at one moment.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Snapshot {
-    pub id: u32,
-    /// Its name as the game shows it, as Unicode (read from game text).
-    pub name: String,
-    pub owner: Option<Tag>,
-    pub controller: Option<Tag>,
-    pub development: Development,
-    /// The key of its terrain, such as `farmlands`.
-    pub terrain: Option<String>,
-    pub fort: Fort,
-    /// The keys of its buildings, such as `fort_15th`, in the game's order of
-    /// buildings.
-    pub buildings: Vec<String>,
-    /// One for each [`UnitKind`], in their order.
-    pub recruit: Vec<Recruit>,
-    /// Local autonomy as the game shows it, thousandths of a percentage
-    /// point.
-    pub autonomy: i32,
-    /// The keys of its culture, religion and trade good.
-    pub culture: Option<String>,
-    pub religion: Option<String>,
-    pub trade_good: Option<String>,
-    /// Unrest as the game shows it, in thousandths; None in the player's
-    /// view of another country's province, as the constructions and the
-    /// missionary.
-    pub unrest: Option<i32>,
-    pub trade_node: Option<String>,
-    /// 0 for none.
-    pub center_of_trade: i32,
-    pub trade_company: bool,
-    /// None without an owner.
-    pub state: Option<StateKind>,
-    pub edict: Option<String>,
-    pub cores: Vec<CountryTag>,
-    pub claims: Vec<CountryTag>,
-    pub constructions: Option<Vec<Construction>>,
-    /// Thousandths of a percentage point; None when no missionary works
-    /// there.
-    pub missionary: Option<i32>,
-    /// Thousandths of a settler; None for no colony.
-    pub colony_size: Option<i32>,
+/// The address of the province `id` that a caller seeing with `eyes` may
+/// read: [`Status::NotFound`] for a number that names no province, and one
+/// the player has not discovered refused as terra incognita.
+pub(super) fn readable(m: &Memory, world: &impl InWorld, eyes: Eyes, id: u32) -> GResult<usize> {
+    if id == 0 {
+        return Err(eu4_harmony_checks::provinces::not_found(0).into());
+    }
+    let address = with_state(|s| s.geography.province_address(m, world, id))?;
+    if super::world::undiscovered(m, eyes, address)? {
+        return Err(eu4_harmony_checks::provinces::not_discovered(id).into());
+    }
+    Ok(address)
 }
 
 /// A province's snapshot; [`Status::NotFound`] for a number that names no
 /// province. In the player's view a province another country owns leaves
 /// out its unrest, its constructions and its missionary, and one the player
-/// has not discovered is refused as terra incognita. With no country to act
-/// as, nothing can be recruited there.
-pub fn province(WorldSession { m, world, view, .. }: WorldSession, args::Get { province: ProvinceId(id) }: args::Get) -> GResult<Snapshot> {
-    if id == 0 {
-        return Err(eu4_harmony_checks::provinces::not_found(0).into());
-    }
-    let address = with_state(|s| s.geography.province_address(m, &world, id))?;
+/// has not discovered is refused as terra incognita.
+pub fn province(WorldSession { m, world, view, .. }: WorldSession, args::Get { province: ProvinceId(id) }: args::Get) -> GResult<Box<ProvinceSnapshot>> {
     let eyes = Eyes::of(view, world.player);
-    if super::world::undiscovered(m, eyes, address)? {
-        return Err(eu4_harmony_checks::provinces::not_discovered(id).into());
-    }
-    let acting = match world.player.acting() {
-        Some(_) => Some(context(m)?),
-        None => None,
-    };
-    snapshot(m, &world, acting.as_ref(), address, eyes)
-}
-
-/// [`province`], for what acts as a country: failing with none to act as.
-pub fn acting_province(session: Session, id: u32) -> GResult<Snapshot> {
-    province(session.world()?, args::Get { province: ProvinceId(id) })
+    let address = readable(m, &world, eyes, id)?;
+    Ok(Box::new(snapshot(m, &world, address, eyes)?))
 }
 
 /// The game's getters of a province's base tax, production and manpower, as
@@ -361,9 +302,10 @@ pub fn points() -> Vec<Point> {
     ]
 }
 
-fn snapshot(m: &Memory, ctx: &World, acting: Option<&Ctx>, address: usize, eyes: Eyes) -> GResult<Snapshot> {
+fn snapshot(m: &Memory, ctx: &World, address: usize, eyes: Eyes) -> GResult<ProvinceSnapshot> {
     let geometry = m.ptr(address + field::GEOMETRY)?;
     let tag_at = |at: usize| -> GResult<Option<Tag>> { Ok(Some(Tag(m.u64(address + at)?)).filter(|t| t.valid())) };
+    let letters = |tag: Option<Tag>| tag.map(|t| CountryTag(t.letters()));
     let mothballed = m.u8(address + field::MOTHBALL)? == field::MOTHBALLED;
     let owner = tag_at(field::OWNER)?;
     // The province view shows another country's province without these.
@@ -373,28 +315,24 @@ fn snapshot(m: &Memory, ctx: &World, acting: Option<&Ctx>, address: usize, eyes:
     let constructions = constructions(m, ctx, address)?;
     let missionary = constructions.iter().any(|c| c.kind == "missionary_construction");
     let colony = m.i32(address + field::COLONY_SIZE)?;
-    Ok(Snapshot {
-        id: m.u32(address + field::ID)?,
+    Ok(ProvinceSnapshot {
+        id: ProvinceId(m.u32(address + field::ID)?),
         name: text_at(m, geometry + geometry::NAME)?,
-        owner,
-        controller: tag_at(field::CONTROLLER)?,
+        owner: letters(owner),
+        controller: letters(tag_at(field::CONTROLLER)?),
         development: Development {
-            tax: base(m, BASE_TAX, address)?,
-            production: base(m, BASE_PRODUCTION, address)?,
-            manpower: base(m, BASE_MANPOWER, address)?,
+            tax: thousandths(base(m, BASE_TAX, address)?),
+            production: thousandths(base(m, BASE_PRODUCTION, address)?),
+            manpower: thousandths(base(m, BASE_MANPOWER, address)?),
         },
         terrain: terrain_of(m, geometry)?,
         fort: Fort { level: m.i32(address + if mothballed { field::FORT_LEVEL_MOTHBALLED } else { field::FORT_LEVEL })?, mothballed },
         buildings: buildings(m, address)?,
-        recruit: match acting {
-            Some(acting) => recruit(m, acting, address)?,
-            None => Vec::new(),
-        },
-        autonomy: shown(m, AUTONOMY, address)?,
+        autonomy: thousandths(shown(m, AUTONOMY, address)?),
         culture: token_key(m, address, field::CULTURE, field::CULTURE_TOKEN, true)?,
         religion: token_key(m, address, field::RELIGION, field::RELIGION_TOKEN, true)?,
         trade_good: token_key(m, address, field::TRADE_GOOD, field::TRADE_GOOD_TOKEN, false)?,
-        unrest: if all { Some(shown(m, UNREST, address)?) } else { None },
+        unrest: if all { Some(thousandths(shown(m, UNREST, address)?)) } else { None },
         trade_node: trade_node_of(m, address)?,
         center_of_trade: center_of_trade(m, address)?,
         trade_company: flags & field::TRADE_COMPANY_BIT != 0,
@@ -403,8 +341,8 @@ fn snapshot(m: &Memory, ctx: &World, acting: Option<&Ctx>, address: usize, eyes:
         cores: vector_tags(m, ctx, address + field::CORES)?,
         claims: list_items(m, address + field::CLAIMS)?.into_iter().map(|tag| country_tag(m, ctx, Tag(tag as u64))).collect::<GResult<_>>()?,
         constructions: if all { Some(constructions) } else { None },
-        missionary: if all && missionary { Some(m.i32(address + field::MISSIONARY_PROGRESS)?) } else { None },
-        colony_size: if colony > 0 && flags & field::CITY_BIT == 0 { Some(colony) } else { None },
+        missionary: if all && missionary { Some(thousandths(m.i32(address + field::MISSIONARY_PROGRESS)?)) } else { None },
+        colony_size: if colony > 0 && flags & field::CITY_BIT == 0 { Some(thousandths(colony)) } else { None },
     })
 }
 
@@ -587,16 +525,21 @@ pub fn can_recruit(m: &Memory, ctx: &Ctx, province: usize, unit_type: usize) -> 
     Ok((allowed, reasons))
 }
 
-fn recruit(m: &Memory, ctx: &Ctx, province: usize) -> GResult<Vec<Recruit>> {
+/// Whether the player can recruit one regiment or ship of each kind in the
+/// province at `province` now, in the kinds' order: the key of the unit type
+/// the player recruits of it, and why not, in the game's words from its
+/// localisation for the language in the game's settings (not the player
+/// language), as plain text ([`game_text::plain`]).
+pub(super) fn recruit(m: &Memory, ctx: &Ctx, province: usize) -> GResult<Vec<Recruit>> {
     UnitKind::ALL
         .into_iter()
         .map(|kind| {
             let Some(unit_type) = unit_type(m, ctx.country, kind)? else {
-                return Ok(Recruit { kind, unit_type: None, allowed: false, reasons: Vec::new() });
+                return Ok(Recruit { kind: kind.into(), unit_type: None, allowed: false, reasons: Vec::new() });
             };
             let (allowed, reasons) = can_recruit(m, ctx, province, unit_type)?;
             let name = text_at(m, unit_type + unit_type::NAME)?;
-            Ok(Recruit { kind, unit_type: Some(name), allowed, reasons: if allowed { Vec::new() } else { reasons } })
+            Ok(Recruit { kind: kind.into(), unit_type: Some(name), allowed, reasons: if allowed { Vec::new() } else { reasons } })
         })
         .collect()
 }

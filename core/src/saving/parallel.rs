@@ -61,8 +61,7 @@ const COUNTRIES_END: usize = 0x7517b4;
 /// `+PROVINCE_ID` (0 for none) and writes itself with its method `+8`.
 const PROVINCE_FIRST: usize = 0x1c90;
 const PROVINCE_LAST: usize = 0x1c98;
-const PROVINCE_ARRAY: usize = 0x1ca8;
-const PROVINCE_SIZE: usize = 0x2e10;
+use crate::objects::campaign::{province::SIZE as PROVINCE_SIZE, world::PROVINCES as PROVINCE_ARRAY};
 const PROVINCE_ID: usize = 0x20;
 const WRITE_ITSELF: usize = 0x8;
 /// The world's countries: as many as its method `+0x40` says, pointers at

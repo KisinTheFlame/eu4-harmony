@@ -16,7 +16,7 @@ use crate::{
     memory::Memory,
     notice,
     objects::{
-        campaign::{self, unit},
+        campaign::unit,
         gui::{army_panel, button, callback, classes, element, functions, main_menu, signal, window},
         list,
     },
@@ -724,7 +724,7 @@ pub fn selected_army(m: &Memory, ctx: &game::Ctx) -> GResult<u64> {
         return Err(eu4_harmony_checks::armies::panel_not_open().into());
     }
     let army = m.ptr(panel + army_panel::ARMY)?;
-    if army == 0 || m.ptr(army)? != m.at(campaign::classes::ARMY) || m.u64(army + unit::OWNER)? != ctx.player.0 {
+    if !game::army::is_own_army(m, ctx.player, army)? {
         return Err(eu4_harmony_checks::armies::none_selected().into());
     }
     Ok(m.u64(army + unit::ID)?)

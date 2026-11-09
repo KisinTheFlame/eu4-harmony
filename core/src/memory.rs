@@ -14,6 +14,9 @@ extern "C" {
     fn eu4h_read(source: *const u8, target: *mut u8, count: usize) -> u32;
 }
 
+/// A page of memory, as Windows commits, protects and watches it.
+pub const PAGE: usize = 0x1000;
+
 /// The game image, by its load address.
 #[derive(Clone, Copy, Debug)]
 pub struct Memory {

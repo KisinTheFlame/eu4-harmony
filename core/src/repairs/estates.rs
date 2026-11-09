@@ -23,8 +23,8 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-/// A country's vector of estates (begin, end), each of [`ESTATE_SIZE`] bytes.
-const ESTATES: usize = 0x21b0;
+use crate::objects::campaign::country::ESTATES;
+/// The size of an entry of a country's estates ([`ESTATES`]).
 const ESTATE_SIZE: usize = 0xa8;
 /// An estate's class, and its two vectors of modifiers (begin, end).
 const ESTATE: usize = 0x1c56838;

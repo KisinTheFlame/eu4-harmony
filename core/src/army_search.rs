@@ -69,11 +69,10 @@ const ARMIES_WALKED_ON: usize = 0x14b67a;
 /// The King's list of army agents: first node; a node's agent at `+0` and
 /// the next node at `+0x10`. Its children's list, `+0x40`. The record of the
 /// offensive its country follows, `+0xcf8`, its fields `+0x10`..`+0x38`.
-const ARMIES: usize = 0xc50;
-const CHILDREN: usize = 0x40;
+use crate::objects::campaign::ai_king::{AGENTS as ARMIES, CHILDREN};
 const FOLLOWED: usize = 0xcf8;
 const OFFENSIVE: std::ops::Range<usize> = 0x10..0x38;
-const NEXT: usize = 0x10;
+use crate::objects::list::NEXT;
 /// A unit handed to an agent: `(agent, unit)`.
 const UNIT_TO_AGENT: usize = 0xe4990;
 
@@ -100,29 +99,28 @@ const AGENT_STATE: [std::ops::Range<usize>; 5] = [0x28..0x30, 0xa40..0xa48, 0xaf
 /// (`+0xe8`..`+0x118`), its mission and flags (`+0x1f8`..`+0x210`), its AI
 /// fields (`+0x248`..`+0x268`).
 const UNIT_STATE: [std::ops::Range<usize>; 4] = [0x20..0x58, 0xe8..0x118, 0x1f8..0x210, 0x248..0x268];
-const UNIT_LOCATION: usize = 0xe8;
 const UNIT_BATTLE: usize = 0x110;
 const UNIT_DAYS: usize = 0x24;
 /// A unit's battle, its two bytes of retreating, and a field whose being
 /// set ends the think before it searches; the agent's target over the sea.
-const UNIT_IN_BATTLE: usize = 0xc0;
-const UNIT_RETREATING: usize = 0x203;
-const UNIT_STOPS: usize = 0x218;
+use crate::objects::campaign::unit::{BATTLE as UNIT_IN_BATTLE, FLEET as UNIT_STOPS, LOCATION as UNIT_LOCATION, MOVEMENT_LOCKED as UNIT_LOCKED};
+const UNIT_RETREATING: usize = crate::objects::campaign::unit::RETREATING[0];
 /// An army agent's thinks at peace without a search, and how many lead to
 /// one.
 const THINKS_WITHOUT_SEARCH: usize = 0xbf0;
 const PEACEFUL_THINKS: i32 = 15;
 /// A unit locked in its move, and its method that answers it.
-const UNIT_LOCKED: usize = 0x202;
 const LOCKED_IN_MOVE: usize = 0x118;
 const SEA_TARGET_PROVINCE: usize = 0xb00;
 
 /// The world, its date at `+0x1dd0`; the countries (`+0x118` of the
 /// country manager); a country's flags `+0x289b`, `+0x1988`, the
 /// one that keeps its armies from sea targets, and its war plan.
-use crate::objects::campaign::globals::{COUNTRY_MANAGER as COUNTRIES, WORLD};
-const DATE: usize = 0x1dd0;
-const COUNTRY_LIST: usize = 0x118;
+use crate::objects::campaign::{
+    countries::LIST as COUNTRY_LIST,
+    globals::{COUNTRY_MANAGER as COUNTRIES, WORLD},
+    world::DATE,
+};
 const AT_WAR_FLAG: usize = 0x289b;
 const WARS: usize = 0x1988;
 const NO_SEA_TARGETS: usize = 0x2883;

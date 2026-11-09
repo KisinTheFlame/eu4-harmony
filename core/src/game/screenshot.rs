@@ -337,6 +337,11 @@ impl Frame {
     }
 }
 
+/// The group's dependency points: none of its own.
+pub fn points() -> Vec<crate::points::Point> {
+    Vec::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

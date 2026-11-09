@@ -3,7 +3,7 @@
 //! game's own commands, as the military view and the unit panels post them
 //! (docs/research/leaders.md).
 use super::units::checks;
-use super::{action, modifiers, world, Caller, Ctx, GResult, Session};
+use super::{action, army, modifiers, Caller, Ctx, GResult, Session};
 use crate::{
     game_string,
     memory::Memory,
@@ -30,11 +30,11 @@ const LEADER_SPENDING: usize = 3;
 /// it.
 const MAY_LEAVE: GameFunction<2> = GameFunction::at(0x862a70);
 const MAY_TAKE: GameFunction<3> = GameFunction::at(0x862fa0);
-/// The country's leaders, an intrusive list: head, its count; a node holds
-/// the leader at `+0`, the next node at `+0x10`.
+/// The country's leaders, a [`crate::objects::list`]: head, its count; a
+/// node holds the leader at `+0`, the next node at `+0x10`.
 const LEADERS: usize = 0x1468;
-const LEADERS_COUNT: usize = 0x1478;
-const NODE_NEXT: usize = 0x10;
+const LEADERS_COUNT: usize = LEADERS + crate::objects::list::COUNT;
+use crate::objects::list::NEXT as NODE_NEXT;
 /// A leader's fields: its ID (type at `+0x10`, number at `+0x14`), name,
 /// kind, skills (siege, maneuver, fire, shock), the unit it leads, and its
 /// monarch's ID.
@@ -287,9 +287,9 @@ pub fn recruit(caller: Caller, args::Recruit { kind: word }: args::Recruit) -> G
 /// Gives a leader to one of the player's armies or fleets.
 pub fn assign(Session { m, ctx, commands, .. }: Session, args::Assign { leader: id, army: ArmyId(army) }: args::Assign) -> GResult<()> {
     let leader = find(m, &ctx, id)?;
-    let unit = world::own_unit(m, &ctx, army)?;
+    let unit = army::own(m, &ctx, army)?;
     let kind = read(m, leader)?.kind;
-    let land = m.ptr(unit)? == m.at(crate::objects::campaign::classes::ARMY);
+    let land = army::is_army(m, unit)?;
     if naval(kind) == land {
         return Err(checks::wrong_unit(key(kind), land));
     }
@@ -307,7 +307,7 @@ pub fn assign(Session { m, ctx, commands, .. }: Session, args::Assign { leader: 
 /// Takes the leader from one of the player's armies or fleets, as the
 /// panel's remove button does: the command with the empty leader ID.
 pub fn remove(Session { m, ctx, commands, .. }: Session, args::Remove { army: ArmyId(army) }: args::Remove) -> GResult<()> {
-    let unit = world::own_unit(m, &ctx, army)?;
+    let unit = army::own(m, &ctx, army)?;
     let leader = m.ptr(unit + UNIT_LEADER)?;
     if leader != 0 && m.ptr(leader + leader::UNIT)? == unit {
         let (leaves, text) = game_string::written(m, |t| MAY_LEAVE.call(m, [leader, t]))?;
@@ -327,6 +327,16 @@ pub fn dismiss(Session { m, ctx, commands, .. }: Session, args::Dismiss { leader
     }
     action::post(commands, &dismiss_text(ctx.player.letters(), leader_id(id)), "dismiss this leader")?;
     Ok(())
+}
+
+crate::catalogue::bind! {
+    eu4_harmony_remote::leaders: LeaderRequest => LeaderAnswer;
+    Options => options;
+    Recruit => caller recruit;
+    List => list;
+    Assign => assign;
+    Remove => remove;
+    Dismiss => dismiss;
 }
 
 #[cfg(test)]

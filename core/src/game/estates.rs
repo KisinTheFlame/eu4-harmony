@@ -17,10 +17,8 @@ use eu4_harmony_remote::{
     estates::{Estate, EstateInteraction, Privilege},
 };
 
-/// The country's estates: a `std::vector` of 0xa8-byte entries, each with
-/// its estate, loyalty, land share (thousandths of a percentage point) and
-/// the privileges granted, a `std::map` whose head node is at `+0x90`.
-const ESTATES: usize = 0x21b0;
+use crate::objects::campaign::country::ESTATES;
+/// An entry of the country's estates ([`ESTATES`]).
 const ENTRY: usize = 0xa8;
 const ENTRY_ESTATE: usize = 0x10;
 const ENTRY_LOYALTY: usize = 0x18;
@@ -262,6 +260,15 @@ pub fn interact(Session { m, ctx, commands, .. }: Session, args::Interact { inte
         return action::post(commands, &written_interaction(ctx.player, index), "use this interaction");
     }
     Err(checks::not_found("crown land interaction", &key))
+}
+
+crate::catalogue::bind! {
+    eu4_harmony_remote::estates: EstateRequest => EstateAnswer;
+    List => list;
+    Interactions => interactions_list;
+    GrantPrivilege => grant_privilege;
+    RevokePrivilege => revoke_privilege;
+    Interact => interact;
 }
 
 #[cfg(test)]

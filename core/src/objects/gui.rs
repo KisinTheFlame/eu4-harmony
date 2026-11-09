@@ -203,9 +203,9 @@ pub mod main_menu {
     /// The pages, an array of pointers by page number, each to the page's
     /// interface.
     pub const PAGES: usize = 0x8e8;
-    /// The application (`super::super::application`), whose idler switch
-    /// starts a game.
-    pub const APPLICATION: usize = 0x330;
+    /// The application, as every idler keeps it, whose idler switch starts
+    /// a game.
+    pub use crate::objects::application::idler::APPLICATION;
     /// The start of a game was accepted (its start command ran), u8.
     pub const LAUNCH_ACCEPTED: usize = 0x714;
     /// The game starts at the main menu's next frame, u8.

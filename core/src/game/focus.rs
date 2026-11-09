@@ -115,6 +115,13 @@ mod checks {
     }
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::focus: FocusRequest => FocusAnswer;
+    Options => options;
+    Choose => choose;
+    Cancel => cancel;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

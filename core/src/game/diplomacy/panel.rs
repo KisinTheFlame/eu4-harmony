@@ -9,7 +9,7 @@ use super::{
     judge, letters, other, send, verdict, Kind, Ticket,
 };
 use crate::{
-    game::{fail, with_state, Ctx, GResult, Session, Status, Tag},
+    game::{countries, fail, with_state, Ctx, GResult, Session, Status, Tag},
     game_string,
     memory::Memory,
     objects::{
@@ -19,7 +19,11 @@ use crate::{
     points::{GameFunction, Point},
     unicode::game_text,
 };
-use eu4_harmony_remote::choices::{Acceptance, Choice, Factor};
+use eu4_harmony_remote::{
+    choices::{Acceptance, Choice, Factor},
+    diplomacy::{self as remote, args, Options},
+    ArmyId, CountryTag, ProvinceId,
+};
 
 /// The panel's list maker: (the player's country, the other country's tag,
 /// the [`action_list`]), adding each action the panel shows, made for the
@@ -92,29 +96,90 @@ pub struct Offered {
 }
 
 /// The actions the diplomacy panel offers the player toward `country`, in its
-/// order.
-pub fn options(Session { m, ctx, .. }: Session, country: Tag) -> GResult<Vec<Offered>> {
+/// order, each named by the capability that sends it.
+pub fn options(Session { m, ctx, .. }: Session, args::Options { country: asked }: args::Options) -> GResult<Options> {
+    let country = countries::named(m, &ctx, asked)?;
     other(m, &ctx, country)?;
     let panel = Panel::list(m, &ctx, country)?;
-    panel.actions.iter().map(|&at| offered(m, at)).collect()
+    let actions = panel.actions.iter().map(|&at| offered(m, at).map(listed)).collect::<GResult<_>>()?;
+    Ok(Options { country: asked, actions })
+}
+
+/// An action the panel offers, named by the capability that sends it.
+fn listed(o: Offered) -> remote::Offered {
+    let action = match &o.what {
+        Some(What::Act(act)) => act.name(),
+        Some(What::Scripted(_)) => "scripted_action",
+        None => "unknown",
+    };
+    remote::Offered { action: action.into(), key: o.key, name: o.name, choice: o.choice, description: o.description, acceptance: o.acceptance }
 }
 
 /// What the window an action opens has the player choose, for the acts whose
-/// window is not the default one ([`fill`]); left out for the rest.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Details {
-    pub province: Option<u32>,
-    /// Another country: an ally, an enemy, a target.
-    pub country: Option<Tag>,
-    /// Ducats, favors, or a percent, as the act takes it.
+/// window is not the default one ([`fill`]); left out for the rest. Each is
+/// named as the argument of the act's capability that chooses it, which the
+/// act's row in `acts!` lists, and its countries are `Country`: their tags
+/// as a request names them, or found in the game.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Details<Country = Tag> {
+    pub province: Option<ProvinceId>,
+    pub ally: Option<Country>,
+    pub enemy: Option<Country>,
+    /// The country whose relations are reduced.
+    pub target: Option<Country>,
+    /// Ducats.
     pub amount: Option<u32>,
-    /// A price in ducats, a duration, or the trust gained, as the act takes
-    /// it.
-    pub second: Option<u32>,
-    pub army: Option<u64>,
-    pub flag: Option<bool>,
+    /// In ducats.
+    pub price: Option<u32>,
+    /// As the subsidies window counts it.
+    pub duration: Option<u32>,
+    pub percent: Option<u32>,
+    pub favors: Option<u32>,
+    /// The trust the favors buy.
+    pub trust: Option<u32>,
+    pub army: Option<ArmyId>,
+    /// Whether the treasury pays, as the cardinal window's box.
+    pub pay: Option<bool>,
     /// A rebel faction of the other country's, by its kind.
     pub rebels: Option<String>,
+}
+
+impl<Country> Details<Country> {
+    /// The same choices, with each country `find` finds for it.
+    pub fn countries<Found, E>(self, mut find: impl FnMut(Country) -> Result<Found, E>) -> Result<Details<Found>, E> {
+        let Details { province, ally, enemy, target, amount, price, duration, percent, favors, trust, army, pay, rebels } = self;
+        Ok(Details {
+            ally: ally.map(&mut find).transpose()?,
+            enemy: enemy.map(&mut find).transpose()?,
+            target: target.map(&mut find).transpose()?,
+            province,
+            amount,
+            price,
+            duration,
+            percent,
+            favors,
+            trust,
+            army,
+            pay,
+            rebels,
+        })
+    }
+}
+
+/// Sends `act` to the country a request names, with what `details` chooses
+/// in its window, each country found in the game, as [`sent`].
+pub fn act(session: Session, act: Act, country: CountryTag, details: Details<CountryTag>) -> GResult<Ticket> {
+    let found = |tag| countries::named(session.m, &session.ctx, tag);
+    let (country, details) = (found(country)?, details.countries(found)?);
+    sent(session, country, &What::Act(act), &details)
+}
+
+/// Sends the scripted action of this content key to the country a request
+/// names, as [`sent`].
+pub fn scripted(session: Session, args::ScriptedAction { country, action }: args::ScriptedAction) -> GResult<Ticket> {
+    let country = countries::named(session.m, &session.ctx, country)?;
+    sent(session, country, &What::Scripted(action), &Details::default())
 }
 
 /// Sends `what` to `country`, as the panel's button and the window it opens
@@ -122,7 +187,7 @@ pub struct Details {
 /// panel does not offer it toward that country now, or the game does not let
 /// the player send it, with its reasons; [`Status::InvalidArgument`] when
 /// the act's window needs a choice `details` does not make.
-pub fn act(Session { m, ctx, commands, .. }: Session, country: Tag, what: &What, details: &Details) -> GResult<Ticket> {
+pub(super) fn sent(Session { m, ctx, commands, .. }: Session, country: Tag, what: &What, details: &Details) -> GResult<Ticket> {
     other(m, &ctx, country)?;
     let panel = Panel::list(m, &ctx, country)?;
     let mut found = None;
@@ -162,7 +227,7 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
     };
     let tag_at = |offset: usize, tag: Tag| -> GResult<()> { Ok(m.write(at + offset, &tag.0.to_le_bytes())?) };
     let province = || -> GResult<(u32, usize)> {
-        let id = need(details.province, "a province")?;
+        let id = need(details.province.map(|p| p.0), "a province")?;
         Ok((id, with_state(|s| s.geography.province_address(m, ctx, id))?))
     };
     let owner = |address: usize| -> GResult<Tag> { Ok(Tag(m.u64(address + province_fields::OWNER)?)) };
@@ -175,8 +240,8 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
         }
         Ok((id, address))
     };
-    let country = |what: &str| -> GResult<Tag> {
-        let tag = details.country.ok_or_else(|| invalid(format!("{} needs {what}", act.name())))?;
+    let country = |tag: Option<Tag>, what: &str| -> GResult<Tag> {
+        let tag = tag.ok_or_else(|| invalid(format!("{} needs {what}", act.name())))?;
         crate::game::country(m, ctx, tag)?;
         Ok(tag)
     };
@@ -199,7 +264,7 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
         Act::SubsidizeWar => {
             let amount = at_least_one(need(details.amount, "an amount")?, "ducat")?;
             within_treasury(amount)?;
-            let duration = details.second.unwrap_or(SUBSIDIES_DURATION);
+            let duration = details.duration.unwrap_or(SUBSIDIES_DURATION);
             if !(SUBSIDIES_DURATION..=SUBSIDIES_LONGEST).contains(&duration) || !duration.is_multiple_of(SUBSIDIES_DURATION) {
                 return Err(invalid(format!(
                     "a duration of {duration}: the subsidies window goes from {SUBSIDIES_DURATION} to {SUBSIDIES_LONGEST}, by {SUBSIDIES_DURATION}"
@@ -216,17 +281,17 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
             if m.ptr(ctx.country + country_fields::CAPITAL)? == address {
                 return Err(invalid(format!("province {id} is the player's capital, which the sell province window leaves out")));
             }
-            i32_at(FIELDS, need(details.second, "a price")? as i64)?;
+            i32_at(FIELDS, need(details.price, "a price")? as i64)?;
             i32_at(FIELDS + 4, id as i64)
         }
         Act::CharterCompany => {
             let (id, _) = province()?;
-            i32_at(FIELDS, need(details.second, "a price")? as i64)?;
+            i32_at(FIELDS, need(details.price, "a price")? as i64)?;
             i32_at(FIELDS + 4, id as i64)
         }
         Act::FabricateClaim | Act::ClaimStates => Ok(m.write(at + FIELDS, &(recipients()?.1 as u64).to_le_bytes())?),
         Act::TransferTradePower => {
-            let percent = at_least_one(need(details.amount, "a percent")?, "percent")?;
+            let percent = at_least_one(need(details.percent, "a percent")?, "percent")?;
             if percent > 100 {
                 return Err(invalid(format!("{percent} percent: a country has no more than all its trade power to transfer")));
             }
@@ -237,9 +302,9 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
             i32_at(FIELDS, id as i64)?;
             tag_at(FIELDS + 4, owner(address)?)
         }
-        Act::BreakAlliance | Act::TradeFavorsToBreakAlliance => tag_at(FIELDS, country("an ally")?),
-        Act::TradeFavorsToReduceRelations => tag_at(FIELDS, country("a target")?),
-        Act::EnforcePeace | Act::InterveneInWar => tag_at(FIELDS, country("an enemy")?),
+        Act::BreakAlliance | Act::TradeFavorsToBreakAlliance => tag_at(FIELDS, country(details.ally, "an ally")?),
+        Act::TradeFavorsToReduceRelations => tag_at(FIELDS, country(details.target, "a target")?),
+        Act::EnforcePeace | Act::InterveneInWar => tag_at(FIELDS, country(details.enemy, "an enemy")?),
         // The window lists the provinces the other country owns and controls
         // with a core of the player's, and sends the core's holder with one.
         Act::TradeFavorsForCore => {
@@ -261,9 +326,9 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
         }
         Act::DemandUnlawfulTerritory => i32_at(FIELDS, province()?.0 as i64),
         Act::OfferCondottieri => {
-            let id = details.army.ok_or_else(|| invalid("offer_condottieri needs an army".into()))?;
-            let army = crate::game::world::own_land_army(m, ctx, id)?;
-            i32_at(FIELDS, need(details.second, "a price")? as i64 * 1000)?;
+            let id = details.army.map(|a| a.0).ok_or_else(|| invalid("offer_condottieri needs an army".into()))?;
+            let army = crate::game::army::own_land(m, ctx, id)?;
+            i32_at(FIELDS, need(details.price, "a price")? as i64 * 1000)?;
             m.write(at + CONDOTTIERI_ARMY, &(army as u64).to_le_bytes())?;
             Ok(m.write(at + CONDOTTIERI_ARMY + 8, &id.to_le_bytes())?)
         }
@@ -284,12 +349,12 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
             };
             Ok(m.write(at + FIELDS, &(faction as u64).to_le_bytes())?)
         }
-        Act::AppointCardinal => Ok(m.write(at + FIELDS, &[details.flag.unwrap_or(false) as u8])?),
+        Act::AppointCardinal => Ok(m.write(at + FIELDS, &[details.pay.unwrap_or(false) as u8])?),
         // Each press of the window's button spends a step of favors for a
         // step of trust, while the other country owes the favors and its
         // trust is not yet full.
         Act::TradeFavorsForTrust => {
-            let favors = at_least_one(need(details.amount, "the favors")?, "favor")? as i64;
+            let favors = at_least_one(need(details.favors, "the favors")?, "favor")? as i64;
             let (step, trust_step) = (m.i32(m.at(TRUST_STEP_FAVORS))? as i64, m.i32(m.at(TRUST_STEP_TRUST))? as i64);
             if step <= 0 || trust_step <= 0 {
                 return Err(format!("the favors for trust's step is {step} favors for {trust_step} trust").into());
@@ -310,7 +375,7 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
                 )));
             }
             let bought = favors / step * trust_step;
-            if let Some(trust) = details.second.filter(|&t| t as i64 != bought) {
+            if let Some(trust) = details.trust.filter(|&t| t as i64 != bought) {
                 return Err(invalid(format!("{trust} trust: {favors} favors buy {bought}, {trust_step} for each {step}")));
             }
             i32_at(FIELDS, favors * 1000)?;
@@ -590,6 +655,7 @@ mod tests {
                 .i32(record + country_fields::RELATION_FAVORS, 50_000);
             let other = Object::country(byz(), country_fields::RELATIONS + 8).points_to(country_fields::RELATIONS, relations);
             let countries = Object::countries(&[&player, &other]);
+            let manager = image.country_manager(&countries);
             let vtable = Object::new(action::NAME + 8)
                 .u64(action::DESTROY, destroy as *const () as u64)
                 .u64(action::KIND, kind as *const () as u64)
@@ -599,7 +665,7 @@ mod tests {
                 acts.iter().map(|&act| (act, Object::new(0x80).u64(0, vtable.at() as u64).u8(action::OFFER, act.offer() as u8))).collect();
             SCRIPT.with(|s| *s.borrow_mut() = Script { actions: actions.iter().map(|(act, o)| (o.at(), act.token())).collect(), destroyed: Vec::new() });
             let session = buffers::session(m, 0, tur(), player.at(), countries.at(), Caller::Remote);
-            Self { _image: image, session, actions, _objects: vec![player, other, countries, vtable] }
+            Self { _image: image, session, actions, _objects: vec![player, other, countries, vtable, manager] }
         }
 
         /// Sends `act` to Byzantium with `details`, as the capability does.
@@ -614,7 +680,7 @@ mod tests {
     }
 
     fn act_toward(panel: &Panel, country: Tag, act: Act, details: Details) -> GResult<Ticket> {
-        super::act(panel.session, country, &What::Act(act), &details)
+        super::sent(panel.session, country, &What::Act(act), &details)
     }
 
     /// The failure's status and message.
@@ -640,9 +706,10 @@ mod tests {
         assert_eq!(SCRIPT.with(|s| s.borrow().destroyed.clone()), [panel.actions[0].1.at()]);
         // A call to arms says so in its own words.
         assert_eq!(
-            failed(super::super::call_to_arms(panel.session, byz())),
+            failed(super::super::call_to_arms(panel.session, eu4_harmony_remote::diplomacy::args::CallToArms { country: CountryTag(*b"BYZ") })),
             (Status::Rejected, "the diplomacy panel offers no call to arms to BYZ".to_string())
         );
+
         // Neither the player's own country nor one that is none is another.
         assert_eq!(failed(act_toward(&panel, tur(), Act::SendGift, Details { amount: Some(5), ..Default::default() })).0, Status::InvalidArgument);
         assert_eq!(failed(act_toward(&panel, wal(), Act::SendGift, Details { amount: Some(5), ..Default::default() })).0, Status::NotFound);
@@ -662,7 +729,7 @@ mod tests {
     #[test]
     fn war_subsidies_go_as_far_as_the_treasury_for_the_window_s_durations() {
         let panel = Panel::offering(&[Act::SubsidizeWar]);
-        let subsidies = |amount, second| panel.act(Act::SubsidizeWar, Details { amount: Some(amount), second, ..Default::default() });
+        let subsidies = |amount, duration| panel.act(Act::SubsidizeWar, Details { amount: Some(amount), duration, ..Default::default() });
         assert_eq!(failed(subsidies(501, None)), invalid("501 ducats is more than the treasury's 500, as far as subsidize_war's window goes"));
         let durations = "the subsidies window goes from 10 to 400, by 10";
         assert_eq!(failed(subsidies(500, Some(15))), invalid(&format!("a duration of 15: {durations}")));
@@ -682,7 +749,7 @@ mod tests {
         assert_eq!(failed(loan(501)), invalid("501 ducats is more than the treasury's 500, as far as offer_loan's window goes"));
         assert_eq!(failed(loan(500)), no_money());
         assert_eq!((panel.field(Act::OfferLoan, FIELDS), panel.field(Act::OfferLoan, FIELDS + 4)), (500, LOAN_INTEREST as i32));
-        let transfer = |amount| panel.act(Act::TransferTradePower, Details { amount: Some(amount), ..Default::default() });
+        let transfer = |percent| panel.act(Act::TransferTradePower, Details { percent: Some(percent), ..Default::default() });
         assert_eq!(failed(transfer(101)), invalid("101 percent: a country has no more than all its trade power to transfer"));
         assert_eq!(failed(transfer(0)), invalid("transfer_trade_power needs at least 1 percent"));
         assert_eq!(failed(transfer(100)), no_money());
@@ -692,7 +759,7 @@ mod tests {
     #[test]
     fn favors_buy_trust_in_the_window_s_steps_up_to_the_favors_owed() {
         let panel = Panel::offering(&[Act::TradeFavorsForTrust]);
-        let trade = |favors, trust| panel.act(Act::TradeFavorsForTrust, Details { amount: Some(favors), second: trust, ..Default::default() });
+        let trade = |favors, trust| panel.act(Act::TradeFavorsForTrust, Details { favors: Some(favors), trust, ..Default::default() });
         assert_eq!(failed(trade(15, None)), invalid("15 favors: the window spends them 10 at a time"));
         assert_eq!(failed(trade(60, None)), invalid("60 favors: BYZ owes 50 and trusts the player 50, so the window lets the player spend at most 50"));
         assert_eq!(failed(trade(50, Some(20))), invalid("20 trust: 50 favors buy 25, 5 for each 10"));
@@ -708,8 +775,8 @@ mod tests {
         assert_eq!(failed(panel.act(Act::SellShips, Details::default())).0, Status::Unavailable);
         assert_eq!(failed(panel.act(Act::SupportRebels, Details::default())), invalid("support_rebels needs a rebel faction"));
         assert_eq!(failed(panel.act(Act::BreakAlliance, Details::default())), invalid("break_alliance needs an ally"));
-        assert_eq!(failed(panel.act(Act::BreakAlliance, Details { country: Some(wal()), ..Default::default() })).0, Status::NotFound);
-        assert_eq!(failed(panel.act(Act::BreakAlliance, Details { country: Some(tur()), ..Default::default() })), no_money());
+        assert_eq!(failed(panel.act(Act::BreakAlliance, Details { ally: Some(wal()), ..Default::default() })).0, Status::NotFound);
+        assert_eq!(failed(panel.act(Act::BreakAlliance, Details { ally: Some(tur()), ..Default::default() })), no_money());
         assert_eq!(panel.actions[2].1.read_u64(FIELDS), tur().0);
     }
 }

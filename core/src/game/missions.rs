@@ -118,6 +118,12 @@ pub fn complete(Session { m, ctx, commands, .. }: Session, args::Complete { miss
     Err(checks::not_found("mission", &key))
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::missions: MissionRequest => MissionAnswer;
+    List => list;
+    Complete => complete;
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

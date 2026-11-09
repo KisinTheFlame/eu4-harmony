@@ -273,3 +273,9 @@ fn countries_in(m: &Memory, ctx: &Ctx, node: usize, links: &[usize]) -> GResult<
     }
     Ok(out)
 }
+
+crate::catalogue::bind! {
+    eu4_harmony_remote::trade: TradeRequest => TradeAnswer;
+    Nodes => list;
+    Node => node;
+}

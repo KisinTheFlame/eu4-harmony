@@ -6,14 +6,13 @@ use super::{
     power::{self, BOOST_STABILITY, CAN_INCREASE_STABILITY},
     GResult, Session,
 };
-use crate::points::Point;
+use crate::{objects::campaign::country::STABILITY, points::Point};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind, Resource},
     stability::{StabilityAction, StabilityOption},
 };
 
-/// A country's stability, in thousandths, and the most it can be.
-const STABILITY: usize = 0xbd8;
+/// The most a country's stability, in thousandths, can be.
 const MOST: i32 = 3000;
 
 pub fn points() -> Vec<Point> {
@@ -56,6 +55,12 @@ pub fn options(session: Session) -> GResult<Vec<StabilityOption>> {
 pub fn raise(session: Session) -> GResult<()> {
     action::allowed(&choice(session)?, "raise stability")?;
     power::spend(session.commands, session.ctx.player, BOOST_STABILITY, PowerKind::Adm, 0, "raise stability")
+}
+
+crate::catalogue::bind! {
+    eu4_harmony_remote::stability: StabilityRequest => StabilityAnswer;
+    Options => options;
+    Raise => raise;
 }
 
 #[cfg(test)]

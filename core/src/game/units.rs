@@ -2,8 +2,7 @@
 //! consolidating, drilling, and a fleet's missions, through the game's own
 //! commands as the panels post them, with the game's own answers of whether
 //! the player can and why not (docs/research/units.md).
-use super::{action, commands, world, Ctx, GResult, Session};
-use crate::containers;
+use super::{action, army, commands, Ctx, GResult, Session};
 use crate::{
     game_string,
     memory::Memory,
@@ -30,9 +29,9 @@ const MAY_SPLIT: GameFunction<2> = GameFunction::at(0xd63fc0);
 /// A unit's method `(unit, leave empty ones, text or null)`: whether it may
 /// consolidate its regiments.
 const MAY_CONSOLIDATE: usize = 0x148;
-/// A unit's mission, and the mission's method that answers its kind; a
-/// unit's mercenary company.
-const MISSION: usize = 0x1f8;
+/// A unit's mission (its task), and the mission's method that answers its
+/// kind; a unit's mercenary company.
+use crate::objects::campaign::unit::TASK as MISSION;
 const MISSION_KIND: usize = 0x50;
 const COMPANY: usize = 0x48;
 /// The mission kinds of drilling and of evading.
@@ -135,14 +134,6 @@ fn answered(m: &Memory, ask: impl FnOnce(usize) -> crate::Result<usize>) -> GRes
     Ok(if yes as u8 != 0 { Choice::can(Vec::new()) } else { Choice::cannot(super::reasons(&text), Vec::new()) })
 }
 
-fn is_army(m: &Memory, unit: usize) -> GResult<bool> {
-    Ok(m.ptr(unit)? == m.at(classes::ARMY))
-}
-
-fn regiments(m: &Memory, unit: usize) -> GResult<usize> {
-    Ok(containers::span(m.ptr(unit + unit::REGIMENTS)?, m.ptr(unit + unit::REGIMENTS + 8)?, 8, super::MAX_UNITS)?)
-}
-
 fn mission_kind(m: &Memory, unit: usize) -> GResult<u32> {
     let mission = m.ptr(unit + MISSION)?;
     if mission == 0 {
@@ -154,9 +145,9 @@ fn mission_kind(m: &Memory, unit: usize) -> GResult<u32> {
 /// The player's units of the same kind as `unit` in its province, it first:
 /// what the player selects to merge.
 fn mergeable(m: &Memory, ctx: &Ctx, unit: usize) -> GResult<Vec<(u64, usize)>> {
-    let (land, at) = (is_army(m, unit)?, m.ptr(unit + unit::LOCATION)?);
+    let (land, at) = (army::is_army(m, unit)?, m.ptr(unit + unit::LOCATION)?);
     let mut out = vec![(m.u64(unit + unit::ID)?, unit)];
-    for (id, other, other_land) in world::own_roster(m, ctx)? {
+    for (id, other, other_land) in army::roster(m, ctx)? {
         if other != unit && other_land == land && m.ptr(other + unit::LOCATION)? == at {
             out.push((id, other));
         }
@@ -182,7 +173,7 @@ fn may_merge(m: &Memory, ctx: &Ctx, units: &[usize]) -> GResult<Choice> {
 }
 
 fn may_split(m: &Memory, unit: usize) -> GResult<Choice> {
-    let can = MAY_SPLIT.call(m, [unit, 0])? as u8 != 0 && regiments(m, unit)? > 1;
+    let can = MAY_SPLIT.call(m, [unit, 0])? as u8 != 0 && army::regiments(m, unit)? > 1;
     Ok(if can { Choice::can(Vec::new()) } else { Choice::cannot(Vec::new(), Vec::new()) })
 }
 
@@ -213,15 +204,15 @@ fn entry(action: &str, choice: Choice) -> ArmyAction {
 
 /// What the panel's buttons offer for one of the player's armies or fleets.
 pub fn options(Session { m, ctx, .. }: Session, args::Options { army: ArmyId(id) }: args::Options) -> GResult<Vec<ArmyAction>> {
-    let unit = world::own_unit(m, &ctx, id)?;
+    let unit = army::own(m, &ctx, id)?;
     let others: Vec<usize> = mergeable(m, &ctx, unit)?.into_iter().map(|(_, u)| u).collect();
     let mut out = vec![entry("split", may_split(m, unit)?), entry("merge", may_merge(m, &ctx, &others)?), entry("disband", may_disband(m, &ctx, unit)?)];
-    if is_army(m, unit)? {
+    if army::is_army(m, unit)? {
         out.push(entry("consolidate", may_consolidate(m, unit)?));
         let drilling = mission_kind(m, unit)? == DRILLING;
         out.push(entry(if drilling { "stop_drill" } else { "drill" }, if drilling { Choice::can(Vec::new()) } else { may_drill(m, unit)? }));
     } else {
-        let location = world::location(m, unit)?;
+        let location = army::location(m, unit)?;
         for mission in ["patrol", "evade"] {
             let text = mission_text(mission, id, location, None).map_err(|e| e.to_string())?;
             out.push(entry(mission, passes(&text)?));
@@ -231,25 +222,25 @@ pub fn options(Session { m, ctx, .. }: Session, args::Options { army: ArmyId(id)
 }
 
 pub fn split(Session { m, ctx, commands, .. }: Session, args::Split { army: ArmyId(id) }: args::Split) -> GResult<u64> {
-    let unit = world::own_unit(m, &ctx, id)?;
+    let unit = army::own(m, &ctx, id)?;
     action::allowed(&may_split(m, unit)?, "split this unit")?;
-    let before: Vec<u64> = world::own_roster(m, &ctx)?.into_iter().map(|(i, _, _)| i).collect();
-    action::post(commands, &split_text(id, regiments(m, unit)?.div_ceil(2)), "split this unit")?;
-    match world::own_roster(m, &ctx)?.into_iter().find(|(i, _, _)| !before.contains(i)) {
+    let before: Vec<u64> = army::roster(m, &ctx)?.into_iter().map(|(i, _, _)| i).collect();
+    action::post(commands, &split_text(id, army::regiments(m, unit)?.div_ceil(2) as usize), "split this unit")?;
+    match army::roster(m, &ctx)?.into_iter().find(|(i, _, _)| !before.contains(i)) {
         Some((new, _, _)) => Ok(new),
         None => Err("the game split off no unit".to_string().into()),
     }
 }
 
 pub fn merge(Session { m, ctx, commands, .. }: Session, args::Merge { armies: ArmyList(ids) }: args::Merge) -> GResult<()> {
-    let units = ids.iter().map(|id| world::own_unit(m, &ctx, id.0)).collect::<GResult<Vec<_>>>()?;
+    let units = ids.iter().map(|id| army::own(m, &ctx, id.0)).collect::<GResult<Vec<_>>>()?;
     action::allowed(&may_merge(m, &ctx, &units)?, "merge these units")?;
     action::post(commands, &merge_text(&ids.iter().map(|id| id.0).collect::<Vec<_>>()), "merge these units")?;
     Ok(())
 }
 
 pub fn disband(Session { m, ctx, commands, .. }: Session, args::Disband { army: ArmyId(id) }: args::Disband) -> GResult<()> {
-    let unit = world::own_unit(m, &ctx, id)?;
+    let unit = army::own(m, &ctx, id)?;
     action::allowed(&may_disband(m, &ctx, unit)?, "disband this unit")?;
     action::post(commands, &disband_text(id), "disband this unit")?;
     Ok(())
@@ -257,7 +248,7 @@ pub fn disband(Session { m, ctx, commands, .. }: Session, args::Disband { army: 
 
 /// One of the player's land armies, or the refusal.
 fn own_army(m: &Memory, ctx: &Ctx, id: u64) -> GResult<usize> {
-    world::own_land_army(m, ctx, id)
+    army::own_land(m, ctx, id)
 }
 
 pub fn consolidate(Session { m, ctx, commands, .. }: Session, args::Consolidate { army: ArmyId(id) }: args::Consolidate) -> GResult<()> {
@@ -286,8 +277,8 @@ pub fn stop_drill(Session { m, ctx, commands, .. }: Session, args::StopDrill { a
 
 /// One of the player's fleets, or the refusal.
 fn own_fleet(m: &Memory, ctx: &Ctx, id: u64) -> GResult<usize> {
-    let unit = world::own_unit(m, ctx, id)?;
-    match is_army(m, unit)? {
+    let unit = army::own(m, ctx, id)?;
+    match army::is_army(m, unit)? {
         true => Err(checks::not_fleet(id)),
         false => Ok(unit),
     }
@@ -298,7 +289,7 @@ pub fn mission(Session { m, ctx, commands, .. }: Session, args::Mission { army: 
     if !MISSIONS.contains(&mission.as_str()) {
         return Err(checks::unknown("mission", &mission, &MISSIONS));
     }
-    let text = mission_text(&mission, id, world::location(m, fleet)?, target).map_err(|needs| checks::needs_target(&mission, needs))?;
+    let text = mission_text(&mission, id, army::location(m, fleet)?, target).map_err(|needs| checks::needs_target(&mission, needs))?;
     // The evade button stops evading instead, when the fleet evades.
     if mission == "evade" && mission_kind(m, fleet)? == EVADING {
         return Err(checks::state("the fleet evades already"));
@@ -464,7 +455,7 @@ mod tests {
     fn turkey<T>(army_mission: u32, fleet_mission: u32, action: impl FnOnce(Session) -> GResult<T>) -> GResult<T> {
         let image = Image::new();
         let m = image.memory();
-        image.strings().function(world::FIND_ID.rva(), find as *const ()).function(MAY_DISBAND.rva(), may_disband as *const ());
+        image.strings().function(army::FIND_ID.rva(), find as *const ()).function(MAY_DISBAND.rva(), may_disband as *const ());
         image.function(MAY_DRILL.rva(), may_drill as *const ());
         let (tur, byz) = (Tag(u64::from_le_bytes(*b"TUR\0\0\0\0\0")), Tag(u64::from_le_bytes(*b"BYZ\0\0\0\0\0")));
         let kinds = Object::new(MISSION_KIND + 8).u64(MISSION_KIND, mission_kind as *const () as u64);

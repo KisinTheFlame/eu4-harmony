@@ -85,6 +85,13 @@ pub fn reopen(session: Session, args::Reopen { province: ProvinceId(province) }:
     set(session, province, false)
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::forts: FortRequest => FortAnswer;
+    List => list;
+    Mothball => mothball;
+    Reopen => reopen;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -27,12 +27,10 @@ use crate::{
 // top agent, `rbp` the day's argument it hands on), and what follows the
 // walk of its armies' agents (`WALKED`: `mov edx, esi; mov rcx, rdi; call`),
 // as `core/src/army_search.rs` names them.
-const CHILDREN: usize = 0x40;
-const ARMIES: usize = 0xc50;
-/// A list's last node, and a node's node before it and after it.
-const LAST: usize = 8;
-const PREVIOUS: usize = 8;
-const NEXT: usize = 0x10;
+use crate::objects::{
+    campaign::ai_king::{AGENTS as ARMIES, CHILDREN},
+    list::{NEXT, PREVIOUS, TAIL as LAST},
+};
 /// An agent's day, in its vtable.
 const DAY: usize = 0x58;
 

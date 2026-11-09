@@ -1,29 +1,14 @@
 //! Recruiting regiments and ships: what can be recruited in a province, and
 //! ordering it.
-use super::Convert;
-use crate::game::{self};
-use eu4_harmony_remote::{
-    recruiting::{Recruit, RecruitAnswer, RecruitRequest},
-    Error,
-};
 use eu4_harmony_remote::recruiting::args;
+use eu4_harmony_remote::recruiting::{Recruit, RecruitAnswer, RecruitRequest};
 
 layer! {
     run RecruitRequest => RecruitAnswer;
-    fn province_snapshot(province: u32) -> game::provinces::Snapshot = session game::provinces::acting_province;
-    Options { province } => options(game, province.0);
-    Order => fn recruit -> () = game::recruiting::recruit;
+    Options => fn recruit_options -> Vec<Recruit> = crate::game::recruiting::options;
+    Order => fn recruit -> () = crate::game::recruiting::recruit;
 }
 
-/// What can be recruited in the province, and whether it can now.
-fn options(game: &mut (impl Layer + ?Sized), province: u32) -> Result<Vec<Recruit>, Error> {
-    Ok(game
-        .province_snapshot(province)?
-        .recruit
-        .into_iter()
-        .map(|r| Recruit { kind: r.kind.convert(), unit_type: r.unit_type, allowed: r.allowed, reasons: r.reasons })
-        .collect())
-}
 
 #[cfg(test)]
 mod tests {

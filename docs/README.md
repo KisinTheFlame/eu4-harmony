@@ -58,6 +58,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 | [whole-game.md](plans/whole-game.md) | The framework played through the real game from end to end before a release |
 | [extension-windows.md](plans/extension-windows.md) | Pop-ups and windows of extensions' own in the game's look, laid out in Lua and opened from the panel button strip |
 | [map-names-distance-fields.md](plans/map-names-distance-fields.md) | The names on the map drawn from distance fields, sharp at every zoom, with the outline drawn by the map's shader |
+| [second-deepening.md](plans/second-deepening.md) | Diplomatic acts, font pages, armies, the input barrier and the catalogue's groups each gathered into one module |
 
 ### Replaced
 

@@ -831,14 +831,15 @@ mod tests {
         assert!(wrong.is_empty(), "{wrong:#?}");
     }
 
+    /// The least RVA a constant counts as an address from: above every
+    /// field's offset (the largest, 0x32604, is the interface's), below the
+    /// game's code.
+    const IMAGE: usize = 1 << 18;
+
     /// The game addresses a source file names: the constants of at least
     /// `IMAGE`, and the places its points are given, as a number or as one
     /// of its constants.
     fn addresses_named(text: &str) -> std::collections::BTreeSet<usize> {
-        /// The least RVA a constant counts as an address from: above every
-        /// field's offset (the largest, 0x32604, is the interface's), below
-        /// the game's code.
-        const IMAGE: usize = 1 << 18;
         let hex = |token: &str| token.strip_prefix("0x").and_then(|digits| usize::from_str_radix(&digits.replace('_', ""), 16).ok());
         let mut constants = std::collections::HashMap::new();
         let mut named = std::collections::BTreeSet::new();
@@ -904,6 +905,35 @@ mod tests {
             }
         }
         let twice: Vec<String> = by_address.iter().filter(|(_, files)| files.len() > 1).map(|(a, files)| format!("{a:#x}: {}", files.join(", "))).collect();
+        assert!(twice.is_empty(), "{twice:#?}");
+    }
+
+    /// A field of the game's objects that more than one module reads is
+    /// named in `objects`, and no other file names it again. A field is
+    /// told by its name and its offset together: small offsets are shared
+    /// by many unrelated objects, so only those of at least `0x100` count,
+    /// where the same name at the same offset is the same field. The same
+    /// field under two names is not found here.
+    #[test]
+    fn every_field_is_named_in_one_file() {
+        const LEAST: usize = 0x100;
+        let (root, files) = sources();
+        let mut by_field: std::collections::BTreeMap<(String, usize), std::collections::BTreeSet<String>> = std::collections::BTreeMap::new();
+        for file in &files {
+            let name = file.strip_prefix(&root).unwrap().display().to_string();
+            for line in std::fs::read_to_string(file).unwrap().lines().map(str::trim).filter(|l| !l.starts_with("//")) {
+                let Some((field, value)) = line.split_once("const ").and_then(|(_, rest)| rest.split_once(": usize = 0x")) else { continue };
+                let Ok(offset) = usize::from_str_radix(&value.trim_end_matches(';').replace('_', ""), 16) else { continue };
+                if (LEAST..IMAGE).contains(&offset) {
+                    by_field.entry((field.to_string(), offset)).or_default().insert(name.clone());
+                }
+            }
+        }
+        let twice: Vec<String> = by_field
+            .iter()
+            .filter(|(_, files)| files.len() > 1)
+            .map(|((field, offset), files)| format!("{field} = {offset:#x}: {}", files.iter().cloned().collect::<Vec<_>>().join(", ")))
+            .collect();
         assert!(twice.is_empty(), "{twice:#?}");
     }
 

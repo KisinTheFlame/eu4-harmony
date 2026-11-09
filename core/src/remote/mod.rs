@@ -116,9 +116,9 @@ struct Waiting {
 struct Running {
     waiting: Vec<Waiting>,
     events: events::Buffer,
-    /// The last input taken, until the game has had it: the requests after
-    /// it wait till then.
-    input: Option<game::input::Taken>,
+    /// What the answers given hold back of the requests after them, until
+    /// each lets go.
+    holds: Vec<Box<dyn catalogue::Hold>>,
 }
 
 /// The engine: a queue any thread adds to, and what runs at safe points.
@@ -145,7 +145,7 @@ impl Engine {
     pub const fn new(log: fn(&str)) -> Self {
         Self {
             queue: Mutex::new(Queue { requests: VecDeque::new(), ending: None }),
-            running: Mutex::new(Running { waiting: Vec::new(), events: events::Buffer::new(), input: None }),
+            running: Mutex::new(Running { waiting: Vec::new(), events: events::Buffer::new(), holds: Vec::new() }),
             recorded: Mutex::new(Vec::new()),
             delivering: Mutex::new(Vec::new()),
             next: AtomicU64::new(1),
@@ -238,15 +238,12 @@ impl Engine {
                 (self.log)(&format!("remote #{} {}: given up by its client before it ran", q.number, json(&q.request)));
                 continue;
             }
-            // A request after an input runs once the game has had the input;
-            // it and those after it wait, in order.
-            if let Some(taken) = running.input.filter(|_| !q.request.gives_input()) {
-                if !catalogue.handled(taken) {
-                    kept.push_back(q);
-                    kept.append(&mut queued);
-                    break;
-                }
-                running.input = None;
+            // A request an answer before it holds back waits, and those after
+            // it, in order.
+            if running.holds.iter().any(|hold| hold.holds(&q.request)) {
+                kept.push_back(q);
+                kept.append(&mut queued);
+                break;
             }
             if q.request.in_game() {
                 match place {
@@ -290,8 +287,8 @@ impl Engine {
         let started = Instant::now();
         match catalogue.run(q.request.clone(), Some(&running.events), now) {
             catalogue::Outcome::Done(response) => self.answer(&q, response, started.elapsed()),
-            catalogue::Outcome::Input(response, taken) => {
-                running.input = Some(taken);
+            catalogue::Outcome::Held(response, hold) => {
+                running.holds.push(hold);
                 self.answer(&q, response, started.elapsed());
             }
             catalogue::Outcome::Later(wait) => {
@@ -314,8 +311,9 @@ impl Engine {
     }
 
     fn poll(&self, running: &mut Running, catalogue: &mut dyn Catalogue, place: &Place, now: Instant) {
-        let Running { waiting, events, .. } = running;
+        let Running { waiting, events, holds } = running;
         catalogue.at(Some(events), now, place, &mut |at| {
+            holds.retain_mut(|hold| !hold.let_go(at));
             for mut w in std::mem::take(waiting) {
                 if w.slot.released() {
                     (self.log)(&format!("remote #{} {}: given up by its client while it waited", w.number, w.name));

@@ -231,6 +231,11 @@ pub mod country {
     /// maximum in thousands of men (so in men).
     pub const TREASURY: usize = 0xbb0;
     pub const STABILITY: usize = 0xbd8;
+    /// Its estates: a `std::vector` (begin, end) of 0xa8-byte entries,
+    /// each with its estate, loyalty, land share (thousandths of a
+    /// percentage point) and the privileges granted, a `std::map` whose
+    /// head node is at `+0x90`.
+    pub const ESTATES: usize = 0x21b0;
     pub const PRESTIGE: usize = 0xcf8;
     pub const MANPOWER: usize = 0xdb8;
     pub const MAX_MANPOWER: usize = 0xdbc;
@@ -363,6 +368,8 @@ pub mod ai_king {
     /// One that retires leaves it for [`RETIRED`]. Its destructor lets the
     /// nodes go, not the agents.
     pub const AGENTS: usize = 0xc50;
+    /// Its children's list, the agents working for it.
+    pub const CHILDREN: usize = 0x40;
     /// The agents that retired since its last update, a [`super::list`],
     /// which that update deletes; its destructor lets the nodes go.
     pub const RETIRED: usize = 0xac8;
@@ -656,8 +663,8 @@ pub mod side {
 pub mod map_manager {
     /// The current map mode, i32.
     pub const MODE: usize = 0x2c;
-    /// The application, as every idler keeps it (`objects::application`).
-    pub const APPLICATION: usize = 0x330;
+    /// The application, as every idler keeps it.
+    pub use crate::objects::application::idler::APPLICATION;
     /// Its pause state (see [`super::pause`]).
     pub const PAUSE: usize = 0x418;
     /// Its methods, by vtable offset: the refresh, and the one that answers

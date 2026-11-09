@@ -100,6 +100,14 @@ pub fn assault(session: Session, args::Assault { province: ProvinceId(province) 
     press(session, "assault", province)
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::sieges: SiegeRequest => SiegeAnswer;
+    Options => options;
+    Bombard => bombard;
+    NavalBombard => naval_bombard;
+    Assault => assault;
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

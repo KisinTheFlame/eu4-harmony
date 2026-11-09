@@ -5,6 +5,17 @@
 use super::{GResult, WorldSession};
 use eu4_harmony_remote::popups::{args, Popup};
 
+/// The group's dependency points: none of its own.
+pub fn points() -> Vec<crate::points::Point> {
+    Vec::new()
+}
+
+crate::catalogue::bind! {
+    eu4_harmony_remote::popups: PopupRequest => PopupAnswer;
+    List => list;
+    Answer => answer;
+}
+
 /// The refusals of pressing a pop-up's button, in the framework's words.
 mod checks {
     use crate::game::{Fail, Status};
