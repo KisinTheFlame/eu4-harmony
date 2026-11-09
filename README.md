@@ -140,7 +140,7 @@ cargo test --release
 cargo xtask release        # pack the player package
 ```
 
-The game is found through `EU4_GAME_DIR` or Steam. To try the build in the game, claim a test game: a game started from the game folder with a user folder, a core and a remote control pipe of its own, so that it touches neither the player's files nor the framework installed in the game folder, and several run side by side ([docs/plans/test-games.md](docs/plans/test-games.md)). The game folder needs a framework from test games on, installed once with no game running (`cargo xtask install`).
+The game is found through `EU4_GAME_DIR` or Steam. To try the build in the game, claim a test game: a game started from the game folder with a user folder, a core and a remote control pipe of its own, so that it touches neither the player's files nor the framework installed in the game folder, and several run side by side ([docs/plans/test-games.md](docs/plans/test-games.md)). The game folder needs a framework from test games on, installed once with the player's game closed (`cargo xtask install`).
 
 ```powershell
 cargo build --release --features eu4-harmony-core/dev-test-games
