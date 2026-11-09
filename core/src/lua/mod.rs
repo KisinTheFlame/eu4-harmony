@@ -332,8 +332,16 @@ fn reload_now(id: &str) -> game::GResult<Reloaded> {
     if let Some(why) = manifest.unsupported(eu4_harmony_remote::API_VERSION) {
         return Err(rejected(why));
     }
+    // The new texts first: the new code's windows are checked against them.
+    let (problems, earlier) = crate::loc::reload_mod(id, &harmony);
     let opening = Mod { id, name: &name, harmony: harmony.clone(), permissions: &permissions, data: Some(data) };
-    let new = eu4_harmony_lua::open(index, &opening, host).map_err(|e| rejected(format!("the new code did not load, and the old goes on: {e}")))?;
+    let new = match eu4_harmony_lua::open(index, &opening, host) {
+        Ok(new) => new,
+        Err(e) => {
+            crate::loc::restore_mod(id, earlier);
+            return Err(rejected(format!("the new code did not load, and the old goes on: {e}")));
+        }
+    };
     let Some(old) = extensions().get(index).cloned() else { return refuse(game::Status::NotFound, format!("no extension of a mod {id:?} is loaded")) };
     let session = crate::sessions::going_on();
     // A stopped extension's code is not run again, save_data included.
@@ -353,7 +361,7 @@ fn reload_now(id: &str) -> game::GResult<Reloaded> {
         map::release(m, index);
     }
     EXTENSIONS.write().unwrap_or_else(|e| e.into_inner())[index] = new.clone();
-    for problem in crate::loc::reload_mod(id, &harmony) {
+    for problem in problems {
         log!("extension {id:?} reloaded: localisation/{problem}");
     }
     log!("extension {id:?} reloaded{}", lost.as_ref().map(|l| format!("; its state was not carried: {l}")).unwrap_or_default());
