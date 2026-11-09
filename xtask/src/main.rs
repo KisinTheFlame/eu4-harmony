@@ -68,7 +68,7 @@ usage:
       build and then in a developer build with every tool, whose points
       only it declares.
   cargo xtask scenario
-  cargo xtask scenario <name>... [--out <dir>] [--owner <name>]
+  cargo xtask scenario <name>... [--out <dir>] [--owner <name>] [--jobs <n>]
                        [--game-dir <dir>] [--<name>.<parameter> <value>]...
   cargo xtask scenario --from-report <dir>
       Plays scenarios in the game, driven through remote control, and
@@ -78,6 +78,10 @@ usage:
       needs Steam running, claims a test game unless this checkout holds
       one, builds each build the scenarios need with the test games' pipes,
       starts the test game hidden with it, and releases the claim it made. --<name>.<parameter> changes a parameter for this run.
+      --jobs <n> plays n scenarios at a time (whole: 4 unless given), each in
+      a test game of its own claimed as <owner>-<scenario>, the longest
+      first, its builds made first and set aside in the report's folder;
+      perf and extensions, which measure time, play alone after the rest.
       --from-report writes report.md again from the report.json there.
   cargo xtask profile <out> [--seconds 60] [--hz 50] [--slice <seconds>] [--wait] [--threads] [--waiting-in <functions>] [--test-game <name>]
   cargo xtask profile <out>.folded --tree [--root <frame>] [--depth 6] [--min 1]
