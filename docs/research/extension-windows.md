@@ -160,7 +160,13 @@ A `windowType` takes no `background = { … }` block: that is a `containerWindow
 
 ## A frame inside a vanilla window
 
-The window lookups (`+0x68`, `+0x98`, `+0xc8`) look only at a window's own elements ([interface-bindings.md](interface-bindings.md)), so the army panel's button area keeps its frame and its buttons as elements of `single_unitpanel` itself, not in a subwindow. The frame is a `guiButtonType` of the corner-tiled `GFX_eu4harmony_window_background` with a `size` and `no_clicksound = yes`, as the game's lists draw their selection frames (`interface/chat.gui`, `frontend.gui`: `gfx__message_selection_frame` with a `size`); the game stretches it to that size with its edge kept, takes the clicks on it as a button's with no action, and draws it under the elements after it in the window. Shown and hidden through the button's `+0x88`/`+0x90` as the mods' buttons are (verified in the running game, [prototype log 2026-11-09](../prototype-log/2026-11-09-button-area-frame.md)).
+The window lookups (`+0x68`, `+0x98`, `+0xc8`) look only at a window's own elements ([interface-bindings.md](interface-bindings.md)), so the army panel's button area keeps its buttons as elements of `single_unitpanel` itself. Three ways of drawing a stretched frame under them were tried in the running game ([prototype log](../prototype-log/2026-11-09-button-area-frame.md), [the second](../prototype-log/2026-11-09-pop-up-actions-and-frame-window.md)):
+
+- A `guiButtonType` of the corner-tiled `GFX_eu4harmony_window_background` with a `size`, as the game's lists draw their selection frames (`interface/chat.gui`, `frontend.gui`: `gfx__message_selection_frame` with a `size`): stretched with its edge kept, it takes the clicks on it, but it lights up under the pointer, as every button does.
+- An `iconType` of the same sprite with a `size`: drawn at the sprite's own size (531 by 310), not stretched.
+- A `windowType` of its own nested in `single_unitpanel`, sized, its `backGround` that sprite's button, as the extension windows are: stretched, not lit up under the pointer (a window's background is not, as the extension windows' show too), and drawn under the panel's elements spliced after it, which take their clicks as before. This is the frame.
+
+A subwindow is found by its name through the window's `+0x1c0`, `0x15481a0(window, const std::string* name, bool report)` (verified; `+0x180`, `0x1548190`, jumps to it): it walks the list at `window+0x958..+0x960`, entries of 0x28 bytes with the name, a `std::string`, at `+0` and the window at `+0x20`, and answers the window, or 0; with `report` set a miss is also written to the game's error.log. The frame is shown and hidden through its interface's `+0x88`/`+0x90`, as the framework's windows are, its state at `+0xf5`.
 
 ## What needs verifying at run time
 

@@ -55,7 +55,7 @@ From the game's files and code (RVAs into 1.37.5), read statically on 2026-11-08
 
 - The buttons mods put in the army panel's button area (`eu4-harmony/ui/single_unitpanel/buttons/`) stand on a frame of their own beside the panel, a little right of its gold edge: the extension windows' blue with its gold edge, as high as the panel's button columns, from the top of their first row to the foot of their last. Eight buttons stand in a column, 46 apart; each further eight add a column to the right, and the frame grows with them. How many there are is known at startup, so the frame's width holds for the run; a hidden button keeps its slot empty (2026-11-09, asked by the owner: until then the buttons stood in a third column against the panel's right edge, on no frame, and reached past the panel).
 - The frame shows while any of its buttons or icons does, and hides with the last of them, as when the panel shows a fleet and the mods hide their buttons. A click on it reaches neither the map nor anything under it, and makes no sound.
-- The frame is spliced into the panel's `windowType` before every mod's element, so that it is drawn under them; it slides and hides with the panel. A `guiButtonType` of a corner-tiled sprite given a `size` is how the game's own lists draw a stretched frame (`chat.gui`, `frontend.gui`).
+- The frame is a window of its own spliced into the panel's `windowType` before every mod's element, so that it is drawn under them; it slides and hides with the panel. It does not light up under the pointer (2026-11-09, asked by the owner: as a button it did) ([research/extension-windows.md](../research/extension-windows.md), "A frame inside a vanilla window").
 
 ### In the fake game
 

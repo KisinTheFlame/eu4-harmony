@@ -150,6 +150,9 @@ pub mod window {
     /// The method that answers its [`super::list_box`] of a name, given as a
     /// `std::string`, by vtable offset.
     pub const FIND_LIST_BOX: usize = 0x1a8;
+    /// The method that answers its subwindow of a name, given as a
+    /// `std::string`, by vtable offset.
+    pub const FIND_WINDOW: usize = 0x1c0;
     /// Its method that puts it at a place on the screen (an i64 x | y << 32,
     /// GUI units from the screen's top left), by vtable offset; and that
     /// place, where dragging it moves it, i32 x and y.
@@ -383,6 +386,10 @@ pub mod functions {
     pub const WINDOW_HIDE: usize = 0x1547b00;
     pub const SET_POSITION: GameFunction<2> = GameFunction::at(0x15472e0);
     pub const FIND_LIST_BOX: GameFunction<2> = GameFunction::at(0x1548420);
+    /// `(window, std::string* name, report)`: its subwindow of the name, from
+    /// the list it keeps at `+0x958`, or 0; with `report` set, a miss is also
+    /// written in the game's error.log.
+    pub const FIND_WINDOW: GameFunction<3> = GameFunction::at(0x15481a0);
     /// A button's frame, and the icons' (two classes of them).
     pub const BUTTON_FRAME: usize = 0x15aeda0;
     pub const ICON_FRAMES: [usize; 2] = [0x1585ed0, 0x1572280];
@@ -562,8 +569,10 @@ pub fn points() -> Vec<Point> {
         Point::keep(WINDOW_HIDE, "48 89 5c 24 10 57 48 83 ec 30 48 8b f9 48 8b 89 00 0a 00 00", "window hide"),
         Point::keep(SET_POSITION, "48 83 ec 28 4c 8b 99 30 0a 00 00 4c 8b c2 48 89 91 98 05 00 00", "window position").uses(&[window::POSITION]),
         Point::keep(FIND_LIST_BOX, "48 83 ec 28 48 83 7a 18 10 48 8b 01", "window list box by name"),
+        Point::keep(FIND_WINDOW, "48 89 5c 24 10 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8d 6c 24 d0", "window subwindow by name"),
         Point::method(classes::WINDOW, window::SET_POSITION, SET_POSITION.rva(), "window position method"),
         Point::method(classes::WINDOW, window::FIND_LIST_BOX, FIND_LIST_BOX.rva(), "window list box method"),
+        Point::method(classes::WINDOW, window::FIND_WINDOW, FIND_WINDOW.rva(), "window subwindow method"),
         Point::method(classes::WINDOW_GUI, window_gui::SHOW, WINDOW_SHOW, "window show method"),
         Point::method(classes::WINDOW_GUI, window_gui::HIDE, WINDOW_HIDE, "window hide method"),
         // Their elements: frames, icons shown and hidden, flags.

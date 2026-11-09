@@ -25,7 +25,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-pub(crate) use live::{frame, killed, session_ended};
+pub(crate) use live::{frame, killed, session_ended, show_window, with_string};
 
 /// The most pop-ups open at once, past which a new one is refused.
 const POPUPS: usize = 32;

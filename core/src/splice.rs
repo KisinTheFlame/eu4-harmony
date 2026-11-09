@@ -204,15 +204,16 @@ pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool, plan: &mut
     notes
 }
 
-/// The frame under `count` slots of `area`: the framework's window
-/// background, an icon, which neither lights up under the pointer nor lets
-/// the clicks on it reach the map.
+/// The frame under `count` slots of `area`: a window of its own in the
+/// framework's window background, as the extension windows are, which the
+/// pointer does not light up and whose clicks do not reach the map. A button
+/// would light up; an icon is drawn at its sprite's size, not stretched.
 fn frame(area: &hosts::ButtonArea, count: i32) -> String {
     let ((x, y), (w, h)) = area.frame(count);
     format!(
-        "
-		iconType = {{ name = \"{FRAME}\" position = {{ x = {x} y = {y} }} size = {{ x = {w} y = {h} }} spriteType = \"{}\" }}
-",
+        "\n\t\twindowType = {{ name = \"{FRAME}\" backGround = \"{FRAME}_background\" position = {{ x = {x} y = {y} }} size = {{ x = {w} y = {h} }} \
+         moveable = 0 dontRender = \"\" horizontalBorder = \"\" verticalBorder = \"\" fullScreen = no Orientation = \"UPPER_LEFT\"\n\
+         \t\t\tguiButtonType = {{ name = \"{FRAME}_background\" quadTextureSprite = \"{}\" }}\n\t\t}}\n",
         crate::windows::BACKGROUND_SPRITE
     )
 }
@@ -248,7 +249,11 @@ mod tests {
         let (frame, button) = (out.find("eu4h_button_area").unwrap(), out.find("BUTTON").unwrap());
         assert!(frame < button, "{out}");
         assert!(out.contains("position = { x = 504 y = 69 } size = { x = 116 y = 392 }"), "two columns: {out}");
-        assert!(out.contains("iconType = { name = \"eu4h_button_area\""), "an icon, which no pointer lights up: {out}");
+        assert!(
+            out.contains("windowType = { name = \"eu4h_button_area\" backGround = \"eu4h_button_area_background\""),
+            "a window, which no pointer lights up: {out}"
+        );
+        assert_eq!(out.matches('{').count(), out.matches('}').count());
     }
 
     #[test]

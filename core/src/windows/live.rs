@@ -166,7 +166,7 @@ fn unpack(place: u64) -> (i32, i32) {
 }
 
 /// Calls `f` with a game string holding `text`, destroyed after.
-fn with_string<T>(m: &Memory, text: &[u8], f: impl FnOnce(usize) -> Result<T>) -> Result<T> {
+pub(crate) fn with_string<T>(m: &Memory, text: &[u8], f: impl FnOnce(usize) -> Result<T>) -> Result<T> {
     let mut string = game_string::empty();
     let at = string.as_mut_ptr() as usize;
     if !text.is_empty() {
@@ -222,7 +222,7 @@ fn create(m: &Memory, mgr: usize, name: &str) -> Result<usize> {
     Ok(root)
 }
 
-fn show_window(m: &Memory, root: usize, show: bool) -> Result<()> {
+pub(crate) fn show_window(m: &Memory, root: usize, show: bool) -> Result<()> {
     let gui = root + window::GUI;
     let (slot, function) = if show { (window_gui::SHOW, functions::WINDOW_SHOW) } else { (window_gui::HIDE, functions::WINDOW_HIDE) };
     let at = m.vslot(gui, slot)?;
