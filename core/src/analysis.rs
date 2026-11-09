@@ -79,9 +79,30 @@ pub unsafe fn loaded<'a>(base: usize) -> &'a [u8] {
 }
 
 /// The bounds of the function starting at `rva`, from the image's exception
-/// directory (the image as the loader lays it out).
+/// directory (the image as the loader lays it out). The compiler splits some
+/// functions into parts, each its own entry: a part whose unwind information
+/// is chained to the one before (`UNW_FLAG_CHAININFO`) and that begins where
+/// it ends is the same function's, as `0x10a6d00`'s prologue is followed by
+/// its body from `0x10a6d11`, and is taken in.
 pub fn bounds(image: &[u8], rva: usize) -> Option<std::ops::Range<usize>> {
-    functions(image).find(|f| f.start == rva)
+    const CHAINED: u8 = 4;
+    let mut entries = entries(image).skip_while(|e| e.0 != rva);
+    let (start, mut end, _) = entries.next()?;
+    for (next, next_end, unwind) in entries {
+        if next != end || image.get(unwind).is_none_or(|&b| b >> 3 & CHAINED == 0) {
+            break;
+        }
+        end = next_end;
+    }
+    Some(start..end)
+}
+
+/// Each entry of the exception directory: start, end and unwind information.
+fn entries(image: &[u8]) -> impl Iterator<Item = (usize, usize, usize)> + '_ {
+    let pe = u32_at(image, 0x3c);
+    let directory = pe + 24 + 112 + 8 * 3;
+    let (start, size) = (u32_at(image, directory), u32_at(image, directory + 4));
+    (start..start + size).step_by(12).map(move |e| (u32_at(image, e), u32_at(image, e + 4), u32_at(image, e + 8)))
 }
 
 /// The numbers `instruction` carries: its memory operand's displacement, or
@@ -120,10 +141,7 @@ pub fn instructions(code: &[u8], rva: usize) -> Vec<Instruction> {
 
 /// The start and end of every function in the exception directory.
 pub fn functions(image: &[u8]) -> impl Iterator<Item = std::ops::Range<usize>> + '_ {
-    let pe = u32_at(image, 0x3c);
-    let directory = pe + 24 + 112 + 8 * 3;
-    let (start, size) = (u32_at(image, directory), u32_at(image, directory + 4));
-    (start..start + size).step_by(12).map(move |e| u32_at(image, e)..u32_at(image, e + 4))
+    entries(image).map(|(start, end, _)| start..end)
 }
 
 fn arg_index(register: Register) -> Option<u32> {
