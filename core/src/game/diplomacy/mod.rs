@@ -26,7 +26,11 @@ use crate::{
     points::{GameFunction, Point},
     unicode::game_text,
 };
-use eu4_harmony_remote::choices;
+use eu4_harmony_remote::{
+    choices,
+    diplomacy::{self as remote, args, CallAllies},
+    CountryTag, ProvinceId,
+};
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
@@ -34,7 +38,7 @@ pub mod acts;
 mod panel;
 
 pub use acts::Act;
-pub use panel::{act, options, Details, Offered, What};
+pub use panel::{act, options, scripted, Details, What};
 
 /// The constructor of a declaration of war: (action, from, to, flag, date,
 /// war goal), the war goal copied; the flag 0 as the diplomacy panel's.
@@ -175,8 +179,8 @@ pub enum Calls {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Declaration {
     pub ticket: Ticket,
-    pub called: Vec<Tag>,
-    pub passed_over: Vec<PassedOver>,
+    pub called: Vec<CountryTag>,
+    pub passed_over: Vec<remote::PassedOver>,
 }
 
 /// An ally the declare war window listed that a declaration did not call to
@@ -207,13 +211,44 @@ pub enum Answer {
     Declared(String),
 }
 
-/// The war goals the game offers the player against `enemy`, as the
+/// The war goals the game offers the player against `country`, as the
 /// declare war window lists them, and last, when the game offers it, the
 /// declaration without a casus belli.
-pub fn war_goals(Session { m, ctx, .. }: Session, enemy: Tag) -> GResult<Vec<WarGoal>> {
+pub fn war_goals(Session { m, ctx, .. }: Session, args::WarGoals { country }: args::WarGoals) -> GResult<Vec<remote::WarGoal>> {
+    let enemy = countries::named(m, &ctx, country)?;
     other(m, &ctx, enemy)?;
     let offered = WarGoalsOffered::list(m, &ctx, enemy)?;
-    Ok(offered.goals.iter().map(|(_, goal)| goal.clone()).collect())
+    Ok(offered
+        .goals
+        .iter()
+        .map(|(_, g)| remote::WarGoal {
+            casus_belli: g.casus_belli.clone().unwrap_or_else(|| NO_CASUS_BELLI.into()),
+            war_goal: g.war_goal.clone(),
+            province: g.province.map(ProvinceId),
+            target: g.target.map(|t| CountryTag(t.letters())),
+            name: g.name.clone(),
+        })
+        .collect())
+}
+
+/// Declares war on the country a request names for the war goal its casus
+/// belli, war goal, province and target pick among those the game offers
+/// ([`NO_CASUS_BELLI`] for none), calling to arms the allies it names, each
+/// country found in the game ([`declare`]).
+pub fn declare_war(
+    session: Session,
+    args::DeclareWar { country, casus_belli, war_goal, province, target, call_allies }: args::DeclareWar,
+) -> GResult<Declaration> {
+    let found = |tag| countries::named(session.m, &session.ctx, tag);
+    let enemy = found(country)?;
+    let target = target.map(found).transpose()?;
+    let choice = Choice { casus_belli: (casus_belli != NO_CASUS_BELLI).then_some(casus_belli), war_goal, province: province.map(|ProvinceId(p)| p), target };
+    let calls = match call_allies.unwrap_or_default() {
+        CallAllies::All => Calls::All,
+        CallAllies::None => Calls::None,
+        CallAllies::Only(tags) => Calls::Only(tags.into_iter().map(found).collect::<GResult<_>>()?),
+    };
+    declare(session, enemy, &choice, &calls)
 }
 
 /// Declares war on `enemy` for the war goal `choice` picks among those the
@@ -223,7 +258,7 @@ pub fn war_goals(Session { m, ctx, .. }: Session, enemy: Tag) -> GResult<Vec<War
 /// [`Status::Rejected`] when the game offers no such war goal, does not let
 /// the player declare war now, or would not let the player call an ally
 /// named, with its reasons.
-pub fn declare_war(Session { m, ctx, commands, .. }: Session, enemy: Tag, choice: &Choice, calls: &Calls) -> GResult<Declaration> {
+fn declare(Session { m, ctx, commands, .. }: Session, enemy: Tag, choice: &Choice, calls: &Calls) -> GResult<Declaration> {
     other(m, &ctx, enemy)?;
     if choice.casus_belli.as_deref() == Some("") {
         return Err(checks::no_casus_belli(NO_CASUS_BELLI));
@@ -238,13 +273,19 @@ pub fn declare_war(Session { m, ctx, commands, .. }: Session, enemy: Tag, choice
     verdict(m, made.at())?;
     let (called, passed_over) = call_allies(&mut Window::new(m, &ctx, made.at()), ctx.player, enemy, calls)?;
     let ticket = send(commands, m, &ctx, made.at(), enemy, called.clone())?;
-    Ok(Declaration { ticket, called, passed_over })
+    let letters = |tag: Tag| CountryTag(tag.letters());
+    Ok(Declaration {
+        ticket,
+        called: called.into_iter().map(letters).collect(),
+        passed_over: passed_over.into_iter().map(|p| remote::PassedOver { country: letters(p.country), reasons: p.reasons }).collect(),
+    })
 }
 
-/// Offers `enemy` a white peace: a peace treaty with no terms chosen,
-/// demanded by the player, in the war between them, as the peace view sends
-/// one.
-pub fn offer_peace(Session { m, ctx, commands, .. }: Session, enemy: Tag) -> GResult<Ticket> {
+/// Offers the country a request names a white peace: a peace treaty with no
+/// terms chosen, demanded by the player, in the war between them, as the
+/// peace view sends one.
+pub fn offer_peace(Session { m, ctx, commands, .. }: Session, args::OfferPeace { country }: args::OfferPeace) -> GResult<Ticket> {
+    let enemy = countries::named(m, &ctx, country)?;
     other(m, &ctx, enemy)?;
     // The game's check refuses an offer to a country the player is not at
     // war with without a reason: it looks for the war between them first.
@@ -257,8 +298,9 @@ pub fn offer_peace(Session { m, ctx, commands, .. }: Session, enemy: Tag) -> GRe
     send(commands, m, &ctx, offer.at(), enemy, Vec::new())
 }
 
-/// Proposes an alliance to `ally`.
-pub fn propose_alliance(Session { m, ctx, commands, .. }: Session, ally: Tag) -> GResult<Ticket> {
+/// Proposes an alliance to the country a request names.
+pub fn propose_alliance(Session { m, ctx, commands, .. }: Session, args::ProposeAlliance { country }: args::ProposeAlliance) -> GResult<Ticket> {
+    let ally = countries::named(m, &ctx, country)?;
     other(m, &ctx, ally)?;
     let mut made = Made::new(m, action::ALLIANCE_SIZE);
     // As the game makes one, field by field: it has no constructor of its own.
@@ -283,19 +325,19 @@ pub fn propose_alliance(Session { m, ctx, commands, .. }: Session, ally: Tag) ->
     send(commands, m, &ctx, made.at(), ally, Vec::new())
 }
 
-/// Makes `rival` one of the player's rivals, with the game's `add_rival`
-/// command, as the diplomacy view's rivals list posts it: refused
-/// ([`Status::Rejected`]) with the game's reasons when the game does not let
-/// the player rival that country, and with none when the player has as many
-/// rivals as the game allows.
-pub fn add_rival(session: Session, rival: Tag) -> GResult<()> {
-    rival_command(session, "add_rival", CAN_RIVAL, rival, "rival that country")
+/// Makes the country a request names one of the player's rivals, with the
+/// game's `add_rival` command, as the diplomacy view's rivals list posts it:
+/// refused ([`Status::Rejected`]) with the game's reasons when the game does
+/// not let the player rival that country, and with none when the player has
+/// as many rivals as the game allows.
+pub fn add_rival(session: Session, args::AddRival { country }: args::AddRival) -> GResult<()> {
+    rival_command(session, "add_rival", CAN_RIVAL, country, "rival that country")
 }
 
-/// Drops `rival`, with the game's `remove_rival` command; refused with the
-/// game's reasons when it does not let the player.
-pub fn remove_rival(session: Session, rival: Tag) -> GResult<()> {
-    rival_command(session, "remove_rival", CAN_DROP_RIVAL, rival, "drop that rival")
+/// Drops the rival a request names, with the game's `remove_rival` command;
+/// refused with the game's reasons when it does not let the player.
+pub fn remove_rival(session: Session, args::RemoveRival { country }: args::RemoveRival) -> GResult<()> {
+    rival_command(session, "remove_rival", CAN_DROP_RIVAL, country, "drop that rival")
 }
 
 /// Whether a country may rival another, and drop it as a rival: (country,
@@ -304,7 +346,8 @@ pub fn remove_rival(session: Session, rival: Tag) -> GResult<()> {
 const CAN_RIVAL: GameFunction<3> = GameFunction::at(0x3d2760);
 const CAN_DROP_RIVAL: GameFunction<3> = GameFunction::at(0x3d2970);
 
-fn rival_command(Session { m, ctx, commands, .. }: Session, kind: &str, check: GameFunction<3>, rival: Tag, doing: &str) -> GResult<()> {
+fn rival_command(Session { m, ctx, commands, .. }: Session, kind: &str, check: GameFunction<3>, rival: CountryTag, doing: &str) -> GResult<()> {
+    let rival = countries::named(m, &ctx, rival)?;
     other(m, &ctx, rival)?;
     let args = |reasons: usize| [ctx.country, rival.0 as usize, reasons];
     if check.call(m, args(0))? as u8 == 0 {
@@ -314,12 +357,14 @@ fn rival_command(Session { m, ctx, commands, .. }: Session, kind: &str, check: G
     super::action::post(commands, &format!("{kind}={{ country=\"{}\" rival=\"{}\" }}", letters(ctx.player), letters(rival)), doing)
 }
 
-/// Calls `ally` to arms in the player's wars, as the diplomacy panel's call
-/// to arms button and the window it opens send the call, with no land
-/// promised. [`Status::Rejected`] when the panel offers no call to arms to
-/// it, or the game does not let the player send it, with its reasons.
-pub fn call_to_arms(session: Session, ally: Tag) -> GResult<Ticket> {
-    act(session, ally, &What::Act(Act::CallToArms), &Details::default()).map_err(|fail| {
+/// Calls the ally a request names to arms in the player's wars, as the
+/// diplomacy panel's call to arms button and the window it opens send the
+/// call, with no land promised. [`Status::Rejected`] when the panel offers no
+/// call to arms to it, or the game does not let the player send it, with its
+/// reasons.
+pub fn call_to_arms(session: Session, args::CallToArms { country }: args::CallToArms) -> GResult<Ticket> {
+    let ally = countries::named(session.m, &session.ctx, country)?;
+    panel::sent(session, ally, &What::Act(Act::CallToArms), &Details::default()).map_err(|fail| {
         if fail.status == Status::Rejected && fail.message.starts_with(panel::NOT_OFFERED) {
             checks_peace::no_call_to_arms(letters(ally))
         } else {
@@ -405,9 +450,13 @@ fn kept(ticket: Ticket) -> GResult<(Sent, Seen)> {
 
 /// The name of the player's latest war with `enemy` on the other side.
 fn war_with(session: Session, enemy: Tag) -> GResult<Option<String>> {
-    let (player, ctx) = (countries::snapshot(session.world()?, session.ctx.player)?, session.ctx);
+    let ctx = session.ctx;
     let opposed = |ours: &[Tag], theirs: &[Tag]| ours.iter().any(|t| t.index() == ctx.player.index()) && theirs.iter().any(|t| t.index() == enemy.index());
-    Ok(player.wars.into_iter().rev().find(|w| opposed(&w.attackers, &w.defenders) || opposed(&w.defenders, &w.attackers)).map(|w| w.name))
+    Ok(countries::wars_of(session.m, &ctx, ctx.player)?
+        .into_iter()
+        .rev()
+        .find(|w| opposed(&w.attackers, &w.defenders) || opposed(&w.defenders, &w.attackers))
+        .map(|w| w.name))
 }
 
 /// A country of the game's other than the player's.
@@ -1457,7 +1506,7 @@ mod tests {
 
     mod through_the_layer {
         use super::super::*;
-        use crate::catalogue::fake::{byz, tur, wal};
+        use crate::catalogue::fake::{byz, tur};
         use crate::game::{
             buffers::{self, Image, Object},
             commands::record,
@@ -1495,8 +1544,9 @@ mod tests {
                 Object::country(tur(), country_fields::HOSTILE_COUNT + 4).points_to(country_fields::HOSTILE, hostile).i32(country_fields::HOSTILE_COUNT, count);
             let byzantium = Object::country(byz(), country_fields::HOSTILE_COUNT + 4);
             let countries = Object::countries(&[&turkey, &byzantium]);
+            let manager = image.country_manager(&countries);
             let result = action(buffers::session(image.memory(), 0, tur(), turkey.at(), countries.at(), Caller::Remote));
-            drop((turkey, byzantium, countries, image));
+            drop((turkey, byzantium, countries, manager, image));
             result
         }
 
@@ -1509,16 +1559,17 @@ mod tests {
         fn diplomacy_takes_another_country_of_the_game_s() {
             let own = (Status::InvalidArgument, "the player's own country".to_string());
             let war = Choice { casus_belli: Some("cb_claim".into()), ..Choice::default() };
+            let country = CountryTag(*b"TUR");
             let toward_turkey = [
-                refused(turkey(false, |s| war_goals(s, tur()))),
-                refused(turkey(false, |s| declare_war(s, tur(), &war, &Calls::None))),
-                refused(turkey(false, |s| offer_peace(s, tur()))),
-                refused(turkey(false, |s| propose_alliance(s, tur()))),
-                refused(turkey(false, |s| add_rival(s, tur()))),
-                refused(turkey(false, |s| remove_rival(s, tur()))),
+                refused(turkey(false, |s| war_goals(s, args::WarGoals { country }))),
+                refused(turkey(false, |s| declare(s, tur(), &war, &Calls::None))),
+                refused(turkey(false, |s| offer_peace(s, args::OfferPeace { country }))),
+                refused(turkey(false, |s| propose_alliance(s, args::ProposeAlliance { country }))),
+                refused(turkey(false, |s| add_rival(s, args::AddRival { country }))),
+                refused(turkey(false, |s| remove_rival(s, args::RemoveRival { country }))),
             ];
             assert!(toward_turkey.iter().all(|r| *r == own), "{toward_turkey:?}");
-            let unknown = refused(turkey(false, |s| propose_alliance(s, wal())));
+            let unknown = refused(turkey(false, |s| propose_alliance(s, args::ProposeAlliance { country: CountryTag(*b"WAL") })));
             assert_eq!(unknown.0, Status::NotFound, "{unknown:?}");
             assert!(record::posted().is_empty());
         }
@@ -1527,23 +1578,27 @@ mod tests {
         fn a_declaration_names_its_casus_belli_and_a_white_peace_needs_a_war() {
             let none = Choice { casus_belli: Some(String::new()), ..Choice::default() };
             assert_eq!(
-                refused(turkey(false, |s| declare_war(s, byz(), &none, &Calls::All))),
+                refused(turkey(false, |s| declare(s, byz(), &none, &Calls::All))),
                 (Status::InvalidArgument, "no casus belli: name one by its key, or none".into())
             );
-            assert_eq!(refused(turkey(false, |s| offer_peace(s, byz()))), (Status::Rejected, "the player is not at war with BYZ".into()));
+            assert_eq!(
+                refused(turkey(false, |s| offer_peace(s, args::OfferPeace { country: CountryTag(*b"BYZ") }))),
+                (Status::Rejected, "the player is not at war with BYZ".into())
+            );
             assert!(record::posted().is_empty());
         }
 
         #[test]
         fn a_rival_is_added_and_dropped_as_the_game_s_checks_let_the_player() {
-            turkey(false, |s| add_rival(s, byz())).unwrap();
-            turkey(false, |s| remove_rival(s, byz())).unwrap();
+            let country = CountryTag(*b"BYZ");
+            turkey(false, |s| add_rival(s, args::AddRival { country })).unwrap();
+            turkey(false, |s| remove_rival(s, args::RemoveRival { country })).unwrap();
             assert_eq!(record::posted(), [r#"add_rival={ country="TUR" rival="BYZ" }"#, r#"remove_rival={ country="TUR" rival="BYZ" }"#]);
             ANSWER.with(|a| *a.borrow_mut() = (false, "Too far away"));
-            assert_eq!(refused(turkey(false, |s| add_rival(s, byz()))), (Status::Rejected, "Too far away".into()));
+            assert_eq!(refused(turkey(false, |s| add_rival(s, args::AddRival { country }))), (Status::Rejected, "Too far away".into()));
             ANSWER.with(|a| *a.borrow_mut() = (false, ""));
             assert_eq!(
-                refused(turkey(false, |s| remove_rival(s, byz()))),
+                refused(turkey(false, |s| remove_rival(s, args::RemoveRival { country }))),
                 (Status::Rejected, "the game does not let the player drop that rival now, and gives no reason".into())
             );
             assert!(record::posted().is_empty());

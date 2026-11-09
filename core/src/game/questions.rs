@@ -12,7 +12,10 @@ use crate::{
     points::{GameFunction, Point},
     unicode::game_text,
 };
-use eu4_harmony_remote::questions::args;
+use eu4_harmony_remote::{
+    questions::{args, Question, QuestionOption},
+    Date,
+};
 
 /// `(window, option)`: what clicking an option's button in an event window
 /// does: sends the game the command that chooses it and closes the window.
@@ -36,36 +39,9 @@ const SHOW_EVENT: usize = 0x828c00;
 const MOST: usize = 10_000;
 const MOST_OPTIONS: usize = 64;
 
-/// A question: one of the game's events waiting for the player's answer.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Question {
-    pub id: u32,
-    /// The event's id in the game's files, such as `flavor_fra.1`.
-    pub event: String,
-    pub title: String,
-    pub description: String,
-    /// The last day to answer, a day number; after it the game picks an
-    /// option itself.
-    pub deadline: i32,
-    /// The options the player may choose, in the game's order.
-    pub options: Vec<QuestionOption>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct QuestionOption {
-    /// Its number among all the event's options.
-    pub index: u32,
-    pub text: String,
-}
-
 /// The questions waiting for the player's answer, oldest first.
 pub fn questions(Session { m, ctx, .. }: Session) -> GResult<Vec<Question>> {
     open(m, &ctx)?.iter().map(|w| read(m, w)).collect()
-}
-
-/// One question, by its id.
-pub fn question(Session { m, ctx, .. }: Session, id: u32) -> GResult<Question> {
-    read(m, &find(m, &ctx, id)?)
 }
 
 /// Answers a question with one of its options, as the player does in its
@@ -161,7 +137,7 @@ fn read(m: &Memory, w: &Window) -> GResult<Question> {
     let mut open = Vec::new();
     for (index, option) in options(m, w.event)?.into_iter().enumerate() {
         if may_choose(m, option, w.scope)? {
-            open.push(QuestionOption { index: index as u32, text: localize(m, w.scope, &game_string::read(m, option + event_option::NAME)?)? });
+            open.push(QuestionOption { option: index as u32, text: localize(m, w.scope, &game_string::read(m, option + event_option::NAME)?)? });
         }
     }
     Ok(Question {
@@ -169,7 +145,8 @@ fn read(m: &Memory, w: &Window) -> GResult<Question> {
         event: game_string::key(m, w.event + event::NAME)?,
         title: localize(m, w.scope, &game_string::read(m, w.event + event::TITLE)?)?,
         description: description(m, w)?,
-        deadline: w.deadline,
+        deadline: Date(w.deadline),
+
         options: open,
     })
 }
@@ -209,6 +186,12 @@ pub fn points() -> Vec<Point> {
         Point::keep(OPTION_OPEN, "48 81 c1 a8 00 00 00 e9 c4 16 4a 00", "event option open"),
         Point::keep(0x10bb5bdusize, "49 8b d4 48 8b cf e8 68 b5 63 ff", "event option shown"),
     ]
+}
+
+crate::catalogue::bind! {
+    eu4_harmony_remote::questions: QuestionRequest => QuestionAnswer;
+    List => questions;
+    Answer => answer;
 }
 
 #[cfg(test)]

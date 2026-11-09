@@ -1,14 +1,15 @@
-//! Input at screen positions. An input is answered once it is taken; the
-//! engine runs a request that comes after it once the game has had it
-//! (`crate::remote::Engine::run`).
+//! Input at screen positions. An input is answered once it is taken, and
+//! holds back the requests after it, but further input, until the game has
+//! had it.
 use crate::game::input::checks;
 use crate::game::{
     self,
     input::{Action, Taken},
 };
+use super::{Hold, Outcome, Poll};
 use eu4_harmony_remote::{
     input::{Button, Cursor, InputAnswer, InputRequest, Key, Keys},
-    Error,
+    Answer, Error, Request,
 };
 
 /// The group's slice of the capability layer.
@@ -50,9 +51,32 @@ fn modifiers(keys: Option<Keys>) -> Vec<Key> {
     keys.map_or_else(Vec::new, |k| k.0)
 }
 
-/// Runs a request; an input taken is answered with its number, for the
-/// engine to keep the requests after it waiting until the game has it.
-pub fn run(request: InputRequest, game: &mut (impl Layer + ?Sized)) -> (Result<InputAnswer, Error>, Option<Taken>) {
+/// Runs a request; an input taken holds back the requests after it.
+pub fn run(request: InputRequest, game: &mut (impl Layer + ?Sized)) -> Outcome {
+    match taken(request, game) {
+        (response, Some(taken)) => Outcome::Held(response.map(Answer::Input), Box::new(Given(taken))),
+        (response, None) => Outcome::Done(response.map(Answer::Input)),
+    }
+}
+
+/// An input taken, which holds back every request after it but those that
+/// give input too, until the game has had it: what comes after an input is
+/// to see what it did, and inputs given one after another reach the game in
+/// the order they were taken.
+struct Given(Taken);
+
+impl Hold for Given {
+    fn holds(&self, request: &Request) -> bool {
+        !matches!(request, Request::Input(r) if !matches!(r, InputRequest::Get {}))
+    }
+
+    fn let_go(&mut self, at: &mut Poll<'_>) -> bool {
+        at.layer().is_some_and(|game| game.handled(self.0))
+    }
+}
+
+/// Runs a request, and an input taken, its number.
+fn taken(request: InputRequest, game: &mut (impl Layer + ?Sized)) -> (Result<InputAnswer, Error>, Option<Taken>) {
     let left = |b: Option<Button>| b.unwrap_or(Button::Left);
     type Answered = fn(()) -> InputAnswer;
     let (action, scale, answered): (Action, Option<u32>, Answered) = match request {

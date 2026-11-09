@@ -30,9 +30,7 @@ const SECOND: usize = 0x40;
 /// A history's list, and in it each node's object, the next node and
 /// whether the node was taken out, its object deleted.
 const LIST: usize = 0x20;
-const NODE_OBJECT: usize = 0;
-const NODE_NEXT: usize = 0x10;
-const NODE_REMOVED: usize = 0x18;
+use crate::objects::list::{ITEM as NODE_OBJECT, NEXT as NODE_NEXT, REMOVED as NODE_REMOVED};
 /// At most this many objects are followed under one history, against a
 /// list that loops.
 const MOST: usize = 1 << 20;

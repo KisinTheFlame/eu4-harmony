@@ -60,7 +60,7 @@ use windows_sys::Win32::System::Threading::{
     THREAD_QUERY_INFORMATION, THREAD_SUSPEND_RESUME,
 };
 
-const PAGE: usize = 0x1000;
+use crate::memory::PAGE;
 /// A heap entry that is an allocated block (winnt.h).
 const PROCESS_HEAP_ENTRY_BUSY: u32 = 4;
 /// The groups the table holds; writes past them are only counted.

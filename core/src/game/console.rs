@@ -183,6 +183,11 @@ mod checks {
     }
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::console: ConsoleRequest => ConsoleAnswer;
+    Run { command } => world run(command.as_str());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

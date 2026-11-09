@@ -7,55 +7,48 @@
 //! those, and picking one posts the transfer command for it, which asks the
 //! same check before the game carries it out.
 use super::peace::checks;
-use super::{action, diplomacy, with_state, GResult, Session, Tag};
+use super::{action, countries, diplomacy, with_state, GResult, Session, Tag};
 use crate::{
     game_string,
     memory::Memory,
     objects::campaign::province,
     points::{GameFunction, Point},
 };
-use eu4_harmony_remote::choices::Choice;
+use eu4_harmony_remote::{
+    choices::Choice,
+    occupation::{args, Transferred, Transfers},
+    CountryTag, ProvinceId,
+};
 
 /// The check: (country, province, allies, reasons), the allies a list the
 /// check fills ([`receivers`]), `reasons` a `std::string` or null, which
 /// gets the button's tooltip when the check says no.
 const CHECK: GameFunction<4> = GameFunction::at(0x3dbce0);
 
-/// The list of allies the check fills: the first node, and in each node the
-/// ally's tag and the next node; a node is [`NODE_SIZE`] bytes.
+/// The list of allies the check fills, a [`crate::objects::list`]: the
+/// first node, and in each node the ally's tag and the next node.
 mod receivers {
-    pub const FIRST: usize = 0;
-    pub const SIZE: usize = 0x18;
-    pub const TAG: usize = 0;
-    pub const NEXT: usize = 0x10;
-    pub const NODE_SIZE: usize = 0x20;
+    pub use crate::objects::list::{HEAD as FIRST, ITEM as TAG, NEXT, NODE_SIZE, SIZE};
 }
 
 /// The most allies a list is believed to hold.
 const MOST: usize = 1_000;
 
-/// Whether the player can hand a province over, and the allies the window
-/// lists to take it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Transfers {
-    pub choice: Choice,
-    pub allies: Vec<Tag>,
-}
-
 /// Whether the player can hand `province` over, and to which allies, as the
 /// transfer occupation button and window tell the player.
-pub fn options(Session { m, ctx, .. }: Session, province: u32) -> GResult<Transfers> {
+pub fn options(Session { m, ctx, .. }: Session, args::Options { province: ProvinceId(province) }: args::Options) -> GResult<Transfers> {
     let at = with_state(|s| s.geography.province_address(m, &ctx, province))?;
     let (allies, reasons) = check(m, ctx.country, at)?;
     Ok(match allies {
-        Some(allies) => Transfers { choice: Choice::can(Vec::new()), allies },
+        Some(allies) => Transfers { choice: Choice::can(Vec::new()), allies: allies.into_iter().map(|a| CountryTag(a.letters())).collect() },
         None => Transfers { choice: Choice::cannot(reasons, Vec::new()), allies: Vec::new() },
     })
 }
 
-/// Hands `province` over to `ally`, as picking it in the window does; the
-/// country that occupies it after.
-pub fn transfer(Session { m, ctx, commands, .. }: Session, province: u32, ally: Tag) -> GResult<Option<Tag>> {
+/// Hands `province` over to the ally `country`, as picking it in the window
+/// does; the country that occupies it after.
+pub fn transfer(Session { m, ctx, commands, .. }: Session, args::Transfer { province: ProvinceId(province), country }: args::Transfer) -> GResult<Transferred> {
+    let ally = countries::named(m, &ctx, country)?;
     diplomacy::other(m, &ctx, ally)?;
     let at = with_state(|s| s.geography.province_address(m, &ctx, province))?;
     let (allies, reasons) = check(m, ctx.country, at)?;
@@ -67,7 +60,7 @@ pub fn transfer(Session { m, ctx, commands, .. }: Session, province: u32, ally: 
     }
     action::post(commands, &command(ally, province, ctx.player), "hand it over")?;
     let controller = Tag(m.u64(at + province::CONTROLLER)?);
-    Ok((controller.valid() && controller.normal()).then_some(controller))
+    Ok(Transferred { controller: (controller.valid() && controller.normal()).then(|| CountryTag(controller.letters())) })
 }
 
 /// The transfer command's written form: the ally to take the province, and
@@ -119,6 +112,12 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x2a5a00usize, "48 8b 59 10 ba 20 00 00 00 e8 e2 3a 49 01", "transfer occupation allies freed")
             .uses(&[receivers::NEXT, receivers::NODE_SIZE]),
     ]
+}
+
+crate::catalogue::bind! {
+    eu4_harmony_remote::occupation: OccupationRequest => OccupationAnswer;
+    Options => options;
+    Transfer => transfer;
 }
 
 #[cfg(test)]
@@ -184,11 +183,21 @@ mod tests {
         provinces.u64(1, province::CONTROLLER, tur().0).u64(2, province::CONTROLLER, tur().0).u8(2, BARRED, 1);
         let (player, ally, other) = (Object::country(tur(), 0), Object::country(dul(), 0), Object::country(game_tag(b"POL", 3), 0));
         let countries = Object::countries(&[&player, &ally, &other]);
+        let manager = image.country_manager(&countries);
         let session = buffers::session(image.memory(), provinces.world(), tur(), player.at(), countries.at(), Caller::Remote);
-        Ottomans { _image: image, _provinces: provinces, _objects: vec![player, ally, other, countries], session }
+        Ottomans { _image: image, _provinces: provinces, _objects: vec![player, ally, other, countries, manager], session }
     }
 
-    fn refused(result: GResult<Option<Tag>>) -> (Status, String) {
+    /// Hands `province` over to the country of `tag`.
+    fn transfer(session: Session, province: u32, tag: &[u8; 3]) -> GResult<Transferred> {
+        super::transfer(session, args::Transfer { province: ProvinceId(province), country: CountryTag(*tag) })
+    }
+
+    fn options(session: Session, province: u32) -> GResult<Transfers> {
+        super::options(session, args::Options { province: ProvinceId(province) })
+    }
+
+    fn refused(result: GResult<Transferred>) -> (Status, String) {
         let Err(Fail { status, message }) = result else { panic!("the province was handed over") };
         (status, message)
     }
@@ -196,21 +205,23 @@ mod tests {
     #[test]
     fn a_province_is_handed_to_an_ally_the_window_lists() {
         let ottomans = ottomans();
-        transfer(ottomans.session, 1, dul()).unwrap();
+        assert_eq!(transfer(ottomans.session, 1, b"DUL").unwrap().controller, Some(CountryTag(*b"TUR")));
         assert_eq!(record::posted(), [r#"transfer_controller_command={ country="DUL" province=1 commander="TUR" }"#]);
-        assert_eq!(options(ottomans.session, 1).unwrap().allies, [dul()]);
+        assert_eq!(options(ottomans.session, 1).unwrap().allies, [CountryTag(*b"DUL")]);
     }
 
     #[test]
     fn a_province_the_check_bars_or_a_country_the_window_does_not_list_is_refused() {
         let ottomans = ottomans();
-        assert_eq!(refused(transfer(ottomans.session, 2, dul())), (Status::Rejected, "not at war".into()));
+        assert_eq!(refused(transfer(ottomans.session, 2, b"DUL")), (Status::Rejected, "not at war".into()));
         assert_eq!(
-            refused(transfer(ottomans.session, 1, game_tag(b"POL", 3))),
+            refused(transfer(ottomans.session, 1, b"POL")),
             (Status::Rejected, "the transfer occupation window does not list POL to take province 1".into())
         );
-        assert_eq!(refused(transfer(ottomans.session, 1, crate::catalogue::fake::tur())), (Status::InvalidArgument, "the player's own country".into()));
-        assert_eq!(refused(transfer(ottomans.session, 3, dul())).0, Status::NotFound);
+        assert_eq!(refused(transfer(ottomans.session, 1, b"TUR")), (Status::InvalidArgument, "the player's own country".into()));
+        assert_eq!(refused(transfer(ottomans.session, 3, b"DUL")).0, Status::NotFound);
+        assert_eq!(refused(transfer(ottomans.session, 1, b"QQQ")).0, Status::NotFound);
+
         assert!(record::posted().is_empty());
     }
 }

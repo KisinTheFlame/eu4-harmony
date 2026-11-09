@@ -11,12 +11,14 @@
 //! A page starts small and grows as it fills (ADR font-pages-grow): a page
 //! three quarters full, or without room for a glyph, gets a texture twice as
 //! large at the next frame the main thread presents ([`grow_pages`]), its
-//! glyphs copied to where they were. The game keeps what it lays out with
-//! glyphs' places in fractions of the page's size, so every font drawing from
-//! the page lays its text out again: its cached text is dropped. A glyph
-//! without room until then shows as '?' for that frame. The names on the map
-//! keep their glyphs' places too: when a map font's page grows in a game,
-//! the map builds them again.
+//! glyphs copied to where they were. Which glyphs a page holds, which wait
+//! and when it grows is kept by [`pages`]; this module gives it Direct3D
+//! ([`PageTexture`]) and the game's fonts ([`InGame`]). The game keeps what
+//! it lays out with glyphs' places in fractions of the page's size, so every
+//! font drawing from the page lays its text out again: its cached text is
+//! dropped. A glyph without room until then shows as '?' for that frame. The
+//! names on the map keep their glyphs' places too: when a map font's page
+//! grows, the map builds them again in a game.
 //!
 //! The game stretches a font's glyphs by the interface scale, with a linear
 //! filter, so an interface font's glyphs are drawn that many times larger and
@@ -37,7 +39,6 @@
 //! written through small system-memory textures: pages made dynamic and
 //! locked a band at a time made Direct3D keep several copies of each, 425 MB
 //! for the map's.
-use super::atlas::Page;
 use super::costs;
 use super::dxt;
 use super::framework_fonts;
@@ -45,6 +46,7 @@ use super::game_text;
 use super::glyphs::{self, Glyph};
 use super::map_field::{self, Shading};
 use super::outline::Outline;
+use super::pages::{self, Drawn, Game, Made, NoRoom, Pages, Shared, Texture};
 use super::system_font::{Face, SystemFonts};
 use super::tone::Tone;
 use crate::game_string;
@@ -54,11 +56,8 @@ use crate::objects::text::{self as objects, font::OWN_GLYPHS, texture_descriptio
 use crate::points::Point;
 use crate::settings;
 use std::cell::RefCell;
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{LazyLock, Mutex, MutexGuard};
+use std::sync::LazyLock;
 use windows::core::Interface;
 use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::Graphics::Direct3D9::*;
@@ -97,21 +96,51 @@ impl Own {
     }
 }
 
-struct Fill {
+/// A page's texture in video memory, on the game's device, written through
+/// a system-memory texture.
+pub struct PageTexture {
     device: IDirect3DDevice9,
     texture: IDirect3DTexture9,
     /// The system-memory texture glyphs are written through, and its size.
     staging: Option<(u32, u32, IDirect3DTexture9)>,
-    /// Its glyphs' places, and the page's size.
-    atlas: Page,
-    /// The largest the page may grow to; None when it keeps its size.
-    max: Option<(u32, u32)>,
-    /// The page is to grow at the next safe point.
-    wants_room: bool,
-    /// The first font that drew from it, for the log.
-    name: String,
-    /// What its fonts draw.
-    kind: Kind,
+    /// The page has mip levels, which the card makes from its first.
+    mips: bool,
+}
+
+// Pages are made only on a device made multithreaded (see `device`), which
+// takes its lock in each call, so any thread that draws text may fill one.
+unsafe impl Send for PageTexture {}
+
+impl Texture for PageTexture {
+    /// Writes a glyph's pixels through a staging texture kept for the page
+    /// and made larger when a glyph needs it.
+    fn put(&mut self, x: u32, y: u32, width: u32, height: u32, data: &[u8]) -> crate::Result<()> {
+        if !matches!(&self.staging, Some((w, h, _)) if *w >= width && *h >= height) {
+            let (w, h) = (width.next_multiple_of(64), height.next_multiple_of(64));
+            self.staging = Some((w, h, staging(&self.device, w, h)?));
+        }
+        let (_, _, staging) = self.staging.as_ref().expect("made above");
+        put(&self.device, &self.texture, staging, x, y, width, height, data).map_err(|e| e.to_string())
+    }
+
+    /// A new texture, the old one's pixels copied into it on the card.
+    fn grown(&self, (width, height): (u32, u32), (to_width, to_height): (u32, u32)) -> crate::Result<Self> {
+        let texture = page_texture(&self.device, to_width, to_height, self.mips)?;
+        let drawn = RECT { left: 0, top: 0, right: width as i32, bottom: height as i32 };
+        unsafe { self.device.StretchRect(&surface(&self.texture)?, &drawn, &surface(&texture)?, &drawn, D3DTEXF_NONE) }
+            .map_err(|e| format!("copying the page: {e}"))?;
+        Ok(Self { device: self.device.clone(), texture, staging: self.staging.clone(), mips: self.mips })
+    }
+
+    fn make_mips(&self) {
+        if self.mips {
+            unsafe { self.texture.GenerateMipSubLevels() };
+        }
+    }
+}
+
+/// How a page's glyphs are drawn.
+struct Look {
     face: Face,
     /// The colour the glyphs are drawn in.
     ink: u32,
@@ -121,46 +150,19 @@ struct Fill {
     /// The spread of the distance fields the page holds instead of colors,
     /// for the map's names (`map_field`).
     field: Option<u32>,
-    /// The page has mip levels, which the card makes from its first.
-    mips: bool,
-    /// Glyphs were put in the page since its mip levels were last made.
-    mips_stale: bool,
     /// The em size, in pixels.
     em: f32,
     /// From the top of a line to the baseline, in pixels.
     base: f32,
     /// How many pixels of the page a GUI unit takes (see [`density`]).
     density: f32,
-    drawn: HashMap<(u32, Tone), Option<Glyph>>,
-    /// Glyphs that found no room, drawn once the page has grown. While a
-    /// game loads, the main thread presents no frame for long: the names on
-    /// the map ask for thousands meanwhile, each asked for many times.
-    waiting: HashSet<(u32, Tone)>,
     /// The tones its fonts have drawn in so far, for the log.
     tones: Vec<Tone>,
-    full: bool,
 }
 
-// Pages are made only on a device made multithreaded (see `device`), which
-// takes its lock in each call, so any thread that draws text may fill one.
-unsafe impl Send for Fill {}
-
 static SYSTEM: LazyLock<Option<SystemFonts>> = LazyLock::new(|| SystemFonts::new().ok());
-/// By page wrapper.
-static PAGES: LazyLock<Mutex<HashMap<usize, Fill>>> = LazyLock::new(Default::default);
-/// The page wrapper each filled font draws from, and in which tone, by font.
-static OWNERS: LazyLock<Mutex<HashMap<usize, (usize, Tone)>>> = LazyLock::new(Default::default);
-/// Some page is to grow at the next safe point.
-static ROOM_WANTED: AtomicBool = AtomicBool::new(false);
-/// A map font's page grew since the names on the map were last built: they
-/// are built again at the next safe point in a game.
-static MAP_NAMES_STALE: AtomicBool = AtomicBool::new(false);
-/// Some page's mip levels are to be made again at the next safe point.
-static MIPS_STALE: AtomicBool = AtomicBool::new(false);
+static PAGES: LazyLock<Shared<PageTexture, Look>> = LazyLock::new(Default::default);
 
-/// How much of a page may be claimed before it grows: a page that grows
-/// before it is full leaves no character without a glyph until then.
-const FULL_ENOUGH: f32 = 0.75;
 /// The largest page: glyphs' places are read as signed 16-bit numbers.
 const LARGEST: u32 = 16384;
 
@@ -203,10 +205,6 @@ impl Loading {
         let done = std::mem::replace(self, Loading { font: None, page: None });
         (done.font == Some(font)).then_some(done.page)
     }
-}
-
-fn lock<T>(m: &'static LazyLock<Mutex<T>>) -> MutexGuard<'static, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// The texture manager's entry for `font`'s page.
@@ -282,57 +280,6 @@ fn put(
         staging.UnlockRect(0)?;
         device.UpdateSurface(&staging.GetSurfaceLevel(0)?, &rect, &page.GetSurfaceLevel(0)?, &at)
     }
-}
-
-impl Fill {
-    /// Writes a glyph's pixels at (x, y) of the page, through a staging
-    /// texture kept for the page and made larger when a glyph needs it.
-    fn put(&mut self, x: u32, y: u32, width: u32, height: u32, data: &[u8]) -> crate::Result<()> {
-        if !matches!(&self.staging, Some((w, h, _)) if *w >= width && *h >= height) {
-            let (w, h) = (width.next_multiple_of(64), height.next_multiple_of(64));
-            self.staging = Some((w, h, staging(&self.device, w, h)?));
-        }
-        let (_, _, staging) = self.staging.as_ref().expect("made above");
-        put(&self.device, &self.texture, staging, x, y, width, height, data).map_err(|e| e.to_string())?;
-        self.mips_changed();
-        Ok(())
-    }
-
-    /// The page's first level changed: its mip levels are made again at the
-    /// next safe point.
-    fn mips_changed(&mut self) {
-        if self.mips {
-            self.mips_stale = true;
-            MIPS_STALE.store(true, Ordering::Release);
-        }
-    }
-
-    fn size(&self) -> (u32, u32) {
-        (self.atlas.width, self.atlas.height)
-    }
-
-    /// The size the page grows to next; None when it keeps the one it has.
-    fn next_size(&self) -> Option<(u32, u32)> {
-        grown(self.size(), self.max?)
-    }
-
-    /// Asks for the page to grow at the next safe point, when it can.
-    fn want_room(&mut self) {
-        if !self.wants_room && self.next_size().is_some() {
-            self.wants_room = true;
-            ROOM_WANTED.store(true, Ordering::Release);
-        }
-    }
-}
-
-/// The size a page of `size` (width, height) grows to: twice as tall, or
-/// twice as wide once it is taller than wide, up to `max`. None when it is
-/// as large as it may be.
-fn grown((width, height): (u32, u32), max: (u32, u32)) -> Option<(u32, u32)> {
-    let taller = (width, (height * 2).min(max.1));
-    let wider = ((width * 2).min(max.0), height);
-    let order = if height <= width { [taller, wider] } else { [wider, taller] };
-    order.into_iter().find(|&size| size != (width, height))
 }
 
 /// A page texture's pixels.
@@ -429,75 +376,31 @@ fn record(bitmap: &super::system_font::Bitmap, (x, y): (u32, u32), base: f32) ->
     }
 }
 
-/// The page had no room for a glyph.
-struct NoRoom;
-
-/// Draws `scalar`'s glyph into the page; None when no system font has the
+/// `scalar`'s glyph as the page draws it; None when no system font has the
 /// character.
-fn draw(fill: &mut Fill, scalar: u32, tone: Tone) -> Result<Option<Glyph>, NoRoom> {
-    let Some(fonts) = SYSTEM.as_ref() else { return Ok(None) };
-    let Some(face) = fonts.face_for(&fill.face, scalar) else { return Ok(None) };
-    let Ok(mut bitmap) = fonts.rasterize(&face, scalar, fill.em) else { return Ok(None) };
+fn draw(look: &Look, scalar: u32, tone: Tone) -> Option<Drawn> {
+    let fonts = SYSTEM.as_ref()?;
+    let face = fonts.face_for(&look.face, scalar)?;
+    let mut bitmap = fonts.rasterize(&face, scalar, look.em).ok()?;
     tone.apply(&mut bitmap.alpha);
     let drawn = bitmap.width > 0 && bitmap.height > 0;
-    let (bitmap, pixels) = match (fill.field, &fill.outline) {
+    let (bitmap, pixels) = match (look.field, &look.outline) {
         (Some(spread), _) if drawn => map_field::field(&bitmap, spread),
-        (None, Some(outline)) if drawn => outline.around(&bitmap, fill.ink),
+        (None, Some(outline)) if drawn => outline.around(&bitmap, look.ink),
         _ => {
-            let pixels = inked(&bitmap.alpha, fill.ink);
+            let pixels = inked(&bitmap.alpha, look.ink);
             (bitmap, pixels)
         }
     };
-    let (mut x, mut y) = (0, 0);
-    if bitmap.width > 0 && bitmap.height > 0 {
-        (x, y) = match fill.atlas.place(bitmap.width, bitmap.height) {
-            Some(spot) => spot,
-            None => {
-                fill.want_room();
-                if !fill.wants_room && !std::mem::replace(&mut fill.full, true) {
-                    let (width, height) = fill.size();
-                    log!("fill: the {width}x{height} page of font {:?} is full; characters past it show as '?'", fill.name);
-                }
-                return Err(NoRoom);
-            }
-        };
-        if fill.atlas.claimed() > FULL_ENOUGH {
-            fill.want_room();
-        }
-        let pixels: Vec<u8> = pixels.iter().flat_map(|p| p.to_le_bytes()).collect();
-        if let Err(e) = fill.put(x, y, bitmap.width, bitmap.height, &pixels) {
-            log!("fill: cannot write a glyph: {e}");
-            return Ok(None);
-        }
-    }
-    Ok(Some(record(&bitmap, (x, y), fill.base)))
-}
-
-/// `scalar`'s glyph, drawn the first time it is asked for. A glyph without
-/// room is asked for again once the page has grown.
-fn glyph_of(fill: &mut Fill, scalar: u32, tone: Tone) -> Result<Option<Glyph>, NoRoom> {
-    if let Some(found) = fill.drawn.get(&(scalar, tone)) {
-        return Ok(*found);
-    }
-    if fill.waiting.contains(&(scalar, tone)) {
-        return Err(NoRoom);
-    }
-    let glyph = costs::GLYPHS.time(|| draw(fill, scalar, tone)).inspect_err(|_| {
-        fill.waiting.insert((scalar, tone));
-    })?;
-    fill.drawn.insert((scalar, tone), glyph);
-    Ok(glyph)
+    let pixels = pixels.iter().flat_map(|p| p.to_le_bytes()).collect();
+    Some(Drawn { glyph: record(&bitmap, (0, 0), look.base), pixels })
 }
 
 /// The glyph a filled `font` draws for `scalar`, which its own table does not
 /// hold: drawn into its page the first time. Null when the font is not filled
 /// or no system font has the character.
 pub fn glyph(font: usize, scalar: u32) -> *const Glyph {
-    let Some((wrapper, tone)) = lock(&OWNERS).get(&font).copied() else { return std::ptr::null() };
-    let glyph = match lock(&PAGES).get_mut(&wrapper) {
-        Some(fill) => glyph_of(fill, scalar, tone).ok().flatten(),
-        None => None,
-    };
+    let glyph = PAGES.lock().glyph(font, scalar, draw);
     match glyph {
         // The page keeps what it drew for every font that draws from it; the
         // font gets the record the game reads in its glyph table, where the
@@ -512,8 +415,9 @@ pub fn glyph(font: usize, scalar: u32) -> *const Glyph {
 
 /// The device a filled font's page lives on; None for a font not filled.
 pub fn device_of(font: usize) -> Option<IDirect3DDevice9> {
-    let (wrapper, _) = lock(&OWNERS).get(&font).copied()?;
-    lock(&PAGES).get(&wrapper).map(|fill| fill.device.clone())
+    let pages = PAGES.lock();
+    let (wrapper, _) = pages.owner(font)?;
+    pages.texture(wrapper).map(|texture| texture.device.clone())
 }
 
 /// The em size and baseline that fit `face` to a line of `line` pixels.
@@ -706,7 +610,7 @@ fn chosen_face(kind: Kind) -> Face {
 
 /// An empty page for `font`, which draws `kind`, in the ink and the outline
 /// of its own page (`own`, when the game decoded it).
-fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<&Own>, kind: Kind) -> crate::Result<Fill> {
+fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<&Own>, kind: Kind) -> crate::Result<(Made<PageTexture>, Look)> {
     let fonts = SYSTEM.as_ref().ok_or("no system fonts")?;
     let line = m.i32(font + objects::font::LINE_HEIGHT)?.max(1);
     let current = settings::current();
@@ -746,48 +650,28 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<&Ow
     if let Some(spread) = field {
         map_field::shade(Shading { spread, ink, outline: outline.clone() });
     }
-    Ok(Fill {
-        device: device.clone(),
-        texture,
-        staging: None,
-        atlas: Page::new(side, side),
-        max,
-        wants_room: false,
-        kind,
-        name,
-        face,
-        ink,
-        outline,
-        field,
-        mips,
-        mips_stale: false,
-        em,
-        base,
-        density,
-        drawn: HashMap::new(),
-        waiting: HashSet::new(),
-        tones: Vec::new(),
-        full: false,
-    })
+    let texture = PageTexture { device: device.clone(), texture, staging: None, mips };
+    let look = Look { face, ink, outline, field, em, base, density, tones: Vec::new() };
+    Ok((Made { texture, size: (side, side), max, name, map }, look))
 }
 
 /// The font's glyphs for Windows-1252 characters become system glyphs,
 /// written into its own records (or records allocated as the game allocates
 /// them, which it frees with the font).
-fn replace_own_glyphs(m: &Memory, font: usize, wrapper: usize, fill: &mut Fill, tone: Tone) -> crate::Result<()> {
+fn replace_own_glyphs(m: &Memory, font: usize, wrapper: usize, pages: &mut Pages<PageTexture, Look>, tone: Tone) -> crate::Result<()> {
     for byte in 0x20u8..=0xff {
         let (c, _) = game_text::char_at(&[byte]);
         if c.is_control() {
             continue;
         }
-        let glyph = match glyph_of(fill, c as u32, tone) {
+        let glyph = match pages.glyph_in(wrapper, c as u32, tone, draw) {
             Ok(glyph) => glyph,
             // These glyphs are the font's own records, which no later lookup
             // fills: the page grows at once, as no text is being laid out
             // on this thread while a font loads.
             Err(NoRoom) => {
-                grow(m, wrapper, fill)?;
-                glyph_of(fill, c as u32, tone).ok().flatten()
+                pages.grow(wrapper, &mut InGame { m })?;
+                pages.glyph_in(wrapper, c as u32, tone, draw).ok().flatten()
             }
         };
         let Some(glyph) = glyph else { continue };
@@ -861,60 +745,61 @@ pub fn loaded(font: usize) -> bool {
         let kind = kind(&name, m.i32(font + objects::font::LINE_HEIGHT)?);
         let framework_font = framework_fonts::named(&name);
         let name = String::from_utf8_lossy(&name);
-        let mut pages = lock(&PAGES);
-        match pages.entry(wrapper) {
+        let mut pages = PAGES.lock();
+        match pages.with(wrapper) {
             // The page's glyphs are its first font's, in that font's face.
-            Entry::Occupied(page) if page.get().face != chosen_face(kind) => {
-                log!("fill: font {name:?} ({kind:?}) draws from a page in {}", page.get().face);
+            Some(look) if look.face != chosen_face(kind) => {
+                log!("fill: font {name:?} ({kind:?}) draws from a page in {}", look.face);
             }
-            Entry::Occupied(_) => {}
-            Entry::Vacant(vacant) => {
-                let fill = costs::PAGES.time(|| make_page(&m, font, &device(&m, manager)?, own.as_ref(), kind))?;
+            Some(_) => {}
+            None => {
+                let (made, look) = costs::PAGES.time(|| make_page(&m, font, &device(&m, manager)?, own.as_ref(), kind))?;
                 // The wrapper holds the game's reference: it gets one of
                 // ours, and its old texture is released.
                 let old = m.ptr(wrapper)? as *mut c_void;
-                let (width, height) = fill.size();
+                let (width, height) = made.size;
                 unsafe {
-                    *(wrapper as *mut *mut c_void) = fill.texture.clone().into_raw();
+                    *(wrapper as *mut *mut c_void) = made.texture.texture.clone().into_raw();
                     drop(IDirect3DTexture9::from_raw(old));
                     *((entry + textures::ENTRY_SIZE) as *mut u32) = width;
                     *((entry + textures::ENTRY_SIZE + 4) as *mut u32) = height;
                 }
-                let outline = fill.outline.as_ref().map_or("none".to_string(), |o| format!("{:06x}, {} px", o.color, o.reach()));
-                let grows = fill.max.map_or("keeps its size".to_string(), |(w, h)| format!("grows up to {w}x{h}"));
-                let holds = match (fill.field, fill.mips) {
+                let outline = look.outline.as_ref().map_or("none".to_string(), |o| format!("{:06x}, {} px", o.color, o.reach()));
+                let grows = made.max.map_or("keeps its size".to_string(), |(w, h)| format!("grows up to {w}x{h}"));
+                let holds = match (look.field, made.texture.mips) {
                     (Some(spread), true) => format!("distance fields of spread {spread}, with mip levels"),
                     (Some(spread), false) => format!("distance fields of spread {spread}, without mip levels: the card makes none"),
                     (None, _) => "colors".to_string(),
                 };
                 log!(
                     "fill: system page {width}x{height} ({grows}, holding {holds}) for font {name:?} ({kind:?}) in {0} at {1:.1} px (baseline {2:.0}), {3:.2} px a GUI unit, ink {4:06x}, outline {outline}",
-                    fill.face,
-                    fill.em,
-                    fill.base,
-                    fill.density,
-                    fill.ink
+                    look.face,
+                    look.em,
+                    look.base,
+                    look.density,
+                    look.ink
                 );
-                vacant.insert(fill);
+                pages.add(wrapper, made, look);
             }
         }
-        let fill = pages.get_mut(&wrapper).expect("just made");
-        let shown = shown(fill.ink, m.u32(font + objects::font::COLOR)?, kind);
+        let look = pages.with_mut(wrapper).expect("just made");
+        let shown = shown(look.ink, m.u32(font + objects::font::COLOR)?, kind);
         let tone = Tone::of(shown);
-        if !fill.tones.contains(&tone) {
-            fill.tones.push(tone);
-            log!("fill: font {name:?} ({kind:?}) is the first to draw {tone:?} text, in {shown:06x}, from the page in {} at {:.1} px", fill.face, fill.em);
+        if !look.tones.contains(&tone) {
+            look.tones.push(tone);
+            log!("fill: font {name:?} ({kind:?}) is the first to draw {tone:?} text, in {shown:06x}, from the page in {} at {:.1} px", look.face, look.em);
         }
-        let (width, height) = fill.size();
+        let density = look.density;
+        let (width, height) = pages.size(wrapper).expect("just made");
         unsafe {
             *((font + objects::font::PAGE_SIZE) as *mut u32) = width;
             *((font + objects::font::PAGE_SIZE + 4) as *mut u32) = height;
         }
-        if fill.density != 1.0 {
-            scale_font(&m, font, fill.density)?;
+        if density != 1.0 {
+            scale_font(&m, font, density)?;
         }
-        lock(&OWNERS).insert(font, (wrapper, tone));
-        replace_own_glyphs(&m, font, wrapper, fill, tone)?;
+        pages.draws_from(font, wrapper, tone);
+        replace_own_glyphs(&m, font, wrapper, &mut pages, tone)?;
         if let Some(framework_font) = framework_font {
             framework_fonts::drawn(framework_font);
         }
@@ -926,54 +811,45 @@ pub fn loaded(font: usize) -> bool {
     })
 }
 
-/// Gives the page at `wrapper` its next size: a new texture, with the glyphs
-/// drawn so far copied to where they were, which the game's page and every
-/// font drawing from it take; and those fonts drop the text they keep laid
-/// out, which holds glyphs' places in fractions of the page's old size, as
-/// do the names on the map, for a map font.
-fn grow(m: &Memory, wrapper: usize, fill: &mut Fill) -> crate::Result<()> {
-    fill.wants_room = false;
-    let Some((width, height)) = fill.next_size() else { return Ok(()) };
-    let (old_width, old_height) = fill.size();
-    let fonts: Vec<usize> = lock(&OWNERS).iter().filter(|(_, (w, _))| *w == wrapper).map(|(&font, _)| font).collect();
-    let &first = fonts.first().ok_or("no font draws from the page")?;
-    let (_, entry) = page_entry(m, first)?;
-    if m.ptr(entry)? != wrapper {
-        return Err("the font's page is not in its entry".into());
-    }
-    let growing = crate::heap::Change::begin();
-    let texture = page_texture(&fill.device, width, height, fill.mips)?;
-    let drawn = RECT { left: 0, top: 0, right: old_width as i32, bottom: old_height as i32 };
-    unsafe {
-        fill.device.StretchRect(&surface(&fill.texture)?, &drawn, &surface(&texture)?, &drawn, D3DTEXF_NONE).map_err(|e| format!("copying the page: {e}"))?;
-        let old = m.ptr(wrapper)? as *mut c_void;
-        *(wrapper as *mut *mut c_void) = texture.clone().into_raw();
-        drop(IDirect3DTexture9::from_raw(old));
-        *((entry + textures::ENTRY_SIZE) as *mut u32) = width;
-        *((entry + textures::ENTRY_SIZE + 4) as *mut u32) = height;
-        for &font in &fonts {
-            *((font + objects::font::PAGE_SIZE) as *mut u32) = width;
-            *((font + objects::font::PAGE_SIZE + 4) as *mut u32) = height;
-            // A text whose slot has no key is laid out again.
-            std::ptr::write_bytes((font + objects::font::TEXT_KEYS) as *mut i32, 0, objects::font::TEXT_SLOTS);
+/// The game's side of a page that grows.
+struct InGame<'a> {
+    m: &'a Memory,
+}
+
+impl Game<PageTexture> for InGame<'_> {
+    /// The game's page and every font drawing from it take the grown
+    /// texture; and those fonts drop the text they keep laid out, which holds
+    /// glyphs' places in fractions of the page's old size.
+    fn take(&mut self, wrapper: usize, fonts: &[usize], texture: &PageTexture, (width, height): (u32, u32)) -> crate::Result<()> {
+        let m = self.m;
+        let &first = fonts.first().ok_or("no font draws from the page")?;
+        let (_, entry) = page_entry(m, first)?;
+        if m.ptr(entry)? != wrapper {
+            return Err("the font's page is not in its entry".into());
         }
+        let old = m.ptr(wrapper)? as *mut c_void;
+        unsafe {
+            *(wrapper as *mut *mut c_void) = texture.texture.clone().into_raw();
+            drop(IDirect3DTexture9::from_raw(old));
+            *((entry + textures::ENTRY_SIZE) as *mut u32) = width;
+            *((entry + textures::ENTRY_SIZE + 4) as *mut u32) = height;
+            for &font in fonts {
+                *((font + objects::font::PAGE_SIZE) as *mut u32) = width;
+                *((font + objects::font::PAGE_SIZE + 4) as *mut u32) = height;
+                // A text whose slot has no key is laid out again.
+                std::ptr::write_bytes((font + objects::font::TEXT_KEYS) as *mut i32, 0, objects::font::TEXT_SLOTS);
+            }
+        }
+        Ok(())
     }
-    fill.texture = texture;
-    fill.mips_changed();
-    fill.atlas.grow(width, height);
-    fill.waiting.clear();
-    if fill.kind == Kind::Map {
-        MAP_NAMES_STALE.store(true, Ordering::Release);
+
+    fn build_map_names(&mut self) -> crate::Result<bool> {
+        rebuild_map_names(self.m)
     }
-    log!("fill: the page of font {:?} grew from {old_width}x{old_height} to {width}x{height}, for {} fonts: {}", fill.name, fonts.len(), growing.end());
-    Ok(())
 }
 
 /// The names on the map are built again from the map's fonts' pages as they
-/// are now, when a game is going on; returns whether they were. Outside a
-/// game the map shows no names, but a game started from the main menu draws
-/// those it built there (tested: a page grown at the main menu left a new
-/// game's country names out).
+/// are now, when a game is going on; returns whether they were.
 fn rebuild_map_names(m: &Memory) -> crate::Result<bool> {
     use crate::objects::{application, campaign, text::map};
     let world = m.ptr(m.at(campaign::globals::WORLD))?;
@@ -994,52 +870,23 @@ fn rebuild_map_names(m: &Memory) -> crate::Result<bool> {
 /// Every page asks for room (the test switch `grow-pages`).
 #[cfg(feature = "dev-test-switches")]
 pub fn want_room_everywhere() {
-    lock(&PAGES).values_mut().for_each(Fill::want_room);
+    PAGES.lock().want_room_everywhere();
 }
 
-/// Pages that asked for room grow: at a safe point, just before the main
-/// thread presents a frame, where it lays out no text, and no text the
-/// framework drew a glyph for is kept with only some of its glyphs on the
-/// page's new size. A page that cannot grow keeps its size from then on.
+/// Pages that asked for room grow, at the frame the main thread presents
+/// ([`pages::present`]).
 pub fn grow_pages() {
     let m = crate::hooked_memory();
-    if ROOM_WANTED.swap(false, Ordering::Acquire) {
-        for (&wrapper, fill) in lock(&PAGES).iter_mut().filter(|(_, fill)| fill.wants_room) {
-            if let Err(e) = costs::GROWN.time(|| grow(&m, wrapper, fill)) {
-                log!("fill: the page of font {:?} keeps its size: {e}", fill.name);
-                fill.max = None;
-            }
-        }
-    }
-    if MIPS_STALE.swap(false, Ordering::Acquire) {
-        for fill in lock(&PAGES).values_mut().filter(|fill| fill.mips_stale) {
-            fill.mips_stale = false;
-            unsafe { fill.texture.GenerateMipSubLevels() };
-        }
-    }
-    // With the pages free: building the names draws their glyphs.
-    if MAP_NAMES_STALE.load(Ordering::Acquire) {
-        match rebuild_map_names(&m) {
-            Ok(false) => {}
-            Ok(true) => MAP_NAMES_STALE.store(false, Ordering::Release),
-            Err(e) => {
-                log!("fill: the names on the map were not built again: {e}");
-                MAP_NAMES_STALE.store(false, Ordering::Release);
-            }
-        }
-    }
+    pages::present(&PAGES, &mut InGame { m: &m });
 }
 
 fn destroy_before(call: &mut Call) {
-    let wrapper = call.arg(0);
-    if lock(&PAGES).remove(&wrapper).is_some() {
-        lock(&OWNERS).retain(|_, (w, _)| *w != wrapper);
-    }
+    PAGES.lock().destroyed(call.arg(0));
 }
 
 /// The font is being destroyed.
 pub fn forget(font: usize) {
-    lock(&OWNERS).remove(&font);
+    PAGES.lock().forget(font);
 }
 
 pub fn points() -> Vec<Point> {
@@ -1053,7 +900,7 @@ pub fn points() -> Vec<Point> {
 
 #[cfg(test)]
 mod tests {
-    use super::{dense_line, draws_the_map, first_side, grown, kind, page_side, record, shown, Kind, Loading, Own, BODY, HEADINGS};
+    use super::{dense_line, draws_the_map, first_side, kind, page_side, record, shown, Kind, Loading, Own, BODY, HEADINGS};
     use crate::unicode::system_font::Bitmap;
     use crate::unicode::tone::Tone;
 
@@ -1125,20 +972,10 @@ mod tests {
     }
 
     #[test]
-    fn a_page_starts_at_a_quarter_and_doubles() {
-        let max = (16384, 16384);
+    fn a_page_starts_at_a_quarter_of_the_side_it_would_keep() {
         assert_eq!(first_side(1536), 768);
         assert_eq!(first_side(1024), 512);
         assert_eq!(first_side(256), 256);
-        // Taller first, then wider, until it is as large as it may be.
-        assert_eq!(grown((768, 768), max), Some((768, 1536)));
-        assert_eq!(grown((768, 1536), max), Some((1536, 1536)));
-        assert_eq!(grown((16384, 8192), max), Some((16384, 16384)));
-        assert_eq!(grown((16384, 16384), max), None);
-        // Up to the device's largest, then the other way.
-        assert_eq!(grown((768, 768), (8192, 1000)), Some((768, 1000)));
-        assert_eq!(grown((768, 1000), (8192, 1000)), Some((1536, 1000)));
-        assert_eq!(grown((8192, 1000), (8192, 1000)), None);
     }
 
     #[test]

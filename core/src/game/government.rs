@@ -228,6 +228,14 @@ pub fn raise_rank(Session { m, ctx, commands, .. }: Session) -> GResult<()> {
     action::post(commands, &written_rank(ctx.player, m.i32(ctx.country + RANK)? + 1), "raise the government rank")
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::government: GovernmentRequest => GovernmentAnswer;
+    Options => options;
+    Reforms => reforms;
+    AdoptReform => adopt_reform;
+    RaiseRank => raise_rank;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

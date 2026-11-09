@@ -1,7 +1,14 @@
 //! The application, which runs the game's main loop and switches between the
 //! main menu and a game by its idler switch (docs/research/main-menu.md,
-//! docs/research/notice-window.md). The main menu keeps it at
-//! `gui::main_menu::APPLICATION`.
+//! docs/research/notice-window.md). Every idler keeps it at
+//! [`idler::APPLICATION`].
+
+/// An idler, what the application's frame runs: the main menu, or a game's
+/// map manager.
+pub mod idler {
+    /// The application.
+    pub const APPLICATION: usize = 0x330;
+}
 
 /// An idler switch is pending, u8: the application's frame switches to the
 /// idler it keeps, such as a game's.

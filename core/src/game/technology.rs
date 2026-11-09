@@ -189,6 +189,12 @@ mod checks {
     }
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::technology: TechnologyRequest => TechnologyAnswer;
+    Options => options;
+    Research => research;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

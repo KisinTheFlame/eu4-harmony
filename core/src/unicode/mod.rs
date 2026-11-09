@@ -24,6 +24,7 @@ pub mod main_text;
 pub mod map_field;
 pub mod map_names;
 pub mod outline;
+pub mod pages;
 pub mod pixels;
 pub mod save_names;
 pub mod scripts;

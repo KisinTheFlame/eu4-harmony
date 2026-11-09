@@ -5,11 +5,12 @@
 //! through the session's commands ([`super::action`]).
 use super::{
     action,
-    provinces::{can_recruit, unit_type, UnitKind},
+    player::Eyes,
+    provinces::{self, can_recruit, unit_type, UnitKind},
     with_state, Fail, GResult, Session, Status,
 };
 use crate::{game_string, objects::campaign::unit_type as unit_type_fields};
-use eu4_harmony_remote::recruiting::args;
+use eu4_harmony_remote::recruiting::{args, Recruit};
 use eu4_harmony_remote::ProvinceId;
 
 /// The recruit command in its written form: the country by its tag, the
@@ -18,6 +19,16 @@ use eu4_harmony_remote::ProvinceId;
 /// keys left out take the game's defaults.
 fn written(country: [u8; 3], province: u32, unit: &str) -> String {
     format!("buildunit={{ country=\"{}\" province={province} unit=\"{unit}\" }}", String::from_utf8_lossy(&country))
+}
+
+/// What the player can recruit in `province` now, one for each kind in the
+/// game's order of kinds, as the province view's recruit buttons say;
+/// refused as the province's snapshot is for a number that names no
+/// province or one the player has not discovered.
+pub fn options(session: Session, args::Options { province: ProvinceId(id) }: args::Options) -> GResult<Vec<Recruit>> {
+    let world = session.world()?;
+    let address = provinces::readable(session.m, &world.world, Eyes::of(world.view, world.world.player), id)?;
+    provinces::recruit(session.m, &session.ctx, address)
 }
 
 /// Recruits one regiment or ship of `kind` in `province` for the player, the
@@ -52,6 +63,11 @@ pub fn recruit(Session { m, ctx, commands, .. }: Session, args::Order { province
 /// has no unit type of.
 fn no_unit_type(kind: &str) -> Fail {
     Fail::new(Status::Rejected, format!("the player has no unit type of the kind {kind}"))
+}
+
+/// The group's dependency points: none of its own.
+pub fn points() -> Vec<crate::points::Point> {
+    Vec::new()
 }
 
 #[cfg(test)]

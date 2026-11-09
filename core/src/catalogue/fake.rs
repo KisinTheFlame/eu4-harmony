@@ -2,7 +2,8 @@
 //! capability layer, such as time's advance and the menu's waits, and of the
 //! pipe: the layer's answers for a small made-up campaign, the Ottomans at
 //! the start, and a record of the calls. A capability of a group it does not
-//! script fails (`unscripted`).
+//! script fails (`unscripted`), as every request of a group bound to the
+//! layer (`catalogue::bind`) does.
 // Every group's module, by its name.
 use super::*;
 use crate::game::{
@@ -10,7 +11,7 @@ use crate::game::{
     menu::{Expected, ExpectedProbe, Launch},
     GResult, Status, Tag,
 };
-use eu4_harmony_remote::{response_json, CountryTag};
+use eu4_harmony_remote::{countries::Country, response_json, CountryTag};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -100,40 +101,32 @@ impl Fake {
     }
 }
 
-// The groups whose tests script none of their capabilities.
-impl buildings::Layer for Fake {}
-impl camera::Layer for Fake {}
-impl centers_of_trade::Layer for Fake {}
-impl colonists::Layer for Fake {}
-impl console::Layer for Fake {}
-impl decisions::Layer for Fake {}
-impl desktop::Layer for Fake {}
-impl economy::Layer for Fake {}
-impl estates::Layer for Fake {}
-impl extensions::Layer for Fake {}
-impl focus::Layer for Fake {}
-impl forts::Layer for Fake {}
-impl government::Layer for Fake {}
-impl ideas::Layer for Fake {}
-impl leaders::Layer for Fake {}
-impl loans::Layer for Fake {}
-impl mercenaries::Layer for Fake {}
-impl merchants::Layer for Fake {}
-impl missionaries::Layer for Fake {}
-impl missions::Layer for Fake {}
-impl offers::Layer for Fake {}
-impl parliament::Layer for Fake {}
-impl policies::Layer for Fake {}
-impl questions::Layer for Fake {}
-impl sieges::Layer for Fake {}
-impl stability::Layer for Fake {}
-impl subjects::Layer for Fake {}
-impl technology::Layer for Fake {}
-impl trade::Layer for Fake {}
-impl trade_companies::Layer for Fake {}
+// The capability layer of the made-up campaign, called as no one: the
+// bound groups' requests fail here, as a capability it does not script does.
+impl Game for Fake {
+    fn as_game(&mut self) -> &mut dyn Game {
+        self
+    }
 
-pub fn army() -> game::armies::Army {
-    game::armies::Army { id: ARMY, owner: tur(), province: 149, land: true, regiments: 12, ..Default::default() }
+    fn caller(&self) -> Option<game::Caller> {
+        None
+    }
+}
+
+/// An army of the made-up campaign, as a capability answers it.
+fn army(id: u64, owner: &[u8; 3], kind: eu4_harmony_remote::armies::ArmyKind, province: Option<u32>, regiments: u32) -> eu4_harmony_remote::armies::Army {
+    eu4_harmony_remote::armies::Army {
+        id: eu4_harmony_remote::ArmyId(id),
+        owner: CountryTag(*owner),
+        kind,
+        province: province.map(eu4_harmony_remote::ProvinceId),
+        regiments,
+        blocked: Vec::new(),
+        route: Vec::new(),
+        route_by: None,
+        aboard: None,
+        carrying: 0,
+    }
 }
 
 impl session::Layer for Fake {
@@ -154,76 +147,61 @@ impl session::Layer for Fake {
 }
 
 impl countries::Layer for Fake {
-    fn country(&mut self, tag: CountryTag) -> GResult<Tag> {
-        self.call(format!("country {tag}"));
-        match &tag.0 {
-            b"TUR" => Ok(tur()),
-            b"BYZ" => Ok(byz()),
-            b"WAL" => Ok(wal()),
-            _ => Err(eu4_harmony_checks::countries::not_found(&tag.to_string()).into()),
-        }
-    }
-
-    fn hostile(&mut self, a: Tag, b: Tag) -> GResult<bool> {
-        self.call(format!("hostile {:x} {:x}", a.0, b.0));
+    fn hostile(&mut self, eu4_harmony_remote::countries::args::Hostile { country, other }: eu4_harmony_remote::countries::args::Hostile) -> GResult<bool> {
+        self.call(format!("hostile {country} {other}"));
+        let (a, b) = (found(country)?, found(other)?);
         Ok((a, b) == (tur(), byz()))
     }
 
     /// The Ottomans at war with Byzantium, with Wallachia as their vassal;
     /// Byzantium with nothing; [`wallachia`].
-    fn snapshot(&mut self, country: Tag) -> GResult<game::countries::Country> {
-        use eu4_harmony_remote::countries::{GoverningCapacity, IdeaGroup, Loans, Rebels, Technology};
-        use game::countries::{Country, Own, Relation, RelationKind, War};
-        self.call(format!("snapshot {:x}", country.0));
-        let wal = wal();
-        if country == byz() {
-            return Ok(Country { tag: byz(), ..Default::default() });
+    fn country(&mut self, eu4_harmony_remote::countries::args::Get { country }: eu4_harmony_remote::countries::args::Get) -> GResult<Box<Country>> {
+        use eu4_harmony_remote::countries::{GoverningCapacity, IdeaGroup, Loans, Power, Rebels, RelationKind, Technology};
+        self.call(format!("country {country}"));
+        let found = found(country)?;
+        if found == byz() {
+            return Ok(Box::new(bare(country)));
         }
-        if country == wal {
-            return Ok(wallachia());
+        if found == wal() {
+            return Ok(Box::new(wallachia()));
         }
-        if country != tur() {
-            return fail(Status::NotFound, "no such country");
-        }
-        Ok(Country {
-            tag: tur(),
-            treasury: Some(125_500),
+        Ok(Box::new(Country {
+            tag: country,
+            treasury: Some(125.5),
             manpower: 22_600,
             max_manpower: 30_250,
-            stability: 1_000,
-            prestige: -12_345,
-            power: Some([50, 60, 70]),
-            wars: vec![War { name: "Ottoman Conquest of Constantinople".into(), attackers: vec![tur(), wal], defenders: vec![byz()] }],
-            relations: vec![
-                Relation { kind: RelationKind::Subject, country: wal, subject_type: Some("vassal".into()) },
-                Relation { kind: RelationKind::Rival, country: byz(), subject_type: None },
-            ],
+            stability: 1.0,
+            prestige: -12.345,
+            power: Some(Power { adm: 50, dip: 60, mil: 70 }),
+            wars: vec![war("Ottoman Conquest of Constantinople", &["TUR", "WAL"], &["BYZ"])],
+            relations: vec![relation(RelationKind::Subject, "WAL", Some("vassal")), relation(RelationKind::Rival, "BYZ", None)],
             technology: Technology { adm: 3, dip: 3, mil: 4 },
             ideas: vec![
                 IdeaGroup { group: "TUR_ideas".into(), ideas: 1, national: true },
                 IdeaGroup { group: "quality_ideas".into(), ideas: 2, national: false },
             ],
-            own: Some(Own {
-                governing_capacity: GoverningCapacity { used: 512.5, max: 700.0 },
-                inflation: 2_500,
-                mercantilism: 10_000,
-                loans: Loans { count: 1, ducats: 120.0 },
-                rebels: vec![Rebels { kind: "nationalist_rebels".into(), name: "Albanian Nationalists".into(), progress: 12.5 }],
-            }),
-        })
+            governing_capacity: Some(GoverningCapacity { used: 512.5, max: 700.0 }),
+            inflation: Some(2.5),
+            mercantilism: Some(10.0),
+            loans: Some(Loans { count: 1, ducats: 120.0 }),
+            rebels: Some(vec![Rebels { kind: "nationalist_rebels".into(), name: "Albanian Nationalists".into(), progress: 12.5 }]),
+        }))
     }
 
     /// The Ottomans' budget, one line of each table and a loan from the
     /// bank; another country's as the player's view leaves it.
-    fn budget(&mut self, country: Tag) -> GResult<eu4_harmony_remote::countries::Budget> {
+    fn budget(
+        &mut self,
+        eu4_harmony_remote::countries::args::Budget { country }: eu4_harmony_remote::countries::args::Budget,
+    ) -> GResult<eu4_harmony_remote::countries::Budget> {
         use eu4_harmony_remote::countries::{Budget, Entry, Loan};
-        self.call(format!("budget {:x}", country.0));
+        self.call(format!("budget {country}"));
         let entry = |category: &str, name: &str, ducats| Entry { category: category.into(), name: name.into(), ducats };
-        if country != tur() {
-            return Ok(Budget { country: CountryTag(country.letters()), income: None, expenses: None, loans: None });
+        if found(country)? != tur() {
+            return Ok(Budget { country, income: None, expenses: None, loans: None });
         }
         Ok(Budget {
-            country: CountryTag(*b"TUR"),
+            country,
             income: Some(vec![entry("INCOMETAX", "税收", 4.25)]),
             expenses: Some(vec![entry("EXPENSEAM", "陆军维护费", 3.5)]),
             loans: Some(vec![Loan { lender: None, ducats: 120.0, interest: 4.0, due: eu4_harmony_remote::Date(0x035d_7710 + 5 * 8760) }]),
@@ -231,69 +209,120 @@ impl countries::Layer for Fake {
     }
 }
 
+/// The country of the made-up campaign a tag names: the Ottomans, Byzantium
+/// or Wallachia, refused as the layer refuses any other.
+pub fn found(tag: CountryTag) -> GResult<Tag> {
+    match &tag.0 {
+        b"TUR" => Ok(tur()),
+        b"BYZ" => Ok(byz()),
+        b"WAL" => Ok(wal()),
+        _ => Err(eu4_harmony_checks::countries::not_found(&tag.to_string()).into()),
+    }
+}
+
+/// A war of these sides, by their tags.
+fn war(name: &str, attackers: &[&str], defenders: &[&str]) -> eu4_harmony_remote::countries::War {
+    let tags = |tags: &[&str]| tags.iter().map(|t| letters(t)).collect();
+    eu4_harmony_remote::countries::War { name: name.into(), attackers: tags(attackers), defenders: tags(defenders) }
+}
+
+/// A relation to the country of this tag.
+fn relation(kind: eu4_harmony_remote::countries::RelationKind, country: &str, subject_type: Option<&str>) -> eu4_harmony_remote::countries::Relation {
+    eu4_harmony_remote::countries::Relation { kind, country: letters(country), subject_type: subject_type.map(Into::into) }
+}
+
+/// A country of whom nothing is known but its tag.
+fn bare(tag: CountryTag) -> Country {
+    Country {
+        tag,
+        treasury: None,
+        manpower: 0,
+        max_manpower: 0,
+        stability: 0.0,
+        prestige: 0.0,
+        power: None,
+        wars: Vec::new(),
+        relations: Vec::new(),
+        technology: Default::default(),
+        ideas: Vec::new(),
+        governing_capacity: None,
+        inflation: None,
+        mercantilism: None,
+        loans: None,
+        rebels: None,
+    }
+}
+
+/// A tag of three letters.
+fn letters(tag: &str) -> CountryTag {
+    CountryTag(tag.as_bytes().try_into().unwrap())
+}
+
 /// Wallachia, the Ottomans' subject in their war on Byzantium, made up to
 /// hold a relation of every kind (Moldavia its ally, Transylvania a march
 /// of its own, the Ottomans its overlord, Hungary its rival) and a war on
 /// either side: Hungary's war on it besides.
-pub fn wallachia() -> game::countries::Country {
-    use game::countries::{Country, Relation, RelationKind, War};
-    let (mol, tra, hun) = (game_tag(b"MOL", 301), game_tag(b"TRA", 302), game_tag(b"HUN", 160));
-    let relation = |kind, country, subject_type: Option<&str>| Relation { kind, country, subject_type: subject_type.map(Into::into) };
+pub fn wallachia() -> Country {
+    use eu4_harmony_remote::countries::{Power, RelationKind};
     Country {
-        tag: wal(),
-        treasury: Some(31_250),
+        treasury: Some(31.25),
         manpower: 5_400,
         max_manpower: 8_250,
-        stability: -1_000,
-        prestige: 12_345,
-        power: Some([120, 95, 143]),
-        wars: vec![
-            War { name: "Ottoman Conquest of Constantinople".into(), attackers: vec![tur(), wal()], defenders: vec![byz()] },
-            War { name: "Hungarian-Wallachian War".into(), attackers: vec![hun], defenders: vec![wal(), mol] },
-        ],
+        stability: -1.0,
+        prestige: 12.345,
+        power: Some(Power { adm: 120, dip: 95, mil: 143 }),
+        wars: vec![war("Ottoman Conquest of Constantinople", &["TUR", "WAL"], &["BYZ"]), war("Hungarian-Wallachian War", &["HUN"], &["WAL", "MOL"])],
         relations: vec![
-            relation(RelationKind::Ally, mol, None),
-            relation(RelationKind::Subject, tra, Some("march")),
-            relation(RelationKind::Overlord, tur(), Some("vassal")),
-            relation(RelationKind::Rival, hun, None),
+            relation(RelationKind::Ally, "MOL", None),
+            relation(RelationKind::Subject, "TRA", Some("march")),
+            relation(RelationKind::Overlord, "TUR", Some("vassal")),
+            relation(RelationKind::Rival, "HUN", None),
         ],
-        ..Default::default()
+        ..bare(letters("WAL"))
     }
 }
 
 impl provinces::Layer for Fake {
-    fn provinces(&mut self) -> GResult<Vec<game::provinces::Province>> {
+    /// Edirne, the Ottomans', and Constantinople, Byzantine and occupied by
+    /// them.
+    fn provinces(
+        &mut self,
+        eu4_harmony_remote::provinces::args::List { provinces }: eu4_harmony_remote::provinces::args::List,
+    ) -> GResult<Vec<eu4_harmony_remote::provinces::Province>> {
+        use eu4_harmony_remote::provinces::{Province, ProvinceKind};
         self.call("provinces".into());
-        let province = |id, owner: Tag, controller: Tag| game::provinces::Province {
-            id,
-            land: true,
+        let province = |id, owner: &[u8; 3], controller: &[u8; 3]| Province {
+            id: eu4_harmony_remote::ProvinceId(id),
+            kind: ProvinceKind::Land,
             visible: true,
-            owner: Some(owner),
-            controller: Some(controller),
-            ..Default::default()
+            owner: Some(CountryTag(*owner)),
+            controller: Some(CountryTag(*controller)),
         };
-        Ok(vec![Default::default(), province(149, tur(), tur()), province(151, byz(), tur())])
+        let all = [province(149, b"TUR", b"TUR"), province(151, b"BYZ", b"TUR")];
+        Ok(match provinces {
+            None => all.to_vec(),
+            Some(asked) => asked.0.iter().filter_map(|id| all.iter().find(|p| p.id == *id).copied()).collect(),
+        })
     }
 
-    fn named_provinces(&mut self, ids: Vec<u32>) -> GResult<Vec<game::provinces::Province>> {
-        let all = self.provinces()?;
-        Ok(ids.iter().filter_map(|id| all.iter().find(|p| p.id == *id && *id != 0).copied()).collect())
-    }
-
-    fn neighbors(&mut self, province: u32) -> GResult<Vec<game::provinces::Neighbor>> {
+    fn neighbors(
+        &mut self,
+        eu4_harmony_remote::provinces::args::Neighbors { province: eu4_harmony_remote::ProvinceId(province) }: eu4_harmony_remote::provinces::args::Neighbors,
+    ) -> GResult<Vec<eu4_harmony_remote::provinces::Neighbor>> {
+        use eu4_harmony_remote::{provinces::Neighbor, ProvinceId};
         self.call(format!("neighbors {province}"));
-        Ok(vec![game::provinces::Neighbor { to: 151, strait: false }, game::provinces::Neighbor { to: 316, strait: true }])
+        Ok(vec![Neighbor { province: ProvinceId(151), strait: false }, Neighbor { province: ProvinceId(316), strait: true }])
     }
 
     fn province(
         &mut self,
         eu4_harmony_remote::provinces::args::Get { province: eu4_harmony_remote::ProvinceId(province) }: eu4_harmony_remote::provinces::args::Get,
-    ) -> GResult<game::provinces::Snapshot> {
+    ) -> GResult<Box<eu4_harmony_remote::provinces::ProvinceSnapshot>> {
         self.call(format!("province {province}"));
         if province != 151 {
             return Err(eu4_harmony_checks::provinces::not_found(province).into());
         }
-        Ok(constantinople())
+        Ok(Box::new(constantinople()))
     }
 
     /// In Constantinople the player can develop tax for 50 administrative
@@ -339,36 +368,19 @@ impl provinces::Layer for Fake {
     }
 }
 
-/// Constantinople (151), Byzantine, as the Chinese language mod names it,
-/// with the Ottomans able to recruit nothing there.
-pub fn constantinople() -> game::provinces::Snapshot {
-    use eu4_harmony_remote::provinces::StateKind;
-    use game::provinces::{Development, Fort, Recruit, Snapshot, UnitKind};
-    let recruit = |kind, unit_type: Option<&str>, reasons: &[&str]| Recruit {
-        kind,
-        unit_type: unit_type.map(str::to_string),
-        allowed: false,
-        reasons: reasons.iter().map(|r| r.to_string()).collect(),
-    };
-    Snapshot {
-        id: 151,
+/// Constantinople (151), Byzantine, as the Chinese language mod names it.
+pub fn constantinople() -> eu4_harmony_remote::provinces::ProvinceSnapshot {
+    use eu4_harmony_remote::provinces::{Development, Fort, ProvinceSnapshot, StateKind};
+    ProvinceSnapshot {
+        id: eu4_harmony_remote::ProvinceId(151),
         name: "君士坦丁堡".into(),
-        owner: Some(byz()),
-        controller: Some(byz()),
-        development: Development { tax: 10_000, production: 9_500, manpower: 6_000 },
+        owner: Some(CountryTag(*b"BYZ")),
+        controller: Some(CountryTag(*b"BYZ")),
+        development: Development { tax: 10.0, production: 9.5, manpower: 6.0 },
         terrain: Some("farmlands".into()),
         fort: Fort { level: 2, mothballed: false },
         buildings: vec!["fort_15th".into(), "marketplace".into()],
-        recruit: vec![
-            recruit(UnitKind::Infantry, Some("eastern_medieval_infantry"), &["君士坦丁堡不是我们的领土"]),
-            recruit(UnitKind::Cavalry, Some("eastern_knights"), &["君士坦丁堡不是我们的领土"]),
-            recruit(UnitKind::Artillery, None, &[]),
-            recruit(UnitKind::HeavyShip, Some("early_carrack"), &[]),
-            recruit(UnitKind::LightShip, Some("early_war_galley"), &[]),
-            recruit(UnitKind::Galley, Some("galley"), &[]),
-            recruit(UnitKind::Transport, Some("cog"), &[]),
-        ],
-        autonomy: 25_000,
+        autonomy: 25.0,
         culture: Some("greek".into()),
         religion: Some("orthodox".into()),
         trade_good: Some("silk".into()),
@@ -386,37 +398,42 @@ pub fn constantinople() -> game::provinces::Snapshot {
     }
 }
 
+/// The Ottomans' army in Edirne, on its route, and their fleet nowhere.
 impl armies::Layer for Fake {
-    fn army(&mut self, id: u64) -> GResult<game::armies::Army> {
+    fn army(
+        &mut self,
+        eu4_harmony_remote::armies::args::Get { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::Get,
+    ) -> GResult<eu4_harmony_remote::armies::Army> {
+        use eu4_harmony_remote::armies::ArmyKind;
         self.call(format!("army {id}"));
         match id {
-            ARMY => Ok(game::armies::Army { route_len: self.route.len() as u32, ..army() }),
-            FLEET => Ok(game::armies::Army { id: FLEET, owner: tur(), ..Default::default() }),
+            ARMY => Ok(eu4_harmony_remote::armies::Army {
+                route: self.route.iter().copied().map(eu4_harmony_remote::ProvinceId).collect(),
+                ..army(ARMY, b"TUR", ArmyKind::Army, Some(149), 12)
+            }),
+            FLEET => Ok(army(FLEET, b"TUR", ArmyKind::Navy, None, 0)),
             _ => Err(eu4_harmony_checks::armies::not_own(id).into()),
         }
     }
 
-    fn own_armies(&mut self) -> GResult<Vec<game::armies::Army>> {
+    fn armies(&mut self, _: eu4_harmony_remote::armies::args::List) -> GResult<Vec<eu4_harmony_remote::armies::Army>> {
+        use eu4_harmony_remote::armies::ArmyKind;
         self.call("own armies".into());
-        Ok(vec![army(), game::armies::Army { id: FLEET, owner: tur(), ..Default::default() }])
+        Ok(vec![army(ARMY, b"TUR", ArmyKind::Army, Some(149), 12), army(FLEET, b"TUR", ArmyKind::Navy, None, 0)])
     }
 
-    fn armies_in(&mut self, province: u32) -> GResult<Vec<game::armies::Army>> {
+    /// A Byzantine army besieging there, that another extension moved.
+    fn armies_at(
+        &mut self,
+        eu4_harmony_remote::armies::args::At { province: eu4_harmony_remote::ProvinceId(province) }: eu4_harmony_remote::armies::args::At,
+    ) -> GResult<Vec<eu4_harmony_remote::armies::Army>> {
+        use eu4_harmony_remote::armies::{ArmyKind, Blocked, RouteBy};
         self.call(format!("armies in {province}"));
-        Ok(vec![game::armies::Army {
-            id: ENEMY,
-            owner: byz(),
-            province,
-            land: true,
-            sieging: true,
-            route_source: game::armies::RouteSource::OtherExtension,
-            ..Default::default()
+        Ok(vec![eu4_harmony_remote::armies::Army {
+            blocked: vec![Blocked::Sieging],
+            route_by: Some(RouteBy::OtherMod),
+            ..army(ENEMY, b"BYZ", ArmyKind::Army, Some(province), 0)
         }])
-    }
-
-    fn route(&mut self, id: u64) -> GResult<Vec<u32>> {
-        self.call(format!("route {id}"));
-        Ok(self.route.clone())
     }
 
     fn can_step(
@@ -447,8 +464,11 @@ impl armies::Layer for Fake {
         Ok(vec![150, goal])
     }
 
-    fn move_to(&mut self, id: u64, goal: u32, transports: bool) -> GResult<()> {
-        self.call(format!("move {id} {goal}{}", if transports { " by sea" } else { "" }));
+    fn move_to(
+        &mut self,
+        eu4_harmony_remote::armies::args::Move { army: eu4_harmony_remote::ArmyId(id), province: eu4_harmony_remote::ProvinceId(goal), transports }: eu4_harmony_remote::armies::args::Move,
+    ) -> GResult<()> {
+        self.call(format!("move {id} {goal}{}", if transports.unwrap_or(false) { " by sea" } else { "" }));
         if goal == 1 {
             return fail(Status::Rejected, "no route to 1");
         }
@@ -735,10 +755,33 @@ impl time::Layer for Fake {
 }
 
 /// The Ottomans recruit in Edirne (149); in Constantinople (151), not
-/// theirs, the game refuses with its reason.
+/// theirs, the game refuses with its reason, and they can recruit nothing
+/// there.
 impl recruiting::Layer for Fake {
-    fn province_snapshot(&mut self, province: u32) -> GResult<game::provinces::Snapshot> {
-        provinces::Layer::province(self, eu4_harmony_remote::provinces::args::Get { province: eu4_harmony_remote::ProvinceId(province) })
+    fn recruit_options(
+        &mut self,
+        eu4_harmony_remote::recruiting::args::Options { province: eu4_harmony_remote::ProvinceId(province) }: eu4_harmony_remote::recruiting::args::Options,
+    ) -> GResult<Vec<eu4_harmony_remote::recruiting::Recruit>> {
+        use eu4_harmony_remote::recruiting::{Recruit, UnitKind};
+        self.call(format!("recruit options {province}"));
+        if province != 151 {
+            return Err(eu4_harmony_checks::provinces::not_found(province).into());
+        }
+        let recruit = |kind, unit_type: Option<&str>, reasons: &[&str]| Recruit {
+            kind,
+            unit_type: unit_type.map(str::to_string),
+            allowed: false,
+            reasons: reasons.iter().map(|r| r.to_string()).collect(),
+        };
+        Ok(vec![
+            recruit(UnitKind::Infantry, Some("eastern_medieval_infantry"), &["君士坦丁堡不是我们的领土"]),
+            recruit(UnitKind::Cavalry, Some("eastern_knights"), &["君士坦丁堡不是我们的领土"]),
+            recruit(UnitKind::Artillery, None, &[]),
+            recruit(UnitKind::HeavyShip, Some("early_carrack"), &[]),
+            recruit(UnitKind::LightShip, Some("early_war_galley"), &[]),
+            recruit(UnitKind::Galley, Some("galley"), &[]),
+            recruit(UnitKind::Transport, Some("cog"), &[]),
+        ])
     }
 
     fn recruit(
@@ -756,41 +799,48 @@ impl recruiting::Layer for Fake {
 
 /// The war goals the Ottomans have against Byzantium: a claim on
 /// Constantinople, and the declaration without a casus belli.
-pub fn war_goals() -> Vec<game::diplomacy::WarGoal> {
-    use game::diplomacy::WarGoal;
+pub fn war_goals() -> Vec<eu4_harmony_remote::diplomacy::WarGoal> {
+    use eu4_harmony_remote::{diplomacy::WarGoal, ProvinceId};
     vec![
         WarGoal {
-            casus_belli: Some("cb_claim".into()),
+            casus_belli: "cb_claim".into(),
             war_goal: Some("take_claim".into()),
-            province: Some(151),
+            province: Some(ProvinceId(151)),
             target: None,
             name: "Conquer Constantinople".into(),
         },
-        WarGoal { casus_belli: None, war_goal: Some("nowargoal".into()), province: None, target: None, name: "No War Goal".into() },
+        WarGoal { casus_belli: "none".into(), war_goal: Some("nowargoal".into()), province: None, target: None, name: "No War Goal".into() },
     ]
 }
 
 impl diplomacy::Layer for Fake {
-    fn war_goals(&mut self, enemy: Tag) -> GResult<Vec<game::diplomacy::WarGoal>> {
-        self.call(format!("war goals {:x}", enemy.0));
-        Ok(if enemy == byz() { war_goals() } else { Vec::new() })
+    fn war_goals(
+        &mut self,
+        eu4_harmony_remote::diplomacy::args::WarGoals { country }: eu4_harmony_remote::diplomacy::args::WarGoals,
+    ) -> GResult<Vec<eu4_harmony_remote::diplomacy::WarGoal>> {
+        self.call(format!("war goals {country}"));
+        Ok(if found(country)? == byz() { war_goals() } else { Vec::new() })
     }
 
     /// Wallachia is the ally the window lets the player call.
-    fn declare_war(&mut self, enemy: Tag, choice: &game::diplomacy::Choice, calls: &game::diplomacy::Calls) -> GResult<game::diplomacy::Declaration> {
-        use game::diplomacy::Calls;
-        let calling = match calls {
-            Calls::Only(tags) => format!("Only({:x?})", tags.iter().map(|t| t.0).collect::<Vec<_>>()),
-            other => format!("{other:?}"),
+    fn declare_war(
+        &mut self,
+        eu4_harmony_remote::diplomacy::args::DeclareWar { country, casus_belli, war_goal, province, target, call_allies }: eu4_harmony_remote::diplomacy::args::DeclareWar,
+    ) -> GResult<game::diplomacy::Declaration> {
+        use eu4_harmony_remote::diplomacy::{CallAllies, PassedOver};
+        let calls = call_allies.unwrap_or_default();
+        let calling = match &calls {
+            CallAllies::Only(tags) => format!("Only([{}])", tags.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")),
+            CallAllies::All => "All".into(),
+            CallAllies::None => "None".into(),
         };
         self.call(format!(
-            "declare war {:x} {:?} {:?} {:?} {:?} calling {calling}",
-            enemy.0,
-            choice.casus_belli,
-            choice.war_goal,
-            choice.province,
-            choice.target.map(|t| t.0)
+            "declare war {country} {casus_belli:?} {war_goal:?} {:?} {:?} calling {calling}",
+            province.map(|p| p.0),
+            target.map(|t| t.to_string())
         ));
+        let enemy = found(country)?;
+        target.map(found).transpose()?;
         if enemy == wal() {
             return fail(
                 Status::Rejected,
@@ -798,44 +848,59 @@ impl diplomacy::Layer for Fake {
 We have a truce with them.",
             );
         }
-        let called = match calls {
-            Calls::All => vec![wal()],
-            Calls::None => Vec::new(),
-            Calls::Only(tags) => tags.iter().copied().filter(|&t| t == wal()).collect(),
+        let wallachia = CountryTag(*b"WAL");
+        let called = match &calls {
+            CallAllies::All => vec![wallachia],
+            CallAllies::None => Vec::new(),
+            CallAllies::Only(tags) => tags.iter().map(|&t| found(t).map(|_| t)).collect::<GResult<Vec<_>>>()?.into_iter().filter(|&t| t == wallachia).collect(),
         };
         // Under every ally, Turkey is passed over, as the window's check
         // would not let the player call it.
         let passed_over = match calls {
-            Calls::All => vec![game::diplomacy::PassedOver { country: tur(), reasons: vec!["They would not accept.".into()] }],
+            CallAllies::All => vec![PassedOver { country: CountryTag(*b"TUR"), reasons: vec!["They would not accept.".into()] }],
             _ => Vec::new(),
         };
         Ok(game::diplomacy::Declaration { ticket: game::diplomacy::Ticket(1), called, passed_over })
     }
 
-    fn offer_peace(&mut self, enemy: Tag) -> GResult<game::diplomacy::Ticket> {
-        self.call(format!("offer peace {:x}", enemy.0));
+    fn offer_peace(
+        &mut self,
+        eu4_harmony_remote::diplomacy::args::OfferPeace { country }: eu4_harmony_remote::diplomacy::args::OfferPeace,
+    ) -> GResult<game::diplomacy::Ticket> {
+        self.call(format!("offer peace {country}"));
+        found(country)?;
         Ok(game::diplomacy::Ticket(2))
     }
 
-    fn propose_alliance(&mut self, ally: Tag) -> GResult<game::diplomacy::Ticket> {
-        self.call(format!("propose alliance {:x}", ally.0));
+    fn propose_alliance(
+        &mut self,
+        eu4_harmony_remote::diplomacy::args::ProposeAlliance { country }: eu4_harmony_remote::diplomacy::args::ProposeAlliance,
+    ) -> GResult<game::diplomacy::Ticket> {
+        self.call(format!("propose alliance {country}"));
+        found(country)?;
         Ok(game::diplomacy::Ticket(3))
     }
 
     /// Toward Byzantium, an alliance the Byzantines would not accept, a
     /// warning the player can send, and a scripted action the player cannot.
-    fn options(&mut self, country: Tag) -> GResult<Vec<game::diplomacy::Offered>> {
-        use eu4_harmony_remote::choices::{Acceptance, Choice, Factor};
-        use game::diplomacy::{Act, Offered, What};
-        self.call(format!("options {:x}", country.0));
+    fn options(
+        &mut self,
+        eu4_harmony_remote::diplomacy::args::Options { country }: eu4_harmony_remote::diplomacy::args::Options,
+    ) -> GResult<eu4_harmony_remote::diplomacy::Options> {
+        use eu4_harmony_remote::{
+            choices::{Acceptance, Choice, Factor},
+            diplomacy::{Offered, Options},
+        };
+        self.call(format!("options {country}"));
+        found(country)?;
         let acceptance = Acceptance {
             accepts: false,
             total: -12.0,
             factors: vec![Factor { text: "Base reluctance".into(), value: -10.0 }, Factor { text: "Relations".into(), value: -2.0 }],
         };
-        Ok(vec![
+        let actions = vec![
             Offered {
-                what: Some(What::Act(Act::ProposeAlliance)),
+                action: "propose_alliance".into(),
                 key: "allianceaction".into(),
                 name: "Offer Alliance".into(),
                 choice: Choice::can(Vec::new()),
@@ -843,7 +908,7 @@ We have a truce with them.",
                 acceptance: Some(acceptance),
             },
             Offered {
-                what: Some(What::Act(Act::Warn)),
+                action: "warn".into(),
                 key: "warningaction".into(),
                 name: "Warn".into(),
                 choice: Choice::can(Vec::new()),
@@ -851,44 +916,57 @@ We have a truce with them.",
                 acceptance: None,
             },
             Offered {
-                what: Some(What::Scripted("sell_indulgence".into())),
+                action: "scripted_action".into(),
                 key: "sell_indulgence".into(),
                 name: "Offer Indulgence".into(),
                 choice: Choice::cannot(vec!["Is not the Papal Controller.".into()], Vec::new()),
                 description: Vec::new(),
                 acceptance: None,
             },
-        ])
+        ];
+        Ok(Options { country, actions })
     }
 
     /// Warning Byzantium is sent; anything else is refused with the game's
     /// reason.
-    fn act(&mut self, country: Tag, what: &game::diplomacy::What, _: &game::diplomacy::Details) -> GResult<game::diplomacy::Ticket> {
-        use game::diplomacy::{Act, What};
-        self.call(format!("act {:x} {what:?}", country.0));
-        match what {
-            What::Act(Act::Warn) if country == byz() => Ok(game::diplomacy::Ticket(4)),
+    fn act(&mut self, act: game::diplomacy::Act, country: CountryTag, _: game::diplomacy::Details<CountryTag>) -> GResult<game::diplomacy::Ticket> {
+        self.call(format!("act {country} Act({act:?})"));
+        match act {
+            game::diplomacy::Act::Warn if found(country)? == byz() => Ok(game::diplomacy::Ticket(4)),
             _ => fail(Status::Rejected, "Is not the Papal Controller."),
         }
     }
 
+    fn scripted_action(
+        &mut self,
+        eu4_harmony_remote::diplomacy::args::ScriptedAction { country, action }: eu4_harmony_remote::diplomacy::args::ScriptedAction,
+    ) -> GResult<game::diplomacy::Ticket> {
+        self.call(format!("act {country} Scripted({action:?})"));
+        fail(Status::Rejected, "Is not the Papal Controller.")
+    }
+
     /// Byzantium can be rivalled; no other country.
-    fn add_rival(&mut self, rival: Tag) -> GResult<()> {
-        self.call(format!("add rival {:x}", rival.0));
-        if rival == byz() {
+    fn add_rival(&mut self, eu4_harmony_remote::diplomacy::args::AddRival { country }: eu4_harmony_remote::diplomacy::args::AddRival) -> GResult<()> {
+        self.call(format!("add rival {country}"));
+        if found(country)? == byz() {
             Ok(())
         } else {
             fail(Status::Rejected, "the game's command refuses it, and gives no reason")
         }
     }
 
-    fn remove_rival(&mut self, rival: Tag) -> GResult<()> {
-        self.call(format!("remove rival {:x}", rival.0));
+    fn remove_rival(&mut self, eu4_harmony_remote::diplomacy::args::RemoveRival { country }: eu4_harmony_remote::diplomacy::args::RemoveRival) -> GResult<()> {
+        self.call(format!("remove rival {country}"));
+        found(country)?;
         fail(Status::Rejected, "the game's command refuses it, and gives no reason")
     }
 
-    fn call_to_arms(&mut self, ally: Tag) -> GResult<game::diplomacy::Ticket> {
-        self.call(format!("call to arms {:x}", ally.0));
+    fn call_to_arms(
+        &mut self,
+        eu4_harmony_remote::diplomacy::args::CallToArms { country }: eu4_harmony_remote::diplomacy::args::CallToArms,
+    ) -> GResult<game::diplomacy::Ticket> {
+        self.call(format!("call to arms {country}"));
+        found(country)?;
         Ok(game::diplomacy::Ticket(4))
     }
 
@@ -901,16 +979,23 @@ We have a truce with them.",
 /// At war with Byzantium: Constantinople (151) to demand, and humiliating
 /// it, which the view would not let the player add.
 impl peace::Layer for Fake {
-    fn peace_terms(&mut self, enemy: Tag, offer: bool) -> GResult<Vec<game::peace::TermOption>> {
-        use eu4_harmony_remote::choices::{Amount, Choice, Resource};
-        self.call(format!("peace terms {:x} {offer}", enemy.0));
-        if enemy != byz() {
+    fn peace_terms(
+        &mut self,
+        eu4_harmony_remote::peace::args::TermOptions { country, offer }: eu4_harmony_remote::peace::args::TermOptions,
+    ) -> GResult<Vec<eu4_harmony_remote::peace::TermOption>> {
+        use eu4_harmony_remote::{
+            choices::{Amount, Choice, Resource},
+            peace::TermOption,
+            ProvinceId,
+        };
+        self.call(format!("peace terms {country} {}", offer.unwrap_or(false)));
+        if found(country)? != byz() {
             return fail(Status::Rejected, "the player is not at war with WAL");
         }
-        let term = |term: &str, province: Option<u32>, name: &str, choice: Choice| game::peace::TermOption {
+        let term = |term: &str, province: Option<u32>, name: &str, choice: Choice| TermOption {
             term: term.into(),
-            province,
-            country: province.map(|_| tur()),
+            province: province.map(ProvinceId),
+            country: province.map(|_| CountryTag(*b"TUR")),
             region: None,
             amount: None,
             name: name.into(),
@@ -922,44 +1007,48 @@ impl peace::Layer for Fake {
         ])
     }
 
-    fn evaluate_peace(&mut self, enemy: Tag, terms: &[game::peace::Term], offer: bool) -> GResult<game::peace::Evaluation> {
+    fn evaluate_peace(
+        &mut self,
+        eu4_harmony_remote::peace::args::Evaluate { country, terms, offer }: eu4_harmony_remote::peace::args::Evaluate,
+    ) -> GResult<eu4_harmony_remote::peace::Evaluation> {
         use eu4_harmony_remote::choices::{Acceptance, Amount, Choice, Factor, Resource};
-        self.call(format!("evaluate peace {:x} {} {offer}", enemy.0, peace_terms(terms)));
-        Ok(game::peace::Evaluation {
+        self.call(format!("evaluate peace {country} {} {}", peace_terms(&terms), offer.unwrap_or(false)));
+        found(country)?;
+        terms_found(&terms)?;
+        Ok(eu4_harmony_remote::peace::Evaluation {
             choice: Choice::can(vec![Amount::new(Resource::WarScore, 40.0)]),
             acceptance: Acceptance { accepts: false, total: -5.0, factors: vec![Factor { text: "War score".into(), value: -5.0 }] },
         })
     }
 
-    fn demand_peace(&mut self, enemy: Tag, terms: &[game::peace::Term]) -> GResult<game::diplomacy::Ticket> {
-        self.call(format!("demand peace {:x} {}", enemy.0, peace_terms(terms)));
+    fn demand_peace(
+        &mut self,
+        eu4_harmony_remote::peace::args::Demand { country, terms }: eu4_harmony_remote::peace::args::Demand,
+    ) -> GResult<game::diplomacy::Ticket> {
+        self.call(format!("demand peace {country} {}", peace_terms(&terms)));
+        found(country)?;
+        terms_found(&terms)?;
         Ok(game::diplomacy::Ticket(5))
     }
 
-    fn offer_terms(&mut self, enemy: Tag, terms: &[game::peace::Term]) -> GResult<game::diplomacy::Ticket> {
-        self.call(format!("offer terms {:x} {}", enemy.0, peace_terms(terms)));
+    fn offer_terms(
+        &mut self,
+        eu4_harmony_remote::peace::args::Offer { country, terms }: eu4_harmony_remote::peace::args::Offer,
+    ) -> GResult<game::diplomacy::Ticket> {
+        self.call(format!("offer terms {country} {}", peace_terms(&terms)));
+        found(country)?;
+        terms_found(&terms)?;
         Ok(game::diplomacy::Ticket(6))
     }
 }
 
 /// Peace terms, as a call records them.
-fn peace_terms(terms: &[game::peace::Term]) -> String {
-    terms.iter().map(|t| format!("{}:{:?}:{:?}:{:?}", t.term, t.province, t.country.map(|c| c.0), t.amount)).collect::<Vec<_>>().join(",")
+fn peace_terms(terms: &eu4_harmony_remote::peace::Terms) -> String {
+    let term = |t: &eu4_harmony_remote::peace::Term| format!("{}:{:?}:{:?}:{:?}", t.term, t.province.map(|p| p.0), t.country.map(|c| c.to_string()), t.amount);
+    terms.0.iter().map(term).collect::<Vec<_>>().join(",")
 }
 
-/// The Ottomans occupy Constantinople (151), which Wallachia may take.
-impl occupation::Layer for Fake {
-    fn transfers(&mut self, province: u32) -> GResult<game::occupation::Transfers> {
-        use eu4_harmony_remote::choices::Choice;
-        self.call(format!("transfers {province}"));
-        Ok(match province {
-            151 => game::occupation::Transfers { choice: Choice::can(Vec::new()), allies: vec![wal()] },
-            _ => game::occupation::Transfers { choice: Choice::cannot(vec!["We are not the controller".into()], Vec::new()), allies: Vec::new() },
-        })
-    }
-
-    fn transfer_occupation(&mut self, province: u32, ally: Tag) -> GResult<Option<Tag>> {
-        self.call(format!("transfer occupation {province} {:x}", ally.0));
-        Ok(Some(ally))
-    }
+/// Refused as the layer refuses a term naming a country there is not.
+fn terms_found(terms: &eu4_harmony_remote::peace::Terms) -> GResult<()> {
+    terms.0.iter().filter_map(|t| t.country).try_for_each(|c| found(c).map(|_| ()))
 }

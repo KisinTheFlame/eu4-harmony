@@ -16,9 +16,7 @@ use eu4_harmony_remote::{
 
 /// The province's center of trade, or null; its level is at `+0x14` of the
 /// object at its `+8`.
-const CENTER: usize = 0x960;
-const LEVELS: usize = 0x8;
-const LEVEL: usize = 0x14;
+use crate::objects::campaign::province::{CENTER_OF_TRADE as CENTER, CENTER_OF_TRADE_DATA as LEVELS, CENTER_OF_TRADE_LEVEL as LEVEL};
 /// The rules of both ways, the upgrade's and the downgrade's: each
 /// `(center, tag, reasons or null) -> bool`, writing every line.
 const MAY_CHANGE: GameFunction<3> = GameFunction::at(0x476ac0);
@@ -109,6 +107,13 @@ pub fn change(Session { m, ctx, commands, .. }: Session, id: u32, up: bool) -> G
     }
     let doing = if up { "upgrade the center of trade" } else { "downgrade the center of trade" };
     action::carry_out(commands, choice, doing, || Ok(written(ctx.player, id, if up { level + 1 } else { level - 1 })))
+}
+
+crate::catalogue::bind! {
+    eu4_harmony_remote::centers_of_trade: CenterOfTradeRequest => CenterOfTradeAnswer;
+    Options => options;
+    Upgrade { province } => session change(province, true);
+    Downgrade { province } => session change(province, false);
 }
 
 #[cfg(test)]

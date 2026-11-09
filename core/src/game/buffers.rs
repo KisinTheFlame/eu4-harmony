@@ -8,7 +8,10 @@ use super::{commands::Commands, Caller, Ctx, Session, Tag, View};
 use crate::{
     game_string,
     memory::Memory,
-    objects::{campaign::country, list, map},
+    objects::{
+        campaign::{countries as country_list, country, globals},
+        list, map,
+    },
 };
 use windows_sys::Win32::System::{
     Diagnostics::Debug::FlushInstructionCache,
@@ -168,7 +171,7 @@ impl Drop for Object {
 
 /// Past the furthest RVA a dependency point names.
 const IMAGE: usize = 40 << 20;
-const PAGE: usize = 0x1000;
+use crate::memory::PAGE;
 
 /// The game's image, for a test: reserved as far as the game's, with only
 /// what the test puts there, the game's globals and its functions at their
@@ -207,6 +210,16 @@ impl Image {
     pub fn u64(&self, rva: usize, value: u64) -> &Self {
         self.put(rva, &value.to_le_bytes());
         self
+    }
+
+    /// The country manager at its global, holding the countries' list
+    /// `countries` ([`Object::countries`]), every slot of it counted, as
+    /// the country of a tag is found among them
+    /// (`crate::game::countries::named`); kept with what it returns.
+    pub fn country_manager(&self, countries: &Object) -> Object {
+        let manager = Object::new(country_list::COUNT + 4).u64(country_list::LIST, countries.at() as u64).i32(country_list::COUNT, i16::MAX as i32);
+        self.u64(globals::COUNTRY_MANAGER, manager.at() as u64);
+        manager
     }
 
     /// The game's function at `rva`, as `function`: `mov rax, function;
@@ -419,7 +432,7 @@ extern "C" fn find_id(key: *const u64) -> usize {
 /// Has the game find `units` by their IDs, and no others.
 pub fn units(image: &Image, units: &[&Object]) {
     UNITS.with(|u| *u.borrow_mut() = units.iter().map(|o| o.at()).collect());
-    image.function(super::world::FIND_ID.rva(), find_id as *const ());
+    image.function(super::army::FIND_ID.rva(), find_id as *const ());
 }
 
 /// The game's localisation, which a test's texts stand for by their keys:

@@ -8,7 +8,7 @@
 //! their reasons as the view's tooltip shows them. The framework writes that
 //! command, has the game read it, asks its checks, and posts it through the
 //! command layer.
-use super::{action, commands, country, fail, with_state, Ctx, GResult, Session, Status, Tag};
+use super::{action, commands, countries, country, fail, with_state, Ctx, GResult, Session, Status, Tag};
 use crate::{
     game_string,
     memory::Memory,
@@ -16,7 +16,11 @@ use crate::{
     points::{GameFunction, Point},
     unicode::game_text,
 };
-use eu4_harmony_remote::{choices::Choice, subjects::SubjectInteraction as Listed};
+use eu4_harmony_remote::{
+    choices::Choice,
+    subjects::{args, SubjectInteraction as Listed},
+    ProvinceId,
+};
 
 /// An interaction: its key, its number (the key's token), the static object
 /// the game keeps it in and that object's class; [`points`] keeps where the
@@ -204,7 +208,8 @@ pub fn points() -> Vec<Point> {
 
 /// The interactions the game has for the player toward `subject`: those
 /// the player's country may use at all and the subject's type allows.
-pub fn options(Session { m, ctx, .. }: Session, subject: Tag) -> GResult<Vec<Listed>> {
+pub fn options(Session { m, ctx, .. }: Session, args::Options { subject }: args::Options) -> GResult<Vec<Listed>> {
+    let subject = countries::named(m, &ctx, subject)?;
     let country = subject_of(m, &ctx, subject)?;
     let mut listed = Vec::new();
     for i in INTERACTIONS {
@@ -228,14 +233,14 @@ pub fn options(Session { m, ctx, .. }: Session, subject: Tag) -> GResult<Vec<Lis
 /// country may not use it, the subject's type does not allow it, or its
 /// conditions do not hold, with the reasons. `province` is the one the
 /// interaction's window has the player pick, written as the command's `index`.
-pub fn interact(Session { m, ctx, commands, .. }: Session, subject: Tag, interaction: &str, third_party: Option<Tag>, province: Option<u32>) -> GResult<()> {
+pub fn interact(Session { m, ctx, commands, .. }: Session, args::Interact { subject, interaction, third_party, province }: args::Interact) -> GResult<()> {
+    let subject = countries::named(m, &ctx, subject)?;
+    let third_party = third_party.map(|third| countries::named(m, &ctx, third)).transpose()?;
+    let province = province.map(|ProvinceId(id)| id);
     let country = subject_of(m, &ctx, subject)?;
     let Some(i) = INTERACTIONS.iter().find(|i| i.key == interaction) else {
         return fail(Status::InvalidArgument, format!("the game has no subject interaction {interaction}; subject.options lists them"));
     };
-    if let Some(third) = third_party {
-        super::country(m, &ctx, third)?;
-    }
     if let Some(id) = province {
         if id == 0 {
             return Err(eu4_harmony_checks::provinces::not_found(0).into());
@@ -322,6 +327,12 @@ fn letters(tag: Tag) -> String {
     String::from_utf8_lossy(&tag.letters()).into_owned()
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::subjects: SubjectRequest => SubjectAnswer;
+    Options => options;
+    Interact => interact;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -346,6 +357,8 @@ mod tests {
     mod through_the_layer {
         use super::super::*;
         use crate::catalogue::fake::{game_tag, tur, wal};
+        use eu4_harmony_remote::CountryTag;
+
         use crate::game::{
             buffers::{self, Image, Object},
             commands::record,
@@ -376,8 +389,9 @@ mod tests {
             let (turkey, wallachia) = (Object::country(tur(), size), Object::country(wal(), size));
             let serbia = Object::country(ser(), size).u64(country_fields::OVERLORD, tur().0);
             let countries = Object::countries(&[&turkey, &serbia, &wallachia]);
+            let manager = image.country_manager(&countries);
             let result = action(buffers::session(m, 0, tur(), turkey.at(), countries.at(), Caller::Remote));
-            drop((turkey, serbia, wallachia, countries, image));
+            drop((turkey, serbia, wallachia, countries, manager, image));
             result
         }
 
@@ -388,15 +402,24 @@ mod tests {
 
         #[test]
         fn an_interaction_is_one_of_the_game_s_with_a_subject_of_the_player_s_that_the_game_offers() {
-            let interact = |subject, interaction: &str, third, province| refused(turkey(|s| super::super::interact(s, subject, interaction, third, province)));
-            assert_eq!(interact(wal(), "scutage", None, None), (Status::Rejected, "WAL is not a subject of the player's".into()));
+            let interact = |subject: &[u8; 3], interaction: &str, third: Option<&[u8; 3]>, province: Option<u32>| {
+                let asked = args::Interact {
+                    subject: CountryTag(*subject),
+                    interaction: interaction.into(),
+                    third_party: third.map(|t| CountryTag(*t)),
+                    province: province.map(ProvinceId),
+                };
+                refused(turkey(|s| super::super::interact(s, asked)))
+            };
+            assert_eq!(interact(b"WAL", "scutage", None, None), (Status::Rejected, "WAL is not a subject of the player's".into()));
             assert_eq!(
-                interact(ser(), "tribute", None, None),
+                interact(b"SER", "tribute", None, None),
                 (Status::InvalidArgument, "the game has no subject interaction tribute; subject.options lists them".into())
             );
-            assert_eq!(interact(ser(), "scutage", Some(game_tag(b"HUN", 160)), None).0, Status::NotFound);
-            assert_eq!(interact(ser(), "grant_province", None, Some(0)).0, Status::NotFound);
-            assert_eq!(interact(ser(), "scutage", None, None), (Status::Rejected, "the game does not offer scutage toward SER".into()));
+            assert_eq!(interact(b"SER", "scutage", Some(b"HUN"), None).0, Status::NotFound);
+            assert_eq!(interact(b"QQQ", "scutage", None, None).0, Status::NotFound);
+            assert_eq!(interact(b"SER", "grant_province", None, Some(0)).0, Status::NotFound);
+            assert_eq!(interact(b"SER", "scutage", None, None), (Status::Rejected, "the game does not offer scutage toward SER".into()));
             assert!(record::posted().is_empty());
         }
     }

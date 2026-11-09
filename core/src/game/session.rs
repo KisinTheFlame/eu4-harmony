@@ -19,7 +19,7 @@ pub struct Session {
 /// Puts `country` in view in observe mode, as the player does (GLOSSARY:
 /// Country in view), and answers the session as it is then.
 pub fn view(s: WorldSession, args::View { country }: args::View) -> GResult<Session> {
-    let tag = countries::find(s, country.0)?;
+    let tag = countries::named(s.m, &s.world, country)?;
     player::put_in_view(s.m, &s.world, tag)?;
     session(s.caller)
 }
@@ -40,4 +40,9 @@ pub fn session(_: Caller) -> GResult<Session> {
         visibility_current: events::visibility_current(m, &world),
         player: world.player,
     })
+}
+
+/// The group's dependency points: none of its own.
+pub fn points() -> Vec<crate::points::Point> {
+    Vec::new()
 }

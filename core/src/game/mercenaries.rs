@@ -126,6 +126,12 @@ pub fn hire(Session { m, ctx, commands, .. }: Session, args::Hire { company: wor
     action::post(commands, &hire_text(ctx.player.letters(), province, m.i32(company + NUMBER)?, m.i32(company + ID)?), &doing)
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::mercenaries: MercenaryRequest => MercenaryAnswer;
+    List => list;
+    Hire => hire;
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

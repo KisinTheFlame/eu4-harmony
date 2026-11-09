@@ -36,7 +36,7 @@ const SENDER: usize = 0x80;
 /// The country's multiplier of the upkeep, thousandths.
 const UPKEEP_FACTOR: usize = 0xedc;
 /// The province's conversion progress, thousandths of a percent.
-const PROGRESS: usize = 0x894;
+use crate::objects::campaign::province::MISSIONARY_PROGRESS as PROGRESS;
 /// How many of the country's missionaries the game sends by itself.
 const AUTOMATIC: usize = 0x14a0;
 
@@ -152,6 +152,16 @@ pub fn set_automatic(session: Session, raise: bool) -> GResult<()> {
     }
     let text = format!("automate_missionary_command={{ country={}{} }}", quoted(session.ctx.player), if raise { " value=yes" } else { "" });
     action::post(session.commands, &text, if raise { "have the game send one more missionary" } else { "have the game send one fewer missionary" })
+}
+
+crate::catalogue::bind! {
+    eu4_harmony_remote::missionaries: MissionaryRequest => MissionaryAnswer;
+    Options => options;
+    Send => send;
+    Recall => recall;
+    Automatic => automatic;
+    RaiseAutomatic {} => session set_automatic(true);
+    LowerAutomatic {} => session set_automatic(false);
 }
 
 #[cfg(test)]

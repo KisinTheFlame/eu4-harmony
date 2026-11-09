@@ -89,10 +89,6 @@ impl Catalogue for Scripted {
     fn at(&mut self, events: Option<&events::Buffer>, now: Instant, place: &Place, polls: &mut dyn FnMut(&mut Poll<'_>)) {
         polls(&mut Poll::new(events, now, place, None));
     }
-
-    fn handled(&mut self, _: game::input::Taken) -> bool {
-        true
-    }
 }
 
 /// A request for `capability`, every argument it needs an example of its kind.

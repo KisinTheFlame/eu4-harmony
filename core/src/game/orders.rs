@@ -1,12 +1,12 @@
 //! Route queries, moving and stopping own land armies with the game's move
 //! command (ADR commands-run-at-once), and the record of which extension set
 //! which route.
-use super::{armies::RouteSource, commands::Commands, events::Change, fail, paused, world, Caller, Ctx, GResult, Session, Status, MAX_UNITS};
+use super::{armies::RouteSource, army, commands::Commands, events::Change, fail, paused, world, Caller, Ctx, GResult, Session, Status, MAX_UNITS};
 use crate::containers;
 use crate::{
     memory::Memory,
     objects::{
-        campaign::{classes, geometry, globals, province, route_options, unit},
+        campaign::{geometry, globals, province, route_options, unit},
         list,
     },
     points::{GameFunction, Point},
@@ -127,16 +127,16 @@ struct OrderState {
 /// right-click on the map queries the route and submits it as these do,
 /// docs/research/army-orders.md).
 fn preflight(m: &Memory, ctx: &Ctx, army: usize, caller: Caller) -> GResult<OrderState> {
-    let class = m.ptr(army)?;
-    if class != m.at(classes::ARMY) && class != m.at(classes::FLEET) {
+    let kind = army::kind(m, army)?;
+    if kind == army::Kind::Other {
         return Err(checks::not_land().into());
     }
     if waits_for_time(caller) && paused(m, ctx)? {
         return Err(checks::paused().into());
     }
     // A fleet's own state is the game's move command's to check.
-    if class == m.at(classes::ARMY) {
-        checks::orderable(&world::army_record(m, &super::special_countries(m)?, army)?.condition())?;
+    if kind == army::Kind::Army {
+        checks::orderable(&army::record(m, &super::special_countries(m)?, army)?.condition())?;
     }
     let origin_ptr = m.ptr(army + unit::LOCATION)?;
     let origin = m.u32(origin_ptr + province::ID)?;
@@ -210,7 +210,7 @@ impl Orders {
         if path.ids.is_empty() {
             return Ok(RouteSource::None);
         }
-        let origin = world::location(m, army)?;
+        let origin = army::location(m, army)?;
         Ok(self.source(id, origin, &path, caller))
     }
 
@@ -386,13 +386,13 @@ const SHIP_ROOM: GameFunction<1> = GameFunction::at(0xae1a40);
 /// whole army, which a step onto the sea needs. None when a fleet there may
 /// take it, or `sea` is land, or the unit a fleet.
 fn boarding_refused(m: &Memory, ctx: &Ctx, army: usize, sea: usize, goal: u32) -> GResult<Option<eu4_harmony_checks::Refusal>> {
-    if m.ptr(army)? != m.at(classes::ARMY) || m.u8(m.ptr(sea + province::GEOMETRY)? + geometry::TERRAIN)? & geometry::LAND != 0 {
+    if !army::is_army(m, army)? || m.u8(m.ptr(sea + province::GEOMETRY)? + geometry::TERRAIN)? & geometry::LAND != 0 {
         return Ok(None);
     }
     let mut fleets = Vec::new();
     for node in containers::chain(m, m.ptr(sea + province::UNITS)?, list::NEXT, MAX_UNITS)? {
         let unit = m.ptr(node + list::ITEM)?;
-        if m.ptr(unit)? == m.at(classes::FLEET) && m.u64(unit + unit::OWNER)? == ctx.player.0 {
+        if army::kind(m, unit)? == army::Kind::Fleet && m.u64(unit + unit::OWNER)? == ctx.player.0 {
             fleets.push(unit);
         }
     }
@@ -406,14 +406,14 @@ fn boarding_refused(m: &Memory, ctx: &Ctx, army: usize, sea: usize, goal: u32) -
         for i in 0..containers::span(begin, end, 8, MAX_UNITS)? {
             room += SHIP_ROOM.call(m, [m.ptr(begin + i * 8)?])? as i32 as i64;
         }
-        for aboard in world::aboard(m, fleet)? {
-            room -= world::regiments(m, aboard)? as i64;
+        for aboard in army::aboard(m, fleet)? {
+            room -= army::regiments(m, aboard)? as i64;
         }
         most = most.max(room.max(0) as u32);
     }
     Ok(Some(match fleets.is_empty() {
         true => checks::no_fleet_to_board(goal),
-        false => checks::no_room_aboard(goal, world::regiments(m, army)?, most),
+        false => checks::no_room_aboard(goal, army::regiments(m, army)?, most),
     }))
 }
 
@@ -436,7 +436,7 @@ pub fn transport(session: &Session, army: usize, id: u64, goal: u32) -> GResult<
         let mut ids = Vec::new();
         for i in 0..count {
             let fleet = m.ptr(begin + i * 8)?;
-            if fleet != 0 && m.ptr(fleet)? == m.at(classes::FLEET) {
+            if fleet != 0 && army::kind(m, fleet)? == army::Kind::Fleet {
                 ids.push(m.u64(fleet + unit::ID)?);
             }
         }
