@@ -396,10 +396,11 @@ pub mod functions {
     pub const LIST_ENTRY: GameFunction<3> = GameFunction::at(0x152df80);
     pub const LIST_ADD: GameFunction<3> = GameFunction::at(0x152e910);
     pub const LIST_CLEAR: GameFunction<1> = GameFunction::at(0x15320f0);
-    /// A button's place by its orientation, an icon's as resolved, and the
-    /// place either resolved.
+    /// A button's place by its orientation, an icon's as resolved (two
+    /// classes of them: an `iconType`'s first), and the place either
+    /// resolved.
     pub const BUTTON_PLACE: GameFunction<2> = GameFunction::at(0x15ae930);
-    pub const ICON_PLACE: GameFunction<2> = GameFunction::at(0x1571cf0);
+    pub const ICON_PLACES: [usize; 2] = [0x1585c80, 0x1571cf0];
     pub const PLACED: GameFunction<2> = GameFunction::at(0x1571dc0);
 }
 
@@ -585,7 +586,8 @@ pub fn points() -> Vec<Point> {
         Point::keep(LIST_CLEAR, "48 89 6c 24 10 48 89 74 24 18 57 48 83 ec 20 48 8b f1 33 ed 89 a9 88 02", "list clear"),
         // The panel button strip's places.
         Point::keep(BUTTON_PLACE, "48 89 54 24 10 53 48 83 ec 20 8b 91 30 02 00 00 4c 8d 81 34 02 00 00", "button place"),
-        Point::keep(ICON_PLACE, "48 83 ec 28 48 89 91 78 01 00 00 48 8b 89 68 01 00 00", "icon place"),
+        Point::keep(ICON_PLACES[0], "48 89 54 24 10 53 48 83 ec 20 80 b9 e3 01 00 00 00 48 8b d9 48 89 91 98", "icon place"),
+        Point::keep(ICON_PLACES[1], "48 83 ec 28 48 89 91 78 01 00 00 48 8b 89 68 01 00 00", "icon box place"),
         Point::keep(PLACED, "48 8b 81 78 01 00 00 48 89 02 48 8b c2 c3", "element place"),
         Point::method(classes::BUTTON, element::PLACE, BUTTON_PLACE.rva(), "button place method"),
         Point::method(classes::BUTTON, element::PLACED, PLACED.rva(), "button placed method"),

@@ -971,11 +971,12 @@ fn place_entries(m: &Memory, live: &mut Live, idler: usize, entries: &[EntryWant
         if m.vslot(button, element::PLACE)? == m.at(functions::BUTTON_PLACE.rva()) {
             functions::BUTTON_PLACE.call(m, [button, pack(at)])?;
         }
-        if background != 0 && m.vslot(background, element::PLACE)? == m.at(functions::ICON_PLACE.rva()) {
+        let place = if background != 0 { m.vslot(background, element::PLACE)? } else { 0 };
+        if background != 0 && functions::ICON_PLACES.iter().any(|&k| m.at(k) == place) {
             let mut resolved = 0u64;
             functions::PLACED.call(m, [button, &mut resolved as *mut u64 as usize])?;
             let (x, y) = unpack(resolved);
-            functions::ICON_PLACE.call(m, [background, pack((x + STRIP_BACKGROUND.0, y + STRIP_BACKGROUND.1))])?;
+            m.call(place, &[background, pack((x + STRIP_BACKGROUND.0, y + STRIP_BACKGROUND.1))])?;
         }
         slot += 1;
     }
