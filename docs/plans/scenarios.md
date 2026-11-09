@@ -1,6 +1,6 @@
 # Scenarios plan
 
-Status: SC1 to SC3 built and tried in the game (2026-11-05); since 2026-11-09 the runner plays several scenarios at a time with `--jobs` ([dev-tools.md](../dev-tools.md)), each in a test game of its own, which the plan's one claim for a run does not say; what was not tried is in [Scenarios](../prototype-log/2026-11-05-scenarios.md). Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Scenario, Leak run, Claim, Hidden start). It builds on the claims of test games ([test-games.md](test-games.md)) and on remote control ([remote-control.md](remote-control.md)); the decision behind it is [ADR scenarios-drive-the-game-through-remote-control-only](../adr/2026-11-05-scenarios-drive-the-game-through-remote-control-only.md).
+Status: SC1 to SC3 built and tried in the game (2026-11-05); since 2026-11-09 the runner plays several scenarios at a time with `--jobs` ([dev-tools.md](../dev-tools.md)), each in a test game of its own, which the plan's one claim for a run does not say, and a set may name another set; what was not tried is in [Scenarios](../prototype-log/2026-11-05-scenarios.md). Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Scenario, Leak run, Claim, Hidden start). It builds on the claims of test games ([test-games.md](test-games.md)) and on remote control ([remote-control.md](remote-control.md)); the decision behind it is [ADR scenarios-drive-the-game-through-remote-control-only](../adr/2026-11-05-scenarios-drive-the-game-through-remote-control-only.md).
 
 ## Goal and scope
 
