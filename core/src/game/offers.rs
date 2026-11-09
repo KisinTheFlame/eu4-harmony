@@ -16,30 +16,24 @@ use crate::{
         },
     },
 };
-use eu4_harmony_remote::Date;
-
-/// A proposal waiting for the player's answer.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Offer {
-    pub id: u32,
-    pub from: Tag,
-    /// When it was made, a day number.
-    pub date: i32,
-    pub title: String,
-    pub description: String,
-}
+use eu4_harmony_remote::{
+    offers::{args, Offer},
+    CountryTag, Date,
+};
 
 /// The offers waiting for the player's answer, those shown as icons first.
 pub fn offers(Session { m, ctx, .. }: Session) -> GResult<Vec<Offer>> {
     listed(m, &ctx)?.iter().map(|h| read(m, h)).collect()
 }
 
-/// One offer, by its id.
-pub fn offer(Session { m, ctx, .. }: Session, id: u32) -> GResult<Offer> {
-    match listed(m, &ctx)?.into_iter().find(|w| w.id == id) {
-        Some(w) => read(m, &w),
-        None => Err(checks::not_found(id)),
-    }
+/// Accepts an offer, as its dialog's accept button does ([`answer`]).
+pub fn accept(session: Session, args::Accept { offer }: args::Accept) -> GResult<()> {
+    answer(session, offer, true)
+}
+
+/// Declines an offer, as its dialog's decline button does ([`answer`]).
+pub fn decline(session: Session, args::Decline { offer }: args::Decline) -> GResult<()> {
+    answer(session, offer, false)
 }
 
 /// Accepts or declines an offer, as the player does with the buttons of its
@@ -148,8 +142,9 @@ fn read(m: &Memory, w: &Held) -> GResult<Offer> {
     let window = m.ptr(w.dialog + dialog::WINDOW)?;
     Ok(Offer {
         id: w.id,
-        from: Tag(m.u64(w.action + action::FROM)?),
-        date: w.made,
+        from: CountryTag(Tag(m.u64(w.action + action::FROM)?).letters()),
+        date: Date(w.made),
+
         title: text(m, window, "Title")?,
         description: text(m, window, "Description")?,
     })

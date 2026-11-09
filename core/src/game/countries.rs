@@ -12,16 +12,17 @@ use crate::{
     unicode::game_text,
 };
 use eu4_harmony_remote::{
-    countries::{Budget, Entry, GoverningCapacity, IdeaGroup, Loan, Loans, Rebels, Technology},
+    countries::{args, Budget, Country, Entry, GoverningCapacity, IdeaGroup, Loan, Loans, Power, Rebels, Relation, RelationKind, Technology},
     CountryTag, Date,
 };
 
-/// The country whose tag is these three letters (for example `CAS`);
-/// [`super::Status::NotFound`] when there is none.
-pub fn find(WorldSession { m, world: ctx, .. }: WorldSession, letters: [u8; 3]) -> GResult<Tag> {
-    match world::countries(m, &ctx)?.into_iter().find(|t| t.letters() == letters) {
-        Some(tag) => Ok(tag),
-        None => Err(eu4_harmony_checks::countries::not_found(&String::from_utf8_lossy(&letters)).into()),
+/// The country a capability's argument names by its tag (for example
+/// `CAS`); [`super::Status::NotFound`] when there is none. Every capability
+/// that takes a country finds it here.
+pub fn named(m: &Memory, ctx: &impl InWorld, tag: CountryTag) -> GResult<Tag> {
+    match world::countries(m, ctx)?.into_iter().find(|t| t.letters() == tag.0) {
+        Some(found) => Ok(found),
+        None => Err(eu4_harmony_checks::countries::not_found(&tag.to_string()).into()),
     }
 }
 
@@ -32,48 +33,8 @@ pub fn tag(WorldSession { m, world: ctx, .. }: WorldSession, country_id: Tag) ->
 }
 
 /// Whether the two countries are at war, or either is a rebel faction.
-pub fn hostile(WorldSession { m, world: ctx, .. }: WorldSession, a: Tag, b: Tag) -> GResult<bool> {
-    world::hostile(m, &ctx, a, b)
-}
-
-/// A country at one moment, as the game keeps it.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Country {
-    pub tag: Tag,
-    /// Thousandths of a ducat; None in the player's view of another country,
-    /// as the monarch points.
-    pub treasury: Option<i32>,
-    /// Men.
-    pub manpower: i32,
-    pub max_manpower: i32,
-    /// Thousandths, from -3000 to 3000.
-    pub stability: i32,
-    /// Thousandths, from -100,000 to 100,000.
-    pub prestige: i32,
-    /// Monarch points: administrative, diplomatic, military.
-    pub power: Option<[i32; 3]>,
-    /// The wars it takes part in, in the order the game keeps them.
-    pub wars: Vec<War>,
-    /// Its allies, its subjects, its overlord and the countries it rivals,
-    /// in that order.
-    pub relations: Vec<Relation>,
-    pub technology: Technology,
-    /// The idea groups it has taken, its national ideas first.
-    pub ideas: Vec<IdeaGroup>,
-    /// What the panels show only to the country itself; None in the
-    /// player's view of another country.
-    pub own: Option<Own>,
-}
-
-/// What a country's panels show only to the country itself.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Own {
-    pub governing_capacity: GoverningCapacity,
-    /// Thousandths of a percentage point.
-    pub inflation: i32,
-    pub mercantilism: i32,
-    pub loans: Loans,
-    pub rebels: Vec<Rebels>,
+pub fn hostile(WorldSession { m, world: ctx, .. }: WorldSession, args::Hostile { country, other }: args::Hostile) -> GResult<bool> {
+    world::hostile(m, &ctx, named(m, &ctx, country)?, named(m, &ctx, other)?)
 }
 
 /// A war going on.
@@ -84,42 +45,6 @@ pub struct War {
     /// The first of each side is its leader.
     pub attackers: Vec<Tag>,
     pub defenders: Vec<Tag>,
-}
-
-/// How a country stands to another.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RelationKind {
-    /// They are allied.
-    Ally,
-    /// The other is its subject, of the relation's subject type.
-    Subject,
-    /// The other is its overlord, and it is the relation's subject type to
-    /// it.
-    Overlord,
-    /// It has chosen the other as a rival.
-    Rival,
-}
-
-impl RelationKind {
-    /// In the order a snapshot lists them.
-    pub const ALL: [RelationKind; 4] = [Self::Ally, Self::Subject, Self::Overlord, Self::Rival];
-
-    /// Its name in a snapshot's JSON (`ally`).
-    pub fn key(self) -> &'static str {
-        ["ally", "subject", "overlord", "rival"][self as usize]
-    }
-}
-
-/// One of a country's diplomatic relations: what the other country is to it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Relation {
-    pub kind: RelationKind,
-    pub country: Tag,
-    /// For a subject or an overlord, the kind of subject the subject is: the
-    /// key `common/subject_types` gives it (`vassal`, `march`,
-    /// `personal_union`, `tributary_state`, or one a mod adds). None for the
-    /// other kinds.
-    pub subject_type: Option<String>,
 }
 
 /// The most tags a list of a country's, or wars, are believed to hold.
@@ -260,14 +185,16 @@ fn sees_all_of(view: View, ctx: &World, tag: Tag) -> bool {
 
 /// One read of a country: its treasury, manpower, stability, prestige,
 /// monarch points, wars, diplomatic relations, technology and ideas, and
-/// what only it sees of itself ([`Own`]). In the player's view another
-/// country's treasury, monarch points and [`Own`] are left out.
-pub fn snapshot(WorldSession { m, world: ctx, view, .. }: WorldSession, tag: Tag) -> GResult<Country> {
+/// what only it sees of itself. In the player's view another country's
+/// treasury, monarch points and what only it sees are left out.
+pub fn get(WorldSession { m, world: ctx, view, .. }: WorldSession, args::Get { country: asked }: args::Get) -> GResult<Box<Country>> {
+    let tag = named(m, &ctx, asked)?;
     let c = country(m, &ctx, tag)?;
     let all = sees_all_of(view, &ctx, tag);
     let fixed = |at: usize| m.i32(c + at);
+    let letters = |tag: Tag| CountryTag(tag.letters());
     let mut relations = Vec::new();
-    let mut add = |kind: RelationKind, country: Tag, subject_type: Option<String>| relations.push(Relation { kind, country, subject_type });
+    let mut add = |kind: RelationKind, country: Tag, subject_type: Option<String>| relations.push(Relation { kind, country: letters(country), subject_type });
     for ally in checked(m, &ctx, list_tags(m, c + fields::ALLIES)?)? {
         add(RelationKind::Ally, ally, None);
     }
@@ -283,20 +210,29 @@ pub fn snapshot(WorldSession { m, world: ctx, view, .. }: WorldSession, tag: Tag
     for rival in checked(m, &ctx, rival_tags(m, c)?)? {
         add(RelationKind::Rival, rival, None);
     }
-    Ok(Country {
-        tag,
-        treasury: if all { Some(fixed(fields::TREASURY)?) } else { None },
+    let tags = |tags: Vec<Tag>| tags.into_iter().map(letters).collect();
+    let own = if all { Some(own_of(m, &ctx, c)?) } else { None };
+    Ok(Box::new(Country {
+        tag: letters(tag),
+        treasury: if all { Some(thousandths(fixed(fields::TREASURY)?)) } else { None },
         manpower: fixed(fields::MANPOWER)?,
         max_manpower: fixed(fields::MAX_MANPOWER)?,
-        stability: fixed(fields::STABILITY)?,
-        prestige: fixed(fields::PRESTIGE)?,
-        power: if all { Some([m.i32(c + fields::POWER)?, m.i32(c + fields::POWER_DIP)?, m.i32(c + fields::POWER_MIL)?]) } else { None },
-        wars: wars_of(m, &ctx, tag)?,
+        stability: thousandths(fixed(fields::STABILITY)?),
+        prestige: thousandths(fixed(fields::PRESTIGE)?),
+        power: if all { Some(Power { adm: m.i32(c + fields::POWER)?, dip: m.i32(c + fields::POWER_DIP)?, mil: m.i32(c + fields::POWER_MIL)? }) } else { None },
+        wars: wars_of(m, &ctx, tag)?
+            .into_iter()
+            .map(|w| eu4_harmony_remote::countries::War { name: w.name, attackers: tags(w.attackers), defenders: tags(w.defenders) })
+            .collect(),
         relations,
         technology: technology_of(m, c)?,
         ideas: ideas_of(m, c)?,
-        own: if all { Some(own_of(m, &ctx, c)?) } else { None },
-    })
+        governing_capacity: own.as_ref().map(|o| o.governing_capacity),
+        inflation: own.as_ref().map(|o| thousandths(o.inflation)),
+        mercantilism: own.as_ref().map(|o| thousandths(o.mercantilism)),
+        loans: own.as_ref().map(|o| o.loans),
+        rebels: own.map(|o| o.rebels),
+    }))
 }
 
 /// The country's technology levels, each kind's category found as the game
@@ -327,6 +263,16 @@ fn ideas_of(m: &Memory, c: usize) -> GResult<Vec<IdeaGroup>> {
         out.push(IdeaGroup { group: key, ideas: m.i32(item + fields::IDEA_GROUP_COUNT)?, national: m.u8(group + idea_group::FREE)? != 0 });
     }
     Ok(out)
+}
+
+/// What a country's panels show only to the country itself.
+struct Own {
+    governing_capacity: GoverningCapacity,
+    /// Thousandths of a percentage point.
+    inflation: i32,
+    mercantilism: i32,
+    loans: Loans,
+    rebels: Vec<Rebels>,
 }
 
 fn own_of(m: &Memory, ctx: &impl InWorld, c: usize) -> GResult<Own> {
@@ -413,7 +359,8 @@ fn faction_kind(m: &Memory, faction: usize) -> GResult<String> {
 /// A country's budget as the economy view shows it: this month's income and
 /// expenses by category, and its loans; in the player's view another
 /// country's are left out.
-pub fn budget(WorldSession { m, world: ctx, view, .. }: WorldSession, tag: Tag) -> GResult<Budget> {
+pub fn budget(WorldSession { m, world: ctx, view, .. }: WorldSession, args::Budget { country: asked }: args::Budget) -> GResult<Budget> {
+    let tag = named(m, &ctx, asked)?;
     let c = country(m, &ctx, tag)?;
     let letters = CountryTag(tag.letters());
     if !sees_all_of(view, &ctx, tag) {
@@ -514,7 +461,7 @@ fn chain(m: &Memory, first: usize, tag: usize, next: usize) -> GResult<Vec<Tag>>
 /// is no war or whose sides cannot be read is left out, as the country is on
 /// neither side of it that can be seen; one with a tag that is no country's
 /// fails the snapshot only when it is the country's.
-fn wars_of(m: &Memory, ctx: &impl InWorld, country: Tag) -> GResult<Vec<War>> {
+pub(super) fn wars_of(m: &Memory, ctx: &impl InWorld, country: Tag) -> GResult<Vec<War>> {
     let data = m.ptr(ctx.world() + world_fields::WARS)?;
     let count = m.i32(ctx.world() + world_fields::WAR_COUNT)?;
     if !(0..=MOST as i32).contains(&count) {

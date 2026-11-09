@@ -9,8 +9,9 @@
 use super::{army, events, orders, with_state, Caller, GResult, Session, Tag, View};
 use crate::{memory::Memory, objects::campaign::unit};
 use eu4_harmony_checks::armies as checks;
-use eu4_harmony_remote::armies::args;
+use eu4_harmony_remote::armies::{self as remote, args, ArmyKind, Blocked, RouteBy};
 use eu4_harmony_remote::ArmyId;
+use eu4_harmony_remote::CountryTag;
 use eu4_harmony_remote::ProvinceId;
 
 /// Who set the route an army is following, as the caller sees it.
@@ -28,7 +29,7 @@ pub enum RouteSource {
 }
 
 /// A land army, or a fleet, of which the ID, owner, `land: false`, its
-/// province, its ships (as `regiments`) and its route are read.
+/// province and its ships (as `regiments`) are read.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Army {
     /// Full 64-bit army ID; survives save and load.
@@ -48,12 +49,6 @@ pub struct Army {
     /// Running a native task (for example hunting rebels) or otherwise not idle.
     pub busy: bool,
     pub regiments: u32,
-    /// Provinces left on the current route; 0 when not moving. Set for the
-    /// player's own armies only.
-    pub route_len: u32,
-    /// Last province of the current route.
-    pub destination: Option<u32>,
-    pub route_source: RouteSource,
     /// An army's fleet while it is aboard one.
     pub aboard: Option<u64>,
     /// A fleet's regiments aboard.
@@ -77,28 +72,57 @@ impl Army {
     }
 }
 
-/// An own army with its route, as `caller` sees it.
-fn own(m: &Memory, caller: Caller, address: usize, id: u64) -> GResult<Army> {
-    let mut army = army::record(m, &super::special_countries(m)?, address)?;
-    {
-        let path = orders::read_path(m, address + unit::PATH)?;
-        army.route_len = path.ids.len() as u32;
-        army.destination = path.ids.last().copied();
-        army.route_source = with_state(|s| s.orders.route_source(m, address, id, caller))?;
+/// An army as a capability answers it, with its route and who set it.
+fn shown(a: &Army, route: Vec<ProvinceId>, source: RouteSource) -> remote::Army {
+    let blocked = [
+        (a.in_battle, Blocked::InBattle),
+        (a.sieging, Blocked::Sieging),
+        (a.retreating, Blocked::Retreating),
+        (a.exiled, Blocked::Exiled),
+        (a.movement_locked, Blocked::MovementLocked),
+        (a.attached, Blocked::Attached),
+        (a.has_followers, Blocked::HasFollowers),
+        (a.busy, Blocked::Busy),
+    ];
+    remote::Army {
+        id: ArmyId(a.id),
+        owner: CountryTag(a.owner.letters()),
+        kind: if a.land { ArmyKind::Army } else { ArmyKind::Navy },
+        province: (a.province != 0).then_some(ProvinceId(a.province)),
+        regiments: a.regiments,
+        blocked: blocked.into_iter().filter_map(|(set, why)| set.then_some(why)).collect(),
+        route,
+        // Remote control's orders are the player's, so to it a route is
+        // never its own: only an extension's is.
+        route_by: match source {
+            RouteSource::None => None,
+            RouteSource::External => Some(RouteBy::PlayerOrGame),
+            RouteSource::Own => Some(RouteBy::ThisMod),
+            RouteSource::OtherExtension => Some(RouteBy::OtherMod),
+        },
+        aboard: a.aboard.map(ArmyId),
+        carrying: a.carrying,
     }
-    Ok(army)
 }
 
-/// One of the player's armies or fleets.
-pub fn army(Session { m, ctx, caller, .. }: Session, id: u64) -> GResult<Army> {
+/// An own army with its route, as `caller` sees it.
+fn own(m: &Memory, caller: Caller, address: usize, id: u64) -> GResult<remote::Army> {
+    let army = army::record(m, &super::special_countries(m)?, address)?;
+    let route = orders::read_path(m, address + unit::PATH)?.ids.into_iter().map(ProvinceId).collect();
+    let source = with_state(|s| s.orders.route_source(m, address, id, caller))?;
+    Ok(shown(&army, route, source))
+}
+
+/// One of the player's armies or fleets, with its route.
+pub fn get(Session { m, ctx, caller, .. }: Session, args::Get { army: ArmyId(id) }: args::Get) -> GResult<remote::Army> {
     let Some((_, address, _)) = army::roster(m, &ctx)?.into_iter().find(|(i, _, _)| *i == id) else {
         return Err(checks::not_own(id).into());
     };
     own(m, caller, address, id)
 }
 
-/// All the player's armies and fleets.
-pub fn own_armies(Session { m, ctx, caller, .. }: Session) -> GResult<Vec<Army>> {
+/// All the player's armies and fleets, each with its route.
+pub fn list(Session { m, ctx, caller, .. }: Session) -> GResult<Vec<remote::Army>> {
     army::roster(m, &ctx)?.into_iter().map(|(id, address, _)| own(m, caller, address, id)).collect()
 }
 
@@ -106,22 +130,16 @@ pub fn own_armies(Session { m, ctx, caller, .. }: Session) -> GResult<Vec<Army>>
 /// none under fog, and [`Status::NotReady`] while visibility is not current,
 /// and of another country's only whether it fights, besieges or retreats,
 /// which the map shows; in the full view every one, as the game keeps it.
-pub fn in_province(Session { m, ctx, view, .. }: Session, province: u32) -> GResult<Vec<Army>> {
+pub fn in_province(Session { m, ctx, view, .. }: Session, args::At { province: ProvinceId(province) }: args::At) -> GResult<Vec<remote::Army>> {
     if view == View::Player && !events::visibility_current(m, &ctx) {
         return Err(checks::visibility_not_current().into());
     }
     let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
-    let shown = |a: Army| match view == View::Player && a.owner.index() != ctx.player.index() {
+    let seen = |a: Army| match view == View::Player && a.owner.index() != ctx.player.index() {
         true => Army { exiled: false, movement_locked: false, attached: false, has_followers: false, busy: false, ..a },
         false => a,
     };
-    Ok(army::in_province(m, &ctx, address, view)?.into_iter().map(|(a, _)| shown(a)).collect())
-}
-
-/// Provinces on the current route of an own army or fleet, in order.
-pub fn route(Session { m, ctx, .. }: Session, id: u64) -> GResult<Vec<u32>> {
-    let army = army::own(m, &ctx, id)?;
-    Ok(orders::read_path(m, army + unit::PATH)?.ids)
+    Ok(army::in_province(m, &ctx, address, view)?.into_iter().map(|(a, _)| shown(&seen(a), Vec::new(), RouteSource::None)).collect())
 }
 
 /// Whether an own land army may enter a province now (military access and
@@ -184,9 +202,9 @@ pub fn find_route(Session { m, ctx, caller, .. }: Session, args::RouteTo { army:
 /// is the player's, given while the game is paused as the player gives one.
 /// With `transports`, an own land army is carried there by the player's
 /// fleets, as the player's automatic transport carries it.
-pub fn move_to(session: Session, id: u64, goal: u32, transports: bool) -> GResult<()> {
+pub fn move_to(session: Session, args::Move { army: ArmyId(id), province: ProvinceId(goal), transports }: args::Move) -> GResult<()> {
     let Session { m, ctx, .. } = session;
-    if transports {
+    if transports.unwrap_or(false) {
         let army = army::own_land(m, &ctx, id)?;
         return orders::transport(&session, army, id, goal);
     }
@@ -275,6 +293,11 @@ mod tests {
         Units { _image: image, _provinces: provinces, _objects: vec![regiment, army, fleet, theirs, second, first, player, countries], session }
     }
 
+    /// An order to move `id` to `goal`, on land.
+    fn ordered(id: u64, goal: u32) -> args::Move {
+        args::Move { army: ArmyId(id), province: ProvinceId(goal), transports: None }
+    }
+
     fn refused(result: GResult<()>) -> (Status, String) {
         let Err(Fail { status, message }) = result else { panic!("{result:?} was ordered") };
         (status, message)
@@ -283,11 +306,11 @@ mod tests {
     #[test]
     fn the_player_s_armies_and_fleets_are_read_with_their_routes() {
         let units = units(2, false);
-        let all = own_armies(units.session).unwrap();
-        let summary: Vec<_> = all.iter().map(|a| (a.id, a.land, a.province, a.regiments, a.route_len, a.route_source)).collect();
-        assert_eq!(summary, [(11, true, 1, 2, 0, RouteSource::None), (12, false, 1, 1, 0, RouteSource::None)]);
-        assert_eq!(army(units.session, 11).unwrap(), all[0]);
-        assert_eq!(army(units.session, 21).unwrap_err().message, "no own army 21");
+        let all = list(units.session).unwrap();
+        let summary: Vec<_> = all.iter().map(|a| (a.id.0, a.kind, a.province, a.regiments, a.route.len(), a.route_by)).collect();
+        assert_eq!(summary, [(11, ArmyKind::Army, Some(ProvinceId(1)), 2, 0, None), (12, ArmyKind::Navy, Some(ProvinceId(1)), 1, 0, None)]);
+        assert_eq!(get(units.session, args::Get { army: ArmyId(11) }).unwrap(), all[0]);
+        assert_eq!(get(units.session, args::Get { army: ArmyId(21) }).unwrap_err().message, "no own army 21");
     }
 
     #[test]
@@ -295,7 +318,7 @@ mod tests {
         let units = units(2, false);
         stop(units.session, args::Stop { army: ArmyId(11) }).unwrap();
         // Moving it to where it is stops it, as the right click there does.
-        move_to(units.session, 11, 1, false).unwrap();
+        move_to(units.session, ordered(11, 1)).unwrap();
         assert!(record::posted().is_empty());
     }
 
@@ -304,10 +327,11 @@ mod tests {
         let some = units(2, false);
         assert_eq!(refused(stop(some.session, args::Stop { army: ArmyId(12) })), (Status::InvalidArgument, "not a land army".into()));
         assert_eq!(refused(stop(some.session, args::Stop { army: ArmyId(21) })), (Status::NotFound, "no own army 21".into()));
-        assert_eq!(refused(move_to(some.session, 99, 2, false)), (Status::NotFound, "no own army 99".into()));
+        assert_eq!(refused(move_to(some.session, ordered(99, 2))), (Status::NotFound, "no own army 99".into()));
         drop(some);
         assert_eq!(refused(stop(units(2, true).session, args::Stop { army: ArmyId(11) })), (Status::Rejected, "army is in battle".into()));
-        assert_eq!(refused(move_to(units(0, false).session, 11, 1, false)), (Status::Rejected, "army has no regiments".into()));
+        assert_eq!(refused(move_to(units(0, false).session, ordered(11, 1))), (Status::Rejected, "army has no regiments".into()));
+
         assert!(record::posted().is_empty());
     }
 }

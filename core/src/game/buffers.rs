@@ -8,7 +8,10 @@ use super::{commands::Commands, Caller, Ctx, Session, Tag, View};
 use crate::{
     game_string,
     memory::Memory,
-    objects::{campaign::country, list, map},
+    objects::{
+        campaign::{countries as country_list, country, globals},
+        list, map,
+    },
 };
 use windows_sys::Win32::System::{
     Diagnostics::Debug::FlushInstructionCache,
@@ -207,6 +210,16 @@ impl Image {
     pub fn u64(&self, rva: usize, value: u64) -> &Self {
         self.put(rva, &value.to_le_bytes());
         self
+    }
+
+    /// The country manager at its global, holding the countries' list
+    /// `countries` ([`Object::countries`]), every slot of it counted, as
+    /// the country of a tag is found among them
+    /// (`crate::game::countries::named`); kept with what it returns.
+    pub fn country_manager(&self, countries: &Object) -> Object {
+        let manager = Object::new(country_list::COUNT + 4).u64(country_list::LIST, countries.at() as u64).i32(country_list::COUNT, i16::MAX as i32);
+        self.u64(globals::COUNTRY_MANAGER, manager.at() as u64);
+        manager
     }
 
     /// The game's function at `rva`, as `function`: `mov rax, function;

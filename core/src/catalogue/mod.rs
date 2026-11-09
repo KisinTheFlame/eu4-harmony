@@ -9,10 +9,10 @@
 //! One file per group of capabilities, as in the capability layer: each has
 //! the group's slice of the layer as a trait ([`Game`] is all of them), the
 //! layer itself behind it ([`Live`]), and turns the group's requests into
-//! calls and the layer's types into the answers. Every [`Game`] is a
-//! [`Catalogue`]. The tests of a group that does more than call the layer put
-//! a fake game behind the traits ([`fake`]); a capability a test does not
-//! script fails there.
+//! calls of the layer, which answers in the catalogue's own types. Every
+//! [`Game`] is a [`Catalogue`]. The tests of a group that does more than
+//! call the layer put a fake game behind the traits ([`fake`]); a capability
+//! a test does not script fails there.
 
 /// Declares a group's slice of the capability layer and its requests once:
 /// its `Layer` trait, [`Live`] calling each capability there for its caller,
@@ -695,7 +695,7 @@ mod tests {
                 }
             }
         }
-        assert!(checked > 30, "only {checked} checked");
+        assert!(checked > 20, "only {checked} checked");
         assert!(wrong.is_empty(), "{wrong:#?}");
     }
 

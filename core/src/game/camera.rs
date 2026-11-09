@@ -16,7 +16,10 @@ use crate::{
     },
     points::{GameFunction, Point},
 };
-use eu4_harmony_remote::{camera::args, ProvinceId};
+use eu4_harmony_remote::{
+    camera::{args, Camera},
+    ProvinceId,
+};
 
 /// The map manager looking at a province (rcx the map manager, rdx the
 /// province), at its map data's position, keeping the camera's height.
@@ -41,23 +44,6 @@ pub fn points() -> Vec<Point> {
         Point::keep(SETTLE, "48 89 5c 24 08 57 48 83 ec 20 8b 81 94 06 00 00 48 8b f9 89 81 7c 06 00 00", "camera to its goal")
             .uses(&[fields::GOAL_POSITION, fields::POSITION]),
     ]
-}
-
-/// Where the camera looks and how high it is.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Camera {
-    /// The map position at the middle of the view: where the line of sight
-    /// meets the map's base plane.
-    pub x: u32,
-    pub y: u32,
-    /// The camera's height above the map's base plane, in pixels of the map.
-    pub height: u32,
-    /// The province at that position; none where there is no province.
-    pub province: Option<u32>,
-    /// The lowest and the highest the camera may be; the game keeps it higher
-    /// than the lowest over high ground.
-    pub min_height: u32,
-    pub max_height: u32,
 }
 
 /// Where the camera looks now.
@@ -130,7 +116,7 @@ fn read(m: &Memory, camera: usize) -> GResult<Camera> {
     let (width, map_height) = map_size(m)?;
     let (min_height, max_height) = limits(m, camera)?;
     let (x, y) = position(x, z, width, map_height, m.u8(camera + fields::WRAPS)? != 0);
-    Ok(Camera { x, y, height: height.round().max(0.0) as u32, province: province_at(m, x, y)?, min_height, max_height })
+    Ok(Camera { x, y, height: height.round().max(0.0) as u32, province: province_at(m, x, y)?.map(ProvinceId), min_height, max_height })
 }
 
 /// The map position of a point the camera looks at: rounded to a pixel, x
@@ -315,9 +301,10 @@ mod tests {
     fn the_camera_turns_to_a_province_or_a_position_and_to_a_height() {
         let map = map(false);
         let at = look_at(map.session, args::LookAt { province: Some(ProvinceId(1)), x: None, y: None }).unwrap();
-        assert_eq!((at.x, at.y, at.province), (1, 0, Some(1)));
+        assert_eq!((at.x, at.y, at.province), (1, 0, Some(ProvinceId(1))));
         let at = look_at(map.session, args::LookAt { province: None, x: Some(2), y: Some(0) }).unwrap();
-        assert_eq!((at.x, at.y, at.province, at.height), (2, 0, Some(2), 500));
+        assert_eq!((at.x, at.y, at.province, at.height), (2, 0, Some(ProvinceId(2)), 500));
+
         let high = zoom(map.session, args::Zoom { height: 900 }).unwrap();
         assert_eq!(high.height, 900);
     }

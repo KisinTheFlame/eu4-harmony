@@ -1,84 +1,39 @@
 //! Peace: the peace view. The terms and their evaluation answer at once; a
 //! demand or an offer is sent at once and answered as the diplomatic actions
 //! are ([`super::diplomacy::waiting`]).
-use super::{countries, diplomacy, tag, Outcome as Ran};
-use crate::game::{
-    diplomacy::Ticket,
-    peace::{self as layer, Evaluation as Evaluated, Term, TermOption as Offered},
-    GResult, Tag,
-};
+use super::{diplomacy, Outcome as Ran};
+use crate::game::{diplomacy::Ticket, peace as layer, GResult};
+use eu4_harmony_remote::peace::args;
 use eu4_harmony_remote::{
-    peace::{self as remote, Evaluation, PeaceAnswer, PeaceRequest, TermOption},
-    Answer as Answered, ProvinceId,
+    peace::{Evaluation, PeaceAnswer, PeaceRequest, TermOption},
+    Answer as Answered, Error,
 };
 use std::time::Instant;
 
 layer! {
-    fn peace_terms(enemy: Tag, offer: bool) -> Vec<Offered> = session layer::terms;
-    fn evaluate_peace(enemy: Tag, terms: &[Term], offer: bool) -> Evaluated = session layer::evaluate;
-    fn demand_peace(enemy: Tag, terms: &[Term]) -> Ticket = session layer::demand;
-    fn offer_terms(enemy: Tag, terms: &[Term]) -> Ticket = session layer::offer;
+    fn peace_terms(asked: args::TermOptions) -> Vec<TermOption> = session layer::terms;
+    fn evaluate_peace(asked: args::Evaluate) -> Evaluation = session layer::evaluate;
+    fn demand_peace(asked: args::Demand) -> Ticket = session layer::demand;
+    fn offer_terms(asked: args::Offer) -> Ticket = session layer::offer;
 }
 
-pub fn run(request: PeaceRequest, game: &mut (impl Layer + countries::Layer + ?Sized), now: Instant) -> Ran {
+pub fn run(request: PeaceRequest, game: &mut (impl Layer + ?Sized), now: Instant) -> Ran {
+    let answered = |answer: GResult<PeaceAnswer>| Ran::Done(answer.map(Answered::Peace).map_err(Error::from));
     let sent = match request {
-        PeaceRequest::TermOptions { country, offer } => {
-            return Ran::Done((|| {
-                let enemy = game.country(country)?;
-                Ok(Answered::Peace(PeaceAnswer::TermOptions(game.peace_terms(enemy, offer.unwrap_or(false))?.into_iter().map(option).collect())))
-            })())
-        }
+        PeaceRequest::TermOptions { country, offer } => return answered(game.peace_terms(args::TermOptions { country, offer }).map(PeaceAnswer::TermOptions)),
         PeaceRequest::Evaluate { country, terms, offer } => {
-            return Ran::Done((|| {
-                let enemy = game.country(country)?;
-                let terms = asked(terms, game)?;
-                let evaluated = game.evaluate_peace(enemy, &terms, offer.unwrap_or(false))?;
-                Ok(Answered::Peace(PeaceAnswer::Evaluate(Evaluation { choice: evaluated.choice, acceptance: evaluated.acceptance })))
-            })())
+            return answered(game.evaluate_peace(args::Evaluate { country, terms, offer }).map(PeaceAnswer::Evaluate))
         }
-        PeaceRequest::Demand { country, terms } => (|| {
-            let enemy = game.country(country)?;
-            let terms = asked(terms, game)?;
-            Ok((game.demand_peace(enemy, &terms)?, (|o| Answered::Peace(PeaceAnswer::Demand(o))) as diplomacy::Answers))
-        })(),
-        PeaceRequest::Offer { country, terms } => (|| {
-            let enemy = game.country(country)?;
-            let terms = asked(terms, game)?;
-            Ok((game.offer_terms(enemy, &terms)?, (|o| Answered::Peace(PeaceAnswer::Offer(o))) as diplomacy::Answers))
-        })(),
+        PeaceRequest::Demand { country, terms } => {
+            game.demand_peace(args::Demand { country, terms }).map(|ticket| (ticket, (|o| Answered::Peace(PeaceAnswer::Demand(o))) as diplomacy::Answers))
+        }
+        PeaceRequest::Offer { country, terms } => {
+            game.offer_terms(args::Offer { country, terms }).map(|ticket| (ticket, (|o| Answered::Peace(PeaceAnswer::Offer(o))) as diplomacy::Answers))
+        }
     };
     match sent {
         Ok((ticket, answers)) => diplomacy::waiting(ticket, answers, now),
-        Err(e) => Ran::Done(Err(e)),
-    }
-}
-
-/// The terms a request names, its countries found in the game.
-fn asked(terms: remote::Terms, game: &mut (impl countries::Layer + ?Sized)) -> GResult<Vec<Term>> {
-    terms
-        .0
-        .into_iter()
-        .map(|t| {
-            Ok(Term {
-                term: t.term,
-                province: t.province.map(|p| p.0),
-                country: t.country.map(|c| game.country(c)).transpose()?,
-                region: t.region,
-                amount: t.amount,
-            })
-        })
-        .collect()
-}
-
-fn option(o: Offered) -> TermOption {
-    TermOption {
-        term: o.term,
-        province: o.province.map(ProvinceId),
-        country: o.country.map(tag),
-        region: o.region,
-        amount: o.amount,
-        name: o.name,
-        choice: o.choice,
+        Err(fail) => Ran::Done(Err(fail.into())),
     }
 }
 
@@ -115,7 +70,7 @@ mod tests {
             ]})
         );
         assert_eq!(run(&mut game, r#"{"capability": "peace.terms", "country": "WAL", "offer": true}"#)["error"]["code"], "rejected");
-        assert_eq!(game.calls[1], "peace terms 1000021005a5942 false");
+        assert_eq!(game.calls[0], "peace terms BYZ false");
         assert!(game.calls.iter().any(|c| c.ends_with(" true")));
     }
 
@@ -131,8 +86,7 @@ mod tests {
             json!({"ok": true, "result": {"can": true, "reasons": [], "cost": [{"resource": "war_score", "amount": 40.0}],
                 "acceptance": {"accepts": false, "total": -5.0, "factors": [{"text": "War score", "value": -5.0}]}}})
         );
-        let evaluated =
-            format!("evaluate peace 1000021005a5942 demand_provinces:Some(151):Some({}):None,gold:None:None:Some(25.5) false", super::super::fake::tur().0);
+        let evaluated = "evaluate peace BYZ demand_provinces:Some(151):Some(\"TUR\"):None,gold:None:None:Some(25.5) false".to_string();
         assert!(game.calls.contains(&evaluated), "{:?}", game.calls);
         // A country named that there is not.
         let missing = run(&mut game, r#"{"capability": "peace.evaluate", "country": "BYZ", "terms": [{"term": "release_vassals", "country": "QQQ"}]}"#);
@@ -147,8 +101,8 @@ mod tests {
         assert_eq!(answer(&demand), json!({"ok": true, "result": {"answer": "declined"}}));
         engine.end(menu::ending(), Duration::ZERO);
         assert_eq!(answer(&offer), json!({"ok": true, "result": {"answer": "pending"}}));
-        assert!(game.calls.contains(&"demand peace 1000021005a5942 humiliate:None:None:None".to_string()));
-        assert!(game.calls.contains(&"offer terms 1000021005a5942 concede_defeat:None:None:None".to_string()));
+        assert!(game.calls.contains(&"demand peace BYZ humiliate:None:None:None".to_string()));
+        assert!(game.calls.contains(&"offer terms BYZ concede_defeat:None:None:None".to_string()));
         let _ = diplomacy::WAITED;
     }
 }
