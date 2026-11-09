@@ -48,6 +48,8 @@ pub(crate) struct Recorded {
     pub(crate) ended: Mutex<Vec<GameEnd>>,
     /// The exit code a started game ends with before its main menu.
     pub(crate) ends_before_menu: Option<u32>,
+    /// The games that end while the claim waits, one a wait.
+    pub(crate) end_while_waiting: Mutex<Vec<u32>>,
 }
 
 impl Recorded {
@@ -62,6 +64,7 @@ impl Recorded {
             said: Mutex::new(Vec::new()),
             ended: Mutex::new(Vec::new()),
             ends_before_menu: None,
+            end_while_waiting: Mutex::new(Vec::new()),
         }
     }
 
@@ -102,6 +105,11 @@ impl Machine for Recorded {
     fn wait(&self, time: Duration) {
         *self.now.lock().unwrap() += time.as_secs();
         self.push(Did::Waited);
+        let mut ending = self.end_while_waiting.lock().unwrap();
+        if !ending.is_empty() {
+            let id = ending.remove(0);
+            self.serving.lock().unwrap().retain(|(_, g)| *g != id);
+        }
     }
     fn me(&self) -> Process {
         ME
@@ -186,6 +194,7 @@ pub(crate) fn held(owner: &str) -> Claim {
         maker: None,
         ready: true,
         game: None,
+        starting: None,
     }
 }
 

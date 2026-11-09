@@ -1,11 +1,13 @@
 //! The claim's course: claiming a test game, starting and stopping it,
-//! releasing it, which keeps its logs and removes the rest of it; and a run,
+//! releasing it, which keeps its logs and removes the rest of it; at most
+//! [`AT_ONCE`] test games running at once, a start waiting for a place
+//! while they run; and a run,
 //! such as the scenario runner's, played within a claim from holding it to
 //! giving it back (docs/plans/test-games.md). It reaches the computer only through
 //! [`Machine`], so that the order of its writes of the record against what
 //! it does to the games and the folders is what the tests below follow.
 use super::machine::Machine;
-use super::record::{self, Claim, Found, GameEnd, Process, Seen, State};
+use super::record::{self, Claim, Found, GameEnd, Process, Seen, State, AT_ONCE};
 use crate::Result;
 use eu4_harmony_client::start::{Start, TestGame};
 use std::{
@@ -110,6 +112,7 @@ pub fn claim<M: Machine>(m: &M, owner: &str, purpose: &str, game_dir: &Path) -> 
                 maker: Some(m.me()),
                 ready: false,
                 game: None,
+                starting: None,
             });
         }
         (found, cut)
@@ -159,17 +162,65 @@ fn end_and_keep<M: Machine>(m: &M, claim: &Claim) -> Result<(Vec<GameEnd>, bool)
     Ok((ends, crashed))
 }
 
+/// How often a start waiting for a place looks whether one is free.
+const PLACE_LOOKS_EVERY: Duration = Duration::from_secs(5);
+
+/// The owners of the test games that run or are being started.
+fn running<M: Machine>(m: &M, state: &State) -> Vec<String> {
+    let runs = |c: &&Claim| game_of(m, c).is_some() || c.starting.is_some_and(|p| m.alive(&p));
+    state.claims.iter().filter(runs).map(|c| c.owner.clone()).collect()
+}
+
+/// Takes one of the [`AT_ONCE`] places of running test games for `owner`'s
+/// start, waiting while the others have them all, until `given_up`.
+fn take_place<M: Machine>(m: &M, owner: &str, given_up: &dyn Fn() -> bool) -> Result<()> {
+    let me = m.me();
+    let mut told = false;
+    loop {
+        let others = m.locked(|s| {
+            let others: Vec<String> = running(m, s).into_iter().filter(|o| o != owner).collect();
+            if others.len() < AT_ONCE {
+                if let Some(c) = s.of_mut(owner) {
+                    c.starting = Some(me);
+                }
+            }
+            others
+        })?;
+        if others.len() < AT_ONCE {
+            return Ok(());
+        }
+        if given_up() {
+            return Err(format!("given up waiting for one of the {AT_ONCE} test games that run at once"));
+        }
+        if !told {
+            m.say(&format!("{AT_ONCE} test games run already ({}); waiting for one of them to end", others.join(", ")));
+            told = true;
+        }
+        m.wait(PLACE_LOOKS_EVERY);
+    }
+}
+
 /// Starts `owner`'s test game hidden, with this checkout's built core and
 /// the saves `starting` names, waiting up to `wait` for its main menu, and
-/// names it in the record, followed by `follow.exe`. The seconds it took.
-pub fn start_game<M: Machine>(m: &M, owner: &str, game_dir: &Path, starting: &Starting, wait: Duration) -> Result<f64> {
+/// names it in the record, followed by `follow.exe`. While [`AT_ONCE`] other
+/// test games run, it waits for one of them to end first, until
+/// `given_up`. The seconds it took.
+pub fn start_game<M: Machine>(m: &M, owner: &str, game_dir: &Path, starting: &Starting, wait: Duration, given_up: &dyn Fn() -> bool) -> Result<f64> {
     let claim = held_by(m, owner)?;
     if let Some(id) = game_of(m, &claim) {
         return Err(format!("{owner}'s test game runs already (eu4.exe {id}); cargo xtask game stop ends it"));
     }
+    take_place(m, owner, given_up)?;
+    let started = start_in_place(m, owner, &claim, game_dir, starting, wait);
+    m.locked(|s| s.of_mut(owner).map(|c| c.starting = None))?;
+    started
+}
+
+/// Starts the claim's test game, which has a place to run in.
+fn start_in_place<M: Machine>(m: &M, owner: &str, claim: &Claim, game_dir: &Path, starting: &Starting, wait: Duration) -> Result<f64> {
     let folder = Path::new(&claim.folder);
     let core = m.prepare_start(folder, game_dir, starting)?;
-    let user = user_dir(&claim);
+    let user = user_dir(claim);
     let log = user.join("eu4-harmony").join("logs").join("core.log");
     let test_game = TestGame { name: owner.to_string(), user_dir: user, core };
     let start = Start { hidden: true, sound: starting.sound, seed: starting.seed, test_game: Some(test_game) };
@@ -223,7 +274,7 @@ pub fn release<M: Machine>(m: &M, owner: &str) -> Result<()> {
 /// what no claim refers to.
 pub fn status<M: Machine>(m: &M) -> Result<()> {
     let state: State = m.locked(|s| s.clone())?;
-    m.say(&format!("{} test games held", state.claims.len()));
+    m.say(&format!("{} test games held, {} of them running, {AT_ONCE} at most", state.claims.len(), running(m, &state).len()));
     let mut theirs = Vec::new();
     for c in &state.claims {
         m.say(&format!("  {}", c.describe()));
@@ -338,8 +389,8 @@ mod tests {
     fn a_claim_s_course_from_claiming_to_releasing() {
         let m = Recorded::new(State::default());
         assert_eq!(claim(&m, "a", "a run", game_dir()).unwrap(), Claimed::Now);
-        start_game(&m, "a", game_dir(), &Starting::default(), Duration::from_secs(300)).unwrap();
-        assert!(start_game(&m, "a", game_dir(), &Starting::default(), Duration::from_secs(300)).unwrap_err().contains("runs already"));
+        start_game(&m, "a", game_dir(), &Starting::default(), Duration::from_secs(300), &|| false).unwrap();
+        assert!(start_game(&m, "a", game_dir(), &Starting::default(), Duration::from_secs(300), &|| false).unwrap_err().contains("runs already"));
         release(&m, "a").unwrap();
         let folder = "C:\\claims\\a-1000".to_string();
         assert_eq!(
@@ -399,7 +450,7 @@ mod tests {
         let mut m = Recorded::new(State::default());
         m.ends_before_menu = Some(0xc000_0005);
         claim(&m, "a", "a run", game_dir()).unwrap();
-        let error = start_game(&m, "a", game_dir(), &Starting::default(), Duration::from_secs(300)).unwrap_err();
+        let error = start_game(&m, "a", game_dir(), &Starting::default(), Duration::from_secs(300), &|| false).unwrap_err();
         assert!(error.contains("before its main menu"));
         release(&m, "a").unwrap();
         assert!(m.did().contains(&Did::RecordEnd(0xc000_0005)));
@@ -418,6 +469,48 @@ mod tests {
         assert_eq!(m.did(), [Did::End(1)]);
         release(&m, "b").unwrap();
         assert!(m.did().contains(&Did::End(2)) && !m.did().contains(&Did::End(3)));
+    }
+
+    /// The record with `a` and four others, whose games run as `ids`.
+    fn four_running(ids: [u32; 4]) -> Recorded {
+        let owners = ["h0", "h1", "h2", "h3"];
+        let m = Recorded::new(State { claims: owners.iter().map(|o| held(o)).chain([held("a")]).collect() });
+        m.serving.lock().unwrap().extend(owners.iter().zip(ids).map(|(o, id)| (pipe_of(o).unwrap(), id)));
+        m
+    }
+
+    /// While four other test games run, a start waits, saying for which,
+    /// and starts once one of them ends; its place is given up after.
+    #[test]
+    fn a_start_waits_while_four_test_games_run() {
+        let m = four_running([1, 2, 3, 4]);
+        m.end_while_waiting.lock().unwrap().push(3);
+        start_game(&m, "a", game_dir(), &Starting::default(), Duration::from_secs(300), &|| false).unwrap();
+        assert_eq!(m.did()[..3], [Did::Waited, Did::Prepare, Did::Start]);
+        assert!(m.said().contains("4 test games run already (h0, h1, h2, h3); waiting"), "{}", m.said());
+        assert!(m.state.lock().unwrap().claims.iter().all(|c| c.starting.is_none()));
+    }
+
+    /// A start that gives up waiting starts nothing.
+    #[test]
+    fn a_start_that_gives_up_waiting_starts_nothing() {
+        let m = four_running([1, 2, 3, 4]);
+        let error = start_game(&m, "a", game_dir(), &Starting::default(), Duration::from_secs(300), &|| true).unwrap_err();
+        assert!(error.contains("given up waiting"), "{error}");
+        assert!(!m.did().contains(&Did::Start));
+    }
+
+    /// A game being started holds its place while the process starting it
+    /// runs, and gives it up once that process has ended.
+    #[test]
+    fn a_game_being_started_holds_its_place_while_its_starter_runs() {
+        let m = four_running([1, 2, 3, 4]);
+        m.serving.lock().unwrap().retain(|(_, id)| *id != 4);
+        m.serving.lock().unwrap().push(("a starter's".into(), 99));
+        m.state.lock().unwrap().of_mut("h3").unwrap().starting = Some(Process { id: 99, started: 9 });
+        m.end_while_waiting.lock().unwrap().push(99);
+        start_game(&m, "a", game_dir(), &Starting::default(), Duration::from_secs(300), &|| false).unwrap();
+        assert_eq!(m.did()[..2], [Did::Waited, Did::Prepare]);
     }
 
     /// A run releases the claim it made whatever it came to, and leaves one

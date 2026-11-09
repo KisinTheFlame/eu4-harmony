@@ -1,6 +1,6 @@
 # Test games plan
 
-Status: decided 2026-11-08, T1 to T4 built; what was tried in the game is in [Test games](../prototype-log/2026-11-08-test-games.md). The limit of three, the queue and the lease were taken out the same day ([ADR test-games-have-no-limit-or-lease](../adr/2026-11-08-test-games-have-no-limit-or-lease.md)), and the waiting for checkouts from before test games, with the marker in `game-lock.json`, on 2026-11-09 ([ADR checkouts-before-test-games-are-not-held-back](../adr/2026-11-09-checkouts-before-test-games-are-not-held-back.md)). Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Test game, Claim). It replaces the claim of the whole game of [game-testing.md](game-testing.md), and rests on [research/several-games.md](../research/several-games.md), which found that several games run at once. The decision is [ADR test-games-run-side-by-side](../adr/2026-11-08-test-games-run-side-by-side.md).
+Status: decided 2026-11-08, T1 to T4 built; what was tried in the game is in [Test games](../prototype-log/2026-11-08-test-games.md). The limit of three, the queue and the lease were taken out the same day ([ADR test-games-have-no-limit-or-lease](../adr/2026-11-08-test-games-have-no-limit-or-lease.md)), and the waiting for checkouts from before test games, with the marker in `game-lock.json`, on 2026-11-09 ([ADR checkouts-before-test-games-are-not-held-back](../adr/2026-11-09-checkouts-before-test-games-are-not-held-back.md)); the same day at most four test games were let run at once ([ADR at-most-four-test-games-run-at-once](../adr/2026-11-09-at-most-four-test-games-run-at-once.md); [At most four test games at once](../prototype-log/2026-11-09-four-test-games-at-once.md)). Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Test game, Claim). It replaces the claim of the whole game of [game-testing.md](game-testing.md), and rests on [research/several-games.md](../research/several-games.md), which found that several games run at once. The decision is [ADR test-games-run-side-by-side](../adr/2026-11-08-test-games-run-side-by-side.md).
 
 ## Goal and scope
 
@@ -29,10 +29,10 @@ The test game's name is its owner's (the leaf name of the checkout's folder, or 
 | Command | What it does |
 | --- | --- |
 | `cargo xtask game claim --purpose <text>` | Claims a test game: its folder, with a user folder made from the player's. Refused while the game folder's proxy cannot load a test game's core, or while another process makes the same owner's claim |
-| `cargo xtask game start [--save <name>]... [--visible] [--sound] [--seed <n>] [--timeout <seconds>]` | Copies this checkout's built core and `dev.toml` into the test game's `core\`, and each save named from the player's `save games`, then starts the test game hidden and waits for its main menu. Refused while it runs, or when the built core has no test games' pipes |
+| `cargo xtask game start [--save <name>]... [--visible] [--sound] [--seed <n>] [--timeout <seconds>]` | Copies this checkout's built core and `dev.toml` into the test game's `core\`, and each save named from the player's `save games`, then starts the test game hidden and waits for its main menu; while four other test games run, it first waits for one of them to end. Refused while it runs, or when the built core has no test games' pipes |
 | `cargo xtask game stop` | Ends the test game |
 | `cargo xtask game release` | Ends the test game if it runs, keeps its logs and crash folders in `kept\`, removes the rest of its folder, and frees it; says how long it was held and how its games ended |
-| `cargo xtask game status` | Every test game: its holder, purpose and process; the `eu4.exe` that are no test game's; folders no claim refers to |
+| `cargo xtask game status` | Every test game: its holder, purpose and process, and how many run; the `eu4.exe` that are no test game's; folders no claim refers to |
 
 A claim holds its test game until it is released. `watch`, `renew`, `--lease`, `--player` and `--now` are gone: nothing waits to be put back, nothing is taken from a holder, and the player's game is not a claim.
 
@@ -58,7 +58,8 @@ The release removes the junction before the folder, so that the player's `mod` f
 
 ### How many, and for how long
 
-- Any number of test games at once, and a claim holds its own until its holder releases it: no queue, no lease, nothing taken from a holder ([ADR test-games-have-no-limit-or-lease](../adr/2026-11-08-test-games-have-no-limit-or-lease.md)). A game in 1820 takes 4.2 GB of memory and 1.3 GB of the graphics card's ([Test games](../prototype-log/2026-11-08-test-games.md)); `status` says how many are held.
+- Any number of claims at once, and a claim holds its own until its holder releases it: no queue, no lease, nothing taken from a holder ([ADR test-games-have-no-limit-or-lease](../adr/2026-11-08-test-games-have-no-limit-or-lease.md)).
+- At most four test games run at once, counting those being started, since a game in 1820 takes 4.2 GB of memory and 1.3 GB of the graphics card's ([Test games](../prototype-log/2026-11-08-test-games.md)): a start while four others run says which and waits for one of them to end ([ADR at-most-four-test-games-run-at-once](../adr/2026-11-09-at-most-four-test-games-run-at-once.md)). A start takes its place in `claims.json` as the process starting it (`starting`), given up when the start ends or that process has. Each scenario a run plays at once is a test game of its own and takes a place of its own. The player's game, and an `eu4.exe` of no claim, are not counted. `status` says how many are held and how many run.
 - A claim left behind, such as a scenario run's ended by a second Ctrl-C, stays until `cargo xtask game release --owner <name>` releases it.
 
 ### Beside other games
