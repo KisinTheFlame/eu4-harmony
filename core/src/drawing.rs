@@ -183,6 +183,11 @@ fn points() -> Vec<Point> {
         // call [rax + 0x2a8]: the day's call of the interface's daily refresh.
         Point::keep(0x75c5e7, "49 8b 8d 00 1e 00 00 48 85 c9 74 09 48 8b 01 ff 90 a8 02 00 00", "the day's daily refresh of the interface")
             .uses(&[WORLD_INTERFACE, 0x2a8]),
+        Point::observe(MESH_LET_GO, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18", "a mesh object's destructor", 2, Some(mesh_let_go), None),
+        // lea rbx, [rdi + 0x78]; cmp rbx, rsi: the application's frame
+        // switches its idler, the pending one at hand.
+        Point::jump(IDLER_SWITCH, "48 8d 5f 78 48 3b de", "the application switches its idler", idler_switch_stub as *const () as usize, &SWITCH_RESUME),
+        Point::keep(IDLER_SWITCH_GOES_ON, "74 19 48 8b 06", "the idler switch goes on"),
         Point::observe(UNIT_DESTROYED, "48 89 5c 24 18 55 56 57 41 54 41 55 41 56 41 57", "a unit's destructor", 1, Some(unit_destroyed), None),
         // mov rbx, [rcx + 0x1a8]; ...; mov rcx, [rbx + 0x70]; test rcx, rcx; je
         Point::keep(0xd3b147, "48 8b 99 a8 01 00 00 45 33 ed 48 85 db 74 35 48 8b 4b 70 48 85 c9 74 0d", "a unit's place's model let go with the unit")
@@ -316,6 +321,63 @@ fn do_deferred(m: &Memory) {
             _ => {}
         }
     }
+}
+
+/// A mesh object's destructor (`pdxmeshobject.cpp`, vtable `0x1d92408`): the
+/// object and whether to free it. The drawing draws mesh objects; one let go
+/// while it draws faults it (docs/research/drawing-beside-the-day.md, "The
+/// day's crossings read again"), so one let go in the day is a crossing,
+/// whatever led there.
+const MESH_LET_GO: usize = 0x153e560;
+
+fn mesh_let_go(call: &mut Call) {
+    if on_main() {
+        crossing(call.observed().unwrap_or(0));
+    } else if drawing_on() && !is_drawing_thread() && !OTHER_THREAD_LOGGED.swap(true, Ordering::Relaxed) {
+        log!("drawing: thread {} let a mesh object go, which the drawing thread may be drawing", crate::thread_id());
+    }
+}
+
+static OTHER_THREAD_LOGGED: AtomicBool = AtomicBool::new(false);
+
+/// The application's frame switching its idler (docs/research/main-menu.md,
+/// "The application's idler switch"), which lets the current one go: and
+/// where it goes on.
+const IDLER_SWITCH: usize = 0x14c2839;
+const IDLER_SWITCH_GOES_ON: usize = 0x14c2840;
+crate::resume!(SWITCH_RESUME: IDLER_SWITCH_GOES_ON_AT = IDLER_SWITCH_GOES_ON);
+
+#[unsafe(naked)]
+extern "C" fn idler_switch_stub() {
+    std::arch::naked_asm!(
+        crate::call_rust!(call idler_switches),
+        "lea rbx, [rdi + 0x78]",
+        "cmp rbx, rsi",
+        "jmp qword ptr [rip + {goes_on}]",
+        idler_switches = sym idler_switches,
+        goes_on = sym IDLER_SWITCH_GOES_ON_AT,
+    );
+}
+
+/// The drawing thread is in a frame of its own, from the lock taken for it
+/// to its drawing's return.
+static IN_FRAME: AtomicBool = AtomicBool::new(false);
+
+/// The idler is about to be switched, by the main thread holding the lock. A
+/// frame of the drawing thread's may be in Present, without the lock, and is
+/// to end with the idler it began with: the main thread lets the lock go
+/// until it has.
+#[called_by_game]
+extern "C" fn idler_switches() {
+    PREPARED.store(0, Ordering::Release);
+    if !IN_FRAME.load(Ordering::Acquire) {
+        return;
+    }
+    main_side(main_give);
+    while IN_FRAME.load(Ordering::Acquire) {
+        std::thread::yield_now();
+    }
+    main_side(|s| main_take(s, AT_FRAME));
 }
 
 fn place_reset(call: &mut Call) {
@@ -918,7 +980,9 @@ fn run() {
         }
         if idler != 0 && current == idler && !CHANGED.load(Ordering::Acquire) && !must_draw_here(&m) {
             DRAWING_LENGTH.store(length.to_bits(), Ordering::Relaxed);
+            IN_FRAME.store(true, Ordering::Release);
             unsafe { direct1(&m, DRAWING)(idler) };
+            IN_FRAME.store(false, Ordering::Release);
             DRAWN.fetch_add(1, Ordering::Relaxed);
             DRAWN_SEQ.store(seq, Ordering::Release);
         }
