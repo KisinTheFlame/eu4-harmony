@@ -26,6 +26,7 @@ use crate::called_by_game;
 use crate::points::{Function, Point};
 use plan::{Held, Step};
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 pub use eu4_harmony_remote::input::{Button, Direction, Key};
@@ -44,8 +45,39 @@ pub fn points() -> Vec<Point> {
     vec![Point::replace(CURSOR_AT, "48 89 5c 24 10 55 56 57 48 83 ec 40", "cursor position", cursor_at as CursorAt, &ORIGINAL_CURSOR_AT)]
 }
 
+/// Where the main thread last read the cursor, and whether it has.
+static LAST_READ: AtomicU64 = AtomicU64::new(0);
+static READ: AtomicBool = AtomicBool::new(false);
+
+fn packed(at: [i32; 2]) -> u64 {
+    (at[0] as u32 as u64) << 32 | at[1] as u32 as u64
+}
+
+fn unpacked(at: u64) -> [i32; 2] {
+    [(at >> 32) as u32 as i32, at as u32 as i32]
+}
+
+/// The drawing thread's camera update reads the cursor too, and the game's
+/// read takes the window's corner from the calling thread's active window
+/// (`GetActiveWindow`), which the drawing thread has none of: its read would
+/// lie wherever an unset rectangle puts it, and the camera would scroll
+/// toward that edge. It is answered where the main thread last read it, once
+/// a frame (docs/research/drawing-beside-the-day.md).
 #[called_by_game]
 unsafe extern "C" fn cursor_at(out: *mut [i32; 2], full_screen: u8, borderless: u8) -> *mut [i32; 2] {
+    if crate::drawing::is_drawing_thread() && READ.load(Ordering::Acquire) {
+        *out = unpacked(LAST_READ.load(Ordering::Relaxed));
+        return out;
+    }
+    let read = read_cursor(out, full_screen, borderless);
+    if crate::thread_id() == crate::main_thread() {
+        LAST_READ.store(packed(*read), Ordering::Relaxed);
+        READ.store(true, Ordering::Release);
+    }
+    read
+}
+
+unsafe fn read_cursor(out: *mut [i32; 2], full_screen: u8, borderless: u8) -> *mut [i32; 2] {
     let held = || {
         // No player's mouse moves a hidden game's cursor: remote control
         // holds it from the start.
@@ -472,6 +504,13 @@ pub mod checks {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_read_cursor_is_kept_whole_off_the_window_too() {
+        for at in [[0, 0], [3839, 2159], [-1000, -1000], [-5, 7]] {
+            assert_eq!(unpacked(packed(at)), at);
+        }
+    }
 
     #[test]
     fn a_screenshot_s_pixel_is_the_middle_of_the_frame_s_pixels_it_stands_for() {
