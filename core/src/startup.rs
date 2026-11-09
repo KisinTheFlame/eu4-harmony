@@ -101,7 +101,7 @@ impl Setup {
             report::line(line);
         }
         report::write();
-        ui::set_elements(self.elements);
+        ui::set_elements(self.elements, self.plan.frames.clone());
         physfs::set_plan(self.plan);
     }
 }

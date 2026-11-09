@@ -84,13 +84,16 @@ struct Declared {
 #[derive(Default)]
 struct Elements {
     declared: Vec<Declared>,
+    /// The windows whose button area has the framework's frame.
+    frames: Vec<Host>,
 }
 
 impl Elements {
     /// The elements spliced this run, with the extension that owns each.
-    fn declare(&mut self, elements: Vec<(Element, Option<usize>)>) {
+    fn declare(&mut self, elements: Vec<(Element, Option<usize>)>, frames: Vec<Host>) {
         self.declared =
             elements.into_iter().map(|(element, extension)| Declared { host: element.host, element, extension, desired: Desired::default() }).collect();
+        self.frames = frames;
     }
 
     /// Changes what `extension` wants of its element `name`.
@@ -221,6 +224,9 @@ struct Binding {
     holder: usize,
     root: usize,
     bound: Vec<Bound>,
+    /// The frame under its button area, which shows while any of the
+    /// area's buttons and icons does.
+    frame: Option<usize>,
 }
 
 /// Which button clicked a mod's button.
@@ -267,9 +273,10 @@ fn report_once(ui: &mut Ui, message: String) {
     }
 }
 
-/// Elements spliced this run, with the extension index that owns each.
-pub fn set_elements(elements: Vec<(Element, Option<usize>)>) {
-    with_ui(|ui| ui.elements.declare(elements));
+/// Elements spliced this run, with the extension index that owns each, and
+/// the windows whose button area has a frame.
+pub fn set_elements(elements: Vec<(Element, Option<usize>)>, frames: Vec<Host>) {
+    with_ui(|ui| ui.elements.declare(elements, frames));
 }
 
 /// The element of `name` in the window at `root`, through its method at
@@ -353,7 +360,18 @@ fn bind(m: &Memory, ui: &mut Ui, host: Host, holder: usize, root: usize) -> Resu
     if m.vslot(root, window::KILL)? != m.at(WINDOW_KILL) {
         return Err(format!("{host:?} window has an unexpected kill method"));
     }
-    let mut binding = Binding { host, holder, root, bound: Vec::new() };
+    let mut binding = Binding { host, holder, root, bound: Vec::new(), frame: None };
+    if ui.elements.frames.contains(&host) {
+        match bind_frame(m, root) {
+            Ok(frame) => binding.frame = Some(frame),
+            Err(e) => {
+                let message = format!("cannot bind the button area's frame: {e}");
+                if ui.reported.insert(message.clone()) {
+                    log!("ui: {message}");
+                }
+            }
+        }
+    }
     for (index, d) in ui.elements.declared.iter().enumerate().filter(|(_, d)| d.host == host) {
         match bind_one(m, root, index, d) {
             Ok(Some(b)) => binding.bound.push(b),
@@ -374,6 +392,30 @@ fn bind(m: &Memory, ui: &mut Ui, host: Host, holder: usize, root: usize) -> Resu
     }
     log!("ui: bound {} element(s) in {host:?} {holder:#x}", binding.bound.len());
     Ok(())
+}
+
+/// The frame under the button area of the window at `root`, checked to be
+/// the framework's.
+fn bind_frame(m: &Memory, root: usize) -> Result<usize> {
+    let frame = lookup(m, root, (window::FIND_BUTTON, functions::FIND_BUTTON), crate::splice::FRAME)?;
+    if frame == 0 || m.ptr(frame)? != m.at(classes::BUTTON) || element_name(m, frame)? != crate::splice::FRAME.as_bytes() {
+        return Err("not found".into());
+    }
+    Ok(frame)
+}
+
+/// Shows or hides a button as `visible`, through the methods the framework
+/// knows.
+fn show_button(m: &Memory, object: usize, visible: bool) -> Result<()> {
+    if (m.u8(object + element::VISIBLE)? != 0) == visible {
+        return Ok(());
+    }
+    let (slot, target) = if visible { (element::SHOW, SHOW) } else { (element::HIDE, HIDE) };
+    let method = m.vslot(object, slot)?;
+    if method != m.at(target) {
+        return Err("button show/hide method changed".into());
+    }
+    m.call(method, &[object]).map(|_| ())
 }
 
 /// Builds a game string holding `bytes` with the game's allocator and moves
@@ -423,6 +465,17 @@ fn apply(m: &Memory, ui: &mut Ui, host: Host) -> Result<()> {
                 }
             }
         }
+    }
+    if let Some(frame) = binding.frame {
+        let mut any = false;
+        for b in &binding.bound {
+            let d = &ui.elements.declared[b.index];
+            if d.element.in_area && matches!(d.element.kind, ElementKind::Button | ElementKind::Icon) && m.u8(b.object + element::VISIBLE)? != 0 {
+                any = true;
+                break;
+            }
+        }
+        show_button(m, frame, any)?;
     }
     Ok(())
 }
@@ -681,13 +734,13 @@ mod tests {
     use super::*;
 
     fn element(name: &str, kind: ElementKind) -> Element {
-        Element { owner: 0, window: "unitpanel".into(), host: Host::ArmyPanel, name: name.into(), prefixed: format!("mod_{name}"), kind }
+        Element { owner: 0, window: "unitpanel".into(), host: Host::ArmyPanel, name: name.into(), prefixed: format!("mod_{name}"), kind, in_area: true }
     }
 
     #[test]
     fn an_extension_changes_only_its_own_elements() {
         let mut elements = Elements::default();
-        elements.declare(vec![(element("go", ElementKind::Button), Some(0)), (element("label", ElementKind::Text), Some(1))]);
+        elements.declare(vec![(element("go", ElementKind::Button), Some(0)), (element("label", ElementKind::Text), Some(1))], Vec::new());
         elements.want(0, "go", |d| d.enabled = Some(false)).unwrap();
         assert_eq!(elements.want(0, "label", |d| d.visible = Some(true)).unwrap_err().status, Status::NotFound, "extension 1's");
         assert_eq!(elements.want(0, "stop", |_| ()).unwrap_err().status, Status::NotFound, "none declared");

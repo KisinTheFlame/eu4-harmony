@@ -13,6 +13,7 @@
 //! player opened or closed and the pop-ups shown come back out of it as
 //! what extensions and remote clients hear.
 mod gui;
+pub(crate) use gui::BACKGROUND_SPRITE;
 mod live;
 
 use eu4_harmony_lua::{

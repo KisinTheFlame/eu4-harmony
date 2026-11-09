@@ -321,7 +321,7 @@ Paradox `.gui` text in a mod's `eu4-harmony/ui/<window>/` that the framework spl
 _Avoid_: GUI patch, overlay, injected window
 
 **Button area**:
-A region the framework reserves on a vanilla panel, where the extensions' buttons are laid out automatically.
+A frame the framework puts beside a vanilla panel, where the extensions' buttons are laid out automatically, and which grows with them.
 _Avoid_: toolbar, slot
 
 **Extension window**:

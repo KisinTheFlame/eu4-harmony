@@ -158,6 +158,10 @@ An entry button after `n` used slots: the button at `(-360 - 45n, -58)`, its bac
 
 A `windowType` takes no `background = { … }` block: that is a `containerWindowType`'s, and in a `windowType` the game's reading stops at it ("Unexpected token", in the game's `error.log`), leaving the definitions after it unread. A `windowType` names its background with `backGround = "<element>"`, an element of its own, as the game's dialogs do: a `guiButtonType` of a corner-tiled sprite, which the window stretches to its size. The game's own corner-tiled dialog backgrounds are near black (`SandboxFloaterBackground`) or red; the framework defines one of its own over the religion view's blue panel texture, `GFX_eu4harmony_window_background` (`borderSize` 12, its gold edge) ([prototype log 2026-11-09](../prototype-log/2026-11-09-extension-windows.md)).
 
+## A frame inside a vanilla window
+
+The window lookups (`+0x68`, `+0x98`, `+0xc8`) look only at a window's own elements ([interface-bindings.md](interface-bindings.md)), so the army panel's button area keeps its frame and its buttons as elements of `single_unitpanel` itself, not in a subwindow. The frame is a `guiButtonType` of the corner-tiled `GFX_eu4harmony_window_background` with a `size` and `no_clicksound = yes`, as the game's lists draw their selection frames (`interface/chat.gui`, `frontend.gui`: `gfx__message_selection_frame` with a `size`); the game stretches it to that size with its edge kept, takes the clicks on it as a button's with no action, and draws it under the elements after it in the window. Shown and hidden through the button's `+0x88`/`+0x90` as the mods' buttons are (verified in the running game, [prototype log 2026-11-09](../prototype-log/2026-11-09-button-area-frame.md)).
+
 ## What needs verifying at run time
 
 1. That a definition read after startup through `0x14eb7d0` builds with CreateWindow at once, and what happens to a live window when its definition is replaced.

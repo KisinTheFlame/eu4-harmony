@@ -1,6 +1,6 @@
 # Extension windows plan
 
-Status: decided with the owner (2026-11-09); built, W1 to W4, and tried in the game (2026-11-09, [the run](../prototype-log/2026-11-09-extension-windows.md)); what was found not to be done is said where it belongs below. Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Extension window, Pop-up, Game widget, Panel button strip, Entry button, Window). The decision is [ADR extension-windows-are-game-windows](../adr/2026-11-09-extension-windows-are-game-windows.md).
+Status: decided with the owner (2026-11-09); built, W1 to W5, and tried in the game (2026-11-09, [the run](../prototype-log/2026-11-09-extension-windows.md), [the button area's](../prototype-log/2026-11-09-button-area-frame.md)); what was found not to be done is said where it belongs below. Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Extension window, Pop-up, Game widget, Panel button strip, Entry button, Window). The decision is [ADR extension-windows-are-game-windows](../adr/2026-11-09-extension-windows-are-game-windows.md).
 
 ## Goal and scope
 
@@ -51,6 +51,12 @@ From the game's files and code (RVAs into 1.37.5), read statically on 2026-11-08
 - Entry buttons are spliced into the strip as the game reads its file at startup: a window an extension reload gives an entry button shows it from the next start.
 - With every vanilla button showing, the strip reaches the message log at 1280 pixels wide; entry buttons beyond it overlap the log, and nothing moves them.
 
+### The army panel's button area (W5)
+
+- The buttons mods put in the army panel's button area (`eu4-harmony/ui/single_unitpanel/buttons/`) stand on a frame of their own beside the panel, a little right of its gold edge: the extension windows' blue with its gold edge, as high as the panel's button columns, from the top of their first row to the foot of their last. Eight buttons stand in a column, 46 apart; each further eight add a column to the right, and the frame grows with them. How many there are is known at startup, so the frame's width holds for the run; a hidden button keeps its slot empty (2026-11-09, asked by the owner: until then the buttons stood in a third column against the panel's right edge, on no frame, and reached past the panel).
+- The frame shows while any of its buttons or icons does, and hides with the last of them, as when the panel shows a fleet and the mods hide their buttons. A click on it reaches neither the map nor anything under it, and makes no sound.
+- The frame is spliced into the panel's `windowType` before every mod's element, so that it is drawn under them; it slides and hides with the panel. A `guiButtonType` of a corner-tiled sprite given a `size` is how the game's own lists draw a stretched frame (`chat.gui`, `frontend.gui`).
+
 ### In the fake game
 
 - The fake game holds the same windows and pop-ups: a layout is checked as in the game; a test reads whether a window is open, what each game widget shows and a list's rows, presses a window's buttons and an entry button, and answers a pop-up.
@@ -92,6 +98,10 @@ The research of icon frames, progress bars, flags and scrolling lists, written i
 
 The splice into `floating_buttons`, the placing after the game's slots, the toggle, `entry` from Lua, the fake game. Tried: as a member of the Holy Roman Empire and as a country with no vanilla button there, two mods' entry buttons, one hidden.
 
+### W5 The army panel's button area
+
+The frame spliced under the button area, its size from the slots, shown while any of the area's buttons or icons shows. Unit tests: the slots in columns of eight, the frame a column wider at the ninth, and the frame first in the panel's file. Tried: the frame beside the panel, level with its button columns; hidden with a fleet selected; a click on it leaving the army selected.
+
 ## Order
 
-In order, W1, W2, W3, W4, in one pull request.
+In order, W1, W2, W3, W4, in one pull request; W5 after them, in the same.
