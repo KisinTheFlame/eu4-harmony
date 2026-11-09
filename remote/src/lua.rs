@@ -389,7 +389,7 @@ pub const FUNCTIONS: &[Function] = &[
             "eu4.Popup",
             "{ header = key, title = key, text = key, values = { NAME = value }, agree = key, decline = key, province = number, shields = { tag, tag }, id = name }: the mod's localisation keys, the header optional; agree on the right (c, Return), the game's own OK when none; decline on the left (z, Esc), or a province for the game's Go to there; the shields' countries, left and right, the player's where none",
         )],
-        returns: &[value("answer", "string", "\"agree\", \"decline\", \"goto\", or \"closed\" when it closed without a button")],
+        returns: &[value("answer", "string", "\"agree\", \"decline\", or \"closed\" when it closed without either; Go to leaves it open")],
         about: "Shows the player a pop-up as the game's message pop-ups are, and waits until a button is pressed. Several may be open at once; it does not pause the game.",
         waits: true,
         permission: None,

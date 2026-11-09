@@ -12,7 +12,7 @@ group! {
     world List "list" {} -> Vec<Popup>, "the pop-ups: popup, mod, header, title, text, the buttons' words left to right, and the province of its Go to";
     /// Presses one of a pop-up's buttons, as the player does: the pop-up
     /// closes, and the extension that showed it has its answer at the next
-    /// frame. Go to turns the camera to its province first.
+    /// frame; Go to glides the camera to its province and leaves it open.
     world Answer "answer" {
         /// The pop-up's number, from popup.list.
         popup: u32,

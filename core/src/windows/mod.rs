@@ -265,20 +265,21 @@ impl Pressed {
         }
     }
 
-    /// The answer its pop-up's extension has.
-    fn answer(self) -> &'static str {
+    /// The answer its pop-up's extension has, which closes it; none for Go
+    /// to, which leaves it open.
+    fn answer(self) -> Option<&'static str> {
         match self {
-            Pressed::Goto => "goto",
-            Pressed::Agree => "agree",
-            Pressed::Decline => "decline",
+            Pressed::Goto => None,
+            Pressed::Agree => Some("agree"),
+            Pressed::Decline => Some("decline"),
         }
     }
 }
 
-/// Presses a pop-up's button, as the player does: "Go to" turns the camera
-/// to its province first, gliding there as the game's own Go to does. Its
-/// extension has the answer, `"goto"`, `"agree"` or `"decline"`, at the
-/// next frame. Nothing when it is not open.
+/// Presses a pop-up's button, as the player does: "Go to" glides the camera
+/// to its province, as the game's own Go to does, and leaves the pop-up
+/// open; the others close it, and its extension has the answer, `"agree"`
+/// or `"decline"`, at the next frame. Nothing when it is not open.
 pub fn press(number: u32, pressed: Pressed) {
     let province = with(|all| all.popups.iter().find(|p| p.number == number).and_then(|p| p.popup.goto));
     if let (Pressed::Goto, Some(province)) = (pressed, province) {
@@ -292,7 +293,9 @@ pub fn press(number: u32, pressed: Pressed) {
             log!("windows: pop-up {number}'s Go to province {province}: {}", e.message);
         }
     }
-    with(|all| all.answer(number, Value::String(pressed.answer().into())));
+    if let Some(answer) = pressed.answer() {
+        with(|all| all.answer(number, Value::String(answer.into())));
+    }
 }
 
 /// The pop-ups open, oldest first, as `popup.list` gives them: each

@@ -518,10 +518,13 @@ impl UserData for TestMod {
             if !(1..=count).contains(&button) {
                 return Err(mlua::Error::runtime(format!("{}pop-up {number} has buttons 1 to {count}", here(lua))));
             }
+            // Go to turns the camera and leaves the pop-up open, as the game's does.
+            let answer = shown(&store.popups[at].popup)[button as usize - 1].0;
+            if answer == "goto" {
+                return Ok(());
+            }
             let p = store.popups.remove(at);
-            // Go to stands first; the mod's buttons, or the game's OK, after it.
-            let answer = Value::String(shown(&p.popup)[button as usize - 1].0.to_string());
-            *p.slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(Ok(answer));
+            *p.slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(Ok(Value::String(answer.to_string())));
             Ok(())
         });
         methods.add_method("army_ordered", |lua, this, army: u64| {

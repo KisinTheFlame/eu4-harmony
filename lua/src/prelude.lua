@@ -129,8 +129,8 @@ game.window = setmetatable({
 })
 
 -- game.popup { title = key, text = key, agree = key, decline = key } waits
--- for the button the player presses: "agree", "decline", "goto", or
--- "closed".
+-- for the button the player presses: "agree", "decline", or "closed"; Go
+-- to leaves it open.
 game.popup = setmetatable(game.popup or {}, {
   __call = function(_, spec)
     can_wait("game.popup", 2)

@@ -94,7 +94,8 @@ windows):
   mod:answer_popup(popup, button)
                        presses a pop-up's button, from 1 left to right;
                        mod:poll() then takes the waiting task up with the
-                       answer: "goto", "decline" or "agree"
+                       answer: "decline" or "agree"; Go to leaves
+                       it open
 A window the mod opens or closes itself is heard by on_window at the next
 mod:frame(); the player's are heard at once. Opening one of the mod's big
 panels closes its others, as in the game.
