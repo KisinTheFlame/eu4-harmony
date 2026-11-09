@@ -190,7 +190,7 @@ pub mod events;
 #[cfg(test)]
 pub(crate) mod fake;
 
-use crate::game::{self, input::Taken};
+use crate::game;
 use eu4_harmony_remote::{Answer, ArmyId, ArmyList, Code, CountryTag, Error, ProvinceId, Request, Response};
 use std::{
     sync::OnceLock,
@@ -286,10 +286,7 @@ groups! {
     Extension(extensions),
     #[cfg(feature = "dev-memory")]
     Memory => Outcome::Done(crate::memory_account::answer(request).map(Answer::Memory)),
-    Input(input) => match input::run(request, game) {
-        (response, Some(taken)) => Outcome::Input(response.map(Answer::Input), taken),
-        (response, None) => Outcome::Done(response.map(Answer::Input)),
-    },
+    Input(input) => input::run(request, game),
     Desktop(desktop),
     Decision(decisions),
     Subject(subjects),
@@ -331,10 +328,6 @@ pub trait Catalogue {
     /// At a safe point at `place`: `polls` asks the requests that wait, each
     /// with the same [`Poll`].
     fn at(&mut self, events: Option<&events::Buffer>, now: Instant, place: &Place, polls: &mut dyn FnMut(&mut Poll<'_>));
-
-    /// Whether the game has had every input up to `taken`
-    /// ([`Outcome::Input`]).
-    fn handled(&mut self, taken: Taken) -> bool;
 }
 
 impl<T: Game + ?Sized> Catalogue for T {
@@ -344,10 +337,6 @@ impl<T: Game + ?Sized> Catalogue for T {
 
     fn at(&mut self, events: Option<&events::Buffer>, now: Instant, place: &Place, polls: &mut dyn FnMut(&mut Poll<'_>)) {
         polls(&mut Poll::new(events, now, place, Some(self.as_game())));
-    }
-
-    fn handled(&mut self, taken: Taken) -> bool {
-        input::Layer::handled(self, taken)
     }
 }
 
@@ -563,9 +552,20 @@ pub enum Outcome {
     Done(Response),
     /// The answer comes at a later safe point.
     Later(Box<dyn Wait>),
-    /// Answered at once, with an input taken that the game has yet to have:
-    /// the requests after it wait until it has ([`Catalogue::handled`]).
-    Input(Response, Taken),
+    /// Answered at once, and the requests after it that the [`Hold`] holds
+    /// back wait, in order, until it lets go.
+    Held(Response, Box<dyn Hold>),
+}
+
+/// What an answer holds back of the requests queued after it, such as the
+/// requests after an input, until the game has had the input.
+pub trait Hold: Send {
+    /// Whether it holds back `request`; one it lets pass runs as if it were
+    /// not there.
+    fn holds(&self, request: &Request) -> bool;
+
+    /// Whether it has let go, as seen at this safe point.
+    fn let_go(&mut self, at: &mut Poll<'_>) -> bool;
 }
 
 /// A request that waits: asked at every safe point until it answers.
@@ -618,6 +618,13 @@ impl<'a> Poll<'a> {
             Some(game) if matches!(self.place, Place::Game | Place::Unplayable(_)) => Some(&mut **game),
             _ => None,
         }
+    }
+
+    /// The capability layer at any safe point, also outside a game: only
+    /// for what reads nothing of a game, such as whether the game has had
+    /// an input.
+    fn layer(&mut self) -> Option<&mut dyn Game> {
+        self.game.as_mut().map(|game| &mut **game as &mut dyn Game)
     }
 
     /// At a game's frame with no game the player can play, why.
