@@ -45,19 +45,19 @@ pub fn real_cursor() -> Option<[i32; 2]> {
     (unsafe { GetCursorPos(&mut p) } != 0).then_some([p.x, p.y])
 }
 
+/// Where Windows' cursor is in the window's client area, off it too.
+pub fn client_cursor() -> Option<[i32; 2]> {
+    let [x, y] = real_cursor()?;
+    let mut p = POINT { x, y };
+    (unsafe { ScreenToClient(window()?, &mut p) } != 0).then_some([p.x, p.y])
+}
+
 /// The cursor's position in the frame: the virtual cursor, or else Windows'
 /// own; None off the frame.
 pub fn cursor(virtual_cursor: Option<[i32; 2]>, frame: (u32, u32)) -> Option<Position> {
     let [x, y] = match virtual_cursor {
         Some(at) => at,
-        None => {
-            let [x, y] = real_cursor()?;
-            let mut p = POINT { x, y };
-            if unsafe { ScreenToClient(window()?, &mut p) } == 0 {
-                return None;
-            }
-            [p.x, p.y]
-        }
+        None => client_cursor()?,
     };
     let (w, h) = client().unwrap_or((frame.0 as i32, frame.1 as i32));
     if x < 0 || y < 0 || x >= w || y >= h {
