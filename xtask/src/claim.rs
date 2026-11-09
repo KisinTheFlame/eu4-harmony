@@ -13,15 +13,11 @@ mod record;
 pub(crate) mod recorded;
 
 use crate::{Args, Result};
-use course::Claimed;
 pub use course::{Run, Starting};
 use machine::ThisComputer;
+use record::Claim;
 pub use record::GameEnd;
-use record::{Asking, Claim};
 use std::{path::Path, time::Duration};
-
-/// The exit codes besides 0 and 1.
-pub const EXIT_BUSY: i32 = 2;
 
 /// `--owner`, else the leaf name of this checkout's folder.
 pub fn owner(args: &Args) -> String {
@@ -68,39 +64,20 @@ pub fn game_named(name: &str) -> Option<u32> {
 }
 
 /// `cargo xtask game <command>`.
-pub fn run(raw: &[String]) -> Result<i32> {
+pub fn run(raw: &[String]) -> Result<()> {
     let (command, rest) = raw.split_first().ok_or("cargo xtask game claim | start | stop | release | status")?;
     if command == "follow" {
-        return follow(rest).map(|()| 0);
+        return follow(rest);
     }
-    let args =
-        Args::parse_repeated(rest, &["wait", "sound", "visible", "player", "now"], &["purpose", "owner", "lease", "timeout", "game-dir", "seed"], &["save"])?;
+    let args = Args::parse_repeated(rest, &["sound", "visible"], &["purpose", "owner", "timeout", "game-dir", "seed"], &["save"])?;
     match command.as_str() {
-        "claim" => claim(&args),
-        "release" => course::release(&ThisComputer, &owner(&args)).map(|()| 0),
-        "status" => course::status(&ThisComputer).map(|()| 0),
-        "start" => start(&args).map(|_| 0),
-        "stop" => course::stop(&ThisComputer, &owner(&args)).map(|()| 0),
-        "watch" | "renew" => {
-            Err(format!("game {command} is gone: a test game keeps nothing to put back, and a claim holds it until it is released (docs/plans/test-games.md)"))
-        }
+        "claim" => course::claim(&ThisComputer, &owner(&args), args.value("purpose").unwrap_or(""), &args.game_dir()?).map(|_| ()),
+        "release" => course::release(&ThisComputer, &owner(&args)),
+        "status" => course::status(&ThisComputer),
+        "start" => start(&args).map(|_| ()),
+        "stop" => course::stop(&ThisComputer, &owner(&args)),
         other => Err(format!("unknown command game {other:?}; cargo xtask --help lists them")),
     }
-}
-
-fn claim(args: &Args) -> Result<i32> {
-    if args.flag("player") || args.flag("now") {
-        return Err("the player's claim is gone: the player's game touches no test game's files (docs/plans/test-games.md)".into());
-    }
-    if args.value("lease").is_some() {
-        return Err("--lease is gone: a claim holds its test game until it is released (docs/plans/test-games.md)".into());
-    }
-    let asking = Asking { owner: owner(args), wait: args.flag("wait") };
-    let purpose = args.value("purpose").unwrap_or("").to_string();
-    Ok(match course::claim(&ThisComputer, &asking, &purpose, &args.game_dir()?)? {
-        Claimed::Busy => EXIT_BUSY,
-        Claimed::Now | Claimed::Already => 0,
-    })
 }
 
 /// `cargo xtask game follow <folder> <id> <pipe>`: what a claim's
@@ -112,10 +89,9 @@ fn follow(rest: &[String]) -> Result<()> {
 }
 
 /// Holds a test game for a run of `owner`'s, as the scenario runner's: the
-/// claim `owner` holds already, else a new one, waiting with `wait` while
-/// it is busy.
-pub fn hold_for_run(owner: &str, purpose: &str, wait: bool, game_dir: &Path) -> Result<Run> {
-    course::hold_for_run(&ThisComputer, owner, purpose, wait, game_dir)
+/// claim `owner` holds already, else a new one.
+pub fn hold_for_run(owner: &str, purpose: &str, game_dir: &Path) -> Result<Run> {
+    course::hold_for_run(&ThisComputer, owner, purpose, game_dir)
 }
 
 /// Plays `play` within `run`'s claim; then, whatever `play` comes to, ends

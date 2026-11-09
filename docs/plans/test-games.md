@@ -1,6 +1,6 @@
 # Test games plan
 
-Status: decided 2026-11-08, T1 to T4 built; what was tried in the game is in [Test games](../prototype-log/2026-11-08-test-games.md). The limit of three, the queue and the lease were taken out the same day ([ADR test-games-have-no-limit-or-lease](../adr/2026-11-08-test-games-have-no-limit-or-lease.md)). Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Test game, Claim). It replaces the claim of the whole game of [game-testing.md](game-testing.md), and rests on [research/several-games.md](../research/several-games.md), which found that several games run at once. The decision is [ADR test-games-run-side-by-side](../adr/2026-11-08-test-games-run-side-by-side.md).
+Status: decided 2026-11-08, T1 to T4 built; what was tried in the game is in [Test games](../prototype-log/2026-11-08-test-games.md). The limit of three, the queue and the lease were taken out the same day ([ADR test-games-have-no-limit-or-lease](../adr/2026-11-08-test-games-have-no-limit-or-lease.md)), and the waiting for checkouts from before test games, with the marker in `game-lock.json`, on 2026-11-09 ([ADR checkouts-before-test-games-are-not-held-back](../adr/2026-11-09-checkouts-before-test-games-are-not-held-back.md)). Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Test game, Claim). It replaces the claim of the whole game of [game-testing.md](game-testing.md), and rests on [research/several-games.md](../research/several-games.md), which found that several games run at once. The decision is [ADR test-games-run-side-by-side](../adr/2026-11-08-test-games-run-side-by-side.md).
 
 ## Goal and scope
 
@@ -28,7 +28,7 @@ The test game's name is its owner's (the leaf name of the checkout's folder, or 
 
 | Command | What it does |
 | --- | --- |
-| `cargo xtask game claim --purpose <text> [--wait]` | Claims a test game: its folder, with a user folder made from the player's. Busy, exit 2, only while a checkout from before these commands holds the whole game; `--wait` waits until it releases it. Refused while the game folder's proxy cannot load a test game's core |
+| `cargo xtask game claim --purpose <text>` | Claims a test game: its folder, with a user folder made from the player's. Refused while the game folder's proxy cannot load a test game's core, or while another process makes the same owner's claim |
 | `cargo xtask game start [--save <name>]... [--visible] [--sound] [--seed <n>] [--timeout <seconds>]` | Copies this checkout's built core and `dev.toml` into the test game's `core\`, and each save named from the player's `save games`, then starts the test game hidden and waits for its main menu. Refused while it runs, or when the built core has no test games' pipes |
 | `cargo xtask game stop` | Ends the test game |
 | `cargo xtask game release` | Ends the test game if it runs, keeps its logs and crash folders in `kept\`, removes the rest of its folder, and frees it; says how long it was held and how its games ended |
@@ -64,7 +64,7 @@ The release removes the junction before the folder, so that the player's `mod` f
 ### Beside other games
 
 - An `eu4.exe` that is no test game's is the player's, or a test game of a checkout from before these commands, and no command ends it.
-- A checkout from before these commands knows only `game-lock.json`. While any test game is held, `game-lock.json` names a holder `test-games` with a lease of a year, so that such a checkout waits; while such a checkout's claim is there, a claim of a test game waits for it, looking again every 5 seconds, since that checkout installs into the game folder and backs up the player's files.
+- A claim neither reads nor writes `game-lock.json`, the record of the claim of the whole game: a checkout from before these commands is updated from master before it tries anything in the game ([ADR checkouts-before-test-games-are-not-held-back](../adr/2026-11-09-checkouts-before-test-games-are-not-held-back.md)).
 - `cargo xtask install` needs no claim, and is refused while any `eu4.exe` runs: Windows keeps a loaded `version.dll` from being replaced.
 
 ## How it fits together

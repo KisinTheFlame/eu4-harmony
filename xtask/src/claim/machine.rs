@@ -5,16 +5,15 @@
 //! tested over a recorded one.
 //!
 //! The record is `%LOCALAPPDATA%\eu4-harmony-dev\claims.json`; the named
-//! mutex the claims of the whole game used guards every read and write of it
-//! and of `game-lock.json`, their record, which it reads for a claim of a
-//! checkout from before test games and writes [`record::old_holder`] into
-//! while test games are held. Each claim has a folder under `claims\`
+//! mutex the claims of the whole game used, which keeps its name so that
+//! checkouts a little behind share it still, guards every read and write of
+//! it. Each claim has a folder under `claims\`
 //! (docs/plans/test-games.md): `user\`, the test game's user folder, made from the
 //! player's with a junction to their `mod` folder; `core\`, the core and
 //! `dev.toml` its start copied; `follow.exe`, which follows its games to
 //! their ends into `game-ends.tsv`; and `kept\` after the release.
 use super::course::Starting;
-use super::record::{self, GameEnd, Process, State};
+use super::record::{GameEnd, Process, State};
 use crate::{built, repo, Result};
 use eu4_harmony_client::game::{self, Game};
 use eu4_harmony_client::start::{Failed, Start};
@@ -22,7 +21,7 @@ use eu4_harmony_folders::UserFolder;
 use std::{
     fs,
     path::{Path, PathBuf},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
 /// The computer, as the claim reaches it.
@@ -33,8 +32,6 @@ pub trait Machine {
     /// The folder that holds the claims' folders.
     fn claims(&self) -> Result<PathBuf>;
 
-    /// Seconds since 1970.
-    fn now(&self) -> u64;
     /// The local date and time: `yyyy-MM-dd HH:mm`, and `yyyyMMdd-HHmmss`
     /// for a folder's name.
     fn stamps(&self) -> (String, String);
@@ -149,23 +146,12 @@ impl Machine for ThisComputer {
             return Err("cannot take the claims' mutex".into());
         }
         let result = (|| {
-            let (record, old) = (base.join("claims.json"), base.join("game-lock.json"));
-            let old_record = read_json(&old);
+            let record = base.join("claims.json");
             let mut state = read_json(&record).as_ref().map(State::from_json).unwrap_or_default();
-            state.old = old_record.as_ref().and_then(record::old_claim);
             let before = state.clone();
             let value = action(&mut state);
             if state != before {
                 write_json(&record, &state.to_json())?;
-            }
-            // The holder checkouts from before test games wait for, while
-            // any is held; never over a claim of theirs.
-            if state.old.is_none() {
-                match (state.claims.is_empty(), old_record.is_some()) {
-                    (false, false) => write_json(&old, &record::old_holder(self.now(), &self.stamps().0))?,
-                    (true, true) => remove_file(&old)?,
-                    _ => {}
-                }
             }
             Ok(value)
         })();
@@ -178,10 +164,6 @@ impl Machine for ThisComputer {
 
     fn claims(&self) -> Result<PathBuf> {
         Ok(base()?.join("claims"))
-    }
-
-    fn now(&self) -> u64 {
-        SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
     }
 
     fn stamps(&self) -> (String, String) {
