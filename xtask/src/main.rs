@@ -26,17 +26,16 @@ usage:
       library that holds Europa Universalis IV. Every command that needs the
       game finds it so; game, install and scenario take --game-dir for
       another.
-  cargo xtask game claim --purpose <text> [--wait] [--owner <name>]
+  cargo xtask game claim --purpose <text> [--owner <name>]
   cargo xtask game start [--save <name>]... [--visible] [--sound] [--seed <n>] [--timeout <seconds>]
   cargo xtask game stop | release | status
       Claims of test games: games started from the game folder with a user
       folder, a core and a pipe of their own, any number at once
       (docs/plans/test-games.md). claim makes the claim's folder, with a user
-      folder made from the player's, and prints it; while a checkout from
-      before test games holds the whole game it exits with 2, or with --wait
-      returns once it holds one. start copies this checkout's built core, which needs
-      --features eu4-harmony-core/dev-test-games, and dev.toml into the test
-      game, and each --save from the player's saves, then starts it hidden
+      folder made from the player's, and prints it. start copies this
+      checkout's built core, which needs --features
+      eu4-harmony-core/dev-test-games, and dev.toml into the test game, and
+      each --save from the player's saves, then starts it hidden
       and without sound and waits for its main menu, ending a start that
       does not get there; --visible shows its window there, --sound keeps
       its sound, --seed passes the game its own -seed=<n>. Its pipe is the
@@ -69,7 +68,7 @@ usage:
       build and then in a developer build with every tool, whose points
       only it declares.
   cargo xtask scenario
-  cargo xtask scenario <name>... [--out <dir>] [--wait] [--owner <name>]
+  cargo xtask scenario <name>... [--out <dir>] [--owner <name>]
                        [--game-dir <dir>] [--<name>.<parameter> <value>]...
   cargo xtask scenario --from-report <dir>
       Plays scenarios in the game, driven through remote control, and
@@ -77,9 +76,8 @@ usage:
       by default): how each ended and what it found (docs/plans/scenarios.md).
       With no name it lists them, with their builds and parameters. It
       needs Steam running, claims a test game unless this checkout holds
-      one (busy, it waits with --wait), builds each build the
-      scenarios need with the test games' pipes, starts the test game
-      hidden with it, and releases the claim it made. --<name>.<parameter> changes a parameter for this run.
+      one, builds each build the scenarios need with the test games' pipes,
+      starts the test game hidden with it, and releases the claim it made. --<name>.<parameter> changes a parameter for this run.
       --from-report writes report.md again from the report.json there.
   cargo xtask profile <out> [--seconds 60] [--hz 50] [--slice <seconds>] [--wait] [--threads] [--waiting-in <functions>] [--test-game <name>]
   cargo xtask profile <out>.folded --tree [--root <frame>] [--depth 6] [--min 1]
@@ -214,10 +212,7 @@ fn main() {
     let result = match raw.first().map(String::as_str) {
         Some("game-dir") => game::dir().map(|dir| println!("{}", dir.display())),
         Some("install") => Args::parse(rest, &["uninstall"], &["game-dir"]).and_then(|a| files::install(&a)),
-        Some("game") => match claim::run(rest) {
-            Ok(code) => std::process::exit(code),
-            Err(e) => Err(e),
-        },
+        Some("game") => claim::run(rest),
         Some("release") => Args::parse(rest, &[], &["out"]).and_then(|a| files::release(&a)),
         Some("disasm") => with_game(
             &["run", "--release", "--quiet", "-p", "eu4-harmony-core", "--features", "analysis", "--example", "disasm", "--"],

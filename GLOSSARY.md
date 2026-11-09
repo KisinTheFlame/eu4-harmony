@@ -84,7 +84,7 @@ _Avoid_: instance (a window's), game copy, slot, sandbox
 
 **Claim**:
 The hold a holder has on one test game, from claiming it to releasing it, which keeps the test game's logs and removes the rest of it; any number of holders at a time, none waiting for another's. Until 2026-11-08 a claim held the whole game of the computer and put back the player's files it backed up.
-_Avoid_: lock (it survives only in the name of the older claim's record, `game-lock.json`), reservation
+_Avoid_: lock (it survives only in the name of the mutex that guards the claims' record), reservation
 
 **Memory account**:
 A development tool, the `dev-memory` feature, that splits what the game process holds by where it lies, from what Windows keeps of the process and its heaps, so that it costs the game nothing between two asks (docs/plans/leak-finding.md).

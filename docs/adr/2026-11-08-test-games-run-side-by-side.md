@@ -1,10 +1,10 @@
 ---
-status: superseded in part by test-games-have-no-limit-or-lease
+status: superseded in part by test-games-have-no-limit-or-lease and checkouts-before-test-games-are-not-held-back
 ---
 
 # Test games run side by side
 
-The limit of three, the queue and the lease are superseded by ADR test-games-have-no-limit-or-lease: a claim holds its test game until it is released, and any number are held at once.
+The limit of three, the queue and the lease are superseded by ADR test-games-have-no-limit-or-lease: a claim holds its test game until it is released, and any number are held at once. The claim of the whole game a checkout from before test games keeps beside them is superseded by ADR checkouts-before-test-games-are-not-held-back: neither waits for the other.
 
 Every session on the computer that tries something in the game does it in a test game of its own: a game started from the game folder with a user folder (`-userdir`), a core (`-harmony_core`, which the proxy loads) and, in a developer build, a remote control pipe (`-harmony_test_game`) of its own. Up to three run at once, each held by one claim; the others wait in a queue. A claim backs up and puts back nothing, since a test game touches neither the player's files nor the framework installed in the game folder. A player's build serves the one fixed pipe, `\\.\pipe\eu4-harmony`, whatever its command line says.
 
