@@ -183,11 +183,11 @@ A thread of the framework's that draws the frames at a pace of its own, the disp
 _Avoid_: render thread, graphics thread
 
 **Crossing**:
-A place where the day's code goes into the interface's or the graphics' own state, such as a popup made, the map mode set again or a unit's model made. The day takes the presentation lock at each crossing.
+A place where the day's code goes into the interface's or the graphics' own state, such as a popup made, the map mode set again or a unit's model let go. The day takes the presentation lock at each crossing, or, where it reads nothing back, has the call made at the next frame instead.
 _Avoid_: callback, UI hook
 
 **Presentation lock**:
-The one lock between the main thread and the drawing thread: the drawing thread holds it for each frame it draws, the main thread for each update of the interface and each crossing, so that the interface's own objects are never used by both at once.
+The one lock between the main thread and the drawing thread: the drawing thread holds it for each frame it draws but for the frame's Present, the main thread for each update of the interface and each crossing, so that the interface's own objects are never used by both at once.
 _Avoid_: render lock, UI mutex
 
 **Safe point**:

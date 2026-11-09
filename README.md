@@ -38,7 +38,7 @@ Good to know:
 
 ### Settings
 
-**EU4 Harmony settings** has the player language and its fonts, returning to the main menu without restarting the game, achievement rules, game speed, what remote control may see and how even the music is; each setting says there what it does. The details are in [docs/plans/player-language.md](docs/plans/player-language.md), [docs/plans/sessions.md](docs/plans/sessions.md), [docs/plans/game-speed.md](docs/plans/game-speed.md), [docs/plans/music-volume.md](docs/plans/music-volume.md) and [ADR remote-control-reads-the-players-view](docs/adr/2026-11-05-remote-control-reads-the-players-view.md).
+**EU4 Harmony settings** has the player language and its fonts, returning to the main menu without restarting the game, achievement rules, game speed (with, to try, drawing the frames on a thread of their own, so that the map follows the mouse at the display's rate while the days are worked out), what remote control may see and how even the music is; each setting says there what it does. The details are in [docs/plans/player-language.md](docs/plans/player-language.md), [docs/plans/sessions.md](docs/plans/sessions.md), [docs/plans/game-speed.md](docs/plans/game-speed.md), [docs/plans/drawing-thread.md](docs/plans/drawing-thread.md), [docs/plans/music-volume.md](docs/plans/music-volume.md) and [ADR remote-control-reads-the-players-view](docs/adr/2026-11-05-remote-control-reads-the-players-view.md).
 
 With the framework, the game's own volume sliders go as the square of their position, so each step sounds about as large, where vanilla's last tenth fell off steeply: volumes saved below 100 sound quieter than before, and are set again once.
 
