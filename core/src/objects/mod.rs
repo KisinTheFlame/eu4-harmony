@@ -1,9 +1,12 @@
 //! Where the game keeps what the framework reads and writes inside its
-//! objects. Each field, global and class is named once here, and the
-//! modules' points keep an instruction of the game's own that uses it, so a
-//! build that moved one fails the startup check instead of the framework
-//! reading the wrong place. The points say which numbers they use, and a
-//! test checks that their bytes carry them.
+//! objects. Each field, global and class that more than one module reads is
+//! named once here, and no module names it again; a field one module alone
+//! reads may be named in that module. A test
+//! (`points::tests::every_field_is_named_in_one_file`) refuses a field named
+//! in two files. The modules' points keep an instruction of the game's own
+//! that uses it, so a build that moved one fails the startup check instead
+//! of the framework reading the wrong place. The points say which numbers
+//! they use, and a test checks that their bytes carry them.
 //!
 //! A game function is named once too: by the module that calls it for the
 //! others (`game::power`'s spending, `game::modifiers`, `game_heap`), or

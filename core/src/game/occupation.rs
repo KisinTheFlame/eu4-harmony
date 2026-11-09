@@ -21,14 +21,10 @@ use eu4_harmony_remote::choices::Choice;
 /// gets the button's tooltip when the check says no.
 const CHECK: GameFunction<4> = GameFunction::at(0x3dbce0);
 
-/// The list of allies the check fills: the first node, and in each node the
-/// ally's tag and the next node; a node is [`NODE_SIZE`] bytes.
+/// The list of allies the check fills, a [`crate::objects::list`]: the
+/// first node, and in each node the ally's tag and the next node.
 mod receivers {
-    pub const FIRST: usize = 0;
-    pub const SIZE: usize = 0x18;
-    pub const TAG: usize = 0;
-    pub const NEXT: usize = 0x10;
-    pub const NODE_SIZE: usize = 0x20;
+    pub use crate::objects::list::{HEAD as FIRST, ITEM as TAG, NEXT, NODE_SIZE, SIZE};
 }
 
 /// The most allies a list is believed to hold.

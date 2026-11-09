@@ -30,11 +30,11 @@ const LEADER_SPENDING: usize = 3;
 /// it.
 const MAY_LEAVE: GameFunction<2> = GameFunction::at(0x862a70);
 const MAY_TAKE: GameFunction<3> = GameFunction::at(0x862fa0);
-/// The country's leaders, an intrusive list: head, its count; a node holds
-/// the leader at `+0`, the next node at `+0x10`.
+/// The country's leaders, a [`crate::objects::list`]: head, its count; a
+/// node holds the leader at `+0`, the next node at `+0x10`.
 const LEADERS: usize = 0x1468;
-const LEADERS_COUNT: usize = 0x1478;
-const NODE_NEXT: usize = 0x10;
+const LEADERS_COUNT: usize = LEADERS + crate::objects::list::COUNT;
+use crate::objects::list::NEXT as NODE_NEXT;
 /// A leader's fields: its ID (type at `+0x10`, number at `+0x14`), name,
 /// kind, skills (siege, maneuver, fire, shock), the unit it leads, and its
 /// monarch's ID.

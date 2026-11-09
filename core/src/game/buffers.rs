@@ -168,7 +168,7 @@ impl Drop for Object {
 
 /// Past the furthest RVA a dependency point names.
 const IMAGE: usize = 40 << 20;
-const PAGE: usize = 0x1000;
+use crate::memory::PAGE;
 
 /// The game's image, for a test: reserved as far as the game's, with only
 /// what the test puts there, the game's globals and its functions at their

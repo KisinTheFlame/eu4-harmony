@@ -36,7 +36,7 @@ const SENDER: usize = 0x80;
 /// The country's multiplier of the upkeep, thousandths.
 const UPKEEP_FACTOR: usize = 0xedc;
 /// The province's conversion progress, thousandths of a percent.
-const PROGRESS: usize = 0x894;
+use crate::objects::campaign::province::MISSIONARY_PROGRESS as PROGRESS;
 /// How many of the country's missionaries the game sends by itself.
 const AUTOMATIC: usize = 0x14a0;
 

@@ -29,9 +29,9 @@ const MAY_SPLIT: GameFunction<2> = GameFunction::at(0xd63fc0);
 /// A unit's method `(unit, leave empty ones, text or null)`: whether it may
 /// consolidate its regiments.
 const MAY_CONSOLIDATE: usize = 0x148;
-/// A unit's mission, and the mission's method that answers its kind; a
-/// unit's mercenary company.
-const MISSION: usize = 0x1f8;
+/// A unit's mission (its task), and the mission's method that answers its
+/// kind; a unit's mercenary company.
+use crate::objects::campaign::unit::TASK as MISSION;
 const MISSION_KIND: usize = 0x50;
 const COMPANY: usize = 0x48;
 /// The mission kinds of drilling and of evading.
