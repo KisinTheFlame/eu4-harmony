@@ -1,12 +1,15 @@
 -- QA hungry, a test mod of the extensions scenario (docs/plans/whole-game.md):
 -- grows a table in every on_month until the memory limit refuses it, and
--- logs the refusal; the table is let go, and the extension goes on.
+-- logs the refusal; the table is let go, and the extension goes on. It grows
+-- by 32 MB at a time, so that it reaches the limit of 256 MB in some tens of
+-- milliseconds, far inside the time limit of a second however busy the
+-- computer is.
 return {
   on_month = function(game)
     local held = {}
     local ok, err = pcall(function()
       for i = 1, 100000000 do
-        held[i] = string.rep("x", 100000) .. i
+        held[i] = string.rep("x", 32 * 1024 * 1024)
       end
     end)
     held = nil

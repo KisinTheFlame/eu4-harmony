@@ -173,7 +173,10 @@ pub trait Scenario: Sync {
 }
 
 fn all() -> Vec<&'static dyn Scenario> {
-    vec![&perf::Perf, &leak::GROWTH, &leak::LEAK, &sweep::Sweep, &sessions::Sessions, &extensions::Extensions, &late::Late, &late::LONG, &late::CHECKED]
+    let mut all: Vec<&'static dyn Scenario> =
+        vec![&perf::Perf, &leak::GROWTH, &leak::LEAK, &sweep::Sweep, &sessions::Sessions, &extensions::Extensions, &late::Late, &late::LONG, &late::CHECKED];
+    all.extend(late::SEGMENTS.iter().map(|s| s as &dyn Scenario));
+    all
 }
 
 fn find(name: &str) -> Option<&'static dyn Scenario> {
@@ -190,22 +193,56 @@ pub struct Set {
 }
 
 /// The sets, in `cargo xtask scenario`'s list after the scenarios.
-const SETS: &[Set] = &[Set {
-    name: "whole",
-    about: "the framework through the real game from end to end, before a release (docs/plans/whole-game.md)",
-    scenarios: &["sweep", "sessions", "extensions", "late", "long", "checked", "growth", "perf"],
-    jobs: 4,
-}];
+const SETS: &[Set] = &[
+    Set {
+        name: "whole",
+        about: "the framework through the real game from end to end, the long game in stretches side by side (docs/plans/whole-game.md)",
+        scenarios: &[
+            "sweep",
+            "sessions",
+            "extensions",
+            "late",
+            "long-1444",
+            "long-1600",
+            "long-1700",
+            "long-1760",
+            "long-1780",
+            "long-1800",
+            "long-1820",
+            "checked",
+            "growth",
+            "perf",
+        ],
+        jobs: 6,
+    },
+    Set {
+        name: "release",
+        about: "whole, and the long game played through in one, before a release (docs/plans/whole-game.md)",
+        scenarios: &["whole", "long"],
+        jobs: 6,
+    },
+];
 
-/// The names asked for, each set's in its place by the scenarios it names.
+/// The names asked for, each set's in its place by the scenarios it names,
+/// a set it names by its own.
 fn expanded(names: &[String]) -> Vec<String> {
     names
         .iter()
         .flat_map(|name| match SETS.iter().find(|set| set.name == name) {
-            Some(set) => set.scenarios.iter().map(|s| s.to_string()).collect(),
+            Some(set) => expanded(&set.scenarios.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
             None => vec![name.clone()],
         })
         .collect()
+}
+
+/// How long a scenario that plays alone waits for other sessions' games to
+/// end before it plays beside them.
+const ALONE_WAIT: Duration = Duration::from_secs(20 * 60);
+
+/// Whether a scenario that plays alone waits on, `others` other games
+/// running and `waited` gone by.
+fn alone_waits(others: usize, waited: Duration) -> bool {
+    others > 0 && waited < ALONE_WAIT
 }
 
 /// How long a crash dump may take to read before the report goes without it.
@@ -488,8 +525,9 @@ sets:"
         );
     }
     for set in SETS {
-        let minutes: u32 = set.scenarios.iter().filter_map(|n| find(n)).map(|s| s.minutes()).sum();
-        println!("  {} (about {} min): {}; plays {}", set.name, minutes, set.about, set.scenarios.join(", "));
+        let scenarios = expanded(&[set.name.to_string()]);
+        let minutes: u32 = scenarios.iter().filter_map(|n| find(n)).map(|s| s.minutes()).sum();
+        println!("  {} (about {} min one after another, {} at a time): {}; plays {}", set.name, minutes, set.jobs, set.about, set.scenarios.join(", "));
     }
 }
 
@@ -525,8 +563,21 @@ fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, owner
     game.mods(scenario.mods(parameters));
     game.next_scenario();
     // The games that run beside it, which take some of the computer it
-    // measures.
-    let beside = eu4_harmony_client::game::processes().unwrap_or_default().len().saturating_sub(usize::from(game.runs()));
+    // measures: one that plays alone waits for other sessions' to end, a
+    // while.
+    let others = || eu4_harmony_client::game::processes().unwrap_or_default().len().saturating_sub(usize::from(game.runs()));
+    if scenario.alone() {
+        let waiting = Instant::now();
+        let mut said = false;
+        while alone_waits(others(), waiting.elapsed()) {
+            if !said {
+                println!("{} waits up to {} min for the {} other game(s) running to end", scenario.name(), ALONE_WAIT.as_secs() / 60, others());
+                said = true;
+            }
+            std::thread::sleep(Duration::from_secs(10));
+        }
+    }
+    let beside = others();
     // A game that runs is brought to its main menu; one that does not is
     // started by the scenario's first step, which a scenario that times the
     // start takes itself.
@@ -550,6 +601,7 @@ fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, owner
     let mut entry = entry(scenario, parameters, outcome, why.as_deref());
     entry["minutes"] = json!((began.elapsed().as_secs_f64() / 6.0).round() / 10.0);
     entry["games_beside"] = json!(beside);
+    entry["alone"] = json!(scenario.alone());
     match ended {
         Err(Stop::Crashed(_)) => {
             // A game in its crash handler ends on its own once its dump is
@@ -618,6 +670,13 @@ fn markdown(report: &Value) -> String {
         if let Some(parameters) = s["parameters"].as_object().filter(|p| !p.is_empty()) {
             let written: Vec<String> = parameters.iter().map(|(k, v)| format!("{k} {}", text(v))).collect();
             md.push(format!("Parameters: {}.", written.join(", ")));
+        }
+        if s["alone"] == true && s["games_beside"].as_u64().is_some_and(|n| n > 0) {
+            md.push(format!(
+                "It measures what the game costs the computer, and {} other game(s) ran beside it after waiting {} min for them: its numbers are not comparable.",
+                text(&s["games_beside"]),
+                ALONE_WAIT.as_secs() / 60
+            ));
         }
         if let Some(beside) = s["games_beside"].as_u64() {
             md.push(format!("Other games running beside it as it began: {beside}."));
@@ -712,10 +771,23 @@ mod tests {
     }
 
     #[test]
-    fn the_whole_set_plays_four_at_once_and_what_measures_time_alone() {
-        assert_eq!(SETS.iter().find(|set| set.name == "whole").map(|set| set.jobs), Some(4));
+    fn whole_plays_the_long_game_in_stretches_and_release_plays_it_through() {
+        assert_eq!(SETS.iter().find(|set| set.name == "whole").map(|set| set.jobs), Some(6));
         let alone: Vec<&str> = all().iter().filter(|s| s.alone()).map(|s| s.name()).collect();
-        assert_eq!(alone, ["perf", "extensions"]);
+        assert_eq!(alone, ["perf"]);
+        let whole = expanded(&words("whole"));
+        assert!(whole.iter().any(|s| s == "long-1444") && !whole.iter().any(|s| s == "long"), "{whole:?}");
+        assert!(whole.iter().all(|s| find(s).is_some()), "{whole:?}");
+        let release = expanded(&words("release"));
+        assert_eq!(release.len(), whole.len() + 1);
+        assert_eq!(release.last().map(String::as_str), Some("long"));
+    }
+
+    #[test]
+    fn a_scenario_that_plays_alone_waits_a_while_for_other_games() {
+        assert!(!alone_waits(0, Duration::ZERO));
+        assert!(alone_waits(2, Duration::from_secs(60)));
+        assert!(!alone_waits(2, ALONE_WAIT));
     }
 
     #[test]
