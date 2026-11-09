@@ -5,7 +5,7 @@ description: Claim a test game of your own before trying anything in the game, s
 
 # Trying things in the game
 
-Every session on this computer tries things in a test game of its own (GLOSSARY): a game started from the one game folder with a user folder, a core and a remote control pipe of its own. It touches neither the player's files nor the framework installed in the game folder, and any number run at once; a claim holds one until you release it. `cargo xtask game` keeps the claims, one record for the whole computer; run it from your own checkout. The test game starts hidden and silent, so nothing of it reaches the desktop or the speakers of the person at the computer, unless the user asks to see or hear it.
+Every session on this computer tries things in a test game of its own (GLOSSARY): a game started from the one game folder with a user folder, a core and a remote control pipe of its own. It touches neither the player's files nor the framework installed in the game folder, and up to four run at once; a claim holds one until you release it. `cargo xtask game` keeps the claims, one record for the whole computer; run it from your own checkout. The test game starts hidden and silent, so nothing of it reaches the desktop or the speakers of the person at the computer, unless the user asks to see or hear it.
 
 ## Steps
 
@@ -21,7 +21,7 @@ Done when `release` reports `released` and `cargo xtask game status` lists no fo
 
 ## Holding it
 
-Nothing takes your test game from you, and nothing limits how many are held: it is yours until you release it. So release it when you are done; every one held takes memory and the graphics card's from the computer.
+Nothing takes your test game from you, and nothing limits how many are held: it is yours until you release it. At most four test games run at once, though: while four others run, `game start` says which and waits for one of them to end, and each scenario a run plays at once is one of the four. So stop your game when you no longer need it running, and release it when you are done; every one held takes memory and the graphics card's from the computer.
 
 ## Reference
 

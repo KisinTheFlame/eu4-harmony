@@ -122,6 +122,8 @@ pub struct InClaim<'m, M> {
     m: &'m M,
     owner: String,
     game_dir: std::path::PathBuf,
+    /// Whether a start waiting for a place to run in gives up.
+    given_up: fn() -> bool,
 }
 
 impl<M: machine::Machine> RunGame for InClaim<'_, M> {
@@ -130,7 +132,7 @@ impl<M: machine::Machine> RunGame for InClaim<'_, M> {
     }
 
     fn start(&self, starting: &Starting, wait: Duration) -> Result<f64> {
-        course::start_game(self.m, &self.owner, &self.game_dir, starting, wait)
+        course::start_game(self.m, &self.owner, &self.game_dir, starting, wait, &self.given_up)
     }
 
     fn stop(&self) -> Result<()> {
@@ -146,15 +148,17 @@ impl<M: machine::Machine> RunGame for InClaim<'_, M> {
     }
 }
 
-/// The test game of `owner`'s run on this computer, started from `game_dir`.
-pub fn run_game(owner: &str, game_dir: &Path) -> InClaim<'static, ThisComputer> {
-    InClaim { m: &ThisComputer, owner: owner.into(), game_dir: game_dir.into() }
+/// The test game of `owner`'s run on this computer, started from
+/// `game_dir`; a start waiting for a place to run in gives up once
+/// `given_up`.
+pub fn run_game(owner: &str, game_dir: &Path, given_up: fn() -> bool) -> InClaim<'static, ThisComputer> {
+    InClaim { m: &ThisComputer, owner: owner.into(), game_dir: game_dir.into(), given_up }
 }
 
 /// The test game of `owner`'s run on the recorded computer `m`.
 #[cfg(test)]
 pub fn recorded_run_game<'m>(m: &'m recorded::Recorded, owner: &str) -> InClaim<'m, recorded::Recorded> {
-    InClaim { m, owner: owner.into(), game_dir: recorded::GAME_DIR.into() }
+    InClaim { m, owner: owner.into(), game_dir: recorded::GAME_DIR.into(), given_up: || false }
 }
 
 /// Ends `owner`'s test game, if it runs.
@@ -163,9 +167,10 @@ pub fn stop_game_as(owner: &str) -> Result<()> {
 }
 
 /// Starts `owner`'s test game hidden, with this checkout's built core,
-/// waiting up to `wait` for its main menu. The seconds it took.
+/// waiting for a place to run in while the most test games run, then up to
+/// `wait` for its main menu. The seconds it took.
 pub fn start_game_as(owner: &str, game_dir: &Path, starting: &Starting, wait: Duration) -> Result<f64> {
-    course::start_game(&ThisComputer, owner, game_dir, starting, wait)
+    course::start_game(&ThisComputer, owner, game_dir, starting, wait, &|| false)
 }
 
 /// `cargo xtask game start`: starts this owner's test game hidden and waits
