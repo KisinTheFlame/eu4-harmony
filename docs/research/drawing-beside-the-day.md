@@ -283,6 +283,15 @@ The runs after those fixes (two more of `whole`, and `long`, `checked` and `swee
 
 What these found of the method: the crossings, caught where the day's code enters the interface's, missed paths each time the whole set played long enough; caught at the bottom (the mesh object let go, the renderer's scene begun), they are caught whatever the path. A double buffered layout (T3) would end this kind of fault, as the drawing would read none of what the main thread changes.
 
+The fifth run (2026-11-10), with those fixes, four scenarios at a time and `long` in stretches, crashed in none of its fourteen scenarios; one failed a check of its own, not the drawing thread's.
+
+## Two faults a shown game found (2026-11-10)
+
+A test game shown to the owner, who played three sessions and closed it, showed two faults the scenarios, which play hidden and never quit the game, could not ([the run](../prototype-log/2026-11-10-drawing-thread-shown.md)):
+
+- **The camera ran** to one side from each session's first frame: the drawing thread's camera update reads the cursor against the calling thread's active window, which the drawing thread has none of ("The drawing thread tried", the camera). The framework answers the drawing thread's read with the main thread's last.
+- **Closing the game crashed the drawing thread.** The application's run ends its loop after the frame in which `+0x83` (the game quits) or `+0x2f8` (the event pump's answer that it is to, `0x14c267c`) is set (`0x14c2dd0`, `0x14c2e18`), and goes on to take the game down (`[app]+0x50` at `0x14c2e27`, then the run's other teardown), with no frame after it; the drawing thread went on drawing the frame it had prepared. The game's crash handling wrote a crash folder with no stack and no dump, and the process ended with 0 while it did: the main thread's exit went on. Now, when the application's frame ends with either set, the drawing thread ends the frame it is in, as at an idler's switch, and draws no more, and the main thread keeps the presentation lock to the end. What the drawing thread crashed on was not found: there was no stack.
+
 ## A function's parts in the exception directory
 
 The compiler splits some functions into parts, each an entry of its own in the exception directory, the later ones chained to the one before (`UNW_FLAG_CHAININFO`) and beginning where it ends: `0x10a6d00`, the map's markers' update, has its prologue to `0x10a6d11` and its body from there. 20,028 of the 79,914 entries of the 1.37.5 `eu4.exe` are such parts. The framework's count of the arguments a function reads looked at the first part alone, and found none for `0x10a6d00`, which reads four (the write watch's observer of it then forwarded none, and the game crashed at `0x10a6d16`); it now takes in the parts that follow (`analysis::bounds`).
