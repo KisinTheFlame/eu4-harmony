@@ -1,6 +1,6 @@
 # Second deepening plan
 
-Status: decided (2026-11-09) from an architecture review of the parts changed most since the [first deepening](deepening.md); in progress.
+Status: decided (2026-11-09) from an architecture review of the parts changed most since the [first deepening](deepening.md), and built the same day, every part; tried together in the game ([prototype-log/2026-11-09-the-second-deepening.md](../prototype-log/2026-11-09-the-second-deepening.md)). E6 left the session group's layer type as it is, since the menu's load wait reads what the catalogue's session does not carry; E7 kept a trait for the twelve groups the fake gives answers of its own.
 
 ## Goal and scope
 

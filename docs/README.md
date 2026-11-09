@@ -30,7 +30,6 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 | | |
 | --- | --- |
 | [game-speed.md](plans/game-speed.md) | Making the game faster without changing the game it plays; how a part is chosen, and which comes next |
-| [second-deepening.md](plans/second-deepening.md) | Diplomatic acts, font pages, armies, the input barrier and the catalogue's groups each gathered into one module |
 
 ### Built
 
@@ -58,6 +57,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 | [deepening.md](plans/deepening.md) | Knowledge written out in several places gathered into one module each |
 | [whole-game.md](plans/whole-game.md) | The framework played through the real game from end to end before a release |
 | [map-names-distance-fields.md](plans/map-names-distance-fields.md) | The names on the map drawn from distance fields, sharp at every zoom, with the outline drawn by the map's shader |
+| [second-deepening.md](plans/second-deepening.md) | Diplomatic acts, font pages, armies, the input barrier and the catalogue's groups each gathered into one module |
 
 ### Replaced
 
