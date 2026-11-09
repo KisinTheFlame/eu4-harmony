@@ -22,6 +22,7 @@
 //! start, most first.
 use crate::called_by_game;
 use crate::hooks::Call;
+use crate::memory::PAGE;
 use crate::points::Point;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -33,7 +34,6 @@ use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Memory::{VirtualProtect, PAGE_EXECUTE_READ, PAGE_READONLY};
 use windows_sys::Win32::System::Threading::{GetCurrentThreadId, GetCurrentThreadStackLimits};
 
-const PAGE: usize = 0x1000;
 const FRAMES: usize = 10;
 const STACKS: usize = 4096;
 
