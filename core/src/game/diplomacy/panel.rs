@@ -9,7 +9,7 @@ use super::{
     judge, letters, other, send, verdict, Kind, Ticket,
 };
 use crate::{
-    game::{fail, with_state, Ctx, GResult, Session, Status, Tag},
+    game::{countries, fail, with_state, Ctx, GResult, Session, Status, Tag},
     game_string,
     memory::Memory,
     objects::{
@@ -21,7 +21,8 @@ use crate::{
 };
 use eu4_harmony_remote::{
     choices::{Acceptance, Choice, Factor},
-    ArmyId, ProvinceId,
+    diplomacy::{self as remote, args, Options},
+    ArmyId, CountryTag, ProvinceId,
 };
 
 /// The panel's list maker: (the player's country, the other country's tag,
@@ -95,11 +96,23 @@ pub struct Offered {
 }
 
 /// The actions the diplomacy panel offers the player toward `country`, in its
-/// order.
-pub fn options(Session { m, ctx, .. }: Session, country: Tag) -> GResult<Vec<Offered>> {
+/// order, each named by the capability that sends it.
+pub fn options(Session { m, ctx, .. }: Session, args::Options { country: asked }: args::Options) -> GResult<Options> {
+    let country = countries::named(m, &ctx, asked)?;
     other(m, &ctx, country)?;
     let panel = Panel::list(m, &ctx, country)?;
-    panel.actions.iter().map(|&at| offered(m, at)).collect()
+    let actions = panel.actions.iter().map(|&at| offered(m, at).map(listed)).collect::<GResult<_>>()?;
+    Ok(Options { country: asked, actions })
+}
+
+/// An action the panel offers, named by the capability that sends it.
+fn listed(o: Offered) -> remote::Offered {
+    let action = match &o.what {
+        Some(What::Act(act)) => act.name(),
+        Some(What::Scripted(_)) => "scripted_action",
+        None => "unknown",
+    };
+    remote::Offered { action: action.into(), key: o.key, name: o.name, choice: o.choice, description: o.description, acceptance: o.acceptance }
 }
 
 /// What the window an action opens has the player choose, for the acts whose
@@ -154,12 +167,27 @@ impl<Country> Details<Country> {
     }
 }
 
+/// Sends `act` to the country a request names, with what `details` chooses
+/// in its window, each country found in the game, as [`sent`].
+pub fn act(session: Session, act: Act, country: CountryTag, details: Details<CountryTag>) -> GResult<Ticket> {
+    let found = |tag| countries::named(session.m, &session.ctx, tag);
+    let (country, details) = (found(country)?, details.countries(found)?);
+    sent(session, country, &What::Act(act), &details)
+}
+
+/// Sends the scripted action of this content key to the country a request
+/// names, as [`sent`].
+pub fn scripted(session: Session, args::ScriptedAction { country, action }: args::ScriptedAction) -> GResult<Ticket> {
+    let country = countries::named(session.m, &session.ctx, country)?;
+    sent(session, country, &What::Scripted(action), &Details::default())
+}
+
 /// Sends `what` to `country`, as the panel's button and the window it opens
 /// send it, with what `details` chooses there: [`Status::Rejected`] when the
 /// panel does not offer it toward that country now, or the game does not let
 /// the player send it, with its reasons; [`Status::InvalidArgument`] when
 /// the act's window needs a choice `details` does not make.
-pub fn act(Session { m, ctx, commands, .. }: Session, country: Tag, what: &What, details: &Details) -> GResult<Ticket> {
+pub(super) fn sent(Session { m, ctx, commands, .. }: Session, country: Tag, what: &What, details: &Details) -> GResult<Ticket> {
     other(m, &ctx, country)?;
     let panel = Panel::list(m, &ctx, country)?;
     let mut found = None;
@@ -627,6 +655,7 @@ mod tests {
                 .i32(record + country_fields::RELATION_FAVORS, 50_000);
             let other = Object::country(byz(), country_fields::RELATIONS + 8).points_to(country_fields::RELATIONS, relations);
             let countries = Object::countries(&[&player, &other]);
+            let manager = image.country_manager(&countries);
             let vtable = Object::new(action::NAME + 8)
                 .u64(action::DESTROY, destroy as *const () as u64)
                 .u64(action::KIND, kind as *const () as u64)
@@ -636,7 +665,7 @@ mod tests {
                 acts.iter().map(|&act| (act, Object::new(0x80).u64(0, vtable.at() as u64).u8(action::OFFER, act.offer() as u8))).collect();
             SCRIPT.with(|s| *s.borrow_mut() = Script { actions: actions.iter().map(|(act, o)| (o.at(), act.token())).collect(), destroyed: Vec::new() });
             let session = buffers::session(m, 0, tur(), player.at(), countries.at(), Caller::Remote);
-            Self { _image: image, session, actions, _objects: vec![player, other, countries, vtable] }
+            Self { _image: image, session, actions, _objects: vec![player, other, countries, vtable, manager] }
         }
 
         /// Sends `act` to Byzantium with `details`, as the capability does.
@@ -651,7 +680,7 @@ mod tests {
     }
 
     fn act_toward(panel: &Panel, country: Tag, act: Act, details: Details) -> GResult<Ticket> {
-        super::act(panel.session, country, &What::Act(act), &details)
+        super::sent(panel.session, country, &What::Act(act), &details)
     }
 
     /// The failure's status and message.
@@ -677,9 +706,10 @@ mod tests {
         assert_eq!(SCRIPT.with(|s| s.borrow().destroyed.clone()), [panel.actions[0].1.at()]);
         // A call to arms says so in its own words.
         assert_eq!(
-            failed(super::super::call_to_arms(panel.session, byz())),
+            failed(super::super::call_to_arms(panel.session, eu4_harmony_remote::diplomacy::args::CallToArms { country: CountryTag(*b"BYZ") })),
             (Status::Rejected, "the diplomacy panel offers no call to arms to BYZ".to_string())
         );
+
         // Neither the player's own country nor one that is none is another.
         assert_eq!(failed(act_toward(&panel, tur(), Act::SendGift, Details { amount: Some(5), ..Default::default() })).0, Status::InvalidArgument);
         assert_eq!(failed(act_toward(&panel, wal(), Act::SendGift, Details { amount: Some(5), ..Default::default() })).0, Status::NotFound);

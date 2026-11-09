@@ -173,7 +173,8 @@ pub fn in_province(m: &Memory, ctx: &Ctx, province: usize, view: View) -> GResul
     Ok(out)
 }
 
-/// Snapshot of an army or fleet; the route is filled in by the caller.
+/// The record of an army or fleet: what it is and what of its state stops an
+/// order; its route is the caller's to read.
 pub fn record(m: &Memory, specials: &[i32; 3], unit: usize) -> GResult<Army> {
     let land = is_army(m, unit)?;
     let id = m.u64(unit + unit::ID)?;

@@ -10,7 +10,7 @@
 //! other country would accept it are the game's own answers for the treaty,
 //! as the view's send button and its accept or decline icon show them.
 use super::{
-    commands, country,
+    commands, countries, country,
     diplomacy::{self, Made, Ticket},
     Ctx, GResult, Session, Tag,
 };
@@ -24,7 +24,11 @@ use crate::{
     points::{GameFunction, Point},
     unicode::game_text,
 };
-use eu4_harmony_remote::choices::{Acceptance, Amount, Choice, Resource};
+use eu4_harmony_remote::{
+    choices::{Amount, Choice, Resource},
+    peace::{args, Evaluation, TermOption, Terms},
+    CountryTag, ProvinceId,
+};
 
 /// The peace offer's constructor: (action, from, to, demand, treaty, date),
 /// the treaty copied, so it holds one of its own.
@@ -54,7 +58,8 @@ const GOLD_STEP: i32 = 100;
 /// The most terms a treaty is believed to hold.
 const MOST_TERMS: usize = 100_000;
 
-/// A term as a request names it ([`eu4_harmony_remote::peace::Term`]).
+/// A term as a request names it ([`eu4_harmony_remote::peace::Term`]), its
+/// country found in the game.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Term {
     pub term: String,
@@ -65,34 +70,30 @@ pub struct Term {
     pub amount: Option<f64>,
 }
 
-/// A term the peace view offers.
-#[derive(Clone, Debug, PartialEq)]
-pub struct TermOption {
-    pub term: String,
-    pub province: Option<u32>,
-    pub country: Option<Tag>,
-    pub region: Option<String>,
-    /// For `gold`, the most ducats the view lets the player set.
-    pub amount: Option<f64>,
-    /// Its name, as the view lists it.
-    pub name: String,
-    /// Whether the player can choose it now, and its war score cost.
-    pub choice: Choice,
+/// The terms a request names, each country found in the game.
+fn asked(m: &Memory, ctx: &Ctx, terms: Terms) -> GResult<Vec<Term>> {
+    terms
+        .0
+        .into_iter()
+        .map(|t| {
+            Ok(Term {
+                term: t.term,
+                province: t.province.map(|ProvinceId(p)| p),
+                country: t.country.map(|c| countries::named(m, ctx, c)).transpose()?,
+                region: t.region,
+                amount: t.amount,
+            })
+        })
+        .collect()
 }
 
-/// A treaty evaluated: whether the player can send it, its war score cost,
-/// and whether the other country would accept it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Evaluation {
-    pub choice: Choice,
-    pub acceptance: Acceptance,
-}
-
-/// Every term the peace view offers against `enemy`: on the demand tab, or
+/// Every term the peace view offers against `country`: on the demand tab, or
 /// with `offer` on the offer tab. Gold, which the view sets with its buttons
 /// rather than lists, comes with the most the view lets the player set and
 /// no cost of its own.
-pub fn terms(Session { m, ctx, .. }: Session, enemy: Tag, offer: bool) -> GResult<Vec<TermOption>> {
+pub fn terms(Session { m, ctx, .. }: Session, args::TermOptions { country, offer }: args::TermOptions) -> GResult<Vec<TermOption>> {
+    let enemy = countries::named(m, &ctx, country)?;
+    let offer = offer.unwrap_or(false);
     at_war(m, &ctx, enemy)?;
     let treaty = Treaty::new(m, &ctx, enemy, offer)?;
     let mut out = Vec::new();
@@ -104,8 +105,8 @@ pub fn terms(Session { m, ctx, .. }: Session, enemy: Tag, offer: bool) -> GResul
             if gold { Vec::new() } else { vec![Amount::new(Resource::WarScore, m.call(m.vslot(at, term::COST)?, &[at, treaty.at(), 1])? as i32 as f64)] };
         out.push(TermOption {
             term: read.key,
-            province: read.province,
-            country: read.country,
+            province: read.province.map(ProvinceId),
+            country: read.country.map(|c| CountryTag(c.letters())),
             region: read.region,
             amount: if gold { Some(gold_most(m, treaty.at())? as f64 / 1000.0) } else { None },
             name: term_name(m, at, treaty.at())?,
@@ -115,12 +116,15 @@ pub fn terms(Session { m, ctx, .. }: Session, enemy: Tag, offer: bool) -> GResul
     Ok(out)
 }
 
-/// Whether the player can send a treaty of `terms` to `enemy` (with
-/// `offer`, terms they offer), its war score cost, and whether `enemy`
+/// Whether the player can send a treaty of `terms` to `country` (with
+/// `offer`, terms they offer), its war score cost, and whether `country`
 /// would accept it.
-pub fn evaluate(Session { m, ctx, .. }: Session, enemy: Tag, terms: &[Term], offer: bool) -> GResult<Evaluation> {
+pub fn evaluate(Session { m, ctx, .. }: Session, args::Evaluate { country, terms, offer }: args::Evaluate) -> GResult<Evaluation> {
+    let enemy = countries::named(m, &ctx, country)?;
+    let terms = asked(m, &ctx, terms)?;
+    let offer = offer.unwrap_or(false);
     at_war(m, &ctx, enemy)?;
-    let treaty = composed(m, &ctx, enemy, terms, offer)?;
+    let treaty = composed(m, &ctx, enemy, &terms, offer)?;
     let cost = vec![Amount::new(Resource::WarScore, TREATY_COST.call(m, [treaty.at(), 1])? as i32 as f64)];
     let offered = Offer::new(m, &ctx, enemy, &treaty, offer)?;
     let choice = match diplomacy::refusals(m, offered.at())? {
@@ -130,14 +134,16 @@ pub fn evaluate(Session { m, ctx, .. }: Session, enemy: Tag, terms: &[Term], off
     Ok(Evaluation { choice, acceptance: diplomacy::acceptance(m, offered.at())? })
 }
 
-/// Demands `terms` of `enemy`, as the peace view's demand tab sends them.
-pub fn demand(session: Session, enemy: Tag, terms: &[Term]) -> GResult<Ticket> {
-    send(session, enemy, terms, false)
+/// Demands `terms` of `country`, as the peace view's demand tab sends them.
+pub fn demand(session: Session, args::Demand { country, terms }: args::Demand) -> GResult<Ticket> {
+    let enemy = countries::named(session.m, &session.ctx, country)?;
+    send(session, enemy, &asked(session.m, &session.ctx, terms)?, false)
 }
 
-/// Offers `terms` to `enemy`, as the peace view's offer tab sends them.
-pub fn offer(session: Session, enemy: Tag, terms: &[Term]) -> GResult<Ticket> {
-    send(session, enemy, terms, true)
+/// Offers `terms` to `country`, as the peace view's offer tab sends them.
+pub fn offer(session: Session, args::Offer { country, terms }: args::Offer) -> GResult<Ticket> {
+    let enemy = countries::named(session.m, &session.ctx, country)?;
+    send(session, enemy, &asked(session.m, &session.ctx, terms)?, true)
 }
 
 fn send(Session { m, ctx, commands, .. }: Session, enemy: Tag, terms: &[Term], offer: bool) -> GResult<Ticket> {
@@ -492,6 +498,8 @@ mod tests {
     mod through_the_layer {
         use super::super::*;
         use crate::catalogue::fake::{byz, tur};
+        use eu4_harmony_remote::CountryTag;
+
         use crate::game::{
             buffers::{self, Image, Object},
             commands::record,
@@ -509,8 +517,9 @@ mod tests {
             let turkey = Object::country(tur(), country_fields::HOSTILE_COUNT + 4);
             let byzantium = Object::country(byz(), country_fields::HOSTILE_COUNT + 4);
             let countries = Object::countries(&[&turkey, &byzantium]);
+            let manager = image.country_manager(&countries);
             let result = action(buffers::session(image.memory(), 0, tur(), turkey.at(), countries.at(), Caller::Remote));
-            drop((turkey, byzantium, countries, image));
+            drop((turkey, byzantium, countries, manager, image));
             result
         }
 
@@ -521,16 +530,22 @@ mod tests {
 
         #[test]
         fn a_treaty_is_with_another_country_the_player_is_at_war_with() {
-            let humiliate = [Term { term: "humiliate".into(), ..Default::default() }];
+            let humiliate =
+                || Terms(vec![eu4_harmony_remote::peace::Term { term: "humiliate".into(), province: None, country: None, region: None, amount: None }]);
+            let (byz, tur) = (CountryTag(*b"BYZ"), CountryTag(*b"TUR"));
             let not_at_war = (Status::Rejected, "the player is not at war with BYZ".to_string());
             let with_byzantium = [
-                refused(turkey(|s| terms(s, byz(), false))),
-                refused(turkey(|s| evaluate(s, byz(), &humiliate, false))),
-                refused(turkey(|s| demand(s, byz(), &humiliate))),
-                refused(turkey(|s| offer(s, byz(), &humiliate))),
+                refused(turkey(|s| terms(s, args::TermOptions { country: byz, offer: None }))),
+                refused(turkey(|s| evaluate(s, args::Evaluate { country: byz, terms: humiliate(), offer: None }))),
+                refused(turkey(|s| demand(s, args::Demand { country: byz, terms: humiliate() }))),
+                refused(turkey(|s| offer(s, args::Offer { country: byz, terms: humiliate() }))),
             ];
             assert!(with_byzantium.iter().all(|r| *r == not_at_war), "{with_byzantium:?}");
-            assert_eq!(refused(turkey(|s| demand(s, tur(), &humiliate))), (Status::InvalidArgument, "the player's own country".into()));
+            assert_eq!(
+                refused(turkey(|s| demand(s, args::Demand { country: tur, terms: humiliate() }))),
+                (Status::InvalidArgument, "the player's own country".into())
+            );
+            assert_eq!(refused(turkey(|s| demand(s, args::Demand { country: CountryTag(*b"QQQ"), terms: humiliate() }))).0, Status::NotFound);
             assert!(record::posted().is_empty());
         }
     }

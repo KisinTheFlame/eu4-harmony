@@ -2,13 +2,14 @@
 //! one at once; the answer comes at a later safe point, once the game has
 //! carried it out and the other country has answered, or as `pending` after
 //! [`WAITED`] or when the game returns to the main menu first.
-use super::{countries, events, tag, Outcome as Ran, Poll, Wait};
+use super::{events, Outcome as Ran, Poll, Wait};
 use crate::game::{
-    diplomacy::{self as layer, Act, Answer, Calls, Choice, Declaration, Details, Ticket, What, NO_CASUS_BELLI as NONE},
-    GResult, Tag,
+    diplomacy::{self as layer, Act, Answer, Declaration, Details, Ticket},
+    GResult,
 };
+use eu4_harmony_remote::diplomacy::args;
 use eu4_harmony_remote::{
-    diplomacy::{AnswerKind, CallAllies, DiplomacyAnswer, DiplomacyRequest, Offered, Options, Outcome, PassedOver, WarGoal},
+    diplomacy::{AnswerKind, DiplomacyAnswer, DiplomacyRequest, Options, Outcome, PassedOver, WarGoal},
     Answer as Answered, CountryTag, Error, Response,
 };
 use std::time::{Duration, Instant};
@@ -19,84 +20,48 @@ use std::time::{Duration, Instant};
 pub const WAITED: Duration = Duration::from_secs(5);
 
 layer! {
-    fn war_goals(enemy: Tag) -> Vec<layer::WarGoal> = session layer::war_goals;
-    fn declare_war(enemy: Tag, choice: &Choice, calls: &Calls) -> Declaration = session layer::declare_war;
-    fn offer_peace(enemy: Tag) -> Ticket = session layer::offer_peace;
-    fn propose_alliance(ally: Tag) -> Ticket = session layer::propose_alliance;
-    fn options(country: Tag) -> Vec<layer::Offered> = session layer::options;
-    fn act(country: Tag, what: &What, details: &Details) -> Ticket = session layer::act;
-    fn call_to_arms(ally: Tag) -> Ticket = session layer::call_to_arms;
+    fn war_goals(asked: args::WarGoals) -> Vec<WarGoal> = session layer::war_goals;
+    fn declare_war(asked: args::DeclareWar) -> Declaration = session layer::declare_war;
+    fn offer_peace(asked: args::OfferPeace) -> Ticket = session layer::offer_peace;
+    fn propose_alliance(asked: args::ProposeAlliance) -> Ticket = session layer::propose_alliance;
+    fn options(asked: args::Options) -> Options = session layer::options;
+    fn act(act: Act, country: CountryTag, details: Details<CountryTag>) -> Ticket = session layer::act;
+    fn scripted_action(asked: args::ScriptedAction) -> Ticket = session layer::scripted;
+    fn call_to_arms(asked: args::CallToArms) -> Ticket = session layer::call_to_arms;
     fn answer(ticket: Ticket) -> Answer = world layer::answer;
-    fn add_rival(rival: Tag) -> () = session layer::add_rival;
-    fn remove_rival(rival: Tag) -> () = session layer::remove_rival;
+    fn add_rival(asked: args::AddRival) -> () = session layer::add_rival;
+    fn remove_rival(asked: args::RemoveRival) -> () = session layer::remove_rival;
 }
 
-pub fn run(request: DiplomacyRequest, game: &mut (impl Layer + countries::Layer + ?Sized), now: Instant) -> Ran {
+pub fn run(request: DiplomacyRequest, game: &mut (impl Layer + ?Sized), now: Instant) -> Ran {
     let sent = match request {
-        DiplomacyRequest::WarGoals { country } => {
-            return Ran::Done((|| {
-                let enemy = game.country(country)?;
-                Ok(Answered::Diplomacy(DiplomacyAnswer::WarGoals(game.war_goals(enemy)?.iter().map(war_goal).collect())))
-            })())
+        DiplomacyRequest::WarGoals { country } => return done(game.war_goals(args::WarGoals { country }).map(DiplomacyAnswer::WarGoals)),
+        DiplomacyRequest::Options { country } => return done(game.options(args::Options { country }).map(DiplomacyAnswer::Options)),
+        DiplomacyRequest::AddRival { country } => return done(game.add_rival(args::AddRival { country }).map(DiplomacyAnswer::AddRival)),
+        DiplomacyRequest::RemoveRival { country } => return done(game.remove_rival(args::RemoveRival { country }).map(DiplomacyAnswer::RemoveRival)),
+        DiplomacyRequest::DeclareWar { country, casus_belli, war_goal, province, target, call_allies } => game
+            .declare_war(args::DeclareWar { country, casus_belli, war_goal, province, target, call_allies })
+            .map(|declared| (declared.ticket, Answering::Act(Act::DeclareWar), Some((declared.called, declared.passed_over)))),
+        DiplomacyRequest::OfferPeace { country } => game.offer_peace(args::OfferPeace { country }).map(|ticket| (ticket, Answering::Act(Act::OfferPeace), None)),
+        DiplomacyRequest::ProposeAlliance { country } => {
+            game.propose_alliance(args::ProposeAlliance { country }).map(|ticket| (ticket, Answering::Act(Act::ProposeAlliance), None))
         }
-        DiplomacyRequest::DeclareWar { country, casus_belli, war_goal, province, target, call_allies } => (|| {
-            let enemy = game.country(country)?;
-            let target = target.map(|t| game.country(t)).transpose()?;
-            let choice = Choice { casus_belli: (casus_belli != NONE).then_some(casus_belli), war_goal, province: province.map(|p| p.0), target };
-            let calls = calls(call_allies.unwrap_or_default(), game)?;
-            let declared = game.declare_war(enemy, &choice, &calls)?;
-            let passed_over = declared.passed_over.into_iter().map(|p| PassedOver { country: tag(p.country), reasons: p.reasons }).collect();
-            Ok((declared.ticket, Answering::Act(Act::DeclareWar), Some((declared.called.into_iter().map(tag).collect(), passed_over))))
-        })(),
-        DiplomacyRequest::OfferPeace { country } => (|| {
-            let enemy = game.country(country)?;
-            Ok((game.offer_peace(enemy)?, Answering::Act(Act::OfferPeace), None))
-        })(),
-        DiplomacyRequest::ProposeAlliance { country } => (|| {
-            let ally = game.country(country)?;
-            Ok((game.propose_alliance(ally)?, Answering::Act(Act::ProposeAlliance), None))
-        })(),
-        DiplomacyRequest::CallToArms { country } => (|| {
-            let ally = game.country(country)?;
-            Ok((game.call_to_arms(ally)?, Answering::Act(Act::CallToArms), None))
-        })(),
-        DiplomacyRequest::Options { country } => {
-            return Ran::Done((|| {
-                let other = game.country(country)?;
-                let actions = game.options(other)?.into_iter().map(offered).collect();
-                Ok(Answered::Diplomacy(DiplomacyAnswer::Options(Options { country, actions })))
-            })())
-        }
-        DiplomacyRequest::AddRival { country } => {
-            return Ran::Done((|| {
-                let rival = game.country(country)?;
-                game.add_rival(rival)?;
-                Ok(Answered::Diplomacy(DiplomacyAnswer::AddRival(())))
-            })())
-        }
-        DiplomacyRequest::RemoveRival { country } => {
-            return Ran::Done((|| {
-                let rival = game.country(country)?;
-                game.remove_rival(rival)?;
-                Ok(Answered::Diplomacy(DiplomacyAnswer::RemoveRival(())))
-            })())
-        }
-        DiplomacyRequest::ScriptedAction { country, action } => (|| {
-            let other = game.country(country)?;
+        DiplomacyRequest::CallToArms { country } => game.call_to_arms(args::CallToArms { country }).map(|ticket| (ticket, Answering::Act(Act::CallToArms), None)),
+        DiplomacyRequest::ScriptedAction { country, action } => {
             let answers = (|o| Answered::Diplomacy(DiplomacyAnswer::ScriptedAction(o))) as Answers;
-            Ok((game.act(other, &What::Scripted(action), &Details::default())?, Answering::With(answers), None))
-        })(),
-        request => (|| {
-            let (act, country, details) = panel_act(&request)?;
-            let details = details.countries(|tag| game.country(tag))?;
-            let other = game.country(country)?;
-            Ok((game.act(other, &What::Act(act), &details)?, Answering::Act(act), None))
-        })(),
+            game.scripted_action(args::ScriptedAction { country, action }).map(|ticket| (ticket, Answering::With(answers), None))
+        }
+        request => panel_act(&request).and_then(|(act, country, details)| Ok((game.act(act, country, details)?, Answering::Act(act), None))),
     };
     match sent {
         Ok((ticket, answers, called)) => Ran::Later(Box::new(Waiting { ticket, answers, called, until: now + WAITED })),
-        Err(e) => Ran::Done(Err(e)),
+        Err(fail) => Ran::Done(Err(fail.into())),
     }
+}
+
+/// A request answered at once.
+fn done(answer: GResult<DiplomacyAnswer>) -> Ran {
+    Ran::Done(answer.map(Answered::Diplomacy).map_err(Error::from))
 }
 
 /// Waits for what comes of a proposal sent with `ticket`, as the
@@ -122,36 +87,7 @@ fn panel_act(request: &DiplomacyRequest) -> GResult<(Act, CountryTag, Details<Co
     Ok((act, country, details))
 }
 
-/// The allies a declaration calls, the countries named found in the game.
-fn calls(call: CallAllies, game: &mut (impl countries::Layer + ?Sized)) -> GResult<Calls> {
-    Ok(match call {
-        CallAllies::All => Calls::All,
-        CallAllies::None => Calls::None,
-        CallAllies::Only(tags) => Calls::Only(tags.into_iter().map(|tag| game.country(tag)).collect::<GResult<_>>()?),
-    })
-}
-
-/// An action the panel offers, named by the capability that sends it.
-fn offered(o: layer::Offered) -> Offered {
-    let action = match &o.what {
-        Some(What::Act(act)) => act.name(),
-        Some(What::Scripted(_)) => "scripted_action",
-        None => "unknown",
-    };
-    Offered { action: action.into(), key: o.key, name: o.name, choice: o.choice, description: o.description, acceptance: o.acceptance }
-}
-
-fn war_goal(g: &layer::WarGoal) -> WarGoal {
-    WarGoal {
-        casus_belli: g.casus_belli.clone().unwrap_or_else(|| NONE.into()),
-        war_goal: g.war_goal.clone(),
-        province: g.province.map(eu4_harmony_remote::ProvinceId),
-        target: g.target.map(tag),
-        name: g.name.clone(),
-    }
-}
-
-/// The answer of the capability that sent the action, around what came of it.
+// The answer of the capability that sent the action, around what came of it.
 pub type Answers = fn(Outcome) -> Answered;
 
 /// How the capability that sent the action answers: as its act's, or
@@ -221,7 +157,7 @@ mod tests {
     };
     use super::*;
     use crate::remote::Engine;
-    use eu4_harmony_remote::{response_json, CountryTag, ProvinceId};
+    use eu4_harmony_remote::{diplomacy::CallAllies, response_json, CountryTag, ProvinceId};
     use serde_json::{json, Value};
 
     fn byz() -> CountryTag {
@@ -269,11 +205,8 @@ mod tests {
             answer(&reply),
             json!({"ok": true, "result": {"answer": "declared", "war": "Ottoman-Byzantine War", "called": ["WAL"], "passed_over": [{"country": "TUR", "reasons": ["They would not accept."]}]}})
         );
-        assert_eq!(
-            game.calls[..3],
-            ["country BYZ", "country WAL", "declare war 1000021005a5942 Some(\"cb_claim\") None Some(151) Some(72058882533114199) calling All"]
-        );
-        assert_eq!(game.calls[3..], ["answer 1", "answer 1"]);
+        assert_eq!(game.calls[..1], ["declare war BYZ \"cb_claim\" None Some(151) Some(\"WAL\") calling All"]);
+        assert_eq!(game.calls[1..], ["answer 1", "answer 1"]);
 
         // Without a casus belli, calling no ally: pending, none called.
         let declare = |engine: &Engine, call_allies: &str| {
@@ -289,7 +222,7 @@ mod tests {
         };
         let reply = declare(&engine, "none");
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
-        assert!(game.calls.iter().any(|c| c == "declare war 1000021005a5942 None None None None calling None"), "{:?}", game.calls);
+        assert!(game.calls.iter().any(|c| c == "declare war BYZ \"none\" None None None calling None"), "{:?}", game.calls);
         engine.end(menu::ending(), Duration::ZERO);
         assert_eq!(answer(&reply), json!({"ok": true, "result": {"answer": "pending", "called": [], "passed_over": []}}));
 
@@ -300,7 +233,7 @@ mod tests {
         let replies = [declare(&engine, "wal, TUR"), declare(&engine, "WAL,QQQ")];
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
         engine.end(menu::ending(), Duration::ZERO);
-        assert!(game.calls.iter().any(|c| c.ends_with("calling Only([100012c004c4157, 100009a00525554])")), "{:?}", game.calls);
+        assert!(game.calls.iter().any(|c| c.ends_with("calling Only([WAL, TUR])")), "{:?}", game.calls);
         assert_eq!(answer(&replies[0])["result"]["called"], json!(["WAL"]));
         assert_eq!(answer(&replies[1])["error"]["code"], "not_found");
     }
@@ -314,7 +247,7 @@ mod tests {
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
         assert_eq!(answer(&reply), json!({"ok": true, "result": {"answer": "accepted"}}));
-        assert_eq!(game.calls, ["country WAL", "call to arms 100012c004c4157", "answer 4"]);
+        assert_eq!(game.calls, ["call to arms WAL", "answer 4"]);
     }
 
     #[test]
@@ -385,13 +318,14 @@ mod tests {
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
         assert_eq!(answer(&warn), json!({"ok": true, "result": {"answer": "done"}}));
         assert_eq!(answer(&indulgence), json!({"ok": false, "error": {"code": "rejected", "message": "Is not the Papal Controller."}}));
-        assert!(game.calls.iter().any(|c| c == "act 1000021005a5942 Act(Warn)"), "{:?}", game.calls);
-        assert!(game.calls.iter().any(|c| c == "act 1000021005a5942 Scripted(\"sell_indulgence\")"), "{:?}", game.calls);
+        assert!(game.calls.iter().any(|c| c == "act BYZ Act(Warn)"), "{:?}", game.calls);
+        assert!(game.calls.iter().any(|c| c == "act BYZ Scripted(\"sell_indulgence\")"), "{:?}", game.calls);
         // Annexing, as one more of the panel's acts.
         let annex = engine.submit(Request::Diplomacy(DiplomacyRequest::Annex { country: byz() }));
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
         assert_eq!(answer(&annex)["error"]["code"], "rejected");
-        assert!(game.calls.iter().any(|c| c == "act 1000021005a5942 Act(Annex)"), "{:?}", game.calls);
+        assert!(game.calls.iter().any(|c| c == "act BYZ Act(Annex)"), "{:?}", game.calls);
+
     }
 
     /// Each capability answering with what came of an action is one of the
