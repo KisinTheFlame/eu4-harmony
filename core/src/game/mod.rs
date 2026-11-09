@@ -20,6 +20,7 @@
 pub mod action;
 pub mod administration;
 pub mod armies;
+pub mod army;
 #[cfg(test)]
 pub mod buffers;
 pub mod buildings;
@@ -364,6 +365,7 @@ pub fn points() -> Vec<Point> {
     let mut points = vec![Point::keep(IS_PAUSED, "40 53 48 83 ec 20 80 79 48 00 48 8b d9 74 0e", "pause query")];
     points.extend(commands::points());
     points.extend(world::points());
+    points.extend(army::points());
     points.extend(orders::points());
     points.extend(events::points());
     points.extend(camera::points());

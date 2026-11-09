@@ -419,7 +419,7 @@ extern "C" fn find_id(key: *const u64) -> usize {
 /// Has the game find `units` by their IDs, and no others.
 pub fn units(image: &Image, units: &[&Object]) {
     UNITS.with(|u| *u.borrow_mut() = units.iter().map(|o| o.at()).collect());
-    image.function(super::world::FIND_ID.rva(), find_id as *const ());
+    image.function(super::army::FIND_ID.rva(), find_id as *const ());
 }
 
 /// The game's localisation, which a test's texts stand for by their keys:
