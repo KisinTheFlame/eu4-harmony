@@ -1,0 +1,9 @@
+# 2026-11-09 At most four test games at once (tested by me)
+
+`cargo xtask game` from this branch, the core built with `dev-test-games`, on the computer's own claims record, while another checkout's session held a test game of its own and started it during the run ([ADR at-most-four-test-games-run-at-once](../adr/2026-11-09-at-most-four-test-games-run-at-once.md)). Five claims, `lim-1` to `lim-5`, then `game start` for all five at the same moment, no saves.
+
+- **The five starts**: the other session's test game and `lim-1`, `lim-2` and `lim-3` ran, each of the three at its main menu after 36 to 37 s; `lim-4` and `lim-5` each said `4 test games run already (admiring-khayyam-c5b13a, lim-1, lim-2, lim-3); waiting for one of them to end`, and waited. The other session's game counted as one of the four though it was started by another checkout.
+- **A place freed**: `game stop --owner lim-1`; within the next look, five seconds, `lim-4` started, while `lim-5` went on waiting. `status` then said `6 test games held, 4 of them running, 4 at most`. `lim-4` reached its main menu 134 s after its start, five games having loaded at once.
+- **Another freed**: `game stop --owner lim-2`, and `lim-5` started. The release of all five, made before it reached its main menu, ended its game with 1 (`ended by game stop, a release or a run`), so that start failed: that was the test's own release, not the limit.
+- **Not verified**: a scenario run with `--jobs` above four, or one waiting beside another session's games, and a scenario run interrupted while a start waits (the course's tests cover the waiting and giving up over a recorded computer); a test game restarting itself while a start waits, the moment the ADR says can let five run.
+- **Cleanup**: the five claims released, no crash, each with its `kept\`; no place being taken left in `claims.json`; the other session's game and follower left running.
