@@ -559,7 +559,7 @@ fn clicks(m: &Memory) {
     enum Was {
         Widget(usize, String, String, Option<u32>, bool, u32),
         Close(usize, String),
-        Popup(u32, super::Pressed),
+        Popup(u32, u32),
         Shield(u32, usize),
         Entry(usize, String),
     }
@@ -574,7 +574,7 @@ fn clicks(m: &Memory) {
                     return match &built.key {
                         Key::Popup(n) => match gui::SHIELDS.iter().position(|s| *s == b.name) {
                             Some(side) => Some(Was::Shield(*n, side)),
-                            None => super::Pressed::of(&b.name).map(|pressed| Was::Popup(*n, pressed)),
+                            None => gui::popup_button(&b.name).map(|button| Was::Popup(*n, button)),
                         },
                         Key::Window(e, w) if b.name == gui::CLOSE => Some(Was::Close(*e, w.clone())),
                         Key::Window(e, w) => Some(Was::Widget(*e, w.clone(), b.name.clone(), b.row.as_ref().map(|(_, r)| *r), right, modifiers)),
@@ -596,9 +596,7 @@ fn clicks(m: &Memory) {
                 }
             }),
             Was::Close(extension, window) => with(|all| all.show(extension, &window, false)),
-            Was::Popup(number, pressed) => {
-                super::press(number, pressed);
-            }
+            Was::Popup(number, button) => super::press(number, button),
             Was::Shield(number, side) => {
                 if let Err(e) = open_diplomacy(m, number, side) {
                     log!("windows: pop-up {number}'s shield: {e}");
@@ -684,10 +682,10 @@ fn sync(m: &Memory, live: &mut Live, wants: &Wants) -> Result<()> {
         let shown = live.built.iter().filter(|b| matches!(b.key, Key::Popup(_))).count() as i32 % 8;
         match build_popup(m, mgr, *number, popup, &name, screen, shown) {
             Ok(built) => live.built.push(built),
-            // Answered closed: the player cannot see it to answer it.
+            // Closed: the player cannot see it to press its buttons.
             Err(e) => {
                 live.report(format!("pop-up {number} not built: {e}"));
-                with(|all| all.answer(*number, serde_json::Value::String("closed".into())));
+                with(|all| all.popups.retain(|p| p.number != *number));
             }
         }
     }

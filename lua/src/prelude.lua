@@ -128,20 +128,57 @@ game.window = setmetatable({
   end,
 })
 
--- game.popup { title = key, text = key, agree = key, decline = key } waits
--- for the button the player presses: "agree", "decline", or "closed"; Go
--- to leaves it open.
-game.popup = setmetatable(game.popup or {}, {
-  __call = function(_, spec)
-    can_wait("game.popup", 2)
-    if type(spec) ~= "table" then
-      error("game.popup takes a table: { title = key, text = key, agree = key, decline = key }", 2)
-    end
-    return finish("game.popup", show_popup(spec))
-  end,
-})
-game.popup.close = function(id)
-  close_popup(id)
+-- game.popup { title = key, text = key, buttons = { { text = key, action =
+-- function(game, popup) ... end }, ... } } shows a pop-up and gives it back
+-- at once; it waits for nothing. A button's action runs when it is pressed,
+-- and the pop-up closes after it unless it answers { close = false }; a
+-- button with no action closes it. popup:close() closes it from anywhere.
+local actions = {}
+
+local function handle(number)
+  return setmetatable({ number = number }, {
+    __index = {
+      close = function(popup)
+        actions[popup.number] = nil
+        close_popup(popup.number)
+      end,
+    },
+  })
 end
 
-return game
+game.popup = setmetatable(game.popup or {}, {
+  __call = function(_, spec)
+    if type(spec) ~= "table" then
+      error("game.popup takes a table: { title = key, text = key, buttons = { { text = key, action = function } } }", 2)
+    end
+    local number = show_popup(spec)
+    local kept = {}
+    for i, button in ipairs(type(spec.buttons) == "table" and spec.buttons or {}) do
+      kept[i] = button.action
+    end
+    actions[number] = kept
+    return handle(number)
+  end,
+})
+
+-- A button of the pop-up `number` pressed: its action, and the pop-up
+-- closed after it unless it says not to, or when it fails.
+local function press(number, button)
+  local action = actions[number] and actions[number][button]
+  local keep = false
+  if action then
+    local ok, answer = pcall(action, game, handle(number))
+    if not ok then
+      actions[number] = nil
+      close_popup(number)
+      error(answer, 0)
+    end
+    keep = type(answer) == "table" and answer.close == false
+  end
+  if not keep then
+    actions[number] = nil
+    close_popup(number)
+  end
+end
+
+return game, press

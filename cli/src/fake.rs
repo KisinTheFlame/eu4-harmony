@@ -93,11 +93,10 @@ pub type Properties = BTreeMap<&'static str, Value>;
 /// A list's row: its game widgets' properties by name.
 pub type Row = BTreeMap<String, Properties>;
 
-/// A pop-up open in the fake game, and where its answer goes.
+/// A pop-up open in the fake game.
 pub struct FakePopup {
     pub number: u32,
     pub popup: Popup,
-    pub slot: Slot<Answered>,
 }
 
 /// A property as a test reads it back.
@@ -270,22 +269,16 @@ impl Host for Fake {
         Ok(())
     }
 
-    fn popup(&self, _: usize, popup: Popup) -> Result<Box<dyn Pending<Answered>>, String> {
+    fn popup(&self, _: usize, popup: Popup) -> Result<u32, String> {
         let mut store = self.store();
         store.last_popup += 1;
-        let slot = Arc::new(Mutex::new(None));
         let number = store.last_popup;
-        store.popups.push(FakePopup { number, popup, slot: slot.clone() });
-        Ok(Box::new(Taken(slot)))
+        store.popups.push(FakePopup { number, popup });
+        Ok(number)
     }
 
-    fn close_popup(&self, _: usize, id: &str) -> Result<(), String> {
-        let mut store = self.store();
-        let (closed, open): (Vec<_>, Vec<_>) = std::mem::take(&mut store.popups).into_iter().partition(|p| p.popup.id.as_deref() == Some(id));
-        store.popups = open;
-        for p in closed {
-            *p.slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(Ok(Value::String("closed".into())));
-        }
+    fn close_popup(&self, _: usize, popup: u32) -> Result<(), String> {
+        self.store().popups.retain(|p| p.number != popup);
         Ok(())
     }
 

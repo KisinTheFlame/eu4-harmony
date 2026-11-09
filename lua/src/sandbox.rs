@@ -9,7 +9,7 @@
 use super::{
     files,
     values::{self, date_text},
-    windows, Element, Host, Mod, Waiting, Waits,
+    windows, Element, Host, Mod, Waits,
 };
 use eu4_harmony_remote::{capabilities, shape::Shape, Capability, Kind};
 use mlua::{Function, Lua, LuaOptions, MultiValue, StdLib, Table, Thread, Value as LuaValue, Variadic};
@@ -25,6 +25,8 @@ use std::{
 pub struct Opened {
     pub lua: Lua,
     pub game: Table,
+    /// The prelude's own function that runs a pop-up's button's action.
+    pub press: Function,
     pub wait: LuaValue,
     /// The state's main thread, for the time limit on plain calls.
     pub main_state: *const c_void,
@@ -213,11 +215,11 @@ pub fn open(at: &Opening) -> mlua::Result<Opened> {
     let (at_popup, popup_id) = (calling.clone(), id.to_string());
     let popup = lua.create_function(move |lua, spec: Table| show_popup(lua, &at_popup, &popup_id, &spec))?;
     let at_close = calling.clone();
-    let close_popup = lua.create_function(move |_, id: String| {
+    let close_popup = lua.create_function(move |_, popup: u32| {
         if !super::running(at_close.serial) {
-            return Err(mlua::Error::runtime("game.popup.close: the game is reached only from a handler, not at the top of main.lua"));
+            return Err(mlua::Error::runtime("closing a pop-up: the game is reached only from a handler, not at the top of main.lua"));
         }
-        at_close.host.close_popup(at_close.index, &id).map_err(|e| mlua::Error::runtime(format!("game.popup.close: {e}")))
+        at_close.host.close_popup(at_close.index, popup).map_err(|e| mlua::Error::runtime(format!("closing a pop-up: {e}")))
     })?;
     // The coroutine of the mod's own that runs, for the time limit.
     let resuming = lua.create_function(|_, co: Thread| {
@@ -228,7 +230,7 @@ pub fn open(at: &Opening) -> mlua::Result<Opened> {
         super::watch::resumed(co.to_pointer());
         Ok(())
     })?;
-    let game: Table = lua.load(include_str!("prelude.lua")).set_name("@prelude").call((
+    let (game, press): (Table, Function) = lua.load(include_str!("prelude.lua")).set_name("@prelude").call((
         call,
         wait.clone(),
         task,
@@ -259,7 +261,7 @@ pub fn open(at: &Opening) -> mlua::Result<Opened> {
     )?;
     game.set("map", map)?;
     let main_state = main_state(&lua);
-    Ok(Opened { lua, game, wait, main_state })
+    Ok(Opened { lua, game, press, wait, main_state })
 }
 
 /// The state's main thread, a `lua_State*`.
@@ -380,9 +382,9 @@ fn window_change(lua: &Lua, at: &Calling, op: &str, name: &str, widget: Option<&
     at.host.window(at.index, change).map_err(|e| mlua::Error::runtime(format!("{what}: {e}")))
 }
 
-/// `game.popup { ... }`: the wait sentinel and the number its task waits
-/// on for the answer.
-fn show_popup(lua: &Lua, at: &Calling, id: &str, spec: &Table) -> mlua::Result<MultiValue> {
+/// `game.popup { ... }`: the pop-up shown, its number, which the prelude
+/// keeps its buttons' actions by.
+fn show_popup(lua: &Lua, at: &Calling, id: &str, spec: &Table) -> mlua::Result<u32> {
     if !super::running(at.serial) {
         return Err(mlua::Error::runtime("game.popup: a pop-up is shown only from a handler or a task"));
     }
@@ -392,8 +394,7 @@ fn show_popup(lua: &Lua, at: &Calling, id: &str, spec: &Table) -> mlua::Result<M
         Some(eu4_harmony_loc::fill(&raw, &values))
     };
     let popup = windows::popup(spec, &words, lua).map_err(mlua::Error::runtime)?;
-    let pending = at.host.popup(at.index, popup).map_err(|e| mlua::Error::runtime(format!("game.popup: {e}")))?;
-    Ok(Waits::keep(&at.waits, &at.wait, Waiting::Capability(pending)))
+    at.host.popup(at.index, popup).map_err(|e| mlua::Error::runtime(format!("game.popup: {e}")))
 }
 
 /// `game.map.paint({ [province] = 0xRRGGBB or { r, g, b, a } })`.

@@ -21,19 +21,9 @@ struct TestHost {
     texts: Vec<(&'static str, &'static str)>,
     windows: Mutex<Vec<WindowChange>>,
     /// The pop-ups shown, each with the slot its answer is put in.
-    popups: Mutex<Vec<(Popup, PopupAnswer)>>,
-}
-
-/// Where a test puts a pop-up's answer.
-type PopupAnswer = Arc<Mutex<Option<super::Answered>>>;
-
-/// A pop-up's answer, once a test gives it.
-struct PopupSlot(PopupAnswer);
-
-impl Pending<super::Answered> for PopupSlot {
-    fn poll(&mut self) -> Option<super::Answered> {
-        self.0.lock().unwrap().take()
-    }
+    /// The pop-ups shown, by number, and those closed.
+    popups: Mutex<Vec<(u32, Popup)>>,
+    closed: Mutex<Vec<u32>>,
 }
 
 /// A request's answer, once a test gives it.
@@ -58,17 +48,14 @@ impl Host for TestHost {
         self.windows.lock().unwrap().push(change);
         Ok(())
     }
-    fn popup(&self, _: usize, popup: Popup) -> Result<Box<dyn Pending<super::Answered>>, String> {
-        let slot = Arc::new(Mutex::new(None));
-        self.popups.lock().unwrap().push((popup, slot.clone()));
-        Ok(Box::new(PopupSlot(slot)))
+    fn popup(&self, _: usize, popup: Popup) -> Result<u32, String> {
+        let mut popups = self.popups.lock().unwrap();
+        let number = popups.len() as u32 + 1;
+        popups.push((number, popup));
+        Ok(number)
     }
-    fn close_popup(&self, _: usize, id: &str) -> Result<(), String> {
-        for (popup, slot) in self.popups.lock().unwrap().iter() {
-            if popup.id.as_deref() == Some(id) {
-                *slot.lock().unwrap() = Some(Ok(Value::String("closed".into())));
-            }
-        }
+    fn close_popup(&self, _: usize, popup: u32) -> Result<(), String> {
+        self.closed.lock().unwrap().push(popup);
         Ok(())
     }
     fn paint(&self, _: usize, _: &[(u32, [u8; 4])]) -> Result<(), Error> {
@@ -707,6 +694,10 @@ impl dispatch::Feed for TestFeed {
         self.asked.push("windows".into());
         std::mem::take(&mut self.windows)
     }
+    fn popups_pressed(&mut self) -> Vec<dispatch::PopupPressed> {
+        self.asked.push("popups_pressed".into());
+        Vec::new()
+    }
 }
 
 #[test]
@@ -787,7 +778,7 @@ fn a_frame_reaches_every_extension_in_its_order() {
     );
     // The map and the clicks are asked for when their turn comes, after
     // what was heard.
-    assert_eq!(feed.asked, ["session 3", "map_lost", "clicks", "windows"]);
+    assert_eq!(feed.asked, ["session 3", "map_lost", "clicks", "windows", "popups_pressed"]);
     let listened: Vec<&str> = dispatch::listened(&opened).iter().map(|k| k.name()).collect();
     assert_eq!(listened, ["session", "session_ended", "day", "month", "army_ordered", "battle"]);
 }
@@ -818,7 +809,7 @@ fn load_texts(name: &str, main: &str, texts: &[(&'static str, &'static str)]) ->
 }
 
 #[test]
-fn an_extension_sets_its_windows_and_waits_for_a_popup() {
+fn an_extension_sets_its_windows_and_a_popup_s_buttons_run_their_actions() {
     let main = r#"
         return {
           windows = {
@@ -829,8 +820,11 @@ fn an_extension_sets_its_windows_and_waits_for_a_popup() {
           on_frame = function(game)
             game.window.open("reforms")
             game.window.reforms.status.text = "Ready"
-            local answer = game.popup { title = "TITLE", text = "ASK", values = { N = 2 }, agree = "YES", decline = "NO", id = "ask" }
-            log("answered " .. tostring(answer))
+            local popup = game.popup { title = "TITLE", text = "ASK", values = { N = 2 }, buttons = {
+              { text = "NO", action = function(game, popup) log("looked " .. popup.number); return { close = false } end },
+              { text = "YES", action = function(game, popup) log("agreed") end },
+            }}
+            log("shown " .. popup.number)
           end,
           on_day = function(game)
             game.window.reforms.status.frame = 2
@@ -845,26 +839,22 @@ fn an_extension_sets_its_windows_and_waits_for_a_popup() {
         *host.windows.lock().unwrap(),
         [WindowChange::Open("reforms".into()), WindowChange::Set { window: "reforms".into(), widget: "status".into(), value: Property::Text("Ready".into()) },]
     );
-    {
-        let popups = host.popups.lock().unwrap();
-        assert_eq!(
-            popups[0].0,
-            Popup {
-                id: Some("ask".into()),
-                header: None,
-                title: "Reforms".into(),
-                text: "Take 2?".into(),
-                agree: Some("Yes".into()),
-                decline: Some("No".into()),
-                goto: None,
-                shields: [None, None],
-            }
-        );
-        *popups[0].1.lock().unwrap() = Some(Ok(Value::from("decline")));
-    }
-    assert_eq!(e.waiting(), 1);
-    e.poll();
-    assert!(host.log.lock().unwrap().iter().any(|l| l == "answered decline"), "{:?}", host.log.lock().unwrap());
+    assert_eq!(
+        host.popups.lock().unwrap()[0],
+        (1, Popup { header: None, title: "Reforms".into(), text: "Take 2?".into(), buttons: vec!["No".into(), "Yes".into()], shields: [None, None] })
+    );
+    assert_eq!(e.waiting(), 0, "a pop-up waits for nothing");
+    let logged = |line: &str| host.log.lock().unwrap().iter().any(|l| l == line);
+    assert!(logged("shown 1"));
+    // The left button's action keeps it open; the right one's closes it.
+    e.press_popup(1, 1);
+    assert!(logged("looked 1") && host.closed.lock().unwrap().is_empty(), "{:?}", host.log.lock().unwrap());
+    e.press_popup(1, 2);
+    assert!(logged("agreed") && *host.closed.lock().unwrap() == [1]);
+    // Pressed again, it has no action left, and closes, as a button with
+    // none does.
+    e.press_popup(1, 2);
+    assert_eq!(*host.closed.lock().unwrap(), [1, 1]);
     // A property the game widget does not have is the handler's error.
     e.handle("on_day", &[]);
     let errors = errors(&e);

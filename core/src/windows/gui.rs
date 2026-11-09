@@ -60,9 +60,11 @@ const RIBBON_INSET: i32 = 14;
 /// its title on the green band, its shields, its buttons.
 pub const HEADER: &str = "eu4h_header";
 pub const SHIELDS: [&str; 2] = ["eu4h_shield_left", "eu4h_shield_right"];
-pub const GOTO: &str = "eu4h_goto";
-pub const AGREE: &str = "eu4h_agree";
-pub const DECLINE: &str = "eu4h_decline";
+/// A pop-up's buttons' names, left to right.
+pub const POPUP_BUTTONS: [&str; 2] = ["eu4h_button_1", "eu4h_button_2"];
+/// The key of the game's own words for its OK, a pop-up's button when the
+/// mod gives none.
+pub const OK: &str = "OK";
 const POPUP_BACKGROUND: &str = "SandboxFloaterBackground";
 
 /// A pop-up's width, the game's message pop-up's; its height follows its
@@ -189,8 +191,7 @@ pub fn window(type_name: &str, window: &Window, words: &dyn Fn(&Option<String>) 
 
 /// The `windowType` of a pop-up, as the game's message pop-up is laid out:
 /// its header, its title on the green band, the shields at its corners,
-/// its text, and its buttons along its bottom, Go to first, Esc pressing
-/// the last. Its words are written into it, its text alone set as it is
+/// its text, and its buttons along its bottom. Its words are written into it, its text alone set as it is
 /// built, for the game's formatting and line breaks.
 pub fn popup(type_name: &str, popup: &Popup) -> String {
     let mut out = String::new();
@@ -211,16 +212,16 @@ pub fn popup(type_name: &str, popup: &Popup) -> String {
     for (name, x) in SHIELDS.iter().zip([-1, 407]) {
         let _ = writeln!(out, "\t\tguiButtonType = {{ name = \"{name}\" position = {{ x = {x} y = 30 }} quadTextureSprite = \"standarddialogshield\" }}");
     }
-    // The game's dialog's places: two at its sides, or one in the middle;
-    // the agreeing one on the right with c and Return, the declining one on
-    // the left with z and Esc, as the game's own dialogs have them.
+    // The game's dialog's places: two at its sides, or one in the middle.
+    // Its keys go with the places, as the game's dialogs have them: c and
+    // Return the right one, or the only one; z and Esc the left one.
     let shown = shown(popup);
     let places: &[i32] = if shown.len() == 1 { &[175] } else { &[77, 274] };
-    for ((name, text), x) in shown.iter().zip(places) {
-        let keys = match name.as_str() {
-            AGREE => " shortcut = \"c\" extra_shortcut = \"RETURN\" clicksound = ok_click",
-            DECLINE => " shortcut = \"z\" extra_shortcut = \"ESCAPE\"",
-            _ => "",
+    for (i, ((name, text), x)) in shown.iter().zip(places).enumerate() {
+        let keys = if i + 1 == shown.len() {
+            " shortcut = \"c\" extra_shortcut = \"RETURN\" clicksound = ok_click"
+        } else {
+            " shortcut = \"z\" extra_shortcut = \"ESCAPE\""
         };
         let _ = writeln!(
             out,
@@ -234,19 +235,18 @@ pub fn popup(type_name: &str, popup: &Popup) -> String {
 }
 
 /// A pop-up's buttons as they stand, left to right: each its element's
-/// name and its words, or the key of the game's own words for Go to and
-/// OK, which the game puts into its language. Go to or the declining
-/// button on the left, the agreeing one, or the game's OK, on the right.
+/// name and its words, or the key of the game's own OK, which the game puts
+/// into its language, when the mod gave none.
 pub fn shown(popup: &Popup) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    if popup.goto.is_some() {
-        out.push((GOTO.to_string(), "GOTO".to_string()));
+    if popup.buttons.is_empty() {
+        return vec![(POPUP_BUTTONS[0].to_string(), OK.to_string())];
     }
-    if let Some(words) = &popup.decline {
-        out.push((DECLINE.to_string(), words.clone()));
-    }
-    out.push((AGREE.to_string(), popup.agree.clone().unwrap_or_else(|| "OK".to_string())));
-    out
+    POPUP_BUTTONS.iter().zip(&popup.buttons).map(|(name, words)| (name.to_string(), words.clone())).collect()
+}
+
+/// The button, from 1, of a pop-up's element `name`.
+pub fn popup_button(name: &str) -> Option<u32> {
+    POPUP_BUTTONS.iter().position(|b| *b == name).map(|i| i as u32 + 1)
 }
 
 /// A definitions file of window types.
@@ -403,39 +403,33 @@ mod tests {
     }
 
     #[test]
-    fn a_pop_up_is_the_game_s_message_pop_up_agreeing_on_the_right_and_declining_on_the_left() {
-        let mut popup = Popup {
-            id: None,
-            header: Some("Our steward".into()),
-            title: "T".into(),
-            text: "X".into(),
-            agree: None,
-            decline: None,
-            goto: None,
-            shields: [None, None],
-        };
+    fn a_pop_up_is_the_game_s_message_pop_up_its_keys_going_with_its_buttons_places() {
+        let mut popup = Popup { header: Some("Our steward".into()), title: "T".into(), text: "X".into(), buttons: Vec::new(), shields: [None, None] };
         let alone = super::popup("eu4h_popup_1", &popup);
         assert!(alone.contains("quadTextureSprite = \"SandboxFloaterBackground\""), "the game's dialogs' black");
         assert!(alone.contains("spriteType = \"GFX_message_band\"") && alone.contains("text = \"Our steward\""), "{alone}");
         assert_eq!(alone.matches("standarddialogshield").count(), 2);
         assert!(
-            alone.contains("name = \"eu4h_agree\" position = { x = 175 y = 212 }") && alone.contains("buttonText = \"OK\""),
+            alone.contains("name = \"eu4h_button_1\" position = { x = 175 y = 212 }") && alone.contains("buttonText = \"OK\""),
             "the game's own OK in the middle: {alone}"
         );
-        popup.goto = Some(151);
-        popup.agree = Some("No \"never\"".into());
-        let two = super::popup("eu4h_popup_2", &popup);
-        assert!(two.contains("name = \"eu4h_goto\" position = { x = 77 y = 212 }") && two.contains("buttonText = \"GOTO\""), "{two}");
-        assert!(two.contains("name = \"eu4h_agree\" position = { x = 274 y = 212 }") && two.contains("buttonText = \"No 'never'\""), "{two}");
-        assert_eq!(two.matches("ESCAPE").count(), 0, "Go to and an agreeing button: nothing declines");
-        assert!(two.contains("shortcut = \"c\" extra_shortcut = \"RETURN\""), "the agreeing button's keys: {two}");
-        popup.goto = None;
-        popup.decline = Some("Reject".into());
-        let declining = super::popup("eu4h_popup_3", &popup);
         assert!(
-            declining.contains("name = \"eu4h_decline\" position = { x = 77 y = 212 }") && declining.contains("shortcut = \"z\" extra_shortcut = \"ESCAPE\""),
-            "{declining}"
+            alone.contains("shortcut = \"c\" extra_shortcut = \"RETURN\"") && !alone.contains("ESCAPE"),
+            "one button: c and Return, as the game's: {alone}"
         );
+        popup.buttons = vec!["Look".into(), "No \"never\"".into()];
+        let two = super::popup("eu4h_popup_2", &popup);
+        assert!(
+            two.contains("name = \"eu4h_button_1\" position = { x = 77 y = 212 }")
+                && two.contains("buttonText = \"Look\" buttonFont = \"vic_18\" shortcut = \"z\" extra_shortcut = \"ESCAPE\""),
+            "{two}"
+        );
+        assert!(
+            two.contains("name = \"eu4h_button_2\" position = { x = 274 y = 212 }")
+                && two.contains("buttonText = \"No 'never'\" buttonFont = \"vic_18\" shortcut = \"c\" extra_shortcut = \"RETURN\""),
+            "{two}"
+        );
+        assert_eq!((popup_button("eu4h_button_2"), popup_button("eu4h_close")), (Some(2), None));
         let whole = file(&[two]);
         assert_eq!(whole.matches('{').count(), whole.matches('}').count());
     }

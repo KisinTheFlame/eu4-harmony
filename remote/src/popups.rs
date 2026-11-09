@@ -9,10 +9,10 @@ group! {
 
     /// The pop-ups open, oldest first, each with the mod that showed it and
     /// its words in the player language.
-    world List "list" {} -> Vec<Popup>, "the pop-ups: popup, mod, header, title, text, the buttons' words left to right, and the province of its Go to";
-    /// Presses one of a pop-up's buttons, as the player does: the pop-up
-    /// closes, and the extension that showed it has its answer at the next
-    /// frame; Go to glides the camera to its province and leaves it open.
+    world List "list" {} -> Vec<Popup>, "the pop-ups: popup, mod, header, title, text, and the buttons' words left to right";
+    /// Presses one of a pop-up's buttons, as the player does: the extension
+    /// that showed it runs the button's action at the next frame, which
+    /// closes the pop-up unless it says not to.
     world Answer "answer" {
         /// The pop-up's number, from popup.list.
         popup: u32,
@@ -34,10 +34,7 @@ pub struct Popup {
     pub header: Option<String>,
     pub title: String,
     pub text: String,
-    /// The buttons' words, left to right as they stand: Go to or the
-    /// declining one, then the agreeing one, the game's own OK when the mod
-    /// gave none.
+    /// The buttons' words, left to right as they stand, the game's own OK
+    /// when the mod gave none.
     pub buttons: Vec<String>,
-    /// The province its Go to button turns the camera to.
-    pub province: Option<u32>,
 }

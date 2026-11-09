@@ -1,0 +1,11 @@
+# 2026-11-09 Pop-ups whose buttons run actions, and the button area's frame as a window (tested by me)
+
+After the owner's notes on the run before: the button area's frame lit up under the pointer, a pop-up's Go to closed it, the regional combat mod's settings window could be dragged and a second right click did not close it. One claim; the test game started shown three times at the owner's wish, with the council demo and the regional combat mod's branch `settings-window` (`--mod`, both outside this repository), and a new game as Austria in 1444 each time, since the save of the run before was made with the playset's own copy of the mod and the framework refused it.
+
+- **The frame as an icon**: an `iconType` of the windows' background with a `size` stood at the sprite's own size, a dark block far wider and taller than the button area. Not kept.
+- **The frame as a window**: a `windowType` of its own, nested in the panel, stood at its size beside the panel, the "区域" button drawn over it and taking left clicks (the task turned on and off). Screenshots with the pointer over the frame and away from it were the same. The framework bound it ("ui: bound 2 element(s)", no "cannot bind the button area's frame"). Not seen: the frame hidden with a fleet selected, which the run before saw with the frame a button.
+- **A window's background under the pointer**: the ledger's, an extension window's, looked the same with the pointer over it and away.
+- **Pop-ups**: the founding pop-up, which has no buttons of the mod's, closed on c, its OK's key, through the extension's side as every button now does. Not tried in the game: a Go to that leaves its pop-up open, and two buttons' keys; the fake game's tests and the unit tests cover them.
+- **Right clicks**: `input.click` with the right button reached neither the regional combat button nor the map (an army right-clicked to a neighbor was given no route), while left clicks did. The owner was using the shown game at the same time, which may be why; the owner's own right clicks on the button worked. Not looked into further.
+- **The ledger's black line**: gone with the demo's rule, which was a sprite wider than the window, drawn at its own size.
+- The game's `error.log` has no line of the framework's or the mods'.

@@ -63,12 +63,12 @@ pub trait Host: Send + Sync {
     /// Makes a change to one of the extension's windows, checked against
     /// its layout already.
     fn window(&self, extension: usize, change: WindowChange) -> Result<(), String>;
-    /// Shows a pop-up of the extension's. Its answer comes later: the number
-    /// of the button pressed, from 1, or `"closed"` when it was closed
-    /// without one.
-    fn popup(&self, extension: usize, popup: Popup) -> Result<Box<dyn Pending<Answered>>, String>;
-    /// Closes the extension's open pop-ups of `id`.
-    fn close_popup(&self, extension: usize, id: &str) -> Result<(), String>;
+    /// Shows a pop-up of the extension's, and gives its number. A button
+    /// pressed comes back as a [`dispatch::PopupPressed`], which runs the
+    /// button's action; the pop-up stays open until it is closed.
+    fn popup(&self, extension: usize, popup: Popup) -> Result<u32, String>;
+    /// Closes the extension's pop-up `popup`; nothing when it is not open.
+    fn close_popup(&self, extension: usize, popup: u32) -> Result<(), String>;
     /// Paints provinces in the extension's colors, each `[r, g, b, a]`.
     fn paint(&self, extension: usize, colors: &[(u32, [u8; 4])]) -> Result<(), eu4_harmony_remote::Error>;
     /// Gives the map back.
@@ -167,6 +167,8 @@ pub struct Extension {
     windows: Vec<layout::Window>,
     /// The `game` every handler gets.
     game: Table,
+    /// The prelude's own function that runs a pop-up's button's action.
+    press: Function,
     /// The sentinel a function that waits returns to its Lua wrapper.
     wait: LuaValue,
     /// What its tasks are to wait for, shared with its sandbox.
@@ -322,6 +324,7 @@ pub fn open(index: usize, m: &Mod, host: Arc<dyn Host>) -> Result<Arc<Extension>
         handlers,
         windows,
         game: opened.game,
+        press: opened.press,
         wait: opened.wait,
         waits,
         state: Mutex::new(State::default()),
@@ -499,6 +502,23 @@ impl Extension {
                 self.after(name, thread, outcome);
             }
             Err(e) => self.error(name, &e.to_string()),
+        }
+    }
+
+    /// Runs the action of the button `button` (from 1, left to right) of its
+    /// pop-up `popup` as a new task, which closes the pop-up after it unless
+    /// the action answers `{ close = false }`.
+    pub fn press_popup(&self, popup: u32, button: u32) {
+        if self.state().stopped.is_some() {
+            return;
+        }
+        const FROM: &str = "a pop-up's button";
+        match self.lua.create_thread(self.press.clone()) {
+            Ok(thread) => {
+                let outcome = self.stretch(&thread, MultiValue::from_iter([LuaValue::Integer(popup.into()), LuaValue::Integer(button.into())]));
+                self.after(FROM, thread, outcome);
+            }
+            Err(e) => self.error(FROM, &e.to_string()),
         }
     }
 

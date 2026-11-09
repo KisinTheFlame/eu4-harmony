@@ -17,13 +17,12 @@ pub(crate) use gui::BACKGROUND_SPRITE;
 mod live;
 
 use eu4_harmony_lua::{
-    dispatch::{Click, WindowSeen},
+    dispatch::{Click, PopupPressed, WindowSeen},
     layout::Window,
-    Answered, Pending, Popup, Property, WindowChange,
+    Popup, Property, WindowChange,
 };
-use serde_json::Value;
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 pub(crate) use live::{frame, killed, session_ended, show_window, with_string};
 
@@ -54,23 +53,11 @@ struct Wanted {
     dragged: Option<(i32, i32)>,
 }
 
-/// Where a pop-up's answer is put, and the pending answer that takes it.
-type Slot = Arc<Mutex<Option<Answered>>>;
-
-struct Taken(Slot);
-
-impl Pending<Answered> for Taken {
-    fn poll(&mut self) -> Option<Answered> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).take()
-    }
-}
-
 /// A pop-up open.
 struct Open {
     number: u32,
     extension: usize,
     popup: Popup,
-    answer: Slot,
 }
 
 #[derive(Default)]
@@ -82,6 +69,8 @@ struct Windows {
     /// What extensions hear at the next frame.
     seen: Vec<WindowSeen>,
     clicks: Vec<Click>,
+    /// The pop-ups' buttons pressed, whose actions run at the next frame.
+    pressed: Vec<PopupPressed>,
     /// Pop-ups shown since the last frame, for the `popup` event.
     shown: Vec<(u32, String)>,
     /// Bumped whenever the declared windows change, so that their
@@ -146,36 +135,37 @@ impl Windows {
         }
     }
 
-    /// Answers the pop-up `number` and closes it.
-    fn answer(&mut self, number: u32, answer: Value) -> bool {
-        let Some(at) = self.popups.iter().position(|p| p.number == number) else { return false };
-        let open = self.popups.remove(at);
-        *open.answer.lock().unwrap_or_else(|e| e.into_inner()) = Some(Ok(answer));
+    /// A button of the pop-up `number` pressed, from 1: its extension runs
+    /// the button's action at the next frame, which closes the pop-up or
+    /// not. False when it is not open.
+    fn press(&mut self, number: u32, button: u32) -> bool {
+        let Some(open) = self.popups.iter().find(|p| p.number == number) else { return false };
+        let pressed = PopupPressed { extension: open.extension, popup: number, button };
+        // A button pressed twice before its action ran runs it once.
+        if !self.pressed.contains(&pressed) {
+            self.pressed.push(pressed);
+        }
         true
     }
 
-    /// Closes everything of `extension`'s: its windows, unheard, and its
-    /// pop-ups, answered `closed`.
+    /// Closes everything of `extension`'s, unheard: its windows and its
+    /// pop-ups.
     fn forget(&mut self, extension: usize) {
         self.wanted.retain(|(e, _), _| *e != extension);
-        let closed: Vec<u32> = self.popups.iter().filter(|p| p.extension == extension).map(|p| p.number).collect();
-        for number in closed {
-            self.answer(number, Value::String("closed".into()));
-        }
+        self.popups.retain(|p| p.extension != extension);
         self.seen.retain(|s| s.extension != extension);
         self.clicks.retain(|c| c.extension != extension);
+        self.pressed.retain(|p| p.extension != extension);
     }
 
-    /// The session ended: every window closes, unheard, and every pop-up
-    /// answers `closed`; where the player dragged them is forgotten.
+    /// The session ended: every window and pop-up closes, unheard; where
+    /// the player dragged them is forgotten.
     fn end_session(&mut self) {
         self.wanted.clear();
-        let all: Vec<u32> = self.popups.iter().map(|p| p.number).collect();
-        for number in all {
-            self.answer(number, Value::String("closed".into()));
-        }
+        self.popups.clear();
         self.seen.clear();
         self.clicks.clear();
+        self.pressed.clear();
         self.shown.clear();
     }
 }
@@ -215,8 +205,8 @@ pub fn change(extension: usize, change: WindowChange) -> Result<(), String> {
     Ok(())
 }
 
-/// Shows a pop-up of `extension`'s; its answer comes later.
-pub fn popup(extension: usize, popup: Popup) -> Result<Box<dyn Pending<Answered>>, String> {
+/// Shows a pop-up of `extension`'s, and gives its number.
+pub fn popup(extension: usize, popup: Popup) -> Result<u32, String> {
     if !crate::sessions::going_on() {
         return Err("a pop-up is shown only in a game".into());
     }
@@ -226,81 +216,29 @@ pub fn popup(extension: usize, popup: Popup) -> Result<Box<dyn Pending<Answered>
         }
         all.last_popup += 1;
         let number = all.last_popup;
-        let answer = Slot::default();
         let id = all.declared.iter().find(|d| d.extension == extension).map(|d| d.id.clone()).or_else(|| crate::lua::mod_id(extension)).unwrap_or_default();
         all.shown.push((number, id));
-        all.popups.push(Open { number, extension, popup, answer: answer.clone() });
-        Ok(Box::new(Taken(answer)) as Box<dyn Pending<Answered>>)
+        all.popups.push(Open { number, extension, popup });
+        Ok(number)
     })
 }
 
-/// Closes `extension`'s open pop-ups of `id`, each answered `closed`.
-pub fn close_popup(extension: usize, id: &str) -> Result<(), String> {
-    with(|all| {
-        let closed: Vec<u32> = all.popups.iter().filter(|p| p.extension == extension && p.popup.id.as_deref() == Some(id)).map(|p| p.number).collect();
-        for number in closed {
-            all.answer(number, Value::String("closed".into()));
-        }
-    });
+/// Closes `extension`'s pop-up `number`; nothing when it is not open.
+pub fn close_popup(extension: usize, number: u32) -> Result<(), String> {
+    with(|all| all.popups.retain(|p| !(p.number == number && p.extension == extension)));
     Ok(())
 }
 
-/// A button of a pop-up's pressed: its "Go to", its agreeing one (the
-/// game's own OK when the mod gave none) or its declining one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Pressed {
-    Goto,
-    Agree,
-    Decline,
-}
-
-impl Pressed {
-    /// The button of the element `name`.
-    pub fn of(name: &str) -> Option<Self> {
-        match name {
-            gui::GOTO => Some(Pressed::Goto),
-            gui::AGREE => Some(Pressed::Agree),
-            gui::DECLINE => Some(Pressed::Decline),
-            _ => None,
-        }
-    }
-
-    /// The answer its pop-up's extension has, which closes it; none for Go
-    /// to, which leaves it open.
-    fn answer(self) -> Option<&'static str> {
-        match self {
-            Pressed::Goto => None,
-            Pressed::Agree => Some("agree"),
-            Pressed::Decline => Some("decline"),
-        }
-    }
-}
-
-/// Presses a pop-up's button, as the player does: "Go to" glides the camera
-/// to its province, as the game's own Go to does, and leaves the pop-up
-/// open; the others close it, and its extension has the answer, `"agree"`
-/// or `"decline"`, at the next frame. Nothing when it is not open.
-pub fn press(number: u32, pressed: Pressed) {
-    let province = with(|all| all.popups.iter().find(|p| p.number == number).and_then(|p| p.popup.goto));
-    if let (Pressed::Goto, Some(province)) = (pressed, province) {
-        let look = crate::game::WorldSession::open(crate::game::Caller::Remote).and_then(|session| {
-            crate::game::camera::look_at(
-                session,
-                eu4_harmony_remote::camera::args::LookAt { province: Some(eu4_harmony_remote::ProvinceId(province)), x: None, y: None, glide: Some(true) },
-            )
-        });
-        if let Err(e) = look {
-            log!("windows: pop-up {number}'s Go to province {province}: {}", e.message);
-        }
-    }
-    if let Some(answer) = pressed.answer() {
-        with(|all| all.answer(number, Value::String(answer.into())));
-    }
+/// Presses a button of a pop-up, from 1, left to right, as the player
+/// does: its extension runs the button's action at the next frame. Nothing
+/// when it is not open.
+pub fn press(number: u32, button: u32) {
+    with(|all| all.press(number, button));
 }
 
 /// The pop-ups open, oldest first, as `popup.list` gives them: each
-/// button's words as they stand, left to right, the game's own Go to and
-/// OK in the game's language.
+/// button's words as they stand, left to right, the game's own OK in the
+/// game's language.
 pub fn popups() -> Vec<eu4_harmony_remote::popups::Popup> {
     let game_words = |key: &str| {
         crate::memory()
@@ -317,11 +255,7 @@ pub fn popups() -> Vec<eu4_harmony_remote::popups::Popup> {
             header: popup.header.clone(),
             title: popup.title.clone(),
             text: popup.text.clone(),
-            buttons: gui::shown(&popup)
-                .into_iter()
-                .map(|(name, words)| if name == gui::GOTO || (name == gui::AGREE && popup.agree.is_none()) { game_words(&words) } else { words })
-                .collect(),
-            province: popup.goto,
+            buttons: if popup.buttons.is_empty() { vec![game_words(gui::OK)] } else { popup.buttons.clone() },
         })
         .collect()
 }
@@ -329,14 +263,18 @@ pub fn popups() -> Vec<eu4_harmony_remote::popups::Popup> {
 /// Presses the button `button` (from 1, left to right as `popup.list`
 /// gives them) of the pop-up `number`, as the player does; or why not.
 pub fn press_popup(number: u32, button: u32) -> Result<(), String> {
-    let shown = with(|all| all.popups.iter().find(|p| p.number == number).map(|p| gui::shown(&p.popup)));
-    let Some(shown) = shown else { return Err(format!("no pop-up {number} is open")) };
-    let Some((name, _)) = button.checked_sub(1).and_then(|i| shown.get(i as usize)) else {
-        return Err(format!("pop-up {number} has buttons 1 to {}", shown.len()));
-    };
-    let Some(pressed) = Pressed::of(name) else { return Err(format!("pop-up {number} has no button {button}")) };
-    press(number, pressed);
+    let count = with(|all| all.popups.iter().find(|p| p.number == number).map(|p| gui::shown(&p.popup).len()));
+    let Some(count) = count else { return Err(format!("no pop-up {number} is open")) };
+    if button == 0 || button as usize > count {
+        return Err(format!("pop-up {number} has buttons 1 to {count}"));
+    }
+    press(number, button);
     Ok(())
+}
+
+/// The pop-ups' buttons pressed since the last frame.
+pub fn take_popups_pressed() -> Vec<PopupPressed> {
+    with(|all| std::mem::take(&mut all.pressed))
 }
 
 /// The extension windows opened and closed since the last frame.
@@ -426,16 +364,7 @@ mod tests {
     }
 
     fn popup(buttons: Vec<String>) -> Popup {
-        Popup {
-            id: None,
-            header: None,
-            title: "T".into(),
-            text: "".into(),
-            agree: buttons.first().cloned(),
-            decline: buttons.get(1).cloned(),
-            goto: None,
-            shields: [None, None],
-        }
+        Popup { header: None, title: "T".into(), text: "".into(), buttons, shields: [None, None] }
     }
 
     fn seen(e: usize, w: &str, open: bool) -> WindowSeen {
@@ -463,20 +392,20 @@ mod tests {
         all.change(0, WindowChange::Set { window: "reforms".into(), widget: "status".into(), value: Property::Text("Ready".into()) });
         all.change(0, WindowChange::Set { window: "reforms".into(), widget: "status".into(), value: Property::Text("Done".into()) });
         assert_eq!(all.wanted[&(0, "reforms".into())].set["status"]["text"], Property::Text("Done".into()));
-        let answer = Slot::default();
-        all.popups.push(Open { number: 1, extension: 0, popup: popup(vec!["OK".into()]), answer: answer.clone() });
+        all.popups.push(Open { number: 1, extension: 0, popup: popup(vec!["OK".into()]) });
+        all.press(1, 1);
         all.forget(0);
-        assert!(all.wanted.is_empty() && all.popups.is_empty());
-        assert_eq!(*answer.lock().unwrap(), Some(Ok(json!("closed"))));
+        assert!(all.wanted.is_empty() && all.popups.is_empty() && all.pressed.is_empty());
     }
 
     #[test]
-    fn a_pop_up_is_answered_once() {
+    fn a_pop_up_s_button_is_heard_by_its_extension_and_closes_nothing_by_itself() {
         let mut all = declared();
-        let answer = Slot::default();
-        all.popups.push(Open { number: 4, extension: 1, popup: popup(vec!["A".into(), "B".into()]), answer: answer.clone() });
-        assert!(all.answer(4, json!(2)));
-        assert!(!all.answer(4, json!(1)), "gone once answered");
-        assert_eq!(Taken(answer).poll(), Some(Ok(json!(2))));
+        all.popups.push(Open { number: 4, extension: 1, popup: popup(vec!["A".into(), "B".into()]) });
+        assert!(all.press(4, 2));
+        assert!(all.press(4, 2), "pressed twice before its action ran");
+        assert_eq!(all.pressed, [PopupPressed { extension: 1, popup: 4, button: 2 }]);
+        assert_eq!(all.popups.len(), 1, "its action closes it, or not");
+        assert!(!all.press(5, 1), "none open");
     }
 }

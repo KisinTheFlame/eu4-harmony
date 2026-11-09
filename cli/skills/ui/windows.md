@@ -65,21 +65,28 @@ steps:
    button in a list's row; on_window(game, "reforms", open) whenever it
    opens or closes, whoever did it: the mod, its entry button, its close
    button, Esc, or another of the game's big panels opening.
-5. A pop-up, in a handler or a task, which waits for the player:
-     local answer = game.popup { header = "MYMOD_STEWARD", title = "MYMOD_ASK",
-       text = "MYMOD_ASK_TEXT", values = { N = 3 }, agree = "MYMOD_YES", decline = "MYMOD_NO",
-       shields = { "FRA", "ENG" }, id = "ask" }
+5. A pop-up, from a handler, shown at once:
+     local popup = game.popup { header = "MYMOD_STEWARD", title = "MYMOD_ASK",
+       text = "MYMOD_ASK_TEXT", values = { N = 3 }, shields = { "FRA", "ENG" },
+       buttons = {
+         { text = "MYMOD_LOOK", action = function(game, popup)
+             game.camera.look_at { province = 151, glide = true }
+             return { close = false }
+           end },
+         { text = "MYMOD_YES", action = function(game, popup) agree() end },
+       } }
    It is the game's message pop-up: a header line, the title on the green
    band, a shield at each corner (the player's country unless named), the
-   text, and one or two buttons. agree stands on the right, pressed by c
-   and Return, the game's own OK when left out; decline on the left, pressed
-   by z and Esc. In place of decline, province = 151 puts the game's Go to
-   on the left, which glides the camera there and leaves the pop-up open,
-   as the game's Go to does. A click on a shield opens the diplomacy view
-   on its country. answer is "agree", "decline", or "closed" when it
-   closed with neither: game.popup.close("ask"), the session's end, or the
-   mod stopped. Several may be open at once, and
-   remote clients list and answer them (popup.list, popup.answer).
+   text, and one or two buttons. A button is its words and what it does:
+   its action runs when it is pressed, and the pop-up closes after it
+   unless it answers { close = false }; a button with no action closes it.
+   With no buttons it has the game's own OK. The keys go with the places,
+   as on the game's dialogs: c and Return press the right button, or the
+   only one, z and Esc the left one. popup:close() closes it from anywhere;
+   the session's end and the mod stopping close it too, running nothing. A
+   click on a shield opens the diplomacy view on its country. Several may
+   be open at once, and remote clients list them and press their buttons
+   (popup.list, popup.answer).
 
 Done when eu4-harmony test passes with mod:window, mod:press, mod:entry,
 mod:close, mod:popups and mod:answer_popup (eu4-harmony skills testing), and

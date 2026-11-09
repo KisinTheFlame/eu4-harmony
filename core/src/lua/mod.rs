@@ -138,12 +138,12 @@ impl Host for Live {
         crate::windows::change(extension, change)
     }
 
-    fn popup(&self, extension: usize, popup: Popup) -> Result<Box<dyn Pending<Answered>>, String> {
+    fn popup(&self, extension: usize, popup: Popup) -> Result<u32, String> {
         crate::windows::popup(extension, popup)
     }
 
-    fn close_popup(&self, extension: usize, id: &str) -> Result<(), String> {
-        crate::windows::close_popup(extension, id)
+    fn close_popup(&self, extension: usize, popup: u32) -> Result<(), String> {
+        crate::windows::close_popup(extension, popup)
     }
 
     fn paint(&self, extension: usize, colors: &[(u32, [u8; 4])]) -> Result<(), Error> {
@@ -469,6 +469,10 @@ impl dispatch::Feed for Fed {
     fn windows(&mut self) -> Vec<dispatch::WindowSeen> {
         crate::windows::take_seen()
     }
+
+    fn popups_pressed(&mut self) -> Vec<dispatch::PopupPressed> {
+        crate::windows::take_popups_pressed()
+    }
 }
 
 fn tell_ended(end: crate::sessions::End) {
@@ -583,10 +587,10 @@ mod tests {
         fn window(&self, _: usize, _: WindowChange) -> Result<(), String> {
             Ok(())
         }
-        fn popup(&self, _: usize, _: Popup) -> Result<Box<dyn Pending<Answered>>, String> {
+        fn popup(&self, _: usize, _: Popup) -> Result<u32, String> {
             Err("no game in a test".into())
         }
-        fn close_popup(&self, _: usize, _: &str) -> Result<(), String> {
+        fn close_popup(&self, _: usize, _: u32) -> Result<(), String> {
             Ok(())
         }
         fn paint(&self, _: usize, _: &[(u32, [u8; 4])]) -> Result<(), Error> {

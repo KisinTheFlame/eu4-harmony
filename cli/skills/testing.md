@@ -88,14 +88,12 @@ windows):
   mod:entry(window)    the window's entry button: opens or closes it
   mod:close(window)    the player closes it, by its close button or Esc
   mod:popups()         the open pop-ups: { popup, header, title, text,
-                       buttons, province, id } each, in the player language,
-                       buttons left to right: "Go to" or the declining
-                       one, then the agreeing one, or the game's "OK"
+                       buttons } each, in the player language, the
+                       buttons' words left to right, or the game's "OK"
   mod:answer_popup(popup, button)
-                       presses a pop-up's button, from 1 left to right;
-                       mod:poll() then takes the waiting task up with the
-                       answer: "decline" or "agree"; Go to leaves
-                       it open
+                       presses a pop-up's button, from 1 left to right:
+                       its action runs, and the pop-up closes after it
+                       unless it answers { close = false }
 A window the mod opens or closes itself is heard by on_window at the next
 mod:frame(); the player's are heard at once. Opening one of the mod's big
 panels closes its others, as in the game.

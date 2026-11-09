@@ -251,6 +251,10 @@ impl dispatch::Feed for Fed {
     fn windows(&mut self) -> Vec<dispatch::WindowSeen> {
         std::mem::take(&mut self.1)
     }
+
+    fn popups_pressed(&mut self) -> Vec<dispatch::PopupPressed> {
+        Vec::new()
+    }
 }
 
 /// A date in Lua's form, `{ year, month, day }`.
@@ -502,29 +506,27 @@ impl UserData for TestMod {
                 t.set("title", p.popup.title.as_str())?;
                 t.set("text", p.popup.text.as_str())?;
                 t.set("header", p.popup.header.clone())?;
-                t.set("buttons", lua.create_sequence_from(shown(&p.popup).into_iter().map(|(_, words)| words))?)?;
-                t.set("province", p.popup.goto)?;
-                t.set("id", p.popup.id.clone())?;
+                t.set("buttons", lua.create_sequence_from(shown(&p.popup))?)?;
                 list.push(t)?;
             }
             Ok(list)
         });
         methods.add_method("answer_popup", |lua, this, (number, button): (u32, u32)| {
-            let mut store = this.fake.store();
-            let Some(at) = store.popups.iter().position(|p| p.number == number) else {
-                return Err(mlua::Error::runtime(format!("{}no pop-up {number} is open", here(lua))));
+            let count = {
+                let store = this.fake.store();
+                let Some(p) = store.popups.iter().find(|p| p.number == number) else {
+                    return Err(mlua::Error::runtime(format!("{}no pop-up {number} is open", here(lua))));
+                };
+                shown(&p.popup).len() as u32
             };
-            let count = shown(&store.popups[at].popup).len() as u32;
             if !(1..=count).contains(&button) {
                 return Err(mlua::Error::runtime(format!("{}pop-up {number} has buttons 1 to {count}", here(lua))));
             }
-            // Go to turns the camera and leaves the pop-up open, as the game's does.
-            let answer = shown(&store.popups[at].popup)[button as usize - 1].0;
-            if answer == "goto" {
-                return Ok(());
-            }
-            let p = store.popups.remove(at);
-            *p.slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(Ok(Value::String(answer.to_string())));
+            // The button's action runs, as at the game's next frame, and
+            // closes the pop-up unless it says not to.
+            let pressed = dispatch::PopupPressed { extension: this.extension.index(), popup: number, button };
+            dispatch::popup_pressed(std::slice::from_ref(&this.extension), &pressed);
+            this.note(lua);
             Ok(())
         });
         methods.add_method("army_ordered", |lua, this, army: u64| {
@@ -676,20 +678,14 @@ fn pressable(this: &TestMod, window: &str, widget: &str, row: Option<u32>) -> Re
     Ok(())
 }
 
-/// A pop-up's buttons as they stand, left to right, as remote control's
-/// popup.list gives them, each with the answer it gives: Go to or the
-/// declining one on the left, the agreeing one, or the game's OK, on the
-/// right.
-fn shown(popup: &eu4_harmony_lua::Popup) -> Vec<(&'static str, String)> {
-    let mut out = Vec::new();
-    if popup.goto.is_some() {
-        out.push(("goto", "Go to".to_string()));
+/// A pop-up's buttons' words as they stand, left to right, as remote
+/// control's popup.list gives them: the game's OK when the mod gave none.
+fn shown(popup: &eu4_harmony_lua::Popup) -> Vec<String> {
+    if popup.buttons.is_empty() {
+        vec!["OK".to_string()]
+    } else {
+        popup.buttons.clone()
     }
-    if let Some(words) = &popup.decline {
-        out.push(("decline", words.clone()));
-    }
-    out.push(("agree", popup.agree.clone().unwrap_or_else(|| "OK".to_string())));
-    out
 }
 
 /// Gives the oldest answer of `capability` still to come.

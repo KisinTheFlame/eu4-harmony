@@ -91,6 +91,16 @@ pub struct Click {
     pub row: Option<u32>,
 }
 
+/// A button of one of an extension's pop-ups pressed, by the player or a
+/// remote client.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PopupPressed {
+    pub extension: usize,
+    pub popup: u32,
+    /// From 1, left to right.
+    pub button: u32,
+}
+
 /// One of an extension's windows opened or closed, by whoever did it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WindowSeen {
@@ -114,6 +124,8 @@ pub trait Feed {
     /// The extension windows opened and closed since the last frame, in
     /// order.
     fn windows(&mut self) -> Vec<WindowSeen>;
+    /// The pop-ups' buttons pressed since the last frame, in order.
+    fn popups_pressed(&mut self) -> Vec<PopupPressed>;
 }
 
 /// Dispatches one of the game's safe frames to `extensions`, in the order
@@ -133,6 +145,9 @@ pub fn frame(extensions: &[Arc<Extension>], heard: &[Heard], feed: &mut dyn Feed
     }
     for seen in feed.windows() {
         window(extensions, &seen);
+    }
+    for pressed in feed.popups_pressed() {
+        popup_pressed(extensions, &pressed);
     }
     for e in extensions {
         e.handle("on_frame", &[]);
@@ -181,6 +196,13 @@ pub fn click(extensions: &[Arc<Extension>], click: &Click) {
     if let Some(e) = extensions.iter().find(|e| e.index() == click.extension) {
         let how = Arg::Click { right: click.right, shift: click.shift, ctrl: click.ctrl, row: click.row };
         e.handle("on_button", &[Arg::Text(click.button.clone()), how]);
+    }
+}
+
+/// The extension whose pop-up's button was pressed runs its action.
+pub fn popup_pressed(extensions: &[Arc<Extension>], pressed: &PopupPressed) {
+    if let Some(e) = extensions.iter().find(|e| e.index() == pressed.extension) {
+        e.press_popup(pressed.popup, pressed.button);
     }
 }
 

@@ -59,25 +59,22 @@ impl Property {
 /// A pop-up to show, in words.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Popup {
-    /// The mod's name for it, by which it may close it.
-    pub id: Option<String>,
     /// The small line above the title.
     pub header: Option<String>,
     pub title: String,
     pub text: String,
-    /// The words of its agreeing button, on the right, which c and Return
-    /// press; the game's own "OK" when none.
-    pub agree: Option<String>,
-    /// The words of its declining button, on the left, which z and Esc
-    /// press.
-    pub decline: Option<String>,
-    /// The province its "Go to" button turns the camera to, which shows
-    /// that button on the left, where a declining one would stand.
-    pub goto: Option<u32>,
+    /// Its buttons' words, left to right, at most [`POPUP_BUTTONS`]; none
+    /// for the game's own "OK". What each does is its action's, which the
+    /// extension keeps: a button is no kind of button.
+    pub buttons: Vec<String>,
     /// The countries of its left and right shields, by tag; the player's
     /// where none is given.
     pub shields: [Option<String>; 2],
 }
+
+/// The most buttons a pop-up has, as the game's message pop-up has places
+/// for.
+pub const POPUP_BUTTONS: usize = 2;
 
 /// What a property is called with on a game widget, `what` naming it for
 /// an error.
@@ -218,12 +215,13 @@ fn rows(row: &layout::Row, value: &LuaValue, what: &str) -> Result<Vec<Vec<(Stri
 pub type Words<'a> = &'a dyn Fn(&str, &[(String, String)]) -> Option<String>;
 
 /// `game.popup { header = key, title = key, text = key, values = { ... },
-/// agree = key, decline = key, province = number, shields = { tag, tag }, id = name }`
+/// buttons = { { text = key, action = function }, ... }, shields = { tag, tag } }`
 /// in words: `words` puts a key of the mod's into the player language with
-/// its values, or says it has none.
+/// its values, or says it has none. The buttons' actions stay the
+/// extension's; only that each is a function, or none, is checked here.
 pub fn popup(spec: &Table, words: Words, lua: &Lua) -> Result<Popup, String> {
     let fail = |e: mlua::Error| format!("game.popup: {e}");
-    const FIELDS: [&str; 9] = ["header", "title", "text", "values", "agree", "decline", "province", "shields", "id"];
+    const FIELDS: [&str; 6] = ["header", "title", "text", "values", "buttons", "shields"];
     for pair in spec.pairs::<String, LuaValue>() {
         let (key, _) = pair.map_err(fail)?;
         if !FIELDS.contains(&key.as_str()) {
@@ -251,15 +249,28 @@ pub fn popup(spec: &Table, words: Words, lua: &Lua) -> Result<Popup, String> {
     let header = optional("header")?;
     let title = text_of("title", spec.get::<Option<String>>("title").map_err(fail)?)?;
     let text = text_of("text", spec.get::<Option<String>>("text").map_err(fail)?)?;
-    let agree = optional("agree")?;
-    let decline = optional("decline")?;
-    let goto = match spec.get::<LuaValue>("province").map_err(fail)? {
-        LuaValue::Nil => None,
-        LuaValue::Integer(p) if p > 0 && p <= i64::from(u32::MAX) => Some(p as u32),
-        _ => return Err("game.popup: province is a province's number, which shows the Go to button".into()),
-    };
-    if goto.is_some() && decline.is_some() {
-        return Err("game.popup: Go to stands on the left, where decline would: a pop-up has a province or a decline, not both".into());
+    let mut buttons = Vec::new();
+    if let Some(list) = spec.get::<Option<Table>>("buttons").map_err(fail)? {
+        let list: Vec<Table> = list
+            .sequence_values::<Table>()
+            .collect::<mlua::Result<_>>()
+            .map_err(|_| "game.popup: buttons is a list of { text = key, action = function }".to_string())?;
+        if list.len() > POPUP_BUTTONS {
+            return Err(format!("game.popup: a pop-up has {POPUP_BUTTONS} buttons at most, as the game's do"));
+        }
+        for (i, button) in list.iter().enumerate() {
+            let here = format!("buttons[{}]", i + 1);
+            for pair in button.pairs::<String, LuaValue>() {
+                let (key, _) = pair.map_err(fail)?;
+                if key != "text" && key != "action" {
+                    return Err(format!("game.popup: {here}: {key} is not one of text, action"));
+                }
+            }
+            if !matches!(button.get::<LuaValue>("action").map_err(fail)?, LuaValue::Nil | LuaValue::Function(_)) {
+                return Err(format!("game.popup: {here}.action is a function, called when the button is pressed"));
+            }
+            buttons.push(text_of(&format!("{here}.text"), button.get::<Option<String>>("text").map_err(fail)?)?);
+        }
     }
     let mut shields = [None, None];
     if let Some(t) = spec.get::<Option<Table>>("shields").map_err(fail)? {
@@ -274,11 +285,7 @@ pub fn popup(spec: &Table, words: Words, lua: &Lua) -> Result<Popup, String> {
             shields[i] = Some(tag);
         }
     }
-    let id = spec.get::<Option<String>>("id").map_err(fail)?;
-    if id.as_deref().is_some_and(|i| !layout::is_name(i)) {
-        return Err("game.popup: id is a name of lowercase letters, digits and _".into());
-    }
-    Ok(Popup { id, header, title, text, agree, decline, goto, shields })
+    Ok(Popup { header, title, text, buttons, shields })
 }
 
 #[cfg(test)]
@@ -349,27 +356,26 @@ mod tests {
             _ => None,
         };
         let spec: Table = lua
-            .load(r#"return { title = "T", text = "B", values = { N = 3 }, agree = "OK", province = 151, shields = { "FRA" }, id = "first" }"#)
+            .load(r#"return { title = "T", text = "B", values = { N = 3 }, buttons = { { text = "OK", action = function() end }, { text = "T" } }, shields = { "FRA" } }"#)
             .eval()
             .unwrap();
         assert_eq!(
             popup(&spec, &words, &lua),
             Ok(Popup {
-                id: Some("first".into()),
                 header: None,
                 title: "Title".into(),
                 text: "Body N=3".into(),
-                agree: Some("Fine".into()),
-                decline: None,
-                goto: Some(151),
+                buttons: vec!["Fine".into(), "Title".into()],
                 shields: [Some("FRA".into()), None],
             })
         );
         let plain: Table = lua.load(r#"return { title = "T", text = "B" }"#).eval().unwrap();
-        assert_eq!(popup(&plain, &words, &lua).map(|p| (p.agree, p.decline)), Ok((None, None)), "the game's own OK");
-        let crowded: Table = lua.load(r#"return { title = "T", text = "B", decline = "OK", province = 1 }"#).eval().unwrap();
-        assert!(popup(&crowded, &words, &lua).unwrap_err().contains("a province or a decline, not both"));
-        let missing: Table = lua.load(r#"return { title = "T", text = "X", agree = "OK" }"#).eval().unwrap();
+        assert_eq!(popup(&plain, &words, &lua).map(|p| p.buttons), Ok(Vec::new()), "the game's own OK");
+        let crowded: Table = lua.load(r#"return { title = "T", text = "B", buttons = { { text = "OK" }, { text = "OK" }, { text = "OK" } } }"#).eval().unwrap();
+        assert!(popup(&crowded, &words, &lua).unwrap_err().contains("2 buttons at most"));
+        let typed: Table = lua.load(r#"return { title = "T", text = "B", buttons = { { text = "OK", answer = "yes" } } }"#).eval().unwrap();
+        assert!(popup(&typed, &words, &lua).unwrap_err().contains("answer is not one of text, action"), "a button has no kind");
+        let missing: Table = lua.load(r#"return { title = "T", text = "B", buttons = { { text = "X" } } }"#).eval().unwrap();
         assert!(popup(&missing, &words, &lua).unwrap_err().contains("no text \"X\""));
     }
 }
