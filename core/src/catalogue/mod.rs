@@ -6,34 +6,134 @@
 //! request runs at once or answers at a later safe point ([`Outcome`],
 //! [`Wait`]).
 //!
-//! One file per group of capabilities, as in the capability layer: each has
-//! the group's slice of the layer as a trait ([`Game`] is all of them), the
-//! layer itself behind it ([`Live`]), and turns the group's requests into
-//! calls of the layer, which answers in the catalogue's own types. Every
-//! [`Game`] is a [`Catalogue`]. The tests of a group that does more than
-//! call the layer put a fake game behind the traits ([`fake`]); a capability
-//! a test does not script fails there.
+//! A group whose requests only call the capability layer binds them in the
+//! layer's own module, beside the functions they call ([`bind`]). A group
+//! whose tests give the fake game answers of its own has a file here, with
+//! its slice of the layer as a trait ([`Game`] is all of them, and [`Live`]
+//! the layer itself behind it), and turns the group's requests into calls of
+//! the layer, which answers in the catalogue's own types. Every [`Game`] is
+//! a [`Catalogue`]. The fake game of the tests ([`fake`]) fails a capability
+//! a test does not script, and every request of a bound group.
 
-/// Declares a group's slice of the capability layer and its requests once:
-/// its `Layer` trait, [`Live`] calling each capability there for its caller,
-/// and, given `run Request => Answer;` first, the group's `run`, which
-/// answers each request. Each line is one of
+/// Binds a group's requests to the capability layer's functions once, in
+/// the layer's module: `run_request` answers each request as its caller
+/// asks it. After the group's module in remote control (whose `args` module
+/// declares the requests' arguments), its request and its answer, each line
+/// is one of
+///
+/// ```text
+/// Variant => capability;
+/// Variant => caller capability;
+/// Variant { field, ... } => session capability(expression, ...);
+/// ```
+///
+/// A request whose capability takes its arguments by their names, after
+/// what [`Live`] opens for it as its place in remote control says
+/// ([`Opens`]): a session with a country to act as (`crate::game::Session`),
+/// one that acts as no country (`crate::game::WorldSession`), or the caller
+/// alone (`crate::game::Caller`); one whose capability takes the caller
+/// instead, to check something of its own first; and one whose capability
+/// takes what the line passes it, after a session, a world session (`world`)
+/// or the caller (`caller`). Answers, and what a line passes, pass through
+/// [`Convert`].
+macro_rules! bind {
+    (@munch $head:tt [$($arms:tt)*] $Variant:ident => caller $capability:path; $($rest:tt)*) => {
+        $crate::catalogue::bind!(@munch $head [$($arms)* { $Variant caller [$capability] () () }] $($rest)*);
+    };
+    (@munch $head:tt [$($arms:tt)*] $Variant:ident => $capability:path; $($rest:tt)*) => {
+        $crate::catalogue::bind!(@munch $head [$($arms)* { $Variant place [$capability] () () }] $($rest)*);
+    };
+    (@munch $head:tt [$($arms:tt)*]
+        $Variant:ident { $($field:ident),* $(,)? } => $takes:ident $($capability:ident)::+ ($($e:expr),* $(,)?); $($rest:tt)*) => {
+        $crate::catalogue::bind!(@munch $head [$($arms)* { $Variant $takes [$($capability)::+] ($($field),*) ($($e),*) }] $($rest)*);
+    };
+    (@munch [($($group:ident)::+) $Request:ident $Answer:ident]
+        [$({ $Variant:ident $takes:ident [$capability:path] ($($field:ident),*) ($($e:expr),*) })*]) => {
+        /// Answers one of the group's requests, as `caller` asks it.
+        pub fn run_request(
+            request: $($group)::+::$Request,
+            caller: $crate::game::Caller,
+        ) -> ::std::result::Result<$($group)::+::$Answer, eu4_harmony_remote::Error> {
+            use $($group)::+ as group;
+            Ok(match request.into_args() {
+                $( group::args::Args::$Variant(arguments) => group::$Answer::$Variant($crate::catalogue::Convert::convert(
+                    $crate::catalogue::bind!(@call caller arguments $Variant $takes [$capability] ($($field),*) ($($e),*))?
+                )), )*
+            })
+        }
+
+        /// What the group's lines name, for the test that a request acts as
+        /// a country exactly when it opens a session with one.
+        #[cfg(test)]
+        pub fn bindings() -> $crate::catalogue::Bindings {
+            use $($group)::+ as group;
+            $crate::catalogue::Bindings {
+                methods: vec![$( $crate::catalogue::Method { name: stringify!($Variant), takes: stringify!($takes) } ),*],
+                requests: vec![$(
+                    $crate::catalogue::Answered {
+                        request: stringify!($Variant),
+                        function: false,
+                        call: stringify!($Variant),
+                        country: group::$Request::country_of(stringify!($Variant)),
+                    }
+                ),*],
+            }
+        }
+    };
+    (@munch $($rest:tt)*) => {
+        compile_error!(concat!("bind!: a line that is none of its forms: ", stringify!($($rest)*)));
+    };
+    // `group` is the group's module in remote control, as `run_request`
+    // names it.
+    (@call $caller:ident $arguments:ident $Variant:ident place [$capability:path] () ()) => {
+        $crate::catalogue::Capability::call(
+            $capability,
+            <<group::args::$Variant as eu4_harmony_remote::Arguments>::Place as $crate::catalogue::Opens>::open($caller)?,
+            $arguments,
+        )
+    };
+    (@call $caller:ident $arguments:ident $Variant:ident caller [$capability:path] () ()) => {
+        $crate::catalogue::Capability::call($capability, $caller, $arguments)
+    };
+    (@call $caller:ident $arguments:ident $Variant:ident session [$capability:path] ($($field:ident),*) ($($e:expr),*)) => {{
+        let group::args::$Variant { $($field),* } = $arguments;
+        $capability($crate::game::Session::open($caller)?, $($crate::catalogue::Convert::convert($e)),*)
+    }};
+    (@call $caller:ident $arguments:ident $Variant:ident world [$capability:path] ($($field:ident),*) ($($e:expr),*)) => {{
+        let group::args::$Variant { $($field),* } = $arguments;
+        $capability($crate::game::WorldSession::open($caller)?, $($crate::catalogue::Convert::convert($e)),*)
+    }};
+    (@call $caller:ident $arguments:ident $Variant:ident caller [$capability:path] ($($field:ident),*) ($($e:expr),*)) => {{
+        let group::args::$Variant { $($field),* } = $arguments;
+        $capability($caller, $($crate::catalogue::Convert::convert($e)),*)
+    }};
+    (@call $caller:ident $arguments:ident $Variant:ident $takes:ident [$capability:path] $($rest:tt)*) => {
+        compile_error!(concat!("bind!: ", stringify!($capability), " takes a session, a world or a caller, not ", stringify!($takes)))
+    };
+    ($($group:ident)::+ : $Request:ident => $Answer:ident; $($lines:tt)*) => {
+        $crate::catalogue::bind!(@munch [($($group)::+) $Request $Answer] [] $($lines)*);
+    };
+}
+pub(crate) use bind;
+
+/// Declares the slice of the capability layer of a group that has one, and
+/// its requests, once: its `Layer` trait, [`Live`] calling each capability
+/// there for its caller, and, given `run Request => Answer;` first, the
+/// group's `run`, which answers each request. Each line is one of
 ///
 /// ```text
 /// Variant => fn method -> Result = capability;
 /// Variant => fn method -> Result = caller capability;
 /// fn method(argument: Type, ...) -> Result = session capability;
 /// Variant { field, ... } => game.method(expression, ...);
-/// Variant { field, ... } => function(game, expression, ...);
 /// ```
 ///
 /// A method and the request it answers, whose capability takes the
 /// request's arguments by their names, as the group's `args` module in
 /// remote control declares them (`eu4_harmony_remote::<group>::args`, which
 /// the group's file imports as `args`); a method alone; a request answered
-/// by a method of another line; a request answered by a function of the
-/// group's own, which takes the game first and returns a `Result`. Answers,
-/// and the arguments a line passes itself, pass through [`Convert`].
+/// by a method of another line. Answers, and the arguments a line passes
+/// itself, pass through [`Convert`].
 ///
 /// What a capability takes first is what [`Live`] opens for it before it
 /// runs ([`Opens`]): for a method and its request, what the capability's
@@ -69,10 +169,6 @@ macro_rules! layer {
         $Variant:ident { $($field:ident),* $(,)? } => game.$name:ident($($e:expr),* $(,)?); $($rest:tt)*) => {
         layer!(@munch $head $methods [$($arms)* { $Variant method $name ($($field),*) ($($e),*) }] $($rest)*);
     };
-    (@munch $head:tt $methods:tt [$($arms:tt)*]
-        $Variant:ident { $($field:ident),* $(,)? } => $function:ident(game $(, $e:expr)* $(,)?); $($rest:tt)*) => {
-        layer!(@munch $head $methods [$($arms)* { $Variant function $function ($($field),*) ($($e),*) }] $($rest)*);
-    };
     (@munch [] [$($methods:tt)*] []) => {
         layer!(@layer $($methods)*);
         layer!(@bindings None [$($methods)*] []);
@@ -100,10 +196,6 @@ macro_rules! layer {
     (@call $game:ident $arguments:ident $Variant:ident method $name:ident ($($field:ident),*) ($($e:expr),*)) => {{
         let args::$Variant { $($field),* } = $arguments;
         $game.$name($($crate::catalogue::Convert::convert($e)),*)
-    }};
-    (@call $game:ident $arguments:ident $Variant:ident function $function:ident ($($field:ident),*) ($($e:expr),*)) => {{
-        let args::$Variant { $($field),* } = $arguments;
-        $function($game, $($e),*)
     }};
     (@live $caller:ident session $capability:path, [] [$($arg:ident),*]) => {
         $capability(crate::game::Session::open($caller)?, $($arg),*)
@@ -197,54 +289,73 @@ use std::{
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
-/// Declares the groups once, in one list: [`Game`], every group's slice of
-/// the capability layer, and `dispatch`, which runs a request in its group.
-/// After the names `dispatch` gives its request, game, events (remote
-/// control's, when its caller keeps them) and time, each line is one of
+/// Declares, from the list of the groups ([`capability_groups`]), [`Game`],
+/// the slices of the capability layer of the groups that have one, and
+/// `dispatch`, which runs a request in its group. After the names
+/// `dispatch` gives its request, game, events (remote control's, when its
+/// caller keeps them) and time, each line is one of
 ///
 /// ```text
 /// Group(module),
 /// Group(module) => outcome,
+/// Group(module: Layer),
+/// Group(module: Layer) => outcome,
 /// Group => outcome,
 /// ```
 ///
-/// A group whose `run(request, game)` answers at once; a group with a slice
-/// of the layer, whose [`Outcome`] the expression gives; a group without a
-/// slice. The module of a group with a slice is declared here, as remote
-/// control's groups declare theirs; a group without one declares its own.
+/// A group bound to the layer in its layer module ([`bind`]), answered at
+/// once, or as the expression gives its [`Outcome`] (its module here is
+/// declared beside the list); a group with a slice of the layer, whose
+/// `run(request, game)` answers at once, or whose [`Outcome`] the
+/// expression gives; a group of neither. The module here of a group with a
+/// slice is declared here, as remote control's groups declare theirs; the
+/// capability layer declares each group's module of its own.
 macro_rules! groups {
-    (@munch [$request:ident $game:ident $events:ident $now:ident] [$($modules:tt)*] [$($arms:tt)*]
-        $(#[$attr:meta])* $Group:ident($module:ident) => $outcome:expr, $($rest:tt)*) => {
-        groups!(@munch [$request $game $events $now] [$($modules)* $module] [$($arms)* { $(#[$attr])* $Group => $outcome }] $($rest)*);
+    (@munch $names:tt [$($slices:tt)*] [$($bound:tt)*] [$($arms:tt)*]
+        $(#[$attr:meta])* $Group:ident($module:ident: Layer) => $outcome:expr, $($rest:tt)*) => {
+        groups!(@munch $names [$($slices)* $module] [$($bound)*] [$($arms)* { $(#[$attr])* $Group => $outcome }] $($rest)*);
     };
-    (@munch [$request:ident $game:ident $events:ident $now:ident] [$($modules:tt)*] [$($arms:tt)*]
-        $(#[$attr:meta])* $Group:ident($module:ident), $($rest:tt)*) => {
-        groups!(@munch [$request $game $events $now] [$($modules)* $module]
+    (@munch [$request:ident $game:ident $events:ident $now:ident] [$($slices:tt)*] [$($bound:tt)*] [$($arms:tt)*]
+        $(#[$attr:meta])* $Group:ident($module:ident: Layer), $($rest:tt)*) => {
+        groups!(@munch [$request $game $events $now] [$($slices)* $module] [$($bound)*]
             [$($arms)* { $(#[$attr])* $Group => Outcome::Done($module::run($request, $game).map(Answer::$Group)) }]
             $($rest)*);
     };
-    (@munch $names:tt $modules:tt [$($arms:tt)*] $(#[$attr:meta])* $Group:ident => $outcome:expr, $($rest:tt)*) => {
-        groups!(@munch $names $modules [$($arms)* { $(#[$attr])* $Group => $outcome }] $($rest)*);
+    (@munch $names:tt [$($slices:tt)*] [$($bound:tt)*] [$($arms:tt)*]
+        $(#[$attr:meta])* $Group:ident($module:ident) => $outcome:expr, $($rest:tt)*) => {
+        groups!(@munch $names [$($slices)*] [$($bound)* $module] [$($arms)* { $(#[$attr])* $Group => $outcome }] $($rest)*);
     };
-    (@munch [$request:ident $game:ident $events:ident $now:ident] [$($module:ident)*]
+    (@munch [$request:ident $game:ident $events:ident $now:ident] [$($slices:tt)*] [$($bound:tt)*] [$($arms:tt)*]
+        $(#[$attr:meta])* $Group:ident($module:ident), $($rest:tt)*) => {
+        groups!(@munch [$request $game $events $now] [$($slices)*] [$($bound)* $module]
+            [$($arms)* { $(#[$attr])* $Group => Outcome::Done(bound($game, stringify!($module), |caller| game::$module::run_request($request, caller)).map(Answer::$Group)) }]
+            $($rest)*);
+    };
+    (@munch $names:tt $slices:tt $bound:tt [$($arms:tt)*] $(#[$attr:meta])* $Group:ident => $outcome:expr, $($rest:tt)*) => {
+        groups!(@munch $names $slices $bound [$($arms)* { $(#[$attr])* $Group => $outcome }] $($rest)*);
+    };
+    (@munch [$request:ident $game:ident $events:ident $now:ident] [$($slice:ident)*] [$($bound:ident)*]
         [$({ $(#[$attr:meta])* $Group:ident => $outcome:expr })*]) => {
-        $( pub mod $module; )*
+        $( pub mod $slice; )*
 
-        /// The capability layer, as the catalogue's requests reach it: every
-        /// group's slice.
-        pub trait Game: $($module::Layer +)* {
+        /// The capability layer, as the catalogue's requests reach it: the
+        /// slices of the groups that have one, and the caller the bound
+        /// groups' requests call the layer as.
+        pub trait Game: $($slice::Layer +)* {
             fn as_game(&mut self) -> &mut dyn Game;
-        }
-        impl<T: $($module::Layer +)*> Game for T {
-            fn as_game(&mut self) -> &mut dyn Game {
-                self
-            }
+
+            /// Whom the bound groups' requests call the layer as; a fake game
+            /// calls it as no one, and they fail there.
+            fn caller(&self) -> Option<game::Caller>;
         }
 
         /// Every group's lines, by its module.
         #[cfg(test)]
         fn bindings() -> Vec<(&'static str, Bindings)> {
-            vec![$( (stringify!($module), $module::bindings()) ),*]
+            vec![
+                $( (stringify!($slice), $slice::bindings()), )*
+                $( (stringify!($bound), game::$bound::bindings()), )*
+            ]
         }
 
         /// Runs one request at `now`, in its group.
@@ -258,64 +369,97 @@ macro_rules! groups {
         compile_error!(concat!("groups!: a line that is none of its forms: ", stringify!($($rest)*)));
     };
     (fn dispatch($request:ident, $game:ident, $events:ident, $now:ident); $($lines:tt)*) => {
-        groups!(@munch [$request $game $events $now] [] [] $($lines)*);
+        groups!(@munch [$request $game $events $now] [] [] [] $($lines)*);
     };
 }
 
-groups! {
-    fn dispatch(request, game, events, now);
-    Session(session),
-    Time(time) => time::run(request, game, events),
-    Country(countries),
-    Province(provinces),
-    Army(armies),
-    Text(texts),
-    Screenshot(screenshot) => screenshot::run(request, game),
-    Console(console) => console::run_and_answer_next(request, game),
-    Question(questions),
-    Offer(offers),
-    Events => match events {
-        Some(events) => events::run(request, events, now),
-        None => Outcome::Done(Err(events::unkept())),
-    },
-    Describe => Outcome::Done(Ok(Answer::Describe(describe::run(request)))),
-    Camera(camera),
-    Recruit(recruiting),
-    Menu(menu) => menu::run(request, game),
-    Diplomacy(diplomacy) => diplomacy::run(request, game, now),
-    Extension(extensions),
-    #[cfg(feature = "dev-memory")]
-    Memory => Outcome::Done(crate::memory_account::answer(request).map(Answer::Memory)),
-    Input(input) => input::run(request, game),
-    Desktop(desktop),
-    Decision(decisions),
-    Subject(subjects),
-    Idea(ideas),
-    Policy(policies),
-    Government(government),
-    Estate(estates),
-    Parliament(parliament),
-    Mission(missions),
-    Building(buildings),
-    Technology(technology),
-    Focus(focus),
-    Stability(stability),
-    Economy(economy),
-    Loan(loans),
-    Leader(leaders),
-    Mercenary(mercenaries),
-    Fort(forts),
-    Siege(sieges),
-    Peace(peace) => peace::run(request, game, now),
-    Occupation(occupation),
-    Missionary(missionaries),
-    Colonist(colonists),
-    TradeCompany(trade_companies),
-    CenterOfTrade(centers_of_trade),
-    Merchant(merchants),
-    Trade(trade),
+/// The modules of the bound groups that do more than answer at once.
+pub mod console;
+
+/// The capability groups, once, as [`groups!`] takes them: each group's
+/// line, read here, where [`groups!`] declares [`Game`] and `dispatch`,
+/// and by the capability layer (`crate::game`), which declares the layer's
+/// module of each group named with a module and collects its dependency
+/// points. A new group is one line here.
+macro_rules! capability_groups {
+    ($then:ident) => {
+        $then! {
+            fn dispatch(request, game, events, now);
+            Session(session: Layer),
+            Time(time: Layer) => time::run(request, game, events),
+            Country(countries: Layer),
+            Province(provinces: Layer),
+            Army(armies: Layer),
+            Text(texts: Layer),
+            Screenshot(screenshot: Layer) => screenshot::run(request, game),
+            Console(console) => console::run_and_answer_next(request, game),
+            Question(questions),
+            Offer(offers),
+            Events => match events {
+                Some(events) => events::run(request, events, now),
+                None => Outcome::Done(Err(events::unkept())),
+            },
+            Describe => Outcome::Done(Ok(Answer::Describe(describe::run(request)))),
+            Camera(camera),
+            Recruit(recruiting: Layer),
+            Menu(menu: Layer) => menu::run(request, game),
+            Diplomacy(diplomacy: Layer) => diplomacy::run(request, game, now),
+            Extension(extensions),
+            #[cfg(feature = "dev-memory")]
+            Memory => Outcome::Done(crate::memory_account::answer(request).map(Answer::Memory)),
+            Input(input: Layer) => input::run(request, game),
+            Desktop(desktop),
+            Decision(decisions),
+            Subject(subjects),
+            Idea(ideas),
+            Policy(policies),
+            Government(government),
+            Estate(estates),
+            Parliament(parliament),
+            Mission(missions),
+            Building(buildings),
+            Technology(technology),
+            Focus(focus),
+            Stability(stability),
+            Economy(economy),
+            Loan(loans),
+            Leader(leaders),
+            Mercenary(mercenaries),
+            Fort(forts),
+            Siege(sieges),
+            Peace(peace: Layer) => peace::run(request, game, now),
+            Occupation(occupation),
+            Missionary(missionaries),
+            Colonist(colonists),
+            TradeCompany(trade_companies),
+            CenterOfTrade(centers_of_trade),
+            Merchant(merchants),
+            Trade(trade),
+        }
+    };
+}
+pub(crate) use capability_groups;
+
+capability_groups!(groups);
+
+/// Runs a request of a bound group, as `game` calls the layer: `run` with
+/// its caller, or, in a fake game, which calls it as no one, not at all.
+fn bound<A>(game: &mut dyn Game, group: &str, run: impl FnOnce(game::Caller) -> Result<A, Error>) -> Result<A, Error> {
+    match game.caller() {
+        Some(caller) => run(caller),
+        None => Err(Error::new(Code::Internal, format!("{group} is not scripted in this test"))),
+    }
 }
 
+impl Game for Live {
+    fn as_game(&mut self) -> &mut dyn Game {
+        self
+    }
+
+    fn caller(&self) -> Option<game::Caller> {
+        Some(self.0)
+    }
+}
 /// The catalogue as its two callers reach it, remote control's engine and the
 /// Lua host: the one seam between them and the capability layer. Every
 /// [`Game`] is one, [`Live`] in the game.

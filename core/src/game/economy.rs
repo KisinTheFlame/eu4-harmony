@@ -156,6 +156,14 @@ pub fn promote(Session { m, ctx, commands, .. }: Session) -> GResult<()> {
     power::spend(commands, ctx.player, PROMOTE_MERCANTILISM, PowerKind::Dip, 0, "raise mercantilism")
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::economy: EconomyRequest => EconomyAnswer;
+    Options => options;
+    TakeLoan => take_bank_loan;
+    ReduceInflation => reduce;
+    RaiseMercantilism => promote;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

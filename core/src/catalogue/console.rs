@@ -1,24 +1,16 @@
 //! The game console: a command run as the player would type it.
-use super::{Outcome, Poll, Wait};
-use crate::game::{self};
-use eu4_harmony_remote::console::args;
-use eu4_harmony_remote::console::{ConsoleAnswer, ConsoleRequest};
+use super::{bound, Game, Outcome, Poll, Wait};
+use eu4_harmony_remote::console::ConsoleRequest;
 use eu4_harmony_remote::{Answer, Response};
-
-layer! {
-    run ConsoleRequest => ConsoleAnswer;
-    /// What the command printed.
-    fn console(command: &str) -> String = world game::console::run;
-    Run { command } => game.console(command.as_str());
-}
 
 /// Runs the command now and answers at the next safe point: a command of
 /// the game console may post the game's own commands, such as `observe`'s,
 /// which the game carries out at its next frame, so that the answer comes
 /// once they are carried out, and the session its client sends in next is
 /// the one they leave, also when they ended the one it ran in.
-pub fn run_and_answer_next(request: ConsoleRequest, game: &mut (impl Layer + ?Sized)) -> Outcome {
-    Outcome::Later(Box::new(Ran(Some(run(request, game).map(Answer::Console)))))
+pub fn run_and_answer_next(request: ConsoleRequest, game: &mut dyn Game) -> Outcome {
+    let answer = bound(game, "console", |caller| crate::game::console::run_request(request, caller));
+    Outcome::Later(Box::new(Ran(Some(answer.map(Answer::Console)))))
 }
 
 /// A command run, its answer kept for the next safe point.

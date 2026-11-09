@@ -329,6 +329,16 @@ pub fn dismiss(Session { m, ctx, commands, .. }: Session, args::Dismiss { leader
     Ok(())
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::leaders: LeaderRequest => LeaderAnswer;
+    Options => options;
+    Recruit => caller recruit;
+    List => list;
+    Assign => assign;
+    Remove => remove;
+    Dismiss => dismiss;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -114,6 +114,12 @@ fn not_found(loan: u32) -> Fail {
     Fail::new(Status::NotFound, format!("the player has no loan {loan}"))
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::loans: LoanRequest => LoanAnswer;
+    List => list;
+    Repay => repay;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

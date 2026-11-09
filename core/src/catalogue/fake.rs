@@ -2,7 +2,8 @@
 //! capability layer, such as time's advance and the menu's waits, and of the
 //! pipe: the layer's answers for a small made-up campaign, the Ottomans at
 //! the start, and a record of the calls. A capability of a group it does not
-//! script fails (`unscripted`).
+//! script fails (`unscripted`), as every request of a group bound to the
+//! layer (`catalogue::bind`) does.
 // Every group's module, by its name.
 use super::*;
 use crate::game::{
@@ -100,39 +101,17 @@ impl Fake {
     }
 }
 
-// The groups whose tests script none of their capabilities.
-impl buildings::Layer for Fake {}
-impl camera::Layer for Fake {}
-impl centers_of_trade::Layer for Fake {}
-impl colonists::Layer for Fake {}
-impl console::Layer for Fake {}
-impl decisions::Layer for Fake {}
-impl desktop::Layer for Fake {}
-impl economy::Layer for Fake {}
-impl estates::Layer for Fake {}
-impl extensions::Layer for Fake {}
-impl focus::Layer for Fake {}
-impl forts::Layer for Fake {}
-impl government::Layer for Fake {}
-impl ideas::Layer for Fake {}
-impl leaders::Layer for Fake {}
-impl loans::Layer for Fake {}
-impl mercenaries::Layer for Fake {}
-impl merchants::Layer for Fake {}
-impl missionaries::Layer for Fake {}
-impl missions::Layer for Fake {}
-impl occupation::Layer for Fake {}
-impl offers::Layer for Fake {}
+// The capability layer of the made-up campaign, called as no one: the
+// bound groups' requests fail here, as a capability it does not script does.
+impl Game for Fake {
+    fn as_game(&mut self) -> &mut dyn Game {
+        self
+    }
 
-impl parliament::Layer for Fake {}
-impl policies::Layer for Fake {}
-impl questions::Layer for Fake {}
-impl sieges::Layer for Fake {}
-impl stability::Layer for Fake {}
-impl subjects::Layer for Fake {}
-impl technology::Layer for Fake {}
-impl trade::Layer for Fake {}
-impl trade_companies::Layer for Fake {}
+    fn caller(&self) -> Option<game::Caller> {
+        None
+    }
+}
 
 /// An army of the made-up campaign, as a capability answers it.
 fn army(id: u64, owner: &[u8; 3], kind: eu4_harmony_remote::armies::ArmyKind, province: Option<u32>, regiments: u32) -> eu4_harmony_remote::armies::Army {

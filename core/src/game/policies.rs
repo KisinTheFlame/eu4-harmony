@@ -136,6 +136,13 @@ pub fn disable(Session { m, ctx, commands, .. }: Session, args::Disable { policy
     action::post(commands, &written("disable_unlockable", ctx.player, &key), "disable this policy")
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::policies: PolicyRequest => PolicyAnswer;
+    List => list;
+    Enable => enable;
+    Disable => disable;
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

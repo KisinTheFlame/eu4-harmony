@@ -114,6 +114,12 @@ pub fn points() -> Vec<Point> {
     ]
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::occupation: OccupationRequest => OccupationAnswer;
+    Options => options;
+    Transfer => transfer;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

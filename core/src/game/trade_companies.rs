@@ -181,6 +181,14 @@ pub fn invest(Session { m, ctx, commands, .. }: Session, id: u32, key: &str) -> 
     action::post(commands, &invest_written(ctx.player, m.i32(at + INDEX)?, id), "make that investment there")
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::trade_companies: TradeCompanyRequest => TradeCompanyAnswer;
+    Options => options;
+    Add { province } => session change(province, true);
+    Remove { province } => session change(province, false);
+    Invest { province, investment } => session invest(province, investment.as_str());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

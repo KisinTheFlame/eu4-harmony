@@ -57,6 +57,12 @@ pub fn raise(session: Session) -> GResult<()> {
     power::spend(session.commands, session.ctx.player, BOOST_STABILITY, PowerKind::Adm, 0, "raise stability")
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::stability: StabilityRequest => StabilityAnswer;
+    Options => options;
+    Raise => raise;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

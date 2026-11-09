@@ -103,6 +103,12 @@ fn read(m: &Memory, decision: usize, player: super::Tag) -> GResult<Decision> {
     Ok(Decision { decision: key, name, major: m.u8(decision + MAJOR)? != 0, choice })
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::decisions: DecisionRequest => DecisionAnswer;
+    List => list;
+    Take => take;
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

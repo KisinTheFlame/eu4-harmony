@@ -188,6 +188,12 @@ pub fn points() -> Vec<Point> {
     ]
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::questions: QuestionRequest => QuestionAnswer;
+    List => questions;
+    Answer => answer;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

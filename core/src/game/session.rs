@@ -41,3 +41,8 @@ pub fn session(_: Caller) -> GResult<Session> {
         player: world.player,
     })
 }
+
+/// The group's dependency points: none of its own.
+pub fn points() -> Vec<crate::points::Point> {
+    Vec::new()
+}

@@ -154,6 +154,16 @@ pub fn set_automatic(session: Session, raise: bool) -> GResult<()> {
     action::post(session.commands, &text, if raise { "have the game send one more missionary" } else { "have the game send one fewer missionary" })
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::missionaries: MissionaryRequest => MissionaryAnswer;
+    Options => options;
+    Send => send;
+    Recall => recall;
+    Automatic => automatic;
+    RaiseAutomatic {} => session set_automatic(true);
+    LowerAutomatic {} => session set_automatic(false);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
