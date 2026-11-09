@@ -23,6 +23,16 @@
 //! Sound needs no point: before SDL's audio starts, the `dummy` driver is
 //! chosen through the environment, which SDL reads then
 //! (docs/research/headless.md).
+//!
+//! Windows throttles a process whose windows the player cannot see
+//! (EcoQoS): its threads run seldom and slowly, and its timer resolution
+//! requests are ignored, so a sleep of a millisecond takes a tick of 15.6 ms.
+//! A hidden game got 5% of a core where it needed a whole one
+//! (docs/prototype-log/2026-11-10-hidden-start-at-full-speed.md). So a hidden
+//! start opts the process out of both, once as the framework starts. A game
+//! shown later stays opted out: it is a game started for remote control or
+//! a test, which is to run as fast when its window is behind others, and a
+//! shown window is throttled by Windows as any other then anyway.
 use crate::called_by_game;
 use crate::points::{Function, Point};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -61,6 +71,7 @@ pub fn read_switches() {
         return;
     }
     HIDDEN.store(true, Ordering::Relaxed);
+    full_speed();
     if switches.sound {
         log!("hidden start, with sound");
     } else {
@@ -68,6 +79,32 @@ pub fn read_switches() {
         let value: Vec<u16> = "dummy\0".encode_utf16().collect();
         unsafe { SetEnvironmentVariableW(name.as_ptr(), value.as_ptr()) };
         log!("hidden start, without sound");
+    }
+}
+
+/// What a hidden game asks of Windows' power throttling: the execution
+/// speed and the timer resolution controlled, and neither throttled.
+fn not_throttled() -> windows_sys::Win32::System::Threading::PROCESS_POWER_THROTTLING_STATE {
+    use windows_sys::Win32::System::Threading::{
+        PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
+        PROCESS_POWER_THROTTLING_STATE,
+    };
+    PROCESS_POWER_THROTTLING_STATE {
+        Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+        ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
+        StateMask: 0,
+    }
+}
+
+/// Opts the process out of Windows' power throttling; a refusal is logged.
+fn full_speed() {
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, ProcessPowerThrottling, SetProcessInformation};
+    let state = not_throttled();
+    let size = std::mem::size_of_val(&state) as u32;
+    if unsafe { SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &state as *const _ as *const _, size) } != 0 {
+        log!("hidden start: opted out of Windows' power throttling");
+    } else {
+        log!("hidden start: Windows' power throttling stays: {}", std::io::Error::last_os_error());
     }
 }
 
@@ -339,6 +376,12 @@ unsafe extern "C" fn start_crash_reporter(handler: usize, folder: usize) -> usiz
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hidden_game_asks_for_neither_throttling() {
+        let state = not_throttled();
+        assert_eq!((state.Version, state.ControlMask, state.StateMask), (1, 1 | 4, 0));
+    }
 
     #[test]
     fn the_switches_are_words_of_the_command_line_in_any_case() {
