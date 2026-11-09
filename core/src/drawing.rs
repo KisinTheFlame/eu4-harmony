@@ -331,14 +331,40 @@ fn do_deferred(m: &Memory) {
 const MESH_LET_GO: usize = 0x153e560;
 
 fn mesh_let_go(call: &mut Call) {
-    if on_main() {
+    if !drawing_on() {
+        return;
+    }
+    let held = if on_main() {
         crossing(call.observed().unwrap_or(0));
-    } else if drawing_on() && !is_drawing_thread() && !OTHER_THREAD_LOGGED.swap(true, Ordering::Relaxed) {
-        log!("drawing: thread {} let a mesh object go, which the drawing thread may be drawing", crate::thread_id());
+        main_side(|s| s.holds)
+    } else {
+        false
+    };
+    // Let go with the lock not held, the drawing thread may draw it: which
+    // thread, and from where, the first few times.
+    if !held && UNHELD_LOGGED.fetch_add(1, Ordering::Relaxed) < MOST_UNHELD_LOGGED {
+        let mut frames = [std::ptr::null_mut(); 16];
+        let n = unsafe { windows_sys::Win32::System::Diagnostics::Debug::RtlCaptureStackBackTrace(1, 16, frames.as_mut_ptr(), std::ptr::null_mut()) } as usize;
+        let base = call.memory().at(0usize);
+        let stack: Vec<String> = frames[..n]
+            .iter()
+            .map(|&f| f as usize)
+            .map(|f| if f >= base && f < base + 0x3000000 { format!("{:#x}", f - base) } else { format!("!{f:#x}") })
+            .collect();
+        let thread = if is_drawing_thread() {
+            "the drawing thread"
+        } else if on_main() {
+            "the main thread"
+        } else {
+            "another thread"
+        };
+        log!("drawing: {thread} let a mesh object go without the lock: {}", stack.join(" < "));
     }
 }
 
-static OTHER_THREAD_LOGGED: AtomicBool = AtomicBool::new(false);
+/// How many mesh objects let go without the lock were logged, and the most.
+static UNHELD_LOGGED: AtomicU32 = AtomicU32::new(0);
+const MOST_UNHELD_LOGGED: u32 = 20;
 
 /// The application's frame switching its idler (docs/research/main-menu.md,
 /// "The application's idler switch"), which lets the current one go: and
