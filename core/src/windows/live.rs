@@ -710,6 +710,11 @@ fn build_window(m: &Memory, mgr: usize, live: &mut Live, key: Key, want: &WantWi
             let close = find(m, root, None, gui::CLOSE)?;
             built.elements.push(Bound { name: gui::CLOSE.into(), object: close, kind: None, subscription: Some(subscribe(m, close)?), row: None });
         }
+        // Nothing on a window that does not move is pressed by a press on
+        // its background.
+        if !layout.moveable {
+            ui::keep_still(m, root, gui::BACKGROUND)?;
+        }
         bind(m, root, &layout.widgets, None, &mut built.elements)
     })();
     if let Err(e) = bound {

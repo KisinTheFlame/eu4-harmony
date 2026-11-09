@@ -15,6 +15,10 @@ pub mod globals {
 /// Classes, by vtable RVA.
 pub mod classes {
     pub const BUTTON: usize = 0x1d58218;
+    /// What a window builds the button its definition names by `backGround`
+    /// as: a button of its own input (`+0x48`, `0x1571570`) with a button's
+    /// enable method and state.
+    pub const BACKGROUND: usize = 0x1d954b0;
     pub const TEXT_BOX: usize = 0x1d8fd10;
     /// A button's click signal.
     pub const SIGNAL: usize = 0x1d581f8;
@@ -159,6 +163,9 @@ pub mod window {
     pub const GUI: usize = 0x30;
     /// Whether it is open, u8.
     pub const OPEN: usize = 0xf5;
+    /// Its background, the element its definition names by `backGround`,
+    /// which is not among its elements by name; null when it has none.
+    pub const BACKGROUND: usize = 0x520;
     /// Methods, by vtable offset: the button, text box or icon of a name (a
     /// NUL-terminated string), and the start of its teardown.
     pub const FIND_BUTTON: usize = 0x68;
@@ -591,6 +598,10 @@ pub fn points() -> Vec<Point> {
         Point::method(classes::WINDOW, window::SET_POSITION, SET_POSITION.rva(), "window position method"),
         Point::method(classes::WINDOW, window::FIND_LIST_BOX, FIND_LIST_BOX.rva(), "window list box method"),
         Point::method(classes::WINDOW, window::FIND_WINDOW, FIND_WINDOW.rva(), "window subwindow method"),
+        Point::keep(0x1570eaausize, "48 8d 05 ff 45 82 00 48 89 07", "window background constructor's vtable").uses(&[classes::BACKGROUND]),
+        Point::method(classes::BACKGROUND, element::ENABLE, 0xfaab30, "window background enable method"),
+        // The root's show takes its background and marks itself open.
+        Point::keep(0x1547cefusize, "48 8b 8b 20 05 00 00 c6 83 f5 00 00 00 01", "window background").uses(&[window::BACKGROUND, window::OPEN]),
         Point::method(classes::WINDOW_GUI, window_gui::SHOW, WINDOW_SHOW, "window show method"),
         Point::method(classes::WINDOW_GUI, window_gui::HIDE, WINDOW_HIDE, "window hide method"),
         // Their elements: frames, icons shown and hidden, flags.

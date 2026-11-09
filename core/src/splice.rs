@@ -39,8 +39,10 @@ pub struct Element {
     pub in_area: bool,
 }
 
-/// The name of the frame the framework puts under a window's button area.
+/// The name of the frame the framework puts under a window's button area,
+/// and of the button that is its background.
 pub const FRAME: &str = "eu4h_button_area";
+pub const FRAME_BACKGROUND: &str = "eu4h_button_area_background";
 
 /// A change to one game file.
 #[derive(Clone, Debug)]
@@ -211,9 +213,9 @@ pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool, plan: &mut
 fn frame(area: &hosts::ButtonArea, count: i32) -> String {
     let ((x, y), (w, h)) = area.frame(count);
     format!(
-        "\n\t\twindowType = {{ name = \"{FRAME}\" backGround = \"{FRAME}_background\" position = {{ x = {x} y = {y} }} size = {{ x = {w} y = {h} }} \
+        "\n\t\twindowType = {{ name = \"{FRAME}\" backGround = \"{FRAME_BACKGROUND}\" position = {{ x = {x} y = {y} }} size = {{ x = {w} y = {h} }} \
          moveable = 0 dontRender = \"\" horizontalBorder = \"\" verticalBorder = \"\" fullScreen = no Orientation = \"UPPER_LEFT\"\n\
-         \t\t\tguiButtonType = {{ name = \"{FRAME}_background\" quadTextureSprite = \"{}\" }}\n\t\t}}\n",
+         \t\t\tguiButtonType = {{ name = \"{FRAME_BACKGROUND}\" quadTextureSprite = \"{}\" }}\n\t\t}}\n",
         crate::windows::BACKGROUND_SPRITE
     )
 }

@@ -417,7 +417,27 @@ fn bind_frame(m: &Memory, root: usize) -> Result<usize> {
     if frame == 0 || m.ptr(frame)? != m.at(classes::WINDOW) {
         return Err("not found".into());
     }
+    keep_still(m, frame, crate::splice::FRAME_BACKGROUND)?;
     Ok(frame)
+}
+
+/// Disables the background of the window at `window`, the button `name`,
+/// which a window's background has to be: it still takes the clicks on it,
+/// so that they do not reach the map, but no press darkens it, as nothing
+/// there is to be pressed or dragged (docs/research/extension-windows.md,
+/// "A press on a window's background").
+pub(crate) fn keep_still(m: &Memory, window: usize, name: &str) -> Result<()> {
+    let background = m.ptr(window + window::BACKGROUND)?;
+    if background == 0 {
+        return Err("the window has no background".into());
+    }
+    if m.ptr(background)? != m.at(classes::BACKGROUND) || element_name(m, background)? != name.as_bytes() {
+        return Err(format!("the window's background is not its {name}"));
+    }
+    if m.vslot(background, element::ENABLE)? != m.at(SET_ENABLED) {
+        return Err("button enable method changed".into());
+    }
+    SET_ENABLED.call(m, [background, 0]).map(|_| ())
 }
 
 /// Builds a game string holding `bytes` with the game's allocator and moves

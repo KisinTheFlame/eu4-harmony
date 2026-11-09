@@ -17,6 +17,10 @@ Looks:
 - What only shows does not answer the pointer: backgrounds, frames,
   ribbons and rules are icons, never buttons. A button lights up under the
   pointer and tells the player it does something.
+- What does not move shows no press: a window that is not moveable, and
+  the button area's frame, take a click on their background without
+  darkening, as the framework sets them up. Only what does something when
+  pressed, or is dragged, looks pressed.
 - Name a figure by its icon, as the top bar does, with the name in the
   icon's tooltip, where room is short; leave the windows' margins (24) and
   keep things on one grid.

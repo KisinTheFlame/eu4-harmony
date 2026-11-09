@@ -168,6 +168,14 @@ The window lookups (`+0x68`, `+0x98`, `+0xc8`) look only at a window's own eleme
 
 A subwindow is found by its name through the window's `+0x1c0`, `0x15481a0(window, const std::string* name, bool report)` (verified; `+0x180`, `0x1548190`, jumps to it): it walks the list at `window+0x958..+0x960`, entries of 0x28 bytes with the name, a `std::string`, at `+0` and the window at `+0x20`, and answers the window, or 0; with `report` set a miss is also written to the game's error.log. The frame is shown and hidden through its interface's `+0x88`/`+0x90`, as the framework's windows are, its state at `+0xf5`.
 
+## A press on a window's background
+
+A press on a window's background darkens it while the button is held: the background is the window's `backGround` button, and its press (`0x1593ba0`) sets the button's state to pressed (`+0x124`, then its `+0x338`), which draws it so (verified in the running game: about three pixels in four of the regional combat mod's settings window changed while held). The background has to be a button: with an `iconType` named as a window's `backGround`, building the window crashed in its constructor, which treats that element as a button (`0x144fb00` building the army panel, `0x14e9030`, `0x1544d02`, `0x15afbec`, `0x1571140`, a read at `0x16a3327` through a null pointer; [prototype log](../prototype-log/2026-11-10-unmoving-windows-and-quick-right-clicks.md)).
+
+The window builds the element its `backGround` names not as a button but as an element of its own class, `0x1d954b0` (its constructor writes that vtable at `0x1570eaa`), and keeps it at `root+0x520`, apart from its elements by name: the window's lookups do not find it (verified; the window's show reads it there, `0x1547cef`). That class has a button's enable method (`+0x80`, `0xfaab30`) and state (`+0x258`, `0x1148250`, the state at `+0x124`), with an input method of its own (`+0x48`, `0x1571570`).
+
+A disabled button is not pressed: the press returns at once when the state is disabled (1) or already pressed (3), and the base (`0x1592bd0`) still marks the input taken (`0x1592fb1`), so that it does not reach the map. The background behaves so too (verified in the running game): disabled, it no longer darkens under a press (about one pixel in seventy changed while held, from the map beside it, where three in four did before), it does not grey, and a press on it leaves the selected army selected. So the framework disables the background of a window that does not move, the button area's frame's among them; a window that moves keeps it enabled, the element it is dragged by.
+
 ## What needs verifying at run time
 
 1. That a definition read after startup through `0x14eb7d0` builds with CreateWindow at once, and what happens to a live window when its definition is replaced.
