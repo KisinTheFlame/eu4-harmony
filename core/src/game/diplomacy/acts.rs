@@ -4,11 +4,14 @@
 //!
 //! A type is a token of the game's, the number its key has in saves; the
 //! game's table of tokens holds each with its key, and each act's entry there
-//! is a dependency point. An act's name is the capability's that does it.
+//! is a dependency point. An act's name is the capability's that does it,
+//! and its details, in parentheses, are the arguments its capability chooses in
+//! the window the act opens ([`super::Details`]), by their names.
 use crate::points::Point;
+use eu4_harmony_remote::diplomacy::{DiplomacyAnswer, Outcome};
 
 macro_rules! acts {
-    ($( $Act:ident $token:literal $offer:literal $name:literal $at:literal $key:literal; )*) => {
+    ($( $Act:ident $token:literal $offer:literal $name:literal $at:literal $key:literal $(($($detail:ident),+))?; )*) => {
         /// One of the actions the diplomacy panel offers.
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
         pub enum Act {
@@ -21,6 +24,23 @@ macro_rules! acts {
         const ACTS: &[(Act, u32, bool, &str, usize, &str)] = &[
             $( (Act::$Act, $token, $offer != 0, $name, $at, $key), )*
         ];
+
+        impl Act {
+            /// The arguments its capability chooses in the window it opens,
+            /// besides the country it is sent to.
+            pub fn details(self) -> &'static [&'static str] {
+                match self {
+                    $( Act::$Act => &[$($(stringify!($detail)),+)?], )*
+                }
+            }
+
+            /// Its capability's answer, around what came of it.
+            pub fn answer(self, outcome: Outcome) -> DiplomacyAnswer {
+                match self {
+                    $( Act::$Act => DiplomacyAnswer::$Act(outcome), )*
+                }
+            }
+        }
     };
 }
 
@@ -35,13 +55,13 @@ acts! {
     CallToArms 0x294d 1 "call_to_arms" 0x2096520 "callaction";
     FormCoalition 0x2de0 1 "form_coalition" 0x2183370 "form_coalition";
     LeaveCoalition 0x2de0 0 "leave_coalition" 0x2183370 "form_coalition";
-    EnforcePeace 0x2dda 1 "enforce_peace" 0x2182740 "enforce_peace";
+    EnforcePeace 0x2dda 1 "enforce_peace" 0x2182740 "enforce_peace" (enemy);
     DemandReligiousUnity 0x2d48 1 "demand_religious_unity" 0x21700b8 "religious_unity_action";
     RemoveElector 0x3177 1 "remove_elector" 0x21c8e98 "remove_electorate";
     GrantElector 0x2b1c 1 "grant_elector" 0x20d0568 "grant_electorate";
     RemoveFreeCity 0x31f7 1 "remove_free_city" 0x21e69e8 "remove_freecity";
     GrantFreeCity 0x31f6 1 "grant_free_city" 0x21e67e0 "grant_freecity";
-    DemandUnlawfulTerritory 0x2e0b 1 "demand_unlawful_territory" 0x21888c0 "demand_unlawful_territory_action";
+    DemandUnlawfulTerritory 0x2e0b 1 "demand_unlawful_territory" 0x21888c0 "demand_unlawful_territory_action" (province);
     CallCrusade 0x2cd5 1 "call_crusade" 0x2161720 "call_crusade_action";
     Excommunicate 0x2cd6 1 "excommunicate" 0x2161928 "excommunicate_action";
     LiftExcommunication 0x2cd6 0 "lift_excommunication" 0x2161928 "excommunicate_action";
@@ -74,7 +94,7 @@ acts! {
     TradeFavorsForMen 0x3bcf 1 "trade_favors_for_men" 0x22c58c8 "trade_favors_for_men";
     TradeFavorsForSailors 0x3bd0 1 "trade_favors_for_sailors" 0x22c5ad0 "trade_favors_for_sailors";
     TradeFavorsForHeir 0x3bd2 1 "trade_favors_for_heir" 0x22c5ee0 "trade_favors_for_heir";
-    TradeFavorsForTrust 0x3bd3 1 "trade_favors_for_trust" 0x22c60e8 "trade_favors_for_trust";
+    TradeFavorsForTrust 0x3bd3 1 "trade_favors_for_trust" 0x22c60e8 "trade_favors_for_trust" (favors, trust);
     TradeFavorsForWarPreparations 0x3bd4 1 "trade_favors_for_war_preparations" 0x22c62f0 "trade_favors_for_war_prep";
     SupportHeir 0x2ff6 1 "support_heir" 0x20ddec0 "support_heir";
     StopSupportingHeir 0x2ff6 0 "stop_supporting_heir" 0x20ddec0 "support_heir";
@@ -84,10 +104,10 @@ acts! {
     StopBuildingSpyNetwork 0x3378 0 "stop_building_spy_network" 0x21fcd60 "spy_network";
     CounterEspionage 0x33f9 1 "counter_espionage" 0x2203f20 "counterespionage";
     StopCounterEspionage 0x33f9 0 "stop_counter_espionage" 0x2203f20 "counterespionage";
-    FabricateClaim 0x2af1 1 "fabricate_claim" 0x20cb018 "fabricate_claim";
-    ClaimStates 0x36b6 1 "claim_states" 0x20f9990 "claim_states";
+    FabricateClaim 0x2af1 1 "fabricate_claim" 0x20cb018 "fabricate_claim" (province);
+    ClaimStates 0x36b6 1 "claim_states" 0x20f9990 "claim_states" (province);
     JustifyTradeConflict 0x2f5e 1 "justify_trade_conflict" 0x21a6e38 "justify_trade_conflict";
-    SupportRebels 0x2dde 1 "support_rebels" 0x2182f60 "support_rebels";
+    SupportRebels 0x2dde 1 "support_rebels" 0x2182f60 "support_rebels" (rebels);
     StealMaps 0x33c8 1 "steal_maps" 0x21d4978 "stealmap";
     SlanderMerchants 0x337b 1 "slander_merchants" 0x21fd378 "slander_merchants";
     SabotageRecruitment 0x33bf 1 "sabotage_recruitment" 0x22022b0 "sabotage_recruitment";
@@ -96,7 +116,7 @@ acts! {
     CorruptOfficials 0x337c 1 "corrupt_officials" 0x21fd580 "corrupt_officials";
     InfiltrateAdministration 0x2ddc 1 "infiltrate_administration" 0x2182b50 "infiltrate_administration";
     AgitateForLiberty 0x3242 1 "agitate_for_liberty" 0x21ce5f0 "agitate_for_liberty";
-    TransferTradePower 0x2e09 1 "transfer_trade_power" 0x21886b8 "transfer_trade_power";
+    TransferTradePower 0x2e09 1 "transfer_trade_power" 0x21886b8 "transfer_trade_power" (percent);
     CancelTradePowerTransfer 0x2e09 0 "cancel_trade_power_transfer" 0x21886b8 "transfer_trade_power";
     SteerTrade 0x3778 1 "steer_trade" 0x2243ad0 "steer_trade";
     StopSteeringTrade 0x3778 0 "stop_steering_trade" 0x2243ad0 "steer_trade";
@@ -106,7 +126,7 @@ acts! {
     Guarantee 0x2941 1 "guarantee" 0x2094ab8 "guaranteeaction";
     CancelGuarantee 0x2941 0 "cancel_guarantee" 0x2094ab8 "guaranteeaction";
     Warn 0x2942 1 "warn" 0x2094cc0 "warningaction";
-    ThreatenWar 0x3307 1 "threaten_war" 0x21d0670 "threaten_war";
+    ThreatenWar 0x3307 1 "threaten_war" 0x21d0670 "threaten_war" (province);
     AskMilitaryAccess 0x2943 1 "ask_military_access" 0x2094ec8 "milaccess";
     CancelMilitaryAccess 0x2943 0 "cancel_military_access" 0x2094ec8 "milaccess";
     OfferMilitaryAccess 0x2944 1 "offer_military_access" 0x20950d0 "offermilaccess";
@@ -122,24 +142,24 @@ acts! {
     ImperialRealmWar 0x3a6b 1 "imperial_realm_war" 0x229d2d8 "imperial_realm_war_action";
     SellShips 0x3028 1 "sell_ships" 0x21b12c0 "sell_ships_action";
     ShareMaps 0x3323 1 "share_maps" 0x21d3f50 "sharemap";
-    SendGift 0x2948 1 "send_gift" 0x20958f0 "giftaction";
+    SendGift 0x2948 1 "send_gift" 0x20958f0 "giftaction" (amount);
     TakeOnDebt 0x3469 1 "take_on_debt" 0x21d7830 "takeondebt";
     Influence 0x346e 1 "influence" 0x21d8258 "influence_nation";
-    InterveneInWar 0x343e 1 "intervene_in_war" 0x2209880 "intervene_in_war";
-    BreakAlliance 0x3375 1 "break_alliance" 0x21fc748 "break_alliance";
-    TradeFavorsToBreakAlliance 0x3bcb 1 "trade_favors_to_break_alliance" 0x22c50a8 "break_alliance_favor";
-    TradeFavorsToReduceRelations 0x3bcd 1 "trade_favors_to_reduce_relations" 0x22c54b8 "reduce_relations_favor";
+    InterveneInWar 0x343e 1 "intervene_in_war" 0x2209880 "intervene_in_war" (enemy);
+    BreakAlliance 0x3375 1 "break_alliance" 0x21fc748 "break_alliance" (ally);
+    TradeFavorsToBreakAlliance 0x3bcb 1 "trade_favors_to_break_alliance" 0x22c50a8 "break_alliance_favor" (ally);
+    TradeFavorsToReduceRelations 0x3bcd 1 "trade_favors_to_reduce_relations" 0x22c54b8 "reduce_relations_favor" (target);
     Insult 0x2947 1 "insult" 0x20956e8 "insultaction";
     ClaimThrone 0x2949 1 "claim_throne" 0x2095af8 "claimaction";
-    OfferLoan 0x2a24 1 "offer_loan" 0x20b15c8 "offerloan";
-    SubsidizeWar 0x2a25 1 "subsidize_war" 0x20b17d0 "warsubsidy";
+    OfferLoan 0x2a24 1 "offer_loan" 0x20b15c8 "offerloan" (amount);
+    SubsidizeWar 0x2a25 1 "subsidize_war" 0x20b17d0 "warsubsidy" (amount, duration);
     StopWarSubsidies 0x2a25 0 "stop_war_subsidies" 0x20b17d0 "warsubsidy";
-    SellProvince 0x2a29 1 "sell_province" 0x20b1ff0 "sellprov";
-    TradeFavorsForCore 0x3bcc 1 "trade_favors_for_core" 0x22c52b0 "return_core_favor";
-    OfferCondottieri 0x33b9 1 "offer_condottieri" 0x2201680 "condottieri_action";
+    SellProvince 0x2a29 1 "sell_province" 0x20b1ff0 "sellprov" (province, price);
+    TradeFavorsForCore 0x3bcc 1 "trade_favors_for_core" 0x22c52b0 "return_core_favor" (province);
+    OfferCondottieri 0x33b9 1 "offer_condottieri" 0x2201680 "condottieri_action" (army, price);
     RecallCondottieri 0x33b9 0 "recall_condottieri" 0x2201680 "condottieri_action";
-    CharterCompany 0x3866 1 "charter_company" 0x225f5a0 "charter_company";
-    AppointCardinal 0x39c1 1 "appoint_cardinal" 0x22885b8 "appoint_cardinal";
+    CharterCompany 0x3866 1 "charter_company" 0x225f5a0 "charter_company" (province, price);
+    AppointCardinal 0x39c1 1 "appoint_cardinal" 0x22885b8 "appoint_cardinal" (pay);
 }
 
 /// The token of a scripted diplomatic action, one of
