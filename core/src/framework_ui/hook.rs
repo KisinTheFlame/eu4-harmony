@@ -67,6 +67,7 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
         // The drawing thread's frame, under the presentation lock: what the
         // main thread does at a present but its safe point and its input,
         // which it does where the frame was prepared (`crate::drawing`).
+        // Present itself goes without the lock.
         let device = crate::guarded("frame present", || crate::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()).map(|device| device as *mut c_void));
         crate::guarded("font pages", crate::unicode::fill::grow_pages);
         crate::guarded("framework UI frame", || {
@@ -85,6 +86,10 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
                 crate::drawing::presented(width as u32, height as u32);
             }
         });
+        crate::drawing::present_begins();
+        let presented = ORIGINAL_PRESENT.get()(renderer);
+        crate::drawing::present_ends();
+        return presented;
     }
     ORIGINAL_PRESENT.get()(renderer)
 }

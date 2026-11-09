@@ -13,11 +13,24 @@
 //!
 //! The two take turns through the presentation lock (GLOSSARY), a lock that
 //! serves whoever asked first. The drawing thread holds it for each frame it
-//! draws. The main thread holds it through each application frame, but lets
-//! it go while the daily update runs, taking it again for a frame inside the
-//! day, at the day's end, and at each crossing (GLOSSARY) the day reaches,
-//! which keeps it until the next of the game's checks for a frame inside a
-//! day. So the interface's own objects are never used by both at once.
+//! draws, but for Direct3D's Present, which may wait for the display. The
+//! main thread holds it through each application frame, but lets it go while
+//! the daily update runs, taking it again for a frame inside the day, at the
+//! day's end, and at each crossing (GLOSSARY) the day reaches, which keeps it
+//! until the next of the game's checks for a frame inside a day. So the
+//! interface's own objects are never used by both at once. After a crossing
+//! the drawing thread draws nothing until the next update, which finishes
+//! what the crossing began (a unit's model let go stays on the map's lists
+//! until then).
+//!
+//! The day's two most frequent calls into the interface, a text floating on
+//! the map and the interface's daily refresh, answer nothing the day reads:
+//! they are deferred to the next application frame, before its update, so
+//! that the day neither waits for the lock there nor holds the frames back
+//! (docs/plans/drawing-thread.md, C2).
+//!
+//! The game's frames are paced by Present; a frame that runs no day waits
+//! for the drawing thread to draw the last one instead.
 //!
 //! The main thread draws a frame itself, as the game does, when the
 //! drawing thread is off, when the map's names are to be made again (which
@@ -25,9 +38,11 @@
 //! country's values out as it is drawn), and while the framework holds frames
 //! back.
 use crate::called_by_game;
+use crate::game_string;
 use crate::hooks::Call;
 use crate::memory::Memory;
-use crate::points::{GameFunction, Point};
+use crate::objects::campaign::globals::WORLD;
+use crate::points::{Function, GameFunction, Point};
 use crate::speed::SpeedUp;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};
@@ -91,6 +106,12 @@ const CAMERA_LENGTH_TAKEN: usize = 0x83119b;
 /// frame's events, and the frame's length in seconds (a float, on the stack).
 const CAMERA_UPDATE: GameFunction<5> = GameFunction::at(0x109bee0);
 const IDLER_FRAME_LENGTH: usize = 0x1658;
+/// In the drawing: `movss xmm3, [r15 + 0x1658]`, the frame's length the 3D
+/// map is given, by which it moves its fades on (`0x10a59a0`: the map's
+/// layers by the camera's height, the time at its `+0xf8`), and where it
+/// goes on.
+const MAP_LENGTH: usize = 0x8188f4;
+const MAP_LENGTH_TAKEN: usize = 0x8188fd;
 const IDLER_CAMERA_A: usize = 0x68;
 const IDLER_CAMERA_B: usize = 0x60;
 /// What keeps the camera from being updated: the idler's `[+0x1b80]+0x18`
@@ -123,6 +144,9 @@ fn points() -> Vec<Point> {
             &CAMERA_RESUME,
         ),
         Point::keep(CAMERA_LENGTH_TAKEN, "f3 0f 11 44 24 20", "the camera's update's frame length stored"),
+        Point::jump(MAP_LENGTH, "f3 41 0f 10 9f 58 16 00 00", "the frame's length the 3D map is given", map_length_stub as *const () as usize, &MAP_RESUME)
+            .uses(&[IDLER_FRAME_LENGTH]),
+        Point::keep(MAP_LENGTH_TAKEN, "4d 8b 87 00 12 00 00", "the camera the 3D map is given"),
         Point::keep(CAMERA_UPDATE, "48 89 5c 24 08 57 48 83 ec 70", "the camera's update"),
         // mov rcx, [r14 + 0x1b80]; cmp byte ptr [rcx + 0x18], 0; ...;
         // mov rax, [r14 + 0x3b0]; cmp byte ptr [rax + 0xc8], 0; ...;
@@ -145,6 +169,25 @@ fn points() -> Vec<Point> {
         ),
     ]
     .into_iter()
+    .chain([
+        Point::observe(PLACE_RESET, "48 8b c4 48 89 58 10 48", "a unit's place worked out again", 2, Some(place_reset), None),
+        // test dl, dl; je; call; mov rcx, [rbx + 0x70]; test rcx, rcx; je;
+        // mov rax, [rcx]; lea edx, [rdi + 1]; call [rax]; mov [rbx + 0x70], rdi
+        Point::keep(0x14488c3, "84 d2 74 24 e8 64 f3 ff ff 48 8b 4b 70 48 85 c9 74 0c 48 8b 01 8d 57 01 ff 10 48 89 7b 70", "a unit's place's model let go")
+            .uses(&[PLACE_MODEL]),
+        Point::replace(MAP_TEXT, "48 89 5c 24 10 4c 89 4c 24 20", "a text floating on the map", map_text as MapText, &ORIGINAL_MAP_TEXT),
+        // mov rcx, rsi; call string destructor: the text's type destroyed.
+        Point::keep(0x6e9f68, "48 8b ce e8 f0 b6 9a ff 90 48 8b 8d a8 00 00 00", "a floating text's strings destroyed"),
+        Point::replace(DAILY_REFRESH, "4c 8b dc 49 89 5b 18 55 56 57", "the interface's daily refresh", daily_refresh as DailyRefresh, &ORIGINAL_DAILY_REFRESH),
+        // mov rcx, [r13 + 0x1e00]; test rcx, rcx; je; mov rax, [rcx];
+        // call [rax + 0x2a8]: the day's call of the interface's daily refresh.
+        Point::keep(0x75c5e7, "49 8b 8d 00 1e 00 00 48 85 c9 74 09 48 8b 01 ff 90 a8 02 00 00", "the day's daily refresh of the interface")
+            .uses(&[WORLD_INTERFACE, 0x2a8]),
+        Point::observe(UNIT_DESTROYED, "48 89 5c 24 18 55 56 57 41 54 41 55 41 56 41 57", "a unit's destructor", 1, Some(unit_destroyed), None),
+        // mov rbx, [rcx + 0x1a8]; ...; mov rcx, [rbx + 0x70]; test rcx, rcx; je
+        Point::keep(0xd3b147, "48 8b 99 a8 01 00 00 45 33 ed 48 85 db 74 35 48 8b 4b 70 48 85 c9 74 0d", "a unit's place's model let go with the unit")
+            .uses(&[UNIT_PLACE, PLACE_MODEL]),
+    ])
     .chain(CROSSINGS_AT.iter().map(|&(rva, bytes, what, argc)| Point::observe(rva, bytes, what, argc, Some(crossed), None)))
     .collect()
 }
@@ -153,33 +196,172 @@ fn points() -> Vec<Point> {
 /// "Where the day reaches the interface and the graphics", "The crossings a
 /// late day reaches"): the RVA, its first bytes, what it is, the arguments it
 /// reads.
-const CROSSINGS_AT: [(usize, &str, &str, u32); 16] = [
-    (0x8339f0, "4c 8b dc 49 89 5b 18", "the interface's daily refresh", 1),
+const CROSSINGS_AT: [(usize, &str, &str, u32); 12] = [
     (0x81e280, "40 55 53 56 57 41 54", "the interface's monthly refresh", 1),
-    (0x6e9860, "48 89 5c 24 10", "a text floating on the map", 6),
-    (0x1448880, "48 8b c4 48 89 58 10", "a unit's model", 2),
     (0x8c1430, "4c 89 44 24 18", "a message's popup", 3),
-    (0x10a03f0, "48 89 5c 24 18", "a dialog", 5),
+    (0x10a03f0, "48 89 5c 24 18", "a window made", 5),
     (0x821ff0, "48 89 5c 24 08", "the map mode set", 4),
     (0x1347a50, "48 89 5c 24 10", "the map's markers of a province", 3),
     (0x13238b0, "48 8b c4 4c 89 40 18", "a port's model", 4),
     (0xded0f0, "48 89 5c 24 18", "the new age's window", 1),
     (0xde6300, "48 89 5c 24 10", "a combat's result drawn into a texture", 2),
-    (0xe428b0, "48 89 5c 24 08", "a country's dialog", 4),
+    (0xe428b0, "48 89 5c 24 08", "a country's window to the player", 4),
     (0x10b6c50, "48 8b c4 48 89 58 10", "the minimap", 2),
     (0x123f800, "48 89 5c 24 10", "an item of the message list", 4),
-    (0x1449da0, "40 53 48 83 ec 20", "a unit's model let go", 1),
     (0x10af990, "4c 8b c9 83 fa ff", "the map told of a province's new owner", 2),
 ];
 
-fn crossed(_: &mut Call) {
-    crossing();
+fn crossed(call: &mut Call) {
+    crossing(call.observed().unwrap_or(0));
+}
+
+/// A unit's place on the map, kept beside the unit at its `+0x1a8`, and the
+/// model the map's markers made for it (`+0x70`), which the drawing draws.
+const UNIT_PLACE: usize = 0x1a8;
+const PLACE_MODEL: usize = 0x70;
+/// A unit's place worked out again from the unit (`0x1448880`): with its
+/// second argument set, it first lets the place's model go. The unit's
+/// constructor calls it so for a place just made, with no model yet; the
+/// map's markers, for a unit moved at once. Only the model let go is a
+/// crossing: the rest is the place's own, which the drawing does not read.
+const PLACE_RESET: usize = 0x1448880;
+/// A unit's destructor (`0xd3b130`), which lets its place's model go
+/// before anything else.
+const UNIT_DESTROYED: usize = 0xd3b130;
+
+/// A text floating on the map (`AnimatedMapText`, eu3idler.cpp): the in-game
+/// idler, a province, the text's type and its text, and a number; it makes
+/// the text and puts it on the province's list of the map's, which the
+/// drawing draws, and answers nothing its callers read. The two strings are
+/// passed by value: it destroys them as it returns (`0x6e9f68`).
+const MAP_TEXT: usize = 0x6e9860;
+type MapText = unsafe extern "C" fn(usize, u32, usize, usize, usize, usize) -> usize;
+static ORIGINAL_MAP_TEXT: Function<MapText> = Function::new();
+/// The interface's daily refresh, its method `+0x2a8`, which the day calls on
+/// the world's interface (`world+0x1e00`) once a day: the windows' values and
+/// the minimap. It answers nothing the day reads.
+const DAILY_REFRESH: usize = 0x8339f0;
+type DailyRefresh = unsafe extern "C" fn(usize) -> usize;
+static ORIGINAL_DAILY_REFRESH: Function<DailyRefresh> = Function::new();
+const WORLD_INTERFACE: usize = 0x1e00;
+
+/// What the day asked of the interface and waits for nothing of: done at the
+/// next application frame, before its update (docs/plans/drawing-thread.md,
+/// C2). Until then the drawing thread draws on, as nothing changed.
+enum Deferred {
+    MapText { idler: usize, province: u32, kind: Vec<u8>, text: Vec<u8>, number: usize, last: usize },
+    DailyRefresh { interface: usize },
+}
+
+static DEFERRED: Mutex<Vec<Deferred>> = Mutex::new(Vec::new());
+static DEFERRED_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// Whether a call of the day's into the interface waits for the next frame.
+fn deferring() -> bool {
+    on_main() && drawing_on() && main_side(|s| s.in_day && !s.holds)
+}
+
+#[called_by_game]
+unsafe extern "C" fn map_text(idler: usize, province: u32, kind: usize, text: usize, number: usize, last: usize) -> usize {
+    if deferring() {
+        let m = crate::hooked_memory();
+        if let (Ok(kind_text), Ok(text_text)) = (game_string::read(&m, kind), game_string::read(&m, text)) {
+            // The strings are the call's to destroy.
+            let destroyed = game_string::destroy_checked(&m, kind).and_then(|_| game_string::destroy_checked(&m, text));
+            if let Err(e) = destroyed {
+                log!("drawing: a floating text's strings could not be destroyed: {e}");
+            }
+            DEFERRED.lock().unwrap_or_else(|e| e.into_inner()).push(Deferred::MapText { idler, province, kind: kind_text, text: text_text, number, last });
+            DEFERRED_COUNT.fetch_add(1, Ordering::Relaxed);
+            return 0;
+        }
+    }
+    unsafe { ORIGINAL_MAP_TEXT.get()(idler, province, kind, text, number, last) }
+}
+
+#[called_by_game]
+unsafe extern "C" fn daily_refresh(interface: usize) -> usize {
+    if deferring() {
+        DEFERRED.lock().unwrap_or_else(|e| e.into_inner()).push(Deferred::DailyRefresh { interface });
+        DEFERRED_COUNT.fetch_add(1, Ordering::Relaxed);
+        return 0;
+    }
+    unsafe { ORIGINAL_DAILY_REFRESH.get()(interface) }
+}
+
+/// The calls deferred, done as the game would have done them, by the main
+/// thread holding the lock; those whose idler or interface has gone since
+/// are left out.
+fn do_deferred(m: &Memory) {
+    let deferred = std::mem::take(&mut *DEFERRED.lock().unwrap_or_else(|e| e.into_inner()));
+    if deferred.is_empty() {
+        return;
+    }
+    let idler = m.ptr(m.at(APP)).and_then(|app| m.ptr(app + APP_IDLER)).unwrap_or(0);
+    let interface = m.ptr(m.at(WORLD)).and_then(|world| m.ptr(world + WORLD_INTERFACE)).unwrap_or(0);
+    for d in deferred {
+        let done = match d {
+            Deferred::MapText { idler: of, province, kind, text, number, last } if of == idler => {
+                // Made as the game makes them, for the call to destroy.
+                let (mut kind_s, mut text_s) = (game_string::empty(), game_string::empty());
+                let (kind_at, text_at) = (kind_s.as_mut_ptr() as usize, text_s.as_mut_ptr() as usize);
+                game_string::append_checked(m, kind_at, &kind)
+                    .and_then(|_| game_string::append_checked(m, text_at, &text))
+                    .and_then(|_| m.call(ORIGINAL_MAP_TEXT.address(), &[of, province as usize, kind_at, text_at, number, last]))
+            }
+            Deferred::DailyRefresh { interface: of } if of == interface => m.call(ORIGINAL_DAILY_REFRESH.address(), &[of]),
+            _ => Ok(0),
+        };
+        if let Err(e) = done {
+            log!("drawing: a call deferred from the day failed: {e}");
+        }
+    }
+}
+
+fn place_reset(call: &mut Call) {
+    let m = call.memory();
+    if call.arg(1) as u8 != 0 && m.ptr(call.arg(0) + PLACE_MODEL).is_ok_and(|model| model != 0) {
+        crossing(call.observed().unwrap_or(0));
+    }
+}
+
+fn unit_destroyed(call: &mut Call) {
+    let m = call.memory();
+    if m.ptr(call.arg(0) + UNIT_PLACE).and_then(|place| if place == 0 { Ok(0) } else { m.ptr(place + PLACE_MODEL) }).is_ok_and(|model| model != 0) {
+        crossing(call.observed().unwrap_or(0));
+    }
 }
 
 crate::resume!(FRAME_RESUME: FRAME_DRAWN_AT = FRAME_DRAWN);
 crate::resume!(HEAD_RESUME: HEAD_GOES_ON_AT = HEAD_GOES_ON, HEAD_END_AT = HEAD_END);
 static HEAD_AT: AtomicUsize = AtomicUsize::new(0);
 crate::resume!(CAMERA_RESUME: CAMERA_LENGTH_TAKEN_AT = CAMERA_LENGTH_TAKEN);
+crate::resume!(MAP_RESUME: MAP_LENGTH_TAKEN_AT = MAP_LENGTH_TAKEN);
+/// The length of the drawing thread's frame, in seconds (a float's bits).
+static DRAWING_LENGTH: AtomicU32 = AtomicU32::new(0);
+
+/// The frame's length for the 3D map: the drawing thread's own on the
+/// drawing thread, which draws one update's frame many times. `rax` holds the
+/// application, which the drawing goes on to read.
+#[unsafe(naked)]
+extern "C" fn map_length_stub() {
+    std::arch::naked_asm!(
+        "push rax",
+        "mov eax, dword ptr gs:[0x48]",
+        "cmp eax, dword ptr [rip + {drawing}]",
+        "pop rax",
+        "je 2f",
+        "movss xmm3, dword ptr [r15 + {length}]",
+        "jmp qword ptr [rip + {taken}]",
+        "2:",
+        "movss xmm3, dword ptr [rip + {own}]",
+        "jmp qword ptr [rip + {taken}]",
+        drawing = sym DRAWING_THREAD,
+        length = const IDLER_FRAME_LENGTH,
+        own = sym DRAWING_LENGTH,
+        taken = sym MAP_LENGTH_TAKEN_AT,
+    );
+}
 /// Set while the drawing thread moves the camera: the main thread's update of
 /// it then takes the frame's events with no time passed.
 static CAMERA_MOVED_THERE: AtomicU32 = AtomicU32::new(0);
@@ -290,17 +472,22 @@ static LOCK: Lock = Lock::new();
 static DRAWING_THREAD: AtomicU32 = AtomicU32::new(0);
 /// The in-game idler whose frame the main thread prepared last, 0 for none.
 static PREPARED: AtomicUsize = AtomicUsize::new(0);
-/// How many frames the main thread prepared, and the last of them the
-/// drawing thread has drawn: the next frame's update waits until it has, as
-/// it reads what a drawing worked out of the last update (the map's markers'
-/// lists), which the game's frame always drew between two updates.
-static PREPARED_SEQ: AtomicU64 = AtomicU64::new(0);
 /// A crossing changed the interface's state since the last frame prepared:
 /// what it began (a unit's model made, its type's list grown) the next
 /// update finishes, and the game never draws between the two, so neither
 /// does the drawing thread.
 static CHANGED: AtomicBool = AtomicBool::new(false);
+/// How many frames the main thread prepared, and the last of them drawn. The
+/// game's frames are paced by Present, which waits for the display; the main
+/// thread no longer presents, so a frame that runs no day (paused, or between
+/// the days of a slow speed) waits for the last one to be drawn instead, as
+/// it waited for the display, and the main thread does not spin.
+static PREPARED_SEQ: AtomicU64 = AtomicU64::new(0);
 static DRAWN_SEQ: AtomicU64 = AtomicU64::new(0);
+/// A day ran since the last application frame began.
+static DAY_RAN: AtomicBool = AtomicBool::new(false);
+/// The longest a frame waits so.
+const PACE_AT_MOST: Duration = Duration::from_millis(50);
 /// The drawing thread failed: the main thread draws from then on.
 static FAILED: AtomicBool = AtomicBool::new(false);
 /// Whether the setting has the drawing thread on, as last told.
@@ -310,8 +497,22 @@ static UNLIMITED: AtomicBool = AtomicBool::new(false);
 /// lock in microseconds, for the log.
 static DRAWN: AtomicU64 = AtomicU64::new(0);
 static MAIN_WAITED: AtomicU64 = AtomicU64::new(0);
+/// The main thread's waits for a frame to be drawn, in microseconds.
+static PACED: AtomicU64 = AtomicU64::new(0);
+/// The main thread's waits by where it waited: at an application frame, at
+/// a crossing, at the day's end.
+static WAITED_AT: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
+const AT_FRAME: usize = 0;
+const AT_CROSSING: usize = 1;
+const AT_DAY_END: usize = 2;
 static DRAWING_WAITED: AtomicU64 = AtomicU64::new(0);
 static CROSSINGS: AtomicU64 = AtomicU64::new(0);
+/// For the log, by crossing: the function crossed into, how many times, and
+/// how long the frames it held back were held back for, in microseconds (from
+/// the first crossing after an update to the next update).
+static BY_CROSSING: Mutex<Vec<(usize, u64, u64)>> = Mutex::new(Vec::new());
+/// The crossing that held the frames back since the last update, and when.
+static HELD_BACK_BY: Mutex<Option<(usize, Instant)>> = Mutex::new(None);
 /// The drawing thread's frames that faulted, and how many it may before the
 /// main thread draws again.
 static FAULTS: AtomicU64 = AtomicU64::new(0);
@@ -339,10 +540,11 @@ fn main_side<T>(f: impl FnOnce(&mut MainSide) -> T) -> T {
     f(&mut MAIN.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
-fn main_take(s: &mut MainSide) {
+fn main_take(s: &mut MainSide, at: usize) {
     if !s.holds {
         let waited = LOCK.take();
         MAIN_WAITED.fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
+        WAITED_AT[at].fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
         s.holds = true;
     }
 }
@@ -386,15 +588,15 @@ fn app_frame_before(_: &mut Call) {
     if !on_main() {
         return;
     }
-    wait_for_drawn();
+    if !DAY_RAN.swap(false, Ordering::AcqRel) {
+        pace();
+    }
     main_side(|s| {
         let took = !s.holds;
-        main_take(s);
+        main_take(s, AT_FRAME);
         s.frames.push(took);
     });
-    if drawing_on() {
-        draw_if_not_drawn(&crate::hooked_memory());
-    }
+    do_deferred(&crate::hooked_memory());
 }
 
 fn app_frame_after(_: &mut Call) {
@@ -409,50 +611,27 @@ fn app_frame_after(_: &mut Call) {
     });
 }
 
-/// Waits a while for the drawing thread to draw the last frame prepared,
-/// which it can, the main thread not holding the lock then.
-fn wait_for_drawn() {
+/// Waits for the drawing thread to draw the last frame prepared, unless it
+/// cannot (a crossing changed what it draws) or the main thread holds the
+/// lock (a frame inside another).
+fn pace() {
     let wanted = PREPARED_SEQ.load(Ordering::Acquire);
-    if DRAWN_SEQ.load(Ordering::Acquire) >= wanted || !drawing_on() || CHANGED.load(Ordering::Acquire) || main_side(|s| s.holds) {
+    if DRAWN_SEQ.load(Ordering::Acquire) >= wanted || !drawing_on() || CHANGED.load(Ordering::Acquire) || main_side(|s| s.holds || s.in_day) {
         return;
     }
     let began = Instant::now();
-    while DRAWN_SEQ.load(Ordering::Acquire) < wanted && began.elapsed() < Duration::from_millis(30) {
-        std::thread::sleep(Duration::from_micros(200));
+    while DRAWN_SEQ.load(Ordering::Acquire) < wanted && began.elapsed() < PACE_AT_MOST && drawing_on() {
+        std::thread::sleep(Duration::from_micros(250));
     }
-    MAIN_WAITED.fetch_add(began.elapsed().as_micros() as u64, Ordering::Relaxed);
-}
-
-/// The last frame prepared, drawn by the main thread, which holds the lock,
-/// when the drawing thread has not drawn it: it skipped it (the map's names
-/// to be made again) or did not come to it.
-fn draw_if_not_drawn(m: &Memory) {
-    let wanted = PREPARED_SEQ.load(Ordering::Acquire);
-    if DRAWN_SEQ.load(Ordering::Acquire) >= wanted {
-        return;
-    }
-    // Changed since it was prepared: the update this frame begins finishes
-    // what changed, and its own frame is drawn.
-    if CHANGED.load(Ordering::Acquire) {
-        DRAWN_SEQ.store(wanted, Ordering::Release);
-        return;
-    }
-    let idler = PREPARED.load(Ordering::Acquire);
-    let current = m.ptr(m.at(APP)).and_then(|app| m.ptr(app + APP_IDLER)).unwrap_or(0);
-    if idler != 0 && idler == current {
-        HERE.fetch_add(1, Ordering::Relaxed);
-        if let Err(e) = DRAWING.call(m, [idler]) {
-            log!("drawing: the frame's drawing failed: {e}");
-        }
-    }
-    DRAWN_SEQ.store(wanted, Ordering::Release);
+    PACED.fetch_add(began.elapsed().as_micros() as u64, Ordering::Relaxed);
 }
 
 /// The daily update begins (`game::events`): it lets the lock go.
 pub fn day_begins() {
-    if !on_main() || !drawing_on() || std::env::var_os("EU4H_DRAWING_NO_DAY").is_some() {
+    if !on_main() || !drawing_on() {
         return;
     }
+    DAY_RAN.store(true, Ordering::Release);
     main_side(|s| {
         s.in_day = true;
         s.day_gave = s.holds;
@@ -473,7 +652,7 @@ pub fn day_ends() {
         s.in_day = false;
         s.crossing = false;
         if s.day_gave {
-            main_take(s);
+            main_take(s, AT_DAY_END);
             s.day_gave = false;
         }
     });
@@ -499,22 +678,49 @@ fn frame_check_after(call: &mut Call) {
     let _ = call;
 }
 
-/// The day reaches the interface or the graphics: the lock first, kept until
-/// the next check for a frame inside the day.
-pub fn crossing() {
+/// The day reaches the interface or the graphics, in the function at
+/// `into`: the lock first, kept until the next check for a frame inside the
+/// day.
+pub fn crossing(into: usize) {
     if !on_main() {
         return;
     }
     main_side(|s| {
         if s.in_day {
-            CHANGED.store(true, Ordering::Release);
+            if !CHANGED.swap(true, Ordering::AcqRel) {
+                *HELD_BACK_BY.lock().unwrap_or_else(|e| e.into_inner()) = Some((into, Instant::now()));
+            }
+            count_crossing(into, 1, 0);
         }
         if s.in_day && !s.holds {
             CROSSINGS.fetch_add(1, Ordering::Relaxed);
-            main_take(s);
+            main_take(s, AT_CROSSING);
             s.crossing = true;
         }
     });
+}
+
+fn count_crossing(into: usize, times: u64, held: u64) {
+    let mut by = BY_CROSSING.lock().unwrap_or_else(|e| e.into_inner());
+    match by.iter_mut().find(|c| c.0 == into) {
+        Some(c) => {
+            c.1 += times;
+            c.2 += held;
+        }
+        None => by.push((into, times, held)),
+    }
+}
+
+/// The crossings since the last log, the three that held the frames back
+/// longest first: the RVA crossed into, the times, the milliseconds held back.
+fn crossings_logged(base: usize) -> String {
+    let mut by = std::mem::take(&mut *BY_CROSSING.lock().unwrap_or_else(|e| e.into_inner()));
+    by.sort_by_key(|c| std::cmp::Reverse(c.2));
+    by.iter()
+        .take(3)
+        .map(|&(into, times, held)| format!("{:#x} {times}x {:.0} ms", into.wrapping_sub(base), held as f64 / 1000.0))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The in-game frame calls its drawing, on the main thread, which holds the
@@ -524,10 +730,11 @@ extern "C" fn frame_draws(idler: usize) {
     let m = crate::hooked_memory();
     // This frame's update has finished whatever the day's crossings began.
     CHANGED.store(false, Ordering::Release);
+    if let Some((into, at)) = HELD_BACK_BY.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        count_crossing(into, 0, at.elapsed().as_micros() as u64);
+    }
     if !drawing_on() || must_draw_here(&m) {
-        if let Err(e) = DRAWING.call(&m, [idler]) {
-            log!("drawing: the frame's drawing failed: {e}");
-        }
+        draw_here(&m, idler);
         return;
     }
     if let Err(e) = first_steps(&m, idler) {
@@ -535,16 +742,7 @@ extern "C" fn frame_draws(idler: usize) {
         FAILED.store(true, Ordering::Relaxed);
         return;
     }
-    // The first frame of an idler is drawn here: the frame's update reads
-    // what a drawing worked out (the map's views for its markers), and none
-    // has been drawn for it yet.
-    if PREPARED.swap(idler, Ordering::AcqRel) != idler {
-        if let Err(e) = DRAWING.call(&m, [idler]) {
-            log!("drawing: the frame's drawing failed: {e}");
-        }
-        return;
-    }
-    CHANGED.store(false, Ordering::Release);
+    PREPARED.store(idler, Ordering::Release);
     PREPARED_SEQ.fetch_add(1, Ordering::AcqRel);
     CAMERA_MOVED_THERE.store(1, Ordering::Relaxed);
     // What the main thread does as it presents a frame: the safe point of a
@@ -594,6 +792,38 @@ pub fn is_drawing_thread() -> bool {
 /// The drawing thread presented a frame of `width` by `height`.
 pub fn presented(width: u32, height: u32) {
     SCREEN.store((width as u64) << 32 | height as u64, Ordering::Relaxed);
+}
+
+/// The drawing thread is in Direct3D's Present, which may wait for the
+/// display: the main thread does not draw a frame of its own meanwhile.
+static PRESENTING: AtomicBool = AtomicBool::new(false);
+
+/// The drawing thread's frame goes into Direct3D's Present (the framework's
+/// Present observer, `framework_ui::hook`): it lets the lock go for it, as
+/// the frame is drawn and Present touches only the device, which serves
+/// several threads.
+pub fn present_begins() {
+    PRESENTING.store(true, Ordering::Release);
+    LOCK.give();
+}
+
+/// Present has returned: the drawing thread takes the lock again for what
+/// the drawing does after it (the idler's `+0x1608`, its clock).
+pub fn present_ends() {
+    PRESENTING.store(false, Ordering::Release);
+    let waited = LOCK.take();
+    DRAWING_WAITED.fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
+}
+
+/// The main thread draws a frame of its own: once the drawing thread's
+/// Present has returned.
+fn draw_here(m: &Memory, idler: usize) {
+    while PRESENTING.load(Ordering::Acquire) {
+        std::thread::yield_now();
+    }
+    if let Err(e) = DRAWING.call(m, [idler]) {
+        log!("drawing: the frame's drawing failed: {e}");
+    }
 }
 
 /// The display's refresh rate, 60 when Windows does not say.
@@ -663,20 +893,22 @@ fn run() {
         }
         let waited = LOCK.take();
         DRAWING_WAITED.fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
-        let seq = PREPARED_SEQ.load(Ordering::Acquire);
         let idler = PREPARED.load(Ordering::Acquire);
         let current = m.ptr(m.at(APP)).and_then(|app| m.ptr(app + APP_IDLER)).unwrap_or(0);
+        let seq = PREPARED_SEQ.load(Ordering::Acquire);
+        // This frame's length, for the camera and the map's fades.
+        let length = last_frame.elapsed().as_secs_f32().min(0.1);
+        last_frame = Instant::now();
         // The camera moves at this thread's pace, also while a frame waits
         // for its update; the main thread's update of it then passes no time.
         if idler != 0 && current == idler && CAMERA_MOVED_THERE.load(Ordering::Relaxed) != 0 {
-            let length = last_frame.elapsed().as_secs_f32().min(0.1);
-            last_frame = Instant::now();
             if let Err(e) = move_camera(&m, idler, length) {
                 log!("drawing: the camera's update failed, the main thread moves it from now on: {e}");
                 CAMERA_MOVED_THERE.store(0, Ordering::Relaxed);
             }
         }
         if idler != 0 && current == idler && !CHANGED.load(Ordering::Acquire) && !must_draw_here(&m) {
+            DRAWING_LENGTH.store(length.to_bits(), Ordering::Relaxed);
             match DRAWING.call(&m, [idler]) {
                 Ok(_) => {
                     DRAWN.fetch_add(1, Ordering::Relaxed);
@@ -700,14 +932,19 @@ fn run() {
         LOCK.give();
         if logged.elapsed() >= Duration::from_secs(10) {
             let drawn = DRAWN.load(Ordering::Relaxed);
-            log!("drawing: prepared {idler:#x}, current {current:#x}, drawn here {}", must_draw_here(&m));
             log!(
-                "drawing: {:.1} frames a second, {} drawn by the main thread; the main thread waited {:.0} ms for the lock, the drawing thread {:.0} ms; {} crossing(s)",
+                "drawing: {:.1} frames a second, {} drawn by the main thread; the main thread waited {:.0} ms for the lock ({:.0} at frames, {:.0} at crossings, {:.0} at days' ends) and {:.0} ms for frames drawn, the drawing thread {:.0} ms; {} crossing(s), {} deferred, the frames held back longest by {}",
                 (drawn - last_drawn) as f64 / logged.elapsed().as_secs_f64(),
                 HERE.swap(0, Ordering::Relaxed),
                 MAIN_WAITED.swap(0, Ordering::Relaxed) as f64 / 1000.0,
+                WAITED_AT[AT_FRAME].swap(0, Ordering::Relaxed) as f64 / 1000.0,
+                WAITED_AT[AT_CROSSING].swap(0, Ordering::Relaxed) as f64 / 1000.0,
+                WAITED_AT[AT_DAY_END].swap(0, Ordering::Relaxed) as f64 / 1000.0,
+                PACED.swap(0, Ordering::Relaxed) as f64 / 1000.0,
                 DRAWING_WAITED.swap(0, Ordering::Relaxed) as f64 / 1000.0,
-                CROSSINGS.swap(0, Ordering::Relaxed)
+                CROSSINGS.swap(0, Ordering::Relaxed),
+                DEFERRED_COUNT.swap(0, Ordering::Relaxed),
+                crossings_logged(m.at(0usize))
             );
             last_drawn = drawn;
             logged = Instant::now();
