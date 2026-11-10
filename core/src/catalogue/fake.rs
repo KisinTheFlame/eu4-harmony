@@ -157,7 +157,7 @@ impl countries::Layer for Fake {
     /// Byzantium with nothing; [`wallachia`].
     fn country(&mut self, eu4_harmony_remote::countries::args::Get { country }: eu4_harmony_remote::countries::args::Get) -> GResult<Box<Country>> {
         use eu4_harmony_remote::countries::{
-            GoverningCapacity, IdeaGroup, Legitimacy, LegitimacyKind, Loans, ModifierValue, Person, Power, Rebels, RelationKind, Technology,
+            GoverningCapacity, IdeaGroup, Legitimacy, LegitimacyKind, Loans, ModifierValue, NamedModifier, Person, Power, Rebels, RelationKind, Technology,
         };
         self.call(format!("country {country}"));
         let found = found(country)?;
@@ -201,6 +201,7 @@ impl countries::Layer for Fake {
             army_professionalism: Some(12.5),
             army_tradition: 35.25,
             navy_tradition: 10.0,
+            named_modifiers: Some(vec![NamedModifier { key: "janissary_decadence".into(), expires: None }]),
         }))
     }
 
@@ -275,6 +276,7 @@ fn bare(tag: CountryTag) -> Country {
         army_professionalism: None,
         army_tradition: 0.0,
         navy_tradition: 0.0,
+        named_modifiers: None,
     }
 }
 
@@ -420,6 +422,7 @@ pub fn constantinople() -> eu4_harmony_remote::provinces::ProvinceSnapshot {
         constructions: None,
         missionary: None,
         colony_size: None,
+        named_modifiers: Vec::new(),
     }
 }
 

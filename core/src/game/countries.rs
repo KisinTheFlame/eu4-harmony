@@ -14,7 +14,7 @@ use crate::{
 };
 use eu4_harmony_remote::{
     countries::{
-        args, Budget, Country, Entry, GoverningCapacity, IdeaGroup, Legitimacy, LegitimacyKind, Loan, Loans, ModifierValue, Person, Power, Rebels, Relation,
+        args, Budget, Country, Entry, GoverningCapacity, IdeaGroup, Legitimacy, LegitimacyKind, Loan, Loans, ModifierValue, Modifiers, Person, Power, Rebels, Relation,
         RelationKind, Technology,
     },
     CountryTag, Date,
@@ -130,6 +130,7 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x2df1e1usize, "41 39 87 d4 0b 00 00", "country inflation").uses(&[fields::INFLATION]),
         Point::keep(0x2dfb51usize, "49 8d 97 98 10 00 00", "country mercantilism").uses(&[fields::MERCANTILISM]),
         Point::keep(0x2df601usize, "49 8b 87 e8 0d 00 00", "country loans").uses(&[fields::LOANS]),
+        Point::keep(0x2e0046usize, "49 8b 87 f0 01 00 00", "country named modifiers").uses(&[fields::NAMED_MODIFIERS]),
         // It writes each of its persons only when it is not the null one.
         Point::keep(0x2e0588usize, "49 8b 8f 80 12 00 00 48 8b 01 ff 50 58", "country ruler").uses(&[fields::RULER, person::PRESENT]),
         Point::keep(0x2e05b5usize, "49 8b 8f 98 12 00 00 48 8b 01 ff 50 58", "country heir").uses(&[fields::HEIR, person::PRESENT]),
@@ -307,7 +308,32 @@ pub fn get(WorldSession { m, world: ctx, view, .. }: WorldSession, args::Get { c
         army_professionalism: if all { Some(professionalism(m.u64(c + fields::ARMY_PROFESSIONALISM)? as i64)) } else { None },
         army_tradition: thousandths(fixed(fields::ARMY_TRADITION)?),
         navy_tradition: thousandths(fixed(fields::NAVY_TRADITION)?),
+        named_modifiers: if all { Some(named_modifiers_of(m, c, view == View::Full)?) } else { None },
     }))
+}
+
+/// The named modifiers the country has; one its scripts hide only with
+/// `hidden`.
+fn named_modifiers_of(m: &Memory, c: usize, hidden: bool) -> GResult<Vec<eu4_harmony_remote::countries::NamedModifier>> {
+    modifiers::named_modifiers(m, containers::items(m, c + fields::NAMED_MODIFIERS, MOST)?, hidden)
+}
+
+/// What a country has of each modifier `keys` name, as the game totals it;
+/// in the player's view another country's are left out, the keys still
+/// checked.
+pub fn modifiers(
+    WorldSession { m, world: ctx, view, .. }: WorldSession,
+    args::Modifiers { country: asked, keys }: args::Modifiers,
+) -> GResult<Modifiers> {
+    let tag = named(m, &ctx, asked)?;
+    let c = country(m, &ctx, tag)?;
+    let values = if sees_all_of(view, &ctx, tag) {
+        Some(modifiers::totals(m, modifiers::values(m, c)?, &keys.0)?)
+    } else {
+        modifiers::indices(m, &keys.0)?;
+        None
+    };
+    Ok(Modifiers { country: CountryTag(tag.letters()), values })
 }
 
 /// Army professionalism in percent, from the game's fixed point.

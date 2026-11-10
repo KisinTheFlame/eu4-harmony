@@ -1,6 +1,6 @@
 //! Countries: one read of a country, as the player sees it at a glance, and
 //! its budget, as the economy view shows it.
-use crate::{CountryTag, Date};
+use crate::{CountryTag, Date, Words};
 use serde::{Deserialize, Serialize};
 
 group! {
@@ -20,16 +20,30 @@ group! {
     /// with its subject type), overlord and rivals, its technology, the idea
     /// groups it has taken, its governing capacity, inflation, mercantilism,
     /// loans and the rebel factions against it; its ruler, heir and
-    /// consort; and its legitimacy, corruption, absolutism, traditions and
-    /// army professionalism. In the player's view what the game's panels do
-    /// not show of another country is null: its treasury, monarch points,
-    /// governing capacity, inflation, mercantilism, loans, rebels,
-    /// corruption, absolutism, army professionalism and what its legitimacy
-    /// adds to its modifiers.
+    /// consort; its legitimacy, corruption, absolutism, traditions and army
+    /// professionalism; and the named modifiers its scripts put on it. In
+    /// the player's view what the game's panels do not show of another
+    /// country is null: its treasury, monarch points, governing capacity,
+    /// inflation, mercantilism, loans, rebels, corruption, absolutism, army
+    /// professionalism, what its legitimacy adds to its modifiers, and its
+    /// named modifiers; and a named modifier its scripts hide is left out of
+    /// the player's own.
     world Get "get" {
         /// The country.
         country: CountryTag,
-    } -> Box<Country>, "the country: tag, treasury, manpower and max_manpower, stability, prestige, power (adm, dip, mil), wars (each its name, attackers and defenders, the leaders first), relations (each a kind, ally, subject, overlord or rival, and a country; a subject or an overlord also its subject_type, the key the game or a mod gives the kind of subject, such as vassal, march, personal_union or tributary_state), technology (adm, dip, mil), ideas (each an idea group's key, how many of its ideas are taken, and whether it is the national ideas), governing_capacity (used, max), inflation and mercantilism (percent), loans (count, ducats), rebels (each its kind, the rebel type's key, its name and progress in percent), ruler, heir and consort (each a name, dynasty, adm, dip, mil and age; null when there is none), legitimacy (kind, one of legitimacy, republican_tradition, devotion, horde_unity and meritocracy, value, max and effects, each a modifier's key and what it adds; null for a government with none), corruption, absolutism, army_tradition, navy_tradition and army_professionalism (percent); in the player's view the fields another country's panels do not show are null";
+    } -> Box<Country>, "the country: tag, treasury, manpower and max_manpower, stability, prestige, power (adm, dip, mil), wars (each its name, attackers and defenders, the leaders first), relations (each a kind, ally, subject, overlord or rival, and a country; a subject or an overlord also its subject_type, the key the game or a mod gives the kind of subject, such as vassal, march, personal_union or tributary_state), technology (adm, dip, mil), ideas (each an idea group's key, how many of its ideas are taken, and whether it is the national ideas), governing_capacity (used, max), inflation and mercantilism (percent), loans (count, ducats), rebels (each its kind, the rebel type's key, its name and progress in percent), ruler, heir and consort (each a name, dynasty, adm, dip, mil and age; null when there is none), legitimacy (kind, one of legitimacy, republican_tradition, devotion, horde_unity and meritocracy, value, max and effects, each a modifier's key and what it adds; null for a government with none), corruption, absolutism, army_tradition, navy_tradition, army_professionalism (percent) and named_modifiers (each its key and the day it ends, null for one that does not); in the player's view the fields another country's panels do not show are null";
+    /// What a country has of each modifier asked for, by its key, as the
+    /// game totals it from everything that gives it: its ideas, policies,
+    /// government, named modifiers and the rest. Refused (not_found) for a
+    /// key that names no modifier. In the player's view another country's
+    /// are null, as no panel totals them.
+    world Modifiers "modifiers" {
+        /// The country.
+        country: CountryTag,
+        /// The modifiers' keys, such as `discipline` or
+        /// `global_tax_modifier`.
+        keys: Words,
+    } -> Modifiers, "the country and its values, one for each key asked, in their order: modifier (its key) and value, as the game's scripts write it (0.05 for 5%); null in the player's view for another country";
     /// A country's budget as the economy view shows it: this month's income
     /// and expenses by category, and its loans. In the player's view another
     /// country's are null.
@@ -91,6 +105,10 @@ pub struct Country {
     /// From 0 to 100.
     pub army_tradition: f64,
     pub navy_tradition: f64,
+    /// The named modifiers its scripts put on it, such as an event's
+    /// `country_modifier`; null in the player's view for another country,
+    /// and one its scripts hide is left out of the player's own.
+    pub named_modifiers: Option<Vec<NamedModifier>>,
 }
 
 /// A ruler, an heir or a consort.
@@ -276,4 +294,22 @@ pub struct ModifierValue {
     pub modifier: String,
     /// As the game's scripts write it: 0.05 for 5%.
     pub value: f64,
+}
+
+/// What a country has of the modifiers asked for.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Modifiers {
+    pub country: CountryTag,
+    /// One for each key asked, in their order; null in the player's view
+    /// for another country.
+    pub values: Option<Vec<ModifierValue>>,
+}
+
+/// A named modifier on a country or a province.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct NamedModifier {
+    /// Its key, as the scripts that put it there name it.
+    pub key: String,
+    /// The day it ends; null for one that does not.
+    pub expires: Option<Date>,
 }

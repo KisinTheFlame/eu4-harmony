@@ -25,6 +25,16 @@ Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` on 2026-11-11 with 
   - `0x92e810`, a republic without meritocracy (`0x7ac230` or `0x7ac3e0`): the static modifier at `+0x8f0` scaled by the republican tradition × 10 / 1000 into `+0x2f08` (`0x92e949`), and the one at `+0x900` scaled by 1000 less that into `+0x2fc8` (`0x92e999` `48 8b 1f 48 81 c3 c8 2f 00 00`), each when its static modifier is one (its method `+0x90`), both added.
   - So what legitimacy adds now is the pairs of `+0x2f08`, and a republic's of `+0x2fc8` too; for a legitimacy, horde unity or devotion at exactly 50, nothing, whatever `+0x2f08` still holds.
 
+## A province's modifiers
+
+- **A province's own set** is inline at province `+0x998`: the game's getter reads it for local values (`0xa1091c` `49 8d 8d 98 09 00 00 e8 …`, one of 42 calls of `0x8e6bd0` on it), and the console's `province_modifier <id> <type>` (`0xe54ea0`) prints its value of a kind, walking its pairs (`+0x58`, `+0x64`). What the owner's modifiers add across the country is in the country's own set, not here.
+- The console's `country_modifier <tag> <type>` prints a country's.
+
+## Named modifiers
+
+- **A named modifier** is the record of one a script put on a country or a province (`add_country_modifier`, `add_province_modifier` and the like): at `+0x30` the named set of modifiers it gives, a [modifier set](#a-set-of-modifiers) of the class `0x1c42ae0` whose key is a `std::string` at `+0x158` (with bytes `+0x150` to `+0x152` and an i32 `+0x154` beside it, copied with it, `0x1b1f00`); `+0x40` `start_date`, `+0x44` the day it ends, `date`, written unless it is `0x29c77f8`; the bytes `+0x48` `ruler_modifier`, `+0x49` `parliament_modifier`, `+0x4a` `permanent` and `+0x4b` `hidden`. Its writer is `0xb35b80`'s function (`0xb35bc3` `48 8b 5e 30`, `0xb35bd9` `48 8d 93 58 01 00 00`, `0xb35c6a` `81 7e 44 f8 77 9c 02`, `0xb35d18` `0f b6 5e 4a`, `0xb35d40` `0f b6 5e 4b`).
+- **A country's** are a list of the game's kind (`objects::list`) from country `+0x1f0`, written as `modifier` (`0x2968`) by the country's writer (`0x2e0046` `49 8b 87 f0 01 00 00`); **a province's** a vector (begin, end) of pointers at province `+0x2f0` (`0x9d893e` `49 8b 8f f0 02 00 00 49 8b 87 f8 02 00 00`). Both writers leave out one whose set has its byte `+0x151` set (`0x9d896a` `80 b8 51 01 00 00 00`); what that byte means was not followed.
+
 ## Not established
 
 - Which kind of country the other sets from `+0x3088` on are for.

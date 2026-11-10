@@ -288,6 +288,9 @@ pub mod country {
     /// a religion as a province's ([`super::province::CULTURE`]).
     pub const PRIMARY_CULTURE: usize = 0x1228;
     pub const STATE_RELIGION: usize = 0xf30;
+    /// The named modifiers its scripts put on it, a [`super::super::list`]
+    /// of [`super::named_modifier`]s.
+    pub const NAMED_MODIFIERS: usize = 0x1f0;
     /// Its ruler, heir and consort (`monarch`, `heir` and `queen` in saves),
     /// each a pointer to a [`super::person`]: the game's null person of its
     /// kind while it has none, whose [`super::person::PRESENT`] method says
@@ -459,6 +462,12 @@ pub mod war {
 
 pub mod province {
     pub const SIZE: usize = 0x2e10;
+    /// Its own modifiers, a [`super::modifier_set`]: what its buildings,
+    /// terrain, named modifiers and the like give it.
+    pub const MODIFIERS: usize = 0x998;
+    /// The named modifiers its scripts put on it, a vector (begin, end) of
+    /// pointers to [`super::named_modifier`]s.
+    pub const NAMED_MODIFIERS: usize = 0x2f0;
     /// Its ID, i32.
     pub const ID: usize = 0x20;
     /// Its map data (see [`super::geometry`]).
@@ -797,6 +806,20 @@ pub mod modifier_set {
     pub const COUNT: usize = 0x64;
     pub const PAIR: usize = 8;
     pub const NONE: i32 = 0x286;
+    /// A named set's key, such as an event modifier's: a `std::string`.
+    pub const NAME: usize = 0x158;
+}
+
+/// A named modifier a country or a province has: the named set of
+/// modifiers it gives ([`super::modifier_set::NAME`]), the day it ends
+/// ([`NEVER`] for none), and bytes set when it does not end and when the
+/// scripts hide it.
+pub mod named_modifier {
+    pub const SET: usize = 0x30;
+    pub const EXPIRES: usize = 0x44;
+    pub const NEVER: i32 = 0x29c77f8;
+    pub const PERMANENT: usize = 0x4a;
+    pub const HIDDEN: usize = 0x4b;
 }
 
 /// The kinds of modifier, built into the code: a vector (begin, end) at

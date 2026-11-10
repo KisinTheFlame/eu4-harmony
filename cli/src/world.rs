@@ -304,6 +304,7 @@ impl World {
             "autonomy": 0.0, "culture": null, "religion": null, "trade_good": null, "unrest": 0.0, "trade_node": null,
             "center_of_trade": 0, "trade_company": false, "state": p.owner.as_ref().map(|_| "state"), "edict": null,
             "cores": p.owner.iter().collect::<Vec<_>>(), "claims": [], "constructions": [], "missionary": null, "colony_size": null,
+            "named_modifiers": [],
         })
     }
 
@@ -326,7 +327,7 @@ impl World {
                     "technology": {"adm": 3, "dip": 3, "mil": 3}, "ideas": [], "governing_capacity": {"used": 0.0, "max": 0.0},
                     "inflation": 0.0, "mercantilism": 0.0, "loans": {"count": 0, "ducats": 0.0}, "rebels": [],
                     "ruler": null, "heir": null, "consort": null, "legitimacy": null, "corruption": 0.0, "absolutism": 0.0,
-                    "army_professionalism": 0.0, "army_tradition": 0.0, "navy_tradition": 0.0,
+                    "army_professionalism": 0.0, "army_tradition": 0.0, "navy_tradition": 0.0, "named_modifiers": [],
                 });
                 if let (Some(fields), Value::Object(all)) = (self.countries.get(&tag), &mut country) {
                     all.extend(fields.clone());

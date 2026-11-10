@@ -4,6 +4,7 @@ use crate::game::{
     administration::{Action, Development as Kind},
 };
 use eu4_harmony_remote::provinces::args;
+use eu4_harmony_remote::countries::ModifierValue;
 use eu4_harmony_remote::provinces::{Neighbor, Province, ProvinceAnswer, ProvinceOption, ProvinceRequest, ProvinceSnapshot};
 
 layer! {
@@ -12,6 +13,7 @@ layer! {
     List => fn provinces -> Vec<Province> = game::provinces::list;
     Neighbors => fn neighbors -> Vec<Neighbor> = game::provinces::neighbors;
     Get => fn province -> Box<ProvinceSnapshot> = game::provinces::province;
+    Modifiers => fn province_modifiers -> Vec<ModifierValue> = game::provinces::modifiers;
     Options => fn province_options -> Vec<ProvinceOption> = game::administration::options;
     DevelopTax { province } => game.province_act(province, Action::Develop(Kind::Tax));
     DevelopProduction { province } => game.province_act(province, Action::Develop(Kind::Production));
@@ -57,7 +59,7 @@ mod tests {
             "buildings": ["fort_15th", "marketplace"],
             "autonomy": 25.0, "culture": "greek", "religion": "orthodox", "trade_good": "silk", "unrest": null,
             "trade_node": "constantinople", "center_of_trade": 3, "trade_company": false, "state": "state", "edict": null,
-            "cores": ["BYZ"], "claims": ["TUR"], "constructions": null, "missionary": null, "colony_size": null,
+            "cores": ["BYZ"], "claims": ["TUR"], "constructions": null, "missionary": null, "colony_size": null, "named_modifiers": [],
         }));
         assert_eq!(answer(&reply), expected);
         // What can be recruited there is recruit.options', every kind in order.
