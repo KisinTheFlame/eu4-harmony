@@ -22,6 +22,38 @@ Status: decided (2026-11-09): phases 0, 1 and 2 are to be built, in one effort, 
   - **The simulation on several threads**: [game-speed.md](game-speed.md)'s, not this plan's.
 - **Out of scope**: what the day computes; the loading screen; multiplayer, where nothing the machines compute changes.
 
+## The end state (designed 2026-11-10)
+
+The owner asked, after seeing the drawing thread in a game, for the end state to be designed first and built toward directly. What showing the game taught: whatever the drawing reads live of the interface lags or races it. The map's icons, placed by the interface with the camera of its update, stayed behind the map the drawing thread moved; the camera's cursor read used the calling thread's window; the crossings had to hold whole frames back. So the end state is designed around what each role reads.
+
+### What each role owns
+
+| Role | Where it runs | Owns | Reads | Hands on |
+| --- | --- | --- | --- | --- |
+| The simulation | the main thread, or a process of its own (below) | the world | the world, the commands | at each day's end, the world held still; events for what it did to the interface |
+| The interface | the main thread, at the update points | the GUI's objects, the map's presentation data (the map mode's colors, the per-province arrays, the markers, the models' places), the map icons | the world held still, the camera's copy, the input | at each update, the layout: the windows' drawing recorded, the map's data, each map icon's window and point on the map |
+| The drawing | the drawing thread | the camera, the frame and the device's use in it, what follows the camera | the last layout handed on, the camera, the models and textures | the pixels; at each update, a copy of the camera |
+
+### Its rules
+
+1. **The drawing reads only what was handed on and its own state.** It never reads a GUI object or the world live, so no crossing can hold it back, and the presentation lock covers only the handover of the layout.
+2. **What follows the camera is placed by the drawing, at its pace**: the 3D map, the models, and the map icons, whose places the interface works out with the camera of its update (`0x132e300`, [research/drawing-beside-the-day.md](../research/drawing-beside-the-day.md), "Where the map icons are placed") and the drawing works out again with its own.
+3. **The simulation never calls into the interface.** What it did there, the crossings, is an event queued and done at the next update.
+4. **The interface updates at the update points**: between days and at the game's points inside a day.
+5. **The camera's input** (dragging, the wheel, the edge of the screen, the camera's keys) **is the drawing's**; every other input is the main thread's.
+
+### The one question left open: where the simulation runs
+
+- **E1, the world in a second process** (phase 3): the simulation in a process of its own, the interface and the drawing in the other, the world's pages changed in a day copied into it at the same addresses at each day's end. The simulation then never waits for the interface.
+- **E2, one process**: the simulation and the interface take turns on the main thread, as now; the interface reads the world live between days, and the simulation waits for its update, about 4.7 ms of a 50 to 70 ms day late in a game (M2).
+
+The rules hold in both; only how the world reaches the interface differs. Which one is decided by W1 to W3 ([world-interface-seams.md](../research/world-interface-seams.md), [world-in-a-second-process.md](../research/world-in-a-second-process.md)).
+
+### What is built, against it
+
+- **Stays**: the drawing thread and its pace, the presentation lock (narrowed in the end to the layout's handover), the camera and its cursor read on the drawing thread, the drawing thread stopped as the game quits, the deferred calls (the first of rule 3's events).
+- **Goes once rule 1 holds**: the crossings caught at the bottom to hold the drawing back (the mesh object let go, the renderer's scene begun, a crossing anywhere holding the prepared frame back), and the idler's switch waiting for the drawing's frame; they protect what the drawing still reads live.
+
 ## What the game does that this rests on
 
 - **A frame in a game** runs, in order: the interface's steps before the commands, the commands with the daily tick that runs the day, the outliner, input (with the camera's update), the time step, the alerts, the map's markers, the GUI's update, and **the drawing last**: the map mode's colors when they changed, the device check, the map's passes, the 3D map, the sky, the GUI, the debug text when asked for, Present ([research/drawing-beside-the-day.md](../research/drawing-beside-the-day.md), "The in-game frame's steps, in order", "The camera in a frame").
@@ -95,7 +127,9 @@ In a test game, from the saves of [research/late-game.md](../research/late-game.
 - **R1 What the drawing reads**: of the game state, beyond the direct calls, each read moved to the update, copied there, or shown harmless; that it writes nothing the day reads; whether the units' models are moved by the day or read from the units.
 - **T1 The drawing thread under the lock**: the drawing thread and its pacing, the frame rate's setting, the lock with its points and catch-alls, the map's names made at the update, the drawing's own frame length, the Present observer on the drawing thread, the frames inside a day as updates without drawing.
 - **T2 The camera and its input** on the drawing thread.
-- **T3 The layout double buffered**: the windows' drawing recorded at the update and played by the drawing thread, the map's data copied at the update.
+- **T3 The layout double buffered**, in two parts:
+  - **T3a The map icons follow the drawing's camera**: the interface's placing of each map icon (`0x132e300`) kept with its window, its point on the map and where it put it; the drawing thread works the point out again with its own camera before it draws, and moves the window by the difference (rule 2).
+  - **T3b The windows' drawing recorded** at the update into a list of the back end's calls with their data, which the drawing thread plays, and the map's data copied at the update: then the drawing reads nothing live (rule 1).
 
 ### Phase 2: the crossings as events
 
@@ -112,3 +146,5 @@ In a test game, from the saves of [research/late-game.md](../research/late-game.
 ## Order
 
 Phase 0 first; R1 beside it. Then T1, T2 and T3 in turn, C1 before C2, each measured as it is built; one pull request for phases 0 to 2, which the owner looks at as a whole before phase 3 is decided.
+
+Toward the end state (2026-11-10), what is left goes in this order: T3a, which a player sees at once; W1 to W3 beside it, read and measured, which decide between E1 and E2; then T3b, after which the crossings no longer hold the drawing back and their catches at the bottom go; then C2 to its end, every crossing an event, which E1 needs and which in E2 frees the day from the lock; phase 3 built only if E1 is chosen.
