@@ -2,6 +2,7 @@
 //! and raising the rank, through the game's own commands
 //! (docs/research/government.md, "Reforms" and "Rank").
 use super::content::checks;
+use super::mechanics::{interact, mechanics};
 use super::{action, conditions, content, thousandths, GResult, Session, Tag};
 use crate::containers;
 use crate::game_string;
@@ -16,7 +17,7 @@ use eu4_harmony_remote::{
 };
 
 /// The country's government, its rank and its reform progress.
-const GOVERNMENT: usize = 0x1420;
+pub(super) const GOVERNMENT: usize = 0x1420;
 const RANK: usize = 0x2860;
 const REFORM_PROGRESS: usize = 0x9a68;
 /// The government: its type, and its reform stack, a `std::deque` of reform
@@ -234,6 +235,8 @@ crate::catalogue::bind! {
     Reforms => reforms;
     AdoptReform => adopt_reform;
     RaiseRank => raise_rank;
+    Mechanics => mechanics;
+    Interact => interact;
 }
 
 #[cfg(test)]
