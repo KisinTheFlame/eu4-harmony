@@ -189,18 +189,18 @@ static IN_FRAME: AtomicBool = AtomicBool::new(false);
 /// The idler is about to be switched, by the main thread holding the lock. A
 /// frame of the drawing thread's may be in Present, without the lock, and is
 /// to end with the idler it began with: the main thread lets the lock go
-/// until it has.
+/// until it has. What was deferred is done before the idler goes.
 #[called_by_game]
 extern "C" fn idler_switches() {
     PREPARED.store(0, Ordering::Release);
-    if !IN_FRAME.load(Ordering::Acquire) {
-        return;
+    if IN_FRAME.load(Ordering::Acquire) {
+        main_side(main_give);
+        while IN_FRAME.load(Ordering::Acquire) {
+            std::thread::yield_now();
+        }
+        main_side(|s| main_take(s, AT_FRAME));
     }
-    main_side(main_give);
-    while IN_FRAME.load(Ordering::Acquire) {
-        std::thread::yield_now();
-    }
-    main_side(|s| main_take(s, AT_FRAME));
+    deferred::done(&crate::hooked_memory());
 }
 
 crate::resume!(FRAME_RESUME: FRAME_DRAWN_AT = FRAME_DRAWN);
@@ -457,7 +457,6 @@ fn app_frame_before(_: &mut Call) {
         main_take(s, AT_FRAME);
         s.frames.push(took);
     });
-    deferred::done(&crate::hooked_memory());
 }
 
 fn app_frame_after(call: &mut Call) {
@@ -493,6 +492,7 @@ fn stop() {
         }
         main_side(|s| main_take(s, AT_FRAME));
     }
+    deferred::done(&crate::hooked_memory());
     log!("drawing: the game quits; the drawing thread draws no more");
 }
 
@@ -525,19 +525,14 @@ pub fn day_begins() {
 }
 
 /// The daily update has returned (`game::events`): the frame it ran in has
-/// the lock again, and does what the day deferred. Done at the next frame's
-/// beginning instead, the interface's daily refresh, a crossing (the
-/// minimap), held the drawing back through the whole of the next day, for
-/// that frame's preparation came after it: at speed 5 the drawing stood
-/// still for most of the time. Here only the rest of this frame's update
-/// comes before the preparation.
+/// the lock again. What the day deferred is done as that frame is prepared.
 pub fn day_ends() {
     if !on_main() {
         return;
     }
-    let holds = main_side(|s| {
+    main_side(|s| {
         if !s.in_day {
-            return false;
+            return;
         }
         s.in_day = false;
         s.crossing = false;
@@ -545,11 +540,7 @@ pub fn day_ends() {
             main_take(s, AT_DAY_END);
             s.day_gave = false;
         }
-        s.holds
     });
-    if holds {
-        deferred::done(&crate::hooked_memory());
-    }
 }
 
 fn frame_check_before(call: &mut Call) {
@@ -577,6 +568,9 @@ fn frame_check_after(call: &mut Call) {
 #[called_by_game]
 extern "C" fn frame_draws(idler: usize) {
     let m = crate::hooked_memory();
+    // The frame's update has finished: what was deferred is done now, its
+    // crossings, if any, forgotten as the frame is prepared.
+    deferred::done(&m);
     // A frame the main thread draws itself leaves the last one prepared
     // behind: its scenes are crossings, which hold it back. What would make
     // it draw one, it does ahead where it can.

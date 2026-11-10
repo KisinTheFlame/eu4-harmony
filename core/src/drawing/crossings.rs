@@ -1,7 +1,8 @@
 //! The crossings (GLOSSARY): where the main thread changes what the drawing
-//! thread reads. Each is caught where the game's code enters it, some at the
-//! bottom whatever path led there (a mesh object let go, a scene of the
-//! renderer's begun): in a day the main thread takes the lock there, and the
+//! thread reads and cannot wait for the frame's preparation (what can is
+//! [`super::deferred`]). Each is caught where the game's code enters it, some
+//! at the bottom whatever path led there (a scene of the renderer's begun, a
+//! mesh object let go that is not deferred): in a day the main thread takes the lock there, and the
 //! frame prepared is marked changed, so that the drawing thread draws nothing
 //! until the next update finishes what the crossing began. Also the count,
 //! for the log, of the crossings and of how long each held the frames back.
@@ -23,7 +24,6 @@ pub(super) fn points() -> Vec<Point> {
         // mov qword ptr [rdi + 0x108], 0: the vertex declaration it keeps
         // forgotten.
         Point::keep(0x16d4e2f, "48 c7 87 08 01 00 00 00 00 00 00", "a scene forgets the renderer's vertex declaration").uses(&[RENDERER_DECLARATION]),
-        Point::observe(MESH_LET_GO, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18", "a mesh object's destructor", 2, Some(mesh_let_go), None),
         Point::observe(UNIT_DESTROYED, "48 89 5c 24 18 55 56 57 41 54 41 55 41 56 41 57", "a unit's destructor", 1, Some(unit_destroyed), None),
         // mov rbx, [rcx + 0x1a8]; ...; mov rcx, [rbx + 0x70]; test rcx, rcx; je
         Point::keep(0xd3b147, "48 8b 99 a8 01 00 00 45 33 ed 48 85 db 74 35 48 8b 4b 70 48 85 c9 74 0d", "a unit's place's model let go with the unit")
@@ -89,19 +89,16 @@ fn scene_begins(call: &mut Call) {
 
 static OTHER_SCENE_LOGGED: AtomicBool = AtomicBool::new(false);
 
-/// A mesh object's destructor (`pdxmeshobject.cpp`, vtable `0x1d92408`): the
-/// object and whether to free it. The drawing draws mesh objects; one let go
-/// while it draws faults it (docs/research/drawing-beside-the-day.md, "The
-/// day's crossings read again"), so one let go in the day is a crossing,
-/// whatever led there.
-const MESH_LET_GO: usize = 0x153e560;
-
-fn mesh_let_go(call: &mut Call) {
+/// A mesh object let go where it cannot wait for the frame's preparation
+/// (docs/research/drawing-beside-the-day.md, "The day's crossings read
+/// again"; [`super::deferred`] keeps the rest): one let go on another thread,
+/// or destroyed without being freed. `into` is the destructor's address.
+pub(super) fn mesh_let_go(into: usize) {
     if !drawing_on() {
         return;
     }
     let held = if on_main() {
-        crossing(call.observed().unwrap_or(0));
+        crossing(into);
         main_side(|s| s.holds)
     } else {
         false
@@ -111,7 +108,7 @@ fn mesh_let_go(call: &mut Call) {
     if !held && UNHELD_LOGGED.fetch_add(1, Ordering::Relaxed) < MOST_UNHELD_LOGGED {
         let mut frames = [std::ptr::null_mut(); 16];
         let n = unsafe { windows_sys::Win32::System::Diagnostics::Debug::RtlCaptureStackBackTrace(1, 16, frames.as_mut_ptr(), std::ptr::null_mut()) } as usize;
-        let base = call.memory().at(0usize);
+        let base = crate::hooked_memory().at(0usize);
         let stack: Vec<String> = frames[..n]
             .iter()
             .map(|&f| f as usize)

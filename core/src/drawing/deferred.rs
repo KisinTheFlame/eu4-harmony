@@ -1,19 +1,30 @@
-//! The deferred calls (docs/plans/drawing-thread.md, C2): what the day asks
-//! of the interface and waits for nothing of, kept and done by the main
-//! thread once it holds the lock again, at the day's end or the next
-//! application frame, before the frame is prepared. Until then the drawing
-//! thread draws on, as nothing changed.
-use super::{drawing_on, main_side, on_main, APP, APP_IDLER, APP_MAP};
+//! The deferred calls (docs/plans/drawing-thread.md, C2): what the main
+//! thread asks of the interface and the graphics and waits for nothing of,
+//! kept and done by it as the next frame is prepared ([`done`]), while it
+//! holds the lock and the frame's update has finished: a text floating on the
+//! map, the interface's daily refresh, the map told of a province's new
+//! owner, a mesh object let go. Until then the drawing thread draws on, as
+//! nothing changed. Done anywhere else, each would be a crossing, which holds
+//! the frame prepared back to the next update: from the commands' step before
+//! a day, through the whole day.
+use super::{drawing_on, on_main, APP, APP_IDLER, APP_MAP};
 use crate::called_by_game;
 use crate::game_string;
 use crate::memory::Memory;
 use crate::objects::campaign::globals::WORLD;
 use crate::points::{Function, Point};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 pub(super) fn points() -> Vec<Point> {
     vec![
+        Point::replace(
+            MESH_LET_GO,
+            "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18",
+            "a mesh object's destructor",
+            mesh_let_go as MeshLetGo,
+            &ORIGINAL_MESH_LET_GO,
+        ),
         Point::replace(MAP_TEXT, "48 89 5c 24 10 4c 89 4c 24 20", "a text floating on the map", map_text as MapText, &ORIGINAL_MAP_TEXT),
         // mov rcx, rsi; call string destructor: the text's type destroyed.
         Point::keep(0x6e9f68, "48 8b ce e8 f0 b6 9a ff 90 48 8b 8d a8 00 00 00", "a floating text's strings destroyed"),
@@ -50,6 +61,19 @@ const WORLD_INTERFACE: usize = 0x1e00;
 const OWNER_TOLD: usize = 0x10af990;
 const OWNER_TOLD_GOES_ON: usize = 0x10af996;
 crate::resume!(OWNER_TOLD_RESUME: OWNER_TOLD_GOES_ON_AT = OWNER_TOLD_GOES_ON);
+/// A mesh object's scalar deleting destructor (`pdxmeshobject.cpp`, the slot
+/// 0 of its vtable `0x1d92408`, called through it only): the object and
+/// whether to free it (bit 0). It takes the object off its mesh's list of
+/// objects (`[+8]+0x140`), lets its parts go (`+0x58`, `+0x90`, `+0xa0`) and
+/// frees its 0xf0 bytes; it answers the object. The map's markers keep the
+/// objects of the units and the ports they draw on lists of theirs, which the
+/// next update takes them off; the drawing reads them there until then. Freed
+/// as the frame is prepared instead, the object outlives every frame that
+/// draws it (docs/research/drawing-beside-the-day.md, "Frames late at speed
+/// 5").
+const MESH_LET_GO: usize = 0x153e560;
+type MeshLetGo = unsafe extern "C" fn(usize, u32) -> usize;
+static ORIGINAL_MESH_LET_GO: Function<MeshLetGo> = Function::new();
 
 /// What the day asked of the interface and waits for nothing of: done at the
 /// next application frame, before its update (docs/plans/drawing-thread.md,
@@ -58,6 +82,7 @@ enum Deferred {
     MapText { idler: usize, province: u32, kind: Vec<u8>, text: Vec<u8>, number: usize, last: usize },
     DailyRefresh { interface: usize },
     OwnerTold { map: usize, province: i32 },
+    MeshLetGo { mesh: usize, free: u32 },
 }
 
 static DEFERRED: Mutex<Vec<Deferred>> = Mutex::new(Vec::new());
@@ -74,9 +99,12 @@ pub(super) fn logged() -> u64 {
     COUNT.swap(0, Ordering::Relaxed)
 }
 
-/// Whether a call of the day's into the interface waits for the next frame.
+/// The deferred calls are being done: what they call is not deferred again.
+static DOING: AtomicBool = AtomicBool::new(false);
+
+/// Whether a call of the main thread's waits for the next frame's preparation.
 fn deferring() -> bool {
-    on_main() && drawing_on() && main_side(|s| s.in_day && !s.holds)
+    on_main() && drawing_on() && !DOING.load(Ordering::Relaxed)
 }
 
 #[called_by_game]
@@ -106,7 +134,7 @@ unsafe extern "C" fn daily_refresh(interface: usize) -> usize {
     unsafe { ORIGINAL_DAILY_REFRESH.get()(interface) }
 }
 
-/// Whether the map's owner mark waits for the day's end.
+/// Whether the map's owner mark waits for the next frame.
 #[called_by_game]
 extern "C" fn owner_told(map: usize, province: i32) -> bool {
     if !deferring() {
@@ -131,14 +159,27 @@ extern "C" fn owner_told_stub() {
     );
 }
 
+#[called_by_game]
+unsafe extern "C" fn mesh_let_go(mesh: usize, free: u32) -> usize {
+    if free & 1 != 0 && deferring() {
+        defer(Deferred::MeshLetGo { mesh, free });
+        return mesh;
+    }
+    let m = crate::hooked_memory();
+    super::crossings::mesh_let_go(m.at(MESH_LET_GO));
+    unsafe { ORIGINAL_MESH_LET_GO.get()(mesh, free) }
+}
+
 /// The calls deferred, done as the game would have done them, by the main
-/// thread holding the lock; those whose idler or interface has gone since
-/// are left out.
+/// thread holding the lock: as a frame is prepared, after its update, and
+/// before the idler is switched or the game quits. Those whose idler,
+/// interface or map has gone since are left out; every mesh object is let go.
 pub(super) fn done(m: &Memory) {
     let deferred = std::mem::take(&mut *DEFERRED.lock().unwrap_or_else(|e| e.into_inner()));
     if deferred.is_empty() {
         return;
     }
+    DOING.store(true, Ordering::Relaxed);
     let idler = m.ptr(m.at(APP)).and_then(|app| m.ptr(app + APP_IDLER)).unwrap_or(0);
     let interface = m.ptr(m.at(WORLD)).and_then(|world| m.ptr(world + WORLD_INTERFACE)).unwrap_or(0);
     let map = m.ptr(m.at(APP)).and_then(|app| m.ptr(app + APP_MAP)).unwrap_or(0);
@@ -159,7 +200,11 @@ pub(super) fn done(m: &Memory) {
             Deferred::DailyRefresh { interface: of } if of == interface => unsafe {
                 ORIGINAL_DAILY_REFRESH.get()(of);
             },
+            Deferred::MeshLetGo { mesh, free } => unsafe {
+                ORIGINAL_MESH_LET_GO.get()(mesh, free);
+            },
             _ => {}
         }
     }
+    DOING.store(false, Ordering::Relaxed);
 }
