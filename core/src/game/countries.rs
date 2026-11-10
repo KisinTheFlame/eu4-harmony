@@ -72,6 +72,9 @@ const HAS_DEVOTION: GameFunction<1> = GameFunction::at(0x7ac6e0);
 /// partner's legitimacy.
 const HORDE_UNITY: GameFunction<2> = GameFunction::at(0x362990);
 const MONARCH_LEGITIMACY: GameFunction<2> = GameFunction::at(0x362b70);
+/// A person's age in whole years, as the court view and the `heir_age`
+/// scope value work it out from their birth date and the world's: (person).
+const AGE: GameFunction<1> = GameFunction::at(0xa4e2d0);
 /// Every kind of legitimacy is whole at 100, in thousandths, as strengthening
 /// the government checks it.
 const WHOLE: usize = 100_000;
@@ -145,7 +148,11 @@ pub fn points() -> Vec<Point> {
             person::DYNASTY_VALID,
             person::DYNASTY_NAME,
         ]),
-        Point::keep(0xa4b197usize, "48 8d 4e 70", "person's birth date").uses(&[person::BIRTH]),
+        Point::keep(AGE, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48 89 7c 24 20 41 54 41 56", "person's age"),
+        Point::keep(0xa4e2eeusize, "4c 8d 61 70 49 8b cc e8", "person's age from the birth date").uses(&[person::BIRTH]),
+        // The army_professionalism trigger's tooltip shows its value times
+        // 2^-15 (the double at 0x1dc1580).
+        Point::keep(0xd02fd3usize, "0f 57 d2 f2 48 0f 2a 56 68 f2 0f 10 35 9c e5 0b 01 f2 0f 59 d6", "army professionalism's fixed point"),
         // The loan's save writer.
         Point::keep(0x86b109usize, "48 8d 56 20", "loan lender").uses(&[loan::LENDER]),
         Point::keep(0x86b1afusize, "8b 5e 28", "loan interest").uses(&[loan::INTEREST]),
@@ -299,9 +306,9 @@ pub fn get(WorldSession { m, world: ctx, view, .. }: WorldSession, args::Get { c
         mercantilism: own.as_ref().map(|o| thousandths(o.mercantilism)),
         loans: own.as_ref().map(|o| o.loans),
         rebels: own.map(|o| o.rebels),
-        ruler: person_at(m, c + fields::RULER, ctx.date)?,
-        heir: person_at(m, c + fields::HEIR, ctx.date)?,
-        consort: person_at(m, c + fields::CONSORT, ctx.date)?,
+        ruler: person_at(m, c + fields::RULER)?,
+        heir: person_at(m, c + fields::HEIR)?,
+        consort: person_at(m, c + fields::CONSORT)?,
         legitimacy: legitimacy_of(m, c, all)?,
         corruption: if all { Some(thousandths(fixed(fields::CORRUPTION)?)) } else { None },
         absolutism: if all { Some(thousandths(fixed(fields::ABSOLUTISM)?)) } else { None },
@@ -410,7 +417,7 @@ fn legitimacy_effects(m: &Memory, c: usize, kind: LegitimacyKind, value: i32) ->
 
 /// The person a country's field holds, as the court view shows them; None
 /// for the game's null person, which holds the place while there is none.
-fn person_at(m: &Memory, field: usize, date: i32) -> GResult<Option<Person>> {
+fn person_at(m: &Memory, field: usize) -> GResult<Option<Person>> {
     let p = m.ptr(field)?;
     if p == 0 || m.call(m.vslot(p, person::PRESENT)?, &[p])? & 0xff == 0 {
         return Ok(None);
@@ -427,14 +434,8 @@ fn person_at(m: &Memory, field: usize, date: i32) -> GResult<Option<Person>> {
         adm: m.i32(p + person::ADM)?,
         dip: m.i32(p + person::DIP)?,
         mil: m.i32(p + person::MIL)?,
-        age: age(m.i32(p + person::BIRTH)?, date),
+        age: AGE.call(m, [p])? as i32,
     }))
-}
-
-/// Whole years from `birth` to `date`, in the game's calendar of 365-day
-/// years.
-fn age(birth: i32, date: i32) -> i32 {
-    (date - birth).div_euclid(365 * 24)
 }
 
 /// The country's technology levels, each kind's category found as the game
@@ -712,29 +713,35 @@ mod tests {
         Object::new(size).points_to(0, vtable)
     }
 
-    /// A ruler of a dynasty, born 30 years and a day before the date; an
-    /// heir of none; the game's null consort: each read as the court view
-    /// shows them, the null one as none.
+    /// The game's age of a person, here the years the test put at its birth
+    /// date.
+    extern "C" fn years_at_birth(person: usize) -> usize {
+        unsafe { *((person + person::BIRTH) as *const i32) as usize }
+    }
+
+    /// A ruler of a dynasty, an heir of none and the game's null consort:
+    /// each read as the court view shows them, the null one as none.
     #[test]
     fn a_country_s_persons_are_read_and_the_null_one_is_none() {
-        use crate::game::buffers::{no, yes};
-        let m = Memory { base: 0x1_4000_0000 };
-        let date = 1500 * 8760;
-        let person = |name: &str, dynasty: Object, skills: [i32; 3], birth: i32| {
+        use crate::game::buffers::{no, yes, Image};
+        let image = Image::new();
+        image.function(AGE.rva(), years_at_birth as *const ());
+        let m = image.memory();
+        let person = |name: &str, dynasty: Object, skills: [i32; 3], age: i32| {
             answering(person::PRESENT, yes, person::BIRTH + 4)
                 .string(person::GIVEN_NAME, name)
                 .points_to(person::DYNASTY, dynasty)
                 .i32(person::ADM, skills[0])
                 .i32(person::DIP, skills[1])
                 .i32(person::MIL, skills[2])
-                .i32(person::BIRTH, birth)
+                .i32(person::BIRTH, age)
         };
         let dynasty = answering(person::DYNASTY_VALID, yes, person::DYNASTY_NAME + game_string::OBJECT).string(person::DYNASTY_NAME, "de Valois");
-        let ruler = person("Louis XI", dynasty, [4, 5, 2], date - 30 * 8760 - 24);
-        let heir = person("Charles", answering(person::DYNASTY_VALID, no, 16), [1, 0, 3], date - 24);
+        let ruler = person("Louis XI", dynasty, [4, 5, 2], 30);
+        let heir = person("Charles", answering(person::DYNASTY_VALID, no, 16), [1, 0, 3], 0);
         let consort = answering(person::PRESENT, no, 8);
         let country = Object::new(fields::CONSORT + 8).points_to(fields::RULER, ruler).points_to(fields::HEIR, heir).points_to(fields::CONSORT, consort);
-        let read = |field: usize| person_at(&m, country.at() + field, date).unwrap();
+        let read = |field: usize| person_at(m, country.at() + field).unwrap();
         assert_eq!(
             read(fields::RULER),
             Some(Person { name: "Louis XI".into(), dynasty: Some("de Valois".into()), adm: 4, dip: 5, mil: 2, age: 30 })

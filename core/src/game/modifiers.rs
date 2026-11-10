@@ -144,7 +144,7 @@ pub fn named_modifiers(m: &Memory, entries: Vec<usize>, hidden: bool) -> GResult
             return Err("a named modifier without its set".to_string().into());
         }
         let expires = m.i32(entry + named_modifier::EXPIRES)?;
-        let lasts = m.u8(entry + named_modifier::PERMANENT)? != 0 || expires == named_modifier::NEVER;
+        let lasts = m.u8(entry + named_modifier::PERMANENT)? != 0 || expires <= named_modifier::NEVER;
         out.push(NamedModifier { key: game_string::key(m, set + modifier_set::NAME)?, expires: (!lasts).then_some(Date(expires)) });
     }
     Ok(out)
@@ -252,16 +252,20 @@ mod tests {
                 .u8(named_modifier::PERMANENT, u8::from(permanent))
                 .u8(named_modifier::HIDDEN, u8::from(hidden))
         };
-        let day = 1500 * 8760;
+        let day = Date::from_ymd(1500, 1, 1).unwrap().0;
         let entries = [
             entry("war_taxes", day, false, false),
             entry("the_wonder", day, true, false),
             entry("old_glory", named_modifier::NEVER, false, false),
+            entry("for_good", named_modifier::NEVER - 2 * 8760, false, false),
             entry("secret_plan", day, false, true),
         ];
         let at = || entries.iter().map(Object::at).collect::<Vec<_>>();
         let named = |key: &str, expires: Option<i32>| NamedModifier { key: key.into(), expires: expires.map(Date) };
-        assert_eq!(named_modifiers(&m, at(), false).unwrap(), [named("war_taxes", Some(day)), named("the_wonder", None), named("old_glory", None)]);
+        assert_eq!(
+            named_modifiers(&m, at(), false).unwrap(),
+            [named("war_taxes", Some(day)), named("the_wonder", None), named("old_glory", None), named("for_good", None)]
+        );
         assert_eq!(named_modifiers(&m, at(), true).unwrap().last(), Some(&named("secret_plan", Some(day))));
     }
 }

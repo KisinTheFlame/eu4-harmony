@@ -311,10 +311,10 @@ pub mod country {
     pub const NAVY_TRADITION: usize = 0xe44;
     pub const CORRUPTION: usize = 0xed0;
     pub const ABSOLUTISM: usize = 0x4c;
-    /// Army professionalism, an i64 fixed-point number of
-    /// [`ARMY_PROFESSIONALISM_ONE`] to the whole.
+    /// Army professionalism, an i64 fixed-point number with 15 bits after
+    /// the point: [`ARMY_PROFESSIONALISM_ONE`] is the whole, 100%.
     pub const ARMY_PROFESSIONALISM: usize = 0x50;
-    pub const ARMY_PROFESSIONALISM_ONE: i64 = 100_000;
+    pub const ARMY_PROFESSIONALISM_ONE: i64 = 1 << 15;
     /// Inflation and mercantilism, fixed point, in percent.
     pub const INFLATION: usize = 0xbd4;
     pub const MERCANTILISM: usize = 0x1098;
@@ -811,9 +811,10 @@ pub mod modifier_set {
 }
 
 /// A named modifier a country or a province has: the named set of
-/// modifiers it gives ([`super::modifier_set::NAME`]), the day it ends
-/// ([`NEVER`] for none), and bytes set when it does not end and when the
-/// scripts hide it.
+/// modifiers it gives ([`super::modifier_set::NAME`]), the day it ends (a
+/// day no later than [`NEVER`], 1.1.1, for none: one given for good holds
+/// -1.1.1), and bytes set when it does not end and when the scripts hide
+/// it.
 pub mod named_modifier {
     pub const SET: usize = 0x30;
     pub const EXPIRES: usize = 0x44;
