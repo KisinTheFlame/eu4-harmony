@@ -31,7 +31,7 @@ What an extension's Lua state can reach: Lua's own libraries for strings, tables
 _Avoid_: jail, safe mode
 
 **Handler**:
-A function an extension gives the framework for one event, which the framework calls at a safe point; and `save_data`, the framework's question for the extension's data.
+A function an extension gives the framework for one signal, which the framework calls at a safe point; and `save_data`, the framework's question for the extension's data.
 _Avoid_: callback, listener, hook
 
 **Task**:
@@ -190,6 +190,30 @@ _Avoid_: view (that is how much of the game a remote client reads), reference
 The name the game's or a mod's script files give a thing the player builds, takes or chooses, such as the building `marketplace` or the subject type `vassal`. Capabilities name such things by it, so what a mod adds is named as the game's own is.
 _Avoid_: ID, script name, token (that is the game's numbering of names)
 
+**Modifier**:
+One of the game's effects on a country's or a province's numbers, named by its key, such as `discipline` or `local_tax_modifier`; what a country or a province has of it is the sum of everything that gives it, as the game's tooltips total it.
+_Avoid_: bonus, buff, effect (that is a script's change to the game)
+
+**Named modifier**:
+A modifier the game's or a mod's scripts put on a country or a province under a name of its own, such as an event's `country_modifier`, often until a date.
+_Avoid_: event modifier on its own (scripts give them in other ways too), static modifier (the game's own, which nothing adds)
+
+**Opinion**:
+What one country thinks of another, as a number the sum of its parts, aggressive expansion among them; a capability that reads it gives the trust and favors between the two beside it.
+_Avoid_: relation (that is an alliance, a subject or a rivalry between them), attitude (that is the AI's stance toward another country)
+
+**Legitimacy**:
+The value a country's government type makes the measure of its hold on power, of one kind for each: legitimacy itself for a monarchy, republican tradition, devotion, horde unity, or meritocracy for the Celestial Empire's government in place of legitimacy.
+_Avoid_: government value, stability (that is another value)
+
+**Government mechanic**:
+One of the mechanics a government's reforms give it, defined in the game's or a mod's `common/government_mechanics/`, with mechanic powers and interactions of its own.
+_Avoid_: government ability, government power (that is one of its mechanic powers)
+
+**Mechanic power**:
+A value of a government mechanic between its own bounds, such as the hussars' or Ming's crisis, which the mechanic's interactions spend or its events change.
+_Avoid_: government power on its own, monarch power (that is administrative, diplomatic and military points)
+
 **Extension save data**:
 An extension's own data kept with a particular save, written into the save file itself. It is kept only for the extensions loaded when the save is loaded.
 _Avoid_: sidecar, companion file, store
@@ -214,9 +238,13 @@ _Avoid_: coordinates on their own; screen position (a pixel of the frame the gam
 A pixel of the frame the game draws, as `screenshot` takes it: x from its left edge, y from its top edge. Input is given at screen positions.
 _Avoid_: coordinates on their own; map position (a point on the game's map)
 
+**Event**:
+One of the game's or a mod's events, defined in its scripts' `events/` and named by its id, such as `flavor_fra.1`, that happens to a country or a province with options to choose from. One that happens to the player waits for the player's answer as a question.
+_Avoid_: game event, script event (there is no other kind), signal (that is the framework's)
+
 **Question**:
-One of the game's own events that waits for the player's answer, shown in an event window with the options the player may choose. Answering it is choosing one of those options; one left unanswered for a few months is answered by the game itself.
-_Avoid_: event (that is remote control's numbered events), game event, popup, decision (the game's decisions are something the player takes, not answers)
+An event that waits for the player's answer, shown in an event window with the options the player may choose. Answering it is choosing one of those options; one left unanswered for a few months is answered by the game itself.
+_Avoid_: game event, popup, decision (the game's decisions are something the player takes, not answers)
 
 **Offer**:
 A proposal another country made to the player that waits for the player to accept or decline it, such as an alliance or a royal marriage, shown as a diplomatic message icon or a dialog.
@@ -271,19 +299,27 @@ _Avoid_: checksum on its own
 ### Remote control
 
 **Remote control**:
-The part of the framework that lets programs outside the game process use capabilities. It acts as the player: its orders count as orders the player gave by hand.
+The part of the framework that lets programs outside the game process use capabilities. Each request acts as the player, unless it asks to act as the game.
 _Avoid_: API, server, RPC, console (that is the game console)
+
+**As the player**:
+How a remote client's request acts unless it asks otherwise: it reads the player's view and does only what the player could, its orders counting as orders the player gave by hand.
+_Avoid_: player mode, restricted mode
+
+**As the game**:
+How a remote client's request acts when it asks to: it reads the full view and may also change the game as the game's and the mods' scripts do, such as setting a flag or firing an event, which no player could. Extensions always may.
+_Avoid_: god mode, cheat mode, admin, unrestricted mode
 
 **Remote client**:
 A program outside the game process that uses remote control, such as `eu4-harmony game` or an AI driving it.
 _Avoid_: bot, agent
 
 **Player's view**:
-How much of the game remote control reads unless the player gives it the full view: the map as fog of war leaves it, and of other countries what the player's interface shows them. In observe mode, the country in view's fog of war, and with none in view the whole map.
+How much of the game a request as the player reads: the map as fog of war leaves it, and of other countries what the player's interface shows them. In observe mode, the country in view's fog of war, and with none in view the whole map.
 _Avoid_: fog mode, fair mode
 
 **Full view**:
-Everything the game keeps, which extensions always read, and remote control too when the player's framework setting gives it.
+Everything the game keeps, which extensions always read, and a request as the game.
 _Avoid_: omniscient, god mode, cheat mode
 
 **Transport**:
@@ -298,9 +334,9 @@ _Avoid_: simulated, synthetic or fake input; SendInput (that is how a program ou
 Starting the game for remote clients with its window never shown and, unless asked for, no sound, so that the player goes on using other programs undisturbed. The game draws and plays as when it is shown; remote control can show it and hide it again.
 _Avoid_: headless (that also means not drawing, or no graphics card; docs/research/headless.md keeps the word to tell those meanings apart), background mode, invisible mode
 
-**Event**:
-Something extensions hear about at a safe point, such as a new day or the player giving an army an order. Remote control keeps the latest ones, numbered, for remote clients to read.
-_Avoid_: notification, message; game event, question (one of the game's own events, whose options the player chooses from)
+**Signal**:
+Something that happened in the game which extensions hear about at a safe point, each kind with a handler of its own (`on_day`), such as a new day or the player giving an army an order. Remote control keeps the latest ones, numbered, for remote clients to read. Documents written before 2026-11-11 call it an event.
+_Avoid_: event (that is the game's and the mods' scripts'), notification, message
 
 ### Interface
 

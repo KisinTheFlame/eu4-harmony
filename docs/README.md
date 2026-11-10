@@ -30,6 +30,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 | | |
 | --- | --- |
 | [game-speed.md](plans/game-speed.md) | Making the game faster without changing the game it plays; how a part is chosen, and which comes next |
+| [mod-capabilities.md](plans/mod-capabilities.md) | What the framework opens to mods, what each area still lacks, and the parts taking it up: signals, reads, the script group and requests as the game, tasks, the panels' actions |
 
 ### Built
 
