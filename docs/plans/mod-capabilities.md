@@ -1,6 +1,6 @@
 # Mod capabilities plan
 
-Status: in progress. Decided with the owner (2026-11-11): what is open to mods now, the roadmap of what is not, and the parts taken up first, M1 to M20. M1 built and tried in the game (2026-11-11, [the run](../prototype-log/2026-11-11-signals.md)); the others not built yet. Terms it added to [GLOSSARY.md](../../GLOSSARY.md): Modifier, Named modifier, Legitimacy, Government mechanic, Mechanic power, Opinion, As the player, As the game, Event (now the scripts'), Signal (the framework's, formerly its event). The decisions are [ADR requests-act-as-the-player-or-as-the-game](../adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md), [ADR framework-notifications-are-signals](../adr/2026-11-11-framework-notifications-are-signals.md), [ADR changes-as-the-game-are-typed-capabilities](../adr/2026-11-11-changes-as-the-game-are-typed-capabilities.md) and [ADR tasks-are-awaited-like-promises](../adr/2026-11-11-tasks-are-awaited-like-promises.md); it builds on [player-actions.md](player-actions.md) and [ADR mods-hold-the-logic](../adr/2026-11-03-mods-hold-the-logic.md).
+Status: in progress. Decided with the owner (2026-11-11): what is open to mods now, the roadmap of what is not, and the parts taken up first, M1 to M20. M1 built and tried in the game (2026-11-11, [the run](../prototype-log/2026-11-11-signals.md)); M13 and M14 built and tried in the game (2026-11-11, [the run](../prototype-log/2026-11-11-tasks-and-game-days.md)); the others not built yet. Terms it added to [GLOSSARY.md](../../GLOSSARY.md): Modifier, Named modifier, Legitimacy, Government mechanic, Mechanic power, Opinion, As the player, As the game, Event (now the scripts'), Signal (the framework's, formerly its event). The decisions are [ADR requests-act-as-the-player-or-as-the-game](../adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md), [ADR framework-notifications-are-signals](../adr/2026-11-11-framework-notifications-are-signals.md), [ADR changes-as-the-game-are-typed-capabilities](../adr/2026-11-11-changes-as-the-game-are-typed-capabilities.md) and [ADR tasks-are-awaited-like-promises](../adr/2026-11-11-tasks-are-awaited-like-promises.md); it builds on [player-actions.md](player-actions.md) and [ADR mods-hold-the-logic](../adr/2026-11-03-mods-hold-the-logic.md).
 
 ## Goal and scope
 
@@ -38,7 +38,7 @@ Each group reads what its panel offers now (`options` or `list`, each entry a `C
 - Trade: `merchant`, `trade_company`.
 - Other countries: `diplomacy` (every action of the diplomacy panel, the proposals answering with the other country's answer), `subject`.
 - Answering: `question`, `offer`.
-- Beyond the panels: `console.run`, the game console with its own checks; `menu` (*remote*: saves, loading, a new game, back to the main menu); `time` (pausing, resuming, the speed; advancing days, *remote*).
+- Beyond the panels: `console.run`, the game console with its own checks; `menu` (*remote*: saves, loading, a new game, back to the main menu); `time` (pausing, resuming, the speed; waiting for days to pass; advancing days, *remote*).
 
 ### Signals
 
@@ -46,7 +46,7 @@ Each group reads what its panel offers now (`options` or `list`, each entry a `C
 
 ### The Lua host
 
-Handlers for each signal and `on_button`, `on_window`, `on_map_lost`, `on_frame`, `save_data`; tasks that wait for a capability's answer, and `spawn`; `require`, `json`, `log`, `print`, `text`, `mod_files`; the permissions `clock`, `files` and `network` (`http.fetch`); extension save data in the save; extension reload; the fake game for `eu4-harmony test` ([lua-extensions.md](lua-extensions.md), [extension-reload.md](extension-reload.md)).
+Handlers for each signal and `on_button`, `on_window`, `on_map_lost`, `on_frame`, `save_data`; tasks that wait for a capability's answer or for days in the game (`game.time.wait`), started with `spawn` or an async function (`async`), awaited one at a time or several at once (`await_all`, `await_any`) and cancelled; `require`, `json`, `log`, `print`, `text`, `mod_files`; the permissions `clock`, `files` and `network` (`http.fetch`); extension save data in the save; extension reload; the fake game for `eu4-harmony test` ([lua-extensions.md](lua-extensions.md), [extension-reload.md](extension-reload.md)).
 
 ## Roadmap
 
@@ -245,9 +245,13 @@ The regiments by kind, strength, morale, leader and maintenance in `army.get`; `
 
 `spawn` returning the task, `async`, `await`, `cancel`, `done`, `await_all`, `await_any`, `eu4.Task<T>`, the chapter in `eu4-harmony skills`.
 
+Built (2026-11-11, [the run](../prototype-log/2026-11-11-tasks-and-game-days.md)). The prelude builds `spawn`, `async`, `await_all`, `await_any` and a task's methods on three functions of the Lua host's: starting a task with its handle, cancelling one, and waiting for any of some tasks to end. A task's handle keeps how it ended, what its function returned or the error it raised; the function runs inside `pcall`, so that the error is kept, then raised again for the log. The host keeps a waiting task's handle with it: cancelling drops a task that waits at once, and one that runs or is being taken up at its next wait. A poll takes up the waiting tasks again, up to 16 passes in one frame, while any was taken up, so that a task awaiting another that just ended goes on in the same frame. A session's end marks the handles of the tasks it drops cancelled. `await_all` returns each task's first result; a task awaiting itself is an error. The editor's types write `spawn`, `async` and the task's methods generic in `T` (`eu4.Task<T>`); `eu4-harmony wiki lua` lists the task's methods under the globals.
+
 ### M14 Waiting for game days
 
 `game.time.wait`.
+
+Built (2026-11-11, [the run](../prototype-log/2026-11-11-tasks-and-game-days.md)). `time.wait`, for extensions and remote clients both: from 1 to 36500 days, answered with the date once the game's date has reached the date that many days on, at a game frame; it neither runs nor pauses the game. A remote client's wait is answered `session_changed` when its session ends first; an extension's task is dropped with its session. The fake game answers it as the days a test raises (`mod:day`) reach the date, taking up the waiting tasks before it raises the day, as the game's frame does. The sweep asks it only at its edges, since a paused game passes no days.
 
 ### M15 to M20 Actions of the panels
 
