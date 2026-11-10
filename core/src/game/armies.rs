@@ -6,7 +6,7 @@
 //! army back from the extension that was moving it, and extensions hear that
 //! the player gave the army an order, exactly once
 //! (ADR remote-control-uses-capabilities).
-use super::{army, events, orders, with_state, Caller, GResult, Session, Tag, View};
+use super::{army, signals, orders, with_state, Caller, GResult, Session, Tag, View};
 use crate::{memory::Memory, objects::campaign::unit};
 use eu4_harmony_checks::armies as checks;
 use eu4_harmony_remote::armies::{self as remote, args, ArmyKind, Blocked, RouteBy};
@@ -131,7 +131,7 @@ pub fn list(Session { m, ctx, caller, .. }: Session) -> GResult<Vec<remote::Army
 /// and of another country's only whether it fights, besieges or retreats,
 /// which the map shows; in the full view every one, as the game keeps it.
 pub fn in_province(Session { m, ctx, view, .. }: Session, args::At { province: ProvinceId(province) }: args::At) -> GResult<Vec<remote::Army>> {
-    if view == View::Player && !events::visibility_current(m, &ctx) {
+    if view == View::Player && !signals::visibility_current(m, &ctx) {
         return Err(checks::visibility_not_current().into());
     }
     let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
@@ -158,7 +158,7 @@ pub fn strait_open(Session { m, ctx, .. }: Session, id: u64, from: u32, to: u32)
 
 /// Whether an own land army may attack a visible army in `province`.
 pub fn can_attack(Session { m, ctx, .. }: Session, id: u64, target: u64, province: u32) -> GResult<bool> {
-    if !events::visibility_current(m, &ctx) {
+    if !signals::visibility_current(m, &ctx) {
         return Err(checks::visibility_not_current().into());
     }
     let army = army::own_land(m, &ctx, id)?;
@@ -172,7 +172,7 @@ pub fn can_attack(Session { m, ctx, .. }: Session, id: u64, target: u64, provinc
 /// Whether an own land army may attack an army the player sees, wherever
 /// that is.
 pub fn can_attack_seen(Session { m, ctx, .. }: Session, args::CanAttack { army: ArmyId(army), target: ArmyId(target) }: args::CanAttack) -> GResult<bool> {
-    if !events::visibility_current(m, &ctx) {
+    if !signals::visibility_current(m, &ctx) {
         return Err(checks::visibility_not_current().into());
     }
     let army = army::own_land(m, &ctx, army)?;
@@ -210,7 +210,7 @@ pub fn move_to(session: Session, args::Move { army: ArmyId(id), province: Provin
     }
     let army = army::own(m, &ctx, id)?;
     let ordered = with_state(|s| s.orders.move_army(&session, &mut s.geography, army, id, goal))?;
-    ordered.into_iter().for_each(events::raise);
+    ordered.into_iter().for_each(signals::raise);
     Ok(())
 }
 
@@ -219,7 +219,7 @@ pub fn stop(session: Session, args::Stop { army: ArmyId(id) }: args::Stop) -> GR
     let Session { m, ctx, .. } = session;
     let army = army::own_land(m, &ctx, id)?;
     let ordered = with_state(|s| s.orders.stop_army(&session, army, id))?;
-    ordered.into_iter().for_each(events::raise);
+    ordered.into_iter().for_each(signals::raise);
     Ok(())
 }
 

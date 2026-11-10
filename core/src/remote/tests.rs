@@ -4,17 +4,16 @@
 //! group (`crate::catalogue`).
 use super::*;
 use crate::catalogue::{
-    events,
     fake::{self, answer, ok, ARMY, FLEET, PLENTY},
-    process, Outcome, Poll,
+    process, signals, Outcome, Poll,
 };
 use eu4_harmony_remote::{
     armies::{ArmyAnswer, ArmyRequest},
     capabilities,
     console::{ConsoleAnswer, ConsoleRequest},
-    events::{Event, EventsRequest},
     response_json,
     session::SessionRequest,
+    signals::{Signal, SignalsRequest},
     texts::{TextAnswer, TextRequest},
     Answer, ArmyId, CountryTag, ProvinceId,
 };
@@ -47,7 +46,7 @@ fn province(id: u32) -> ProvinceId {
 }
 
 /// The catalogue as a test scripts it: each request answers what the test
-/// gave for its capability, `null` otherwise; remote control's events are
+/// gave for its capability, `null` otherwise; remote control's signals are
 /// read by the catalogue's own group, which needs no game.
 #[derive(Default)]
 struct Scripted {
@@ -73,7 +72,7 @@ fn nothing() -> Response {
 }
 
 impl Catalogue for Scripted {
-    fn run(&mut self, request: Request, events: Option<&events::Buffer>, now: Instant) -> Outcome {
+    fn run(&mut self, request: Request, signals: Option<&signals::Buffer>, now: Instant) -> Outcome {
         std::thread::sleep(self.delay);
         let name = request.name();
         self.ran.push(name.clone());
@@ -81,13 +80,13 @@ impl Catalogue for Scripted {
             does();
         }
         match request {
-            Request::Events(r) => events::run(r, events.expect("the engine keeps events"), now),
+            Request::Signals(r) => signals::run(r, signals.expect("the engine keeps signals"), now),
             _ => Outcome::Done(self.answers.get(&name).cloned().unwrap_or_else(nothing)),
         }
     }
 
-    fn at(&mut self, events: Option<&events::Buffer>, now: Instant, place: &Place, polls: &mut dyn FnMut(&mut Poll<'_>)) {
-        polls(&mut Poll::new(events, now, place, None));
+    fn at(&mut self, signals: Option<&signals::Buffer>, now: Instant, place: &Place, polls: &mut dyn FnMut(&mut Poll<'_>)) {
+        polls(&mut Poll::new(signals, now, place, None));
     }
 }
 
@@ -233,7 +232,7 @@ fn a_request_given_up_before_it_runs_never_runs() {
 fn a_read_that_waits_is_answered_at_a_later_safe_point() {
     let engine = Engine::new(remember);
     let mut game = Scripted::default();
-    let read = |wait_ms| Request::Events(EventsRequest::Read { since: Some(0), wait_ms: Some(wait_ms), process: None, kinds: None, countries: None });
+    let read = |wait_ms| Request::Signals(SignalsRequest::Read { since: Some(0), wait_ms: Some(wait_ms), process: None, kinds: None, countries: None });
 
     let next = engine.submit(read(10_000));
     engine.run(&mut game, &Place::Outside(None), PLENTY);
@@ -244,34 +243,34 @@ fn a_read_that_waits_is_answered_at_a_later_safe_point() {
     assert!(answer(&next).is_null());
     assert_eq!(answer(&language)["ok"], true);
 
-    engine.record([Event::ArmyOrdered { army: army(ARMY) }]);
+    engine.record([Signal::ArmyOrdered { army: army(ARMY) }]);
     engine.run(&mut game, &Place::Game, PLENTY);
     assert_eq!(
         answer(&next),
-        ok(json!({"process": process(), "events": [{"number": 1, "event": "army_ordered", "army": ARMY.to_string()}], "last": 1, "missed": false}))
+        ok(json!({"process": process(), "signals": [{"number": 1, "signal": "army_ordered", "army": ARMY.to_string()}], "last": 1, "missed": false}))
     );
-    assert!(log().iter().any(|l| l.contains("events: ok after ")));
+    assert!(log().iter().any(|l| l.contains("signals: ok after ")));
 
     // With something to read already, it answers at once; with nothing, when
     // its time is up, in the main menu too.
     let at_once = engine.submit(read(10_000));
-    let short = engine.submit(Request::Events(EventsRequest::Read { since: Some(1), wait_ms: Some(1), process: None, kinds: None, countries: None }));
+    let short = engine.submit(Request::Signals(SignalsRequest::Read { since: Some(1), wait_ms: Some(1), process: None, kinds: None, countries: None }));
     engine.run(&mut game, &Place::Outside(None), PLENTY);
     assert_eq!(answer(&at_once)["result"]["last"], 1);
     std::thread::sleep(Duration::from_millis(5));
     engine.run(&mut game, &Place::Outside(Some(Error::new(Code::NotInGame, "no game"))), PLENTY);
-    assert_eq!(answer(&short), ok(json!({"process": process(), "events": [], "last": 1, "missed": false})));
+    assert_eq!(answer(&short), ok(json!({"process": process(), "signals": [], "last": 1, "missed": false})));
 
-    let too_long = engine.submit(read(events::LONGEST_WAIT + 1));
+    let too_long = engine.submit(read(signals::LONGEST_WAIT + 1));
     engine.run(&mut game, &Place::Game, PLENTY);
     assert!(error("invalid_argument")(&answer(&too_long)));
 
     // A waiting read given up is dropped.
-    let given_up = engine.submit(Request::Events(EventsRequest::Read { since: Some(1), wait_ms: Some(10_000), process: None, kinds: None, countries: None }));
+    let given_up = engine.submit(Request::Signals(SignalsRequest::Read { since: Some(1), wait_ms: Some(10_000), process: None, kinds: None, countries: None }));
     engine.run(&mut game, &Place::Game, PLENTY);
     drop(given_up);
     engine.run(&mut game, &Place::Game, PLENTY);
-    assert!(log().iter().any(|l| l.contains("events: given up by its client while it waited")));
+    assert!(log().iter().any(|l| l.contains("signals: given up by its client while it waited")));
 }
 
 #[test]
@@ -301,7 +300,7 @@ fn requests_from_other_threads_are_answered_on_the_one_that_runs_the_engine() {
 }
 
 #[test]
-fn what_a_game_frame_tells_extensions_is_kept_as_events() {
+fn what_a_game_frame_tells_extensions_is_kept_as_signals() {
     let observed = |session, new_session, date, changes| game::frame::Observed {
         world: game::World { world: 0, date, countries: 0, player: game::player::Player::Plays(fake::tur()) },
         seen: crate::sessions::Seen { session, new_session },
@@ -313,9 +312,9 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
     // A battle the player neither sees nor takes part in, which remote
     // control, reading the player's view, does not hear.
     let changes = vec![
-        game::events::Change::Ordered(ARMY),
-        game::events::Change::Defeated(ARMY),
-        game::events::Change::Battle(game::events::Battle {
+        game::signals::Change::Ordered(ARMY),
+        game::signals::Change::Defeated(ARMY),
+        game::signals::Change::Battle(game::signals::Battle {
             province: 151,
             naval: false,
             attackers: vec![fake::wal()],
@@ -337,23 +336,23 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
     let engine = Engine::new(remember);
     engine.record(happened(&first.heard()));
     engine.record(happened(&month.heard()));
-    let read = engine.submit(Request::Events(EventsRequest::Read { since: None, wait_ms: None, process: None, kinds: None, countries: None }));
+    let read = engine.submit(Request::Signals(SignalsRequest::Read { since: None, wait_ms: None, process: None, kinds: None, countries: None }));
     engine.run(&mut Scripted::default(), &Place::Game, PLENTY);
     assert_eq!(
-        answer(&read)["result"]["events"],
+        answer(&read)["result"]["signals"],
         json!([
-            {"number": 1, "event": "session", "session": 3},
-            {"number": 2, "event": "army_ordered", "army": ARMY.to_string()},
-            {"number": 3, "event": "army_defeated", "army": ARMY.to_string()},
-            {"number": 4, "event": "war_declared", "war": "Ottoman-Byzantine War", "attacker": "TUR", "defender": "BYZ"},
-            {"number": 5, "event": "province_owner_changed", "province": 151, "from": "BYZ", "to": null},
-            {"number": 6, "event": "day", "date": "1444.11.30"},
-            {"number": 7, "event": "day", "date": "1444.12.1"},
-            {"number": 8, "event": "month", "date": "1444.12.1"},
+            {"number": 1, "signal": "session", "session": 3},
+            {"number": 2, "signal": "army_ordered", "army": ARMY.to_string()},
+            {"number": 3, "signal": "army_defeated", "army": ARMY.to_string()},
+            {"number": 4, "signal": "war_declared", "war": "Ottoman-Byzantine War", "attacker": "TUR", "defender": "BYZ"},
+            {"number": 5, "signal": "province_owner_changed", "province": 151, "from": "BYZ", "to": null},
+            {"number": 6, "signal": "day", "date": "1444.11.30"},
+            {"number": 7, "signal": "day", "date": "1444.12.1"},
+            {"number": 8, "signal": "month", "date": "1444.12.1"},
         ])
     );
     // Only those naming a country asked for, and those naming none.
-    let read = engine.submit(Request::Events(EventsRequest::Read {
+    let read = engine.submit(Request::Signals(SignalsRequest::Read {
         since: None,
         wait_ms: None,
         process: None,
@@ -361,7 +360,7 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
         countries: Some(eu4_harmony_remote::CountryList(vec![CountryTag(*b"TUR")])),
     }));
     engine.run(&mut Scripted::default(), &Place::Game, PLENTY);
-    let numbers: Vec<u64> = answer(&read)["result"]["events"].as_array().unwrap().iter().map(|e| e["number"].as_u64().unwrap()).collect();
+    let numbers: Vec<u64> = answer(&read)["result"]["signals"].as_array().unwrap().iter().map(|e| e["number"].as_u64().unwrap()).collect();
     assert_eq!(numbers, [1, 2, 3, 4, 6, 7, 8]);
     let quiet = recall.next(observed(3, false, day(1444, 12, 1), vec![]), |_| true, wars);
     assert!(happened(&quiet.heard()).is_empty());
@@ -394,7 +393,7 @@ fn a_request_sent_in_one_session_never_runs_in_the_next() {
 
 #[test]
 fn a_request_sent_once_its_session_ended_belongs_to_the_next() {
-    use eu4_harmony_remote::events::SessionEnd;
+    use eu4_harmony_remote::signals::SessionEnd;
     let engine = Engine::new(remember);
     let mut game = Scripted::default();
     engine.enter(2);
@@ -413,43 +412,43 @@ fn a_request_sent_once_its_session_ended_belongs_to_the_next() {
 }
 
 #[test]
-fn events_say_which_process_numbered_them() {
+fn signals_say_which_process_numbered_them() {
     let engine = Engine::new(remember);
-    engine.record([Event::ArmyOrdered { army: army(ARMY) }, Event::ArmyOrdered { army: army(FLEET) }]);
+    engine.record([Signal::ArmyOrdered { army: army(ARMY) }, Signal::ArmyOrdered { army: army(FLEET) }]);
     let read = |since, from| {
-        engine.submit(Request::Events(EventsRequest::Read { since: Some(since), wait_ms: Some(10_000), process: Some(from), kinds: None, countries: None }))
+        engine.submit(Request::Signals(SignalsRequest::Read { since: Some(since), wait_ms: Some(10_000), process: Some(from), kinds: None, countries: None }))
     };
     let (here, other) = (read(1, process()), read(1, process() - 1));
     engine.run(&mut Scripted::default(), &Place::Game, PLENTY);
-    // From this process, the events after since; from another, every event
+    // From this process, the signals after since; from another, every signal
     // kept, at once, with missed: since meant something else there.
     let (here, other) = (answer(&here), answer(&other));
-    assert_eq!(here["result"]["events"].as_array().map(Vec::len), Some(1));
+    assert_eq!(here["result"]["signals"].as_array().map(Vec::len), Some(1));
     assert_eq!(here["result"]["missed"], false);
-    assert_eq!(other["result"]["events"].as_array().map(Vec::len), Some(2));
+    assert_eq!(other["result"]["signals"].as_array().map(Vec::len), Some(2));
     assert_eq!(other["result"]["missed"], true);
     assert_eq!(other["result"]["process"], process());
 }
 
 #[test]
-fn what_happens_inside_a_request_is_kept_as_events() {
+fn what_happens_inside_a_request_is_kept_as_signals() {
     // A console command that loads a save ends the session inside the
     // request that runs it, and remote control keeps the end there.
-    use eu4_harmony_remote::events::SessionEnd;
+    use eu4_harmony_remote::signals::SessionEnd;
     static ENGINE: Engine = Engine::new(fake::quiet);
     let (send, got) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let ended = || ENGINE.record([Event::SessionEnded { reason: SessionEnd::Load }]);
+        let ended = || ENGINE.record([Signal::SessionEnded { reason: SessionEnd::Load }]);
         let mut game = Scripted::answering([("console.run", Ok(Answer::Console(ConsoleAnswer::Run("Gold changed by 100".into()))))]);
         game.does = Some(Box::new(ended));
         let run = ENGINE.submit(Request::Console(ConsoleRequest::Run { command: "cash 100".into() }));
         ENGINE.run(&mut game, &Place::Game, PLENTY);
         game.does = None;
-        let read = ENGINE.submit(Request::Events(EventsRequest::Read { since: Some(0), wait_ms: None, process: None, kinds: None, countries: None }));
+        let read = ENGINE.submit(Request::Signals(SignalsRequest::Read { since: Some(0), wait_ms: None, process: None, kinds: None, countries: None }));
         ENGINE.run(&mut game, &Place::Game, PLENTY);
         let _ = send.send((answer(&run), answer(&read)));
     });
-    let (run, read) = got.recv_timeout(Duration::from_secs(10)).expect("the engine held itself up keeping an event from inside a request");
+    let (run, read) = got.recv_timeout(Duration::from_secs(10)).expect("the engine held itself up keeping a signal from inside a request");
     assert_eq!(run, ok(json!("Gold changed by 100")));
-    assert_eq!(read["result"]["events"], json!([{"number": 1, "event": "session_ended", "reason": "load"}]), "{read}");
+    assert_eq!(read["result"]["signals"], json!([{"number": 1, "signal": "session_ended", "reason": "load"}]), "{read}");
 }

@@ -310,16 +310,16 @@ mod tests {
         assert!(army.check(&json!({"id": "545460846646"})).is_err(), "Lua's form has the ID as an integer");
     }
 
-    /// An event flattened into its number is one of the events' objects,
+    /// A signal flattened into its number is one of the signals' objects,
     /// each with the number beside its own fields (the sweep found the
-    /// events' fields missing from the shape).
+    /// signals' fields missing from the shape).
     #[test]
     fn a_flattened_enum_gives_an_object_for_each_of_its_variants() {
-        let events = crate::result_shape("events").unwrap();
-        let day = json!({"process": 1, "events": [{"number": 3, "event": "day", "date": "1444.11.12"}], "last": 3, "missed": false});
-        assert_eq!(events.check_json(&day), Ok(()));
-        let wrong = json!({"events": [{"number": 3, "event": "day", "no_such_field": 1}]});
-        assert!(events.check_json(&wrong).is_err());
+        let signals = crate::result_shape("signals").unwrap();
+        let day = json!({"process": 1, "signals": [{"number": 3, "signal": "day", "date": "1444.11.12"}], "last": 3, "missed": false});
+        assert_eq!(signals.check_json(&day), Ok(()));
+        let wrong = json!({"signals": [{"number": 3, "signal": "day", "no_such_field": 1}]});
+        assert!(signals.check_json(&wrong).is_err());
     }
 
     #[test]

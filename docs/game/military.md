@@ -81,7 +81,7 @@ The army agents think every two to four days: they merge, drill, retreat and att
 
 - Reading units, access, hostility and the armies the player sees (`game::world`, `game::armies`): [plans/remote-control.md](../plans/remote-control.md), [ADR remote-control-reads-the-players-view](../adr/2026-11-05-remote-control-reads-the-players-view.md).
 - Moving and stopping armies as the commands a right click makes, executed at once (`game::orders`): [plans/commands.md](../plans/commands.md), [ADR commands-run-at-once](../adr/2026-11-03-commands-run-at-once.md).
-- Hearing the player's orders where a route changes, and defeats and battles (`game::events`): [plans/remote-control.md](../plans/remote-control.md), [plans/player-actions.md](../plans/player-actions.md).
+- Hearing the player's orders where a route changes, and defeats and battles (`game::signals`): [plans/remote-control.md](../plans/remote-control.md), [plans/player-actions.md](../plans/player-actions.md).
 - Recruiting, the unit panel, fleets, sieges, forts, leaders and mercenaries as commands (`game::recruiting`, `game::units`, `game::sieges`, `game::forts`, `game::leaders`, `game::mercenaries`): [plans/player-actions.md](../plans/player-actions.md).
 - The army agents' searches worked out ahead on threads of the framework's (`army_search`): [plans/game-speed.md](../plans/game-speed.md), [ADR the-game-may-be-made-faster-with-reasoned-differences](../adr/2026-11-07-the-game-may-be-made-faster-with-reasoned-differences.md); [research/late-game.md](../research/late-game.md#the-armies-searches-on-idle-threads).
 

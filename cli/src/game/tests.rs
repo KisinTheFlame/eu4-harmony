@@ -1,6 +1,6 @@
 use super::*;
 use eu4_harmony_client::pipe::tests::{answer, pipe_name, serve_one, this_program};
-use eu4_harmony_remote::{armies::ArmyRequest, events::EventsRequest, session::SessionRequest, ArmyId, ProvinceId};
+use eu4_harmony_remote::{armies::ArmyRequest, session::SessionRequest, signals::SignalsRequest, ArmyId, ProvinceId};
 use serde_json::json;
 use std::io::Read as _;
 
@@ -52,11 +52,11 @@ fn arguments_by_name_or_in_order() {
     ] {
         assert_eq!(ask(text).request, moved, "{text}");
     }
-    let read = |since, wait_ms| Request::Events(EventsRequest::Read { since, wait_ms, process: None, kinds: None, countries: None });
-    assert_eq!(ask("events").request, read(None, None));
-    assert_eq!(ask("events 3").request, read(Some(3), None));
-    assert_eq!(ask("events --since 3 --wait-ms 500").request, read(Some(3), Some(500)));
-    assert_eq!(ask("events --wait_ms 500").request, read(None, Some(500)));
+    let read = |since, wait_ms| Request::Signals(SignalsRequest::Read { since, wait_ms, process: None, kinds: None, countries: None });
+    assert_eq!(ask("signals").request, read(None, None));
+    assert_eq!(ask("signals 3").request, read(Some(3), None));
+    assert_eq!(ask("signals --since 3 --wait-ms 500").request, read(Some(3), Some(500)));
+    assert_eq!(ask("signals --wait_ms 500").request, read(None, Some(500)));
     assert_eq!(ask("session get").request, Request::Session(SessionRequest::Get {}));
 }
 
@@ -98,7 +98,7 @@ fn a_wrong_command_line_says_why() {
         ("army.move --army 1 --province Paris", "--province is a province, such as 151; \"Paris\" is not one"),
         ("army.get x", "\"x\" is not an army ID"),
         ("country.hostile FRANCE ENG", "\"FRANCE\" is not a country tag"),
-        ("events --since -1", "events: invalid value: integer `-1`"),
+        ("signals --since -1", "signals: invalid value: integer `-1`"),
         ("session.get 1", "session.get takes no arguments"),
         ("session.get --timeout 0", "--timeout takes a number of seconds above 0"),
         ("session.get --timeout soon", "--timeout takes a number of seconds"),
@@ -172,9 +172,12 @@ fn after_a_double_dash_every_word_is_a_value() {
     let a = ask("--compact army move --timeout 2 -- 4294967377 151");
     assert_eq!(a.request, Request::Army(ArmyRequest::Move { army: ArmyId(4294967377), province: ProvinceId(151), transports: None }));
     assert_eq!((a.compact, a.timeout), (true, Some(Duration::from_secs(2))));
-    assert_eq!(ask("events -- 3").request, Request::Events(EventsRequest::Read { since: Some(3), wait_ms: None, process: None, kinds: None, countries: None }));
+    assert_eq!(
+        ask("signals -- 3").request,
+        Request::Signals(SignalsRequest::Read { since: Some(3), wait_ms: None, process: None, kinds: None, countries: None })
+    );
     assert!(wrong("session.get -- --compact").contains("session.get takes no arguments"));
-    assert!(wrong("events -- --help").contains("--since is a integer, such as 3; \"--help\" is not one"));
+    assert!(wrong("signals -- --help").contains("--since is a integer, such as 3; \"--help\" is not one"));
     assert!(wrong("-- session.get").contains("name the capability before --"));
     assert_eq!(help("--help army move --"), Some("army.move".into()));
 }
@@ -320,7 +323,7 @@ fn no_answer_in_time_says_how_long_it_waited() {
         let _ = { pipe }.read_to_end(&mut rest);
     });
     let started = Instant::now();
-    let outcome = ask("events --wait-ms 60000 --timeout 0.3").run(&name, &this_program());
+    let outcome = ask("signals --wait-ms 60000 --timeout 0.3").run(&name, &this_program());
     assert!(started.elapsed() < Duration::from_secs(5));
     assert_eq!(outcome.code, EXIT_NO_ANSWER);
     let error = outcome.stderr.unwrap();

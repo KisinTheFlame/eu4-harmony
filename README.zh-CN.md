@@ -82,18 +82,18 @@ my-mod/
 ├── .luarc.json                # 让编辑器找到它们
 └── eu4-harmony/
     ├── manifest.toml          # id、api_version、description、permissions
-    ├── lua/main.lua           # 扩展：一张事件函数表
+    ├── lua/main.lua           # 扩展：一张处理函数表
     ├── ui/<窗口名>/buttons/   # 拼进原版窗口的界面片段
     ├── localisation/          # 文字，每种语言一个 UTF-8 文件
     ├── data/                  # 扩展要读的文件
     └── tests/                 # eu4-harmony test 运行的测试
 ```
 
-`main.lua` 返回各个事件的事件函数，比如 `on_session`、`on_day`、`on_frame`、`on_button`。每个都拿到 `game`，所有能力都从它调用；被拒绝时返回 `nil, err`，带着游戏给的理由；事件函数还可以等一个答复，比如别国对提议的答复。需要现实时间、文件或网络的扩展，要在清单的 `permissions` 里声明。
+`main.lua` 返回处理函数：信号（游戏里发生的事）的，比如 `on_session`、`on_day`，以及 `on_frame`、`on_button`。每个都拿到 `game`，所有能力都从它调用；被拒绝时返回 `nil, err`，带着游戏给的理由；处理函数还可以等一个答复，比如别国对提议的答复。需要现实时间、文件或网络的扩展，要在清单的 `permissions` 里声明。
 
 进一步了解：
 
-- `eu4-harmony wiki`：每项能力的参数和结果、事件函数和全局函数（`wiki lua`）、清单（`wiki manifest`）。不需要游戏运行。
+- `eu4-harmony wiki`：每项能力的参数和结果、处理函数和全局函数（`wiki lua`）、清单（`wiki manifest`）。不需要游戏运行。
 - `eu4-harmony skills`：每类工作的分步指南（`skills mod` 讲做一个 Mod，还有 `skills ui`、`skills testing` 等），写给 coding agent，人也能读。
 - [docs/plans/lua-extensions.md](docs/plans/lua-extensions.md)：扩展如何工作，包括出错、时间与内存限制和存档数据。
 
@@ -162,7 +162,7 @@ cargo xtask game release   # 留下日志，删掉其余
 | --- | --- |
 | `proxy/` | 把核心加载进 `eu4.exe` 的 `version.dll` |
 | `core/` | 框架本身：依赖点与启动、能力、运行在真实游戏上的 Lua 宿主、远程控制、框架界面和 Unicode 模块 |
-| `lua/` | 游戏和假游戏共用的 Lua 宿主：沙箱、事件函数、任务、时间限制，以及扩展按什么顺序收到什么 |
+| `lua/` | 游戏和假游戏共用的 Lua 宿主：沙箱、处理函数、任务、时间限制，以及扩展按什么顺序收到什么 |
 | `remote/` | 能力目录：每项能力的参数、结果和说明 |
 | `checks/` | 能力调用要经过的检查，以及游戏的历法 |
 | `client/` | 从游戏进程外接触运行中的游戏：远程控制的管道；游戏进程的启动、跟踪到退出码和结束；备份和还原玩家的文件，命令行工具和 `cargo xtask` 共用 |

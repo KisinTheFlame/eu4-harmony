@@ -387,7 +387,7 @@ fn a_capability_runs_inside_its_extension_s_call() {
 }
 
 #[test]
-fn an_error_ends_the_call_and_the_next_event_calls_again() {
+fn an_error_ends_the_call_and_the_next_signal_calls_again() {
     let e = load_one("errors", "return { on_frame = function(game) CALLS = (CALLS or 0) + 1 error('boom') end }", &[]).unwrap();
     for _ in 0..5 {
         e.handle("on_frame", &[]);
@@ -724,13 +724,13 @@ fn a_frame_reaches_every_extension_in_its_order() {
         let m = Mod { id, name: id, harmony: dir.join("eu4-harmony"), permissions: &manifest.permissions, data: None };
         opened.push(open(index, &m, host.clone()).unwrap());
     }
-    use eu4_harmony_remote::{events::*, ArmyId, CountryTag, Date, ProvinceId};
+    use eu4_harmony_remote::{signals::*, ArmyId, CountryTag, Date, ProvinceId};
     let date = Date::parse("1444.12.1").unwrap();
     let tag = |t: &str| serde_json::from_value::<CountryTag>(serde_json::json!(t)).unwrap();
     let heard: Vec<dispatch::Heard> = [
-        Event::Session { session: 3 },
-        Event::ArmyOrdered { army: ArmyId(4294967377) },
-        Event::Battle {
+        Signal::Session { session: 3 },
+        Signal::ArmyOrdered { army: ArmyId(4294967377) },
+        Signal::Battle {
             province: ProvinceId(151),
             naval: false,
             attackers: vec![tag("TUR")],
@@ -739,8 +739,8 @@ fn a_frame_reaches_every_extension_in_its_order() {
             attacker_losses: 100,
             defender_losses: 900,
         },
-        Event::Day { date },
-        Event::Month { date },
+        Signal::Day { date },
+        Signal::Month { date },
     ]
     .iter()
     .map(dispatch::Heard::of)
@@ -752,7 +752,7 @@ fn a_frame_reaches_every_extension_in_its_order() {
         ..Default::default()
     };
     dispatch::frame(&opened, &heard, &mut feed);
-    dispatch::hear(&opened, &dispatch::Heard::of(&Event::SessionEnded { reason: SessionEnd::Load }), &mut feed);
+    dispatch::hear(&opened, &dispatch::Heard::of(&Signal::SessionEnded { reason: SessionEnd::Load }), &mut feed);
     let log: Vec<String> = host.log.lock().unwrap().iter().filter(|l| !l.starts_with("slow stretch:")).cloned().collect();
     assert_eq!(
         log,
@@ -784,12 +784,12 @@ fn a_frame_reaches_every_extension_in_its_order() {
 }
 
 #[test]
-fn an_event_a_test_raises_is_held_to_its_shape() {
-    use eu4_harmony_remote::events::Kind;
+fn an_signal_a_test_raises_is_held_to_its_shape() {
+    use eu4_harmony_remote::signals::Kind;
     use serde_json::json;
     let heard = dispatch::Heard::new(Kind::WarDeclared, json!({ "war": "The War", "attacker": "FRA", "defender": "ENG" })).unwrap();
     assert_eq!(heard.field("attacker"), Some(&json!("FRA")));
-    // An optional field may be left out; one the event requires may not.
+    // An optional field may be left out; one the signal requires may not.
     assert!(dispatch::Heard::new(Kind::ProvinceOwnerChanged, json!({ "province": 1 })).is_ok());
     let missing = dispatch::Heard::new(Kind::WarDeclared, json!({ "war": "The War" })).unwrap_err();
     assert!(missing.contains("attacker, defender"), "{missing}");

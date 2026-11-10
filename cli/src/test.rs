@@ -12,7 +12,7 @@ use eu4_harmony_lua::{
 };
 use eu4_harmony_manifest::Manifest;
 use eu4_harmony_remote::{
-    events::{Event, Kind, SessionEnd},
+    signals::{Kind, SessionEnd, Signal},
     ArmyId, Date,
 };
 use mlua::{Function, Lua, LuaOptions, StdLib, Table, UserData, UserDataMethods, Value as LuaValue, Variadic};
@@ -219,7 +219,7 @@ struct TestMod {
     calendar: Mutex<Calendar>,
 }
 
-/// Where the fake game's time is, as the events raised have it.
+/// Where the fake game's time is, as the signals raised have it.
 #[derive(Default)]
 struct Calendar {
     /// The number of the session going on; 0 before the first.
@@ -281,12 +281,12 @@ impl TestMod {
             let mut calendar = self.calendar();
             date.turned(calendar.day.replace(date))
         };
-        self.hear(lua, &Heard::of(&Event::Day { date }), None);
+        self.hear(lua, &Heard::of(&Signal::Day { date }), None);
         if month {
-            self.hear(lua, &Heard::of(&Event::Month { date }), None);
+            self.hear(lua, &Heard::of(&Signal::Month { date }), None);
         }
         if year {
-            self.hear(lua, &Heard::of(&Event::Year { date }), None);
+            self.hear(lua, &Heard::of(&Signal::Year { date }), None);
         }
     }
 
@@ -388,7 +388,7 @@ impl UserData for TestMod {
             Ok(())
         });
 
-        // Events, as the game raises them (`eu4_harmony_lua::dispatch`).
+        // Signals, as the game raises them (`eu4_harmony_lua::dispatch`).
         methods.add_method("session", |lua, this, saved: LuaValue| {
             let saved = json(&saved)?;
             let session = {
@@ -397,14 +397,14 @@ impl UserData for TestMod {
                 calendar.day = None;
                 calendar.session
             };
-            this.hear(lua, &Heard::of(&Event::Session { session }), Some(saved));
+            this.hear(lua, &Heard::of(&Signal::Session { session }), Some(saved));
             Ok(())
         });
         methods.add_method("session_ended", |lua, this, reason: Option<String>| {
             let reason = reason.unwrap_or_else(|| "return".into());
             let reason: SessionEnd = serde_json::from_value(Value::String(reason.clone()))
                 .map_err(|_| mlua::Error::runtime(format!("{}a session ends for return, load, new_game or country, not {reason}", here(lua))))?;
-            this.hear(lua, &Heard::of(&Event::SessionEnded { reason }), None);
+            this.hear(lua, &Heard::of(&Signal::SessionEnded { reason }), None);
             Ok(())
         });
         methods.add_method("day", |lua, this, date: LuaValue| {
@@ -418,8 +418,8 @@ impl UserData for TestMod {
             Ok(())
         });
         methods.add_method("raise", |lua, this, (kind, fields): (String, Option<LuaValue>)| {
-            let named =
-                Kind::named(&kind).ok_or_else(|| mlua::Error::runtime(format!("{}there is no event {kind}; eu4-harmony wiki events lists them", here(lua))))?;
+            let named = Kind::named(&kind)
+                .ok_or_else(|| mlua::Error::runtime(format!("{}there is no signal {kind}; eu4-harmony wiki signals lists them", here(lua))))?;
             if named == Kind::Session {
                 return Err(mlua::Error::runtime(format!("{}mod:session(saved) starts a session, with the save data it began from", here(lua))));
             }
@@ -530,11 +530,11 @@ impl UserData for TestMod {
             Ok(())
         });
         methods.add_method("army_ordered", |lua, this, army: u64| {
-            this.hear(lua, &Heard::of(&Event::ArmyOrdered { army: ArmyId(army) }), None);
+            this.hear(lua, &Heard::of(&Signal::ArmyOrdered { army: ArmyId(army) }), None);
             Ok(())
         });
         methods.add_method("army_defeated", |lua, this, army: u64| {
-            this.hear(lua, &Heard::of(&Event::ArmyDefeated { army: ArmyId(army) }), None);
+            this.hear(lua, &Heard::of(&Signal::ArmyDefeated { army: ArmyId(army) }), None);
             Ok(())
         });
         methods.add_method("map_lost", |lua, this, ()| {
@@ -713,11 +713,11 @@ fn respond(this: &TestMod, n: usize, answer: fetch::Answer) -> mlua::Result<()> 
 mod tests {
     use super::*;
 
-    /// A test raises any event, held to its shape, and a day raises its
+    /// A test raises any signal, held to its shape, and a day raises its
     /// month and its year as the game does.
     #[test]
-    fn a_test_raises_every_event_as_the_game_does() {
-        let dir = std::env::temp_dir().join(format!("eu4h-test-events-{}", std::process::id()));
+    fn a_test_raises_every_signal_as_the_game_does() {
+        let dir = std::env::temp_dir().join(format!("eu4h-test-signals-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let write = |file: &str, text: &str| {
             let path = dir.join("eu4-harmony").join(file);
@@ -741,9 +741,9 @@ mod tests {
             "#,
         );
         write(
-            "tests/events_test.lua",
+            "tests/signals_test.lua",
             r#"
-            test("events", function()
+            test("signals", function()
               local mod = open()
               mod:session({ n = 2 })
               mod:day("1444.12.31")
@@ -758,12 +758,12 @@ mod tests {
               local log = table.concat(mod:log(), "|")
               assert(log == "session 2|day 12.31|day 1.1|month 1|year 1445|war Castilian Conquest CAS GRA|battle 151 attackers|day 2.1|month 2|ordered integer 4294967377|ended load|session nil|day 3.1", log)
             end)
-            test("a misshapen event", function()
+            test("a misshapen signal", function()
               local mod = open()
               local ok, why = pcall(mod.raise, mod, "war_declared", { war = "x" })
               assert(not ok and tostring(why):find("has no attacker, defender"), tostring(why))
-              ok, why = pcall(mod.raise, mod, "no_such_event", {})
-              assert(not ok and tostring(why):find("there is no event no_such_event"), tostring(why))
+              ok, why = pcall(mod.raise, mod, "no_such_signal", {})
+              assert(not ok and tostring(why):find("there is no signal no_such_signal"), tostring(why))
               ok, why = pcall(mod.session_ended, mod, "quit")
               assert(not ok and tostring(why):find("return, load, new_game or country"), tostring(why))
             end)

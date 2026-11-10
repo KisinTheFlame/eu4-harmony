@@ -132,7 +132,7 @@ pub fn definitions() -> String {
 }
 
 fn handlers(out: &mut String) {
-    let _ = writeln!(out, "--- The table main.lua returns: a handler for each event the mod hears.\n---@class eu4.Handlers");
+    let _ = writeln!(out, "--- The table main.lua returns: a handler for each signal the mod hears.\n---@class eu4.Handlers");
     for h in lua::handlers() {
         let args: Vec<String> = std::iter::once("game: eu4.Game".to_string()).chain(h.args.iter().map(handler_arg)).collect();
         let returns = h.returns.as_ref().map_or(String::new(), |r| format!(": {}", arg_type(r)));
@@ -407,7 +407,7 @@ mod tests {
         // A handler's argument that may be nil says so.
         assert!(text.contains("province: integer, from: string|nil, to: string|nil)"), "{text}");
         assert!(text.contains("saved: any)"));
-        // Its types are its event's fields'; an event given as one table is
+        // Its types are its signal's fields'; a signal given as one table is
         // a class of its own.
         assert!(text.contains("reason: \"return\"|\"load\"|\"new_game\"|\"country\")"), "{text}");
         assert!(text.contains("attackers: string[], defenders: string[], ended: boolean)"), "{text}");

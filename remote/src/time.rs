@@ -1,6 +1,6 @@
 //! Time: the date, pausing and resuming, the game speed, and letting time run
 //! for a number of days.
-use crate::{events::Events, Date};
+use crate::{signals::Signals, Date};
 use serde::{Deserialize, Serialize};
 
 /// The game speeds, slowest first, as the descriptions below state them.
@@ -34,7 +34,7 @@ group! {
         speed: u32,
     } -> (), "nothing";
     /// Lets time run until the date some days from now, then pauses the game
-    /// and answers with the events on the way; refused, as time.resume is,
+    /// and answers with the signals on the way; refused, as time.resume is,
     /// once the game is past its end date. It answers early, with the
     /// reason and the date, when the game is paused by someone else or by a
     /// window, when a question waits for the player's answer (also one
@@ -56,7 +56,7 @@ group! {
         /// stays at it after the advance, as after time.set_speed. Absent to
         /// keep the game's.
         speed: Option<u32>,
-    } -> Advanced, "why it stopped (date, paused, question, session or main_menu) and in words, the date then, and as events answers them (read from the last event before time ran): the process, the events on the way, the number of the last event, and whether some were missed";
+    } -> Advanced, "why it stopped (date, paused, question, session or main_menu) and in words, the date then, and as signals answers them (read from the last signal before time ran): the process, the signals on the way, the number of the last signal, and whether some were missed";
 }
 
 /// The game's clock.
@@ -95,16 +95,16 @@ pub struct Advanced {
     pub reason: String,
     /// The date when it stopped.
     pub date: Date,
-    /// The events after the last one before time ran: `process`, `events`,
-    /// `last` and `missed`, as the events capability answers them.
+    /// The signals after the last one before time ran: `process`, `signals`,
+    /// `last` and `missed`, as the signals capability answers them.
     #[serde(flatten)]
-    pub events: Events,
+    pub signals: Signals,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{events::Numbered, request_from_json, response_json, Answer, Request};
+    use crate::{signals::Numbered, request_from_json, response_json, Answer, Request};
     use serde_json::json;
 
     #[test]
@@ -117,13 +117,13 @@ mod tests {
             stopped: Stop::Question,
             reason: "a question waits for the player's answer".into(),
             date,
-            events: Events { process: 1_761_700_000_000, events: vec![Numbered { number: 4, event: crate::events::Event::Day { date } }], last: 4, missed: false },
+            signals: Signals { process: 1_761_700_000_000, signals: vec![Numbered { number: 4, signal: crate::signals::Signal::Day { date } }], last: 4, missed: false },
         };
         assert_eq!(
             response_json(&Ok(Answer::Time(TimeAnswer::Advance(advanced)))),
             json!({"ok": true, "result": {
                 "stopped": "question", "reason": "a question waits for the player's answer", "date": "1444.11.12", "process": 1_761_700_000_000u64,
-                "events": [{"number": 4, "event": "day", "date": "1444.11.12"}], "last": 4, "missed": false,
+                "signals": [{"number": 4, "signal": "day", "date": "1444.11.12"}], "last": 4, "missed": false,
             }})
         );
         let time = Time { date, paused: true, speed: 3 };

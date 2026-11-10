@@ -1,9 +1,9 @@
 //! Buildings: what the province view's building panel offers the player in a
 //! province, building, cancelling and destroying a building there through the
-//! game's own commands, and the event of a building finished
+//! game's own commands, and the signal of a building finished
 //! (docs/research/province-view.md).
 use super::administration::checks as refuse;
-use super::{action, administration::MOST_CONSTRUCTIONS, context_any, events, game, thousandths, with_state, Ctx, GResult, Session, Tag};
+use super::{action, administration::MOST_CONSTRUCTIONS, context_any, signals, game, thousandths, with_state, Ctx, GResult, Session, Tag};
 use crate::containers;
 use crate::{
     game_string,
@@ -73,12 +73,12 @@ pub fn points() -> Vec<Point> {
 /// A building finished: its province, the building's index, and the
 /// province's owner, heard while the game finishes it, when someone listens.
 fn finished(call: &mut Call) {
-    if !events::listened(eu4_harmony_remote::events::Kind::BuildingFinished) {
+    if !signals::listened(eu4_harmony_remote::signals::Kind::BuildingFinished) {
         return;
     }
     let m = &call.memory();
     let construction = call.arg(0);
-    let read = || -> crate::Result<Option<events::Change>> {
+    let read = || -> crate::Result<Option<signals::Change>> {
         if context_any(m).is_err() || m.ptr(construction)? != m.at(CONSTRUCTION_CLASS) {
             return Ok(None);
         }
@@ -87,10 +87,10 @@ fn finished(call: &mut Call) {
         let owner = Tag(m.u64(province + field::OWNER)?);
         let index = m.u32(building + fields::INDEX)?;
         let province = m.u32(province + field::ID)?;
-        Ok((index != 0 && owner.valid()).then_some(events::Change::BuildingFinished { province, building: index, country: owner }))
+        Ok((index != 0 && owner.valid()).then_some(signals::Change::BuildingFinished { province, building: index, country: owner }))
     };
-    match super::event_costs::BUILDINGS.time(read) {
-        Ok(Some(change)) => events::raise(change),
+    match super::signal_costs::BUILDINGS.time(read) {
+        Ok(Some(change)) => signals::raise(change),
         Ok(None) => {}
         Err(e) => log!("buildings: {e}"),
     }

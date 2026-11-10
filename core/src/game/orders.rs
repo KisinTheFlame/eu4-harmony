@@ -1,7 +1,7 @@
 //! Route queries, moving and stopping own land armies with the game's move
 //! command (ADR commands-run-at-once), and the record of which extension set
 //! which route.
-use super::{armies::RouteSource, army, commands::Commands, events::Change, fail, paused, world, Caller, Ctx, GResult, Session, Status, MAX_UNITS};
+use super::{armies::RouteSource, army, commands::Commands, fail, paused, signals::Change, world, Caller, Ctx, GResult, Session, Status, MAX_UNITS};
 use crate::containers;
 use crate::{
     memory::Memory,
@@ -19,7 +19,7 @@ pub const ROUTE_QUERY: GameFunction<8> = GameFunction::at(0x96c520);
 pub const MOVE: usize = 0xd50340;
 pub const STOP: usize = 0xd4fcb0;
 
-/// `MOVE` and `STOP` are declared by `events`, which observes them.
+/// `MOVE` and `STOP` are declared by `signals`, which observes them.
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(ROUTE_QUERY, "4c 89 4c 24 20 48 89 54 24 10 48 89 4c 24 08 55", "route query"),
@@ -65,7 +65,7 @@ fn routes_off() -> Option<&'static str> {
         _ => Some("routes are off until the game starts again: the game's route query faulted earlier"),
     }
 }
-/// Thread currently mutating a route on behalf of an extension; the event hooks
+/// Thread currently mutating a route on behalf of an extension; the signal hooks
 /// ignore route changes made while this is set.
 static OWN_MUTATION: AtomicU32 = AtomicU32::new(0);
 

@@ -2,7 +2,7 @@
 //! descriptions (`eu4_harmony_remote`), never written by hand
 //! (ADR one-capability-catalogue). Topics nest: `wiki`, `wiki army`, `wiki army
 //! move`.
-use eu4_harmony_remote::{capabilities, events::EVENTS, groups, lua, prose, Capability, Code, Group, API_VERSION};
+use eu4_harmony_remote::{capabilities, groups, lua, prose, signals::SIGNALS, Capability, Code, Group, API_VERSION};
 use std::fmt::Write as _;
 
 /// The page for `topics`, or why there is none.
@@ -14,7 +14,7 @@ pub fn page(topics: &[String]) -> Result<String, String> {
         ["lua"] => Ok(lua_page()),
         ["manifest"] => Ok(manifest_page()),
         ["errors"] => Ok(errors()),
-        ["events"] => Ok(events()),
+        ["signals"] => Ok(signals()),
         [group] => match groups().into_iter().find(|g| g.name == *group) {
             Some(g) => Ok(group_page(&g)),
             None => Err(format!("no topic {group}; eu4-harmony wiki lists them")),
@@ -41,7 +41,7 @@ topics:
   manifest  eu4-harmony/manifest.toml, and the permissions it declares
   remote    how a remote client plays a game, and the command line's exit codes
   errors    the codes a failed capability answers
-  events    what extensions hear and remote control numbers, and reading them
+  signals    what extensions hear and remote control numbers, and reading them
 
 capability groups (eu4-harmony wiki <group>, then <group> <capability>):
 "
@@ -135,13 +135,13 @@ fn lua_page() -> String {
 lua: what a mod's Lua has
 
 main.lua runs once, at startup, and returns a table of handlers, one for
-each event the mod hears. Each handler call runs as a task, which may wait
+each signal the mod hears. Each handler call runs as a task, which may wait
 for an answer (a function marked \"waits\") while the game goes on; game, the
 same table every time, reaches the capabilities as game.<group>.<name>(...)
 (eu4-harmony wiki <group>) only while a handler or a task runs. A
 capability or function that fails as the game or the system may make it
 fail returns nil, err; one called wrongly raises an error, which ends the
-handler's call, is logged, and the mod is called again with the next event.
+handler's call, is logged, and the mod is called again with the next signal.
 
 handlers (each gets game first):
 ",
@@ -233,15 +233,15 @@ fn errors() -> String {
     text
 }
 
-fn events() -> String {
-    let mut text = String::from("events: what extensions hear (as on_<event> handlers) and remote control numbers\n\n");
-    for (kind, about) in EVENTS {
+fn signals() -> String {
+    let mut text = String::from("signals: what extensions hear (as on_<signal> handlers) and remote control numbers\n\n");
+    for (kind, about) in SIGNALS {
         let _ = writeln!(text, "  {kind:<24}{}", prose(about));
         for field in kind.fields() {
             let _ = writeln!(text, "      {}: {}", field.name, field.about);
         }
     }
-    let _ = write!(text, "\nA remote client reads them with the capability below.\n\n{}", group_page(&group("events")));
+    let _ = write!(text, "\nA remote client reads them with the capability below.\n\n{}", group_page(&group("signals")));
     text
 }
 
@@ -304,12 +304,12 @@ mod tests {
     }
 
     #[test]
-    fn every_error_code_and_event_is_explained() {
+    fn every_error_code_and_signal_is_explained() {
         let errors = page(&words("errors")).unwrap();
         assert!(Code::ALL.iter().all(|c| errors.contains(c.name())));
-        let events = page(&words("events")).unwrap();
-        assert!(events.contains("session_ended"));
-        // Each event's fields, with what each is.
-        assert!(events.contains("      attacker_losses: What the attackers lost"), "{events}");
+        let signals = page(&words("signals")).unwrap();
+        assert!(signals.contains("session_ended"));
+        // Each signal's fields, with what each is.
+        assert!(signals.contains("      attacker_losses: What the attackers lost"), "{signals}");
     }
 }

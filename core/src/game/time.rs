@@ -278,7 +278,7 @@ pub fn stop_at(caller: Caller, date: i32) -> GResult<Stop> {
     Ok(Stop { number, released: false })
 }
 
-/// After the daily update (`events`' observer): pauses the game with the
+/// After the daily update (`signals`' observer): pauses the game with the
 /// player's pause when a stop's date is reached, or when a question came up
 /// on the day while an advance runs, so that the next frame begins no other
 /// day, and a window that holds the game paused too (an event window, a

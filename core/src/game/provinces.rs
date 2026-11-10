@@ -3,7 +3,7 @@
 //! autonomy, culture, religion, unrest, trade, state, cores and claims, what
 //! is being built or done there, and what the player can recruit there
 //! (docs/research/provinces.md).
-use super::{commands, events, player::Eyes, thousandths, with_state, Ctx, GResult, InWorld, Tag, World, WorldSession};
+use super::{commands, signals, player::Eyes, thousandths, with_state, Ctx, GResult, InWorld, Tag, World, WorldSession};
 use crate::containers;
 use crate::{
     game_string,
@@ -43,7 +43,7 @@ pub struct Neighbor {
 /// province. In the player's view a province the player has not discovered
 /// has no owner or controller, as the map shows it.
 pub fn list(WorldSession { m, world, view, .. }: WorldSession, args::List { provinces: asked }: args::List) -> GResult<Vec<remote::Province>> {
-    let visible = events::visibility_current(m, &world);
+    let visible = signals::visibility_current(m, &world);
     let provinces = match asked {
         // The geography's whole list starts with a placeholder for number 0.
         None => with_state(|s| s.geography.provinces(m, &world, visible))?.into_iter().filter(|p| p.id != 0).collect(),

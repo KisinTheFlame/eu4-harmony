@@ -278,9 +278,9 @@ macro_rules! layer {
 }
 
 pub mod describe;
-pub mod events;
 #[cfg(test)]
 pub(crate) mod fake;
+pub mod signals;
 
 use crate::game;
 use eu4_harmony_remote::{Answer, ArmyId, ArmyList, Code, CountryTag, Error, ProvinceId, Request, Response};
@@ -292,7 +292,7 @@ use std::{
 /// Declares, from the list of the groups ([`capability_groups`]), [`Game`],
 /// the slices of the capability layer of the groups that have one, and
 /// `dispatch`, which runs a request in its group. After the names
-/// `dispatch` gives its request, game, events (remote control's, when its
+/// `dispatch` gives its request, game, signals (remote control's, when its
 /// caller keeps them) and time, each line is one of
 ///
 /// ```text
@@ -315,9 +315,9 @@ macro_rules! groups {
         $(#[$attr:meta])* $Group:ident($module:ident: Layer) => $outcome:expr, $($rest:tt)*) => {
         groups!(@munch $names [$($slices)* $module] [$($bound)*] [$($arms)* { $(#[$attr])* $Group => $outcome }] $($rest)*);
     };
-    (@munch [$request:ident $game:ident $events:ident $now:ident] [$($slices:tt)*] [$($bound:tt)*] [$($arms:tt)*]
+    (@munch [$request:ident $game:ident $signals:ident $now:ident] [$($slices:tt)*] [$($bound:tt)*] [$($arms:tt)*]
         $(#[$attr:meta])* $Group:ident($module:ident: Layer), $($rest:tt)*) => {
-        groups!(@munch [$request $game $events $now] [$($slices)* $module] [$($bound)*]
+        groups!(@munch [$request $game $signals $now] [$($slices)* $module] [$($bound)*]
             [$($arms)* { $(#[$attr])* $Group => Outcome::Done($module::run($request, $game).map(Answer::$Group)) }]
             $($rest)*);
     };
@@ -325,16 +325,16 @@ macro_rules! groups {
         $(#[$attr:meta])* $Group:ident($module:ident) => $outcome:expr, $($rest:tt)*) => {
         groups!(@munch $names [$($slices)*] [$($bound)* $module] [$($arms)* { $(#[$attr])* $Group => $outcome }] $($rest)*);
     };
-    (@munch [$request:ident $game:ident $events:ident $now:ident] [$($slices:tt)*] [$($bound:tt)*] [$($arms:tt)*]
+    (@munch [$request:ident $game:ident $signals:ident $now:ident] [$($slices:tt)*] [$($bound:tt)*] [$($arms:tt)*]
         $(#[$attr:meta])* $Group:ident($module:ident), $($rest:tt)*) => {
-        groups!(@munch [$request $game $events $now] [$($slices)*] [$($bound)* $module]
+        groups!(@munch [$request $game $signals $now] [$($slices)*] [$($bound)* $module]
             [$($arms)* { $(#[$attr])* $Group => Outcome::Done(bound($game, stringify!($module), |caller| game::$module::run_request($request, caller)).map(Answer::$Group)) }]
             $($rest)*);
     };
     (@munch $names:tt $slices:tt $bound:tt [$($arms:tt)*] $(#[$attr:meta])* $Group:ident => $outcome:expr, $($rest:tt)*) => {
         groups!(@munch $names $slices $bound [$($arms)* { $(#[$attr])* $Group => $outcome }] $($rest)*);
     };
-    (@munch [$request:ident $game:ident $events:ident $now:ident] [$($slice:ident)*] [$($bound:ident)*]
+    (@munch [$request:ident $game:ident $signals:ident $now:ident] [$($slice:ident)*] [$($bound:ident)*]
         [$({ $(#[$attr:meta])* $Group:ident => $outcome:expr })*]) => {
         $( pub mod $slice; )*
 
@@ -359,7 +359,7 @@ macro_rules! groups {
         }
 
         /// Runs one request at `now`, in its group.
-        fn dispatch($request: Request, $game: &mut dyn Game, $events: Option<&events::Buffer>, $now: Instant) -> Outcome {
+        fn dispatch($request: Request, $game: &mut dyn Game, $signals: Option<&signals::Buffer>, $now: Instant) -> Outcome {
             match $request {
                 $( $(#[$attr])* Request::$Group($request) => $outcome, )*
             }
@@ -368,8 +368,8 @@ macro_rules! groups {
     (@munch $($rest:tt)*) => {
         compile_error!(concat!("groups!: a line that is none of its forms: ", stringify!($($rest)*)));
     };
-    (fn dispatch($request:ident, $game:ident, $events:ident, $now:ident); $($lines:tt)*) => {
-        groups!(@munch [$request $game $events $now] [] [] [] $($lines)*);
+    (fn dispatch($request:ident, $game:ident, $signals:ident, $now:ident); $($lines:tt)*) => {
+        groups!(@munch [$request $game $signals $now] [] [] [] $($lines)*);
     };
 }
 
@@ -384,9 +384,9 @@ pub mod console;
 macro_rules! capability_groups {
     ($then:ident) => {
         $then! {
-            fn dispatch(request, game, events, now);
+            fn dispatch(request, game, signals, now);
             Session(session: Layer),
-            Time(time: Layer) => time::run(request, game, events),
+            Time(time: Layer) => time::run(request, game, signals),
             Country(countries: Layer),
             Province(provinces: Layer),
             Army(armies: Layer),
@@ -396,9 +396,9 @@ macro_rules! capability_groups {
             Question(questions),
             Popup(popups),
             Offer(offers),
-            Events => match events {
-                Some(events) => events::run(request, events, now),
-                None => Outcome::Done(Err(events::unkept())),
+            Signals => match signals {
+                Some(signals) => signals::run(request, signals, now),
+                None => Outcome::Done(Err(signals::unkept())),
             },
             Describe => Outcome::Done(Ok(Answer::Describe(describe::run(request)))),
             Camera(camera),
@@ -465,23 +465,23 @@ impl Game for Live {
 /// Lua host: the one seam between them and the capability layer. Every
 /// [`Game`] is one, [`Live`] in the game.
 pub trait Catalogue {
-    /// Runs one request at `now`. `events` are remote control's, which only
+    /// Runs one request at `now`. `signals` are remote control's, which only
     /// its engine keeps: a request that reads them, run without, is answered
     /// that only remote clients read them.
-    fn run(&mut self, request: Request, events: Option<&events::Buffer>, now: Instant) -> Outcome;
+    fn run(&mut self, request: Request, signals: Option<&signals::Buffer>, now: Instant) -> Outcome;
 
     /// At a safe point at `place`: `polls` asks the requests that wait, each
     /// with the same [`Poll`].
-    fn at(&mut self, events: Option<&events::Buffer>, now: Instant, place: &Place, polls: &mut dyn FnMut(&mut Poll<'_>));
+    fn at(&mut self, signals: Option<&signals::Buffer>, now: Instant, place: &Place, polls: &mut dyn FnMut(&mut Poll<'_>));
 }
 
 impl<T: Game + ?Sized> Catalogue for T {
-    fn run(&mut self, request: Request, events: Option<&events::Buffer>, now: Instant) -> Outcome {
-        dispatch(request, self.as_game(), events, now)
+    fn run(&mut self, request: Request, signals: Option<&signals::Buffer>, now: Instant) -> Outcome {
+        dispatch(request, self.as_game(), signals, now)
     }
 
-    fn at(&mut self, events: Option<&events::Buffer>, now: Instant, place: &Place, polls: &mut dyn FnMut(&mut Poll<'_>)) {
-        polls(&mut Poll::new(events, now, place, Some(self.as_game())));
+    fn at(&mut self, signals: Option<&signals::Buffer>, now: Instant, place: &Place, polls: &mut dyn FnMut(&mut Poll<'_>)) {
+        polls(&mut Poll::new(signals, now, place, Some(self.as_game())));
     }
 }
 
@@ -649,7 +649,7 @@ impl From<game::Fail> for Error {
 
 /// The game process remote control answers for: when it started, in
 /// milliseconds since 1970. A restart starts the game again, as a new
-/// process, in which sessions and events are numbered from 1 again; a
+/// process, in which sessions and signals are numbered from 1 again; a
 /// client tells the two apart by this.
 pub fn process() -> u64 {
     static PROCESS: OnceLock<u64> = OnceLock::new();
@@ -725,15 +725,15 @@ pub trait Wait: Send {
     /// answer to write while it can, if it has one of its own. Without one,
     /// it is answered as every other request then
     /// (`crate::remote::Engine::end`).
-    fn ending(&mut self, _events: &events::Buffer) -> Option<Response> {
+    fn ending(&mut self, _signals: &signals::Buffer) -> Option<Response> {
         None
     }
 }
 
 /// What a waiting request may look at.
 pub struct Poll<'a> {
-    /// Remote control's events, which only its engine keeps.
-    pub events: Option<&'a events::Buffer>,
+    /// Remote control's signals, which only its engine keeps.
+    pub signals: Option<&'a signals::Buffer>,
     pub now: Instant,
     /// Where a request runs: remote control's engine runs at every safe point,
     /// extensions only at a game's safe frame.
@@ -744,8 +744,8 @@ pub struct Poll<'a> {
 impl<'a> Poll<'a> {
     /// At `place`, with the capability layer if a waiting request may use
     /// it.
-    pub fn new(events: Option<&'a events::Buffer>, now: Instant, place: &'a Place, game: Option<&'a mut dyn Game>) -> Self {
-        Self { events, now, place, game }
+    pub fn new(signals: Option<&'a signals::Buffer>, now: Instant, place: &'a Place, game: Option<&'a mut dyn Game>) -> Self {
+        Self { signals, now, place, game }
     }
 
     /// The game, at a game's safe frame only.
@@ -805,13 +805,13 @@ mod tests {
     }
 
     #[test]
-    fn what_reads_remote_control_s_events_says_so_when_run_without() {
+    fn what_reads_remote_control_s_signals_says_so_when_run_without() {
         let mut game = fake::Fake::default();
-        let reads = [r#"{"capability": "events"}"#, r#"{"capability": "time.advance", "days": 1}"#];
+        let reads = [r#"{"capability": "signals"}"#, r#"{"capability": "time.advance", "days": 1}"#];
         for json in reads {
             let request = eu4_harmony_remote::request_from_json(json).unwrap();
-            let Outcome::Done(Err(error)) = game.run(request, None, Instant::now()) else { panic!("{json} ran without events") };
-            assert_eq!(error, events::unkept());
+            let Outcome::Done(Err(error)) = game.run(request, None, Instant::now()) else { panic!("{json} ran without signals") };
+            assert_eq!(error, signals::unkept());
         }
         assert!(game.calls.is_empty(), "{:?}", game.calls);
     }
@@ -857,7 +857,7 @@ mod tests {
             }
             let request = eu4_harmony_remote::request_from_json(&Value::Object(fields).to_string()).unwrap();
             let name = request.name();
-            if let Outcome::Done(Ok(answer)) = fake::Fake::default().run(request, Some(&events::Buffer::new()), Instant::now()) {
+            if let Outcome::Done(Ok(answer)) = fake::Fake::default().run(request, Some(&signals::Buffer::new()), Instant::now()) {
                 let lua = eu4_harmony_checks::form::as_lua(|| serde_json::to_value(&answer)).unwrap();
                 let shape = result_shape(&name).unwrap_or_else(|| panic!("{name} has no result shape"));
                 shape.check(&lua).unwrap_or_else(|why| panic!("{name}'s answer is not its shape: {why}\n{lua}"));

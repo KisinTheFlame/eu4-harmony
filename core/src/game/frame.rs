@@ -1,11 +1,11 @@
-//! What a game's safe frame heard (GLOSSARY: Event). What the frame read of
+//! What a game's safe frame heard (GLOSSARY: Signal). What the frame read of
 //! the game, [`Observed`], and what the session's frames before it showed,
 //! kept in a [`Recall`], decide what happened since the last frame: a
 //! [`Frame`], which extensions and remote control hear ([`Frame::heard`]).
 //! Reading the game is `game::begin_frame`'s; deciding is here alone.
-use super::{buildings, events, named, wars, Tag, World};
+use super::{buildings, named, signals, wars, Tag, World};
 use crate::sessions::Seen;
-use eu4_harmony_remote::events::{Event, Kind, Winner};
+use eu4_harmony_remote::signals::{Kind, Signal, Winner};
 
 /// What a safe frame read of the game, before anything is made of it.
 pub struct Observed {
@@ -15,8 +15,8 @@ pub struct Observed {
     pub seen: Seen,
     /// Visibility reflects the frame's date.
     pub visibility_current: bool,
-    /// What changed since the last frame (`game::events`).
-    pub changes: Vec<events::Change>,
+    /// What changed since the last frame (`game::signals`).
+    pub changes: Vec<signals::Change>,
 }
 
 /// What the session's frames showed that the next one is heard against: the
@@ -37,7 +37,7 @@ impl Recall {
     }
 
     /// The frame `observed`, heard after the frames before it. `listened`
-    /// says whether anyone listens to a kind of event: a month or a year no
+    /// says whether anyone listens to a kind of signal: a month or a year no
     /// one listens to is not worked out. `wars` reads what the wars and the
     /// provinces' owners show happened since the day before, and is asked
     /// only at a new day.
@@ -66,7 +66,7 @@ pub struct Frame {
     /// In observe mode, the country in view changed since the last frame of
     /// the session, to this one (none for none in view).
     in_view: Option<Option<Tag>>,
-    changes: Vec<events::Change>,
+    changes: Vec<signals::Change>,
     /// The date differs from the last day announced in this session, and
     /// visibility reflects it.
     new_day: bool,
@@ -80,12 +80,12 @@ pub struct Frame {
     wars: Vec<wars::Happened>,
 }
 
-/// One thing that happened since the last safe frame, as the event both
+/// One thing that happened since the last safe frame, as the signal both
 /// extensions' handlers and remote control's reads are made from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Heard {
-    pub event: Event,
-    /// The player's view shows it. Extensions hear every event; remote
+    pub signal: Signal,
+    /// The player's view shows it. Extensions hear every signal; remote
     /// control, unless the setting gives it the full view, only these.
     pub seen: bool,
 }
@@ -107,56 +107,56 @@ impl Frame {
     /// wars', a new day, its month, its year. A building whose key cannot be
     /// read is logged and left out.
     pub fn heard(&self) -> Vec<Heard> {
-        let seen = |event| Heard { event, seen: true };
+        let seen = |signal| Heard { signal, seen: true };
         let date = eu4_harmony_remote::Date(self.world.date);
-        let session = self.new_session.then(|| seen(Event::Session { session: self.session }));
-        let in_view = self.in_view.map(|country| seen(Event::CountryInView { country: country.map(named) }));
+        let session = self.new_session.then(|| seen(Signal::Session { session: self.session }));
+        let in_view = self.in_view.map(|country| seen(Signal::CountryInView { country: country.map(named) }));
         let changes = self.changes.iter().filter_map(changed);
-        let wars = self.wars.iter().cloned().map(|happened| seen(war_event(happened)));
-        let day = self.new_day.then(|| seen(Event::Day { date }));
-        let month = self.new_month.then(|| seen(Event::Month { date }));
-        let year = self.new_year.then(|| seen(Event::Year { date }));
+        let wars = self.wars.iter().cloned().map(|happened| seen(war_signal(happened)));
+        let day = self.new_day.then(|| seen(Signal::Day { date }));
+        let month = self.new_month.then(|| seen(Signal::Month { date }));
+        let year = self.new_year.then(|| seen(Signal::Year { date }));
         session.into_iter().chain(in_view).chain(changes).chain(wars).chain(day).chain(month).chain(year).collect()
     }
 }
 
 /// A change, as it is heard; none for a building whose key cannot be read.
-fn changed(change: &events::Change) -> Option<Heard> {
+fn changed(change: &signals::Change) -> Option<Heard> {
     use eu4_harmony_remote::{ArmyId, ProvinceId};
-    use events::Change;
-    let seen = |event| Some(Heard { event, seen: true });
+    use signals::Change;
+    let seen = |signal| Some(Heard { signal, seen: true });
     match change {
-        Change::Ordered(army) => seen(Event::ArmyOrdered { army: ArmyId(*army) }),
-        Change::Defeated(army) => seen(Event::ArmyDefeated { army: ArmyId(*army) }),
+        Change::Ordered(army) => seen(Signal::ArmyOrdered { army: ArmyId(*army) }),
+        Change::Defeated(army) => seen(Signal::ArmyDefeated { army: ArmyId(*army) }),
         Change::BuildingFinished { province, building, country: owner } => match buildings::key_of(*building) {
-            Ok(building) => seen(Event::BuildingFinished { province: ProvinceId(*province), building, country: named(*owner) }),
+            Ok(building) => seen(Signal::BuildingFinished { province: ProvinceId(*province), building, country: named(*owner) }),
             Err(e) => {
                 log!("building finished: {}", e.message);
                 None
             }
         },
-        Change::Battle(battle) => Some(Heard { event: battle_event(battle), seen: battle.seen }),
+        Change::Battle(battle) => Some(Heard { signal: battle_signal(battle), seen: battle.seen }),
     }
 }
 
-/// A war's happening, as its event.
-fn war_event(happened: wars::Happened) -> Event {
+/// A war's happening, as its signal.
+fn war_signal(happened: wars::Happened) -> Signal {
     use wars::Happened;
     let countries = |tags: Vec<Tag>| tags.into_iter().map(named).collect();
     match happened {
-        Happened::WarDeclared { war, attacker, defender } => Event::WarDeclared { war, attacker: named(attacker), defender: named(defender) },
+        Happened::WarDeclared { war, attacker, defender } => Signal::WarDeclared { war, attacker: named(attacker), defender: named(defender) },
         Happened::PeaceMade { war, attackers, defenders, ended } => {
-            Event::PeaceMade { war, attackers: countries(attackers), defenders: countries(defenders), ended }
+            Signal::PeaceMade { war, attackers: countries(attackers), defenders: countries(defenders), ended }
         }
         Happened::OwnerChanged { province, from, to } => {
-            Event::ProvinceOwnerChanged { province: eu4_harmony_remote::ProvinceId(province), from: from.map(named), to: to.map(named) }
+            Signal::ProvinceOwnerChanged { province: eu4_harmony_remote::ProvinceId(province), from: from.map(named), to: to.map(named) }
         }
     }
 }
 
-/// A battle, as the `battle` event tells it.
-fn battle_event(battle: &events::Battle) -> Event {
-    Event::Battle {
+/// A battle, as the `battle` signal tells it.
+fn battle_signal(battle: &signals::Battle) -> Signal {
+    Signal::Battle {
         province: eu4_harmony_remote::ProvinceId(battle.province),
         naval: battle.naval,
         attackers: battle.attackers.iter().copied().map(named).collect(),
@@ -181,9 +181,9 @@ fn view_changed(before: Option<Option<Tag>>, now: Option<Option<Tag>>) -> Option
 #[cfg(test)]
 mod tests {
     use super::{
-        events::{Battle, Change},
+        signals::{Battle, Change},
         wars::Happened,
-        Event, Heard, Kind, Observed, Recall, Seen, Tag, Winner, World,
+        Heard, Kind, Observed, Recall, Seen, Signal, Tag, Winner, World,
     };
     use crate::game::player::Player;
     use eu4_harmony_remote::{ArmyId, CountryTag, Date, ProvinceId};
@@ -204,8 +204,8 @@ mod tests {
         Observed { world: World { world: 0, date, countries: 0, player }, seen: Seen { session, new_session }, visibility_current: true, changes: Vec::new() }
     }
 
-    fn events(recall: &mut Recall, observed: Observed) -> Vec<Event> {
-        recall.next(observed, |_| true, |_| Vec::new()).heard().into_iter().map(|heard| heard.event).collect()
+    fn signals(recall: &mut Recall, observed: Observed) -> Vec<Signal> {
+        recall.next(observed, |_| true, |_| Vec::new()).heard().into_iter().map(|heard| heard.signal).collect()
     }
 
     #[test]
@@ -213,46 +213,46 @@ mod tests {
         let mut recall = Recall::new();
         let plays = Player::Plays(tag(b"TUR"));
         let date = day(1444, 11, 11);
-        assert_eq!(events(&mut recall, at(3, true, date, plays)), [Event::Session { session: 3 }, Event::Day { date: Date(date) }]);
+        assert_eq!(signals(&mut recall, at(3, true, date, plays)), [Signal::Session { session: 3 }, Signal::Day { date: Date(date) }]);
         // The same day again is not another.
-        assert!(events(&mut recall, at(3, false, date, plays)).is_empty());
+        assert!(signals(&mut recall, at(3, false, date, plays)).is_empty());
     }
 
     #[test]
     fn a_month_and_a_year_turn_with_the_first_day_heard_in_them() {
         let mut recall = Recall::new();
         let plays = Player::Plays(tag(b"TUR"));
-        events(&mut recall, at(3, true, day(1444, 11, 30), plays));
+        signals(&mut recall, at(3, true, day(1444, 11, 30), plays));
         let (december, january, next) = (day(1444, 12, 1), day(1445, 1, 2), day(1445, 1, 3));
-        assert_eq!(events(&mut recall, at(3, false, december, plays)), [Event::Day { date: Date(december) }, Event::Month { date: Date(december) }]);
+        assert_eq!(signals(&mut recall, at(3, false, december, plays)), [Signal::Day { date: Date(december) }, Signal::Month { date: Date(december) }]);
         assert_eq!(
-            events(&mut recall, at(3, false, january, plays)),
-            [Event::Day { date: Date(january) }, Event::Month { date: Date(january) }, Event::Year { date: Date(january) }]
+            signals(&mut recall, at(3, false, january, plays)),
+            [Signal::Day { date: Date(january) }, Signal::Month { date: Date(january) }, Signal::Year { date: Date(january) }]
         );
-        assert_eq!(events(&mut recall, at(3, false, next, plays)), [Event::Day { date: Date(next) }]);
+        assert_eq!(signals(&mut recall, at(3, false, next, plays)), [Signal::Day { date: Date(next) }]);
     }
 
     #[test]
     fn a_month_no_one_listens_to_is_not_heard() {
         let mut recall = Recall::new();
         let plays = Player::Plays(tag(b"TUR"));
-        events(&mut recall, at(3, true, day(1444, 12, 31), plays));
+        signals(&mut recall, at(3, true, day(1444, 12, 31), plays));
         let only_months = |kind| kind == Kind::Month;
         let frame = recall.next(at(3, false, day(1445, 1, 1), plays), only_months, |_| Vec::new());
         let date = Date(day(1445, 1, 1));
-        assert_eq!(frame.heard().into_iter().map(|h| h.event).collect::<Vec<_>>(), [Event::Day { date }, Event::Month { date }]);
+        assert_eq!(frame.heard().into_iter().map(|h| h.signal).collect::<Vec<_>>(), [Signal::Day { date }, Signal::Month { date }]);
     }
 
     #[test]
     fn a_day_waits_for_visibility_to_reflect_it() {
         let mut recall = Recall::new();
         let plays = Player::Plays(tag(b"TUR"));
-        events(&mut recall, at(3, true, day(1444, 11, 30), plays));
+        signals(&mut recall, at(3, true, day(1444, 11, 30), plays));
         let december = day(1444, 12, 1);
         let stale = Observed { visibility_current: false, ..at(3, false, december, plays) };
-        assert!(events(&mut recall, stale).is_empty());
+        assert!(signals(&mut recall, stale).is_empty());
         // Heard once it does, still as the month's first.
-        assert_eq!(events(&mut recall, at(3, false, december, plays)), [Event::Day { date: Date(december) }, Event::Month { date: Date(december) }]);
+        assert_eq!(signals(&mut recall, at(3, false, december, plays)), [Signal::Day { date: Date(december) }, Signal::Month { date: Date(december) }]);
     }
 
     #[test]
@@ -275,31 +275,31 @@ mod tests {
         let (own, fra, eng) = (tag(b"REB"), tag(b"FRA"), tag(b"ENG"));
         let observes = |in_view| Player::Observes { own, in_view };
         let date = day(1444, 11, 11);
-        let in_view = |country: Option<Tag>| Event::CountryInView { country: country.map(|t| CountryTag(t.letters())) };
+        let in_view = |country: Option<Tag>| Signal::CountryInView { country: country.map(|t| CountryTag(t.letters())) };
         let mut recall = Recall::new();
         // A session's first frame is no change of view.
-        assert_eq!(events(&mut recall, at(3, true, date, observes(None))), [Event::Session { session: 3 }, Event::Day { date: Date(date) }]);
-        assert_eq!(events(&mut recall, at(3, false, date, observes(Some(fra)))), [in_view(Some(fra))]);
-        assert!(events(&mut recall, at(3, false, date, observes(Some(fra)))).is_empty());
-        assert_eq!(events(&mut recall, at(3, false, date, observes(Some(eng)))), [in_view(Some(eng))]);
-        assert_eq!(events(&mut recall, at(3, false, date, observes(None))), [in_view(None)]);
+        assert_eq!(signals(&mut recall, at(3, true, date, observes(None))), [Signal::Session { session: 3 }, Signal::Day { date: Date(date) }]);
+        assert_eq!(signals(&mut recall, at(3, false, date, observes(Some(fra)))), [in_view(Some(fra))]);
+        assert!(signals(&mut recall, at(3, false, date, observes(Some(fra)))).is_empty());
+        assert_eq!(signals(&mut recall, at(3, false, date, observes(Some(eng)))), [in_view(Some(eng))]);
+        assert_eq!(signals(&mut recall, at(3, false, date, observes(None))), [in_view(None)]);
         // The player taking up a country, and leaving it, end a session
         // instead.
-        assert!(events(&mut recall, at(3, false, date, Player::Plays(fra))).is_empty());
-        assert!(events(&mut recall, at(3, false, date, observes(Some(eng)))).is_empty());
+        assert!(signals(&mut recall, at(3, false, date, Player::Plays(fra))).is_empty());
+        assert!(signals(&mut recall, at(3, false, date, observes(Some(eng)))).is_empty());
     }
 
     #[test]
     fn a_new_session_forgets_the_last_one_s_day_and_view() {
         let (own, fra) = (tag(b"REB"), tag(b"FRA"));
         let mut recall = Recall::new();
-        events(&mut recall, at(3, true, day(1444, 12, 31), Player::Observes { own, in_view: None }));
+        signals(&mut recall, at(3, true, day(1444, 12, 31), Player::Observes { own, in_view: None }));
         // The same date, a new year and another country in view: the new
         // session's first day, with no month, no year and no change of view.
         let date = day(1445, 1, 1);
         assert_eq!(
-            events(&mut recall, at(4, true, date, Player::Observes { own, in_view: Some(fra) })),
-            [Event::Session { session: 4 }, Event::Day { date: Date(date) }]
+            signals(&mut recall, at(4, true, date, Player::Observes { own, in_view: Some(fra) })),
+            [Signal::Session { session: 4 }, Signal::Day { date: Date(date) }]
         );
     }
 
@@ -316,7 +316,7 @@ mod tests {
             defender_losses: 300,
             seen: false,
         };
-        let seen = |event| Heard { event, seen: true };
+        let seen = |signal| Heard { signal, seen: true };
         let (letters_tur, letters_byz) = (CountryTag(*b"TUR"), CountryTag(*b"BYZ"));
         let owner_changed = || vec![Happened::OwnerChanged { province: 151, from: None, to: Some(tur) }];
         let mut recall = Recall::new();
@@ -328,12 +328,12 @@ mod tests {
         assert_eq!(
             recall.next(session, |_| true, |_| owner_changed()).heard(),
             [
-                seen(Event::Session { session: 3 }),
-                seen(Event::ArmyOrdered { army: ArmyId(7) }),
-                seen(Event::ArmyDefeated { army: ArmyId(8) }),
+                seen(Signal::Session { session: 3 }),
+                seen(Signal::ArmyOrdered { army: ArmyId(7) }),
+                seen(Signal::ArmyDefeated { army: ArmyId(8) }),
                 // A battle the player neither sees nor takes part in.
                 Heard {
-                    event: Event::Battle {
+                    signal: Signal::Battle {
                         province: ProvinceId(151),
                         naval: false,
                         attackers: vec![letters_tur],
@@ -344,8 +344,8 @@ mod tests {
                     },
                     seen: false
                 },
-                seen(Event::ProvinceOwnerChanged { province: ProvinceId(151), from: None, to: Some(letters_tur) }),
-                seen(Event::Day { date: Date(first) }),
+                seen(Signal::ProvinceOwnerChanged { province: ProvinceId(151), from: None, to: Some(letters_tur) }),
+                seen(Signal::Day { date: Date(first) }),
             ]
         );
         let next = day(1445, 1, 1);
@@ -354,12 +354,12 @@ mod tests {
         assert_eq!(
             recall.next(view, |_| true, |_| owner_changed()).heard(),
             [
-                seen(Event::CountryInView { country: Some(letters_tur) }),
-                seen(Event::ArmyOrdered { army: ArmyId(7) }),
-                seen(Event::ProvinceOwnerChanged { province: ProvinceId(151), from: None, to: Some(letters_tur) }),
-                seen(Event::Day { date }),
-                seen(Event::Month { date }),
-                seen(Event::Year { date }),
+                seen(Signal::CountryInView { country: Some(letters_tur) }),
+                seen(Signal::ArmyOrdered { army: ArmyId(7) }),
+                seen(Signal::ProvinceOwnerChanged { province: ProvinceId(151), from: None, to: Some(letters_tur) }),
+                seen(Signal::Day { date }),
+                seen(Signal::Month { date }),
+                seen(Signal::Year { date }),
             ]
         );
         let quiet = at(3, false, next, Player::Observes { own, in_view: Some(tur) });

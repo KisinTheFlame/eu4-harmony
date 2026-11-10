@@ -6,7 +6,7 @@ use crate::catalogue::{
     Place,
 };
 use crate::remote::Engine;
-use eu4_harmony_remote::{events::Event, ArmyId};
+use eu4_harmony_remote::{signals::Signal, ArmyId};
 use serde_json::{json, Value};
 use std::{
     sync::{atomic::AtomicBool, Mutex},
@@ -214,7 +214,7 @@ fn a_client_gets_its_answers_in_the_order_it_sent_its_requests() {
 fn several_clients_are_served_at_once() {
     let test = test_pipe!("several", Place::Game);
     let mut waiting = test.connect();
-    waiting.send("{\"capability\": \"events\", \"wait_ms\": 10000}\n");
+    waiting.send("{\"capability\": \"signals\", \"wait_ms\": 10000}\n");
     let clients: Vec<_> = (0..4)
         .map(|i| {
             let mut client = test.connect();
@@ -227,8 +227,8 @@ fn several_clients_are_served_at_once() {
         assert!(client.join().unwrap().iter().all(|a| *a == json!({"ok": true, "result": null})));
     }
     assert_eq!(waiting.answer(Duration::ZERO), None);
-    test.engine.record([Event::ArmyOrdered { army: ArmyId(ARMY) }]);
-    assert_eq!(waiting.answer(PLENTY).unwrap()["result"]["events"][0]["event"], "army_ordered");
+    test.engine.record([Signal::ArmyOrdered { army: ArmyId(ARMY) }]);
+    assert_eq!(waiting.answer(PLENTY).unwrap()["result"]["signals"][0]["signal"], "army_ordered");
     assert_eq!(test.stop().calls.iter().filter(|c| c.starts_with("move")).count(), 20);
 }
 
@@ -245,10 +245,10 @@ fn a_client_that_closes_the_pipe_gives_its_request_up() {
 
     // A request that already waits is given up too.
     let mut reader = test.connect();
-    reader.send("{\"capability\": \"events\", \"wait_ms\": 10000}\n");
-    assert!(test.logged(r#"{"capability":"events","wait_ms":10000}: answers later"#), "{:#?}", test.log());
+    reader.send("{\"capability\": \"signals\", \"wait_ms\": 10000}\n");
+    assert!(test.logged(r#"{"capability":"signals","wait_ms":10000}: answers later"#), "{:#?}", test.log());
     drop(reader);
-    assert!(test.logged("events: given up by its client while it waited"), "{:#?}", test.log());
+    assert!(test.logged("signals: given up by its client while it waited"), "{:#?}", test.log());
     assert!(test.stop().calls.iter().all(|c| !c.starts_with("move")));
 }
 
@@ -377,10 +377,10 @@ fn the_process_ends_once_its_clients_have_read_their_answers_whole() {
     let mut advancing = test.connect();
     advancing.send("{\"capability\": \"time.advance\", \"days\": 30}\n");
     assert!(test.logged(r#"{"capability":"time.advance","days":30}: answers later"#), "{:#?}", test.log());
-    test.engine.record((0..crate::catalogue::events::KEPT as u64).map(|army| Event::ArmyOrdered { army: ArmyId(army) }));
+    test.engine.record((0..crate::catalogue::signals::KEPT as u64).map(|army| Signal::ArmyOrdered { army: ArmyId(army) }));
     let mut reading = test.connect();
-    reading.send("{\"capability\": \"events\", \"since\": 0}\n");
-    assert!(test.logged(r#"{"capability":"events","since":0}: ok"#), "{:#?}", test.log());
+    reading.send("{\"capability\": \"signals\", \"since\": 0}\n");
+    assert!(test.logged(r#"{"capability":"signals","since":0}: ok"#), "{:#?}", test.log());
     let engine = test.engine;
     let ending = std::thread::spawn(move || engine.end(crate::catalogue::menu::ending(), PLENTY));
     std::thread::sleep(Duration::from_millis(300));
@@ -392,12 +392,12 @@ fn the_process_ends_once_its_clients_have_read_their_answers_whole() {
         serde_json::from_str::<Value>(&line).unwrap()
     };
     let read = whole(&mut reading);
-    assert_eq!(read["result"]["events"].as_array().unwrap().len(), crate::catalogue::events::KEPT);
+    assert_eq!(read["result"]["signals"].as_array().unwrap().len(), crate::catalogue::signals::KEPT);
     std::thread::sleep(Duration::from_millis(100));
     assert!(!ending.is_finished(), "the process waits while answers are unread");
     let advanced = whole(&mut advancing);
     assert_eq!(advanced["result"]["stopped"], "main_menu");
-    assert_eq!(advanced["result"]["events"].as_array().unwrap().len(), crate::catalogue::events::KEPT);
+    assert_eq!(advanced["result"]["signals"].as_array().unwrap().len(), crate::catalogue::signals::KEPT);
     let until = Instant::now() + PLENTY;
     while !ending.is_finished() && Instant::now() < until {
         std::thread::sleep(Duration::from_millis(5));

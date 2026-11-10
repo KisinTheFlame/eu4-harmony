@@ -49,7 +49,7 @@ impl Date {
     }
 
     /// Whether the day `self`, heard after the day `before`, is in a new
-    /// month, and in a new year, as the `month` and `year` events tell it.
+    /// month, and in a new year, as the `month` and `year` signals tell it.
     /// The first day heard in a session (`before` none) is in neither.
     pub fn turned(self, before: Option<Self>) -> (bool, bool) {
         let Some(before) = before else { return (false, false) };

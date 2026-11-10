@@ -2,7 +2,7 @@
 //! data store in place of the running game, for `eu4-harmony test`.
 //!
 //! A test says what each capability answers (a value, a refusal, an answer
-//! that comes later, or a Lua function of the request), raises events, gives
+//! that comes later, or a Lua function of the request), raises signals, gives
 //! `http.fetch`'s requests their responses, and reads back what the mod did:
 //! the capabilities it called, its interface elements, its windows and
 //! pop-ups, the map, its log and its save data. Requests are checked as the core checks them, by the

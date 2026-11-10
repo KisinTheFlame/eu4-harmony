@@ -13,7 +13,7 @@
 //!
 //! A full name is the group's name, a dot and the capability's own name
 //! (`"army.move"`, `"country.hostile"`), or the group's name alone when the
-//! capability's own name is empty (`"session"`, `"events"`). A country is
+//! capability's own name is empty (`"session"`, `"signals"`). A country is
 //! its tag (`"FRA"`), a province its number, an army its ID as a decimal
 //! string (a 64-bit integer does not survive a JavaScript number), a date
 //! `"1444.11.11"`.
@@ -445,8 +445,8 @@ groups! {
     Offer(offers::OfferRequest, OfferAnswer),
     /// The extensions' pop-ups open in the game.
     Popup(popups::PopupRequest, PopupAnswer),
-    /// The events remote control keeps.
-    Events(events::EventsRequest, EventsAnswer),
+    /// The signals remote control keeps.
+    Signals(signals::SignalsRequest, SignalsAnswer),
     /// The capabilities, described.
     Describe(describe::DescribeRequest, DescribeAnswer),
     /// The map camera.
@@ -693,7 +693,7 @@ kinds! {
     /// Country tags, such as `["FRA", "ENG"]`, which a command line writes
     /// `FRA,ENG` (see [`CountryList`]).
     Countries "countries" "FRA,ENG" (CountryList) => list(Shape::Text), |text| listed(text, |word| CountryTag::parse(word).map(|tag| Value::String(tag.to_string())));
-    /// Words, such as content keys or the names of events, `["day",
+    /// Words, such as content keys or the names of signals, `["day",
     /// "month"]`, which a command line writes `day,month` (see [`Words`]).
     Words "words" "day,month" (Words) => list(Shape::Text), |text| listed(text, |word| Some(word).filter(|w| !w.is_empty()).map(|w| Value::String(w.into())));
     /// A kind of monarch power: `"adm"`, `"dip"` or `"mil"` (see
@@ -884,7 +884,7 @@ pub struct ProvinceList(pub Vec<ProvinceId>);
 pub struct CountryList(pub Vec<CountryTag>);
 
 /// Words, as an argument: a list of texts, such as content keys or the
-/// names of events, `["day", "month"]`.
+/// names of signals, `["day", "month"]`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Words(pub Vec<String>);

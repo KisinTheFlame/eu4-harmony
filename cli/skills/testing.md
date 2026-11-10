@@ -11,10 +11,10 @@ steps:
 1. Register each test: test("what it checks", function() ... end). Open the
    mod afresh in each with local mod = open(); main.lua runs again.
 2. Answer every capability the code under test calls, before raising the
-   event that calls it: describe a world for the map, the countries and the
+   signal that calls it: describe a world for the map, the countries and the
    armies, and answer the rest one by one. The report notes "<capability>
    had no answer" for any you left out: the mod got nil, not_ready.
-3. Raise the event, then read back what the mod did and assert on it.
+3. Raise the signal, then read back what the mod did and assert on it.
    A test fails when it raises an error, assert included.
 4. Run eu4-harmony test. Done when every test is ok, no note says a
    capability had no answer, and each handler you changed has a test.
@@ -68,12 +68,12 @@ An answer is held to its capability's result (eu4-harmony wiki <group>
 a value of the wrong type, is an error at that line. Leave out the fields
 the test is not about.
 
-events, as the game raises them, through the dispatch the game uses:
+signals, as the game raises them, through the dispatch the game uses:
   mod:session(saved)   mod:session_ended(reason)   mod:day("1444.11.12")
   mod:raise(kind, { field = value, ... })
-                       any event eu4-harmony wiki events lists, its fields as
+                       any signal eu4-harmony wiki signals lists, its fields as
                        the handler gets them (a date { year, month, day }),
-                       held to the event's shape:
+                       held to the signal's shape:
                        mod:raise("war_declared", { war = "x", attacker = "CAS", defender = "GRA" })
   mod:frame()          mod:button(name, { right, shift, ctrl })
   mod:army_ordered(army)   mod:army_defeated(army)   mod:map_lost()
@@ -115,7 +115,7 @@ what the mod did:
   mod:told()           what the player was told: errors, a stop
   mod:stopped()        why the mod was stopped, or nil
 
-A waiting task: mod:later(...), raise the event, mod:reply(...), then
+A waiting task: mod:later(...), raise the signal, mod:reply(...), then
 mod:poll() takes the task up (eu4-harmony skills tasks).
 
 files is a folder of the test's own, empty at each open(); mod_files reads

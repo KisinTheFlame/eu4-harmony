@@ -35,7 +35,7 @@ fn descriptions_state_the_limits_kept() {
     let time = all.iter().find(|c| c.name() == "time.get").unwrap();
     assert!(time.result.contains(&speeds), "time.get");
     assert!(about("time.advance", "days").contains(&format!("from 1 to {}", time::MOST_DAYS)));
-    assert!(about("events", "wait_ms").contains(&format!("at most {}", events::LONGEST_WAIT)));
+    assert!(about("signals", "wait_ms").contains(&format!("at most {}", signals::LONGEST_WAIT)));
     assert!(about("screenshot", "scale").contains(&format!("{} to {}", screenshot::SCALES.start(), screenshot::SCALES.end())));
 }
 
@@ -77,9 +77,9 @@ fn a_request_is_one_flat_object() {
     assert_eq!(session, Request::Session(session::SessionRequest::Get {}));
     assert_eq!(serde_json::to_value(&session).unwrap(), json!({"capability": "session.get"}));
 
-    let events = request(json!({"capability": "events", "since": 5})).unwrap();
-    assert_eq!(events, Request::Events(events::EventsRequest::Read { since: Some(5), wait_ms: None, process: None, kinds: None, countries: None }));
-    assert_eq!(serde_json::to_value(&events).unwrap(), json!({"capability": "events", "since": 5}));
+    let signals = request(json!({"capability": "signals", "since": 5})).unwrap();
+    assert_eq!(signals, Request::Signals(signals::SignalsRequest::Read { since: Some(5), wait_ms: None, process: None, kinds: None, countries: None }));
+    assert_eq!(serde_json::to_value(&signals).unwrap(), json!({"capability": "signals", "since": 5}));
 }
 
 #[test]
@@ -119,65 +119,65 @@ fn allies_to_call_are_read_and_written_back() {
     assert_eq!(serde_json::from_value::<CallAllies>(json!("none")).unwrap(), CallAllies::None);
 }
 
-/// One event of each kind, in the order [`events::EVENTS`] describes them.
-fn every_event() -> Vec<events::Event> {
-    use events::{Event, SessionEnd};
+/// One signal of each kind, in the order [`signals::SIGNALS`] describes them.
+fn every_signal() -> Vec<signals::Signal> {
+    use signals::{SessionEnd, Signal};
     let date = Date::from_ymd(1444, 11, 11).unwrap();
     vec![
-        Event::Session { session: 1 },
-        Event::SessionEnded { reason: SessionEnd::Return },
-        Event::CountryInView { country: Some(CountryTag(*b"TUR")) },
-        Event::Popup { popup: 3, from: "reforms".into() },
-        Event::Day { date },
-        Event::Month { date },
-        Event::Year { date },
-        Event::ArmyOrdered { army: ArmyId(1) },
-        Event::ArmyDefeated { army: ArmyId(1) },
-        Event::WarDeclared { war: "Ottoman-Byzantine War".into(), attacker: CountryTag(*b"TUR"), defender: CountryTag(*b"BYZ") },
-        Event::PeaceMade { war: "Ottoman-Byzantine War".into(), attackers: vec![], defenders: vec![CountryTag(*b"BYZ")], ended: false },
-        Event::ProvinceOwnerChanged { province: ProvinceId(151), from: Some(CountryTag(*b"BYZ")), to: Some(CountryTag(*b"TUR")) },
-        Event::BuildingFinished { province: ProvinceId(151), building: "marketplace".into(), country: CountryTag(*b"TUR") },
-        Event::Battle {
+        Signal::Session { session: 1 },
+        Signal::SessionEnded { reason: SessionEnd::Return },
+        Signal::CountryInView { country: Some(CountryTag(*b"TUR")) },
+        Signal::Popup { popup: 3, from: "reforms".into() },
+        Signal::Day { date },
+        Signal::Month { date },
+        Signal::Year { date },
+        Signal::ArmyOrdered { army: ArmyId(1) },
+        Signal::ArmyDefeated { army: ArmyId(1) },
+        Signal::WarDeclared { war: "Ottoman-Byzantine War".into(), attacker: CountryTag(*b"TUR"), defender: CountryTag(*b"BYZ") },
+        Signal::PeaceMade { war: "Ottoman-Byzantine War".into(), attackers: vec![], defenders: vec![CountryTag(*b"BYZ")], ended: false },
+        Signal::ProvinceOwnerChanged { province: ProvinceId(151), from: Some(CountryTag(*b"BYZ")), to: Some(CountryTag(*b"TUR")) },
+        Signal::BuildingFinished { province: ProvinceId(151), building: "marketplace".into(), country: CountryTag(*b"TUR") },
+        Signal::Battle {
             province: ProvinceId(151),
             naval: false,
             attackers: vec![CountryTag(*b"TUR")],
             defenders: vec![CountryTag(*b"BYZ"), CountryTag(*b"VEN")],
-            winner: events::Winner::Attackers,
+            winner: signals::Winner::Attackers,
             attacker_losses: 1200,
             defender_losses: 3400,
         },
     ]
 }
 
-/// The events described are those there are, by the names JSON gives them,
+/// The signals described are those there are, by the names JSON gives them,
 /// each with what it is and what each of its fields is.
 #[test]
-fn every_event_is_described() {
-    use events::EVENTS;
-    let all = every_event();
-    // The countries an event names are those its fields of countries hold,
+fn every_signal_is_described() {
+    use signals::SIGNALS;
+    let all = every_signal();
+    // The countries a signal names are those its fields of countries hold,
     // in their order, for a read's countries.
     let named = |kind| all.iter().find(|e| e.kind() == kind).unwrap().countries();
     let tags = |tags: &[&[u8; 3]]| tags.iter().map(|t| CountryTag(**t)).collect::<Vec<_>>();
-    assert_eq!(named(events::Kind::Battle), tags(&[b"TUR", b"BYZ", b"VEN"]));
-    assert_eq!(named(events::Kind::ProvinceOwnerChanged), tags(&[b"BYZ", b"TUR"]));
-    assert_eq!(named(events::Kind::CountryInView), tags(&[b"TUR"]));
-    assert_eq!(named(events::Kind::Day), tags(&[]));
-    // An event is flattened beside its own number: none of its fields may
+    assert_eq!(named(signals::Kind::Battle), tags(&[b"TUR", b"BYZ", b"VEN"]));
+    assert_eq!(named(signals::Kind::ProvinceOwnerChanged), tags(&[b"BYZ", b"TUR"]));
+    assert_eq!(named(signals::Kind::CountryInView), tags(&[b"TUR"]));
+    assert_eq!(named(signals::Kind::Day), tags(&[]));
+    // A signal is flattened beside its own number: none of its fields may
     // be named so.
-    for event in &all {
-        assert!(serde_json::to_value(event).unwrap().get("number").is_none(), "{event:?} has a field named number");
+    for signal in &all {
+        assert!(serde_json::to_value(signal).unwrap().get("number").is_none(), "{signal:?} has a field named number");
     }
-    let names: Vec<Value> = all.iter().map(|e| serde_json::to_value(e).unwrap()["event"].clone()).collect();
-    assert_eq!(names, EVENTS.iter().map(|(name, _)| json!(name)).collect::<Vec<_>>());
-    // A kind, as a read's kinds name it, is the name JSON gives the event,
+    let names: Vec<Value> = all.iter().map(|e| serde_json::to_value(e).unwrap()["signal"].clone()).collect();
+    assert_eq!(names, SIGNALS.iter().map(|(name, _)| json!(name)).collect::<Vec<_>>());
+    // A kind, as a read's kinds name it, is the name JSON gives the signal,
     // and the kind of that name.
-    for event in &all {
-        assert_eq!(json!(event.kind()), serde_json::to_value(event).unwrap()["event"]);
-        assert_eq!(events::Kind::named(event.kind().name()), Some(event.kind()));
+    for signal in &all {
+        assert_eq!(json!(signal.kind()), serde_json::to_value(signal).unwrap()["signal"]);
+        assert_eq!(signals::Kind::named(signal.kind().name()), Some(signal.kind()));
     }
-    assert_eq!(events::Kind::named("months"), None);
-    for (kind, about) in EVENTS {
+    assert_eq!(signals::Kind::named("months"), None);
+    for (kind, about) in SIGNALS {
         assert!(!prose(about).is_empty(), "{kind} says not what it is");
         let fields = kind.fields();
         assert!(!fields.is_empty(), "{kind} has no fields");
@@ -187,12 +187,12 @@ fn every_event_is_described() {
     }
 }
 
-/// Each event calls the handler of its kind, with its fields, or with
+/// Each signal calls the handler of its kind, with its fields, or with
 /// itself as one table, as Lua has them; on_session's arguments the Lua host
 /// gives.
 #[test]
-fn every_event_calls_its_handler() {
-    let calls: Vec<_> = every_event().iter().filter_map(lua::handler_call).collect();
+fn every_signal_calls_its_handler() {
+    let calls: Vec<_> = every_signal().iter().filter_map(lua::handler_call).collect();
     let date = json!({"year": 1444, "month": 11, "day": 11});
     assert_eq!(
         calls.iter().map(|(name, args)| (*name, Value::Array(args.clone()))).collect::<Vec<_>>(),
@@ -268,20 +268,20 @@ fn responses_in_json() {
     let failed: Response = Err(error);
     assert_eq!(response_json(&failed), json!({"ok": false, "error": {"code": "not_in_game", "message": "no game is running"}}));
 
-    let events = events::Events {
+    let signals = signals::Signals {
         process: 1_761_700_000_000,
-        events: vec![
-            events::Numbered { number: 7, event: events::Event::ArmyOrdered { army: ArmyId(12) } },
-            events::Numbered { number: 8, event: events::Event::Day { date: Date::from_ymd(1444, 11, 12).unwrap() } },
+        signals: vec![
+            signals::Numbered { number: 7, signal: signals::Signal::ArmyOrdered { army: ArmyId(12) } },
+            signals::Numbered { number: 8, signal: signals::Signal::Day { date: Date::from_ymd(1444, 11, 12).unwrap() } },
         ],
         last: 8,
         missed: false,
     };
     assert_eq!(
-        serde_json::to_value(&events).unwrap(),
+        serde_json::to_value(&signals).unwrap(),
         json!({
             "process": 1_761_700_000_000u64,
-            "events": [{"number": 7, "event": "army_ordered", "army": "12"}, {"number": 8, "event": "day", "date": "1444.11.12"}],
+            "signals": [{"number": 7, "signal": "army_ordered", "army": "12"}, {"number": 8, "signal": "day", "date": "1444.11.12"}],
             "last": 8,
             "missed": false,
         })

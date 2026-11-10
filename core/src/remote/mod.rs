@@ -4,15 +4,15 @@
 //! the capability catalogue (`crate::catalogue`) as the player
 //! (ADR remote-control-uses-capabilities), within a time budget per frame,
 //! and hands the responses back. A request that waits, such as one for the
-//! next event, is answered at a later safe point. The engine keeps the latest
-//! events extensions hear, numbered, and writes every request to the
+//! next signal, is answered at a later safe point. The engine keeps the latest
+//! signals extensions hear, numbered, and writes every request to the
 //! framework log (ADR remote-control-is-always-on). It knows nothing of
 //! connections or JSON.
 //!
 //! A request that needs a game belongs to the session it was sent in: one
 //! still queued when that session ends (a save loads, another game starts)
 //! is answered `session_changed` instead of acting on a campaign its client
-//! never saw. Every answer that numbers sessions or events says which
+//! never saw. Every answer that numbers sessions or signals says which
 //! process gave it (`catalogue::process`): a restart (GLOSSARY), a return to
 //! the main menu with the in-process return turned off, starts the game
 //! again, and the numbers start again with it; an in-process return keeps
@@ -21,7 +21,7 @@
 #[cfg(test)]
 mod tests;
 
-use crate::catalogue::{self, events, menu, Catalogue, Live, Place, Wait};
+use crate::catalogue::{self, menu, signals, Catalogue, Live, Place, Wait};
 use crate::game;
 use eu4_harmony_remote::{Code, Error, Request, Response};
 use std::{
@@ -115,7 +115,7 @@ struct Waiting {
 /// What only the safe points touch.
 struct Running {
     waiting: Vec<Waiting>,
-    events: events::Buffer,
+    signals: signals::Buffer,
     /// What the answers given hold back of the requests after them, until
     /// each lets go.
     holds: Vec<Box<dyn catalogue::Hold>>,
@@ -125,11 +125,11 @@ struct Running {
 pub struct Engine {
     queue: Mutex<Queue>,
     running: Mutex<Running>,
-    /// What happened since the events were last taken into [`Running`]:
+    /// What happened since the signals were last taken into [`Running`]:
     /// kept apart, as it is kept also from inside a request the engine runs,
     /// holding `running`, such as a console command that loads a save and so
     /// ends the session.
-    recorded: Mutex<Vec<eu4_harmony_remote::events::Event>>,
+    recorded: Mutex<Vec<eu4_harmony_remote::signals::Signal>>,
     /// The responses given whose submitters still hold their replies, as a
     /// transport does until the response is written and read.
     delivering: Mutex<Vec<Arc<Slot>>>,
@@ -145,7 +145,7 @@ impl Engine {
     pub const fn new(log: fn(&str)) -> Self {
         Self {
             queue: Mutex::new(Queue { requests: VecDeque::new(), ending: None }),
-            running: Mutex::new(Running { waiting: Vec::new(), events: events::Buffer::new(), holds: Vec::new() }),
+            running: Mutex::new(Running { waiting: Vec::new(), signals: signals::Buffer::new(), holds: Vec::new() }),
             recorded: Mutex::new(Vec::new()),
             delivering: Mutex::new(Vec::new()),
             next: AtomicU64::new(1),
@@ -191,25 +191,25 @@ impl Engine {
         self.session.store(0, Ordering::Relaxed);
     }
 
-    /// The session going on ends, for `reason`: kept as an event, and, as at
+    /// The session going on ends, for `reason`: kept as a signal, and, as at
     /// a load, the requests sent from now on belong to the session that
     /// comes next, also when no save is read for it (an in-process return,
     /// then a new game).
-    pub fn session_ended(&self, reason: eu4_harmony_remote::events::SessionEnd) {
-        self.record([eu4_harmony_remote::events::Event::SessionEnded { reason }]);
+    pub fn session_ended(&self, reason: eu4_harmony_remote::signals::SessionEnd) {
+        self.record([eu4_harmony_remote::signals::Signal::SessionEnded { reason }]);
         self.leave();
     }
 
     /// Keeps what happened, for remote clients to read: numbered in order
     /// as the engine next runs, so also from inside a request it runs.
-    pub fn record(&self, happened: impl IntoIterator<Item = eu4_harmony_remote::events::Event>) {
+    pub fn record(&self, happened: impl IntoIterator<Item = eu4_harmony_remote::signals::Signal>) {
         self.recorded.lock().unwrap_or_else(|e| e.into_inner()).extend(happened);
     }
 
-    /// Numbers what was recorded since the last time, into the events kept.
+    /// Numbers what was recorded since the last time, into the signals kept.
     fn take_recorded(&self, running: &mut Running) {
-        for event in std::mem::take(&mut *self.recorded.lock().unwrap_or_else(|e| e.into_inner())) {
-            running.events.push(event);
+        for signal in std::mem::take(&mut *self.recorded.lock().unwrap_or_else(|e| e.into_inner())) {
+            running.signals.push(signal);
         }
     }
 
@@ -285,7 +285,7 @@ impl Engine {
     /// Runs a request at `now`.
     fn start(&self, running: &mut Running, catalogue: &mut dyn Catalogue, q: Queued, now: Instant) {
         let started = Instant::now();
-        match catalogue.run(q.request.clone(), Some(&running.events), now) {
+        match catalogue.run(q.request.clone(), Some(&running.signals), now) {
             catalogue::Outcome::Done(response) => self.answer(&q, response, started.elapsed()),
             catalogue::Outcome::Held(response, hold) => {
                 running.holds.push(hold);
@@ -311,8 +311,8 @@ impl Engine {
     }
 
     fn poll(&self, running: &mut Running, catalogue: &mut dyn Catalogue, place: &Place, now: Instant) {
-        let Running { waiting, events, holds } = running;
-        catalogue.at(Some(events), now, place, &mut |at| {
+        let Running { waiting, signals, holds } = running;
+        catalogue.at(Some(signals), now, place, &mut |at| {
             holds.retain_mut(|hold| !hold.let_go(at));
             for mut w in std::mem::take(waiting) {
                 if w.slot.released() {
@@ -363,7 +363,7 @@ impl Engine {
                 if w.slot.released() {
                     continue;
                 }
-                let response = w.wait.ending(&running.events).unwrap_or_else(|| Err(why.clone()));
+                let response = w.wait.ending(&running.signals).unwrap_or_else(|| Err(why.clone()));
                 (self.log)(&format!(
                     "remote #{} {}: {} as the process ends, after {} ms",
                     w.number,
@@ -409,9 +409,9 @@ pub fn submit(request: Request) -> Reply {
 /// the order they hear it, as remote control keeps it: in the player's view
 /// unless the setting gives it the full view, so that a battle the player
 /// neither sees nor takes part in is left out.
-fn happened(heard: &[game::Heard]) -> Vec<eu4_harmony_remote::events::Event> {
+fn happened(heard: &[game::Heard]) -> Vec<eu4_harmony_remote::signals::Signal> {
     let full = game::view(game::Caller::Remote) == game::View::Full;
-    heard.iter().filter(|heard| full || heard.seen).map(|heard| heard.event.clone()).collect()
+    heard.iter().filter(|heard| full || heard.seen).map(|heard| heard.signal.clone()).collect()
 }
 
 /// Remote control, as it hears the sessions' ends and the game's safe frames
@@ -423,7 +423,7 @@ impl crate::safe_point::Listener for Remote {
         "remote control"
     }
 
-    /// Kept as an event; the requests sent from now on belong to the next
+    /// Kept as a signal; the requests sent from now on belong to the next
     /// session.
     fn ended(&self, end: crate::sessions::End) {
         ENGINE.session_ended(end.reason());

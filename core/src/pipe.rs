@@ -13,7 +13,7 @@
 //! written and the client has read it. A client so gets its answers in the
 //! order it sent its requests, and none of its requests overtakes an earlier
 //! one, such as one that waits for a game. A client that wants to wait for
-//! events while it does other things opens the pipe a second time.
+//! signals while it does other things opens the pipe a second time.
 //!
 //! A client gives a request up by closing the pipe before the answer comes,
 //! even with requests it wrote after it still unread: the transport drops the

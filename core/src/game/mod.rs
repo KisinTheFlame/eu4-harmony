@@ -13,7 +13,7 @@
 //!
 //! Under them, reading the session, finding routes and giving orders, ported
 //! from eu4-regional-combat's native adapter ([`world`], [`orders`], and
-//! [`events`], which establishes the safe point everything here runs at);
+//! [`signals`], which establishes the safe point everything here runs at);
 //! addresses are RVAs in the 1.37.5 layout (see `baseline`), with the evidence
 //! in docs/research/ (provinces.md, armies.md, routes.md, army-orders.md,
 //! defeat.md, time.md, fog-of-war.md).
@@ -26,8 +26,6 @@ pub mod commands;
 pub mod conditions;
 pub mod content;
 pub mod envoys;
-pub mod event_costs;
-pub mod events;
 pub mod frame;
 pub mod interface;
 pub mod map_coloring;
@@ -35,6 +33,8 @@ pub mod modifiers;
 pub mod orders;
 pub mod player;
 pub mod power;
+pub mod signal_costs;
+pub mod signals;
 pub mod units;
 pub mod wars;
 pub mod world;
@@ -71,7 +71,7 @@ use crate::{
     objects::campaign::{self, countries as country_list, country as country_fields, globals, map_manager, pause, tag},
     points::{GameFunction, Point},
 };
-use eu4_harmony_remote::events::Kind;
+use eu4_harmony_remote::signals::Kind;
 use std::sync::Mutex;
 
 pub use frame::{Frame, Heard};
@@ -291,41 +291,41 @@ pub fn session_forgotten() {
     });
 }
 
-/// Starts a safe frame (see [`events`]); fails when this is not one, saying
+/// Starts a safe frame (see [`signals`]); fails when this is not one, saying
 /// why. The sessions hear of it first, which let what was kept of another
 /// session go (`crate::sessions`). An army the player gave an order is no
 /// longer an extension's to move. What happened since the last frame is
 /// [`frame`]'s to decide.
 pub fn begin_frame(m: &Memory) -> GResult<Frame> {
-    let (world, fog) = events::frame_campaign(m)?;
+    let (world, fog) = signals::frame_campaign(m)?;
     let seen = crate::sessions::frame_read(&world);
-    let (visibility_current, changes) = events::take_frame(&world, fog);
+    let (visibility_current, changes) = signals::take_frame(&world, fog);
     with_state(|s| {
         for change in &changes {
-            if let events::Change::Ordered(army) = change {
+            if let signals::Change::Ordered(army) = change {
                 s.orders.revoke(*army);
             }
         }
     });
     let observed = frame::Observed { world, seen, visibility_current, changes };
     let mut recall = RECALL.lock().unwrap_or_else(|e| e.into_inner());
-    Ok(recall.next(observed, events::listened, |world| watch_wars(m, world)))
+    Ok(recall.next(observed, signals::listened, |world| watch_wars(m, world)))
 }
 
 /// What the wars and the provinces' owners show happened since the day
 /// before, of the kinds someone listens to; nothing when they cannot be
 /// read, which the log says.
 fn watch_wars(m: &Memory, ctx: &World) -> Vec<wars::Happened> {
-    let war = events::listened(Kind::WarDeclared) || events::listened(Kind::PeaceMade);
-    let owners = events::listened(Kind::ProvinceOwnerChanged);
+    let war = signals::listened(Kind::WarDeclared) || signals::listened(Kind::PeaceMade);
+    let owners = signals::listened(Kind::ProvinceOwnerChanged);
     let seen = with_state(|s| {
         let mut happened = Vec::new();
         match war {
-            true => happened.extend(event_costs::WARS.time(|| s.wars.wars(m, ctx))?),
+            true => happened.extend(signal_costs::WARS.time(|| s.wars.wars(m, ctx))?),
             false => s.wars.forget_wars(),
         }
         match owners {
-            true => happened.extend(event_costs::OWNERS.time(|| Ok::<_, Fail>(s.wars.owners(s.geography.owners(m, ctx)?)))?),
+            true => happened.extend(signal_costs::OWNERS.time(|| Ok::<_, Fail>(s.wars.owners(s.geography.owners(m, ctx)?)))?),
             false => s.wars.forget_owners(),
         }
         Ok::<_, Fail>(happened)
@@ -336,7 +336,7 @@ fn watch_wars(m: &Memory, ctx: &World) -> Vec<wars::Happened> {
     })
 }
 
-/// A country, as events name it.
+/// A country, as signals name it.
 fn named(tag: Tag) -> eu4_harmony_remote::CountryTag {
     eu4_harmony_remote::CountryTag(tag.letters())
 }
@@ -354,7 +354,7 @@ pub fn points() -> Vec<Point> {
     points.extend(world::points());
     points.extend(army::points());
     points.extend(orders::points());
-    points.extend(events::points());
+    points.extend(signals::points());
     points.extend(player::points());
     points.extend(conditions::points());
     points.extend(power::points());

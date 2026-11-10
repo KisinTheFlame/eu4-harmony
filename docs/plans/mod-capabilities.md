@@ -1,6 +1,6 @@
 # Mod capabilities plan
 
-Status: in progress. Decided with the owner (2026-11-11): what is open to mods now, the roadmap of what is not, and the parts taken up first, M1 to M20, none built yet. Terms it added to [GLOSSARY.md](../../GLOSSARY.md): Modifier, Named modifier, Legitimacy, Government mechanic, Mechanic power, Opinion, As the player, As the game, Event (now the scripts'), Signal (the framework's, formerly its event). The decisions are [ADR requests-act-as-the-player-or-as-the-game](../adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md), [ADR framework-notifications-are-signals](../adr/2026-11-11-framework-notifications-are-signals.md), [ADR changes-as-the-game-are-typed-capabilities](../adr/2026-11-11-changes-as-the-game-are-typed-capabilities.md) and [ADR tasks-are-awaited-like-promises](../adr/2026-11-11-tasks-are-awaited-like-promises.md); it builds on [player-actions.md](player-actions.md) and [ADR mods-hold-the-logic](../adr/2026-11-03-mods-hold-the-logic.md).
+Status: in progress. Decided with the owner (2026-11-11): what is open to mods now, the roadmap of what is not, and the parts taken up first, M1 to M20. M1 built and tried in the game (2026-11-11, [the run](../prototype-log/2026-11-11-signals.md)); the others not built yet. Terms it added to [GLOSSARY.md](../../GLOSSARY.md): Modifier, Named modifier, Legitimacy, Government mechanic, Mechanic power, Opinion, As the player, As the game, Event (now the scripts'), Signal (the framework's, formerly its event). The decisions are [ADR requests-act-as-the-player-or-as-the-game](../adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md), [ADR framework-notifications-are-signals](../adr/2026-11-11-framework-notifications-are-signals.md), [ADR changes-as-the-game-are-typed-capabilities](../adr/2026-11-11-changes-as-the-game-are-typed-capabilities.md) and [ADR tasks-are-awaited-like-promises](../adr/2026-11-11-tasks-are-awaited-like-promises.md); it builds on [player-actions.md](player-actions.md) and [ADR mods-hold-the-logic](../adr/2026-11-03-mods-hold-the-logic.md).
 
 ## Goal and scope
 
@@ -42,7 +42,7 @@ Each group reads what its panel offers now (`options` or `list`, each entry a `C
 
 ### Signals
 
-`on_session`, `on_session_ended`, `on_country_in_view`, `on_popup`, `on_day`, `on_month`, `on_year`, `on_army_ordered`, `on_army_defeated`, `on_war_declared`, `on_peace_made`, `on_province_owner_changed`, `on_building_finished`, `on_battle`. Remote clients read them numbered (`events`, to be `signals`, M1).
+`on_session`, `on_session_ended`, `on_country_in_view`, `on_popup`, `on_day`, `on_month`, `on_year`, `on_army_ordered`, `on_army_defeated`, `on_war_declared`, `on_peace_made`, `on_province_owner_changed`, `on_building_finished`, `on_battle`. Remote clients read them numbered (`signals`).
 
 ### The Lua host
 
@@ -54,8 +54,8 @@ What each area still lacks, as found on 2026-11-11. The parts of this plan take 
 
 - **Interface** (later): host windows beyond the army panel (the province view, the country and diplomacy panels, the top bar); check boxes, text input, tabs and grids across in extension windows, and windows in the main menu; marks, arrows, icons and text on the map, and lines in the game's tooltips; reading what is selected or under the mouse besides an army (a province, a country); keys bound by a mod.
 - **Reads**: rulers, heirs, consorts and advisors; legitimacy and the values every country has (corruption, absolutism, traditions, professionalism); modifiers, summed and named; opinion, aggressive expansion, trust and favors; government mechanics; a province's prosperity, devastation, local manpower, supply limit, separatism and institutions; an army's units and their strength and morale; flags and variables (M2 to M10).
-- **Actions**: the panels' actions the catalogue lacks (M15 to M20); changes as the game, typed (later: adding to a country's treasury and the like, as mods need them, [ADR changes-as-the-game-are-typed-capabilities](../adr/2026-11-11-changes-as-the-game-are-typed-capabilities.md)); setting flags and variables and firing events (M9 to M11).
-- **Signals** (later, but the rename, M1): a save finished writing; a question or an offer coming to the player; a ruler's or an heir's change; a technology or an idea taken; rebels rising; a siege ended; a claim, a core or a colony finished. Today a mod polls `question.list` and `offer.list` for them.
+- **Actions**: the panels' actions the catalogue lacks (M15 to M20); changes as the game, typed (later: adding to a country's treasury and the like, as mods need them, [ADR changes-as-the-game-are-typed-capabilities](../adr/2026-11-11-changes-as-the-game-are-typed-capabilities.md)); setting flags and variables and firing events (M10 to M12).
+- **Signals** (later; the rename was M1): a save finished writing; a question or an offer coming to the player; a ruler's or an heir's change; a technology or an idea taken; rebels rising; a siege ended; a claim, a core or a colony finished. Today a mod polls `question.list` and `offer.list` for them.
 - **The Lua host**: awaiting and cancelling a task, and awaiting several (M13); waiting for game days (M14); extensions calling each other or sharing code stays out of scope.
 
 ## What the game does
@@ -76,7 +76,7 @@ What is known of each part's game side is in [research/](../research/), as found
 
 ### Signals (M1)
 
-- What the framework tells of the game is a signal ([ADR framework-notifications-are-signals](../adr/2026-11-11-framework-notifications-are-signals.md)); remote control reads them with `signals`, as it read `events`, with the same arguments and answer. Handlers keep their names: no extension changes.
+- What the framework tells of the game is a signal ([ADR framework-notifications-are-signals](../adr/2026-11-11-framework-notifications-are-signals.md)); remote control reads them with `signals`, as it read `events`, with the same arguments; its answer lists them under `signals`, each naming its kind in `signal` (`events` and `event` before), and so does `time.advance`'s. Handlers keep their names: no extension changes.
 - "Event" is the scripts' from then on, in the catalogue, the wiki, the guides and the code.
 
 ### Reads
@@ -194,6 +194,8 @@ Each follows [player-actions.md](player-actions.md): a group per panel, `options
 ### M1 Signals
 
 The framework's events renamed signals throughout: `signals` for `events`, the wiki, the guides, the editor's types, the code, the scenarios; GLOSSARY.md and the documents now in use.
+
+Done (2026-11-11): the catalogue's group is `signals` (`remote/src/signals.rs`, its `Signal`, `Signals` and `SIGNALS`), its answer's list is `signals` and each item's kind is in `signal`, as in `time.advance`'s answer; a read naming no kind is refused with "no signal is called …". In the core, the remote control engine keeps them in `catalogue::signals`, the frames make them in `game::signals` and `game::frame`, and their cost is logged as `signal costs:` (`game::signal_costs`); the scenario `perf` takes `--perf.signals`. `eu4-harmony wiki signals` lists them, and the guides, README.md, README.zh-CN.md (处理函数, 信号), adding-a-capability.md, dev-tools.md and performance.md's description of `perf` use the new words. Handlers and the kinds' names are as they were. What stays "event" is the game's: questions (`question.list` gives each one's `event`, its id), event windows, and the records. Tried in a test game: [the run](../prototype-log/2026-11-11-signals.md).
 
 ### M2 Rulers, heirs and consorts
 
