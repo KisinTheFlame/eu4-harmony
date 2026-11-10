@@ -91,6 +91,13 @@ fn drawing_thread_cursor() -> Option<[i32; 2]> {
     window::client_cursor()
 }
 
+/// The cursor as the drawing thread keeps what follows it between the
+/// game's reads: the one remote control holds, or else Windows' cursor in
+/// the game's window, in pixels of the frame.
+pub fn cursor_now() -> Option<[i32; 2]> {
+    state().cursor.or_else(window::client_cursor)
+}
+
 /// A screen position: pixels of the frame from its top left corner.
 pub type Position = (u32, u32);
 

@@ -37,6 +37,7 @@ mod crossings;
 mod deferred;
 mod icons;
 mod prepare;
+mod tooltip;
 
 use crate::called_by_game;
 use crate::hooks::Call;
@@ -90,8 +91,9 @@ const CAMERA_LENGTH_TAKEN: usize = 0x83119b;
 /// frame's events, and the frame's length in seconds (a float, on the stack).
 const CAMERA_UPDATE: GameFunction<5> = GameFunction::at(0x109bee0);
 const IDLER_FRAME_LENGTH: usize = 0x1658;
-/// The in-game idler's camera.
+/// The in-game idler's camera and graphical map.
 const IDLER_CAMERA: usize = 0x1200;
+const IDLER_MAP: usize = 0x11c0;
 /// In the drawing: `movss xmm3, [r15 + 0x1658]`, the frame's length the 3D
 /// map is given, by which it moves its fades on (`0x10a59a0`: the map's
 /// layers by the camera's height, the time at its `+0xf8`), and where it
@@ -159,6 +161,7 @@ fn points() -> Vec<Point> {
     .chain(prepare::points())
     .chain(crossings::points())
     .chain(deferred::points())
+    .chain(tooltip::points())
     .chain(icons::points())
     .collect()
 }
@@ -816,6 +819,9 @@ fn run() {
             DRAWING_LENGTH.store(length.to_bits(), Ordering::Relaxed);
             if let Err(e) = icons::follow_camera(&m) {
                 log!("drawing: the map icons could not follow the camera: {e}");
+            }
+            if let Err(e) = tooltip::follow_cursor(&m) {
+                log!("drawing: the tooltip could not follow the cursor: {e}");
             }
             IN_FRAME.store(true, Ordering::Release);
             unsafe { direct1(&m, DRAWING)(idler) };
