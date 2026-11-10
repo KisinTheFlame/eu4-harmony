@@ -405,14 +405,31 @@ fn main_take(s: &mut MainSide, at: usize) {
         MAIN_WAITED.fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
         WAITED_AT[at].fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
         s.holds = true;
+        MAIN_HOLDS.store(true, Ordering::Release);
     }
 }
 
 fn main_give(s: &mut MainSide) {
     if s.holds {
         s.holds = false;
+        MAIN_HOLDS.store(false, Ordering::Release);
         LOCK.give();
     }
+}
+
+/// The main thread holds the presentation lock: [`MainSide::holds`], read
+/// with no lock taken, for what cannot take one (the write watch's exception
+/// handler).
+static MAIN_HOLDS: AtomicBool = AtomicBool::new(false);
+
+/// The drawing's RVA, for the write watch's report.
+pub const fn drawing_rva() -> usize {
+    DRAWING.rva()
+}
+
+/// Whether the main thread holds the presentation lock now.
+pub fn main_holds() -> bool {
+    MAIN_HOLDS.load(Ordering::Acquire)
 }
 
 /// The game quits, and the drawing thread draws no more ([`stop`]).
@@ -520,6 +537,8 @@ pub fn day_begins() {
         return;
     }
     DAY_RAN.store(true, Ordering::Release);
+    #[cfg(feature = "dev-write-watch")]
+    crate::write_watch::drawing::day_begins(&crate::hooked_memory());
     main_side(|s| {
         s.in_day = true;
         s.day_gave = s.holds;
@@ -637,13 +656,23 @@ static PRESENTING: AtomicBool = AtomicBool::new(false);
 /// several threads.
 pub fn present_begins() {
     PRESENTING.store(true, Ordering::Release);
-    LOCK.give();
+    if !KEEPS_LOCK_IN_PRESENT.load(Ordering::Acquire) {
+        LOCK.give();
+    }
 }
+
+/// The drawing thread keeps the lock through Present: in a frame the write
+/// watch holds every other thread for, where the main thread may be held
+/// waiting its turn for the lock, which given to it would never come back.
+static KEEPS_LOCK_IN_PRESENT: AtomicBool = AtomicBool::new(false);
 
 /// Present has returned: the drawing thread takes the lock again for what
 /// the drawing does after it (the idler's `+0x1608`, its clock).
 pub fn present_ends() {
     PRESENTING.store(false, Ordering::Release);
+    if KEEPS_LOCK_IN_PRESENT.load(Ordering::Acquire) {
+        return;
+    }
     let waited = LOCK.take();
     DRAWING_WAITED.fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
 }
@@ -831,7 +860,15 @@ fn run() {
                 log!("drawing: the tooltip could not follow the cursor: {e}");
             }
             IN_FRAME.store(true, Ordering::Release);
+            #[cfg(feature = "dev-write-watch")]
+            let watched = crate::write_watch::drawing::frame_begins(&m);
+            #[cfg(feature = "dev-write-watch")]
+            KEEPS_LOCK_IN_PRESENT.store(watched, Ordering::Release);
             unsafe { direct1(&m, DRAWING)(idler) };
+            #[cfg(feature = "dev-write-watch")]
+            KEEPS_LOCK_IN_PRESENT.store(false, Ordering::Release);
+            #[cfg(feature = "dev-write-watch")]
+            crate::write_watch::drawing::frame_ends(watched);
             IN_FRAME.store(false, Ordering::Release);
             DRAWN.fetch_add(1, Ordering::Relaxed);
             DRAWN_SEQ.store(seq, Ordering::Release);
