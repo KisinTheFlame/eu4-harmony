@@ -325,6 +325,7 @@ impl World {
                     "power": {"adm": 0, "dip": 0, "mil": 0}, "wars": [], "relations": [],
                     "technology": {"adm": 3, "dip": 3, "mil": 3}, "ideas": [], "governing_capacity": {"used": 0.0, "max": 0.0},
                     "inflation": 0.0, "mercantilism": 0.0, "loans": {"count": 0, "ducats": 0.0}, "rebels": [],
+                    "ruler": null, "heir": null, "consort": null,
                 });
                 if let (Some(fields), Value::Object(all)) = (self.countries.get(&tag), &mut country) {
                     all.extend(fields.clone());

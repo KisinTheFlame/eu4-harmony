@@ -288,6 +288,13 @@ pub mod country {
     /// a religion as a province's ([`super::province::CULTURE`]).
     pub const PRIMARY_CULTURE: usize = 0x1228;
     pub const STATE_RELIGION: usize = 0xf30;
+    /// Its ruler, heir and consort (`monarch`, `heir` and `queen` in saves),
+    /// each a pointer to a [`super::person`]: the game's null person of its
+    /// kind while it has none, whose [`super::person::PRESENT`] method says
+    /// no.
+    pub const RULER: usize = 0x1280;
+    pub const HEIR: usize = 0x1298;
+    pub const CONSORT: usize = 0x12b0;
     /// Inflation and mercantilism, fixed point, in percent.
     pub const INFLATION: usize = 0xbd4;
     pub const MERCANTILISM: usize = 0x1098;
@@ -300,6 +307,29 @@ pub mod country {
     pub const INCOME_CATEGORIES: usize = 19;
     pub const EXPENSES: usize = 0xb00;
     pub const EXPENSE_CATEGORIES: usize = 38;
+}
+
+/// A ruler, an heir or a consort (`CMonarch`, monarch.cpp), as its save
+/// writer (`0xa4a750`) writes it.
+pub mod person {
+    /// The method (vtable offset) that says whether it is a person and not
+    /// the game's null one of its kind.
+    pub const PRESENT: usize = 0x58;
+    /// The given name, a `std::string` with a ruler's regnal number in it.
+    pub const GIVEN_NAME: usize = 0x28;
+    /// Administrative, diplomatic and military skill, whole i32.
+    pub const ADM: usize = 0x48;
+    pub const DIP: usize = 0x4c;
+    pub const MIL: usize = 0x50;
+    /// Their culture, a pointer to one as a province's.
+    pub const CULTURE: usize = 0x60;
+    /// Their dynasty: a pointer to one whose method [`DYNASTY_VALID`] says
+    /// whether it is one, its name a `std::string` at [`DYNASTY_NAME`].
+    pub const DYNASTY: usize = 0x68;
+    pub const DYNASTY_VALID: usize = 8;
+    pub const DYNASTY_NAME: usize = 8;
+    /// The day they were born, a date.
+    pub const BIRTH: usize = 0x70;
 }
 
 /// What a country keeps of its technology.

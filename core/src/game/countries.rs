@@ -6,13 +6,14 @@ use crate::{
     game_string,
     memory::Memory,
     objects::campaign::{
-        classes, country as fields, country_diplomacy, idea_group, loan, rebel_faction, subject_relation, subject_type, technology, war, world as world_fields,
+        classes, country as fields, country_diplomacy, idea_group, loan, person, rebel_faction, subject_relation, subject_type, technology, war,
+        world as world_fields,
     },
     points::{GameFunction, Point},
     unicode::game_text,
 };
 use eu4_harmony_remote::{
-    countries::{args, Budget, Country, Entry, GoverningCapacity, IdeaGroup, Loan, Loans, Power, Rebels, Relation, RelationKind, Technology},
+    countries::{args, Budget, Country, Entry, GoverningCapacity, IdeaGroup, Loan, Loans, Person, Power, Rebels, Relation, RelationKind, Technology},
     CountryTag, Date,
 };
 
@@ -79,6 +80,21 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x2df1e1usize, "41 39 87 d4 0b 00 00", "country inflation").uses(&[fields::INFLATION]),
         Point::keep(0x2dfb51usize, "49 8d 97 98 10 00 00", "country mercantilism").uses(&[fields::MERCANTILISM]),
         Point::keep(0x2df601usize, "49 8b 87 e8 0d 00 00", "country loans").uses(&[fields::LOANS]),
+        // It writes each of its persons only when it is not the null one.
+        Point::keep(0x2e0588usize, "49 8b 8f 80 12 00 00 48 8b 01 ff 50 58", "country ruler").uses(&[fields::RULER, person::PRESENT]),
+        Point::keep(0x2e05b5usize, "49 8b 8f 98 12 00 00 48 8b 01 ff 50 58", "country heir").uses(&[fields::HEIR, person::PRESENT]),
+        Point::keep(0x2e05e2usize, "49 8b 8f b0 12 00 00 48 8b 01 ff 50 58", "country consort").uses(&[fields::CONSORT, person::PRESENT]),
+        // The person's save writer.
+        Point::keep(0xa4a7a3usize, "48 8d 56 28", "person's given name").uses(&[person::GIVEN_NAME]),
+        Point::keep(0xa4a7efusize, "8b 7e 4c", "person's diplomatic skill").uses(&[person::DIP]),
+        Point::keep(0xa4a837usize, "8b 7e 48", "person's administrative skill").uses(&[person::ADM]),
+        Point::keep(0xa4a87fusize, "8b 7e 50", "person's military skill").uses(&[person::MIL]),
+        Point::keep(0xa4b159usize, "48 8b 4e 68 48 8b 01 ff 50 08 84 c0 74 30 48 8b 7e 68 48 83 c7 08", "person's dynasty").uses(&[
+            person::DYNASTY,
+            person::DYNASTY_VALID,
+            person::DYNASTY_NAME,
+        ]),
+        Point::keep(0xa4b197usize, "48 8d 4e 70", "person's birth date").uses(&[person::BIRTH]),
         // The loan's save writer.
         Point::keep(0x86b109usize, "48 8d 56 20", "loan lender").uses(&[loan::LENDER]),
         Point::keep(0x86b1afusize, "8b 5e 28", "loan interest").uses(&[loan::INTEREST]),
@@ -232,7 +248,39 @@ pub fn get(WorldSession { m, world: ctx, view, .. }: WorldSession, args::Get { c
         mercantilism: own.as_ref().map(|o| thousandths(o.mercantilism)),
         loans: own.as_ref().map(|o| o.loans),
         rebels: own.map(|o| o.rebels),
+        ruler: person_at(m, c + fields::RULER, ctx.date)?,
+        heir: person_at(m, c + fields::HEIR, ctx.date)?,
+        consort: person_at(m, c + fields::CONSORT, ctx.date)?,
     }))
+}
+
+/// The person a country's field holds, as the court view shows them; None
+/// for the game's null person, which holds the place while there is none.
+fn person_at(m: &Memory, field: usize, date: i32) -> GResult<Option<Person>> {
+    let p = m.ptr(field)?;
+    if p == 0 || m.call(m.vslot(p, person::PRESENT)?, &[p])? & 0xff == 0 {
+        return Ok(None);
+    }
+    let dynasty = m.ptr(p + person::DYNASTY)?;
+    let dynasty = if dynasty != 0 && m.call(m.vslot(dynasty, person::DYNASTY_VALID)?, &[dynasty])? & 0xff != 0 {
+        Some(game_string::shown(m, dynasty + person::DYNASTY_NAME)?)
+    } else {
+        None
+    };
+    Ok(Some(Person {
+        name: game_string::shown(m, p + person::GIVEN_NAME)?,
+        dynasty,
+        adm: m.i32(p + person::ADM)?,
+        dip: m.i32(p + person::DIP)?,
+        mil: m.i32(p + person::MIL)?,
+        age: age(m.i32(p + person::BIRTH)?, date),
+    }))
+}
+
+/// Whole years from `birth` to `date`, in the game's calendar of 365-day
+/// years.
+fn age(birth: i32, date: i32) -> i32 {
+    (date - birth).div_euclid(365 * 24)
 }
 
 /// The country's technology levels, each kind's category found as the game
@@ -502,6 +550,43 @@ mod tests {
             .string(war::NAME, "")
             .vector(war::ATTACKERS, &tags(attackers))
             .vector(war::DEFENDERS, &tags(defenders))
+    }
+
+    /// An object whose vtable's method at `slot` answers `answer`.
+    fn answering(slot: usize, answer: extern "C" fn() -> usize, size: usize) -> Object {
+        let vtable = Object::new(slot + 8).u64(slot, answer as usize as u64);
+        Object::new(size).points_to(0, vtable)
+    }
+
+    /// A ruler of a dynasty, born 30 years and a day before the date; an
+    /// heir of none; the game's null consort: each read as the court view
+    /// shows them, the null one as none.
+    #[test]
+    fn a_country_s_persons_are_read_and_the_null_one_is_none() {
+        use crate::game::buffers::{no, yes};
+        let m = Memory { base: 0x1_4000_0000 };
+        let date = 1500 * 8760;
+        let person = |name: &str, dynasty: Object, skills: [i32; 3], birth: i32| {
+            answering(person::PRESENT, yes, person::BIRTH + 4)
+                .string(person::GIVEN_NAME, name)
+                .points_to(person::DYNASTY, dynasty)
+                .i32(person::ADM, skills[0])
+                .i32(person::DIP, skills[1])
+                .i32(person::MIL, skills[2])
+                .i32(person::BIRTH, birth)
+        };
+        let dynasty = answering(person::DYNASTY_VALID, yes, person::DYNASTY_NAME + game_string::OBJECT).string(person::DYNASTY_NAME, "de Valois");
+        let ruler = person("Louis XI", dynasty, [4, 5, 2], date - 30 * 8760 - 24);
+        let heir = person("Charles", answering(person::DYNASTY_VALID, no, 16), [1, 0, 3], date - 24);
+        let consort = answering(person::PRESENT, no, 8);
+        let country = Object::new(fields::CONSORT + 8).points_to(fields::RULER, ruler).points_to(fields::HEIR, heir).points_to(fields::CONSORT, consort);
+        let read = |field: usize| person_at(&m, country.at() + field, date).unwrap();
+        assert_eq!(
+            read(fields::RULER),
+            Some(Person { name: "Louis XI".into(), dynasty: Some("de Valois".into()), adm: 4, dip: 5, mil: 2, age: 30 })
+        );
+        assert_eq!(read(fields::HEIR), Some(Person { name: "Charles".into(), dynasty: None, adm: 1, dip: 0, mil: 3, age: 0 }));
+        assert_eq!(read(fields::CONSORT), None);
     }
 
     /// Wars between countries 1 to 3, one with a tag that is no country's,

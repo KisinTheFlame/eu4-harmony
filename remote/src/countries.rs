@@ -19,14 +19,14 @@ group! {
     /// monarch points, the wars it takes part in, its allies, subjects (each
     /// with its subject type), overlord and rivals, its technology, the idea
     /// groups it has taken, its governing capacity, inflation, mercantilism,
-    /// loans and the rebel factions against it. In the player's view what
-    /// the game's panels do not show of another country is null: its
-    /// treasury, monarch points, governing capacity, inflation, mercantilism,
-    /// loans and rebels.
+    /// loans and the rebel factions against it; and its ruler, heir and
+    /// consort. In the player's view what the game's panels do not show of
+    /// another country is null: its treasury, monarch points, governing
+    /// capacity, inflation, mercantilism, loans and rebels.
     world Get "get" {
         /// The country.
         country: CountryTag,
-    } -> Box<Country>, "the country: tag, treasury, manpower and max_manpower, stability, prestige, power (adm, dip, mil), wars (each its name, attackers and defenders, the leaders first), relations (each a kind, ally, subject, overlord or rival, and a country; a subject or an overlord also its subject_type, the key the game or a mod gives the kind of subject, such as vassal, march, personal_union or tributary_state), technology (adm, dip, mil), ideas (each an idea group's key, how many of its ideas are taken, and whether it is the national ideas), governing_capacity (used, max), inflation and mercantilism (percent), loans (count, ducats) and rebels (each its kind, the rebel type's key, its name and progress in percent); in the player's view the fields another country's panels do not show are null";
+    } -> Box<Country>, "the country: tag, treasury, manpower and max_manpower, stability, prestige, power (adm, dip, mil), wars (each its name, attackers and defenders, the leaders first), relations (each a kind, ally, subject, overlord or rival, and a country; a subject or an overlord also its subject_type, the key the game or a mod gives the kind of subject, such as vassal, march, personal_union or tributary_state), technology (adm, dip, mil), ideas (each an idea group's key, how many of its ideas are taken, and whether it is the national ideas), governing_capacity (used, max), inflation and mercantilism (percent), loans (count, ducats), rebels (each its kind, the rebel type's key, its name and progress in percent), and ruler, heir and consort (each a name, dynasty, adm, dip, mil and age; null when there is none); in the player's view the fields another country's panels do not show are null";
     /// A country's budget as the economy view shows it: this month's income
     /// and expenses by category, and its loans. In the player's view another
     /// country's are null.
@@ -70,6 +70,27 @@ pub struct Country {
     pub loans: Option<Loans>,
     /// The rebel factions against it, as the stability page lists them.
     pub rebels: Option<Vec<Rebels>>,
+    /// Its ruler, heir and consort, as the court view shows them; null when
+    /// it has none.
+    pub ruler: Option<Person>,
+    pub heir: Option<Person>,
+    pub consort: Option<Person>,
+}
+
+/// A ruler, an heir or a consort.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Person {
+    /// The given name, with a ruler's regnal number in it (`Louis XI`).
+    pub name: String,
+    /// The dynasty's name; null when it has none.
+    pub dynasty: Option<String>,
+    /// Administrative, diplomatic and military skill, 0 to 6 unless
+    /// modified.
+    pub adm: i32,
+    pub dip: i32,
+    pub mil: i32,
+    /// In whole years.
+    pub age: i32,
 }
 
 /// Technology levels of each kind.

@@ -29,7 +29,8 @@ A country is what a player or the AI plays: a tag such as `FRA`, with its treasu
 
 ## Rulers and their names
 
-- **A ruler, an heir and a consort** are one kind of person: a given name with the regnal number in it ("Louis XI"), a dynasty, a culture, a religion. Their full name is the given name, a space and the dynasty, in that order, fixed in code; generals and advisors keep one string, given name and family name already joined ([research/names.md](../research/names.md#people)).
+- **A ruler, an heir and a consort** are one kind of person: a given name with the regnal number in it ("Louis XI"), a dynasty, a culture, a religion, a skill in each kind of monarch power and a birth date. Their full name is the given name, a space and the dynasty, in that order, fixed in code; generals and advisors keep one string, given name and family name already joined ([research/names.md](../research/names.md#people)).
+- **A country always holds a person in each place**: without an heir or a consort, the game's null person of that kind stands there, and the game asks the person itself whether it is one before it saves it ([research/names.md](../research/names.md#people)).
 - **A new heir's name is drawn from the country's list** by its weights; the game's arithmetic overflows when it weighs both sexes, so the list's first name is drawn about half the time, and the heir takes that name's sex then too ([research/names.md](../research/names.md#picking-a-name-from-a-list)).
 - **Cultures and culture groups** are the game's data; the East Asian groups are those whose people put the family name first, which the game's full names do not ([research/names.md](../research/names.md#cultures)).
 
@@ -66,7 +67,7 @@ A country is what a player or the AI plays: a tag such as `FRA`, with its treasu
 
 ## What the framework relies on
 
-- The country array and a country's tag, its snapshot (treasury, manpower, stability, prestige, points, allies, subjects and their types, rivals, wars) and the fields of the player-actions reads, all dependency points ([plans/remote-control.md](../plans/remote-control.md), [plans/player-actions.md](../plans/player-actions.md)).
+- The country array and a country's tag, its snapshot (treasury, manpower, stability, prestige, points, allies, subjects and their types, rivals, wars) and the fields of the player-actions reads, all dependency points ([plans/remote-control.md](../plans/remote-control.md), [plans/player-actions.md](../plans/player-actions.md)); its ruler, heir and consort ([plans/mod-capabilities.md](../plans/mod-capabilities.md)).
 - The power spendings, the national focus, loans, ideas, policies, reforms, rank, estates, parliament, decisions and missions as the panels' buttons send them, with the game's own checks and reasons ([plans/player-actions.md](../plans/player-actions.md), [research/power-spending.md](../research/power-spending.md), [research/government.md](../research/government.md)).
 - The subject interactions and rivals ([research/subjects.md](../research/subjects.md)).
 - Repairs: the coalition list's joins and leaves take turns ([research/countries.md](../research/countries.md#a-coalition)); a subject relation's end refreshes its subject once, after the walk ([research/dependency-teardown.md](../research/dependency-teardown.md#the-repair)); a name drawn by its weights; the in-game load keeps achievements ([research/names.md](../research/names.md#picking-a-name-from-a-list), [research/achievements.md](../research/achievements.md#who-asks), [ADR achievement-rules-can-be-relaxed](../adr/2026-11-04-achievement-rules-can-be-relaxed.md)).
