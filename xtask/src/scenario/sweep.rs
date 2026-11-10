@@ -488,6 +488,7 @@ impl Values {
         match (c.name().as_str(), name) {
             ("time.advance", "days") => return json!(1),
             ("console.run", "command") => return json!("help"),
+            ("script.flag" | "script.set_flag" | "script.clear_flag" | "script.variable" | "script.set_variable", "name") => return json!("eu4_harmony_sweep"),
             _ => {}
         }
         let field = self.fields.get(name).and_then(|values| values.iter().find(|v| fits(kind, v))).cloned();
@@ -511,6 +512,7 @@ impl Values {
             Kind::Countries => json!([self.other.to_string()]),
             Kind::Armies => json!([army]),
             Kind::Allies => json!("none"),
+            Kind::Scope => json!({ "country": self.player.to_string() }),
             other => other.json(other.example()).unwrap_or(Value::Null),
         }
     }
@@ -551,6 +553,8 @@ fn edges(c: &Capability, name: &str, kind: Kind) -> Vec<Value> {
         Kind::Armies => vec![json!([]), json!(["0"])],
         Kind::Words => vec![json!([]), json!(["no_such_word"])],
         Kind::Allies => vec![json!("all"), json!(["ZZZ"])],
+        Kind::Scope => vec![json!({ "country": "ZZZ" }), json!({ "province": 0 }), json!({ "heir": "ZZZ" }), json!({ "global": false })],
+        Kind::Number => vec![json!(-1e12), json!(1e12)],
         _ => Vec::new(),
     }
 }

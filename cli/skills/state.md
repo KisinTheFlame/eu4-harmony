@@ -37,3 +37,31 @@ The mod's own files, shipped in eu4-harmony/data/, are read with
 mod_files.read and need no permission.
 
 json.encode and json.decode read and write JSON as save data does.
+
+flags and variables, shared with the mod's scripts
+
+The mod's Paradox scripts (events/, decisions/, common/) and its Lua meet
+in the scripts' own state, which the game keeps in the save:
+
+  local me = { country = game.session.get().player }
+  game.script.set_flag(me, "my_mod_started")           -- set_country_flag
+  if game.script.flag(me, "my_mod_reformed").set then  -- has_country_flag
+    game.script.set_variable({ province = 183 }, "my_mod_level", 2.5)
+    game.script.fire_event(me, "my_mod.1")             -- country_event
+  end
+
+- A scope is a table of one key: country, province, ruler, heir, consort
+  (each a tag but province, a number), or { global = true }. Variables are
+  a country's or a province's; events fire for a country or a province.
+- flag answers { set, day }, variable { set, value }: value is 0 for a
+  variable the scope has none of, as the scripts read it. Values keep three
+  decimal places.
+- fire_event fires an event the mod's events/ define, as country_event
+  does: only when its trigger holds (refused rejected otherwise), the AI
+  choosing an option at once, the player getting it as a question. To fire
+  it later, wait first: game.time.wait(days) (eu4-harmony skills tasks).
+- Prefix every name with the mod's, so that two mods' flags do not meet.
+- A remote client uses these only as the game (eu4-harmony game --as-game).
+
+Done when a flag the Lua sets is one an event's trigger of the mod's sees,
+in the running game (eu4-harmony skills game).

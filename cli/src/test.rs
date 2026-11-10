@@ -833,6 +833,53 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    #[test]
+    fn the_world_keeps_the_flags_and_variables_a_mod_sets() {
+        let dir = std::env::temp_dir().join(format!("eu4h-test-script-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let write = |file: &str, text: &str| {
+            let path = dir.join("eu4-harmony").join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        write(
+            "lua/main.lua",
+            r#"
+            return {
+              on_button = function(game, name)
+                local me = { country = "CAS" }
+                game.script.set_flag(me, "met")
+                game.script.set_variable({ province = 1 }, "count", 2.0005)
+                local flag = game.script.flag(me, "met")
+                local none = game.script.flag({ global = true }, "met")
+                local var = game.script.variable({ province = 1 }, "count")
+                local _, err = game.script.variable({ ruler = "CAS" }, "count")
+                game.script.clear_flag(me, "met")
+                log(tostring(flag.set) .. " " .. flag.day.year .. " " .. tostring(none.set) .. " " .. var.value .. " " .. err.code
+                  .. " " .. tostring(game.script.flag(me, "met").set))
+              end,
+            }
+            "#,
+        );
+        write(
+            "tests/script_test.lua",
+            r#"
+            test("flags and variables", function()
+              local mod = open()
+              mod:world{ player = "CAS", provinces = { { id = 1, owner = "CAS" } } }
+              mod:session()
+              mod:button("go")
+              local log = table.concat(mod:log(), "|")
+              assert(log == "true 1444 false 2.001 invalid_argument false", log)
+            end)
+            "#,
+        );
+        let manifest = Manifest::parse(&format!("id = \"s\"\napi_version = \"{}\"", eu4_harmony_remote::API_VERSION)).unwrap();
+        let outcome = run(&dir, manifest, "S".into()).unwrap();
+        assert_eq!((outcome.passed, outcome.failed), (1, 0), "{}", outcome.report);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     /// Every `mod:<method>` the testing guide names is one a test has.
     #[test]
     fn the_testing_guide_names_only_methods_there_are() {

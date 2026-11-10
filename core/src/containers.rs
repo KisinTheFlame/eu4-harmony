@@ -75,6 +75,25 @@ pub fn chain(m: &Memory, first: usize, next: usize, most: usize) -> Result<Vec<u
     Ok(out)
 }
 
+/// The nodes of a `std::list` whose head, the node that is no item's, is at
+/// `head`, in order: each node has the next at `+0`, so from the head's next
+/// round to the head. An `std::unordered_map` keeps its items in one, its
+/// head at `+8`. A list that loops back elsewhere or holds more than `most`
+/// nodes is refused.
+pub fn linked(m: &Memory, head: usize, most: usize) -> Result<Vec<usize>> {
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    let mut node = m.ptr(head)?;
+    while node != head {
+        if node == 0 || seen.len() >= most || !seen.insert(node) {
+            return Err(format!("the list at {head:#x} breaks, loops or holds more than {most} nodes"));
+        }
+        out.push(node);
+        node = m.ptr(node)?;
+    }
+    Ok(out)
+}
+
 /// The nodes of a `std::map` whose head is at `head` (`objects::map`), each
 /// with its value from `objects::map::VALUE`; a map of more than `most`
 /// nodes, or one whose nodes lead back to one read before, is refused.

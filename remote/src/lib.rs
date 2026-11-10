@@ -562,6 +562,8 @@ groups! {
     Merchant(merchants::MerchantRequest, MerchantAnswer),
     /// Trade nodes, as the trade map mode and the trade node view show them.
     Trade(trade::TradeRequest, TradeAnswer),
+    /// The scripts' flags, variables and events.
+    Script(script::ScriptRequest, ScriptAnswer),
 }
 
 pub mod binary;
@@ -724,6 +726,8 @@ kinds! {
     /// A date, such as `"1444.11.11"`.
     Date "date" "1444.11.11" (Date) => Shape::Either(vec![Shape::Date, Shape::Text]), text;
     Integer "integer" "3" (u32, u64, i32) => Shape::Integer, integer;
+    /// A number, which may have decimals, such as `2.5`.
+    Number "number" "2.5" (f64) => Shape::Number, number;
     Boolean "boolean" "true" (bool) => Shape::Boolean, |text| text.parse().ok().map(Value::Bool);
     Text "text" "text" (String) => Shape::Text, text;
     /// A kind of regiment or ship, such as `"infantry"` (see
@@ -764,6 +768,12 @@ kinds! {
     /// writes as that JSON text (see [`peace::Terms`]).
     Terms "terms" r#"[{"term":"humiliate"}]"# (peace::Terms) => Vec::<peace::Term>::shape(),
         |text| peace::Terms::parse(text).ok().and_then(|terms| serde_json::to_value(terms).ok());
+    /// Whose flag, variable or event: a table of one key, such as
+    /// `{"country":"FRA"}` or `{"province":183}`, which a command line
+    /// writes `country:FRA` or `province:183`, or `global` (see
+    /// [`script::Scope`]).
+    Scope "scope" "country:FRA" (script::Scope) => script::Scope::shape(),
+        |text| script::Scope::parse(text).ok().and_then(|scope| serde_json::to_value(scope).ok());
 }
 
 /// The text itself, as JSON.
@@ -774,6 +784,11 @@ fn text(text: &str) -> Option<Value> {
 /// A whole number, as JSON.
 fn integer(text: &str) -> Option<Value> {
     serde_json::from_str::<serde_json::Number>(text).ok().filter(|n| n.is_i64() || n.is_u64()).map(Value::Number)
+}
+
+/// A number, as JSON.
+fn number(text: &str) -> Option<Value> {
+    serde_json::from_str::<serde_json::Number>(text).ok().map(Value::Number)
 }
 
 /// The text, when it is one of the words `T` is written as.
