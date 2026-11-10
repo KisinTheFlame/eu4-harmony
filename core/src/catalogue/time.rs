@@ -11,9 +11,11 @@
 //! closed. Not when another game was loaded or the game returns to the main
 //! menu, which leave the advance no game of its own to pause. While the
 //! player observes, the country annexed or the game console's observe run,
-//! time and the advance go on as in a game the player plays.
+//! time and the advance go on as in a game the player plays. A wait, which
+//! extensions have too, answers once the game's date has reached its own,
+//! however the game gets there: it neither runs nor pauses the game.
 use super::{signals, process, Live, Outcome, Place, Poll, Wait};
-use crate::game::{self, time::Pause, GResult, Status};
+use crate::game::{self, time::Pause, GResult, Status, View};
 use eu4_harmony_remote::{
     signals::Signal,
     time::{Advanced, Stop, Time, TimeAnswer, TimeRequest},
@@ -86,20 +88,57 @@ pub fn bindings() -> super::Bindings {
     super::Bindings::default()
 }
 
-pub fn run(request: TimeRequest, game: &mut (impl Layer + ?Sized), signals: Option<&signals::Buffer>) -> Outcome {
+/// Runs a request of the time group; an advance answers with the signals
+/// `view` shows.
+pub fn run(request: TimeRequest, game: &mut (impl Layer + ?Sized), signals: Option<&signals::Buffer>, view: View) -> Outcome {
     let answer = |result: GResult<TimeAnswer>| Outcome::Done(result.map(Answer::Time).map_err(Error::from));
     match request {
         TimeRequest::Get {} => answer(game.time().map(|t| TimeAnswer::Get(Time { date: Date(t.date), paused: t.paused(), speed: t.speed }))),
         TimeRequest::Pause {} => answer(game.pause().map(TimeAnswer::Pause)),
         TimeRequest::Resume {} => answer(game.resume().map(TimeAnswer::Resume)),
         TimeRequest::SetSpeed { speed } => answer(game.set_speed(speed).map(TimeAnswer::SetSpeed)),
+        TimeRequest::Wait { days } => match wait(game, days) {
+            Ok(waiting) => Outcome::Later(Box::new(waiting)),
+            Err(error) => Outcome::Done(Err(error)),
+        },
         // An advance answers with the signals heard while it ran.
-        TimeRequest::Advance { days, speed } => match signals.map(|signals| start(game, signals, days, speed)) {
+        TimeRequest::Advance { days, speed } => match signals.map(|signals| start(game, signals, view, days, speed)) {
             None => Outcome::Done(Err(signals::unkept())),
             Some(Ok(Started::Running(advance))) => Outcome::Later(Box::new(advance)),
             Some(Ok(Started::Stopped(advanced))) => Outcome::Done(Ok(Answer::Time(TimeAnswer::Advance(advanced)))),
             Some(Err(error)) => Outcome::Done(Err(error)),
         },
+    }
+}
+
+/// A wait for the date `days` from now, in this session.
+fn wait(game: &mut (impl Layer + ?Sized), days: u32) -> Result<Waiting, Error> {
+    let time = game.time()?;
+    let until = eu4_harmony_checks::time::days_after(Date(time.date), days)?;
+    Ok(Waiting { session: time.session, until: until.0 })
+}
+
+/// A wait under way: it neither runs nor pauses the game.
+struct Waiting {
+    session: u64,
+    until: i32,
+}
+
+impl Wait for Waiting {
+    fn poll(&mut self, at: &mut Poll<'_>) -> Option<Response> {
+        const ENDED: &str = "the session the wait began in ended before its date";
+        if let Place::Outside(Some(_)) = at.place {
+            return Some(Err(Error::new(Code::SessionChanged, ENDED)));
+        }
+        let game = at.world()?;
+        match game.time() {
+            Ok(time) if time.session != self.session => Some(Err(Error::new(Code::SessionChanged, ENDED))),
+            Ok(time) if time.date >= self.until => Some(Ok(Answer::Time(TimeAnswer::Wait(Date(time.date))))),
+            Ok(_) => None,
+            // A frame where the game cannot be read comes and goes.
+            Err(fail) if fail.status == Status::NotReady => None,
+            Err(fail) => Some(Err(fail.into())),
+        }
     }
 }
 
@@ -110,10 +149,8 @@ enum Started {
     Stopped(Advanced),
 }
 
-fn start(game: &mut (impl Layer + ?Sized), signals: &signals::Buffer, days: u32, speed: Option<u32>) -> Result<Started, Error> {
-    if !(1..=MOST_DAYS).contains(&days) {
-        return Err(Error::new(Code::InvalidArgument, format!("days is from 1 to {MOST_DAYS}, not {days}")));
-    }
+fn start(game: &mut (impl Layer + ?Sized), signals: &signals::Buffer, view: View, days: u32, speed: Option<u32>) -> Result<Started, Error> {
+    eu4_harmony_checks::time::days(days)?;
     if let Some(speed) = speed {
         eu4_harmony_checks::time::speed(speed)?;
     }
@@ -124,8 +161,12 @@ fn start(game: &mut (impl Layer + ?Sized), signals: &signals::Buffer, days: u32,
     let since = signals.last();
     if game.questions_waiting()? > 0 {
         game.pause()?;
-        let advanced =
-            Advanced { stopped: Stop::Question, reason: QUESTION.into(), date: Date(time.date), signals: signals.read(since, process(), &Default::default()) };
+        let advanced = Advanced {
+            stopped: Stop::Question,
+            reason: QUESTION.into(),
+            date: Date(time.date),
+            signals: signals.read(since, process(), view, &Default::default()),
+        };
         return Ok(Started::Stopped(advanced));
     }
     if let Some(speed) = speed {
@@ -138,7 +179,7 @@ fn start(game: &mut (impl Layer + ?Sized), signals: &signals::Buffer, days: u32,
         stop.release();
         return Err(fail.into());
     }
-    Ok(Started::Running(Advance { session: time.session, since, until, date: time.date, reached: None, stop: Some(stop) }))
+    Ok(Started::Running(Advance { session: time.session, since, view, until, date: time.date, reached: None, stop: Some(stop) }))
 }
 
 const QUESTION: &str = "a question waits for the player's answer";
@@ -148,6 +189,8 @@ struct Advance {
     session: u64,
     /// The last signal before time ran.
     since: u64,
+    /// The view whose signals it answers with.
+    view: View,
     /// The date it stops at.
     until: i32,
     /// The date at the last safe point.
@@ -171,8 +214,11 @@ impl Advance {
             game.pause()?;
             let reached = *self.reached.get_or_insert(now);
             let until = self.until;
-            let heard =
-                signals.read(self.since, process(), &Default::default()).signals.iter().any(|n| matches!(n.signal, Signal::Day { date } if date.0 >= until));
+            let heard = signals
+                .read(self.since, process(), View::Full, &Default::default())
+                .signals
+                .iter()
+                .any(|n| matches!(n.signal, Signal::Day { date } if date.0 >= until));
             return Ok((heard || now.duration_since(reached) >= DAY_SIGNAL_WAIT).then_some((Stop::Date, "the date was reached")));
         }
         if game.questions_waiting()? > 0 {
@@ -195,7 +241,7 @@ impl Advance {
             stopped,
             reason: reason.into(),
             date: Date(self.date),
-            signals: signals.read(self.since, process(), &Default::default()),
+            signals: signals.read(self.since, process(), self.view, &Default::default()),
         })))
     }
 

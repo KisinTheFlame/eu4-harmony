@@ -1505,6 +1505,7 @@ mod tests {
     }
 
     mod through_the_layer {
+        use crate::game::As;
         use super::super::*;
         use crate::catalogue::fake::{byz, tur};
         use crate::game::{
@@ -1545,7 +1546,7 @@ mod tests {
             let byzantium = Object::country(byz(), country_fields::HOSTILE_COUNT + 4);
             let countries = Object::countries(&[&turkey, &byzantium]);
             let manager = image.country_manager(&countries);
-            let result = action(buffers::session(image.memory(), 0, tur(), turkey.at(), countries.at(), Caller::Remote));
+            let result = action(buffers::session(image.memory(), 0, tur(), turkey.at(), countries.at(), Caller::Remote(As::Player)));
             drop((turkey, byzantium, countries, manager, image));
             result
         }

@@ -193,6 +193,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
 
     /// A date as the game keeps it, at midnight.
@@ -285,7 +286,7 @@ mod tests {
         let world = Object::new(campaign::world::MAP_MANAGER + 8).points_to(campaign::world::MAP_MANAGER, manager);
         let country = Object::country(byz(), 0);
         let countries = Object::countries(&[&country]);
-        let session = buffers::session(m, world.at(), byz(), country.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(m, world.at(), byz(), country.at(), countries.at(), Caller::Remote(As::Player));
         Byzantium { _image: image, _objects: vec![vtable, world, country, countries], session, dialogs, icon: icon_at }
     }
 

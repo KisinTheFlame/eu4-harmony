@@ -152,6 +152,23 @@ Read from `eu4.exe` on 2026-11-05 with `core/examples/disasm.rs` and scripts ove
 
 - What writes `+0x2de4` (the unrest base) and `+0x2df0`/`+0x2df4` (the autonomy bounds); when a temporary claim ends; the units of a construction's `total`; the military construction's fields beyond the unit type; the trade company region's key; how the province view draws a construction's progress bar (only the trigger's reading of `+0x30` was found); the costs of the remaining spending kinds; the culture conversion's and coring's durations beyond the function names above.
 
+## Prosperity, devastation, manpower, supply, separatism and institutions (for M6 of mod-capabilities)
+
+Read 2026-11-11 from `eu4.exe` with `cargo xtask disasm` and capstone scripts in the scratchpad.
+
+- **Prosperity** is the country state's (above): fixed point at `+0x18` of the state at `+0x2e0`, in percent; the state writer reads it first (`0xabbae8` `8b 59 18`, token `0x3559` prosperity). A territory has none.
+- **Devastation**: fixed point at `+0x42c`, in percent, written only when not 0 (`0x9d7fc7` `41 8b 9f 2c 04 00 00`, token `0x355c` devastation).
+- **Separatism** (saved as `nationalism`, token `0x2b5b`): an i32 at `+0x5a0`, written only when not 0 (`0x9d88f0` `45 8b 87 a0 05 00 00`, an integer, not fixed point). `0xa08700`(province, …, four arguments), whose log lines say `CProvince::GetNationalismTimeOutYears`, adds it to the years a new owner's separatism would start at; so it is the years left.
+- **The manpower a province gives** (the province view's `manpower_value`, `0x1371220`): `0xa0b740`(province, out, explanation, scratch, int*, int*, flag), seven arguments. The view passes no explanation, a zeroed 8-byte scratch as the fourth, two zeroed ints and 0; the map's tooltip (`PW_MANPOWER`, `0x9ea162`) passes an explanation. It starts from base manpower (`+0x3e0`, with a native capital's tribal development as the base getters add it) times the define at `[0x233dcb8]` over 1000, then the modifiers. The view shows the out value divided by 1000 (`0xae8c10` with 1000). The country's own sum of its provinces (`0x6c27e2`) asks it the same way.
+- **Supply limit**: `0x9fbce0`(province, out, tag by value, explanation, flag), five arguments, fixed point regiments; it depends on whose army it is, the tag. The supply limit trigger (`0xd25b54`) passes the province's owner, no explanation and 0; the map's tooltip (`PW_SUPPLY_LIMIT`, `0x9e292b`) passes the game's own "player's country" (the world's `+0x1e68` while observing with a country in view, `+0x1e60` otherwise).
+- **Institutions**:
+  - The database: its getter `0x855ad0` makes it on first use and answers the static at `0x2328b10`; its institutions are a vector of pointers at `+0x10`..`+0x18` (`0x8571f0` answers the one at an index, `0x179690` counts them).
+  - An institution: its index, i32 at `+0x10`; its key, a `std::string` at `+0x18`, which its name looks up and `_desc` follows for its description (`0x1f7860`).
+  - Whether it has appeared in the world: the i32 at the institution's index in the world's vector at `+0x22a0`, nonzero once it has (`0x770fe0`).
+  - A province's progress: the i32 at the index in its vector at `+0xd0`, fixed point, 100 (`0x186a0`) when it has it (`0xa28630` compares with that, `0xa28650` reads it, `0xa28670` adds to it, clamped to 0..100). The province writer writes the whole vector under `institutions` (`0x9d7504`, token `0x3447`).
+  - The map's tooltip (`0x9e6908`) lists only the institutions that have appeared, saying for each whether the province has it (`HAS_EMBRACED_INSTITUTION`) or how far it is (`EMBRACING_INSTITUTION`, with two decimals).
+- **Tried** ([the run](../prototype-log/2026-11-11-province-and-army-reads.md)): the manpower, supply limit, devastation and prosperity read as the province view and its state tab showed them, for the player's and another country's provinces.
+
 ## Seen in the running game on 2026-10-26
 
 Before the framework existed, the same reading was done over a whole map for an ordinary land army in Edirne (149), recorded outside this repository and not in [prototype-log/](../prototype-log/): 4942 province records, 4027 of them passable land; 23,136 connection records; the access query (armies.md) asked 4027 times, 467 provinces allowed; the blockade query asked 24 times; 2072 connections kept; 456 ms in all. The provinces within 3, 5 and 7 steps of 149, each connection one step, were 28, 66 and 107, and showed so on the map.

@@ -13,6 +13,10 @@
 //! one of the catalogue's codes but `internal` and `bad_request`; at the
 //! main menu a capability that needs a game must be refused `not_in_game`,
 //! and with no country in view one that acts as a country `no_country`.
+//! Requests act as the player, but for a capability a request asks for only
+//! as the game: that one is asked as the game, and once as the player too,
+//! which must be refused `as_the_game` (ADR
+//! requests-act-as-the-player-or-as-the-game).
 //! What did not hold is a finding: the sweep goes on, back in its place
 //! when a capability left it, and fails at its end when there was one.
 //!
@@ -26,7 +30,7 @@ use eu4_harmony_remote::{
     result_shape,
     session::{Session, SessionRequest},
     time::{Time, TimeRequest},
-    Capability, Code, CountryTag, Error, GroupRequest, Kind,
+    As, Capability, Code, CountryTag, Error, GroupRequest, Kind,
 };
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -190,7 +194,15 @@ impl Swept {
             for (variant, args) in values.requests(c) {
                 self.ensure(game, place, &last)?;
                 last = c.name();
-                let request = Raw { name: c.name(), args };
+                if c.as_game && variant == Variant::Real {
+                    self.asked += 1;
+                    let as_player = Raw { name: c.name(), acting: None, args: args.clone() };
+                    match game.try_ask::<Value>(&as_player, ANSWER)? {
+                        Err(Error { code: Code::AsTheGame, .. }) => self.count(c, place, "as_the_game"),
+                        other => self.found(c, place, "as the player", format!("not refused as_the_game: {other:?}")),
+                    }
+                }
+                let request = Raw { name: c.name(), acting: c.as_game.then_some(As::Game), args };
                 let written = serde_json::to_string(&request.args).unwrap_or_default();
                 record["asking"] = json!(format!("{} {written} ({})", c.name(), place.name()));
                 self.asked += 1;
@@ -228,6 +240,9 @@ impl Swept {
                         }
                         // An argument may be refused first, the place after it.
                         let arguments = matches!(code, Code::InvalidArgument | Code::NotFound);
+                        if code == Code::AsTheGame {
+                            self.found(c, place, &written, format!("refused as_the_game, asked as the game or not needing it: {message}"));
+                        }
                         if variant == Variant::Real && place == Place::MainMenu && c.in_game && code != Code::NotInGame && !arguments {
                             self.found(c, place, &written, format!("refused {word} at the main menu, not not_in_game: {message}"));
                         }
@@ -334,6 +349,9 @@ impl Swept {
 struct Raw {
     #[serde(skip)]
     name: String,
+    /// As the game, for a capability a request asks for only so.
+    #[serde(rename = "as", skip_serializing_if = "Option::is_none")]
+    acting: Option<As>,
     #[serde(flatten)]
     args: Map<String, Value>,
 }
@@ -382,7 +400,7 @@ impl Values {
         }
         let ask = |game: &mut Game, name: &str, args: Value| -> Played<Option<Value>> {
             let args = args.as_object().cloned().unwrap_or_default();
-            Ok(game.try_ask::<Value>(&Raw { name: name.into(), args }, ANSWER)?.ok())
+            Ok(game.try_ask::<Value>(&Raw { name: name.into(), acting: None, args }, ANSWER)?.ok())
         };
         if let Some(time) = ask(game, "time.get", json!({}))? {
             values.date = text(&time["date"]);
@@ -457,6 +475,11 @@ impl Values {
                 requests.push((Variant::Edge, args));
             }
         }
+        // A wait answers only once days have passed, which they do not in
+        // a paused game: its edges, refused at once, are asked.
+        if c.name() == "time.wait" {
+            requests.retain(|(variant, _)| *variant == Variant::Edge);
+        }
         requests
     }
 
@@ -510,7 +533,7 @@ fn fits(kind: Kind, value: &Value) -> bool {
 /// least and the most, the empty and the long.
 fn edges(c: &Capability, name: &str, kind: Kind) -> Vec<Value> {
     match (c.name().as_str(), name) {
-        ("time.advance", "days") => return vec![json!(0), json!(36501)],
+        ("time.advance" | "time.wait", "days") => return vec![json!(0), json!(36501)],
         (_, "wait_ms") => return vec![json!(0), json!(60001)],
         _ => {}
     }
@@ -557,7 +580,8 @@ mod tests {
         assert!(all.len() > 250, "only {} capabilities swept", all.len());
         for c in &all {
             let requests = v.requests(c);
-            assert_eq!(requests[0].0, Variant::Real);
+            // A wait is asked only at its edges.
+            assert_eq!(requests[0].0, if c.name() == "time.wait" { Variant::Edge } else { Variant::Real }, "{}", c.name());
             for arg in c.args.iter().filter(|a| !a.optional) {
                 assert!(requests[0].1.contains_key(arg.name), "{} has no value for {}", c.name(), arg.name);
                 let value = &requests[0].1[arg.name];
@@ -591,6 +615,9 @@ mod tests {
         assert_eq!(v.requests(get)[0].1["country"], json!("FRA"), "a country's own read is of the player's");
         let advance = eu4_harmony_remote::capability("time.advance").unwrap();
         assert_eq!(v.requests(advance)[0].1["days"], json!(1));
+        let wait = eu4_harmony_remote::capability("time.wait").unwrap();
+        let days: Vec<Value> = v.requests(wait).into_iter().map(|(_, args)| args["days"].clone()).collect();
+        assert_eq!(days, [json!(0), json!(36501)], "a wait is asked only at its edges");
     }
 
     #[test]

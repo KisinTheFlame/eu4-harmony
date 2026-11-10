@@ -277,10 +277,34 @@ pub const FUNCTIONS: &[Function] = &[
     },
     Function {
         name: "spawn",
-        args: &[value("fn", "fun()", "the task's function")],
-        returns: &[],
-        about: "Starts fn as a task of its own, from a handler or a task, and returns as soon as fn first waits or ends.",
+        args: &[value("fn", "fun(...): T", "the task's function"), value("...", "any", "what fn is called with")],
+        returns: &[value("task", "eu4.Task<T>", "the task, to await, cancel or ask whether it is done")],
+        about: "Starts fn as a task of its own, from a handler or a task, and returns its task as soon as fn first waits or ends.",
         waits: false,
+        permission: None,
+    },
+    Function {
+        name: "async",
+        args: &[value("fn", "fun(...): T", "the tasks' function")],
+        returns: &[value("start", "fun(...): eu4.Task<T>", "a function that starts fn as a task with what it is called with, and returns the task")],
+        about: "Makes fn an async function, as JavaScript's: each call starts it as a task, as spawn does.",
+        waits: false,
+        permission: None,
+    },
+    Function {
+        name: "await_all",
+        args: &[value("tasks", "eu4.Task[]", "the tasks")],
+        returns: &[value("results", "any[]", "each task's first result, in the order of tasks")],
+        about: "Waits until every task has ended, as Promise.all; the first task found failed or cancelled raises its error here.",
+        waits: true,
+        permission: None,
+    },
+    Function {
+        name: "await_any",
+        args: &[value("tasks", "eu4.Task[]", "at least one task")],
+        returns: &[value("index", "integer", "the place in tasks of the first to end"), value("...", "any", "what its function returned")],
+        about: "Waits until one of the tasks has ended, as Promise.race; one that failed or was cancelled raises its error here.",
+        waits: true,
         permission: None,
     },
     Function {
@@ -398,7 +422,37 @@ pub const FUNCTIONS: &[Function] = &[
 
 /// The globals the framework puts in the sandbox, besides Lua's own and the
 /// `game` its handlers get: each a function or a table of them.
-pub const GLOBALS: &[&str] = &["log", "print", "json", "mod_files", "text", "require", "spawn", "files", "http"];
+pub const GLOBALS: &[&str] = &["log", "print", "json", "mod_files", "text", "require", "spawn", "async", "await_all", "await_any", "files", "http"];
+
+/// A task's methods (ADR tasks-are-awaited-like-promises): what `spawn` and
+/// an async function return, `eu4.Task<T>` in the editor's types, `T` what
+/// its function returns.
+pub const TASK_METHODS: &[Function] = &[
+    Function {
+        name: "await",
+        args: &[],
+        returns: &[value("...", "T", "what the task's function returned")],
+        about: "Waits until the task has ended and returns what its function returned; an error it raised is raised again here, and a cancelled task raises one whose code is cancelled. Catch either with pcall(t.await, t).",
+        waits: true,
+        permission: None,
+    },
+    Function {
+        name: "cancel",
+        args: &[],
+        returns: &[],
+        about: "Ends the task at the wait it is in, or at its next; nothing it asked of the game is taken back, and an answer still to come is dropped. Nothing for a task that has ended.",
+        waits: false,
+        permission: None,
+    },
+    Function {
+        name: "done",
+        args: &[],
+        returns: &[value("done", "boolean", "whether it has ended: returned, failed or been cancelled")],
+        about: "Whether the task has ended.",
+        waits: false,
+        permission: None,
+    },
+];
 
 /// What Lua has in the sandbox of its own.
 pub const SANDBOX: &str = "Lua 5.4 with its string, table, math, utf8 and coroutine libraries and the base library, \

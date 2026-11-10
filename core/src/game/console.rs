@@ -236,6 +236,7 @@ mod tests {
     }
 
     mod through_the_layer {
+        use crate::game::As;
         use super::super::*;
         use crate::catalogue::fake::tur;
         use crate::game::{
@@ -284,7 +285,7 @@ mod tests {
             let image = Image::new();
             let get = if has { console as *const () } else { no_console as *const () };
             image.strings().function(GET.rva(), get).function(RUN.rva(), run as *const ());
-            let result = super::super::run(buffers::world_session(image.memory(), 0, 0, tur(), 0, Caller::Remote), command);
+            let result = super::super::run(buffers::world_session(image.memory(), 0, 0, tur(), 0, Caller::Remote(As::Player)), command);
             drop(image);
             result
         }

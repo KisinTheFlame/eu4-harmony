@@ -292,6 +292,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
 
     const CAS: Tag = Tag(0x0100_0001_0053_4143);
@@ -363,7 +364,7 @@ mod tests {
         provinces.owner(3, tur());
         let player = Object::country(tur(), country::TREASURY + 4).i32(country::TREASURY, treasury);
         let countries = Object::countries(&[&player]);
-        let session = buffers::session(image.memory(), provinces.world(), tur(), player.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), provinces.world(), tur(), player.at(), countries.at(), Caller::Remote(As::Player));
         let objects = vec![none, marketplace, temple, workshop, database, slots, construction, node, player, countries];
         Ottomans { _image: image, _provinces: provinces, _objects: objects, session }
     }

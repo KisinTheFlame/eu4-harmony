@@ -97,6 +97,14 @@ struct Army {
     route: Vec<u32>,
     #[serde(default)]
     route_by: Option<String>,
+    /// Its strength, 1 a full regiment; every regiment full when absent.
+    #[serde(default)]
+    strength: Option<f64>,
+    /// Its morale; 3, every regiment's most, when absent.
+    #[serde(default)]
+    morale: Option<f64>,
+    #[serde(default)]
+    leader: Option<u32>,
 }
 
 fn army() -> String {
@@ -161,7 +169,8 @@ impl World {
         self.player.clone().unwrap_or_else(|| "CAS".into())
     }
 
-    fn date(&self) -> Value {
+    /// The world's date, in Lua's form.
+    pub fn date(&self) -> Value {
         match &self.date {
             Some(Value::String(text)) => date(text),
             Some(other) => other.clone(),
@@ -285,9 +294,15 @@ impl World {
 
     fn army_json(&self, a: &Army) -> Value {
         let own = a.owner == self.player();
+        let full = f64::from(a.regiments);
+        let mut units = json!({"infantry": 0, "cavalry": 0, "artillery": 0, "heavy_ship": 0, "light_ship": 0, "galley": 0, "transport": 0});
+        units[if a.kind == "navy" { "heavy_ship" } else { "infantry" }] = json!(a.regiments);
         json!({
             "id": a.id, "owner": a.owner, "kind": a.kind, "province": a.province, "regiments": a.regiments,
             "blocked": a.blocked, "route": if own { a.route.clone() } else { Vec::new() }, "route_by": a.route_by,
+            "aboard": null, "carrying": 0, "units": units, "strength": a.strength.unwrap_or(full), "max_strength": full,
+            "morale": a.morale.unwrap_or(3.0), "max_morale": 3.0, "leader": a.leader,
+            "maintenance": if own { json!(0.25 * full) } else { Value::Null },
         })
     }
 
@@ -305,6 +320,8 @@ impl World {
             "center_of_trade": 0, "trade_company": false, "state": p.owner.as_ref().map(|_| "state"), "edict": null,
             "cores": p.owner.iter().collect::<Vec<_>>(), "claims": [], "constructions": [], "missionary": null, "colony_size": null,
             "named_modifiers": [],
+            "prosperity": p.owner.as_ref().map(|_| 0.0), "devastation": 0.0, "local_manpower": 0.25, "supply_limit": 6.0, "separatism": 0,
+            "institutions": [],
         })
     }
 

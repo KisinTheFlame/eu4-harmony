@@ -8,7 +8,7 @@ use crate::containers;
 use crate::{
     game_string,
     memory::Memory,
-    objects::campaign::{building, classes, construction, country, geometry, globals, map, province as field, terrain, unit_type},
+    objects::campaign::{building, classes, construction, country, geometry, globals, institution, map, province as field, terrain, unit_type, world as world_field},
     objects::list,
     points::{GameFunction, Point},
     unicode::game_text,
@@ -207,6 +207,15 @@ pub(super) const RECRUIT_PLACE: GameFunction<2> = GameFunction::at(0xa1fe50);
 /// province), as the scope values "local_autonomy" and "unrest".
 const AUTONOMY: GameFunction<3> = GameFunction::at(0x6de950);
 const UNREST: GameFunction<3> = GameFunction::at(0x6de660);
+/// The manpower a province gives its owner, as the province view's
+/// `manpower_value` shows it: (province, out, explanation, scratch, int*,
+/// int*, flag), as the view calls it with no explanation.
+const LOCAL_MANPOWER: GameFunction<7> = GameFunction::at(0xa0b740);
+/// A province's supply limit for a country: (province, out, tag by value,
+/// explanation, flag), as the supply limit trigger calls it.
+const SUPPLY_LIMIT: GameFunction<5> = GameFunction::at(0x9fbce0);
+/// The institutions' database: its getter, which makes it on first use.
+const INSTITUTIONS: GameFunction<0> = GameFunction::at(0x855ad0);
 
 /// The most kinds of terrain or building believed.
 const MOST_KINDS: usize = 10_000;
@@ -311,6 +320,31 @@ pub fn points() -> Vec<Point> {
         Point::keep(0xcd1db1usize, "48 8b 4f 40", "construction country").uses(&[construction::COUNTRY]),
         Point::keep(0x25368dusize, "48 8b 87 80 00 00 00 8b 58 14", "building construction's building").uses(&[construction::MAKES, building::INDEX]),
         Point::keep(0x9d9977usize, "48 8b 8b 80 00 00 00", "military construction's unit type").uses(&[construction::MAKES]),
+        Point::keep(
+            LOCAL_MANPOWER,
+            "48 89 5c 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8d 6c 24 d0 48 81 ec 30 01 00 00",
+            "province manpower getter",
+        ),
+        Point::keep(
+            SUPPLY_LIMIT,
+            "48 89 5c 24 18 48 89 54 24 10 48 89 4c 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8d 6c 24 e0 48 81 ec 20 01 00 00",
+            "province supply limit getter",
+        ),
+        Point::keep(INSTITUTIONS, "48 83 ec 28 ba 08 00 00 00 65 48 8b 04 25 58 00 00 00", "institutions database"),
+        // An institution by its index, from the database's vector.
+        Point::keep(0x8571f0usize, "48 8b 41 10 8b d2 48 8b 04 d0 c3", "institution by index").uses(&[institution::DATABASE_LIST]),
+        // The institution's name: its key, looked up.
+        Point::keep(0x1f786eusize, "48 8d 51 18", "institution key").uses(&[institution::KEY]),
+        // Whether an institution has appeared in the world.
+        Point::keep(0x770fe0usize, "48 8b 81 a0 22 00 00 8b 52 10 83 3c 90 00 0f 95 c0 c3", "institution appeared")
+            .uses(&[world_field::INSTITUTIONS, institution::INDEX]),
+        // A province's progress toward an institution.
+        Point::keep(0xa28650usize, "48 8b 81 d0 00 00 00 45 8b 40 10 42 8b 0c 80 48 8b c2 89 0a c3", "province institution progress")
+            .uses(&[field::INSTITUTIONS, institution::INDEX]),
+        Point::keep(0x9d7fc7usize, "41 8b 9f 2c 04 00 00", "province devastation").uses(&[field::DEVASTATION]),
+        Point::keep(0x9d88f0usize, "45 8b 87 a0 05 00 00", "province separatism").uses(&[field::SEPARATISM]),
+        // The country state's writer, before the token prosperity.
+        Point::keep(0xabbae8usize, "8b 59 18", "state prosperity").uses(&[field::STATE_PROSPERITY]),
     ]
 }
 
@@ -356,6 +390,12 @@ fn snapshot(m: &Memory, ctx: &World, address: usize, eyes: Eyes) -> GResult<Prov
         missionary: if all && missionary { Some(thousandths(m.i32(address + field::MISSIONARY_PROGRESS)?)) } else { None },
         colony_size: if colony > 0 && flags & field::CITY_BIT == 0 { Some(thousandths(colony)) } else { None },
         named_modifiers: modifiers::named_modifiers(m, pointers(m, address + field::NAMED_MODIFIERS)?, eyes == Eyes::All)?,
+        prosperity: prosperity(m, address)?,
+        devastation: thousandths(m.i32(address + field::DEVASTATION)?),
+        local_manpower: thousandths(local_manpower(m, address)?),
+        supply_limit: thousandths(supply_limit(m, address, ctx.player.seen_as())?),
+        separatism: m.i32(address + field::SEPARATISM)?,
+        institutions: institutions(m, ctx, address)?,
     })
 }
 
@@ -364,6 +404,75 @@ fn pointers(m: &Memory, vector: usize) -> GResult<Vec<usize>> {
     let begin = m.ptr(vector)?;
     let count = containers::span(begin, m.ptr(vector + 8)?, 8, MOST_KINDS)?;
     (0..count).map(|i| Ok(m.ptr(begin + i * 8)?)).collect()
+}
+
+/// The prosperity of the province's state; none in a territory.
+fn prosperity(m: &Memory, province: usize) -> GResult<Option<f64>> {
+    let state = m.ptr(province + field::STATE)?;
+    if state == 0 {
+        return Ok(None);
+    }
+    Ok(Some(thousandths(m.i32(state + field::STATE_PROSPERITY)?)))
+}
+
+/// The manpower the province gives its owner, fixed point, as the province
+/// view asks it: no explanation, the rest the view's zeros.
+fn local_manpower(m: &Memory, province: usize) -> GResult<i32> {
+    let mut out = 0i32;
+    let mut scratch = [0u64; 2];
+    let (mut first, mut second) = (0i32, 0i32);
+    let ptr = &mut out as *mut i32 as usize;
+    let args = [province, ptr, 0, scratch.as_mut_ptr() as usize, &mut first as *mut i32 as usize, &mut second as *mut i32 as usize, 0];
+    if LOCAL_MANPOWER.call(m, args)? != ptr {
+        return Err("the manpower getter returned an unexpected pointer".to_string().into());
+    }
+    Ok(out)
+}
+
+/// The province's supply limit for the country `seen_as`, fixed point, as
+/// the map's tooltip asks it: the tooltip's country is the game's own
+/// "player's country".
+fn supply_limit(m: &Memory, province: usize, seen_as: Tag) -> GResult<i32> {
+    let mut out = 0i32;
+    let ptr = &mut out as *mut i32 as usize;
+    if SUPPLY_LIMIT.call(m, [province, ptr, seen_as.0 as usize, 0, 0])? != ptr {
+        return Err("the supply limit getter returned an unexpected pointer".to_string().into());
+    }
+    Ok(out)
+}
+
+/// The province's progress toward each institution that has appeared in
+/// the world, as the map's tooltip lists them.
+fn institutions(m: &Memory, ctx: &impl InWorld, province: usize) -> GResult<Vec<remote::InstitutionProgress>> {
+    let database = INSTITUTIONS.call(m, [])?;
+    let first = m.ptr(database + institution::DATABASE_LIST)?;
+    let count = containers::span(first, m.ptr(database + institution::DATABASE_LIST + 8)?, 8, MOST_KINDS)?;
+    let world = ctx.world();
+    let appeared = i32s(m, world + world_field::INSTITUTIONS)?;
+    let progress = i32s(m, province + field::INSTITUTIONS)?;
+    let mut out = Vec::new();
+    for slot in 0..count {
+        let it = m.ptr(first + slot * 8)?;
+        let index = m.i32(it + institution::INDEX)?;
+        if index as usize != slot {
+            return Err(format!("institution {index} is in slot {slot}").into());
+        }
+        if appeared.get(slot).copied().unwrap_or(0) == 0 {
+            continue;
+        }
+        let Some(&value) = progress.get(slot) else {
+            return Err(format!("the province has no progress for institution {slot}").into());
+        };
+        out.push(remote::InstitutionProgress { institution: text_at(m, it + institution::KEY)?, progress: thousandths(value) });
+    }
+    Ok(out)
+}
+
+/// The i32s of a vector (begin, end) at `vector`.
+fn i32s(m: &Memory, vector: usize) -> GResult<Vec<i32>> {
+    let begin = m.ptr(vector)?;
+    let count = containers::span(begin, m.ptr(vector + 8)?, 4, MOST_KINDS)?;
+    (0..count).map(|i| Ok(m.i32(begin + i * 4)?)).collect()
 }
 
 /// One of the province's scope values the game computes as it shows them:

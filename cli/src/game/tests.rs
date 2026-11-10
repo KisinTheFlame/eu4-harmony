@@ -31,7 +31,7 @@ fn wrong(text: &str) -> String {
 
 /// An ask for the session, printing as `out` and `compact` say.
 fn session(out: Option<PathBuf>, compact: bool) -> Ask {
-    Ask { request: Request::Session(SessionRequest::Get {}), timeout: None, out, compact, test_game: None }
+    Ask { request: Request::Session(SessionRequest::Get {}), acting: As::Player, timeout: None, out, compact, test_game: None }
 }
 
 fn temp(name: &str) -> PathBuf {
@@ -67,6 +67,11 @@ fn the_command_lines_own_options_go_anywhere() {
     let a = ask("army get --out shot.png 4294967377");
     assert_eq!((a.timeout, a.compact, a.out), (None, false, Some(PathBuf::from("shot.png"))));
     assert_eq!(a.request, Request::Army(ArmyRequest::Get { army: ArmyId(4294967377) }));
+    // As the player unless told otherwise, wherever it is said.
+    assert_eq!(a.acting, As::Player);
+    assert_eq!(ask("--as-game army get 4294967377").acting, As::Game);
+    assert_eq!(ask("army get 4294967377 --as_game --as-game").acting, As::Game);
+    assert_eq!(ask("army get --as-player 4294967377").acting, As::Player);
 }
 
 #[test]
@@ -104,6 +109,7 @@ fn a_wrong_command_line_says_why() {
         ("session.get --timeout soon", "--timeout takes a number of seconds"),
         ("session.get --timeout", "--timeout needs a value"),
         ("session.get --out", "--out needs a value"),
+        ("session.get --as-game --as-player", "--as-player and --as-game are one or the other"),
     ] {
         let error = wrong(text);
         assert!(error.contains(says), "{text}: {error}");
@@ -118,6 +124,7 @@ const FLAGS: Capability = Capability {
     in_game: false,
     country: false,
     extensions: true,
+    as_game: false,
     args: &[
         Parameter { name: "paused", kind: Kind::Boolean, optional: true, about: " Paused." },
         Parameter { name: "province", kind: Kind::Province, optional: true, about: " A province." },
@@ -146,6 +153,7 @@ const SAY: Capability = Capability {
     in_game: false,
     country: false,
     extensions: true,
+    as_game: false,
     args: &[
         Parameter { name: "text", kind: Kind::Text, optional: false, about: " The text." },
         Parameter { name: "times", kind: Kind::Integer, optional: true, about: " How often." },
@@ -305,6 +313,17 @@ fn asks_the_game_down_its_pipe() {
     });
     let outcome = ask("army move 4294967377 151 --compact").run(&name, &this_program());
     assert_eq!(outcome, Outcome { code: EXIT_OK, stdout: Some("null".into()), stderr: None });
+    served.join().unwrap();
+
+    // As the game, which the pipe reads beside the capability.
+    let name = pipe_name("game-asks-as-the-game");
+    let served = serve_one(&name, |pipe, line| {
+        assert_eq!(line, "{\"capability\":\"session.get\",\"as\":\"game\"}\n");
+        assert_eq!(eu4_harmony_remote::sent_from_json(line.trim()).unwrap(), (Request::Session(SessionRequest::Get {}), As::Game));
+        answer(pipe, "{\"ok\":true,\"result\":null}\n");
+    });
+    let outcome = ask("session get --as-game --compact").run(&name, &this_program());
+    assert_eq!(outcome.code, EXIT_OK);
     served.join().unwrap();
 }
 

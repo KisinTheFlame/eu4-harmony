@@ -355,6 +355,7 @@ mod tests {
     }
 
     mod through_the_layer {
+        use crate::game::As;
         use super::super::*;
         use crate::catalogue::fake::{game_tag, tur, wal};
         use eu4_harmony_remote::CountryTag;
@@ -390,7 +391,7 @@ mod tests {
             let serbia = Object::country(ser(), size).u64(country_fields::OVERLORD, tur().0);
             let countries = Object::countries(&[&turkey, &serbia, &wallachia]);
             let manager = image.country_manager(&countries);
-            let result = action(buffers::session(m, 0, tur(), turkey.at(), countries.at(), Caller::Remote));
+            let result = action(buffers::session(m, 0, tur(), turkey.at(), countries.at(), Caller::Remote(As::Player)));
             drop((turkey, serbia, wallachia, countries, manager, image));
             result
         }

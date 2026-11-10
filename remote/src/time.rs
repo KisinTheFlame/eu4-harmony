@@ -5,11 +5,12 @@ use serde::{Deserialize, Serialize};
 
 /// The game speeds, slowest first, as the descriptions below state them.
 pub use eu4_harmony_checks::time::SPEEDS;
-/// The most days one advance may ask for: a hundred years.
-pub const MOST_DAYS: u32 = 36_500;
+/// The most days one advance or wait may ask for: a hundred years.
+pub use eu4_harmony_checks::time::MOST_DAYS;
 
 group! {
-    /// Time: the date, pausing and resuming, the speed, and advancing time.
+    /// Time: the date, pausing and resuming, the speed, waiting for days,
+    /// and advancing time.
     "time": TimeRequest, TimeAnswer;
 
     /// The date, whether the game is paused, and its speed.
@@ -33,6 +34,17 @@ group! {
         /// From 1 (slowest) to 5 (fastest).
         speed: u32,
     } -> (), "nothing";
+    /// Waits until the date some days from now, and answers it once the
+    /// game has reached it; days the game stands paused do not count, as its
+    /// date does not move, and the game is neither run nor paused for it. An
+    /// extension calls it in a task, which gives up its turn until then, as
+    /// game.time.wait(days); a session's end drops the task. A remote
+    /// client's request is answered session_changed when another game is
+    /// loaded or started, or the game returns to the main menu, first.
+    world Wait "wait" {
+        /// How many days, from 1 to 36500.
+        days: u32,
+    } -> Date, "the date reached";
     /// Lets time run until the date some days from now, then pauses the game
     /// and answers with the signals on the way; refused, as time.resume is,
     /// once the game is past its end date. It answers early, with the
@@ -126,6 +138,9 @@ mod tests {
                 "signals": [{"number": 4, "signal": "day", "date": "1444.11.12"}], "last": 4, "missed": false,
             }})
         );
+        let wait = request_from_json(r#"{"capability": "time.wait", "days": 30}"#).unwrap();
+        assert_eq!(wait, Request::Time(TimeRequest::Wait { days: 30 }));
+        assert_eq!(response_json(&Ok(Answer::Time(TimeAnswer::Wait(date)))), json!({"ok": true, "result": "1444.11.12"}));
         let time = Time { date, paused: true, speed: 3 };
         assert_eq!(serde_json::to_value(time).unwrap(), json!({"date": "1444.11.12", "paused": true, "speed": 3}));
     }

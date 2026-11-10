@@ -238,6 +238,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
 
     fn fra() -> Tag {
@@ -331,7 +332,7 @@ mod tests {
             .u64(stack + STACK_COUNT, 1);
         let country = Object::country(fra(), REFORM_PROGRESS + 4).u64(GOVERNMENT, government.at() as u64).i32(RANK, rank).i32(REFORM_PROGRESS, 30_000);
         let countries = Object::countries(&[&country]);
-        let session = buffers::session(image.memory(), 0, fra(), country.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), 0, fra(), country.at(), countries.at(), Caller::Remote(As::Player));
         France {
             _image: image,
             _objects: vec![adopted, crown, secret, courts, merchants, power, law, kind, block, map, government, country, countries],

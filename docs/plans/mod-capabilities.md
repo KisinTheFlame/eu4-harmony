@@ -1,6 +1,6 @@
 # Mod capabilities plan
 
-Status: in progress. Decided with the owner (2026-11-11): what is open to mods now, the roadmap of what is not, and the parts taken up first, M1 to M20. M1 built and tried in the game (2026-11-11, [the run](../prototype-log/2026-11-11-signals.md)); M2 to M4 built and tried in the game (2026-11-11, [the run](../prototype-log/2026-11-11-country-rulers-legitimacy-modifiers.md)); the others not built yet. Terms it added to [GLOSSARY.md](../../GLOSSARY.md): Modifier, Named modifier, Legitimacy, Government mechanic, Mechanic power, Opinion, As the player, As the game, Event (now the scripts'), Signal (the framework's, formerly its event). The decisions are [ADR requests-act-as-the-player-or-as-the-game](../adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md), [ADR framework-notifications-are-signals](../adr/2026-11-11-framework-notifications-are-signals.md), [ADR changes-as-the-game-are-typed-capabilities](../adr/2026-11-11-changes-as-the-game-are-typed-capabilities.md) and [ADR tasks-are-awaited-like-promises](../adr/2026-11-11-tasks-are-awaited-like-promises.md); it builds on [player-actions.md](player-actions.md) and [ADR mods-hold-the-logic](../adr/2026-11-03-mods-hold-the-logic.md).
+Status: in progress. Decided with the owner (2026-11-11): what is open to mods now, the roadmap of what is not, and the parts taken up first, M1 to M20. M1 to M4, M6, M7, M9, M13 and M14 built and tried in the game (2026-11-11: [M1's run](../prototype-log/2026-11-11-signals.md), [M2's to M4's](../prototype-log/2026-11-11-country-rulers-legitimacy-modifiers.md), [M6's and M7's](../prototype-log/2026-11-11-province-and-army-reads.md), [M9's](../prototype-log/2026-11-11-requests-as-the-game.md), [M13's and M14's](../prototype-log/2026-11-11-tasks-and-game-days.md)); the others not built yet. Terms it added to [GLOSSARY.md](../../GLOSSARY.md): Modifier, Named modifier, Legitimacy, Government mechanic, Mechanic power, Opinion, As the player, As the game, Event (now the scripts'), Signal (the framework's, formerly its event). The decisions are [ADR requests-act-as-the-player-or-as-the-game](../adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md), [ADR framework-notifications-are-signals](../adr/2026-11-11-framework-notifications-are-signals.md), [ADR changes-as-the-game-are-typed-capabilities](../adr/2026-11-11-changes-as-the-game-are-typed-capabilities.md) and [ADR tasks-are-awaited-like-promises](../adr/2026-11-11-tasks-are-awaited-like-promises.md); it builds on [player-actions.md](player-actions.md) and [ADR mods-hold-the-logic](../adr/2026-11-03-mods-hold-the-logic.md).
 
 ## Goal and scope
 
@@ -10,7 +10,7 @@ Status: in progress. Decided with the owner (2026-11-11): what is open to mods n
 
 ## What is open now
 
-Each capability group in one line; its arguments, results and refusals are `eu4-harmony wiki`'s. Groups marked *remote* are remote control's only.
+Each capability group in one line; its arguments, results and refusals are `eu4-harmony wiki`'s. Groups marked *remote* are remote control's only. A remote client's request acts as the player, reading the player's view, unless it asks to act as the game (`--as-game`), reading the full view as extensions do (M9).
 
 ### Interface
 
@@ -24,8 +24,8 @@ Each capability group in one line; its arguments, results and refusals are `eu4-
 
 - `session`: the session, the country acted as, putting a country in view in observe mode. `time.get`: the date, whether paused, the speed. `text.language`: the player language.
 - `country.get`: treasury, manpower, stability, prestige, monarch points, wars, relations, technology, ideas, governing capacity, inflation, mercantilism, loans, rebels; the ruler, heir and consort; legitimacy of the government's kind and what it adds, corruption, absolutism, army and navy tradition, army professionalism; named modifiers. `country.budget`: the month's income and expenses. `country.hostile`: the countries at war with one. `country.modifiers`: what a country has of each modifier, by its key.
-- `province.list`, `province.get` (owner, controller, development, terrain, fort, buildings, autonomy, culture, religion, trade good, unrest, trade node, state, edict, cores, claims, constructions, named modifiers), `province.neighbors`, `province.modifiers` (what a province has of each modifier, of its own).
-- `army.get`, `army.list`, `army.at`, `army.selected`; the game's rules for moving: `army.route_to`, `army.can_step`, `army.can_attack`.
+- `province.list`, `province.get` (owner, controller, development, terrain, fort, buildings, autonomy, culture, religion, trade good, unrest, trade node, state, edict, cores, claims, constructions, prosperity, devastation, manpower, supply limit, separatism, institutions, named modifiers), `province.neighbors`, `province.modifiers` (what a province has of each modifier, of its own).
+- `army.get`, `army.list`, `army.at` (each with its units by kind, strength, morale, leader and maintenance), `army.regiments`, `army.selected`; the game's rules for moving: `army.route_to`, `army.can_step`, `army.can_attack`.
 - `trade.nodes`, `trade.node`; and each panel's own list: `leader.list`, `loan.list`, `fort.list`, `estate.list`, `idea.list`, `decision.list`, `mission.list`, `policy.list`, `mercenary.list`, `merchant.list`, `question.list`, `offer.list`.
 
 ### Actions
@@ -38,7 +38,7 @@ Each group reads what its panel offers now (`options` or `list`, each entry a `C
 - Trade: `merchant`, `trade_company`.
 - Other countries: `diplomacy` (every action of the diplomacy panel, the proposals answering with the other country's answer), `subject`.
 - Answering: `question`, `offer`.
-- Beyond the panels: `console.run`, the game console with its own checks; `menu` (*remote*: saves, loading, a new game, back to the main menu); `time` (pausing, resuming, the speed; advancing days, *remote*).
+- Beyond the panels: `console.run`, the game console with its own checks; `menu` (*remote*: saves, loading, a new game, back to the main menu); `time` (pausing, resuming, the speed; waiting for days to pass; advancing days, *remote*).
 
 ### Signals
 
@@ -46,7 +46,7 @@ Each group reads what its panel offers now (`options` or `list`, each entry a `C
 
 ### The Lua host
 
-Handlers for each signal and `on_button`, `on_window`, `on_map_lost`, `on_frame`, `save_data`; tasks that wait for a capability's answer, and `spawn`; `require`, `json`, `log`, `print`, `text`, `mod_files`; the permissions `clock`, `files` and `network` (`http.fetch`); extension save data in the save; extension reload; the fake game for `eu4-harmony test` ([lua-extensions.md](lua-extensions.md), [extension-reload.md](extension-reload.md)).
+Handlers for each signal and `on_button`, `on_window`, `on_map_lost`, `on_frame`, `save_data`; tasks that wait for a capability's answer or for days in the game (`game.time.wait`), started with `spawn` or an async function (`async`), awaited one at a time or several at once (`await_all`, `await_any`) and cancelled; `require`, `json`, `log`, `print`, `text`, `mod_files`; the permissions `clock`, `files` and `network` (`http.fetch`); extension save data in the save; extension reload; the fake game for `eu4-harmony test` ([lua-extensions.md](lua-extensions.md), [extension-reload.md](extension-reload.md)).
 
 ## Roadmap
 
@@ -86,7 +86,7 @@ What is known of each part's game side is in [research/](../research/), as found
 - `country.modifiers(country, keys)` and `province.modifiers(province, keys)` answer what the country or the province has of each modifier asked for, by its key.
 - `country.opinion(of, toward)` answers what `of` thinks of `toward`: `opinion`, its `parts` (each a `text` as the diplomacy view's tooltip writes it and a `value`), `aggressive_expansion`, `trust` and `favors`. `country.opinions(toward)` answers the same of every country toward one, without the parts.
 - `province.get` grows with `prosperity`, `devastation`, `local_manpower`, `supply_limit`, `separatism` and `institutions` (each institution's key and its progress there).
-- `army.get` grows with its regiments by kind (infantry, cavalry and artillery; a fleet's heavy, light, galley and transport ships), `strength` and its maximum, `morale` and its maximum, its `leader` and its monthly `maintenance`. `army.regiments(army)` lists each regiment: its ID, kind, unit type (a content key), strength and morale.
+- `army.get` grows with its regiments by kind (infantry, cavalry and artillery; a fleet's heavy, light, galley and transport ships), `strength` and its maximum, `morale` and its maximum, its `leader` and its monthly `maintenance`. `army.regiments(army)` lists each regiment, in the game's order: its ID, name, kind, unit type (a content key), strength and morale.
 - `government.mechanics()` lists the player's government mechanics, each by its content key, with its mechanic powers (each a key, a `value` between `min` and `max`, and its `effects`) and its interactions as `options` entries: a `Choice` and, where it has a cooldown, `ready_on`, the day it can be used again. `government.interact(mechanic, interaction)` uses one, as its button does. What an interaction does is not given.
 - `advisor`: `advisor.list` (the player's advisors and those to hire), `advisor.options`, `advisor.hire`, `advisor.fire`, `advisor.promote`, shaped as `leader`.
 - What a read leaves out as the player is compared with the game's panels, part by part, as [player-actions.md](player-actions.md) did.
@@ -223,9 +223,13 @@ Done (2026-11-11): both read through the game's own getter of one modifier (`0x8
 
 `prosperity`, `devastation`, `local_manpower`, `supply_limit`, `separatism`, `institutions` in `province.get`.
 
+Built (2026-11-11). `province.get` has `prosperity` (its state's, in percent; null in a territory), `devastation` (percent), `local_manpower` (thousands of men, as the province view's manpower), `supply_limit` (regiments, for the country acted as, the owner's while observing with none in view), `separatism` (years left) and `institutions` (each institution that has appeared, its key and the province's progress in percent). The province view shows another country's province with its manpower, supply limit and devastation, and its state tab its prosperity, so the player's view leaves none of them out. The game's side is in [research/provinces.md](../research/provinces.md#prosperity-devastation-manpower-supply-separatism-and-institutions-for-m6-of-mod-capabilities).
+
 ### M7 Armies' units
 
 The regiments by kind, strength, morale, leader and maintenance in `army.get`; `army.regiments`.
+
+Built (2026-11-11). `army.get`, `army.list` and `army.at` have `units` (regiments or ships by kind), `strength` and `max_strength` (summed, 1 a full regiment or ship), `morale` and `max_morale` (as the unit panel's morale tooltip gives them), `leader` (the leader's id) and `maintenance` (ducats a month at full maintenance, before the maintenance sliders; null in the player's view for another country's). `army.regiments(army)` lists one of the player's armies' regiments or a fleet's ships in the game's order, each with its id, name, kind, unit type, strength and morale. The game's side is in [research/units.md](../research/units.md#f-regiments-strength-morale-leader-and-maintenance-for-m7-of-mod-capabilities).
 
 ### M8 Government mechanics and advisors
 
@@ -234,6 +238,8 @@ The regiments by kind, strength, morale, leader and maintenance in `army.get`; `
 ### M9 Requests as the game
 
 `as` on the pipe, `--as-player` and `--as-game` on the command line, the view by the request, the setting removed, `as_the_game` refusals, `describe` and the wiki saying which capabilities need it.
+
+Done (2026-11-11): the catalogue has `As` (`player`, `game`), read beside the capability by `sent_from_json` and written by `Sent`, capability first and `"as": "game"` after it; a request as the player says nothing. A capability that needs a request as the game is declared with the place `as_game`, a `world` capability that extensions have; `Capability::as_game` says it, `describe` answers it, and the wiki marks it "(as the game)" and gives its command line `--as-game`. A request as the player asking for one is refused `as_the_game` (a new code) before it runs (`catalogue::may_ask`). In the core, a remote caller is `Caller::Remote(As)`, whose view is the player's or the full view (`game::view`); remote control's engine queues each request with how it acts, says so to the catalogue before it runs (`Catalogue::act_as`, which sets `Live`'s caller) and again before a request that waits is polled, and writes " as the game" after one in the log. Remote control now keeps every signal extensions hear, each marked whether the player's view shows it, and a read or an advance answers those of its request's view: the numbers of what the player's view leaves out are skipped in its reads. The setting `remote_full_view`, the settings window's remote control page and their texts are gone; a settings file that still has it reads without it. `eu4-harmony game` takes `--as-player` and `--as-game`, the sweep asks a capability that needs it both ways, and `eu4-harmony wiki remote`, the game guide, README.md, README.zh-CN.md and adding-a-capability.md say how a request acts. No capability needs a request as the game yet: the script group is the first. Tried in a test game: [the run](../prototype-log/2026-11-11-requests-as-the-game.md).
 
 ### M10 Flags
 
@@ -251,9 +257,13 @@ The regiments by kind, strength, morale, leader and maintenance in `army.get`; `
 
 `spawn` returning the task, `async`, `await`, `cancel`, `done`, `await_all`, `await_any`, `eu4.Task<T>`, the chapter in `eu4-harmony skills`.
 
+Built (2026-11-11, [the run](../prototype-log/2026-11-11-tasks-and-game-days.md)). The prelude builds `spawn`, `async`, `await_all`, `await_any` and a task's methods on three functions of the Lua host's: starting a task with its handle, cancelling one, and waiting for any of some tasks to end. A task's handle keeps how it ended, what its function returned or the error it raised; the function runs inside `pcall`, so that the error is kept, then raised again for the log. The host keeps a waiting task's handle with it: cancelling drops a task that waits at once, and one that runs or is being taken up at its next wait. A poll takes up the waiting tasks again, up to 16 passes in one frame, while any was taken up, so that a task awaiting another that just ended goes on in the same frame. A session's end marks the handles of the tasks it drops cancelled. `await_all` returns each task's first result; a task awaiting itself is an error. The editor's types write `spawn`, `async` and the task's methods generic in `T` (`eu4.Task<T>`); `eu4-harmony wiki lua` lists the task's methods under the globals.
+
 ### M14 Waiting for game days
 
 `game.time.wait`.
+
+Built (2026-11-11, [the run](../prototype-log/2026-11-11-tasks-and-game-days.md)). `time.wait`, for extensions and remote clients both: from 1 to 36500 days, answered with the date once the game's date has reached the date that many days on, at a game frame; it neither runs nor pauses the game. A remote client's wait is answered `session_changed` when its session ends first; an extension's task is dropped with its session. The fake game answers it as the days a test raises (`mod:day`) reach the date, taking up the waiting tasks before it raises the day, as the game's frame does. The sweep asks it only at its edges, since a paused game passes no days.
 
 ### M15 to M20 Actions of the panels
 

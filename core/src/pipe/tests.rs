@@ -43,12 +43,12 @@ macro_rules! test_pipe {
     ($test:literal, $place:expr) => {{
         static LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
         static ENGINE: Engine = Engine::new(|line| LOG.lock().unwrap().push(line.to_string()));
-        Test::start($test, &ENGINE, &LOG, |request| ENGINE.submit(request), |line| LOG.lock().unwrap().push(line.to_string()), $place)
+        Test::start($test, &ENGINE, &LOG, |request, acting| ENGINE.submit_as(request, acting), |line| LOG.lock().unwrap().push(line.to_string()), $place)
     }};
 }
 
 impl Test {
-    fn start(test: &str, engine: &'static Engine, log: &'static Mutex<Vec<String>>, submit: fn(Request) -> Reply, write: fn(&str), place: Place) -> Self {
+    fn start(test: &str, engine: &'static Engine, log: &'static Mutex<Vec<String>>, submit: fn(Request, As) -> Reply, write: fn(&str), place: Place) -> Self {
         let name = pipe_name(test);
         serve(&name, submit, write).unwrap();
         let place = Arc::new(Mutex::new(place));
@@ -306,13 +306,13 @@ fn written(descriptor: PSECURITY_DESCRIPTOR) -> String {
 #[test]
 fn the_pipe_is_open_to_its_user_only_and_to_one_process_at_a_time() {
     let name = pipe_name("security");
-    let pipe = Pipe::new(&name, |_| unreachable!(), |_| {}).unwrap();
+    let pipe = Pipe::new(&name, |_, _| unreachable!(), |_| {}).unwrap();
     let first = pipe.instance(true).unwrap();
     assert_eq!(dacl(&first), as_written(&format!("D:P(A;;FA;;;{})", user_sid().unwrap())));
     // More clients get more instances, but no other process gets the name
     // while this one has it.
     let more = pipe.instance(false).unwrap();
-    let other = Pipe::new(&name, |_| unreachable!(), |_| {}).unwrap();
+    let other = Pipe::new(&name, |_, _| unreachable!(), |_| {}).unwrap();
     assert!(other.instance(true).is_err());
     drop((first, more));
     assert!(other.instance(true).is_ok());
@@ -322,12 +322,12 @@ fn the_pipe_is_open_to_its_user_only_and_to_one_process_at_a_time() {
 fn the_pipe_keeps_its_name_while_clients_come_and_go() {
     // A client that came and went before it was waited for.
     let name = pipe_name("came-and-went");
-    let pipe = Arc::new(Pipe::new(&name, |_| unreachable!(), |_| {}).unwrap());
+    let pipe = Arc::new(Pipe::new(&name, |_, _| unreachable!(), |_| {}).unwrap());
     let first = pipe.instance(true).unwrap();
     drop(std::fs::OpenOptions::new().read(true).write(true).open(&name).unwrap());
     let next = accept(&pipe, first);
     assert_eq!(dacl(&next), as_written(&format!("D:P(A;;FA;;;{})", user_sid().unwrap())));
-    let other = Pipe::new(&name, |_| unreachable!(), |_| {}).unwrap();
+    let other = Pipe::new(&name, |_, _| unreachable!(), |_| {}).unwrap();
     assert!(other.instance(true).is_err());
     drop(next);
     assert!(other.instance(true).is_ok());
@@ -335,7 +335,7 @@ fn the_pipe_keeps_its_name_while_clients_come_and_go() {
     let test = test_pipe!("name", Place::Game);
     assert!(test.logged("remote pipe: open at"), "{:#?}", test.log());
     // Another process, trying all along to make a pipe of the same name.
-    let other = Pipe::new(&test.name, |_| unreachable!(), |_| {}).unwrap();
+    let other = Pipe::new(&test.name, |_, _| unreachable!(), |_| {}).unwrap();
     let stop = AtomicBool::new(false);
     let made = std::thread::scope(|s| {
         let other = s.spawn(|| {
@@ -359,7 +359,7 @@ fn the_pipe_keeps_its_name_while_clients_come_and_go() {
 
 #[test]
 fn a_game_started_again_opens_the_pipe_once_the_one_before_is_gone() {
-    let before = Pipe::new(&pipe_name("again"), |_| unreachable!(), |_| {}).unwrap().instance(true).unwrap();
+    let before = Pipe::new(&pipe_name("again"), |_, _| unreachable!(), |_| {}).unwrap().instance(true).unwrap();
     let test = test_pipe!("again", Place::Game);
     assert!(test.logged("yet (another process has it); trying again every second"), "{:#?}", test.log());
     drop(before);

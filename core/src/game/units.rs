@@ -388,6 +388,7 @@ pub mod checks {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game::As;
 
     const UNIT: u64 = 12 << 32 | 54;
 
@@ -474,7 +475,7 @@ mod tests {
         FOUND.with(|f| *f.borrow_mut() = units.iter().map(|u| (u.read_u64(unit::ID), u.at() + unit::ID_HOLDER)).collect());
         let country = Object::country(tur, 0);
         let countries = Object::countries(&[&country]);
-        let result = action(buffers::session(m, 0, tur, country.at(), countries.at(), Caller::Remote));
+        let result = action(buffers::session(m, 0, tur, country.at(), countries.at(), Caller::Remote(As::Player)));
         drop((units, kinds, country, countries, image));
         result
     }

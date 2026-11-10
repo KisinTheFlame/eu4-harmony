@@ -126,6 +126,13 @@ fn army(id: u64, owner: &[u8; 3], kind: eu4_harmony_remote::armies::ArmyKind, pr
         route_by: None,
         aboard: None,
         carrying: 0,
+        units: eu4_harmony_remote::armies::Units { infantry: regiments, ..Default::default() },
+        strength: f64::from(regiments),
+        max_strength: f64::from(regiments),
+        morale: 3.0,
+        max_morale: 3.0,
+        leader: None,
+        maintenance: Some(0.5 * f64::from(regiments)),
     }
 }
 
@@ -423,6 +430,12 @@ pub fn constantinople() -> eu4_harmony_remote::provinces::ProvinceSnapshot {
         missionary: None,
         colony_size: None,
         named_modifiers: Vec::new(),
+        prosperity: Some(40.0),
+        devastation: 0.0,
+        local_manpower: 1.5,
+        supply_limit: 12.5,
+        separatism: 0,
+        institutions: vec![eu4_harmony_remote::provinces::InstitutionProgress { institution: "feudalism".into(), progress: 100.0 }],
     }
 }
 

@@ -304,6 +304,17 @@ pub fn assign(Session { m, ctx, commands, .. }: Session, args::Assign { leader: 
     Ok(())
 }
 
+/// The number of the leader leading `unit`, an army or fleet of any
+/// country's; none when it has none (the game's null leader, or one that
+/// leads another unit).
+pub fn leading(m: &Memory, unit: usize) -> GResult<Option<u32>> {
+    let leader = m.ptr(unit + UNIT_LEADER)?;
+    if leader == 0 || m.ptr(leader + leader::UNIT)? != unit {
+        return Ok(None);
+    }
+    Ok(Some(m.u32(leader + leader::NUMBER)?))
+}
+
 /// Takes the leader from one of the player's armies or fleets, as the
 /// panel's remove button does: the command with the empty leader ID.
 pub fn remove(Session { m, ctx, commands, .. }: Session, args::Remove { army: ArmyId(army) }: args::Remove) -> GResult<()> {
@@ -341,6 +352,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
 
     #[test]
@@ -428,7 +440,7 @@ mod tests {
         buffers::units(&image, &[&army, &fleet]);
         let country = Object::country(cas, LEADERS_COUNT + 4).u64(LEADERS, next).i32(LEADERS_COUNT, 3);
         let countries = Object::countries(&[&country]);
-        let session = buffers::session(m, 0, cas, country.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(m, 0, cas, country.at(), countries.at(), Caller::Remote(As::Player));
         let mut objects = vec![army, fleet, country, countries];
         objects.extend(leaders);
         objects.extend(nodes);

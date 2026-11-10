@@ -570,6 +570,7 @@ pub mod checks {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game::As;
 
     const CAS: Tag = Tag(0x0100_0001_0053_4143);
 
@@ -704,7 +705,7 @@ mod tests {
             .i32(country::POWER + 8, 100)
             .u64(country::PRIMARY_CULTURE, turkish.at() as u64);
         let countries = Object::countries(&[&player]);
-        let session = buffers::session(image.memory(), provinces.world(), tur(), player.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), provinces.world(), tur(), player.at(), countries.at(), Caller::Remote(As::Player));
         let objects = vec![tokens, turkish, greek, edict_a, edict_b, database, enacted, state, coring, node, player, countries];
         Ottomans { _image: image, _provinces: provinces, _objects: objects, session }
     }

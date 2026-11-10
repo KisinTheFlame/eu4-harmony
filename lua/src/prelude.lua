@@ -1,6 +1,6 @@
 -- Run once in every extension's Lua state, before its main.lua, with what
 -- the Lua host gives it. It finishes the sandbox and builds `game`.
-local call, WAIT, task, names, set_element, fetch, resuming, resumed, set_window, show_popup, close_popup = ...
+local call, WAIT, task, names, set_element, fetch, resuming, resumed, set_window, show_popup, close_popup, start, cancel_task, awaiting = ...
 
 -- The sandbox (ADR extensions-are-lua-in-a-sandbox): code from text only,
 -- nothing that reads files.
@@ -69,6 +69,180 @@ local function finish(name, first, ...)
   end
   can_wait(name, 3)
   return yield(WAIT, (...))
+end
+
+-- Tasks awaited as promises are (ADR tasks-are-awaited-like-promises).
+-- spawn(fn, ...) runs fn as a task of its own and returns its handle at once,
+-- or as soon as fn first waits; the handle keeps how the task ended: `ended`,
+-- then `results` (table.pack of what fn returned) or `error` (what it raised,
+-- or the cancelled error). The host keeps the task while it waits, and wakes
+-- whoever awaits it once `ended` is set.
+local pack, unpack = table.pack, table.unpack
+
+local Cancelled = {
+  __tostring = function(err)
+    return err.code .. ": " .. err.message
+  end,
+}
+
+local function cancelled()
+  return setmetatable({ code = "cancelled", message = "the task was cancelled" }, Cancelled)
+end
+
+-- Each spawned task's handle by its thread, for a task that awaits itself.
+local handles = setmetatable({}, { __mode = "k" })
+
+local Task = {}
+Task.__index = Task
+Task.__name = "eu4.Task"
+
+-- Whether `value` is a task's handle; raises the error at `level` for a
+-- function `name` given something else.
+local function check_task(name, value, level)
+  if getmetatable(value) ~= Task then
+    error(name .. " takes tasks, as spawn and async functions return them, not a " .. type(value), level + 1)
+  end
+end
+
+-- The task gives up its turn until one of `tasks` has ended.
+local function await_some(name, tasks, level)
+  can_wait(name, level + 1)
+  local mine = handles[running()]
+  for _, t in ipairs(tasks) do
+    if t == mine then
+      error(name .. ": a task cannot await itself", level + 1)
+    end
+  end
+  local _, number = awaiting(tasks)
+  yield(WAIT, number)
+end
+
+local function raise(err)
+  error(err, 0)
+end
+
+function Task:await()
+  check_task("await", self, 2)
+  while not self.ended do
+    await_some("await", { self }, 2)
+  end
+  if self.error ~= nil then
+    raise(self.error)
+  end
+  return unpack(self.results, 1, self.results.n)
+end
+
+function Task:cancel()
+  check_task("cancel", self, 2)
+  if self.ended then
+    return
+  end
+  self.ended, self.error = true, cancelled()
+  cancel_task(self)
+end
+
+function Task:done()
+  check_task("done", self, 2)
+  return self.ended == true
+end
+
+-- How a task's run ended: its results kept, or its error kept and raised
+-- again, so that the host logs it as any task's. A task cancelled first
+-- keeps its cancellation.
+local function settle(handle, ok, ...)
+  if not handle.ended then
+    handle.ended = true
+    if ok then
+      handle.results = pack(...)
+    else
+      handle.error = (...)
+    end
+  end
+  if not ok then
+    raise((...))
+  end
+end
+
+spawn = function(fn, ...)
+  if type(fn) ~= "function" then
+    error("spawn takes a function, not a " .. type(fn), 2)
+  end
+  local args = pack(...)
+  local handle = setmetatable({}, Task)
+  start(handle, function()
+    handles[running()] = handle
+    return settle(handle, pcall(fn, unpack(args, 1, args.n)))
+  end)
+  return handle
+end
+
+async = function(fn)
+  if type(fn) ~= "function" then
+    error("async takes a function, not a " .. type(fn), 2)
+  end
+  return function(...)
+    return spawn(fn, ...)
+  end
+end
+
+-- The tasks a list holds, checked.
+local function task_list(name, tasks)
+  if type(tasks) ~= "table" then
+    error(name .. " takes a list of tasks, not a " .. type(tasks), 3)
+  end
+  for i = 1, #tasks do
+    check_task(name, tasks[i], 3)
+  end
+  return tasks
+end
+
+await_all = function(tasks)
+  task_list("await_all", tasks)
+  while true do
+    local running_still = {}
+    for _, t in ipairs(tasks) do
+      if not t.ended then
+        running_still[#running_still + 1] = t
+      elseif t.error ~= nil then
+        raise(t.error)
+      end
+    end
+    if #running_still == 0 then
+      break
+    end
+    await_some("await_all", running_still, 2)
+  end
+  local results = {}
+  for i, t in ipairs(tasks) do
+    results[i] = t.results[1]
+  end
+  return results
+end
+
+await_any = function(tasks)
+  task_list("await_any", tasks)
+  if #tasks == 0 then
+    error("await_any takes at least one task", 2)
+  end
+  while true do
+    for i, t in ipairs(tasks) do
+      if t.ended then
+        if t.error ~= nil then
+          raise(t.error)
+        end
+        return i, unpack(t.results, 1, t.results.n)
+      end
+    end
+    await_some("await_any", tasks, 2)
+  end
+end
+
+-- A task dropped with its session: whoever awaits it later is told it was
+-- cancelled.
+local function dropped(handle)
+  if not handle.ended then
+    handle.ended, handle.error = true, cancelled()
+  end
 end
 
 -- http.fetch, the network permission: it always waits.
@@ -181,4 +355,4 @@ local function press(number, button)
   end
 end
 
-return game, press
+return game, press, dropped

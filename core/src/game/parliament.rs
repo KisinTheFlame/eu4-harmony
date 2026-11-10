@@ -167,6 +167,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
 
     #[test]
@@ -233,7 +234,7 @@ mod tests {
         let gbr = Tag(u64::from_le_bytes(*b"GBR\0\0\0\0\0"));
         let country = Object::country(gbr, PARLIAMENT + 8).u64(PARLIAMENT, if none { 0 } else { parliament.at() as u64 });
         let countries = Object::countries(&[&country]);
-        let session = buffers::session(image.memory(), 0, gbr, country.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), 0, gbr, country.at(), countries.at(), Caller::Remote(As::Player));
         Britain { _image: image, _objects: vec![peace, unlisted, issues, offer, debate, parliament, country, countries], session }
     }
 

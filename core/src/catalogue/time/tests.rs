@@ -366,6 +366,42 @@ fn bad_days_and_speeds_are_refused_before_anything_is_asked() {
 }
 
 #[test]
+fn a_wait_answers_the_date_once_the_game_reached_it_and_leaves_the_clock_alone() {
+    let engine = Engine::new(quiet);
+    let mut game = Fake::default();
+    let reply = engine.submit(time(TimeRequest::Wait { days: 2 }));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    // Paused, the date does not move, and the wait goes on.
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert!(answer(&reply).is_null());
+    next_day(&engine, &mut game);
+    assert!(answer(&reply).is_null());
+    next_day(&engine, &mut game);
+    assert_eq!(answer(&reply), ok(json!(date(2))));
+    assert!(game.calls.iter().all(|c| !c.starts_with("resume") && !c.starts_with("pause") && !c.starts_with("stop at")), "{:#?}", game.calls);
+}
+
+#[test]
+fn a_wait_whose_session_ended_first_is_answered_session_changed() {
+    let engine = Engine::new(quiet);
+    let mut game = Fake::default();
+    let other_game = engine.submit(time(TimeRequest::Wait { days: 5 }));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    game.clock.time.session = 3;
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(answer(&other_game)["error"]["code"], "session_changed");
+    let main_menu = engine.submit(time(TimeRequest::Wait { days: 5 }));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    engine.run(&mut game, &Place::Outside(Some(Error::new(Code::NotInGame, "the main menu is open"))), PLENTY);
+    assert_eq!(answer(&main_menu)["error"]["code"], "session_changed");
+    let replies: Vec<Reply> = [0, MOST_DAYS + 1].into_iter().map(|days| engine.submit(time(TimeRequest::Wait { days }))).collect();
+    engine.run(&mut game, &Place::Game, PLENTY);
+    for reply in &replies {
+        assert_eq!(answer(reply)["error"]["code"], "invalid_argument");
+    }
+}
+
+#[test]
 fn an_advance_past_more_signals_than_are_kept_says_some_were_missed() {
     let engine = Engine::new(quiet);
     let mut game = Fake::default();

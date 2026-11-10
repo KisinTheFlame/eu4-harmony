@@ -3,12 +3,13 @@
 //! the capability layer takes the army back from an extension moving it.
 use crate::game::{armies as layer, units};
 use eu4_harmony_remote::armies::args;
-use eu4_harmony_remote::armies::{Army, ArmyAction, ArmyAnswer, ArmyRequest};
+use eu4_harmony_remote::armies::{Army, ArmyAction, ArmyAnswer, ArmyRequest, Regiment};
 
 layer! {
     run ArmyRequest => ArmyAnswer;
     Get => fn army -> Army = layer::get;
     List => fn armies -> Vec<Army> = layer::list;
+    Regiments => fn regiments -> Vec<Regiment> = layer::regiments;
     At => fn armies_at -> Vec<Army> = layer::in_province;
     RouteTo => fn find_route -> Vec<u32> = layer::find_route;
     CanStep => fn can_step -> bool = layer::can_step;

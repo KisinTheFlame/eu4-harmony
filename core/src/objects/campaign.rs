@@ -113,6 +113,10 @@ pub mod world {
     pub const IN_VIEW_VALID: usize = IN_VIEW + 7;
     /// The provinces, [`super::province::SIZE`] bytes each, by ID.
     pub const PROVINCES: usize = 0x1ca8;
+    /// Whether each institution has appeared, a vector (begin, end) of i32
+    /// by the institution's [`super::institution::INDEX`], nonzero once it
+    /// has.
+    pub const INSTITUTIONS: usize = 0x22a0;
     /// Nonzero while there is fog of war, u8.
     pub const FOG: usize = 0x23a6;
     /// The wars going on: pointers to [`super::war`]s, and their count (i32).
@@ -554,6 +558,31 @@ pub mod province {
     pub const MISSIONARY_PROGRESS: usize = 0x894;
     /// A colony's size, fixed point, in settlers.
     pub const COLONY_SIZE: usize = 0x3f8;
+    /// Its devastation, fixed point, in percent.
+    pub const DEVASTATION: usize = 0x42c;
+    /// The years of separatism left, i32 (saved as `nationalism`).
+    pub const SEPARATISM: usize = 0x5a0;
+    /// Its progress toward each institution, a vector (begin, end) of i32
+    /// in fixed point by the institution's [`super::institution::INDEX`],
+    /// 100 when it has it.
+    pub const INSTITUTIONS: usize = 0xd0;
+    /// The prosperity of the country state at [`STATE`], fixed point, in
+    /// percent.
+    pub const STATE_PROSPERITY: usize = 0x18;
+}
+
+/// One of the game's institutions (`common/institutions`), as its database
+/// holds it.
+pub mod institution {
+    /// Its index among the institutions, i32: the order of the database's
+    /// vector, which a province's progress and the world's appearances
+    /// follow.
+    pub const INDEX: usize = 0x10;
+    /// Its key (`renaissance`), a `std::string`.
+    pub const KEY: usize = 0x18;
+    /// The database's vector (begin, end) of pointers to institutions, from
+    /// the database its getter answers.
+    pub const DATABASE_LIST: usize = 0x10;
 }
 
 /// A province's map data, at [`province::GEOMETRY`].
@@ -616,6 +645,8 @@ pub mod unit_type {
     /// Its key as in common/units (`western_medieval_infantry`), a
     /// `std::string`.
     pub const NAME: usize = 0x60;
+    /// The strength a regiment of it has at full, fixed point.
+    pub const MAX_STRENGTH: usize = 0x58;
 }
 
 /// A connection to a neighbor, [`SIZE`] bytes: the neighbor's ID, the
@@ -682,6 +713,25 @@ pub mod unit {
     /// Methods of [`super::classes::ARMY`], by vtable offset.
     pub const CAN_ENTER: usize = 0x120;
     pub const MILITARY_TAG: usize = 0x138;
+    /// The method of [`super::classes::ARMY`] and [`super::classes::FLEET`]
+    /// that answers what its regiments or ships cost a month: (unit, out).
+    pub const MAINTENANCE: usize = 0xb8;
+}
+
+/// A regiment of an army, or a ship of a fleet, as [`unit::REGIMENTS`]
+/// holds them.
+pub mod regiment {
+    /// Its ID: the type, u32, then the number, u32.
+    pub const ID: usize = 0x10;
+    pub const NUMBER: usize = 0x14;
+    /// Its unit type (see [`super::unit_type`]).
+    pub const TYPE: usize = 0x20;
+    /// Its strength and its morale, fixed point; a strength of 1 is a full
+    /// regiment's, 1000 men.
+    pub const STRENGTH: usize = 0x28;
+    pub const MORALE: usize = 0x2c;
+    /// Its name, a `std::string`.
+    pub const NAME: usize = 0x68;
 }
 
 /// A task's methods an idle task has as [`super::classes::IDLE_TASK`] does,

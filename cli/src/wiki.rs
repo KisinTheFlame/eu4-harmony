@@ -63,7 +63,11 @@ fn group_page(group: &Group) -> String {
         None => format!("{}: {}\n\n", group.name, prose(group.about)),
     };
     for c in named {
-        let side = if c.extensions { "" } else { "  (remote control only)" };
+        let side = match (c.extensions, c.as_game) {
+            (false, _) => "  (remote control only)",
+            (true, true) => "  (as the game)",
+            (true, false) => "",
+        };
         let _ = writeln!(text, "  {}{side}", c.name());
         let _ = writeln!(text, "      {}", first_sentence(c.about));
     }
@@ -81,11 +85,18 @@ pub fn capability_page(c: &Capability) -> String {
             "It acts as a country: the one the player plays, or in observe mode the country in view; with none in view it fails with no_country."
         );
     }
+    if c.as_game {
+        let _ = writeln!(
+            text,
+            "It does or reads what no player could: a remote client asks for it as the game (--as-game); a request as the player fails with as_the_game."
+        );
+    }
     let _ = writeln!(text, "\ncalled:");
     if c.extensions {
         let _ = writeln!(text, "  Lua:          {}", lua_call(c));
     }
-    let _ = writeln!(text, "  command line: eu4-harmony game {}", command(c));
+    let as_game = if c.as_game { "--as-game " } else { "" };
+    let _ = writeln!(text, "  command line: eu4-harmony game {as_game}{}", command(c));
     if !c.extensions {
         let _ = writeln!(text, "  Remote control only.");
     }
@@ -155,7 +166,7 @@ handlers (each gets game first):
         }
     }
     let _ = writeln!(text, "\nglobals:");
-    for f in lua::FUNCTIONS {
+    let line = |text: &mut String, name: &str, f: &lua::Function| {
         let args: Vec<String> = f.args.iter().map(|a| if a.optional { format!("[{}]", a.name) } else { a.name.to_string() }).collect();
         let returns: Vec<&str> = f.returns.iter().map(|r| r.name).collect();
         let returns = if returns.is_empty() { String::new() } else { format!(" -> {}", returns.join(", ")) };
@@ -167,7 +178,14 @@ handlers (each gets game first):
             marks.push(format!("needs {p}"));
         }
         let marks = if marks.is_empty() { String::new() } else { format!("  ({})", marks.join("; ")) };
-        let _ = writeln!(text, "  {}({}){returns}{marks}\n      {}", f.name, args.join(", "), f.about);
+        let _ = writeln!(text, "  {name}({}){returns}{marks}\n      {}", args.join(", "), f.about);
+    };
+    for f in lua::FUNCTIONS {
+        line(&mut text, f.name, f);
+    }
+    let _ = writeln!(text, "\na task's methods (t = spawn(fn), or an async function's call; eu4-harmony skills tasks):");
+    for f in lua::TASK_METHODS {
+        line(&mut text, &format!("t:{}", f.name), f);
     }
     let _ = write!(text, "\ninterface elements:\n  {}\n\nthe sandbox:\n  {}\n", lua::ELEMENTS, lua::SANDBOX);
     text
@@ -194,9 +212,20 @@ fn remote() -> String {
     "\
 remote: playing a game through remote control
 
-A remote client uses the running game through the framework's capabilities,
-as the player would, over the named pipe \\\\.\\pipe\\eu4-harmony; the command
-line is eu4-harmony game (eu4-harmony game -h for its form).
+A remote client uses the running game through the framework's capabilities
+over the named pipe \\\\.\\pipe\\eu4-harmony; the command line is eu4-harmony game
+(eu4-harmony game -h for its form).
+
+as the player or as the game:
+  A request acts as the player unless it asks to act as the game: it reads
+  the player's view, the map under fog of war and of other countries what
+  their panels show, and does only what the player could; its orders are the
+  player's. A request as the game (--as-game; \"as\": \"game\" beside its
+  capability on the pipe) reads everything the game keeps, and may also do
+  what the game's and the mods' scripts do, which no player could; a
+  capability that does so says it, and a request as the player asking for it
+  fails with as_the_game. A program that should know only what the player
+  knows, such as an AI judged on its play, sends requests as the player.
 
 how a game goes:
   menu says where the game is and which process answers. From the main
@@ -291,6 +320,7 @@ mod tests {
         let lua_page = page(&words("lua")).unwrap();
         assert!(lua::handlers().iter().all(|h| lua_page.contains(&format!("  {}(game", h.name))), "{lua_page}");
         assert!(lua::FUNCTIONS.iter().all(|f| lua_page.contains(&format!("  {}(", f.name))), "{lua_page}");
+        assert!(lua::TASK_METHODS.iter().all(|f| lua_page.contains(&format!("  t:{}(", f.name))), "{lua_page}");
         assert!(lua_page.contains("http.fetch(url, [options]) -> response, err  (waits; needs network)"), "{lua_page}");
         let manifest = page(&words("manifest")).unwrap();
         assert!(lua::MANIFEST.iter().all(|f| manifest.contains(&format!("  {} (", f.name))), "{manifest}");

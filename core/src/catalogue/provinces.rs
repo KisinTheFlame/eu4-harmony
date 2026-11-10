@@ -52,7 +52,8 @@ mod tests {
         engine.run(&mut Fake::default(), &Place::Game, PLENTY);
         let recruit = |kind: &str, unit_type: Value, reasons: Value| json!({"kind": kind, "unit_type": unit_type, "allowed": false, "reasons": reasons});
         let not_ours = json!(["君士坦丁堡不是我们的领土"]);
-        let expected = ok(json!({
+        // In two parts, which one json! could not expand.
+        let mut snapshot = json!({
             "id": 151, "name": "君士坦丁堡", "owner": "BYZ", "controller": "BYZ",
             "development": {"tax": 10.0, "production": 9.5, "manpower": 6.0},
             "terrain": "farmlands", "fort": {"level": 2, "mothballed": false},
@@ -60,8 +61,13 @@ mod tests {
             "autonomy": 25.0, "culture": "greek", "religion": "orthodox", "trade_good": "silk", "unrest": null,
             "trade_node": "constantinople", "center_of_trade": 3, "trade_company": false, "state": "state", "edict": null,
             "cores": ["BYZ"], "claims": ["TUR"], "constructions": null, "missionary": null, "colony_size": null, "named_modifiers": [],
-        }));
-        assert_eq!(answer(&reply), expected);
+        });
+        let more = json!({
+            "prosperity": 40.0, "devastation": 0.0, "local_manpower": 1.5, "supply_limit": 12.5, "separatism": 0,
+            "institutions": [{"institution": "feudalism", "progress": 100.0}],
+        });
+        snapshot.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+        assert_eq!(answer(&reply), ok(snapshot));
         // What can be recruited there is recruit.options', every kind in order.
         let options = engine.submit(Request::Recruit(RecruitRequest::Options { province: ProvinceId(151) }));
         engine.run(&mut Fake::default(), &Place::Game, PLENTY);

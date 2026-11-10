@@ -39,7 +39,7 @@ group! {
     world Get "get" {
         /// The province.
         province: ProvinceId,
-    } -> Box<ProvinceSnapshot>, "its snapshot: id, name, owner, controller, development, terrain, fort, buildings, autonomy (percent), culture, religion and trade_good (their keys), unrest, trade_node (its key), center_of_trade (its level, 0 for none), trade_company, state (state or territory, null when it has no owner), edict (the state edict's key), cores, claims, constructions (each its kind, the game's key such as building_construction, the country, progress from 0 to 1, start and end dates, and the building or unit type it makes), missionary (a missionary's progress in percent, null when none works there), colony_size (null for no colony) and named_modifiers (each its key and the day it ends, null for one that does not); in the player's view unrest, constructions and missionary are null for a province another country owns";
+    } -> Box<ProvinceSnapshot>, "its snapshot: id, name, owner, controller, development, terrain, fort, buildings, autonomy (percent), culture, religion and trade_good (their keys), unrest, trade_node (its key), center_of_trade (its level, 0 for none), trade_company, state (state or territory, null when it has no owner), edict (the state edict's key), cores, claims, constructions (each its kind, the game's key such as building_construction, the country, progress from 0 to 1, start and end dates, and the building or unit type it makes), missionary (a missionary's progress in percent, null when none works there), colony_size (null for no colony), prosperity (its state's, in percent; null in a territory), devastation (percent), local_manpower (thousands of men), supply_limit (regiments, for the country acted as), separatism (years left), institutions (each appeared institution's key and the progress toward it in percent) and named_modifiers (each its key and the day it ends, null for one that does not); in the player's view unrest, constructions and missionary are null for a province another country owns";
     /// What a province has of each modifier asked for, by its key, as the
     /// game totals the province's own: its buildings, terrain, trade good,
     /// named modifiers and the rest, not what its owner's modifiers add
@@ -254,6 +254,32 @@ pub struct ProvinceSnapshot {
     /// `province_modifier`; in the player's view one its scripts hide is
     /// left out.
     pub named_modifiers: Vec<NamedModifier>,
+    /// The prosperity of the state it is in, in percent; null in a
+    /// territory and without an owner.
+    pub prosperity: Option<f64>,
+    /// Its devastation, in percent.
+    pub devastation: f64,
+    /// The manpower it gives its owner, as the province view shows it, in
+    /// thousands of men.
+    pub local_manpower: f64,
+    /// How many regiments it supplies, as the map's tooltip shows it to the
+    /// country acted as (to its owner while the player observes with no
+    /// country in view): supply depends on whose the army is.
+    pub supply_limit: f64,
+    /// The years of separatism left, 0 for none.
+    pub separatism: i32,
+    /// Its progress toward each institution that has appeared in the world,
+    /// in the game's order.
+    pub institutions: Vec<InstitutionProgress>,
+}
+
+/// A province's progress toward an institution.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct InstitutionProgress {
+    /// The institution's content key, such as `renaissance`.
+    pub institution: String,
+    /// In percent: 100 once the province has it.
+    pub progress: f64,
 }
 
 /// Whether a province is in a state or a territory.

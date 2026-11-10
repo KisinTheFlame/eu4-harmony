@@ -9,7 +9,7 @@ usage: eu4-harmony skills [<topic>...]
 
 topics:
   mod            making a mod, from eu4-harmony new to a package to upload
-  tasks          waiting for an answer (http.fetch, a proposal) and what changes meanwhile
+  tasks          waiting for an answer, several things at once (spawn, async, await), cancelling
   state          keeping state: save data in the save, files in the data folder
   ui             interface fragments: elements in the game's windows
   ui buttons     a button in the army panel's button area

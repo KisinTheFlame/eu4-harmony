@@ -268,6 +268,7 @@ impl Shaped for crate::Capability {
                 field("in_game", Shape::Boolean),
                 field("country", Shape::Boolean),
                 field("extensions", Shape::Boolean),
+                field("as_game", Shape::Boolean),
                 field("args", Shape::List(Box::new(parameter))),
                 field("result", Shape::Text),
             ],
