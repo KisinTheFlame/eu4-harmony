@@ -273,6 +273,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
 
     #[test]
@@ -312,7 +313,7 @@ mod tests {
         let begin = entry.at() as u64;
         let country = Object::country(fra, ESTATES + 0x10).points_to(ESTATES, entry).u64(ESTATES + 8, begin + ENTRY as u64);
         let countries = Object::countries(&[&country]);
-        let session = buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote(As::Player));
         France { _image: image, _objects: vec![country, countries, land, army], session }
     }
 

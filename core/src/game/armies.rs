@@ -235,6 +235,7 @@ pub fn points() -> Vec<crate::points::Point> {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
     use crate::catalogue::fake::{byz, tur};
     use crate::game::{
@@ -294,7 +295,7 @@ mod tests {
         let first = Object::new(list::NODE_SIZE).u64(list::ITEM, army.at() as u64).u64(list::NEXT, second.at() as u64);
         let player = Object::country(tur(), country::UNITS + 8).u64(country::UNITS, first.at() as u64);
         let countries = Object::countries(&[&player]);
-        let session = buffers::session(m, provinces.world(), tur(), player.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(m, provinces.world(), tur(), player.at(), countries.at(), Caller::Remote(As::Player));
         Units { _image: image, _provinces: provinces, _objects: vec![regiment, army, fleet, theirs, second, first, player, countries], session }
     }
 

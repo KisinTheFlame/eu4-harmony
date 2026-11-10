@@ -315,6 +315,7 @@ pub fn can_attack(m: &Memory, army: usize, target: usize) -> GResult<bool> {
 mod tests {
     use super::*;
     use crate::catalogue::fake::{byz, tur};
+    use crate::game::As;
     use crate::game::{
         buffers::{self, Image, Object, Provinces},
         Caller, Fail, Session, Status,
@@ -369,7 +370,7 @@ mod tests {
         let player = Object::country(tur(), country::UNITS + 8).u64(country::UNITS, own_army.at() as u64);
         let other = Object::country(byz(), country::UNITS + 8);
         let countries = Object::countries(&[&player, &other]);
-        let session = buffers::session(m, provinces.world(), tur(), player.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(m, provinces.world(), tur(), player.at(), countries.at(), Caller::Remote(As::Player));
         let objects = vec![regiment, army, fleet, theirs, stray, on_board, fleet_in_one, army_in_one, in_two, own_fleet, own_army, player, other, countries];
         Units { _image: image, _provinces: provinces, _objects: objects, session }
     }

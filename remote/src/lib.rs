@@ -69,6 +69,9 @@ macro_rules! in_game {
     (world) => {
         true
     };
+    (as_game) => {
+        true
+    };
     (anywhere) => {
         false
     };
@@ -107,6 +110,9 @@ macro_rules! for_extensions {
     (world) => {
         true
     };
+    (as_game) => {
+        true
+    };
     (anywhere) => {
         true
     };
@@ -117,6 +123,18 @@ macro_rules! for_extensions {
         false
     };
     (remote_anywhere) => {
+        false
+    };
+}
+
+/// Whether a capability changes or reads the game as the game does, which no
+/// player could: extensions have it, and a remote client's request only as
+/// the game (ADR requests-act-as-the-player-or-as-the-game).
+macro_rules! as_game {
+    (as_game) => {
+        true
+    };
+    ($place:ident) => {
         false
     };
 }
@@ -148,6 +166,9 @@ macro_rules! place {
     (remote_world) => {
         $crate::place::World
     };
+    (as_game) => {
+        $crate::place::World
+    };
     (anywhere) => {
         $crate::place::Anywhere
     };
@@ -177,7 +198,11 @@ pub trait Arguments {
 /// `game` for a capability that needs a game going on and acts as a country
 /// (the one the player plays, or the country in view), `world` for one that
 /// needs a game going on and acts as no country, `anywhere` for one that needs
-/// no game, each with `remote_` before it for one only remote control has; `"name"` empty for one the group's name alone names.
+/// no game, each with `remote_` before it for one only remote control has;
+/// `as_game` for one that needs a game going on, acts as no country, and
+/// does or reads what no player could, which a remote client asks for only
+/// as the game (ADR requests-act-as-the-player-or-as-the-game); `"name"`
+/// empty for one the group's name alone names.
 macro_rules! group {
     (
         $(#[doc = $about:literal])*
@@ -283,6 +308,13 @@ macro_rules! group {
                 }
             }
 
+            /// Whether a remote client asks for it only as the game.
+            pub fn as_game(&self) -> bool {
+                match self {
+                    $( Self::$Variant { .. } => as_game!($place), )*
+                }
+            }
+
             /// [`Self::country`] of the capability whose variant is named
             /// `variant`, for the core's test that its binding opens a
             /// session with a country to act as exactly then.
@@ -310,6 +342,7 @@ macro_rules! group {
                     in_game: in_game!($place),
                     country: country!($place),
                     extensions: for_extensions!($place),
+                    as_game: as_game!($place),
                     args: &[
                         $(
                             $crate::Parameter {
@@ -369,6 +402,13 @@ macro_rules! groups {
             pub fn country(&self) -> bool {
                 match self {
                     $( $(#[cfg($cfg)])? Self::$Group(r) => r.country(), )*
+                }
+            }
+
+            /// Whether a remote client asks for it only as the game.
+            pub fn as_game(&self) -> bool {
+                match self {
+                    $( $(#[cfg($cfg)])? Self::$Group(r) => r.as_game(), )*
                 }
             }
 
@@ -560,13 +600,29 @@ pub fn request_json<R: GroupRequest>(request: &R) -> Value {
 
 impl Serialize for Request {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        Sent { request: self, acting: As::Player }.serialize(serializer)
+    }
+}
+
+/// A request and how it acts, as a remote client sends it: the request's
+/// object, the capability first, then `"as": "game"` when it acts as the
+/// game, then the arguments ([`sent_from_json`] reads it).
+pub struct Sent<'a> {
+    pub request: &'a Request,
+    pub acting: As,
+}
+
+impl Serialize for Sent<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use ser::SerializeMap;
-        let Value::Object(fields) = self.inner().map_err(ser::Error::custom)? else {
+        let Value::Object(fields) = self.request.inner().map_err(ser::Error::custom)? else {
             return Err(ser::Error::custom("a request is not an object"));
         };
-        // The capability first, then the arguments.
-        let mut map = serializer.serialize_map(Some(fields.len()))?;
-        map.serialize_entry("capability", &self.name())?;
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("capability", &self.request.name())?;
+        if self.acting == As::Game {
+            map.serialize_entry("as", &self.acting)?;
+        }
         for (key, value) in fields.iter().filter(|(key, _)| *key != "capability") {
             map.serialize_entry(key, value)?;
         }
@@ -767,6 +823,10 @@ pub struct Capability {
     pub country: bool,
     /// Extensions have it too, not only remote control.
     pub extensions: bool,
+    /// It does or reads what no player could, as the game does: a remote
+    /// client's request has it only as the game
+    /// (ADR requests-act-as-the-player-or-as-the-game).
+    pub as_game: bool,
     pub args: &'static [Parameter],
     /// What a successful call answers.
     pub result: &'static str,
@@ -804,12 +864,13 @@ pub fn prose(doc: &str) -> String {
 impl Serialize for Capability {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("Capability", 7)?;
+        let mut s = serializer.serialize_struct("Capability", 8)?;
         s.serialize_field("capability", &self.name())?;
         s.serialize_field("about", &prose(self.about))?;
         s.serialize_field("in_game", &self.in_game)?;
         s.serialize_field("country", &self.country)?;
         s.serialize_field("extensions", &self.extensions)?;
+        s.serialize_field("as_game", &self.as_game)?;
         s.serialize_field("args", self.args)?;
         s.serialize_field("result", self.result)?;
         s.end()
@@ -962,6 +1023,10 @@ pub enum Code {
     /// (a save was loaded or another game started): it did not run. Read
     /// the session again before asking again.
     SessionChanged,
+    /// It does or reads what no player could, and the request acts as the
+    /// player: it is asked for as the game (ADR
+    /// requests-act-as-the-player-or-as-the-game).
+    AsTheGame,
     /// Something went wrong in the framework or the game.
     Internal,
 }
@@ -969,7 +1034,7 @@ pub enum Code {
 impl Code {
     /// Every code a client may get, which its help and the documentation
     /// explain.
-    pub const ALL: [Code; 10] = [
+    pub const ALL: [Code; 11] = [
         Self::NotInGame,
         Self::NoCountry,
         Self::NotReady,
@@ -979,6 +1044,7 @@ impl Code {
         Self::Unavailable,
         Self::BadRequest,
         Self::SessionChanged,
+        Self::AsTheGame,
         Self::Internal,
     ];
 
@@ -994,6 +1060,7 @@ impl Code {
             Self::Unavailable => "unavailable",
             Self::BadRequest => "bad_request",
             Self::SessionChanged => "session_changed",
+            Self::AsTheGame => "as_the_game",
             Self::Internal => "internal",
         }
     }
@@ -1010,6 +1077,7 @@ impl Code {
             Self::Unavailable => "not here or not now, or not for this caller",
             Self::BadRequest => "a request the game could not read: not JSON, no such capability, or arguments missing or of the wrong kind",
             Self::SessionChanged => "another game was loaded or started before it ran, so it did not run; read the session again",
+            Self::AsTheGame => "it does or reads what no player could, and the request acts as the player; ask for it as the game (--as-game, \"as\": \"game\")",
             Self::Internal => "a fault in the framework or the game; the framework log says more",
         }
     }
@@ -1055,6 +1123,33 @@ pub type Response = Result<Answer, Error>;
 /// [`Code::BadRequest`] error.
 pub fn request_from_json(text: &str) -> Result<Request, Error> {
     serde_json::from_str(text).map_err(|e| Error::new(Code::BadRequest, e.to_string()))
+}
+
+/// How a remote client's request acts (GLOSSARY: As the player, As the
+/// game; ADR requests-act-as-the-player-or-as-the-game): `"as"` beside its
+/// capability, the player when absent.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum As {
+    /// It reads the player's view and does only what the player could.
+    #[default]
+    Player,
+    /// It reads the full view, and may also do what the game's and the mods'
+    /// scripts do.
+    Game,
+}
+
+/// A request and how it acts, from the JSON line a remote client sends: the
+/// request's object with `"as"` beside its capability, `"player"` or
+/// `"game"`, as the player when absent. One that cannot be read is a
+/// [`Code::BadRequest`] error.
+pub fn sent_from_json(text: &str) -> Result<(Request, As), Error> {
+    let mut fields: Map<String, Value> = serde_json::from_str(text).map_err(|e| Error::new(Code::BadRequest, e.to_string()))?;
+    let acting = match fields.remove("as") {
+        None => As::Player,
+        Some(value) => serde_json::from_value(value).map_err(|_| Error::new(Code::BadRequest, "\"as\" is \"player\" or \"game\""))?,
+    };
+    Ok((request_from_fields(fields)?, acting))
 }
 
 /// The request a JSON object already read writes, as [`request_from_json`]

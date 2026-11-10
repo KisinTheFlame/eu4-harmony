@@ -268,6 +268,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
 
     #[test]
@@ -403,7 +404,7 @@ mod tests {
             .u64(country::STATE_RELIGION, sunni.at() as u64)
             .i32(UPKEEP_FACTOR, 1000);
         let countries = Object::countries(&[&player]);
-        let session = buffers::session(image.memory(), provinces.world(), tur(), player.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), provinces.world(), tur(), player.at(), countries.at(), Caller::Remote(As::Player));
         GAME.with(|g| g.set(game));
         Ottomans { _image: image, provinces, objects: vec![turkish, sunni, greek, player, countries], session }
     }

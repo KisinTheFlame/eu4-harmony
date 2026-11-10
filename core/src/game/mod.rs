@@ -77,7 +77,7 @@ use std::sync::Mutex;
 pub use frame::{Frame, Heard};
 
 /// How much of the game a read gives (GLOSSARY: Player's view, Full view;
-/// ADR remote-control-reads-the-players-view).
+/// ADR requests-act-as-the-player-or-as-the-game).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum View {
     /// What the player's interface shows: the map as fog of war leaves it,
@@ -87,31 +87,26 @@ pub enum View {
     Full,
 }
 
-/// The view `caller` reads: the full view for an extension; for remote
-/// control the player's view, unless the player's framework setting gives it
-/// the full view.
+/// The view `caller` reads: the full view for an extension and a request as
+/// the game, the player's view for a request as the player.
 pub fn view(caller: Caller) -> View {
     match caller {
-        Caller::Extension(_) => View::Full,
-        Caller::Remote => view_of(caller, crate::settings::current().remote_full_view),
+        Caller::Extension(_) | Caller::Remote(As::Game) => View::Full,
+        Caller::Remote(As::Player) => View::Player,
     }
 }
 
-fn view_of(caller: Caller, remote_full_view: bool) -> View {
-    match caller {
-        Caller::Extension(_) => View::Full,
-        Caller::Remote if remote_full_view => View::Full,
-        Caller::Remote => View::Player,
-    }
-}
+pub use eu4_harmony_remote::As;
 
 /// Who calls a capability.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Caller {
-    /// The extension with this index, from one of its callbacks.
+    /// The extension with this index, from one of its callbacks. It may do
+    /// what the game does too (ADR requests-act-as-the-player-or-as-the-game).
     Extension(usize),
-    /// Remote control. It acts as the player: its orders are the player's.
-    Remote,
+    /// A remote client's request, as the player or as the game. Its orders
+    /// are the player's.
+    Remote(As),
 }
 
 impl Caller {
@@ -120,7 +115,7 @@ impl Caller {
     pub fn extension(self, what: &str) -> GResult<usize> {
         match self {
             Caller::Extension(index) => Ok(index),
-            Caller::Remote => fail(Status::Unavailable, format!("only extensions have {what}")),
+            Caller::Remote(_) => fail(Status::Unavailable, format!("only extensions have {what}")),
         }
     }
 }
@@ -561,7 +556,7 @@ pub fn command_session(m: &Memory, ctx: &impl InWorld) -> GResult<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{view_of, Caller, Tag, View};
+    use super::{view, As, Caller, Tag, View};
 
     #[test]
     fn a_reason_loses_the_check_s_bullet_and_the_text_s_own_dash() {
@@ -571,10 +566,10 @@ mod tests {
     }
 
     #[test]
-    fn extensions_read_the_full_view_and_remote_control_the_players_unless_set() {
-        assert_eq!(view_of(Caller::Extension(0), false), View::Full);
-        assert_eq!(view_of(Caller::Remote, false), View::Player);
-        assert_eq!(view_of(Caller::Remote, true), View::Full);
+    fn extensions_and_requests_as_the_game_read_the_full_view_and_as_the_player_the_players() {
+        assert_eq!(view(Caller::Extension(0)), View::Full);
+        assert_eq!(view(Caller::Remote(As::Player)), View::Player);
+        assert_eq!(view(Caller::Remote(As::Game)), View::Full);
     }
 
     #[test]

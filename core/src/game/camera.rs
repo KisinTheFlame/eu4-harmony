@@ -234,6 +234,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
     use crate::catalogue::fake::tur;
     use crate::game::{buffers::Image, buffers::Object, buffers::Provinces, commands::Commands, player::Player, Caller, Fail, Status, View};
@@ -308,7 +309,7 @@ mod tests {
         let manager = Object::new(layout::IN_MAP_MANAGER + 8).u64(0, m.at(classes::MAP_MANAGER) as u64).u64(layout::IN_MAP_MANAGER, camera.at() as u64);
         provinces.world_object().set(world::MAP_MANAGER, &(manager.at() as u64).to_le_bytes());
         let world = World { world: provinces.world(), date: 0, countries: 0, player: Player::Plays(tur()) };
-        let session = WorldSession { m, world, view: View::Full, caller: Caller::Remote, commands: Commands::Recorded };
+        let session = WorldSession { m, world, view: View::Full, caller: Caller::Remote(As::Player), commands: Commands::Recorded };
         Map { _image: image, _provinces: provinces, _objects: vec![ids, camera, manager], session }
     }
 

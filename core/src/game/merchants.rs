@@ -405,6 +405,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
 
     #[test]
@@ -512,7 +513,7 @@ mod tests {
         }
         let country = Object::country(ven, POOLS + 8).points_to(POOLS, buffers::envoys(vec![(Kind::Merchant, merchants)]));
         let countries = Object::countries(&[&country]);
-        let session = buffers::session(image.memory(), provinces.world(), ven, country.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), provinces.world(), ven, country.at(), countries.at(), Caller::Remote(As::Player));
         let mut objects = vec![database, genoa, link, venice, in_venice, in_genoa, nodes, country, countries];
         objects.extend(policies);
         Venice { _image: image, _provinces: provinces, _objects: objects, session }

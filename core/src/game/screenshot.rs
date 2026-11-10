@@ -344,17 +344,18 @@ pub fn points() -> Vec<crate::points::Point> {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
 
     #[test]
     fn only_remote_control_takes_screenshots_from_1_to_100_percent() {
         assert_eq!(screenshot(Caller::Extension(0), 50).err().map(|f| f.status), Some(Status::Unavailable));
         for wrong in [0, 101] {
-            let fail = screenshot(Caller::Remote, wrong).err().unwrap();
+            let fail = screenshot(Caller::Remote(As::Player), wrong).err().unwrap();
             assert_eq!(fail.status, Status::InvalidArgument);
             assert!(fail.message.contains(&wrong.to_string()), "{}", fail.message);
         }
-        let shot = screenshot(Caller::Remote, 50).unwrap();
+        let shot = screenshot(Caller::Remote(As::Player), 50).unwrap();
         assert_eq!(shot.percent(), 50);
         assert!(shot.taken().is_none());
         assert!(capture().asked.iter().any(|asked| Arc::ptr_eq(asked, &shot)));

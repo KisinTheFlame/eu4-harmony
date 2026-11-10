@@ -72,6 +72,7 @@ pub fn points() -> Vec<crate::points::Point> {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     #[test]
     fn the_command_names_the_country_the_province_and_the_unit_type() {
         assert_eq!(super::written(*b"FRA", 183, "western_medieval_infantry"), r#"buildunit={ country="FRA" province=183 unit="western_medieval_infantry" }"#);
@@ -113,7 +114,7 @@ mod tests {
             Object::new(unit_type_fields::NAME + game_string::OBJECT).u64(0, m.at(classes::UNIT_TYPE) as u64).string(unit_type_fields::NAME, "w_infantry");
         let france = Object::country(fra, country::UNIT_TYPES + 8 * country::UNIT_KINDS).points_to(country::UNIT_TYPES, infantry);
         let countries = Object::countries(&[&france]);
-        let session = buffers::session(m, provinces.world(), fra, france.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(m, provinces.world(), fra, france.at(), countries.at(), Caller::Remote(As::Player));
         France { _image: image, _provinces: provinces, _objects: vec![france, countries], session }
     }
 

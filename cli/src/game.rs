@@ -8,7 +8,7 @@
 //! how its value is written in JSON. A capability added to the crate so
 //! appears here with no change to this file.
 use crate::pipe::{self, Failure};
-use eu4_harmony_remote::{capabilities, prose, Binary, Capability, Kind, Parameter, Request};
+use eu4_harmony_remote::{capabilities, prose, As, Binary, Capability, Kind, Parameter, Request, Sent};
 use serde_json::{Map, Value};
 use std::{
     fs,
@@ -33,7 +33,7 @@ const PIPE_WAIT: Duration = Duration::from_secs(10);
 
 /// The command line's own options, which no capability's argument may be
 /// named.
-const OPTIONS: [&str; 5] = ["timeout", "out", "compact", "help", "test_game"];
+const OPTIONS: [&str; 7] = ["timeout", "out", "compact", "help", "test_game", "as_player", "as_game"];
 
 /// Runs `eu4-harmony game` with the arguments after `game`; returns the exit
 /// code.
@@ -79,6 +79,9 @@ enum Command {
 #[derive(Debug)]
 struct Ask {
     request: Request,
+    /// As the player, or as the game (ADR
+    /// requests-act-as-the-player-or-as-the-game).
+    acting: As,
     /// The longest the whole call may take.
     timeout: Option<Duration>,
     /// Where bytes in the answer go.
@@ -111,6 +114,7 @@ impl Outcome {
 /// options: every word after it is a value, even one that starts with `--`.
 fn parse(raw: &[String]) -> Result<Command, String> {
     let (mut timeout, mut out, mut compact, mut help, mut test_game) = (None, None, false, false, None);
+    let mut acting = None;
     let mut words = Vec::new();
     let mut values: &[String] = &[];
     let mut i = 0;
@@ -125,6 +129,13 @@ fn parse(raw: &[String]) -> Result<Command, String> {
             Some("out") => out = Some(PathBuf::from(option_value(raw, &mut i)?)),
             Some("compact") => compact = true,
             Some("test_game") => test_game = Some(option_value(raw, &mut i)?.to_string()),
+            Some(word @ ("as_player" | "as_game")) => {
+                let asked = if word == "as_game" { As::Game } else { As::Player };
+                if acting.is_some_and(|before| before != asked) {
+                    return Err("--as-player and --as-game are one or the other".into());
+                }
+                acting = Some(asked);
+            }
             Some(_) => help = true,
             None if raw[i] == "-h" => help = true,
             None => words.push(raw[i].clone()),
@@ -141,7 +152,7 @@ fn parse(raw: &[String]) -> Result<Command, String> {
                 return Ok(Command::Help(Some(capability)));
             }
             let request = request(&capability, &words[used..], values)?;
-            Ok(Command::Ask(Ask { request, timeout, out, compact, test_game }))
+            Ok(Command::Ask(Ask { request, acting: acting.unwrap_or_default(), timeout, out, compact, test_game }))
         }
     }
 }
@@ -302,7 +313,7 @@ fn usage() -> String {
         "eu4-harmony game: use the running game through remote control
 
 usage:
-  eu4-harmony game <capability> [--<argument> <value>]... [--timeout <seconds>] [--out <file>] [--compact] [--test-game <name>] [-- <value>...]
+  eu4-harmony game <capability> [--<argument> <value>]... [--as-game] [--timeout <seconds>] [--out <file>] [--compact] [--test-game <name>] [-- <value>...]
       Sends the game one request and prints the result as JSON. Values may
       also come without their names, in the order of the arguments, and a
       name's dot may be a space: eu4-harmony game army move <army> 151. The
@@ -312,6 +323,12 @@ usage:
       Describes the capability, as eu4-harmony wiki does.
 
 options:
+  --as-player          Acts as the player, as a request does unless told
+                       otherwise: it reads the player's view and does only what
+                       the player could.
+  --as-game            Acts as the game: it reads everything the game keeps,
+                       and may do what the game's and the mods' scripts do,
+                       which no player could (eu4-harmony wiki remote).
   --timeout <seconds>  Gives up after this long in all, waiting for the game to
                        open its pipe included; a request given up before it ran
                        never runs. Without it the pipe is waited for {} s, and
@@ -342,7 +359,7 @@ impl Ask {
     /// says what to print.
     fn run(&self, name: &str, game: &str) -> Outcome {
         let started = Instant::now();
-        let line = serde_json::to_string(&self.request).expect("a request is JSON");
+        let line = serde_json::to_string(&Sent { request: &self.request, acting: self.acting }).expect("a request is JSON");
         let answer =
             pipe::connect(name, game, started + self.timeout.unwrap_or(PIPE_WAIT)).and_then(|mut client| client.ask(&line, self.timeout.map(|t| started + t)));
         match answer {

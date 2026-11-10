@@ -197,6 +197,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
     use crate::game::{
         buffers::{self, Image, Object},
@@ -219,7 +220,7 @@ mod tests {
         let technology = Object::new(levels::LEVELS + 0x10).vector(levels::LEVELS, &[2 | 2 << 32]);
         let country = Object::country(fra, country::TECHNOLOGY + 8).points_to(country::TECHNOLOGY, technology);
         let countries = Object::countries(&[&country]);
-        let result = action(buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote));
+        let result = action(buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote(As::Player)));
         drop((adm, dip, database, country, countries, image));
         result
     }

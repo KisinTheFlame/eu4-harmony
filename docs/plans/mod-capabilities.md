@@ -1,6 +1,6 @@
 # Mod capabilities plan
 
-Status: in progress. Decided with the owner (2026-11-11): what is open to mods now, the roadmap of what is not, and the parts taken up first, M1 to M20. M1 built and tried in the game (2026-11-11, [the run](../prototype-log/2026-11-11-signals.md)); the others not built yet. Terms it added to [GLOSSARY.md](../../GLOSSARY.md): Modifier, Named modifier, Legitimacy, Government mechanic, Mechanic power, Opinion, As the player, As the game, Event (now the scripts'), Signal (the framework's, formerly its event). The decisions are [ADR requests-act-as-the-player-or-as-the-game](../adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md), [ADR framework-notifications-are-signals](../adr/2026-11-11-framework-notifications-are-signals.md), [ADR changes-as-the-game-are-typed-capabilities](../adr/2026-11-11-changes-as-the-game-are-typed-capabilities.md) and [ADR tasks-are-awaited-like-promises](../adr/2026-11-11-tasks-are-awaited-like-promises.md); it builds on [player-actions.md](player-actions.md) and [ADR mods-hold-the-logic](../adr/2026-11-03-mods-hold-the-logic.md).
+Status: in progress. Decided with the owner (2026-11-11): what is open to mods now, the roadmap of what is not, and the parts taken up first, M1 to M20. M1 and M9 built and tried in the game (2026-11-11, [M1's run](../prototype-log/2026-11-11-signals.md), [M9's](../prototype-log/2026-11-11-requests-as-the-game.md)); the others not built yet. Terms it added to [GLOSSARY.md](../../GLOSSARY.md): Modifier, Named modifier, Legitimacy, Government mechanic, Mechanic power, Opinion, As the player, As the game, Event (now the scripts'), Signal (the framework's, formerly its event). The decisions are [ADR requests-act-as-the-player-or-as-the-game](../adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md), [ADR framework-notifications-are-signals](../adr/2026-11-11-framework-notifications-are-signals.md), [ADR changes-as-the-game-are-typed-capabilities](../adr/2026-11-11-changes-as-the-game-are-typed-capabilities.md) and [ADR tasks-are-awaited-like-promises](../adr/2026-11-11-tasks-are-awaited-like-promises.md); it builds on [player-actions.md](player-actions.md) and [ADR mods-hold-the-logic](../adr/2026-11-03-mods-hold-the-logic.md).
 
 ## Goal and scope
 
@@ -10,7 +10,7 @@ Status: in progress. Decided with the owner (2026-11-11): what is open to mods n
 
 ## What is open now
 
-Each capability group in one line; its arguments, results and refusals are `eu4-harmony wiki`'s. Groups marked *remote* are remote control's only.
+Each capability group in one line; its arguments, results and refusals are `eu4-harmony wiki`'s. Groups marked *remote* are remote control's only. A remote client's request acts as the player, reading the player's view, unless it asks to act as the game (`--as-game`), reading the full view as extensions do (M9).
 
 ### Interface
 
@@ -228,6 +228,8 @@ The regiments by kind, strength, morale, leader and maintenance in `army.get`; `
 ### M9 Requests as the game
 
 `as` on the pipe, `--as-player` and `--as-game` on the command line, the view by the request, the setting removed, `as_the_game` refusals, `describe` and the wiki saying which capabilities need it.
+
+Done (2026-11-11): the catalogue has `As` (`player`, `game`), read beside the capability by `sent_from_json` and written by `Sent`, capability first and `"as": "game"` after it; a request as the player says nothing. A capability that needs a request as the game is declared with the place `as_game`, a `world` capability that extensions have; `Capability::as_game` says it, `describe` answers it, and the wiki marks it "(as the game)" and gives its command line `--as-game`. A request as the player asking for one is refused `as_the_game` (a new code) before it runs (`catalogue::may_ask`). In the core, a remote caller is `Caller::Remote(As)`, whose view is the player's or the full view (`game::view`); remote control's engine queues each request with how it acts, says so to the catalogue before it runs (`Catalogue::act_as`, which sets `Live`'s caller) and again before a request that waits is polled, and writes " as the game" after one in the log. Remote control now keeps every signal extensions hear, each marked whether the player's view shows it, and a read or an advance answers those of its request's view: the numbers of what the player's view leaves out are skipped in its reads. The setting `remote_full_view`, the settings window's remote control page and their texts are gone; a settings file that still has it reads without it. `eu4-harmony game` takes `--as-player` and `--as-game`, the sweep asks a capability that needs it both ways, and `eu4-harmony wiki remote`, the game guide, README.md, README.zh-CN.md and adding-a-capability.md say how a request acts. No capability needs a request as the game yet: the script group is the first. Tried in a test game: [the run](../prototype-log/2026-11-11-requests-as-the-game.md).
 
 ### M10 Flags
 
