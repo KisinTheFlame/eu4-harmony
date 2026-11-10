@@ -6,14 +6,17 @@ use crate::{
     game_string,
     memory::Memory,
     objects::campaign::{
-        classes, country as fields, country_diplomacy, idea_group, loan, person, rebel_faction, subject_relation, subject_type, technology, war,
-        world as world_fields,
+        classes, country as fields, country_diplomacy, idea_group, loan, modifiers as modifiers_fields, person, rebel_faction, subject_relation,
+        subject_type, technology, war, world as world_fields,
     },
     points::{GameFunction, Point},
     unicode::game_text,
 };
 use eu4_harmony_remote::{
-    countries::{args, Budget, Country, Entry, GoverningCapacity, IdeaGroup, Loan, Loans, Person, Power, Rebels, Relation, RelationKind, Technology},
+    countries::{
+        args, Budget, Country, Entry, GoverningCapacity, IdeaGroup, Legitimacy, LegitimacyKind, Loan, Loans, ModifierValue, Person, Power, Rebels, Relation,
+        RelationKind, Technology,
+    },
     CountryTag, Date,
 };
 
@@ -54,6 +57,25 @@ const MOST: usize = 4096;
 /// The maximum governing capacity: (country, out, modifier values, text).
 const MAX_GOVERNING_CAPACITY: GameFunction<4> = GameFunction::at(0x3f2e10);
 
+/// A country's government reforms, as the game finds them: (country).
+const REFORMS: GameFunction<1> = GameFunction::at(0x40a6d0);
+/// What the reforms make the government, each (reforms) -> bool: a horde,
+/// whose legitimacy is horde unity; one with meritocracy; a monarchy; a
+/// republic; one with devotion.
+const NOMAD: GameFunction<1> = GameFunction::at(0x7ac7f0);
+const HAS_MERITOCRACY: GameFunction<1> = GameFunction::at(0x7ac710);
+const MONARCHY: GameFunction<1> = GameFunction::at(0x7ac1a0);
+const REPUBLIC: GameFunction<1> = GameFunction::at(0x7ac3a0);
+const HAS_DEVOTION: GameFunction<1> = GameFunction::at(0x7ac6e0);
+/// A horde's horde unity and a monarchy's legitimacy, as the game shows
+/// them: (country, out). A personal union's junior partner has its senior
+/// partner's legitimacy.
+const HORDE_UNITY: GameFunction<2> = GameFunction::at(0x362990);
+const MONARCH_LEGITIMACY: GameFunction<2> = GameFunction::at(0x362b70);
+/// Every kind of legitimacy is whole at 100, in thousandths, as strengthening
+/// the government checks it.
+const WHOLE: usize = 100_000;
+
 pub fn points() -> Vec<Point> {
     vec![
         // The technology view's cost of a kind picks its category by these.
@@ -76,6 +98,34 @@ pub fn points() -> Vec<Point> {
         )
         .uses(&[fields::USED_GOVERNING_CAPACITY, fields::MODIFIERS]),
         Point::keep(MAX_GOVERNING_CAPACITY, "40 55 53 56 57 41 54 41 56 41 57 48 8d 6c 24 d9 48 81 ec b0 00 00 00", "maximum governing capacity"),
+        // The government's kind of legitimacy, asked as strengthening the
+        // government (0x3f78e0) asks it: a horde, meritocracy, a monarchy, a
+        // republic, devotion, in that order, each kind whole at 100.
+        Point::keep(REFORMS, "40 53 48 83 ec 20 48 8b 99 20 14 00 00 48 85 db 74 06 48 8b", "country's reforms"),
+        Point::keep(NOMAD, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57 48 83 ec 20 80 3d 25 37", "government is a horde"),
+        Point::keep(HAS_MERITOCRACY, "48 89 5c 24 08 57 48 83 ec 60 48 8b f9 80 3d 08 38 b9 01 00 74 09 80 3d", "government has meritocracy"),
+        Point::keep(MONARCHY, "40 53 48 83 ec 60 48 8b 99 f0 00 00 00 48 85 db 74 45 44 8b 03 41 8b c0", "government is a monarchy"),
+        Point::keep(REPUBLIC, "40 53 48 83 ec 20 48 8b d9 e8 62 03 00 00 84 c0 75 20 48 8b cb e8 26 00", "government is a republic"),
+        Point::keep(HAS_DEVOTION, "40 53 48 83 ec 20 48 8b d9 e8 12 ff ff ff 84 c0 74 14 48 8b cb e8 16 00", "government has devotion"),
+        Point::keep(HORDE_UNITY, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48 8b da 48 8b f1 48 8b b9", "horde unity"),
+        Point::keep(0x362a01usize, "8b 86 90 10 00 00", "horde unity's place").uses(&[fields::LEGITIMACY]),
+        Point::keep(MONARCH_LEGITIMACY, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57 48 83 ec 20 48 8b da 48", "monarch's legitimacy"),
+        Point::keep(0x3f7986usize, "e8 65 4e 3b 00", "strengthening the government asks for a horde first"),
+        Point::keep(0x3f7a1eusize, "81 bf 34 14 00 00 a0 86 01 00", "meritocracy whole").uses(&[fields::MERITOCRACY, WHOLE]),
+        Point::keep(0x3f7af4usize, "81 bf 94 10 00 00 a0 86 01 00", "republican tradition whole").uses(&[fields::REPUBLICAN_TRADITION, WHOLE]),
+        Point::keep(0x3f7b61usize, "81 bf 30 14 00 00 a0 86 01 00", "devotion whole").uses(&[fields::DEVOTION, WHOLE]),
+        // The country's modifiers made again: what legitimacy adds, scaled
+        // from its middle (a value less 500 tenths), and a republic's two.
+        Point::keep(0x92e7afusize, "81 c3 0c fe ff ff", "legitimacy's effects from the middle"),
+        Point::keep(0x92e7bausize, "49 8b 3e 48 81 c7 08 2f 00 00", "legitimacy's effects").uses(&[modifiers_fields::LEGITIMACY_EFFECTS]),
+        Point::keep(0x92e999usize, "48 8b 1f 48 81 c3 c8 2f 00 00", "republican tradition's second effects")
+            .uses(&[modifiers_fields::LEGITIMACY_EFFECTS_SECOND]),
+        // The country's save writer.
+        Point::keep(0x2df4eeusize, "49 8d 97 40 0e 00 00", "country army tradition").uses(&[fields::ARMY_TRADITION]),
+        Point::keep(0x2df516usize, "49 8d 97 44 0e 00 00", "country navy tradition").uses(&[fields::NAVY_TRADITION]),
+        Point::keep(0x2df930usize, "49 8d 97 d0 0e 00 00", "country corruption").uses(&[fields::CORRUPTION]),
+        Point::keep(0x2dfb94usize, "49 8d 57 4c", "country absolutism").uses(&[fields::ABSOLUTISM]),
+        Point::keep(0x2dfbf8usize, "49 8d 4f 50", "country army professionalism").uses(&[fields::ARMY_PROFESSIONALISM]),
         // The country's save writer.
         Point::keep(0x2df1e1usize, "41 39 87 d4 0b 00 00", "country inflation").uses(&[fields::INFLATION]),
         Point::keep(0x2dfb51usize, "49 8d 97 98 10 00 00", "country mercantilism").uses(&[fields::MERCANTILISM]),
@@ -251,7 +301,85 @@ pub fn get(WorldSession { m, world: ctx, view, .. }: WorldSession, args::Get { c
         ruler: person_at(m, c + fields::RULER, ctx.date)?,
         heir: person_at(m, c + fields::HEIR, ctx.date)?,
         consort: person_at(m, c + fields::CONSORT, ctx.date)?,
+        legitimacy: legitimacy_of(m, c, all)?,
+        corruption: if all { Some(thousandths(fixed(fields::CORRUPTION)?)) } else { None },
+        absolutism: if all { Some(thousandths(fixed(fields::ABSOLUTISM)?)) } else { None },
+        army_professionalism: if all { Some(professionalism(m.u64(c + fields::ARMY_PROFESSIONALISM)? as i64)) } else { None },
+        army_tradition: thousandths(fixed(fields::ARMY_TRADITION)?),
+        navy_tradition: thousandths(fixed(fields::NAVY_TRADITION)?),
     }))
+}
+
+/// Army professionalism in percent, from the game's fixed point.
+fn professionalism(raw: i64) -> f64 {
+    raw as f64 * 100.0 / fields::ARMY_PROFESSIONALISM_ONE as f64
+}
+
+/// The country's kind of legitimacy, as strengthening the government asks
+/// for it: None for a government with none.
+fn legitimacy_kind(m: &Memory, c: usize) -> GResult<Option<LegitimacyKind>> {
+    let reforms = REFORMS.call(m, [c])?;
+    let is = |function: GameFunction<1>| -> GResult<bool> { Ok(function.call(m, [reforms])? & 0xff != 0) };
+    Ok(if is(NOMAD)? {
+        Some(LegitimacyKind::HordeUnity)
+    } else if is(HAS_MERITOCRACY)? {
+        Some(LegitimacyKind::Meritocracy)
+    } else if is(MONARCHY)? {
+        Some(LegitimacyKind::Legitimacy)
+    } else if is(REPUBLIC)? {
+        Some(LegitimacyKind::RepublicanTradition)
+    } else if is(HAS_DEVOTION)? {
+        Some(LegitimacyKind::Devotion)
+    } else {
+        None
+    })
+}
+
+/// The country's legitimacy, of its government's kind, and with `effects`
+/// what it adds to the country's modifiers now.
+fn legitimacy_of(m: &Memory, c: usize, effects: bool) -> GResult<Option<Legitimacy>> {
+    let Some(kind) = legitimacy_kind(m, c)? else { return Ok(None) };
+    let shown = |getter: GameFunction<2>| -> GResult<i32> {
+        let mut value = 0i32;
+        let out = &mut value as *mut i32 as usize;
+        if getter.call(m, [c, out])? != out {
+            return Err("legitimacy getter returned an unexpected pointer".to_string().into());
+        }
+        Ok(value)
+    };
+    let value = match kind {
+        LegitimacyKind::Legitimacy => shown(MONARCH_LEGITIMACY)?,
+        LegitimacyKind::HordeUnity => shown(HORDE_UNITY)?,
+        LegitimacyKind::RepublicanTradition => m.i32(c + fields::REPUBLICAN_TRADITION)?,
+        LegitimacyKind::Devotion => m.i32(c + fields::DEVOTION)?,
+        LegitimacyKind::Meritocracy => m.i32(c + fields::MERITOCRACY)?,
+    };
+    let effects = if effects { Some(legitimacy_effects(m, c, kind, value)?) } else { None };
+    Ok(Some(Legitimacy { kind, value: thousandths(value), max: thousandths(WHOLE as i32), effects }))
+}
+
+/// What the country's legitimacy of `kind` at `value` adds to its
+/// modifiers, as they were last made again (docs/research/modifiers.md): the
+/// set made for it, and a republic's second; nothing for a legitimacy, horde
+/// unity or devotion at its middle, which adds none.
+fn legitimacy_effects(m: &Memory, c: usize, kind: LegitimacyKind, value: i32) -> GResult<Vec<ModifierValue>> {
+    let sets = match kind {
+        LegitimacyKind::RepublicanTradition => vec![modifiers_fields::LEGITIMACY_EFFECTS, modifiers_fields::LEGITIMACY_EFFECTS_SECOND],
+        LegitimacyKind::Meritocracy => vec![modifiers_fields::LEGITIMACY_EFFECTS],
+        _ if i64::from(value) * 10 / 1000 == 500 => Vec::new(),
+        _ => vec![modifiers_fields::LEGITIMACY_EFFECTS],
+    };
+    let own = modifiers::of_country(m, c)?;
+    let mut out: Vec<ModifierValue> = Vec::new();
+    for set in sets {
+        for effect in modifiers::named(m, own + set)? {
+            match out.iter_mut().find(|e| e.modifier == effect.modifier) {
+                Some(same) => same.value += effect.value,
+                None => out.push(effect),
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// The person a country's field holds, as the court view shows them; None

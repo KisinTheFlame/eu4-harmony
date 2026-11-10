@@ -295,6 +295,23 @@ pub mod country {
     pub const RULER: usize = 0x1280;
     pub const HEIR: usize = 0x1298;
     pub const CONSORT: usize = 0x12b0;
+    /// Its legitimacy of each kind, i32 thousandths from 0 to 100: a
+    /// monarchy's legitimacy, which is a horde's horde unity as well,
+    /// republican tradition, devotion and meritocracy. Which one its
+    /// government has, the government says (docs/research/government.md).
+    pub const LEGITIMACY: usize = 0x1090;
+    pub const REPUBLICAN_TRADITION: usize = 0x1094;
+    pub const DEVOTION: usize = 0x1430;
+    pub const MERITOCRACY: usize = 0x1434;
+    /// Army and navy tradition, corruption and absolutism, i32 thousandths.
+    pub const ARMY_TRADITION: usize = 0xe40;
+    pub const NAVY_TRADITION: usize = 0xe44;
+    pub const CORRUPTION: usize = 0xed0;
+    pub const ABSOLUTISM: usize = 0x4c;
+    /// Army professionalism, an i64 fixed-point number of
+    /// [`ARMY_PROFESSIONALISM_ONE`] to the whole.
+    pub const ARMY_PROFESSIONALISM: usize = 0x50;
+    pub const ARMY_PROFESSIONALISM_ONE: i64 = 100_000;
     /// Inflation and mercantilism, fixed point, in percent.
     pub const INFLATION: usize = 0xbd4;
     pub const MERCANTILISM: usize = 0x1098;
@@ -756,6 +773,11 @@ pub mod modifiers {
     pub const COPIES: usize = 0x6440;
     /// Their own set, the [`super::modifier_set`] the copies are added to.
     pub const OWN: usize = 8;
+    /// The sets of what its legitimacy adds, made again as the modifiers are
+    /// ([`super::modifier_set`]s): the first for every kind of legitimacy,
+    /// the second a republic's for republican tradition below its whole.
+    pub const LEGITIMACY_EFFECTS: usize = 0x2f08;
+    pub const LEGITIMACY_EFFECTS_SECOND: usize = 0x2fc8;
 }
 
 /// A set of modifiers, the base of [`classes::MODIFIER_SET`] and of the sets
@@ -765,6 +787,26 @@ pub mod modifier_set {
     /// copy leaves the destination's as it was; its destructor frees the
     /// vector.
     pub const ADDED: usize = 0x38;
+    /// Its values: a byte set when it keeps them by modifier, each at the
+    /// modifier's place; otherwise as pairs. Either way an array of
+    /// [`PAIR`]-byte pairs at [`PAIRS`], a modifier's index (i32), then its
+    /// value (i32 thousandths), and their count (i32) at [`COUNT`]; a place
+    /// kept by modifier that holds none holds [`NONE`].
+    pub const BY_MODIFIER: usize = 0x10;
+    pub const PAIRS: usize = 0x58;
+    pub const COUNT: usize = 0x64;
+    pub const PAIR: usize = 8;
+    pub const NONE: i32 = 0x286;
+}
+
+/// The kinds of modifier, built into the code: a vector (begin, end) at
+/// [`TYPES`] of [`SIZE`]-byte records by the modifier's index, each with its
+/// key (a `std::string`) at [`KEY`] and its index at [`INDEX`].
+pub mod modifier_type {
+    pub const TYPES: usize = 0x2358080;
+    pub const SIZE: usize = 0x60;
+    pub const KEY: usize = 0;
+    pub const INDEX: usize = 0x54;
 }
 
 /// The map modes' panel, at the map manager's `+0x2448`, which the game

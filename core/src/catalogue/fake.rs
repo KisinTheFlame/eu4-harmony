@@ -156,7 +156,9 @@ impl countries::Layer for Fake {
     /// The Ottomans at war with Byzantium, with Wallachia as their vassal;
     /// Byzantium with nothing; [`wallachia`].
     fn country(&mut self, eu4_harmony_remote::countries::args::Get { country }: eu4_harmony_remote::countries::args::Get) -> GResult<Box<Country>> {
-        use eu4_harmony_remote::countries::{GoverningCapacity, IdeaGroup, Loans, Person, Power, Rebels, RelationKind, Technology};
+        use eu4_harmony_remote::countries::{
+            GoverningCapacity, IdeaGroup, Legitimacy, LegitimacyKind, Loans, ModifierValue, Person, Power, Rebels, RelationKind, Technology,
+        };
         self.call(format!("country {country}"));
         let found = found(country)?;
         if found == byz() {
@@ -188,6 +190,17 @@ impl countries::Layer for Fake {
             ruler: Some(Person { name: "Mehmed II".into(), dynasty: Some("Osmanoğlu".into()), adm: 5, dip: 4, mil: 6, age: 21 }),
             heir: None,
             consort: None,
+            legitimacy: Some(Legitimacy {
+                kind: LegitimacyKind::Legitimacy,
+                value: 90.0,
+                max: 100.0,
+                effects: Some(vec![ModifierValue { modifier: "global_unrest".into(), value: -0.8 }]),
+            }),
+            corruption: Some(1.5),
+            absolutism: Some(20.0),
+            army_professionalism: Some(12.5),
+            army_tradition: 35.25,
+            navy_tradition: 10.0,
         }))
     }
 
@@ -256,6 +269,12 @@ fn bare(tag: CountryTag) -> Country {
         ruler: None,
         heir: None,
         consort: None,
+        legitimacy: None,
+        corruption: None,
+        absolutism: None,
+        army_professionalism: None,
+        army_tradition: 0.0,
+        navy_tradition: 0.0,
     }
 }
 
