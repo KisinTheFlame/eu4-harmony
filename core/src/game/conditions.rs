@@ -37,19 +37,19 @@ pub fn points() -> Vec<Point> {
 
 /// A scope of the game's for `country`, and `province` when not 0, freed when
 /// it is dropped. A new one for each question: evaluating writes into it.
-struct Scope<'m> {
+pub(super) struct Scope<'m> {
     m: &'m Memory,
     bytes: [u64; SCOPE_SIZE / 8],
 }
 
 impl<'m> Scope<'m> {
-    fn new(m: &'m Memory, country: Tag, province: u32) -> GResult<Box<Self>> {
+    pub(super) fn new(m: &'m Memory, country: Tag, province: u32) -> GResult<Box<Self>> {
         let mut scope = Box::new(Self { m, bytes: [0; SCOPE_SIZE / 8] });
         SCOPE.call(m, [scope.address(), country.0 as usize, province as usize, 0])?;
         Ok(scope)
     }
 
-    fn address(&mut self) -> usize {
+    pub(super) fn address(&mut self) -> usize {
         self.bytes.as_mut_ptr() as usize
     }
 }

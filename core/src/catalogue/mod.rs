@@ -441,6 +441,7 @@ macro_rules! capability_groups {
             CenterOfTrade(centers_of_trade),
             Merchant(merchants),
             Trade(trade),
+            Script(script),
         }
     };
 }

@@ -17,6 +17,7 @@ mod date;
 pub mod form;
 pub mod provinces;
 pub mod save_data;
+pub mod script;
 pub mod texts;
 pub mod time;
 

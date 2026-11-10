@@ -1,6 +1,6 @@
 # Mod capabilities plan
 
-Status: in progress. Decided with the owner (2026-11-11): what is open to mods now, the roadmap of what is not, and the parts taken up first, M1 to M20. M1, M6, M7, M8, M9, M13 and M14 built and tried in the game (2026-11-11: [M1's run](../prototype-log/2026-11-11-signals.md), [M6's and M7's](../prototype-log/2026-11-11-province-and-army-reads.md), [M8's](../prototype-log/2026-11-11-mechanics-and-advisors.md), [M9's](../prototype-log/2026-11-11-requests-as-the-game.md), [M13's and M14's](../prototype-log/2026-11-11-tasks-and-game-days.md)); the others not built yet. Terms it added to [GLOSSARY.md](../../GLOSSARY.md): Modifier, Named modifier, Legitimacy, Government mechanic, Mechanic power, Opinion, As the player, As the game, Event (now the scripts'), Signal (the framework's, formerly its event). The decisions are [ADR requests-act-as-the-player-or-as-the-game](../adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md), [ADR framework-notifications-are-signals](../adr/2026-11-11-framework-notifications-are-signals.md), [ADR changes-as-the-game-are-typed-capabilities](../adr/2026-11-11-changes-as-the-game-are-typed-capabilities.md) and [ADR tasks-are-awaited-like-promises](../adr/2026-11-11-tasks-are-awaited-like-promises.md); it builds on [player-actions.md](player-actions.md) and [ADR mods-hold-the-logic](../adr/2026-11-03-mods-hold-the-logic.md).
+Status: in progress. Decided with the owner (2026-11-11): what is open to mods now, the roadmap of what is not, and the parts taken up first, M1 to M20. M1 and M6 to M14 built and tried in the game (2026-11-11: [M1's run](../prototype-log/2026-11-11-signals.md), [M6's and M7's](../prototype-log/2026-11-11-province-and-army-reads.md), [M8's](../prototype-log/2026-11-11-mechanics-and-advisors.md), [M9's](../prototype-log/2026-11-11-requests-as-the-game.md), [M10's to M12's](../prototype-log/2026-11-11-script-flags-variables-events.md), [M13's and M14's](../prototype-log/2026-11-11-tasks-and-game-days.md)); the others not built yet. Terms it added to [GLOSSARY.md](../../GLOSSARY.md): Modifier, Named modifier, Legitimacy, Government mechanic, Mechanic power, Opinion, As the player, As the game, Event (now the scripts'), Signal (the framework's, formerly its event). The decisions are [ADR requests-act-as-the-player-or-as-the-game](../adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md), [ADR framework-notifications-are-signals](../adr/2026-11-11-framework-notifications-are-signals.md), [ADR changes-as-the-game-are-typed-capabilities](../adr/2026-11-11-changes-as-the-game-are-typed-capabilities.md) and [ADR tasks-are-awaited-like-promises](../adr/2026-11-11-tasks-are-awaited-like-promises.md); it builds on [player-actions.md](player-actions.md) and [ADR mods-hold-the-logic](../adr/2026-11-03-mods-hold-the-logic.md).
 
 ## Goal and scope
 
@@ -39,6 +39,7 @@ Each group reads what its panel offers now (`options` or `list`, each entry a `C
 - Other countries: `diplomacy` (every action of the diplomacy panel, the proposals answering with the other country's answer), `subject`.
 - Answering: `question`, `offer`.
 - Beyond the panels: `console.run`, the game console with its own checks; `menu` (*remote*: saves, loading, a new game, back to the main menu); `time` (pausing, resuming, the speed; waiting for days to pass; advancing days, *remote*).
+- As the game, what the scripts do and no player could: `script` (reading, setting and clearing a country's, a province's, a monarch's or the game's flags; reading and setting a country's or a province's variables; firing an event).
 
 ### Signals
 
@@ -94,8 +95,9 @@ What is known of each part's game side is in [research/](../research/), as found
 ### Scripts, and acting as the game
 
 - The `script` group is what scripts and extensions share. A scope is a table of one key: `{ country = "FRA" }`, `{ province = 183 }`, `{ ruler = "FRA" }`, `{ heir = "FRA" }`, `{ consort = "FRA" }` or `{ global = true }`; each operation takes the scopes the game has for it.
-- `script.flag(scope, name)` answers the day the flag was set, or nil; `script.set_flag(scope, name)` and `script.clear_flag(scope, name)` set and clear it, as `set_country_flag` and `clr_country_flag` (and their kin for the other scopes) do.
-- `script.variable(scope, name)` answers a variable's value, or nil; `script.set_variable(scope, name, value)` sets it, as `set_variable` does.
+- `script.flag(scope, name)` answers whether the flag is set and the day it was set (`{set, day}`); `script.set_flag(scope, name)` and `script.clear_flag(scope, name)` set and clear it, as `set_country_flag` and `clr_country_flag` (and their kin for the other scopes) do.
+- `script.variable(scope, name)` answers whether the scope has the variable and its value, 0 when it has none as the scripts read it (`{set, value}`); `script.set_variable(scope, name, value)` sets it, as `set_variable` does.
+- A read answers a table rather than nil for a flag or a variable not set: in Lua a capability's result is nil only with `err`, and an answer of nothing is `true`.
 - `script.fire_event(scope, id)` fires an event for a country or a province at once, as `country_event = { id = … }` or `province_event` does: the game checks it and has the AI choose its option as for any event, and for the player it waits as a question. `not_found` for an id no event has. There is no delay: a task waits first (`game.time.wait`).
 - A remote client's request acts as the player unless it asks to act as the game: `--as-player` (the default) or `--as-game` on the command line, `"as"` on the pipe. As the player it reads the player's view; as the game the full view, and it may use the `script` group, which as the player is refused with `as_the_game`. The setting "Remote control sees everything" is removed. Extensions read the full view and use the `script` group always ([ADR requests-act-as-the-player-or-as-the-game](../adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md)).
 
@@ -241,13 +243,19 @@ Done (2026-11-11): the catalogue has `As` (`player`, `game`), read beside the ca
 
 `script.flag`, `script.set_flag`, `script.clear_flag`, in every scope the game has.
 
+Done (2026-11-11): the `script` group, every capability in it as the game (`as_game`), with a new kind of argument, the scope (`{country = …}`, `{province = …}`, `{ruler = …}`, `{heir = …}`, `{consort = …}`, `{global = true}`; `country:FRA`, `province:183` or `global` on the command line), and the checks a fake makes too in `eu4_harmony_checks::script`: each use's scopes, a name as the scripts write one, a variable's value. A flag is read from its scope's flag set, found as the effects find it (a country's, a province's, the world's, a monarch's through its vtable, a rulerless country's own for its ruler), by the id the game gave its name; the framework only looks the name up, so asking for one no script named adds nothing. Setting asks the game's own `0x737ea0` for the id and sets it with `0x7371f0`, on today's date; clearing calls `0x7372f0`. A flag on an heir or a consort a country has not reads as not set, clears as nothing, and is refused when set ([research/scripts.md](../research/scripts.md)). The fake game's world keeps the flags a mod sets, on its date. Tried in a test game: [the run](../prototype-log/2026-11-11-script-flags-variables-events.md).
+
 ### M11 Variables
 
 `script.variable`, `script.set_variable`.
 
+Done (2026-11-11): a variable is read by walking its scope's map for the name, so that 0 is told from none, and set with the game's `0xd7c450`, in thousandths; a country's and a province's, the game having no variables of its own. A new kind of argument, the number, carries the value. The fake game's world keeps them, rounded as the game rounds.
+
 ### M12 Firing events
 
 `script.fire_event`.
+
+Done (2026-11-11): the event is found by its id among the game's events, its trigger asked in a scope `game::conditions` makes (the country, or the province and `---` so that it is its owner's), and fired with the game's `TriggerEvent` through the event manager, as `country_event` and `province_event` fire one with no days to wait. A trigger that does not hold is refused `rejected`, an id no event has and a province no one owns `not_found`. The fake game leaves it to a test's answer, having no events.
 
 ### M13 Tasks awaited
 

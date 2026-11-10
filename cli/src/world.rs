@@ -3,7 +3,8 @@
 //! the capability's result as the game writes it, in Lua's form.
 //!
 //! The world holds the player, the date, countries and which are hostile,
-//! provinces with their neighbors, and armies. A route is the shortest over
+//! provinces with their neighbors, and armies; and the scripts' flags and
+//! variables the mod sets, a flag on the world's date. A route is the shortest over
 //! land an army can stand on, across straits; a step is to a neighbor of
 //! that kind; an attack is on an army of a country hostile to the player.
 //! An order sets or clears the army's route, as this mod's; armies do not
@@ -14,8 +15,11 @@
 //! the player's, a fleet where a land army is asked for, an order to an army
 //! the game would not let the framework order, a target the player does not
 //! see. The game is never paused in the world.
-use eu4_harmony_checks::{armies as army_checks, countries as country_checks, provinces as province_checks};
-use eu4_harmony_remote::{armies::Blocked, Error};
+use eu4_harmony_checks::{
+    armies as army_checks, countries as country_checks, provinces as province_checks,
+    script::{self as script_checks, Use},
+};
+use eu4_harmony_remote::{armies::Blocked, script::Scope, Code, Error, ProvinceId};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -41,6 +45,12 @@ pub struct World {
     armies: Vec<Army>,
     #[serde(default)]
     selected: Option<u64>,
+    /// The flags and variables the mod set, by their scope and name: a
+    /// flag's day, in Lua's form, and a variable's value.
+    #[serde(skip)]
+    flags: BTreeMap<String, Value>,
+    #[serde(skip)]
+    variables: BTreeMap<String, f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -146,6 +156,11 @@ pub const ANSWERS: &[&str] = &[
     "army.can_attack",
     "army.move",
     "army.stop",
+    "script.flag",
+    "script.set_flag",
+    "script.clear_flag",
+    "script.variable",
+    "script.set_variable",
 ];
 
 impl World {
@@ -428,7 +443,55 @@ impl World {
                     Value::Null
                 })
             }
+            "script.flag" | "script.set_flag" | "script.clear_flag" | "script.variable" | "script.set_variable" => self.script(capability, request),
             _ => return None,
+        })
+    }
+
+    /// A flag or a variable read or set, kept by its scope and name: a flag
+    /// set on the world's date, a variable in thousandths, as the game keeps
+    /// them. The scope's country or province must be the world's; a monarch
+    /// is taken to be there.
+    fn script(&mut self, capability: &str, request: &Value) -> Result<Value, Error> {
+        let scope: Scope =
+            serde_json::from_value(request.get("scope").cloned().unwrap_or(Value::Null)).map_err(|e| Error::new(Code::InvalidArgument, e.to_string()))?;
+        let name = request.get("name").and_then(Value::as_str).unwrap_or_default();
+        let (use_, what) = if capability.ends_with("flag") { (Use::Flag, "flag") } else { (Use::Variable, "variable") };
+        script_checks::scope(use_, scope.kind(), scope == Scope::Global(true))?;
+        script_checks::name(what, name)?;
+        match scope {
+            Scope::Country(tag) | Scope::Ruler(tag) | Scope::Heir(tag) | Scope::Consort(tag) if !self.country_known(&tag.to_string()) => {
+                return Err(country_checks::not_found(&tag.to_string()).into());
+            }
+            Scope::Province(ProvinceId(id)) => {
+                self.province(id)?;
+            }
+            _ => {}
+        }
+        let key = format!("{}:{name}", serde_json::to_string(&scope).unwrap_or_default());
+        Ok(match capability {
+            "script.flag" => match self.flags.get(&key) {
+                Some(day) => json!({"set": true, "day": day}),
+                None => json!({"set": false, "day": null}),
+            },
+            "script.set_flag" => {
+                self.flags.insert(key, self.date());
+                Value::Null
+            }
+            "script.clear_flag" => {
+                self.flags.remove(&key);
+                Value::Null
+            }
+            "script.variable" => match self.variables.get(&key) {
+                Some(value) => json!({"set": true, "value": value}),
+                None => json!({"set": false, "value": 0.0}),
+            },
+            _ => {
+                let value = request.get("value").and_then(Value::as_f64).unwrap_or_default();
+                script_checks::value(value)?;
+                self.variables.insert(key, (value * 1000.0).round() / 1000.0);
+                Value::Null
+            }
         })
     }
 }

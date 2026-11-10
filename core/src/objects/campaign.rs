@@ -304,6 +304,12 @@ pub mod country {
     pub const INCOME_CATEGORIES: usize = 19;
     pub const EXPENSES: usize = 0xb00;
     pub const EXPENSE_CATEGORIES: usize = 38;
+    /// Its ruler, its heir and its consort, each a pointer to a monarch
+    /// (docs/research/names.md); without one, to a placeholder, whose
+    /// vtable's `+0x58` answers false.
+    pub const RULER: usize = 0x1280;
+    pub const HEIR: usize = 0x1298;
+    pub const CONSORT: usize = 0x12b0;
 }
 
 /// What a country keeps of its technology.
@@ -866,6 +872,9 @@ pub mod pending_event {
 pub mod event {
     /// Its id in the game's files (`flavor_fra.1`), a `std::string`.
     pub const NAME: usize = 0x20;
+    /// Its trigger, a content trigger (`game::conditions`), which firing it
+    /// from script asks first.
+    pub const TRIGGER: usize = 0x40;
     /// Its options: a vector (begin, end) of pointers to
     /// [`super::event_option`]s.
     pub const OPTIONS: usize = 0x790;
