@@ -1,7 +1,9 @@
 //! Government: the player's government reforms and rank, as the government
 //! view shows them, and adopting reforms and raising the rank as its buttons
-//! do.
+//! do, and its government mechanics: their powers and using their
+//! interactions.
 use crate::choices::Choice;
+use crate::Date;
 use serde::{Deserialize, Serialize};
 
 group! {
@@ -38,6 +40,27 @@ group! {
     /// for it. `rejected` with the game's reasons when the game would not
     /// let the player raise it now.
     game RaiseRank "raise_rank" {} -> (), "null once the game has raised it";
+
+    /// The government mechanics the player's government has, as the
+    /// government view shows them: each mechanic's powers, their values and
+    /// bounds and the modifiers each gives now, and its interactions the
+    /// player is offered, with whether the player can use each now, why
+    /// not, what it costs, and the day a cooldown ends. What an interaction
+    /// does is the mechanic's script's, and is not given.
+    game Mechanics "mechanics" {} -> Vec<Mechanic>, "each mechanic: mechanic (its content key), name, powers (power, name, value, min, max, effects: modifier, value), interactions (interaction, name, can, reasons, cost, cost_power, ready_on)";
+
+    /// Uses an interaction of one of the player's government mechanics, as
+    /// its button in the government view does, paying its cost. `rejected`
+    /// with the game's reasons when the game would not let the player use it
+    /// now, as `government.mechanics` says beforehand; `not_found` for a
+    /// mechanic the player's government does not have, or an interaction it
+    /// does not offer.
+    game Interact "interact" {
+        /// The mechanic's content key, such as `mamluk_mechanic`.
+        mechanic: String,
+        /// The interaction's content key, such as `recruit_from_culture_lands`.
+        interaction: String,
+    } -> (), "null once the game has carried it out";
 }
 
 /// The player's government.
@@ -79,4 +102,53 @@ pub struct Reform {
     /// Whether the player can adopt it now, why not, and its cost.
     #[serde(flatten)]
     pub choice: Choice,
+}
+
+/// A government mechanic of the player's government.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Mechanic {
+    /// Its content key, which the game's or a mod's
+    /// `common/government_mechanics` gives it, such as `mamluk_mechanic`.
+    pub mechanic: String,
+    /// Its name, in the player language.
+    pub name: String,
+    pub powers: Vec<MechanicPower>,
+    /// The interactions it offers the player: those whose conditions for
+    /// being offered hold.
+    pub interactions: Vec<MechanicInteraction>,
+}
+
+/// A mechanic power: a value of the mechanic's between its bounds.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct MechanicPower {
+    /// Its content key, such as `mamluk_adm_power`.
+    pub power: String,
+    /// Its name, in the player language.
+    pub name: String,
+    /// What the player's country has of it now.
+    pub value: f64,
+    pub min: f64,
+    pub max: f64,
+    /// What it adds to the country's modifiers now: what its scaled and
+    /// range modifiers come to at its value. How the value is turned into
+    /// them is the mechanic's script's, and is not given.
+    pub effects: Vec<crate::countries::ModifierValue>,
+}
+
+/// An interaction a government mechanic offers the player.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct MechanicInteraction {
+    /// Its content key, such as `recruit_from_culture_lands`.
+    pub interaction: String,
+    /// Its name, in the player language.
+    pub name: String,
+    /// Whether the player can use it now, why not, and what it costs: an
+    /// amount of `mechanic_power`, of the power `cost_power` names.
+    #[serde(flatten)]
+    pub choice: Choice,
+    /// The power its cost is paid in, by its content key; none when it
+    /// costs none of the mechanic's powers.
+    pub cost_power: Option<String>,
+    /// The day its cooldown ends, while one runs.
+    pub ready_on: Option<Date>,
 }

@@ -544,6 +544,8 @@ groups! {
     Building(buildings::BuildingRequest, BuildingAnswer),
     /// The player's leaders: recruiting, assigning and dismissing them.
     Leader(leaders::LeaderRequest, LeaderAnswer),
+    /// The player's advisors: hiring, firing and promoting them.
+    Advisor(advisors::AdvisorRequest, AdvisorAnswer),
     /// The mercenary companies the player can hire.
     Mercenary(mercenaries::MercenaryRequest, MercenaryAnswer),
     /// The player's forts.
