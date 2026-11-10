@@ -1,6 +1,6 @@
 # Mod capabilities plan
 
-Status: in progress. Decided with the owner (2026-11-11): what is open to mods now, the roadmap of what is not, and the parts taken up first, M1 to M20. M1 built and tried in the game (2026-11-11, [the run](../prototype-log/2026-11-11-signals.md)); the others not built yet. Terms it added to [GLOSSARY.md](../../GLOSSARY.md): Modifier, Named modifier, Legitimacy, Government mechanic, Mechanic power, Opinion, As the player, As the game, Event (now the scripts'), Signal (the framework's, formerly its event). The decisions are [ADR requests-act-as-the-player-or-as-the-game](../adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md), [ADR framework-notifications-are-signals](../adr/2026-11-11-framework-notifications-are-signals.md), [ADR changes-as-the-game-are-typed-capabilities](../adr/2026-11-11-changes-as-the-game-are-typed-capabilities.md) and [ADR tasks-are-awaited-like-promises](../adr/2026-11-11-tasks-are-awaited-like-promises.md); it builds on [player-actions.md](player-actions.md) and [ADR mods-hold-the-logic](../adr/2026-11-03-mods-hold-the-logic.md).
+Status: in progress. Decided with the owner (2026-11-11): what is open to mods now, the roadmap of what is not, and the parts taken up first, M1 to M20. M1 built and tried in the game (2026-11-11, [the run](../prototype-log/2026-11-11-signals.md)); M2 to M4 built and tried in the game (2026-11-11, [the run](../prototype-log/2026-11-11-country-rulers-legitimacy-modifiers.md)); the others not built yet. Terms it added to [GLOSSARY.md](../../GLOSSARY.md): Modifier, Named modifier, Legitimacy, Government mechanic, Mechanic power, Opinion, As the player, As the game, Event (now the scripts'), Signal (the framework's, formerly its event). The decisions are [ADR requests-act-as-the-player-or-as-the-game](../adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md), [ADR framework-notifications-are-signals](../adr/2026-11-11-framework-notifications-are-signals.md), [ADR changes-as-the-game-are-typed-capabilities](../adr/2026-11-11-changes-as-the-game-are-typed-capabilities.md) and [ADR tasks-are-awaited-like-promises](../adr/2026-11-11-tasks-are-awaited-like-promises.md); it builds on [player-actions.md](player-actions.md) and [ADR mods-hold-the-logic](../adr/2026-11-03-mods-hold-the-logic.md).
 
 ## Goal and scope
 
@@ -23,8 +23,8 @@ Each capability group in one line; its arguments, results and refusals are `eu4-
 ### Reads
 
 - `session`: the session, the country acted as, putting a country in view in observe mode. `time.get`: the date, whether paused, the speed. `text.language`: the player language.
-- `country.get`: treasury, manpower, stability, prestige, monarch points, wars, relations, technology, ideas, governing capacity, inflation, mercantilism, loans, rebels. `country.budget`: the month's income and expenses. `country.hostile`: the countries at war with one.
-- `province.list`, `province.get` (owner, controller, development, terrain, fort, buildings, autonomy, culture, religion, trade good, unrest, trade node, state, edict, cores, claims, constructions), `province.neighbors`.
+- `country.get`: treasury, manpower, stability, prestige, monarch points, wars, relations, technology, ideas, governing capacity, inflation, mercantilism, loans, rebels; the ruler, heir and consort; legitimacy of the government's kind and what it adds, corruption, absolutism, army and navy tradition, army professionalism; named modifiers. `country.budget`: the month's income and expenses. `country.hostile`: the countries at war with one. `country.modifiers`: what a country has of each modifier, by its key.
+- `province.list`, `province.get` (owner, controller, development, terrain, fort, buildings, autonomy, culture, religion, trade good, unrest, trade node, state, edict, cores, claims, constructions, named modifiers), `province.neighbors`, `province.modifiers` (what a province has of each modifier, of its own).
 - `army.get`, `army.list`, `army.at`, `army.selected`; the game's rules for moving: `army.route_to`, `army.can_step`, `army.can_attack`.
 - `trade.nodes`, `trade.node`; and each panel's own list: `leader.list`, `loan.list`, `fort.list`, `estate.list`, `idea.list`, `decision.list`, `mission.list`, `policy.list`, `mercenary.list`, `merchant.list`, `question.list`, `offer.list`.
 
@@ -201,13 +201,19 @@ Done (2026-11-11): the catalogue's group is `signals` (`remote/src/signals.rs`, 
 
 `ruler`, `heir` and `consort` in `country.get`.
 
+Done (2026-11-11): each a given name with the regnal number in it, the dynasty's name (null for none), the three skills and the age, null where the country holds the game's null person; the age is the game's own (`0xa4e2d0`), whole years from the birth date, so a person the game made with no birth date is centuries old, as Qing's ruler of a 1760 save is. Both views show them, as the diplomacy view shows another country's ruler (not compared). The person's fields are in `objects::campaign::person`, which the names' wording reads too (docs/research/names.md). Tried: [the run](../prototype-log/2026-11-11-country-rulers-legitimacy-modifiers.md).
+
 ### M3 Legitimacy and the values every country has
 
 `legitimacy` with its `effects`; `corruption`, `absolutism`, `army_tradition`, `navy_tradition`, `army_professionalism`.
 
+Done (2026-11-11): the kind is asked as strengthening the government asks it (a horde, meritocracy, a monarchy, a republic, devotion), the value read as the game shows it (a junior partner's is its senior partner's), whole at 100; `effects` is the set the country's modifiers made for it when they were last made again, and a republic's second set, each modifier by its key, none for a legitimacy, horde unity or devotion at exactly 50, which adds none (docs/research/countries.md, docs/research/modifiers.md). Army professionalism is a fixed point of 15 bits, in percent. In the player's view another country's corruption, absolutism, professionalism and effects are null; its legitimacy and traditions show, which was not compared with its diplomacy view or the ledger. Tried: [the run](../prototype-log/2026-11-11-country-rulers-legitimacy-modifiers.md); legitimacy's effects compared only for monarchies.
+
 ### M4 Modifiers
 
 `country.modifiers`, `province.modifiers`; `named_modifiers` in `country.get` and `province.get`.
+
+Done (2026-11-11): both read through the game's own getter of one modifier (`0x8e6bd0`), keys found among the kinds the game builds and refused `not_found` when they name none; `country.modifiers` answers `{country, values}`, values null in the player's view for another country (a capability's whole answer cannot be null, as `nil` means a refusal in Lua), and `province.modifiers` the province's own set, not what its owner adds across the country, refusing a province not discovered in the player's view. A named modifier is its key and the day it ends, null for one that does not (the game keeps −1.1.1 for those given for good); a hidden one is left out in the player's view, and another country's are null there. Entries the game leaves out of saves (their set's byte `+0x151`) are read as the others; what that byte means was not followed (docs/research/modifiers.md). Tried: [the run](../prototype-log/2026-11-11-country-rulers-legitimacy-modifiers.md): totals against the game console's `country_modifier` and `province_modifier`.
 
 ### M5 Opinion
 
