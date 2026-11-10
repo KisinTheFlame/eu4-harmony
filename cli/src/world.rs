@@ -304,6 +304,8 @@ impl World {
             "autonomy": 0.0, "culture": null, "religion": null, "trade_good": null, "unrest": 0.0, "trade_node": null,
             "center_of_trade": 0, "trade_company": false, "state": p.owner.as_ref().map(|_| "state"), "edict": null,
             "cores": p.owner.iter().collect::<Vec<_>>(), "claims": [], "constructions": [], "missionary": null, "colony_size": null,
+            "prosperity": p.owner.as_ref().map(|_| 0.0), "devastation": 0.0, "local_manpower": 0.25, "supply_limit": 6.0, "separatism": 0,
+            "institutions": [],
         })
     }
 

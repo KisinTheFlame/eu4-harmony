@@ -395,6 +395,12 @@ pub fn constantinople() -> eu4_harmony_remote::provinces::ProvinceSnapshot {
         constructions: None,
         missionary: None,
         colony_size: None,
+        prosperity: Some(40.0),
+        devastation: 0.0,
+        local_manpower: 1.5,
+        supply_limit: 12.5,
+        separatism: 0,
+        institutions: vec![eu4_harmony_remote::provinces::InstitutionProgress { institution: "feudalism".into(), progress: 100.0 }],
     }
 }
 

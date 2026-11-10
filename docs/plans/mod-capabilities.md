@@ -1,6 +1,6 @@
 # Mod capabilities plan
 
-Status: in progress. Decided with the owner (2026-11-11): what is open to mods now, the roadmap of what is not, and the parts taken up first, M1 to M20. M1 built and tried in the game (2026-11-11, [the run](../prototype-log/2026-11-11-signals.md)); the others not built yet. Terms it added to [GLOSSARY.md](../../GLOSSARY.md): Modifier, Named modifier, Legitimacy, Government mechanic, Mechanic power, Opinion, As the player, As the game, Event (now the scripts'), Signal (the framework's, formerly its event). The decisions are [ADR requests-act-as-the-player-or-as-the-game](../adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md), [ADR framework-notifications-are-signals](../adr/2026-11-11-framework-notifications-are-signals.md), [ADR changes-as-the-game-are-typed-capabilities](../adr/2026-11-11-changes-as-the-game-are-typed-capabilities.md) and [ADR tasks-are-awaited-like-promises](../adr/2026-11-11-tasks-are-awaited-like-promises.md); it builds on [player-actions.md](player-actions.md) and [ADR mods-hold-the-logic](../adr/2026-11-03-mods-hold-the-logic.md).
+Status: in progress. Decided with the owner (2026-11-11): what is open to mods now, the roadmap of what is not, and the parts taken up first, M1 to M20. M1 built and tried in the game (2026-11-11, [the run](../prototype-log/2026-11-11-signals.md)); M6 built and tried in the game (2026-11-11, [the run](../prototype-log/2026-11-11-province-and-army-reads.md)); the others not built yet. Terms it added to [GLOSSARY.md](../../GLOSSARY.md): Modifier, Named modifier, Legitimacy, Government mechanic, Mechanic power, Opinion, As the player, As the game, Event (now the scripts'), Signal (the framework's, formerly its event). The decisions are [ADR requests-act-as-the-player-or-as-the-game](../adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md), [ADR framework-notifications-are-signals](../adr/2026-11-11-framework-notifications-are-signals.md), [ADR changes-as-the-game-are-typed-capabilities](../adr/2026-11-11-changes-as-the-game-are-typed-capabilities.md) and [ADR tasks-are-awaited-like-promises](../adr/2026-11-11-tasks-are-awaited-like-promises.md); it builds on [player-actions.md](player-actions.md) and [ADR mods-hold-the-logic](../adr/2026-11-03-mods-hold-the-logic.md).
 
 ## Goal and scope
 
@@ -24,7 +24,7 @@ Each capability group in one line; its arguments, results and refusals are `eu4-
 
 - `session`: the session, the country acted as, putting a country in view in observe mode. `time.get`: the date, whether paused, the speed. `text.language`: the player language.
 - `country.get`: treasury, manpower, stability, prestige, monarch points, wars, relations, technology, ideas, governing capacity, inflation, mercantilism, loans, rebels. `country.budget`: the month's income and expenses. `country.hostile`: the countries at war with one.
-- `province.list`, `province.get` (owner, controller, development, terrain, fort, buildings, autonomy, culture, religion, trade good, unrest, trade node, state, edict, cores, claims, constructions), `province.neighbors`.
+- `province.list`, `province.get` (owner, controller, development, terrain, fort, buildings, autonomy, culture, religion, trade good, unrest, trade node, state, edict, cores, claims, constructions, prosperity, devastation, manpower, supply limit, separatism, institutions), `province.neighbors`.
 - `army.get`, `army.list`, `army.at`, `army.selected`; the game's rules for moving: `army.route_to`, `army.can_step`, `army.can_attack`.
 - `trade.nodes`, `trade.node`; and each panel's own list: `leader.list`, `loan.list`, `fort.list`, `estate.list`, `idea.list`, `decision.list`, `mission.list`, `policy.list`, `mercenary.list`, `merchant.list`, `question.list`, `offer.list`.
 
@@ -216,6 +216,8 @@ Done (2026-11-11): the catalogue's group is `signals` (`remote/src/signals.rs`, 
 ### M6 Provinces
 
 `prosperity`, `devastation`, `local_manpower`, `supply_limit`, `separatism`, `institutions` in `province.get`.
+
+Built (2026-11-11). `province.get` has `prosperity` (its state's, in percent; null in a territory), `devastation` (percent), `local_manpower` (thousands of men, as the province view's manpower), `supply_limit` (regiments, for the country acted as, the owner's while observing with none in view), `separatism` (years left) and `institutions` (each institution that has appeared, its key and the province's progress in percent). The province view shows another country's province with its manpower, supply limit and devastation, and its state tab its prosperity, so the player's view leaves none of them out. The game's side is in [research/provinces.md](../research/provinces.md#prosperity-devastation-manpower-supply-separatism-and-institutions-for-m6-of-mod-capabilities).
 
 ### M7 Armies' units
 

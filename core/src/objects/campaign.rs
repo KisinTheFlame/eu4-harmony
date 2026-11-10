@@ -113,6 +113,10 @@ pub mod world {
     pub const IN_VIEW_VALID: usize = IN_VIEW + 7;
     /// The provinces, [`super::province::SIZE`] bytes each, by ID.
     pub const PROVINCES: usize = 0x1ca8;
+    /// Whether each institution has appeared, a vector (begin, end) of i32
+    /// by the institution's [`super::institution::INDEX`], nonzero once it
+    /// has.
+    pub const INSTITUTIONS: usize = 0x22a0;
     /// Nonzero while there is fog of war, u8.
     pub const FOG: usize = 0x23a6;
     /// The wars going on: pointers to [`super::war`]s, and their count (i32).
@@ -498,6 +502,31 @@ pub mod province {
     pub const MISSIONARY_PROGRESS: usize = 0x894;
     /// A colony's size, fixed point, in settlers.
     pub const COLONY_SIZE: usize = 0x3f8;
+    /// Its devastation, fixed point, in percent.
+    pub const DEVASTATION: usize = 0x42c;
+    /// The years of separatism left, i32 (saved as `nationalism`).
+    pub const SEPARATISM: usize = 0x5a0;
+    /// Its progress toward each institution, a vector (begin, end) of i32
+    /// in fixed point by the institution's [`super::institution::INDEX`],
+    /// 100 when it has it.
+    pub const INSTITUTIONS: usize = 0xd0;
+    /// The prosperity of the country state at [`STATE`], fixed point, in
+    /// percent.
+    pub const STATE_PROSPERITY: usize = 0x18;
+}
+
+/// One of the game's institutions (`common/institutions`), as its database
+/// holds it.
+pub mod institution {
+    /// Its index among the institutions, i32: the order of the database's
+    /// vector, which a province's progress and the world's appearances
+    /// follow.
+    pub const INDEX: usize = 0x10;
+    /// Its key (`renaissance`), a `std::string`.
+    pub const KEY: usize = 0x18;
+    /// The database's vector (begin, end) of pointers to institutions, from
+    /// the database its getter answers.
+    pub const DATABASE_LIST: usize = 0x10;
 }
 
 /// A province's map data, at [`province::GEOMETRY`].
