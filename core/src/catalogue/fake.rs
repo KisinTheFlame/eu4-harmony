@@ -507,10 +507,71 @@ impl armies::Layer for Fake {
     ) -> GResult<Vec<eu4_harmony_remote::armies::ArmyAction>> {
         use eu4_harmony_remote::{armies::ArmyAction, choices::Choice};
         self.call(format!("army options {id}"));
-        Ok(vec![
-            ArmyAction { action: "split".into(), choice: Choice::can(Vec::new()) },
-            ArmyAction { action: "merge".into(), choice: Choice::cannot(vec!["至少需要两支部队".into()], Vec::new()) },
-        ])
+        Ok(vec![ArmyAction::new("split", Choice::can(Vec::new())), ArmyAction::new("merge", Choice::cannot(vec!["至少需要两支部队".into()], Vec::new()))])
+    }
+
+    fn detach_kind(
+        &mut self,
+        eu4_harmony_remote::armies::args::DetachKind { army: eu4_harmony_remote::ArmyId(id), kind }: eu4_harmony_remote::armies::args::DetachKind,
+    ) -> GResult<u64> {
+        self.call(format!("detach kind {id} {kind:?}"));
+        Ok(id + 1)
+    }
+
+    fn attach(
+        &mut self,
+        eu4_harmony_remote::armies::args::Attach { army: eu4_harmony_remote::ArmyId(id), target: eu4_harmony_remote::ArmyId(target) }: eu4_harmony_remote::armies::args::Attach,
+    ) -> GResult<()> {
+        self.call(format!("attach {id} {target}"));
+        Ok(())
+    }
+
+    fn detach(
+        &mut self,
+        eu4_harmony_remote::armies::args::Detach { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::Detach,
+    ) -> GResult<()> {
+        self.call(format!("detach {id}"));
+        fail(Status::Rejected, "the unit is not attached")
+    }
+
+    fn attach_to_transport(
+        &mut self,
+        eu4_harmony_remote::armies::args::AttachToTransport { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::AttachToTransport,
+    ) -> GResult<()> {
+        self.call(format!("attach to transport {id}"));
+        Ok(())
+    }
+
+    fn detach_from_transport(
+        &mut self,
+        eu4_harmony_remote::armies::args::DetachFromTransport { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::DetachFromTransport,
+    ) -> GResult<()> {
+        self.call(format!("detach from transport {id}"));
+        Ok(())
+    }
+
+    fn detach_special_units(
+        &mut self,
+        eu4_harmony_remote::armies::args::DetachSpecialUnits { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::DetachSpecialUnits,
+    ) -> GResult<u64> {
+        self.call(format!("detach special units {id}"));
+        Ok(id + 1)
+    }
+
+    fn auto_transport(
+        &mut self,
+        eu4_harmony_remote::armies::args::AutoTransport { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::AutoTransport,
+    ) -> GResult<()> {
+        self.call(format!("auto transport {id}"));
+        Ok(())
+    }
+
+    fn stop_auto_transport(
+        &mut self,
+        eu4_harmony_remote::armies::args::StopAutoTransport { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::StopAutoTransport,
+    ) -> GResult<()> {
+        self.call(format!("stop auto transport {id}"));
+        Ok(())
     }
 
     fn split(
