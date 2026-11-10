@@ -5,7 +5,7 @@
 //! drives it through the handle `open` returns (`eu4-harmony skills testing`
 //! lists what it can do). A test fails when it raises an error, an `assert`
 //! included.
-use crate::fake::{check, code_named, Answer, Fake};
+use crate::fake::{check, code_named, lua_date, Answer, Fake};
 use eu4_harmony_lua::{
     dispatch::{self, Heard},
     fetch, layout, values, Extension, Mod,
@@ -257,12 +257,6 @@ impl dispatch::Feed for Fed {
     }
 }
 
-/// A date in Lua's form, `{ year, month, day }`.
-fn lua_date(value: &Value) -> Option<Date> {
-    let part = |name: &str| value.get(name).and_then(Value::as_i64);
-    Date::from_ymd(i32::try_from(part("year")?).ok()?, u32::try_from(part("month")?).ok()?, u32::try_from(part("day")?).ok()?)
-}
-
 impl TestMod {
     fn calendar(&self) -> std::sync::MutexGuard<'_, Calendar> {
         self.calendar.lock().unwrap_or_else(|e| e.into_inner())
@@ -275,12 +269,15 @@ impl TestMod {
     }
 
     /// The mod hears the day `date`, and its month and its year when it is
-    /// the first heard in them, as the game raises them.
+    /// the first heard in them, as the game raises them; first, as at the
+    /// game's frame, its tasks waiting for the day are taken up.
     fn day(&self, lua: &Lua, date: Date) {
         let (month, year) = {
             let mut calendar = self.calendar();
             date.turned(calendar.day.replace(date))
         };
+        *self.fake.today.lock().unwrap_or_else(|e| e.into_inner()) = Some(date);
+        self.extension.poll();
         self.hear(lua, &Heard::of(&Signal::Day { date }), None);
         if month {
             self.hear(lua, &Heard::of(&Signal::Month { date }), None);
@@ -397,6 +394,7 @@ impl UserData for TestMod {
                 calendar.day = None;
                 calendar.session
             };
+            *this.fake.today.lock().unwrap_or_else(|e| e.into_inner()) = None;
             this.hear(lua, &Heard::of(&Signal::Session { session }), Some(saved));
             Ok(())
         });
@@ -772,6 +770,66 @@ mod tests {
         let manifest = Manifest::parse(&format!("id = \"e\"\napi_version = \"{}\"", eu4_harmony_remote::API_VERSION)).unwrap();
         let outcome = run(&dir, manifest, "E".into()).unwrap();
         assert_eq!((outcome.passed, outcome.failed), (2, 0), "{}", outcome.report);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Tasks run in the fake game as in the game, and game.time.wait answers
+    /// once the days a test raises reach its date.
+    #[test]
+    fn tasks_and_waits_for_days_run_as_in_the_game() {
+        let dir = std::env::temp_dir().join(format!("eu4h-test-tasks-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let write = |file: &str, text: &str| {
+            let path = dir.join("eu4-harmony").join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        write(
+            "lua/main.lua",
+            r#"
+            local check_later = async(function(game, days)
+              local date = game.time.wait(days)
+              return date.month .. "." .. date.day
+            end)
+            local pending
+            return {
+              on_button = function(game, name)
+                if name == "later" then
+                  log("on " .. check_later(game, 3):await())
+                elseif name == "cancel" then
+                  pending = spawn(function() game.time.wait(1) log("not cancelled") end)
+                  pending:cancel()
+                else
+                  local date, err = game.time.wait(0)
+                  log(tostring(date) .. " " .. err.message)
+                end
+              end,
+            }
+            "#,
+        );
+        write(
+            "tests/tasks_test.lua",
+            r#"
+            test("a wait for days", function()
+              local mod = open()
+              mod:session()
+              mod:day("1444.11.11")
+              mod:button("later")
+              mod:day("1444.11.12")
+              mod:day("1444.11.13")
+              assert(#mod:log() == 0, table.concat(mod:log(), "|"))
+              mod:day("1444.11.14")
+              mod:button("cancel")
+              mod:day("1444.11.15")
+              mod:button("zero")
+              local log = table.concat(mod:log(), "|")
+              assert(log:find("^on 11.14|nil ") and log:find("days is from 1 to 36500, not 0") and not log:find("not cancelled"), log)
+            end)
+            "#,
+        );
+        let manifest = Manifest::parse(&format!("id = \"w\"\napi_version = \"{}\"", eu4_harmony_remote::API_VERSION)).unwrap();
+        let outcome = run(&dir, manifest, "W".into()).unwrap();
+        assert_eq!((outcome.passed, outcome.failed), (1, 0), "{}", outcome.report);
         let _ = std::fs::remove_dir_all(dir);
     }
 

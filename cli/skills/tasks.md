@@ -2,7 +2,8 @@ tasks: waiting, and doing several things at once
 
 Every handler call runs as a task. A function that waits (eu4-harmony wiki
 lua marks each: http.fetch, await_all, await_any, a task's await, and
-capabilities whose answer comes later, such as diplomacy.propose_alliance)
+capabilities whose answer comes later, such as diplomacy.propose_alliance
+and game.time.wait)
 gives up the task's turn and returns its answer when it has come, frames
 later, as await does in JavaScript, with no keyword:
 
@@ -46,16 +47,19 @@ returning its place in the list and what it returned (as Promise.race).
     local results = await_all(tasks)
   end,
 
-  -- 3. An async function.
-  local score = async(function(url)
-    local response, err = http.fetch(url)
-    return response and response.status
+Game days: game.time.wait(days) waits until that many days have passed in
+the game and returns the date reached. Days the game stands paused do not
+count; it neither runs nor pauses the game.
+
+  -- 3. An async function, and game days.
+  local check_later = async(function(game, tag, days)
+    game.time.wait(days)
+    return game.country.get(tag).stability
   end)
 
   on_button = function(game, name)
-    local t = score("https://api.example.com/score")
-    -- do something else here; the request is on its way
-    log("status " .. tostring(t:await()))
+    local t = check_later(game, "FRA", 30)
+    log("France's stability in 30 days: " .. t:await())
   end,
 
 Failing and cancelling
@@ -63,9 +67,29 @@ Failing and cancelling
 An error raised in a task is written to the mod's log, as any handler's
 error, and raised again where the task is awaited, as a rejected promise
 throws at its await. A cancelled task raises an error whose code is
-cancelled there. Catch either with pcall:
+cancelled there.
 
-  -- 4. Errors and cancelling, caught.
+  -- 4. Cancelling: an order by hand takes the army back.
+  local pending = {}
+
+  on_army_ordered = function(game, army)
+    if pending[army] then pending[army]:cancel() end
+    pending[army] = spawn(function()
+      game.time.wait(10)
+      game.army.stop(army)
+      pending[army] = nil
+    end)
+  end,
+
+  -- 5. A time-out.
+  local reply = spawn(http.fetch, "https://api.example.com/plan")
+  local timer = spawn(game.time.wait, 5)
+  local first = await_any({ reply, timer })
+  if first == 2 then reply:cancel() end
+
+Catch a failed or cancelled task's error with pcall:
+
+  -- 6. Errors and cancelling, caught.
   local ok, err = pcall(t.await, t)
   if not ok and not (type(err) == "table" and err.code == "cancelled") then
     error(err, 0)                          -- anything else goes on up

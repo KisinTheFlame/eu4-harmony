@@ -161,7 +161,8 @@ impl World {
         self.player.clone().unwrap_or_else(|| "CAS".into())
     }
 
-    fn date(&self) -> Value {
+    /// The world's date, in Lua's form.
+    pub fn date(&self) -> Value {
         match &self.date {
             Some(Value::String(text)) => date(text),
             Some(other) => other.clone(),
