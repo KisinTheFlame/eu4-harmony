@@ -223,15 +223,12 @@ impl Scenario for Long {
         let mark = Mark::of(&user);
         let session = match self.segment.as_ref().and_then(|s| s.from) {
             Some(save) => {
-                let loaded: Session = game.ask(&MenuRequest::Load { save: save.into() })?;
-                if !loaded.observing {
-                    game.console("observe")?;
-                }
-                game.session()?
+                game.ask::<Session>(&MenuRequest::Load { save: save.into() })?;
+                game.observe_with_no_country()?
             }
             None => game.ask(&MenuRequest::Start { country: None })?,
         };
-        game.check(session.observing, format!("the game began in observe mode, answered {session:?}"))?;
+        game.check(session.observing && session.player.is_none(), format!("the game began in observe mode with no country in view, answered {session:?}"))?;
         // A year at a time; a segment's last stretch ends on its date.
         let lengths: Vec<u32> = match &self.segment {
             Some(segment) => stretches(days_between(session.date, segment.end())),
@@ -251,6 +248,7 @@ impl Scenario for Long {
                 let began = Instant::now();
                 let again = game.autosave_and_load()?;
                 game.check(again.date == after && again.observing, format!("the autosave of {after} loaded as {again:?}"))?;
+                game.observe_with_no_country()?;
                 record["loads"].as_array_mut().expect("loads").push(json!({ "date": after.to_string(), "seconds": rounded(began.elapsed().as_secs_f64()) }));
             }
         }
