@@ -37,6 +37,8 @@
 //! reads the countries), when the console's debug text is on (which works a
 //! country's values out as it is drawn), and while the framework holds frames
 //! back.
+mod icons;
+
 use crate::called_by_game;
 use crate::game_string;
 use crate::hooks::Call;
@@ -208,6 +210,7 @@ fn points() -> Vec<Point> {
             .uses(&[UNIT_PLACE, PLACE_MODEL]),
     ])
     .chain(CROSSINGS_AT.iter().map(|&(rva, bytes, what, argc)| Point::observe(rva, bytes, what, argc, Some(crossed), None)))
+    .chain(icons::points())
     .collect()
 }
 
@@ -906,6 +909,7 @@ extern "C" fn frame_draws(idler: usize) {
     if let Some((into, at)) = HELD_BACK_BY.lock().unwrap_or_else(|e| e.into_inner()).take() {
         count_crossing(into, 0, at.elapsed().as_micros() as u64);
     }
+    icons::prepared();
     PREPARED.store(idler, Ordering::Release);
     PREPARED_SEQ.fetch_add(1, Ordering::AcqRel);
     CAMERA_MOVED_THERE.store(1, Ordering::Relaxed);
@@ -1084,6 +1088,9 @@ fn run() {
         }
         if idler != 0 && current == idler && !CHANGED.load(Ordering::Acquire) && !must_draw_here(&m) {
             DRAWING_LENGTH.store(length.to_bits(), Ordering::Relaxed);
+            if let Err(e) = icons::follow_camera(&m) {
+                log!("drawing: the map icons could not follow the camera: {e}");
+            }
             IN_FRAME.store(true, Ordering::Release);
             unsafe { direct1(&m, DRAWING)(idler) };
             IN_FRAME.store(false, Ordering::Release);
