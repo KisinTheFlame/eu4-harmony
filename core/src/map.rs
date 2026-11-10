@@ -15,7 +15,9 @@ use std::{cell::RefCell, collections::BTreeMap, sync::Mutex};
 const FILL: usize = 0x12fd9b0;
 const SECONDARY: usize = 0x12fdcb0;
 pub(crate) const RENDERER: usize = 0x10a8c30;
-const REFRESH: GameFunction<4> = GameFunction::at(0x821ff0);
+/// The in-game idler's map mode set (`drawing::deferred` defers it from a
+/// moved capital).
+pub(crate) const REFRESH: GameFunction<4> = GameFunction::at(0x821ff0);
 const PAINT_MODE: i32 = 12;
 const PAINT_OPTION: u32 = 26;
 

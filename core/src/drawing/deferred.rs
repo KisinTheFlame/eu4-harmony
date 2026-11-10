@@ -3,7 +3,8 @@
 //! kept and done by it as the next frame is prepared ([`done`]), while it
 //! holds the lock and the frame's update has finished: a text floating on the
 //! map, the interface's daily refresh, the map told of a province's new
-//! owner, the minimap drawn again, a mesh object let go. Until then the drawing thread draws on, as
+//! owner, the minimap drawn again, a mesh object let go; and, from the
+//! day's and the commands' code, the map mode set and a port's model. Until then the drawing thread draws on, as
 //! nothing changed. Done anywhere else, each would be a crossing, which holds
 //! the frame prepared back to the next update: from the commands' step before
 //! a day, through the whole day.
@@ -30,6 +31,12 @@ pub(super) fn points() -> Vec<Point> {
         Point::keep(0x6e9f68, "48 8b ce e8 f0 b6 9a ff 90 48 8b 8d a8 00 00 00", "a floating text's strings destroyed"),
         Point::replace(DAILY_REFRESH, "4c 8b dc 49 89 5b 18 55 56 57", "the interface's daily refresh", daily_refresh as DailyRefresh, &ORIGINAL_DAILY_REFRESH),
         Point::jump(MINIMAP, "48 8b c4 48 89 58 10", "the minimap drawn again", minimap_stub as *const () as usize, &MINIMAP_RESUME),
+        Point::jump(MAP_MODE_SET, "48 89 5c 24 08 48 89 6c 24 10", "the map mode set", map_mode_stub as *const () as usize, &MAP_MODE_RESUME),
+        Point::jump(PORT_MODEL, "48 8b c4 4c 89 40 18", "a port's model", port_model_stub as *const () as usize, &PORT_MODEL_RESUME),
+        // call MAP_MODE_SET; call PORT_MODEL: the deferred callers, known by
+        // where they return to.
+        Point::keep(MAP_MODE_FROM_CAPITAL - 5, "e8 5c 7e e0 ff", "a moved capital's map mode set"),
+        Point::keep(PORT_MODEL_FROM_TRADE - 5, "e8 9a eb ea 00", "a center of trade's port model"),
         Point::jump(OWNER_TOLD, "4c 8b c9 83 fa ff", "the map told of a province's new owner", owner_told_stub as *const () as usize, &OWNER_TOLD_RESUME),
         // mov rcx, [r13 + 0x1e00]; test rcx, rcx; je; mov rax, [rcx];
         // call [rax + 0x2a8]: the day's call of the interface's daily refresh.
@@ -71,6 +78,30 @@ crate::resume!(OWNER_TOLD_RESUME: OWNER_TOLD_GOES_ON_AT = OWNER_TOLD_GOES_ON);
 /// so that it held the frame back through the day that followed; the
 /// interface's daily refresh calls it too (`0x833b7d`).
 const MINIMAP: usize = 0x10b6c50;
+/// The in-game idler's map mode set (`0x821ff0`, its slot `+0xc8`: the idler,
+/// the map mode, two flags): the names made again, the colors asked for, the
+/// windows that show the map mode told. Nearly a hundred places call it
+/// directly, the interface's buttons among them, which read the map mode back;
+/// a moved capital calls it from the provinces' code (`0xa1a18f`, which reads
+/// nothing after it), in a day or in the commands' step, and only that call
+/// is deferred, to the frame's preparation, known by where it returns to. It
+/// is entered through a stub that keeps every register, and goes on at its
+/// third instruction.
+const MAP_MODE_SET: usize = crate::map::REFRESH.rva();
+const MAP_MODE_GOES_ON: usize = 0x821ffa;
+const MAP_MODE_FROM_CAPITAL: usize = 0xa1a194;
+crate::resume!(MAP_MODE_RESUME: MAP_MODE_GOES_ON_AT = MAP_MODE_GOES_ON);
+/// A port's model on the map (`0x13238b0`: the province's entry of the
+/// graphical map's, the province, the graphical map, a flag), made, moved or
+/// let go. The map's markers' update calls it (`0x1321880`); the center of
+/// trade's update does (`0x474d11`, which reads nothing after it), in a day
+/// or in the commands' step, and only that call is deferred, known by where
+/// it returns to. Entered through a stub that keeps every register, going on
+/// at its third instruction.
+const PORT_MODEL: usize = 0x13238b0;
+const PORT_MODEL_GOES_ON: usize = 0x13238b7;
+const PORT_MODEL_FROM_TRADE: usize = 0x474d16;
+crate::resume!(PORT_MODEL_RESUME: PORT_MODEL_GOES_ON_AT = PORT_MODEL_GOES_ON);
 const MINIMAP_GOES_ON: usize = 0x10b6c57;
 crate::resume!(MINIMAP_RESUME: MINIMAP_GOES_ON_AT = MINIMAP_GOES_ON);
 /// A mesh object's scalar deleting destructor (`pdxmeshobject.cpp`, the slot
@@ -95,6 +126,8 @@ enum Deferred {
     DailyRefresh { interface: usize },
     OwnerTold { map: usize, province: i32 },
     Minimap { idler: usize, minimap: usize, flag: u32 },
+    MapMode { idler: usize, mode: u32, first: u32, second: u32 },
+    PortModel { entry: usize, province: usize, map: usize, flag: u32 },
     MeshLetGo { mesh: usize, free: u32 },
 }
 
@@ -195,6 +228,65 @@ extern "C" fn minimap(minimap: usize, flag: u32) -> bool {
     true
 }
 
+/// Whether a call that returns to `from` waits for the next frame's
+/// preparation: from the one caller of the function's that is deferred.
+fn deferring_from(from: usize, deferred_caller: usize) -> bool {
+    deferring() && from == crate::hooked_memory().at(deferred_caller)
+}
+
+/// Whether the map mode's set waits for the next frame: from a moved capital.
+#[called_by_game]
+extern "C" fn map_mode_set(idler: usize, mode: u32, first: u32, second: u32, from: usize) -> bool {
+    if !deferring_from(from, MAP_MODE_FROM_CAPITAL) {
+        super::crossings::crossing(crate::hooked_memory().at(MAP_MODE_SET));
+        return false;
+    }
+    defer(Deferred::MapMode { idler, mode, first: first & 0xff, second: second & 0xff });
+    true
+}
+
+#[unsafe(naked)]
+extern "C" fn map_mode_stub() {
+    std::arch::naked_asm!(
+        crate::call_rust!("mov rax, qword ptr [rbp + 8]", "mov qword ptr [rsp + 0x20], rax", call map_mode_set, "cmp byte ptr [rsp + 0x48], 0"),
+        "jne 2f",
+        "mov qword ptr [rsp + 8], rbx",
+        "mov qword ptr [rsp + 0x10], rbp",
+        "jmp qword ptr [rip + {goes_on}]",
+        "2:",
+        "ret",
+        map_mode_set = sym map_mode_set,
+        goes_on = sym MAP_MODE_GOES_ON_AT,
+    );
+}
+
+/// Whether a port's model waits for the next frame: from the center of
+/// trade's update.
+#[called_by_game]
+extern "C" fn port_model(entry: usize, province: usize, map: usize, flag: u32, from: usize) -> bool {
+    if !deferring_from(from, PORT_MODEL_FROM_TRADE) {
+        super::crossings::crossing(crate::hooked_memory().at(PORT_MODEL));
+        return false;
+    }
+    defer(Deferred::PortModel { entry, province, map, flag: flag & 0xff });
+    true
+}
+
+#[unsafe(naked)]
+extern "C" fn port_model_stub() {
+    std::arch::naked_asm!(
+        crate::call_rust!("mov rax, qword ptr [rbp + 8]", "mov qword ptr [rsp + 0x20], rax", call port_model, "cmp byte ptr [rsp + 0x48], 0"),
+        "jne 2f",
+        "mov rax, rsp",
+        "mov qword ptr [rax + 0x18], r8",
+        "jmp qword ptr [rip + {goes_on}]",
+        "2:",
+        "ret",
+        port_model = sym port_model,
+        goes_on = sym PORT_MODEL_GOES_ON_AT,
+    );
+}
+
 #[unsafe(naked)]
 extern "C" fn minimap_stub() {
     std::arch::naked_asm!(
@@ -210,9 +302,13 @@ extern "C" fn minimap_stub() {
     );
 }
 
+/// A mesh object freed waits for the next frame's preparation, also when a
+/// deferred call frees it as the deferred calls are done: they are done after
+/// the update that would take it off the map's markers' lists, so that only
+/// the next update does, and the frame prepared meanwhile still draws it.
 #[called_by_game]
 unsafe extern "C" fn mesh_let_go(mesh: usize, free: u32) -> usize {
-    if free & 1 != 0 && deferring() {
+    if free & 1 != 0 && on_main() && drawing_on() {
         defer(Deferred::MeshLetGo { mesh, free });
         return mesh;
     }
@@ -254,6 +350,14 @@ pub(super) fn done(m: &Memory) {
             Deferred::Minimap { idler: of, minimap, flag } if of == idler => unsafe {
                 let draw: unsafe extern "C" fn(usize, u32) = std::mem::transmute(m.at(MINIMAP));
                 draw(minimap, flag);
+            },
+            Deferred::MapMode { idler: of, mode, first, second } if of == idler => unsafe {
+                let set: unsafe extern "C" fn(usize, u32, u32, u32) = std::mem::transmute(m.at(MAP_MODE_SET));
+                set(of, mode, first, second);
+            },
+            Deferred::PortModel { entry, province, map: of, flag } if of == map => unsafe {
+                let model: unsafe extern "C" fn(usize, usize, usize, u32) = std::mem::transmute(m.at(PORT_MODEL));
+                model(entry, province, of, flag);
             },
             Deferred::MeshLetGo { mesh, free } => unsafe {
                 ORIGINAL_MESH_LET_GO.get()(mesh, free);
