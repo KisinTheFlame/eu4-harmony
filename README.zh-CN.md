@@ -89,7 +89,7 @@ my-mod/
     └── tests/                 # eu4-harmony test 运行的测试
 ```
 
-`main.lua` 返回处理函数：信号（游戏里发生的事）的，比如 `on_session`、`on_day`，以及 `on_frame`、`on_button`。每个都拿到 `game`，所有能力都从它调用；被拒绝时返回 `nil, err`，带着游戏给的理由；处理函数还可以等一个答复，比如别国对提议的答复。需要现实时间、文件或网络的扩展，要在清单的 `permissions` 里声明。
+`main.lua` 返回处理函数：信号（游戏里发生的事）的，比如 `on_session`、`on_day`，以及 `on_frame`、`on_button`。每个都拿到 `game`，所有能力都从它调用；被拒绝时返回 `nil, err`，带着游戏给的理由；处理函数还可以等一个答复，比如别国对提议的答复，也可以把几件事作为任务同时进行、再等它们完成，就像 JavaScript 的 async 和 await（`eu4-harmony skills tasks`）。需要现实时间、文件或网络的扩展，要在清单的 `permissions` 里声明。
 
 进一步了解：
 

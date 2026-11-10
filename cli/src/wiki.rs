@@ -155,7 +155,7 @@ handlers (each gets game first):
         }
     }
     let _ = writeln!(text, "\nglobals:");
-    for f in lua::FUNCTIONS {
+    let line = |text: &mut String, name: &str, f: &lua::Function| {
         let args: Vec<String> = f.args.iter().map(|a| if a.optional { format!("[{}]", a.name) } else { a.name.to_string() }).collect();
         let returns: Vec<&str> = f.returns.iter().map(|r| r.name).collect();
         let returns = if returns.is_empty() { String::new() } else { format!(" -> {}", returns.join(", ")) };
@@ -167,7 +167,14 @@ handlers (each gets game first):
             marks.push(format!("needs {p}"));
         }
         let marks = if marks.is_empty() { String::new() } else { format!("  ({})", marks.join("; ")) };
-        let _ = writeln!(text, "  {}({}){returns}{marks}\n      {}", f.name, args.join(", "), f.about);
+        let _ = writeln!(text, "  {name}({}){returns}{marks}\n      {}", args.join(", "), f.about);
+    };
+    for f in lua::FUNCTIONS {
+        line(&mut text, f.name, f);
+    }
+    let _ = writeln!(text, "\na task's methods (t = spawn(fn), or an async function's call; eu4-harmony skills tasks):");
+    for f in lua::TASK_METHODS {
+        line(&mut text, &format!("t:{}", f.name), f);
     }
     let _ = write!(text, "\ninterface elements:\n  {}\n\nthe sandbox:\n  {}\n", lua::ELEMENTS, lua::SANDBOX);
     text
@@ -291,6 +298,7 @@ mod tests {
         let lua_page = page(&words("lua")).unwrap();
         assert!(lua::handlers().iter().all(|h| lua_page.contains(&format!("  {}(game", h.name))), "{lua_page}");
         assert!(lua::FUNCTIONS.iter().all(|f| lua_page.contains(&format!("  {}(", f.name))), "{lua_page}");
+        assert!(lua::TASK_METHODS.iter().all(|f| lua_page.contains(&format!("  t:{}(", f.name))), "{lua_page}");
         assert!(lua_page.contains("http.fetch(url, [options]) -> response, err  (waits; needs network)"), "{lua_page}");
         let manifest = page(&words("manifest")).unwrap();
         assert!(lua::MANIFEST.iter().all(|f| manifest.contains(&format!("  {} (", f.name))), "{manifest}");

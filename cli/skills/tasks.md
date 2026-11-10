@@ -1,15 +1,19 @@
-tasks: waiting for an answer
+tasks: waiting, and doing several things at once
 
 Every handler call runs as a task. A function that waits (eu4-harmony wiki
-lua marks each: http.fetch, and capabilities whose answer comes later, such
-as diplomacy.propose_alliance) gives up the task's turn and returns its
-answer when it has come, frames later, as await does, with no keyword:
+lua marks each: http.fetch, await_all, await_any, a task's await, and
+capabilities whose answer comes later, such as diplomacy.propose_alliance)
+gives up the task's turn and returns its answer when it has come, frames
+later, as await does in JavaScript, with no keyword:
 
+  -- 1. A capability that waits needs no await.
   on_button = function(game, name)
-    local response, err = http.fetch("https://api.example.com/score")
-    if err then return log("not sent: " .. err.message) end
-    -- frames have passed here: read the game again before acting on it
-    local session = game.session.get()
+    local reply, err = game.diplomacy.propose_alliance("CAS")
+    if not reply then
+      log("not proposed: " .. err.message)   -- the game said no: nil, err
+      return
+    end
+    log("Castile " .. reply.answer)          -- accepted or declined
   end,
 
 While a task waits, the game and the mod's other handlers go on. After a
@@ -18,19 +22,72 @@ check the mod's own state again (another handler may have changed it).
 Done when no value read before a wait is used after it without reading it
 again.
 
-spawn(fn) starts fn as a task of its own and returns once fn first waits or
-ends: for two requests at once, or a request that outlives the handler that
-sent it. A spawned task cannot be waited for or cancelled; keep its result
-in the mod's own state for later handlers to read.
+Several things at once: spawn and async
+
+spawn(fn, ...) starts fn, with the values after it, as a task of its own and
+returns the task as soon as fn first waits or ends. async(fn) makes fn an
+async function: each call starts it as a task and returns the task, as an
+async function in JavaScript returns a promise. A task t has:
+
+  t:await()   waits until it has ended and returns what fn returned
+  t:cancel()  ends it at the wait it is in, or at its next
+  t:done()    whether it has ended
+
+and await_all(tasks) waits for every task, returning each one's first
+result in order (as Promise.all), await_any(tasks) for the first to end,
+returning its place in the list and what it returned (as Promise.race).
+
+  -- 2. Several things at once.
+  on_button = function(game, name)
+    local tasks = {}
+    for _, tag in ipairs({ "CAS", "POR", "ARA" }) do
+      tasks[#tasks + 1] = spawn(game.diplomacy.improve_relations, tag)
+    end
+    local results = await_all(tasks)
+  end,
+
+  -- 3. An async function.
+  local score = async(function(url)
+    local response, err = http.fetch(url)
+    return response and response.status
+  end)
+
+  on_button = function(game, name)
+    local t = score("https://api.example.com/score")
+    -- do something else here; the request is on its way
+    log("status " .. tostring(t:await()))
+  end,
+
+Failing and cancelling
+
+An error raised in a task is written to the mod's log, as any handler's
+error, and raised again where the task is awaited, as a rejected promise
+throws at its await. A cancelled task raises an error whose code is
+cancelled there. Catch either with pcall:
+
+  -- 4. Errors and cancelling, caught.
+  local ok, err = pcall(t.await, t)
+  if not ok and not (type(err) == "table" and err.code == "cancelled") then
+    error(err, 0)                          -- anything else goes on up
+  end
+
+Cancelling takes back nothing the task already asked of the game: a
+proposal sent is sent, a request on its way still arrives; its answer is
+dropped, and the task's code after its wait never runs. A task cannot await
+itself.
 
 Where nothing waits: at the top of main.lua and in save_data (they raise an
 error), and in a coroutine of the mod's own (coroutine.wrap and the like).
-Wait in the handler or in a spawned task.
+Wait in a handler or in a task.
 
 A session's waiting tasks are dropped when it ends (back to the main menu, a
 save loaded, a new game) and are never taken up again; the log says how
-many. A task waiting for an answer about the old session simply stops.
-Anything a task must finish, write before it waits, or redo it in the next
-session's on_session.
+many. A task dropped so counts as cancelled: awaiting it later raises
+cancelled. Anything a task must finish, write before it waits, or redo it in
+the next session's on_session.
 
 The time limit holds for each stretch a task runs, not for its waits.
+
+Done when every task the mod starts is awaited, or kept where a later
+handler can await or cancel it, and every await that can fail is either
+meant to end the handler or wrapped in pcall.

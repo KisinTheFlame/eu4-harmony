@@ -89,7 +89,7 @@ my-mod/
     └── tests/                 # tests run by eu4-harmony test
 ```
 
-`main.lua` returns handlers: for signals, what happened in the game, such as `on_session` and `on_day`, and for `on_frame` and `on_button`. Each gets `game`, through which every capability is called; a refusal returns `nil, err` with the game's reason, and a handler can wait for an answer, such as another country's to a proposal. An extension that needs the real time, files or the network declares it under `permissions` in its manifest.
+`main.lua` returns handlers: for signals, what happened in the game, such as `on_session` and `on_day`, and for `on_frame` and `on_button`. Each gets `game`, through which every capability is called; a refusal returns `nil, err` with the game's reason, and a handler can wait for an answer, such as another country's to a proposal, and do several things at once as tasks it awaits, as with async and await in JavaScript (`eu4-harmony skills tasks`). An extension that needs the real time, files or the network declares it under `permissions` in its manifest.
 
 Where to learn more:
 
