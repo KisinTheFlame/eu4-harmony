@@ -881,7 +881,7 @@ fn points() -> Vec<Point> {
         Point::keep(0xd511a0usize, "83 b9 10 01 00 00 00 7e 16 48 8b 81", "unit's destination").recorded(DESTINATION.slot()),
         Point::keep(0x359e20usize, "40 57 48 83 ec 20 8b b9 88 19 00 00", "country's wars").recorded(WARS_FOUGHT.slot()),
         Point::keep(0x1032f0usize, "48 89 5c 24 08 48 89 74 24 18 48 89", "army route check").recorded(ROUTE_CHECK.slot()),
-        Point::keep(0xd4c060usize, "48 89 5c 24 18 55 56 57 48 83 ec 20", "unit's strength").recorded(STRENGTH.slot()),
+        Point::keep(crate::game::army::MORALE, "48 89 5c 24 18 55 56 57 48 83 ec 20", "unit's strength").recorded(STRENGTH.slot()),
         Point::keep(0xf8ea0usize, "48 89 5c 24 18 4c 89 4c 24 20 48 89", "army score of a province").recorded(SCORE.slot()),
         Point::keep(crate::wording::dates::YEAR, "44 8b 01 41 b9 01 00 00 00 41 81 e8", "date's year").recorded(YEAR.slot()),
         Point::keep(0xcfe10usize, "48 83 ec 28 44 8b 11 41 81 ea c0 55", "date's day of the year").recorded(DAY_OF_YEAR.slot()),

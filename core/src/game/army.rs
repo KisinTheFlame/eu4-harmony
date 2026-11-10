@@ -8,7 +8,7 @@ use super::{armies::Army, country, world, Ctx, GResult, Tag, View, MAX_UNITS};
 use crate::{
     containers,
     memory::Memory,
-    objects::campaign::{classes, country as country_fields, functions, globals, list, province, route_options, tag, task, unit},
+    objects::campaign::{classes, country as country_fields, functions, globals, list, province, regiment, route_options, tag, task, unit, unit_type},
     points::{GameFunction, Point},
 };
 use eu4_harmony_checks::armies as checks;
@@ -27,6 +27,15 @@ const IDLE_ANSWERS: [usize; 3] = [NO_KIND, functions::NO, functions::NO];
 /// `(fleet, army)`: puts the army aboard the fleet, its fleet set and the
 /// army added to the fleet's list (docs/research/units.md).
 const LOAD: usize = 0x90ada0;
+/// A unit's morale as its panel shows it, its regiments' weighted by their
+/// strength: (unit, out, weighted), and the most it can have: (unit, out,
+/// int, explanation), as the panel asks them.
+pub const MORALE: GameFunction<3> = GameFunction::at(0xd4c060);
+const MAX_MORALE: GameFunction<4> = GameFunction::at(0xd4cd10);
+/// What an army's regiments and a fleet's ships cost a month, their
+/// classes' [`unit::MAINTENANCE`] methods: (unit, out).
+const ARMY_MAINTENANCE: GameFunction<2> = GameFunction::at(0x1a8740);
+const FLEET_MAINTENANCE: GameFunction<2> = GameFunction::at(0x90f7e0);
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -42,6 +51,21 @@ pub fn points() -> Vec<Point> {
             "army put aboard a fleet",
         )
         .uses(&[unit::FLEET, unit::ABOARD + list::TAIL, unit::ABOARD + list::COUNT, list::PREVIOUS, list::NEXT, list::REMOVED]),
+        Point::keep(MORALE, "48 89 5c 24 18 55 56 57 48 83 ec 20 48 8b 41 38 33 db 48 2b 41 30", "unit morale").uses(&[unit::REGIMENTS]),
+        Point::keep(MAX_MORALE, "48 89 5c 24 10 4c 89 4c 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8d 6c 24 e0", "unit max morale"),
+        Point::keep(ARMY_MAINTENANCE, "48 89 5c 24 10 48 89 74 24 18 57 48 83 ec 20 c7 02 00 00 00 00 48 8b f2 48 8b 59 30", "army maintenance")
+            .uses(&[unit::REGIMENTS]),
+        Point::keep(FLEET_MAINTENANCE, "40 53 55 56 57 41 54 41 56 48 83 ec 38 c7 02 00 00 00 00", "fleet maintenance"),
+        Point::method(classes::ARMY, unit::MAINTENANCE, ARMY_MAINTENANCE.rva(), "army maintenance method"),
+        Point::method(classes::FLEET, unit::MAINTENANCE, FLEET_MAINTENANCE.rva(), "fleet maintenance method"),
+        // The regiment's writer: its ID, name, type, morale and strength.
+        Point::keep(0xadc905usize, "4c 8d 41 10", "regiment id").uses(&[regiment::ID]),
+        Point::keep(0xadc926usize, "48 8d 56 68", "regiment name").uses(&[regiment::NAME]),
+        Point::keep(0xadc98fusize, "48 8b 5e 20", "regiment type").uses(&[regiment::TYPE]),
+        Point::keep(0xadc9bfusize, "8b 5e 2c", "regiment morale").uses(&[regiment::MORALE]),
+        Point::keep(0xadca87usize, "8b 5e 28 81 fb e8 03 00 00", "regiment strength").uses(&[regiment::STRENGTH]),
+        // Consolidating fills a regiment up to its type's full strength.
+        Point::keep(0xd6925busize, "49 8b 57 20 8b 7a 58", "regiment full strength").uses(&[regiment::TYPE, unit_type::MAX_STRENGTH]),
         Point::method(classes::ARMY, unit::CAN_ENTER, CAN_ENTER.rva(), "army access method"),
         Point::method(classes::ARMY, unit::MILITARY_TAG, MILITARY_TAG.rva(), "army military tag method"),
         Point::method(classes::IDLE_TASK, task::IDLE_METHODS[0], IDLE_ANSWERS[0], "idle task method"),
@@ -229,6 +253,68 @@ pub fn location(m: &Memory, unit: usize) -> GResult<u32> {
 /// An army's regiments, or a fleet's ships.
 pub fn regiments(m: &Memory, unit: usize) -> GResult<u32> {
     Ok(containers::span(m.ptr(unit + unit::REGIMENTS)?, m.ptr(unit + unit::REGIMENTS + 8)?, 8, MAX_UNITS)? as u32)
+}
+
+/// A regiment of an army, or a ship of a fleet, as the game keeps it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Regiment {
+    pub number: u32,
+    pub name: String,
+    pub kind: super::provinces::UnitKind,
+    pub unit_type: String,
+    /// Fixed point, 1 at full for the usual type: [`Self::max_strength`].
+    pub strength: i32,
+    pub max_strength: i32,
+    pub morale: i32,
+}
+
+/// An army's regiments, or a fleet's ships, in their order.
+pub fn regiments_of(m: &Memory, unit: usize) -> GResult<Vec<Regiment>> {
+    let begin = m.ptr(unit + unit::REGIMENTS)?;
+    let count = containers::span(begin, m.ptr(unit + unit::REGIMENTS + 8)?, 8, MAX_UNITS)?;
+    let mut out = Vec::with_capacity(count);
+    for i in 0..count {
+        let r = m.ptr(begin + i * 8)?;
+        let kind = m.i32(m.ptr(r + regiment::TYPE)? + unit_type::KIND)?;
+        let kind = *super::provinces::UnitKind::ALL.get(kind as usize).ok_or_else(|| format!("a regiment of kind {kind}"))?;
+        let unit_type = m.ptr(r + regiment::TYPE)?;
+        out.push(Regiment {
+            number: m.u32(r + regiment::NUMBER)?,
+            name: crate::game_string::shown(m, r + regiment::NAME)?,
+            kind,
+            unit_type: crate::game_string::key(m, unit_type + unit_type::NAME)?,
+            strength: m.i32(r + regiment::STRENGTH)?,
+            max_strength: m.i32(unit_type + unit_type::MAX_STRENGTH)?,
+            morale: m.i32(r + regiment::MORALE)?,
+        });
+    }
+    Ok(out)
+}
+
+/// A unit's morale as its panel shows it, and the most it can have, fixed
+/// point.
+pub fn morale(m: &Memory, unit: usize) -> GResult<(i32, i32)> {
+    let (mut now, mut most) = (0i32, 0i32);
+    MORALE.call(m, [unit, &mut now as *mut i32 as usize, 1])?;
+    MAX_MORALE.call(m, [unit, &mut most as *mut i32 as usize, 0, 0])?;
+    Ok((now, most))
+}
+
+/// The game's functions a test of units puts in place: the most morale,
+/// and an army's and a fleet's maintenance, each the one given.
+#[cfg(test)]
+pub fn unit_functions(max_morale: *const (), maintenance: *const ()) -> [(usize, *const ()); 3] {
+    [(MAX_MORALE.rva(), max_morale), (ARMY_MAINTENANCE.rva(), maintenance), (FLEET_MAINTENANCE.rva(), maintenance)]
+}
+
+/// What an army's regiments or a fleet's ships cost a month, fixed point
+/// ducats, as their class's method answers it.
+pub fn maintenance(m: &Memory, unit: usize) -> GResult<i32> {
+    let mut out = 0i32;
+    let ptr = &mut out as *mut i32 as usize;
+    let method = if is_army(m, unit)? { ARMY_MAINTENANCE } else { FLEET_MAINTENANCE };
+    method.call(m, [unit, ptr])?;
+    Ok(out)
 }
 
 /// The armies aboard a fleet.

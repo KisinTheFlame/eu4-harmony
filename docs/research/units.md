@@ -128,6 +128,26 @@ The patrol and evade buttons are not toolbar actions but handlers of the single 
 - **Drilling**: the mission's type is 15 (`0xd67253`: `83 f8 0f`).
 - **Mothballing** (`mothball_command`, vtable `0x1d1d9e0`, token `0x306d`): `unit`, and the on/off value under the key `connect_to_ship_command` (`+0x60`, bool; the button sets it to `+0x281` inverted, `0x1481710`). Execute `0xd5ee30` writes it to `+0x281`. Check `0xd5f060`: a fleet in a province with a valid owner and `+0x550` set (a port, inferred) and no route. Can do with reasons `0x90e310`(fleet, std::string*): `NAVY_MOTHBALL_NO_PORT`. A mothballed fleet does not move, repair or take missions and costs less (`MOTHBALL_DESC`). Example: `mothball_command={ unit={ id=210 type=54 } connect_to_ship_command=yes }`.
 
+## F. Regiments, strength, morale, leader and maintenance (for M7 of mod-capabilities)
+
+Read 2026-11-11 from `eu4.exe` with `cargo xtask disasm` and capstone scripts in the scratchpad.
+
+- **A regiment or ship** (each pointer of the unit's `+0x30`..`+0x38`) is written by `0xadc8f0`(regiment, writer):
+  - its ID at `+0x10` (`0xadc905` `4c 8d 41 10`; the ID block `0xce610` writes the i32 at `+4` as `id` and the one at `+0` as `type`, so the number at `+0x14`);
+  - its name, a `std::string` at `+0x68` (`0xadc926` `48 8d 56 68`, token `name`);
+  - its home province, the ID at `+0x20` of the pointer at `+0x48` (token `home`);
+  - its unit type at `+0x20` (`0xadc98f` `48 8b 5e 20`), whose key is the `std::string` at `+0x60` (token `type`) and whose kind the i32 at `+0x10` (0 infantry, 1 cavalry, 2 artillery, 3 heavy ship, 4 light ship, 5 galley, 6 transport: a country's unit kinds' order);
+  - its morale, fixed point at `+0x2c` (`0xadc9bf` `8b 5e 2c`, token `0x28a8` morale);
+  - drill and two more values at `+0x30`, `+0x34`, `+0x38`, each written only when not 0 (tokens `0x3709` drill, `0x3727`, `0x3728`; not followed);
+  - its strength, fixed point at `+0x28`, written only when not 1000 (`0xadca87` `8b 5e 28 81 fb e8 03 00 00`, token `0x28a9` strength).
+- **Full strength** is the unit type's `+0x58`, fixed point: consolidating fills a regiment up to it (`0xd6925b` `49 8b 57 20 8b 7a 58`). A full regiment's strength of 1 is 1000 men.
+- **Morale**, as the unit panel shows it (`0x146c7aa`, `UNIT_MORALE_TT` with `CURR` and `MAX`):
+  - the most: `0xd4cd10`(unit, out, int, explanation), four arguments, fixed point; the panel passes 0, 0;
+  - now: `0xd4c060`(unit, out, weighted), three arguments: with `weighted` 1 (the panel's) its regiments' morale weighted by their strength; with 0, the sum of each regiment's strength times its morale over the most, which the AI's army search reads as the unit's strength (`core/src/army_search.rs`). It asks `0xd4cd10` itself.
+- **The leader**: `+0xd8`, the leader leading it when that leader's `+0x58` is the unit ([leaders.md](leaders.md)).
+- **Maintenance**: the unit class's method `+0xb8`(unit, out), fixed point ducats a month: the army's `0x1a8740` (army vtable `0x1c42540`) adds `0x3c5d20`(owner's country, out, regiment, the unit's mercenary company `+0x48`) over its regiments; the fleet's `0x90f7e0` (fleet vtable `0x1cca7e0`) does its own, with the sailors. The regiment card's tooltip `MAINTENANCE_DUC` (`0x1472b0b`) asks `0x3c5d20` of one regiment.
+- **Tried** ([the run](../prototype-log/2026-11-11-province-and-army-reads.md)): `0xd4cd10` and `0xd4c060` gave what the unit panel's morale tooltip shows, a most of 0.51 below the morale of 3.44 the 1700 save had, which the month after brought down to 0.51 (why the most is so low there was not looked into); the class methods' maintenance, summed, came to the ledger's army maintenance within 0.4 ducats and to twice its navy maintenance: it is at full maintenance, before the sliders.
+
 ## Not worked out
 
 - What `+0x210` is, what `0x910550` and `0x974e60` test, what the unit manager's `[+0x140]+0x68` method `+0x48` answers (`force`), which switch `0x233ff3c` and `0x233ff94` are.

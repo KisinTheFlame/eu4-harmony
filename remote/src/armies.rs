@@ -1,7 +1,7 @@
 //! The player's armies and the armies they can see: reading them, the routes
 //! the game would choose, and moving and stopping them. A move or stop is the
 //! player's order: it takes the army back from an extension moving it.
-use crate::{choices::Choice, ArmyId, ArmyList, CountryTag, ProvinceId};
+use crate::{choices::Choice, recruiting::UnitKind, ArmyId, ArmyList, CountryTag, ProvinceId};
 use serde::{Deserialize, Serialize};
 
 group! {
@@ -12,9 +12,15 @@ group! {
     game Get "get" {
         /// The army.
         army: ArmyId,
-    } -> Army, "the army: id, owner, kind (army or navy; of a navy id, owner, kind, province, regiments (its ships) and route are read), province, regiments, blocked (what stops it taking orders now: in_battle, sieging, retreating, exiled, movement_locked, attached, has_followers, busy), route (the provinces still to go, in order), route_by (who set the route: this_mod, other_mod or player_or_game; null without one), aboard (the navy an army is aboard; null on land) and carrying (a navy's regiments aboard)";
+    } -> Army, "the army: id, owner, kind (army or navy; of a navy id, owner, kind, province, regiments (its ships) and route are read), province, regiments, blocked (what stops it taking orders now: in_battle, sieging, retreating, exiled, movement_locked, attached, has_followers, busy), route (the provinces still to go, in order), route_by (who set the route: this_mod, other_mod or player_or_game; null without one), aboard (the navy an army is aboard; null on land), carrying (a navy's regiments aboard), units (its regiments, or a navy's ships, by kind), strength and max_strength (its regiments' or ships' summed, 1 for one at full: an army's men are 1000 times it), morale and max_morale (as its panel shows them), leader (the leader's id; null without one) and maintenance (ducats a month at full maintenance, before the sliders; null in the player's view for another country's)";
     /// The player's armies and fleets.
     game List "list" {} -> Vec<Army>, "the armies and fleets, each as army.get answers it";
+    /// The regiments of an army of the player's, or a fleet's ships, in the
+    /// game's order (the panel sorts them by kind).
+    game Regiments "regiments" {
+        /// The player's army or fleet.
+        army: ArmyId,
+    } -> Vec<Regiment>, "each regiment or ship: id, name, kind, unit_type (its key), strength (1 at full) and morale";
     /// The land armies in a province: every one for an extension and in the
     /// full view; in the player's view only those the player sees, none
     /// under fog of war, and not ready while visibility has not caught up
@@ -196,7 +202,7 @@ pub enum RouteBy {
 
 /// An army, or a navy, of which the ID, owner, kind, province, ships (as
 /// regiments) and route are read.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Army {
     pub id: ArmyId,
     pub owner: CountryTag,
@@ -216,4 +222,50 @@ pub struct Army {
     pub aboard: Option<ArmyId>,
     /// A navy's regiments aboard; 0 for an army.
     pub carrying: u32,
+    /// Its regiments by kind; a navy's ships.
+    pub units: Units,
+    /// Its regiments' or ships' strength, summed, 1 for one at full: an
+    /// army's men are 1000 times it.
+    pub strength: f64,
+    /// The strength it has at full.
+    pub max_strength: f64,
+    /// Its morale as its panel shows it: its regiments' or ships' morale
+    /// weighted by their strength.
+    pub morale: f64,
+    /// The morale it can have, as its panel shows it.
+    pub max_morale: f64,
+    /// The leader leading it, by its id (as leader.list gives it); none
+    /// without one.
+    pub leader: Option<u32>,
+    /// What its regiments or ships cost its owner a month in ducats at full
+    /// maintenance, before the maintenance sliders; null in the player's
+    /// view for another country's.
+    pub maintenance: Option<f64>,
+}
+
+/// An army's regiments, or a navy's ships, by kind.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Units {
+    pub infantry: u32,
+    pub cavalry: u32,
+    pub artillery: u32,
+    pub heavy_ship: u32,
+    pub light_ship: u32,
+    pub galley: u32,
+    pub transport: u32,
+}
+
+/// A regiment of an army, or a ship of a navy.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Regiment {
+    /// Its number among the game's regiments.
+    pub id: u32,
+    /// Its name as the game shows it.
+    pub name: String,
+    pub kind: UnitKind,
+    /// The key of its unit type, such as `western_medieval_infantry`.
+    pub unit_type: String,
+    /// 1 at full: a regiment's men are 1000 times it.
+    pub strength: f64,
+    pub morale: f64,
 }

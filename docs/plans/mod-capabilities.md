@@ -1,6 +1,6 @@
 # Mod capabilities plan
 
-Status: in progress. Decided with the owner (2026-11-11): what is open to mods now, the roadmap of what is not, and the parts taken up first, M1 to M20. M1, M9, M13 and M14 built and tried in the game (2026-11-11: [M1's run](../prototype-log/2026-11-11-signals.md), [M9's](../prototype-log/2026-11-11-requests-as-the-game.md), [M13's and M14's](../prototype-log/2026-11-11-tasks-and-game-days.md)); the others not built yet. Terms it added to [GLOSSARY.md](../../GLOSSARY.md): Modifier, Named modifier, Legitimacy, Government mechanic, Mechanic power, Opinion, As the player, As the game, Event (now the scripts'), Signal (the framework's, formerly its event). The decisions are [ADR requests-act-as-the-player-or-as-the-game](../adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md), [ADR framework-notifications-are-signals](../adr/2026-11-11-framework-notifications-are-signals.md), [ADR changes-as-the-game-are-typed-capabilities](../adr/2026-11-11-changes-as-the-game-are-typed-capabilities.md) and [ADR tasks-are-awaited-like-promises](../adr/2026-11-11-tasks-are-awaited-like-promises.md); it builds on [player-actions.md](player-actions.md) and [ADR mods-hold-the-logic](../adr/2026-11-03-mods-hold-the-logic.md).
+Status: in progress. Decided with the owner (2026-11-11): what is open to mods now, the roadmap of what is not, and the parts taken up first, M1 to M20. M1, M6, M7, M9, M13 and M14 built and tried in the game (2026-11-11: [M1's run](../prototype-log/2026-11-11-signals.md), [M6's and M7's](../prototype-log/2026-11-11-province-and-army-reads.md), [M9's](../prototype-log/2026-11-11-requests-as-the-game.md), [M13's and M14's](../prototype-log/2026-11-11-tasks-and-game-days.md)); the others not built yet. Terms it added to [GLOSSARY.md](../../GLOSSARY.md): Modifier, Named modifier, Legitimacy, Government mechanic, Mechanic power, Opinion, As the player, As the game, Event (now the scripts'), Signal (the framework's, formerly its event). The decisions are [ADR requests-act-as-the-player-or-as-the-game](../adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md), [ADR framework-notifications-are-signals](../adr/2026-11-11-framework-notifications-are-signals.md), [ADR changes-as-the-game-are-typed-capabilities](../adr/2026-11-11-changes-as-the-game-are-typed-capabilities.md) and [ADR tasks-are-awaited-like-promises](../adr/2026-11-11-tasks-are-awaited-like-promises.md); it builds on [player-actions.md](player-actions.md) and [ADR mods-hold-the-logic](../adr/2026-11-03-mods-hold-the-logic.md).
 
 ## Goal and scope
 
@@ -24,8 +24,8 @@ Each capability group in one line; its arguments, results and refusals are `eu4-
 
 - `session`: the session, the country acted as, putting a country in view in observe mode. `time.get`: the date, whether paused, the speed. `text.language`: the player language.
 - `country.get`: treasury, manpower, stability, prestige, monarch points, wars, relations, technology, ideas, governing capacity, inflation, mercantilism, loans, rebels. `country.budget`: the month's income and expenses. `country.hostile`: the countries at war with one.
-- `province.list`, `province.get` (owner, controller, development, terrain, fort, buildings, autonomy, culture, religion, trade good, unrest, trade node, state, edict, cores, claims, constructions), `province.neighbors`.
-- `army.get`, `army.list`, `army.at`, `army.selected`; the game's rules for moving: `army.route_to`, `army.can_step`, `army.can_attack`.
+- `province.list`, `province.get` (owner, controller, development, terrain, fort, buildings, autonomy, culture, religion, trade good, unrest, trade node, state, edict, cores, claims, constructions, prosperity, devastation, manpower, supply limit, separatism, institutions), `province.neighbors`.
+- `army.get`, `army.list`, `army.at` (each with its units by kind, strength, morale, leader and maintenance), `army.regiments`, `army.selected`; the game's rules for moving: `army.route_to`, `army.can_step`, `army.can_attack`.
 - `trade.nodes`, `trade.node`; and each panel's own list: `leader.list`, `loan.list`, `fort.list`, `estate.list`, `idea.list`, `decision.list`, `mission.list`, `policy.list`, `mercenary.list`, `merchant.list`, `question.list`, `offer.list`.
 
 ### Actions
@@ -86,7 +86,7 @@ What is known of each part's game side is in [research/](../research/), as found
 - `country.modifiers(country, keys)` and `province.modifiers(province, keys)` answer what the country or the province has of each modifier asked for, by its key.
 - `country.opinion(of, toward)` answers what `of` thinks of `toward`: `opinion`, its `parts` (each a `text` as the diplomacy view's tooltip writes it and a `value`), `aggressive_expansion`, `trust` and `favors`. `country.opinions(toward)` answers the same of every country toward one, without the parts.
 - `province.get` grows with `prosperity`, `devastation`, `local_manpower`, `supply_limit`, `separatism` and `institutions` (each institution's key and its progress there).
-- `army.get` grows with its regiments by kind (infantry, cavalry and artillery; a fleet's heavy, light, galley and transport ships), `strength` and its maximum, `morale` and its maximum, its `leader` and its monthly `maintenance`. `army.regiments(army)` lists each regiment: its ID, kind, unit type (a content key), strength and morale.
+- `army.get` grows with its regiments by kind (infantry, cavalry and artillery; a fleet's heavy, light, galley and transport ships), `strength` and its maximum, `morale` and its maximum, its `leader` and its monthly `maintenance`. `army.regiments(army)` lists each regiment, in the game's order: its ID, name, kind, unit type (a content key), strength and morale.
 - `government.mechanics()` lists the player's government mechanics, each by its content key, with its mechanic powers (each a key, a `value` between `min` and `max`, and its `effects`) and its interactions as `options` entries: a `Choice` and, where it has a cooldown, `ready_on`, the day it can be used again. `government.interact(mechanic, interaction)` uses one, as its button does. What an interaction does is not given.
 - `advisor`: `advisor.list` (the player's advisors and those to hire), `advisor.options`, `advisor.hire`, `advisor.fire`, `advisor.promote`, shaped as `leader`.
 - What a read leaves out as the player is compared with the game's panels, part by part, as [player-actions.md](player-actions.md) did.
@@ -217,9 +217,13 @@ Done (2026-11-11): the catalogue's group is `signals` (`remote/src/signals.rs`, 
 
 `prosperity`, `devastation`, `local_manpower`, `supply_limit`, `separatism`, `institutions` in `province.get`.
 
+Built (2026-11-11). `province.get` has `prosperity` (its state's, in percent; null in a territory), `devastation` (percent), `local_manpower` (thousands of men, as the province view's manpower), `supply_limit` (regiments, for the country acted as, the owner's while observing with none in view), `separatism` (years left) and `institutions` (each institution that has appeared, its key and the province's progress in percent). The province view shows another country's province with its manpower, supply limit and devastation, and its state tab its prosperity, so the player's view leaves none of them out. The game's side is in [research/provinces.md](../research/provinces.md#prosperity-devastation-manpower-supply-separatism-and-institutions-for-m6-of-mod-capabilities).
+
 ### M7 Armies' units
 
 The regiments by kind, strength, morale, leader and maintenance in `army.get`; `army.regiments`.
+
+Built (2026-11-11). `army.get`, `army.list` and `army.at` have `units` (regiments or ships by kind), `strength` and `max_strength` (summed, 1 a full regiment or ship), `morale` and `max_morale` (as the unit panel's morale tooltip gives them), `leader` (the leader's id) and `maintenance` (ducats a month at full maintenance, before the maintenance sliders; null in the player's view for another country's). `army.regiments(army)` lists one of the player's armies' regiments or a fleet's ships in the game's order, each with its id, name, kind, unit type, strength and morale. The game's side is in [research/units.md](../research/units.md#f-regiments-strength-morale-leader-and-maintenance-for-m7-of-mod-capabilities).
 
 ### M8 Government mechanics and advisors
 
