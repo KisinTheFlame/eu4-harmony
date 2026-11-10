@@ -26,7 +26,7 @@ use eu4_harmony_remote::{
 /// flag's id is its name's place here.
 const FLAG_NAMES: usize = 0x2357d80;
 /// The game's events, a pointer to an `std::unordered_map` from an event's
-/// number to the event, its items' list head at `+8`.
+/// number to the event, a pointer to its items' list head at `+8`.
 const EVENTS: usize = 0x2340308;
 
 /// `(name: &std::string) -> u16`: a flag name's id, the name added to
@@ -80,7 +80,7 @@ mod kept {
 }
 
 /// A variables map: an `std::unordered_map` from a name to a value, its
-/// items' list head at [`HEAD`]; an item has its name, a `std::string`, at
+/// a pointer to its items' list head at [`HEAD`]; an item has its name, a `std::string`, at
 /// [`NAME`] and its value, i32 thousandths, at [`VALUE`].
 mod variables {
     pub const MAP: usize = 0x10;
@@ -89,7 +89,7 @@ mod variables {
     pub const VALUE: usize = 0x30;
 }
 
-/// The game's events map: its items' list head at [`HEAD`]; an item has the
+/// The game's events map: a pointer to its items' list head at [`HEAD`]; an item has the
 /// event at [`EVENT`].
 mod events {
     pub const HEAD: usize = 8;
@@ -178,7 +178,7 @@ pub fn clear_flag(WorldSession { m, world, .. }: WorldSession, args::ClearFlag {
 pub fn variable(WorldSession { m, world, .. }: WorldSession, args::Variable { scope, name }: args::Variable) -> GResult<VariableState> {
     checked(Use::Variable, scope, "variable", &name)?;
     let held = variables_of(m, &world, scope)?;
-    for item in containers::linked(m, held + variables::HEAD, MOST)? {
+    for item in containers::linked(m, m.ptr(held + variables::HEAD)?, MOST)? {
         if game_string::read(m, item + variables::NAME)? == name.as_bytes() {
             return Ok(VariableState { set: true, value: f64::from(m.i32(item + variables::VALUE)?) / 1000.0 });
         }
