@@ -51,6 +51,32 @@ pub struct World {
     flags: BTreeMap<String, Value>,
     #[serde(skip)]
     variables: BTreeMap<String, f64>,
+    /// What one country thinks of another; a pair left out thinks nothing
+    /// of each other, with the game's trust of 50.
+    #[serde(default)]
+    opinions: Vec<Thinks>,
+}
+
+/// What `of` thinks of `toward`, as `country.opinion` answers it.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Thinks {
+    of: String,
+    toward: String,
+    #[serde(default)]
+    opinion: i32,
+    #[serde(default)]
+    parts: Vec<Value>,
+    #[serde(default)]
+    aggressive_expansion: f64,
+    #[serde(default = "trust")]
+    trust: i32,
+    #[serde(default)]
+    favors: f64,
+}
+
+fn trust() -> i32 {
+    50
 }
 
 #[derive(Debug, Deserialize)]
@@ -144,6 +170,8 @@ pub const ANSWERS: &[&str] = &[
     "session.get",
     "country.get",
     "country.hostile",
+    "country.opinion",
+    "country.opinions",
     "province.list",
     "province.get",
     "province.neighbors",
@@ -170,6 +198,10 @@ impl World {
         let world: World = serde_json::from_value(json).map_err(|e| format!("the world: {e}"))?;
         for (tag, fields) in &world.countries {
             crate::fake::check("country.get", &Value::Object(fields.clone())).map_err(|e| format!("the world's country {tag}: {e}"))?;
+        }
+        for t in &world.opinions {
+            crate::fake::check("country.opinion", &world.opinion_json(&t.of, &t.toward))
+                .map_err(|e| format!("the world's opinion of {} of {}: {e}", t.of, t.toward))?;
         }
         for a in &world.armies {
             crate::fake::check("army.get", &world.army_json(a)).map_err(|e| format!("the world's army {}: {e}", a.id))?;
@@ -233,8 +265,31 @@ impl World {
             .ok_or_else(|| army_checks::not_seen(id).into())
     }
 
+    /// What `of` thinks of `toward`, in Lua's form.
+    fn opinion_json(&self, of: &str, toward: &str) -> Value {
+        match self.opinions.iter().find(|t| t.of == of && t.toward == toward) {
+            Some(t) => json!({
+                "of": of, "toward": toward, "opinion": t.opinion, "parts": t.parts,
+                "aggressive_expansion": t.aggressive_expansion, "trust": t.trust, "favors": t.favors,
+            }),
+            None => json!({"of": of, "toward": toward, "opinion": 0, "parts": [], "aggressive_expansion": 0.0, "trust": trust(), "favors": 0.0}),
+        }
+    }
+
+    /// Every country the world names, in the order of their tags.
+    fn known_countries(&self) -> BTreeSet<String> {
+        let mut all: BTreeSet<String> = self.countries.keys().cloned().collect();
+        all.insert(self.player());
+        all.extend(self.hostile.iter().flat_map(|(a, b)| [a.clone(), b.clone()]));
+        all.extend(self.provinces.iter().filter_map(|p| p.owner.clone()));
+        all.extend(self.armies.iter().map(|a| a.owner.clone()));
+        all.extend(self.opinions.iter().flat_map(|t| [t.of.clone(), t.toward.clone()]));
+        all
+    }
+
     fn country_known(&self, tag: &str) -> bool {
         tag == self.player()
+            || self.opinions.iter().any(|t| t.of == tag || t.toward == tag)
             || self.countries.contains_key(tag)
             || self.hostile.iter().any(|(a, b)| a == tag || b == tag)
             || self.provinces.iter().any(|p| p.owner.as_deref() == Some(tag))
@@ -373,6 +428,34 @@ impl World {
                     Some(unknown) => Err(country_checks::not_found(&unknown).into()),
                     None => Ok(json!(self.hostile(&a, &b))),
                 }
+            }
+            "country.opinion" => {
+                let (of, toward) = (text("of"), text("toward"));
+                if let Some(unknown) = [&of, &toward].into_iter().find(|t| !self.country_known(t)) {
+                    return Some(Err(country_checks::not_found(unknown).into()));
+                }
+                match country_checks::of_itself(&of, &toward) {
+                    Some(refusal) => Err(refusal.into()),
+                    None => Ok(self.opinion_json(&of, &toward)),
+                }
+            }
+            "country.opinions" => {
+                let toward = text("toward");
+                if !self.country_known(&toward) {
+                    return Some(Err(country_checks::not_found(&toward).into()));
+                }
+                let row = |of: &String| {
+                    let mut o = self.opinion_json(of, &toward);
+                    if let Value::Object(fields) = &mut o {
+                        fields.remove("toward");
+                        fields.remove("parts");
+                        if let Some(of) = fields.remove("of") {
+                            fields.insert("country".into(), of);
+                        }
+                    }
+                    o
+                };
+                Ok(Value::Array(self.known_countries().iter().filter(|of| **of != toward).map(row).collect()))
             }
             "province.list" => {
                 let row = |p: &Place| json!({"id": p.id, "kind": p.kind, "visible": p.visible, "owner": p.owner, "controller": p.controller.clone().or_else(|| p.owner.clone())});
@@ -577,6 +660,26 @@ mod tests {
         assert_eq!(ask(&mut w, "army.get", json!({"army": 2})).unwrap_err().code, Code::NotFound);
         assert_eq!(ask(&mut w, "country.hostile", json!({"country": "GRA", "other": "CAS"})).unwrap(), json!(true));
         assert_eq!(ask(&mut w, "country.get", json!({"country": "ZZZ"})).unwrap_err().code, Code::NotFound);
+    }
+
+    #[test]
+    fn the_world_answers_what_countries_think_of_each_other() {
+        let mut w = World::new(json!({
+            "player": "CAS",
+            "opinions": [{"of": "ARA", "toward": "CAS", "opinion": 120, "trust": 80, "favors": 10.0, "parts": [{"text": "Royal marriage", "value": 25}]}],
+        }))
+        .unwrap();
+        let ara = ask(&mut w, "country.opinion", json!({"of": "ARA", "toward": "CAS"})).unwrap();
+        assert_eq!((ara["opinion"].clone(), ara["trust"].clone(), ara["parts"][0]["value"].clone()), (json!(120), json!(80), json!(25)));
+        // A pair the world leaves out thinks nothing of each other.
+        let cas = ask(&mut w, "country.opinion", json!({"of": "CAS", "toward": "ARA"})).unwrap();
+        assert_eq!((cas["opinion"].clone(), cas["trust"].clone()), (json!(0), json!(50)));
+        assert_eq!(
+            ask(&mut w, "country.opinions", json!({"toward": "CAS"})).unwrap(),
+            json!([{"country": "ARA", "opinion": 120, "aggressive_expansion": 0.0, "trust": 80, "favors": 10.0}])
+        );
+        let e = ask(&mut w, "country.opinion", json!({"of": "CAS", "toward": "CAS"})).unwrap_err();
+        assert_eq!(e.message, country_checks::of_itself("CAS", "CAS").unwrap().message);
     }
 
     #[test]

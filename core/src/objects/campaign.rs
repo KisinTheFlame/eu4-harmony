@@ -260,8 +260,8 @@ pub mod country {
     pub const RELATIONS: usize = 0x1510;
     pub const RELATION_SIZE: usize = 0x48;
     pub const RELATION_OTHER: usize = 0x10;
-    /// In a record, the other's trust in it (u8, up to 100), and the favors
-    /// the other owes it (i32, thousandths).
+    /// In a record, its trust in the other (u8, up to 100), and the favors
+    /// it owes the other (i32, thousandths).
     pub const RELATION_TRUST: usize = 0x1e;
     pub const RELATION_FAVORS: usize = 0x20;
     /// Its capital, a pointer to the [`super::province`].
@@ -439,6 +439,28 @@ pub mod country_diplomacy {
     pub const SUBJECT_COUNT: usize = 0x134;
     pub const SUBJECT_SIZE: usize = 16;
     pub const SUBJECT_RELATION: usize = 8;
+    /// The opinion modifiers its country has toward each other country: a
+    /// pointer to [`OPINIONS_SIZE`]-byte items by the other's index, and
+    /// their count (i32); in an item, a pointer to the
+    /// [`super::opinion_modifier`]s' pointers at [`OPINIONS_LIST`] and their
+    /// count (i32) at [`OPINIONS_COUNT`].
+    pub const OPINIONS: usize = 0x308;
+    pub const OPINIONS_ITEMS: usize = 0x314;
+    pub const OPINIONS_SIZE: usize = 0x18;
+    pub const OPINIONS_LIST: usize = 8;
+    pub const OPINIONS_COUNT: usize = 0x14;
+}
+
+/// One opinion modifier a country has toward another (an `opinion` in
+/// saves).
+pub mod opinion_modifier {
+    /// Its type, whose key is a `std::string` at [`TYPE_KEY`] in it (the
+    /// key `common/opinion_modifiers` gives it, such as
+    /// `aggressive_expansion`).
+    pub const TYPE: usize = 0x10;
+    pub const TYPE_KEY: usize = 0x10;
+    /// What it adds to the opinion now (i32, thousandths).
+    pub const VALUE: usize = 0x20;
 }
 
 /// What a subject is to its overlord, of [`classes::SUBJECT_RELATION`] (a
@@ -1195,6 +1217,19 @@ pub fn points() -> Vec<Point> {
             country::RELATION_FAVORS,
             country::RELATION_TRUST,
         ]),
+        // A relation's writer in saves: its country's opinion modifiers
+        // toward the other, by the other's index, each written in turn.
+        Point::keep(
+            0xa66935usize,
+            "41 3b 88 14 03 00 00 7d 5f 48 8b d1 49 8b 88 08 03 00 00 48 8d 04 52 83 7c c1 14 00 74 4a 48 8d 04 52 4d 89 7b 20 48 8b 74 c1 08 48 63 44 c1 14",
+            "opinion modifiers toward a country",
+        )
+        .uses(&[country_diplomacy::OPINIONS_ITEMS, country_diplomacy::OPINIONS, country_diplomacy::OPINIONS_COUNT, country_diplomacy::OPINIONS_LIST]),
+        // An opinion modifier's writer in saves: its type's key, then (after
+        // the date) the token of `current_opinion` and its value.
+        Point::keep(0x94963fusize, "48 8b 59 10 48 8b fa 48 8b f1 ba 68 29 00 00 48 8b cf 48 83 c3 10", "opinion modifier type key")
+            .uses(&[opinion_modifier::TYPE, opinion_modifier::TYPE_KEY]),
+        Point::keep(0x94969busize, "8b 5e 20 ba ca 2d 00 00", "opinion modifier value").uses(&[opinion_modifier::VALUE]),
         // The sell province window leaving out the capital.
         Point::keep(0x13a3397usize, "48 8b 80 18 01 00 00 48 8b 0c d0 48 8b 03 48 39 81 b0 14 00 00", "country capital").uses(&[country::CAPITAL]),
         // Walking a country's allies, as the AI does.
