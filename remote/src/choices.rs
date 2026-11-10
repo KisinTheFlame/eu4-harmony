@@ -83,6 +83,9 @@ pub enum Resource {
     MonthlyDucats,
     /// Reform progress, which government reforms spend.
     ReformProgress,
+    /// Points of one of a government mechanic's powers, which its
+    /// interactions spend; the entry says which.
+    MechanicPower,
 }
 
 /// A kind of monarch power, as the game's panels name them: what a

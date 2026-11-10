@@ -29,6 +29,7 @@ pub mod envoys;
 pub mod frame;
 pub mod interface;
 pub mod map_coloring;
+pub mod mechanics;
 pub mod modifiers;
 pub mod orders;
 pub mod player;
@@ -353,6 +354,7 @@ pub fn points() -> Vec<Point> {
     points.extend(player::points());
     points.extend(conditions::points());
     points.extend(power::points());
+    points.extend(mechanics::points());
     points.extend(modifiers::points());
     points.extend(administration::points());
     points.extend(units::points());

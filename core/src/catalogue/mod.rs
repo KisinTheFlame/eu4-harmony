@@ -429,6 +429,7 @@ macro_rules! capability_groups {
             Economy(economy),
             Loan(loans),
             Leader(leaders),
+            Advisor(advisors),
             Mercenary(mercenaries),
             Fort(forts),
             Siege(sieges),
