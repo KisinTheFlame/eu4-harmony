@@ -574,20 +574,19 @@ extern "C" fn frame_draws(idler: usize) {
     // The frame's update has finished: what was deferred is done now, its
     // crossings, if any, forgotten as the frame is prepared.
     deferred::done(&m);
+    prepare::tooltips(&m, idler);
     // A frame the main thread draws itself leaves the last one prepared
-    // behind: its scenes are crossings, which hold it back. What would make
-    // it draw one, it does ahead where it can.
-    prepare::ahead(&m, idler);
-    if !drawing_on() || must_draw_here(&m) {
+    // behind: its scenes are crossings, which hold it back.
+    if !drawing_on() || main_draws(&m) {
         draw_here(&m, idler);
         return;
     }
-    if let Err(e) = prepare::first_steps(&m, idler) {
-        log!("drawing: the drawing's first steps could not read the game: {e}");
+    if let Err(e) = prepare::frame(&m, idler) {
+        log!("drawing: the frame could not be prepared: {e}");
         return;
     }
-    // This frame's update, and its first steps, which may draw the map
-    // mode's colors in a scene of their own, have finished whatever the
+    // This frame's update, and what of the drawing was done here, which may
+    // draw into textures in scenes of their own, have finished whatever the
     // crossings before began.
     crossings::frame_prepared();
     icons::prepared();
@@ -603,10 +602,18 @@ extern "C" fn frame_draws(idler: usize) {
     }
 }
 
-/// Whether the main thread draws this frame itself.
-fn must_draw_here(m: &Memory) -> bool {
+/// Whether the main thread draws this frame itself: the console's debug
+/// text, which works a country's values out as it is drawn, or the framework
+/// holding frames back.
+fn main_draws(m: &Memory) -> bool {
     let debug_text = m.ptr(m.at(DEBUG_COUNTRY)).ok().is_none_or(|c| c != 0);
-    prepare::names_due(m) || debug_text || crate::framework_ui::holding()
+    debug_text || crate::framework_ui::holding()
+}
+
+/// Whether the drawing thread must not draw the frame prepared: what makes
+/// the main thread draw, or the map's names due since, which reads the world.
+fn must_draw_here(m: &Memory) -> bool {
+    prepare::names_due(m) || main_draws(m)
 }
 
 /// Whether the current thread is the drawing thread.
