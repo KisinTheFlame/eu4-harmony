@@ -5,6 +5,7 @@ Countries deal with each other through diplomatic actions: an alliance offered o
 ## Two countries' relation
 
 - **Each country keeps a record of its relation to every other country**, by the other's index: what the diplomacy view and the actions read of the two, among them the casus belli one holds against the other, the wars between them, the favors owed and the trust ([research/countries.md](../research/countries.md#a-countrys-snapshot-countriessnapshot), [research/diplomacy.md](../research/diplomacy.md#the-war-goals-offered), [research/diplomacy.md](../research/diplomacy.md#table)).
+- **Opinion is what one country thinks of another**, from -200 to 200: the sum of its parts, some from what the two are (religion, culture, a rivalry, an alliance, claims, a border), others opinion modifiers the game, events and actions give it for a time, among them the aggressive expansion the other's conquests cost it, each worn away a little a year. The panels show the number the game last counted, which it counts again from time to time; the tooltip counts it afresh with its parts. Each country's record of another also holds its trust in the other and the favors it owes it ([research/diplomacy.md](../research/diplomacy.md#opinion)).
 - **Lasting relations are objects of their own**: a subject relation between overlord and subject, a support of independence and the other diplomatic relations, which share one base, the two countries and their dates; the lists of allies and the like that a country shows are worked out from them ([research/countries.md](../research/countries.md), [research/dependency-teardown.md](../research/dependency-teardown.md#the-list-it-walks), [countries.md](countries.md)).
 
 ## Diplomatic actions
@@ -54,6 +55,7 @@ Countries deal with each other through diplomatic actions: an alliance offered o
 - Declarations of war with their war goals and allies called, alliances, peace offers with their terms and the AI's factors, calls to arms, occupation handed over ([plans/remote-control.md](../plans/remote-control.md), [research/peace.md](../research/peace.md)).
 - Questions and offers answered through the game's own windows and dialogs, only while the game still takes an answer ([research/questions-and-offers.md](../research/questions-and-offers.md)).
 - Missionaries, colonists, merchants, trading policies, trade companies and centers of trade ([research/envoys.md](../research/envoys.md)).
+- What every country thinks of every other: the opinion as the panels show it, its parts as the tooltip writes them, the aggressive expansion among them, the trust and the favors ([plans/mod-capabilities.md](../plans/mod-capabilities.md), [research/diplomacy.md](../research/diplomacy.md#opinion)).
 - Wars declared, peace made and provinces changing owner, heard by comparing the world's wars and owners from one day to the next, with no function of the game's observed for them, so that every cause is heard alike: a peace, an annexation, a rebellion, the console ([research/peace.md](../research/peace.md#the-events)).
 
 ## What is not known yet
@@ -62,6 +64,7 @@ Countries deal with each other through diplomatic actions: an alliance offered o
 - Whether an ally allowed to be called can still decline; whether a call accepted brings the ally into every war it may join; why a call sent as the default window sends it got no answer ([research/diplomacy.md](../research/diplomacy.md#not-established-1), [research/peace.md](../research/peace.md#not-established)).
 - The costs the declare war window confirms before it sends (no casus belli, a truce broken) ([research/diplomacy.md](../research/diplomacy.md#not-established-1)).
 - Who exactly counts as a peace's receiving side for gold; why a treaty made outside the peace view finds no chosen gold term ([research/peace.md](../research/peace.md#not-established)).
+- What the diplomacy view's opinion of a third country shows the player, beside the opinion map mode ([research/diplomacy.md](../research/diplomacy.md#opinion)).
 - Some windows' lists and whether an action left at its defaults passes (a loan of nothing, a federation with no name) ([research/diplomacy.md](../research/diplomacy.md#not-established)).
 - Whether a player's event ever waits without a window, and a dialog refusing for another reason than its age ([research/questions-and-offers.md](../research/questions-and-offers.md#not-established)).
 - What locks an envoy pool, and several of the envoys' rules ([research/envoys.md](../research/envoys.md#not-worked-out)).

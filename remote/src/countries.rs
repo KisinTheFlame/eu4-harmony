@@ -34,6 +34,75 @@ group! {
         /// The country.
         country: CountryTag,
     } -> Budget, "the budget: country, income and expenses (each a category, the game's key for it such as INCOMETAX, its name as the view shows it, and ducats; null in the player's view for another country), and loans (each its lender, null for none, ducats, interest in percent and the date it falls due; null likewise)";
+    /// What one country thinks of another, as the diplomacy view shows it:
+    /// the opinion and its parts as its tooltip lists them, the aggressive
+    /// expansion it holds against the other, its trust in the other and the
+    /// favors it owes the other. In the player's view the trust and the
+    /// favors are null unless one of the two is the country acted as.
+    /// Refused for a country's opinion of itself, which the game does not
+    /// show.
+    world Opinion "opinion" {
+        /// The country whose opinion it is.
+        of: CountryTag,
+        /// The country it is about.
+        toward: CountryTag,
+    } -> Opinion, "of, toward, opinion (from -200 to 200), parts (each a text, as the tooltip writes it in the player language, a value, and yearly, how much it changes a year, null for a part that does not), aggressive_expansion, trust (from 0 to 100) and favors; trust and favors null in the player's view unless of or toward is the country acted as";
+    /// What every other country that owns a province thinks of one, as
+    /// `country.opinion` answers each, without the parts.
+    world Opinions "opinions" {
+        /// The country they think of.
+        toward: CountryTag,
+    } -> Vec<OpinionOf>, "one entry for each other country that owns a province: country, opinion, aggressive_expansion, trust and favors, trust and favors null in the player's view unless toward is the country acted as";
+}
+
+/// What one country thinks of another.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Opinion {
+    /// The country whose opinion it is.
+    pub of: CountryTag,
+    /// The country it is about.
+    pub toward: CountryTag,
+    /// From -200 to 200, as the diplomacy view shows it.
+    pub opinion: i32,
+    /// What makes it up, as the opinion's tooltip lists it, in its order.
+    /// Their sum may differ from `opinion`: the game counts the opinion it
+    /// shows again only from time to time, and holds it between -200 and
+    /// 200.
+    pub parts: Vec<OpinionPart>,
+    /// The aggressive expansion `of` holds against `toward`: what the
+    /// opinion loses for it, as a positive number; 0 for none.
+    pub aggressive_expansion: f64,
+    /// `of`'s trust in `toward`, from 0 to 100; null in the player's view
+    /// unless one of the two is the country acted as.
+    pub trust: Option<i32>,
+    /// The favors `of` owes `toward`; null as the trust.
+    pub favors: Option<f64>,
+}
+
+/// One part of an opinion, as its tooltip lists it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct OpinionPart {
+    /// What it is, as the tooltip writes it in the player language, such as
+    /// "Opinion of same Religion"; a line the tooltip writes under it, such
+    /// as the provinces a country covets, follows on a line of its own.
+    pub text: String,
+    /// What it adds to the opinion, negative for what it takes away.
+    pub value: i32,
+    /// How much it changes a year, as the tooltip shows it in brackets;
+    /// null for a part that does not change with time.
+    pub yearly: Option<f64>,
+}
+
+/// What one country thinks of the one asked about.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct OpinionOf {
+    /// The country whose opinion it is.
+    pub country: CountryTag,
+    /// As in [`Opinion`].
+    pub opinion: i32,
+    pub aggressive_expansion: f64,
+    pub trust: Option<i32>,
+    pub favors: Option<f64>,
 }
 
 /// A country at one moment.
