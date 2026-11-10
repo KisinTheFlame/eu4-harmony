@@ -656,6 +656,7 @@ static PRESENTING: AtomicBool = AtomicBool::new(false);
 /// several threads.
 pub fn present_begins() {
     PRESENTING.store(true, Ordering::Release);
+    PRESENT.with(|p| p.began.set(Some(Instant::now())));
     if !KEEPS_LOCK_IN_PRESENT.load(Ordering::Acquire) {
         LOCK.give();
     }
@@ -670,11 +671,30 @@ static KEEPS_LOCK_IN_PRESENT: AtomicBool = AtomicBool::new(false);
 /// the drawing does after it (the idler's `+0x1608`, its clock).
 pub fn present_ends() {
     PRESENTING.store(false, Ordering::Release);
+    PRESENT.with(|p| {
+        if let Some(began) = p.began.take() {
+            p.spent.set(p.spent.get() + began.elapsed());
+        }
+    });
     if KEEPS_LOCK_IN_PRESENT.load(Ordering::Acquire) {
         return;
     }
     let waited = LOCK.take();
     DRAWING_WAITED.fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
+    PRESENT.with(|p| p.lock_after.set(p.lock_after.get() + waited));
+}
+
+/// The drawing thread's time in Present and waiting for the lock after it,
+/// in the frame drawn now, for [`Gaps`].
+#[derive(Default)]
+struct PresentTimes {
+    began: std::cell::Cell<Option<Instant>>,
+    spent: std::cell::Cell<Duration>,
+    lock_after: std::cell::Cell<Duration>,
+}
+
+thread_local! {
+    static PRESENT: PresentTimes = PresentTimes::default();
 }
 
 /// The main thread draws a frame of its own: once the drawing thread's
@@ -738,20 +758,29 @@ fn wait_until(until: Instant) {
 }
 
 /// The frames that came late, for the log: a gap between two frames drawn
-/// longer than two of the display's refreshes, by what happened in it, a
+/// longer than two of the display's refreshes, by what happened in it: a
 /// crossing holding the frame back while the drawing thread had the lock
-/// (by the crossing that marked the frame changed first), the drawing thread
-/// waiting a refresh or more for the lock, or neither (the drawing itself, or
-/// the thread not run).
+/// (by the crossing that marked the frame changed first); else what took the
+/// gap's most time, the drawing thread waiting for the lock before its frame,
+/// the drawing, Present, waiting for the lock after Present, or the rest (the
+/// thread waiting for its time, or not run).
 #[derive(Default)]
 struct Gaps {
     last: Option<Instant>,
     held: Option<usize>,
-    waited: Duration,
-    late: [u32; 3],
+    /// The gap's parts so far, as in [`LATE_BY`].
+    parts: [Duration; 4],
+    late: [u32; 6],
     by: Vec<(usize, u32)>,
     longest: Duration,
+    /// The frames' drawing, Present and the lock after it left out: in all,
+    /// how many, the longest.
+    drawing: (Duration, u32, Duration),
 }
+
+/// What a late frame is counted by: held back, then the gap's parts and the
+/// rest.
+const LATE_BY: [&str; 6] = ["held back", "the lock before", "drawing", "Present", "the lock after Present", "other"];
 
 impl Gaps {
     /// The drawing thread had the lock, and a crossing (`into`) held the
@@ -760,15 +789,30 @@ impl Gaps {
         self.held.get_or_insert(into);
     }
 
-    fn drawn(&mut self, interval: Duration) {
+    /// The drawing thread waited for the lock before a frame.
+    fn waited(&mut self, waited: Duration) {
+        self.parts[0] += waited;
+    }
+
+    /// A frame drawn, its drawing taking `drawing` in all, Present and the
+    /// lock after it within that.
+    fn drawn(&mut self, interval: Duration, drawing: Duration, present: Duration, lock_after: Duration) {
+        let own = drawing.saturating_sub(present + lock_after);
+        self.parts[1] += own;
+        self.drawing = (self.drawing.0 + own, self.drawing.1 + 1, self.drawing.2.max(own));
+        self.parts[2] += present;
+        self.parts[3] += lock_after;
         let now = Instant::now();
         if let Some(last) = self.last.replace(now) {
             let gap = now - last;
             if gap > interval * 2 {
+                let rest = gap.saturating_sub(self.parts.iter().sum());
                 let why = match self.held {
                     Some(_) => 0,
-                    None if self.waited >= interval => 1,
-                    None => 2,
+                    None => {
+                        let parts = [self.parts[0], self.parts[1], self.parts[2], self.parts[3], rest];
+                        1 + (0..parts.len()).max_by_key(|&i| parts[i]).unwrap_or(4)
+                    }
                 };
                 self.late[why] += 1;
                 if let Some(into) = self.held {
@@ -781,23 +825,27 @@ impl Gaps {
             self.longest = self.longest.max(gap);
         }
         self.held = None;
-        self.waited = Duration::ZERO;
+        self.parts = [Duration::ZERO; 4];
     }
 
     /// The line for the log, and a new count.
     fn told(&mut self, base: usize) -> String {
         self.by.sort_by_key(|b| std::cmp::Reverse(b.1));
         let by: Vec<String> = self.by.iter().take(3).map(|(into, n)| format!("{:#x} {n}", into.wrapping_sub(base))).collect();
+        let others: Vec<String> = (1..LATE_BY.len()).map(|i| format!("{} {}", LATE_BY[i], self.late[i])).collect();
+        let (all, frames, longest) = self.drawing;
         let told = format!(
-            "{} late (held back {} by {}, waiting for the lock {}, neither {}), the longest gap {:.0} ms",
+            "{} late (held back {} by {}, {}), the longest gap {:.0} ms; a frame's drawing {:.1} ms, the longest {:.1} ms",
             self.late.iter().sum::<u32>(),
             self.late[0],
             by.join(", "),
-            self.late[1],
-            self.late[2],
-            self.longest.as_secs_f64() * 1000.0
+            others.join(", "),
+            self.longest.as_secs_f64() * 1000.0,
+            all.as_secs_f64() * 1000.0 / frames.max(1) as f64,
+            longest.as_secs_f64() * 1000.0
         );
-        self.late = [0; 3];
+        self.drawing = Default::default();
+        self.late = [0; 6];
         self.by.clear();
         self.longest = Duration::ZERO;
         told
@@ -833,7 +881,7 @@ fn run() {
         }
         let waited = LOCK.take();
         DRAWING_WAITED.fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
-        gaps.waited += waited;
+        gaps.waited(waited);
         let idler = PREPARED.load(Ordering::Acquire);
         let current = m.ptr(m.at(APP)).and_then(|app| m.ptr(app + APP_IDLER)).unwrap_or(0);
         let seq = PREPARED_SEQ.load(Ordering::Acquire);
@@ -864,7 +912,10 @@ fn run() {
             let watched = crate::write_watch::drawing::frame_begins(&m);
             #[cfg(feature = "dev-write-watch")]
             KEEPS_LOCK_IN_PRESENT.store(watched, Ordering::Release);
+            let began = Instant::now();
             unsafe { direct1(&m, DRAWING)(idler) };
+            let drawing = began.elapsed();
+            let (present, lock_after) = PRESENT.with(|p| (p.spent.take(), p.lock_after.take()));
             #[cfg(feature = "dev-write-watch")]
             KEEPS_LOCK_IN_PRESENT.store(false, Ordering::Release);
             #[cfg(feature = "dev-write-watch")]
@@ -872,7 +923,7 @@ fn run() {
             IN_FRAME.store(false, Ordering::Release);
             DRAWN.fetch_add(1, Ordering::Relaxed);
             DRAWN_SEQ.store(seq, Ordering::Release);
-            gaps.drawn(interval);
+            gaps.drawn(interval, drawing, present, lock_after);
         }
         LOCK.give();
         if logged.elapsed() >= Duration::from_secs(10) {
