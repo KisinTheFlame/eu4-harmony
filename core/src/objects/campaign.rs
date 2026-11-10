@@ -589,6 +589,8 @@ pub mod unit_type {
     /// Its key as in common/units (`western_medieval_infantry`), a
     /// `std::string`.
     pub const NAME: usize = 0x60;
+    /// The strength a regiment of it has at full, fixed point.
+    pub const MAX_STRENGTH: usize = 0x58;
 }
 
 /// A connection to a neighbor, [`SIZE`] bytes: the neighbor's ID, the
@@ -655,6 +657,25 @@ pub mod unit {
     /// Methods of [`super::classes::ARMY`], by vtable offset.
     pub const CAN_ENTER: usize = 0x120;
     pub const MILITARY_TAG: usize = 0x138;
+    /// The method of [`super::classes::ARMY`] and [`super::classes::FLEET`]
+    /// that answers what its regiments or ships cost a month: (unit, out).
+    pub const MAINTENANCE: usize = 0xb8;
+}
+
+/// A regiment of an army, or a ship of a fleet, as [`unit::REGIMENTS`]
+/// holds them.
+pub mod regiment {
+    /// Its ID: the type, u32, then the number, u32.
+    pub const ID: usize = 0x10;
+    pub const NUMBER: usize = 0x14;
+    /// Its unit type (see [`super::unit_type`]).
+    pub const TYPE: usize = 0x20;
+    /// Its strength and its morale, fixed point; a strength of 1 is a full
+    /// regiment's, 1000 men.
+    pub const STRENGTH: usize = 0x28;
+    pub const MORALE: usize = 0x2c;
+    /// Its name, a `std::string`.
+    pub const NAME: usize = 0x68;
 }
 
 /// A task's methods an idle task has as [`super::classes::IDLE_TASK`] does,

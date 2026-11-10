@@ -304,6 +304,17 @@ pub fn assign(Session { m, ctx, commands, .. }: Session, args::Assign { leader: 
     Ok(())
 }
 
+/// The number of the leader leading `unit`, an army or fleet of any
+/// country's; none when it has none (the game's null leader, or one that
+/// leads another unit).
+pub fn leading(m: &Memory, unit: usize) -> GResult<Option<u32>> {
+    let leader = m.ptr(unit + UNIT_LEADER)?;
+    if leader == 0 || m.ptr(leader + leader::UNIT)? != unit {
+        return Ok(None);
+    }
+    Ok(Some(m.u32(leader + leader::NUMBER)?))
+}
+
 /// Takes the leader from one of the player's armies or fleets, as the
 /// panel's remove button does: the command with the empty leader ID.
 pub fn remove(Session { m, ctx, commands, .. }: Session, args::Remove { army: ArmyId(army) }: args::Remove) -> GResult<()> {

@@ -97,6 +97,14 @@ struct Army {
     route: Vec<u32>,
     #[serde(default)]
     route_by: Option<String>,
+    /// Its strength, 1 a full regiment; every regiment full when absent.
+    #[serde(default)]
+    strength: Option<f64>,
+    /// Its morale; 3, every regiment's most, when absent.
+    #[serde(default)]
+    morale: Option<f64>,
+    #[serde(default)]
+    leader: Option<u32>,
 }
 
 fn army() -> String {
@@ -285,9 +293,15 @@ impl World {
 
     fn army_json(&self, a: &Army) -> Value {
         let own = a.owner == self.player();
+        let full = f64::from(a.regiments);
+        let mut units = json!({"infantry": 0, "cavalry": 0, "artillery": 0, "heavy_ship": 0, "light_ship": 0, "galley": 0, "transport": 0});
+        units[if a.kind == "navy" { "heavy_ship" } else { "infantry" }] = json!(a.regiments);
         json!({
             "id": a.id, "owner": a.owner, "kind": a.kind, "province": a.province, "regiments": a.regiments,
             "blocked": a.blocked, "route": if own { a.route.clone() } else { Vec::new() }, "route_by": a.route_by,
+            "aboard": null, "carrying": 0, "units": units, "strength": a.strength.unwrap_or(full), "max_strength": full,
+            "morale": a.morale.unwrap_or(3.0), "max_morale": 3.0, "leader": a.leader,
+            "maintenance": if own { json!(0.25 * full) } else { Value::Null },
         })
     }
 

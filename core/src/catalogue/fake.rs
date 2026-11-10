@@ -126,6 +126,13 @@ fn army(id: u64, owner: &[u8; 3], kind: eu4_harmony_remote::armies::ArmyKind, pr
         route_by: None,
         aboard: None,
         carrying: 0,
+        units: eu4_harmony_remote::armies::Units { infantry: regiments, ..Default::default() },
+        strength: f64::from(regiments),
+        max_strength: f64::from(regiments),
+        morale: 3.0,
+        max_morale: 3.0,
+        leader: None,
+        maintenance: Some(0.5 * f64::from(regiments)),
     }
 }
 
