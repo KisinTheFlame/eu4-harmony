@@ -710,6 +710,12 @@ pub mod unit {
     pub const MOVEMENT_LOCKED: usize = 0x202;
     pub const RETREATING: [usize; 2] = [0x203, 0x204];
     pub const EXILED: usize = 0x207;
+    /// u8: an army attached to the transports in its port, which it embarks
+    /// on when they leave.
+    pub const TO_TRANSPORT: usize = 0x20d;
+    /// u8 each: a fleet carrying armies on its own, and a fleet mothballed.
+    pub const AUTO_TRANSPORT: usize = 0x280;
+    pub const MOTHBALLED: usize = 0x281;
     /// Methods of [`super::classes::ARMY`], by vtable offset.
     pub const CAN_ENTER: usize = 0x120;
     pub const MILITARY_TAG: usize = 0x138;
@@ -1280,6 +1286,12 @@ pub fn points() -> Vec<Point> {
         Point::keep(0xd3ace9usize, "48 89 69 30 48 89 69 38", "unit regiments").uses(&[unit::REGIMENTS, unit::REGIMENTS + 8]),
         Point::keep(0xd3ad0busize, "48 8b 05 96 51 60 01 48 89 41 20", "unit ID").uses(&[unit::ID]),
         Point::keep(0xd3ad1eusize, "48 89 69 50", "unit attached to").uses(&[unit::ATTACHED_TO]),
+        // The army panel's Attach to Transport button, toggled on; the fleet
+        // panel's automatic transportation, toggled on, and its refusal of a
+        // mothballed fleet.
+        Point::keep(0x1487313usize, "0f b6 80 0d 02 00 00", "army attached to transport").uses(&[unit::TO_TRANSPORT]),
+        Point::keep(0x14868abusize, "0f b6 80 80 02 00 00", "fleet auto transport").uses(&[unit::AUTO_TRANSPORT]),
+        Point::keep(0x14863c2usize, "80 bd 81 02 00 00 00", "fleet mothballed").uses(&[unit::MOTHBALLED]),
         Point::keep(0xd3ad6eusize, "48 89 a9 98 00 00 00 48 89 a9 a0 00 00 00 48 89 a9 a8 00 00 00 48 89 a9 b0 00 00 00", "unit contexts")
             .uses(&[unit::CONTEXTS[0], unit::CONTEXTS[1], unit::CONTEXT_VECTOR, unit::CONTEXT_VECTOR + 8]),
         Point::keep(0xd3ae28usize, "48 89 af 00 01 00 00 48 89 af 08 01 00 00 89 af 10 01 00 00 c6 87 14 01 00 00 00", "unit route")

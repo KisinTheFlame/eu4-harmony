@@ -24,6 +24,14 @@ layer! {
     Consolidate => fn consolidate -> () = units::consolidate;
     Drill => fn drill -> () = units::drill;
     StopDrill => fn stop_drill -> () = units::stop_drill;
+    DetachKind => fn detach_kind -> u64 = units::detach_kind;
+    Attach => fn attach -> () = units::attach;
+    Detach => fn detach -> () = units::detach;
+    AttachToTransport => fn attach_to_transport -> () = units::attach_to_transport;
+    DetachFromTransport => fn detach_from_transport -> () = units::detach_from_transport;
+    DetachSpecialUnits => fn detach_special_units -> u64 = units::detach_special_units;
+    AutoTransport => fn auto_transport -> () = units::auto_transport;
+    StopAutoTransport => fn stop_auto_transport -> () = units::stop_auto_transport;
     Mission => fn mission -> () = units::mission;
     StopMission => fn stop_mission -> () = units::stop_mission;
 }
