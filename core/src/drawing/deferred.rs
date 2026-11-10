@@ -3,7 +3,7 @@
 //! kept and done by it as the next frame is prepared ([`done`]), while it
 //! holds the lock and the frame's update has finished: a text floating on the
 //! map, the interface's daily refresh, the map told of a province's new
-//! owner, a mesh object let go. Until then the drawing thread draws on, as
+//! owner, the minimap drawn again, a mesh object let go. Until then the drawing thread draws on, as
 //! nothing changed. Done anywhere else, each would be a crossing, which holds
 //! the frame prepared back to the next update: from the commands' step before
 //! a day, through the whole day.
@@ -29,6 +29,7 @@ pub(super) fn points() -> Vec<Point> {
         // mov rcx, rsi; call string destructor: the text's type destroyed.
         Point::keep(0x6e9f68, "48 8b ce e8 f0 b6 9a ff 90 48 8b 8d a8 00 00 00", "a floating text's strings destroyed"),
         Point::replace(DAILY_REFRESH, "4c 8b dc 49 89 5b 18 55 56 57", "the interface's daily refresh", daily_refresh as DailyRefresh, &ORIGINAL_DAILY_REFRESH),
+        Point::jump(MINIMAP, "48 8b c4 48 89 58 10", "the minimap drawn again", minimap_stub as *const () as usize, &MINIMAP_RESUME),
         Point::jump(OWNER_TOLD, "4c 8b c9 83 fa ff", "the map told of a province's new owner", owner_told_stub as *const () as usize, &OWNER_TOLD_RESUME),
         // mov rcx, [r13 + 0x1e00]; test rcx, rcx; je; mov rax, [rcx];
         // call [rax + 0x2a8]: the day's call of the interface's daily refresh.
@@ -61,6 +62,17 @@ const WORLD_INTERFACE: usize = 0x1e00;
 const OWNER_TOLD: usize = 0x10af990;
 const OWNER_TOLD_GOES_ON: usize = 0x10af996;
 crate::resume!(OWNER_TOLD_RESUME: OWNER_TOLD_GOES_ON_AT = OWNER_TOLD_GOES_ON);
+/// The minimap drawn again (`0x10b6c50`: the minimap and a flag): its texture
+/// made from `map/minimap_base.bmp` once and the countries' colors, which
+/// the drawing draws. It answers nothing its callers read, and they call it
+/// directly, so that it is entered through a stub that keeps every register,
+/// and goes on at its third instruction. The in-game frame calls it before
+/// its commands when the idler's `+0x33b` asks for it (`0x8143b5`–`0x8143eb`),
+/// so that it held the frame back through the day that followed; the
+/// interface's daily refresh calls it too (`0x833b7d`).
+const MINIMAP: usize = 0x10b6c50;
+const MINIMAP_GOES_ON: usize = 0x10b6c57;
+crate::resume!(MINIMAP_RESUME: MINIMAP_GOES_ON_AT = MINIMAP_GOES_ON);
 /// A mesh object's scalar deleting destructor (`pdxmeshobject.cpp`, the slot
 /// 0 of its vtable `0x1d92408`, called through it only): the object and
 /// whether to free it (bit 0). It takes the object off its mesh's list of
@@ -82,6 +94,7 @@ enum Deferred {
     MapText { idler: usize, province: u32, kind: Vec<u8>, text: Vec<u8>, number: usize, last: usize },
     DailyRefresh { interface: usize },
     OwnerTold { map: usize, province: i32 },
+    Minimap { idler: usize, minimap: usize, flag: u32 },
     MeshLetGo { mesh: usize, free: u32 },
 }
 
@@ -159,6 +172,44 @@ extern "C" fn owner_told_stub() {
     );
 }
 
+/// Whether the minimap's drawing waits for the next frame; once for each
+/// minimap and flag in a frame.
+#[called_by_game]
+extern "C" fn minimap(minimap: usize, flag: u32) -> bool {
+    if !deferring() {
+        super::crossings::crossing(crate::hooked_memory().at(MINIMAP));
+        return false;
+    }
+    let m = crate::hooked_memory();
+    let idler = m.ptr(m.at(APP)).and_then(|app| m.ptr(app + APP_IDLER)).unwrap_or(0);
+    let flag = flag & 0xff;
+    let due = Deferred::Minimap { idler, minimap, flag };
+    let already = DEFERRED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .any(|d| matches!(d, Deferred::Minimap { minimap: m, flag: f, .. } if *m == minimap && *f == flag));
+    if !already {
+        defer(due);
+    }
+    true
+}
+
+#[unsafe(naked)]
+extern "C" fn minimap_stub() {
+    std::arch::naked_asm!(
+        crate::call_rust!(call minimap, "cmp byte ptr [rsp + 0x48], 0"),
+        "jne 2f",
+        "mov rax, rsp",
+        "mov qword ptr [rax + 0x10], rbx",
+        "jmp qword ptr [rip + {goes_on}]",
+        "2:",
+        "ret",
+        minimap = sym minimap,
+        goes_on = sym MINIMAP_GOES_ON_AT,
+    );
+}
+
 #[called_by_game]
 unsafe extern "C" fn mesh_let_go(mesh: usize, free: u32) -> usize {
     if free & 1 != 0 && deferring() {
@@ -199,6 +250,10 @@ pub(super) fn done(m: &Memory) {
             },
             Deferred::DailyRefresh { interface: of } if of == interface => unsafe {
                 ORIGINAL_DAILY_REFRESH.get()(of);
+            },
+            Deferred::Minimap { idler: of, minimap, flag } if of == idler => unsafe {
+                let draw: unsafe extern "C" fn(usize, u32) = std::mem::transmute(m.at(MINIMAP));
+                draw(minimap, flag);
             },
             Deferred::MeshLetGo { mesh, free } => unsafe {
                 ORIGINAL_MESH_LET_GO.get()(mesh, free);

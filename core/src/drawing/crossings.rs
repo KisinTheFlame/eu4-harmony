@@ -38,7 +38,7 @@ pub(super) fn points() -> Vec<Point> {
 /// "Where the day reaches the interface and the graphics", "The crossings a
 /// late day reaches"): the RVA, its first bytes, what it is, the arguments it
 /// reads.
-const CROSSINGS_AT: [(usize, &str, &str, u32); 11] = [
+const CROSSINGS_AT: [(usize, &str, &str, u32); 10] = [
     (0x81e280, "40 55 53 56 57 41 54", "the interface's monthly refresh", 1),
     (0x8c1430, "4c 89 44 24 18", "a message's popup", 3),
     (0x10a03f0, "48 89 5c 24 18", "a window made", 5),
@@ -48,7 +48,6 @@ const CROSSINGS_AT: [(usize, &str, &str, u32); 11] = [
     (0xded0f0, "48 89 5c 24 18", "the new age's window", 1),
     (0xde6300, "48 89 5c 24 10", "a combat's result drawn into a texture", 2),
     (0xe428b0, "48 89 5c 24 08", "a country's window to the player", 4),
-    (0x10b6c50, "48 8b c4 48 89 58 10", "the minimap", 2),
     (0x123f800, "48 89 5c 24 10", "an item of the message list", 4),
 ];
 
@@ -162,7 +161,7 @@ static BY_CROSSING: Mutex<Vec<(usize, u64, u64)>> = Mutex::new(Vec::new());
 /// The day reaches the interface or the graphics, in the function at
 /// `into`: the lock first, kept until the next check for a frame inside the
 /// day.
-fn crossing(into: usize) {
+pub(super) fn crossing(into: usize) {
     if !on_main() {
         return;
     }
