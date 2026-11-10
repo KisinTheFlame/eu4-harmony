@@ -163,7 +163,9 @@ impl countries::Layer for Fake {
     /// The Ottomans at war with Byzantium, with Wallachia as their vassal;
     /// Byzantium with nothing; [`wallachia`].
     fn country(&mut self, eu4_harmony_remote::countries::args::Get { country }: eu4_harmony_remote::countries::args::Get) -> GResult<Box<Country>> {
-        use eu4_harmony_remote::countries::{GoverningCapacity, IdeaGroup, Loans, Power, Rebels, RelationKind, Technology};
+        use eu4_harmony_remote::countries::{
+            GoverningCapacity, IdeaGroup, Legitimacy, LegitimacyKind, Loans, ModifierValue, NamedModifier, Person, Power, Rebels, RelationKind, Technology,
+        };
         self.call(format!("country {country}"));
         let found = found(country)?;
         if found == byz() {
@@ -192,6 +194,21 @@ impl countries::Layer for Fake {
             mercantilism: Some(10.0),
             loans: Some(Loans { count: 1, ducats: 120.0 }),
             rebels: Some(vec![Rebels { kind: "nationalist_rebels".into(), name: "Albanian Nationalists".into(), progress: 12.5 }]),
+            ruler: Some(Person { name: "Mehmed II".into(), dynasty: Some("Osmanoğlu".into()), adm: 5, dip: 4, mil: 6, age: 21 }),
+            heir: None,
+            consort: None,
+            legitimacy: Some(Legitimacy {
+                kind: LegitimacyKind::Legitimacy,
+                value: 90.0,
+                max: 100.0,
+                effects: Some(vec![ModifierValue { modifier: "global_unrest".into(), value: -0.8 }]),
+            }),
+            corruption: Some(1.5),
+            absolutism: Some(20.0),
+            army_professionalism: Some(12.5),
+            army_tradition: 35.25,
+            navy_tradition: 10.0,
+            named_modifiers: Some(vec![NamedModifier { key: "janissary_decadence".into(), expires: None }]),
         }))
     }
 
@@ -257,6 +274,16 @@ fn bare(tag: CountryTag) -> Country {
         mercantilism: None,
         loans: None,
         rebels: None,
+        ruler: None,
+        heir: None,
+        consort: None,
+        legitimacy: None,
+        corruption: None,
+        absolutism: None,
+        army_professionalism: None,
+        army_tradition: 0.0,
+        navy_tradition: 0.0,
+        named_modifiers: None,
     }
 }
 
@@ -402,6 +429,7 @@ pub fn constantinople() -> eu4_harmony_remote::provinces::ProvinceSnapshot {
         constructions: None,
         missionary: None,
         colony_size: None,
+        named_modifiers: Vec::new(),
         prosperity: Some(40.0),
         devastation: 0.0,
         local_manpower: 1.5,

@@ -3,7 +3,7 @@
 //! autonomy, culture, religion, unrest, trade, state, cores and claims, what
 //! is being built or done there, and what the player can recruit there
 //! (docs/research/provinces.md).
-use super::{commands, signals, player::Eyes, thousandths, with_state, Ctx, GResult, InWorld, Tag, World, WorldSession};
+use super::{commands, modifiers, player::Eyes, signals, thousandths, with_state, Ctx, GResult, InWorld, Tag, World, WorldSession};
 use crate::containers;
 use crate::{
     game_string,
@@ -15,6 +15,7 @@ use crate::{
 };
 use eu4_harmony_remote::provinces::args;
 use eu4_harmony_remote::{
+    countries::ModifierValue,
     provinces::{self as remote, Construction, Development, Fort, ProvinceKind, ProvinceSnapshot, StateKind},
     recruiting::Recruit,
     CountryTag, Date, ProvinceId, ProvinceList,
@@ -182,6 +183,14 @@ pub fn province(WorldSession { m, world, view, .. }: WorldSession, args::Get { p
     Ok(Box::new(snapshot(m, &world, address, eyes)?))
 }
 
+/// What a province has of each modifier `keys` name, as the game totals
+/// the province's own set; one the player has not discovered is refused in
+/// the player's view, as its snapshot is.
+pub fn modifiers(WorldSession { m, world, view, .. }: WorldSession, args::Modifiers { province: ProvinceId(id), keys }: args::Modifiers) -> GResult<Vec<ModifierValue>> {
+    let address = readable(m, &world, Eyes::of(view, world.player), id)?;
+    modifiers::totals(m, address + field::MODIFIERS, &keys.0)
+}
+
 /// The game's getters of a province's base tax, production and manpower, as
 /// triggers and the province window read them: (unused, out, province).
 const BASE_TAX: GameFunction<3> = GameFunction::at(0x6de7a0);
@@ -282,6 +291,9 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x9d7962usize, "41 8b 9f f8 03 00 00", "province colony size").uses(&[field::COLONY_SIZE]),
         Point::keep(0x9d7c64usize, "41 8b 9f 94 08 00 00", "province missionary progress").uses(&[field::MISSIONARY_PROGRESS]),
         Point::keep(0x9d754eusize, "49 8d 97 90 04 00 00", "province cores").uses(&[field::CORES]),
+        Point::keep(0x9d893eusize, "49 8b 8f f0 02 00 00 49 8b 87 f8 02 00 00", "province named modifiers").uses(&[field::NAMED_MODIFIERS, field::NAMED_MODIFIERS + 8]),
+        // A province's own modifiers, a value read from them.
+        Point::keep(0xa1091cusize, "49 8d 8d 98 09 00 00 e8 a8 62 ed ff", "province modifiers").uses(&[field::MODIFIERS]),
         // Whether a claim is permanent walks the claims.
         Point::keep(
             0xa07294usize,
@@ -377,6 +389,7 @@ fn snapshot(m: &Memory, ctx: &World, address: usize, eyes: Eyes) -> GResult<Prov
         constructions: if all { Some(constructions) } else { None },
         missionary: if all && missionary { Some(thousandths(m.i32(address + field::MISSIONARY_PROGRESS)?)) } else { None },
         colony_size: if colony > 0 && flags & field::CITY_BIT == 0 { Some(thousandths(colony)) } else { None },
+        named_modifiers: modifiers::named_modifiers(m, pointers(m, address + field::NAMED_MODIFIERS)?, eyes == Eyes::All)?,
         prosperity: prosperity(m, address)?,
         devastation: thousandths(m.i32(address + field::DEVASTATION)?),
         local_manpower: thousandths(local_manpower(m, address)?),
@@ -384,6 +397,13 @@ fn snapshot(m: &Memory, ctx: &World, address: usize, eyes: Eyes) -> GResult<Prov
         separatism: m.i32(address + field::SEPARATISM)?,
         institutions: institutions(m, ctx, address)?,
     })
+}
+
+/// The pointers in a vector (begin, end) of them at `vector`.
+fn pointers(m: &Memory, vector: usize) -> GResult<Vec<usize>> {
+    let begin = m.ptr(vector)?;
+    let count = containers::span(begin, m.ptr(vector + 8)?, 8, MOST_KINDS)?;
+    (0..count).map(|i| Ok(m.ptr(begin + i * 8)?)).collect()
 }
 
 /// The prosperity of the province's state; none in a territory.

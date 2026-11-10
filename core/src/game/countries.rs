@@ -6,13 +6,17 @@ use crate::{
     game_string,
     memory::Memory,
     objects::campaign::{
-        classes, country as fields, country_diplomacy, idea_group, loan, rebel_faction, subject_relation, subject_type, technology, war, world as world_fields,
+        classes, country as fields, country_diplomacy, idea_group, loan, modifiers as modifiers_fields, person, rebel_faction, subject_relation,
+        subject_type, technology, war, world as world_fields,
     },
     points::{GameFunction, Point},
     unicode::game_text,
 };
 use eu4_harmony_remote::{
-    countries::{args, Budget, Country, Entry, GoverningCapacity, IdeaGroup, Loan, Loans, Power, Rebels, Relation, RelationKind, Technology},
+    countries::{
+        args, Budget, Country, Entry, GoverningCapacity, IdeaGroup, Legitimacy, LegitimacyKind, Loan, Loans, ModifierValue, Modifiers, Person, Power, Rebels, Relation,
+        RelationKind, Technology,
+    },
     CountryTag, Date,
 };
 
@@ -53,6 +57,28 @@ const MOST: usize = 4096;
 /// The maximum governing capacity: (country, out, modifier values, text).
 const MAX_GOVERNING_CAPACITY: GameFunction<4> = GameFunction::at(0x3f2e10);
 
+/// A country's government reforms, as the game finds them: (country).
+const REFORMS: GameFunction<1> = GameFunction::at(0x40a6d0);
+/// What the reforms make the government, each (reforms) -> bool: a horde,
+/// whose legitimacy is horde unity; one with meritocracy; a monarchy; a
+/// republic; one with devotion.
+const NOMAD: GameFunction<1> = GameFunction::at(0x7ac7f0);
+const HAS_MERITOCRACY: GameFunction<1> = GameFunction::at(0x7ac710);
+const MONARCHY: GameFunction<1> = GameFunction::at(0x7ac1a0);
+const REPUBLIC: GameFunction<1> = GameFunction::at(0x7ac3a0);
+const HAS_DEVOTION: GameFunction<1> = GameFunction::at(0x7ac6e0);
+/// A horde's horde unity and a monarchy's legitimacy, as the game shows
+/// them: (country, out). A personal union's junior partner has its senior
+/// partner's legitimacy.
+const HORDE_UNITY: GameFunction<2> = GameFunction::at(0x362990);
+const MONARCH_LEGITIMACY: GameFunction<2> = GameFunction::at(0x362b70);
+/// A person's age in whole years, as the court view and the `heir_age`
+/// scope value work it out from their birth date and the world's: (person).
+const AGE: GameFunction<1> = GameFunction::at(0xa4e2d0);
+/// Every kind of legitimacy is whole at 100, in thousandths, as strengthening
+/// the government checks it.
+const WHOLE: usize = 100_000;
+
 pub fn points() -> Vec<Point> {
     vec![
         // The technology view's cost of a kind picks its category by these.
@@ -75,10 +101,58 @@ pub fn points() -> Vec<Point> {
         )
         .uses(&[fields::USED_GOVERNING_CAPACITY, fields::MODIFIERS]),
         Point::keep(MAX_GOVERNING_CAPACITY, "40 55 53 56 57 41 54 41 56 41 57 48 8d 6c 24 d9 48 81 ec b0 00 00 00", "maximum governing capacity"),
+        // The government's kind of legitimacy, asked as strengthening the
+        // government (0x3f78e0) asks it: a horde, meritocracy, a monarchy, a
+        // republic, devotion, in that order, each kind whole at 100.
+        Point::keep(REFORMS, "40 53 48 83 ec 20 48 8b 99 20 14 00 00 48 85 db 74 06 48 8b", "country's reforms"),
+        Point::keep(NOMAD, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57 48 83 ec 20 80 3d 25 37", "government is a horde"),
+        Point::keep(HAS_MERITOCRACY, "48 89 5c 24 08 57 48 83 ec 60 48 8b f9 80 3d 08 38 b9 01 00 74 09 80 3d", "government has meritocracy"),
+        Point::keep(MONARCHY, "40 53 48 83 ec 60 48 8b 99 f0 00 00 00 48 85 db 74 45 44 8b 03 41 8b c0", "government is a monarchy"),
+        Point::keep(REPUBLIC, "40 53 48 83 ec 20 48 8b d9 e8 62 03 00 00 84 c0 75 20 48 8b cb e8 26 00", "government is a republic"),
+        Point::keep(HAS_DEVOTION, "40 53 48 83 ec 20 48 8b d9 e8 12 ff ff ff 84 c0 74 14 48 8b cb e8 16 00", "government has devotion"),
+        Point::keep(HORDE_UNITY, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48 8b da 48 8b f1 48 8b b9", "horde unity"),
+        Point::keep(0x362a01usize, "8b 86 90 10 00 00", "horde unity's place").uses(&[fields::LEGITIMACY]),
+        Point::keep(MONARCH_LEGITIMACY, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57 48 83 ec 20 48 8b da 48", "monarch's legitimacy"),
+        Point::keep(0x3f7986usize, "e8 65 4e 3b 00", "strengthening the government asks for a horde first"),
+        Point::keep(0x3f7a1eusize, "81 bf 34 14 00 00 a0 86 01 00", "meritocracy whole").uses(&[fields::MERITOCRACY, WHOLE]),
+        Point::keep(0x3f7af4usize, "81 bf 94 10 00 00 a0 86 01 00", "republican tradition whole").uses(&[fields::REPUBLICAN_TRADITION, WHOLE]),
+        Point::keep(0x3f7b61usize, "81 bf 30 14 00 00 a0 86 01 00", "devotion whole").uses(&[fields::DEVOTION, WHOLE]),
+        // The country's modifiers made again: what legitimacy adds, scaled
+        // from its middle (a value less 500 tenths), and a republic's two.
+        Point::keep(0x92e7afusize, "81 c3 0c fe ff ff", "legitimacy's effects from the middle"),
+        Point::keep(0x92e7bausize, "49 8b 3e 48 81 c7 08 2f 00 00", "legitimacy's effects").uses(&[modifiers_fields::LEGITIMACY_EFFECTS]),
+        Point::keep(0x92e999usize, "48 8b 1f 48 81 c3 c8 2f 00 00", "republican tradition's second effects")
+            .uses(&[modifiers_fields::LEGITIMACY_EFFECTS_SECOND]),
+        // The country's save writer.
+        Point::keep(0x2df4eeusize, "49 8d 97 40 0e 00 00", "country army tradition").uses(&[fields::ARMY_TRADITION]),
+        Point::keep(0x2df516usize, "49 8d 97 44 0e 00 00", "country navy tradition").uses(&[fields::NAVY_TRADITION]),
+        Point::keep(0x2df930usize, "49 8d 97 d0 0e 00 00", "country corruption").uses(&[fields::CORRUPTION]),
+        Point::keep(0x2dfb94usize, "49 8d 57 4c", "country absolutism").uses(&[fields::ABSOLUTISM]),
+        Point::keep(0x2dfbf8usize, "49 8d 4f 50", "country army professionalism").uses(&[fields::ARMY_PROFESSIONALISM]),
         // The country's save writer.
         Point::keep(0x2df1e1usize, "41 39 87 d4 0b 00 00", "country inflation").uses(&[fields::INFLATION]),
         Point::keep(0x2dfb51usize, "49 8d 97 98 10 00 00", "country mercantilism").uses(&[fields::MERCANTILISM]),
         Point::keep(0x2df601usize, "49 8b 87 e8 0d 00 00", "country loans").uses(&[fields::LOANS]),
+        Point::keep(0x2e0046usize, "49 8b 87 f0 01 00 00", "country named modifiers").uses(&[fields::NAMED_MODIFIERS]),
+        // It writes each of its persons only when it is not the null one.
+        Point::keep(0x2e0588usize, "49 8b 8f 80 12 00 00 48 8b 01 ff 50 58", "country ruler").uses(&[fields::RULER, person::PRESENT]),
+        Point::keep(0x2e05b5usize, "49 8b 8f 98 12 00 00 48 8b 01 ff 50 58", "country heir").uses(&[fields::HEIR, person::PRESENT]),
+        Point::keep(0x2e05e2usize, "49 8b 8f b0 12 00 00 48 8b 01 ff 50 58", "country consort").uses(&[fields::CONSORT, person::PRESENT]),
+        // The person's save writer.
+        Point::keep(0xa4a7a3usize, "48 8d 56 28", "person's given name").uses(&[person::GIVEN_NAME]),
+        Point::keep(0xa4a7efusize, "8b 7e 4c", "person's diplomatic skill").uses(&[person::DIP]),
+        Point::keep(0xa4a837usize, "8b 7e 48", "person's administrative skill").uses(&[person::ADM]),
+        Point::keep(0xa4a87fusize, "8b 7e 50", "person's military skill").uses(&[person::MIL]),
+        Point::keep(0xa4b159usize, "48 8b 4e 68 48 8b 01 ff 50 08 84 c0 74 30 48 8b 7e 68 48 83 c7 08", "person's dynasty").uses(&[
+            person::DYNASTY,
+            person::DYNASTY_VALID,
+            person::DYNASTY_NAME,
+        ]),
+        Point::keep(AGE, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48 89 7c 24 20 41 54 41 56", "person's age"),
+        Point::keep(0xa4e2eeusize, "4c 8d 61 70 49 8b cc e8", "person's age from the birth date").uses(&[person::BIRTH]),
+        // The army_professionalism trigger's tooltip shows its value times
+        // 2^-15 (the double at 0x1dc1580).
+        Point::keep(0xd02fd3usize, "0f 57 d2 f2 48 0f 2a 56 68 f2 0f 10 35 9c e5 0b 01 f2 0f 59 d6", "army professionalism's fixed point"),
         // The loan's save writer.
         Point::keep(0x86b109usize, "48 8d 56 20", "loan lender").uses(&[loan::LENDER]),
         Point::keep(0x86b1afusize, "8b 5e 28", "loan interest").uses(&[loan::INTEREST]),
@@ -232,6 +306,135 @@ pub fn get(WorldSession { m, world: ctx, view, .. }: WorldSession, args::Get { c
         mercantilism: own.as_ref().map(|o| thousandths(o.mercantilism)),
         loans: own.as_ref().map(|o| o.loans),
         rebels: own.map(|o| o.rebels),
+        ruler: person_at(m, c + fields::RULER)?,
+        heir: person_at(m, c + fields::HEIR)?,
+        consort: person_at(m, c + fields::CONSORT)?,
+        legitimacy: legitimacy_of(m, c, all)?,
+        corruption: if all { Some(thousandths(fixed(fields::CORRUPTION)?)) } else { None },
+        absolutism: if all { Some(thousandths(fixed(fields::ABSOLUTISM)?)) } else { None },
+        army_professionalism: if all { Some(professionalism(m.u64(c + fields::ARMY_PROFESSIONALISM)? as i64)) } else { None },
+        army_tradition: thousandths(fixed(fields::ARMY_TRADITION)?),
+        navy_tradition: thousandths(fixed(fields::NAVY_TRADITION)?),
+        named_modifiers: if all { Some(named_modifiers_of(m, c, view == View::Full)?) } else { None },
+    }))
+}
+
+/// The named modifiers the country has; one its scripts hide only with
+/// `hidden`.
+fn named_modifiers_of(m: &Memory, c: usize, hidden: bool) -> GResult<Vec<eu4_harmony_remote::countries::NamedModifier>> {
+    modifiers::named_modifiers(m, containers::items(m, c + fields::NAMED_MODIFIERS, MOST)?, hidden)
+}
+
+/// What a country has of each modifier `keys` name, as the game totals it;
+/// in the player's view another country's are left out, the keys still
+/// checked.
+pub fn modifiers(
+    WorldSession { m, world: ctx, view, .. }: WorldSession,
+    args::Modifiers { country: asked, keys }: args::Modifiers,
+) -> GResult<Modifiers> {
+    let tag = named(m, &ctx, asked)?;
+    let c = country(m, &ctx, tag)?;
+    let values = if sees_all_of(view, &ctx, tag) {
+        Some(modifiers::totals(m, modifiers::values(m, c)?, &keys.0)?)
+    } else {
+        modifiers::indices(m, &keys.0)?;
+        None
+    };
+    Ok(Modifiers { country: CountryTag(tag.letters()), values })
+}
+
+/// Army professionalism in percent, from the game's fixed point.
+fn professionalism(raw: i64) -> f64 {
+    raw as f64 * 100.0 / fields::ARMY_PROFESSIONALISM_ONE as f64
+}
+
+/// The country's kind of legitimacy, as strengthening the government asks
+/// for it: None for a government with none.
+fn legitimacy_kind(m: &Memory, c: usize) -> GResult<Option<LegitimacyKind>> {
+    let reforms = REFORMS.call(m, [c])?;
+    let is = |function: GameFunction<1>| -> GResult<bool> { Ok(function.call(m, [reforms])? & 0xff != 0) };
+    Ok(if is(NOMAD)? {
+        Some(LegitimacyKind::HordeUnity)
+    } else if is(HAS_MERITOCRACY)? {
+        Some(LegitimacyKind::Meritocracy)
+    } else if is(MONARCHY)? {
+        Some(LegitimacyKind::Legitimacy)
+    } else if is(REPUBLIC)? {
+        Some(LegitimacyKind::RepublicanTradition)
+    } else if is(HAS_DEVOTION)? {
+        Some(LegitimacyKind::Devotion)
+    } else {
+        None
+    })
+}
+
+/// The country's legitimacy, of its government's kind, and with `effects`
+/// what it adds to the country's modifiers now.
+fn legitimacy_of(m: &Memory, c: usize, effects: bool) -> GResult<Option<Legitimacy>> {
+    let Some(kind) = legitimacy_kind(m, c)? else { return Ok(None) };
+    let shown = |getter: GameFunction<2>| -> GResult<i32> {
+        let mut value = 0i32;
+        let out = &mut value as *mut i32 as usize;
+        if getter.call(m, [c, out])? != out {
+            return Err("legitimacy getter returned an unexpected pointer".to_string().into());
+        }
+        Ok(value)
+    };
+    let value = match kind {
+        LegitimacyKind::Legitimacy => shown(MONARCH_LEGITIMACY)?,
+        LegitimacyKind::HordeUnity => shown(HORDE_UNITY)?,
+        LegitimacyKind::RepublicanTradition => m.i32(c + fields::REPUBLICAN_TRADITION)?,
+        LegitimacyKind::Devotion => m.i32(c + fields::DEVOTION)?,
+        LegitimacyKind::Meritocracy => m.i32(c + fields::MERITOCRACY)?,
+    };
+    let effects = if effects { Some(legitimacy_effects(m, c, kind, value)?) } else { None };
+    Ok(Some(Legitimacy { kind, value: thousandths(value), max: thousandths(WHOLE as i32), effects }))
+}
+
+/// What the country's legitimacy of `kind` at `value` adds to its
+/// modifiers, as they were last made again (docs/research/modifiers.md): the
+/// set made for it, and a republic's second; nothing for a legitimacy, horde
+/// unity or devotion at its middle, which adds none.
+fn legitimacy_effects(m: &Memory, c: usize, kind: LegitimacyKind, value: i32) -> GResult<Vec<ModifierValue>> {
+    let sets = match kind {
+        LegitimacyKind::RepublicanTradition => vec![modifiers_fields::LEGITIMACY_EFFECTS, modifiers_fields::LEGITIMACY_EFFECTS_SECOND],
+        LegitimacyKind::Meritocracy => vec![modifiers_fields::LEGITIMACY_EFFECTS],
+        _ if i64::from(value) * 10 / 1000 == 500 => Vec::new(),
+        _ => vec![modifiers_fields::LEGITIMACY_EFFECTS],
+    };
+    let own = modifiers::of_country(m, c)?;
+    let mut out: Vec<ModifierValue> = Vec::new();
+    for set in sets {
+        for effect in modifiers::named(m, own + set)? {
+            match out.iter_mut().find(|e| e.modifier == effect.modifier) {
+                Some(same) => same.value += effect.value,
+                None => out.push(effect),
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// The person a country's field holds, as the court view shows them; None
+/// for the game's null person, which holds the place while there is none.
+fn person_at(m: &Memory, field: usize) -> GResult<Option<Person>> {
+    let p = m.ptr(field)?;
+    if p == 0 || m.call(m.vslot(p, person::PRESENT)?, &[p])? & 0xff == 0 {
+        return Ok(None);
+    }
+    let dynasty = m.ptr(p + person::DYNASTY)?;
+    let dynasty = if dynasty != 0 && m.call(m.vslot(dynasty, person::DYNASTY_VALID)?, &[dynasty])? & 0xff != 0 {
+        Some(game_string::shown(m, dynasty + person::DYNASTY_NAME)?)
+    } else {
+        None
+    };
+    Ok(Some(Person {
+        name: game_string::shown(m, p + person::GIVEN_NAME)?,
+        dynasty,
+        adm: m.i32(p + person::ADM)?,
+        dip: m.i32(p + person::DIP)?,
+        mil: m.i32(p + person::MIL)?,
+        age: AGE.call(m, [p])? as i32,
     }))
 }
 
@@ -502,6 +705,49 @@ mod tests {
             .string(war::NAME, "")
             .vector(war::ATTACKERS, &tags(attackers))
             .vector(war::DEFENDERS, &tags(defenders))
+    }
+
+    /// An object whose vtable's method at `slot` answers `answer`.
+    fn answering(slot: usize, answer: extern "C" fn() -> usize, size: usize) -> Object {
+        let vtable = Object::new(slot + 8).u64(slot, answer as usize as u64);
+        Object::new(size).points_to(0, vtable)
+    }
+
+    /// The game's age of a person, here the years the test put at its birth
+    /// date.
+    extern "C" fn years_at_birth(person: usize) -> usize {
+        unsafe { *((person + person::BIRTH) as *const i32) as usize }
+    }
+
+    /// A ruler of a dynasty, an heir of none and the game's null consort:
+    /// each read as the court view shows them, the null one as none.
+    #[test]
+    fn a_country_s_persons_are_read_and_the_null_one_is_none() {
+        use crate::game::buffers::{no, yes, Image};
+        let image = Image::new();
+        image.function(AGE.rva(), years_at_birth as *const ());
+        let m = image.memory();
+        let person = |name: &str, dynasty: Object, skills: [i32; 3], age: i32| {
+            answering(person::PRESENT, yes, person::BIRTH + 4)
+                .string(person::GIVEN_NAME, name)
+                .points_to(person::DYNASTY, dynasty)
+                .i32(person::ADM, skills[0])
+                .i32(person::DIP, skills[1])
+                .i32(person::MIL, skills[2])
+                .i32(person::BIRTH, age)
+        };
+        let dynasty = answering(person::DYNASTY_VALID, yes, person::DYNASTY_NAME + game_string::OBJECT).string(person::DYNASTY_NAME, "de Valois");
+        let ruler = person("Louis XI", dynasty, [4, 5, 2], 30);
+        let heir = person("Charles", answering(person::DYNASTY_VALID, no, 16), [1, 0, 3], 0);
+        let consort = answering(person::PRESENT, no, 8);
+        let country = Object::new(fields::CONSORT + 8).points_to(fields::RULER, ruler).points_to(fields::HEIR, heir).points_to(fields::CONSORT, consort);
+        let read = |field: usize| person_at(m, country.at() + field).unwrap();
+        assert_eq!(
+            read(fields::RULER),
+            Some(Person { name: "Louis XI".into(), dynasty: Some("de Valois".into()), adm: 4, dip: 5, mil: 2, age: 30 })
+        );
+        assert_eq!(read(fields::HEIR), Some(Person { name: "Charles".into(), dynasty: None, adm: 1, dip: 0, mil: 3, age: 0 }));
+        assert_eq!(read(fields::CONSORT), None);
     }
 
     /// Wars between countries 1 to 3, one with a tag that is no country's,

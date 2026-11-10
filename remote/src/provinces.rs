@@ -1,7 +1,11 @@
 //! Provinces: every province, a province's neighbors, one province's
 //! snapshot, and what the player does in the province view: developing it,
 //! its autonomy, its state, its edict, coring it and changing its culture.
-use crate::{choices::Choice, CountryTag, Date, ProvinceId, ProvinceList};
+use crate::{
+    choices::Choice,
+    countries::{ModifierValue, NamedModifier},
+    CountryTag, Date, ProvinceId, ProvinceList, Words,
+};
 use serde::{Deserialize, Serialize};
 
 group! {
@@ -26,15 +30,29 @@ group! {
     /// terrain, fort and buildings, local autonomy, culture, religion,
     /// unrest, trade good, trade node, center of trade, trade company, state
     /// or territory and the state's edict, cores and claims, what is being
-    /// built or done there, and the colony's size. In the player's view a
-    /// province another country owns leaves out its unrest and what is
-    /// being done there, as the province view does, and one the player has
-    /// not discovered is refused (not_found). What the player can
-    /// recruit there is recruit.options'.
+    /// built or done there, the colony's size, and the named modifiers its
+    /// scripts put on it. In the player's view a province another country
+    /// owns leaves out its unrest and what is being done there, as the
+    /// province view does, a named modifier its scripts hide is left out,
+    /// and one the player has not discovered is refused (not_found). What
+    /// the player can recruit there is recruit.options'.
     world Get "get" {
         /// The province.
         province: ProvinceId,
-    } -> Box<ProvinceSnapshot>, "its snapshot: id, name, owner, controller, development, terrain, fort, buildings, autonomy (percent), culture, religion and trade_good (their keys), unrest, trade_node (its key), center_of_trade (its level, 0 for none), trade_company, state (state or territory, null when it has no owner), edict (the state edict's key), cores, claims, constructions (each its kind, the game's key such as building_construction, the country, progress from 0 to 1, start and end dates, and the building or unit type it makes), missionary (a missionary's progress in percent, null when none works there), colony_size (null for no colony), prosperity (its state's, in percent; null in a territory), devastation (percent), local_manpower (thousands of men), supply_limit (regiments, for the country acted as), separatism (years left) and institutions (each appeared institution's key and the progress toward it in percent); in the player's view unrest, constructions and missionary are null for a province another country owns";
+    } -> Box<ProvinceSnapshot>, "its snapshot: id, name, owner, controller, development, terrain, fort, buildings, autonomy (percent), culture, religion and trade_good (their keys), unrest, trade_node (its key), center_of_trade (its level, 0 for none), trade_company, state (state or territory, null when it has no owner), edict (the state edict's key), cores, claims, constructions (each its kind, the game's key such as building_construction, the country, progress from 0 to 1, start and end dates, and the building or unit type it makes), missionary (a missionary's progress in percent, null when none works there), colony_size (null for no colony), prosperity (its state's, in percent; null in a territory), devastation (percent), local_manpower (thousands of men), supply_limit (regiments, for the country acted as), separatism (years left), institutions (each appeared institution's key and the progress toward it in percent) and named_modifiers (each its key and the day it ends, null for one that does not); in the player's view unrest, constructions and missionary are null for a province another country owns";
+    /// What a province has of each modifier asked for, by its key, as the
+    /// game totals the province's own: its buildings, terrain, trade good,
+    /// named modifiers and the rest, not what its owner's modifiers add
+    /// across the country. Refused (not_found) for a key that names no
+    /// modifier, and in the player's view for a province the player has not
+    /// discovered.
+    world Modifiers "modifiers" {
+        /// The province.
+        province: ProvinceId,
+        /// The modifiers' keys, such as `local_defensiveness` or
+        /// `local_tax_modifier`.
+        keys: Words,
+    } -> Vec<ModifierValue>, "one for each key asked, in their order: modifier (its key) and value, as the game's scripts write it (0.05 for 5%)";
 
     /// What the province view's buttons offer the player in a province now:
     /// each action this group has, with whether the player can, the game's
@@ -232,6 +250,10 @@ pub struct ProvinceSnapshot {
     pub missionary: Option<f64>,
     /// The colony's size in settlers; null when it is no colony.
     pub colony_size: Option<f64>,
+    /// The named modifiers its scripts put on it, such as an event's
+    /// `province_modifier`; in the player's view one its scripts hide is
+    /// left out.
+    pub named_modifiers: Vec<NamedModifier>,
     /// The prosperity of the state it is in, in percent; null in a
     /// territory and without an owner.
     pub prosperity: Option<f64>,

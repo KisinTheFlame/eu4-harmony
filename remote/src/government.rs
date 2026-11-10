@@ -132,16 +132,7 @@ pub struct MechanicPower {
     /// What it adds to the country's modifiers now: what its scaled and
     /// range modifiers come to at its value. How the value is turned into
     /// them is the mechanic's script's, and is not given.
-    pub effects: Vec<Effect>,
-}
-
-/// What something adds to one modifier now.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
-pub struct Effect {
-    /// The modifier's key, such as `global_unrest`.
-    pub modifier: String,
-    /// How much it adds, as the game's tooltips total modifiers.
-    pub value: f64,
+    pub effects: Vec<crate::countries::ModifierValue>,
 }
 
 /// An interaction a government mechanic offers the player.

@@ -19,6 +19,7 @@ A province is a piece of the map: land a country can own, a lake, or a sea zone.
 - **Cores and claims.** The province keeps the tags it is a core of, the territorial cores, and the claims. A claim is permanent when the province's history adds it on or before 1.1.1. When a temporary claim runs out was not found ([research/provinces.md](../research/provinces.md#cores-and-claims)).
 - **Buildings** fill one slot per kind of building. Forts are buildings too (`fort_15th` to `fort_18th`). Building one replaces what it supersedes in its chain when it is finished ([research/provinces.md](../research/provinces.md#buildings); [research/province-view.md](../research/province-view.md#a-building-finished)).
 - **The fort** has a level. While the fort is mothballed, a capital keeps only its free capital fort. A fort is active and locked (never mothballed), active, or mothballed; mothballing cuts the garrison ([research/provinces.md](../research/provinces.md#fort); [research/sieges.md](../research/sieges.md#b-mothballing-and-reopening-a-fort)).
+- **Modifiers.** A province keeps a set of its own modifiers, what its buildings, terrain, trade good and named modifiers give it; what its owner's modifiers add across the country is the country's. The named modifiers scripts put on it are kept with the day each ends, and whether the scripts hide it ([research/modifiers.md](../research/modifiers.md#a-provinces-modifiers), [Named modifiers](../research/modifiers.md#named-modifiers)).
 - **Constructions.** Everything under way in a province is in one list: buildings, units being recruited, missionaries, colonists, cores, culture conversions, great projects, settlement growth and the expulsion of minorities. Each construction has a start date, an end date and its progress. A missionary advances every day by the country's missionary strength, and a colony grows in size until it is a city ([research/provinces.md](../research/provinces.md#constructions-buildings-units-cores-culture-missionaries-colonists)).
 
 ## The province view's actions
@@ -68,6 +69,7 @@ Each button of the province view sends one command, which the session executes (
 ## What the framework relies on
 
 - A province's snapshot and the player-actions reads (`game::provinces`, `game::trade`): [plans/remote-control.md](../plans/remote-control.md), [plans/player-actions.md](../plans/player-actions.md), [plans/mod-capabilities.md](../plans/mod-capabilities.md) (M6).
+- Its own modifiers and its named modifiers (`game::modifiers`): [plans/mod-capabilities.md](../plans/mod-capabilities.md).
 - The neighbors and the strait check (`game::world`): [plans/remote-control.md](../plans/remote-control.md).
 - What the player sees, read only after a whole fog refresh: [ADR remote-control-reads-the-players-view](../adr/2026-11-05-remote-control-reads-the-players-view.md).
 - Coloring provinces in the unrest mode (`map`): [plans/remote-control.md](../plans/remote-control.md).

@@ -21,13 +21,10 @@ use crate::points::{Function, Point};
 use crate::unicode::game_text;
 use eu4_harmony_loc::Language;
 
-/// A ruler, heir or consort: their given name (a `std::string`, regnal
-/// number included), their dynasty, whose name is a `std::string` at +8, and
-/// their culture.
-const GIVEN_NAME: usize = 0x28;
-const DYNASTY: usize = 0x68;
-const DYNASTY_NAME: usize = 0x8;
-const CULTURE: usize = 0x60;
+// A ruler, heir or consort: their given name (a `std::string`, regnal number
+// included), their dynasty, whose name is a `std::string` at +8, and their
+// culture.
+use crate::objects::campaign::person::{CULTURE, DYNASTY, DYNASTY_NAME, GIVEN_NAME};
 /// A culture: its key as in common/cultures and its group; a group's key.
 const CULTURE_KEY: usize = 0x48;
 const CULTURE_GROUP: usize = 0x88;

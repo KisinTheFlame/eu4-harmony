@@ -4,16 +4,18 @@
 //! "Government mechanics"). Part of the government group.
 use super::content::checks;
 use super::government::GOVERNMENT;
-use super::{action, conditions, content, thousandths, Ctx, GResult, Session, Tag};
+use super::{action, conditions, content, modifiers, thousandths, Ctx, GResult, Session, Tag};
 use crate::{
     containers, game_string,
     memory::Memory,
+    objects::campaign::modifier_set,
     points::{GameFunction, Point},
 };
 use eu4_harmony_remote::government::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
-    government::{Effect, Mechanic, MechanicInteraction, MechanicPower},
+    countries::ModifierValue,
+    government::{Mechanic, MechanicInteraction, MechanicPower},
     Date,
 };
 
@@ -71,12 +73,6 @@ mod interaction {
 }
 /// The country's cooldowns, a `std::vector` of (token, date) pairs.
 const COOLDOWNS: usize = 0xeb8;
-/// The modifier types, a `std::vector` of [`MODIFIER_TYPE`]-byte records,
-/// by the modifier's index, each starting with its key, a `std::string`.
-const MODIFIER_TYPES: usize = 0x2358080;
-const MODIFIER_TYPE: usize = 0x60;
-/// A pair of a modifier set that holds no modifier.
-const NO_MODIFIER: i32 = 0x286;
 /// `(state, power token)`: the state's entry of the power, its value in
 /// thousandths at [`VALUE`]; null when it has none.
 const POWER: GameFunction<2> = GameFunction::at(0x7bc0c0);
@@ -127,8 +123,6 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x7b9e87usize, "80 be 79 02 00 00 00", "range modifier").uses(&[entry::RANGE]),
         Point::keep(0x7b9e94usize, "8b 96 74 02 00 00 44 8b 86 70 02 00 00", "scaled modifier span").uses(&[entry::START, entry::END]),
         Point::keep(0x7ba01dusize, "0f b6 86 78 02 00 00", "scaled modifier beyond its span").uses(&[entry::EXTEND]),
-        // The modifier types' table, as the game makes its records.
-        Point::keep(0x8f09eausize, "48 8d 0c 5b 48 c1 e1 05 48 03 0d 87 76 a6 01", "modifier types").uses(&[MODIFIER_TYPES]),
         Point::keep(POWER, "89 54 24 10 53 48 83 ec 20 44 8b d2 4c 8d 4c 24 30 48 8b d9", "mechanic power"),
         Point::keep(MAY_USE, "48 89 5c 24 10 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8d ac 24 20 fe", "may use an interaction"),
         Point::keep(INTERACTION_NAME, "48 89 5c 24 10 48 89 74 24 18 48 89 7c 24 20 55 48 8d ac 24 b0 fc ff ff", "interaction name"),
@@ -150,16 +144,6 @@ fn states(m: &Memory, country: usize) -> GResult<Vec<usize>> {
         return Ok(Vec::new());
     }
     Ok(containers::pointers(m, government + STATES, MOST)?)
-}
-
-/// The key of the modifier with the index `index`.
-fn modifier_key(m: &Memory, index: i32) -> GResult<String> {
-    let types = m.ptr(m.at(MODIFIER_TYPES))?;
-    let count = containers::span(types, m.ptr(m.at(MODIFIER_TYPES) + 8)?, MODIFIER_TYPE, MOST)?;
-    match usize::try_from(index) {
-        Ok(i) if i < count => Ok(game_string::key(m, types + i * MODIFIER_TYPE)?),
-        _ => Err(format!("no modifier {index}").into()),
-    }
 }
 
 /// How much of its modifiers a scaled modifier gives at `value`, in
@@ -208,7 +192,7 @@ fn factor(value: i32, start: i32, end: i32, extend: bool, range: bool, reverse: 
 
 /// What a power adds to the country's modifiers now, each modifier once, in
 /// the order the power's script first names it.
-fn effects(m: &Memory, player: Tag, definition: usize, value: i32) -> GResult<Vec<Effect>> {
+fn effects(m: &Memory, player: Tag, definition: usize, value: i32) -> GResult<Vec<ModifierValue>> {
     let mut sums: Vec<(i32, i64)> = Vec::new();
     for (list, reverse) in [(power::SCALED, false), (power::REVERSE, true)] {
         for at in entries(m, definition + list)? {
@@ -221,7 +205,7 @@ fn effects(m: &Memory, player: Tag, definition: usize, value: i32) -> GResult<Ve
             let pairs = m.ptr(set + entry::PAIRS)?;
             for i in 0..containers::bounded(m.i32(set + entry::PAIR_COUNT)?, MOST)? {
                 let (modifier, amount) = (m.i32(pairs + i * 8)?, m.i32(pairs + i * 8 + 4)?);
-                if modifier == NO_MODIFIER {
+                if modifier == modifier_set::NONE {
                     continue;
                 }
                 let added = amount as i64 * share / 1000;
@@ -234,7 +218,7 @@ fn effects(m: &Memory, player: Tag, definition: usize, value: i32) -> GResult<Ve
     }
     sums.into_iter()
         .filter(|(_, sum)| *sum != 0)
-        .map(|(modifier, sum)| Ok(Effect { modifier: modifier_key(m, modifier)?, value: thousandths(sum as i32) }))
+        .map(|(modifier, sum)| Ok(ModifierValue { modifier: modifiers::key(m, modifier)?, value: thousandths(sum as i32) }))
         .collect()
 }
 

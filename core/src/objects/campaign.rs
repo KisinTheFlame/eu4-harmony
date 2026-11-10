@@ -292,6 +292,33 @@ pub mod country {
     /// a religion as a province's ([`super::province::CULTURE`]).
     pub const PRIMARY_CULTURE: usize = 0x1228;
     pub const STATE_RELIGION: usize = 0xf30;
+    /// The named modifiers its scripts put on it, a [`super::super::list`]
+    /// of [`super::named_modifier`]s.
+    pub const NAMED_MODIFIERS: usize = 0x1f0;
+    /// Its ruler, heir and consort (`monarch`, `heir` and `queen` in saves),
+    /// each a pointer to a [`super::person`]: the game's null person of its
+    /// kind while it has none, whose [`super::person::PRESENT`] method says
+    /// no.
+    pub const RULER: usize = 0x1280;
+    pub const HEIR: usize = 0x1298;
+    pub const CONSORT: usize = 0x12b0;
+    /// Its legitimacy of each kind, i32 thousandths from 0 to 100: a
+    /// monarchy's legitimacy, which is a horde's horde unity as well,
+    /// republican tradition, devotion and meritocracy. Which one its
+    /// government has, the government says (docs/research/government.md).
+    pub const LEGITIMACY: usize = 0x1090;
+    pub const REPUBLICAN_TRADITION: usize = 0x1094;
+    pub const DEVOTION: usize = 0x1430;
+    pub const MERITOCRACY: usize = 0x1434;
+    /// Army and navy tradition, corruption and absolutism, i32 thousandths.
+    pub const ARMY_TRADITION: usize = 0xe40;
+    pub const NAVY_TRADITION: usize = 0xe44;
+    pub const CORRUPTION: usize = 0xed0;
+    pub const ABSOLUTISM: usize = 0x4c;
+    /// Army professionalism, an i64 fixed-point number with 15 bits after
+    /// the point: [`ARMY_PROFESSIONALISM_ONE`] is the whole, 100%.
+    pub const ARMY_PROFESSIONALISM: usize = 0x50;
+    pub const ARMY_PROFESSIONALISM_ONE: i64 = 1 << 15;
     /// Inflation and mercantilism, fixed point, in percent.
     pub const INFLATION: usize = 0xbd4;
     pub const MERCANTILISM: usize = 0x1098;
@@ -304,12 +331,29 @@ pub mod country {
     pub const INCOME_CATEGORIES: usize = 19;
     pub const EXPENSES: usize = 0xb00;
     pub const EXPENSE_CATEGORIES: usize = 38;
-    /// Its ruler, its heir and its consort, each a pointer to a monarch
-    /// (docs/research/names.md); without one, to a placeholder, whose
-    /// vtable's `+0x58` answers false.
-    pub const RULER: usize = 0x1280;
-    pub const HEIR: usize = 0x1298;
-    pub const CONSORT: usize = 0x12b0;
+}
+
+/// A ruler, an heir or a consort (`CMonarch`, monarch.cpp), as its save
+/// writer (`0xa4a750`) writes it.
+pub mod person {
+    /// The method (vtable offset) that says whether it is a person and not
+    /// the game's null one of its kind.
+    pub const PRESENT: usize = 0x58;
+    /// The given name, a `std::string` with a ruler's regnal number in it.
+    pub const GIVEN_NAME: usize = 0x28;
+    /// Administrative, diplomatic and military skill, whole i32.
+    pub const ADM: usize = 0x48;
+    pub const DIP: usize = 0x4c;
+    pub const MIL: usize = 0x50;
+    /// Their culture, a pointer to one as a province's.
+    pub const CULTURE: usize = 0x60;
+    /// Their dynasty: a pointer to one whose method [`DYNASTY_VALID`] says
+    /// whether it is one, its name a `std::string` at [`DYNASTY_NAME`].
+    pub const DYNASTY: usize = 0x68;
+    pub const DYNASTY_VALID: usize = 8;
+    pub const DYNASTY_NAME: usize = 8;
+    /// The day they were born, a date.
+    pub const BIRTH: usize = 0x70;
 }
 
 /// What a country keeps of its technology.
@@ -422,6 +466,12 @@ pub mod war {
 
 pub mod province {
     pub const SIZE: usize = 0x2e10;
+    /// Its own modifiers, a [`super::modifier_set`]: what its buildings,
+    /// terrain, named modifiers and the like give it.
+    pub const MODIFIERS: usize = 0x998;
+    /// The named modifiers its scripts put on it, a vector (begin, end) of
+    /// pointers to [`super::named_modifier`]s.
+    pub const NAMED_MODIFIERS: usize = 0x2f0;
     /// Its ID, i32.
     pub const ID: usize = 0x20;
     /// Its map data (see [`super::geometry`]).
@@ -782,6 +832,11 @@ pub mod modifiers {
     pub const COPIES: usize = 0x6440;
     /// Their own set, the [`super::modifier_set`] the copies are added to.
     pub const OWN: usize = 8;
+    /// The sets of what its legitimacy adds, made again as the modifiers are
+    /// ([`super::modifier_set`]s): the first for every kind of legitimacy,
+    /// the second a republic's for republican tradition below its whole.
+    pub const LEGITIMACY_EFFECTS: usize = 0x2f08;
+    pub const LEGITIMACY_EFFECTS_SECOND: usize = 0x2fc8;
 }
 
 /// A set of modifiers, the base of [`classes::MODIFIER_SET`] and of the sets
@@ -791,6 +846,41 @@ pub mod modifier_set {
     /// copy leaves the destination's as it was; its destructor frees the
     /// vector.
     pub const ADDED: usize = 0x38;
+    /// Its values: a byte set when it keeps them by modifier, each at the
+    /// modifier's place; otherwise as pairs. Either way an array of
+    /// [`PAIR`]-byte pairs at [`PAIRS`], a modifier's index (i32), then its
+    /// value (i32 thousandths), and their count (i32) at [`COUNT`]; a place
+    /// kept by modifier that holds none holds [`NONE`].
+    pub const BY_MODIFIER: usize = 0x10;
+    pub const PAIRS: usize = 0x58;
+    pub const COUNT: usize = 0x64;
+    pub const PAIR: usize = 8;
+    pub const NONE: i32 = 0x286;
+    /// A named set's key, such as an event modifier's: a `std::string`.
+    pub const NAME: usize = 0x158;
+}
+
+/// A named modifier a country or a province has: the named set of
+/// modifiers it gives ([`super::modifier_set::NAME`]), the day it ends (a
+/// day no later than [`NEVER`], 1.1.1, for none: one given for good holds
+/// -1.1.1), and bytes set when it does not end and when the scripts hide
+/// it.
+pub mod named_modifier {
+    pub const SET: usize = 0x30;
+    pub const EXPIRES: usize = 0x44;
+    pub const NEVER: i32 = 0x29c77f8;
+    pub const PERMANENT: usize = 0x4a;
+    pub const HIDDEN: usize = 0x4b;
+}
+
+/// The kinds of modifier, built into the code: a vector (begin, end) at
+/// [`TYPES`] of [`SIZE`]-byte records by the modifier's index, each with its
+/// key (a `std::string`) at [`KEY`] and its index at [`INDEX`].
+pub mod modifier_type {
+    pub const TYPES: usize = 0x2358080;
+    pub const SIZE: usize = 0x60;
+    pub const KEY: usize = 0;
+    pub const INDEX: usize = 0x54;
 }
 
 /// The map modes' panel, at the map manager's `+0x2448`, which the game
