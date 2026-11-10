@@ -90,6 +90,14 @@ const APP: usize = 0x242bf50;
 const APP_MAP: usize = 0x360;
 /// The graphical map's flag that its names are to be made again.
 const MAP_NAMES_DUE: usize = 0x25a0;
+/// The graphical map's names' level, which the names are made for.
+const MAP_NAMES_LEVEL: usize = 0x638;
+/// The map's names made again (rcx the graphical map, edx the level, r8b
+/// whether even for the level they have): from the countries and the
+/// provinces, their meshes through the back end. The 3D map's drawing does
+/// it when they are due: the level set to 15, which none is, the names made
+/// for the level they had, and the flag cleared (`0x10a5b55`–`0x10a5b7f`).
+const MAKE_NAMES: GameFunction<3> = GameFunction::at(0x10a9be0);
 /// The application's current idler.
 const APP_IDLER: usize = 0x40;
 /// The console's debug country, whose values the debug text works out.
@@ -135,6 +143,12 @@ fn points() -> Vec<Point> {
     vec![
         Point::jump(FRAME_DRAWS, "49 8b cd e8 8f 2a 00 00", "the in-game frame calls its drawing", frame_draws_stub as *const () as usize, &FRAME_RESUME),
         Point::keep(DRAWING, "48 8b c4 48 89 58 08 55 56 57 41 54 41 55 41 56 41 57", "the in-game frame's drawing"),
+        Point::keep(MAKE_NAMES, "48 89 4c 24 08 55 56 57 41 54 41 55 41 56 41 57", "the map's names made"),
+        // cmp byte ptr [rbx + 0x25a0], 0: the names due, in the 3D map's drawing.
+        Point::keep(0x10a5b55, "80 bb a0 25 00 00 00", "the map's names due").uses(&[MAP_NAMES_DUE]),
+        // mov dword ptr [rbx + 0x638], 15; mov rcx, rbx; call; mov byte ptr [rbx + 0x25a0], 0
+        Point::keep(0x10a5b6d, "c7 83 38 06 00 00 0f 00 00 00 48 8b cb e8 61 40 00 00 c6 83 a0 25 00 00 00", "the map's names made in the drawing")
+            .uses(&[MAP_NAMES_LEVEL, MAP_NAMES_DUE]),
         Point::jump(HEAD, "48 8b 05 fa 37 c1 01", "the drawing's first steps", head_stub as *const () as usize, &HEAD_RESUME)
             .uses(&[SETTINGS])
             .recorded(&HEAD_AT),
@@ -191,6 +205,7 @@ fn points() -> Vec<Point> {
         // mov rcx, rsi; call string destructor: the text's type destroyed.
         Point::keep(0x6e9f68, "48 8b ce e8 f0 b6 9a ff 90 48 8b 8d a8 00 00 00", "a floating text's strings destroyed"),
         Point::replace(DAILY_REFRESH, "4c 8b dc 49 89 5b 18 55 56 57", "the interface's daily refresh", daily_refresh as DailyRefresh, &ORIGINAL_DAILY_REFRESH),
+        Point::jump(OWNER_TOLD, "4c 8b c9 83 fa ff", "the map told of a province's new owner", owner_told_stub as *const () as usize, &OWNER_TOLD_RESUME),
         // mov rcx, [r13 + 0x1e00]; test rcx, rcx; je; mov rax, [rcx];
         // call [rax + 0x2a8]: the day's call of the interface's daily refresh.
         Point::keep(0x75c5e7, "49 8b 8d 00 1e 00 00 48 85 c9 74 09 48 8b 01 ff 90 a8 02 00 00", "the day's daily refresh of the interface")
@@ -218,7 +233,7 @@ fn points() -> Vec<Point> {
 /// "Where the day reaches the interface and the graphics", "The crossings a
 /// late day reaches"): the RVA, its first bytes, what it is, the arguments it
 /// reads.
-const CROSSINGS_AT: [(usize, &str, &str, u32); 12] = [
+const CROSSINGS_AT: [(usize, &str, &str, u32); 11] = [
     (0x81e280, "40 55 53 56 57 41 54", "the interface's monthly refresh", 1),
     (0x8c1430, "4c 89 44 24 18", "a message's popup", 3),
     (0x10a03f0, "48 89 5c 24 18", "a window made", 5),
@@ -230,7 +245,6 @@ const CROSSINGS_AT: [(usize, &str, &str, u32); 12] = [
     (0xe428b0, "48 89 5c 24 08", "a country's window to the player", 4),
     (0x10b6c50, "48 8b c4 48 89 58 10", "the minimap", 2),
     (0x123f800, "48 89 5c 24 10", "an item of the message list", 4),
-    (0x10af990, "4c 8b c9 83 fa ff", "the map told of a province's new owner", 2),
 ];
 
 fn crossed(call: &mut Call) {
@@ -266,6 +280,15 @@ const DAILY_REFRESH: usize = 0x8339f0;
 type DailyRefresh = unsafe extern "C" fn(usize) -> usize;
 static ORIGINAL_DAILY_REFRESH: Function<DailyRefresh> = Function::new();
 const WORLD_INTERFACE: usize = 0x1e00;
+/// The graphical map told that a province changed owner (`0xa00598`,
+/// `0xa0e734`): its map entry's flag `+0x13f8` gets bit 3 (`|= 8`), or every
+/// entry's for -1, which the map's drawing reads. It answers nothing. Its
+/// callers keep `r10` and `r11` across the call (`0xa0e748`, `0xa0e755`),
+/// which the function does not touch, so it is entered through a stub that
+/// keeps every register, and goes on at its third instruction.
+const OWNER_TOLD: usize = 0x10af990;
+const OWNER_TOLD_GOES_ON: usize = 0x10af996;
+crate::resume!(OWNER_TOLD_RESUME: OWNER_TOLD_GOES_ON_AT = OWNER_TOLD_GOES_ON);
 
 /// What the day asked of the interface and waits for nothing of: done at the
 /// next application frame, before its update (docs/plans/drawing-thread.md,
@@ -273,6 +296,7 @@ const WORLD_INTERFACE: usize = 0x1e00;
 enum Deferred {
     MapText { idler: usize, province: u32, kind: Vec<u8>, text: Vec<u8>, number: usize, last: usize },
     DailyRefresh { interface: usize },
+    OwnerTold { map: usize, province: i32 },
 }
 
 static DEFERRED: Mutex<Vec<Deferred>> = Mutex::new(Vec::new());
@@ -312,6 +336,32 @@ unsafe extern "C" fn daily_refresh(interface: usize) -> usize {
     unsafe { ORIGINAL_DAILY_REFRESH.get()(interface) }
 }
 
+/// Whether the map's owner mark waits for the day's end.
+#[called_by_game]
+extern "C" fn owner_told(map: usize, province: i32) -> bool {
+    if !deferring() {
+        return false;
+    }
+    DEFERRED.lock().unwrap_or_else(|e| e.into_inner()).push(Deferred::OwnerTold { map, province });
+    DEFERRED_COUNT.fetch_add(1, Ordering::Relaxed);
+    true
+}
+
+#[unsafe(naked)]
+extern "C" fn owner_told_stub() {
+    std::arch::naked_asm!(
+        crate::call_rust!(call owner_told, "cmp byte ptr [rsp + 0x48], 0"),
+        "jne 2f",
+        "mov r9, rcx",
+        "cmp edx, -1",
+        "jmp qword ptr [rip + {goes_on}]",
+        "2:",
+        "ret",
+        owner_told = sym owner_told,
+        goes_on = sym OWNER_TOLD_GOES_ON_AT,
+    );
+}
+
 /// The calls deferred, done as the game would have done them, by the main
 /// thread holding the lock; those whose idler or interface has gone since
 /// are left out.
@@ -322,6 +372,7 @@ fn do_deferred(m: &Memory) {
     }
     let idler = m.ptr(m.at(APP)).and_then(|app| m.ptr(app + APP_IDLER)).unwrap_or(0);
     let interface = m.ptr(m.at(WORLD)).and_then(|world| m.ptr(world + WORLD_INTERFACE)).unwrap_or(0);
+    let map = m.ptr(m.at(APP)).and_then(|app| m.ptr(app + APP_MAP)).unwrap_or(0);
     for d in deferred {
         match d {
             Deferred::MapText { idler: of, province, kind, text, number, last } if of == idler => unsafe {
@@ -331,6 +382,10 @@ fn do_deferred(m: &Memory) {
                 game_string::append(kind_at, &kind);
                 game_string::append(text_at, &text);
                 ORIGINAL_MAP_TEXT.get()(of, province, kind_at, text_at, number, last);
+            },
+            Deferred::OwnerTold { map: of, province } if of == map => unsafe {
+                let told: unsafe extern "C" fn(usize, i32) = std::mem::transmute(m.at(OWNER_TOLD));
+                told(of, province);
             },
             Deferred::DailyRefresh { interface: of } if of == interface => unsafe {
                 ORIGINAL_DAILY_REFRESH.get()(of);
@@ -894,6 +949,13 @@ extern "C" fn frame_draws(idler: usize) {
     let m = crate::hooked_memory();
     // A frame the main thread draws itself leaves the last one prepared
     // behind: its scenes are crossings, which hold it back.
+    // The map's names, which read the world, are made here when due, as the
+    // drawing would make them, so that the drawing thread draws the frame.
+    if drawing_on() {
+        if let Err(e) = make_names(&m) {
+            log!("drawing: the map's names could not be made: {e}");
+        }
+    }
     if !drawing_on() || must_draw_here(&m) {
         draw_here(&m, idler);
         return;
@@ -920,6 +982,20 @@ extern "C" fn frame_draws(idler: usize) {
     if screen != 0 {
         crate::game::input::presenting(((screen >> 32) as u32, screen as u32));
     }
+}
+
+/// The map's names made again when they are due, on the main thread, as the
+/// 3D map's drawing makes them.
+fn make_names(m: &Memory) -> crate::Result<()> {
+    let map = m.ptr(m.ptr(m.at(APP))? + APP_MAP)?;
+    if map == 0 || m.u8(map + MAP_NAMES_DUE)? == 0 {
+        return Ok(());
+    }
+    let level = m.u32(map + MAP_NAMES_LEVEL)?;
+    m.write(map + MAP_NAMES_LEVEL, &15u32.to_le_bytes())?;
+    unsafe { direct3(m, MAKE_NAMES)(map, level as usize, 0) };
+    m.write(map + MAP_NAMES_DUE, &[0])?;
+    Ok(())
 }
 
 /// Whether the main thread draws this frame itself.
@@ -1045,6 +1121,73 @@ fn wait_until(until: Instant) {
     }
 }
 
+/// The frames that came late, for the log: a gap between two frames drawn
+/// longer than two of the display's refreshes, by what happened in it, a
+/// crossing holding the frame back while the drawing thread had the lock
+/// (by the crossing that marked the frame changed first), the drawing thread
+/// waiting a refresh or more for the lock, or neither (the drawing itself, or
+/// the thread not run).
+#[derive(Default)]
+struct Gaps {
+    last: Option<Instant>,
+    held: Option<usize>,
+    waited: Duration,
+    late: [u32; 3],
+    by: Vec<(usize, u32)>,
+    longest: Duration,
+}
+
+impl Gaps {
+    /// The drawing thread had the lock, and a crossing (`into`) held the
+    /// frame back.
+    fn held_by(&mut self, into: usize) {
+        self.held.get_or_insert(into);
+    }
+
+    fn drawn(&mut self, interval: Duration) {
+        let now = Instant::now();
+        if let Some(last) = self.last.replace(now) {
+            let gap = now - last;
+            if gap > interval * 2 {
+                let why = match self.held {
+                    Some(_) => 0,
+                    None if self.waited >= interval => 1,
+                    None => 2,
+                };
+                self.late[why] += 1;
+                if let Some(into) = self.held {
+                    match self.by.iter_mut().find(|b| b.0 == into) {
+                        Some(b) => b.1 += 1,
+                        None => self.by.push((into, 1)),
+                    }
+                }
+            }
+            self.longest = self.longest.max(gap);
+        }
+        self.held = None;
+        self.waited = Duration::ZERO;
+    }
+
+    /// The line for the log, and a new count.
+    fn told(&mut self, base: usize) -> String {
+        self.by.sort_by_key(|b| std::cmp::Reverse(b.1));
+        let by: Vec<String> = self.by.iter().take(3).map(|(into, n)| format!("{:#x} {n}", into.wrapping_sub(base))).collect();
+        let told = format!(
+            "{} late (held back {} by {}, waiting for the lock {}, neither {}), the longest gap {:.0} ms",
+            self.late.iter().sum::<u32>(),
+            self.late[0],
+            by.join(", "),
+            self.late[1],
+            self.late[2],
+            self.longest.as_secs_f64() * 1000.0
+        );
+        self.late = [0; 3];
+        self.by.clear();
+        self.longest = Duration::ZERO;
+        told
+    }
+}
+
 /// The drawing thread.
 fn run() {
     DRAWING_THREAD.store(crate::thread_id(), Ordering::Relaxed);
@@ -1056,6 +1199,7 @@ fn run() {
     let mut logged = Instant::now();
     let mut last_drawn = 0u64;
     let mut last_frame = Instant::now();
+    let mut gaps = Gaps::default();
     loop {
         if !drawing_on() {
             CAMERA_MOVED_THERE.store(0, Ordering::Relaxed);
@@ -1073,6 +1217,7 @@ fn run() {
         }
         let waited = LOCK.take();
         DRAWING_WAITED.fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
+        gaps.waited += waited;
         let idler = PREPARED.load(Ordering::Acquire);
         let current = m.ptr(m.at(APP)).and_then(|app| m.ptr(app + APP_IDLER)).unwrap_or(0);
         let seq = PREPARED_SEQ.load(Ordering::Acquire);
@@ -1086,7 +1231,11 @@ fn run() {
                 log!("drawing: the camera's update could not read the game: {e}");
             }
         }
-        if idler != 0 && current == idler && !CHANGED.load(Ordering::Acquire) && !must_draw_here(&m) {
+        let held = CHANGED.load(Ordering::Acquire);
+        if held {
+            gaps.held_by(HELD_BACK_BY.lock().unwrap_or_else(|e| e.into_inner()).map_or(0, |(into, _)| into));
+        }
+        if idler != 0 && current == idler && !held && !must_draw_here(&m) {
             DRAWING_LENGTH.store(length.to_bits(), Ordering::Relaxed);
             if let Err(e) = icons::follow_camera(&m) {
                 log!("drawing: the map icons could not follow the camera: {e}");
@@ -1096,13 +1245,15 @@ fn run() {
             IN_FRAME.store(false, Ordering::Release);
             DRAWN.fetch_add(1, Ordering::Relaxed);
             DRAWN_SEQ.store(seq, Ordering::Release);
+            gaps.drawn(interval);
         }
         LOCK.give();
         if logged.elapsed() >= Duration::from_secs(10) {
             let drawn = DRAWN.load(Ordering::Relaxed);
             log!(
-                "drawing: {:.1} frames a second, {} drawn by the main thread; the main thread waited {:.0} ms for the lock ({:.0} at frames, {:.0} at crossings, {:.0} at days' ends) and {:.0} ms for frames drawn, the drawing thread {:.0} ms; {} crossing(s), {} deferred, the frames held back longest by {}",
+                "drawing: {:.1} frames a second, {}; {} drawn by the main thread; the main thread waited {:.0} ms for the lock ({:.0} at frames, {:.0} at crossings, {:.0} at days' ends) and {:.0} ms for frames drawn, the drawing thread {:.0} ms; {} crossing(s), {} deferred, the frames held back longest by {}",
                 (drawn - last_drawn) as f64 / logged.elapsed().as_secs_f64(),
+                gaps.told(m.at(0usize)),
                 HERE.swap(0, Ordering::Relaxed),
                 MAIN_WAITED.swap(0, Ordering::Relaxed) as f64 / 1000.0,
                 WAITED_AT[AT_FRAME].swap(0, Ordering::Relaxed) as f64 / 1000.0,
