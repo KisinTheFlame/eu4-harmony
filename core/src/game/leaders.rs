@@ -341,6 +341,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
 
     #[test]
@@ -428,7 +429,7 @@ mod tests {
         buffers::units(&image, &[&army, &fleet]);
         let country = Object::country(cas, LEADERS_COUNT + 4).u64(LEADERS, next).i32(LEADERS_COUNT, 3);
         let countries = Object::countries(&[&country]);
-        let session = buffers::session(m, 0, cas, country.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(m, 0, cas, country.at(), countries.at(), Caller::Remote(As::Player));
         let mut objects = vec![army, fleet, country, countries];
         objects.extend(leaders);
         objects.extend(nodes);

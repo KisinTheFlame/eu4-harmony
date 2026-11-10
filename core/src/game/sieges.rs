@@ -110,6 +110,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     #[test]
     fn the_spending_names_the_province_and_the_category() {
         assert_eq!(super::power::written(*b"FRA", 37, super::POWER, 183), r#"spend_power_command={ country="FRA" power={ data=183 category=37 skill=2 } }"#);
@@ -157,7 +158,7 @@ mod tests {
         provinces.u8(3, province::FOGGED, province::FOGGED_BIT).u8(3, province::HIDDEN, province::HIDDEN_BIT);
         let france = Object::country(fra, 0);
         let countries = Object::countries(&[&france]);
-        let session = buffers::session(image.memory(), provinces.world(), fra, france.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), provinces.world(), fra, france.at(), countries.at(), Caller::Remote(As::Player));
         Siege { _image: image, _provinces: provinces, _objects: vec![sieges, france, countries], session }
     }
 

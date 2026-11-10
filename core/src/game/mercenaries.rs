@@ -134,6 +134,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     #[test]
     fn the_command_names_the_company_by_its_id() {
         assert_eq!(super::hire_text(*b"CAS", 219, 4321, 59), r#"buildunit={ country="CAS" province=219 mercenary={ id=4321 type=59 } category=1 }"#);
@@ -174,7 +175,7 @@ mod tests {
         let cas = Tag(u64::from_le_bytes(*b"CAS\0\0\0\0\0"));
         let castile = Object::country(cas, COMPANIES_COUNT + 4).vector(COMPANIES, &[free.at() as u64, swiss.at() as u64]).i32(COMPANIES_COUNT, 2);
         let countries = Object::countries(&[&castile]);
-        let session = buffers::session(image.memory(), provinces.world(), cas, castile.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), provinces.world(), cas, castile.at(), countries.at(), Caller::Remote(As::Player));
         Castile { _image: image, _provinces: provinces, _objects: vec![swiss, free, castile, countries], session }
     }
 

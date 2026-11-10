@@ -20,6 +20,30 @@ fn every_code_is_named_and_explained() {
     }
 }
 
+/// A request says beside its capability whether it acts as the game, and
+/// acts as the player when it says nothing.
+#[test]
+fn a_request_acts_as_the_player_unless_it_says_as_the_game() {
+    let get = Request::Session(session::SessionRequest::Get {});
+    assert_eq!(sent_from_json(r#"{"capability": "session.get"}"#).unwrap(), (get.clone(), As::Player));
+    assert_eq!(sent_from_json(r#"{"capability": "session.get", "as": "player"}"#).unwrap(), (get.clone(), As::Player));
+    assert_eq!(sent_from_json(r#"{"as": "game", "capability": "session.get"}"#).unwrap(), (get.clone(), As::Game));
+    let wrong = sent_from_json(r#"{"capability": "session.get", "as": "god"}"#).unwrap_err();
+    assert_eq!((wrong.code, wrong.message.as_str()), (Code::BadRequest, r#""as" is "player" or "game""#));
+    // "as" is not an argument of the request itself.
+    assert_eq!(request(json!({"capability": "session.get", "as": "game"})).unwrap_err().code, Code::BadRequest);
+    let moved = request(json!({"capability": "army.move", "army": "7", "province": 151})).unwrap();
+    let line = serde_json::to_string(&Sent { request: &moved, acting: As::Game }).unwrap();
+    assert_eq!(line, r#"{"capability":"army.move","as":"game","army":"7","province":151}"#);
+    assert_eq!(serde_json::to_string(&Sent { request: &moved, acting: As::Player }).unwrap(), serde_json::to_string(&moved).unwrap());
+    assert_eq!(sent_from_json(&line).unwrap(), (moved, As::Game));
+    // Every capability a request asks for only as the game is the
+    // extensions' too, and needs a game but no country.
+    for c in capabilities().iter().filter(|c| c.as_game) {
+        assert!(c.extensions && c.in_game && !c.country, "{}", c.name());
+    }
+}
+
 /// The limits the descriptions state are those the game keeps to.
 #[test]
 fn descriptions_state_the_limits_kept() {
@@ -300,6 +324,7 @@ fn descriptions_in_json() {
             "in_game": true,
             "country": false,
             "extensions": true,
+            "as_game": false,
             "args": [
                 {"name": "country", "kind": "country", "optional": false, "about": "One country."},
                 {"name": "other", "kind": "country", "optional": false, "about": "The other."},

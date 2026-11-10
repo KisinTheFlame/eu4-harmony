@@ -347,6 +347,10 @@ macro_rules! groups {
             /// Whom the bound groups' requests call the layer as; a fake game
             /// calls it as no one, and they fail there.
             fn caller(&self) -> Option<game::Caller>;
+
+            /// The requests from now on act `acting`, when they are a remote
+            /// client's (ADR requests-act-as-the-player-or-as-the-game).
+            fn act_as(&mut self, _acting: game::As) {}
         }
 
         /// Every group's lines, by its module.
@@ -386,7 +390,7 @@ macro_rules! capability_groups {
         $then! {
             fn dispatch(request, game, signals, now);
             Session(session: Layer),
-            Time(time: Layer) => time::run(request, game, signals),
+            Time(time: Layer) => { let view = view(game); time::run(request, game, signals, view) },
             Country(countries: Layer),
             Province(provinces: Layer),
             Army(armies: Layer),
@@ -397,7 +401,7 @@ macro_rules! capability_groups {
             Popup(popups),
             Offer(offers),
             Signals => match signals {
-                Some(signals) => signals::run(request, signals, now),
+                Some(signals) => signals::run(request, signals, view(game), now),
                 None => Outcome::Done(Err(signals::unkept())),
             },
             Describe => Outcome::Done(Ok(Answer::Describe(describe::run(request)))),
@@ -443,6 +447,26 @@ pub(crate) use capability_groups;
 
 capability_groups!(groups);
 
+/// The view `game`'s caller reads; the full view in a fake game, which
+/// calls the layer as no one.
+fn view(game: &dyn Game) -> game::View {
+    game.caller().map_or(game::View::Full, game::view)
+}
+
+/// Whether `caller` may ask for a capability that does what no player could
+/// (`as_game`): an extension, a request as the game and a fake game may, a
+/// request as the player may not (ADR
+/// requests-act-as-the-player-or-as-the-game).
+fn may_ask(as_game: bool, caller: Option<game::Caller>) -> bool {
+    !as_game || caller != Some(game::Caller::Remote(game::As::Player))
+}
+
+/// The refusal of a capability that does what no player could to a request
+/// as the player.
+fn as_the_game(request: &Request) -> Error {
+    Error::new(Code::AsTheGame, format!("{} does what no player could; a request as the player cannot ask for it: ask as the game", request.name()))
+}
+
 /// Runs a request of a bound group, as `game` calls the layer: `run` with
 /// its caller, or, in a fake game, which calls it as no one, not at all.
 fn bound<A>(game: &mut dyn Game, group: &str, run: impl FnOnce(game::Caller) -> Result<A, Error>) -> Result<A, Error> {
@@ -460,6 +484,12 @@ impl Game for Live {
     fn caller(&self) -> Option<game::Caller> {
         Some(self.0)
     }
+
+    fn act_as(&mut self, acting: game::As) {
+        if let game::Caller::Remote(_) = self.0 {
+            self.0 = game::Caller::Remote(acting);
+        }
+    }
 }
 /// The catalogue as its two callers reach it, remote control's engine and the
 /// Lua host: the one seam between them and the capability layer. Every
@@ -473,11 +503,24 @@ pub trait Catalogue {
     /// At a safe point at `place`: `polls` asks the requests that wait, each
     /// with the same [`Poll`].
     fn at(&mut self, signals: Option<&signals::Buffer>, now: Instant, place: &Place, polls: &mut dyn FnMut(&mut Poll<'_>));
+
+    /// The requests run from now on act `acting`, when they are a remote
+    /// client's: remote control's engine says so before each it runs.
+    fn act_as(&mut self, _acting: game::As) {}
 }
 
 impl<T: Game + ?Sized> Catalogue for T {
+    /// A capability that does what no player could is refused to a request
+    /// as the player.
     fn run(&mut self, request: Request, signals: Option<&signals::Buffer>, now: Instant) -> Outcome {
+        if !may_ask(request.as_game(), self.caller()) {
+            return Outcome::Done(Err(as_the_game(&request)));
+        }
         dispatch(request, self.as_game(), signals, now)
+    }
+
+    fn act_as(&mut self, acting: game::As) {
+        Game::act_as(self, acting);
     }
 
     fn at(&mut self, signals: Option<&signals::Buffer>, now: Instant, place: &Place, polls: &mut dyn FnMut(&mut Poll<'_>)) {
@@ -748,6 +791,14 @@ impl<'a> Poll<'a> {
         Self { signals, now, place, game }
     }
 
+    /// The requests polled from now on act `acting`, when they are a remote
+    /// client's: as they did when they ran.
+    pub fn act_as(&mut self, acting: game::As) {
+        if let Some(game) = self.game.as_mut() {
+            game.act_as(acting);
+        }
+    }
+
     /// The game, at a game's safe frame only.
     pub fn game(&mut self) -> Option<&mut dyn Game> {
         match self.game.as_mut() {
@@ -802,6 +853,30 @@ mod tests {
         for (status, code) in cases {
             assert_eq!(Error::from(game::Fail { status, message: "why".into() }), Error::new(code, "why"));
         }
+    }
+
+    #[test]
+    fn what_no_player_could_do_is_asked_for_only_as_the_game() {
+        use game::{As, Caller};
+        assert!(!may_ask(true, Some(Caller::Remote(As::Player))));
+        for caller in [Some(Caller::Remote(As::Game)), Some(Caller::Extension(0)), None] {
+            assert!(may_ask(true, caller));
+        }
+        for caller in [Some(Caller::Remote(As::Player)), Some(Caller::Remote(As::Game)), Some(Caller::Extension(0)), None] {
+            assert!(may_ask(false, caller));
+        }
+        // A request as the game reads the full view; the next one, as the
+        // player, the player's view again.
+        let mut live = Live(Caller::Remote(As::Player));
+        Game::act_as(&mut live, As::Game);
+        assert_eq!((live.0, view(&live)), (Caller::Remote(As::Game), game::View::Full));
+        Game::act_as(&mut live, As::Player);
+        assert_eq!(view(&live), game::View::Player);
+        // An extension stays itself.
+        let mut extension = Live(Caller::Extension(2));
+        Game::act_as(&mut extension, As::Player);
+        assert_eq!(extension.0, Caller::Extension(2));
+        assert_eq!(as_the_game(&Request::Session(eu4_harmony_remote::session::SessionRequest::Get {})).code, Code::AsTheGame);
     }
 
     #[test]

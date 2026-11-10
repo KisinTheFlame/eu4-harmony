@@ -63,7 +63,11 @@ fn group_page(group: &Group) -> String {
         None => format!("{}: {}\n\n", group.name, prose(group.about)),
     };
     for c in named {
-        let side = if c.extensions { "" } else { "  (remote control only)" };
+        let side = match (c.extensions, c.as_game) {
+            (false, _) => "  (remote control only)",
+            (true, true) => "  (as the game)",
+            (true, false) => "",
+        };
         let _ = writeln!(text, "  {}{side}", c.name());
         let _ = writeln!(text, "      {}", first_sentence(c.about));
     }
@@ -81,11 +85,18 @@ pub fn capability_page(c: &Capability) -> String {
             "It acts as a country: the one the player plays, or in observe mode the country in view; with none in view it fails with no_country."
         );
     }
+    if c.as_game {
+        let _ = writeln!(
+            text,
+            "It does or reads what no player could: a remote client asks for it as the game (--as-game); a request as the player fails with as_the_game."
+        );
+    }
     let _ = writeln!(text, "\ncalled:");
     if c.extensions {
         let _ = writeln!(text, "  Lua:          {}", lua_call(c));
     }
-    let _ = writeln!(text, "  command line: eu4-harmony game {}", command(c));
+    let as_game = if c.as_game { "--as-game " } else { "" };
+    let _ = writeln!(text, "  command line: eu4-harmony game {as_game}{}", command(c));
     if !c.extensions {
         let _ = writeln!(text, "  Remote control only.");
     }
@@ -201,9 +212,20 @@ fn remote() -> String {
     "\
 remote: playing a game through remote control
 
-A remote client uses the running game through the framework's capabilities,
-as the player would, over the named pipe \\\\.\\pipe\\eu4-harmony; the command
-line is eu4-harmony game (eu4-harmony game -h for its form).
+A remote client uses the running game through the framework's capabilities
+over the named pipe \\\\.\\pipe\\eu4-harmony; the command line is eu4-harmony game
+(eu4-harmony game -h for its form).
+
+as the player or as the game:
+  A request acts as the player unless it asks to act as the game: it reads
+  the player's view, the map under fog of war and of other countries what
+  their panels show, and does only what the player could; its orders are the
+  player's. A request as the game (--as-game; \"as\": \"game\" beside its
+  capability on the pipe) reads everything the game keeps, and may also do
+  what the game's and the mods' scripts do, which no player could; a
+  capability that does so says it, and a request as the player asking for it
+  fails with as_the_game. A program that should know only what the player
+  knows, such as an AI judged on its play, sends requests as the player.
 
 how a game goes:
   menu says where the game is and which process answers. From the main

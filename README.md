@@ -38,7 +38,7 @@ Good to know:
 
 ### Settings
 
-**EU4 Harmony settings** has the player language and its fonts, returning to the main menu without restarting the game, achievement rules, game speed, what remote control may see and how even the music is; each setting says there what it does. The details are in [docs/plans/player-language.md](docs/plans/player-language.md), [docs/plans/sessions.md](docs/plans/sessions.md), [docs/plans/game-speed.md](docs/plans/game-speed.md), [docs/plans/music-volume.md](docs/plans/music-volume.md) and [ADR remote-control-reads-the-players-view](docs/adr/2026-11-05-remote-control-reads-the-players-view.md).
+**EU4 Harmony settings** has the player language and its fonts, returning to the main menu without restarting the game, achievement rules, game speed and how even the music is; each setting says there what it does. The details are in [docs/plans/player-language.md](docs/plans/player-language.md), [docs/plans/sessions.md](docs/plans/sessions.md), [docs/plans/game-speed.md](docs/plans/game-speed.md) and [docs/plans/music-volume.md](docs/plans/music-volume.md).
 
 With the framework, the game's own volume sliders go as the square of their position, so each step sounds about as large, where vanilla's last tenth fell off steeply: volumes saved below 100 sound quieter than before, and are set again once.
 
@@ -113,7 +113,7 @@ eu4-harmony game menu return               # back to the main menu
 
 In observe mode, the AI playing every country, `menu start` with no country starts such a game, `session view FRA` puts France in view and `session leave_view` takes it out; what acts as a country then acts as the one in view while the AI goes on playing it, and with none in view fails with `no_country` ([docs/plans/observe-mode.md](docs/plans/observe-mode.md)).
 
-Remote control is open only to the Windows user playing, only on this computer, and can do only what the player could. Where no capability reaches, it can use the player's mouse and keyboard. `eu4-harmony wiki remote` explains how a game goes and what each exit code means; [docs/plans/remote-control.md](docs/plans/remote-control.md) and [docs/plans/hidden-start.md](docs/plans/hidden-start.md) have the design.
+Remote control is open only to the Windows user playing, only on this computer. A request acts as the player: it reads what the player sees and does only what the player could. With `--as-game` it acts as the game instead: it reads everything the game keeps, and may also change the game as the mods' scripts do, which no player could ([ADR requests-act-as-the-player-or-as-the-game](docs/adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md)). Where no capability reaches, it can use the player's mouse and keyboard. `eu4-harmony wiki remote` explains how a game goes and what each exit code means; [docs/plans/remote-control.md](docs/plans/remote-control.md) and [docs/plans/hidden-start.md](docs/plans/hidden-start.md) have the design.
 
 ## Documentation
 

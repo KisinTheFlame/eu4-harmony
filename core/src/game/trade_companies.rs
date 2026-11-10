@@ -202,6 +202,7 @@ mod tests {
     }
 
     mod through_the_layer {
+        use crate::game::As;
         use super::super::*;
         use crate::catalogue::fake::tur;
         use crate::game::{
@@ -263,7 +264,7 @@ mod tests {
             image.u64(DATABASE, database.at() as u64);
             let country = Object::country(tur(), 0);
             let countries = Object::countries(&[&country]);
-            let result = action(buffers::session(image.memory(), provinces.world(), tur(), country.at(), countries.at(), Caller::Remote));
+            let result = action(buffers::session(image.memory(), provinces.world(), tur(), country.at(), countries.at(), Caller::Remote(As::Player)));
             drop((quarter, database, provinces, country, countries, image));
             result
         }

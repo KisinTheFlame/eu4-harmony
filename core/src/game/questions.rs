@@ -196,6 +196,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
     use crate::game::{
         buffers::{self, Image, Object},
@@ -269,7 +270,7 @@ mod tests {
         let fra = Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
         let country = Object::country(fra, 0);
         let countries = Object::countries(&[&country]);
-        let session = buffers::session(m, world.at(), fra, country.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(m, world.at(), fra, country.at(), countries.at(), Caller::Remote(As::Player));
         let mut objects = vec![event, records, world, country, countries];
         objects.extend(options);
         France { _image: image, _objects: objects, session, windows: at }

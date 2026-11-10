@@ -58,6 +58,8 @@ struct Scripted {
     delay: Duration,
     /// What running a request does besides.
     does: Option<Box<dyn FnMut() + Send>>,
+    /// How the request run last acts, and those run before it.
+    acted: Vec<As>,
 }
 
 impl Scripted {
@@ -80,9 +82,16 @@ impl Catalogue for Scripted {
             does();
         }
         match request {
-            Request::Signals(r) => signals::run(r, signals.expect("the engine keeps signals"), now),
+            Request::Signals(r) => {
+                let acting = self.acted.last().copied().unwrap_or_default();
+                signals::run(r, signals.expect("the engine keeps signals"), game::view(game::Caller::Remote(acting)), now)
+            }
             _ => Outcome::Done(self.answers.get(&name).cloned().unwrap_or_else(nothing)),
         }
+    }
+
+    fn act_as(&mut self, acting: As) {
+        self.acted.push(acting);
     }
 
     fn at(&mut self, signals: Option<&signals::Buffer>, now: Instant, place: &Place, polls: &mut dyn FnMut(&mut Poll<'_>)) {
@@ -216,6 +225,25 @@ fn the_time_budget_ends_a_frame_and_the_rest_runs_at_the_next() {
 }
 
 #[test]
+fn each_request_acts_as_it_asks_and_its_wait_too() {
+    let engine = Engine::new(remember);
+    let mut game = Scripted::default();
+    let first = engine.submit_as(Request::Session(SessionRequest::Get {}), As::Game);
+    let second = engine.submit(Request::Session(SessionRequest::Get {}));
+    let waits =
+        engine.submit_as(Request::Signals(SignalsRequest::Read { since: None, wait_ms: Some(10_000), process: None, kinds: None, countries: None }), As::Game);
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(game.acted, [As::Game, As::Player, As::Game]);
+    assert!(answer(&first)["ok"] == true && answer(&second)["ok"] == true);
+    assert!(log().iter().any(|l| l.contains(r#"{"capability":"session.get"} as the game: ok in "#)), "{:#?}", log());
+    // A signal only the full view shows answers the read as the game that
+    // waits for one.
+    engine.hear([game::Heard { signal: Signal::Day { date: eu4_harmony_remote::Date(1) }, seen: false }]);
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(answer(&waits)["result"]["signals"][0]["signal"], "day");
+}
+
+#[test]
 fn a_request_given_up_before_it_runs_never_runs() {
     let engine = Engine::new(remember);
     let mut game = Scripted::default();
@@ -309,8 +337,8 @@ fn what_a_game_frame_tells_extensions_is_kept_as_signals() {
     };
     let day = |y, m, d| eu4_harmony_checks::Date::from_ymd(y, m, d).unwrap().0;
     let mut recall = game::frame::Recall::new();
-    // A battle the player neither sees nor takes part in, which remote
-    // control, reading the player's view, does not hear.
+    // A battle the player neither sees nor takes part in, which a request
+    // as the player, reading the player's view, does not read.
     let changes = vec![
         game::signals::Change::Ordered(ARMY),
         game::signals::Change::Defeated(ARMY),
@@ -334,8 +362,8 @@ fn what_a_game_frame_tells_extensions_is_kept_as_signals() {
     let first = recall.next(observed(3, true, day(1444, 11, 30), changes), |_| true, wars);
     let month = recall.next(observed(3, false, day(1444, 12, 1), vec![]), |_| true, |_| vec![]);
     let engine = Engine::new(remember);
-    engine.record(happened(&first.heard()));
-    engine.record(happened(&month.heard()));
+    engine.hear(first.heard());
+    engine.hear(month.heard());
     let read = engine.submit(Request::Signals(SignalsRequest::Read { since: None, wait_ms: None, process: None, kinds: None, countries: None }));
     engine.run(&mut Scripted::default(), &Place::Game, PLENTY);
     assert_eq!(
@@ -344,12 +372,21 @@ fn what_a_game_frame_tells_extensions_is_kept_as_signals() {
             {"number": 1, "signal": "session", "session": 3},
             {"number": 2, "signal": "army_ordered", "army": ARMY.to_string()},
             {"number": 3, "signal": "army_defeated", "army": ARMY.to_string()},
-            {"number": 4, "signal": "war_declared", "war": "Ottoman-Byzantine War", "attacker": "TUR", "defender": "BYZ"},
-            {"number": 5, "signal": "province_owner_changed", "province": 151, "from": "BYZ", "to": null},
-            {"number": 6, "signal": "day", "date": "1444.11.30"},
-            {"number": 7, "signal": "day", "date": "1444.12.1"},
-            {"number": 8, "signal": "month", "date": "1444.12.1"},
+            {"number": 5, "signal": "war_declared", "war": "Ottoman-Byzantine War", "attacker": "TUR", "defender": "BYZ"},
+            {"number": 6, "signal": "province_owner_changed", "province": 151, "from": "BYZ", "to": null},
+            {"number": 7, "signal": "day", "date": "1444.11.30"},
+            {"number": 8, "signal": "day", "date": "1444.12.1"},
+            {"number": 9, "signal": "month", "date": "1444.12.1"},
         ])
+    );
+    // A request as the game reads it too.
+    let read =
+        engine.submit_as(Request::Signals(SignalsRequest::Read { since: Some(3), wait_ms: None, process: None, kinds: None, countries: None }), As::Game);
+    engine.run(&mut Scripted::default(), &Place::Game, PLENTY);
+    assert_eq!(
+        answer(&read)["result"]["signals"][0],
+        json!({"number": 4, "signal": "battle", "province": 151, "naval": false, "attackers": ["WAL"], "defenders": ["BYZ"],
+            "winner": "attackers", "attacker_losses": 100, "defender_losses": 900})
     );
     // Only those naming a country asked for, and those naming none.
     let read = engine.submit(Request::Signals(SignalsRequest::Read {
@@ -361,9 +398,9 @@ fn what_a_game_frame_tells_extensions_is_kept_as_signals() {
     }));
     engine.run(&mut Scripted::default(), &Place::Game, PLENTY);
     let numbers: Vec<u64> = answer(&read)["result"]["signals"].as_array().unwrap().iter().map(|e| e["number"].as_u64().unwrap()).collect();
-    assert_eq!(numbers, [1, 2, 3, 4, 6, 7, 8]);
+    assert_eq!(numbers, [1, 2, 3, 5, 7, 8, 9]);
     let quiet = recall.next(observed(3, false, day(1444, 12, 1), vec![]), |_| true, wars);
-    assert!(happened(&quiet.heard()).is_empty());
+    assert!(quiet.heard().is_empty());
 }
 
 #[test]

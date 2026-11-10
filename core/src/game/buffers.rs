@@ -611,6 +611,7 @@ impl Image {
 mod tests {
     use super::*;
     use crate::catalogue::fake::{byz, tur};
+    use crate::game::As;
 
     extern "C" fn twice(value: usize) -> usize {
         value * 2
@@ -631,7 +632,7 @@ mod tests {
         let (player, other) = (Object::country(tur(), 0), Object::country(byz(), 0));
         let list = Object::countries(&[&player, &other]);
         let m = Image::new().memory();
-        let session = session(m, 0, tur(), player.at(), list.at(), Caller::Remote);
+        let session = session(m, 0, tur(), player.at(), list.at(), Caller::Remote(As::Player));
         assert_eq!(super::super::country(m, &session.ctx, byz()).unwrap(), other.at());
         assert_eq!(super::super::country(m, &session.ctx, tur()).unwrap(), player.at());
         assert!(super::super::country(m, &session.ctx, crate::catalogue::fake::wal()).is_err());
