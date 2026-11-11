@@ -786,7 +786,7 @@ pub fn enable_fervor(Session { m, ctx, commands, .. }: Session, args::EnableFerv
 
 /// Turns a fervor effect off.
 pub fn disable_fervor(Session { m, ctx, commands, .. }: Session, args::DisableFervor { effect: key }: args::DisableFervor) -> GResult<()> {
-    let (_, effect, on) = fervor_effect(m, &ctx, &key)?;
+    let (_, _, on) = fervor_effect(m, &ctx, &key)?;
     if !on {
         return Err(content::checks::not_now(format!("{key} is not on")));
     }
