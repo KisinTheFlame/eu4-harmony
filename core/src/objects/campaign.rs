@@ -364,6 +364,12 @@ pub mod country {
     /// follows one, and invites a scholar of another from a country that
     /// follows it (docs/research/religion.md).
     pub const SCHOOL: usize = 0x28b8;
+    /// Its secondary religion (Tengri's syncretic faith), a pointer to the
+    /// game's no-religion while it has none (docs/research/religion.md).
+    pub const SECONDARY_RELIGION: usize = 0xf38;
+    /// The gurus' teachings it has taken (Sikhism), the game's own array of
+    /// pointers (docs/research/religion.md).
+    pub const TEACHINGS: usize = 0x9aa8;
     /// The named modifiers its scripts put on it, a [`super::super::list`]
     /// of [`super::named_modifier`]s.
     pub const NAMED_MODIFIERS: usize = 0x1f0;

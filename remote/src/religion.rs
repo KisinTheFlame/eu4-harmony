@@ -27,14 +27,18 @@ group! {
     /// each to pass or, once passed, current, and reforming the religion
     /// once all are; the schools of the religion's group when it has them
     /// (Islam), each to invite a scholar of, the player's own school
-    /// current; and every holy order the game has, each to establish in a
-    /// state of the player's, with its own conditions. Each with whether the player can now and why not, in
+    /// current; every holy order the game has, each to establish in a
+    /// state of the player's, with its own conditions; and the religions
+    /// the player may take as its secondary one when its religion has one
+    /// (Tengri's syncretic faith), the one it has current; and the
+    /// teachings of its religion's gurus when it has them (Sikhism), each
+    /// to take or, once taken, current. Each with whether the player can now and why not, in
     /// the game's words where it has them (the conditions that do not hold,
     /// a regency, a cult already followed until the monarch changes, too
     /// little church power, stability too low, all the church's slots
     /// taken, holy sites lost), and its cost. Empty for a religion with none
     /// of them.
-    game Options "options" {} -> Vec<ReligionOption>, "each entry: action (choose_deity, choose_cult, add_aspect, remove_aspect, choose_blessing, enable_fervor, disable_fervor, harmonize, stop_harmonizing, commission_icon, consecrate_metropolitan, pass_reform, reform_religion, invite_scholar or establish_holy_order), key, name, current, province, can, reasons, cost";
+    game Options "options" {} -> Vec<ReligionOption>, "each entry: action (choose_deity, choose_cult, add_aspect, remove_aspect, choose_blessing, enable_fervor, disable_fervor, harmonize, stop_harmonizing, commission_icon, consecrate_metropolitan, pass_reform, reform_religion, invite_scholar, establish_holy_order, choose_secondary_religion or select_teaching), key, name, current, province, can, reasons, cost";
 
     /// Follows a personal deity, as the view's button for it does; it
     /// lasts until the monarch changes. `rejected` with the game's reasons
@@ -194,6 +198,24 @@ group! {
         /// A province of the state.
         province: ProvinceId,
     } -> (), "null once the order is established";
+
+    /// Takes a religion as the player's secondary one (Tengri's syncretic
+    /// faith), as the religion view's convert button does, in place of the
+    /// one it has. `not_found` for a key that names no religion the view
+    /// offers now (those `religion.options` lists to choose).
+    game ChooseSecondaryReligion "choose_secondary_religion" {
+        /// The religion's content key, such as `sunni`.
+        religion: String,
+    } -> (), "null once the game takes it";
+
+    /// Takes one of the religion's gurus' teachings (Sikhism), paying its
+    /// cost in monarch points. `rejected` when the player has too few
+    /// points, the only thing the game's check asks; `not_found` for a key
+    /// that names no teaching of the player's religion's gurus.
+    game SelectTeaching "select_teaching" {
+        /// The teaching's content key, such as `share_and_consume`.
+        teaching: String,
+    } -> (), "null once the teaching is taken";
 }
 
 /// The defender of the faith of the player's religion, and claiming it.

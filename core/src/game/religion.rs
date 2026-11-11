@@ -210,6 +210,29 @@ const MAY_ORDER_STATE: GameFunction<3> = GameFunction::at(0xac0350);
 /// The holy order established in a state, a pointer, null for none.
 const STATE_ORDER: usize = 0x38;
 
+/// The religions a country may take as its secondary one, as the religion
+/// view lists them for its convert button: `(country, vector, 1) -> count`,
+/// pushing each into a `std::vector` of pointers the game grows; none when
+/// the country's religion has no secondary one.
+const SECONDARY_CANDIDATES: GameFunction<3> = GameFunction::at(0x36dfa0);
+/// The tokens of the convert command's religion and of its flag, yes for a
+/// secondary religion, which the view's button sets so for the list above.
+const RELIGION_TOKEN: u32 = 0x283e;
+const SECONDARY_TOKEN: u32 = 0x327f;
+
+/// A religion's gurus (Sikhism), the game's own array of pointers; a
+/// guru's teachings, another; a teaching's key, a `std::string`, and the
+/// kind of monarch power it costs (0 administrative, 1 diplomatic, 2
+/// military), as the teaching lookup (`0xa7ff50`) and the select command's
+/// check read them.
+const RELIGION_GURUS: usize = 0x7e0;
+const GURU_TEACHINGS: usize = 0x1a8;
+const TEACHING_KEY: usize = 0x158;
+const TEACHING_POWER: usize = 0x178;
+/// A teaching's cost to a country, in whole points: `(teaching, country)
+/// -> i32`.
+const TEACHING_COST: GameFunction<2> = GameFunction::at(0x7dc7f0);
+
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(0x7e691ausize, "48 8b 05 87 53 c4 01 48 85 c0", "personal deities database").uses(&[DEITIES]),
@@ -328,6 +351,27 @@ pub fn points() -> Vec<Point> {
         Point::keep(0xab2b0dusize, "49 83 7e 38 00", "state's holy order").uses(&[STATE_ORDER]),
         Point::keep(MAY_ORDER_STATE, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 57 48 83 ec 60 49 8b f8 48 8b da 48 8b e9", "may establish holy order in state"),
         Point::keep(0xc0f69usize, "ba a9 2a 00 00", "holy order command's members"),
+        // The secondary religion: the view's list, as its builder asks it;
+        // the country's secondary religion, as the list reads it; the
+        // convert command's keys, as its writer writes them.
+        Point::keep(0xfeb879usize, "41 b0 01 48 8d 95 a0 01 00 00 48 8b 0c c8 e8 14 27 38 ff", "secondary religions' list"),
+        Point::keep(SECONDARY_CANDIDATES, "48 89 5c 24 10 55 56 57 41 54 41 55 41 56 41 57 48 83 ec 50 45 0f b6 e8", "secondary religion candidates"),
+        Point::keep(0x36dfe0usize, "49 8b 8e 38 0f 00 00", "country's secondary religion").uses(&[country::SECONDARY_RELIGION]),
+        Point::keep(0xaad702usize, "ba 3e 28 00 00", "convert command's religion"),
+        Point::keep(0xaad725usize, "ba 7f 32 00 00", "convert command's secondary flag"),
+        // The gurus' teachings: the religion's gurus, a guru's teachings and
+        // a teaching's key, as the lookup reads them; its power, its cost
+        // and the country's points, as the select command's check reads
+        // them; the country's teachings, as its execute adds to them.
+        Point::keep(0xa7ff6cusize, "4c 8b b9 e8 07 00 00", "religion's gurus").uses(&[RELIGION_GURUS + containers::ARRAY_DATA]),
+        Point::keep(0xa7ff76usize, "48 63 81 f4 07 00 00", "religion's gurus' count").uses(&[RELIGION_GURUS + containers::ARRAY_COUNT]),
+        Point::keep(0xa7ff95usize, "44 8b b7 bc 01 00 00", "guru's teachings' count").uses(&[GURU_TEACHINGS + containers::ARRAY_COUNT]),
+        Point::keep(0xa7ffa9usize, "48 8b bf b0 01 00 00", "guru's teachings").uses(&[GURU_TEACHINGS + containers::ARRAY_DATA]),
+        Point::keep(0xa7ffb6usize, "48 8d 8d 58 01 00 00", "teaching key").uses(&[TEACHING_KEY]),
+        Point::keep(0xc3d4cusize, "48 63 80 78 01 00 00", "teaching's power").uses(&[TEACHING_POWER]),
+        Point::keep(0xc3d5busize, "8b 9c 87 60 02 00 00", "country's points for a teaching").uses(&[country::POWER]),
+        Point::keep(TEACHING_COST, "40 53 48 83 ec 20 48 8b d9 48 8d 8a c0 28 00 00", "teaching's cost"),
+        Point::keep(0xc3db8usize, "48 8d 8f a8 9a 00 00", "country's teachings").uses(&[country::TEACHINGS]),
     ]
 }
 
@@ -500,7 +544,96 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<ReligionOption>> 
     for (key, order) in holy_orders(m)? {
         out.push(option(m, "establish_holy_order", key, false, order_choice(m, ctx.player, ctx.country, order)?)?);
     }
+    let taken = teachings_taken(m, ctx.country)?;
+    for teaching in teachings(m, ctx.country)? {
+        let key = game_string::key(m, teaching + TEACHING_KEY)?;
+        let current = taken.contains(&teaching);
+        let choice = if current { Choice::can(Vec::new()) } else { teaching_choice(m, ctx.country, teaching)? };
+        out.push(option(m, "select_teaching", key, current, choice)?);
+    }
+    let secondary = m.ptr(ctx.country + country::SECONDARY_RELIGION)?;
+    for religion in secondary_candidates(m, ctx.country)? {
+        out.push(option(m, "choose_secondary_religion", religion_key(m, religion)?, religion == secondary, Choice::can(Vec::new()))?);
+    }
     Ok(out)
+}
+
+/// The religions the country may take as its secondary one, as the view
+/// lists them; none when its religion has no secondary one.
+fn secondary_candidates(m: &Memory, country: usize) -> GResult<Vec<usize>> {
+    let mut vector = [0usize; 3];
+    SECONDARY_CANDIDATES.call(m, [country, vector.as_mut_ptr() as usize, 1])?;
+    let read = (|| {
+        let count = containers::span(vector[0], vector[1], 8, containers::MOST)?;
+        (0..count).map(|i| m.ptr(vector[0] + i * 8)).collect::<Result<Vec<_>, _>>()
+    })();
+    if vector[0] != 0 {
+        crate::game_heap::free_vector(m, vector)?;
+    }
+    Ok(read?)
+}
+
+/// The convert command for a secondary religion: the country, the
+/// religion by its key and the flag, its keys the game's tokens' names.
+fn secondary_text(m: &Memory, country: Tag, religion: usize) -> GResult<String> {
+    let name = |token: u32| super::commands::type_name(m, token).ok_or_else(|| format!("no token {token:#x}"));
+    Ok(format!("convert_to_religion={{ country=\"{}\" {}={} {}=yes }}", content::letters(country), name(RELIGION_TOKEN)?, religion_key(m, religion)?, name(SECONDARY_TOKEN)?))
+}
+
+/// The teachings of the country's religion's gurus, guru by guru, none for
+/// a religion without gurus.
+fn teachings(m: &Memory, country: usize) -> GResult<Vec<usize>> {
+    let religion = religion(m, country)?;
+    if religion == 0 {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for guru in containers::array(m, religion + RELIGION_GURUS, containers::MOST)? {
+        out.extend(containers::array(m, guru + GURU_TEACHINGS, containers::MOST)?);
+    }
+    Ok(out)
+}
+
+fn teachings_taken(m: &Memory, country: usize) -> GResult<Vec<usize>> {
+    Ok(containers::array(m, country + country::TEACHINGS, containers::MOST)?)
+}
+
+/// Whether the country may take `teaching` now, as the select command's
+/// check asks: enough points of its kind; with its cost.
+fn teaching_choice(m: &Memory, country: usize, teaching: usize) -> GResult<Choice> {
+    let power = match m.i32(teaching + TEACHING_POWER)? {
+        1 => PowerKind::Dip,
+        2 => PowerKind::Mil,
+        _ => PowerKind::Adm,
+    };
+    let points = TEACHING_COST.call(m, [teaching, country])? as i32;
+    let cost = vec![Amount::new(power.resource(), f64::from(points))];
+    let have = power::points_of(m, country, power)?;
+    Ok(if have >= points { Choice::can(cost) } else { Choice::cannot(vec![format!("taking it takes {points} points, and the player has {have}")], cost) })
+}
+
+/// Takes a teaching of the player's religion's gurus.
+pub fn select_teaching(Session { m, ctx, commands, .. }: Session, args::SelectTeaching { teaching: key }: args::SelectTeaching) -> GResult<()> {
+    let teachings = teachings(m, ctx.country)?;
+    if teachings.is_empty() {
+        return Err(checks::not_of_religion("gurus' teachings"));
+    }
+    let teaching = find(m, teachings, TEACHING_KEY, "teaching", &key)?;
+    if teachings_taken(m, ctx.country)?.contains(&teaching) {
+        return Err(content::checks::not_now("the player has taken this teaching already"));
+    }
+    let text = format!("select_teaching={{ members={{ dummy=\"{}\" dummy=\"{key}\" }} }}", content::letters(ctx.player));
+    action::carry_out(commands, &teaching_choice(m, ctx.country, teaching)?, "take this teaching", || Ok(text))
+}
+
+/// Takes a religion as the player's secondary one.
+pub fn choose_secondary_religion(Session { m, ctx, commands, .. }: Session, args::ChooseSecondaryReligion { religion: key }: args::ChooseSecondaryReligion) -> GResult<()> {
+    for religion in secondary_candidates(m, ctx.country)? {
+        if religion_key(m, religion)? == key {
+            return action::carry_out(commands, &Choice::can(Vec::new()), "take this religion as the secondary one", || secondary_text(m, ctx.player, religion));
+        }
+    }
+    Err(content::checks::not_found("secondary religion", &key))
 }
 
 /// The Islamic schools of the country's religion's group, none for a group
@@ -1113,6 +1246,8 @@ crate::catalogue::bind! {
     CommissionIcon => commission_icon;
     InviteScholar => invite_scholar;
     EstablishHolyOrder => establish_holy_order;
+    ChooseSecondaryReligion => choose_secondary_religion;
+    SelectTeaching => select_teaching;
     ConsecrateMetropolitan => consecrate_metropolitan;
     Harmonize => harmonize;
     StopHarmonizing => stop_harmonizing;
