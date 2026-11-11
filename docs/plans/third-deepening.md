@@ -1,6 +1,6 @@
 # Third deepening plan
 
-Status: decided (2026-11-11) from an architecture review of the parts changed most since the [second deepening](second-deepening.md). The development tools declared once, as the speed-ups are, was set aside: each tool's options are a type of their own, and the places a tool is called from are the moments it needs; one table of moments for them would be a seam with one adapter.
+Status: decided (2026-11-11) from an architecture review of the parts changed most since the [second deepening](second-deepening.md), and built the same day, every part; tried together in the game ([prototype-log/2026-11-11-the-third-deepening.md](../prototype-log/2026-11-11-the-third-deepening.md)). F3 left the entry buttons' placing in `windows/live.rs`, which skip a method they do not know rather than refuse it; F5 left the walks that let go of what they walk (the allies to take a province, the outliner's entries, the message windows) and the route's strict read. The development tools declared once, as the speed-ups are, was set aside: each tool's options are a type of their own, and the places a tool is called from are the moments it needs; one table of moments for them would be a seam with one adapter.
 
 ## Goal and scope
 
