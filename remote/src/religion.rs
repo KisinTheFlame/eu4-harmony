@@ -70,6 +70,32 @@ group! {
         /// The blessing's content key, such as `legitimize_government`.
         blessing: String,
     } -> (), "null once the game has taken it";
+
+    /// The defender of the faith of the player's religion, as the religion
+    /// view shows it: the country that defends it now, if any, and what
+    /// the view's button to claim it offers, with whether the player can,
+    /// why not in the game's words (a religion with no defender, technology,
+    /// money, a subject, a regency, a ruler who may not, the player already
+    /// the defender, too little prestige against the one who is) and its
+    /// cost in ducats.
+    game DefenderOfTheFaith "defender_of_the_faith" {} -> DefenderOfTheFaith, "defender (a country or null), can, reasons, cost";
+
+    /// Claims to be the defender of the faith of the player's religion, as
+    /// the religion view's button does, paying its cost in ducats.
+    /// `rejected` with the game's reasons when the player cannot now, as
+    /// `religion.defender_of_the_faith` says beforehand.
+    game ClaimDefenderOfTheFaith "claim_defender_of_the_faith" {} -> (), "null once the player defends it";
+}
+
+/// The defender of the faith of the player's religion, and claiming it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct DefenderOfTheFaith {
+    /// The country that defends the player's religion now; none while no
+    /// country does.
+    pub defender: Option<crate::CountryTag>,
+    /// Whether the player can claim it now, why not, and what it costs.
+    #[serde(flatten)]
+    pub choice: Choice,
 }
 
 /// A deity, a cult, an aspect or a blessing the religion view offers.

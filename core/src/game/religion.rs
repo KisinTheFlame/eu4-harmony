@@ -360,6 +360,8 @@ crate::catalogue::bind! {
     AddAspect => add_aspect;
     RemoveAspect => remove_aspect;
     ChooseBlessing => choose_blessing;
+    DefenderOfTheFaith => super::faith::defender;
+    ClaimDefenderOfTheFaith => super::faith::claim;
 }
 
 #[cfg(test)]
