@@ -5,6 +5,11 @@
 //! game's own setup (its file system, the user directory) waits for the game's
 //! first `PHYSFS_init`, on the game thread. When startup fails nothing is
 //! hooked; a thread of its own writes the report and tells the player.
+// The catalogue's groups are read one line at a time (`groups!`), each line
+// a level deeper, and the groups' own files are declared inside it: a deep
+// `json!` in their tests counts every level, past the default 128 once the
+// catalogue has some 60 groups.
+#![recursion_limit = "256"]
 pub type Result<T> = std::result::Result<T, String>;
 
 /// Marks a function the game's code calls, which runs under [`guarded`].
