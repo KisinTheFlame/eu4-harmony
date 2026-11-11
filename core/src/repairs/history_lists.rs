@@ -27,10 +27,9 @@ const EMPTY_LIST: usize = 0x7e7f20;
 const FIRST_EMPTIED: [usize; 3] = [0x2e37de, 0x2cc06b, 0x463795];
 /// The second history, from the first.
 const SECOND: usize = 0x40;
-/// A history's list, and in it each node's object, the next node and
-/// whether the node was taken out, its object deleted.
+/// A history's list, a [`crate::objects::list`] of objects, a node taken
+/// out marked removed, its object deleted.
 const LIST: usize = 0x20;
-use crate::objects::list::{ITEM as NODE_OBJECT, NEXT as NODE_NEXT, REMOVED as NODE_REMOVED};
 /// At most this many objects are followed under one history, against a
 /// list that loops.
 const MOST: usize = 1 << 20;
@@ -55,16 +54,7 @@ fn since_reset() -> String {
 
 /// What a history lists, the nodes taken out left out.
 fn listed(m: &Memory, history: usize) -> crate::Result<Vec<usize>> {
-    let mut objects = Vec::new();
-    let mut node = m.ptr(history + LIST)?;
-    while node != 0 && objects.len() < MOST {
-        let object = m.ptr(node + NODE_OBJECT)?;
-        if object != 0 && m.u8(node + NODE_REMOVED)? == 0 {
-            objects.push(object);
-        }
-        node = m.ptr(node + NODE_NEXT)?;
-    }
-    Ok(objects)
+    crate::containers::items(m, history + LIST, MOST)
 }
 
 /// Everything under `objects`, at any depth, not counting them.
@@ -146,9 +136,10 @@ pub(super) fn points() -> Vec<Point> {
         Point::keep(0x2cc09eusize, "48 8d 8b e8 11 00 00", "country second history emptied"),
         Point::keep(0x463789usize, "49 8d 8e a8 11 00 00 e8 8b 47 38 00 49 8b 8e 08 12 00 00", "country histories set again"),
         Point::keep(0x4637bfusize, "49 8d 8e e8 11 00 00", "country second history set again"),
-        // A history's destructor deletes what its list holds (LIST, NODE_OBJECT, NODE_NEXT).
+        // A history's destructor deletes what its list holds (LIST, the
+        // list's ITEM and NEXT).
         Point::keep(0x7e7c10usize, "48 89 5c 24 08 57 48 83 ec 20 48 8b 41 20 48 8b f9 48 85 c0 74 28", "history list destructor"),
-        // Taking a node out with the list kept marks it (NODE_REMOVED).
+        // Taking a node out with the list kept marks it (the list's REMOVED).
         Point::keep(0x7e930busize, "c6 43 18 01", "history list node marked taken out"),
     ]
 }

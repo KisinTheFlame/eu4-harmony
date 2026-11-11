@@ -20,7 +20,7 @@ use crate::containers;
 use crate::{
     hooks::Call,
     memory::Memory,
-    objects::campaign::{battle, list, side, unit, world},
+    objects::campaign::{battle, side, unit, world},
     points::Point,
     Result,
 };
@@ -346,21 +346,14 @@ fn defeat_before(call: &mut Call) {
         if !(0..=1024).contains(&count) {
             return Err("defeated side roster bound".into());
         }
-        let mut node = m.ptr(a[2] + side::UNITS)?;
-        let mut seen = BTreeSet::new();
         let mut ids = Vec::new();
-        while node != 0 {
-            if seen.len() >= count as usize || !seen.insert(node) {
-                return Err("defeated side roster cycle".into());
-            }
-            let army = m.ptr(node + list::ITEM)?;
+        for army in containers::items(m, a[2] + side::UNITS, count as usize)? {
             if !army::is_army(m, army).map_err(|e| e.message)? {
                 return Ok(Vec::new());
             }
             if Tag(m.u64(army + unit::OWNER)?) == player {
                 ids.push(m.u64(army + unit::ID)?);
             }
-            node = m.ptr(node + list::NEXT)?;
         }
         Ok(ids)
     })();
