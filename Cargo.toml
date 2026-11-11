@@ -22,6 +22,11 @@ mlua = { version = "=0.11.6", features = ["lua54", "vendored", "serialize"] }
 reqwest = { version = "=0.13.5", default-features = false, features = ["native-tls", "system-proxy"] }
 tokio = { version = "=1.54.1", default-features = false, features = ["rt"] }
 
+# MSVC's linker says which import library it made for each DLL, in the
+# system's language; that is no warning of ours.
+[workspace.lints.rust]
+linker_messages = "allow"
+
 # Where the code is right as it is, #[expect(..., reason = "...")] says why
 # (AGENTS.md): an #[allow] is refused, as is an #[expect] with no reason.
 [workspace.lints.clippy]

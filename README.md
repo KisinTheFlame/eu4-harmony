@@ -144,10 +144,10 @@ The game is found through `EU4_GAME_DIR` or Steam. To try the build in the game,
 
 ```powershell
 cargo build --release --features eu4-harmony-core/dev-test-games
-cargo xtask game claim --purpose "try my change"
-cargo xtask game start     # start the test game, hidden, with this build
-eu4-harmony game --test-game <this checkout's folder name> session get
-cargo xtask game release   # keep its logs, remove the rest
+cargo xtask game claim --owner mine --purpose "try my change"
+cargo xtask game start --owner mine     # start the test game, hidden, with this build
+eu4-harmony game --test-game mine session get
+cargo xtask game release --owner mine   # keep its logs, remove the rest
 ```
 
 The framework takes the game's own `-userdir` for the user folder, as the game does.
