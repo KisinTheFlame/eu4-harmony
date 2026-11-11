@@ -3,6 +3,7 @@
 //! `dev.toml`, its sources. None of them is among the player's files, which
 //! `release` packs; what is useful without the repository is a command of
 //! the command line tool, `cli/`.
+mod addresses;
 mod claim;
 mod crash_dump;
 mod files;
@@ -76,6 +77,15 @@ usage:
       Reads the installed game's code (core/examples/disasm.rs, whose
       arguments docs/dev-tools.md describes), with EU4_GAME_DIR set to the
       game folder.
+  cargo xtask addresses
+      Writes docs/research/addresses.toml again from the research notes and
+      the game's pages: every address of eu4.exe they name, with the notes
+      that name it, each name kept, and its kind (a function begins there,
+      code inside one, data) from the game's eu4.exe when it is found
+      (docs/plans/address-index.md).
+  cargo xtask what <rva>
+      The index's entry of an address, and of the function it is in, and each
+      line of the notes, the game's pages and the code that names either.
   cargo xtask offline-check
       Compares every dependency point's bytes with the game's eu4.exe, and
       checks that each observer forwards at least the arguments its function
@@ -257,6 +267,15 @@ fn main() {
                 rest,
                 "the offline checks of the developer build",
             )
+        }),
+        Some("addresses") => Args::parse(rest, &[], &[]).and_then(|_| addresses::update(&repo())),
+        Some("what") => Args::parse(rest, &[], &[]).and_then(|a| match a.positional.as_slice() {
+            [rva] => addresses::what(&repo(), rva),
+            _ => Err(format!(
+                "what takes one address
+
+{USAGE}"
+            )),
         }),
         Some("scenario") => scenario::run(rest),
         Some("profile") => Args::parse(rest, &["tree", "wait", "threads"], &["seconds", "hz", "slice", "root", "depth", "min", "waiting-in", "test-game"])
