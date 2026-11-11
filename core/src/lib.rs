@@ -248,7 +248,7 @@ fn build() -> String {
 /// The report's first lines: this core, and the game folder when it is known;
 /// in a developer build, its tools' options.
 fn report_header(game_dir: Option<&std::path::Path>) {
-    report::line(format!("EU4 Harmony core {}{}, started {}", env!("CARGO_PKG_VERSION"), build(), log::now()));
+    report::line(format!("Harmony {}{}, started {}", env!("CARGO_PKG_VERSION"), build(), log::now()));
     if let Some(dir) = game_dir {
         report::line(format!("game: {}", dir.display()));
     }

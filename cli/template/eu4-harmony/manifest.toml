@@ -1,4 +1,4 @@
-# What EU4 Harmony cannot tell from where this mod's files are
+# What Harmony cannot tell from where this mod's files are
 # (ADR manifest-in-toml-layout-by-convention): its extension is lua/main.lua,
 # its interface fragments are in ui/.
 id = "template-mod"

@@ -122,7 +122,7 @@ fn game_capabilities() -> Vec<Capability> {
 /// The definitions file.
 pub fn definitions() -> String {
     let mut out = format!(
-        "---@meta\n-- EU4 Harmony, capability catalogue {API_VERSION}: what a mod's Lua has.\n-- Written by eu4-harmony types; it writes them again for its version. Do not edit.\n\n{CLASSES}\n"
+        "---@meta\n-- Harmony, capability catalogue {API_VERSION}: what a mod's Lua has.\n-- Written by eu4-harmony types; it writes them again for its version. Do not edit.\n\n{CLASSES}\n"
     );
     handlers(&mut out);
     results(&mut out);

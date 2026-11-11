@@ -3,4 +3,4 @@ tags={
 	"Gameplay"
 }
 name="Template Mod"
-supported_version="v1.37.*"
+supported_version="v1.37.5"
