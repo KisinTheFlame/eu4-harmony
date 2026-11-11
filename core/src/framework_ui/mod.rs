@@ -15,7 +15,6 @@ pub mod text;
 pub mod widgets;
 
 use crate::settings::{self, Page, Role, Settings, Shows};
-use crate::speed::Pace;
 use crate::unicode::system_font::SystemFonts;
 use crate::{lang, loc};
 use fonts_page::{FontSystem, FontsPage};
@@ -111,14 +110,6 @@ fn setting_widgets(page: Page, shown: &Settings, words: &dyn Fn(&str) -> String)
     for setting in settings::SETTINGS.iter().filter(|s| s.page == page) {
         match setting.shows {
             Shows::Toggle { label, field } => out.push(Widget::Toggle { id: setting.key, label: words(label), on: (field.get)(shown) }),
-            Shows::Pace { label, info, field } => {
-                out.push(Widget::Explained { label: words(label), info: words(info) });
-                out.push(Widget::Choice {
-                    id: setting.key,
-                    options: Pace::ALL.iter().map(|p| words(p.label())).collect(),
-                    selected: Pace::ALL.iter().position(|&p| p == (field.get)(shown)).unwrap_or(0),
-                });
-            }
         }
     }
     out
@@ -143,11 +134,6 @@ fn read_back(w: &Window, chosen: &mut Settings) {
             Shows::Toggle { field, .. } => {
                 if let Some(on) = w.is_on(setting.key) {
                     (field.set)(chosen, on);
-                }
-            }
-            Shows::Pace { field, .. } => {
-                if let Some(&pace) = w.selected(setting.key).and_then(|i| Pace::ALL.get(i)) {
-                    (field.set)(chosen, pace);
                 }
             }
         }
@@ -412,6 +398,11 @@ pub fn let_go() -> u64 {
     HELD.swap(0, Ordering::Relaxed)
 }
 
+/// Whether frames are held back now, without counting one.
+pub fn holding() -> bool {
+    HOLDING.load(Ordering::Relaxed)
+}
+
 /// Whether the frame the main thread presents now is held back.
 fn held() -> bool {
     let holding = HOLDING.load(Ordering::Relaxed);
@@ -519,9 +510,7 @@ mod tests {
             assert_eq!(on, [setting.page], "{}", setting.key);
             assert_eq!(pages.iter().flat_map(|w| ids(w)).filter(|id| *id == setting.key).count(), 1, "{}", setting.key);
         }
-        // The pace shows under its label with an info mark; a page's note
-        // comes after its settings.
-        assert!(matches!(&pages[3][..], [Widget::Explained { .. }, Widget::Choice { .. }]));
+        // A page's note comes after its settings.
         assert!(matches!(pages[1].last(), Some(Widget::Label(note)) if note == "EU4HARMONY_SETTINGS_UNDO"));
     }
 

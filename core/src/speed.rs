@@ -16,10 +16,7 @@ use crate::points::Point;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
-pub mod pace;
 pub mod pops;
-
-pub use pace::{set_pace, Pace};
 
 /// One speed-up.
 pub struct SpeedUp {
@@ -37,7 +34,7 @@ pub struct SpeedUp {
 /// Every speed-up, in the order the report names them.
 pub static ALL: [&SpeedUp; 14] = [
     &pops::SPEED_UP,
-    &pace::SPEED_UP,
+    &crate::drawing::SPEED_UP,
     &crate::loading::music::SPEED_UP,
     &crate::loading::lookups::SPEED_UP,
     &crate::loading::children::SPEED_UP,
@@ -252,7 +249,7 @@ mod tests {
         let chosen = Chosen::of(&strings(&["frames"]), &strings(&["army-searches"])).unwrap();
         assert_eq!(
             lines(chosen),
-            ["speed-ups left to the game: pops-polling, fastest-pace, modifier-sums", "speed-ups checked against the game: army-searches"]
+            ["speed-ups left to the game: pops-polling, drawing-thread, modifier-sums", "speed-ups checked against the game: army-searches"]
         );
     }
 

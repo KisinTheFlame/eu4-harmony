@@ -1,7 +1,7 @@
 //! A developer build: which development tools are built in, each a feature of
 //! its own (`dev-call-trace`, `dev-memory`, `dev-heap-census`,
 //! `dev-command-log`, `dev-test-switches`, `dev-write-watch`,
-//! `dev-test-games`), and their options. A tool built in is on; its options
+//! `dev-test-games`, `dev-crossings`), and their options. A tool built in is on; its options
 //! are in `dev.toml` beside the core, `eu4-harmony\dev.toml` in the game
 //! folder or a test game's own, one section a tool, and a section left out
 //! takes its defaults (`core/dev.toml.example` shows them all). A player's
@@ -13,7 +13,7 @@ use std::sync::OnceLock;
 
 /// The tools: each one's name, its section in dev.toml, and whether it is
 /// built in.
-const TOOLS: [(&str, &str, bool); 7] = [
+const TOOLS: [(&str, &str, bool); 8] = [
     ("call trace", "call-trace", cfg!(feature = "dev-call-trace")),
     ("memory account", "memory-account", cfg!(feature = "dev-memory")),
     ("heap census", "heap-census", cfg!(feature = "dev-heap-census")),
@@ -21,6 +21,7 @@ const TOOLS: [(&str, &str, bool); 7] = [
     ("test switches", "test-switches", cfg!(feature = "dev-test-switches")),
     ("write watch", "write-watch", cfg!(feature = "dev-write-watch")),
     ("test games' pipes", "test-games", cfg!(feature = "dev-test-games")),
+    ("crossings", "crossings", cfg!(feature = "dev-crossings")),
 ];
 
 /// What dev.toml says.
@@ -34,6 +35,7 @@ pub struct Options {
     pub test_switches: TestSwitches,
     pub write_watch: WriteWatch,
     pub test_games: TestGames,
+    pub crossings: Crossings,
     /// The sections dev.toml has, to tell those of tools not built in.
     #[serde(skip)]
     sections: Vec<String>,
@@ -172,11 +174,43 @@ pub struct WriteWatch {
     /// the watch is given up, where the main thread waits logged; 0 waits for
     /// ever.
     pub give_up_after: u64,
+    /// The drawing thread's watch instead of a function's
+    /// (`write_watch::drawing`): what the game's code reads in the drawing
+    /// thread's first `drawing-frames` frames, every other thread held but
+    /// `let-run`'s, then who writes it in the next `drawing-days` days, the
+    /// main thread without the presentation lock first.
+    pub drawing: bool,
+    pub drawing_frames: usize,
+    pub drawing_days: usize,
 }
 
 impl Default for WriteWatch {
     fn default() -> Self {
-        Self { function: String::new(), calls: 1, after_days: 0, reads_before: Vec::new(), let_run: Vec::new(), give_up_after: 30 }
+        Self {
+            function: String::new(),
+            calls: 1,
+            after_days: 0,
+            reads_before: Vec::new(),
+            let_run: Vec::new(),
+            give_up_after: 30,
+            drawing: false,
+            drawing_frames: 1,
+            drawing_days: 3,
+        }
+    }
+}
+
+/// Where the day goes into the interface's or the graphics' code.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Crossings {
+    /// How many game days pass between two reports in the framework log.
+    pub report_every: usize,
+}
+
+impl Default for Crossings {
+    fn default() -> Self {
+        Self { report_every: 30 }
     }
 }
 
@@ -233,9 +267,22 @@ impl Options {
                 on(switches.grow_pages)
             ));
         }
+        if built("crossings") {
+            lines
+                .push(format!("crossings: the day's calls into the interface's and the graphics' code, a report every {} day(s)", self.crossings.report_every));
+        }
         if built("write-watch") {
             let watch = &self.write_watch;
             lines.push(match watch.function.is_empty() {
+                true if watch.drawing => format!(
+                    "write watch: the drawing thread's reads in {} frame(s){}, then their writes for {} day(s)",
+                    watch.drawing_frames,
+                    match watch.after_days {
+                        0 => String::new(),
+                        n => format!(" after {n} game days"),
+                    },
+                    watch.drawing_days
+                ),
                 true => "write watch: no function".to_string(),
                 false => format!(
                     "write watch: {}, its first {} call(s) on the main thread{}{}{}{}",
@@ -332,7 +379,7 @@ mod tests {
 
     #[test]
     fn every_option_is_read() {
-        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\ntimes = true\nfields = { \"0x15988e0\" = \"0x20\" }\n\n[heap-census]\n\n[test-switches]\nfail-startup = true\ntest-notice = true\ngame-paths = [\"saving\"]\nchecked = [\"music\", \"lookups\"]\ngame-shares-ai-draws = true\nagents-order = \"reversed\"\npost = [\"a={ }\"]\n\n[write-watch]\nfunction = \"0x74ff30\"\ncalls = 3\nafter-days = 30\nreads-before = [\"0x10a59a0\"]\nlet-run = [\"nvd3dumx.dll\"]\ngive-up-after = 10\n";
+        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\ntimes = true\nfields = { \"0x15988e0\" = \"0x20\" }\n\n[heap-census]\n\n[test-switches]\nfail-startup = true\ntest-notice = true\ngame-paths = [\"saving\"]\nchecked = [\"music\", \"lookups\"]\ngame-shares-ai-draws = true\nagents-order = \"reversed\"\npost = [\"a={ }\"]\n\n[write-watch]\nfunction = \"0x74ff30\"\ncalls = 3\nafter-days = 30\nreads-before = [\"0x10a59a0\"]\nlet-run = [\"nvd3dumx.dll\"]\ngive-up-after = 10\ndrawing = true\ndrawing-frames = 2\ndrawing-days = 5\n";
         let options = Options::parse(text).unwrap();
         assert_eq!(options.call_trace.functions, ["0x15988e0", "0x159c600:3"]);
         assert_eq!(options.call_trace.calls, 5);
@@ -352,7 +399,10 @@ mod tests {
                 after_days: 30,
                 reads_before: vec!["0x10a59a0".into()],
                 let_run: vec!["nvd3dumx.dll".into()],
-                give_up_after: 10
+                give_up_after: 10,
+                drawing: true,
+                drawing_frames: 2,
+                drawing_days: 5,
             }
         );
     }

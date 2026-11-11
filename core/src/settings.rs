@@ -13,7 +13,6 @@
 //! A font the player has not chosen follows the player language: it is the
 //! first installed of the language's [`defaults`], and is not written to the
 //! file, so that it changes with the language.
-use crate::speed::Pace;
 use crate::unicode::system_font::{Face, REGULAR};
 use eu4_harmony_loc::Language;
 use std::path::{Path, PathBuf};
@@ -52,9 +51,9 @@ pub struct Settings {
     /// Whether achievements can be earned with a game checksum (GLOSSARY)
     /// that is not vanilla's (ADR achievement-rules-can-be-relaxed).
     pub achievements_with_changed_checksum: bool,
-    /// Whether the game draws frames inside a day at the fastest speed
-    /// (docs/plans/game-speed.md, S4).
-    pub fastest_speed: Pace,
+    /// Whether the drawing thread (GLOSSARY; docs/plans/drawing-thread.md)
+    /// draws with no limit, rather than at the display's refresh rate.
+    pub drawing_unlimited: bool,
     /// Whether remote control reads the full view rather than the player's
     /// view (GLOSSARY; ADR remote-control-reads-the-players-view).
     pub remote_full_view: bool,
@@ -100,10 +99,6 @@ pub enum Shows {
     /// A toggle (GLOSSARY) with the words of `label`; `yes` or `no` in the
     /// file.
     Toggle { label: &'static str, field: Field<bool> },
-    /// The words of `label` with an info mark (GLOSSARY) showing those of
-    /// `info`, and under them a choice bar (GLOSSARY) of [`Pace::ALL`]; the
-    /// pace's name, in quotes, in the file.
-    Pace { label: &'static str, info: &'static str, field: Field<Pace> },
 }
 
 /// When a change to a [`Setting`] made in the settings window takes effect.
@@ -123,18 +118,18 @@ pub enum Effect {
 pub enum Listener {
     /// The achievement rules.
     Achievements,
-    /// The pace at the fastest speed.
-    Speed,
     /// The music's loudness.
     Sound,
+    /// The drawing thread.
+    Drawing,
 }
 
 impl Listener {
     fn tell(self, settings: &Settings) {
         match self {
             Listener::Achievements => crate::achievements::follow(settings),
-            Listener::Speed => crate::speed::set_pace(settings.fastest_speed),
             Listener::Sound => crate::sound::choose(settings),
+            Listener::Drawing => crate::drawing::set(settings.drawing_unlimited),
         }
     }
 }
@@ -213,10 +208,10 @@ pub static SETTINGS: [Setting; 9] = [
         effect: Effect::WhenSaved { tells: Some(Listener::Achievements) },
     },
     Setting {
-        key: "fastest_speed",
+        key: "drawing_unlimited",
         page: Page::GameSpeed,
-        shows: Shows::Pace { label: "EU4HARMONY_SETTINGS_FASTEST_SPEED", info: "EU4HARMONY_SETTINGS_FASTEST_SPEED_INFO", field: field!(fastest_speed) },
-        effect: Effect::WhenSaved { tells: Some(Listener::Speed) },
+        shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_DRAWING_UNLIMITED", field: field!(drawing_unlimited) },
+        effect: Effect::WhenSaved { tells: Some(Listener::Drawing) },
     },
     Setting {
         key: "remote_full_view",
@@ -243,7 +238,6 @@ impl Setting {
     fn render(&self, settings: &Settings) -> String {
         match self.shows {
             Shows::Toggle { field, .. } => if (field.get)(settings) { "yes" } else { "no" }.to_string(),
-            Shows::Pace { field, .. } => format!("\"{}\"", (field.get)(settings).name()),
         }
     }
 
@@ -256,11 +250,6 @@ impl Setting {
                     (field.set)(settings, on);
                 }
             }
-            Shows::Pace { field, .. } => {
-                if let Some(pace) = Pace::from_name(value) {
-                    (field.set)(settings, pace);
-                }
-            }
         }
     }
 
@@ -268,7 +257,6 @@ impl Setting {
     fn copy(&self, from: &Settings, to: &mut Settings) {
         match self.shows {
             Shows::Toggle { field, .. } => (field.set)(to, (field.get)(from)),
-            Shows::Pace { field, .. } => (field.set)(to, (field.get)(from)),
         }
     }
 
@@ -278,10 +266,6 @@ impl Setting {
     pub fn change(&self, settings: &mut Settings) {
         match self.shows {
             Shows::Toggle { field, .. } => (field.set)(settings, !(field.get)(settings)),
-            Shows::Pace { field, .. } => {
-                let at = Pace::ALL.iter().position(|&p| p == (field.get)(settings)).unwrap_or(0);
-                (field.set)(settings, Pace::ALL[(at + 1) % Pace::ALL.len()]);
-            }
         }
     }
 }
@@ -381,7 +365,7 @@ impl Default for Settings {
             save_ironman_before_load: true,
             achievements_outside_ironman: false,
             achievements_with_changed_checksum: false,
-            fastest_speed: Pace::Smooth,
+            drawing_unlimited: false,
             remote_full_view: false,
             music_loudness: true,
             music_leveling: false,
@@ -709,16 +693,16 @@ mod tests {
             save_ironman_before_load: false,
             achievements_outside_ironman: true,
             achievements_with_changed_checksum: true,
-            fastest_speed: Pace::Faster,
+            drawing_unlimited: true,
             remote_full_view: true,
             music_loudness: false,
             music_leveling: true,
         };
         assert_eq!(Settings::parse(&custom.render()), custom);
         assert!(custom.render().starts_with("language=\"braz_por\"\nbody_font=\"SimSun\"\nbody_weight=700\n"));
-        assert!(custom.render().ends_with("\nfastest_speed=\"faster\"\nremote_full_view=yes\nmusic_loudness=no\nmusic_leveling=yes\n"));
-        assert_eq!(Settings::parse("fastest_speed=faster").fastest_speed, Pace::Faster);
-        assert_eq!(Settings::parse("fastest_speed=\"fastest\"").fastest_speed, Pace::Smooth);
+        assert!(custom
+            .render()
+            .ends_with("\nachievements_with_changed_checksum=yes\ndrawing_unlimited=yes\nremote_full_view=yes\nmusic_loudness=no\nmusic_leveling=yes\n"));
         assert!(custom.render().contains("\nheading_font=\"Microsoft YaHei\"\nheading_weight=700\n"));
         assert!(custom.render().contains("\nconsole_font=\"Cascadia Mono\"\nconsole_weight=600\nmap_outline=no\nreturn_without_restart=no\n"));
         // Fonts not chosen are not written.
@@ -727,7 +711,7 @@ mod tests {
         // As every file written before has it.
         assert_eq!(
             following.render(),
-            "language=\"english\"\nmap_outline=yes\nreturn_without_restart=yes\nsave_ironman_before_load=yes\nachievements_outside_ironman=no\nachievements_with_changed_checksum=no\nfastest_speed=\"smooth\"\nremote_full_view=no\nmusic_loudness=yes\nmusic_leveling=no\n"
+            "language=\"english\"\nmap_outline=yes\nreturn_without_restart=yes\nsave_ironman_before_load=yes\nachievements_outside_ironman=no\nachievements_with_changed_checksum=no\ndrawing_unlimited=no\nremote_full_view=no\nmusic_loudness=yes\nmusic_leveling=no\n"
         );
         assert!(!following.render().contains("_font"));
         assert_eq!(Settings::parse(&following.render()), following);
@@ -860,7 +844,7 @@ mod tests {
         current.take_immediate(&Settings { language: Some(Language::German), body_font: Some(Face::regular("SimSun")), ..Settings::default() });
         assert_eq!(current, Settings::default());
         // Each part is told once.
-        assert_eq!(listeners(), [Listener::Achievements, Listener::Speed, Listener::Sound]);
+        assert_eq!(listeners(), [Listener::Achievements, Listener::Drawing, Listener::Sound]);
     }
 
     #[test]

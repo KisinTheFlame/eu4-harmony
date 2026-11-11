@@ -46,7 +46,7 @@ const OPEN_GIVEN: usize = 0x17183b3;
 /// The global that holds the address of the game's lock, a byte, and the spin
 /// lock that takes it.
 const OPEN_LOCK: usize = 0x242b9c0;
-const SPIN: usize = 0x1581820;
+pub(crate) const SPIN: usize = 0x1581820;
 /// PhysFS's lock (a critical section's address) and its platform's grab and
 /// release of a mutex, which every PhysFS mutex goes through.
 const STATE_LOCK: usize = 0x2339238;

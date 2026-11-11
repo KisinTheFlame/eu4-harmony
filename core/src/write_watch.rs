@@ -36,6 +36,8 @@
 //! a held thread has: the census takes one at every allocation, so build the
 //! watch without it. The game runs many times slower while watched: the watch
 //! is for finding out, not for play.
+pub mod drawing;
+
 use crate::analysis;
 use crate::called_by_game;
 use crate::hooks::Call;
@@ -80,6 +82,14 @@ const RANGES_RESERVED: usize = 1 << 28;
 const SEEN: usize = 1 << 23;
 /// The function whose writes are watched and those of `reads-before`.
 const FUNCTIONS: usize = 9;
+/// The pages the drawing's reads have stopped on, and how often: an open
+/// table of the page with its count in the low bits.
+const PAGES: usize = 1 << 22;
+/// The stops on one page after which the drawing's reads go on there
+/// unwatched: a frame reads the same pages over and over, and each read
+/// stopped would make a frame take an hour; the blocks read first on a page
+/// are kept.
+const PAGE_STOPS: u64 = 32;
 /// No function is being watched.
 const NONE: usize = usize::MAX;
 /// What a reading call's report lists of its groups, and a marking call's of
@@ -92,6 +102,12 @@ const NEW: u8 = 2;
 
 const READ: u8 = 0;
 const WRITE: u8 = 1;
+
+/// Who wrote, in [`drawing`]'s second part.
+const OTHER_THREAD: u8 = 0;
+const MAIN_LOCKED: u8 = 1;
+const MAIN_UNLOCKED: u8 = 2;
+const DRAWING_THREAD: u8 = 3;
 
 #[repr(C)]
 struct Group {
@@ -142,6 +158,8 @@ struct Arena {
     /// The blocks' starts and the statics' eight bytes the round's reading
     /// calls read or wrote, an open table.
     seen: *mut AtomicU64,
+    /// [`PAGES`].
+    pages: *mut AtomicU64,
 }
 unsafe impl Send for Arena {}
 unsafe impl Sync for Arena {}
@@ -182,6 +200,11 @@ static READ_DONE: AtomicU64 = AtomicU64::new(0);
 static READS_ON: AtomicBool = AtomicBool::new(false);
 /// Writes to what was read before are marked.
 static MARK: AtomicBool = AtomicBool::new(false);
+/// Only what `eu4.exe`'s own code reads is kept (the drawing's watch).
+static GAME_READS_ONLY: AtomicBool = AtomicBool::new(false);
+/// Only writes to what was read before are recorded, by who wrote them
+/// ([`drawing`]'s second part).
+static WHO_WROTE: AtomicBool = AtomicBool::new(false);
 static PROTECTION: AtomicU32 = AtomicU32::new(PAGE_READONLY);
 static SEEN_COUNT: AtomicUsize = AtomicUsize::new(0);
 static SEEN_FULL: AtomicU64 = AtomicU64::new(0);
@@ -316,10 +339,11 @@ fn arena() -> Option<&'static Arena> {
     let blocks = reserve(BLOCKS_RESERVED, false) as *mut Block;
     let ranges = reserve(RANGES_RESERVED, false) as *mut Range;
     let seen = reserve(SEEN * std::mem::size_of::<AtomicU64>(), true) as *mut AtomicU64;
-    if held.is_null() || groups.is_null() || pending.is_null() || blocks.is_null() || ranges.is_null() || seen.is_null() {
+    let pages = reserve(PAGES * std::mem::size_of::<AtomicU64>(), true) as *mut AtomicU64;
+    if held.is_null() || groups.is_null() || pending.is_null() || blocks.is_null() || ranges.is_null() || seen.is_null() || pages.is_null() {
         return None;
     }
-    let _ = ARENA.set(Arena { held, groups, pending, blocks, ranges, seen });
+    let _ = ARENA.set(Arena { held, groups, pending, blocks, ranges, seen, pages });
     ARENA.get()
 }
 
@@ -405,14 +429,25 @@ impl Ranges<'_> {
 /// The pages to make read-only: those of the blocks and the image's
 /// writable sections, merged, and of them the committed ones that are
 /// writable now, each with its protection; but not the `kept` pages, sorted,
-/// which the exception's own dispatch writes to.
-fn take_ranges(a: &Arena, m: &Memory, kept: &[usize]) -> Result<usize, String> {
+/// which the exception's own dispatch writes to. With `only_seen`, only the
+/// pages of the eight bytes the table of what was read holds.
+fn take_ranges(a: &Arena, m: &Memory, kept: &[usize], only_seen: bool) -> Result<usize, String> {
     let mut pages: Vec<(usize, usize)> = Vec::new();
+    if only_seen {
+        for i in 0..SEEN {
+            let key = unsafe { &*a.seen.add(i) }.load(Ordering::Relaxed) as usize;
+            if key != 0 {
+                pages.push((key & !(PAGE - 1), (key & !(PAGE - 1)) + PAGE));
+            }
+        }
+        pages.sort_unstable();
+        pages.dedup();
+    }
     let image = unsafe { analysis::loaded(m.base) };
     let pe = u32::from_le_bytes(image[0x3c..0x40].try_into().unwrap()) as usize;
     let sections = u16::from_le_bytes(image[pe + 6..pe + 8].try_into().unwrap()) as usize;
     let table = pe + 24 + u16::from_le_bytes(image[pe + 20..pe + 22].try_into().unwrap()) as usize;
-    for s in 0..sections {
+    for s in (0..sections).filter(|_| !only_seen) {
         let at = table + 40 * s;
         let size = u32::from_le_bytes(image[at + 8..at + 12].try_into().unwrap()) as usize;
         let rva = u32::from_le_bytes(image[at + 12..at + 16].try_into().unwrap()) as usize;
@@ -423,7 +458,7 @@ fn take_ranges(a: &Arena, m: &Memory, kept: &[usize]) -> Result<usize, String> {
         }
     }
     let mut last: Option<(usize, usize)> = None;
-    for b in blocks(a) {
+    for b in blocks(a).iter().filter(|_| !only_seen) {
         let (start, end) = (b.start & !(PAGE - 1), (b.start + b.size).next_multiple_of(PAGE));
         last = match last {
             Some((s, e)) if start <= e => Some((s, e.max(end))),
@@ -471,6 +506,27 @@ fn pending(a: &Arena, thread: u32) -> Option<&'static Pending> {
         }
     }
     None
+}
+
+/// Counts a stop on `page`; whether it is the page's last watched one.
+fn page_done(a: &Arena, page: usize) -> bool {
+    let key = page as u64;
+    let start = ((key >> 12).wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 42) as usize % PAGES;
+    for i in 0..64 {
+        let slot = unsafe { &*a.pages.add((start + i) % PAGES) };
+        let v = slot.load(Ordering::Relaxed);
+        if v == 0 {
+            if slot.compare_exchange(0, key | 1, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+                return false;
+            }
+            continue;
+        }
+        if v & !0xfff == key {
+            let n = slot.fetch_add(1, Ordering::Relaxed) & 0xfff;
+            return n + 1 >= PAGE_STOPS;
+        }
+    }
+    false
 }
 
 fn protect(page: usize, protection: u32) {
@@ -556,7 +612,12 @@ fn record(a: &Arena, context: &CONTEXT, address: usize, thread: u32, kind: u8) {
     };
     // What a reading call keeps of what it touched, and a marking call
     // looks for: a block by its start, `eu4.exe`'s data by its eight bytes.
+    // The drawing's watch keeps the eight bytes read wherever they are: a
+    // block it reads may be an array of all the provinces, which the day
+    // writes all over.
+    let by_word = GAME_READS_ONLY.load(Ordering::Relaxed) || WHO_WROTE.load(Ordering::Relaxed);
     let what = match block {
+        _ if by_word => address as u64 & !7,
         Some(b) => b.start as u64,
         None if class == STATIC => address as u64 & !7,
         None => 0,
@@ -564,13 +625,34 @@ fn record(a: &Arena, context: &CONTEXT, address: usize, thread: u32, kind: u8) {
     let mut seen = 0u8;
     if what != 0 {
         if READS_ON.load(Ordering::Relaxed) {
-            see(a, what);
+            let by_game = (base as u64..IMAGE_END.load(Ordering::Relaxed) as u64).contains(&context.Rip);
+            if by_game || !GAME_READS_ONLY.load(Ordering::Relaxed) {
+                see(a, what);
+            }
         } else if MARK.load(Ordering::Relaxed) && was_seen(a, what) {
             seen = 1;
             MARKED.fetch_add(1, Ordering::Relaxed);
         }
     }
-    let main = (thread == MAIN.load(Ordering::Relaxed)) as u8;
+    let who_wrote = WHO_WROTE.load(Ordering::Relaxed);
+    if who_wrote && seen == 0 {
+        return;
+    }
+    let main = if who_wrote {
+        if thread == MAIN.load(Ordering::Relaxed) {
+            if crate::drawing::main_holds() {
+                MAIN_LOCKED
+            } else {
+                MAIN_UNLOCKED
+            }
+        } else if crate::drawing::is_drawing_thread() {
+            DRAWING_THREAD
+        } else {
+            OTHER_THREAD
+        }
+    } else {
+        (thread == MAIN.load(Ordering::Relaxed)) as u8
+    };
     let frames = frames(context);
     // FNV-1a over the instruction, the calls, the class, the thread, the
     // kind and the mark.
@@ -584,7 +666,7 @@ fn record(a: &Arena, context: &CONTEXT, address: usize, thread: u32, kind: u8) {
         let g = unsafe { &mut *a.groups.add((start + i) % GROUPS) };
         match g.key.compare_exchange(0, key, Ordering::AcqRel, Ordering::Acquire) {
             Ok(_) => {
-                if main == 1 {
+                if main == 1 || who_wrote {
                     MAIN_GROUPS.fetch_add(1, Ordering::Relaxed);
                 }
                 g.rip = context.Rip;
@@ -635,9 +717,11 @@ unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
                 return CONTINUE_EXECUTION;
             }
             record(a, context, address, thread, kind);
+            // The drawing's reads: a page read often enough stays open.
+            let open = GAME_READS_ONLY.load(Ordering::Relaxed) && page_done(a, page);
             if let Some(p) = pending(a, thread) {
                 let slot = if p.pages[0].load(Ordering::Relaxed) == 0 { 0 } else { 1 };
-                p.pages[slot].store(page, Ordering::Relaxed);
+                p.pages[slot].store(page | open as usize, Ordering::Relaxed);
             }
             context.EFlags |= TRAP_FLAG;
             CONTINUE_EXECUTION
@@ -649,7 +733,8 @@ unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
                 return CONTINUE_SEARCH;
             }
             if ACTIVE.load(Ordering::Acquire) {
-                for page in pages.into_iter().filter(|&p| p != 0) {
+                // A page marked open (bit 0) keeps its own protection.
+                for page in pages.into_iter().filter(|&p| p != 0 && p & 1 == 0) {
                     protect(page, PROTECTION.load(Ordering::Relaxed));
                 }
             }
@@ -664,6 +749,21 @@ unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
 /// of what was read, emptied first at the round's first reading call; or
 /// its writes, those to what the round's reading calls read marked.
 fn start(m: &Memory, reads: bool, first_read: bool) -> Result<String, String> {
+    start_on(m, Watch { reads, first_read, thread: crate::main_thread(), hold: true, only_seen: false })
+}
+
+/// What a watch watches: reads or writes, the thread it is for, whether the
+/// other threads are held, whether only what was read is protected.
+struct Watch {
+    reads: bool,
+    first_read: bool,
+    thread: u32,
+    hold: bool,
+    only_seen: bool,
+}
+
+fn start_on(m: &Memory, w: Watch) -> Result<String, String> {
+    let Watch { reads, first_read, thread, hold: holding, only_seen } = w;
     let a = arena().ok_or("no memory for the arena")?;
     static HANDLER: OnceLock<usize> = OnceLock::new();
     let entry = *HANDLER.get_or_init(|| unsafe { AddVectoredExceptionHandler(1, Some(handler)) } as usize);
@@ -681,6 +781,9 @@ fn start(m: &Memory, reads: bool, first_read: bool) -> Result<String, String> {
     kept.sort_unstable();
     kept.dedup();
     unsafe { std::ptr::write_bytes(a.groups, 0, GROUPS) };
+    if reads {
+        unsafe { std::ptr::write_bytes(a.pages, 0, PAGES) };
+    }
     if first_read {
         unsafe { std::ptr::write_bytes(a.seen, 0, SEEN) };
         SEEN_COUNT.store(0, Ordering::Relaxed);
@@ -695,14 +798,14 @@ fn start(m: &Memory, reads: bool, first_read: bool) -> Result<String, String> {
     UNGROUPED.store(0, Ordering::Relaxed);
     BASE.store(m.base, Ordering::Relaxed);
     IMAGE_END.store(m.base + unsafe { analysis::loaded(m.base) }.len(), Ordering::Relaxed);
-    MAIN.store(crate::main_thread(), Ordering::Relaxed);
+    MAIN.store(thread, Ordering::Relaxed);
     let (mut low, mut high) = (0usize, 0usize);
     unsafe { GetCurrentThreadStackLimits(&mut low, &mut high) };
     MAIN_STACK[0].store(low, Ordering::Relaxed);
     MAIN_STACK[1].store(high, Ordering::Relaxed);
     GIVEN_UP.store(false, Ordering::Relaxed);
     let began = std::time::Instant::now();
-    let threads = open_threads(a);
+    let threads = if holding { open_threads(a) } else { 0 };
     OPENED.store(threads, Ordering::Release);
     let heap = unsafe { GetProcessHeap() };
     // The heap stays locked until the other threads are held, so that none
@@ -711,7 +814,7 @@ fn start(m: &Memory, reads: bool, first_read: bool) -> Result<String, String> {
     unsafe { HeapLock(heap) };
     let taken = take_blocks(a);
     BLOCKS.store(*taken.as_ref().unwrap_or(&0), Ordering::Release);
-    let ranges = taken.and_then(|_| take_ranges(a, m, &kept));
+    let ranges = taken.and_then(|_| take_ranges(a, m, &kept, only_seen));
     if let Ok(n) = ranges {
         hold(a, threads);
         RANGES.store(n, Ordering::Release);
@@ -812,7 +915,16 @@ fn place(address: u64) -> String {
 fn report(rva: usize, call: usize, reads: bool) {
     let Some(a) = ARENA.get() else { return };
     let mut groups: Vec<&Group> = (0..GROUPS).map(|i| unsafe { &*a.groups.add(i) }).filter(|g| g.key.load(Ordering::Acquire) != 0).collect();
-    groups.sort_unstable_by_key(|g| (std::cmp::Reverse(g.seen), std::cmp::Reverse(g.count.load(Ordering::Relaxed))));
+    let who_wrote = WHO_WROTE.load(Ordering::Relaxed);
+    // Who wrote, the main thread without the lock first.
+    let order = |g: &Group| match (who_wrote, g.main) {
+        (true, MAIN_UNLOCKED) => 0,
+        (true, OTHER_THREAD) => 1,
+        (true, MAIN_LOCKED) => 2,
+        (true, _) => 3,
+        _ => 0,
+    };
+    groups.sort_unstable_by_key(|g| (order(g), std::cmp::Reverse(g.seen), std::cmp::Reverse(g.count.load(Ordering::Relaxed))));
     let marking = MARK.load(Ordering::Relaxed);
     log!("write watch {rva:#x} #{call}: {}", STARTED.lock().unwrap_or_else(|e| e.into_inner()));
     log!(
@@ -858,10 +970,33 @@ fn report(rva: usize, call: usize, reads: bool) {
     }
     // Everything a plain watch wrote; else the marked groups and the largest
     // others.
-    let listed = groups.iter().filter(|g| g.seen == 1).count() + if reads || marking { LISTED } else { groups.len() };
+    if who_wrote {
+        for (code, who) in [
+            (MAIN_UNLOCKED, "the main thread without the lock"),
+            (OTHER_THREAD, "other threads"),
+            (MAIN_LOCKED, "the main thread with the lock"),
+            (DRAWING_THREAD, "the drawing thread"),
+        ] {
+            let of: Vec<&&Group> = groups.iter().filter(|g| g.main == code).collect();
+            let writes: u64 = of.iter().map(|g| g.count.load(Ordering::Relaxed)).sum();
+            log!("write watch {rva:#x} #{call}: {writes} writes by {who} to what the drawing read, in {} groups", of.len());
+        }
+    }
+    let listed = if who_wrote {
+        groups.iter().filter(|g| g.main == MAIN_UNLOCKED || g.main == OTHER_THREAD).count() + LISTED
+    } else {
+        groups.iter().filter(|g| g.seen == 1).count() + if reads || marking { LISTED } else { groups.len() }
+    };
     for g in groups.into_iter().take(listed) {
         let class = ["static", "block", "new"][g.class as usize];
-        let thread = if g.main == 1 { "main" } else { "other" };
+        let thread = match (who_wrote, g.main) {
+            (true, MAIN_UNLOCKED) => "main-unlocked",
+            (true, MAIN_LOCKED) => "main-locked",
+            (true, DRAWING_THREAD) => "drawing",
+            (true, _) => "other",
+            (false, 1) => "main",
+            (false, _) => "other",
+        };
         let kind = if g.kind == READ { "read" } else { "write" };
         let calls: Vec<String> = g.frames.iter().take_while(|&&f| f != 0).map(|&f| place(f)).collect();
         let target = match g.class {
@@ -1022,13 +1157,23 @@ impl Chosen {
         functions.map(|&(rva, argc, bytes)| Point::observe(rva, bytes, "watched function", argc.min(12), Some(before), Some(after))).collect()
     }
 
-    /// Watches them, with the watchdog `give-up-after` asks for.
+    /// Watches them, or the drawing thread ([`drawing`]), with the watchdog
+    /// `give-up-after` asks for.
     pub fn start(self) {
-        let Some((watched, _)) = self.0 else { return };
-        if WATCHED.set(watched).is_err() {
-            return;
-        }
         let options = &crate::dev::options().write_watch;
+        match self.0 {
+            Some((watched, _)) if !options.drawing => {
+                if WATCHED.set(watched).is_err() {
+                    return;
+                }
+            }
+            None if options.drawing => drawing::on(),
+            Some(_) => {
+                log!("write watch: a function and the drawing named; neither watched");
+                return;
+            }
+            None => return,
+        }
         let _ = LET_RUN.set(options.let_run.iter().map(|m| m.to_lowercase()).collect());
         if options.give_up_after > 0 {
             let seconds = options.give_up_after;

@@ -13,7 +13,7 @@ English | [简体中文](README.zh-CN.md)
 
 - **Every language, everywhere.** Every script shows in the whole game, in fonts made for your language or ones you choose, and the names on the map stay sharp however close you zoom. No font mod needed.
 - **No more restarts.** Back to the main menu in seconds instead of 45. Ironman games can load another save too.
-- **A faster game, the same game.** Smoother, about a tenth faster at top speed, a save stops it for a third of the time, and it starts and loads sooner; late in a game the AI's armies plan on idle cores. The game's rules and data stay as they are.
+- **A faster game, the same game.** The map is drawn on a thread of its own at the display's rate while the days are worked out, a save stops it for a third of the time, and it starts and loads sooner; late in a game the AI's armies plan on idle cores. The game's rules and data stay as they are.
 - **Bugs fixed that vanilla still has.** Heirs no longer get the same name half the time, coalitions and an overlord's fall no longer risk a crash, and loading a save no longer costs you achievements.
 - **Achievements your way.** Optionally earn them outside ironman, or with mods.
 - **Mods that do more.** Mods can read the game, add buttons and do what you do in its panels (build, develop, research, take ideas and reforms, trade, wage war and make peace, every diplomatic action), each with the game's own reasons when it is not allowed, with a few lines of Lua. They can show pop-ups and windows of their own in the game's look, laid out in Lua, opened from a button beside the papacy's and the Empire's left of the minimap ([docs/plans/extension-windows.md](docs/plans/extension-windows.md)).
@@ -38,7 +38,7 @@ Good to know:
 
 ### Settings
 
-**EU4 Harmony settings** has the player language and its fonts, returning to the main menu without restarting the game, achievement rules, game speed, what remote control may see and how even the music is; each setting says there what it does. The details are in [docs/plans/player-language.md](docs/plans/player-language.md), [docs/plans/sessions.md](docs/plans/sessions.md), [docs/plans/game-speed.md](docs/plans/game-speed.md), [docs/plans/music-volume.md](docs/plans/music-volume.md) and [ADR remote-control-reads-the-players-view](docs/adr/2026-11-05-remote-control-reads-the-players-view.md).
+**EU4 Harmony settings** has the player language and its fonts, returning to the main menu without restarting the game, achievement rules, whether the frame rate has a limit, what remote control may see and how even the music is; each setting says there what it does. The details are in [docs/plans/player-language.md](docs/plans/player-language.md), [docs/plans/sessions.md](docs/plans/sessions.md), [docs/plans/game-speed.md](docs/plans/game-speed.md), [docs/plans/drawing-thread.md](docs/plans/drawing-thread.md), [docs/plans/music-volume.md](docs/plans/music-volume.md) and [ADR remote-control-reads-the-players-view](docs/adr/2026-11-05-remote-control-reads-the-players-view.md).
 
 With the framework, the game's own volume sliders go as the square of their position, so each step sounds about as large, where vanilla's last tenth fell off steeply: volumes saved below 100 sound quieter than before, and are set again once.
 
