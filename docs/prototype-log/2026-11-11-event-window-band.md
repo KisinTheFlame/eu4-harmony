@@ -1,0 +1,10 @@
+# 2026-11-11 The band above an event's options, drawn wrong for a player (tested by me, not reproduced)
+
+A player on Harmony 0.1.0 from the Workshop (1.37.5, the ordinary Chinese language mod, Regional Combat, the framework's frame rate without a limit) sent three event windows whose band between the text and the options showed something else: the game's top bar, two shrunken copies of other interface at its sides, or flat dark blue with the option button missing; the screen flashed as such an event appeared.
+
+What the band is: the event window's background is `GFX_event_bg_transparency`, a cornered tile of `gfx/interface/transparency.dds` with no effect of its own (`interface/eventwindow.gui`, `eventwindow.gfx`), so the band shows, darkened, what the frame holds behind the window. A frame that drew the interface but not the map behind it would show there whatever its back buffer held before, such as the shrunken copies of the screen the post effects make, which the three pictures look like. Not established: whether and why a frame without the map is presented.
+
+- **Ruled out**: the transparency-mask repair (`core/src/repairs/masks.rs`), which frees only the hit-test bit vectors, and freed 0 MB in the player's run; the UTF-8 translation mod's `interface/topbar.gui`, which moves a few numbers by 3 px.
+- **The run**: a hidden test game from master (`11b7f09f`) with `dev-test-games`, the owner's playset and settings (no frame limit, as the player's), `observer-1700.1.1` as the Ottomans. `event flavor_por.3266` and `flavor_por.3267` fired from the console while paused, 8 screenshots after the second; then the game resumed at speed 3 and `flavor_por.3266` fired while it ran, 24 screenshots at half size from just before. Every frame showed the window whole, the band showing the map behind it and both options drawn.
+- **Not verified**: the player's flash, a single frame the screenshots, 0.1 to 0.2 s apart, may have missed; events the game fires itself; the player's hardware.
+- **Cleanup**: the test game released, no crash; its logs kept in its claim's `kept\`.
