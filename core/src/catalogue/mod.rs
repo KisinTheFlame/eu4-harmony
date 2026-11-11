@@ -442,6 +442,9 @@ macro_rules! capability_groups {
             Merchant(merchants),
             Trade(trade),
             Script(script),
+            Institution(institutions),
+            Age(ages),
+            Monument(monuments),
         }
     };
 }

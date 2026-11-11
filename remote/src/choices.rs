@@ -86,6 +86,8 @@ pub enum Resource {
     /// Points of one of a government mechanic's powers, which its
     /// interactions spend; the entry says which.
     MechanicPower,
+    /// Splendor, which the age's abilities cost.
+    Splendor,
 }
 
 /// A kind of monarch power, as the game's panels name them: what a

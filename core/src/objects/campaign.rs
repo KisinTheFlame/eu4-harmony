@@ -117,6 +117,16 @@ pub mod world {
     /// by the institution's [`super::institution::INDEX`], nonzero once it
     /// has.
     pub const INSTITUTIONS: usize = 0x22a0;
+    /// The age the world is in, a pointer to the age (its key a
+    /// `std::string` at [`super::age_ability::AGE_KEY`]).
+    pub const AGE: usize = 0x2420;
+    /// The great projects' manager: the projects, [`super::great_project`]s
+    /// of [`super::great_project::SIZE`] bytes, in an array of the game's
+    /// own, its data at [`GREAT_PROJECTS_DATA`] and its length (i32) at
+    /// [`GREAT_PROJECTS_COUNT`] of the manager.
+    pub const GREAT_PROJECTS: usize = 0x25b0;
+    pub const GREAT_PROJECTS_DATA: usize = 0x58;
+    pub const GREAT_PROJECTS_COUNT: usize = 0x64;
     /// Nonzero while there is fog of war, u8.
     pub const FOG: usize = 0x23a6;
     /// The wars going on: pointers to [`super::war`]s, and their count (i32).
@@ -198,6 +208,15 @@ pub mod countries {
 pub mod country {
     /// Its tag.
     pub const TAG: usize = 0x20;
+    /// The age abilities it has taken (`active_age_ability` in saves): a
+    /// vector (begin, end) of pointers to [`super::age_ability`]s.
+    pub const AGE_ABILITIES: usize = 0x30;
+    /// Its splendor, i32 thousandths.
+    pub const SPLENDOR: usize = 0x48;
+    /// Whether it has embraced each institution (`institutions` in saves): a
+    /// vector (begin, end) of i32 by the institution's
+    /// [`super::institution::INDEX`], 1 once embraced.
+    pub const EMBRACED: usize = 0xc68;
     /// A byte for each idea group of the game's database (`[0x242bce0]`),
     /// set when the country has taken it: an array the country tags' setup
     /// (`0x283d20`) gives each country that has none, and that the
@@ -583,6 +602,42 @@ pub mod institution {
     /// The database's vector (begin, end) of pointers to institutions, from
     /// the database its getter answers.
     pub const DATABASE_LIST: usize = 0x10;
+}
+
+/// An ability of one of the ages (`common/ages`), from the ages' database:
+/// its getter (`0x8db70`) makes it on first use and keeps it at
+/// `[0x242b9e0]`; its abilities of every age are a vector (begin, end) of
+/// pointers at [`DATABASE_LIST`], in order of their [`INDEX`].
+pub mod age_ability {
+    /// Its index among every age's abilities, i32: what the command writes.
+    pub const INDEX: usize = 0x10;
+    /// The age it is of, a pointer to the age.
+    pub const AGE: usize = 0x18;
+    /// Its key (`ab_justified_wars`), a `std::string`.
+    pub const KEY: usize = 0x98;
+    /// The database's vector of every age's abilities.
+    pub const DATABASE_LIST: usize = 0x60;
+    /// An age's key (`age_of_discovery`), a `std::string`.
+    pub const AGE_KEY: usize = 0x10;
+}
+
+/// A great project, a monument or a canal: its definition from
+/// `common/great_projects` and its state in the world, one of the great
+/// projects' manager's (`world::GREAT_PROJECTS`).
+pub mod great_project {
+    /// Each project's bytes in the manager's array.
+    pub const SIZE: usize = 0x5e8;
+    /// Its definition: a pointer whose key (`great_wall_of_china`), a
+    /// `std::string`, is at [`DEFINITION_KEY`] and whose kind, u8, at
+    /// [`DEFINITION_KIND`]: 1 a canal, 2 a monument.
+    pub const DEFINITION: usize = 0x10;
+    pub const DEFINITION_KEY: usize = 0x10;
+    pub const DEFINITION_KIND: usize = 0x1d36;
+    pub const CANAL: u8 = 1;
+    /// The province it stands in, i32; 0 for one the world does not have.
+    pub const PROVINCE: usize = 0x5e0;
+    /// Its tier, u8, from 0 to 3.
+    pub const TIER: usize = 0x5e4;
 }
 
 /// A province's map data, at [`province::GEOMETRY`].

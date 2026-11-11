@@ -566,6 +566,12 @@ groups! {
     Trade(trade::TradeRequest, TradeAnswer),
     /// The scripts' flags, variables and events.
     Script(script::ScriptRequest, ScriptAnswer),
+    /// The institutions view: embracing institutions.
+    Institution(institutions::InstitutionRequest, InstitutionAnswer),
+    /// The ages view: the age, splendor and the age's abilities.
+    Age(ages::AgeRequest, AgeAnswer),
+    /// The monuments window: the player's monuments and canals.
+    Monument(monuments::MonumentRequest, MonumentAnswer),
 }
 
 pub mod binary;
