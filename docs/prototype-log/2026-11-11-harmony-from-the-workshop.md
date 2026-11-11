@@ -1,0 +1,11 @@
+# 2026-11-11 Harmony installed from its Workshop item (tested by me)
+
+Part W8 of [workshop-release.md](../plans/workshop-release.md), as far as its first install, and the proxy's side of W1. Harmony 0.1.0 (`eebe9d55`, tag `v0.1.0`), uploaded with `cargo xtask workshop-upload` to its item 3837775887, private. The player's own game, started from Steam and the Paradox launcher; the player's playset (Regional Combat from its local folder) and settings.
+
+- **The upload**: SteamCMD created the item (`--create`, the id written back into the build file and recorded) and updated it with the release built with that id, from SteamCMD's cached login the second time. The item's files, downloaded with SteamCMD's `workshop_download_item` and by the Steam client after subscribing, match the packed folder's by SHA-256: `descriptor.mod`, `thumbnail.png`, `version.dll` and `eu4-harmony\eu4_harmony_core.dll`. Neither DLL was dropped.
+- **Subscribing**: the item's page showed the subscription at once, but the Steam client downloaded the item only after it was restarted, about twenty minutes later; the launcher's mod library did not list it before. Its Workshop log had no entry for the game in that time.
+- **The install**: the developer install's `version.dll` and core moved aside, the item's `version.dll` copied into the game folder; nothing else of Harmony in the game folder.
+- **The start**: `eu4.exe` had `E:\SteamLibrary\steamapps\workshop\content\236850\3837775887\eu4-harmony\eu4_harmony_core.dll` loaded; `core.log` has `proxy interface: 1`; `report.txt` opens "Harmony 0.1.0 (api 0.3)", 2340 dependency points matching the 1.37.5 baseline, Regional Combat's extension loaded. The main menu showed "Harmony Mod" and "Harmony 设置". No `proxy.log` was written, the proxy having nothing to report; the game folder's `eu4-harmony\logs\proxy.log` is from 2026-11-08.
+- **Found**: README and the descriptions sent players to the user folder's `eu4-harmony\` for `report.txt`, which is in `eu4-harmony\logs\`; corrected.
+- **Not verified**: uninstalling (unsubscribing, then deleting `version.dll`); a proxy that finds no core, and its `proxy.log` in the user folder; a game folder outside a Steam library.
+- **Cleanup**: the game quit from its main menu; the developer install's files are kept in `%LOCALAPPDATA%\eu4-harmony-dev\acceptance-backup\`.
