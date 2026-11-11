@@ -3,6 +3,7 @@
 //! does, with the reasons its tooltip gives, and posts the game's own command
 //! in its written form through the session's commands ([`super::action`]);
 //! the command's own check is asked again there.
+use super::commands::{write, Block};
 use super::{action, conditions, fail, with_state, Ctx, GResult, Session, Status, Tag};
 use crate::containers;
 use crate::{
@@ -233,41 +234,38 @@ pub fn points() -> Vec<Point> {
 
 // ---------- the written forms ----------
 
-/// The tag's letters, as a written form quotes them.
-fn letters(tag: Tag) -> String {
-    String::from_utf8_lossy(&tag.letters()).into_owned()
-}
-
 /// A use of monarch power: the spending's kind, the province, the power
 /// (0 administrative, 1 diplomatic, 2 military); its second ID left as its constructor leaves it (the reader does not read it back),
 /// as its constructor leaves it.
 fn spend(tag: Tag, kind: usize, province: u32, power: usize) -> String {
-    format!("spend_power_command={{ country=\"{}\" power={{ data={province} category={kind} skill={power} }} }}", letters(tag))
+    let power = Block::new().word("data", province).word("category", kind).word("skill", power);
+    write("spend_power_command", Block::new().tag("country", tag.letters()).block("power", power))
 }
 
 /// Exploiting: a tuple of the country, the kind and the province.
 fn exploit(tag: Tag, kind: Development, province: u32) -> String {
-    format!("exploit_development={{ members={{ dummy=\"{}\" dummy={} dummy={province} }} }}", letters(tag), kind.index())
+    let members = Block::new().tag("dummy", tag.letters()).word("dummy", kind.index()).word("dummy", province);
+    write("exploit_development", Block::new().block("members", members))
 }
 
 /// The commands of a country and a province: the autonomy commands
 /// (`location`), the cancelling ones and the edict's (`province`).
 fn country_and(kind: &str, tag: Tag, key: &str, province: u32) -> String {
-    format!("{kind}={{ country=\"{}\" {key}={province} }}", letters(tag))
+    write(kind, Block::new().tag("country", tag.letters()).word(key, province))
 }
 
 /// The state commands, for the province's owner.
 fn state(kind: &str, province: u32) -> String {
-    format!("{kind}={{ province={province} }}")
+    write(kind, Block::new().word("province", province))
 }
 
 fn enact(tag: Tag, province: u32, index: u32) -> String {
-    format!("enact_edict={{ country=\"{}\" province={province} which={index} }}", letters(tag))
+    write("enact_edict", Block::new().tag("country", tag.letters()).word("province", province).word("which", index))
 }
 
 /// Changing a province's culture, for its owner, to a culture by its key.
 fn culture(province: u32, key: &str) -> String {
-    format!("change_culture={{ province={province} culture={key} }}")
+    write("change_culture", Block::new().word("province", province).word("culture", key))
 }
 
 // ---------- reading ----------

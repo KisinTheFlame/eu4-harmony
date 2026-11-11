@@ -1,6 +1,7 @@
 //! Centers of trade: what the province view's center of trade button offers,
 //! and upgrading and downgrading one through the game's own command
 //! (docs/research/envoys.md, "Centers of trade").
+use super::commands::{write, Block};
 use super::{action, envoys, with_state, Ctx, GResult, Session, Tag};
 use crate::{
     game_string,
@@ -94,7 +95,8 @@ fn choice(m: &Memory, center: usize, player: Tag, check: GameFunction<3>, cost: 
 /// The command the confirm dialogs post: the province, the level it is to
 /// have, and the country, each under the name `dummy`.
 fn written(player: Tag, province: u32, level: u32) -> String {
-    format!("modify_center_of_trade={{ members={{ dummy={province} dummy={level} dummy={} }} }}", envoys::quoted(player))
+    let members = Block::new().word("dummy", province).word("dummy", level).tag("dummy", player.letters());
+    write("modify_center_of_trade", Block::new().block("members", members))
 }
 
 /// Upgrades (`up`) or downgrades the center of trade in the player's

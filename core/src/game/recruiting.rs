@@ -3,6 +3,7 @@
 //! the province view orders it, so that the game's checks and costs apply
 //! (docs/research/recruiting.md). The command goes in its written form
 //! through the session's commands ([`super::action`]).
+use super::commands::{write, Block};
 use super::{
     action,
     player::Eyes,
@@ -18,7 +19,7 @@ use eu4_harmony_remote::ProvinceId;
 /// recruit button makes it, a regular unit with no mercenary company; the
 /// keys left out take the game's defaults.
 fn written(country: [u8; 3], province: u32, unit: &str) -> String {
-    format!("buildunit={{ country=\"{}\" province={province} unit=\"{unit}\" }}", String::from_utf8_lossy(&country))
+    write("buildunit", Block::new().tag("country", country).word("province", province).quoted("unit", unit))
 }
 
 /// What the player can recruit in `province` now, one for each kind in the

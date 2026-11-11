@@ -2,6 +2,7 @@
 //! player's leaders, and giving one to an army or a fleet, through the
 //! game's own commands, as the military view and the unit panels post them
 //! (docs/research/leaders.md).
+use super::commands::{write, Block};
 use super::units::checks;
 use super::{action, army, modifiers, Caller, Ctx, GResult, Session};
 use crate::{
@@ -115,12 +116,7 @@ pub fn kind(word: &str) -> GResult<LeaderKind> {
 /// The recruit command: the kind by its number, and no name, so that the
 /// game picks the name and the sex, as it does for the name it offers.
 fn create_text(country: [u8; 3], kind: LeaderKind) -> String {
-    format!("create_leader={{ country=\"{}\" leader={} }}", String::from_utf8_lossy(&country), index(kind))
-}
-
-/// An ID as the game writes it: its number and its type.
-fn id_text(id: u64) -> String {
-    format!("{{ id={} type={} }}", (id >> 32) as i32, id as u32 as i32)
+    write("create_leader", Block::new().tag("country", country).word("leader", index(kind)))
 }
 
 fn leader_id(number: u32) -> u64 {
@@ -128,11 +124,11 @@ fn leader_id(number: u32) -> u64 {
 }
 
 fn assign_text(leader: u64, unit: u64) -> String {
-    format!("assign_leader={{ leader={} unit={} }}", id_text(leader), id_text(unit))
+    write("assign_leader", Block::new().id("leader", leader).id("unit", unit))
 }
 
 fn dismiss_text(country: [u8; 3], leader: u64) -> String {
-    format!("dismiss_leader={{ country=\"{}\" leader={} }}", String::from_utf8_lossy(&country), id_text(leader))
+    write("dismiss_leader", Block::new().tag("country", country).id("leader", leader))
 }
 
 /// What a kind of leader costs, in whole points of the power it is paid in.

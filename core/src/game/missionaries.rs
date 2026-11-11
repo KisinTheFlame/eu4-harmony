@@ -2,9 +2,10 @@
 //! player in a province, sending and recalling one through the game's own
 //! command, and the number of missionaries the game sends by itself
 //! (docs/research/envoys.md, "Missionaries").
+use super::commands::{write, Block};
 use super::{
     action,
-    envoys::{self, quoted, Kind},
+    envoys::{self, Kind},
     with_state, Ctx, GResult, Session, Tag,
 };
 use crate::{
@@ -110,7 +111,8 @@ fn monthly_upkeep(m: &Memory, ctx: &Ctx, province: usize) -> GResult<f64> {
 /// The command the province view's button posts: sending the player's
 /// missionary to the province, or recalling it.
 fn written(owner: Tag, player: Tag, province: u32, recall: bool) -> String {
-    format!("send_missionary={{ country={} owned_by={} location={province}{} }}", quoted(owner), quoted(player), if recall { " cancel=yes" } else { "" })
+    let send = Block::new().tag("country", owner.letters()).tag("owned_by", player.letters()).word("location", province);
+    write("send_missionary", if recall { send.word("cancel", "yes") } else { send })
 }
 
 /// Sends one of the player's missionaries to province `id`.
@@ -150,7 +152,8 @@ pub fn set_automatic(session: Session, raise: bool) -> GResult<()> {
     if !raise && now.automatic == 0 {
         return Err(envoys::checks::none_automatic());
     }
-    let text = format!("automate_missionary_command={{ country={}{} }}", quoted(session.ctx.player), if raise { " value=yes" } else { "" });
+    let automate = Block::new().tag("country", session.ctx.player.letters());
+    let text = write("automate_missionary_command", if raise { automate.word("value", "yes") } else { automate });
     action::post(session.commands, &text, if raise { "have the game send one more missionary" } else { "have the game send one fewer missionary" })
 }
 

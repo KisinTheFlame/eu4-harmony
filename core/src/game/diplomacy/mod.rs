@@ -354,7 +354,8 @@ fn rival_command(Session { m, ctx, commands, .. }: Session, kind: &str, check: G
         let said = game_string::written(m, |s| check.call(m, args(s)))?.1;
         return Err(super::action::not_allowed(doing, &reasons_said(&said)));
     }
-    super::action::post(commands, &format!("{kind}={{ country=\"{}\" rival=\"{}\" }}", letters(ctx.player), letters(rival)), doing)
+    let text = super::commands::write(kind, super::commands::Block::new().tag("country", ctx.player.letters()).tag("rival", rival.letters()));
+    super::action::post(commands, &text, doing)
 }
 
 /// Calls the ally a request names to arms in the player's wars, as the

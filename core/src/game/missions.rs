@@ -1,6 +1,7 @@
 //! Missions: the player's missions as the missions view shows them, and
 //! completing one, through the game's own command
 //! (docs/research/government.md, "Missions").
+use super::commands::{write, Block};
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
 use crate::containers;
@@ -99,7 +100,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Mission>> {
 }
 
 fn written(country: Tag, mission: &str) -> String {
-    format!("complete_mission={{ members={{ dummy=\"{}\" dummy=\"{mission}\" }} }}", content::letters(country))
+    write("complete_mission", Block::new().block("members", Block::new().tag("dummy", country.letters()).quoted("dummy", mission)))
 }
 
 /// Completes one of the player's missions.

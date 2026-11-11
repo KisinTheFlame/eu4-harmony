@@ -1,6 +1,7 @@
 //! Loans: the player's loans, as the economy view's loan window lists them,
 //! and repaying one with its repay button (docs/research/power-spending.md,
 //! "Loans").
+use super::commands::{write, Block};
 use super::{action, power, thousandths, Fail, GResult, Session, Status, Tag};
 use crate::containers;
 use crate::{
@@ -87,7 +88,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<PlayerLoan>> {
 /// The pay_loan command in its written form: the country by its tag and the
 /// loan by its ID, as the repay button makes it.
 fn written(country: [u8; 3], id: u32, kind: u32) -> String {
-    format!("pay_loan={{ country=\"{}\" loan={{ id={id} type={kind} }} }}", String::from_utf8_lossy(&country))
+    write("pay_loan", Block::new().tag("country", country).block("loan", Block::new().word("id", id).word("type", kind)))
 }
 
 /// Repays the player's loan with the ID `id`, as its repay button does once

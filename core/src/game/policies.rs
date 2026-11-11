@@ -1,6 +1,7 @@
 //! Policies: those the policies view offers, enabling and disabling them,
 //! through the game's own commands (docs/research/government.md,
 //! "Policies").
+use super::commands::{write, Block};
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
 use crate::containers;
@@ -114,7 +115,7 @@ fn find(m: &Memory, key: &str) -> GResult<usize> {
 
 /// The enable and disable commands: the policy by its key and the country.
 fn written(command: &str, country: Tag, policy: &str) -> String {
-    format!("{command}={{ policy=\"{policy}\" country=\"{}\" }}", content::letters(country))
+    write(command, Block::new().quoted("policy", policy).tag("country", country.letters()))
 }
 
 /// Enables a policy for the player.
