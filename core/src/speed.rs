@@ -32,7 +32,7 @@ pub struct SpeedUp {
 }
 
 /// Every speed-up, in the order the report names them.
-pub static ALL: [&SpeedUp; 15] = [
+pub static ALL: [&SpeedUp; 16] = [
     &pops::SPEED_UP,
     &crate::drawing::SPEED_UP,
     &crate::loading::music::SPEED_UP,
@@ -41,6 +41,7 @@ pub static ALL: [&SpeedUp; 15] = [
     &crate::loading::opens::SPEED_UP,
     &crate::loading::listed::SPEED_UP,
     &crate::loading::transfer::SPEED_UP,
+    &crate::loading::parameters::SPEED_UP,
     &crate::saving::background::SPEED_UP,
     &crate::saving::stored::SPEED_UP,
     &crate::saving::parallel::SPEED_UP,
@@ -145,7 +146,7 @@ pub fn checked(speed_up: &SpeedUp) -> bool {
 }
 
 /// Answers checked and answers that differed, for each speed-up.
-static COUNTS: [[AtomicU64; 2]; 15] = [const { [AtomicU64::new(0), AtomicU64::new(0)] }; 15];
+static COUNTS: [[AtomicU64; 2]; 16] = [const { [AtomicU64::new(0), AtomicU64::new(0)] }; 16];
 /// A speed-up's first differences are each logged; after these, only when
 /// their count reaches a power of two.
 const LOGGED: u64 = 20;
@@ -237,9 +238,12 @@ mod tests {
     #[test]
     fn only_what_can_be_checked_is_and_the_game_s_path_comes_first() {
         let all = Chosen::of(&[], &strings(&["all"])).unwrap();
-        assert_eq!(all.checked, ["music", "lookups", "listed-folders", "parallel-saves", "army-searches", "modifier-sums"].iter().fold(0, |b, n| b | bit(n)));
+        assert_eq!(
+            all.checked,
+            ["music", "lookups", "listed-folders", "script-parameters", "parallel-saves", "army-searches", "modifier-sums"].iter().fold(0, |b, n| b | bit(n))
+        );
         let both = Chosen::of(&strings(&["music"]), &strings(&["loading"])).unwrap();
-        assert_eq!((both.game_paths, both.checked), (bit("music"), bit("lookups") | bit("listed-folders")));
+        assert_eq!((both.game_paths, both.checked), (bit("music"), bit("lookups") | bit("listed-folders") | bit("script-parameters")));
         assert!(Chosen::of(&[], &strings(&["children"])).unwrap_err().contains("cannot be checked"));
         assert!(Chosen::of(&strings(&["muisc"]), &[]).unwrap_err().contains("no speed-up"));
     }

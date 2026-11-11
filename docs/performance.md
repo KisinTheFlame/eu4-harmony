@@ -94,6 +94,17 @@ Then the game state's other sections written while the pool writes the loops, th
 - The first start after the framework is installed reads the music as the game does; the numbers above are of starts after it.
 - What is left is mostly the databases read on the LoadingThread, about 30 s of the startup on this machine ([research/loading.md](research/loading.md)).
 
+## Parameterized script in one pass (2026-11-11)
+
+[game-speed.md](plans/game-speed.md)'s S12, one developer build with the test switches, `game-paths = ["script-parameters"]` for the game's own code; every DLC, the files in the system's cache, no other test game running ([the run](prototype-log/2026-11-11-script-parameters-in-one-pass.md)). The uses' making is `0xdb0860`'s calls summed, timed by the call trace; the main menu is `cargo xtask game start`'s whole seconds.
+
+| | The game's | The framework's |
+| --- | --- | --- |
+| The player's playset: the uses' making (320,905 uses), s | 1.25, 1.27, 1.23 | 0.25, 0.24, 0.24 |
+| The player's playset: from the start to the main menu, s | 17, 17, 17 | 16, 16, 16 |
+| With Voltaire's Nightmare: the uses' making (114,886), s; the main menu, s | 1.44; 23 | 0.11; 21 |
+| With the 2000 AD mod: the uses' making (1,129,203), s; the main menu, s | 4.03; 90 | 0.98; 83 |
+
 ## The events (2026-11-05)
 
 What the events of [player-actions.md](plans/player-actions.md) cost the game: `building_finished`, `battle`, `war_declared`, `peace_made`, `province_owner_changed`, `month` and `year`. `cargo xtask scenario perf` on the player build of `claude/player-actions-fu-cost-view-4c4534`: a new game as Ming, 120 s at speed 5 from 1444.11.11, about 5.4 years; with `--perf.events` naming the seven kinds, a remote client reads events of those kinds before the game runs, so they are worked out from then on, and counts what was heard at the end. The framework counts the time each piece of that work takes and logs it when the session ends (`event costs:`, since `signal costs:` in [`core/src/game/signal_costs.rs`](../core/src/game/signal_costs.rs), the events now being signals). The machine was the one under [Machine](#machine), busy with other sessions' builds.
