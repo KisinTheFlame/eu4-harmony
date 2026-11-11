@@ -1,5 +1,5 @@
 //! Binds spliced elements in the vanilla windows that host them, applies the
-//! state extensions ask for, and turns button clicks into events. Ported from
+//! state extensions ask for, and turns button clicks into signals. Ported from
 //! eu4-regional-combat's native UI; the ABI evidence is in
 //! docs/research/interface-bindings.md (tooltips included). Window teardown
 //! and the main menu's windows are in docs/research/notice-window.md.
