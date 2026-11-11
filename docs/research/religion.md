@@ -1,4 +1,4 @@
-# The religion view: its commands, personal deities, cults, church aspects, blessings, religious reforms, fervor, harmonization, icons and metropolitans, piety, the papacy and the curia (for `religion`)
+# The religion view: its commands, personal deities, cults, church aspects, blessings, religious reforms, fervor, harmonization, icons and metropolitans, piety, the papacy and the curia, Islamic schools, holy orders, the secondary religion and the gurus' teachings (for `religion`)
 
 Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` on 2026-11-11 with scripts over the PE file (the `.rdata` scan for command vtables of [commands.md](commands.md), the token table at `0x1fd8660`, capstone) and the game's own files (`common/personal_deities`, `common/fetishist_cults`, `localisation/religion_l_english.yml`); what was tried in the game is in [the run](../prototype-log/2026-11-11-religion-deities-cults.md). Part M18 of [mod-capabilities.md](../plans/mod-capabilities.md) is built on it: the `religion` group follows personal deities and cults, chooses a church's aspects, takes blessings, passes religious reforms and reforms the religion, turns fervor effects on and off, harmonizes, commissions icons and consecrates metropolitans, takes piety's actions, the papal actions and the curia's; the other commands below are found and not yet offered.
 
@@ -23,7 +23,7 @@ Each command class answers its type token from its vtable's `+0x50`; its writer 
 | `invest_papal_influence_command` (`0x1c65fe0`) | `0x477660`, `0x4778d0`, `0x477530` | `0x12cc000` | Papal influence spent on the curia |
 | `establish_holy_order` (`0x1c3a2f8`) | `0xc0f40`, `0xc0ff0`, `0xc1000` | (AI's only found: `0x9af40`, `0xc0e20`) | Holy orders in a province |
 | `select_teaching`, `deselect_teaching` (`0x1c39530`, `0x1c395d8`) | `0xc15c0`/`0xc1900`, `0xc3cf0`/`0xc3ab0` | (AI's only found) | Teachings |
-| `convert_to_religion` (`0x1ce0a88`) | `0xaad630`, `0xaad990`, `0xaaccf0` | `0xfe28d0` | Converting the state religion |
+| `convert_to_religion` (`0x1ce0a88`) | `0xaad630`, `0xaad990`, `0xaaccf0` | `0xfe28d0` | The secondary religion, and converting through the view's first list; below |
 | `join_religion_league` (`0x1ce09e0`) | `0xab0240`, `0xab0530`, `0xaaf4d0` | | The Empire's religious leagues |
 | `convert_ruler` (`0x1cbc620`) | `0x86e9f0`, `0x86ecc0`, `0x86e790` | | |
 
@@ -124,16 +124,50 @@ Read on 2026-11-11 from the code (the papacy's actions in `common/religions/00_r
   - `pick_golden_bull` (token `0x39c4`, vtable `0x1c39bc0`: writer `0xc15c0`, check `0xc27b0`, which jumps to `0x477fa0`): `{ members={ dummy="TAG" dummy="KEY" } }` (the tuple's vtable `0x1c384d0`, its writer `0xc8ac0`), the bull's key as a `std::string` at `+0x50`, the tag at `+0x70`. The bulls are a `std::map` by their keys at `[0x2358050]`, the bull in its node at `+0x40` (`0x47812d`); its lines `0xdbf750(curia, bull, tag, text)`: not the curia controller (`0xdbf5e0`), the bull's conditions (`0x7e11e0`), one enacted already (`CURIA_PICK_GOLDEN_BULL_ALREADY_PICKED`), too little in the treasury (`_NOT_ENOUGH_CASH`), which needs the world's `+0x2420`'s `+0xe4` times the define `[0x233e598]`, thousandths. No view's poster of it was found by the vtable's references, only the AI's (`0x9a670`).
 - **`appoint_cardinal`** (`0x39c1`) is the diplomatic action `diplomacy.appoint_cardinal` offers.
 
-## What is known of the view's other buttons
+## Islamic schools' scholars
 
-- **Scholars** (`invite_scholar`, its check `0xab1e20`): the command carries the school as an object; its check wants the school valid (its vtable's `+0x88`), of the player's religion's group (school `+0x170` against religion `+0xd8`), then `0xdaace0(school, tag, null)`, which evaluates the school's conditions (`0xb98200`) and writes no lines. Its writer (`0xab1b30`) writes `country` and then `school` (token `0x3724`) as a nested object of class `0x1ce0508`. Not read: the schools' database, a school's key, the nested object's written form, and the view's lists and lines.
-- **Holy orders** (`establish_holy_order`, check `0xc0ff0`) and **teachings** (`select_teaching`, `deselect_teaching`): only the AI's posters were found (`0x9af40`, `0xc0e20`), no view's; not followed.
-- **The secondary religion** (`convert_to_religion`, check `0xaad990`, poster `0xfe28d0`): the command sets the country's secondary religion, not its state religion (its check refuses one that is the state religion: "Trying to set secondary religion to state religion"), Tengri's syncretic faith; its button posts with no check of its own, and the list the view offers was not read.
+Read from `eu4.exe` on 2026-11-11 with `cargo xtask disasm` and scripts over the PE file (the view's button, the command's writer, reader and check, the school lookup and the willing-country check), for `religion.invite_scholar`.
+
+- **The schools** are a religion group's (`religious_schools` in `common/religions`): the group's `+0xa0` points to their database, null for a group with none (the view's button `0xfd9fb0` falls back on an empty one at `[0x2458ce8]`); the database's `+0x20` and `+0x2c` are the game's own array of the schools, a pointer each, which the lookup `0xdacf90(database, key)` walks. A school's key is a `std::string` at `+0x150`, its group at `+0x170`, its `potential_invite_scholar` at `+0x180` and its `can_invite_scholar` at `+0x1f8`, both content triggers. A group's key is a `std::string` at `+0x18`.
+- **The school a country follows** is a pointer at country `+0x28b8`.
+- **The command** `invite_scholar` (vtable `0x1ce0548`, its type token `0x3723`, which the button sets) carries the country at `+0x50` and the school at `+0x58`. Its writer (`0xab1b30`) writes `country="T"` and then `school` (token `0x3724`) as a block written by class `0x1ce0508` (`0xab1840`): the school's group by its key under token `0x2988`, then the school by its key under `0x3724`; the reader (`0xab1900`) reads them back in that order, the group from the groups' database (`0x99b60`, `0xa7aba0`) and the school from the group's (`0xdacf90`). The framework names the two keys by the game's token table, as `invite_scholar={ country="TUR" school={ <0x2988>="muslim" <0x3724>="hanbali_school" } }`.
+- **The check** (`0xab1e20`) wants the school valid (its vtable's `+0x88`), of the inviting country's religion's group, and then `0xdaace0(school, tag, 0)`: false for the country's own school; otherwise it walks the countries (a vector at `+0x1ce8` of the object it reads them from, not followed further), and for each other country following the school (its `+0x28b8`) asks the school's `potential_invite_scholar` and, the third argument 0, its `can_invite_scholar` of the inviting country with that country as FROM (`# THIS = Nation wanting to invite the scholar, FROM = Nation that follows that school`, as the script says). It writes no lines.
+- **The cost** is the school's script's (`adm_power_cost = 50` in `can_invite_scholar` and `on_invite_scholar`, and a 20-year country modifier the next invite's trigger refuses), so the framework gives it no amount: the lines say it.
+- **What the framework gives as the reasons**: none when `0xdaace0` says yes; its own line for the country's own school and for a school no other country follows; else the `can_invite_scholar` lines that do not hold, asked with the first follower whose `potential_invite_scholar` holds as FROM, and else the `potential_invite_scholar` lines with the first follower.
+
+## Holy orders
+
+Read the same day, for `religion.establish_holy_order`.
+
+- **The orders' database** is made on first use by its getter (`0x7ee9b0`) and kept at `[0x242bcb0]`: an `std::unordered_map` by key, its list's head at `+0x20`, each node's key a `std::string` at `+0x10` and the order at `+0x30`, as the lookup `0x70f9b0(database, key)` reads them. `common/holy_orders` has 28 in the unmodded game.
+- **An order** keeps its `trigger` as a content trigger at `+0xc0` (its conditions' vector at `+0xc8`, count `+0xd4`), and the kind of monarch power it costs at `+0x2e8` (0 administrative, 1 diplomatic, 2 military, as `cost_type` gives it: Santiago's 50 was military points in the game). `0x7eff60(order, tag, 0)` is its cost in whole points, which the execute pays (`0x37f490`).
+- **The command** `establish_holy_order` (vtable `0x1c3a2f8`) carries the country at `+0x50`, the order's key at `+0x58` and the province at `+0x78`; its writer (`0xc0f40`) writes them as `members` (token `0x2aa9`, class `0x1c38450`, `0xc8f10`) in the order province, key, country: `establish_holy_order={ members={ dummy=217 dummy="santiago_order" dummy="CAS" } }`.
+- **The check** (`0xab29d0`) takes the province's state (province `+0x2e0`), finds the order, and wants its trigger to hold for the country, `0xac0350(state, tag, 0)` and no order in the state yet (state `+0x38`). `0xac0350(state, tag, text)` writes the province view's lines when given a text (`ESTABLISH_HOLY_ORDER_WRONG_OWNER`, `ESTABLISH_HOLY_ORDER_NOT_OWNING_ALL`); the order already there and the points it has no line for. The check does not ask for the points; the framework refuses too few itself, as the view's button does by its tooltip (inferred: the button was not read).
+- **The execute** (`0xc1000`, `0xac0790`) keeps the order and the country at state `+0x38` and `+0x40` and pays the cost.
+- **The view's button** was not found: only the AI's posters (`0x9af40`, `0xc0e20`). The framework lists every order once, with its trigger's lines and its cost, and takes the province with the action.
+
+## The secondary religion
+
+Read the same day, for `religion.choose_secondary_religion`.
+
+- **The list the view offers** is `0x36dfa0(country, vector, 1) -> count`, which the religion view's builder (`0xfeb879`) asks for its convert button's second list (`religionlistitem`, flag 1): it pushes the religions the country may take as its secondary one into a `std::vector` of pointers the game grows, none when its state religion has no secondary one (`0xa7b620`). The religion it has as secondary (country `+0xf38`, the game's no-religion while it has none) is never in it; while it has one, the game's `noreligion` is, which drops it (seen in the game: the Mongols' list was then Oirat's).
+- **The command** `convert_to_religion` (vtable `0x1ce0a88`) carries the country at `+0x50`, the religion's number at `+0x58` and a flag at `+0x5c`, the button's (widget `+0x218`): 1 for this list. Its writer (`0xaad630`) writes `country`, the religion by its token's name (religion `+0xd0`) under token `0x283e`, and the flag as yes or no under `0x327f`. The button posts with no check of its own; the command's (`0xaad990`) refuses the state religion.
+- **The view's first list** (flag 0, the button titled `CONVERT` where the second is `CONVERT_SECONDARY`) is every religion for which `0x2c5c80(view +0x1240, religion)` and `0xa7b6d0(religion)` hold, shown while the view's `+0x1326` is set; what sets it, and what converting through it does, were not read.
+
+## The gurus' teachings
+
+Read the same day, for `religion.select_teaching`.
+
+- **A religion's gurus** (Sikhism) are the game's own array at religion `+0x7e0` (data `+0x7e8`, count `+0x7f4`); a guru's teachings another at `+0x1a8` (`+0x1b0`, `+0x1bc`); a teaching's key a `std::string` at `+0x158`, the kind of power it costs at `+0x178` and its cost `0x7dc7f0(teaching, country)`, as the lookup `0xa7ff50(religion, key)` and the command's check read them. 33 teachings, three for each of 11 gurus, in the unmodded game.
+- **The command** `select_teaching` (vtable `0x1c39530`) carries the teaching's key at `+0x50` and the country at `+0x70`; its writer (`0xc15c0`) writes them as `members` (class `0x1c384d0`, `0xc8ac0`) in the order country, key: `select_teaching={ members={ dummy="KHA" dummy="share_and_consume" } }`.
+- **The check** (`0xc3cf0`) asks only that the teaching is the religion's and that the country has its cost in points of its kind (country `+0x260`); the execute (`0xc3d80`) adds it to the country's teachings, the game's own array at `+0x9aa8`, and pays.
+- **`deselect_teaching`** (vtable `0x1c395d8`) takes a guru's number (`+0x50`) and the country (`+0x54`), and its execute (`0xc3ac0`) removes that guru's teachings from the country's; it is not offered.
+- **Not read**: the view's buttons, so whether it offers only the current guru's teachings, and any rule on how many a country keeps. The framework offers all of them, as the check allows.
 
 ## Not known
 
 - How the view's lists of deities and cults are made: whether they leave out what does not hold, or show it disabled; and whether the church's list leaves out an aspect whose `potential` fails (Protestantism's list holds `anglican_aspect`, which the framework lists as the religion does).
 - Harmonization's reasons for a religion not offered, which only a widget's tooltip writes; the order and the development test of the candidates.
-- The view's other buttons beyond the above: scholars, holy orders, teachings, the secondary religion.
+- The view's other buttons beyond the above: the holy orders' and the teachings' buttons; converting the state religion through the view's first list.
 - Which golden bulls the view lists: their `potential`, empty in every bull of the unmodded game, is not read; the framework lists every bull, with the game's reasons.
 - What a papal action's own `+0x40`, which the execute asks after `allow`, checks.

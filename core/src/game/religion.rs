@@ -1,5 +1,7 @@
-//! The religion view: following a personal deity or a cult, through the
-//! game's own commands, with the view's own checks (docs/research/religion.md).
+//! The religion view: following a personal deity or a cult, a church's
+//! aspects and the rest of the view's buttons, inviting an Islamic school's
+//! scholar, and the province view's holy orders, through the game's own
+//! commands, with the view's own checks (docs/research/religion.md).
 use super::{action, conditions, content, power, GResult, Session, Tag};
 use crate::objects::campaign::country;
 use crate::{
@@ -161,6 +163,76 @@ const ICON_COST: usize = 0x233dc28;
 /// consecrated in the state, with the province view's lines.
 const MAY_CONSECRATE: GameFunction<2> = GameFunction::at(0xabf060);
 
+/// A religion group's Islamic schools, a pointer to their database, null
+/// for a group with none: the database's schools at `+0x20`, the game's
+/// own array (a pointer each, the count at `+0x2c`), as the school lookup
+/// (`0xdacf90`) and the view's button (`0xfd9fb0`) read them.
+const GROUP_SCHOOLS: usize = 0xa0;
+const SCHOOLS_DATA: usize = 0x20;
+const SCHOOLS_COUNT: usize = 0x2c;
+/// A religion group's key, a `std::string`, as the school's writer writes it.
+const GROUP_KEY: usize = 0x18;
+/// A school's key, a `std::string`; its religion group; its
+/// `potential_invite_scholar` and its `can_invite_scholar`, content
+/// triggers, asked of the inviting country with the sending one as FROM.
+const SCHOOL_KEY: usize = 0x150;
+const SCHOOL_GROUP: usize = 0x170;
+const SCHOOL_POTENTIAL: usize = 0x180;
+const SCHOOL_CAN: usize = 0x1f8;
+/// Whether a country may invite a scholar of a school now: `(school, tag,
+/// 0) -> bool`, true when a country following the school other than itself
+/// meets the school's two triggers with it; it writes no lines. The invite
+/// command's check ends in it.
+const MAY_INVITE: GameFunction<3> = GameFunction::at(0xdaace0);
+/// The tokens of the school block's two keys: the group and the school.
+const GROUP_TOKEN: u32 = 0x2988;
+const SCHOOL_TOKEN: u32 = 0x3724;
+
+/// The holy orders' database, made on first use by its getter
+/// (`0x7ee9b0`): an `std::unordered_map` of the orders by key, its list's
+/// head at `+0x20`, each node's key a `std::string` at `+0x10` and the order
+/// at `+0x30`, as the lookup (`0x70f9b0`) reads them.
+const HOLY_ORDERS: usize = 0x242bcb0;
+const ORDERS_HEAD: usize = 0x20;
+const ORDER_NODE_KEY: usize = 0x10;
+const ORDER_NODE_VALUE: usize = 0x30;
+/// An order's `trigger`, a content trigger, and the kind of monarch power
+/// it costs (0 administrative, 1 diplomatic, 2 military), as the
+/// establish command's check and execute read them.
+const ORDER_TRIGGER: usize = 0xc0;
+const ORDER_POWER: usize = 0x2e8;
+/// An order's cost to a country, in whole points: `(order, tag, 0) -> i32`.
+const ORDER_COST: GameFunction<3> = GameFunction::at(0x7eff60);
+/// Whether a state of a country's may take a holy order: `(state, tag,
+/// text) -> bool`, writing the province view's lines (the owner, every
+/// province of the state).
+const MAY_ORDER_STATE: GameFunction<3> = GameFunction::at(0xac0350);
+/// The holy order established in a state, a pointer, null for none.
+const STATE_ORDER: usize = 0x38;
+
+/// The religions a country may take as its secondary one, as the religion
+/// view lists them for its convert button: `(country, vector, 1) -> count`,
+/// pushing each into a `std::vector` of pointers the game grows; none when
+/// the country's religion has no secondary one.
+const SECONDARY_CANDIDATES: GameFunction<3> = GameFunction::at(0x36dfa0);
+/// The tokens of the convert command's religion and of its flag, yes for a
+/// secondary religion, which the view's button sets so for the list above.
+const RELIGION_TOKEN: u32 = 0x283e;
+const SECONDARY_TOKEN: u32 = 0x327f;
+
+/// A religion's gurus (Sikhism), the game's own array of pointers; a
+/// guru's teachings, another; a teaching's key, a `std::string`, and the
+/// kind of monarch power it costs (0 administrative, 1 diplomatic, 2
+/// military), as the teaching lookup (`0xa7ff50`) and the select command's
+/// check read them.
+const RELIGION_GURUS: usize = 0x7e0;
+const GURU_TEACHINGS: usize = 0x1a8;
+const TEACHING_KEY: usize = 0x158;
+const TEACHING_POWER: usize = 0x178;
+/// A teaching's cost to a country, in whole points: `(teaching, country)
+/// -> i32`.
+const TEACHING_COST: GameFunction<2> = GameFunction::at(0x7dc7f0);
+
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(0x7e691ausize, "48 8b 05 87 53 c4 01 48 85 c0", "personal deities database").uses(&[DEITIES]),
@@ -248,6 +320,58 @@ pub fn points() -> Vec<Point> {
         Point::keep(MAY_CONSECRATE, "48 89 5c 24 10 48 89 4c 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8d ac 24 60 fe ff ff", "may consecrate metropolitan"),
         // The patriarch command's check finds the province's state.
         Point::keep(0xab0ef9usize, "48 8b 8c 0a e0 02 00 00", "patriarch command's state"),
+        // Islamic schools: the group's database, as the view's button reads
+        // it; the schools and their keys, as the lookup reads them; the
+        // school's group, as the invite command's check reads it; its two
+        // triggers and the country's own school, as the willing-country
+        // check reads them; the school block's keys, as its writer and
+        // reader write and read them.
+        Point::keep(0xfda005usize, "48 8b 81 a0 00 00 00", "religion group's schools").uses(&[GROUP_SCHOOLS]),
+        Point::keep(0xdacfacusize, "48 63 41 2c", "schools' count").uses(&[SCHOOLS_COUNT]),
+        Point::keep(0xdacfb9usize, "4c 8b 69 20", "schools' data").uses(&[SCHOOLS_DATA]),
+        Point::keep(0xdacfd6usize, "48 81 c1 50 01 00 00", "school key").uses(&[SCHOOL_KEY]),
+        Point::keep(0xab1ed1usize, "48 8b 81 70 01 00 00", "school's group").uses(&[SCHOOL_GROUP]),
+        Point::keep(0xdaaf06usize, "48 8d 8e 80 01 00 00", "school's potential").uses(&[SCHOOL_POTENTIAL]),
+        Point::keep(0xdaaf20usize, "48 8d 8e f8 01 00 00", "school's can invite").uses(&[SCHOOL_CAN]),
+        Point::keep(0xdaad2busize, "49 39 88 b8 28 00 00", "country's school").uses(&[country::SCHOOL]),
+        Point::keep(MAY_INVITE, "48 89 5c 24 20 44 88 44 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8d ac 24 40 ff ff ff", "may invite scholar"),
+        Point::keep(0xab188fusize, "48 83 c3 18", "school block's group key").uses(&[GROUP_KEY]),
+        Point::keep(0xab1915usize, "41 81 f8 88 29 00 00", "school block's group token"),
+        Point::keep(0xab1c2eusize, "ba 24 37 00 00", "school block's school token"),
+        // Holy orders: the database, as its getter keeps it; its list and a
+        // node's order, as the lookup reads them; an order's trigger, as the
+        // establish command's check reads it; its power and cost, as the
+        // execute reads them; the state's order, as the check reads it.
+        Point::keep(0x7ee9bfusize, "48 8b 05 ea d2 c3 01", "holy orders database").uses(&[HOLY_ORDERS]),
+        Point::keep(0x70fa13usize, "48 8b 43 20", "holy orders' list").uses(&[ORDERS_HEAD]),
+        Point::keep(0x70fa1dusize, "48 8b 40 30", "holy order node's order").uses(&[ORDER_NODE_VALUE]),
+        Point::keep(0xab2abcusize, "48 8b b8 c8 00 00 00 48 63 80 d4 00 00 00", "holy order's trigger").uses(&[ORDER_TRIGGER + 8]),
+        Point::keep(0xac08d3usize, "41 8b 95 e8 02 00 00", "holy order's power").uses(&[ORDER_POWER]),
+        Point::keep(ORDER_COST, "48 89 5c 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8d ac 24 e0 fe ff ff 48 81 ec 20 02 00 00", "holy order's cost"),
+        Point::keep(0xab2b0dusize, "49 83 7e 38 00", "state's holy order").uses(&[STATE_ORDER]),
+        Point::keep(MAY_ORDER_STATE, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 57 48 83 ec 60 49 8b f8 48 8b da 48 8b e9", "may establish holy order in state"),
+        Point::keep(0xc0f69usize, "ba a9 2a 00 00", "holy order command's members"),
+        // The secondary religion: the view's list, as its builder asks it;
+        // the country's secondary religion, as the list reads it; the
+        // convert command's keys, as its writer writes them.
+        Point::keep(0xfeb879usize, "41 b0 01 48 8d 95 a0 01 00 00 48 8b 0c c8 e8 14 27 38 ff", "secondary religions' list"),
+        Point::keep(SECONDARY_CANDIDATES, "48 89 5c 24 10 55 56 57 41 54 41 55 41 56 41 57 48 83 ec 50 45 0f b6 e8", "secondary religion candidates"),
+        Point::keep(0x36dfe0usize, "49 8b 8e 38 0f 00 00", "country's secondary religion").uses(&[country::SECONDARY_RELIGION]),
+        Point::keep(0xaad702usize, "ba 3e 28 00 00", "convert command's religion"),
+        Point::keep(0xaad725usize, "ba 7f 32 00 00", "convert command's secondary flag"),
+        // The gurus' teachings: the religion's gurus, a guru's teachings and
+        // a teaching's key, as the lookup reads them; its power, its cost
+        // and the country's points, as the select command's check reads
+        // them; the country's teachings, as its execute adds to them.
+        Point::keep(0xa7ff6cusize, "4c 8b b9 e8 07 00 00", "religion's gurus").uses(&[RELIGION_GURUS + containers::ARRAY_DATA]),
+        Point::keep(0xa7ff76usize, "48 63 81 f4 07 00 00", "religion's gurus' count").uses(&[RELIGION_GURUS + containers::ARRAY_COUNT]),
+        Point::keep(0xa7ff95usize, "44 8b b7 bc 01 00 00", "guru's teachings' count").uses(&[GURU_TEACHINGS + containers::ARRAY_COUNT]),
+        Point::keep(0xa7ffa9usize, "48 8b bf b0 01 00 00", "guru's teachings").uses(&[GURU_TEACHINGS + containers::ARRAY_DATA]),
+        Point::keep(0xa7ffb6usize, "48 8d 8d 58 01 00 00", "teaching key").uses(&[TEACHING_KEY]),
+        Point::keep(0xc3d4cusize, "48 63 80 78 01 00 00", "teaching's power").uses(&[TEACHING_POWER]),
+        Point::keep(0xc3d5busize, "8b 9c 87 60 02 00 00", "country's points for a teaching").uses(&[country::POWER]),
+        Point::keep(TEACHING_COST, "40 53 48 83 ec 20 48 8b d9 48 8d 8a c0 28 00 00", "teaching's cost"),
+        Point::keep(0xc3db8usize, "48 8d 8f a8 9a 00 00", "country's teachings").uses(&[country::TEACHINGS]),
     ]
 }
 
@@ -268,6 +392,16 @@ pub mod checks {
     /// without words: a reform not yet passed, and no one to learn from.
     pub const REFORMS_FIRST: &str = "Every religious reform must be passed first.";
     pub const NO_SPONSOR: &str = "There is no country to learn from: a European neighbor, or enough technology of our own, is needed.";
+
+    /// The lines for a scholar no country sends, which the game's check
+    /// says without words: the player's own school, and no other country
+    /// following the school.
+    pub const OWN_SCHOOL: &str = "This is our own school: its scholars are ours already.";
+    pub const NO_FOLLOWER: &str = "No other country follows this school, to send its scholar.";
+
+    /// The line for a state that has a holy order already, which the
+    /// game's check says without words.
+    pub const ORDER_THERE: &str = "A holy order is established in this state already.";
 }
 
 /// The deities, the game's no-deity left out.
@@ -404,7 +538,256 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<ReligionOption>> 
     }
     out.extend(super::piety::options(m, &ctx)?);
     out.extend(super::curia::options(m, &ctx)?);
+    let own = m.ptr(ctx.country + country::SCHOOL)?;
+    for school in schools(m, ctx.country)? {
+        let key = game_string::key(m, school + SCHOOL_KEY)?;
+        out.push(option(m, "invite_scholar", key, school == own, school_choice(m, ctx.player, ctx.country, school)?)?);
+    }
+    if religion(m, ctx.country)? != 0 {
+        for (key, order) in holy_orders(m)? {
+            out.push(option(m, "establish_holy_order", key, false, order_choice(m, ctx.player, ctx.country, order)?)?);
+        }
+    }
+    let taken = teachings_taken(m, ctx.country)?;
+    for teaching in teachings(m, ctx.country)? {
+        let key = game_string::key(m, teaching + TEACHING_KEY)?;
+        let current = taken.contains(&teaching);
+        let choice = if current { Choice::can(Vec::new()) } else { teaching_choice(m, ctx.country, teaching)? };
+        out.push(option(m, "select_teaching", key, current, choice)?);
+    }
+    let secondary = m.ptr(ctx.country + country::SECONDARY_RELIGION)?;
+    for religion in secondary_candidates(m, ctx.country)? {
+        out.push(option(m, "choose_secondary_religion", religion_key(m, religion)?, religion == secondary, Choice::can(Vec::new()))?);
+    }
     Ok(out)
+}
+
+/// The religions the country may take as its secondary one, as the view
+/// lists them; none when its religion has no secondary one.
+fn secondary_candidates(m: &Memory, country: usize) -> GResult<Vec<usize>> {
+    if religion(m, country)? == 0 {
+        return Ok(Vec::new());
+    }
+    let mut vector = [0usize; 3];
+    SECONDARY_CANDIDATES.call(m, [country, vector.as_mut_ptr() as usize, 1])?;
+    let read = (|| {
+        let count = containers::span(vector[0], vector[1], 8, containers::MOST)?;
+        (0..count).map(|i| m.ptr(vector[0] + i * 8)).collect::<Result<Vec<_>, _>>()
+    })();
+    if vector[0] != 0 {
+        crate::game_heap::free_vector(m, vector)?;
+    }
+    Ok(read?)
+}
+
+/// The convert command for a secondary religion: the country, the
+/// religion by its key and the flag, its keys the game's tokens' names.
+fn secondary_text(m: &Memory, country: Tag, religion: usize) -> GResult<String> {
+    let name = |token: u32| super::commands::type_name(m, token).ok_or_else(|| format!("no token {token:#x}"));
+    Ok(format!("convert_to_religion={{ country=\"{}\" {}={} {}=yes }}", content::letters(country), name(RELIGION_TOKEN)?, religion_key(m, religion)?, name(SECONDARY_TOKEN)?))
+}
+
+/// The teachings of the country's religion's gurus, guru by guru, none for
+/// a religion without gurus.
+fn teachings(m: &Memory, country: usize) -> GResult<Vec<usize>> {
+    let religion = religion(m, country)?;
+    if religion == 0 {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for guru in containers::array(m, religion + RELIGION_GURUS, containers::MOST)? {
+        out.extend(containers::array(m, guru + GURU_TEACHINGS, containers::MOST)?);
+    }
+    Ok(out)
+}
+
+fn teachings_taken(m: &Memory, country: usize) -> GResult<Vec<usize>> {
+    Ok(containers::array(m, country + country::TEACHINGS, containers::MOST)?)
+}
+
+/// Whether the country may take `teaching` now, as the select command's
+/// check asks: enough points of its kind; with its cost.
+fn teaching_choice(m: &Memory, country: usize, teaching: usize) -> GResult<Choice> {
+    let power = match m.i32(teaching + TEACHING_POWER)? {
+        1 => PowerKind::Dip,
+        2 => PowerKind::Mil,
+        _ => PowerKind::Adm,
+    };
+    let points = TEACHING_COST.call(m, [teaching, country])? as i32;
+    let cost = vec![Amount::new(power.resource(), f64::from(points))];
+    let have = power::points_of(m, country, power)?;
+    Ok(if have >= points { Choice::can(cost) } else { Choice::cannot(vec![format!("taking it takes {points} points, and the player has {have}")], cost) })
+}
+
+/// Takes a teaching of the player's religion's gurus.
+pub fn select_teaching(Session { m, ctx, commands, .. }: Session, args::SelectTeaching { teaching: key }: args::SelectTeaching) -> GResult<()> {
+    let teachings = teachings(m, ctx.country)?;
+    if teachings.is_empty() {
+        return Err(checks::not_of_religion("gurus' teachings"));
+    }
+    let teaching = find(m, teachings, TEACHING_KEY, "teaching", &key)?;
+    if teachings_taken(m, ctx.country)?.contains(&teaching) {
+        return Err(content::checks::not_now("the player has taken this teaching already"));
+    }
+    let text = format!("select_teaching={{ members={{ dummy=\"{}\" dummy=\"{key}\" }} }}", content::letters(ctx.player));
+    action::carry_out(commands, &teaching_choice(m, ctx.country, teaching)?, "take this teaching", || Ok(text))
+}
+
+/// Takes a religion as the player's secondary one.
+pub fn choose_secondary_religion(Session { m, ctx, commands, .. }: Session, args::ChooseSecondaryReligion { religion: key }: args::ChooseSecondaryReligion) -> GResult<()> {
+    for religion in secondary_candidates(m, ctx.country)? {
+        if religion_key(m, religion)? == key {
+            return action::carry_out(commands, &Choice::can(Vec::new()), "take this religion as the secondary one", || secondary_text(m, ctx.player, religion));
+        }
+    }
+    Err(content::checks::not_found("secondary religion", &key))
+}
+
+/// The Islamic schools of the country's religion's group, none for a group
+/// with none.
+fn schools(m: &Memory, country: usize) -> GResult<Vec<usize>> {
+    let religion = religion(m, country)?;
+    if religion == 0 {
+        return Ok(Vec::new());
+    }
+    let database = m.ptr(m.ptr(religion + RELIGION_GROUP)? + GROUP_SCHOOLS)?;
+    if database == 0 {
+        return Ok(Vec::new());
+    }
+    let (data, count) = (m.ptr(database + SCHOOLS_DATA)?, m.i32(database + SCHOOLS_COUNT)?);
+    let mut out = Vec::new();
+    for i in 0..containers::bounded(count, containers::MOST)? {
+        out.push(m.ptr(data + i * 8)?);
+    }
+    Ok(out)
+}
+
+/// Whether the player may invite a scholar of `school` now: the game's own
+/// verdict, and when it says no, why: the player's own school, no other
+/// country following it, or the school's lines that do not hold with the
+/// first follower whose `potential_invite_scholar` holds, else with the
+/// first follower.
+fn school_choice(m: &Memory, player: Tag, country: usize, school: usize) -> GResult<Choice> {
+    if MAY_INVITE.call(m, [school, player.0 as usize, 0])? & 0xff != 0 {
+        return Ok(Choice::can(Vec::new()));
+    }
+    if m.ptr(country + country::SCHOOL)? == school {
+        return Ok(Choice::cannot(vec![checks::OWN_SCHOOL.to_string()], Vec::new()));
+    }
+    let mut followers = Vec::new();
+    for other in containers::countries(m)? {
+        if other != country && m.ptr(other + country::SCHOOL)? == school && m.i32(other + country::OWNED_COUNT)? > 0 {
+            followers.push(Tag(m.u64(other + country::TAG)?));
+        }
+    }
+    let Some(&first) = followers.first() else {
+        return Ok(Choice::cannot(vec![checks::NO_FOLLOWER.to_string()], Vec::new()));
+    };
+    for &from in &followers {
+        let (_from, mut scope) = conditions::Scope::with_country_from(m, player, from)?;
+        if scope.check(school + SCHOOL_POTENTIAL)?.0 {
+            let (_, reasons) = scope.check(school + SCHOOL_CAN)?;
+            return Ok(Choice::cannot(reasons, Vec::new()));
+        }
+    }
+    let (_from, mut scope) = conditions::Scope::with_country_from(m, player, first)?;
+    Ok(Choice::cannot(scope.check(school + SCHOOL_POTENTIAL)?.1, Vec::new()))
+}
+
+/// The written form of the invite command: the country, then the school as
+/// a block of its group's key and its own, its keys the game's tokens'
+/// names.
+fn scholar_text(m: &Memory, country: Tag, school: usize) -> GResult<String> {
+    let name = |token: u32| super::commands::type_name(m, token).ok_or_else(|| format!("no token {token:#x}"));
+    let group = game_string::key(m, m.ptr(school + SCHOOL_GROUP)? + GROUP_KEY)?;
+    let key = game_string::key(m, school + SCHOOL_KEY)?;
+    Ok(format!("invite_scholar={{ country=\"{}\" school={{ {}=\"{group}\" {}=\"{key}\" }} }}", content::letters(country), name(GROUP_TOKEN)?, name(SCHOOL_TOKEN)?))
+}
+
+/// Invites a scholar of a school of the player's religion's group.
+pub fn invite_scholar(Session { m, ctx, commands, .. }: Session, args::InviteScholar { school: key }: args::InviteScholar) -> GResult<()> {
+    let schools = schools(m, ctx.country)?;
+    if schools.is_empty() {
+        return Err(checks::not_of_religion("Islamic schools"));
+    }
+    let school = find(m, schools, SCHOOL_KEY, "school", &key)?;
+    action::carry_out(commands, &school_choice(m, ctx.player, ctx.country, school)?, "invite this school's scholar", || scholar_text(m, ctx.player, school))
+}
+
+/// Every holy order the game has, by key, in the database's order.
+fn holy_orders(m: &Memory) -> GResult<Vec<(String, usize)>> {
+    let database = m.ptr(m.at(HOLY_ORDERS))?;
+    if database == 0 {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for node in containers::linked(m, m.ptr(database + ORDERS_HEAD)?, containers::MOST)? {
+        out.push((game_string::key(m, node + ORDER_NODE_KEY)?, m.ptr(node + ORDER_NODE_VALUE)?));
+    }
+    Ok(out)
+}
+
+/// What an order costs the player, in its kind of monarch points.
+fn order_cost(m: &Memory, player: Tag, order: usize) -> GResult<(PowerKind, i32)> {
+    let power = match m.u32(order + ORDER_POWER)? {
+        1 => PowerKind::Dip,
+        2 => PowerKind::Mil,
+        _ => PowerKind::Adm,
+    };
+    Ok((power, ORDER_COST.call(m, [order, player.0 as usize, 0])? as i32))
+}
+
+/// Whether the player may establish `order` at all now, before a state is
+/// named: its trigger's lines that do not hold, and the points; with its
+/// cost.
+fn order_choice(m: &Memory, player: Tag, country: usize, order: usize) -> GResult<Choice> {
+    let (power, points) = order_cost(m, player, order)?;
+    let cost = vec![Amount::new(power.resource(), f64::from(points))];
+    let mut reasons = Vec::new();
+    let allowed = conditions::holds(m, order + ORDER_TRIGGER, player, 0)?;
+    if !allowed {
+        reasons.extend(conditions::failing(m, order + ORDER_TRIGGER, player, 0)?);
+    }
+    let have = power::points_of(m, country, power)?;
+    if have < points {
+        reasons.push(format!("establishing it takes {points} points, and the player has {have}"));
+    }
+    Ok(if allowed && have >= points { Choice::can(cost) } else { Choice::cannot(reasons, cost) })
+}
+
+/// The establish command: a province of the state, the order's key and the
+/// country, in that order, as its members' writer writes them.
+fn holy_order_text(country: Tag, province: u32, key: &str) -> String {
+    format!("establish_holy_order={{ members={{ dummy={province} dummy=\"{key}\" dummy=\"{}\" }} }}", content::letters(country))
+}
+
+/// Establishes a holy order in a state of the player's.
+pub fn establish_holy_order(Session { m, ctx, commands, .. }: Session, args::EstablishHolyOrder { order: key, province: ProvinceId(id) }: args::EstablishHolyOrder) -> GResult<()> {
+    let Some(&(_, order)) = holy_orders(m)?.iter().find(|(k, _)| *k == key) else {
+        return Err(content::checks::not_found("holy order", &key));
+    };
+    let province = super::with_state(|s| s.geography.province_address(m, &ctx, id))?;
+    if m.u64(province + crate::objects::campaign::province::OWNER)? != ctx.player.0 {
+        return Err(content::checks::not_now(format!("province {id} is not the player's")));
+    }
+    let state = m.ptr(province + crate::objects::campaign::province::STATE)?;
+    if state == 0 {
+        return Err(content::checks::not_now(format!("province {id} is in no state")));
+    }
+    let order_choice = order_choice(m, ctx.player, ctx.country, order)?;
+    let (may, lines) = content::checked(m, |t| Ok(MAY_ORDER_STATE.call(m, [state, ctx.player.0 as usize, t])?))?;
+    let there = m.ptr(state + STATE_ORDER)? != 0;
+    let choice = if order_choice.can && may && !there {
+        order_choice
+    } else {
+        let mut reasons = order_choice.reasons;
+        reasons.extend(lines);
+        if there {
+            reasons.push(checks::ORDER_THERE.to_string());
+        }
+        Choice::cannot(reasons, order_choice.cost)
+    };
+    action::carry_out(commands, &choice, "establish this holy order there", || Ok(holy_order_text(ctx.player, id, &key)))
 }
 
 /// Whether the country may commission `icon` now, with the view's lines, and
@@ -868,6 +1251,10 @@ pub fn stop_harmonizing(Session { m, ctx, commands, .. }: Session, _: args::Stop
 crate::catalogue::bind! {
     eu4_harmony_remote::religion: ReligionRequest => ReligionAnswer;
     CommissionIcon => commission_icon;
+    InviteScholar => invite_scholar;
+    EstablishHolyOrder => establish_holy_order;
+    ChooseSecondaryReligion => choose_secondary_religion;
+    SelectTeaching => select_teaching;
     ConsecrateMetropolitan => consecrate_metropolitan;
     Harmonize => harmonize;
     StopHarmonizing => stop_harmonizing;
@@ -924,12 +1311,19 @@ mod tests {
     }
 
     /// A country whose state religion is none: neither deities nor cults are
+    /// The establish command writes the province, the order and the
+    /// country, as its members' writer does.
+    #[test]
+    fn a_holy_order_is_written_as_its_members() {
+        assert_eq!(holy_order_text(tag(b"CAS"), 217, "santiago_order"), r#"establish_holy_order={ members={ dummy=217 dummy="santiago_order" dummy="CAS" } }"#);
+    }
+
     /// offered, and choosing one is refused before anything is posted.
     #[test]
     fn a_religion_without_them_offers_none() {
         let image = Image::new();
         let fra = tag(b"FRA");
-        let country = Object::country(fra, country::RELIGIOUS_REFORMS + 0x10);
+        let country = Object::country(fra, country::TEACHINGS + 0x20);
         let countries = Object::countries(&[&country]);
         let session = || buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote(As::Player));
         assert!(options(session()).unwrap().is_empty());
