@@ -1,7 +1,7 @@
 //! Government: the player's government reforms and rank, as the government
 //! view shows them, and adopting reforms and raising the rank as its buttons
 //! do, and its government mechanics: their powers and using their
-//! interactions.
+//! interactions, and its factions: their influence and boosting one.
 use crate::choices::Choice;
 use crate::Date;
 use serde::{Deserialize, Serialize};
@@ -69,6 +69,38 @@ group! {
         /// The interaction's content key, such as `recruit_from_culture_lands`.
         interaction: String,
     } -> (), "null once the game has carried it out";
+
+    /// The factions of the player's government, as the government view's
+    /// factions panel shows them (a merchant republic's, a revolutionary
+    /// republic's, a pirate republic's): each faction's influence, and
+    /// whether the player can boost it now, why not, and its cost in the
+    /// monarch points of its kind. None for a government without factions.
+    game Factions "factions" {} -> Vec<Faction>, "the factions: faction (its content key), name, influence, can, reasons, cost";
+
+    /// Boosts a faction's influence, as its button in the factions panel
+    /// does, paying its cost in the monarch points of its kind. `rejected`
+    /// when the player cannot now, as `government.factions` says
+    /// beforehand; `not_found` for a key that names no faction of the
+    /// player's government.
+    game BoostFaction "boost_faction" {
+        /// The faction's content key, such as `mr_traders`.
+        faction: String,
+    } -> (), "null once the game has boosted it";
+}
+
+/// A faction of the player's government.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Faction {
+    /// Its content key, which the game's or a mod's `common/factions`
+    /// gives it, such as `mr_traders`.
+    pub faction: String,
+    /// Its name, in the player language.
+    pub name: String,
+    /// Its influence, in percent.
+    pub influence: f64,
+    /// Whether the player can boost it now, why not, and what it costs.
+    #[serde(flatten)]
+    pub choice: Choice,
 }
 
 /// The player's government.

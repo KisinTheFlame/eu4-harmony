@@ -581,6 +581,8 @@ groups! {
     Age(ages::AgeRequest, AgeAnswer),
     /// The monuments window: the player's monuments and canals.
     Monument(monuments::MonumentRequest, MonumentAnswer),
+    /// The military view's naval doctrine: the doctrines and choosing one.
+    NavalDoctrine(naval_doctrines::NavalDoctrineRequest, NavalDoctrineAnswer),
 }
 
 pub mod binary;
