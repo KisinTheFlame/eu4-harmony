@@ -13,6 +13,9 @@
 //!   instead of one at a time under two global locks.
 //! - `listed`: every folder of the search path answered from its listing,
 //!   which a watch of the folder keeps up to date.
+//! - `parameters`: a parameterized scripted trigger's or effect's use given
+//!   its arguments in one pass, instead of the whole text made again for
+//!   each parameter.
 use std::path::Path;
 
 pub mod children;
@@ -20,6 +23,7 @@ pub mod listed;
 pub mod lookups;
 pub mod music;
 pub mod opens;
+pub mod parameters;
 
 /// Where the game and the player's files are, once known; before the game
 /// reads its music.
