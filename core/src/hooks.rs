@@ -283,6 +283,10 @@ pub fn observe(target: usize, argc: u32, memory: Memory, what: &'static str, bef
 /// are written beside them.
 pub fn enable(targets: &[usize]) -> Result<()> {
     unsafe { eu4h_observer_seal() };
+    // Nothing queued: MinHook, perhaps never initialized, has nothing to apply.
+    if targets.is_empty() {
+        return Ok(());
+    }
     for &target in targets {
         let code = unsafe { MH_QueueEnableHook(target as *mut u8) };
         if code != MH_OK {

@@ -120,7 +120,7 @@ static GAME_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
 pub(crate) fn game_dir() -> Option<&'static std::path::Path> {
     GAME_DIR.get().map(std::path::PathBuf::as_path)
 }
-static MAIN_THREAD: AtomicU32 = AtomicU32::new(0);
+pub(crate) static MAIN_THREAD: AtomicU32 = AtomicU32::new(0);
 static MEMORY: OnceLock<memory::Memory> = OnceLock::new();
 /// What startup installed, for the report.
 static STARTUP: OnceLock<String> = OnceLock::new();

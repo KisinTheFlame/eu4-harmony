@@ -7,9 +7,10 @@
 //! until the next update finishes what the crossing began. Also the count,
 //! for the log, of the crossings and of how long each held the frames back.
 use super::{drawing_on, is_drawing_thread, main_side, on_main, MainLock};
+use crate::called_by_game;
 use crate::hooks::Call;
 use crate::points::Point;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -31,6 +32,16 @@ pub(super) fn points() -> Vec<Point> {
     ]
     .into_iter()
     .chain(CROSSINGS_AT.iter().map(|&(rva, bytes, what, argc)| Point::observe(rva, bytes, what, argc, Some(crossed), None)))
+    .chain(RENDERER_TABLE.iter().enumerate().filter(|&(_, &function)| function != 0).map(|(i, &function)| {
+        let method = Point::method(RENDERER_TABLE_AT, 8 * i, function, "a function of the graphics back end's table");
+        method.redirected(renderer_entries as *const () as usize + RENDERER_ENTRY_LEN * i, &RENDERER_ORIGINALS[i])
+    }))
+    .chain([
+        Point::import(ENTER_SECTION, "KERNEL32.dll", "EnterCriticalSection", "the game enters a critical section")
+            .redirected(section_entered as *const () as usize, &ORIGINAL_ENTER_SECTION),
+        Point::import(ACQUIRE_SRW, "KERNEL32.dll", "AcquireSRWLockExclusive", "the game takes a slim lock")
+            .redirected(srw_taken as *const () as usize, &ORIGINAL_ACQUIRE_SRW),
+    ])
     .collect()
 }
 
@@ -83,6 +94,140 @@ fn scene_begins(call: &mut Call) {
         log!("drawing: thread {} began a scene of the renderer, which the drawing thread may be drawing with", crate::thread_id());
     }
 }
+
+/// The graphics back end's table of functions (`0x1fd10f8`, 81 of them;
+/// docs/research/architecture.md, "The graphics back end"): the one way the
+/// game reaches Direct3D, through the one renderer both threads draw with. No
+/// code outside the back end calls Direct3D or D3DX, and the functions it
+/// holds are called directly only where they do nothing (those that answer
+/// a constant) (docs/research/drawing-beside-the-day.md,
+/// "The graphics back end, the one way in"). So the main thread in a day
+/// reaching any of them is a crossing, whatever path led there: a text drawn
+/// into a texture of its own read and set the render target before its
+/// scene began, and the drawing thread drew part of its frame into the text
+/// ("A text drawn into its texture in a day"). Each slot is sent to an entry
+/// of [`renderer_entries`], which tells [`renderer_called`] and goes on to
+/// the slot's function.
+const RENDERER_TABLE_AT: usize = 0x1fd10f8;
+/// The table's functions by slot; 0 for the five slots whose functions read
+/// and write nothing, left as they are: they answer a constant (true, false,
+/// 0, nothing) or the address of their argument's `+0x20`, shared with code
+/// elsewhere and named there, and are called far more than the others (the
+/// main thread called the one that answers 0 some 250,000 times a second).
+const RENDERER_TABLE: [usize; 81] = [
+    0x16d75c0, 0x16d8b50, 0x16d7250, 0x16d73d0, 0x16d5d90, 0x16d5d30, 0x16d5c30, 0, 0x16d5220, 0x16d5a20, 0x16d51f0, 0x16d7180, 0x16da460, 0x16d6980,
+    0x16d4f00, 0x16d4e70, 0x16d6990, 0x16d6fc0, 0x16d65d0, 0x16d6640, 0x16d6890, 0x16d5e00, 0x16d5f20, 0x16d79b0, 0x16d76d0, 0x16d7760, 0x16d7930, 0x16d22e0,
+    0x16d73e0, 0x16d70d0, 0x16d71b0, 0x16d8560, 0x16d50e0, 0, 0x16d4e90, 0x16d5f10, 0x16d7110, 0, 0x16dab80, 0x16d8e60, 0x16d8e50, 0x16d8990, 0, 0x16d8080, 0,
+    0x16d7dd0, 0x16d4c50, 0x16d8eb0, 0x16d7030, 0x16d4da0, 0x16d8820, 0x16d4e00, 0x16d4e50, 0x16d8ea0, 0x16d8d30, 0, 0x16d8d70, 0, 0, 0x16d4c10, 0x16d8ed0,
+    0x16d8e20, 0x16d96f0, 0x16d4b20, 0x16d4a40, 0x16d4db0, 0x16d4bb0, 0x16d8d20, 0x16d66f0, 0x16d7de0, 0x16d7f30, 0x16d80f0, 0x16d4fa0, 0x16d9750, 0x16d7770,
+    0x16d79c0, 0x16d88c0, 0x16d8ca0, 0x16d4c80, 0x16d82b0, 0x16d7e70,
+];
+static RENDERER_ORIGINALS: [AtomicUsize; 81] = [const { AtomicUsize::new(0) }; 81];
+/// The bytes of each entry of [`renderer_entries`].
+const RENDERER_ENTRY_LEN: usize = 16;
+
+/// The `slot`th function of the table called by the main thread. With the
+/// lock held and the frame already marked changed, a crossing does nothing
+/// more, and the table is called often.
+#[called_by_game]
+extern "C" fn renderer_called(slot: usize) {
+    if super::main_holds() && CHANGED.load(Ordering::Acquire) {
+        return;
+    }
+    crossing(crate::hooked_memory().at(RENDERER_TABLE[slot]));
+}
+
+macro_rules! renderer_entries {
+    ($($slot:literal)*) => {
+        // mov eax, slot (5 bytes); jmp rel32 (5 bytes); int3 to 16 bytes.
+        concat!($("mov eax, ", stringify!($slot), "\n", ".byte 0xe9\n", ".long 3f - . - 4\n", ".fill 6, 1, 0xcc\n",)* "3:\n")
+    };
+}
+
+/// One entry for each slot of the table, [`RENDERER_ENTRY_LEN`] bytes apart:
+/// the slot's number in `eax`, in which a call through a pointer passes
+/// nothing, then what every entry does: on the main thread (the thread's id
+/// at `gs:[0x48]`), tell [`renderer_called`], keeping every register an
+/// argument may be in; then go on to the slot's function as if the game had
+/// called it.
+#[unsafe(naked)]
+extern "C" fn renderer_entries() {
+    std::arch::naked_asm!(
+        renderer_entries!(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39
+            40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80),
+        "mov r11d, dword ptr gs:[0x48]",
+        "cmp r11d, dword ptr [rip + {main}]",
+        "jne 4f",
+        crate::call_rust!("mov ecx, eax", call renderer_called),
+        "4:",
+        "lea r11, [rip + {originals}]",
+        "jmp qword ptr [r11 + rax * 8]",
+        main = sym crate::MAIN_THREAD,
+        renderer_called = sym renderer_called,
+        originals = sym RENDERER_ORIGINALS,
+    );
+}
+
+/// The game's own locks, which it takes through its imports: a critical
+/// section (`EnterCriticalSection`, `0x1b66750`) and a slim lock
+/// (`AcquireSRWLockExclusive`, `0x1b66538`). The drawing thread takes some of
+/// them while it draws, holding the presentation lock: the graphics' resources
+/// (`0x16c40b0`, under `[0x242b818]`), as the map's drawing looks a texture
+/// up (`0x13f968f`). The main thread takes the same lock and calls the
+/// renderer's table inside it, a crossing: waiting there for the presentation
+/// lock, it held what the drawing thread waited for, and the game hung
+/// (docs/research/drawing-beside-the-day.md, "The game's locks, in one
+/// order"). So the locks are taken in one order, the presentation lock
+/// first: the drawing thread learns each lock it takes, and the main thread,
+/// in a day, takes the presentation lock before one of those. Only the lock:
+/// taking one changes nothing the frame draws, which a crossing inside it
+/// marks.
+const ENTER_SECTION: usize = 0x1b66750;
+const ACQUIRE_SRW: usize = 0x1b66538;
+static ORIGINAL_ENTER_SECTION: AtomicUsize = AtomicUsize::new(0);
+static ORIGINAL_ACQUIRE_SRW: AtomicUsize = AtomicUsize::new(0);
+/// The locks the drawing thread has taken, as many as it keeps.
+static DRAWING_LOCKS: [AtomicUsize; 64] = [const { AtomicUsize::new(0) }; 64];
+static DRAWING_LOCKS_KNOWN: AtomicUsize = AtomicUsize::new(0);
+
+#[called_by_game]
+unsafe extern "system" fn section_entered(section: usize) {
+    lock_taken(section, ENTER_SECTION);
+    let enter: unsafe extern "system" fn(usize) = unsafe { std::mem::transmute(ORIGINAL_ENTER_SECTION.load(Ordering::Acquire)) };
+    unsafe { enter(section) }
+}
+
+#[called_by_game]
+unsafe extern "system" fn srw_taken(lock: usize) {
+    lock_taken(lock, ACQUIRE_SRW);
+    let acquire: unsafe extern "system" fn(usize) = unsafe { std::mem::transmute(ORIGINAL_ACQUIRE_SRW.load(Ordering::Acquire)) };
+    unsafe { acquire(lock) }
+}
+
+fn lock_taken(lock: usize, by: usize) {
+    if !drawing_on() {
+        return;
+    }
+    let known = DRAWING_LOCKS_KNOWN.load(Ordering::Acquire).min(DRAWING_LOCKS.len());
+    let drawing_takes = DRAWING_LOCKS[..known].iter().any(|l| l.load(Ordering::Relaxed) == lock);
+    if is_drawing_thread() {
+        if !drawing_takes && known < DRAWING_LOCKS.len() {
+            DRAWING_LOCKS[known].store(lock, Ordering::Relaxed);
+            DRAWING_LOCKS_KNOWN.store(known + 1, Ordering::Release);
+        } else if !drawing_takes && !LOCKS_FULL_LOGGED.swap(true, Ordering::Relaxed) {
+            log!("drawing: the drawing thread took more than {} of the game's locks; the rest are not kept in order", DRAWING_LOCKS.len());
+        }
+    } else if drawing_takes && on_main() && !super::main_holds() {
+        main_side(|s| {
+            count(crate::hooked_memory().at(by), 1, 0);
+            if s.crossing(&MainLock) {
+                TAKEN.fetch_add(1, Ordering::Relaxed);
+            }
+        });
+    }
+}
+
+static LOCKS_FULL_LOGGED: AtomicBool = AtomicBool::new(false);
 
 static OTHER_SCENE_LOGGED: AtomicBool = AtomicBool::new(false);
 
