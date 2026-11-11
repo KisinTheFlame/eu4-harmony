@@ -2,15 +2,16 @@
 //! abilities, taking one through the game's own command
 //! (docs/research/institutions-ages-monuments.md, "Ages").
 use super::content::{self, checks};
-use super::{action, thousandths, GResult, Session, Tag};
+use super::{action, thousandths, Ctx, GResult, Session, Tag};
 use crate::containers;
 use crate::game_string;
+use crate::objects::gui::functions::ADD_MONTHS;
 use crate::{
     memory::Memory,
     objects::campaign::{age_ability, country, world},
     points::{GameFunction, Point},
 };
-use eu4_harmony_remote::ages::{args, Age, AgeAbilityOption};
+use eu4_harmony_remote::ages::{args, Age, AgeAbilityOption, GoldenEra};
 use eu4_harmony_remote::choices::{Amount, Choice, Resource};
 
 /// The ages' database: its getter, which makes it on first use.
@@ -22,6 +23,16 @@ const CAN_TAKE: GameFunction<3> = GameFunction::at(0x3f8d30);
 /// What an ability costs in splendor, a define, i32 thousandths.
 const ABILITY_COST: usize = 0x233e4e4;
 const MOST: usize = 1_000;
+/// `(country, text) -> bool`: whether the country may enact its golden era
+/// now, writing the ages view's button's tooltip into the `std::string`
+/// text: why not, or what it brings.
+const MAY_ENACT_GOLDEN_ERA: GameFunction<2> = GameFunction::at(0x3f9f00);
+/// How many years a golden era lasts, a define, i32.
+const GOLDEN_ERA_YEARS: usize = 0x233e2d0;
+/// The hours of a year, as the game reckons a golden era's end.
+const YEAR: i32 = 8760;
+/// A country's golden era started after this date once it has had one.
+const NO_GOLDEN_ERA: i32 = 0x29c77f8;
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -38,6 +49,12 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x2dca08usize, "48 8d 8f 98 00 00 00", "age ability key").uses(&[age_ability::KEY]),
         // The command's reader takes the ability by its index.
         Point::keep(0x2bdb2cusize, "48 8b 43 60 48 8b 5c 24 30 48 8b 0c c8", "age abilities by index").uses(&[age_ability::DATABASE_LIST]),
+        Point::keep(MAY_ENACT_GOLDEN_ERA, "48 89 5c 24 10 55 56 57 41 56 41 57 48 8d ac 24 70 ff ff ff 48 81 ec 90 01 00 00", "may enact golden era"),
+        // The tooltip: when the golden era started, the years it lasts and
+        // the months it is lengthened by.
+        Point::keep(0x3f9f2busize, "8b 89 88 27 00 00 81 f9 f8 77 9c 02", "golden era start").uses(&[country::GOLDEN_ERA_START]),
+        Point::keep(0x3f9f3dusize, "69 05 89 43 f4 01 38 22 00 00", "golden era years").uses(&[GOLDEN_ERA_YEARS]),
+        Point::keep(0x3f9f4fusize, "8b 96 8c 27 00 00", "golden era months").uses(&[country::GOLDEN_ERA_MONTHS]),
     ]
 }
 
@@ -49,10 +66,40 @@ fn age(m: &Memory, world_at: usize) -> GResult<usize> {
     }
 }
 
-/// The age the world is in, and the player's splendor.
+/// The player's golden era: the day it ends while the player is in one, and
+/// whether the player can enact it now, as the button's tooltip says.
+fn golden_era(m: &Memory, ctx: &Ctx) -> GResult<GoldenEra> {
+    let start = m.i32(ctx.country + country::GOLDEN_ERA_START)?;
+    let mut until = None;
+    if start > NO_GOLDEN_ERA {
+        let mut end = start.saturating_add(m.i32(m.at(GOLDEN_ERA_YEARS))?.saturating_mul(YEAR));
+        let months = m.i32(ctx.country + country::GOLDEN_ERA_MONTHS)?;
+        ADD_MONTHS.call(m, [&mut end as *mut i32 as usize, months as i64 as usize])?;
+        if end > ctx.date {
+            until = Some(eu4_harmony_remote::Date(end));
+        }
+    }
+    let (may, why) = game_string::written(m, |text| MAY_ENACT_GOLDEN_ERA.call(m, [ctx.country, text]))?;
+    let choice = if may & 0xff != 0 { Choice::can(Vec::new()) } else { Choice::cannot(super::power::plain_lines(&why), Vec::new()) };
+    Ok(GoldenEra { until, choice })
+}
+
+/// The age the world is in, the player's splendor and its golden era.
 pub fn get(Session { m, ctx, .. }: Session) -> GResult<Age> {
     let key = game_string::key(m, age(m, ctx.world)? + age_ability::AGE_KEY)?;
-    Ok(Age { name: content::name(m, &key)?, age: key, splendor: thousandths(m.i32(ctx.country + country::SPLENDOR)?) })
+    let golden_era = golden_era(m, &ctx)?;
+    Ok(Age { name: content::name(m, &key)?, age: key, splendor: thousandths(m.i32(ctx.country + country::SPLENDOR)?), golden_era })
+}
+
+/// The command enacting the golden era: the country alone.
+fn golden_era_command(player: Tag) -> String {
+    format!("enact_golden_age={{ country=\"{}\" }}", content::letters(player))
+}
+
+/// Enacts the player's golden era, as the view's button does.
+pub fn enact_golden_era(Session { m, ctx, commands, .. }: Session) -> GResult<()> {
+    let choice = golden_era(m, &ctx)?.choice;
+    action::carry_out(commands, &choice, "enact the golden era", || Ok(golden_era_command(ctx.player)))
 }
 
 /// The abilities of the age the world is in, in the database's order.
@@ -125,6 +172,7 @@ crate::catalogue::bind! {
     Get => get;
     Abilities => list;
     TakeAbility => take_ability;
+    EnactGoldenEra => enact_golden_era;
 }
 
 #[cfg(test)]
@@ -135,5 +183,6 @@ mod tests {
     #[test]
     fn the_ability_command_names_the_country_and_the_ability_by_index() {
         assert_eq!(command(tur(), 7), r#"age_ability_command={ country="TUR" which=7 }"#);
+        assert_eq!(golden_era_command(tur()), r#"enact_golden_age={ country="TUR" }"#);
     }
 }

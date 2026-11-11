@@ -151,6 +151,22 @@ pub mod world {
     /// Nonzero while the world's own reset clears it (`0x74a260`), u8: a
     /// rebel faction's destructor then leaves its provinces be.
     pub const CLEARING: usize = 0x7485;
+    /// What the world keeps of each religion, a pointer to an object whose
+    /// [`RELIGION_STATES_DATA`] is an array of [`RELIGION_STATE_SIZE`]-byte
+    /// records by the religion's [`super::religion::INDEX`] less one
+    /// (docs/research/religion.md, "The defender of the faith").
+    pub const RELIGION_STATES: usize = 0x25a8;
+    pub const RELIGION_STATES_DATA: usize = 0x30;
+    pub const RELIGION_STATE_SIZE: usize = 0x50;
+    /// A religion's record: the tag of the country that defends it, whose
+    /// valid byte is clear while none does.
+    pub const RELIGION_DEFENDER: usize = 0x34;
+}
+
+/// A religion, as a country's [`country::STATE_RELIGION`] points to it.
+pub mod religion {
+    /// Its index among the religions, from 1.
+    pub const INDEX: usize = 0x70;
 }
 
 /// The religions, at [`globals::RELIGIONS`].
@@ -213,6 +229,10 @@ pub mod country {
     pub const AGE_ABILITIES: usize = 0x30;
     /// Its splendor, i32 thousandths.
     pub const SPLENDOR: usize = 0x48;
+    /// The date its golden era started (`golden_era_date` in saves), i32,
+    /// and the months the golden era is lengthened by, i32.
+    pub const GOLDEN_ERA_START: usize = 0x2788;
+    pub const GOLDEN_ERA_MONTHS: usize = 0x278c;
     /// Whether it has embraced each institution (`institutions` in saves): a
     /// vector (begin, end) of i32 by the institution's
     /// [`super::institution::INDEX`], 1 once embraced.
