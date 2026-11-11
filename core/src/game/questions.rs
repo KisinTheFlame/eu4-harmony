@@ -123,7 +123,7 @@ fn find(m: &Memory, ctx: &Ctx, id: u32) -> GResult<Window> {
     }
 }
 
-fn options(m: &Memory, event: usize) -> GResult<Vec<usize>> {
+pub(super) fn options(m: &Memory, event: usize) -> GResult<Vec<usize>> {
     let begin = m.ptr(event + event::OPTIONS)?;
     let count = containers::span(begin, m.ptr(event + event::OPTIONS + 8)?, 8, MOST_OPTIONS)?;
     (0..count).map(|i| m.ptr(begin + i * 8)).collect::<crate::Result<_>>().map_err(Into::into)
@@ -158,7 +158,7 @@ fn description(m: &Memory, w: &Window) -> GResult<String> {
 
 /// The text of the localisation key `key` in `scope`, as the event window
 /// shows it, in plain text (`game_text::plain`).
-fn localize(m: &Memory, scope: usize, key: &[u8]) -> GResult<String> {
+pub(super) fn localize(m: &Memory, scope: usize, key: &[u8]) -> GResult<String> {
     // The key goes by value: a string of the game's own, which it destroys.
     let mut argument = game_string::empty();
     if !key.is_empty() {
@@ -183,7 +183,7 @@ pub fn points() -> Vec<Point> {
         // The event window's description and options.
         Point::keep(DESCRIPTION_KEY, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 57 41 54 41", "event description key"),
         Point::keep(0x10bac67usize, "4d 8b c4 48 8d 55 f0 49 8b 4f 48 e8 39 33 63 ff", "event description").uses(&[window::EVENT]),
-        Point::keep(OPTION_OPEN, "48 81 c1 a8 00 00 00 e9 c4 16 4a 00", "event option open"),
+        Point::keep(OPTION_OPEN, "48 81 c1 a8 00 00 00 e9 c4 16 4a 00", "event option open").uses(&[event_option::TRIGGER]),
         Point::keep(0x10bb5bdusize, "49 8b d4 48 8b cf e8 68 b5 63 ff", "event option shown"),
     ]
 }
@@ -196,6 +196,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
     use crate::game::{
         buffers::{self, Image, Object},
@@ -269,7 +270,7 @@ mod tests {
         let fra = Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
         let country = Object::country(fra, 0);
         let countries = Object::countries(&[&country]);
-        let session = buffers::session(m, world.at(), fra, country.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(m, world.at(), fra, country.at(), countries.at(), Caller::Remote(As::Player));
         let mut objects = vec![event, records, world, country, countries];
         objects.extend(options);
         France { _image: image, _objects: objects, session, windows: at }

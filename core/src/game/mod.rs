@@ -13,7 +13,7 @@
 //!
 //! Under them, reading the session, finding routes and giving orders, ported
 //! from eu4-regional-combat's native adapter ([`world`], [`orders`], and
-//! [`events`], which establishes the safe point everything here runs at);
+//! [`signals`], which establishes the safe point everything here runs at);
 //! addresses are RVAs in the 1.37.5 layout (see `baseline`), with the evidence
 //! in docs/research/ (provinces.md, armies.md, routes.md, army-orders.md,
 //! defeat.md, time.md, fog-of-war.md).
@@ -25,16 +25,23 @@ pub mod buffers;
 pub mod commands;
 pub mod conditions;
 pub mod content;
+pub mod curia;
 pub mod envoys;
-pub mod event_costs;
-pub mod events;
+pub mod factions;
+pub mod faith;
 pub mod frame;
 pub mod interface;
 pub mod map_coloring;
+pub mod mechanics;
 pub mod modifiers;
+pub mod opinions;
 pub mod orders;
+pub mod piety;
 pub mod player;
 pub mod power;
+pub mod signal_costs;
+pub mod signals;
+pub mod spendings;
 pub mod units;
 pub mod wars;
 pub mod world;
@@ -71,13 +78,13 @@ use crate::{
     objects::campaign::{self, countries as country_list, country as country_fields, globals, map_manager, pause, tag},
     points::{GameFunction, Point},
 };
-use eu4_harmony_remote::events::Kind;
+use eu4_harmony_remote::signals::Kind;
 use std::sync::Mutex;
 
 pub use frame::{Frame, Heard};
 
 /// How much of the game a read gives (GLOSSARY: Player's view, Full view;
-/// ADR remote-control-reads-the-players-view).
+/// ADR requests-act-as-the-player-or-as-the-game).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum View {
     /// What the player's interface shows: the map as fog of war leaves it,
@@ -87,31 +94,26 @@ pub enum View {
     Full,
 }
 
-/// The view `caller` reads: the full view for an extension; for remote
-/// control the player's view, unless the player's framework setting gives it
-/// the full view.
+/// The view `caller` reads: the full view for an extension and a request as
+/// the game, the player's view for a request as the player.
 pub fn view(caller: Caller) -> View {
     match caller {
-        Caller::Extension(_) => View::Full,
-        Caller::Remote => view_of(caller, crate::settings::current().remote_full_view),
+        Caller::Extension(_) | Caller::Remote(As::Game) => View::Full,
+        Caller::Remote(As::Player) => View::Player,
     }
 }
 
-fn view_of(caller: Caller, remote_full_view: bool) -> View {
-    match caller {
-        Caller::Extension(_) => View::Full,
-        Caller::Remote if remote_full_view => View::Full,
-        Caller::Remote => View::Player,
-    }
-}
+pub use eu4_harmony_remote::As;
 
 /// Who calls a capability.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Caller {
-    /// The extension with this index, from one of its callbacks.
+    /// The extension with this index, from one of its callbacks. It may do
+    /// what the game does too (ADR requests-act-as-the-player-or-as-the-game).
     Extension(usize),
-    /// Remote control. It acts as the player: its orders are the player's.
-    Remote,
+    /// A remote client's request, as the player or as the game. Its orders
+    /// are the player's.
+    Remote(As),
 }
 
 impl Caller {
@@ -120,7 +122,7 @@ impl Caller {
     pub fn extension(self, what: &str) -> GResult<usize> {
         match self {
             Caller::Extension(index) => Ok(index),
-            Caller::Remote => fail(Status::Unavailable, format!("only extensions have {what}")),
+            Caller::Remote(_) => fail(Status::Unavailable, format!("only extensions have {what}")),
         }
     }
 }
@@ -291,41 +293,41 @@ pub fn session_forgotten() {
     });
 }
 
-/// Starts a safe frame (see [`events`]); fails when this is not one, saying
+/// Starts a safe frame (see [`signals`]); fails when this is not one, saying
 /// why. The sessions hear of it first, which let what was kept of another
 /// session go (`crate::sessions`). An army the player gave an order is no
 /// longer an extension's to move. What happened since the last frame is
 /// [`frame`]'s to decide.
 pub fn begin_frame(m: &Memory) -> GResult<Frame> {
-    let (world, fog) = events::frame_campaign(m)?;
+    let (world, fog) = signals::frame_campaign(m)?;
     let seen = crate::sessions::frame_read(&world);
-    let (visibility_current, changes) = events::take_frame(&world, fog);
+    let (visibility_current, changes) = signals::take_frame(&world, fog);
     with_state(|s| {
         for change in &changes {
-            if let events::Change::Ordered(army) = change {
+            if let signals::Change::Ordered(army) = change {
                 s.orders.revoke(*army);
             }
         }
     });
     let observed = frame::Observed { world, seen, visibility_current, changes };
     let mut recall = RECALL.lock().unwrap_or_else(|e| e.into_inner());
-    Ok(recall.next(observed, events::listened, |world| watch_wars(m, world)))
+    Ok(recall.next(observed, signals::listened, |world| watch_wars(m, world)))
 }
 
 /// What the wars and the provinces' owners show happened since the day
 /// before, of the kinds someone listens to; nothing when they cannot be
 /// read, which the log says.
 fn watch_wars(m: &Memory, ctx: &World) -> Vec<wars::Happened> {
-    let war = events::listened(Kind::WarDeclared) || events::listened(Kind::PeaceMade);
-    let owners = events::listened(Kind::ProvinceOwnerChanged);
+    let war = signals::listened(Kind::WarDeclared) || signals::listened(Kind::PeaceMade);
+    let owners = signals::listened(Kind::ProvinceOwnerChanged);
     let seen = with_state(|s| {
         let mut happened = Vec::new();
         match war {
-            true => happened.extend(event_costs::WARS.time(|| s.wars.wars(m, ctx))?),
+            true => happened.extend(signal_costs::WARS.time(|| s.wars.wars(m, ctx))?),
             false => s.wars.forget_wars(),
         }
         match owners {
-            true => happened.extend(event_costs::OWNERS.time(|| Ok::<_, Fail>(s.wars.owners(s.geography.owners(m, ctx)?)))?),
+            true => happened.extend(signal_costs::OWNERS.time(|| Ok::<_, Fail>(s.wars.owners(s.geography.owners(m, ctx)?)))?),
             false => s.wars.forget_owners(),
         }
         Ok::<_, Fail>(happened)
@@ -336,7 +338,7 @@ fn watch_wars(m: &Memory, ctx: &World) -> Vec<wars::Happened> {
     })
 }
 
-/// A country, as events name it.
+/// A country, as signals name it.
 fn named(tag: Tag) -> eu4_harmony_remote::CountryTag {
     eu4_harmony_remote::CountryTag(tag.letters())
 }
@@ -354,14 +356,21 @@ pub fn points() -> Vec<Point> {
     points.extend(world::points());
     points.extend(army::points());
     points.extend(orders::points());
-    points.extend(events::points());
+    points.extend(signals::points());
     points.extend(player::points());
     points.extend(conditions::points());
     points.extend(power::points());
+    points.extend(mechanics::points());
     points.extend(modifiers::points());
+    points.extend(opinions::points());
     points.extend(administration::points());
     points.extend(units::points());
+    points.extend(spendings::points());
     points.extend(envoys::points());
+    points.extend(faith::points());
+    points.extend(factions::points());
+    points.extend(piety::points());
+    points.extend(curia::points());
     points
 }
 
@@ -561,7 +570,7 @@ pub fn command_session(m: &Memory, ctx: &impl InWorld) -> GResult<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{view_of, Caller, Tag, View};
+    use super::{view, As, Caller, Tag, View};
 
     #[test]
     fn a_reason_loses_the_check_s_bullet_and_the_text_s_own_dash() {
@@ -571,10 +580,10 @@ mod tests {
     }
 
     #[test]
-    fn extensions_read_the_full_view_and_remote_control_the_players_unless_set() {
-        assert_eq!(view_of(Caller::Extension(0), false), View::Full);
-        assert_eq!(view_of(Caller::Remote, false), View::Player);
-        assert_eq!(view_of(Caller::Remote, true), View::Full);
+    fn extensions_and_requests_as_the_game_read_the_full_view_and_as_the_player_the_players() {
+        assert_eq!(view(Caller::Extension(0)), View::Full);
+        assert_eq!(view(Caller::Remote(As::Player)), View::Player);
+        assert_eq!(view(Caller::Remote(As::Game)), View::Full);
     }
 
     #[test]

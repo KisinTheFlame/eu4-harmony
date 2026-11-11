@@ -19,21 +19,20 @@ use record::Claim;
 pub use record::{GameEnd, AT_ONCE};
 use std::{path::Path, time::Duration};
 
-/// `--owner`, else the leaf name of this checkout's folder.
-pub fn owner(args: &Args) -> String {
-    owner_of(args.value("owner"))
+/// The owner `--owner` names, which every command of a claim needs.
+pub fn owner(args: &Args) -> Result<String> {
+    named_owner(args.value("owner"))
 }
 
-/// The owner `given`, else the leaf name of this checkout's folder; it
-/// names the owner's test game and its pipe, so it is made of letters,
-/// digits, `.`, `_` and `-`.
-pub fn owner_of(given: Option<&str>) -> String {
-    let name = given.map(String::from).unwrap_or_else(|| crate::repo().file_name().map_or("checkout".into(), |n| n.to_string_lossy().into_owned()));
-    let name: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') { c } else { '-' }).take(64).collect();
-    if name.is_empty() {
-        "checkout".into()
-    } else {
-        name
+/// The owner `given`, which names the owner's test game and its pipe: made
+/// of letters, digits, `.`, `_` and `-`, at most 64 of them. There is no
+/// default: two runs that took the same one would share a test game.
+pub fn named_owner(given: Option<&str>) -> Result<String> {
+    let name = given.ok_or("--owner <name> is needed: it names the test game, as each command of the claim gives it")?;
+    let fits = !name.is_empty() && name.len() <= 64 && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    match fits {
+        true => Ok(name.to_string()),
+        false => Err(format!("--owner {name:?}: letters, digits, '.', '_' and '-', at most 64 of them")),
     }
 }
 
@@ -52,11 +51,6 @@ pub fn user_dir(owner: &str) -> Result<std::path::PathBuf> {
     held_by(owner).map(|c| course::user_dir(&c))
 }
 
-/// The process of `owner`'s test game while it runs.
-pub fn game_of(owner: &str) -> Option<u32> {
-    course::game_of_owner(&ThisComputer, owner)
-}
-
 /// The `eu4.exe` serving the test game `name`'s pipe, if any.
 pub fn game_named(name: &str) -> Option<u32> {
     use machine::Machine as _;
@@ -71,11 +65,11 @@ pub fn run(raw: &[String]) -> Result<()> {
     }
     let args = Args::parse_repeated(rest, &["sound", "visible"], &["purpose", "owner", "timeout", "game-dir", "seed"], &["save", "mod"])?;
     match command.as_str() {
-        "claim" => course::claim(&ThisComputer, &owner(&args), args.value("purpose").unwrap_or(""), &args.game_dir()?).map(|_| ()),
-        "release" => course::release(&ThisComputer, &owner(&args)),
+        "claim" => course::claim(&ThisComputer, &owner(&args)?, args.value("purpose").unwrap_or(""), &args.game_dir()?).map(|_| ()),
+        "release" => course::release(&ThisComputer, &owner(&args)?),
         "status" => course::status(&ThisComputer),
         "start" => start(&args).map(|_| ()),
-        "stop" => course::stop(&ThisComputer, &owner(&args)),
+        "stop" => course::stop(&ThisComputer, &owner(&args)?),
         other => Err(format!("unknown command game {other:?}; cargo xtask --help lists them")),
     }
 }
@@ -88,14 +82,14 @@ fn follow(rest: &[String]) -> Result<()> {
     machine::follow_games(Path::new(folder), id, pipe)
 }
 
-/// Holds a test game for a run of `owner`'s, as the scenario runner's: the
-/// claim `owner` holds already, else a new one.
-pub fn hold_for_run(owner: &str, purpose: &str, game_dir: &Path) -> Result<Run> {
-    course::hold_for_run(&ThisComputer, owner, purpose, game_dir)
+/// Claims a test game for a run, as the scenario runner's, which the run
+/// releases when it ends.
+pub fn claim_for_run(owner: &str, purpose: &str, game_dir: &Path) -> Result<Run> {
+    course::claim_for_run(&ThisComputer, owner, purpose, game_dir)
 }
 
 /// Plays `play` within `run`'s claim; then, whatever `play` comes to, ends
-/// the test game and releases the claim the run made.
+/// the test game and releases the claim.
 pub fn play_within<T>(run: &Run, interrupted: &(dyn Fn() -> bool + Sync), play: impl FnOnce() -> Result<T>) -> Result<T> {
     course::play_within(&ThisComputer, run, interrupted, play)
 }
@@ -161,11 +155,6 @@ pub fn recorded_run_game<'m>(m: &'m recorded::Recorded, owner: &str) -> InClaim<
     InClaim { m, owner: owner.into(), game_dir: recorded::GAME_DIR.into(), given_up: || false }
 }
 
-/// Ends `owner`'s test game, if it runs.
-pub fn stop_game_as(owner: &str) -> Result<()> {
-    course::stop(&ThisComputer, owner)
-}
-
 /// Starts `owner`'s test game hidden, with this checkout's built core,
 /// waiting for a place to run in while the most test games run, then up to
 /// `wait` for its main menu. The seconds it took.
@@ -185,7 +174,7 @@ fn start(args: &Args) -> Result<f64> {
         .value("timeout")
         .map_or(Ok(eu4_harmony_client::start::WAIT), |v| v.parse().map(Duration::from_secs).map_err(|_| format!("--timeout {v}: seconds")))?;
     let seed = args.value("seed").map(|v| v.parse::<u32>().map_err(|_| format!("--seed {v}: a whole number below 2^32"))).transpose()?;
-    let owner = owner(args);
+    let owner = owner(args)?;
     let mods = args.values("mod").into_iter().map(std::path::PathBuf::from).collect();
     let starting = Starting { sound: args.flag("sound"), seed, saves: args.values("save"), options: None, mods, build: None };
     let took = start_game_as(&owner, &args.game_dir()?, &starting, wait)?;

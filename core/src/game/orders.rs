@@ -1,7 +1,7 @@
 //! Route queries, moving and stopping own land armies with the game's move
 //! command (ADR commands-run-at-once), and the record of which extension set
 //! which route.
-use super::{armies::RouteSource, army, commands::Commands, events::Change, fail, paused, world, Caller, Ctx, GResult, Session, Status, MAX_UNITS};
+use super::{armies::RouteSource, army, commands::Commands, fail, paused, signals::Change, world, Caller, Ctx, GResult, Session, Status, MAX_UNITS};
 use crate::containers;
 use crate::{
     memory::Memory,
@@ -19,7 +19,7 @@ pub const ROUTE_QUERY: GameFunction<8> = GameFunction::at(0x96c520);
 pub const MOVE: usize = 0xd50340;
 pub const STOP: usize = 0xd4fcb0;
 
-/// `MOVE` and `STOP` are declared by `events`, which observes them.
+/// `MOVE` and `STOP` are declared by `signals`, which observes them.
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(ROUTE_QUERY, "4c 89 4c 24 20 48 89 54 24 10 48 89 4c 24 08 55", "route query"),
@@ -65,7 +65,7 @@ fn routes_off() -> Option<&'static str> {
         _ => Some("routes are off until the game starts again: the game's route query faulted earlier"),
     }
 }
-/// Thread currently mutating a route on behalf of an extension; the event hooks
+/// Thread currently mutating a route on behalf of an extension; the signal hooks
 /// ignore route changes made while this is set.
 static OWN_MUTATION: AtomicU32 = AtomicU32::new(0);
 
@@ -247,7 +247,7 @@ impl Orders {
                 self.receipts.remove(&id);
                 None
             }
-            Caller::Remote => {
+            Caller::Remote(_) => {
                 self.receipts.remove(&id);
                 Some(Change::Ordered(id))
             }
@@ -492,6 +492,7 @@ fn order(commands: Commands, text: &str) -> GResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game::As;
 
     #[test]
     fn routes_off_for_their_world_come_back_with_another_and_those_off_for_the_process_do_not() {
@@ -536,7 +537,7 @@ mod tests {
     #[test]
     fn only_an_extension_s_orders_wait_for_a_paused_game() {
         assert!(waits_for_time(Caller::Extension(0)));
-        assert!(!waits_for_time(Caller::Remote));
+        assert!(!waits_for_time(Caller::Remote(As::Player)));
     }
 
     #[test]
@@ -548,21 +549,21 @@ mod tests {
         assert_eq!(orders.settle(first, 7, 1, route.clone()), None);
         assert_eq!(orders.source(7, 1, &route, first), RouteSource::Own);
         assert_eq!(orders.source(7, 1, &route, Caller::Extension(1)), RouteSource::OtherExtension);
-        assert_eq!(orders.source(7, 1, &route, Caller::Remote), RouteSource::OtherExtension);
+        assert_eq!(orders.source(7, 1, &route, Caller::Remote(As::Player)), RouteSource::OtherExtension);
 
         // A remote client moves the army: it is taken back from the extension,
         // and one player's order comes out.
         let remote = path(&[4], &[40]);
-        assert_eq!(orders.settle(Caller::Remote, 7, 1, remote.clone()), Some(Change::Ordered(7)));
+        assert_eq!(orders.settle(Caller::Remote(As::Player), 7, 1, remote.clone()), Some(Change::Ordered(7)));
         assert!(orders.receipts.is_empty());
-        for caller in [first, Caller::Extension(1), Caller::Remote] {
+        for caller in [first, Caller::Extension(1), Caller::Remote(As::Player)] {
             assert_eq!(orders.source(7, 1, &remote, caller), RouteSource::External);
         }
 
         // Stopping is an order too, whether or not anyone owned the army.
         assert_eq!(orders.settle(first, 7, 1, route.clone()), None);
-        assert_eq!(orders.settle(Caller::Remote, 7, 1, Path::default()), Some(Change::Ordered(7)));
-        assert_eq!(orders.settle(Caller::Remote, 8, 1, Path::default()), Some(Change::Ordered(8)));
+        assert_eq!(orders.settle(Caller::Remote(As::Player), 7, 1, Path::default()), Some(Change::Ordered(7)));
+        assert_eq!(orders.settle(Caller::Remote(As::Player), 8, 1, Path::default()), Some(Change::Ordered(8)));
         assert!(orders.receipts.is_empty());
         assert_eq!(orders.source(7, 1, &Path::default(), first), RouteSource::None);
 

@@ -3,7 +3,8 @@
 //! the capability's result as the game writes it, in Lua's form.
 //!
 //! The world holds the player, the date, countries and which are hostile,
-//! provinces with their neighbors, and armies. A route is the shortest over
+//! provinces with their neighbors, and armies; and the scripts' flags and
+//! variables the mod sets, a flag on the world's date. A route is the shortest over
 //! land an army can stand on, across straits; a step is to a neighbor of
 //! that kind; an attack is on an army of a country hostile to the player.
 //! An order sets or clears the army's route, as this mod's; armies do not
@@ -14,8 +15,11 @@
 //! the player's, a fleet where a land army is asked for, an order to an army
 //! the game would not let the framework order, a target the player does not
 //! see. The game is never paused in the world.
-use eu4_harmony_checks::{armies as army_checks, countries as country_checks, provinces as province_checks};
-use eu4_harmony_remote::{armies::Blocked, Error};
+use eu4_harmony_checks::{
+    armies as army_checks, countries as country_checks, provinces as province_checks,
+    script::{self as script_checks, Use},
+};
+use eu4_harmony_remote::{armies::Blocked, script::Scope, Code, Error, ProvinceId};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -41,6 +45,38 @@ pub struct World {
     armies: Vec<Army>,
     #[serde(default)]
     selected: Option<u64>,
+    /// The flags and variables the mod set, by their scope and name: a
+    /// flag's day, in Lua's form, and a variable's value.
+    #[serde(skip)]
+    flags: BTreeMap<String, Value>,
+    #[serde(skip)]
+    variables: BTreeMap<String, f64>,
+    /// What one country thinks of another; a pair left out thinks nothing
+    /// of each other, with the game's trust of 50.
+    #[serde(default)]
+    opinions: Vec<Thinks>,
+}
+
+/// What `of` thinks of `toward`, as `country.opinion` answers it.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Thinks {
+    of: String,
+    toward: String,
+    #[serde(default)]
+    opinion: i32,
+    #[serde(default)]
+    parts: Vec<Value>,
+    #[serde(default)]
+    aggressive_expansion: f64,
+    #[serde(default = "trust")]
+    trust: i32,
+    #[serde(default)]
+    favors: f64,
+}
+
+fn trust() -> i32 {
+    50
 }
 
 #[derive(Debug, Deserialize)]
@@ -97,6 +133,14 @@ struct Army {
     route: Vec<u32>,
     #[serde(default)]
     route_by: Option<String>,
+    /// Its strength, 1 a full regiment; every regiment full when absent.
+    #[serde(default)]
+    strength: Option<f64>,
+    /// Its morale; 3, every regiment's most, when absent.
+    #[serde(default)]
+    morale: Option<f64>,
+    #[serde(default)]
+    leader: Option<u32>,
 }
 
 fn army() -> String {
@@ -126,6 +170,8 @@ pub const ANSWERS: &[&str] = &[
     "session.get",
     "country.get",
     "country.hostile",
+    "country.opinion",
+    "country.opinions",
     "province.list",
     "province.get",
     "province.neighbors",
@@ -138,6 +184,11 @@ pub const ANSWERS: &[&str] = &[
     "army.can_attack",
     "army.move",
     "army.stop",
+    "script.flag",
+    "script.set_flag",
+    "script.clear_flag",
+    "script.variable",
+    "script.set_variable",
 ];
 
 impl World {
@@ -147,6 +198,10 @@ impl World {
         let world: World = serde_json::from_value(json).map_err(|e| format!("the world: {e}"))?;
         for (tag, fields) in &world.countries {
             crate::fake::check("country.get", &Value::Object(fields.clone())).map_err(|e| format!("the world's country {tag}: {e}"))?;
+        }
+        for t in &world.opinions {
+            crate::fake::check("country.opinion", &world.opinion_json(&t.of, &t.toward))
+                .map_err(|e| format!("the world's opinion of {} of {}: {e}", t.of, t.toward))?;
         }
         for a in &world.armies {
             crate::fake::check("army.get", &world.army_json(a)).map_err(|e| format!("the world's army {}: {e}", a.id))?;
@@ -161,7 +216,8 @@ impl World {
         self.player.clone().unwrap_or_else(|| "CAS".into())
     }
 
-    fn date(&self) -> Value {
+    /// The world's date, in Lua's form.
+    pub fn date(&self) -> Value {
         match &self.date {
             Some(Value::String(text)) => date(text),
             Some(other) => other.clone(),
@@ -209,8 +265,31 @@ impl World {
             .ok_or_else(|| army_checks::not_seen(id).into())
     }
 
+    /// What `of` thinks of `toward`, in Lua's form.
+    fn opinion_json(&self, of: &str, toward: &str) -> Value {
+        match self.opinions.iter().find(|t| t.of == of && t.toward == toward) {
+            Some(t) => json!({
+                "of": of, "toward": toward, "opinion": t.opinion, "parts": t.parts,
+                "aggressive_expansion": t.aggressive_expansion, "trust": t.trust, "favors": t.favors,
+            }),
+            None => json!({"of": of, "toward": toward, "opinion": 0, "parts": [], "aggressive_expansion": 0.0, "trust": trust(), "favors": 0.0}),
+        }
+    }
+
+    /// Every country the world names, in the order of their tags.
+    fn known_countries(&self) -> BTreeSet<String> {
+        let mut all: BTreeSet<String> = self.countries.keys().cloned().collect();
+        all.insert(self.player());
+        all.extend(self.hostile.iter().flat_map(|(a, b)| [a.clone(), b.clone()]));
+        all.extend(self.provinces.iter().filter_map(|p| p.owner.clone()));
+        all.extend(self.armies.iter().map(|a| a.owner.clone()));
+        all.extend(self.opinions.iter().flat_map(|t| [t.of.clone(), t.toward.clone()]));
+        all
+    }
+
     fn country_known(&self, tag: &str) -> bool {
         tag == self.player()
+            || self.opinions.iter().any(|t| t.of == tag || t.toward == tag)
             || self.countries.contains_key(tag)
             || self.hostile.iter().any(|(a, b)| a == tag || b == tag)
             || self.provinces.iter().any(|p| p.owner.as_deref() == Some(tag))
@@ -285,9 +364,15 @@ impl World {
 
     fn army_json(&self, a: &Army) -> Value {
         let own = a.owner == self.player();
+        let full = f64::from(a.regiments);
+        let mut units = json!({"infantry": 0, "cavalry": 0, "artillery": 0, "heavy_ship": 0, "light_ship": 0, "galley": 0, "transport": 0});
+        units[if a.kind == "navy" { "heavy_ship" } else { "infantry" }] = json!(a.regiments);
         json!({
             "id": a.id, "owner": a.owner, "kind": a.kind, "province": a.province, "regiments": a.regiments,
             "blocked": a.blocked, "route": if own { a.route.clone() } else { Vec::new() }, "route_by": a.route_by,
+            "aboard": null, "carrying": 0, "units": units, "strength": a.strength.unwrap_or(full), "max_strength": full,
+            "morale": a.morale.unwrap_or(3.0), "max_morale": 3.0, "leader": a.leader,
+            "maintenance": if own { json!(0.25 * full) } else { Value::Null },
         })
     }
 
@@ -304,6 +389,9 @@ impl World {
             "autonomy": 0.0, "culture": null, "religion": null, "trade_good": null, "unrest": 0.0, "trade_node": null,
             "center_of_trade": 0, "trade_company": false, "state": p.owner.as_ref().map(|_| "state"), "edict": null,
             "cores": p.owner.iter().collect::<Vec<_>>(), "claims": [], "constructions": [], "missionary": null, "colony_size": null,
+            "named_modifiers": [],
+            "prosperity": p.owner.as_ref().map(|_| 0.0), "devastation": 0.0, "local_manpower": 0.25, "supply_limit": 6.0, "separatism": 0,
+            "institutions": [],
         })
     }
 
@@ -325,6 +413,8 @@ impl World {
                     "power": {"adm": 0, "dip": 0, "mil": 0}, "wars": [], "relations": [],
                     "technology": {"adm": 3, "dip": 3, "mil": 3}, "ideas": [], "governing_capacity": {"used": 0.0, "max": 0.0},
                     "inflation": 0.0, "mercantilism": 0.0, "loans": {"count": 0, "ducats": 0.0}, "rebels": [],
+                    "ruler": null, "heir": null, "consort": null, "legitimacy": null, "corruption": 0.0, "absolutism": 0.0,
+                    "army_professionalism": 0.0, "army_tradition": 0.0, "navy_tradition": 0.0, "named_modifiers": [],
                 });
                 if let (Some(fields), Value::Object(all)) = (self.countries.get(&tag), &mut country) {
                     all.extend(fields.clone());
@@ -338,6 +428,34 @@ impl World {
                     Some(unknown) => Err(country_checks::not_found(&unknown).into()),
                     None => Ok(json!(self.hostile(&a, &b))),
                 }
+            }
+            "country.opinion" => {
+                let (of, toward) = (text("of"), text("toward"));
+                if let Some(unknown) = [&of, &toward].into_iter().find(|t| !self.country_known(t)) {
+                    return Some(Err(country_checks::not_found(unknown).into()));
+                }
+                match country_checks::of_itself(&of, &toward) {
+                    Some(refusal) => Err(refusal.into()),
+                    None => Ok(self.opinion_json(&of, &toward)),
+                }
+            }
+            "country.opinions" => {
+                let toward = text("toward");
+                if !self.country_known(&toward) {
+                    return Some(Err(country_checks::not_found(&toward).into()));
+                }
+                let row = |of: &String| {
+                    let mut o = self.opinion_json(of, &toward);
+                    if let Value::Object(fields) = &mut o {
+                        fields.remove("toward");
+                        fields.remove("parts");
+                        if let Some(of) = fields.remove("of") {
+                            fields.insert("country".into(), of);
+                        }
+                    }
+                    o
+                };
+                Ok(Value::Array(self.known_countries().iter().filter(|of| **of != toward).map(row).collect()))
             }
             "province.list" => {
                 let row = |p: &Place| json!({"id": p.id, "kind": p.kind, "visible": p.visible, "owner": p.owner, "controller": p.controller.clone().or_else(|| p.owner.clone())});
@@ -411,7 +529,55 @@ impl World {
                     Value::Null
                 })
             }
+            "script.flag" | "script.set_flag" | "script.clear_flag" | "script.variable" | "script.set_variable" => self.script(capability, request),
             _ => return None,
+        })
+    }
+
+    /// A flag or a variable read or set, kept by its scope and name: a flag
+    /// set on the world's date, a variable in thousandths, as the game keeps
+    /// them. The scope's country or province must be the world's; a monarch
+    /// is taken to be there.
+    fn script(&mut self, capability: &str, request: &Value) -> Result<Value, Error> {
+        let scope: Scope =
+            serde_json::from_value(request.get("scope").cloned().unwrap_or(Value::Null)).map_err(|e| Error::new(Code::InvalidArgument, e.to_string()))?;
+        let name = request.get("name").and_then(Value::as_str).unwrap_or_default();
+        let (use_, what) = if capability.ends_with("flag") { (Use::Flag, "flag") } else { (Use::Variable, "variable") };
+        script_checks::scope(use_, scope.kind(), scope == Scope::Global(true))?;
+        script_checks::name(what, name)?;
+        match scope {
+            Scope::Country(tag) | Scope::Ruler(tag) | Scope::Heir(tag) | Scope::Consort(tag) if !self.country_known(&tag.to_string()) => {
+                return Err(country_checks::not_found(&tag.to_string()).into());
+            }
+            Scope::Province(ProvinceId(id)) => {
+                self.province(id)?;
+            }
+            _ => {}
+        }
+        let key = format!("{}:{name}", serde_json::to_string(&scope).unwrap_or_default());
+        Ok(match capability {
+            "script.flag" => match self.flags.get(&key) {
+                Some(day) => json!({"set": true, "day": day}),
+                None => json!({"set": false, "day": null}),
+            },
+            "script.set_flag" => {
+                self.flags.insert(key, self.date());
+                Value::Null
+            }
+            "script.clear_flag" => {
+                self.flags.remove(&key);
+                Value::Null
+            }
+            "script.variable" => match self.variables.get(&key) {
+                Some(value) => json!({"set": true, "value": value}),
+                None => json!({"set": false, "value": 0.0}),
+            },
+            _ => {
+                let value = request.get("value").and_then(Value::as_f64).unwrap_or_default();
+                script_checks::value(value)?;
+                self.variables.insert(key, (value * 1000.0).round() / 1000.0);
+                Value::Null
+            }
         })
     }
 }
@@ -494,6 +660,26 @@ mod tests {
         assert_eq!(ask(&mut w, "army.get", json!({"army": 2})).unwrap_err().code, Code::NotFound);
         assert_eq!(ask(&mut w, "country.hostile", json!({"country": "GRA", "other": "CAS"})).unwrap(), json!(true));
         assert_eq!(ask(&mut w, "country.get", json!({"country": "ZZZ"})).unwrap_err().code, Code::NotFound);
+    }
+
+    #[test]
+    fn the_world_answers_what_countries_think_of_each_other() {
+        let mut w = World::new(json!({
+            "player": "CAS",
+            "opinions": [{"of": "ARA", "toward": "CAS", "opinion": 120, "trust": 80, "favors": 10.0, "parts": [{"text": "Royal marriage", "value": 25}]}],
+        }))
+        .unwrap();
+        let ara = ask(&mut w, "country.opinion", json!({"of": "ARA", "toward": "CAS"})).unwrap();
+        assert_eq!((ara["opinion"].clone(), ara["trust"].clone(), ara["parts"][0]["value"].clone()), (json!(120), json!(80), json!(25)));
+        // A pair the world leaves out thinks nothing of each other.
+        let cas = ask(&mut w, "country.opinion", json!({"of": "CAS", "toward": "ARA"})).unwrap();
+        assert_eq!((cas["opinion"].clone(), cas["trust"].clone()), (json!(0), json!(50)));
+        assert_eq!(
+            ask(&mut w, "country.opinions", json!({"toward": "CAS"})).unwrap(),
+            json!([{"country": "ARA", "opinion": 120, "aggressive_expansion": 0.0, "trust": 80, "favors": 10.0}])
+        );
+        let e = ask(&mut w, "country.opinion", json!({"of": "CAS", "toward": "CAS"})).unwrap_err();
+        assert_eq!(e.message, country_checks::of_itself("CAS", "CAS").unwrap().message);
     }
 
     #[test]

@@ -23,7 +23,7 @@
 mod course;
 pub mod leave;
 
-use super::{fail, game, Caller, GResult, Status, Tag};
+use super::{fail, game, As, Caller, GResult, Status, Tag};
 use crate::{
     game_string,
     memory::Memory,
@@ -692,7 +692,7 @@ pub enum Returned {
 
 /// What came of the return remote control asked for as `number`.
 pub fn returned(_: Caller, number: u64) -> Returned {
-    COURSE.returned(number, || matches!(place(Caller::Remote), Ok(Place::MainMenu)))
+    COURSE.returned(number, || matches!(place(Caller::Remote(As::Player)), Ok(Place::MainMenu)))
 }
 
 /// Sets the flag the game's own question sets when the player confirms a

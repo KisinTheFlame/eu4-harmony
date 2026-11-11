@@ -265,8 +265,16 @@ mod tests {
         let cmd = Path::new(r"C:\Windows\System32\cmd.exe");
         let game = Game::spawn(cmd, &["/c".into(), "exit".into(), "7".into()], Path::new(r"C:\Windows")).unwrap();
         assert_ne!(game.started(), 0);
-        std::thread::sleep(Duration::from_millis(500));
-        assert_eq!(game.exit_code(), Some(7));
+        // However long a busy computer takes to run it, its code is kept.
+        let mut code = None;
+        for _ in 0..200 {
+            code = game.exit_code();
+            if code.is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(code, Some(7));
         assert_eq!(game.wait(), Some(7));
     }
 }

@@ -122,6 +122,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
     use crate::game::{
         buffers::{self, Image, Object},
@@ -156,7 +157,7 @@ mod tests {
         let node = Object::new(list::REMOVED + 8).points_to(list::ITEM, loan);
         let country = Object::country(fra, country::LOANS + 8).i32(country::TREASURY, 500_000).points_to(country::LOANS + list::HEAD, node);
         let countries = Object::countries(&[&country]);
-        let session = buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote(As::Player));
         France { _image: image, _objects: vec![country, countries], session }
     }
 

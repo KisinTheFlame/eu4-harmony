@@ -6,7 +6,7 @@ use crate::catalogue::{
     Place,
 };
 use crate::remote::Engine;
-use eu4_harmony_remote::{events::Event, ArmyId};
+use eu4_harmony_remote::{signals::Signal, ArmyId};
 use serde_json::{json, Value};
 use std::{
     sync::{atomic::AtomicBool, Mutex},
@@ -43,12 +43,12 @@ macro_rules! test_pipe {
     ($test:literal, $place:expr) => {{
         static LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
         static ENGINE: Engine = Engine::new(|line| LOG.lock().unwrap().push(line.to_string()));
-        Test::start($test, &ENGINE, &LOG, |request| ENGINE.submit(request), |line| LOG.lock().unwrap().push(line.to_string()), $place)
+        Test::start($test, &ENGINE, &LOG, |request, acting| ENGINE.submit_as(request, acting), |line| LOG.lock().unwrap().push(line.to_string()), $place)
     }};
 }
 
 impl Test {
-    fn start(test: &str, engine: &'static Engine, log: &'static Mutex<Vec<String>>, submit: fn(Request) -> Reply, write: fn(&str), place: Place) -> Self {
+    fn start(test: &str, engine: &'static Engine, log: &'static Mutex<Vec<String>>, submit: fn(Request, As) -> Reply, write: fn(&str), place: Place) -> Self {
         let name = pipe_name(test);
         serve(&name, submit, write).unwrap();
         let place = Arc::new(Mutex::new(place));
@@ -214,7 +214,7 @@ fn a_client_gets_its_answers_in_the_order_it_sent_its_requests() {
 fn several_clients_are_served_at_once() {
     let test = test_pipe!("several", Place::Game);
     let mut waiting = test.connect();
-    waiting.send("{\"capability\": \"events\", \"wait_ms\": 10000}\n");
+    waiting.send("{\"capability\": \"signals\", \"wait_ms\": 10000}\n");
     let clients: Vec<_> = (0..4)
         .map(|i| {
             let mut client = test.connect();
@@ -227,8 +227,8 @@ fn several_clients_are_served_at_once() {
         assert!(client.join().unwrap().iter().all(|a| *a == json!({"ok": true, "result": null})));
     }
     assert_eq!(waiting.answer(Duration::ZERO), None);
-    test.engine.record([Event::ArmyOrdered { army: ArmyId(ARMY) }]);
-    assert_eq!(waiting.answer(PLENTY).unwrap()["result"]["events"][0]["event"], "army_ordered");
+    test.engine.record([Signal::ArmyOrdered { army: ArmyId(ARMY) }]);
+    assert_eq!(waiting.answer(PLENTY).unwrap()["result"]["signals"][0]["signal"], "army_ordered");
     assert_eq!(test.stop().calls.iter().filter(|c| c.starts_with("move")).count(), 20);
 }
 
@@ -245,10 +245,10 @@ fn a_client_that_closes_the_pipe_gives_its_request_up() {
 
     // A request that already waits is given up too.
     let mut reader = test.connect();
-    reader.send("{\"capability\": \"events\", \"wait_ms\": 10000}\n");
-    assert!(test.logged(r#"{"capability":"events","wait_ms":10000}: answers later"#), "{:#?}", test.log());
+    reader.send("{\"capability\": \"signals\", \"wait_ms\": 10000}\n");
+    assert!(test.logged(r#"{"capability":"signals","wait_ms":10000}: answers later"#), "{:#?}", test.log());
     drop(reader);
-    assert!(test.logged("events: given up by its client while it waited"), "{:#?}", test.log());
+    assert!(test.logged("signals: given up by its client while it waited"), "{:#?}", test.log());
     assert!(test.stop().calls.iter().all(|c| !c.starts_with("move")));
 }
 
@@ -306,13 +306,13 @@ fn written(descriptor: PSECURITY_DESCRIPTOR) -> String {
 #[test]
 fn the_pipe_is_open_to_its_user_only_and_to_one_process_at_a_time() {
     let name = pipe_name("security");
-    let pipe = Pipe::new(&name, |_| unreachable!(), |_| {}).unwrap();
+    let pipe = Pipe::new(&name, |_, _| unreachable!(), |_| {}).unwrap();
     let first = pipe.instance(true).unwrap();
     assert_eq!(dacl(&first), as_written(&format!("D:P(A;;FA;;;{})", user_sid().unwrap())));
     // More clients get more instances, but no other process gets the name
     // while this one has it.
     let more = pipe.instance(false).unwrap();
-    let other = Pipe::new(&name, |_| unreachable!(), |_| {}).unwrap();
+    let other = Pipe::new(&name, |_, _| unreachable!(), |_| {}).unwrap();
     assert!(other.instance(true).is_err());
     drop((first, more));
     assert!(other.instance(true).is_ok());
@@ -322,12 +322,12 @@ fn the_pipe_is_open_to_its_user_only_and_to_one_process_at_a_time() {
 fn the_pipe_keeps_its_name_while_clients_come_and_go() {
     // A client that came and went before it was waited for.
     let name = pipe_name("came-and-went");
-    let pipe = Arc::new(Pipe::new(&name, |_| unreachable!(), |_| {}).unwrap());
+    let pipe = Arc::new(Pipe::new(&name, |_, _| unreachable!(), |_| {}).unwrap());
     let first = pipe.instance(true).unwrap();
     drop(std::fs::OpenOptions::new().read(true).write(true).open(&name).unwrap());
     let next = accept(&pipe, first);
     assert_eq!(dacl(&next), as_written(&format!("D:P(A;;FA;;;{})", user_sid().unwrap())));
-    let other = Pipe::new(&name, |_| unreachable!(), |_| {}).unwrap();
+    let other = Pipe::new(&name, |_, _| unreachable!(), |_| {}).unwrap();
     assert!(other.instance(true).is_err());
     drop(next);
     assert!(other.instance(true).is_ok());
@@ -335,7 +335,7 @@ fn the_pipe_keeps_its_name_while_clients_come_and_go() {
     let test = test_pipe!("name", Place::Game);
     assert!(test.logged("remote pipe: open at"), "{:#?}", test.log());
     // Another process, trying all along to make a pipe of the same name.
-    let other = Pipe::new(&test.name, |_| unreachable!(), |_| {}).unwrap();
+    let other = Pipe::new(&test.name, |_, _| unreachable!(), |_| {}).unwrap();
     let stop = AtomicBool::new(false);
     let made = std::thread::scope(|s| {
         let other = s.spawn(|| {
@@ -359,7 +359,7 @@ fn the_pipe_keeps_its_name_while_clients_come_and_go() {
 
 #[test]
 fn a_game_started_again_opens_the_pipe_once_the_one_before_is_gone() {
-    let before = Pipe::new(&pipe_name("again"), |_| unreachable!(), |_| {}).unwrap().instance(true).unwrap();
+    let before = Pipe::new(&pipe_name("again"), |_, _| unreachable!(), |_| {}).unwrap().instance(true).unwrap();
     let test = test_pipe!("again", Place::Game);
     assert!(test.logged("yet (another process has it); trying again every second"), "{:#?}", test.log());
     drop(before);
@@ -377,10 +377,10 @@ fn the_process_ends_once_its_clients_have_read_their_answers_whole() {
     let mut advancing = test.connect();
     advancing.send("{\"capability\": \"time.advance\", \"days\": 30}\n");
     assert!(test.logged(r#"{"capability":"time.advance","days":30}: answers later"#), "{:#?}", test.log());
-    test.engine.record((0..crate::catalogue::events::KEPT as u64).map(|army| Event::ArmyOrdered { army: ArmyId(army) }));
+    test.engine.record((0..crate::catalogue::signals::KEPT as u64).map(|army| Signal::ArmyOrdered { army: ArmyId(army) }));
     let mut reading = test.connect();
-    reading.send("{\"capability\": \"events\", \"since\": 0}\n");
-    assert!(test.logged(r#"{"capability":"events","since":0}: ok"#), "{:#?}", test.log());
+    reading.send("{\"capability\": \"signals\", \"since\": 0}\n");
+    assert!(test.logged(r#"{"capability":"signals","since":0}: ok"#), "{:#?}", test.log());
     let engine = test.engine;
     let ending = std::thread::spawn(move || engine.end(crate::catalogue::menu::ending(), PLENTY));
     std::thread::sleep(Duration::from_millis(300));
@@ -392,12 +392,12 @@ fn the_process_ends_once_its_clients_have_read_their_answers_whole() {
         serde_json::from_str::<Value>(&line).unwrap()
     };
     let read = whole(&mut reading);
-    assert_eq!(read["result"]["events"].as_array().unwrap().len(), crate::catalogue::events::KEPT);
+    assert_eq!(read["result"]["signals"].as_array().unwrap().len(), crate::catalogue::signals::KEPT);
     std::thread::sleep(Duration::from_millis(100));
     assert!(!ending.is_finished(), "the process waits while answers are unread");
     let advanced = whole(&mut advancing);
     assert_eq!(advanced["result"]["stopped"], "main_menu");
-    assert_eq!(advanced["result"]["events"].as_array().unwrap().len(), crate::catalogue::events::KEPT);
+    assert_eq!(advanced["result"]["signals"].as_array().unwrap().len(), crate::catalogue::signals::KEPT);
     let until = Instant::now() + PLENTY;
     while !ending.is_finished() && Instant::now() < until {
         std::thread::sleep(Duration::from_millis(5));

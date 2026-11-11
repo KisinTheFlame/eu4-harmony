@@ -161,6 +161,20 @@ pub fn owned_provinces(m: &Memory, world: usize, owner: Tag) -> GResult<usize> {
     Ok(owned)
 }
 
+/// The provinces the country `owner` owns in the world `world`, their
+/// objects' addresses in the province array's order.
+pub fn provinces_owned_by(m: &Memory, world: usize, owner: Tag) -> GResult<Vec<usize>> {
+    let (first, count) = province_array(m, world)?;
+    let mut owned = Vec::new();
+    for index in 0..count {
+        let province = first + index * province::SIZE;
+        if m.u64(province + province::OWNER)? == owner.0 {
+            owned.push(province);
+        }
+    }
+    Ok(owned)
+}
+
 impl Geography {
     pub fn clear(&mut self) {
         self.entry = None;

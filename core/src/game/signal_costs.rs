@@ -1,7 +1,7 @@
-//! What working out the events of the game costs while someone listens to
-//! them (docs/plans/player-actions.md, "Events"; docs/performance.md): the wars and
+//! What working out the signals of the game costs while someone listens to
+//! them (docs/plans/player-actions.md, "Signals"; docs/performance.md): the wars and
 //! the provinces' owners watched at each new day, the buildings finished and
-//! the battles heard, and turning what was heard into the events extensions
+//! the battles heard, and turning what was heard into the signals extensions
 //! and remote control hear. Logged when a session ends, then counted afresh.
 use crate::unicode::costs::Cost;
 use std::time::Duration;
@@ -15,8 +15,8 @@ pub static OWNERS: Cost = Cost::new();
 pub static BUILDINGS: Cost = Cost::new();
 /// A combat's results read as the game decides it, a siege's too.
 pub static BATTLES: Cost = Cost::new();
-/// A frame's events made, at every safe frame.
-pub static EVENTS: Cost = Cost::new();
+/// A frame's signals made, at every safe frame.
+pub static SIGNALS: Cost = Cost::new();
 
 fn summary() -> String {
     let each = |n: u64, t: Duration| if n == 0 { Duration::ZERO } else { t / n as u32 };
@@ -29,12 +29,12 @@ fn summary() -> String {
         line("owners watched on days", &OWNERS),
         line("buildings finished", &BUILDINGS),
         line("combat results", &BATTLES),
-        line("frames' events", &EVENTS),
+        line("frames' signals", &SIGNALS),
     ]
     .join("; ")
 }
 
 /// Logs the session's costs and starts counting afresh.
 pub fn log_session() {
-    log!("event costs: {}", summary());
+    log!("signal costs: {}", summary());
 }

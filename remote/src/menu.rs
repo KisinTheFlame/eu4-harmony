@@ -15,7 +15,7 @@ group! {
 
     /// Where the game is, and which process answers: a game started again
     /// (after returning to the main menu, say) is a new process, whose
-    /// sessions and events are numbered from 1 again.
+    /// sessions and signals are numbered from 1 again.
     remote_anywhere State "" {} -> Menu, "process (when the game process started, in milliseconds since 1970), and place: main_menu, starting (a game is being started from the main menu, set up or loaded, and at startup until the main menu shows) or game";
     /// The saves in the save games folder, newest first.
     remote_anywhere Saves "saves" {} -> Vec<Save>, "the saves: name (to load it by), file, bytes, modified (seconds since 1970), player and date as the save's header says them (null when it cannot be read), and missing_mods, the mods it was made with that the game did not start with (menu.load refuses it while there are any)";

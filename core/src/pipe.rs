@@ -1,8 +1,8 @@
 //! Remote control's transport (ADR remote-control-engine-and-transports): the
 //! named pipe `\\.\pipe\eu4-harmony`, open to the Windows user running the game
 //! and nobody else (ADR remote-control-is-always-on), with one JSON request per
-//! line in and one JSON response per line out (`request_from_json`,
-//! `response_json`). A developer build with the test games' pipes serves a
+//! line in and one JSON response per line out (`sent_from_json`, which reads
+//! how the request acts beside it, and `response_json`). A developer build with the test games' pipes serves a
 //! test game's own instead, `\\.\pipe\eu4-harmony-<name>`, when
 //! `-harmony_test_game=<name>` is on the command line (docs/plans/test-games.md); a
 //! player's build passes the switch over.
@@ -13,7 +13,7 @@
 //! written and the client has read it. A client so gets its answers in the
 //! order it sent its requests, and none of its requests overtakes an earlier
 //! one, such as one that waits for a game. A client that wants to wait for
-//! events while it does other things opens the pipe a second time.
+//! signals while it does other things opens the pipe a second time.
 //!
 //! A client gives a request up by closing the pipe before the answer comes,
 //! even with requests it wrote after it still unread: the transport drops the
@@ -29,7 +29,7 @@
 //! The transport only reads and writes: it hands the engine typed requests and
 //! never touches game state.
 use crate::remote::Reply;
-use eu4_harmony_remote::{request_from_json, response_json, Code, Error, Request, Response};
+use eu4_harmony_remote::{response_json, sent_from_json, As, Code, Error, Request, Response};
 use std::{
     fs::File,
     io::{self, BufRead, BufReader, Read as _, Write as _},
@@ -120,7 +120,7 @@ fn choose() -> String {
 /// Serves the pipe `name`, handing its requests to `submit` and writing what
 /// happens to `log`: a thread waits for clients, and each client gets a
 /// thread of its own.
-pub fn serve(name: &str, submit: fn(Request) -> Reply, log: fn(&str)) -> io::Result<()> {
+pub fn serve(name: &str, submit: fn(Request, As) -> Reply, log: fn(&str)) -> io::Result<()> {
     let pipe = Arc::new(Pipe::new(name, submit, log)?);
     std::thread::Builder::new().name("remote pipe".into()).spawn(move || guarded("remote control's pipe", || listen(&pipe)))?;
     Ok(())
@@ -144,14 +144,14 @@ struct Pipe {
     /// The name as Windows takes it, NUL-terminated.
     wide: Vec<u16>,
     security: Security,
-    submit: fn(Request) -> Reply,
+    submit: fn(Request, As) -> Reply,
     log: fn(&str),
     /// How many clients came so far.
     clients: AtomicU64,
 }
 
 impl Pipe {
-    fn new(name: &str, submit: fn(Request) -> Reply, log: fn(&str)) -> io::Result<Self> {
+    fn new(name: &str, submit: fn(Request, As) -> Reply, log: fn(&str)) -> io::Result<Self> {
         let wide = name.encode_utf16().chain([0]).collect();
         Ok(Self { name: name.into(), wide, security: Security::current_user()?, submit, log, clients: AtomicU64::new(0) })
     }
@@ -258,14 +258,14 @@ fn serve_client(pipe: &Pipe, instance: &File, number: u64) {
         };
         let request = match line {
             Line::Text(text) if text.iter().all(u8::is_ascii_whitespace) => continue,
-            Line::Text(text) => std::str::from_utf8(&text).map_err(|_| Error::new(Code::BadRequest, "a request is UTF-8 text")).and_then(request_from_json),
+            Line::Text(text) => std::str::from_utf8(&text).map_err(|_| Error::new(Code::BadRequest, "a request is UTF-8 text")).and_then(sent_from_json),
             Line::TooLong => Err(Error::new(Code::BadRequest, format!("a request is one line of at most {LONGEST_LINE} bytes"))),
         };
         // The reply is kept until the answer is written and read: the
         // process ending as the game starts again waits for that.
         let (response, reply) = match request {
-            Ok(request) => {
-                let reply = (pipe.submit)(request);
+            Ok((request, acting)) => {
+                let reply = (pipe.submit)(request, acting);
                 match answer(&reply, instance) {
                     Some(response) => (response, Some(reply)),
                     None => break "closed the pipe before its answer came, which gave the request up".to_string(),

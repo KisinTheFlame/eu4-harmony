@@ -14,13 +14,16 @@ group! {
     /// The interactions the game has for the player toward a subject: those
     /// the player's country may use at all, each with whether the player can
     /// now and, when not, the reasons its tooltip gives; one going on is
-    /// `active`, and doing it again stops it.
+    /// `active`, and doing it again stops it. A colonial subject whose type
+    /// the view lets the player release has `release_colony` among them,
+    /// the view's "Give Independence to Colony".
     game Options "options" {
         /// The subject.
         subject: CountryTag,
     } -> Vec<SubjectInteraction>, "the interactions: interaction (its key), name, active, can, reasons, cost";
     /// Carries out an interaction with a subject, or stops one going on, as
-    /// the subjects view's button does. `rejected` when the game does not let
+    /// the subjects view's button does. `release_colony` gives the colony its
+    /// independence, as a free nation. `rejected` when the game does not let
     /// the player, with its reasons; `invalid_argument` for an interaction
     /// the game has not.
     game Interact "interact" {

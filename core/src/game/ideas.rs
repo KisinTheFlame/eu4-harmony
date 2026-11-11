@@ -276,6 +276,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::{written, written_buy, Tag};
 
     fn fra() -> Tag {
@@ -314,7 +315,7 @@ mod tests {
         let end = (entry.at() + country::IDEA_GROUP_SIZE) as u64;
         let country = Object::country(fra(), country::IDEA_GROUPS + 0x10).points_to(country::IDEA_GROUPS, entry).u64(country::IDEA_GROUPS + 8, end);
         let countries = Object::countries(&[&country]);
-        let result = action(buffers::session(image.memory(), 0, fra(), country.at(), countries.at(), Caller::Remote));
+        let result = action(buffers::session(image.memory(), 0, fra(), country.at(), countries.at(), Caller::Remote(As::Player)));
         drop((defensive, trade, database, country, countries, image));
         result
     }

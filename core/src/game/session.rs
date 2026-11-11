@@ -1,7 +1,7 @@
 //! The campaign being played: which session, the date, whether it is paused,
 //! and its player: the country played, or in observe mode the country in
 //! view, if any.
-use super::{countries, events, game, paused, player, player::Player, world_context, Caller, GResult, WorldSession};
+use super::{countries, signals, game, paused, player, player::Player, world_context, Caller, GResult, WorldSession};
 use eu4_harmony_remote::session::args;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,7 +37,7 @@ pub fn session(_: Caller) -> GResult<Session> {
         session: crate::sessions::number(),
         date: world.date,
         paused: paused(m, &world)?,
-        visibility_current: events::visibility_current(m, &world),
+        visibility_current: signals::visibility_current(m, &world),
         player: world.player,
     })
 }

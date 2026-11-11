@@ -416,7 +416,7 @@ fn set_country(m: &Memory, object: usize, letters: &str) -> Result<()> {
     if letters.is_empty() {
         return Ok(());
     }
-    let session = WorldSession::open(Caller::Remote).map_err(|e| e.message)?;
+    let session = WorldSession::open(Caller::Remote(game::As::Player)).map_err(|e| e.message)?;
     let bytes: [u8; 3] = letters.as_bytes().try_into().map_err(|_| format!("{letters:?} is not a tag"))?;
     let tag = game::countries::named(session.m, &session.world, eu4_harmony_remote::CountryTag(bytes)).map_err(|e| e.message)?;
     let argument: [u64; 2] = [tag.0, 1];
@@ -785,7 +785,7 @@ fn player_letters(m: &Memory) -> Option<String> {
 fn open_diplomacy(m: &Memory, number: u32, side: usize) -> Result<()> {
     let named = with(|all| all.popups.iter().find(|p| p.number == number).map(|p| p.popup.shields[side].clone()));
     let Some(letters) = named.flatten().or_else(|| player_letters(m)) else { return Ok(()) };
-    let session = WorldSession::open(Caller::Remote).map_err(|e| e.message)?;
+    let session = WorldSession::open(Caller::Remote(game::As::Player)).map_err(|e| e.message)?;
     let bytes: [u8; 3] = letters.as_bytes().try_into().map_err(|_| format!("{letters:?} is not a tag"))?;
     let tag = game::countries::named(session.m, &session.world, eu4_harmony_remote::CountryTag(bytes)).map_err(|e| e.message)?;
     OPEN_DIPLOMACY.call(m, [idler(m)?, tag.0 as usize])?;

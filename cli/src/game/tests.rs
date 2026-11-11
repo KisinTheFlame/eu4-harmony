@@ -1,6 +1,6 @@
 use super::*;
 use eu4_harmony_client::pipe::tests::{answer, pipe_name, serve_one, this_program};
-use eu4_harmony_remote::{armies::ArmyRequest, events::EventsRequest, session::SessionRequest, ArmyId, ProvinceId};
+use eu4_harmony_remote::{armies::ArmyRequest, session::SessionRequest, signals::SignalsRequest, ArmyId, ProvinceId};
 use serde_json::json;
 use std::io::Read as _;
 
@@ -31,7 +31,7 @@ fn wrong(text: &str) -> String {
 
 /// An ask for the session, printing as `out` and `compact` say.
 fn session(out: Option<PathBuf>, compact: bool) -> Ask {
-    Ask { request: Request::Session(SessionRequest::Get {}), timeout: None, out, compact, test_game: None }
+    Ask { request: Request::Session(SessionRequest::Get {}), acting: As::Player, timeout: None, out, compact, test_game: None }
 }
 
 fn temp(name: &str) -> PathBuf {
@@ -52,11 +52,11 @@ fn arguments_by_name_or_in_order() {
     ] {
         assert_eq!(ask(text).request, moved, "{text}");
     }
-    let read = |since, wait_ms| Request::Events(EventsRequest::Read { since, wait_ms, process: None, kinds: None, countries: None });
-    assert_eq!(ask("events").request, read(None, None));
-    assert_eq!(ask("events 3").request, read(Some(3), None));
-    assert_eq!(ask("events --since 3 --wait-ms 500").request, read(Some(3), Some(500)));
-    assert_eq!(ask("events --wait_ms 500").request, read(None, Some(500)));
+    let read = |since, wait_ms| Request::Signals(SignalsRequest::Read { since, wait_ms, process: None, kinds: None, countries: None });
+    assert_eq!(ask("signals").request, read(None, None));
+    assert_eq!(ask("signals 3").request, read(Some(3), None));
+    assert_eq!(ask("signals --since 3 --wait-ms 500").request, read(Some(3), Some(500)));
+    assert_eq!(ask("signals --wait_ms 500").request, read(None, Some(500)));
     assert_eq!(ask("session get").request, Request::Session(SessionRequest::Get {}));
 }
 
@@ -67,6 +67,11 @@ fn the_command_lines_own_options_go_anywhere() {
     let a = ask("army get --out shot.png 4294967377");
     assert_eq!((a.timeout, a.compact, a.out), (None, false, Some(PathBuf::from("shot.png"))));
     assert_eq!(a.request, Request::Army(ArmyRequest::Get { army: ArmyId(4294967377) }));
+    // As the player unless told otherwise, wherever it is said.
+    assert_eq!(a.acting, As::Player);
+    assert_eq!(ask("--as-game army get 4294967377").acting, As::Game);
+    assert_eq!(ask("army get 4294967377 --as_game --as-game").acting, As::Game);
+    assert_eq!(ask("army get --as-player 4294967377").acting, As::Player);
 }
 
 #[test]
@@ -98,12 +103,13 @@ fn a_wrong_command_line_says_why() {
         ("army.move --army 1 --province Paris", "--province is a province, such as 151; \"Paris\" is not one"),
         ("army.get x", "\"x\" is not an army ID"),
         ("country.hostile FRANCE ENG", "\"FRANCE\" is not a country tag"),
-        ("events --since -1", "events: invalid value: integer `-1`"),
+        ("signals --since -1", "signals: invalid value: integer `-1`"),
         ("session.get 1", "session.get takes no arguments"),
         ("session.get --timeout 0", "--timeout takes a number of seconds above 0"),
         ("session.get --timeout soon", "--timeout takes a number of seconds"),
         ("session.get --timeout", "--timeout needs a value"),
         ("session.get --out", "--out needs a value"),
+        ("session.get --as-game --as-player", "--as-player and --as-game are one or the other"),
     ] {
         let error = wrong(text);
         assert!(error.contains(says), "{text}: {error}");
@@ -118,6 +124,7 @@ const FLAGS: Capability = Capability {
     in_game: false,
     country: false,
     extensions: true,
+    as_game: false,
     args: &[
         Parameter { name: "paused", kind: Kind::Boolean, optional: true, about: " Paused." },
         Parameter { name: "province", kind: Kind::Province, optional: true, about: " A province." },
@@ -146,6 +153,7 @@ const SAY: Capability = Capability {
     in_game: false,
     country: false,
     extensions: true,
+    as_game: false,
     args: &[
         Parameter { name: "text", kind: Kind::Text, optional: false, about: " The text." },
         Parameter { name: "times", kind: Kind::Integer, optional: true, about: " How often." },
@@ -172,9 +180,12 @@ fn after_a_double_dash_every_word_is_a_value() {
     let a = ask("--compact army move --timeout 2 -- 4294967377 151");
     assert_eq!(a.request, Request::Army(ArmyRequest::Move { army: ArmyId(4294967377), province: ProvinceId(151), transports: None }));
     assert_eq!((a.compact, a.timeout), (true, Some(Duration::from_secs(2))));
-    assert_eq!(ask("events -- 3").request, Request::Events(EventsRequest::Read { since: Some(3), wait_ms: None, process: None, kinds: None, countries: None }));
+    assert_eq!(
+        ask("signals -- 3").request,
+        Request::Signals(SignalsRequest::Read { since: Some(3), wait_ms: None, process: None, kinds: None, countries: None })
+    );
     assert!(wrong("session.get -- --compact").contains("session.get takes no arguments"));
-    assert!(wrong("events -- --help").contains("--since is a integer, such as 3; \"--help\" is not one"));
+    assert!(wrong("signals -- --help").contains("--since is a integer, such as 3; \"--help\" is not one"));
     assert!(wrong("-- session.get").contains("name the capability before --"));
     assert_eq!(help("--help army move --"), Some("army.move".into()));
 }
@@ -303,6 +314,17 @@ fn asks_the_game_down_its_pipe() {
     let outcome = ask("army move 4294967377 151 --compact").run(&name, &this_program());
     assert_eq!(outcome, Outcome { code: EXIT_OK, stdout: Some("null".into()), stderr: None });
     served.join().unwrap();
+
+    // As the game, which the pipe reads beside the capability.
+    let name = pipe_name("game-asks-as-the-game");
+    let served = serve_one(&name, |pipe, line| {
+        assert_eq!(line, "{\"capability\":\"session.get\",\"as\":\"game\"}\n");
+        assert_eq!(eu4_harmony_remote::sent_from_json(line.trim()).unwrap(), (Request::Session(SessionRequest::Get {}), As::Game));
+        answer(pipe, "{\"ok\":true,\"result\":null}\n");
+    });
+    let outcome = ask("session get --as-game --compact").run(&name, &this_program());
+    assert_eq!(outcome.code, EXIT_OK);
+    served.join().unwrap();
 }
 
 #[test]
@@ -320,7 +342,7 @@ fn no_answer_in_time_says_how_long_it_waited() {
         let _ = { pipe }.read_to_end(&mut rest);
     });
     let started = Instant::now();
-    let outcome = ask("events --wait-ms 60000 --timeout 0.3").run(&name, &this_program());
+    let outcome = ask("signals --wait-ms 60000 --timeout 0.3").run(&name, &this_program());
     assert!(started.elapsed() < Duration::from_secs(5));
     assert_eq!(outcome.code, EXIT_NO_ANSWER);
     let error = outcome.stderr.unwrap();

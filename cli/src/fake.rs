@@ -2,7 +2,7 @@
 //! data store in place of the running game, for `eu4-harmony test`.
 //!
 //! A test says what each capability answers (a value, a refusal, an answer
-//! that comes later, or a Lua function of the request), raises events, gives
+//! that comes later, or a Lua function of the request), raises signals, gives
 //! `http.fetch`'s requests their responses, and reads back what the mod did:
 //! the capabilities it called, its interface elements, its windows and
 //! pop-ups, the map, its log and its save data. Requests are checked as the core checks them, by the
@@ -10,7 +10,7 @@
 //! no test answered answers `not_ready` and is reported.
 use eu4_harmony_loc::{Catalog, Language};
 use eu4_harmony_lua::{dispatch::WindowSeen, fetch, layout, values, Answered, Called, Element, Extension, Host, Pending, Popup, Property, WindowChange};
-use eu4_harmony_remote::{Code, Error, Request};
+use eu4_harmony_remote::{Code, Date, Error, Request};
 use mlua::{Function, Lua, Value as LuaValue, WeakLua};
 use serde_json::Value;
 use std::{
@@ -38,6 +38,36 @@ impl<T: Send> Pending<T> for Taken<T> {
     fn poll(&mut self) -> Option<T> {
         self.0.lock().unwrap_or_else(|e| e.into_inner()).take()
     }
+}
+
+/// The fake game's day: the last a test raised in the session, none before
+/// the first.
+pub type Today = Arc<Mutex<Option<Date>>>;
+
+/// A `time.wait` for the day `until`, answered once a day the test raises
+/// reaches it.
+struct Until {
+    today: Today,
+    until: Date,
+}
+
+impl Pending<Answered> for Until {
+    fn poll(&mut self) -> Option<Answered> {
+        let today = (*self.today.lock().unwrap_or_else(|e| e.into_inner()))?;
+        (today >= self.until).then(|| Ok(lua_form(today)))
+    }
+}
+
+/// A date in Lua's form, `{ year, month, day }`.
+pub fn lua_form(date: Date) -> Value {
+    let (year, month, day) = date.ymd();
+    serde_json::json!({ "year": year, "month": month, "day": day })
+}
+
+/// A date from Lua's form.
+pub fn lua_date(value: &Value) -> Option<Date> {
+    let part = |name: &str| value.get(name).and_then(Value::as_i64);
+    Date::from_ymd(i32::try_from(part("year")?).ok()?, u32::try_from(part("month")?).ok()?, u32::try_from(part("day")?).ok()?)
 }
 
 /// What the fake game holds.
@@ -149,6 +179,7 @@ pub struct Fake {
     pub store: Mutex<Store>,
     texts: Catalog,
     pub language: Mutex<Language>,
+    pub today: Today,
     /// The test's Lua state, for answers that are functions; weak, as the
     /// state holds the fake game in turn.
     tests: WeakLua,
@@ -156,7 +187,21 @@ pub struct Fake {
 
 impl Fake {
     pub fn new(texts: Catalog, tests: &Lua) -> Self {
-        Self { store: Mutex::new(Store::default()), texts, language: Mutex::new(Language::English), tests: tests.weak() }
+        Self { store: Mutex::new(Store::default()), texts, language: Mutex::new(Language::English), today: Today::default(), tests: tests.weak() }
+    }
+
+    /// `time.wait`, as the game answers it: once the days the test raises
+    /// reach the date, counted from the last day raised, or else the world's
+    /// date, or else 1444.11.11.
+    fn wait(&self, request: &Value, store: &Store) -> Called {
+        let days = request.get("days").and_then(Value::as_u64).and_then(|d| u32::try_from(d).ok()).unwrap_or(0);
+        let today = *self.today.lock().unwrap_or_else(|e| e.into_inner());
+        let from = today.or_else(|| store.world.as_ref().and_then(|w| lua_date(&w.date()))).or_else(|| Date::from_ymd(1444, 11, 11));
+        match from.map(|from| eu4_harmony_checks::time::days_after(from, days)) {
+            Some(Ok(until)) => Called::Later(Box::new(Until { today: self.today.clone(), until })),
+            Some(Err(refusal)) => Called::Done(Err(refusal.into())),
+            None => Called::Done(Err(Error::new(Code::Internal, "the fake game has no date"))),
+        }
     }
 
     pub fn store(&self) -> std::sync::MutexGuard<'_, Store> {
@@ -197,6 +242,7 @@ impl Host for Fake {
         let mut store = self.store();
         store.calls.push(json.clone());
         let answered = match store.answers.get(&name) {
+            None if name == "time.wait" => return self.wait(&json, &store),
             None if store.world.is_some() && crate::world::ANSWERS.contains(&name.as_str()) => {
                 store.world.as_mut().and_then(|w| w.answer(&name, &json)).unwrap_or(Ok(Value::Null))
             }

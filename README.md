@@ -16,7 +16,7 @@ English | [简体中文](README.zh-CN.md)
 - **A faster game, the same game.** The map is drawn on a thread of its own at the display's rate while the days are worked out, a save stops it for a third of the time, and it starts and loads sooner; late in a game the AI's armies plan on idle cores. The game's rules and data stay as they are.
 - **Bugs fixed that vanilla still has.** Heirs no longer get the same name half the time, coalitions and an overlord's fall no longer risk a crash, and loading a save no longer costs you achievements.
 - **Achievements your way.** Optionally earn them outside ironman, or with mods.
-- **Mods that do more.** Mods can read the game, add buttons and do what you do in its panels (build, develop, research, take ideas and reforms, trade, wage war and make peace, every diplomatic action), each with the game's own reasons when it is not allowed, with a few lines of Lua. They can show pop-ups and windows of their own in the game's look, laid out in Lua, opened from a button beside the papacy's and the Empire's left of the minimap ([docs/plans/extension-windows.md](docs/plans/extension-windows.md)).
+- **Mods that do more.** Mods can read the game (down to its rulers, legitimacy, what each country thinks of another and why, the agenda an estate pursues, any modifier's total and the modifiers its scripts put on countries and provinces), add buttons and do what you do in its panels (build, develop, move the capital, research, take ideas and reforms, embrace institutions, take the age's abilities, enact a golden era, upgrade, build and move monuments, use government mechanics, strengthen the government, boost a faction, hire and promote advisors, promote and demote cultures, follow a personal deity or a cult, choose a church's aspects or a blessing, invite a scholar, establish holy orders, take a syncretic faith or a guru's teaching, pass religious reforms, turn on fervor, harmonize, commission icons, claim the defender of the faith, take piety's actions and the papacy's, buy indulgence and enact golden bulls, pass the Empire's and the Celestial Empire's reforms and enact decrees as their emperor, pick an imperial incident's option, trade, set the native policy, raise war taxes, reduce war exhaustion, declare bankruptcy, choose a naval doctrine, give a colony its independence, pay a parliament seat's bribe, organize armies and fleets, wage war and make peace, every diplomatic action), each with the game's own reasons when it is not allowed, with a few lines of Lua. Their Lua and their scripts work together: Lua reads and sets the scripts' flags and variables and fires their events. They can show pop-ups and windows of their own in the game's look, laid out in Lua, opened from a button beside the papacy's and the Empire's left of the minimap ([docs/plans/extension-windows.md](docs/plans/extension-windows.md)). What they read reaches as far as a province's prosperity, manpower, supply limit and institutions, and each regiment of an army with its strength and morale ([docs/plans/mod-capabilities.md](docs/plans/mod-capabilities.md)).
 - **Let an AI play.** A program can play the whole game for you, as you would, even hidden in the background.
 
 ## Installing (players)
@@ -38,7 +38,7 @@ Good to know:
 
 ### Settings
 
-**EU4 Harmony settings** has the player language and its fonts, returning to the main menu without restarting the game, achievement rules, whether the frame rate has a limit, what remote control may see and how even the music is; each setting says there what it does. The details are in [docs/plans/player-language.md](docs/plans/player-language.md), [docs/plans/sessions.md](docs/plans/sessions.md), [docs/plans/game-speed.md](docs/plans/game-speed.md), [docs/plans/drawing-thread.md](docs/plans/drawing-thread.md), [docs/plans/music-volume.md](docs/plans/music-volume.md) and [ADR remote-control-reads-the-players-view](docs/adr/2026-11-05-remote-control-reads-the-players-view.md).
+**EU4 Harmony settings** has the player language and its fonts, returning to the main menu without restarting the game, achievement rules, whether the frame rate has a limit and how even the music is; each setting says there what it does. The details are in [docs/plans/player-language.md](docs/plans/player-language.md), [docs/plans/sessions.md](docs/plans/sessions.md), [docs/plans/game-speed.md](docs/plans/game-speed.md), [docs/plans/drawing-thread.md](docs/plans/drawing-thread.md) and [docs/plans/music-volume.md](docs/plans/music-volume.md).
 
 With the framework, the game's own volume sliders go as the square of their position, so each step sounds about as large, where vanilla's last tenth fell off steeply: volumes saved below 100 sound quieter than before, and are set again once.
 
@@ -89,7 +89,7 @@ my-mod/
     └── tests/                 # tests run by eu4-harmony test
 ```
 
-`main.lua` returns handlers for events such as `on_session`, `on_day`, `on_frame` and `on_button`. Each gets `game`, through which every capability is called; a refusal returns `nil, err` with the game's reason, and a handler can wait for an answer, such as another country's to a proposal. An extension that needs the real time, files or the network declares it under `permissions` in its manifest.
+`main.lua` returns handlers: for signals, what happened in the game, such as `on_session` and `on_day`, and for `on_frame` and `on_button`. Each gets `game`, through which every capability is called; a refusal returns `nil, err` with the game's reason, and a handler can wait for an answer, such as another country's to a proposal, for days to pass in the game, and do several things at once as tasks it awaits, as with async and await in JavaScript (`eu4-harmony skills tasks`). An extension that needs the real time, files or the network declares it under `permissions` in its manifest.
 
 Where to learn more:
 
@@ -113,7 +113,7 @@ eu4-harmony game menu return               # back to the main menu
 
 In observe mode, the AI playing every country, `menu start` with no country starts such a game, `session view FRA` puts France in view and `session leave_view` takes it out; what acts as a country then acts as the one in view while the AI goes on playing it, and with none in view fails with `no_country` ([docs/plans/observe-mode.md](docs/plans/observe-mode.md)).
 
-Remote control is open only to the Windows user playing, only on this computer, and can do only what the player could. Where no capability reaches, it can use the player's mouse and keyboard. `eu4-harmony wiki remote` explains how a game goes and what each exit code means; [docs/plans/remote-control.md](docs/plans/remote-control.md) and [docs/plans/hidden-start.md](docs/plans/hidden-start.md) have the design.
+Remote control is open only to the Windows user playing, only on this computer. A request acts as the player: it reads what the player sees and does only what the player could. With `--as-game` it acts as the game instead: it reads everything the game keeps, and may also change the game as the mods' scripts do, which no player could ([ADR requests-act-as-the-player-or-as-the-game](docs/adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md)). Where no capability reaches, it can use the player's mouse and keyboard. `eu4-harmony wiki remote` explains how a game goes and what each exit code means; [docs/plans/remote-control.md](docs/plans/remote-control.md) and [docs/plans/hidden-start.md](docs/plans/hidden-start.md) have the design.
 
 ## Documentation
 
@@ -144,10 +144,10 @@ The game is found through `EU4_GAME_DIR` or Steam. To try the build in the game,
 
 ```powershell
 cargo build --release --features eu4-harmony-core/dev-test-games
-cargo xtask game claim --purpose "try my change"
-cargo xtask game start     # start the test game, hidden, with this build
-eu4-harmony game --test-game <this checkout's folder name> session get
-cargo xtask game release   # keep its logs, remove the rest
+cargo xtask game claim --owner mine --purpose "try my change"
+cargo xtask game start --owner mine     # start the test game, hidden, with this build
+eu4-harmony game --test-game mine session get
+cargo xtask game release --owner mine   # keep its logs, remove the rest
 ```
 
 The framework takes the game's own `-userdir` for the user folder, as the game does.

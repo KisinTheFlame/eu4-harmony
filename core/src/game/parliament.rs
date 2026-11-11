@@ -1,6 +1,7 @@
 //! Parliament: the issues the parliament view offers, starting a debate,
-//! giving provinces seats, through the game's own commands
-//! (docs/research/government.md, "Parliament").
+//! giving provinces seats, the seats of a debate and the bribes they ask,
+//! through the game's own commands (docs/research/government.md,
+//! "Parliament").
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
 use crate::containers;
@@ -8,9 +9,10 @@ use crate::game_string;
 use crate::{memory::Memory, points::Point};
 use eu4_harmony_remote::parliament::args;
 use eu4_harmony_remote::ProvinceId;
+use crate::objects::campaign::province;
 use eu4_harmony_remote::{
     choices::Choice,
-    parliament::{Issue, Parliament},
+    parliament::{Issue, Parliament, Seat, Seats},
 };
 
 /// The country's parliament, null without one: the issues on offer, a game
@@ -27,6 +29,23 @@ const DATABASE: usize = 0x2329390;
 const ISSUE: usize = 0xe8;
 const ISSUE_KEY: usize = 0x10;
 const ISSUE_ALLOW: usize = 0x48;
+/// The parliament's seats, a game array of pointers; the debate's count of
+/// the seats backing its issue.
+const SEATS: usize = 0x38;
+const DEBATE_BACKING: usize = 0x1c;
+/// A province's seat, null without one; a seat's province, the bribe it
+/// asks for its backing (null for none), and whether it backs the issue.
+const PROVINCE_SEAT: usize = 0x518;
+const SEAT_PROVINCE: usize = 0x10;
+const SEAT_BRIBE: usize = 0x18;
+const SEAT_BACKS: usize = 0x20;
+/// The parliament bribes' database, at a fixed place: a game array of
+/// 0xd0-byte bribes, each with its key and a block holding its conditions
+/// (`trigger`) at its start and, after them, what it costs (`effect`).
+const BRIBES: usize = 0x23293f0;
+const BRIBE: usize = 0xd0;
+const BRIBE_KEY: usize = 0x10;
+const BRIBE_SCRIPT: usize = 0xc8;
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -42,6 +61,21 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x96694cusize, "49 81 c4 e8 00 00 00", "parliament issue size"),
         // The debate command's check: a parliament, and no debate.
         Point::keep(0x2a4c1eusize, "48 8b 88 c8 24 00 00 48 85 c9 74 0a 48 83 79 50 00", "debate check"),
+        // The bribe command's check: the province's seat, asking a bribe and
+        // not backing the issue yet.
+        Point::keep(0x2a4899usize, "48 8b 84 0a 18 05 00 00", "province seat").uses(&[PROVINCE_SEAT]),
+        Point::keep(0x2a48a6usize, "80 78 20 00 75 0a 48 83 78 18 00", "seat backs, seat bribe").uses(&[SEAT_BACKS, SEAT_BRIBE]),
+        // Its execute: the bribe's script run, then the seats backing counted.
+        Point::keep(0x2a4405usize, "48 8b 83 18 05 00 00 48 8b 48 18 48 8b 89 c8 00 00 00 48 83 c1 78", "bribe effect").uses(&[BRIBE_SCRIPT]),
+        Point::keep(0x2a445ausize, "48 8b 50 40 48 63 40 4c", "parliament seats").uses(&[SEATS + containers::ARRAY_DATA]),
+        Point::keep(0x2a448fusize, "44 89 41 1c", "debate seats backing").uses(&[DEBATE_BACKING]),
+        // A seat's province, as backing the issue logs it.
+        Point::keep(0x966eceusize, "4c 8b 46 10", "seat province").uses(&[SEAT_PROVINCE]),
+        // The bribes' getter, a bribe's size, key and script block.
+        Point::keep(0x969590usize, "48 8d 05 59 fe 9b 01", "parliament bribes").uses(&[BRIBES]),
+        Point::keep(0x96a023usize, "48 69 c8 d0 00 00 00", "parliament bribe size"),
+        Point::keep(0x96a219usize, "48 8d 51 10", "parliament bribe key").uses(&[BRIBE_KEY]),
+        Point::keep(0x96a329usize, "48 89 9e c8 00 00 00", "parliament bribe script").uses(&[BRIBE_SCRIPT]),
     ]
 }
 
@@ -157,16 +191,125 @@ fn seat(Session { m, ctx, commands, .. }: Session, command: &str, province: u32,
     action::post(commands, &written_seat(command, ctx.player, province), what)
 }
 
+/// The seats needed for a debate to pass, of `seats`: the game passes it
+/// once the seats backing it, times 150, over the seats, reach 100.
+fn needed(seats: u32) -> u32 {
+    (2 * seats.max(1)).div_ceil(3)
+}
+
+/// Whether the player can pay `bribe`, null for none, to the seat of
+/// `province` backing the issue or not, with a debate going on or not; and
+/// why not. The bribe's conditions are asked as the game asks them, in the
+/// player's scope with the seat's province as `FROM`.
+fn bribe_choice(m: &Memory, player: Tag, province: u32, debating: bool, backs: bool, bribe: usize) -> GResult<Choice> {
+    let mut reasons = Vec::new();
+    if !debating {
+        reasons.push("no debate is going on".to_string());
+    }
+    if backs {
+        reasons.push("the seat backs the issue already".to_string());
+    }
+    if bribe == 0 {
+        reasons.push("the seat asks no bribe".to_string());
+    } else {
+        let conditions = m.ptr(bribe + BRIBE_SCRIPT)?;
+        if conditions != 0 {
+            let (_from, mut scope) = conditions::Scope::with_province_from(m, player, province)?;
+            let (holds, lines) = scope.check(conditions)?;
+            if !holds {
+                reasons.extend(if lines.is_empty() { vec!["the bribe's conditions do not hold".to_string()] } else { lines });
+            }
+        }
+    }
+    Ok(if reasons.is_empty() { Choice::can(Vec::new()) } else { Choice::cannot(reasons, Vec::new()) })
+}
+
+/// The bribes of the database.
+fn bribes(m: &Memory) -> GResult<Vec<usize>> {
+    let database = m.at(BRIBES);
+    let (data, count) = (m.ptr(database + containers::ARRAY_DATA)?, containers::bounded(m.i32(database + containers::ARRAY_COUNT)?, containers::MOST)?);
+    Ok((0..count).map(|i| data + i * BRIBE).collect())
+}
+
+/// The bribe a seat asks, 0 for none or for one not in the database.
+fn seat_bribe(m: &Memory, seat: usize) -> GResult<usize> {
+    let bribe = m.ptr(seat + SEAT_BRIBE)?;
+    Ok(if bribe != 0 && bribes(m)?.contains(&bribe) { bribe } else { 0 })
+}
+
+/// The seats of the player's parliament, as the view shows them in a debate.
+pub fn seats(Session { m, ctx, .. }: Session) -> GResult<Seats> {
+    let parliament = m.ptr(ctx.country + PARLIAMENT)?;
+    if parliament == 0 {
+        return Ok(Seats { parliament: false, debating: None, backing: 0, needed: 0, seats: Vec::new() });
+    }
+    let debate = m.ptr(parliament + DEBATE)?;
+    let at = containers::array(m, parliament + SEATS, containers::MOST)?;
+    let mut seats = Vec::new();
+    for &seat in &at {
+        let backs = m.u8(seat + SEAT_BACKS)? != 0;
+        let bribe = seat_bribe(m, seat)?;
+        let key = if bribe == 0 { None } else { Some(game_string::key(m, bribe + BRIBE_KEY)?) };
+        let id = m.i32(m.ptr(seat + SEAT_PROVINCE)? + province::ID)? as u32;
+        seats.push(Seat {
+            province: ProvinceId(id),
+            backs,
+            bribe_name: key.as_deref().map(|key| content::name(m, key)).transpose()?,
+            bribe: key,
+            choice: bribe_choice(m, ctx.player, id, debate != 0, backs, bribe)?,
+        });
+    }
+    Ok(Seats {
+        parliament: true,
+        debating: debating(m, parliament)?,
+        backing: if debate == 0 { 0 } else { m.i32(debate + DEBATE_BACKING)?.max(0) as u32 },
+        needed: needed(at.len() as u32),
+        seats,
+    })
+}
+
+fn written_bribe(country: Tag, province: u32) -> String {
+    format!("bribe={{ country=\"{}\" province={province} }}", content::letters(country))
+}
+
+/// Pays the bribe a seat asks.
+pub fn bribe(Session { m, ctx, commands, .. }: Session, args::Bribe { province: ProvinceId(id) }: args::Bribe) -> GResult<()> {
+    let parliament = m.ptr(ctx.country + PARLIAMENT)?;
+    if parliament == 0 {
+        return Err(checks::not_now("the player has no parliament"));
+    }
+    let debate = m.ptr(parliament + DEBATE)?;
+    for seat in containers::array(m, parliament + SEATS, containers::MOST)? {
+        let at = m.ptr(seat + SEAT_PROVINCE)?;
+        if m.i32(at + province::ID)? as u32 != id {
+            continue;
+        }
+        // The command's check asks the province's own seat.
+        if m.ptr(at + PROVINCE_SEAT)? != seat {
+            return Err("a seat its province does not keep".to_string().into());
+        }
+        let choice = bribe_choice(m, ctx.player, id, debate != 0, m.u8(seat + SEAT_BACKS)? != 0, seat_bribe(m, seat)?)?;
+        if !choice.can {
+            return Err(action::not_allowed("pay this seat's bribe", &choice.reasons));
+        }
+        return action::post(commands, &written_bribe(ctx.player, id), "pay this seat's bribe");
+    }
+    Err(checks::not_found("seat in the player's parliament", &id.to_string()))
+}
+
 crate::catalogue::bind! {
     eu4_harmony_remote::parliament: ParliamentRequest => ParliamentAnswer;
     Options => options;
     Debate => debate;
     AddSeat => add_seat;
     RemoveSeat => remove_seat;
+    Seats => seats;
+    Bribe => bribe;
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
 
     #[test]
@@ -174,6 +317,8 @@ mod tests {
         let gbr = Tag(u64::from_le_bytes(*b"GBR\0\0\0\0\0"));
         assert_eq!(written_debate(gbr, "restore_integration"), r#"start_debate_command={ country="GBR" which="restore_integration" }"#);
         assert_eq!(written_seat("add_to_parliament_command", gbr, 942), r#"add_to_parliament_command={ country="GBR" province=942 }"#);
+        assert_eq!(written_bribe(gbr, 913), r#"bribe={ country="GBR" province=913 }"#);
+        assert_eq!((needed(0), needed(3), needed(10), needed(11)), (1, 2, 7, 8));
     }
 
     use crate::game::{
@@ -233,7 +378,7 @@ mod tests {
         let gbr = Tag(u64::from_le_bytes(*b"GBR\0\0\0\0\0"));
         let country = Object::country(gbr, PARLIAMENT + 8).u64(PARLIAMENT, if none { 0 } else { parliament.at() as u64 });
         let countries = Object::countries(&[&country]);
-        let session = buffers::session(image.memory(), 0, gbr, country.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), 0, gbr, country.at(), countries.at(), Caller::Remote(As::Player));
         Britain { _image: image, _objects: vec![peace, unlisted, issues, offer, debate, parliament, country, countries], session }
     }
 
@@ -270,6 +415,58 @@ mod tests {
         assert_eq!(refused(debating("taxes", britain(false, false))), (Status::NotFound, r#"no parliament issue on offer "taxes" for the player"#.into()));
         assert_eq!(refused(debating("free", britain(false, true))), rejected("the player has no parliament"));
         assert_eq!(refused(add_seat(britain(false, true).session, args::AddSeat { province: ProvinceId(942) })), rejected("the player has no parliament"));
+        assert!(record::posted().is_empty());
+    }
+
+    /// Great Britain's parliament in a debate when `debating`, with two
+    /// seats: Kent's (913) asking the bribe `mil_support`, whose
+    /// conditions hold when `allowed`, and backing the issue when `bribed`;
+    /// and Essex's (914), already backing it.
+    struct Chamber {
+        _image: Image,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn chamber(debating: bool, allowed: bool, bribed: bool) -> Chamber {
+        let image = Image::new();
+        image.function(EVALUATE.rva(), evaluate as *const ()).function(game_string::DESTROY_AT.rva(), no as *const ());
+        buffers::conditions(&image, lines as *const ());
+        let script = Object::new(16).u8(HOLDS, allowed as u8).u8(LISTED, 1);
+        let bribes = Object::new(BRIBE).string(BRIBE_KEY, "mil_support").u64(BRIBE_SCRIPT, script.at() as u64);
+        image.u64(BRIBES + containers::ARRAY_DATA, bribes.at() as u64).i32(BRIBES + containers::ARRAY_COUNT, 1);
+        let (kent, essex) = (Object::new(SEAT_BACKS + 8), Object::new(SEAT_BACKS + 8));
+        let kent_at = Object::new(PROVINCE_SEAT + 8).i32(province::ID, 913).u64(PROVINCE_SEAT, kent.at() as u64);
+        let essex_at = Object::new(PROVINCE_SEAT + 8).i32(province::ID, 914).u64(PROVINCE_SEAT, essex.at() as u64);
+        let kent = kent.u64(SEAT_PROVINCE, kent_at.at() as u64).u64(SEAT_BRIBE, bribes.at() as u64).u8(SEAT_BACKS, bribed as u8);
+        let essex = essex.u64(SEAT_PROVINCE, essex_at.at() as u64).u8(SEAT_BACKS, 1);
+        let seats = Object::new(16).u64(0, kent.at() as u64).u64(8, essex.at() as u64);
+        let debate = Object::new(DEBATE_BACKING + 4).i32(DEBATE_BACKING, 1);
+        let parliament = Object::new(ENACTED + 8)
+            .u64(SEATS + containers::ARRAY_DATA, seats.at() as u64)
+            .i32(SEATS + containers::ARRAY_COUNT, 2)
+            .u64(DEBATE, if debating { debate.at() as u64 } else { 0 });
+        let gbr = Tag(u64::from_le_bytes(*b"GBR\0\0\0\0\0"));
+        let country = Object::country(gbr, PARLIAMENT + 8).u64(PARLIAMENT, parliament.at() as u64);
+        let countries = Object::countries(&[&country]);
+        let session = buffers::session(image.memory(), 0, gbr, country.at(), countries.at(), Caller::Remote(As::Player));
+        Chamber { _image: image, _objects: vec![script, bribes, kent_at, essex_at, kent, essex, seats, debate, parliament, country, countries], session }
+    }
+
+    fn bribing(province: u32, chamber: Chamber) -> GResult<()> {
+        bribe(chamber.session, args::Bribe { province: ProvinceId(province) })
+    }
+
+    #[test]
+    fn a_seat_s_bribe_is_paid_while_it_does_not_back_the_issue_debated() {
+        bribing(913, chamber(true, true, false)).unwrap();
+        assert_eq!(record::posted(), [r#"bribe={ country="GBR" province=913 }"#]);
+        let rejected = |why: &[&str]| (Status::Rejected, why.join("\n"));
+        assert_eq!(refused(bribing(914, chamber(true, true, false))), rejected(&["the seat backs the issue already", "the seat asks no bribe"]));
+        assert_eq!(refused(bribing(913, chamber(true, true, true))), rejected(&["the seat backs the issue already"]));
+        assert_eq!(refused(bribing(913, chamber(false, true, false))), rejected(&["no debate is going on"]));
+        assert_eq!(refused(bribing(913, chamber(true, false, false))), rejected(&["no_war"]));
+        assert_eq!(refused(bribing(999, chamber(true, true, false))), (Status::NotFound, r#"no seat in the player's parliament "999" for the player"#.into()));
         assert!(record::posted().is_empty());
     }
 }

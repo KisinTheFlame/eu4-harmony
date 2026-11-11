@@ -126,6 +126,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     #[test]
     fn the_command_names_the_country_and_the_mission() {
         let fra = super::Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
@@ -195,7 +196,7 @@ mod tests {
         let at = MISSIONS + COLUMNS;
         let country = Object::country(fra, at + 0x18).u64(at + containers::ARRAY_DATA, column.at() as u64).i32(at + containers::ARRAY_COUNT, 1);
         let countries = Object::countries(&[&country]);
-        let session = buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote(As::Player));
         let mut objects = vec![series, column, country, countries];
         objects.extend(missions);
         France { _image: image, _objects: objects, session }

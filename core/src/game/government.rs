@@ -1,8 +1,12 @@
 //! Government: the player's government reforms and rank, adopting reforms
 //! and raising the rank, through the game's own commands
-//! (docs/research/government.md, "Reforms" and "Rank").
+//! (docs/research/government.md, "Reforms" and "Rank"), and strengthening
+//! the government with military points (docs/research/power-spending.md,
+//! "The country's other spendings").
 use super::content::checks;
-use super::{action, conditions, content, thousandths, GResult, Session, Tag};
+use super::factions::{boost_faction, factions};
+use super::mechanics::{interact, mechanics};
+use super::{action, conditions, content, power, thousandths, GResult, Session, Tag};
 use crate::containers;
 use crate::game_string;
 use crate::{
@@ -11,12 +15,12 @@ use crate::{
 };
 use eu4_harmony_remote::government::args;
 use eu4_harmony_remote::{
-    choices::{Amount, Choice, Resource},
+    choices::{Amount, Choice, PowerKind, Resource},
     government::{Government, Reform, ReformTier},
 };
 
 /// The country's government, its rank and its reform progress.
-const GOVERNMENT: usize = 0x1420;
+pub(super) const GOVERNMENT: usize = 0x1420;
 const RANK: usize = 0x2860;
 const REFORM_PROGRESS: usize = 0x9a68;
 /// The government: its type, and its reform stack, a `std::deque` of reform
@@ -52,6 +56,12 @@ const CHANGE_COST: usize = 0x233e4cc;
 /// writing why not into the `std::string` reasons.
 const CAN_RAISE: GameFunction<2> = GameFunction::at(0x3167b0);
 const MOST: usize = 1_000;
+/// The spending that strengthens the government, paid in military points.
+const STRENGTHEN: i32 = 35;
+/// `(country, text) -> bool`: whether the country may strengthen its
+/// government now, the spend_power check's own for the kind, writing the
+/// button's tooltip: its reasons when not.
+const CAN_STRENGTHEN: GameFunction<2> = GameFunction::at(0x3f78e0);
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -74,7 +84,22 @@ pub fn points() -> Vec<Point> {
         Point::keep(SELECT_COST, "40 53 48 83 ec 20 41 8b c0 48 8b da 45 85 c0 79", "reform tier cost"),
         Point::keep(CAN_RAISE, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 20 55 41 54 41 55 41 56 41 57", "rank check"),
         Point::keep(0x316824usize, "45 8b be 60 28 00 00 41 ff c7", "government rank").uses(&[RANK]),
+        Point::keep(CAN_STRENGTHEN, "48 89 5c 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8d ac 24 10 ff ff ff 48 81 ec f0 01 00 00", "may strengthen the government"),
+        // The spend_power check's case for the kind asks it, and the check
+        // builds the spending it prices from this constant: the kind,
+        // military points, no values.
+        Point::keep(0x94f424usize, "33 d2 48 8b cf e8 b2 84 aa ff", "strengthening's spend check"),
+        Point::keep(0x1dc27e0usize, "23 00 00 00 02 00 00 00 00 00 00 00 ff ff ff ff", "strengthening's spending"),
     ]
+}
+
+/// Whether the player can strengthen the government now, with the
+/// button's reasons, and its cost.
+fn strengthen_choice(m: &Memory, country: usize, player: Tag) -> GResult<Choice> {
+    let cost = power::cost(m, player, STRENGTHEN, PowerKind::Mil, 0)?;
+    let price = vec![Amount::new(Resource::Mil, cost as f64)];
+    let (may, why) = game_string::written(m, |out| CAN_STRENGTHEN.call(m, [country, out]))?;
+    Ok(if may & 0xff != 0 { Choice::can(price) } else { Choice::cannot(super::reasons(&why), price) })
 }
 
 /// The player's government object.
@@ -154,6 +179,7 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Government> {
         reform_progress: thousandths(m.i32(ctx.country + REFORM_PROGRESS)?),
         reforms_adopted: adopted(m, government)?.into_iter().map(|r| Ok(game_string::key(m, r + REFORM_KEY)?)).collect::<GResult<_>>()?,
         raise_rank: if can { Choice::can(Vec::new()) } else { Choice::cannot(reasons, Vec::new()) },
+        strengthen: strengthen_choice(m, ctx.country, ctx.player)?,
     })
 }
 
@@ -228,16 +254,28 @@ pub fn raise_rank(Session { m, ctx, commands, .. }: Session) -> GResult<()> {
     action::post(commands, &written_rank(ctx.player, m.i32(ctx.country + RANK)? + 1), "raise the government rank")
 }
 
+/// Strengthens the player's government, as the button does.
+pub fn strengthen(Session { m, ctx, commands, .. }: Session) -> GResult<()> {
+    action::allowed(&strengthen_choice(m, ctx.country, ctx.player)?, "strengthen the government")?;
+    power::spend(commands, ctx.player, STRENGTHEN, PowerKind::Mil, 0, "strengthen the government")
+}
+
 crate::catalogue::bind! {
     eu4_harmony_remote::government: GovernmentRequest => GovernmentAnswer;
     Options => options;
     Reforms => reforms;
     AdoptReform => adopt_reform;
     RaiseRank => raise_rank;
+    Strengthen => strengthen;
+    Mechanics => mechanics;
+    Interact => interact;
+    Factions => factions;
+    BoostFaction => boost_faction;
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
 
     fn fra() -> Tag {
@@ -300,6 +338,21 @@ mod tests {
         session: Session,
     }
 
+    /// What a spending costs: 100 points.
+    extern "C" fn hundred() -> usize {
+        100
+    }
+
+    /// Whether the government may be strengthened: below rank 3, as this
+    /// test arranges it.
+    extern "C" fn may_strengthen(country: usize, text: usize) -> usize {
+        if unsafe { *((country + RANK) as *const i32) } < 3 {
+            return 1;
+        }
+        unsafe { write_reason(text, b"STR_GOV_ALREADY_MAX_LEGITIMACY") };
+        0
+    }
+
     fn france(rank: i32) -> France {
         let image = Image::new();
         image.conditions().localisation();
@@ -308,6 +361,9 @@ mod tests {
             .function(CAN_CHANGE.rva(), may as *const ())
             .function(SELECT_COST.rva(), select_cost as *const ())
             .function(CAN_RAISE.rva(), may_raise as *const ())
+            .function(CAN_STRENGTHEN.rva(), may_strengthen as *const ())
+            .function(power::COST.rva(), hundred as *const ())
+            .u64(power::NO_ID, 0)
             .i32(CHANGE_COST, 100_000);
         let [adopted, crown, secret, courts, merchants] = [
             reform("noble_rule", true, true),
@@ -331,7 +387,7 @@ mod tests {
             .u64(stack + STACK_COUNT, 1);
         let country = Object::country(fra(), REFORM_PROGRESS + 4).u64(GOVERNMENT, government.at() as u64).i32(RANK, rank).i32(REFORM_PROGRESS, 30_000);
         let countries = Object::countries(&[&country]);
-        let session = buffers::session(image.memory(), 0, fra(), country.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), 0, fra(), country.at(), countries.at(), Caller::Remote(As::Player));
         France {
             _image: image,
             _objects: vec![adopted, crown, secret, courts, merchants, power, law, kind, block, map, government, country, countries],
@@ -342,6 +398,18 @@ mod tests {
     fn refused(result: GResult<()>) -> (Status, String) {
         let Err(Fail { status, message }) = result else { panic!("{result:?} was posted") };
         (status, message)
+    }
+
+    #[test]
+    fn the_government_is_strengthened_with_the_button_s_spending_or_refused_with_its_reasons() {
+        let france = france(2);
+        assert_eq!(options(france.session).unwrap().strengthen, Choice::can(vec![Amount::new(Resource::Mil, 100.0)]));
+        strengthen(france.session).unwrap();
+        assert_eq!(record::posted(), [r#"spend_power_command={ country="FRA" power={ category=35 skill=2 } }"#]);
+        let most = self::france(3);
+        assert_eq!(options(most.session).unwrap().strengthen.reasons, ["STR_GOV_ALREADY_MAX_LEGITIMACY"]);
+        assert_eq!(refused(strengthen(most.session)), (Status::Rejected, "STR_GOV_ALREADY_MAX_LEGITIMACY".into()));
+        assert!(record::posted().is_empty());
     }
 
     #[test]

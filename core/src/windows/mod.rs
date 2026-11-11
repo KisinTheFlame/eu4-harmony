@@ -71,7 +71,7 @@ struct Windows {
     clicks: Vec<Click>,
     /// The pop-ups' buttons pressed, whose actions run at the next frame.
     pressed: Vec<PopupPressed>,
-    /// Pop-ups shown since the last frame, for the `popup` event.
+    /// Pop-ups shown since the last frame, for the `popup` signal.
     shown: Vec<(u32, String)>,
     /// Bumped whenever the declared windows change, so that their
     /// definitions are written and read again.
