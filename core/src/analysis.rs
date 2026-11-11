@@ -44,14 +44,33 @@ pub fn pe(image: &[u8]) -> usize {
     u32_at(image, 0x3c)
 }
 
-/// Applies the image's base relocations as if it were loaded at `base`, so
-/// that its pointers (vtables, for one) hold what they hold in the game.
-pub fn relocate(image: &mut [u8], base: u64) {
+/// The address the image is built to be loaded at, which its pointers hold
+/// before relocation.
+pub fn preferred_base(image: &[u8]) -> u64 {
     let optional = pe(image) + 24;
-    let preferred = u64::from_le_bytes(image[optional + 24..optional + 32].try_into().unwrap());
-    let delta = base.wrapping_sub(preferred);
-    let directory = optional + 112 + 8 * 5;
+    u64::from_le_bytes(image[optional + 24..optional + 32].try_into().unwrap())
+}
+
+/// Each section's RVAs, and whether it holds code.
+pub fn sections(image: &[u8]) -> impl Iterator<Item = (std::ops::Range<usize>, bool)> + '_ {
+    const EXECUTE: usize = 0x2000_0000;
+    let pe = pe(image);
+    let table = pe + 24 + u16::from_le_bytes([image[pe + 20], image[pe + 21]]) as usize;
+    let count = u16::from_le_bytes([image[pe + 6], image[pe + 7]]) as usize;
+    (0..count).map(move |i| {
+        let section = table + 40 * i;
+        let (size, va) = (u32_at(image, section + 8), u32_at(image, section + 12));
+        (va..(va + size).min(image.len()), u32_at(image, section + 36) & EXECUTE != 0)
+    })
+}
+
+/// Where the image holds a pointer of its own: each place its base
+/// relocations adjust, an exact list where scanning the data for values
+/// would also find numbers that only look like one.
+pub fn pointers(image: &[u8]) -> Vec<usize> {
+    let directory = pe(image) + 24 + 112 + 8 * 5;
     let (start, size) = (u32_at(image, directory), u32_at(image, directory + 4));
+    let mut out = Vec::new();
     let mut block = start;
     while block < start + size {
         let (page, length) = (u32_at(image, block), u32_at(image, block + 4));
@@ -59,12 +78,21 @@ pub fn relocate(image: &mut [u8], base: u64) {
             let entry = u16::from_le_bytes([image[entry], image[entry + 1]]);
             // IMAGE_REL_BASED_DIR64; the rest are padding.
             if entry >> 12 == 10 {
-                let at = page + (entry & 0xfff) as usize;
-                let value = u64::from_le_bytes(image[at..at + 8].try_into().unwrap()).wrapping_add(delta);
-                image[at..at + 8].copy_from_slice(&value.to_le_bytes());
+                out.push(page + (entry & 0xfff) as usize);
             }
         }
         block += length;
+    }
+    out
+}
+
+/// Applies the image's base relocations as if it were loaded at `base`, so
+/// that its pointers (vtables, for one) hold what they hold in the game.
+pub fn relocate(image: &mut [u8], base: u64) {
+    let delta = base.wrapping_sub(preferred_base(image));
+    for at in pointers(image) {
+        let value = u64::from_le_bytes(image[at..at + 8].try_into().unwrap()).wrapping_add(delta);
+        image[at..at + 8].copy_from_slice(&value.to_le_bytes());
     }
 }
 
