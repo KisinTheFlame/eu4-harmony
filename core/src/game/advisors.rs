@@ -5,7 +5,7 @@ use super::commands::{write, Block};
 use super::army::FIND_ID;
 use super::{action, commands, content, thousandths, Ctx, GResult, Session, Tag};
 use crate::{
-    game_string,
+    containers, game_string,
     memory::Memory,
     objects::campaign::{country as country_fields, functions, province as culture_fields},
     points::{GameFunction, Point},
@@ -183,16 +183,11 @@ fn pool(m: &Memory, ctx: &Ctx) -> GResult<Vec<usize>> {
     }
     let seats = seated(m, ctx)?;
     let mut found = Vec::new();
-    let mut node = m.ptr(pool + POOL_FIRST)?;
-    while node != 0 {
-        if found.len() >= MOST {
-            return Err("an advisor pool longer than the framework reads".to_string().into());
-        }
+    for node in containers::chain(m, m.ptr(pool + POOL_FIRST)?, NODE_NEXT, MOST)? {
         let advisor = FIND_ID.call(m, [node + NODE_ID])?;
         if real(m, advisor)? && !seats.contains(&advisor) {
             found.push(advisor);
         }
-        node = m.ptr(node + NODE_NEXT)?;
     }
     Ok(found)
 }
