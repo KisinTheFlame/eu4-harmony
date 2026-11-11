@@ -1,46 +1,52 @@
-# EU4 Harmony
+![Harmony for Europa Universalis IV](docs/images/banner.jpg)
 
 [![CI](https://github.com/KisinTheFlame/eu4-harmony/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/KisinTheFlame/eu4-harmony/actions/workflows/ci.yml)
 
 English | [简体中文](README.zh-CN.md)
 
-**Europa Universalis IV, made better from within.** Chinese everywhere, no restarts, a faster game, fewer bugs, and mods that can do far more.
+**Europa Universalis IV, made better from within.** Chinese, Japanese and Korean everywhere, no restarts, a faster game, fewer bugs, and mods that can do far more, with the game's rules left as they are.
 
-> [!NOTE]
-> Early development: EU4 1.37.5 on Windows, with every DLC, single player only. No release yet; [build it from source](#building-from-source).
+| | Unmodified game | Harmony |
+| --- | :-: | :-: |
+| Chinese, Japanese and Korean display correctly, with no double-byte patch or font mod | ✗ | ✓ |
+| Back to the main menu in seconds, without restarting the game | ✗ | ✓ |
+| Load another save from an ironman game | ✗ | ✓ |
+| The map scrolls and zooms smoothly, even at top speed | ✗ | ✓ |
+| Saving pauses the game a third as long | ✗ | ✓ |
+| The game starts and loads saves sooner | ✗ | ✓ |
+| A faster late game | ✗ | ✓ |
+| Heirs no longer get the same name half the time | ✗ | ✓ |
+| Fewer crashes | ✗ | ✓ |
+| Loading a save no longer costs you achievements | ✗ | ✓ |
+| A long game no longer eats ever more memory | ✗ | ✓ |
+| Optionally, achievements outside ironman or with mods | ✗ | ✓ |
+| Mods that do far more: buttons, windows, acting for you | ✗ | ✓ |
+| **The game's rules and data unchanged** | ✓ | ✓ |
 
-## Why EU4 Harmony
+Your translation mod is still what translates the game; translation mods made for the old double-byte patch, and the saves played with them, work as they are. Harmony runs on EU4 1.37.5 for Windows, in single player.
 
-- **Every language, everywhere.** Every script shows in the whole game, in fonts made for your language or ones you choose, and the names on the map stay sharp however close you zoom. No font mod needed.
-- **No more restarts.** Back to the main menu in seconds instead of 45. Ironman games can load another save too.
-- **A faster game, the same game.** The map is drawn on a thread of its own at the display's rate while the days are worked out, a save stops it for a third of the time, and it starts and loads sooner; late in a game the AI's armies plan on idle cores. The game's rules and data stay as they are.
-- **Bugs fixed that vanilla still has.** Heirs no longer get the same name half the time, coalitions and an overlord's fall no longer risk a crash, and loading a save no longer costs you achievements.
-- **Achievements your way.** Optionally earn them outside ironman, or with mods.
-- **Mods that do more.** Mods can read the game (down to its rulers, legitimacy, what each country thinks of another and why, the agenda an estate pursues, any modifier's total and the modifiers its scripts put on countries and provinces), add buttons and do what you do in its panels (build, develop, move the capital, research, take ideas and reforms, embrace institutions, take the age's abilities, enact a golden era, upgrade, build and move monuments, use government mechanics, strengthen the government, boost a faction, hire and promote advisors, promote and demote cultures, follow a personal deity or a cult, choose a church's aspects or a blessing, invite a scholar, establish holy orders, take a syncretic faith or a guru's teaching, pass religious reforms, turn on fervor, harmonize, commission icons, claim the defender of the faith, take piety's actions and the papacy's, buy indulgence and enact golden bulls, pass the Empire's and the Celestial Empire's reforms and enact decrees as their emperor, pick an imperial incident's option, trade, set the native policy, raise war taxes, reduce war exhaustion, declare bankruptcy, choose a naval doctrine, give a colony its independence, pay a parliament seat's bribe, organize armies and fleets, wage war and make peace, every diplomatic action), each with the game's own reasons when it is not allowed, with a few lines of Lua. Their Lua and their scripts work together: Lua reads and sets the scripts' flags and variables and fires their events. They can show pop-ups and windows of their own in the game's look, laid out in Lua, opened from a button beside the papacy's and the Empire's left of the minimap ([docs/plans/extension-windows.md](docs/plans/extension-windows.md)). What they read reaches as far as a province's prosperity, manpower, supply limit and institutions, and each regiment of an army with its strength and morale ([docs/plans/mod-capabilities.md](docs/plans/mod-capabilities.md)).
-- **Let an AI play.** A program can play the whole game for you, as you would, even hidden in the background.
+## Installing
 
-## Installing (players)
+1. If you use a patch that makes the game display Chinese, Japanese or Korean, uninstall it first, as that patch says.
+2. Subscribe to **Harmony** on the Steam Workshop.
+3. In Steam, right-click Europa Universalis IV and choose **Manage → Browse local files**: this opens the game's folder.
+4. Open Harmony's Workshop folder: `steamapps\workshop\content\236850\<id>\` in the same Steam library, two folders up from the game's, where `<id>` is the number at the end of Harmony's Workshop page address. Copy `version.dll` from there into the game's folder, next to `eu4.exe`. If the game's folder already has a `version.dll`, move that one somewhere else first; Harmony does not load it.
 
-1. Get the player package: a folder holding `version.dll` and an `eu4-harmony\` folder. Until there is a release, build it with `cargo xtask release` ([Building from source](#building-from-source)).
-2. If the game's root folder already has a `version.dll`, move it into `eu4-harmony\backup\`; the framework does not load it.
-3. Copy `version.dll` and `eu4-harmony\` into the game's root folder, next to `eu4.exe`.
-4. Start the game from the Paradox launcher as usual, and enable EU4 Harmony mods in your playset.
+Start the game from the Paradox launcher as usual. Harmony needs no place in your playset; mods built on it are enabled there as any mod. The main menu now has two buttons in its corner, **Harmony settings** and **Harmony mods**; the second lists each mod built on Harmony, with what it may do beyond the game.
 
-The main menu now has two buttons in its corner: **EU4 Harmony settings** and **EU4 Harmony mods**, where you see each mod's name, version and what it may do beyond the game (its permissions).
+Steam keeps Harmony up to date. Once in a while an update needs a new `version.dll`; Harmony then tells you at startup to copy it again.
 
-**Uninstalling:** delete `version.dll` and `eu4-harmony\` from the root folder, and move back the `version.dll` you backed up, if any.
+**Uninstalling:** unsubscribe from Harmony, and the game runs as it always did. To leave nothing behind, delete `version.dll` from the game's folder too, and put back the one you moved, if any.
 
 Good to know:
 
-- Names you type in a game played with the framework are saved as UTF-8, and show as garbage once the framework is removed.
-- An extension that keeps data writes it into the save; such a save is not promised to load without the framework.
-- Logs and the startup report (`report.txt`) are in `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\`. Look there first when something goes wrong.
+- Names you type in a game played with Harmony are saved as UTF-8, and show as garbage without it.
+- A mod that keeps data of its own writes it into the save; such a save is not promised to load without Harmony.
+- With Harmony, the game's volume sliders go as the square of their position, so each step sounds about as large. Volumes saved below 100 sound quieter than before; set them once again.
 
-### Settings
+## When something goes wrong
 
-**EU4 Harmony settings** has the player language and its fonts, returning to the main menu without restarting the game, achievement rules, whether the frame rate has a limit and how even the music is; each setting says there what it does. The details are in [docs/plans/player-language.md](docs/plans/player-language.md), [docs/plans/sessions.md](docs/plans/sessions.md), [docs/plans/game-speed.md](docs/plans/game-speed.md), [docs/plans/drawing-thread.md](docs/plans/drawing-thread.md) and [docs/plans/music-volume.md](docs/plans/music-volume.md).
-
-With the framework, the game's own volume sliders go as the square of their position, so each step sounds about as large, where vanilla's last tenth fell off steeply: volumes saved below 100 sound quieter than before, and are set again once.
+Look in `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\`: `report.txt` says what Harmony found and did as the game started, and `logs\` holds its logs, `proxy.log` among them for when Harmony did not start at all. Report a problem on [GitHub Issues](https://github.com/KisinTheFlame/eu4-harmony/issues), with `report.txt` and the logs attached.
 
 ## Writing a mod
 
@@ -60,7 +66,7 @@ return {
 }
 ```
 
-The command line tool is `eu4-harmony.exe`, in the game's `eu4-harmony\` folder:
+The command line tool, `eu4-harmony.exe`, is built from source for now ([Building from source](#building-from-source)):
 
 ```powershell
 eu4-harmony new my-mod --name "My Mod"   # a working mod with a button, texts in English and your language, and editor types
@@ -89,17 +95,18 @@ my-mod/
     └── tests/                 # tests run by eu4-harmony test
 ```
 
-`main.lua` returns handlers: for signals, what happened in the game, such as `on_session` and `on_day`, and for `on_frame` and `on_button`. Each gets `game`, through which every capability is called; a refusal returns `nil, err` with the game's reason, and a handler can wait for an answer, such as another country's to a proposal, for days to pass in the game, and do several things at once as tasks it awaits, as with async and await in JavaScript (`eu4-harmony skills tasks`). An extension that needs the real time, files or the network declares it under `permissions` in its manifest.
+`main.lua` returns handlers, such as `on_day` for a day passing and `on_button` for a click on its button. Each gets `game`, through which every capability is called; a refusal returns `nil, err` with the game's reason. A handler can wait for an answer, such as another country's to a proposal, or for days to pass, and do several things at once as tasks it awaits. An extension that needs the real time, files or the network declares it under `permissions` in its manifest, and players see that in the Harmony mods window.
 
 Where to learn more:
 
 - `eu4-harmony wiki`: every capability with its arguments and results, the handlers and globals (`wiki lua`), the manifest (`wiki manifest`). It needs no game.
 - `eu4-harmony skills`: step-by-step guides for each kind of work (`skills mod` for making a mod, `skills ui`, `skills testing`, …), written for coding agents and readable by anyone.
+- [docs/plans/mod-capabilities.md](docs/plans/mod-capabilities.md): what the framework opens to mods, area by area.
 - [docs/plans/lua-extensions.md](docs/plans/lua-extensions.md): how extensions work, with errors, the time and memory limits and save data.
 
-## Remote control
+## Remote control: let a program play
 
-`eu4-harmony game <capability> [<arguments>]` sends the running game one request and prints the answer as JSON:
+A program, an AI among them, can play the whole game as a player would, even hidden in the background. `eu4-harmony game <capability> [<arguments>]` sends the running game one request and prints the answer as JSON:
 
 ```powershell
 eu4-harmony start --hidden                 # start the game with nothing on the desktop; Steam must be running
@@ -137,8 +144,10 @@ You need Windows, [rustup](https://rustup.rs/) (it picks up the Rust version [ru
 ```powershell
 cargo build --release
 cargo test
-cargo xtask release        # pack the player package
+cargo xtask release        # pack the player package and the Workshop item's folder
 ```
+
+`cargo xtask release` packs `target\eu4-harmony\`, a folder holding `version.dll` and an `eu4-harmony\` folder with the core and the command line tool, and a zip of it. To install a build by hand, copy both into the game's folder, next to `eu4.exe`; `cargo xtask install` does that, and `--uninstall` removes them. A core in the game's folder is loaded before the one from the Workshop, so a build installed this way is the one that runs.
 
 The game is found through `EU4_GAME_DIR` or Steam. To try the build in the game, claim a test game: a game started from the game folder with a user folder, a core and a remote control pipe of its own, so that it touches neither the player's files nor the framework installed in the game folder, and several run side by side ([docs/plans/test-games.md](docs/plans/test-games.md)). The game folder needs a framework from test games on, installed once with the player's game closed (`cargo xtask install`).
 

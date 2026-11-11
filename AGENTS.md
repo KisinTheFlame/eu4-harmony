@@ -5,7 +5,7 @@ These rules hold for everyone who changes this repository, people and coding age
 ## Language
 
 - Code, comments, documentation, commit messages, logs and the startup report are in English.
-- Chinese appears only in [README.zh-CN.md](README.zh-CN.md), in localisation files (`*_l_simp_chinese.yml`), and as data: test inputs and in-game text quoted in notes. When you change README.md, change README.zh-CN.md to match.
+- Chinese appears only in [README.zh-CN.md](README.zh-CN.md), in localisation files (`*_l_simp_chinese.yml`), in what the Steam Workshop shows in that language (`workshop/*.schinese.*`; each language's files there are in that language), and as data: test inputs and in-game text quoted in notes. When you change README.md, change README.zh-CN.md to match, and the same for each language's file in `workshop/`.
 - Use the terms in [GLOSSARY.md](GLOSSARY.md), and none of the words it lists under _Avoid_.
 - Spelling is American (color, neighbor, initialize), as in the code, except "localisation", which follows the game.
 
@@ -53,6 +53,7 @@ The Rust version is the one [rust-toolchain.toml](rust-toolchain.toml) names, wh
 - Every place in the game the framework relies on is a dependency point, with the bytes expected there: a game function, a hook site, a field offset (checked against an instruction that uses it). A different game build then fails at startup instead of misbehaving, and startup succeeds or fails as a whole ([ADR framework-succeeds-or-fails-as-a-whole](docs/adr/2026-10-27-framework-succeeds-or-fails-as-a-whole.md)).
 - Work things out from the game itself. Do not copy code from other EU4 patches or plugins, and do not name them in this repository.
 - Understand the game's code before reasoning about changing it: what a function works out in the game's terms and why, what it reads and writes, who calls it and how often; read it to its end and through its callees, and write that into [docs/research/](docs/research/), and what it changes of what is known into the page of [docs/game/](docs/game/) it touches, in the same change. Whether two stretches of the game can run side by side is argued from what each reads, writes and shares, not from runtime tricks. Where the tools at hand cannot answer a question, say so and why.
+- A setting in the interface says what it does in its label, with no explanation beneath it: explanations go unread and go stale. Where a label cannot say it, change the label. What the player must know of a change (that it takes effect at the next start) shows where and while it applies.
 
 ## Testing in the game
 

@@ -115,15 +115,32 @@ fn setting_widgets(page: Page, shown: &Settings, words: &dyn Fn(&str) -> String)
     out
 }
 
-/// The words under `page`'s settings.
-fn page_note(page: Page, words: &dyn Fn(&str) -> String) -> Option<Widget> {
-    page.note().map(|key| Widget::Label(words(key)))
+/// A page with nothing but settings from [`settings::SETTINGS`].
+fn settings_page(page: Page, shown: &Settings, words: &dyn Fn(&str) -> String) -> Vec<Widget> {
+    setting_widgets(page, shown, words)
 }
 
-/// A page with nothing but settings from [`settings::SETTINGS`]: they, and
-/// its note under them.
-fn settings_page(page: Page, shown: &Settings, words: &dyn Fn(&str) -> String) -> Vec<Widget> {
-    setting_widgets(page, shown, words).into_iter().chain(page_note(page, words)).collect()
+/// Where problems with the framework are reported, as the settings window's
+/// foot names it.
+const ISSUES: &str = "https://github.com/KisinTheFlame/eu4-harmony/issues";
+
+/// The settings window's foot: the framework's version, and where to report
+/// a problem.
+fn settings_foot() -> String {
+    words_with("EU4HARMONY_SETTINGS_FOOT", &[("VERSION", env!("CARGO_PKG_VERSION")), ("ISSUES", ISSUES)])
+}
+
+/// The place in the settings window's footer of the line that says a change
+/// waits for the next start, just above the save button; empty while none
+/// does, so that the buttons stay where they are.
+const RESTART_LINE: usize = 1;
+
+/// The line at [`RESTART_LINE`]: the words that say so while the settings
+/// `w` shows, saved, would change what takes effect only at the next start
+/// from what this session, running with `current`, has; nothing otherwise.
+fn restart_line(w: &Window, current: &Settings, next: &Settings, fonts: &FontsPage<impl FontSystem>, words: &dyn Fn(&str) -> String) -> Widget {
+    let waits = current.waits_for_restart(&chosen_settings(w, next, fonts));
+    Widget::Label(if waits { words("EU4HARMONY_SETTINGS_RESTART") } else { String::new() })
 }
 
 /// Takes into `chosen` what the settings window `w` shows of the settings
@@ -141,8 +158,9 @@ fn read_back(w: &Window, chosen: &mut Settings) {
 }
 
 /// The settings window showing `next`, the settings the next start runs
-/// with; its language and fonts page is `fonts`.
-fn settings_window(next: &Settings, fonts: &FontsPage<impl FontSystem>, words: &dyn Fn(&str) -> String) -> Window {
+/// with, to a session running with `current`; its language and fonts page is
+/// `fonts`, and `foot` stands at its bottom.
+fn settings_window(current: &Settings, next: &Settings, fonts: &FontsPage<impl FontSystem>, words: &dyn Fn(&str) -> String, foot: String) -> Window {
     let pages = Page::ALL
         .into_iter()
         .map(|page| match page {
@@ -152,11 +170,15 @@ fn settings_window(next: &Settings, fonts: &FontsPage<impl FontSystem>, words: &
         .collect();
     let footer = vec![
         Widget::Gap,
+        Widget::Label(String::new()),
         Widget::Button { id: "save", label: words("EU4HARMONY_SETTINGS_SAVE") },
         Widget::Button { id: "cancel", label: words("EU4HARMONY_SETTINGS_CANCEL") },
+        Widget::Label(foot),
     ];
     let side = Side::new("pages", Page::ALL.iter().map(|page| words(page.title())).collect(), SETTINGS_LIST);
-    Window::new(words("EU4HARMONY_SETTINGS_TITLE"), Vec::new(), SETTINGS_WIDTH).with_side(side).with_pages(pages).with_footer(footer)
+    let mut window = Window::new(words("EU4HARMONY_SETTINGS_TITLE"), Vec::new(), SETTINGS_WIDTH).with_side(side).with_pages(pages).with_footer(footer);
+    window.footer_mut()[RESTART_LINE] = restart_line(&window, current, next, fonts, words);
+    window
 }
 
 /// The settings the settings window `w` saves: `next`, which it was opened
@@ -188,7 +210,7 @@ impl FrameworkUi {
     fn open_settings(&mut self) {
         let next = settings::next();
         let fonts = FontsPage::new(SystemFonts::new().ok(), &next);
-        let mut window = settings_window(&next, &fonts, &words);
+        let mut window = settings_window(&settings::current(), &next, &fonts, &words, settings_foot());
         window.center(&self.font, self.screen.0, self.screen.1);
         self.settings = Some(window);
         self.fonts_page = Some(fonts);
@@ -200,6 +222,14 @@ impl FrameworkUi {
     fn settings_chose(&mut self, id: &str, index: usize) {
         if let (Some(fonts), Some(window)) = (self.fonts_page.as_mut(), self.settings.as_mut()) {
             fonts.chose(window, id, index);
+        }
+    }
+
+    /// Shows, or takes away, the line that says a change waits for the next
+    /// start, once the player changed something in the settings window.
+    fn settings_changed(&mut self) {
+        if let (Some(window), Some(fonts)) = (self.settings.as_mut(), self.fonts_page.as_ref()) {
+            window.footer_mut()[RESTART_LINE] = restart_line(window, &settings::current(), &settings::next(), fonts, &words);
         }
     }
 
@@ -272,10 +302,14 @@ impl FrameworkUi {
         }
         if let Some(w) = self.settings.as_mut() {
             match Self::modal_event(w, &self.font, event) {
-                Some(Action::Chose(id, index)) => self.settings_chose(id, index),
+                Some(Action::Chose(id, index)) => {
+                    self.settings_chose(id, index);
+                    self.settings_changed();
+                }
+                Some(Action::Switched(..)) => self.settings_changed(),
                 Some(Action::Pressed("save")) => self.close_settings(true),
                 Some(Action::Pressed(_)) | Some(Action::Closed) => self.close_settings(false),
-                _ => {}
+                None => {}
             }
             return true;
         }
@@ -510,8 +544,8 @@ mod tests {
             assert_eq!(on, [setting.page], "{}", setting.key);
             assert_eq!(pages.iter().flat_map(|w| ids(w)).filter(|id| *id == setting.key).count(), 1, "{}", setting.key);
         }
-        // A page's note comes after its settings.
-        assert!(matches!(pages[1].last(), Some(Widget::Label(note)) if note == "EU4HARMONY_SETTINGS_UNDO"));
+        // A page holds its settings and nothing else: no words explain them.
+        assert!(pages.iter().flatten().all(|w| matches!(w, Widget::Toggle { .. })));
     }
 
     #[test]
@@ -546,7 +580,7 @@ mod tests {
             for next in [following, chosen] {
                 for fonts in [Some(fonts_page::tests::installed()), None] {
                     let page = FontsPage::new(fonts, &next);
-                    let window = settings_window(&next, &page, &keys);
+                    let window = settings_window(&next, &next, &page, &keys, String::new());
                     assert_eq!(chosen_settings(&window, &next, &page), next, "{language:?}");
                 }
             }
@@ -557,11 +591,45 @@ mod tests {
     fn the_settings_window_saves_the_language_chosen() {
         let next = Settings { language: Some(Language::English), ..Settings::default() };
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &next);
-        let mut window = settings_window(&next, &page, &keys);
+        let mut window = settings_window(&next, &next, &page, &keys, String::new());
         let languages = Language::ALL.iter().map(|l| l.native_name().to_string()).collect();
         let korean = Language::ALL.iter().position(|&l| l == Language::Korean).unwrap();
         window.set_options("language", languages, korean);
         // Its fonts follow it at the next start.
         assert_eq!(chosen_settings(&window, &next, &page), Settings { language: Some(Language::Korean), ..next });
+    }
+
+    fn restart_shown(w: &mut Window) -> String {
+        match &w.footer_mut()[RESTART_LINE] {
+            Widget::Label(text) => text.clone(),
+            _ => panic!("the restart line is a label"),
+        }
+    }
+
+    #[test]
+    fn the_restart_line_shows_while_a_change_waits_for_the_next_start() {
+        let current = Settings { language: Some(Language::English), ..Settings::default() };
+        let page = FontsPage::new(Some(fonts_page::tests::installed()), &current);
+        // Nothing changed: no line, but its room, so the buttons stay put.
+        let mut window = settings_window(&current, &current, &page, &keys, "foot".into());
+        assert_eq!(restart_shown(&mut window), "");
+        assert!(matches!(window.footer_mut().last(), Some(Widget::Label(foot)) if foot == "foot"));
+        // A change that takes effect when saved needs no restart.
+        let mut sound = current.clone();
+        sound.music_loudness = !sound.music_loudness;
+        let mut window = settings_window(&current, &sound, &page, &keys, String::new());
+        assert_eq!(restart_shown(&mut window), "");
+        // One that takes effect at the next start, saved before or chosen
+        // now, does.
+        let mut outline = current.clone();
+        outline.map_outline = !outline.map_outline;
+        let mut window = settings_window(&current, &outline, &FontsPage::new(Some(fonts_page::tests::installed()), &outline), &keys, String::new());
+        assert_eq!(restart_shown(&mut window), "EU4HARMONY_SETTINGS_RESTART");
+        let mut window = settings_window(&current, &current, &page, &keys, String::new());
+        let languages = Language::ALL.iter().map(|l| l.native_name().to_string()).collect();
+        let korean = Language::ALL.iter().position(|&l| l == Language::Korean).unwrap();
+        window.set_options("language", languages, korean);
+        window.footer_mut()[RESTART_LINE] = restart_line(&window, &current, &current, &page, &keys);
+        assert_eq!(restart_shown(&mut window), "EU4HARMONY_SETTINGS_RESTART");
     }
 }

@@ -154,17 +154,6 @@ impl Page {
             Page::Sound => "EU4HARMONY_SETTINGS_PAGE_SOUND",
         }
     }
-
-    /// The key of the words under its settings, if it has any.
-    pub fn note(self) -> Option<&'static str> {
-        match self {
-            Page::LanguageFonts => Some("EU4HARMONY_SETTINGS_RESTART"),
-            Page::Sessions => Some("EU4HARMONY_SETTINGS_UNDO"),
-            Page::Achievements => Some("EU4HARMONY_SETTINGS_ACHIEVEMENTS"),
-            Page::GameSpeed => None,
-            Page::Sound => Some("EU4HARMONY_SETTINGS_SOUND_INFO"),
-        }
-    }
 }
 
 /// Every [`Setting`], in the order the file writes them and each page of
@@ -467,6 +456,15 @@ impl Settings {
         for setting in SETTINGS.iter().filter(|s| s.effect != Effect::NextStart) {
             setting.copy(chosen, self);
         }
+    }
+
+    /// Whether `chosen`, saved, would differ from these settings, which a
+    /// session runs with, in what takes effect only at the next start: the
+    /// language, the fonts, and each [`Effect::NextStart`] setting.
+    pub fn waits_for_restart(&self, chosen: &Settings) -> bool {
+        let mut saved = self.clone();
+        saved.take_immediate(chosen);
+        saved != *chosen
     }
 }
 

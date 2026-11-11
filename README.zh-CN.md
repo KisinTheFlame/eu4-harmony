@@ -1,46 +1,52 @@
-# EU4 Harmony
+![Harmony for Europa Universalis IV](docs/images/banner.jpg)
 
 [![CI](https://github.com/KisinTheFlame/eu4-harmony/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/KisinTheFlame/eu4-harmony/actions/workflows/ci.yml)
 
 [English](README.md) | 简体中文
 
-**从内部把《欧陆风云4》变得更好。** 处处能显示中文、不用重启、游戏更快、bug 更少，Mod 也能做到多得多的事。
+**从内部把《欧陆风云4》变得更好。** 处处能显示中日韩文字、不用重启、游戏更快、bug 更少，Mod 也能做到多得多的事，而游戏的规则保持原样。
 
-> [!NOTE]
-> 早期开发中：只支持 Windows 上拥有全部 DLC 的 EU4 1.37.5，仅单人。还没有发布版本，请[从源码构建](#从源码构建)。
+| | 原版游戏 | Harmony |
+| --- | :-: | :-: |
+| 中文、日文、韩文正常显示，不需要双字节补丁或字体 Mod | ✗ | ✓ |
+| 几秒回到主菜单，不用重启游戏 | ✗ | ✓ |
+| 铁人模式里读取别的存档 | ✗ | ✓ |
+| 高速运行时，地图的拖动和缩放依然流畅 | ✗ | ✓ |
+| 存档时的卡顿只剩三分之一 | ✗ | ✓ |
+| 启动和读档更快 | ✗ | ✓ |
+| 游戏后期跑得更快 | ✗ | ✓ |
+| 继承人不再一半概率重名 | ✗ | ✓ |
+| 降低崩溃风险 | ✗ | ✓ |
+| 读档不再让你丢掉成就 | ✗ | ✓ |
+| 长局不再越玩越占内存 | ✗ | ✓ |
+| 可选：非铁人或开着 Mod 也能拿成就 | ✗ | ✓ |
+| Mod 能做的事多得多：加按钮、加窗口、替你操作 | ✗ | ✓ |
+| **游戏的规则和数据不变** | ✓ | ✓ |
 
-## 为什么用 EU4 Harmony
+游戏的中文文本仍然来自汉化 Mod，照常订阅即可；为双字节补丁制作的汉化 Mod 和用它们玩的存档都能直接使用。Harmony 运行于 Windows 上的 EU4 1.37.5，仅支持单人游戏。
 
-- **任何文字，处处显示。** 任何文字在整个游戏里都能显示，默认用为你的语言准备的字体，也可以自己选；地图上的地名拉到多近都清晰。不用装字体 Mod。
-- **不再重启。** 几秒回到主菜单，而不是 45 秒。铁人局也能读取别的存档。
-- **更快的游戏，同一局游戏。** 地图在单独的线程上按显示器刷新率绘制，计算日更新时也不停，存档时的卡顿只剩约三分之一，启动和读档也更快；游戏后期，AI 的军队在空闲的核心上规划路线。游戏的规则和数据都保持原样。
-- **修好原版至今还有的 bug。** 继承人不会再一半概率重名，反侵略联盟和宗主国覆灭不再有崩溃风险，读档也不会再让你丢掉成就。
-- **成就规则由你定。** 可选：非铁人或开着 Mod 也能拿成就。
-- **Mod 能做更多。** 几行 Lua，Mod 就能读取游戏（细到君主与储君、合法性、各国对彼此的好感度及其由来、阶层正在推行的议程、任一修正的合计，以及脚本给国家和省份挂上的修正）、添加按钮，并在游戏的各个面板里做你能做的事（建造、发展、迁都、研究、选理念和改革、接纳思潮、选取时代能力、开启黄金时代、升级、建造和迁移纪念碑、使用政体机制、巩固政府、提升派系影响力、雇佣和提拔顾问、认同和取消认同文化、选择个人神祇或崇拜、教会信条或神赐、邀请学者、建立圣职团、选择融合信仰或古鲁的教义、通过宗教改革、启用热情、调和宗教、供奉圣像、宣称信仰守护者、使用虔诚行动和教廷行动、购买赎罪券、颁布金玺诏书、以皇帝身份通过神圣罗马帝国和天朝的改革并颁布诏令、在帝国事件中选择立场、贸易、设定土著政策、征收战争税、降低厌战度、宣布破产、选择海军学说、允许殖民地独立、收买议会席位、整编陆军和舰队、宣战与议和、每一种外交行动），不允许时给出游戏自己的原因。Mod 的 Lua 和脚本能互相配合：Lua 读写脚本的 flag 和变量，触发脚本定义的事件。Mod 还能弹出弹窗，打开自己的窗口，样式与游戏原生一致，布局用 Lua 写，入口按钮就在小地图左侧，和教廷、神罗的按钮排在一起（[docs/plans/extension-windows.md](docs/plans/extension-windows.md)）。能读到的细到一个省份的繁荣度、人力、补给上限和思潮，以及一支军队的每个团和它的兵力、士气（[docs/plans/mod-capabilities.md](docs/plans/mod-capabilities.md)）。
-- **让 AI 来玩。** 程序可以像你一样替你玩完整局游戏，甚至在后台隐藏着玩。
+## 安装
 
-## 安装（玩家）
+1. 如果装过让游戏显示中文、日文或韩文的补丁，先按那个补丁自己的说明把它卸载。
+2. 在 Steam 创意工坊订阅 **Harmony**。
+3. 在 Steam 里右键《欧陆风云4》，选**管理 → 浏览本地文件**，打开游戏目录。
+4. 打开 Harmony 的创意工坊目录：同一个 Steam 库里的 `steamapps\workshop\content\236850\<id>\`，在游戏目录往上两级；`<id>` 是 Harmony 创意工坊页面地址末尾的那串数字。把那里的 `version.dll` 复制到游戏目录，和 `eu4.exe` 放在一起。游戏目录里原本已有 `version.dll` 的话，先把它挪到别处，Harmony 不会加载它。
 
-1. 拿到玩家包：一个文件夹，里面是 `version.dll` 和 `eu4-harmony\` 文件夹。在有发布版本之前，用 `cargo xtask release` 构建它（见[从源码构建](#从源码构建)）。
-2. 游戏根目录里原本已有 `version.dll` 的话，先把它移进 `eu4-harmony\backup\`，框架不会加载它。
-3. 把 `version.dll` 和 `eu4-harmony\` 复制到游戏根目录，和 `eu4.exe` 放在一起。
-4. 照常从 Paradox 启动器启动游戏，在合集里启用 EU4 Harmony Mod。
+照常从 Paradox 启动器启动游戏。Harmony 不用放进合集；基于它的 Mod 照常在合集里启用。主菜单角落会多出两个按钮：**Harmony 设置**和 **Harmony Mod**，后者列出每个基于 Harmony 的 Mod，以及它在游戏之外能做什么。
 
-主菜单角落里会多出两个按钮：**EU4 Harmony 设置**和 **EU4 Harmony Mod**，后者能看到每个 Mod 的名称、版本，以及它在游戏之外能做什么（它的权限）。
+Steam 会让 Harmony 保持最新。偶尔有更新需要换新的 `version.dll`，这时 Harmony 会在启动时提示你重新复制一次。
 
-**卸载：** 删掉根目录里的 `version.dll` 和 `eu4-harmony\`；之前备份过 `version.dll` 的话，把它移回去。
+**卸载：** 取消订阅 Harmony，游戏就回到原样。想不留痕迹，再删掉游戏目录里的 `version.dll`；之前挪走过别的 `version.dll` 的话，把它放回去。
 
 需要知道的几件事：
 
-- 用框架玩的游戏里，你输入的名字以 UTF-8 保存，卸掉框架后会显示成乱码。
-- 会保存数据的扩展把数据写进存档；这样的存档不保证在没有框架时还能读取。
-- 日志和启动报告（`report.txt`）在 `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\`。出问题时先看这里。
+- 用 Harmony 玩的游戏里，你输入的名字以 UTF-8 保存，没有 Harmony 时会显示成乱码。
+- 会保存自己数据的 Mod 把数据写进存档；这样的存档不保证在没有 Harmony 时还能读取。
+- 装上 Harmony 后，游戏自己的音量滑块按位置的平方变化，每一格听起来变化差不多大。原来低于 100 的音量会比以前轻，重新调一次即可。
 
-### 设置
+## 出问题时
 
-**EU4 Harmony settings** 里可以设置玩家语言和字体、返回主菜单时不重启游戏、成就规则、帧率是否限制，以及音乐的响度是否统一；每一项在窗口里都有说明。细节见 [docs/plans/player-language.md](docs/plans/player-language.md)、[docs/plans/sessions.md](docs/plans/sessions.md)、[docs/plans/game-speed.md](docs/plans/game-speed.md)、[docs/plans/drawing-thread.md](docs/plans/drawing-thread.md) 和 [docs/plans/music-volume.md](docs/plans/music-volume.md)。
-
-装上框架后，游戏自己的音量滑块按位置的平方变化，每一格听起来变化差不多大；原版在最后一成会陡降到静音。原来低于 100 的音量会比以前轻，需要重新调一次。
+看 `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\`：`report.txt` 记着游戏启动时 Harmony 发现了什么、做了什么，`logs\` 里是它的日志，Harmony 根本没启动时就看其中的 `proxy.log`。到 [GitHub Issues](https://github.com/KisinTheFlame/eu4-harmony/issues) 反馈问题，附上 `report.txt` 和日志。
 
 ## 写一个 Mod
 
@@ -60,7 +66,7 @@ return {
 }
 ```
 
-命令行工具是游戏 `eu4-harmony\` 文件夹里的 `eu4-harmony.exe`：
+命令行工具 `eu4-harmony.exe` 目前要从源码构建（见[从源码构建](#从源码构建)）：
 
 ```powershell
 eu4-harmony new my-mod --name "My Mod"   # 一个能直接用的 Mod：带一个按钮、英文和你的语言的文字，以及编辑器类型定义
@@ -89,17 +95,18 @@ my-mod/
     └── tests/                 # eu4-harmony test 运行的测试
 ```
 
-`main.lua` 返回处理函数：信号（游戏里发生的事）的，比如 `on_session`、`on_day`，以及 `on_frame`、`on_button`。每个都拿到 `game`，所有能力都从它调用；被拒绝时返回 `nil, err`，带着游戏给的理由；处理函数还可以等一个答复，比如别国对提议的答复，或者等游戏里过去若干天，也可以把几件事作为任务同时进行、再等它们完成，就像 JavaScript 的 async 和 await（`eu4-harmony skills tasks`）。需要现实时间、文件或网络的扩展，要在清单的 `permissions` 里声明。
+`main.lua` 返回处理函数，比如过了一天时的 `on_day`、按钮被点击时的 `on_button`。每个都拿到 `game`，所有能力都从它调用；被拒绝时返回 `nil, err`，带着游戏给的理由。处理函数可以等一个答复，比如别国对提议的答复，或者等游戏里过去若干天，也可以把几件事作为任务同时进行、再等它们完成。需要现实时间、文件或网络的扩展，要在清单的 `permissions` 里声明，玩家在 Harmony Mod 窗口里能看到。
 
 进一步了解：
 
 - `eu4-harmony wiki`：每项能力的参数和结果、处理函数和全局函数（`wiki lua`）、清单（`wiki manifest`）。不需要游戏运行。
 - `eu4-harmony skills`：每类工作的分步指南（`skills mod` 讲做一个 Mod，还有 `skills ui`、`skills testing` 等），写给 coding agent，人也能读。
+- [docs/plans/mod-capabilities.md](docs/plans/mod-capabilities.md)：框架向 Mod 开放了什么，按领域列出。
 - [docs/plans/lua-extensions.md](docs/plans/lua-extensions.md)：扩展如何工作，包括出错、时间与内存限制和存档数据。
 
-## 远程控制
+## 远程控制：让程序来玩
 
-`eu4-harmony game <能力> [<参数>]` 向运行中的游戏发一个请求，以 JSON 打印回答：
+程序（包括 AI）可以像玩家一样玩完整局游戏，甚至在后台隐藏着玩。`eu4-harmony game <能力> [<参数>]` 向运行中的游戏发一个请求，以 JSON 打印回答：
 
 ```powershell
 eu4-harmony start --hidden                 # 启动游戏，桌面上什么都不出现；Steam 须在运行
@@ -137,8 +144,10 @@ eu4-harmony game menu return               # 回到主菜单
 ```powershell
 cargo build --release
 cargo test
-cargo xtask release        # 打出玩家包
+cargo xtask release        # 打出玩家包和创意工坊条目的文件夹
 ```
+
+`cargo xtask release` 打出 `target\eu4-harmony\`：一个文件夹，里面是 `version.dll` 和装着核心与命令行工具的 `eu4-harmony\` 文件夹，另有它的 zip。要手动安装一个构建，就把这两样复制到游戏目录，和 `eu4.exe` 放在一起；`cargo xtask install` 就是做这件事的，`--uninstall` 把它们删掉。游戏目录里的核心先于创意工坊的被加载，所以这样装的构建就是实际运行的那个。
 
 游戏通过 `EU4_GAME_DIR` 或 Steam 找到。要在游戏里试构建，就认领一局测试游戏：它从游戏目录启动，有自己的用户文件夹、核心和远程控制管道，既不碰玩家的文件，也不碰游戏目录里装好的框架，几局可以同时跑（[docs/plans/test-games.md](docs/plans/test-games.md)）。游戏目录里要先装一次支持测试游戏的框架，装时玩家自己的游戏要关着（`cargo xtask install`）。
 

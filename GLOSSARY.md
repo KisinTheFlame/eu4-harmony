@@ -1,4 +1,4 @@
-# EU4 Harmony
+# Harmony
 
 A framework that lets developers extend Europa Universalis IV with Lua scripts, and the mods it loads.
 
@@ -11,7 +11,7 @@ What a player subscribes to and enables in the Paradox launcher, that is, a Para
 _Avoid_: mod pack
 
 **Harmony mod**:
-A mod with a manifest, whether or not it carries an extension. Where players see it, it is an EU4 Harmony mod.
+A mod with a manifest, whether or not it carries an extension.
 _Avoid_: framework mod, extension mod
 
 **Extension**:
@@ -62,16 +62,16 @@ _Avoid_: descriptor (that is Paradox's `descriptor.mod`)
 The mods enabled in the Paradox launcher for the next time the game starts.
 _Avoid_: load list, mod list
 
-**Framework (EU4 Harmony)**:
-The program that runs inside the game process, finds and loads extensions, and gives them capabilities.
-_Avoid_: Harmony on its own where players or other projects see the name (other projects share it; there it is EU4 Harmony or `eu4-harmony`), loader, engine
+**Framework (Harmony)**:
+The program that runs inside the game process, finds and loads extensions, and gives them capabilities. Harmony is the name players and mod authors read: on the Workshop, in README, in the game's windows and notices. Paths, folders, commands and keys keep `eu4-harmony` (the mods' `eu4-harmony\` folder, `eu4-harmony.exe`, the `EU4HARMONY_` keys, the user folder's `eu4-harmony\`), as does the repository.
+_Avoid_: EU4 Harmony where players read it (the name it had before the Workshop release), loader, engine
 
 **Framework files**:
 Files of the framework's own that the game reads as it reads its own and the mods', such as the framework fonts' files. The framework makes them in memory and mounts them into the game's file system; they are never on disk (ADR framework-files-in-the-game-file-system).
 _Avoid_: virtual files, framework mod, assets
 
 **Installation**:
-The one-off step of copying the framework's files into the game folder; uninstalling is deleting them.
+The one-off step that makes the game load the framework: a player subscribes to Harmony on the Steam Workshop and copies its `version.dll` into the game folder, from where the proxy loads the core in Harmony's Workshop item (ADR the-framework-ships-on-the-workshop); a developer copies the built proxy and core into the game folder (`cargo xtask install`). Uninstalling is unsubscribing and deleting `version.dll`, or deleting what was copied.
 _Avoid_: using it for the hooking done at startup
 
 **Developer build**:
@@ -421,11 +421,11 @@ The window in the framework UI that shows notices to the player. To the player i
 _Avoid_: dialog; message box (that is the Windows message box used when the notice window cannot be)
 
 **Settings window**:
-The window in the framework UI where the player changes framework settings, opened from the EU4 Harmony settings button in the main menu's corner. Its settings are on pages, one for each thing they concern (language and fonts, loading and returning, achievements, game speed, remote control, sound), chosen in a side list; one Save keeps what was changed on every page. Like the notice window, it is not a window in the game's sense.
+The window in the framework UI where the player changes framework settings, opened from the Harmony settings button in the main menu's corner. Its settings are on pages, one for each thing they concern (language and fonts, loading and returning, achievements, game speed, remote control, sound), chosen in a side list; one Save keeps what was changed on every page. Like the notice window, it is not a window in the game's sense.
 _Avoid_: options menu (that is the game's own settings)
 
 **Mods window**:
-The window in the framework UI, opened from the EU4 Harmony mods button in the main menu's corner, that lists the Harmony mods of this start, each with its name, version, description and the sensitive capabilities it declares.
+The window in the framework UI, opened from the Harmony mods button in the main menu's corner, that lists the Harmony mods of this start, each with its name, version, description and the sensitive capabilities it declares.
 _Avoid_: mod list (that is a playset), mod manager (it manages nothing)
 
 **Framework settings**:

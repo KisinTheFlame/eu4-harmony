@@ -273,6 +273,12 @@ impl Window {
         }
     }
 
+    /// What stands below the body on every page, to change while the window
+    /// is open.
+    pub fn footer_mut(&mut self) -> &mut [Widget] {
+        &mut self.footer
+    }
+
     /// Puts the window in the middle of a screen.
     pub fn center(&mut self, measure: &dyn Measure, screen_w: f32, screen_h: f32) {
         self.screen_h = screen_h;

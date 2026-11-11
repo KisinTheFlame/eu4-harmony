@@ -83,8 +83,7 @@ mod tests {
         let checked = check(&root);
         let problems = checked.problems.join("\n");
         assert_eq!(checked.problems.len(), 4, "{problems}");
-        for part in
-            ["written for api_version 0.1, this EU4 Harmony provides", "deep/broken.lua", "m_l_english.yml: line 2", "eu4-harmony/ui/stray.gui: not where"]
+        for part in ["written for api_version 0.1, this Harmony provides", "deep/broken.lua", "m_l_english.yml: line 2", "eu4-harmony/ui/stray.gui: not where"]
         {
             assert!(problems.contains(part), "{part} in {problems}");
         }

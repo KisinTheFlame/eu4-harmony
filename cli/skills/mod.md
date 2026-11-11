@@ -1,6 +1,6 @@
 mod: making a mod
 
-An EU4 Harmony mod is a Paradox mod with an eu4-harmony/ folder: its
+A Harmony mod is a Paradox mod with an eu4-harmony/ folder: its
 manifest, its Lua extension, interface fragments, texts and files. Where a
 file is says what it is; eu4-harmony wiki manifest has the manifest's fields.
 

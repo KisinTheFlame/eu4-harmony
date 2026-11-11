@@ -79,6 +79,7 @@ pub mod pdx;
 pub mod physfs;
 pub mod pipe;
 pub mod points;
+mod proxy;
 pub mod remote;
 pub mod repairs;
 pub mod report;
@@ -207,14 +208,30 @@ fn log_panics() {
     }));
 }
 
-fn bootstrap() -> Result<()> {
+/// Why the startup failed, for the report, and what the player is told.
+struct Failure {
+    reason: String,
+    /// The notice, when it is not the startup failure notice with the reason.
+    notice: Option<notice::Message>,
+}
+
+impl From<String> for Failure {
+    fn from(reason: String) -> Self {
+        Self { reason, notice: None }
+    }
+}
+
+fn bootstrap() -> std::result::Result<(), Failure> {
     log_panics();
     MAIN_THREAD.store(thread_id(), Ordering::Relaxed);
     let game_dir = paths::game_dir()?;
     // The log stays buffered until the user directory is known (deferred_init).
     log!("eu4-harmony core {}{} bootstrap in {}", env!("CARGO_PKG_VERSION"), build(), game_dir.display());
     hidden::read_switches();
+    let found = proxy::interface(&game_dir);
     let _ = GAME_DIR.set(game_dir);
+    log!("proxy interface: {}", found.map_or_else(|| "no proxy in the game folder".to_string(), |i| i.to_string()));
+    proxy::check(found).map_err(|reason| Failure { reason, notice: Some(notice::Message::new("EU4HARMONY_PROXY_OUTDATED")) })?;
     let m = memory::Memory { base: unsafe { GetModuleHandleW(std::ptr::null()) } as usize };
     let _ = MEMORY.set(m);
     let summary = start(m)?;
@@ -248,7 +265,7 @@ fn build() -> String {
 /// The report's first lines: this core, and the game folder when it is known;
 /// in a developer build, its tools' options.
 fn report_header(game_dir: Option<&std::path::Path>) {
-    report::line(format!("EU4 Harmony core {}{}, started {}", env!("CARGO_PKG_VERSION"), build(), log::now()));
+    report::line(format!("Harmony {}{}, started {}", env!("CARGO_PKG_VERSION"), build(), log::now()));
     if let Some(dir) = game_dir {
         report::line(format!("game: {}", dir.display()));
     }
@@ -265,7 +282,7 @@ fn report_header(game_dir: Option<&std::path::Path>) {
 /// the player, from a thread of its own since the loader lock is held here.
 /// A hidden start ends the game instead: without the framework it could be
 /// neither used nor hidden.
-fn fail_startup(reason: String) {
+fn fail_startup(reason: String, told: Option<notice::Message>) {
     let game_dir = GAME_DIR.get().cloned();
     std::thread::spawn(move || {
         let user_dir = game_dir.as_deref().and_then(|d| paths::user_dir(d).ok());
@@ -292,7 +309,7 @@ fn fail_startup(reason: String) {
             Some(more) if more > 0 => format!("{}\n… ({more} more in eu4-harmony/logs/report.txt)", lines[..SHOWN].join("\n")),
             _ => reason.clone(),
         };
-        notice::tell_and_wait(&notice::Message::new("EU4HARMONY_STARTUP_FAILED").arg("DETAIL", detail));
+        notice::tell_and_wait(&told.unwrap_or_else(|| notice::Message::new("EU4HARMONY_STARTUP_FAILED").arg("DETAIL", detail)));
     });
 }
 
@@ -307,14 +324,14 @@ pub(crate) fn deferred_init() {
 pub extern "system" fn eu4_harmony_bootstrap() -> u32 {
     match std::panic::catch_unwind(bootstrap) {
         Ok(Ok(())) => 0,
-        Ok(Err(e)) => {
-            log!("startup failed: {e}");
-            fail_startup(e);
+        Ok(Err(Failure { reason, notice })) => {
+            log!("startup failed: {reason}");
+            fail_startup(reason, notice);
             1
         }
         Err(_) => {
             log!("startup failed: panic");
-            fail_startup("panic during startup".into());
+            fail_startup("panic during startup".into(), None);
             2
         }
     }

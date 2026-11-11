@@ -1,4 +1,4 @@
-eu4-harmony skills: guides for making an EU4 Harmony mod
+eu4-harmony skills: guides for making a Harmony mod
 
 Read the guide for the work in front of you before writing code for it. Each
 names the steps and the checks that tell you a step is done. For what a

@@ -333,7 +333,7 @@ fn no_answer_in_time_says_how_long_it_waited() {
     let outcome = ask("session.get --timeout 0.3").run(&pipe_name("game-none"), &this_program());
     assert_eq!((outcome.code, outcome.stdout), (EXIT_NO_ANSWER, None));
     let error = outcome.stderr.unwrap();
-    assert!(error.starts_with("error: no game with EU4 Harmony opened") && error.ends_with("(0.3 s)"), "{error}");
+    assert!(error.starts_with("error: no game with Harmony opened") && error.ends_with("(0.3 s)"), "{error}");
 
     // A pipe served by something that does not answer.
     let name = pipe_name("game-silent");
