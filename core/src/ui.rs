@@ -531,14 +531,19 @@ fn window_delete(call: &mut Call) {
     crate::windows::killed(&call.memory(), window);
 }
 
-/// The keys held down now, as [`MODIFIER_SHIFT`] and [`MODIFIER_CTRL`].
+/// The keys held down now, as [`MODIFIER_SHIFT`] and [`MODIFIER_CTRL`]: the
+/// player's, as Windows has handed them to the game's window, and remote
+/// control's, which `GetKeyState` does not see
+/// ([`game::input::modifiers_held`]).
 pub(crate) fn modifiers() -> u32 {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_SHIFT};
+    let down = |key: u16| unsafe { GetKeyState(key as i32) } < 0;
+    let (shift, ctrl) = game::input::modifiers_held();
     let mut out = 0;
-    if unsafe { GetKeyState(VK_SHIFT as i32) } < 0 {
+    if shift || down(VK_SHIFT) {
         out |= MODIFIER_SHIFT;
     }
-    if unsafe { GetKeyState(VK_CONTROL as i32) } < 0 {
+    if ctrl || down(VK_CONTROL) {
         out |= MODIFIER_CTRL;
     }
     out

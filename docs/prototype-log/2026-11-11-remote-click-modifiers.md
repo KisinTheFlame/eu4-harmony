@@ -1,0 +1,9 @@
+# 2026-11-11 A remote click's shift and ctrl reach an extension's button (tested by me)
+
+On `claude/improve-codebase-architecture-eb5578`, with `ui::modifiers` adding the shift and ctrl remote control has handed the game as held to `GetKeyState`'s ([research/input.md](../research/input.md)). One test game of this checkout's, started hidden, with the player's playset (which holds regional-combat from `D:\Workspace\eu4-regional-combat\mod`) and the save `Austria-1` (Spain, 1619.8.10) loaded by `menu.load`.
+
+- **Before**, in the third deepening's run of the same day ([2026-11-11-the-third-deepening.md](2026-11-11-the-third-deepening.md)): `input.click --modifiers shift` on the right arrow of regional-combat's settings window raised the radius by 1, as a plain click does; the mod raises it by 5 with shift and 10 with ctrl.
+- **After**: the army in 1215 selected with `camera.look_at` and an `input.click` on it, a right click on the 区域 toggle opened the settings window at 半径 5. `input.click --modifiers shift` on its right arrow gave 半径 10, `--modifiers ctrl` 半径 20, and a plain click after them 半径 21 (the mod's log: `radius 10`, `radius 20`, `radius 21`): the modifiers held for their clicks and were let go after them, `input.get` holding no key.
+- **Checks**: `cargo fmt --check`, `cargo test` for the workspace with the new test of the input's state (a click's modifiers held from before its button is pressed to after it is let go), both clippy runs and `cargo xtask offline-check` (5 of 5) passed. The game ended with exit code 1, no crash.
+
+Not verified: the player's own shift held while a remote click comes, which the two sources together count either way; a modifier on a button spliced into a vanilla window rather than an extension window's, which reads the modifiers through the same function.

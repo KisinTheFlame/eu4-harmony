@@ -346,6 +346,16 @@ pub fn cursor(caller: Caller) -> GResult<Cursor> {
     Ok(Cursor { at, buttons: s.held.buttons.clone(), keys: s.held.keys.clone() })
 }
 
+/// Whether remote control has handed the game shift and ctrl as held: for
+/// what reads the modifiers as a click comes (`ui::modifiers`), since the
+/// keys given reach the window procedure without passing through the
+/// message queue whose keys `GetKeyState` follows. A modifier is pressed a
+/// frame before the click it modifies and let go a frame after it.
+pub(crate) fn modifiers_held() -> (bool, bool) {
+    let s = state();
+    (s.held.key("shift"), s.held.key("ctrl"))
+}
+
 /// Just before the main thread presents a frame `size` pixels large: hands
 /// the game the next frame's steps of the input first in line.
 pub fn presenting(size: (u32, u32)) {
@@ -544,5 +554,27 @@ mod tests {
         s.queue.push_back(Queued { number: 2, frames: plan::frames(&click, &s.planned).into(), frame, before: None });
         assert!(s.present((1280, 720)).is_empty());
         assert!(s.queue.is_empty() && s.held == Held::default());
+    }
+
+    #[test]
+    fn a_click_s_modifiers_are_held_from_before_its_button_is_pressed_to_after_it_is_let_go() {
+        let (shift, ctrl) = (Key::named("shift").unwrap(), Key::named("ctrl").unwrap());
+        let mut s = State::new();
+        let frame = (1920, 1080);
+        let click = Action::Click { at: (10, 10), button: Button::Left, count: 1, modifiers: vec![shift, ctrl] };
+        s.queue.push_back(Queued { number: 1, frames: plan::frames(&click, &s.planned).into(), frame, before: None });
+        let mut buttons = 0;
+        while !s.queue.is_empty() {
+            for (step, before, after) in s.present(frame) {
+                if let Step::Button(_, _) = step {
+                    buttons += 1;
+                    for held in [&before, &after] {
+                        assert!(held.key("shift") && held.key("ctrl"), "{step:?} with {held:?}");
+                    }
+                }
+            }
+        }
+        assert_eq!(buttons, 2, "pressed and let go");
+        assert_eq!(s.held, Held::default(), "the modifiers are let go after the click");
     }
 }
