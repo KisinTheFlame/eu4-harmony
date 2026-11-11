@@ -1,13 +1,13 @@
 //! The religion view: following a personal deity or a cult, through the
 //! game's own commands, with the view's own checks (docs/research/religion.md).
-use super::{action, conditions, content, GResult, Session, Tag};
+use super::{action, conditions, content, power, GResult, Session, Tag};
 use crate::objects::campaign::country;
 use crate::{
     containers, game_string,
     memory::Memory,
     points::{GameFunction, Point},
 };
-use eu4_harmony_remote::choices::{Amount, Choice, Resource};
+use eu4_harmony_remote::choices::{Amount, Choice, PowerKind, Resource};
 use eu4_harmony_remote::religion::{args, ReligionOption};
 
 /// The personal deities' database, made on first use by its getter
@@ -76,6 +76,29 @@ const MAY_BLESS: GameFunction<3> = GameFunction::at(0x37adb0);
 const ADD: u8 = 0;
 const REMOVE: u8 = 1;
 
+/// A country's religious reforms ([`country::RELIGIOUS_REFORMS`]): entries of
+/// [`REFORMS_ENTRY`] bytes, each a reform group (`common/religious_reforms`)
+/// and, from [`REFORMS_PASSED`], a `std::vector` of i32, one for each of the
+/// group's reforms, nonzero once it is passed.
+const REFORMS_ENTRY: usize = 0x20;
+const REFORMS_PASSED: usize = 8;
+/// A reform group, laid out as an idea group: its reforms (a `std::vector`
+/// of pointers), its `can_buy_idea` and its category, the kind of monarch
+/// power a reform is spent in.
+const REFORM_GROUP_REFORMS: usize = 0x30;
+const REFORM_GROUP_CAN_BUY: usize = 0xc0;
+const REFORM_GROUP_CATEGORY: usize = 0x570;
+/// A reform, an idea of the reforms' own database: its key and its index
+/// there, which the spending names it by.
+const REFORM_KEY: usize = 0x158;
+const REFORM_INDEX: usize = 0x1a0;
+/// The spending's kind for passing a religious reform.
+const BUY_RELIGIOUS_REFORM: i32 = 31;
+/// `(country, tag out, i32 out)`: whom the country would learn from in
+/// reforming its religion; the tag out's valid byte (`+7`) is set when there
+/// is one, as the reform command's check asks.
+const REFORM_SPONSOR: GameFunction<3> = GameFunction::at(0x3cd850);
+
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(0x7e691ausize, "48 8b 05 87 53 c4 01 48 85 c0", "personal deities database").uses(&[DEITIES]),
@@ -112,6 +135,19 @@ pub fn points() -> Vec<Point> {
         Point::keep(MAY_ADD_ASPECT, "48 89 5c 24 08 48 89 74 24 18 48 89 7c 24 20 55 41 54 41 55", "may add aspect"),
         Point::keep(MAY_CHANGE_ASPECTS, "48 89 5c 24 10 48 89 74 24 18 57 48 81 ec c0 00 00 00 48 8b", "may change aspects"),
         Point::keep(MAY_BLESS, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 40 48 8b 02 48 8b", "may take blessing"),
+        // The reform command's check walks the country's reform groups and
+        // their flags, then asks whom it would learn from.
+        Point::keep(0x2af50dusize, "4c 8b 8e 50 14 00 00 48 8b be 58 14 00 00", "country's religious reforms").uses(&[country::RELIGIOUS_REFORMS]),
+        Point::keep(0x2af581usize, "80 7c 24 3f 00 74 1a", "reform sponsor's valid byte"),
+        // Adding an idea that is a reform finds its group's entry and the
+        // reform among the group's reforms.
+        Point::keep(0x3321d1usize, "4d 8b 03 4c 3b 87 98 01 00 00 75 d7 33 d2 4d 8b 50 30", "religious reform group's reforms").uses(&[REFORM_GROUP_REFORMS]),
+        // The reform's button: the spending's power from the group's
+        // category, its data the reform's index.
+        Point::keep(0x139d9bbusize, "48 8b 87 98 01 00 00 8b 88 70 05 00 00", "reform's power").uses(&[REFORM_GROUP_CATEGORY]),
+        Point::keep(0x139da22usize, "8b 87 a0 01 00 00", "reform's index").uses(&[REFORM_INDEX]),
+        Point::keep(0x139da14usize, "ba 1f 00 00 00", "religious reform's spending"),
+        Point::keep(REFORM_SPONSOR, "4c 89 44 24 18 48 89 4c 24 08 53 55 56 57 41 54 41 55 41 56 41 57", "religious reform sponsor"),
     ]
 }
 
@@ -127,6 +163,11 @@ pub mod checks {
     /// The line for a cult not embraced while one is followed, which the
     /// game's check says without words.
     pub const CULT_FOLLOWED: &str = "A cult is followed until the monarch changes.";
+
+    /// The lines for reforming the religion, which the game's check refuses
+    /// without words: a reform not yet passed, and no one to learn from.
+    pub const REFORMS_FIRST: &str = "Every religious reform must be passed first.";
+    pub const NO_SPONSOR: &str = "There is no country to learn from: a European neighbor, or enough technology of our own, is needed.";
 }
 
 /// The deities, the game's no-deity left out.
@@ -220,7 +261,96 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<ReligionOption>> 
         let key = game_string::key(m, blessing + ASPECT_KEY)?;
         out.push(option(m, "choose_blessing", key, taken.contains(&blessing), blessing_choice(m, ctx.country, blessing)?)?);
     }
+    let reforms = reforms(m, ctx.country)?;
+    if !reforms.is_empty() {
+        for reform in &reforms {
+            let choice = if reform.passed { Choice::can(Vec::new()) } else { reform_choice(m, ctx.country, ctx.player, reform)? };
+            out.push(ReligionOption { action: "pass_reform".into(), name: content::name(m, &reform.key)?, key: reform.key.clone(), current: reform.passed, choice });
+        }
+        let choice = reform_religion_choice(m, ctx.country, &reforms)?;
+        out.push(ReligionOption { action: "reform_religion".into(), key: "reform_religion".into(), name: content::name(m, "REFORM_RELIGION")?, current: false, choice });
+    }
     Ok(out)
+}
+
+/// One of the country's religious reforms.
+struct Reform {
+    key: String,
+    group: usize,
+    /// Its index in the reforms' database, which the spending names it by.
+    index: i32,
+    passed: bool,
+}
+
+/// The country's religious reforms, group by group, each in its group's
+/// order.
+fn reforms(m: &Memory, country: usize) -> GResult<Vec<Reform>> {
+    let (begin, end) = (m.ptr(country + country::RELIGIOUS_REFORMS)?, m.ptr(country + country::RELIGIOUS_REFORMS + 8)?);
+    let mut out = Vec::new();
+    for i in 0..containers::span(begin, end, REFORMS_ENTRY, containers::MOST)? {
+        let entry = begin + i * REFORMS_ENTRY;
+        let group = m.ptr(entry)?;
+        let (flags, flags_end) = (m.ptr(entry + REFORMS_PASSED)?, m.ptr(entry + REFORMS_PASSED + 8)?);
+        let count = containers::span(flags, flags_end, 4, containers::MOST)?;
+        for (n, reform) in containers::pointers(m, group + REFORM_GROUP_REFORMS, containers::MOST)?.into_iter().enumerate() {
+            let passed = n < count && m.i32(flags + n * 4)? != 0;
+            out.push(Reform { key: game_string::key(m, reform + REFORM_KEY)?, group, index: m.i32(reform + REFORM_INDEX)?, passed });
+        }
+    }
+    Ok(out)
+}
+
+/// The kind of monarch power a reform group's reforms are spent in.
+fn reform_power(m: &Memory, group: usize) -> GResult<PowerKind> {
+    Ok(match m.u32(group + REFORM_GROUP_CATEGORY)? {
+        1 => PowerKind::Dip,
+        2 => PowerKind::Mil,
+        _ => PowerKind::Adm,
+    })
+}
+
+/// Whether the player may pass `reform` now: the spending's check, which
+/// asks the group's `can_buy_idea` and the points, and the conditions that
+/// do not hold.
+fn reform_choice(m: &Memory, country: usize, player: Tag, reform: &Reform) -> GResult<Choice> {
+    let power = reform_power(m, reform.group)?;
+    let mut spending = power::Spending::new(m, BUY_RELIGIOUS_REFORM, power, reform.index)?;
+    let points = spending.cost(m, player)?;
+    let cost = if points > 0 { vec![Amount::new(power_resource(power), f64::from(points))] } else { Vec::new() };
+    if spending.allowed(m, player)? {
+        return Ok(Choice::can(cost));
+    }
+    let mut reasons = conditions::failing(m, reform.group + REFORM_GROUP_CAN_BUY, player, 0)?;
+    let have = power::points_of(m, country, power)?;
+    if have < points {
+        reasons.push(format!("passing it takes {points} points, and the player has {have}"));
+    }
+    Ok(Choice::cannot(reasons, cost))
+}
+
+fn power_resource(power: PowerKind) -> Resource {
+    match power {
+        PowerKind::Adm => Resource::Adm,
+        PowerKind::Dip => Resource::Dip,
+        PowerKind::Mil => Resource::Mil,
+    }
+}
+
+/// Whether the player may reform its religion now: every reform passed, and
+/// someone to learn from, as the reform command's check asks.
+fn reform_religion_choice(m: &Memory, country: usize, reforms: &[Reform]) -> GResult<Choice> {
+    let mut reasons = Vec::new();
+    if reforms.iter().any(|r| !r.passed) {
+        reasons.push(checks::REFORMS_FIRST.to_string());
+    }
+    // The game writes a tag and a level here, as into the check's own stack.
+    let mut sponsor = [0u8; 8];
+    let mut level = 0i32;
+    REFORM_SPONSOR.call(m, [country, sponsor.as_mut_ptr() as usize, &mut level as *mut i32 as usize])?;
+    if sponsor[7] == 0 {
+        reasons.push(checks::NO_SPONSOR.to_string());
+    }
+    Ok(if reasons.is_empty() { Choice::can(Vec::new()) } else { Choice::cannot(reasons, Vec::new()) })
 }
 
 /// One of the religion's lists of aspects, none without a religion.
@@ -352,6 +482,41 @@ pub fn choose_blessing(Session { m, ctx, commands, .. }: Session, args::ChooseBl
     action::carry_out(commands, &blessing_choice(m, ctx.country, blessing)?, "take this blessing", || Ok(blessing_text(ctx.player, &key)))
 }
 
+/// The spending that passes a reform: the reform by its index in the
+/// reforms' database, in its group's kind of power.
+fn reform_text(country: Tag, index: i32, power: PowerKind) -> String {
+    power::written(country.letters(), BUY_RELIGIOUS_REFORM, power, index)
+}
+
+fn reform_religion_text(country: Tag) -> String {
+    format!("reform_religion_command={{ country=\"{}\" }}", content::letters(country))
+}
+
+/// Passes a religious reform.
+pub fn pass_reform(Session { m, ctx, commands, .. }: Session, args::PassReform { reform: key }: args::PassReform) -> GResult<()> {
+    let reforms = reforms(m, ctx.country)?;
+    if reforms.is_empty() {
+        return Err(checks::not_of_religion("religious reforms"));
+    }
+    let Some(reform) = reforms.iter().find(|r| r.key == key) else {
+        return Err(content::checks::not_found("religious reform", &key));
+    };
+    if reform.passed {
+        return Err(content::checks::not_now(format!("{key} is passed already")));
+    }
+    let power = reform_power(m, reform.group)?;
+    action::carry_out(commands, &reform_choice(m, ctx.country, ctx.player, reform)?, "pass this reform", || Ok(reform_text(ctx.player, reform.index, power)))
+}
+
+/// Reforms the religion, once every reform is passed.
+pub fn reform_religion(Session { m, ctx, commands, .. }: Session, _: args::ReformReligion) -> GResult<()> {
+    let reforms = reforms(m, ctx.country)?;
+    if reforms.is_empty() {
+        return Err(checks::not_of_religion("religious reforms"));
+    }
+    action::carry_out(commands, &reform_religion_choice(m, ctx.country, &reforms)?, "reform the religion", || Ok(reform_religion_text(ctx.player)))
+}
+
 crate::catalogue::bind! {
     eu4_harmony_remote::religion: ReligionRequest => ReligionAnswer;
     Options => options;
@@ -360,6 +525,8 @@ crate::catalogue::bind! {
     AddAspect => add_aspect;
     RemoveAspect => remove_aspect;
     ChooseBlessing => choose_blessing;
+    PassReform => pass_reform;
+    ReformReligion => reform_religion;
 }
 
 #[cfg(test)]
@@ -384,6 +551,8 @@ mod tests {
         assert_eq!(aspect_text(tag(b"SWE"), "allow_usury_aspect", ADD), r#"change_church_aspect={ aspect="allow_usury_aspect" country="SWE" operation=0 }"#);
         assert_eq!(aspect_text(tag(b"SWE"), "allow_usury_aspect", REMOVE), r#"change_church_aspect={ aspect="allow_usury_aspect" country="SWE" operation=1 }"#);
         assert_eq!(blessing_text(tag(b"ETH"), "legitimize_government"), r#"change_blessing={ aspect="legitimize_government" country="ETH" }"#);
+        assert_eq!(reform_text(tag(b"AZT"), 3, PowerKind::Adm), r#"spend_power_command={ country="AZT" power={ data=3 category=31 skill=0 } }"#);
+        assert_eq!(reform_religion_text(tag(b"AZT")), r#"reform_religion_command={ country="AZT" }"#);
     }
 
     /// A country whose state religion is none: neither deities nor cults are

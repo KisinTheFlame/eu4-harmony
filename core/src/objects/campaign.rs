@@ -325,6 +325,10 @@ pub mod country {
     /// `std::vector` of pointers to aspects (docs/research/religion.md).
     pub const CHURCH: usize = 0xf68;
     pub const BLESSINGS: usize = 0xf70;
+    /// Its religious reforms, a `std::vector` of entries, one for each reform
+    /// group of its religion: the group and which of its reforms are passed
+    /// (docs/research/religion.md).
+    pub const RELIGIOUS_REFORMS: usize = 0x1450;
     /// The named modifiers its scripts put on it, a [`super::super::list`]
     /// of [`super::named_modifier`]s.
     pub const NAMED_MODIFIERS: usize = 0x1f0;
