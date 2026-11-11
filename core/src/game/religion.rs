@@ -99,6 +99,27 @@ const BUY_RELIGIOUS_REFORM: i32 = 31;
 /// is one, as the reform command's check asks.
 const REFORM_SPONSOR: GameFunction<3> = GameFunction::at(0x3cd850);
 
+/// The fervor effects' database (`common/fervor`), made on first use by its
+/// getter (`0x735500`): the effects at `+0x10`, a `std::vector` of pointers,
+/// in file order, which the toggle command names an effect by its place in.
+const FERVOR_EFFECTS: usize = 0x242bc20;
+const FERVOR_LIST: usize = 0x10;
+/// A fervor effect: its key, its number (its place in the list), its cost in
+/// fervor, whole, and its `potential`, which the view lists it by.
+const FERVOR_KEY: usize = 0x10;
+const FERVOR_NUMBER: usize = 0x30;
+const FERVOR_COST: usize = 0x5c;
+const FERVOR_POTENTIAL: usize = 0x210;
+/// A country's fervor ([`country::FERVOR`]): the effects active, a
+/// `std::vector` of pointers, and its fervor, i32 thousandths.
+const FERVOR_ACTIVE: usize = 0x10;
+const FERVOR_VALUE: usize = 0x28;
+/// `(religion) -> bool`: whether the religion uses fervor (the Reformed).
+const HAS_FERVOR: GameFunction<1> = GameFunction::at(0xa7b5c0);
+/// `(fervor, effect, reasons or null) -> bool`: whether the country may turn
+/// the effect on now, with the view's lines: its conditions and its cost.
+const MAY_ENABLE_FERVOR: GameFunction<3> = GameFunction::at(0x736a40);
+
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(0x7e691ausize, "48 8b 05 87 53 c4 01 48 85 c0", "personal deities database").uses(&[DEITIES]),
@@ -148,6 +169,21 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x139da22usize, "8b 87 a0 01 00 00", "reform's index").uses(&[REFORM_INDEX]),
         Point::keep(0x139da14usize, "ba 1f 00 00 00", "religious reform's spending"),
         Point::keep(REFORM_SPONSOR, "4c 89 44 24 18 48 89 4c 24 08 53 55 56 57 41 54 41 55 41 56 41 57", "religious reform sponsor"),
+        // Fervor: the effects' database and its list, as the getter and the
+        // loader keep them; an effect's fields, as its constructor and its
+        // cost method keep them; the country's fervor, as the toggle
+        // command's execute and the toggle itself read it.
+        Point::keep(0x73550ausize, "48 8b 05 0f 67 cf 01 48 85 c0", "fervor effects database").uses(&[FERVOR_EFFECTS]),
+        Point::keep(0x7363c7usize, "48 8d 4f 10 48 8b 57 18", "fervor effects' list").uses(&[FERVOR_LIST]),
+        Point::keep(0x735150usize, "48 8d 71 10", "fervor effect key").uses(&[FERVOR_KEY]),
+        Point::keep(0x735192usize, "41 89 7f 30", "fervor effect number").uses(&[FERVOR_NUMBER]),
+        Point::keep(0x735030usize, "8b 41 5c c3", "fervor effect cost").uses(&[FERVOR_COST]),
+        Point::keep(0x735237usize, "49 8d bf 10 02 00 00", "fervor effect potential").uses(&[FERVOR_POTENTIAL]),
+        Point::keep(0xaadc6busize, "48 8b 89 60 0f 00 00", "country's fervor").uses(&[country::FERVOR]),
+        Point::keep(0x736f7busize, "48 8b 51 10", "fervor effects active").uses(&[FERVOR_ACTIVE]),
+        Point::keep(0x736fb2usize, "01 4e 28", "fervor value").uses(&[FERVOR_VALUE]),
+        Point::keep(HAS_FERVOR, "48 83 ec 28 80 b9 11 01 00 00 00 74 4a", "religion has fervor"),
+        Point::keep(MAY_ENABLE_FERVOR, "48 89 5c 24 10 48 89 74 24 18 48 89 7c 24 20 55 41 54 41 55 41 56 41 57", "may enable fervor effect"),
     ]
 }
 
@@ -261,6 +297,18 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<ReligionOption>> 
         let key = game_string::key(m, blessing + ASPECT_KEY)?;
         out.push(option(m, "choose_blessing", key, taken.contains(&blessing), blessing_choice(m, ctx.country, blessing)?)?);
     }
+    if let Some(fervor) = fervor(m, ctx.country)? {
+        let active = containers::pointers(m, fervor + FERVOR_ACTIVE, containers::MOST)?;
+        for effect in fervor_effects(m)? {
+            let on = active.contains(&effect);
+            if !on && !conditions::holds(m, effect + FERVOR_POTENTIAL, ctx.player, 0)? {
+                continue;
+            }
+            let key = game_string::key(m, effect + FERVOR_KEY)?;
+            let (action, choice) = if on { ("disable_fervor", Choice::can(Vec::new())) } else { ("enable_fervor", enable_choice(m, fervor, effect)?) };
+            out.push(option(m, action, key, on, choice)?);
+        }
+    }
     let reforms = reforms(m, ctx.country)?;
     if !reforms.is_empty() {
         for reform in &reforms {
@@ -271,6 +319,28 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<ReligionOption>> 
         out.push(ReligionOption { action: "reform_religion".into(), key: "reform_religion".into(), name: content::name(m, "REFORM_RELIGION")?, current: false, choice });
     }
     Ok(out)
+}
+
+/// The country's fervor, while its religion uses fervor.
+fn fervor(m: &Memory, country: usize) -> GResult<Option<usize>> {
+    let fervor = m.ptr(country + country::FERVOR)?;
+    Ok((fervor != 0 && has(m, HAS_FERVOR, country)?).then_some(fervor))
+}
+
+/// The fervor effects, in the database's order.
+fn fervor_effects(m: &Memory) -> GResult<Vec<usize>> {
+    match m.ptr(m.at(FERVOR_EFFECTS))? {
+        0 => Ok(Vec::new()),
+        database => Ok(containers::pointers(m, database + FERVOR_LIST, containers::MOST)?),
+    }
+}
+
+/// Whether the country may turn `effect` on now, with the view's lines, and
+/// what it costs.
+fn enable_choice(m: &Memory, fervor: usize, effect: usize) -> GResult<Choice> {
+    let (may, reasons) = content::checked(m, |t| Ok(MAY_ENABLE_FERVOR.call(m, [fervor, effect, t])?))?;
+    let cost = vec![Amount::new(Resource::Fervor, f64::from(m.i32(effect + FERVOR_COST)?))];
+    Ok(if may { Choice::can(cost) } else { Choice::cannot(reasons, cost) })
 }
 
 /// One of the country's religious reforms.
@@ -316,7 +386,7 @@ fn reform_choice(m: &Memory, country: usize, player: Tag, reform: &Reform) -> GR
     let power = reform_power(m, reform.group)?;
     let mut spending = power::Spending::new(m, BUY_RELIGIOUS_REFORM, power, reform.index)?;
     let points = spending.cost(m, player)?;
-    let cost = if points > 0 { vec![Amount::new(power_resource(power), f64::from(points))] } else { Vec::new() };
+    let cost = if points > 0 { vec![Amount::new(power.resource(), f64::from(points))] } else { Vec::new() };
     if spending.allowed(m, player)? {
         return Ok(Choice::can(cost));
     }
@@ -326,14 +396,6 @@ fn reform_choice(m: &Memory, country: usize, player: Tag, reform: &Reform) -> GR
         reasons.push(format!("passing it takes {points} points, and the player has {have}"));
     }
     Ok(Choice::cannot(reasons, cost))
-}
-
-fn power_resource(power: PowerKind) -> Resource {
-    match power {
-        PowerKind::Adm => Resource::Adm,
-        PowerKind::Dip => Resource::Dip,
-        PowerKind::Mil => Resource::Mil,
-    }
 }
 
 /// Whether the player may reform its religion now: every reform passed, and
@@ -517,8 +579,48 @@ pub fn reform_religion(Session { m, ctx, commands, .. }: Session, _: args::Refor
     action::carry_out(commands, &reform_religion_choice(m, ctx.country, &reforms)?, "reform the religion", || Ok(reform_religion_text(ctx.player)))
 }
 
+/// The fervor command, which turns the effect of `number` on, or off when
+/// it is on.
+fn fervor_text(country: Tag, number: i32) -> String {
+    format!("toggle_fervor_effect={{ country=\"{}\" effect={number} }}", content::letters(country))
+}
+
+/// The player's fervor and the effect named `key` the view lists, or the
+/// refusals.
+fn fervor_effect(m: &Memory, ctx: &super::Ctx, key: &str) -> GResult<(usize, usize, bool)> {
+    let fervor = fervor(m, ctx.country)?.ok_or_else(|| checks::not_of_religion("fervor"))?;
+    let effect = find(m, fervor_effects(m)?, FERVOR_KEY, "fervor effect", key)?;
+    let on = containers::pointers(m, fervor + FERVOR_ACTIVE, containers::MOST)?.contains(&effect);
+    if !on && !conditions::holds(m, effect + FERVOR_POTENTIAL, ctx.player, 0)? {
+        return Err(content::checks::not_found("fervor effect", key));
+    }
+    Ok((fervor, effect, on))
+}
+
+/// Turns a fervor effect on.
+pub fn enable_fervor(Session { m, ctx, commands, .. }: Session, args::EnableFervor { effect: key }: args::EnableFervor) -> GResult<()> {
+    let (fervor, effect, on) = fervor_effect(m, &ctx, &key)?;
+    if on {
+        return Err(content::checks::not_now(format!("{key} is on already")));
+    }
+    let number = m.i32(effect + FERVOR_NUMBER)?;
+    action::carry_out(commands, &enable_choice(m, fervor, effect)?, "turn this fervor effect on", || Ok(fervor_text(ctx.player, number)))
+}
+
+/// Turns a fervor effect off.
+pub fn disable_fervor(Session { m, ctx, commands, .. }: Session, args::DisableFervor { effect: key }: args::DisableFervor) -> GResult<()> {
+    let (_, effect, on) = fervor_effect(m, &ctx, &key)?;
+    if !on {
+        return Err(content::checks::not_now(format!("{key} is not on")));
+    }
+    let number = m.i32(effect + FERVOR_NUMBER)?;
+    action::carry_out(commands, &Choice::can(Vec::new()), "turn this fervor effect off", || Ok(fervor_text(ctx.player, number)))
+}
+
 crate::catalogue::bind! {
     eu4_harmony_remote::religion: ReligionRequest => ReligionAnswer;
+    EnableFervor => enable_fervor;
+    DisableFervor => disable_fervor;
     Options => options;
     ChooseDeity => choose_deity;
     ChooseCult => choose_cult;
@@ -553,6 +655,7 @@ mod tests {
         assert_eq!(blessing_text(tag(b"ETH"), "legitimize_government"), r#"change_blessing={ aspect="legitimize_government" country="ETH" }"#);
         assert_eq!(reform_text(tag(b"AZT"), 3, PowerKind::Adm), r#"spend_power_command={ country="AZT" power={ data=3 category=31 skill=0 } }"#);
         assert_eq!(reform_religion_text(tag(b"AZT")), r#"reform_religion_command={ country="AZT" }"#);
+        assert_eq!(fervor_text(tag(b"SWI"), 2), r#"toggle_fervor_effect={ country="SWI" effect=2 }"#);
     }
 
     /// A country whose state religion is none: neither deities nor cults are

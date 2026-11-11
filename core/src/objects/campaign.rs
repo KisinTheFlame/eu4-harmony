@@ -329,6 +329,9 @@ pub mod country {
     /// group of its religion: the group and which of its reforms are passed
     /// (docs/research/religion.md).
     pub const RELIGIOUS_REFORMS: usize = 0x1450;
+    /// Its fervor, a pointer to the object that keeps it and the fervor
+    /// effects active (docs/research/religion.md).
+    pub const FERVOR: usize = 0xf60;
     /// The named modifiers its scripts put on it, a [`super::super::list`]
     /// of [`super::named_modifier`]s.
     pub const NAMED_MODIFIERS: usize = 0x1f0;

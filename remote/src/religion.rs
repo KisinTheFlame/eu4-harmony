@@ -15,7 +15,9 @@ group! {
     /// them (Fetishism, the Dreamtime), each the game has; a church's
     /// aspects when it has a church (Protestantism), each its religion
     /// offers, to add or, once chosen, to remove; and the blessings when it
-    /// has them (Coptic, Zoroastrian), each its religion offers; the
+    /// has them (Coptic, Zoroastrian), each its religion offers; the fervor
+    /// effects when it uses fervor (the Reformed), each whose conditions for
+    /// being offered hold, to turn on or, once on, off; the
     /// religious reforms when it has them (Nahuatl, Inti, Mesoamerican),
     /// each to pass or, once passed, current, and reforming the religion
     /// once all are. Each with whether the player can now and why not, in
@@ -24,7 +26,7 @@ group! {
     /// little church power, stability too low, all the church's slots
     /// taken, holy sites lost), and its cost. Empty for a religion with none
     /// of them.
-    game Options "options" {} -> Vec<ReligionOption>, "each entry: action (choose_deity, choose_cult, add_aspect, remove_aspect, choose_blessing, pass_reform or reform_religion), key, name, current, can, reasons, cost";
+    game Options "options" {} -> Vec<ReligionOption>, "each entry: action (choose_deity, choose_cult, add_aspect, remove_aspect, choose_blessing, enable_fervor, disable_fervor, pass_reform or reform_religion), key, name, current, can, reasons, cost";
 
     /// Follows a personal deity, as the view's button for it does; it
     /// lasts until the monarch changes. `rejected` with the game's reasons
@@ -91,6 +93,24 @@ group! {
     /// from its own technology. `rejected` when the player cannot now, as
     /// `religion.options` says beforehand.
     game ReformReligion "reform_religion" {} -> (), "null once the game reforms it";
+
+    /// Turns a fervor effect on (the Reformed), as the religion view's
+    /// button does, paying its cost in fervor. `rejected` with the game's
+    /// reasons when the player cannot now, as `religion.options` says
+    /// beforehand; `not_found` for a key that names no effect the view
+    /// offers the player.
+    game EnableFervor "enable_fervor" {
+        /// The effect's content key, such as `fervor_trade`.
+        effect: String,
+    } -> (), "null once the effect is on";
+
+    /// Turns a fervor effect off, as the religion view's button does.
+    /// `rejected` when it is not on; `not_found` for a key that names no
+    /// effect the view offers the player.
+    game DisableFervor "disable_fervor" {
+        /// The effect's content key.
+        effect: String,
+    } -> (), "null once the effect is off";
 }
 
 /// A deity, a cult, an aspect or a blessing the religion view offers.
