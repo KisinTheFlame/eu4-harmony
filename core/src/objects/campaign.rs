@@ -360,6 +360,9 @@ pub mod country {
     /// has commissioned, a pointer, null for none (docs/research/religion.md).
     pub const PATRIARCH_AUTHORITY: usize = 0xf88;
     pub const ICON: usize = 0xf90;
+    /// Its papal influence, i32 thousandths, which the papacy's actions
+    /// spend (docs/research/religion.md).
+    pub const PAPAL_INFLUENCE: usize = 0xf50;
     /// The named modifiers its scripts put on it, a [`super::super::list`]
     /// of [`super::named_modifier`]s.
     pub const NAMED_MODIFIERS: usize = 0x1f0;
