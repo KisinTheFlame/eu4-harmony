@@ -1,0 +1,102 @@
+<!doctype html>
+<!-- Harmony beside the unmodified game, rendered to an image for the Workshop description (1200 px wide). Keep its rows as README.zh-CN.md's table has them. -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Harmony 与原版游戏</title>
+<style>
+  :root {
+    --paper: #f6eedd;
+    --paper-deep: #efe3c8;
+    --ink: #2b2a26;
+    --teal: #185450;
+    --gold: #c9a23a;
+    --no: #a0563f;
+    --rule: rgba(24, 84, 80, 0.16);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    width: 1200px;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+  }
+  .page {
+    padding: 56px 72px 48px;
+    background:
+      radial-gradient(ellipse at 15% 0%, rgba(201, 162, 58, 0.10), transparent 55%),
+      radial-gradient(ellipse at 100% 100%, rgba(24, 84, 80, 0.10), transparent 50%),
+      var(--paper);
+  }
+  h1 {
+    margin: 0 0 6px;
+    font-family: Garamond, Georgia, serif;
+    font-weight: normal;
+    font-size: 64px;
+    color: var(--teal);
+    letter-spacing: 0.5px;
+  }
+  .lede {
+    margin: 0 0 32px;
+    font-size: 22px;
+    color: #5a554a;
+  }
+  .rule { height: 2px; background: linear-gradient(90deg, var(--gold), rgba(201, 162, 58, 0)); margin-bottom: 28px; }
+  table { width: 100%; border-collapse: collapse; font-size: 23px; }
+  th {
+    font-weight: 600;
+    font-size: 20px;
+    color: var(--teal);
+    letter-spacing: 1px;
+    padding: 0 0 14px;
+    border-bottom: 2px solid var(--gold);
+  }
+  th.what { text-align: left; }
+  th.col, td.col { width: 190px; text-align: center; }
+  td { padding: 13px 0; border-bottom: 1px solid var(--rule); line-height: 1.3; }
+  td.what { padding-right: 24px; }
+  .no { color: var(--no); font-size: 28px; }
+  .yes { color: var(--teal); font-size: 30px; font-weight: 700; }
+  tr.same td { border-bottom: none; padding-top: 18px; font-weight: 600; color: var(--teal); }
+  tr.same .yes { color: var(--gold); }
+  .note {
+    margin: 30px 0 0;
+    padding: 18px 22px;
+    background: var(--paper-deep);
+    border-left: 4px solid var(--gold);
+    font-size: 19px;
+    line-height: 1.5;
+    color: #4a463d;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Harmony</h1>
+  <p class="lede">从内部把《欧陆风云4》变得更好。</p>
+  <div class="rule"></div>
+  <table>
+    <thead>
+      <tr><th class="what"></th><th class="col">原版游戏</th><th class="col">Harmony</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="what">中文、日文、韩文正常显示，不需要双字节补丁或字体 Mod</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">几秒回到主菜单，不用重启游戏</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">铁人模式里读取别的存档</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">地图按显示器刷新率绘制，不被游戏日的推进拖住</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">存档时的卡顿只剩三分之一</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">游戏后期，AI 的军队用空闲的 CPU 核心规划路线</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">继承人不再一半概率重名</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">反侵略联盟和宗主国覆灭不再有崩溃风险</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">读档不再让你丢掉成就</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">修掉内存泄漏：长局不再越玩越占内存</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">可选：非铁人或开着 Mod 也能拿成就</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">Mod 能用 Lua 读取游戏、像玩家一样操作、添加按钮和窗口</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr class="same"><td class="what">游戏的规则和数据不变</td><td class="col yes">✓</td><td class="col yes">✓</td></tr>
+    </tbody>
+  </table>
+  <p class="note">游戏的中文文本仍然来自汉化 Mod，照常订阅即可；为双字节补丁制作的汉化 Mod 和用它们玩的存档都能直接使用。Harmony 运行于 Windows 上的 EU4 1.37.5，仅支持单人游戏。</p>
+</div>
+</body>
+</html>

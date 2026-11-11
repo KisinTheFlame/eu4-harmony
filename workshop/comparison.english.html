@@ -1,0 +1,103 @@
+<!doctype html>
+<!-- Harmony beside the unmodified game, rendered to an image for the Workshop description (1200 px wide). Keep its rows as README's table has them. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Harmony and the unmodified game</title>
+<style>
+  :root {
+    --paper: #f6eedd;
+    --paper-deep: #efe3c8;
+    --ink: #2b2a26;
+    --teal: #185450;
+    --gold: #c9a23a;
+    --no: #a0563f;
+    --rule: rgba(24, 84, 80, 0.16);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    width: 1200px;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  .page {
+    padding: 56px 72px 48px;
+    background:
+      radial-gradient(ellipse at 15% 0%, rgba(201, 162, 58, 0.10), transparent 55%),
+      radial-gradient(ellipse at 100% 100%, rgba(24, 84, 80, 0.10), transparent 50%),
+      var(--paper);
+  }
+  h1 {
+    margin: 0 0 6px;
+    font-family: Garamond, Georgia, serif;
+    font-weight: normal;
+    font-size: 64px;
+    color: var(--teal);
+    letter-spacing: 0.5px;
+  }
+  .lede {
+    margin: 0 0 32px;
+    font-size: 22px;
+    color: #5a554a;
+  }
+  .rule { height: 2px; background: linear-gradient(90deg, var(--gold), rgba(201, 162, 58, 0)); margin-bottom: 28px; }
+  table { width: 100%; border-collapse: collapse; font-size: 23px; }
+  th {
+    font-weight: 600;
+    font-size: 20px;
+    color: var(--teal);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 0 0 14px;
+    border-bottom: 2px solid var(--gold);
+  }
+  th.what { text-align: left; }
+  th.col, td.col { width: 190px; text-align: center; }
+  td { padding: 13px 0; border-bottom: 1px solid var(--rule); line-height: 1.3; }
+  td.what { padding-right: 24px; }
+  .no { color: var(--no); font-size: 28px; }
+  .yes { color: var(--teal); font-size: 30px; font-weight: 700; }
+  tr.same td { border-bottom: none; padding-top: 18px; font-weight: 600; color: var(--teal); }
+  tr.same .yes { color: var(--gold); }
+  .note {
+    margin: 30px 0 0;
+    padding: 18px 22px;
+    background: var(--paper-deep);
+    border-left: 4px solid var(--gold);
+    font-size: 19px;
+    line-height: 1.5;
+    color: #4a463d;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Harmony</h1>
+  <p class="lede">Europa Universalis IV, made better from within.</p>
+  <div class="rule"></div>
+  <table>
+    <thead>
+      <tr><th class="what"></th><th class="col">Unmodified game</th><th class="col">Harmony</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="what">Chinese, Japanese and Korean display correctly, with no double-byte patch or font mod</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">Back to the main menu in seconds, without restarting the game</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">Load another save from an ironman game</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">The map drawn at your display's rate, not held up by the days being worked out</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">Saving pauses the game a third as long</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">Late in the game, the AI's armies plan their routes on idle CPU cores</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">Heirs no longer get the same name half the time</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">Coalitions and an overlord's fall no longer risk a crash</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">Loading a save no longer costs you achievements</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">Memory leaks fixed: a long game no longer keeps growing</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">Optionally, achievements outside ironman or with mods</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr><td class="what">Mods in Lua that read the game, act as the player does, and add buttons and windows</td><td class="col no">✗</td><td class="col yes">✓</td></tr>
+      <tr class="same"><td class="what">The game's rules and data unchanged</td><td class="col yes">✓</td><td class="col yes">✓</td></tr>
+    </tbody>
+  </table>
+  <p class="note">Your translation mod is still what translates the game; translation mods made for the old double-byte patch, and the saves played with them, work as they are. Harmony runs on EU4 1.37.5 for Windows, in single player.</p>
+</div>
+</body>
+</html>

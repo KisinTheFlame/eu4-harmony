@@ -1,0 +1,46 @@
+[h1]Harmony[/h1]
+[b]Europa Universalis IV, made better from within.[/b] Chinese, Japanese and Korean everywhere, no restarts, a faster game, fewer bugs, and mods that can do far more, with the game's rules left as they are.
+
+[img]COMPARISON_IMAGE_URL[/img]
+
+Your translation mod is still what translates the game; translation mods made for the old double-byte patch, and the saves played with them, work as they are.
+
+[h2]Installing[/h2]
+Harmony is a program that runs inside the game, so one file has to go into the game's folder by hand, once.
+
+[olist]
+[*]If you use a patch that makes the game display Chinese, Japanese or Korean, uninstall it first, as that patch says.
+[*]Subscribe to Harmony on this page.
+[*]In Steam, right-click Europa Universalis IV and choose [b]Manage → Browse local files[/b]. This opens the game's folder.
+SCREENSHOT_BROWSE_LOCAL_FILES
+[*]Go two folders up, to [b]steamapps[/b], then open [b]workshop\content\236850\HARMONY_ID[/b]. This is Harmony's folder.
+SCREENSHOT_WORKSHOP_FOLDER
+[*]Copy [b]version.dll[/b] from Harmony's folder into the game's folder, next to [b]eu4.exe[/b]. If the game's folder already has a version.dll, move that one somewhere else first; Harmony does not load it.
+SCREENSHOT_COPY_VERSION_DLL
+[/olist]
+
+Start the game from the Paradox launcher as usual. Harmony needs no place in your playset; mods built on it are enabled there as any mod. The main menu now has two buttons in its corner, [b]Harmony settings[/b] and [b]Harmony mods[/b].
+
+Steam keeps Harmony up to date. Once in a while an update needs a new version.dll; Harmony then tells you at startup to copy it again.
+
+[h2]Uninstalling[/h2]
+Unsubscribe from Harmony, and the game runs as it always did. To leave nothing behind, delete version.dll from the game's folder too, and put back the one you moved, if any.
+
+[h2]Requirements[/h2]
+[list]
+[*]Europa Universalis IV 1.37.5, on Windows.
+[*]Single player only.
+[/list]
+
+[h2]About your saves[/h2]
+[list]
+[*]Names you type in a game played with Harmony are saved as UTF-8, and show as garbage without it.
+[*]A mod that keeps data of its own writes it into the save; such a save is not promised to load without Harmony.
+[*]With Harmony, the game's volume sliders go as the square of their position, so each step sounds about as large. Volumes saved below 100 sound quieter than before; set them once again.
+[/list]
+
+[h2]When something goes wrong[/h2]
+Look in [b]Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony[/b]: report.txt says what Harmony found and did as the game started, and the logs folder holds its logs. Report a problem on [url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url], with report.txt and the logs attached.
+
+[h2]For mod authors[/h2]
+A mod built on Harmony is an ordinary Paradox mod with Lua scripts that read the game and act in it as the player does, add buttons and windows in the game's look, and run in a sandbox that reaches beyond the game only as far as the mod declares. How to write one is in the [url=https://github.com/KisinTheFlame/eu4-harmony]README on GitHub[/url].

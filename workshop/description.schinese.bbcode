@@ -1,0 +1,46 @@
+[h1]Harmony[/h1]
+[b]从内部把《欧陆风云4》变得更好。[/b]处处能显示中日韩文字、不用重启、游戏更快、bug 更少，Mod 也能做到多得多的事，而游戏的规则保持原样。
+
+[img]COMPARISON_IMAGE_URL[/img]
+
+游戏的中文文本仍然来自汉化 Mod，照常订阅即可；为双字节补丁制作的汉化 Mod 和用它们玩的存档都能直接使用。
+
+[h2]安装[/h2]
+Harmony 是一个运行在游戏里的程序，所以有一个文件要手动放进游戏目录，只需一次。
+
+[olist]
+[*]如果装过让游戏显示中文、日文或韩文的补丁，先按那个补丁自己的说明把它卸载。
+[*]在本页订阅 Harmony。
+[*]在 Steam 里右键《欧陆风云4》，选[b]管理 → 浏览本地文件[/b]，打开游戏目录。
+SCREENSHOT_BROWSE_LOCAL_FILES
+[*]往上两级回到 [b]steamapps[/b]，再打开 [b]workshop\content\236850\HARMONY_ID[/b]，这就是 Harmony 的目录。
+SCREENSHOT_WORKSHOP_FOLDER
+[*]把 Harmony 目录里的 [b]version.dll[/b] 复制到游戏目录，和 [b]eu4.exe[/b] 放在一起。游戏目录里原本已有 version.dll 的话，先把它挪到别处，Harmony 不会加载它。
+SCREENSHOT_COPY_VERSION_DLL
+[/olist]
+
+照常从 Paradox 启动器启动游戏。Harmony 不用放进合集；基于它的 Mod 照常在合集里启用。主菜单角落会多出两个按钮：[b]Harmony 设置[/b]和 [b]Harmony Mod[/b]。
+
+Steam 会让 Harmony 保持最新。偶尔有更新需要换新的 version.dll，这时 Harmony 会在启动时提示你重新复制一次。
+
+[h2]卸载[/h2]
+取消订阅 Harmony，游戏就回到原样。想不留痕迹，再删掉游戏目录里的 version.dll；之前挪走过别的 version.dll 的话，把它放回去。
+
+[h2]运行要求[/h2]
+[list]
+[*]Windows 上的《欧陆风云4》1.37.5。
+[*]仅支持单人游戏。
+[/list]
+
+[h2]关于存档[/h2]
+[list]
+[*]用 Harmony 玩的游戏里，你输入的名字以 UTF-8 保存，没有 Harmony 时会显示成乱码。
+[*]会保存自己数据的 Mod 把数据写进存档；这样的存档不保证在没有 Harmony 时还能读取。
+[*]装上 Harmony 后，游戏自己的音量滑块按位置的平方变化，每一格听起来变化差不多大。原来低于 100 的音量会比以前轻，重新调一次即可。
+[/list]
+
+[h2]出问题时[/h2]
+看 [b]文档\Paradox Interactive\Europa Universalis IV\eu4-harmony[/b]：report.txt 记着游戏启动时 Harmony 发现了什么、做了什么，logs 文件夹里是它的日志。到 [url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url] 反馈问题，附上 report.txt 和日志。
+
+[h2]写给 Mod 作者[/h2]
+基于 Harmony 的 Mod 就是一个普通的 Paradox Mod，多了 Lua 脚本：它读取游戏、像玩家一样操作，添加与游戏风格一致的按钮和窗口，并运行在沙箱里，游戏之外只能做 Mod 自己声明的事。怎么写见 [url=https://github.com/KisinTheFlame/eu4-harmony/blob/master/README.zh-CN.md]GitHub 上的 README[/url]。
