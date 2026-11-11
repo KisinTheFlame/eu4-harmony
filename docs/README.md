@@ -32,6 +32,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 | [game-speed.md](plans/game-speed.md) | Making the game faster without changing the game it plays; how a part is chosen, and which comes next |
 | [mod-capabilities.md](plans/mod-capabilities.md) | What the framework opens to mods, what each area still lacks, and the parts taking it up: signals, reads, the script group and requests as the game, tasks, the panels' actions |
 | [drawing-thread.md](plans/drawing-thread.md) | The simulation, the interface and the drawing apart: the frames drawn by a thread of their own at the display's rate, the crossings made into events, then the world double buffered |
+| [workshop-release.md](plans/workshop-release.md) | Harmony and mods built on it on the Steam Workshop: the core loaded from Harmony's own item, the name players read, and what the Workshop shows |
 
 ### Built
 
