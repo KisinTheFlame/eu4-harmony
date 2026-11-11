@@ -29,6 +29,7 @@ Each button of the province view sends one command, which the session executes (
 - **Developing and coring** are spendings of monarch power. One price function (`0x9526d0`) prices every use of monarch power, from developing to an artillery barrage ([countries.md](countries.md); [research/provinces.md](../research/provinces.md#what-the-province-views-actions-cost)).
 - **Converting culture** costs diplomatic power, **building** costs ducats. **Raising or lowering autonomy**, and **making a state or a territory**, spend nothing as far as the code was read ([research/province-view.md](../research/province-view.md#prices); [research/provinces.md](../research/provinces.md#what-the-province-views-actions-cost)).
 - **The state and culture commands name no country**: they act for the province's owner, whoever sends them. The destroy command only asks that the building stands ([research/province-view.md](../research/province-view.md#the-commands-and-their-written-forms)).
+- **Monuments and canals**, the great projects, are the world's, one each, kept by a manager with the province each stands in and its tier from 0 to 3; whoever owns the province may upgrade it to the next tier for ducats, when the province is not building something else and the project's requirements for the next tier hold ([research/institutions-ages-monuments.md](../research/institutions-ages-monuments.md#monuments)).
 
 ## The connections
 

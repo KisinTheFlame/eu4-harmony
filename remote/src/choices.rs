@@ -92,6 +92,8 @@ pub enum Resource {
     Mandate,
     /// Meritocracy, which the Celestial Empire's decrees spend.
     Meritocracy,
+    /// Splendor, which the age's abilities cost.
+    Splendor,
 }
 
 /// A kind of monarch power, as the game's panels name them: what a

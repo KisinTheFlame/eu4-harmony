@@ -215,7 +215,7 @@ const LOCAL_MANPOWER: GameFunction<7> = GameFunction::at(0xa0b740);
 /// explanation, flag), as the supply limit trigger calls it.
 const SUPPLY_LIMIT: GameFunction<5> = GameFunction::at(0x9fbce0);
 /// The institutions' database: its getter, which makes it on first use.
-const INSTITUTIONS: GameFunction<0> = GameFunction::at(0x855ad0);
+pub(super) const INSTITUTIONS: GameFunction<0> = GameFunction::at(0x855ad0);
 
 /// The most kinds of terrain or building believed.
 const MOST_KINDS: usize = 10_000;
@@ -469,7 +469,7 @@ fn institutions(m: &Memory, ctx: &impl InWorld, province: usize) -> GResult<Vec<
 }
 
 /// The i32s of a vector (begin, end) at `vector`.
-fn i32s(m: &Memory, vector: usize) -> GResult<Vec<i32>> {
+pub(super) fn i32s(m: &Memory, vector: usize) -> GResult<Vec<i32>> {
     let begin = m.ptr(vector)?;
     let count = containers::span(begin, m.ptr(vector + 8)?, 4, MOST_KINDS)?;
     (0..count).map(|i| Ok(m.i32(begin + i * 4)?)).collect()
