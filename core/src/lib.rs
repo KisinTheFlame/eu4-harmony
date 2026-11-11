@@ -112,7 +112,7 @@ use windows_sys::Win32::System::{
 };
 
 static GAME_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
-static MAIN_THREAD: AtomicU32 = AtomicU32::new(0);
+pub(crate) static MAIN_THREAD: AtomicU32 = AtomicU32::new(0);
 static MEMORY: OnceLock<memory::Memory> = OnceLock::new();
 /// What startup installed, for the report.
 static STARTUP: OnceLock<String> = OnceLock::new();
