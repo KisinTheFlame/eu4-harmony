@@ -82,7 +82,26 @@ The command classes, found by their type token in the command vtables (`+0x50`),
 - **`enact_imperial_reform` names no country.** Its check (`0x7f3d50`) takes the empire from the reform's token (`+0xbdc`: `0x2749` the Holy Roman Empire, `0x35b7` the Celestial Empire) and asks the empire's own check (its vtable's `+0x60`) for its emperor, with no reasons: the game enacts it as the emperor, whoever sent it. So the framework checks, as the view does, that the player is the emperor first.
 - **`enact_decree`** names no country either: its check (`0x7f40e0`) asks the decree check for the Celestial Emperor (world `+0x1b50`).
 - **`revoke_imperial_reform`** carries a tag, which must be the Holy Roman emperor's, and the Empire must stand (world `+0x1620` is 0); then the revoke check.
-- **`pick_imperial_incident_option`**: the Empire must stand; the tag must be the emperor's or a member's (the byte at world `+0x1648` indexed by the country's `+0x14b8`); the incident manager (world `+0x1b18`) must have an active incident (`0x6ee1d0`), whose options are a `std::vector` at `+0x790`, and the option's number below their count; each condition of the option (its `+0xb0`, count `+0xbc`) must hold in the country's scope. Members pick the option they support and the emperor the one he favors (the view's `IMPERIAL_INCIDENT_OPTION_SUPPORT` and `IMPERIAL_INCIDENT_SELECTED_OPTION`). The order the tuple writes its two members in was not read; the framework does not offer it yet.
+- **`pick_imperial_incident_option`**: see [Imperial incidents](#imperial-incidents).
+
+## Imperial incidents
+
+The incidents are defined in `common/imperial_incidents/`, each with the id of an event (`event = incidents_bur_inheritance.2`) whose options are the incident's, a default option and a factor for each option, for the AI. The game console starts one with `imperial_incident <key>`.
+
+- **The incident in progress** is at world `+0x1b18`, a pointer, null with none (the pick command's check, `0xc1a1f` `48 8b 9a 18 1b 00 00`):
+
+| Offset | Field | An instruction that uses it (bytes) |
+| --- | --- | --- |
+| `+0x0` | its definition | `0xc1a2f` `48 8b 0b` |
+| `+0x8` | the scope its options are asked in, a scope of the game's own, which the check copies (`0xcf6a0`) before evaluating in it | `0xc1a6e` `48 8d 53 08` |
+| `+0xd8` | the option the emperor favors, i32 | the view's option row (`0x1162b30`), `0x1162bd0` `8b 8d d8 00 00 00` |
+| `+0xe0` | the day the emperor's choice comes into effect, as the game keeps dates | the view's title tooltip (`IMPERIAL_INCIDENT_TITLE_TOOLTIP`, `$EXPIRY$`), `0x1161167` `49 8d 89 e0 00 00 00` |
+| `+0xe8` | the members' picks, a game array (data `+0xf0`, count `+0xfc`) of 12-byte entries: the member's tag at `+0`, the option it supports, i32, at `+8` | `0x1162be9` `48 8b 8d f0 00 00 00`, `0x1162bf0` `48 63 95 fc 00 00 00`, `0x1162cd3` `39 4a 08` |
+
+- **Its definition**: its key at `+0x08`, a `std::string`, also the localisation key of its name (`0x70d290(definition, out)` writes the name, `0x70d29e` `48 8d 51 08`); the id of its event at `+0x28`, a `std::string`, looked up by `0x6ee1d0(id)` in the events' map at `0x2340308` (`0xc1a3b` `48 83 c1 28`).
+- **The view's option row** (`0x1162b30`) counts an option's votes as the members' picks of it, of the Empire's princes (world `+0x162c`, i32): `IMPERIAL_INCIDENT_OPTION_SUPPORT` writes `$VOTES$ / $PRINCES$`. The emperor's own pick is `+0xd8` and a member's its entry among the picks; the row's button is enabled for the player as the emperor or a member, and the emperor's favored option is marked `IMPERIAL_INCIDENT_SELECTED_OPTION`.
+- **The pick command's check** (`0xc19b0`): the Empire must stand (world `+0x1620` is 0); the command's tag must be the emperor's (world `+0x15e0`, the Empire's `+0x10`) or a member's (the byte at the pointer world `+0x1648`, indexed by the country's `+0x14b8`, nonzero); an incident must be in progress, its event found, the option's number from 0 below the count of the event's options (`+0x790`); and the option's trigger (its `+0xa8`, a content trigger, children at `+0xb0`, count `+0xbc`) must hold in a copy of the incident's scope.
+- **The pick command's written form**: its writer (`0xc1900`) writes `members` (`0x2aa9`) as a block of the tuple at `+0x50` (vtable `0x1c38510`), whose writer (`0xc88b0`) writes `dummy` (`0xe6`) twice: the tag (`+0x54`) first, then the option's number (`+0x50`, `0xcbff0`, `"%d"`): `pick_imperial_incident_option={ members={ dummy="<tag>" dummy=<option> } }`.
 
 ## What the confirm dialog shows
 
@@ -90,5 +109,5 @@ The reform's button in either view opens one dialog (vtable `0x1d621f0`, built b
 
 ## Not known yet
 
-- The imperial incidents: what the view lists of the active incident, its options' names and support, and the order of `pick_imperial_incident_option`'s members.
 - How long a decree lasts, as a field.
+- What the incident does when its day comes (the emperor's favored option, or the default, fired as its event); not needed to read it or pick.

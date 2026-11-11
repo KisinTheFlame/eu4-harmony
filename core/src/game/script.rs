@@ -315,7 +315,7 @@ fn flag_day(m: &Memory, set: usize, id: u16) -> GResult<Option<i32>> {
 }
 
 /// The event whose id is `id`, or none.
-fn find_event(m: &Memory, id: &[u8]) -> GResult<Option<usize>> {
+pub(super) fn find_event(m: &Memory, id: &[u8]) -> GResult<Option<usize>> {
     let map = m.ptr(m.at(EVENTS))?;
     if map == 0 {
         return Ok(None);

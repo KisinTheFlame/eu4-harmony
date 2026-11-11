@@ -48,7 +48,7 @@ Countries deal with each other through diplomatic actions: an alliance offered o
 - **Only the emperor passes a reform.** The Holy Roman Empire asks peace in the Empire and for the emperor, the reform before it, enough electors and princes for it against it, and authority; the Celestial Empire asks the reform's own conditions, a least mandate, the mandate it costs and stability it can spare. The command names no country: the game enacts it as the emperor ([research/empires.md](../research/empires.md#the-commands)).
 - **An emperor of the Holy Roman Empire may revoke the last reform passed**, once in his life, for authority ([research/empires.md](../research/empires.md#revoking-0x7061e0empire-reasons---bool)).
 - **The Celestial Emperor enacts one decree at a time**, for meritocracy, in force for its time ([research/empires.md](../research/empires.md#decrees)).
-- **In an imperial incident**, members support one of its options and the emperor favors one, by one command ([research/empires.md](../research/empires.md#the-commands)).
+- **In an imperial incident**, the options are its event's; members support one of them and the emperor favors one, by one command, and the view counts each option's supporters of the Empire's princes, until the day the emperor's choice comes into effect ([research/empires.md](../research/empires.md#imperial-incidents)).
 
 ## Envoys
 
@@ -65,7 +65,7 @@ Countries deal with each other through diplomatic actions: an alliance offered o
 - Questions and offers answered through the game's own windows and dialogs, only while the game still takes an answer ([research/questions-and-offers.md](../research/questions-and-offers.md)).
 - Missionaries, colonists, merchants, trading policies, trade companies and centers of trade ([research/envoys.md](../research/envoys.md)).
 - What every country thinks of every other: the opinion as the panels show it, its parts as the tooltip writes them, the aggressive expansion among them, the trust and the favors ([plans/mod-capabilities.md](../plans/mod-capabilities.md), [research/diplomacy.md](../research/diplomacy.md#opinion)).
-- The empires' reforms and the Celestial Emperor's decrees, listed as their views list them, each asked the game's own check, passed, revoked and enacted through the game's own commands ([research/empires.md](../research/empires.md)).
+- The empires' reforms and the Celestial Emperor's decrees, listed as their views list them, each asked the game's own check, passed, revoked and enacted through the game's own commands; the imperial incident in progress, its options asked in a copy of its own scope as the pick command's check asks them, and picked through that command ([research/empires.md](../research/empires.md)).
 - Wars declared, peace made and provinces changing owner, heard by comparing the world's wars and owners from one day to the next, with no function of the game's observed for them, so that every cause is heard alike: a peace, an annexation, a rebellion, the console ([research/peace.md](../research/peace.md#the-events)).
 
 ## What is not known yet
@@ -78,4 +78,4 @@ Countries deal with each other through diplomatic actions: an alliance offered o
 - Some windows' lists and whether an action left at its defaults passes (a loan of nothing, a federation with no name) ([research/diplomacy.md](../research/diplomacy.md#not-established)).
 - Whether a player's event ever waits without a window, and a dialog refusing for another reason than its age ([research/questions-and-offers.md](../research/questions-and-offers.md#not-established)).
 - What locks an envoy pool, and several of the envoys' rules ([research/envoys.md](../research/envoys.md#not-worked-out)).
-- What the Holy Roman Empire's view lists of an imperial incident, and how a pick of an option is written ([research/empires.md](../research/empires.md#not-known-yet)).
+- What an imperial incident does when its day comes ([research/empires.md](../research/empires.md#not-known-yet)).
