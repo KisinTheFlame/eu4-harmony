@@ -208,7 +208,7 @@ fn open(lua: &Lua, at: &Opened) -> Result<TestMod, String> {
         data: Some(at.scratch.join(n.to_string()).join(&at.manifest.id)),
     };
     let extension = eu4_harmony_lua::open(0, &m, fake.clone())?;
-    fake.store().layouts = extension.windows().to_vec();
+    fake.store().windows.declare(extension.index(), &at.manifest.id, extension.windows());
     Ok(TestMod { extension, fake, calendar: Mutex::default() })
 }
 
@@ -394,6 +394,7 @@ impl UserData for TestMod {
                 calendar.day = None;
                 calendar.session
             };
+            this.fake.store().going_on = true;
             *this.fake.today.lock().unwrap_or_else(|e| e.into_inner()) = None;
             this.hear(lua, &Heard::of(&Signal::Session { session }), Some(saved));
             Ok(())
@@ -402,7 +403,11 @@ impl UserData for TestMod {
             let reason = reason.unwrap_or_else(|| "return".into());
             let reason: SessionEnd = serde_json::from_value(Value::String(reason.clone()))
                 .map_err(|_| mlua::Error::runtime(format!("{}a session ends for return, load, new_game or country, not {reason}", here(lua))))?;
+            // As in the game: the session is over as the mod hears it end,
+            // and its windows and pop-ups close after.
+            this.fake.store().going_on = false;
             this.hear(lua, &Heard::of(&Signal::SessionEnded { reason }), None);
+            this.fake.store().windows.end_session();
             Ok(())
         });
         methods.add_method("day", |lua, this, date: LuaValue| {
@@ -435,7 +440,7 @@ impl UserData for TestMod {
             Ok(())
         });
         methods.add_method("frame", |lua, this, ()| {
-            let seen = std::mem::take(&mut this.fake.store().seen);
+            let seen = this.fake.store().windows.take_seen();
             dispatch::frame(std::slice::from_ref(&this.extension), &[], &mut Fed(None, seen));
             this.note(lua);
             Ok(())
@@ -477,8 +482,11 @@ impl UserData for TestMod {
             if !has_entry {
                 return Err(mlua::Error::runtime(format!("{}the mod's window {window:?} has no entry button", here(lua))));
             }
-            let open = this.fake.store().windows.get(&window).is_some_and(|w| w.open);
-            let seen = this.fake.store().show(this.extension.index(), &window, !open);
+            let seen = {
+                let mut store = this.fake.store();
+                let open = store.windows.is_open(this.extension.index(), &window);
+                store.windows.show(this.extension.index(), &window, !open)
+            };
             for seen in seen {
                 dispatch::window(std::slice::from_ref(&this.extension), &seen);
             }
@@ -486,10 +494,10 @@ impl UserData for TestMod {
             Ok(())
         });
         methods.add_method("close", |lua, this, window: String| {
-            if !this.fake.store().windows.get(&window).is_some_and(|w| w.open) {
+            if !this.fake.store().windows.is_open(this.extension.index(), &window) {
                 return Err(mlua::Error::runtime(format!("{}the mod's window {window:?} is not open", here(lua))));
             }
-            let seen = this.fake.store().show(this.extension.index(), &window, false);
+            let seen = this.fake.store().windows.show(this.extension.index(), &window, false);
             for seen in seen {
                 dispatch::window(std::slice::from_ref(&this.extension), &seen);
             }
@@ -498,7 +506,7 @@ impl UserData for TestMod {
         });
         methods.add_method("popups", |lua, this, ()| {
             let list = lua.create_table()?;
-            for p in &this.fake.store().popups {
+            for p in this.fake.store().windows.popups() {
                 let t = lua.create_table()?;
                 t.set("popup", p.number)?;
                 t.set("title", p.popup.title.as_str())?;
@@ -510,20 +518,16 @@ impl UserData for TestMod {
             Ok(list)
         });
         methods.add_method("answer_popup", |lua, this, (number, button): (u32, u32)| {
-            let count = {
-                let store = this.fake.store();
-                let Some(p) = store.popups.iter().find(|p| p.number == number) else {
-                    return Err(mlua::Error::runtime(format!("{}no pop-up {number} is open", here(lua))));
-                };
-                shown(&p.popup).len() as u32
-            };
-            if !(1..=count).contains(&button) {
-                return Err(mlua::Error::runtime(format!("{}pop-up {number} has buttons 1 to {count}", here(lua))));
-            }
             // The button's action runs, as at the game's next frame, and
             // closes the pop-up unless it says not to.
-            let pressed = dispatch::PopupPressed { extension: this.extension.index(), popup: number, button };
-            dispatch::popup_pressed(std::slice::from_ref(&this.extension), &pressed);
+            let pressed = {
+                let mut store = this.fake.store();
+                store.windows.press(number, button).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?;
+                store.windows.take_pressed()
+            };
+            for pressed in pressed {
+                dispatch::popup_pressed(std::slice::from_ref(&this.extension), &pressed);
+            }
             this.note(lua);
             Ok(())
         });
@@ -574,9 +578,9 @@ impl UserData for TestMod {
             if !this.extension.windows().iter().any(|w| w.name == name) {
                 return Err(mlua::Error::runtime(format!("{}the mod has no window {name:?}", here(lua))));
             }
-            let store = this.fake.store();
+            let window = this.fake.store().window(this.extension.index(), &name);
             let t = lua.create_table()?;
-            let Some(window) = store.windows.get(&name) else {
+            let Some(window) = window else {
                 t.set("open", false)?;
                 return Ok(t);
             };
@@ -651,14 +655,14 @@ impl UserData for TestMod {
 /// list's row `row` when one is given, or why not.
 fn pressable(this: &TestMod, window: &str, widget: &str, row: Option<u32>) -> Result<(), String> {
     let Some(layout) = this.extension.windows().iter().find(|w| w.name == window) else { return Err(format!("the mod has no window {window:?}")) };
-    if !this.fake.store().windows.get(window).is_some_and(|w| w.open) {
+    if !this.fake.store().windows.is_open(this.extension.index(), window) {
         return Err(format!("the mod's window {window:?} is not open"));
     }
     let button = |w: &layout::Placed| matches!(w.kind, layout::Kind::Button { .. });
     let found = match row {
         None => layout.widget(widget).is_some_and(button),
         Some(n) => {
-            let rows = this.fake.store().windows.get(window).map(|w| w.rows.clone()).unwrap_or_default();
+            let rows = this.fake.store().windows.wanted(this.extension.index(), window).map(|w| w.rows.clone()).unwrap_or_default();
             let in_list = layout.widgets.iter().find_map(|w| match &w.kind {
                 layout::Kind::List { row, .. } if row.widget(widget).is_some_and(button) => w.name.clone(),
                 _ => None,
@@ -770,6 +774,75 @@ mod tests {
         let manifest = Manifest::parse(&format!("id = \"e\"\napi_version = \"{}\"", eu4_harmony_remote::API_VERSION)).unwrap();
         let outcome = run(&dir, manifest, "E".into()).unwrap();
         assert_eq!((outcome.passed, outcome.failed), (2, 0), "{}", outcome.report);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The fake game keeps the mod's windows and pop-ups by the game's
+    /// rules: they open only in a session, at most so many pop-ups are open,
+    /// and the session's end closes them all.
+    #[test]
+    fn the_fake_game_keeps_windows_and_pop_ups_as_the_game_does() {
+        let dir = std::env::temp_dir().join(format!("eu4h-test-windows-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let write = |file: &str, text: &str| {
+            let path = dir.join("eu4-harmony").join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        write("localisation/w_l_english.yml", "\u{feff}l_english:\n W_TITLE:0 \"Asked\"\n");
+        write(
+            "lua/main.lua",
+            r#"
+            local function say(...) log(table.concat({ ... }, " ")) end
+            local function try(what, f, ...)
+              local ok, why = pcall(f, ...)
+              say(what, ok and "ok" or tostring(why))
+            end
+            return {
+              windows = { reforms = { size = { 300, 200 } }, electors = { size = { 300, 200 } } },
+              on_war_declared = function(game, war)
+                if war == "open" then
+                  try("open", game.window.open, "reforms")
+                  try("popup", game.popup, { title = "W_TITLE", text = "W_TITLE" })
+                elseif war == "flood" then
+                  for _ = 1, 32 do game.popup { title = "W_TITLE", text = "W_TITLE" } end
+                  try("33rd", game.popup, { title = "W_TITLE", text = "W_TITLE" })
+                end
+              end,
+            }
+            "#,
+        );
+        write(
+            "tests/windows_test.lua",
+            r#"
+            test("windows", function()
+              local mod = open()
+              mod:raise("war_declared", { war = "open", attacker = "CAS", defender = "GRA" })
+              assert(not mod:window("reforms").open and #mod:popups() == 0)
+              mod:session()
+              mod:raise("war_declared", { war = "open", attacker = "CAS", defender = "GRA" })
+              mod:frame()
+              assert(mod:window("reforms").open and #mod:popups() == 1)
+              local ok, why = pcall(mod.answer_popup, mod, mod:popups()[1].popup, 2)
+              assert(not ok and tostring(why):find("has buttons 1 to 1"), tostring(why))
+              mod:answer_popup(mod:popups()[1].popup, 1)
+              assert(#mod:popups() == 0, "a button with no action closes it")
+              mod:raise("war_declared", { war = "flood", attacker = "CAS", defender = "GRA" })
+              assert(#mod:popups() == 32)
+              mod:session_ended()
+              assert(not mod:window("reforms").open and #mod:popups() == 0, "the session's end closes them all")
+              local log = mod:log()
+              assert(#log == 5, table.concat(log, "|"))
+              assert(log[1]:find("^open .*a window opens only in a game"), log[1])
+              assert(log[2]:find("^popup .*a pop%-up is shown only in a game"), log[2])
+              assert(log[3] == "open ok" and log[4] == "popup ok", table.concat(log, "|"))
+              assert(log[5]:find("^33rd .*32 pop%-ups are open already"), log[5])
+            end)
+            "#,
+        );
+        let manifest = Manifest::parse(&format!("id = \"w\"\napi_version = \"{}\"", eu4_harmony_remote::API_VERSION)).unwrap();
+        let outcome = run(&dir, manifest, "W".into()).unwrap();
+        assert_eq!((outcome.passed, outcome.failed), (1, 0), "{}", outcome.report);
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -2,6 +2,7 @@
 //! religion, and claiming it as the religion view's button does, through
 //! the game's own command (docs/research/religion.md, "The defender of the
 //! faith").
+use super::commands::{write, Block};
 use super::{action, country as country_at, Ctx, GResult, Session, Tag};
 use crate::{
     memory::Memory,
@@ -79,7 +80,7 @@ pub fn defender(Session { m, ctx, .. }: Session) -> GResult<DefenderOfTheFaith> 
 
 /// The command claiming it: the country alone.
 fn command(player: Tag) -> String {
-    format!("claimdefender={{ country=\"{}\" }}", super::content::letters(player))
+    write("claimdefender", Block::new().tag("country", player.letters()))
 }
 
 /// Claims to be the defender of the faith, as the button does.

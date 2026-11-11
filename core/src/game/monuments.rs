@@ -3,6 +3,7 @@
 //! own commands: upgrading, building, moving, cancelling and boosting
 //! (docs/research/institutions-ages-monuments.md, "Monuments" and "Great
 //! projects' other commands").
+use super::commands::{write, Block};
 use super::content::{self, checks};
 use super::{action, commands, thousandths, with_state, Ctx, Fail, GResult, Session, Status, Tag};
 use crate::containers;
@@ -188,7 +189,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<MonumentOption>> {
 /// build (`constructgreatproject`) and the move (`move_great_project`),
 /// which share their writer.
 fn command(name: &str, key: &str, province: u32, builder: Tag) -> String {
-    format!("{name}={{ great_projects=\"{key}\" province={province} builder=\"{}\" }}", content::letters(builder))
+    write(name, Block::new().quoted("great_projects", key).word("province", province).tag("builder", builder.letters()))
 }
 
 /// Starts upgrading a great project of the player's, as the window's button
@@ -371,7 +372,7 @@ fn under_construction(m: &Memory, ctx: &Ctx, wanted: &str) -> GResult<Building> 
 
 /// The cancel command, as the window's cancel button sends it.
 fn cancel_command(country: Tag, province: u32, key: &str) -> String {
-    format!("cancel_great_project={{ country=\"{}\" province={province} great_projects=\"{key}\" }}", content::letters(country))
+    write("cancel_great_project", Block::new().tag("country", country.letters()).word("province", province).quoted("great_projects", key))
 }
 
 /// Cancels a great project's construction of the player's.
@@ -383,7 +384,7 @@ pub fn cancel(Session { m, ctx, commands, .. }: Session, args::Cancel { monument
 /// The boost command, as the window's boost buttons send it: `kind` 0 with
 /// manpower, 1 with money, once.
 fn boost_command(key: &str, province: u32, kind: u8, builder: Tag) -> String {
-    format!("boost_great_project={{ great_projects=\"{key}\" province={province} type={kind} builder=\"{}\" }}", content::letters(builder))
+    write("boost_great_project", Block::new().quoted("great_projects", key).word("province", province).word("type", kind).tag("builder", builder.letters()))
 }
 
 /// Brings a great project's construction of the player's forward.

@@ -4,7 +4,7 @@
 //! command carries (docs/research/power-spending.md, "Cultures").
 use super::{action, commands, content::checks, power, thousandths, world, Ctx, GResult, Session, Tag};
 use crate::{
-    game_string,
+    containers, game_string,
     memory::Memory,
     objects::campaign::{country, province},
     points::{GameFunction, Point},
@@ -110,16 +110,10 @@ fn named(m: &Memory, name: &str) -> GResult<usize> {
 
 /// The cultures the country at `country` has promoted, in its list's order.
 fn promoted(m: &Memory, country: usize) -> GResult<Vec<usize>> {
-    let mut out = Vec::new();
-    let mut node = m.ptr(country + ACCEPTED)?;
-    while node != 0 {
-        out.push(m.ptr(node)?);
-        if out.len() > 10_000 {
-            return Err("the accepted cultures' list does not end".to_string().into());
-        }
-        node = m.ptr(node + ACCEPTED_NEXT)?;
-    }
-    Ok(out)
+    // The game walks it so too (0x2fc414): item at +0, next at
+    // ACCEPTED_NEXT, no node left out.
+    let nodes = containers::chain(m, m.ptr(country + ACCEPTED)?, ACCEPTED_NEXT, 10_000)?;
+    Ok(nodes.into_iter().map(|node| m.ptr(node)).collect::<crate::Result<Vec<_>>>()?)
 }
 
 fn accepts(m: &Memory, country: usize, culture: usize) -> GResult<bool> {

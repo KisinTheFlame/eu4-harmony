@@ -323,20 +323,13 @@ pub fn aboard(m: &Memory, fleet: usize) -> GResult<Vec<usize>> {
     if !(0..=MAX_UNITS as i32).contains(&count) {
         return Err("invalid count of armies aboard".to_string().into());
     }
-    let mut node = m.ptr(fleet + unit::ABOARD + list::HEAD)?;
-    let mut out = Vec::new();
-    for _ in 0..count {
-        if node == 0 {
-            return Err("list of armies aboard ends early".to_string().into());
-        }
-        let army = m.ptr(node + list::ITEM)?;
+    let aboard = containers::items(m, fleet + unit::ABOARD, count as usize)?;
+    for &army in &aboard {
         if !is_army(m, army)? || m.ptr(army + unit::FLEET)? != fleet {
             return Err("unexpected unit aboard a fleet".to_string().into());
         }
-        out.push(army);
-        node = m.ptr(node + list::NEXT)?;
     }
-    Ok(out)
+    Ok(aboard)
 }
 
 /// Native task attached to the army: false for none or the idle default
@@ -519,5 +512,19 @@ mod tests {
         assert_eq!((fleet.land, fleet.province, fleet.regiments, fleet.carrying), (false, 1, 1, 2));
         let army = record(m, &specials, army).unwrap();
         assert_eq!((army.land, army.province, army.regiments, army.aboard, army.busy), (true, 1, 2, Some(12), false));
+    }
+
+    #[test]
+    fn the_armies_aboard_leave_out_a_node_the_game_removed_and_are_no_more_than_counted() {
+        let image = Image::new();
+        let m = image.memory();
+        let fleet = buffers::unit(m, 12, tur(), false, 0x240);
+        let aboard_fleet = |id: u64| buffers::unit(m, id, tur(), true, 0x240).u64(unit::FLEET, fleet.at() as u64);
+        let (army, gone) = (aboard_fleet(11), aboard_fleet(13));
+        let at = army.at();
+        let fleet = fleet.list(unit::ABOARD, vec![(gone, true), (army, false)]);
+        assert_eq!(aboard(m, fleet.at()).unwrap(), [at]);
+        let fleet = fleet.i32(unit::ABOARD + list::COUNT, 1);
+        assert!(aboard(m, fleet.at()).is_err(), "two nodes where the count says one");
     }
 }

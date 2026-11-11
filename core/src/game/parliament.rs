@@ -2,6 +2,7 @@
 //! giving provinces seats, the seats of a debate and the bribes they ask,
 //! through the game's own commands (docs/research/government.md,
 //! "Parliament").
+use super::commands::{write, Block};
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
 use crate::containers;
@@ -148,11 +149,11 @@ fn debating(m: &Memory, parliament: usize) -> GResult<Option<String>> {
 }
 
 fn written_debate(country: Tag, issue: &str) -> String {
-    format!("start_debate_command={{ country=\"{}\" which=\"{issue}\" }}", content::letters(country))
+    write("start_debate_command", Block::new().tag("country", country.letters()).quoted("which", issue))
 }
 
 fn written_seat(command: &str, country: Tag, province: u32) -> String {
-    format!("{command}={{ country=\"{}\" province={province} }}", content::letters(country))
+    write(command, Block::new().tag("country", country.letters()).word("province", province))
 }
 
 /// Brings an issue on offer to debate.
@@ -269,7 +270,7 @@ pub fn seats(Session { m, ctx, .. }: Session) -> GResult<Seats> {
 }
 
 fn written_bribe(country: Tag, province: u32) -> String {
-    format!("bribe={{ country=\"{}\" province={province} }}", content::letters(country))
+    write("bribe", Block::new().tag("country", country.letters()).word("province", province))
 }
 
 /// Pays the bribe a seat asks.

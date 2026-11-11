@@ -2,6 +2,7 @@
 //! give it, as the government view shows them, and using an interaction
 //! through the game's own command (docs/research/government.md,
 //! "Government mechanics"). Part of the government group.
+use super::commands::{write, Block};
 use super::content::checks;
 use super::government::GOVERNMENT;
 use super::{action, conditions, content, modifiers, thousandths, Ctx, GResult, Session, Tag};
@@ -310,7 +311,7 @@ pub fn mechanics(Session { m, ctx, .. }: Session) -> GResult<Vec<Mechanic>> {
 
 /// The interaction command, the mechanic and the interaction by their keys.
 fn written(country: Tag, mechanic: &str, interaction: &str) -> String {
-    format!("government_interaction_command={{ country=\"{}\" parent={mechanic} index={interaction} }}", content::letters(country))
+    write("government_interaction_command", Block::new().tag("country", country.letters()).word("parent", mechanic).word("index", interaction))
 }
 
 /// Uses an interaction of one of the player's government mechanics.

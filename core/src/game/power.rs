@@ -6,6 +6,7 @@
 //! Also what the panels' tooltips are written with: the game's localisation
 //! with values, and the conditions of `common/scripted_functions` that allow
 //! some of these buttons.
+use super::commands::{write, Block};
 use super::{action, commands::Commands, conditions, GResult, Tag};
 use crate::{
     game_string,
@@ -184,8 +185,9 @@ pub fn points_of(m: &Memory, country: usize, skill: PowerKind) -> GResult<i32> {
 /// of power as `skill`, and its first value as `data`, which the game
 /// writes only when it is not 0.
 pub fn written(country: [u8; 3], kind: i32, skill: PowerKind, data: i32) -> String {
-    let data = if data == 0 { String::new() } else { format!("data={data} ") };
-    format!("spend_power_command={{ country=\"{}\" power={{ {data}category={kind} skill={} }} }}", String::from_utf8_lossy(&country), skill as i32)
+    let power = if data == 0 { Block::new() } else { Block::new().word("data", data) };
+    let power = power.word("category", kind).word("skill", skill as i32);
+    write("spend_power_command", Block::new().tag("country", country).block("power", power))
 }
 
 /// Spends `player`'s points as the button does: posts the command through

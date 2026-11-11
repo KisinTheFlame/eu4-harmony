@@ -1,7 +1,12 @@
 //! `game.window` and `game.popup` (docs/plans/extension-windows.md): what an
 //! extension sets on its windows, checked against their layouts, and the
 //! pop-ups it shows, put into words in the player language, before the host
-//! has either. The running game and the fake game take them the same.
+//! has either. The running game and the fake game take them the same, and
+//! keep what extensions want of them by the same rules ([`Windows`]).
+mod wanted;
+
+pub use wanted::{Declared, OpenPopup, Wanted, Windows, POPUPS};
+
 use crate::layout::{self, Kind, Placed, Window};
 use mlua::{Lua, Table, Value as LuaValue};
 
@@ -70,6 +75,13 @@ pub struct Popup {
     /// The countries of its left and right shields, by tag; the player's
     /// where none is given.
     pub shields: [Option<String>; 2],
+}
+
+impl Popup {
+    /// How many buttons it shows: its own, or the game's own "OK".
+    pub fn buttons_shown(&self) -> usize {
+        self.buttons.len().max(1)
+    }
 }
 
 /// The most buttons a pop-up has, as the game's message pop-up has places

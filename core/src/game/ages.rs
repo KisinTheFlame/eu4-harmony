@@ -1,6 +1,7 @@
 //! The ages: the age the world is in, the player's splendor, and the age's
 //! abilities, taking one through the game's own command
 //! (docs/research/institutions-ages-monuments.md, "Ages").
+use super::commands::{write, Block};
 use super::content::{self, checks};
 use super::{action, thousandths, Ctx, GResult, Session, Tag};
 use crate::containers;
@@ -93,7 +94,7 @@ pub fn get(Session { m, ctx, .. }: Session) -> GResult<Age> {
 
 /// The command enacting the golden era: the country alone.
 fn golden_era_command(player: Tag) -> String {
-    format!("enact_golden_age={{ country=\"{}\" }}", content::letters(player))
+    write("enact_golden_age", Block::new().tag("country", player.letters()))
 }
 
 /// Enacts the player's golden era, as the view's button does.
@@ -146,7 +147,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<AgeAbilityOption>> {
 /// The command taking an ability, by its index, as the view's button sends
 /// it.
 fn command(player: Tag, index: i32) -> String {
-    format!("age_ability_command={{ country=\"{}\" which={index} }}", content::letters(player))
+    write("age_ability_command", Block::new().tag("country", player.letters()).word("which", index))
 }
 
 /// Takes an ability of the age, as the view's button does.

@@ -2,6 +2,7 @@
 //! company, adding the province to it and removing it, and the trade
 //! company investments of its area, through the game's own commands
 //! (docs/research/envoys.md, "Trade companies").
+use super::commands::{write, Block};
 use super::{action, envoys, with_state, Ctx, GResult, Session, Tag};
 use crate::{
     game_string,
@@ -147,7 +148,7 @@ fn investments(m: &Memory, ctx: &Ctx, province: usize) -> GResult<Vec<Investment
 /// button posts.
 fn written(player: Tag, province: u32, add: bool) -> String {
     let name = if add { "add_to_trade_company" } else { "remove_from_trade_company" };
-    format!("{name}={{ country={} province={province} }}", envoys::quoted(player))
+    write(name, Block::new().tag("country", player.letters()).word("province", province))
 }
 
 /// Adds the player's province `id` to the trade company of its region
@@ -162,7 +163,8 @@ pub fn change(Session { m, ctx, commands, .. }: Session, id: u32, add: bool) -> 
 /// The investment command the investment dialog posts: the country, the
 /// investment's index, the province, each under the name `dummy`.
 fn invest_written(player: Tag, index: i32, province: u32) -> String {
-    format!("make_trade_company_investment={{ members={{ dummy={} dummy={index} dummy={province} }} }}", envoys::quoted(player))
+    let members = Block::new().tag("dummy", player.letters()).word("dummy", index).word("dummy", province);
+    write("make_trade_company_investment", Block::new().block("members", members))
 }
 
 /// Makes the investment `key` in the area of the player's province `id`.

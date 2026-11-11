@@ -3,6 +3,7 @@
 //! buttons do, and raising mercantilism, as the trade view's button does
 //! (docs/research/power-spending.md, "The economy" and "The country's other
 //! spendings").
+use super::commands::{write, Block};
 use super::{
     action, modifiers,
     power::{self, CAN_DECLARE_BANKRUPTCY, CAN_REDUCE_INFLATION, PROMOTE_MERCANTILISM, REDUCE_INFLATION},
@@ -108,13 +109,12 @@ fn bankruptcy(m: &Memory, ctx: &Ctx) -> GResult<Choice> {
 
 /// The war taxes command: the country's tag, then whether to raise them.
 fn written_war_taxes(tag: Tag, raise: bool) -> String {
-    let letters = String::from_utf8_lossy(&tag.letters()).into_owned();
-    format!("raise_war_taxes={{ members={{ dummy=\"{letters}\" dummy={} }} }}", if raise { "yes" } else { "no" })
+    write("raise_war_taxes", Block::new().block("members", Block::new().tag("dummy", tag.letters()).word("dummy", if raise { "yes" } else { "no" })))
 }
 
 /// The bankruptcy command: the country alone.
 fn written_bankruptcy(tag: Tag) -> String {
-    format!("go_bankrupt={{ country=\"{}\" }}", String::from_utf8_lossy(&tag.letters()))
+    write("go_bankrupt", Block::new().tag("country", tag.letters()))
 }
 
 /// The refusals the framework words itself in the economy view.
@@ -218,7 +218,7 @@ pub fn declare_bankruptcy(Session { m, ctx, commands, .. }: Session) -> GResult<
 /// The bank loan command in its written form, as the button makes it: the
 /// country by its tag, the rest the game's defaults.
 fn written_loan(country: [u8; 3]) -> String {
-    format!("take_bank_loan={{ country=\"{}\" }}", String::from_utf8_lossy(&country))
+    write("take_bank_loan", Block::new().tag("country", country))
 }
 
 /// Takes a bank loan, as the button does.

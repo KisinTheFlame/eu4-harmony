@@ -13,13 +13,16 @@
 //! game's `ui` observer of Kill tells [`killed`]; one still wanted open is
 //! built again at the next frame.
 //!
+//! How each element is set and its clicks heard is `crate::bound_element`'s,
+//! which the elements spliced into vanilla windows share.
+//!
 //! Locks: [`LIVE`] is held while the framework calls the game, so what the
-//! game calls back (clicks, Kill, tooltips) takes it only with `try_lock`;
-//! clicks are put in [`CLICKED`] alone and taken up at the next frame.
+//! game calls back (Kill, tooltips) takes it only with `try_lock`; clicks
+//! are only queued, and taken up at the next frame.
 //! [`super::WINDOWS`] is never held while the game is called.
-use super::{gui, type_name, with, Wanted};
-use crate::called_by_game;
+use super::{gui, type_name, with};
 use crate::{
+    bound_element::{self, BoundElement, Hears, Look, Shown},
     game::{self, Caller, WorldSession},
     game_heap, game_string,
     hooks::Call,
@@ -33,6 +36,7 @@ use crate::{
     unicode::game_text,
     Result,
 };
+use eu4_harmony_lua::windows::Wanted;
 use eu4_harmony_lua::{
     dispatch::Click,
     layout::{self, Kind, Placed, Window},
@@ -78,11 +82,6 @@ const CASCADE: i32 = 24;
 /// window that is one: what the observer of that closing then ignores.
 static OPENING: AtomicBool = AtomicBool::new(false);
 
-/// The clicks the game reported since the last frame: the wrapper's
-/// address, the button, whether it was a right click, and the keys held
-/// down with it ([`ui::modifiers`]), read as it came, when they still are.
-static CLICKED: Mutex<Vec<(usize, usize, bool, u32)>> = Mutex::new(Vec::new());
-
 /// What the framework built.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Key {
@@ -95,9 +94,7 @@ struct Bound {
     /// The game widget's name, or the window's own element's
     /// ([`gui::CLOSE`], a pop-up's button).
     name: String,
-    object: usize,
-    kind: Option<Kind>,
-    subscription: Option<Subscription>,
+    element: BoundElement,
     /// The list and the row, from 1, a game widget in a list's row is in.
     row: Option<(String, u32)>,
 }
@@ -109,8 +106,6 @@ struct Built {
     placed: (i32, i32),
     moveable: bool,
     elements: Vec<Bound>,
-    /// What was applied to each element, by its index in `elements`.
-    applied: HashMap<usize, BTreeMap<&'static str, Property>>,
     /// The rows applied to each list.
     rows: BTreeMap<String, Vec<Vec<(String, Property)>>>,
 }
@@ -134,8 +129,8 @@ struct Live {
     /// The callbacks of subscriptions let go; the game may still hold
     /// pointers to them.
     retired: Vec<Callback>,
-    /// What each bound element's tooltip says, game text, by the element.
-    tooltips: HashMap<usize, Vec<u8>>,
+    /// What each entry button's tooltip says, game text, by the button.
+    entry_tooltips: HashMap<usize, Vec<u8>>,
     /// The window definitions the game would not build, by name.
     failed: HashSet<String>,
     reported: HashSet<String>,
@@ -259,28 +254,29 @@ fn find(m: &Memory, root: usize, kind: Option<&Kind>, name: &str) -> Result<usiz
     Ok(object)
 }
 
-#[called_by_game]
-extern "system" fn left_click(context: usize, button: usize) {
-    if let Ok(mut clicked) = CLICKED.lock() {
-        if clicked.len() < 64 {
-            clicked.push((context, button, false, ui::modifiers()));
-        }
-    }
-}
-
-#[called_by_game]
-extern "system" fn right_click(context: usize, button: usize) {
-    if let Ok(mut clicked) = CLICKED.lock() {
-        if clicked.len() < 64 {
-            clicked.push((context, button, true, ui::modifiers()));
-        }
-    }
-}
-
+/// A button's listener on its clicks, subscribed.
 fn subscribe(m: &Memory, object: usize) -> Result<Subscription> {
-    let mut s = Subscription::new(m, object, left_click as *const () as usize, right_click as *const () as usize)?;
+    let mut s = bound_element::listener(m, object, Hears::Windows)?;
     s.link(m)?;
     Ok(s)
+}
+
+/// The element `object`, of `look`, hearing its clicks, subscribed.
+fn listening(m: &Memory, object: usize, look: Look) -> Result<BoundElement> {
+    let mut element = BoundElement::listening(m, object, look, Hears::Windows)?;
+    element.link(m)?;
+    Ok(element)
+}
+
+/// How a game widget of `kind` is set.
+fn look(kind: &Kind) -> Look {
+    match kind {
+        Kind::Text { .. } => Look::Text,
+        Kind::Icon { .. } | Kind::Progress { .. } => Look::Icon,
+        Kind::Button { .. } => Look::Button,
+        Kind::Flag { .. } => Look::Flag,
+        Kind::List { .. } => Look::Plain,
+    }
 }
 
 /// Binds the game widgets `widgets` of the window `root`, those of a row
@@ -289,12 +285,12 @@ fn bind(m: &Memory, root: usize, widgets: &[Placed], row: Option<(String, u32)>,
     for (index, placed) in widgets.iter().enumerate() {
         let element = gui::element(placed, index);
         let object = find(m, root, Some(&placed.kind), &element)?;
-        let subscription = match placed.kind {
-            Kind::Button { .. } => Some(subscribe(m, object)?),
-            _ => None,
+        let bound = match placed.kind {
+            Kind::Button { .. } => listening(m, object, look(&placed.kind))?,
+            _ => BoundElement::new(object, look(&placed.kind)),
         };
         let name = placed.name.clone().unwrap_or(element);
-        out.push(Bound { name, object, kind: Some(placed.kind.clone()), subscription, row: row.clone() });
+        out.push(Bound { name, element: bound, row: row.clone() });
     }
     Ok(())
 }
@@ -302,12 +298,9 @@ fn bind(m: &Memory, root: usize, widgets: &[Placed], row: Option<(String, u32)>,
 /// Lets go of a built window's subscriptions while its elements are alive.
 fn unlink(m: &Memory, live: &mut Live, elements: &mut Vec<Bound>) -> Result<()> {
     let mut result = Ok(());
-    for b in elements.drain(..) {
-        live.tooltips.remove(&b.object);
-        if let Some(mut s) = b.subscription {
-            result = result.and(s.unlink(m));
-            live.retired.push(s.wrapper);
-        }
+    for mut b in elements.drain(..) {
+        result = result.and(b.element.unlink(m));
+        live.retired.extend(b.element.retire());
     }
     result
 }
@@ -344,103 +337,10 @@ fn initial(placed: &Placed, words: &dyn Fn(&Option<String>) -> String) -> BTreeM
     out
 }
 
-/// Calls the element's method in `slot` with `arg`, when it is one of
-/// `known`.
-fn method(m: &Memory, object: usize, slot: usize, known: &[usize], arg: usize) -> Result<()> {
-    let at = m.vslot(object, slot)?;
-    if !known.iter().any(|&k| m.at(k) == at) {
-        return Err(format!("an element's method at {slot:#x} is not one the framework knows"));
-    }
-    m.call(at, &[object, arg]).map(|_| ())
-}
-
-/// Sets one property on a bound element.
-fn apply_one(m: &Memory, live: &mut Live, b: &Bound, property: &Property, all: &BTreeMap<&'static str, Property>) -> Result<()> {
-    let button = matches!(b.kind, Some(Kind::Button { .. } | Kind::Flag { .. }));
-    let icon = matches!(b.kind, Some(Kind::Icon { .. } | Kind::Progress { .. }));
-    match property {
-        Property::Text(words) => {
-            // A text box hides by showing nothing.
-            let shown = all.get("visible") != Some(&Property::Visible(false));
-            let words = if shown { game_text::from_str(words) } else { Vec::new() };
-            write_text(m, b.object, &words)
-        }
-        Property::Visible(on) if matches!(b.kind, Some(Kind::Text { .. })) => {
-            let words = match (on, all.get("text")) {
-                (true, Some(Property::Text(w))) => game_text::from_str(w),
-                _ => Vec::new(),
-            };
-            write_text(m, b.object, &words)
-        }
-        Property::Visible(on) if button || icon => {
-            let (slot, known): (usize, &[usize]) = match (on, button) {
-                (true, true) => (element::SHOW, &[ui::SHOW]),
-                (false, true) => (element::HIDE, &[ui::HIDE]),
-                (true, false) => (element::SHOW, &functions::ICON_SHOWS),
-                (false, false) => (element::HIDE, &functions::ICON_HIDES),
-            };
-            let at = m.vslot(b.object, slot)?;
-            if !known.iter().any(|&k| m.at(k) == at) {
-                return Err("an element's show or hide is not one the framework knows".into());
-            }
-            m.call(at, &[b.object]).map(|_| ())
-        }
-        Property::Visible(_) => Ok(()),
-        Property::Enabled(on) => method(m, b.object, element::ENABLE, &[ui::SET_ENABLED.rva()], *on as usize),
-        Property::Frame(frame) => {
-            let known: &[usize] = if button { &[functions::BUTTON_FRAME] } else { &functions::ICON_FRAMES };
-            method(m, b.object, element::FRAME, known, *frame as usize)
-        }
-        Property::Value(value) => method(m, b.object, element::FRAME, &functions::ICON_FRAMES, (value.clamp(0.0, 1.0) * 100.0) as usize),
-        Property::Country(letters) => set_country(m, b.object, letters),
-        Property::Tooltip(words) => {
-            live.tooltips.insert(b.object, game_text::from_str(words));
-            Ok(())
-        }
-    }
-}
-
-fn write_text(m: &Memory, object: usize, bytes: &[u8]) -> Result<()> {
-    let mut string = game_string::empty();
-    if !bytes.is_empty() {
-        game_string::append_checked(m, string.as_mut_ptr() as usize, bytes)?;
-    }
-    ui::TEXT_SET.call(m, [object, string.as_mut_ptr() as usize, 0])?;
-    // The text box took the text; what is left is empty, still ours.
-    game_string::destroy_checked(m, string.as_mut_ptr() as usize)
-}
-
-/// Gives a flag its country, which must be one of the game's: the game
-/// takes the tag's index into its countries unchecked.
-fn set_country(m: &Memory, object: usize, letters: &str) -> Result<()> {
-    if letters.is_empty() {
-        return Ok(());
-    }
-    let session = WorldSession::open(Caller::Remote(game::As::Player)).map_err(|e| e.message)?;
-    let bytes: [u8; 3] = letters.as_bytes().try_into().map_err(|_| format!("{letters:?} is not a tag"))?;
-    let tag = game::countries::named(session.m, &session.world, eu4_harmony_remote::CountryTag(bytes)).map_err(|e| e.message)?;
-    let argument: [u64; 2] = [tag.0, 1];
-    for (slot, function) in [(crate::objects::gui::button::SET_COUNTRY, functions::SET_COUNTRY.rva()), (element::INDEX, functions::SET_INDEX.rva())] {
-        if m.vslot(object, slot)? != m.at(function) {
-            return Err("a flag's method is not the one the framework knows".into());
-        }
-    }
-    functions::SET_COUNTRY.call(m, [object, argument.as_ptr() as usize])?;
-    functions::SET_INDEX.call(m, [object, tag.index() as i32 as u32 as usize])?;
-    Ok(())
-}
-
-/// Applies what differs between `want` and what element `index` shows.
-fn apply_element(m: &Memory, live: &mut Live, built: &mut Built, index: usize, want: &BTreeMap<&'static str, Property>) -> Result<()> {
-    let applied = built.applied.entry(index).or_default().clone();
-    for (name, property) in want {
-        if applied.get(name) == Some(property) {
-            continue;
-        }
-        apply_one(m, live, &built.elements[index], property, want)?;
-        built.applied.entry(index).or_default().insert(name, property.clone());
-    }
-    Ok(())
+/// Makes element `index` show `want`, what differs from what it was set
+/// to before.
+fn apply_element(m: &Memory, built: &mut Built, index: usize, want: &BTreeMap<&'static str, Property>) -> Result<()> {
+    built.elements[index].element.apply(m, &Shown::of(want))
 }
 
 /// Builds a list's rows again: every row deleted, and each added and set.
@@ -455,12 +355,11 @@ fn fill_rows(
 ) -> Result<()> {
     let Some(Placed { kind: Kind::List { row, .. }, .. }) = layout.widget(list) else { return Ok(()) };
     let Some(list_index) = built.elements.iter().position(|b| b.name == list && b.row.is_none()) else { return Ok(()) };
-    let list_box = built.elements[list_index].object;
+    let list_box = built.elements[list_index].element.object;
     // The rows' elements go with them: let go of them first.
     let (mut old, kept): (Vec<Bound>, Vec<Bound>) =
         std::mem::take(&mut built.elements).into_iter().partition(|b| b.row.as_ref().is_some_and(|(l, _)| l == list));
     built.elements = kept;
-    built.applied.retain(|i, _| *i < built.elements.len());
     unlink(m, live, &mut old)?;
     for (slot, function) in [(list_box::CLEAR, functions::LIST_CLEAR.rva()), (list_box::ADD, functions::LIST_ADD.rva())] {
         if m.vslot(list_box, slot)? != m.at(function) {
@@ -487,7 +386,7 @@ fn fill_rows(
                 let _ = name;
                 want.insert(property.name(), property.clone());
             }
-            apply_element(m, live, built, first + i, &want)?;
+            apply_element(m, built, first + i, &want)?;
         }
     }
     built.rows.insert(list.to_string(), rows.to_vec());
@@ -519,15 +418,17 @@ fn wants() -> Wants {
     with(|all| {
         let mut windows = Vec::new();
         let mut definitions = Vec::new();
-        for d in &all.declared {
+        let none = BTreeMap::new();
+        for d in all.wanted.declared() {
+            let words = all.words.get(&d.extension).unwrap_or(&none);
             for w in &d.windows {
                 let type_name = format!("{}_{}", type_name(&d.id, &w.name), all.generation);
-                definitions.push(gui::window(&type_name, w, &|k| super::words_of(d, k)));
-                let wanted = all.wanted.get(&(d.extension, w.name.clone())).cloned().unwrap_or_default();
-                windows.push(WantWindow { extension: d.extension, type_name, layout: w.clone(), words: d.words.clone(), wanted });
+                definitions.push(gui::window(&type_name, w, &|k| super::words_of(words, k)));
+                let wanted = all.wanted.wanted(d.extension, &w.name).cloned().unwrap_or_default();
+                windows.push(WantWindow { extension: d.extension, type_name, layout: w.clone(), words: words.clone(), wanted });
             }
         }
-        let popups = all.popups.iter().map(|p| (p.number, p.popup.clone())).collect();
+        let popups = all.wanted.popups().iter().map(|p| (p.number, p.popup.clone())).collect();
         Wants { generation: all.generation, windows, definitions, popups }
     })
 }
@@ -551,7 +452,7 @@ pub(crate) fn frame() {
 /// The clicks since the last frame, as what extensions hear and what opens,
 /// closes and answers.
 fn clicks(m: &Memory) {
-    let clicked = std::mem::take(&mut *CLICKED.lock().unwrap_or_else(|e| e.into_inner()));
+    let clicked = bound_element::take_clicks(Hears::Windows);
     if clicked.is_empty() {
         return;
     }
@@ -566,9 +467,10 @@ fn clicks(m: &Memory) {
     let found: Vec<Was> = with_live(|live| {
         clicked
             .into_iter()
-            .filter_map(|(context, button, right, modifiers)| {
+            .filter_map(|clicked| {
+                let bound_element::Clicked { context, button, right, modifiers } = clicked;
                 for built in &live.built {
-                    let Some(b) = built.elements.iter().find(|b| b.object == button && b.subscription.as_ref().is_some_and(|s| s.context() == context)) else {
+                    let Some(b) = built.elements.iter().find(|b| b.element.heard(&clicked)) else {
                         continue;
                     };
                     return match &built.key {
@@ -596,14 +498,16 @@ fn clicks(m: &Memory) {
                 }
             }),
             Was::Close(extension, window) => with(|all| all.show(extension, &window, false)),
-            Was::Popup(number, button) => super::press(number, button),
+            Was::Popup(number, button) => {
+                let _ = super::press_popup(number, button);
+            }
             Was::Shield(number, side) => {
                 if let Err(e) = open_diplomacy(m, number, side) {
                     log!("windows: pop-up {number}'s shield: {e}");
                 }
             }
             Was::Entry(extension, window) => with(|all| {
-                let open = all.wanted.get(&(extension, window.clone())).is_some_and(|w| w.open);
+                let open = all.wanted.is_open(extension, &window);
                 all.show(extension, &window, !open);
             }),
         }
@@ -660,11 +564,7 @@ fn sync(m: &Memory, live: &mut Live, wants: &Wants) -> Result<()> {
             let now = unpack(m.u64(built.root + window::POSITION)?);
             if now != built.placed {
                 built.placed = now;
-                with(|all| {
-                    if let Some(w) = all.wanted.get_mut(&(want.extension, want.layout.name.clone())) {
-                        w.dragged = Some(now);
-                    }
-                });
+                with(|all| all.wanted.dragged(want.extension, &want.layout.name, now));
             }
         }
         live.built.push(built);
@@ -685,7 +585,7 @@ fn sync(m: &Memory, live: &mut Live, wants: &Wants) -> Result<()> {
             // Closed: the player cannot see it to press its buttons.
             Err(e) => {
                 live.report(format!("pop-up {number} not built: {e}"));
-                with(|all| all.popups.retain(|p| p.number != *number));
+                with(|all| all.wanted.lost_popup(*number));
             }
         }
     }
@@ -704,11 +604,11 @@ fn build_window(m: &Memory, mgr: usize, live: &mut Live, key: Key, want: &WantWi
     }
     let at = want.wanted.dragged.unwrap_or_else(|| place(layout, screen));
     set_position(m, root, at)?;
-    let mut built = Built { key, root, placed: at, moveable: layout.moveable, elements: Vec::new(), applied: HashMap::new(), rows: BTreeMap::new() };
+    let mut built = Built { key, root, placed: at, moveable: layout.moveable, elements: Vec::new(), rows: BTreeMap::new() };
     let bound = (|| {
         if layout.close {
             let close = find(m, root, None, gui::CLOSE)?;
-            built.elements.push(Bound { name: gui::CLOSE.into(), object: close, kind: None, subscription: Some(subscribe(m, close)?), row: None });
+            built.elements.push(Bound { name: gui::CLOSE.into(), element: listening(m, close, Look::Plain)?, row: None });
         }
         // Nothing on a window that does not move is pressed by a press on
         // its background.
@@ -741,7 +641,7 @@ fn apply_window(m: &Memory, live: &mut Live, built: &mut Built, want: &WantWindo
         if let Some(set) = want.wanted.set.get(&name) {
             wanted.extend(set.iter().map(|(k, v)| (*k, v.clone())));
         }
-        apply_element(m, live, built, at, &wanted)?;
+        apply_element(m, built, at, &wanted)?;
     }
     Ok(())
 }
@@ -752,7 +652,7 @@ fn build_popup(m: &Memory, mgr: usize, number: u32, popup: &Popup, name: &str, (
     let y = (sh - gui::popup_height(popup)) / 2 + CASCADE * shown;
     set_position(m, root, (x, y))?;
     let text = find(m, root, Some(&Kind::Text { text: None, font: layout::Font::Body, align: layout::Align::Start }), gui::TEXT)?;
-    write_text(m, text, &game_text::from_str(&popup.text))?;
+    bound_element::write_text(m, text, &game_text::from_str(&popup.text))?;
     // The shields: the countries named, the player's where none is, and
     // none to show in observe mode with no country in view. A click on one
     // opens the diplomacy view on its country, as on the game's.
@@ -760,18 +660,18 @@ fn build_popup(m: &Memory, mgr: usize, number: u32, popup: &Popup, name: &str, (
     for (element, tag) in gui::SHIELDS.iter().zip(&popup.shields) {
         let Some(tag) = tag.clone().or_else(|| player_letters(m)) else { continue };
         let shield = find(m, root, None, element)?;
-        if let Err(e) = set_country(m, shield, &tag) {
+        if let Err(e) = bound_element::set_country(m, shield, &tag) {
             log!("windows: pop-up {number}'s shield {tag}: {e}");
             continue;
         }
-        elements.push(Bound { name: element.to_string(), object: shield, kind: None, subscription: Some(subscribe(m, shield)?), row: None });
+        elements.push(Bound { name: element.to_string(), element: listening(m, shield, Look::Plain)?, row: None });
     }
     for (name, _) in gui::shown(popup) {
         let object = find(m, root, None, &name)?;
-        elements.push(Bound { name, object, kind: None, subscription: Some(subscribe(m, object)?), row: None });
+        elements.push(Bound { name, element: listening(m, object, Look::Plain)?, row: None });
     }
     show_window(m, root, true)?;
-    Ok(Built { key: Key::Popup(number), root, placed: (x, y), moveable: true, elements, applied: HashMap::new(), rows: BTreeMap::new() })
+    Ok(Built { key: Key::Popup(number), root, placed: (x, y), moveable: true, elements, rows: BTreeMap::new() })
 }
 
 /// The letters of the player's country, none in observe mode with no
@@ -783,7 +683,7 @@ fn player_letters(m: &Memory) -> Option<String> {
 /// Opens the diplomacy view on the country of a pop-up's shield, on the
 /// `side` of [`gui::SHIELDS`], as a click on the game's own shields does.
 fn open_diplomacy(m: &Memory, number: u32, side: usize) -> Result<()> {
-    let named = with(|all| all.popups.iter().find(|p| p.number == number).map(|p| p.popup.shields[side].clone()));
+    let named = with(|all| all.wanted.open_popup(number).map(|p| p.popup.shields[side].clone()));
     let Some(letters) = named.flatten().or_else(|| player_letters(m)) else { return Ok(()) };
     let session = WorldSession::open(Caller::Remote(game::As::Player)).map_err(|e| e.message)?;
     let bytes: [u8; 3] = letters.as_bytes().try_into().map_err(|_| format!("{letters:?} is not a tag"))?;
@@ -818,7 +718,10 @@ pub(crate) fn session_ended() {
             }
         });
     }
-    with(|all| all.end_session());
+    with(|all| {
+        all.wanted.end_session();
+        all.clicks.clear();
+    });
 }
 
 // ---------- the game's big panels and tooltips ----------
@@ -828,7 +731,10 @@ pub(crate) fn session_ended() {
 /// closes them to open one.
 fn panels_closing(_: &mut Call) {
     if !OPENING.load(Ordering::Relaxed) {
-        with(|all| all.close_panels(None));
+        with(|all| {
+            let closed = all.wanted.close_panels(None);
+            all.wanted.hear_at_frame(closed);
+        });
     }
 }
 
@@ -840,13 +746,17 @@ fn tooltip_after(call: &mut Call) {
     let m = call.memory();
     let (out, element) = (call.arg(1), call.arg(2));
     let Ok(guard) = LIVE.try_lock() else { return };
-    let Some(text) = guard.as_ref().and_then(|l| l.tooltips.get(&element)).filter(|t| !t.is_empty()).cloned() else { return };
-    drop(guard);
-    let empty = |offset: usize| game_string::untouched(&m, out + offset);
-    if let (Ok(true), Ok(true)) = (empty(0), empty(game_string::OBJECT)) {
-        if let Err(e) = game_string::append_checked(&m, out, &text) {
-            log!("windows: tooltip append failed: {e}");
+    let text = guard.as_ref().and_then(|live| {
+        let bound = live.built.iter().flat_map(|b| &b.elements).find(|b| b.element.object == element);
+        match bound {
+            Some(b) => b.element.tooltip().map(<[u8]>::to_vec),
+            None => live.entry_tooltips.get(&element).filter(|t| !t.is_empty()).cloned(),
         }
+    });
+    drop(guard);
+    let Some(text) = text else { return };
+    if let Err(e) = bound_element::fill_tooltip(&m, out, &text) {
+        log!("windows: tooltip append failed: {e}");
     }
 }
 
@@ -880,9 +790,9 @@ fn strip_after(call: &mut Call) {
     let idler = call.arg(0);
     let entries = with(|all| {
         let mut out = Vec::new();
-        for d in &all.declared {
+        for d in all.wanted.declared() {
             for w in d.windows.iter().filter(|w| w.entry.is_some()) {
-                let set = all.wanted.get(&(d.extension, w.name.clone())).and_then(|w| w.set.get(layout::ENTRY)).cloned().unwrap_or_default();
+                let set = all.wanted.wanted(d.extension, &w.name).and_then(|w| w.set.get(layout::ENTRY)).cloned().unwrap_or_default();
                 out.push((d.extension, d.id.clone(), w.name.clone(), set, w.entry.clone()));
             }
         }
@@ -946,7 +856,7 @@ fn place_entries(m: &Memory, live: &mut Live, idler: usize, entries: &[EntryWant
             _ => None,
         };
         if let Some(t) = tooltip {
-            live.tooltips.insert(button, t);
+            live.entry_tooltips.insert(button, t);
         }
         let shown = m.u8(button + element::VISIBLE)? != 0;
         if visible != shown {

@@ -6,7 +6,7 @@
 //! next frame; and hears every command the game executes, in the same form
 //! (docs/research/commands.md). Its vocabulary, the commands' type names and
 //! keys, is the game's and stays in the core: capabilities write their
-//! command's text and post it here.
+//! command's text with [`write`] and post it here.
 //!
 //! The game's reader takes almost any text and says nothing of what it could
 //! not read, so [`Commands::post`] writes the command it read out again and refuses it
@@ -21,6 +21,7 @@ use crate::{
     unicode::game_text,
 };
 use std::cell::OnceCell;
+use std::fmt::Display;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
@@ -652,12 +653,108 @@ fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// A value in the written form: a word or a quoted text, or a block of
-/// entries.
+// ---------- the written form ----------
+
+/// A block of a command's written form, as a capability writes it: its
+/// entries in the order given, each one of the game's keys with its value,
+/// or a value alone, as in a list. [`write`] makes a command of it, in the
+/// same form the layer reads back ([`Written`]).
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Block(Vec<Entry>);
+
+impl Block {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// `key=value`: a number, `yes` or `no`, or anything else the game
+    /// writes unquoted; it holds no space, `=`, brace or quote.
+    pub fn word(self, key: &str, value: impl Display) -> Self {
+        let value = value.to_string();
+        debug_assert!(!value.is_empty() && !value.contains(|c: char| c.is_whitespace() || matches!(c, '=' | '{' | '}' | '"')), "{value:?} is not a word");
+        self.entry(Some(key), Value::Word(value))
+    }
+
+    /// `key="text"`, such as a content key; the game's reader takes the text
+    /// up to the next quote, so it holds none.
+    pub fn quoted(self, key: &str, text: impl Display) -> Self {
+        let text = text.to_string();
+        debug_assert!(!text.contains('"'), "{text:?} holds a quote");
+        self.entry(Some(key), Value::Quoted(text))
+    }
+
+    /// `key="FRA"`: a country by its tag's letters.
+    pub fn tag(self, key: &str, letters: [u8; 3]) -> Self {
+        self.quoted(key, String::from_utf8_lossy(&letters))
+    }
+
+    /// `key={ id=… type=… }`: an ID as the game writes a unit's or a
+    /// leader's, its number in the high 32 bits and its type in the low.
+    pub fn id(self, key: &str, id: u64) -> Self {
+        self.block(key, Block::new().word("id", (id >> 32) as i32).word("type", id as u32 as i32))
+    }
+
+    /// `key={ … }`.
+    pub fn block(self, key: &str, block: Block) -> Self {
+        self.entry(Some(key), Value::Block(block.0))
+    }
+
+    /// A value alone, as in a list: the `1` and `2` of `{ 1 2 }`.
+    pub fn value(self, value: impl Display) -> Self {
+        let value = value.to_string();
+        debug_assert!(!value.is_empty() && !value.contains(|c: char| c.is_whitespace() || matches!(c, '=' | '{' | '}' | '"')), "{value:?} is not a word");
+        self.entry(None, Value::Word(value))
+    }
+
+    fn entry(mut self, key: Option<&str>, value: Value) -> Self {
+        self.0.push(Entry { key: key.map(str::to_string), value });
+        self
+    }
+}
+
+/// The command of the type `kind` with `block`, in its written form, as
+/// [`Commands::post`] takes it: `kind={ key=value … }`.
+pub fn write(kind: &str, block: Block) -> String {
+    Written { kind: kind.to_string(), entries: block.0 }.to_string()
+}
+
+/// A value in the written form: a word, a quoted text, or a block of
+/// entries. A word and a quoted text of the same characters are one value
+/// to the game's reader; they are told apart only to be written as given.
 #[derive(Debug, Clone, PartialEq)]
 enum Value {
     Word(String),
+    Quoted(String),
     Block(Vec<Entry>),
+}
+
+impl Value {
+    /// Its characters, when it is a word or a quoted text.
+    fn word(&self) -> Option<&str> {
+        match self {
+            Value::Word(w) | Value::Quoted(w) => Some(w),
+            Value::Block(_) => None,
+        }
+    }
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Word(w) => f.write_str(w),
+            Value::Quoted(t) => write!(f, "\"{t}\""),
+            Value::Block(entries) => braced(entries, f),
+        }
+    }
+}
+
+/// `{ entry entry }`, and `{ }` for none.
+fn braced(entries: &[Entry], f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_str("{ ")?;
+    for entry in entries {
+        write!(f, "{entry} ")?;
+    }
+    f.write_str("}")
 }
 
 /// An entry of a block: `key=value`, or a value alone, as in a list.
@@ -667,11 +764,27 @@ struct Entry {
     value: Value,
 }
 
+impl Display for Entry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.key {
+            Some(key) => write!(f, "{key}={}", self.value),
+            None => write!(f, "{}", self.value),
+        }
+    }
+}
+
 /// A command in its written form: `kind={ … }`.
 #[derive(Debug, PartialEq)]
 struct Written {
     kind: String,
     entries: Vec<Entry>,
+}
+
+impl Display for Written {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}=", self.kind)?;
+        braced(&self.entries, f)
+    }
 }
 
 impl Written {
@@ -723,23 +836,26 @@ fn came_back(given: &[Entry], again: &[Entry], path: &str) -> crate::Result<()> 
 }
 
 fn same(given: &Value, again: &Value, path: &str) -> crate::Result<()> {
-    match (given, again) {
-        (Value::Word(g), Value::Word(a)) => {
+    if let (Value::Block(g), Value::Block(a)) = (given, again) {
+        return came_back(g, a, path);
+    }
+    match (given.word(), again.word()) {
+        (Some(g), Some(a)) => {
             let number = |w: &str| w.parse::<f64>().ok();
             match g == a || number(g).is_some_and(|g| number(a) == Some(g)) {
                 true => Ok(()),
                 false => Err(format!("the game read {path}={g} as {a}")),
             }
         }
-        (Value::Block(g), Value::Block(a)) => came_back(g, a, path),
-        (Value::Word(g), Value::Block(_)) => Err(format!("the game read {path}={g} as a block")),
-        (Value::Block(_), Value::Word(a)) => Err(format!("the game read the block {path} as {a}")),
+        (Some(g), _) => Err(format!("the game read {path}={g} as a block")),
+        (_, a) => Err(format!("the game read the block {path} as {}", a.unwrap_or_default())),
     }
 }
 
 #[derive(Debug, PartialEq)]
 enum Token {
     Word(String),
+    Quoted(String),
     Equals,
     Open,
     Close,
@@ -754,7 +870,7 @@ fn tokens(text: &str) -> Vec<Token> {
             '=' => tokens.push(Token::Equals),
             '{' => tokens.push(Token::Open),
             '}' => tokens.push(Token::Close),
-            '"' => tokens.push(Token::Word(chars.by_ref().take_while(|&c| c != '"').collect())),
+            '"' => tokens.push(Token::Quoted(chars.by_ref().take_while(|&c| c != '"').collect())),
             c => {
                 let mut word = c.to_string();
                 while let Some(c) = chars.next_if(|c| !c.is_whitespace() && !matches!(c, '=' | '{' | '}' | '"')) {
@@ -774,7 +890,7 @@ fn block(tokens: &[Token], at: &mut usize) -> crate::Result<Vec<Entry>> {
         match tokens.get(*at) {
             None | Some(Token::Close) => return Ok(entries),
             Some(Token::Equals) => return Err("an = with no key before it".into()),
-            Some(Token::Word(key)) if tokens.get(*at + 1) == Some(&Token::Equals) => {
+            Some(Token::Word(key) | Token::Quoted(key)) if tokens.get(*at + 1) == Some(&Token::Equals) => {
                 *at += 2;
                 let value = value(tokens, at).map_err(|e| format!("{key}= {e}"))?;
                 entries.push(Entry { key: Some(key.clone()), value });
@@ -784,12 +900,16 @@ fn block(tokens: &[Token], at: &mut usize) -> crate::Result<Vec<Entry>> {
     }
 }
 
-/// The value at `at`: a word, or a block to its `}`.
+/// The value at `at`: a word, a quoted text, or a block to its `}`.
 fn value(tokens: &[Token], at: &mut usize) -> crate::Result<Value> {
     match tokens.get(*at) {
         Some(Token::Word(word)) => {
             *at += 1;
             Ok(Value::Word(word.clone()))
+        }
+        Some(Token::Quoted(text)) => {
+            *at += 1;
+            Ok(Value::Quoted(text.clone()))
         }
         Some(Token::Open) => {
             *at += 1;
@@ -862,6 +982,37 @@ mod tests {
         assert!(given.came_back(&one).unwrap_err().contains("ally did not come back"));
         let flat = Written::parse("c={ action=FRA allies={ 1 2 } ally=ENG ally=CAS }").unwrap();
         assert!(given.came_back(&flat).is_err());
+    }
+
+    #[test]
+    fn a_command_is_written_as_the_layer_reads_it_back() {
+        let block = Block::new()
+            .tag("country", *b"FRA")
+            .word("province", 183)
+            .quoted("unit", "western_medieval_infantry")
+            .block("members", Block::new().word("dummy", 2).value("yes").value("no"))
+            .id("leader", 12 << 32 | 49)
+            .block("empty", Block::new());
+        let text = write("buildunit", block.clone());
+        assert_eq!(
+            text,
+            r#"buildunit={ country="FRA" province=183 unit="western_medieval_infantry" members={ dummy=2 yes no } leader={ id=12 type=49 } empty={ } }"#
+        );
+        assert_eq!(Written::parse(&text).unwrap(), Written { kind: "buildunit".into(), entries: block.0 });
+        Written::parse(&text).unwrap().came_back(&Written::parse(&text).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn a_command_of_no_keys_and_a_negative_id() {
+        assert_eq!(write("increase_stability", Block::new()), "increase_stability={ }");
+        assert_eq!(write("u", Block::new().id("unit", u64::MAX)), "u={ unit={ id=-1 type=-1 } }");
+    }
+
+    #[test]
+    fn a_quoted_text_comes_back_as_the_same_word() {
+        let given = Written::parse(r#"c={ country="FRA" }"#).unwrap();
+        given.came_back(&Written::parse("c={ country=FRA }").unwrap()).unwrap();
+        assert!(given.came_back(&Written::parse("c={ country={ FRA } }").unwrap()).unwrap_err().ends_with("as a block"));
     }
 
     #[test]

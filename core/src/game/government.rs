@@ -3,6 +3,7 @@
 //! (docs/research/government.md, "Reforms" and "Rank"), and strengthening
 //! the government with military points (docs/research/power-spending.md,
 //! "The country's other spendings").
+use super::commands::{write, Block};
 use super::content::checks;
 use super::factions::{boost_faction, factions};
 use super::mechanics::{interact, mechanics};
@@ -211,18 +212,20 @@ pub fn reforms(Session { m, ctx, .. }: Session) -> GResult<Vec<ReformTier>> {
 
 /// Enacting a reform in the next tier.
 fn written_select(country: Tag, reform: &str) -> String {
-    format!("select_government_reform={{ members={{ dummy=\"{}\" dummy=\"{reform}\" }} }}", content::letters(country))
+    let members = Block::new().tag("dummy", country.letters()).quoted("dummy", reform);
+    write("select_government_reform", Block::new().block("members", members))
 }
 
 /// Changing a reached tier's reform, paying its progress: the tier's index,
 /// whose reform it replaces.
 fn written_change(country: Tag, reform: &str, tier: usize) -> String {
-    format!("change_to_government_reform={{ members={{ dummy=\"{}\" dummy=\"{reform}\" dummy={tier} dummy=no }} }}", content::letters(country))
+    let members = Block::new().tag("dummy", country.letters()).quoted("dummy", reform).word("dummy", tier).word("dummy", "no");
+    write("change_to_government_reform", Block::new().block("members", members))
 }
 
 /// Raising the rank by one, with the prestige the button gives.
 fn written_rank(country: Tag, rank: i32) -> String {
-    format!("government_rank_command={{ country=\"{}\" value={rank} prestige=yes }}", content::letters(country))
+    write("government_rank_command", Block::new().tag("country", country.letters()).word("value", rank).word("prestige", "yes"))
 }
 
 /// Adopts a reform for the player, as its button does.

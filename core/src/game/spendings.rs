@@ -7,6 +7,7 @@
 //! panel's spendings"). Each asks the game's own check, which writes the
 //! button's tooltip reasons and checks its cost, and posts the command the
 //! button posts.
+use super::commands::{write, Block};
 use super::{action, army, power, with_state, Ctx, GResult, Session, Tag};
 use crate::{
     game_string,
@@ -119,12 +120,20 @@ fn resource(power: PowerKind) -> Resource {
 
 /// The spend_power command's written form, as the game's writer writes its
 /// values: `data` only when it is not 0, `second` only when it is not −1,
-/// then the kind and the power, then `extra`.
-fn written(tag: Tag, kind: i32, power: PowerKind, data: i32, second: i32, extra: &str) -> String {
-    let data = if data == 0 { String::new() } else { format!("data={data} ") };
-    let second = if second == -1 { String::new() } else { format!("second={second} ") };
-    let letters = String::from_utf8_lossy(&tag.letters()).into_owned();
-    format!("spend_power_command={{ country=\"{letters}\" power={{ {data}{second}category={kind} skill={}{extra} }} }}", power as i32)
+/// then the kind and the power, then `extra`, a block under its key.
+fn written(tag: Tag, kind: i32, power: PowerKind, data: i32, second: i32, extra: Option<(&str, Block)>) -> String {
+    let mut spent = Block::new();
+    if data != 0 {
+        spent = spent.word("data", data);
+    }
+    if second != -1 {
+        spent = spent.word("second", second);
+    }
+    spent = spent.word("category", kind).word("skill", power as i32);
+    if let Some((key, block)) = extra {
+        spent = spent.block(key, block);
+    }
+    write("spend_power_command", Block::new().tag("country", tag.letters()).block("power", spent))
 }
 
 // ---------- the province view ----------
@@ -215,7 +224,7 @@ pub fn press_in_province(Session { m, ctx, commands, .. }: Session, id: u32, whi
     let choice = in_province(m, &ctx, province, which)?;
     action::carry_out(commands, &choice, which.doing(), || {
         Ok(match which.spending() {
-            Some((kind, power)) => written(ctx.player, kind, power, id as i32, -1, ""),
+            Some((kind, power)) => written(ctx.player, kind, power, id as i32, -1, None),
             None => raze_written(ctx.player, id),
         })
     })
@@ -224,7 +233,7 @@ pub fn press_in_province(Session { m, ctx, commands, .. }: Session, id: u32, whi
 /// The raze command: the country by its index in the game's countries, the
 /// province by its number.
 fn raze_written(tag: Tag, province: u32) -> String {
-    format!("raze_province={{ country={} province={province} }}", tag.index())
+    write("raze_province", Block::new().word("country", tag.index()).word("province", province))
 }
 
 // ---------- the army panel ----------
@@ -297,7 +306,7 @@ pub fn press_by_army(Session { m, ctx, commands, .. }: Session, id: u64, which: 
     let unit = army::own_land(m, &ctx, id)?;
     let choice = by_army(m, &ctx, unit, which)?;
     let (data, second) = halves(id);
-    action::carry_out(commands, &choice, which.doing(), || Ok(written(ctx.player, which.kind(), PowerKind::Mil, data, second, "")))
+    action::carry_out(commands, &choice, which.doing(), || Ok(written(ctx.player, which.kind(), PowerKind::Mil, data, second, None)))
 }
 
 // ---------- the siege view ----------
@@ -311,7 +320,7 @@ pub fn sorties(m: &Memory, ctx: &Ctx, province: usize, id: u32) -> GResult<Choic
 
 /// The sorties' command for the province.
 pub fn sorties_written(tag: Tag, id: u32) -> String {
-    written(tag, SIEGE_SORTIES, PowerKind::Mil, id as i32, -1, "")
+    written(tag, SIEGE_SORTIES, PowerKind::Mil, id as i32, -1, None)
 }
 
 // ---------- the stability view's rebels ----------
@@ -354,8 +363,8 @@ pub fn harsh_treatment(m: &Memory, ctx: &Ctx, faction: &Faction) -> GResult<Choi
 
 /// The harsh treatment's command: the faction by its ID, `{ id type }`.
 pub fn harsh_written(tag: Tag, faction: u64) -> String {
-    let extra = format!(" rebel_faction={{ id={} type={} }}", (faction >> 32) as i32, faction as u32 as i32);
-    written(tag, HARSH_TREATMENT, PowerKind::Mil, 0, -1, &extra)
+    let id = Block::new().word("id", (faction >> 32) as i32).word("type", faction as u32 as i32);
+    written(tag, HARSH_TREATMENT, PowerKind::Mil, 0, -1, Some(("rebel_faction", id)))
 }
 
 #[cfg(test)]
@@ -366,9 +375,12 @@ mod tests {
 
     #[test]
     fn each_button_posts_its_spending() {
-        assert_eq!(written(FRA, MOVE_CAPITAL, PowerKind::Adm, 183, -1, ""), r#"spend_power_command={ country="FRA" power={ data=183 category=16 skill=0 } }"#);
         assert_eq!(
-            written(FRA, SCORCH_EARTH, PowerKind::Mil, 54, 7, ""),
+            written(FRA, MOVE_CAPITAL, PowerKind::Adm, 183, -1, None),
+            r#"spend_power_command={ country="FRA" power={ data=183 category=16 skill=0 } }"#
+        );
+        assert_eq!(
+            written(FRA, SCORCH_EARTH, PowerKind::Mil, 54, 7, None),
             r#"spend_power_command={ country="FRA" power={ data=54 second=7 category=13 skill=2 } }"#
         );
         assert_eq!(sorties_written(FRA, 183), r#"spend_power_command={ country="FRA" power={ data=183 category=30 skill=2 } }"#);

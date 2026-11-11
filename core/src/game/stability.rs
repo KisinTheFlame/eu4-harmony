@@ -3,6 +3,7 @@
 //! buttons do (docs/research/power-spending.md, "Stability" and "The
 //! country's other spendings"), and treating a rebel faction harshly with
 //! military points, as its rebels' buttons do ([`super::spendings`]).
+use super::commands::{write, Block};
 use super::{
     action,
     power::{self, BOOST_STABILITY, CAN_INCREASE_STABILITY, CAN_REDUCE_WAR_EXHAUSTION},
@@ -75,7 +76,7 @@ fn native_policy(m: &Memory, ctx: &Ctx, policy: usize) -> GResult<Choice> {
 
 /// The native policy command: the country and the policy's number.
 fn native_policy_written(tag: super::Tag, policy: usize) -> String {
-    format!("set_native_policy={{ country=\"{}\" policy={policy} }}", String::from_utf8_lossy(&tag.letters()))
+    write("set_native_policy", Block::new().tag("country", tag.letters()).word("policy", policy))
 }
 
 /// Whether the player can reduce war exhaustion now, with the button's

@@ -3,6 +3,7 @@
 //! lists them (docs/research/triggers.md, "Decisions"); and taking one,
 //! through the game's own command (docs/research/government.md,
 //! "Decisions").
+use super::commands::{write, Block};
 use super::{action, conditions, content, GResult, Session};
 use crate::containers;
 use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
@@ -61,8 +62,8 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Decision>> {
 /// in, the player's country, with the seed its random effects draw from, as
 /// the decisions view writes it.
 fn written(country: super::Tag, decision: &str, seed: u32) -> String {
-    let country = content::letters(country);
-    format!("execute_decision_command={{ decision=\"{decision}\" scope={{ country=\"{country}\" scope_is_valid=yes seed={seed} random={seed} }} }}")
+    let scope = Block::new().tag("country", country.letters()).word("scope_is_valid", "yes").word("seed", seed).word("random", seed);
+    write("execute_decision_command", Block::new().quoted("decision", decision).block("scope", scope))
 }
 
 /// A seed for a decision's random effects, from the date and its key, as

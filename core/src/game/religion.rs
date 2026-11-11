@@ -2,6 +2,7 @@
 //! aspects and the rest of the view's buttons, inviting an Islamic school's
 //! scholar, and the province view's holy orders, through the game's own
 //! commands, with the view's own checks (docs/research/religion.md).
+use super::commands::{write, Block};
 use super::{action, conditions, content, power, GResult, Session, Tag};
 use crate::objects::campaign::country;
 use crate::{
@@ -584,7 +585,10 @@ fn secondary_candidates(m: &Memory, country: usize) -> GResult<Vec<usize>> {
 /// religion by its key and the flag, its keys the game's tokens' names.
 fn secondary_text(m: &Memory, country: Tag, religion: usize) -> GResult<String> {
     let name = |token: u32| super::commands::type_name(m, token).ok_or_else(|| format!("no token {token:#x}"));
-    Ok(format!("convert_to_religion={{ country=\"{}\" {}={} {}=yes }}", content::letters(country), name(RELIGION_TOKEN)?, religion_key(m, religion)?, name(SECONDARY_TOKEN)?))
+    Ok(write(
+        "convert_to_religion",
+        Block::new().tag("country", country.letters()).word(&name(RELIGION_TOKEN)?, religion_key(m, religion)?).word(&name(SECONDARY_TOKEN)?, "yes"),
+    ))
 }
 
 /// The teachings of the country's religion's gurus, guru by guru, none for
@@ -629,7 +633,7 @@ pub fn select_teaching(Session { m, ctx, commands, .. }: Session, args::SelectTe
     if teachings_taken(m, ctx.country)?.contains(&teaching) {
         return Err(content::checks::not_now("the player has taken this teaching already"));
     }
-    let text = format!("select_teaching={{ members={{ dummy=\"{}\" dummy=\"{key}\" }} }}", content::letters(ctx.player));
+    let text = write("select_teaching", Block::new().block("members", Block::new().tag("dummy", ctx.player.letters()).quoted("dummy", &key)));
     action::carry_out(commands, &teaching_choice(m, ctx.country, teaching)?, "take this teaching", || Ok(text))
 }
 
@@ -701,7 +705,7 @@ fn scholar_text(m: &Memory, country: Tag, school: usize) -> GResult<String> {
     let name = |token: u32| super::commands::type_name(m, token).ok_or_else(|| format!("no token {token:#x}"));
     let group = game_string::key(m, m.ptr(school + SCHOOL_GROUP)? + GROUP_KEY)?;
     let key = game_string::key(m, school + SCHOOL_KEY)?;
-    Ok(format!("invite_scholar={{ country=\"{}\" school={{ {}=\"{group}\" {}=\"{key}\" }} }}", content::letters(country), name(GROUP_TOKEN)?, name(SCHOOL_TOKEN)?))
+    Ok(write("invite_scholar", Block::new().tag("country", country.letters()).block("school", Block::new().quoted(&name(GROUP_TOKEN)?, group).quoted(&name(SCHOOL_TOKEN)?, key))))
 }
 
 /// Invites a scholar of a school of the player's religion's group.
@@ -758,7 +762,7 @@ fn order_choice(m: &Memory, player: Tag, country: usize, order: usize) -> GResul
 /// The establish command: a province of the state, the order's key and the
 /// country, in that order, as its members' writer writes them.
 fn holy_order_text(country: Tag, province: u32, key: &str) -> String {
-    format!("establish_holy_order={{ members={{ dummy={province} dummy=\"{key}\" dummy=\"{}\" }} }}", content::letters(country))
+    write("establish_holy_order", Block::new().block("members", Block::new().word("dummy", province).quoted("dummy", key).tag("dummy", country.letters())))
 }
 
 /// Establishes a holy order in a state of the player's.
@@ -1035,11 +1039,11 @@ fn find(m: &Memory, list: Vec<usize>, key_at: usize, kind: &str, key: &str) -> G
 /// The commands the view's buttons post: the deity or the cult by its key
 /// and the country.
 fn deity_text(country: Tag, deity: &str) -> String {
-    format!("personal_deity={{ personal_deity=\"{deity}\" country=\"{}\" }}", content::letters(country))
+    write("personal_deity", Block::new().quoted("personal_deity", deity).tag("country", country.letters()))
 }
 
 fn cult_text(country: Tag, cult: &str) -> String {
-    format!("fetishist_cult={{ country=\"{}\" fetishist_cult=\"{cult}\" }}", content::letters(country))
+    write("fetishist_cult", Block::new().tag("country", country.letters()).quoted("fetishist_cult", cult))
 }
 
 /// Follows a personal deity.
@@ -1067,11 +1071,11 @@ pub fn choose_cult(Session { m, ctx, commands, .. }: Session, args::ChooseCult {
 /// slot, which the game then finds itself (a free one to add to, the
 /// aspect's own to remove).
 fn aspect_text(country: Tag, aspect: &str, operation: u8) -> String {
-    format!("change_church_aspect={{ aspect=\"{aspect}\" country=\"{}\" operation={operation} }}", content::letters(country))
+    write("change_church_aspect", Block::new().quoted("aspect", aspect).tag("country", country.letters()).word("operation", operation))
 }
 
 fn blessing_text(country: Tag, blessing: &str) -> String {
-    format!("change_blessing={{ aspect=\"{blessing}\" country=\"{}\" }}", content::letters(country))
+    write("change_blessing", Block::new().quoted("aspect", blessing).tag("country", country.letters()))
 }
 
 /// The player's church, or the refusal for a religion without one.
@@ -1113,7 +1117,7 @@ fn reform_text(country: Tag, index: i32, power: PowerKind) -> String {
 }
 
 fn reform_religion_text(country: Tag) -> String {
-    format!("reform_religion_command={{ country=\"{}\" }}", content::letters(country))
+    write("reform_religion_command", Block::new().tag("country", country.letters()))
 }
 
 /// Passes a religious reform.
@@ -1145,7 +1149,7 @@ pub fn reform_religion(Session { m, ctx, commands, .. }: Session, _: args::Refor
 /// on: its writer writes the effect by its key, and its reader looks the
 /// key up.
 fn fervor_text(country: Tag, key: &str) -> String {
-    format!("toggle_fervor_effect={{ country=\"{}\" effect={key} }}", content::letters(country))
+    write("toggle_fervor_effect", Block::new().tag("country", country.letters()).word("effect", key))
 }
 
 /// The player's fervor and the effect named `key` the view lists, or the
@@ -1180,12 +1184,12 @@ pub fn disable_fervor(Session { m, ctx, commands, .. }: Session, args::DisableFe
 
 /// The icon command: the icon by its place in the religion's icons.
 fn icon_text(country: Tag, icon: usize) -> String {
-    format!("commission_icon={{ country=\"{}\" icon={icon} }}", content::letters(country))
+    write("commission_icon", Block::new().tag("country", country.letters()).word("icon", icon))
 }
 
 /// The patriarch command: a province of the state.
 fn consecrate_text(country: Tag, province: u32) -> String {
-    format!("consecrate_patriarch_command={{ country=\"{}\" province={province} }}", content::letters(country))
+    write("consecrate_patriarch_command", Block::new().tag("country", country.letters()).word("province", province))
 }
 
 /// Commissions an icon.
@@ -1220,7 +1224,7 @@ pub fn consecrate_metropolitan(Session { m, ctx, commands, .. }: Session, args::
 
 /// The harmonize command: a religion by its number, or −1 to stop.
 fn harmonize_text(country: Tag, religion: i32) -> String {
-    format!("harmonize_with_religion={{ country=\"{}\" religion={religion} }}", content::letters(country))
+    write("harmonize_with_religion", Block::new().tag("country", country.letters()).word("religion", religion))
 }
 
 /// Starts harmonizing with a religion, or its group when it is of another.

@@ -8,6 +8,7 @@
 //! their reasons as the view's tooltip shows them. The framework writes that
 //! command, has the game read it, asks its checks, and posts it through the
 //! command layer.
+use super::commands::{write, Block};
 use super::{action, commands, countries, country, fail, with_state, Ctx, GResult, Session, Status, Tag};
 use crate::{
     game_string,
@@ -269,7 +270,7 @@ fn release_command(m: &Memory, ctx: &Ctx, subject: Tag) -> GResult<String> {
 }
 
 fn release_written(first: &str, second: &str, subject: Tag, overlord: Tag) -> String {
-    format!("release_colony={{ {first}=\"{}\" {second}=\"{}\" }}", letters(subject), letters(overlord))
+    write("release_colony", Block::new().tag(first, subject.letters()).tag(second, overlord.letters()))
 }
 
 /// Whether the player can release `subject`, the country at `country`, as
@@ -374,10 +375,18 @@ fn ongoing(m: &Memory, subject: usize, object: usize) -> GResult<bool> {
 /// The `subject` command that carries out the interaction, or stops it; the
 /// province, when there is one, is its `index`.
 fn command(ctx: &Ctx, subject: Tag, i: &Interaction, stop: bool, third_party: Option<Tag>, province: Option<u32>) -> String {
-    let third = third_party.map(|t| format!(" third_party=\"{}\"", letters(t))).unwrap_or_default();
-    let cancel = if stop { " cancel=yes" } else { "" };
-    let index = province.map(|p| format!(" index={p}")).unwrap_or_default();
-    format!("subject={{ overlord=\"{}\" subject=\"{}\"{third}{cancel} interaction={}{index} }}", letters(ctx.player), letters(subject), i.token)
+    let mut block = Block::new().tag("overlord", ctx.player.letters()).tag("subject", subject.letters());
+    if let Some(third) = third_party {
+        block = block.tag("third_party", third.letters());
+    }
+    if stop {
+        block = block.word("cancel", "yes");
+    }
+    block = block.word("interaction", i.token);
+    if let Some(province) = province {
+        block = block.word("index", province);
+    }
+    commands::write("subject", block)
 }
 
 /// Whether the command's check of the interaction lets the player, and its
