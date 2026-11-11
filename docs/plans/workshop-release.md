@@ -1,6 +1,6 @@
 # Workshop release plan
 
-Status: decided 2026-11-11; no part built yet. The decision to ship the framework on the Steam Workshop is [ADR the-framework-ships-on-the-workshop](../adr/2026-11-11-the-framework-ships-on-the-workshop.md), which supersedes the line of [v1.md](v1.md) that kept it off the Workshop. Adds Harmony to [GLOSSARY.md](../../GLOSSARY.md).
+Status: decided 2026-11-11; W1 to W7 built 2026-11-11, W4 and W5 and the core's side of W1 tried in the game ([The settings window without explanations, and the name Harmony](../prototype-log/2026-11-11-harmony-settings-window.md)); the proxy's own side of W1 and W8 wait for the first upload. The decision to ship the framework on the Steam Workshop is [ADR the-framework-ships-on-the-workshop](../adr/2026-11-11-the-framework-ships-on-the-workshop.md), which supersedes the line of [v1.md](v1.md) that kept it off the Workshop. Adds Harmony to [GLOSSARY.md](../../GLOSSARY.md).
 
 ## Goal and scope
 
