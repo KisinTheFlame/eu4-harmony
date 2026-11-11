@@ -46,9 +46,10 @@ usage:
       eu4.exe no test game's. The owner is this checkout's folder's name unless
       --owner names another.
   cargo xtask install [--uninstall] [--game-dir <dir>]
-      With no game running, copies the player's files as last built, a
-      player build or a developer build, into the game folder: version.dll in its root, the core and
-      eu4-harmony.exe in eu4-harmony\\. A version.dll there that is not ours
+      With no game running, copies the files the game loads as last built, a
+      player build or a developer build, into the game folder: version.dll in
+      its root, the core in eu4-harmony\\. The command line tool is not among
+      them: run the one in target\\. A version.dll there that is not ours
       is moved to eu4-harmony\\backup\\ and never loaded; the repository's
       dev.toml goes into eu4-harmony\\ too, and one installed before is
       removed when the repository has none. --uninstall removes them all and

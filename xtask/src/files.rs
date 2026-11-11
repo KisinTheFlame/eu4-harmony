@@ -6,18 +6,26 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// The files the release build makes that a player puts into the game
-/// folder: each one's name in the build output, and its path in the game
-/// folder. The README's installing section names the same files.
-const PLAYER_FILES: [(&str, &str); 3] = [
+/// The files the release build makes that the game loads: each one's name in
+/// the build output, and its path in the game folder. `install` puts these
+/// into the game folder.
+const GAME_FILES: [(&str, &str); 2] = [
     // The proxy, which loads the core into eu4.exe
     // (ADR version-proxy-injection).
     ("version.dll", "version.dll"),
     ("eu4_harmony_core.dll", "eu4-harmony\\eu4_harmony_core.dll"),
-    // The command line tool, for remote control (eu4-harmony game) and for
-    // making mods.
-    ("eu4-harmony.exe", "eu4-harmony\\eu4-harmony.exe"),
 ];
+
+/// The command line tool, for remote control (eu4-harmony game) and for
+/// making mods, as the player package holds it. `install` leaves it out: a
+/// developer runs the one in `target\`.
+const TOOL: (&str, &str) = ("eu4-harmony.exe", "eu4-harmony\\eu4-harmony.exe");
+
+/// The files a player puts into the game folder, as the player package holds
+/// them. The README's installing section names the same files.
+fn player_files() -> impl Iterator<Item = (&'static str, &'static str)> {
+    GAME_FILES.into_iter().chain([TOOL])
+}
 
 /// The developer build's options, copied from the repository.
 const DEV_OPTIONS: &str = "eu4-harmony\\dev.toml";
@@ -70,8 +78,8 @@ pub fn install(args: &Args) -> Result<()> {
             rename(&backup, &proxy)?;
             println!("restored the backed-up version.dll to {}", proxy.display());
         }
-        // Everything else under eu4-harmony\ is ours: the core, the command
-        // line tool, dev.toml, and the logs the proxy, and the core when it
+        // Everything else under eu4-harmony\ is ours: the core, dev.toml, a
+        // command line tool installed before, and the logs the proxy, and the core when it
         // cannot find the user folder, write there.
         if harmony.exists() {
             fs::remove_dir_all(&harmony).map_err(|e| format!("cannot remove {}: {e}", harmony.display()))?;
@@ -113,14 +121,14 @@ fn install_built(root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Copies the player's files from the build output `out`, and the options
-/// `options` if there are any, into the game folder `root`, keeping aside a
-/// `version.dll` not ours and leaving ours alone when it is as built; the
-/// files it installed.
+/// Copies the files the game loads from the build output `out`, and the
+/// options `options` if there are any, into the game folder `root`, keeping
+/// aside a `version.dll` not ours and leaving ours alone when it is as built;
+/// the files it installed.
 pub fn install_from(out: &Path, options: &Path, root: &Path) -> Result<Vec<PathBuf>> {
     let proxy = root.join("version.dll");
     let backup = root.join(KEPT_PROXY);
-    for (name, _) in PLAYER_FILES {
+    for (name, _) in GAME_FILES {
         if !out.join(name).is_file() {
             return Err(format!("missing {}; run cargo build --release", out.join(name).display()));
         }
@@ -135,7 +143,7 @@ pub fn install_from(out: &Path, options: &Path, root: &Path) -> Result<Vec<PathB
         println!("moved the existing version.dll to {} (kept, never loaded)", backup.display());
     }
     let mut installed = Vec::new();
-    for (name, to) in PLAYER_FILES {
+    for (name, to) in GAME_FILES {
         let from = out.join(name);
         let to = root.join(to);
         // Even the same bytes cannot be written over a loaded DLL.
@@ -170,7 +178,7 @@ pub fn release(args: &Args) -> Result<()> {
     // build, or a developer build, built last is never packed.
     build_in(PACKAGE_PROFILE, None)?;
     let from = built_package();
-    for (name, _) in PLAYER_FILES {
+    for (name, _) in player_files() {
         if !from.join(name).is_file() {
             return Err(format!("missing {} after cargo build --profile {PACKAGE_PROFILE}", from.join(name).display()));
         }
@@ -181,7 +189,7 @@ pub fn release(args: &Args) -> Result<()> {
     if zip.exists() {
         remove_file(&zip)?;
     }
-    for (name, to) in PLAYER_FILES {
+    for (name, to) in player_files() {
         let to = out.join(to);
         create_dir(to.parent().expect("a file's folder"))?;
         copy(&from.join(name), &to)?;
@@ -191,12 +199,12 @@ pub fn release(args: &Args) -> Result<()> {
     let system = PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into())).join("System32");
     let mut tar = std::process::Command::new(system.join("tar.exe"));
     tar.arg("-a").arg("-c").arg("-f").arg(&zip).arg("-C").arg(&out);
-    let mut top: Vec<&str> = PLAYER_FILES.iter().map(|(_, to)| to.split('\\').next().expect("a path")).collect();
+    let mut top: Vec<&str> = player_files().map(|(_, to)| to.split('\\').next().expect("a path")).collect();
     top.dedup();
     tar.args(&top);
     run(tar, "tar")?;
     println!("packed:\n  {}\n  {}", out.display(), zip.display());
-    for (_, to) in PLAYER_FILES {
+    for (_, to) in player_files() {
         println!("    {to}");
     }
     Ok(())
@@ -308,6 +316,7 @@ mod tests {
         remove_old_proxies(&root);
         assert_eq!(old(), 0, "a later install removes it");
         assert!(!root.join(KEPT_PROXY).exists(), "our own proxy is not kept as a foreign one");
+        assert!(!root.join(TOOL.1).exists(), "the command line tool is not installed");
         let _ = fs::remove_dir_all(dir);
     }
 }
