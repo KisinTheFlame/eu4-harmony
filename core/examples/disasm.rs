@@ -27,7 +27,8 @@
 //!
 //! Numbers are hex, with or without `0x`. Addresses are RVAs, branch targets
 //! too; a RIP-relative operand gets its target and, when text is there, the
-//! text.
+//! text. A target the index of the game's addresses names
+//! (`docs/research/addresses.toml`) gets its name, in parentheses.
 use eu4_harmony_core::analysis;
 use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, IntelFormatter, Mnemonic};
 
@@ -41,6 +42,27 @@ fn text_at(image: &[u8], rva: usize) -> Option<String> {
     let end = bytes.iter().take(80).position(|&b| b == 0)?;
     let text = &bytes[..end];
     (end > 2 && text.iter().all(|&b| (0x20..0x7f).contains(&b) || b >= 0x80)).then(|| String::from_utf8_lossy(text).into_owned())
+}
+
+/// The names the index of the game's addresses gives, by RVA.
+fn names() -> &'static std::collections::HashMap<usize, String> {
+    static NAMES: std::sync::OnceLock<std::collections::HashMap<usize, String>> = std::sync::OnceLock::new();
+    NAMES.get_or_init(|| {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/research/addresses.toml");
+        let Ok(table) = std::fs::read_to_string(path).unwrap_or_default().parse::<toml::Table>() else { return Default::default() };
+        table
+            .get("addresses")
+            .and_then(|a| a.as_table())
+            .into_iter()
+            .flatten()
+            .filter_map(|(rva, entry)| Some((hex(rva), entry.get("name")?.as_str()?.to_string())))
+            .collect()
+    })
+}
+
+/// ` (name)` for an RVA the index names, else nothing.
+fn named(rva: usize) -> String {
+    names().get(&rva).map(|name| format!(" ({name})")).unwrap_or_default()
 }
 
 fn formatter() -> IntelFormatter {
@@ -93,10 +115,12 @@ fn disassemble(image: &[u8], rva: usize, count: Option<usize>) {
         let mut note = String::new();
         if instruction.is_ip_rel_memory_operand() {
             let target = instruction.ip_rel_memory_address() as usize;
-            note = format!("  [{target:#x}]");
+            note = format!("  [{target:#x}]{}", named(target));
             if let Some(text) = text_at(image, target) {
                 note += &format!(" {text:?}");
             }
+        } else if instruction.is_call_near() || instruction.is_jmp_near() {
+            note = named(instruction.near_branch_target() as usize);
         }
         println!("{:8x}: {out}{note}", instruction.ip());
         if leaf && instruction.mnemonic() == Mnemonic::Ret && image.get(instruction.next_ip() as usize) == Some(&0xcc) {

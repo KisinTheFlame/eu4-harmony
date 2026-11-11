@@ -12,6 +12,8 @@ eu4-harmony-folders = { path = "../folders" }
 eu4-harmony-remote = { path = "../remote" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# The index of the game's addresses.
+toml = { workspace = true }
 windows = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_System_Com",
