@@ -189,15 +189,12 @@ pub fn run(args: &Args) -> Result<()> {
     sample(out, decimal(args, "seconds", 60.0)?, decimal(args, "hz", 50.0)?, slice, args.flag("wait"), args.flag("threads"), &waiting_in, test_game)
 }
 
-/// The game to sample: the test game `test_game` names, else this
-/// checkout's while it runs, else the only `eu4.exe`; none while it is not
-/// running, and an error when several run and none is named.
+/// The game to sample: the test game `test_game` names, else the only
+/// `eu4.exe`; none while it is not running, and an error when several run
+/// and none is named.
 fn the_game(test_game: Option<&str>) -> Result<Option<u32>> {
     if let Some(name) = test_game {
         return Ok(crate::claim::game_named(name));
-    }
-    if let Some(id) = crate::claim::game_of(&crate::claim::owner_of(None)) {
-        return Ok(Some(id));
     }
     match eu4_harmony_client::game::processes()?.as_slice() {
         [] => Ok(None),

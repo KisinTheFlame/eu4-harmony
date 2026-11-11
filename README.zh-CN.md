@@ -144,10 +144,10 @@ cargo xtask release        # 打出玩家包
 
 ```powershell
 cargo build --release --features eu4-harmony-core/dev-test-games
-cargo xtask game claim --purpose "try my change"
-cargo xtask game start     # 用这个构建隐藏启动测试游戏
-eu4-harmony game --test-game <本检出的文件夹名> session get
-cargo xtask game release   # 留下日志，删掉其余
+cargo xtask game claim --owner mine --purpose "try my change"
+cargo xtask game start --owner mine     # 用这个构建隐藏启动测试游戏
+eu4-harmony game --test-game mine session get
+cargo xtask game release --owner mine   # 留下日志，删掉其余
 ```
 
 框架和游戏一样，按游戏自己的 `-userdir` 找用户文件夹。

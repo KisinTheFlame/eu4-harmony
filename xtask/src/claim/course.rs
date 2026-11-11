@@ -302,25 +302,23 @@ pub fn status<M: Machine>(m: &M) -> Result<()> {
 }
 
 /// The claim a run plays in, such as the scenario runner's: one the run
-/// made, which it releases when it ends, or one its owner held already,
-/// which stays theirs.
+/// made, which it releases when it ends.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Run {
     pub owner: String,
-    made: bool,
 }
 
 /// How often a run looks whether it is interrupted.
 const RUN_LOOKS_EVERY: Duration = Duration::from_secs(1);
 
-/// Holds a test game for a run of `owner`'s: the claim `owner` holds
-/// already, else a new one.
-pub fn hold_for_run<M: Machine>(m: &M, owner: &str, purpose: &str, game_dir: &Path) -> Result<Run> {
-    if held_by(m, owner).is_ok() {
-        return Ok(Run { owner: owner.into(), made: false });
+/// Claims a test game for a run of `owner`'s; one `owner` holds already is
+/// another's, and refused.
+pub fn claim_for_run<M: Machine>(m: &M, owner: &str, purpose: &str, game_dir: &Path) -> Result<Run> {
+    if let Ok(held) = held_by(m, owner) {
+        return Err(format!("{owner} holds a test game already, so a run cannot claim it: {}", held.describe()));
     }
     claim(m, owner, purpose, game_dir)?;
-    Ok(Run { owner: owner.into(), made: true })
+    Ok(Run { owner: owner.into() })
 }
 
 /// Ends the run's test game, if it runs.
@@ -336,7 +334,7 @@ pub fn end_run_game<M: Machine>(m: &M, run: &Run) {
 /// game once the run is `interrupted`, so that the step waiting on it ends;
 /// then, whatever `play`
 /// comes to, an error, a panic or `interrupted`, ends the test game and
-/// releases a claim the run made. An error comes back with the release's
+/// releases the run's claim. An error comes back with the release's
 /// own; a panic goes on once the claim is released.
 pub fn play_within<M: Machine + Sync, T>(m: &M, run: &Run, interrupted: &(dyn Fn() -> bool + Sync), play: impl FnOnce() -> Result<T>) -> Result<T> {
     let done = AtomicBool::new(false);
@@ -356,7 +354,7 @@ pub fn play_within<M: Machine + Sync, T>(m: &M, run: &Run, interrupted: &(dyn Fn
         done.store(true, Ordering::SeqCst);
         played
     });
-    let given = if run.made { release(m, &run.owner) } else { Ok(()) };
+    let given = release(m, &run.owner);
     given_back(played, given)
 }
 
@@ -513,19 +511,18 @@ mod tests {
         assert_eq!(m.did()[..2], [Did::Waited, Did::Prepare]);
     }
 
-    /// A run releases the claim it made whatever it came to, and leaves one
-    /// its owner held before.
+    /// A run releases its claim whatever it came to, and claims no test
+    /// game its owner holds already.
     #[test]
-    fn a_run_releases_only_the_claim_it_made() {
+    fn a_run_releases_its_claim_and_takes_none_held() {
         let m = Recorded::new(State::default());
-        let run = hold_for_run(&m, "a", "scenarios", game_dir()).unwrap();
+        let run = claim_for_run(&m, "a", "scenarios", game_dir()).unwrap();
         let failed: Result<()> = play_within(&m, &run, &|| false, || Err("a check failed".into()));
         assert_eq!(failed.unwrap_err(), "a check failed");
         assert!(m.state.lock().unwrap().claims.is_empty());
 
         let m = Recorded::new(State { claims: vec![held("a")] });
-        let run = hold_for_run(&m, "a", "scenarios", game_dir()).unwrap();
-        play_within(&m, &run, &|| false, || Ok(())).unwrap();
+        assert!(claim_for_run(&m, "a", "scenarios", game_dir()).unwrap_err().contains("holds a test game already"));
         assert_eq!(m.state.lock().unwrap().claims.len(), 1);
     }
 }
