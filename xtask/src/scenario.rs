@@ -331,6 +331,7 @@ pub fn run(raw: &[String]) -> Result<()> {
     let jobs = jobs.min(claim::AT_ONCE);
     let out = asked.out.clone().unwrap_or_else(|| repo().join("target").join("scenarios").join(stamp().1));
     std::fs::create_dir_all(&out).map_err(|e| format!("cannot make {}: {e}", out.display()))?;
+    println!("report folder: {}", out.display());
     let interrupts = Interrupts::catch();
     let ended = play_at_once(&playing, &owner, jobs, &game_dir, &out);
     drop(interrupts);
@@ -378,15 +379,21 @@ unsafe extern "system" fn on_ctrl(kind: u32) -> windows_sys::core::BOOL {
 
 /// Writes the report of the scenarios `played`; fails when one did not pass.
 fn reported(owner: &str, played: &[Value], out: &Path) -> Result<()> {
-    let report = json!({ "date": stamp().0, "owner": owner, "scenarios": played });
-    write(&out.join("report.json"), &serde_json::to_string_pretty(&report).expect("JSON"))?;
-    write(&out.join("report.md"), &markdown(&report))?;
+    write_report(owner, played, &[], out)?;
     println!("report: {}", out.join("report.md").display());
     let failed = played.iter().filter(|p| p["outcome"] != "passed").count();
     if failed > 0 {
         return Err(format!("{failed} of {} scenarios did not pass", played.len()));
     }
     Ok(())
+}
+
+/// Writes the report of the scenarios `played` so far, and of those still
+/// `to_come`, which a run in progress has.
+fn write_report(owner: &str, played: &[Value], to_come: &[&str], out: &Path) -> Result<()> {
+    let report = json!({ "date": stamp().0, "owner": owner, "scenarios": played, "to_come": to_come });
+    write(&out.join("report.json"), &serde_json::to_string_pretty(&report).expect("JSON"))?;
+    write(&out.join("report.md"), &markdown(&report))
 }
 
 /// Plays the scenarios `jobs` at a time, each in a test game of its own
@@ -417,7 +424,15 @@ fn play_at_once(playing: &[(&dyn Scenario, Parameters)], owner: &str, jobs: usiz
     let play_one = |i: usize| {
         let (scenario, parameters) = &playing[i];
         let entry = play_claimed(*scenario, parameters, &format!("{owner}-{}-{}", scenario.name(), suffix()), &build_of(i), game_dir, out);
-        played.lock().unwrap_or_else(|e| e.into_inner())[i] = Some(entry);
+        let mut played = played.lock().unwrap_or_else(|e| e.into_inner());
+        played[i] = Some(entry);
+        // The report so far, after each scenario: what a long run has come
+        // to while it goes on.
+        let so_far: Vec<Value> = played.iter().flatten().cloned().collect();
+        let to_come: Vec<&str> = (0..playing.len()).filter(|&j| played[j].is_none()).map(|j| playing[j].0.name()).collect();
+        if let Err(e) = write_report(owner, &so_far, &to_come, out) {
+            println!("the report so far: {e}");
+        }
     };
     std::thread::scope(|s| {
         for _ in 0..jobs {
@@ -644,6 +659,10 @@ fn markdown(report: &Value) -> String {
     ];
     for s in &scenarios {
         md.push(format!("| {} | {} | {} | {} | {} |", text(&s["name"]), text(&s["build"]), text(&s["outcome"]), text(&s["ended"]), text(&s["minutes"])));
+    }
+    let to_come: Vec<String> = report["to_come"].as_array().into_iter().flatten().map(text).collect();
+    if !to_come.is_empty() {
+        md.extend([String::new(), format!("Still playing or to play: {}.", to_come.join(", "))]);
     }
     for s in &scenarios {
         md.extend([String::new(), format!("## {}", text(&s["name"])), String::new(), format!("{}.", capitalized(&text(&s["about"])))]);

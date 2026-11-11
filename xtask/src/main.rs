@@ -80,7 +80,8 @@ usage:
       test games' pipes, set aside in the report's folder, and plays each
       scenario in a test game of its own, claimed as
       <owner>-<scenario>-<six letters and digits>, started hidden with its
-      build and released after it. --<name>.<parameter> changes a parameter for this run.
+      build and released after it; the report is written again as each
+      scenario ends. --<name>.<parameter> changes a parameter for this run.
       --jobs <n> plays n scenarios at a time, at most the 4 test games that
       run at once (whole and release: 4 unless given; else 1), the longest
       first; its builds made first and set aside in the report's
