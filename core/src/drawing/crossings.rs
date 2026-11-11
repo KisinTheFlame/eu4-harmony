@@ -21,6 +21,9 @@ pub(super) fn points() -> Vec<Point> {
         Point::keep(0x14488c3, "84 d2 74 24 e8 64 f3 ff ff 48 8b 4b 70 48 85 c9 74 0c 48 8b 01 8d 57 01 ff 10 48 89 7b 70", "a unit's place's model let go")
             .uses(&[PLACE_MODEL]),
         Point::observe(SCENE_BEGINS, "48 89 5c 24 08 57 48 83 ec 20 48 8b f9", "the renderer begins a scene", 1, Some(scene_begins), None),
+        // mov rax, [rcx]; mov rax, [rax + 0x138]; ret
+        Point::observe(TARGET_READ, "48 8b 01 48 8b 80 38 01 00 00 c3", "the renderer's render target read", 1, Some(main_crossing), None),
+        Point::observe(TARGET_SET, "48 89 5c 24 08 57 48 83 ec 20 48 8b 19", "the renderer's render target set", 2, Some(main_crossing), None),
         // mov qword ptr [rdi + 0x108], 0: the vertex declaration it keeps
         // forgotten.
         Point::keep(0x16d4e2f, "48 c7 87 08 01 00 00 00 00 00 00", "a scene forgets the renderer's vertex declaration").uses(&[RENDERER_DECLARATION]),
@@ -81,6 +84,27 @@ fn scene_begins(call: &mut Call) {
         crossing(call.observed().unwrap_or(0));
     } else if drawing_on() && !is_drawing_thread() && !OTHER_SCENE_LOGGED.swap(true, Ordering::Relaxed) {
         log!("drawing: thread {} began a scene of the renderer, which the drawing thread may be drawing with", crate::thread_id());
+    }
+}
+
+/// The renderer's render target read (`0x16d8d20`, its table's
+/// `[0x1fd1310]`) and set (`0x16d8ca0`, `[0x1fd1360]`): the one render target
+/// both threads draw into. A text drawn into a texture of its own
+/// (`0x1596660`, a button's or an instant text box's) reads it, sets its
+/// texture and only then begins its scene (`0x1597977`, `0x1597991`,
+/// `0x1597998`), and sets what it read back after. Caught only at the scene,
+/// in a day the drawing thread drew the rest of its frame into the text's
+/// texture (an event's first option showing the top bar), and the target
+/// read mid-frame was set back for the frames after (the whole screen drawn
+/// into the button) (docs/research/drawing-beside-the-day.md, "A text drawn
+/// into its texture in a day"). Read or set by the main thread in a day, it
+/// is a crossing.
+const TARGET_READ: usize = 0x16d8d20;
+const TARGET_SET: usize = 0x16d8ca0;
+
+fn main_crossing(call: &mut Call) {
+    if on_main() {
+        crossing(call.observed().unwrap_or(0));
     }
 }
 
