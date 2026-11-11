@@ -430,6 +430,7 @@ macro_rules! capability_groups {
             Loan(loans),
             Leader(leaders),
             Advisor(advisors),
+            Culture(cultures),
             Empire(empire),
             CelestialEmpire(celestial_empire),
             Religion(religion),

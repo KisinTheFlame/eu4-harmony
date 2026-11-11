@@ -546,6 +546,9 @@ groups! {
     Leader(leaders::LeaderRequest, LeaderAnswer),
     /// The player's advisors: hiring, firing and promoting them.
     Advisor(advisors::AdvisorRequest, AdvisorAnswer),
+    /// The player's cultures: the primary one, promoting and demoting
+    /// accepted ones.
+    Culture(cultures::CultureRequest, CultureAnswer),
     /// The Holy Roman Empire: its reforms.
     Empire(empire::EmpireRequest, EmpireAnswer),
     /// The Celestial Empire: its reforms and decrees.
