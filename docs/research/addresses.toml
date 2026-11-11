@@ -1926,7 +1926,7 @@
 "0x80b7f8" = { kind = "code", name = "flagship designer torn down", notes = ["research/main-menu.md"] }
 "0x80c670" = { kind = "function", notes = ["research/extension-windows.md"] }
 "0x80c6e0" = { kind = "function", name = "closing the big panels", notes = ["research/extension-windows.md", "research/message-pop-up-actions.md"] }
-"0x80c9f0" = { kind = "function", name = "laying out the panel button strip", notes = ["research/extension-windows.md"] }
+"0x80c9f0" = { kind = "function", name = "laying out the panel button strip", notes = ["research/drawing-beside-the-day.md", "research/extension-windows.md"] }
 "0x80cdcb" = { kind = "code", notes = ["research/extension-windows.md"] }
 "0x80cdf2" = { kind = "code", notes = ["research/extension-windows.md"] }
 "0x80d522" = { kind = "code", notes = ["research/extension-windows.md"] }
@@ -2095,7 +2095,7 @@
 "0x82f9e0" = { kind = "function", notes = ["research/saves.md"] }
 "0x830150" = { kind = "function", notes = ["research/message-pop-up-actions.md"] }
 "0x83065d" = { kind = "code", notes = ["research/message-pop-up-actions.md"] }
-"0x830700" = { kind = "function", notes = ["research/extension-windows.md", "research/window-elements.md"] }
+"0x830700" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/extension-windows.md", "research/window-elements.md"] }
 "0x830fd0" = { kind = "function", notes = ["research/architecture.md", "research/army-orders.md", "research/drawing-beside-the-day.md", "research/main-thread.md"] }
 "0x831132" = { kind = "code", notes = ["research/army-orders.md"] }
 "0x831137" = { kind = "code", name = "what holds the camera, first", notes = ["research/army-orders.md"] }
@@ -4763,6 +4763,7 @@
 "0x156a703" = { kind = "code", notes = ["research/interface-bindings.md"] }
 "0x156aa28" = { kind = "code", notes = ["research/input.md"] }
 "0x156aa80" = { kind = "function", notes = ["research/interface-bindings.md"] }
+"0x156b5c0" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
 "0x156b873" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x156ba70" = { kind = "function", notes = ["research/main-menu.md", "research/world-interface-seams.md"] }
 "0x156bfb0" = { kind = "function", notes = ["research/gui-drawing.md", "research/main-menu.md", "research/main-thread.md"] }
@@ -4896,7 +4897,7 @@
 "0x15ba25d" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x15ba630" = { kind = "leaf", notes = ["research/drawing-beside-the-day.md"] }
 "0x15bd180" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
-"0x15bd460" = { kind = "function", notes = ["research/main-menu.md"] }
+"0x15bd460" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/main-menu.md"] }
 "0x15bd4ac" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x15bd500" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x15bd540" = { kind = "function", notes = ["research/gui-drawing.md", "research/main-thread.md"] }
