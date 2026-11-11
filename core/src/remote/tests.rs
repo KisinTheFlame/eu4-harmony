@@ -115,12 +115,14 @@ fn every_capability_runs_where_its_kind_says() {
     let all: Vec<Request> = capabilities().iter().map(example).collect();
     assert!(all.len() > 250, "only {} capabilities", all.len());
     let ran = |game: &Scripted, request: &Request| game.ran.contains(&request.name());
+    // Each acting as it may: what no player could do, as the game.
+    let submit = |engine: &Engine, r: &Request| engine.submit_as(r.clone(), if r.as_game() { As::Game } else { As::Player });
 
     // In the main menu what needs a game is answered so, without running;
     // the rest runs.
     let engine = Engine::new(fake::quiet);
     let mut game = Scripted::default();
-    let replies: Vec<Reply> = all.iter().map(|r| engine.submit(r.clone())).collect();
+    let replies: Vec<Reply> = all.iter().map(|r| submit(&engine, r)).collect();
     engine.run(&mut game, &Place::Outside(Some(not_in_game.clone())), PLENTY);
     for (request, reply) in all.iter().zip(&replies) {
         let got = answer(reply);
@@ -136,7 +138,7 @@ fn every_capability_runs_where_its_kind_says() {
     // a game's frame, and runs there.
     let engine = Engine::new(fake::quiet);
     let mut game = Scripted::default();
-    let replies: Vec<Reply> = all.iter().map(|r| engine.submit(r.clone())).collect();
+    let replies: Vec<Reply> = all.iter().map(|r| submit(&engine, r)).collect();
     engine.run(&mut game, &Place::Outside(None), PLENTY);
     for request in &all {
         assert_eq!(ran(&game, request), !request.needs_place(), "{}", request.name());
@@ -150,11 +152,27 @@ fn every_capability_runs_where_its_kind_says() {
     // answered why, and the rest runs.
     let engine = Engine::new(fake::quiet);
     let mut game = Scripted::default();
-    let replies: Vec<Reply> = all.iter().map(|r| engine.submit(r.clone())).collect();
+    let replies: Vec<Reply> = all.iter().map(|r| submit(&engine, r)).collect();
     engine.run(&mut game, &Place::Unplayable(Error::new(Code::NotInGame, "no player")), PLENTY);
     for (request, reply) in all.iter().zip(&replies) {
         assert_eq!(ran(&game, request), !request.in_game(), "{}", request.name());
         assert!(!answer(reply).is_null(), "{} was not answered", request.name());
+    }
+}
+
+#[test]
+fn what_no_player_could_do_is_refused_to_a_request_as_the_player_wherever_the_game_is() {
+    let as_game: Vec<Request> = capabilities().iter().filter(|c| c.as_game).map(example).collect();
+    assert!(!as_game.is_empty());
+    for place in [Place::Outside(Some(Error::new(Code::NotInGame, "the main menu is open"))), Place::Outside(None), Place::Game] {
+        let engine = Engine::new(fake::quiet);
+        let mut game = Scripted::default();
+        let replies: Vec<Reply> = as_game.iter().map(|r| engine.submit(r.clone())).collect();
+        engine.run(&mut game, &place, PLENTY);
+        for (request, reply) in as_game.iter().zip(&replies) {
+            assert!(error("as_the_game")(&answer(reply)), "{} at {place:?}: {}", request.name(), answer(reply));
+        }
+        assert!(game.ran.is_empty(), "ran {:?} at {place:?}", game.ran);
     }
 }
 

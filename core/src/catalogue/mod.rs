@@ -473,7 +473,7 @@ fn may_ask(as_game: bool, caller: Option<game::Caller>) -> bool {
 
 /// The refusal of a capability that does what no player could to a request
 /// as the player.
-fn as_the_game(request: &Request) -> Error {
+pub(crate) fn as_the_game(request: &Request) -> Error {
     Error::new(Code::AsTheGame, format!("{} does what no player could; a request as the player cannot ask for it: ask as the game", request.name()))
 }
 

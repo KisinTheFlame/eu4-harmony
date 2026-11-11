@@ -262,6 +262,13 @@ impl Engine {
                 kept.append(&mut queued);
                 break;
             }
+            // A request as the player for what no player could do is refused
+            // first, wherever the game is: it is the request's, not the
+            // game's.
+            if q.request.as_game() && q.acting == As::Player {
+                self.answer(&q, Err(catalogue::as_the_game(&q.request)), Duration::ZERO);
+                continue;
+            }
             if q.request.in_game() {
                 match place {
                     Place::Game if q.session != 0 && q.session != session => {
