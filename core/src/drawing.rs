@@ -17,7 +17,8 @@
 //! the daily update runs, taking it again for a frame inside the day, at the
 //! day's end, and at each crossing (GLOSSARY) the day reaches, which keeps it
 //! until the next of the game's checks for a frame inside a day. So the
-//! interface's own objects are never used by both at once. After a crossing
+//! interface's own objects are never used by both at once ([`turns`]: the
+//! hooks here tell it the moments). After a crossing
 //! the drawing thread draws nothing until the next update, which finishes
 //! what the crossing began ([`crossings`]).
 //!
@@ -38,15 +39,18 @@ mod deferred;
 mod icons;
 mod prepare;
 mod tooltip;
+mod turns;
 
 use crate::called_by_game;
 use crate::hooks::Call;
 use crate::memory::Memory;
 use crate::points::{GameFunction, Point};
 use crate::speed::SpeedUp;
+use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
+use turns::{At, DrawingSide, MainSide};
 
 pub const SPEED_UP: SpeedUp = SpeedUp { name: "drawing-thread", group: "frames", points, checkable: false };
 
@@ -196,13 +200,7 @@ static IN_FRAME: AtomicBool = AtomicBool::new(false);
 #[called_by_game]
 extern "C" fn idler_switches() {
     PREPARED.store(0, Ordering::Release);
-    if IN_FRAME.load(Ordering::Acquire) {
-        main_side(main_give);
-        while IN_FRAME.load(Ordering::Acquire) {
-            std::thread::yield_now();
-        }
-        main_side(|s| main_take(s, AT_FRAME));
-    }
+    main_side(|s| s.drawing_frame_ends(&MainLock, || IN_FRAME.load(Ordering::Acquire)));
     deferred::done(&crate::hooked_memory());
 }
 
@@ -314,12 +312,12 @@ extern "C" fn head_stub() {
 
 /// The lock between the main thread and the drawing thread, which serves
 /// whoever asked first.
-struct Lock {
+struct Tickets {
     tickets: Mutex<(u64, u64)>,
     turn: Condvar,
 }
 
-impl Lock {
+impl Tickets {
     const fn new() -> Self {
         Self { tickets: Mutex::new((0, 0)), turn: Condvar::new() }
     }
@@ -342,7 +340,46 @@ impl Lock {
     }
 }
 
-static LOCK: Lock = Lock::new();
+static LOCK: Tickets = Tickets::new();
+
+/// The main thread's way to the lock ([`turns::Lock`]): its waits counted
+/// by where it waited, and [`MAIN_HOLDS`] kept.
+struct MainLock;
+
+impl turns::Lock for MainLock {
+    fn take(&self, at: At) -> Duration {
+        let waited = LOCK.take();
+        let place = match at {
+            At::Crossing => AT_CROSSING,
+            At::DayEnd => AT_DAY_END,
+            At::Frame | At::DrawingFrame | At::AfterPresent => AT_FRAME,
+        };
+        MAIN_WAITED.fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
+        WAITED_AT[place].fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
+        MAIN_HOLDS.store(true, Ordering::Release);
+        waited
+    }
+
+    fn give(&self) {
+        MAIN_HOLDS.store(false, Ordering::Release);
+        LOCK.give();
+    }
+}
+
+/// The drawing thread's way to the lock: its waits counted.
+struct DrawingLock;
+
+impl turns::Lock for DrawingLock {
+    fn take(&self, _: At) -> Duration {
+        let waited = LOCK.take();
+        DRAWING_WAITED.fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
+        waited
+    }
+
+    fn give(&self) {
+        LOCK.give();
+    }
+}
 
 /// The drawing thread's ID, 0 until it runs; the head's stub compares it.
 static DRAWING_THREAD: AtomicU32 = AtomicU32::new(0);
@@ -381,40 +418,20 @@ static HERE: AtomicU64 = AtomicU64::new(0);
 /// The back buffer's size, as the drawing thread's last frame presented it.
 static SCREEN: AtomicU64 = AtomicU64::new(0);
 
-/// The main thread's side of the lock: what only the main thread changes.
-struct MainSide {
-    holds: bool,
-    /// For each application frame on the way, whether it took the lock.
-    frames: Vec<bool>,
-    /// The day let the lock go as it began.
-    day_gave: bool,
-    in_day: bool,
-    /// A crossing took the lock, kept until the next check for a frame.
-    crossing: bool,
-}
-
-static MAIN: Mutex<MainSide> = Mutex::new(MainSide { holds: false, frames: Vec::new(), day_gave: false, in_day: false, crossing: false });
+/// The main thread's side of the lock ([`turns`]).
+static MAIN: Mutex<MainSide> = Mutex::new(MainSide::new());
 
 fn main_side<T>(f: impl FnOnce(&mut MainSide) -> T) -> T {
     f(&mut MAIN.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
-fn main_take(s: &mut MainSide, at: usize) {
-    if !s.holds {
-        let waited = LOCK.take();
-        MAIN_WAITED.fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
-        WAITED_AT[at].fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
-        s.holds = true;
-        MAIN_HOLDS.store(true, Ordering::Release);
-    }
+thread_local! {
+    /// The drawing thread's side of the lock ([`turns`]).
+    static DRAWING_SIDE: RefCell<DrawingSide> = RefCell::new(DrawingSide::default());
 }
 
-fn main_give(s: &mut MainSide) {
-    if s.holds {
-        s.holds = false;
-        MAIN_HOLDS.store(false, Ordering::Release);
-        LOCK.give();
-    }
+fn drawing_side<T>(f: impl FnOnce(&mut DrawingSide) -> T) -> T {
+    DRAWING_SIDE.with(|d| f(&mut d.borrow_mut()))
 }
 
 /// The main thread holds the presentation lock: [`MainSide::holds`], read
@@ -472,11 +489,7 @@ fn app_frame_before(_: &mut Call) {
     if !DAY_RAN.swap(false, Ordering::AcqRel) {
         pace();
     }
-    main_side(|s| {
-        let took = !s.holds;
-        main_take(s, AT_FRAME);
-        s.frames.push(took);
-    });
+    main_side(|s| s.frame_begins(&MainLock));
 }
 
 fn app_frame_after(call: &mut Call) {
@@ -486,12 +499,7 @@ fn app_frame_after(call: &mut Call) {
     let m = call.memory();
     let app = call.arg(0);
     let quits = [APP_QUITS, APP_PUMP_QUITS].iter().any(|&at| m.u8(app + at).is_ok_and(|b| b != 0));
-    main_side(|s| {
-        if s.frames.pop() == Some(true) {
-            s.crossing = false;
-            main_give(s);
-        }
-    });
+    main_side(|s| s.frame_ends(&MainLock));
     if quits {
         stop();
     }
@@ -504,14 +512,7 @@ fn app_frame_after(call: &mut Call) {
 /// began to wait for before it was stopped never begins.
 fn stop() {
     STOPPED.store(true, Ordering::Release);
-    main_side(|s| main_take(s, AT_FRAME));
-    if IN_FRAME.load(Ordering::Acquire) {
-        main_side(main_give);
-        while IN_FRAME.load(Ordering::Acquire) {
-            std::thread::yield_now();
-        }
-        main_side(|s| main_take(s, AT_FRAME));
-    }
+    main_side(|s| s.quits(&MainLock, || IN_FRAME.load(Ordering::Acquire)));
     deferred::done(&crate::hooked_memory());
     log!("drawing: the game quits; the drawing thread draws no more");
 }
@@ -521,7 +522,7 @@ fn stop() {
 /// lock (a frame inside another).
 fn pace() {
     let wanted = PREPARED_SEQ.load(Ordering::Acquire);
-    if DRAWN_SEQ.load(Ordering::Acquire) >= wanted || !drawing_on() || crossings::holding_back().is_some() || main_side(|s| s.holds || s.in_day) {
+    if DRAWN_SEQ.load(Ordering::Acquire) >= wanted || !drawing_on() || crossings::holding_back().is_some() || !main_side(|s| s.may_pace()) {
         return;
     }
     let began = Instant::now();
@@ -539,11 +540,7 @@ pub fn day_begins() {
     DAY_RAN.store(true, Ordering::Release);
     #[cfg(feature = "dev-write-watch")]
     crate::write_watch::drawing::day_begins(&crate::hooked_memory());
-    main_side(|s| {
-        s.in_day = true;
-        s.day_gave = s.holds;
-        main_give(s);
-    });
+    main_side(|s| s.day_begins(&MainLock));
 }
 
 /// The daily update has returned (`game::events`): the frame it ran in has
@@ -552,17 +549,7 @@ pub fn day_ends() {
     if !on_main() {
         return;
     }
-    main_side(|s| {
-        if !s.in_day {
-            return;
-        }
-        s.in_day = false;
-        s.crossing = false;
-        if s.day_gave {
-            main_take(s, AT_DAY_END);
-            s.day_gave = false;
-        }
-    });
+    main_side(|s| s.day_ends(&MainLock));
 }
 
 fn frame_check_before(call: &mut Call) {
@@ -570,12 +557,7 @@ fn frame_check_before(call: &mut Call) {
     crate::crossings::check_before(call);
     let _ = call;
     if on_main() {
-        main_side(|s| {
-            if s.crossing {
-                s.crossing = false;
-                main_give(s);
-            }
-        });
+        main_side(|s| s.frame_check(&MainLock));
     }
 }
 
@@ -657,15 +639,8 @@ static PRESENTING: AtomicBool = AtomicBool::new(false);
 pub fn present_begins() {
     PRESENTING.store(true, Ordering::Release);
     PRESENT.with(|p| p.began.set(Some(Instant::now())));
-    if !KEEPS_LOCK_IN_PRESENT.load(Ordering::Acquire) {
-        LOCK.give();
-    }
+    drawing_side(|d| d.present_begins(&DrawingLock));
 }
-
-/// The drawing thread keeps the lock through Present: in a frame the write
-/// watch holds every other thread for, where the main thread may be held
-/// waiting its turn for the lock, which given to it would never come back.
-static KEEPS_LOCK_IN_PRESENT: AtomicBool = AtomicBool::new(false);
 
 /// Present has returned: the drawing thread takes the lock again for what
 /// the drawing does after it (the idler's `+0x1608`, its clock).
@@ -676,11 +651,7 @@ pub fn present_ends() {
             p.spent.set(p.spent.get() + began.elapsed());
         }
     });
-    if KEEPS_LOCK_IN_PRESENT.load(Ordering::Acquire) {
-        return;
-    }
-    let waited = LOCK.take();
-    DRAWING_WAITED.fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
+    let waited = drawing_side(|d| d.present_ends(&DrawingLock));
     PRESENT.with(|p| p.lock_after.set(p.lock_after.get() + waited));
 }
 
@@ -879,8 +850,7 @@ fn run() {
                 next = now;
             }
         }
-        let waited = LOCK.take();
-        DRAWING_WAITED.fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
+        let waited = drawing_side(|d| d.turn_begins(&DrawingLock));
         gaps.waited(waited);
         let idler = PREPARED.load(Ordering::Acquire);
         let current = m.ptr(m.at(APP)).and_then(|app| m.ptr(app + APP_IDLER)).unwrap_or(0);
@@ -910,14 +880,14 @@ fn run() {
             IN_FRAME.store(true, Ordering::Release);
             #[cfg(feature = "dev-write-watch")]
             let watched = crate::write_watch::drawing::frame_begins(&m);
-            #[cfg(feature = "dev-write-watch")]
-            KEEPS_LOCK_IN_PRESENT.store(watched, Ordering::Release);
+            #[cfg(not(feature = "dev-write-watch"))]
+            let watched = false;
+            drawing_side(|d| d.frame_begins(watched));
             let began = Instant::now();
             unsafe { direct1(&m, DRAWING)(idler) };
             let drawing = began.elapsed();
             let (present, lock_after) = PRESENT.with(|p| (p.spent.take(), p.lock_after.take()));
-            #[cfg(feature = "dev-write-watch")]
-            KEEPS_LOCK_IN_PRESENT.store(false, Ordering::Release);
+            drawing_side(DrawingSide::frame_ends);
             #[cfg(feature = "dev-write-watch")]
             crate::write_watch::drawing::frame_ends(watched);
             IN_FRAME.store(false, Ordering::Release);
@@ -925,7 +895,7 @@ fn run() {
             DRAWN_SEQ.store(seq, Ordering::Release);
             gaps.drawn(interval, drawing, present, lock_after);
         }
-        LOCK.give();
+        drawing_side(|d| d.turn_ends(&DrawingLock));
         if logged.elapsed() >= Duration::from_secs(10) {
             let drawn = DRAWN.load(Ordering::Relaxed);
             let (crossings_taken, held_longest) = crossings::logged(m.at(0usize));

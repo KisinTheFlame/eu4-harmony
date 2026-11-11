@@ -6,7 +6,7 @@
 //! frame prepared is marked changed, so that the drawing thread draws nothing
 //! until the next update finishes what the crossing began. Also the count,
 //! for the log, of the crossings and of how long each held the frames back.
-use super::{drawing_on, is_drawing_thread, main_side, main_take, on_main, AT_CROSSING};
+use super::{drawing_on, is_drawing_thread, main_side, on_main, MainLock};
 use crate::hooks::Call;
 use crate::points::Point;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -96,7 +96,7 @@ pub(super) fn mesh_let_go(into: usize) {
     }
     let held = if on_main() {
         crossing(into);
-        main_side(|s| s.holds)
+        main_side(|s| s.holds())
     } else {
         false
     };
@@ -173,10 +173,8 @@ pub(super) fn crossing(into: usize) {
             *HELD_BACK_BY.lock().unwrap_or_else(|e| e.into_inner()) = Some((into, Instant::now()));
         }
         count(into, 1, 0);
-        if s.in_day && !s.holds {
+        if s.crossing(&MainLock) {
             TAKEN.fetch_add(1, Ordering::Relaxed);
-            main_take(s, AT_CROSSING);
-            s.crossing = true;
         }
     });
 }
