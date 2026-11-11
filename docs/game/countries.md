@@ -38,6 +38,7 @@ A country is what a player or the AI plays: a tag such as `FRA`, with its treasu
 - **A country always holds a person in each place**: without an heir or a consort, the game's null person of that kind stands there, and the game asks the person itself whether it is one before it saves it ([research/names.md](../research/names.md#people)).
 - **A new heir's name is drawn from the country's list** by its weights; the game's arithmetic overflows when it weighs both sexes, so the list's first name is drawn about half the time, and the heir takes that name's sex then too ([research/names.md](../research/names.md#picking-a-name-from-a-list)).
 - **Cultures and culture groups** are the game's data; the East Asian groups are those whose people put the family name first, which the game's full names do not ([research/names.md](../research/names.md#cultures)).
+- **A country's cultures**: one primary culture, and the cultures it accepts: the primary one, those of its group the game accepts with it, and those it promoted, each taking one of a number of accepted culture slots. The government view's cultures window makes a culture the primary one, promotes a culture to accepted and demotes one, each for diplomatic points and each with the game's own check and reasons ([research/power-spending.md](../research/power-spending.md#cultures)).
 
 ## Subjects
 
