@@ -12,9 +12,10 @@ group! {
 
     /// The player's government as the government view shows it: its type,
     /// its rank (1 a duchy, 2 a kingdom, 3 an empire in the unmodded game),
-    /// the reform progress, and whether the player can raise the rank now,
-    /// with the game's reasons when not.
-    game Options "options" {} -> Government, "government (the type's content key), rank, reform_progress, reforms_adopted, raise_rank: can, reasons, cost";
+    /// the reform progress, whether the player can raise the rank now, and
+    /// whether it can strengthen the government and at what cost in
+    /// military points, with the game's reasons when not.
+    game Options "options" {} -> Government, "government (the type's content key), rank, reform_progress, reforms_adopted, raise_rank: can, reasons, cost; strengthen: can, reasons, cost";
 
     /// The government reforms the government view offers, tier by tier: in
     /// each tier the reforms whose conditions for being offered hold and the
@@ -40,6 +41,13 @@ group! {
     /// for it. `rejected` with the game's reasons when the game would not
     /// let the player raise it now.
     game RaiseRank "raise_rank" {} -> (), "null once the game has raised it";
+
+    /// Strengthens the government, as the government view's button does,
+    /// paying its cost in military points: it raises the government's
+    /// legitimacy of its kind (or, for a revolutionary republic, its
+    /// zeal). `rejected` with the game's reasons when the player cannot now,
+    /// as `government.options` says beforehand.
+    game Strengthen "strengthen" {} -> (), "null once the government is strengthened";
 
     /// The government mechanics the player's government has, as the
     /// government view shows them: each mechanic's powers, their values and
@@ -78,6 +86,9 @@ pub struct Government {
     pub reforms_adopted: Vec<String>,
     /// Whether the player can raise the rank now, and why not.
     pub raise_rank: Choice,
+    /// Whether the player can strengthen the government now, why not, and
+    /// its cost.
+    pub strengthen: Choice,
 }
 
 /// A tier of reforms.
