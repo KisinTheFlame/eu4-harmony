@@ -46,7 +46,7 @@ Good to know:
 
 ## When something goes wrong
 
-Look in `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\`: `report.txt` says what Harmony found and did as the game started, and `logs\` holds its logs, `proxy.log` among them for when Harmony did not start at all. Report a problem on [GitHub Issues](https://github.com/KisinTheFlame/eu4-harmony/issues), with `report.txt` and the logs attached.
+Look in `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`: `report.txt` says what Harmony found and did as the game started, `core.log` is its log, and `proxy.log`, there only when something went wrong, says why Harmony did not start at all. Report a problem on [GitHub Issues](https://github.com/KisinTheFlame/eu4-harmony/issues), with `report.txt` and the logs attached.
 
 ## Writing a mod
 
