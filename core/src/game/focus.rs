@@ -125,6 +125,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
     use crate::catalogue::fake::tur;
     use crate::game::{
@@ -163,7 +164,7 @@ mod tests {
         image.strings().function(MAY_CHANGE.rva(), check as *const ());
         let player = Object::country(tur(), FOCUS + 4).i32(FOCUS, focus);
         let countries = Object::countries(&[&player]);
-        let session = buffers::session(image.memory(), 0, tur(), player.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), 0, tur(), player.at(), countries.at(), Caller::Remote(As::Player));
         Ottomans { _image: image, _objects: vec![player, countries], session }
     }
 

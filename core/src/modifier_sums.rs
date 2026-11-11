@@ -36,11 +36,9 @@ const ADD_NOT_FOUND: usize = 0x8ea4f4;
 const TAKE_AWAY_SEARCH: usize = 0x8ea7e2;
 const TAKE_AWAY_FOUND: usize = 0x8ea88e;
 const TAKE_AWAY_NOT_FOUND: usize = 0x8ea805;
-/// A set: whether it keeps its values by modifier, its pairs and their
-/// count.
-const BY_MODIFIER: usize = 0x10;
-const PAIRS: usize = 0x58;
-const COUNT: usize = 0x64;
+// A set: whether it keeps its values by modifier, its pairs and their
+// count.
+use crate::objects::campaign::modifier_set::{BY_MODIFIER, COUNT, PAIRS};
 
 /// Searches in a call made pair by pair before the set is put in an index,
 /// and the least pairs a set has for one.

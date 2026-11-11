@@ -54,9 +54,6 @@ pub struct Settings {
     /// Whether the drawing thread (GLOSSARY; docs/plans/drawing-thread.md)
     /// draws with no limit, rather than at the display's refresh rate.
     pub drawing_unlimited: bool,
-    /// Whether remote control reads the full view rather than the player's
-    /// view (GLOSSARY; ADR remote-control-reads-the-players-view).
-    pub remote_full_view: bool,
     /// Whether every track is brought to the same loudness (GLOSSARY:
     /// Loudness normalization; docs/plans/music-volume.md).
     pub music_loudness: bool,
@@ -141,12 +138,11 @@ pub enum Page {
     Sessions,
     Achievements,
     GameSpeed,
-    RemoteControl,
     Sound,
 }
 
 impl Page {
-    pub const ALL: [Page; 6] = [Page::LanguageFonts, Page::Sessions, Page::Achievements, Page::GameSpeed, Page::RemoteControl, Page::Sound];
+    pub const ALL: [Page; 5] = [Page::LanguageFonts, Page::Sessions, Page::Achievements, Page::GameSpeed, Page::Sound];
 
     /// The key of its name in the side list.
     pub fn title(self) -> &'static str {
@@ -155,7 +151,6 @@ impl Page {
             Page::Sessions => "EU4HARMONY_SETTINGS_PAGE_SESSIONS",
             Page::Achievements => "EU4HARMONY_SETTINGS_PAGE_ACHIEVEMENTS",
             Page::GameSpeed => "EU4HARMONY_SETTINGS_PAGE_GAME_SPEED",
-            Page::RemoteControl => "EU4HARMONY_SETTINGS_PAGE_REMOTE_CONTROL",
             Page::Sound => "EU4HARMONY_SETTINGS_PAGE_SOUND",
         }
     }
@@ -167,7 +162,6 @@ impl Page {
             Page::Sessions => Some("EU4HARMONY_SETTINGS_UNDO"),
             Page::Achievements => Some("EU4HARMONY_SETTINGS_ACHIEVEMENTS"),
             Page::GameSpeed => None,
-            Page::RemoteControl => Some("EU4HARMONY_SETTINGS_REMOTE_FULL_VIEW_INFO"),
             Page::Sound => Some("EU4HARMONY_SETTINGS_SOUND_INFO"),
         }
     }
@@ -176,7 +170,7 @@ impl Page {
 /// Every [`Setting`], in the order the file writes them and each page of
 /// the settings window shows them; those on the language and fonts page show
 /// after the map's font. Their defaults are [`Settings::default`]'s.
-pub static SETTINGS: [Setting; 9] = [
+pub static SETTINGS: [Setting; 8] = [
     Setting {
         key: "map_outline",
         page: Page::LanguageFonts,
@@ -212,12 +206,6 @@ pub static SETTINGS: [Setting; 9] = [
         page: Page::GameSpeed,
         shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_DRAWING_UNLIMITED", field: field!(drawing_unlimited) },
         effect: Effect::WhenSaved { tells: Some(Listener::Drawing) },
-    },
-    Setting {
-        key: "remote_full_view",
-        page: Page::RemoteControl,
-        shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_REMOTE_FULL_VIEW", field: field!(remote_full_view) },
-        effect: Effect::WhenSaved { tells: None },
     },
     Setting {
         key: "music_loudness",
@@ -366,7 +354,6 @@ impl Default for Settings {
             achievements_outside_ironman: false,
             achievements_with_changed_checksum: false,
             drawing_unlimited: false,
-            remote_full_view: false,
             music_loudness: true,
             music_leveling: false,
         }
@@ -694,15 +681,12 @@ mod tests {
             achievements_outside_ironman: true,
             achievements_with_changed_checksum: true,
             drawing_unlimited: true,
-            remote_full_view: true,
             music_loudness: false,
             music_leveling: true,
         };
         assert_eq!(Settings::parse(&custom.render()), custom);
         assert!(custom.render().starts_with("language=\"braz_por\"\nbody_font=\"SimSun\"\nbody_weight=700\n"));
-        assert!(custom
-            .render()
-            .ends_with("\nachievements_with_changed_checksum=yes\ndrawing_unlimited=yes\nremote_full_view=yes\nmusic_loudness=no\nmusic_leveling=yes\n"));
+        assert!(custom.render().ends_with("\nachievements_with_changed_checksum=yes\ndrawing_unlimited=yes\nmusic_loudness=no\nmusic_leveling=yes\n"));
         assert!(custom.render().contains("\nheading_font=\"Microsoft YaHei\"\nheading_weight=700\n"));
         assert!(custom.render().contains("\nconsole_font=\"Cascadia Mono\"\nconsole_weight=600\nmap_outline=no\nreturn_without_restart=no\n"));
         // Fonts not chosen are not written.
@@ -711,7 +695,7 @@ mod tests {
         // As every file written before has it.
         assert_eq!(
             following.render(),
-            "language=\"english\"\nmap_outline=yes\nreturn_without_restart=yes\nsave_ironman_before_load=yes\nachievements_outside_ironman=no\nachievements_with_changed_checksum=no\ndrawing_unlimited=no\nremote_full_view=no\nmusic_loudness=yes\nmusic_leveling=no\n"
+            "language=\"english\"\nmap_outline=yes\nreturn_without_restart=yes\nsave_ironman_before_load=yes\nachievements_outside_ironman=no\nachievements_with_changed_checksum=no\ndrawing_unlimited=no\nmusic_loudness=yes\nmusic_leveling=no\n"
         );
         assert!(!following.render().contains("_font"));
         assert_eq!(Settings::parse(&following.render()), following);
@@ -737,8 +721,9 @@ mod tests {
         // Achievements follow vanilla's rules unless the file says otherwise.
         assert!(!Settings::parse("achievements_outside_ironman=maybe").achievements_outside_ironman);
         assert!(Settings::parse("achievements_with_changed_checksum=yes").achievements_with_changed_checksum);
-        // Remote control reads the player's view unless the file says otherwise.
-        assert!(!Settings::parse("remote_full_view=maybe").remote_full_view);
+        // A file from when remote control's view was a setting reads as one
+        // without it (ADR requests-act-as-the-player-or-as-the-game).
+        assert_eq!(Settings::parse("remote_full_view=yes\n"), Settings::default());
         // The music is brought to one loudness and not leveled unless the file says otherwise.
         assert!(Settings::parse("music_loudness=maybe").music_loudness);
         assert!(!Settings::parse("music_leveling=maybe").music_leveling);

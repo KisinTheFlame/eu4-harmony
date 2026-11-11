@@ -95,6 +95,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
     use crate::catalogue::fake::{byz, tur};
     use crate::game::{
@@ -142,7 +143,7 @@ mod tests {
         let owned = Object::new(16).u32(0, 1).u32(4, 2).u32(8, 3).u32(12, 4);
         let player = Object::country(tur(), country::OWNED_COUNT + 4).points_to(country::OWNED, owned).i32(country::OWNED_COUNT, 4);
         let countries = Object::countries(&[&player]);
-        let session = buffers::session(image.memory(), provinces.world(), tur(), player.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), provinces.world(), tur(), player.at(), countries.at(), Caller::Remote(As::Player));
         Ottomans { _image: image, _provinces: provinces, _objects: vec![player, countries], session }
     }
 

@@ -128,11 +128,27 @@ pub fn definitions() -> String {
     results(&mut out);
     game(&mut out);
     globals(&mut out);
+    task(&mut out);
     out
 }
 
+/// A task's class, generic in what its function returns, and its methods.
+fn task(out: &mut String) {
+    let _ = writeln!(out, "--- A task, as spawn and an async function return it (eu4-harmony skills tasks).\n---@class eu4.Task<T>\nlocal eu4_task = {{}}\n");
+    for f in lua::TASK_METHODS {
+        function(out, &format!("eu4_task:{}", f.name), f);
+    }
+}
+
+/// Whether a function's types name the type parameter `T`, as the tasks'
+/// functions do: it is then written generic in it.
+fn generic(f: &lua::Function) -> bool {
+    let names_t = |ty: &str| ty.split(|c: char| !c.is_ascii_alphanumeric() && c != '.' && c != '_').any(|word| word == "T");
+    f.args.iter().chain(f.returns).any(|v| names_t(v.ty))
+}
+
 fn handlers(out: &mut String) {
-    let _ = writeln!(out, "--- The table main.lua returns: a handler for each event the mod hears.\n---@class eu4.Handlers");
+    let _ = writeln!(out, "--- The table main.lua returns: a handler for each signal the mod hears.\n---@class eu4.Handlers");
     for h in lua::handlers() {
         let args: Vec<String> = std::iter::once("game: eu4.Game".to_string()).chain(h.args.iter().map(handler_arg)).collect();
         let returns = h.returns.as_ref().map_or(String::new(), |r| format!(": {}", arg_type(r)));
@@ -316,6 +332,10 @@ fn function(out: &mut String, name: &str, f: &lua::Function) {
     if let Some(permission) = f.permission.and_then(|p| lua::PERMISSIONS.iter().find(|q| q.name == p)) {
         let _ = writeln!(out, "--- Needs permissions = {{ {} }} in manifest.toml.", permission.declared);
     }
+    // A method's T is its class's.
+    if generic(f) && !name.contains(':') {
+        let _ = writeln!(out, "---@generic T");
+    }
     let mut names = Vec::new();
     for arg in f.args {
         let optional = if arg.optional && arg.name != "..." { "?" } else { "" };
@@ -381,6 +401,20 @@ mod tests {
     }
 
     #[test]
+    fn a_task_is_generic_in_what_its_function_returns() {
+        let text = definitions();
+        let block = |name: &str| text.split("\n\n").find(|b| b.contains(&format!("function {name}("))).unwrap().to_string();
+        let spawn = block("spawn");
+        assert!(spawn.contains("---@generic T\n") && spawn.contains("---@param fn fun(...): T") && spawn.contains("---@return eu4.Task<T> task"), "{spawn}");
+        assert!(block("async").contains("---@return fun(...): eu4.Task<T> start"));
+        assert!(text.contains("---@class eu4.Task<T>\nlocal eu4_task = {}"), "{text}");
+        let await_ = block("eu4_task:await");
+        assert!(await_.contains("---@return T ...") && await_.contains("It waits") && !await_.contains("@generic"), "{await_}");
+        assert!(block("await_any").contains("---@return integer index"));
+        assert!(!block("log").contains("@generic"));
+    }
+
+    #[test]
     fn a_capability_takes_its_required_arguments_and_then_its_options() {
         let text = definitions();
         let declare = text.split("\n\n").find(|block| block.contains("function eu4_game_diplomacy.declare_war(")).unwrap();
@@ -407,7 +441,7 @@ mod tests {
         // A handler's argument that may be nil says so.
         assert!(text.contains("province: integer, from: string|nil, to: string|nil)"), "{text}");
         assert!(text.contains("saved: any)"));
-        // Its types are its event's fields'; an event given as one table is
+        // Its types are its signal's fields'; a signal given as one table is
         // a class of its own.
         assert!(text.contains("reason: \"return\"|\"load\"|\"new_game\"|\"country\")"), "{text}");
         assert!(text.contains("attackers: string[], defenders: string[], ended: boolean)"), "{text}");

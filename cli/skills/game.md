@@ -2,7 +2,10 @@ game: trying the mod in the running game
 
 Remote control lets you drive the running game from the command line, as
 the player would: eu4-harmony game <capability> [arguments], answering in
-JSON (eu4-harmony wiki remote has how a game goes and the exit codes).
+JSON (eu4-harmony wiki remote has how a game goes and the exit codes). A
+request acts as the player, reading only what the player sees; add
+--as-game to read everything the game keeps, as your extension does, or to
+use a capability that does what no player could (its wiki page says so).
 
 steps:
 

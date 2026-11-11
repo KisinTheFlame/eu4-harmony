@@ -209,7 +209,7 @@ mod tests {
     };
     use crate::game;
     use crate::remote::Engine;
-    use eu4_harmony_remote::{events::EventsRequest, menu::MenuRequest, session::SessionRequest, texts::TextRequest, Code, CountryTag, Error, Request};
+    use eu4_harmony_remote::{signals::SignalsRequest, menu::MenuRequest, session::SessionRequest, texts::TextRequest, Code, CountryTag, Error, Request};
     use serde_json::{json, Value};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -343,7 +343,7 @@ mod tests {
         let engine = Engine::new(remember);
         let mut game = Fake::default();
         let waiting =
-            engine.submit(Request::Events(EventsRequest::Read { since: Some(0), wait_ms: Some(10_000), process: None, kinds: None, countries: None }));
+            engine.submit(Request::Signals(SignalsRequest::Read { since: Some(0), wait_ms: Some(10_000), process: None, kinds: None, countries: None }));
         engine.run(&mut game, &Place::Game, PLENTY);
         let back = engine.submit(Request::Menu(MenuRequest::Return {}));
         let after = engine.submit(Request::Session(SessionRequest::Get {}));

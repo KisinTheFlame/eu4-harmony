@@ -16,7 +16,7 @@
 - **更快的游戏，同一局游戏。** 地图在单独的线程上按显示器刷新率绘制，计算日更新时也不停，存档时的卡顿只剩约三分之一，启动和读档也更快；游戏后期，AI 的军队在空闲的核心上规划路线。游戏的规则和数据都保持原样。
 - **修好原版至今还有的 bug。** 继承人不会再一半概率重名，反侵略联盟和宗主国覆灭不再有崩溃风险，读档也不会再让你丢掉成就。
 - **成就规则由你定。** 可选：非铁人或开着 Mod 也能拿成就。
-- **Mod 能做更多。** 几行 Lua，Mod 就能读取游戏、添加按钮，并在游戏的各个面板里做你能做的事（建造、发展、研究、选理念和改革、贸易、宣战与议和、每一种外交行动），不允许时给出游戏自己的原因。Mod 还能弹出弹窗，打开自己的窗口，样式与游戏原生一致，布局用 Lua 写，入口按钮就在小地图左侧，和教廷、神罗的按钮排在一起（[docs/plans/extension-windows.md](docs/plans/extension-windows.md)）。
+- **Mod 能做更多。** 几行 Lua，Mod 就能读取游戏（细到君主与储君、合法性、各国对彼此的好感度及其由来、阶层正在推行的议程、任一修正的合计，以及脚本给国家和省份挂上的修正）、添加按钮，并在游戏的各个面板里做你能做的事（建造、发展、迁都、研究、选理念和改革、接纳思潮、选取时代能力、开启黄金时代、升级、建造和迁移纪念碑、使用政体机制、巩固政府、提升派系影响力、雇佣和提拔顾问、认同和取消认同文化、选择个人神祇或崇拜、教会信条或神赐、邀请学者、建立圣职团、选择融合信仰或古鲁的教义、通过宗教改革、启用热情、调和宗教、供奉圣像、宣称信仰守护者、使用虔诚行动和教廷行动、购买赎罪券、颁布金玺诏书、以皇帝身份通过神圣罗马帝国和天朝的改革并颁布诏令、在帝国事件中选择立场、贸易、设定土著政策、征收战争税、降低厌战度、宣布破产、选择海军学说、允许殖民地独立、收买议会席位、整编陆军和舰队、宣战与议和、每一种外交行动），不允许时给出游戏自己的原因。Mod 的 Lua 和脚本能互相配合：Lua 读写脚本的 flag 和变量，触发脚本定义的事件。Mod 还能弹出弹窗，打开自己的窗口，样式与游戏原生一致，布局用 Lua 写，入口按钮就在小地图左侧，和教廷、神罗的按钮排在一起（[docs/plans/extension-windows.md](docs/plans/extension-windows.md)）。能读到的细到一个省份的繁荣度、人力、补给上限和思潮，以及一支军队的每个团和它的兵力、士气（[docs/plans/mod-capabilities.md](docs/plans/mod-capabilities.md)）。
 - **让 AI 来玩。** 程序可以像你一样替你玩完整局游戏，甚至在后台隐藏着玩。
 
 ## 安装（玩家）
@@ -38,7 +38,7 @@
 
 ### 设置
 
-**EU4 Harmony settings** 里可以设置玩家语言和字体、返回主菜单时不重启游戏、成就规则、帧率是否限制、远程控制能看到什么，以及音乐的响度是否统一；每一项在窗口里都有说明。细节见 [docs/plans/player-language.md](docs/plans/player-language.md)、[docs/plans/sessions.md](docs/plans/sessions.md)、[docs/plans/game-speed.md](docs/plans/game-speed.md)、[docs/plans/drawing-thread.md](docs/plans/drawing-thread.md)、[docs/plans/music-volume.md](docs/plans/music-volume.md) 和 [ADR remote-control-reads-the-players-view](docs/adr/2026-11-05-remote-control-reads-the-players-view.md)。
+**EU4 Harmony settings** 里可以设置玩家语言和字体、返回主菜单时不重启游戏、成就规则、帧率是否限制，以及音乐的响度是否统一；每一项在窗口里都有说明。细节见 [docs/plans/player-language.md](docs/plans/player-language.md)、[docs/plans/sessions.md](docs/plans/sessions.md)、[docs/plans/game-speed.md](docs/plans/game-speed.md)、[docs/plans/drawing-thread.md](docs/plans/drawing-thread.md) 和 [docs/plans/music-volume.md](docs/plans/music-volume.md)。
 
 装上框架后，游戏自己的音量滑块按位置的平方变化，每一格听起来变化差不多大；原版在最后一成会陡降到静音。原来低于 100 的音量会比以前轻，需要重新调一次。
 
@@ -82,18 +82,18 @@ my-mod/
 ├── .luarc.json                # 让编辑器找到它们
 └── eu4-harmony/
     ├── manifest.toml          # id、api_version、description、permissions
-    ├── lua/main.lua           # 扩展：一张事件函数表
+    ├── lua/main.lua           # 扩展：一张处理函数表
     ├── ui/<窗口名>/buttons/   # 拼进原版窗口的界面片段
     ├── localisation/          # 文字，每种语言一个 UTF-8 文件
     ├── data/                  # 扩展要读的文件
     └── tests/                 # eu4-harmony test 运行的测试
 ```
 
-`main.lua` 返回各个事件的事件函数，比如 `on_session`、`on_day`、`on_frame`、`on_button`。每个都拿到 `game`，所有能力都从它调用；被拒绝时返回 `nil, err`，带着游戏给的理由；事件函数还可以等一个答复，比如别国对提议的答复。需要现实时间、文件或网络的扩展，要在清单的 `permissions` 里声明。
+`main.lua` 返回处理函数：信号（游戏里发生的事）的，比如 `on_session`、`on_day`，以及 `on_frame`、`on_button`。每个都拿到 `game`，所有能力都从它调用；被拒绝时返回 `nil, err`，带着游戏给的理由；处理函数还可以等一个答复，比如别国对提议的答复，或者等游戏里过去若干天，也可以把几件事作为任务同时进行、再等它们完成，就像 JavaScript 的 async 和 await（`eu4-harmony skills tasks`）。需要现实时间、文件或网络的扩展，要在清单的 `permissions` 里声明。
 
 进一步了解：
 
-- `eu4-harmony wiki`：每项能力的参数和结果、事件函数和全局函数（`wiki lua`）、清单（`wiki manifest`）。不需要游戏运行。
+- `eu4-harmony wiki`：每项能力的参数和结果、处理函数和全局函数（`wiki lua`）、清单（`wiki manifest`）。不需要游戏运行。
 - `eu4-harmony skills`：每类工作的分步指南（`skills mod` 讲做一个 Mod，还有 `skills ui`、`skills testing` 等），写给 coding agent，人也能读。
 - [docs/plans/lua-extensions.md](docs/plans/lua-extensions.md)：扩展如何工作，包括出错、时间与内存限制和存档数据。
 
@@ -113,7 +113,7 @@ eu4-harmony game menu return               # 回到主菜单
 
 观察模式下 AI 操控所有国家：`menu start` 不带国家就开这样一局，`session view FRA` 把法兰西设为所看国家，`session leave_view` 退出视角；这时以国家身份行事的能力作用于所看国家，AI 照常操控它，没有所看国家时返回 `no_country`（[docs/plans/observe-mode.md](docs/plans/observe-mode.md)）。
 
-远程控制只对正在玩的 Windows 用户开放、只限本机，玩家做不到的它也做不到。没有能力覆盖的地方，它可以用玩家的鼠标和键盘。`eu4-harmony wiki remote` 讲一局怎么进行、每个退出码的含义；设计见 [docs/plans/remote-control.md](docs/plans/remote-control.md) 和 [docs/plans/hidden-start.md](docs/plans/hidden-start.md)。
+远程控制只对正在玩的 Windows 用户开放、只限本机。请求默认以玩家身份进行：只读玩家看得到的，只做玩家能做的。加上 `--as-game` 就以游戏身份进行：能读游戏保存的一切，还能像 Mod 的脚本那样改动游戏，做玩家做不到的事（[ADR requests-act-as-the-player-or-as-the-game](docs/adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md)）。没有能力覆盖的地方，它可以用玩家的鼠标和键盘。`eu4-harmony wiki remote` 讲一局怎么进行、每个退出码的含义；设计见 [docs/plans/remote-control.md](docs/plans/remote-control.md) 和 [docs/plans/hidden-start.md](docs/plans/hidden-start.md)。
 
 ## 文档
 
@@ -162,7 +162,7 @@ cargo xtask game release   # 留下日志，删掉其余
 | --- | --- |
 | `proxy/` | 把核心加载进 `eu4.exe` 的 `version.dll` |
 | `core/` | 框架本身：依赖点与启动、能力、运行在真实游戏上的 Lua 宿主、远程控制、框架界面和 Unicode 模块 |
-| `lua/` | 游戏和假游戏共用的 Lua 宿主：沙箱、事件函数、任务、时间限制、扩展按什么顺序收到什么，以及扩展要它的窗口和弹窗是什么样 |
+| `lua/` | 游戏和假游戏共用的 Lua 宿主：沙箱、处理函数、任务、时间限制、扩展按什么顺序收到什么，以及扩展要它的窗口和弹窗是什么样 |
 | `remote/` | 能力目录：每项能力的参数、结果和说明 |
 | `checks/` | 能力调用要经过的检查，以及游戏的历法 |
 | `client/` | 从游戏进程外接触运行中的游戏：远程控制的管道；游戏进程的启动、跟踪到退出码和结束；备份和还原玩家的文件，命令行工具和 `cargo xtask` 共用 |

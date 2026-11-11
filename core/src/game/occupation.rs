@@ -123,6 +123,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
     use crate::catalogue::fake::game_tag;
 
@@ -185,7 +186,7 @@ mod tests {
         let (player, ally, other) = (Object::country(tur(), 0), Object::country(dul(), 0), Object::country(game_tag(b"POL", 3), 0));
         let countries = Object::countries(&[&player, &ally, &other]);
         let manager = image.country_manager(&countries);
-        let session = buffers::session(image.memory(), provinces.world(), tur(), player.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), provinces.world(), tur(), player.at(), countries.at(), Caller::Remote(As::Player));
         Ottomans { _image: image, _provinces: provinces, _objects: vec![player, ally, other, countries, manager], session }
     }
 

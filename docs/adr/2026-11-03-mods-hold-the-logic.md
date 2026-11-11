@@ -1,4 +1,10 @@
+---
+status: superseded in part by requests-act-as-the-player-or-as-the-game
+---
+
 # Capabilities answer facts and rules; mods hold the logic
+
+A capability that changes the game may now also do, for extensions and requests as the game, what the game's own scripts do and no player could, such as setting a flag (ADR requests-act-as-the-player-or-as-the-game); the rest still holds.
 
 A capability answers one kind of fact about the game, such as a province's owner, or one of the game's rules, such as whether an army may step from one province to another, or does one thing the player can do. It may answer for many objects in one call, as `province.list` does for the provinces it names, since that is the same answer asked many times. It does not carry a mod's way of putting such answers together: a range of provinces around a center, a choice of target, a plan. That is the mod's, in Lua, where it can be tested with the fake game and changed without a new framework.
 

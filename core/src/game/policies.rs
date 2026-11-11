@@ -146,6 +146,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     #[test]
     fn the_commands_name_the_policy_and_the_country() {
         let fra = super::Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
@@ -172,7 +173,7 @@ mod tests {
             .vector(ACTIVE + ACTIVE_LISTS, &[enabled.at() as u64])
             .i32(ACTIVE + ACTIVE_LISTS - containers::ARRAY_DATA + containers::ARRAY_COUNT, 1);
         let countries = Object::countries(&[&country]);
-        let result = disable(buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote), args::Disable { policy: key.into() });
+        let result = disable(buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote(As::Player)), args::Disable { policy: key.into() });
         drop((spy, land, database, enabled, country, countries, image));
         result
     }

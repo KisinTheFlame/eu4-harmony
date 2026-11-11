@@ -1,4 +1,10 @@
+---
+status: superseded in part by requests-act-as-the-player-or-as-the-game
+---
+
 # Extensions read everything the game keeps; remote control reads the player's view unless the player gives it the full view
+
+Requests now choose: a request as the player reads the player's view and one as the game the full view, and the setting is gone (ADR requests-act-as-the-player-or-as-the-game). What extensions read still holds.
 
 An extension reads everything the game keeps: every country's, province's and trade node's state, armies under fog of war included. A remote client reads the player's view: the map as fog of war leaves it, and of other countries what the player's interface shows them, their panels and the ledger. A framework setting, in the player's hands, gives remote control the full view instead; it is off until the player turns it on. Remote control is mostly an AI playing the game as the player (ADR remote-control-uses-capabilities), which should know what the player would and no more, while a mod's extension is the mod's own logic inside the game (ADR mods-hold-the-logic), such as a map mode or an AI of its own, which may need what the player's interface does not show.
 

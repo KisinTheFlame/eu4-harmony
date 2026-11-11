@@ -13,7 +13,7 @@
 //!
 //! A full name is the group's name, a dot and the capability's own name
 //! (`"army.move"`, `"country.hostile"`), or the group's name alone when the
-//! capability's own name is empty (`"session"`, `"events"`). A country is
+//! capability's own name is empty (`"session"`, `"signals"`). A country is
 //! its tag (`"FRA"`), a province its number, an army its ID as a decimal
 //! string (a 64-bit integer does not survive a JavaScript number), a date
 //! `"1444.11.11"`.
@@ -69,6 +69,9 @@ macro_rules! in_game {
     (world) => {
         true
     };
+    (as_game) => {
+        true
+    };
     (anywhere) => {
         false
     };
@@ -107,6 +110,9 @@ macro_rules! for_extensions {
     (world) => {
         true
     };
+    (as_game) => {
+        true
+    };
     (anywhere) => {
         true
     };
@@ -117,6 +123,18 @@ macro_rules! for_extensions {
         false
     };
     (remote_anywhere) => {
+        false
+    };
+}
+
+/// Whether a capability changes or reads the game as the game does, which no
+/// player could: extensions have it, and a remote client's request only as
+/// the game (ADR requests-act-as-the-player-or-as-the-game).
+macro_rules! as_game {
+    (as_game) => {
+        true
+    };
+    ($place:ident) => {
         false
     };
 }
@@ -148,6 +166,9 @@ macro_rules! place {
     (remote_world) => {
         $crate::place::World
     };
+    (as_game) => {
+        $crate::place::World
+    };
     (anywhere) => {
         $crate::place::Anywhere
     };
@@ -177,7 +198,11 @@ pub trait Arguments {
 /// `game` for a capability that needs a game going on and acts as a country
 /// (the one the player plays, or the country in view), `world` for one that
 /// needs a game going on and acts as no country, `anywhere` for one that needs
-/// no game, each with `remote_` before it for one only remote control has; `"name"` empty for one the group's name alone names.
+/// no game, each with `remote_` before it for one only remote control has;
+/// `as_game` for one that needs a game going on, acts as no country, and
+/// does or reads what no player could, which a remote client asks for only
+/// as the game (ADR requests-act-as-the-player-or-as-the-game); `"name"`
+/// empty for one the group's name alone names.
 macro_rules! group {
     (
         $(#[doc = $about:literal])*
@@ -283,6 +308,13 @@ macro_rules! group {
                 }
             }
 
+            /// Whether a remote client asks for it only as the game.
+            pub fn as_game(&self) -> bool {
+                match self {
+                    $( Self::$Variant { .. } => as_game!($place), )*
+                }
+            }
+
             /// [`Self::country`] of the capability whose variant is named
             /// `variant`, for the core's test that its binding opens a
             /// session with a country to act as exactly then.
@@ -310,6 +342,7 @@ macro_rules! group {
                     in_game: in_game!($place),
                     country: country!($place),
                     extensions: for_extensions!($place),
+                    as_game: as_game!($place),
                     args: &[
                         $(
                             $crate::Parameter {
@@ -369,6 +402,13 @@ macro_rules! groups {
             pub fn country(&self) -> bool {
                 match self {
                     $( $(#[cfg($cfg)])? Self::$Group(r) => r.country(), )*
+                }
+            }
+
+            /// Whether a remote client asks for it only as the game.
+            pub fn as_game(&self) -> bool {
+                match self {
+                    $( $(#[cfg($cfg)])? Self::$Group(r) => r.as_game(), )*
                 }
             }
 
@@ -445,8 +485,8 @@ groups! {
     Offer(offers::OfferRequest, OfferAnswer),
     /// The extensions' pop-ups open in the game.
     Popup(popups::PopupRequest, PopupAnswer),
-    /// The events remote control keeps.
-    Events(events::EventsRequest, EventsAnswer),
+    /// The signals remote control keeps.
+    Signals(signals::SignalsRequest, SignalsAnswer),
     /// The capabilities, described.
     Describe(describe::DescribeRequest, DescribeAnswer),
     /// The map camera.
@@ -504,6 +544,17 @@ groups! {
     Building(buildings::BuildingRequest, BuildingAnswer),
     /// The player's leaders: recruiting, assigning and dismissing them.
     Leader(leaders::LeaderRequest, LeaderAnswer),
+    /// The player's advisors: hiring, firing and promoting them.
+    Advisor(advisors::AdvisorRequest, AdvisorAnswer),
+    /// The player's cultures: the primary one, promoting and demoting
+    /// accepted ones.
+    Culture(cultures::CultureRequest, CultureAnswer),
+    /// The Holy Roman Empire: its reforms.
+    Empire(empire::EmpireRequest, EmpireAnswer),
+    /// The Celestial Empire: its reforms and decrees.
+    CelestialEmpire(celestial_empire::CelestialEmpireRequest, CelestialEmpireAnswer),
+    /// The religion view: personal deities and cults.
+    Religion(religion::ReligionRequest, ReligionAnswer),
     /// The mercenary companies the player can hire.
     Mercenary(mercenaries::MercenaryRequest, MercenaryAnswer),
     /// The player's forts.
@@ -522,6 +573,16 @@ groups! {
     Merchant(merchants::MerchantRequest, MerchantAnswer),
     /// Trade nodes, as the trade map mode and the trade node view show them.
     Trade(trade::TradeRequest, TradeAnswer),
+    /// The scripts' flags, variables and events.
+    Script(script::ScriptRequest, ScriptAnswer),
+    /// The institutions view: embracing institutions.
+    Institution(institutions::InstitutionRequest, InstitutionAnswer),
+    /// The ages view: the age, splendor and the age's abilities.
+    Age(ages::AgeRequest, AgeAnswer),
+    /// The monuments window: the player's monuments and canals.
+    Monument(monuments::MonumentRequest, MonumentAnswer),
+    /// The military view's naval doctrine: the doctrines and choosing one.
+    NavalDoctrine(naval_doctrines::NavalDoctrineRequest, NavalDoctrineAnswer),
 }
 
 pub mod binary;
@@ -560,13 +621,29 @@ pub fn request_json<R: GroupRequest>(request: &R) -> Value {
 
 impl Serialize for Request {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        Sent { request: self, acting: As::Player }.serialize(serializer)
+    }
+}
+
+/// A request and how it acts, as a remote client sends it: the request's
+/// object, the capability first, then `"as": "game"` when it acts as the
+/// game, then the arguments ([`sent_from_json`] reads it).
+pub struct Sent<'a> {
+    pub request: &'a Request,
+    pub acting: As,
+}
+
+impl Serialize for Sent<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use ser::SerializeMap;
-        let Value::Object(fields) = self.inner().map_err(ser::Error::custom)? else {
+        let Value::Object(fields) = self.request.inner().map_err(ser::Error::custom)? else {
             return Err(ser::Error::custom("a request is not an object"));
         };
-        // The capability first, then the arguments.
-        let mut map = serializer.serialize_map(Some(fields.len()))?;
-        map.serialize_entry("capability", &self.name())?;
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("capability", &self.request.name())?;
+        if self.acting == As::Game {
+            map.serialize_entry("as", &self.acting)?;
+        }
         for (key, value) in fields.iter().filter(|(key, _)| *key != "capability") {
             map.serialize_entry(key, value)?;
         }
@@ -668,6 +745,8 @@ kinds! {
     /// A date, such as `"1444.11.11"`.
     Date "date" "1444.11.11" (Date) => Shape::Either(vec![Shape::Date, Shape::Text]), text;
     Integer "integer" "3" (u32, u64, i32) => Shape::Integer, integer;
+    /// A number, which may have decimals, such as `2.5`.
+    Number "number" "2.5" (f64) => Shape::Number, number;
     Boolean "boolean" "true" (bool) => Shape::Boolean, |text| text.parse().ok().map(Value::Bool);
     Text "text" "text" (String) => Shape::Text, text;
     /// A kind of regiment or ship, such as `"infantry"` (see
@@ -693,7 +772,7 @@ kinds! {
     /// Country tags, such as `["FRA", "ENG"]`, which a command line writes
     /// `FRA,ENG` (see [`CountryList`]).
     Countries "countries" "FRA,ENG" (CountryList) => list(Shape::Text), |text| listed(text, |word| CountryTag::parse(word).map(|tag| Value::String(tag.to_string())));
-    /// Words, such as content keys or the names of events, `["day",
+    /// Words, such as content keys or the names of signals, `["day",
     /// "month"]`, which a command line writes `day,month` (see [`Words`]).
     Words "words" "day,month" (Words) => list(Shape::Text), |text| listed(text, |word| Some(word).filter(|w| !w.is_empty()).map(|w| Value::String(w.into())));
     /// A kind of monarch power: `"adm"`, `"dip"` or `"mil"` (see
@@ -708,6 +787,12 @@ kinds! {
     /// writes as that JSON text (see [`peace::Terms`]).
     Terms "terms" r#"[{"term":"humiliate"}]"# (peace::Terms) => Vec::<peace::Term>::shape(),
         |text| peace::Terms::parse(text).ok().and_then(|terms| serde_json::to_value(terms).ok());
+    /// Whose flag, variable or event: a table of one key, such as
+    /// `{"country":"FRA"}` or `{"province":183}`, which a command line
+    /// writes `country:FRA` or `province:183`, or `global` (see
+    /// [`script::Scope`]).
+    Scope "scope" "country:FRA" (script::Scope) => script::Scope::shape(),
+        |text| script::Scope::parse(text).ok().and_then(|scope| serde_json::to_value(scope).ok());
 }
 
 /// The text itself, as JSON.
@@ -718,6 +803,11 @@ fn text(text: &str) -> Option<Value> {
 /// A whole number, as JSON.
 fn integer(text: &str) -> Option<Value> {
     serde_json::from_str::<serde_json::Number>(text).ok().filter(|n| n.is_i64() || n.is_u64()).map(Value::Number)
+}
+
+/// A number, as JSON.
+fn number(text: &str) -> Option<Value> {
+    serde_json::from_str::<serde_json::Number>(text).ok().map(Value::Number)
 }
 
 /// The text, when it is one of the words `T` is written as.
@@ -767,6 +857,10 @@ pub struct Capability {
     pub country: bool,
     /// Extensions have it too, not only remote control.
     pub extensions: bool,
+    /// It does or reads what no player could, as the game does: a remote
+    /// client's request has it only as the game
+    /// (ADR requests-act-as-the-player-or-as-the-game).
+    pub as_game: bool,
     pub args: &'static [Parameter],
     /// What a successful call answers.
     pub result: &'static str,
@@ -804,12 +898,13 @@ pub fn prose(doc: &str) -> String {
 impl Serialize for Capability {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("Capability", 7)?;
+        let mut s = serializer.serialize_struct("Capability", 8)?;
         s.serialize_field("capability", &self.name())?;
         s.serialize_field("about", &prose(self.about))?;
         s.serialize_field("in_game", &self.in_game)?;
         s.serialize_field("country", &self.country)?;
         s.serialize_field("extensions", &self.extensions)?;
+        s.serialize_field("as_game", &self.as_game)?;
         s.serialize_field("args", self.args)?;
         s.serialize_field("result", self.result)?;
         s.end()
@@ -884,7 +979,7 @@ pub struct ProvinceList(pub Vec<ProvinceId>);
 pub struct CountryList(pub Vec<CountryTag>);
 
 /// Words, as an argument: a list of texts, such as content keys or the
-/// names of events, `["day", "month"]`.
+/// names of signals, `["day", "month"]`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Words(pub Vec<String>);
@@ -962,6 +1057,10 @@ pub enum Code {
     /// (a save was loaded or another game started): it did not run. Read
     /// the session again before asking again.
     SessionChanged,
+    /// It does or reads what no player could, and the request acts as the
+    /// player: it is asked for as the game (ADR
+    /// requests-act-as-the-player-or-as-the-game).
+    AsTheGame,
     /// Something went wrong in the framework or the game.
     Internal,
 }
@@ -969,7 +1068,7 @@ pub enum Code {
 impl Code {
     /// Every code a client may get, which its help and the documentation
     /// explain.
-    pub const ALL: [Code; 10] = [
+    pub const ALL: [Code; 11] = [
         Self::NotInGame,
         Self::NoCountry,
         Self::NotReady,
@@ -979,6 +1078,7 @@ impl Code {
         Self::Unavailable,
         Self::BadRequest,
         Self::SessionChanged,
+        Self::AsTheGame,
         Self::Internal,
     ];
 
@@ -994,6 +1094,7 @@ impl Code {
             Self::Unavailable => "unavailable",
             Self::BadRequest => "bad_request",
             Self::SessionChanged => "session_changed",
+            Self::AsTheGame => "as_the_game",
             Self::Internal => "internal",
         }
     }
@@ -1010,6 +1111,7 @@ impl Code {
             Self::Unavailable => "not here or not now, or not for this caller",
             Self::BadRequest => "a request the game could not read: not JSON, no such capability, or arguments missing or of the wrong kind",
             Self::SessionChanged => "another game was loaded or started before it ran, so it did not run; read the session again",
+            Self::AsTheGame => "it does or reads what no player could, and the request acts as the player; ask for it as the game (--as-game, \"as\": \"game\")",
             Self::Internal => "a fault in the framework or the game; the framework log says more",
         }
     }
@@ -1055,6 +1157,33 @@ pub type Response = Result<Answer, Error>;
 /// [`Code::BadRequest`] error.
 pub fn request_from_json(text: &str) -> Result<Request, Error> {
     serde_json::from_str(text).map_err(|e| Error::new(Code::BadRequest, e.to_string()))
+}
+
+/// How a remote client's request acts (GLOSSARY: As the player, As the
+/// game; ADR requests-act-as-the-player-or-as-the-game): `"as"` beside its
+/// capability, the player when absent.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum As {
+    /// It reads the player's view and does only what the player could.
+    #[default]
+    Player,
+    /// It reads the full view, and may also do what the game's and the mods'
+    /// scripts do.
+    Game,
+}
+
+/// A request and how it acts, from the JSON line a remote client sends: the
+/// request's object with `"as"` beside its capability, `"player"` or
+/// `"game"`, as the player when absent. One that cannot be read is a
+/// [`Code::BadRequest`] error.
+pub fn sent_from_json(text: &str) -> Result<(Request, As), Error> {
+    let mut fields: Map<String, Value> = serde_json::from_str(text).map_err(|e| Error::new(Code::BadRequest, e.to_string()))?;
+    let acting = match fields.remove("as") {
+        None => As::Player,
+        Some(value) => serde_json::from_value(value).map_err(|_| Error::new(Code::BadRequest, "\"as\" is \"player\" or \"game\""))?,
+    };
+    Ok((request_from_fields(fields)?, acting))
 }
 
 /// The request a JSON object already read writes, as [`request_from_json`]

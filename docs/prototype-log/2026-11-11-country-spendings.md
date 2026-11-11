@@ -1,0 +1,18 @@
+# 2026-11-11 War exhaustion, strengthening the government, war taxes, bankruptcy and the native policy (tested by me)
+
+The second half of M20 of [mod-capabilities.md](../plans/mod-capabilities.md), as far as it was built: `stability.reduce_war_exhaustion` and `stability.set_native_policy`, `government.strengthen` with `strengthen` in `government.options`, `economy.raise_war_taxes`, `economy.lower_war_taxes` and `economy.declare_bankruptcy`, each in its group's `options`, built on `6399e37d` ([research](../research/power-spending.md#the-countrys-other-spendings)). A release build with the test games' pipes, one test game, the save `observer-1700.1.1` loaded as the Ottomans; Sweden through the game console's `tag`.
+
+- **Checks**: `cargo fmt`, the release build, the core's tests for the three groups and the points, and `cargo xtask offline-check` in the player's and the developer build passed before the run.
+- **The Ottomans**, 1700.1.1:
+  - `stability options` gave `reduce_war_exhaustion` refused "你的厌战度低于0，无法进一步降低。" at 68 diplomatic points, and the native policies with `native_policy_coexist` refused as the one set, trade and hostile allowed.
+  - `government options` gave `strengthen` refused "正统性已达到最大！" at legitimacy 100, for 91 military points.
+  - `economy options`: the save has war taxes raised, so `raise_war_taxes` was refused "War taxes are raised already." and `lower_war_taxes` allowed; `declare_bankruptcy` refused "在没有负债的情况下没有理由宣布破产。".
+  - `economy raise_war_taxes` was `rejected` with that line; `lower_war_taxes` answered `null`, and then raising was allowed and lowering refused "War taxes are not raised."; `raise_war_taxes` answered `null` and the two turned back. So the game read `raise_war_taxes={ members={ dummy="TUR" dummy=yes } }` as the economy view's command, the tag first.
+  - `stability set_native_policy native_policy_trade` answered `null`, and then trade was refused as the one set and coexist allowed; `native_policy_none` was `invalid_argument`, and trade again `rejected`.
+  - `economy take_loan` (1495 ducats), then `declare_bankruptcy` was allowed; `economy declare_bankruptcy` answered `null`: `loan.list` was empty, the treasury 5, and declaring again was refused "你无法在已处于破产状态时宣布破产。".
+- **Sweden**, after `console run tag SWE` (legitimacy 96.8, at war, no war exhaustion):
+  - `government options` gave `strengthen` allowed for 94 military points; `government strengthen` answered `null`: military points 654 → 560, legitimacy 96.8 → 100, and the button then refused "正统性已达到最大！".
+  - `reduce_war_exhaustion` was refused for no war exhaustion; after `console run exhaust 5` it was allowed for 71, and `stability reduce_war_exhaustion` answered `null`: diplomatic points 265 → 194.
+- `cargo xtask scenario sweep --sweep.only stability,economy,government` in the same claim passed: 19 capabilities in 5 places, 131 requests, each answered with its shape or a refusal the catalogue has. The test game was released; it did not crash.
+
+Not verified: that the native policy's numbers mean what the order of the game's tokens says (1 coexist, 2 trade, 3 hostile): the framework read back the number it wrote, and the stability view was not opened to see the policy's name; a refusal of the native policy for no colonists or stability at −3; war exhaustion or strengthening refused for too few points (the console's `dip 0` adds nothing); how much war exhaustion one reduction takes away, which no read gives; the monthly cost of war taxes, which the framework does not give; a republic's, a theocracy's, a horde's or the Celestial Empire's government strengthened; whether the economy view's bankruptcy button asks the same as the tooltip check the framework asks.

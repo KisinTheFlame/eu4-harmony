@@ -549,6 +549,7 @@ pub fn points() -> Vec<Point> {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
     use crate::{
         catalogue::fake::{byz, tur, wal},
@@ -664,7 +665,7 @@ mod tests {
             let actions: Vec<(Act, Object)> =
                 acts.iter().map(|&act| (act, Object::new(0x80).u64(0, vtable.at() as u64).u8(action::OFFER, act.offer() as u8))).collect();
             SCRIPT.with(|s| *s.borrow_mut() = Script { actions: actions.iter().map(|(act, o)| (o.at(), act.token())).collect(), destroyed: Vec::new() });
-            let session = buffers::session(m, 0, tur(), player.at(), countries.at(), Caller::Remote);
+            let session = buffers::session(m, 0, tur(), player.at(), countries.at(), Caller::Remote(As::Player));
             Self { _image: image, session, actions, _objects: vec![player, other, countries, vtable, manager] }
         }
 

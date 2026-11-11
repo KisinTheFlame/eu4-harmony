@@ -8,14 +8,14 @@ use crate::{
     game_string,
     memory::Memory,
     objects::{
-        campaign::{classes, unit},
+        campaign::{classes, province, unit},
         list,
     },
     points::{GameFunction, Point},
 };
 use eu4_harmony_remote::armies::args;
 use eu4_harmony_remote::ArmyList;
-use eu4_harmony_remote::{armies::ArmyAction, choices::Choice, ArmyId};
+use eu4_harmony_remote::{armies::ArmyAction, choices::Choice, recruiting::UnitKind, ArmyId};
 
 /// `(country, units, text or null, 0)`: whether the units in a game list
 /// (head, tail, count; nodes with the unit at `+0`) may merge, with the
@@ -27,6 +27,22 @@ const MAY_DISBAND: GameFunction<3> = GameFunction::at(0x3428c0);
 const MAY_DRILL: GameFunction<3> = GameFunction::at(0xd40ce0);
 /// `(unit, _)`: whether the unit may be split; no reasons.
 const MAY_SPLIT: GameFunction<2> = GameFunction::at(0xd63fc0);
+/// `(unit, kind, text or null)`: whether the unit may detach its regiments or
+/// ships of the kind (0 infantry to 6 transport), as its card's icon of the
+/// kind does.
+const MAY_DETACH_KIND: GameFunction<3> = GameFunction::at(0xd64770);
+/// `(unit, target, any, u8* or null)`: whether the unit may attach to the
+/// target, as the Attach button and its window ask it of each unit in the
+/// province with `any` 0.
+const MAY_ATTACH: GameFunction<4> = GameFunction::at(0xd565b0);
+/// `(army, text or null)`: whether the army may be attached to the
+/// transports in its port, or detached from them.
+const MAY_TO_TRANSPORT: GameFunction<2> = GameFunction::at(0xd55e70);
+/// `(_, army, text or null)`: whether the army may detach its special
+/// units; its first argument is not read.
+const MAY_DETACH_SPECIAL: GameFunction<3> = GameFunction::at(0x3454a0);
+/// `(fleet)`: how many of its ships carry troops.
+const TROOP_SHIPS: GameFunction<1> = GameFunction::at(0xd45d70);
 /// A unit's method `(unit, leave empty ones, text or null)`: whether it may
 /// consolidate its regiments.
 const MAY_CONSOLIDATE: usize = 0x148;
@@ -51,6 +67,17 @@ pub fn points() -> Vec<Point> {
         Point::keep(MAY_DISBAND, "48 89 5c 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8b ec 48 83 ec 70 4d 8b e0", "may disband a unit"),
         Point::keep(MAY_DRILL, "48 89 5c 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8d 6c 24 d9 48 81 ec e0 00 00 00", "may drill"),
         Point::keep(MAY_SPLIT, "48 89 5c 24 08 48 89 54 24 10 57 48 83 ec 20 48 8b d9 48 85 c9 0f", "may split a unit"),
+        Point::keep(MAY_DETACH_KIND, "48 89 5c 24 10 48 89 74 24 18 55 57 41 56 48 8b ec 48 81 ec 80 00 00 00 49 8b f8 8b f2", "may detach a kind"),
+        Point::keep(MAY_ATTACH, "48 89 5c 24 18 48 89 6c 24 20 56 57 41 56 48 83 ec 30 48 8b 02 48 8b f9 48 8b ca 4d 8b f1", "may attach a unit"),
+        Point::keep(
+            MAY_TO_TRANSPORT,
+            "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18 55 41 56 41 57 48 8b ec 48 83 ec 60 48 8b f2 4c 8b f1",
+            "may attach to transport",
+        ),
+        Point::keep(MAY_DETACH_SPECIAL, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18 55 48 8b ec 48 83 ec 60 49 8b f8 48 8b da", "may detach special units"),
+        Point::keep(TROOP_SHIPS, "48 89 5c 24 10 48 89 74 24 18 57 48 83 ec 20 48 8b 59 30 48 8b f1 33 ff", "troop ships"),
+        // The Attach button walks the units in the unit's province.
+        Point::keep(0x14873ccusize, "48 8b 9f e8 00 00 00 48 8b 9b 50 03 00 00", "attach targets").uses(&[unit::LOCATION, province::UNITS]),
         // The consolidate button calls the method, leaving emptied regiments
         // for a mercenary company.
         Point::keep(0x14825c3usize, "80 7b 10 00 48 8b 10 4c 8b 8a 48 01 00 00 75 1c 48 83 78 48 00", "consolidate button").uses(&[MAY_CONSOLIDATE, COMPANY]),
@@ -94,6 +121,45 @@ fn drill_text(id: u64) -> String {
 
 fn stop_mission_text(id: u64) -> String {
     write("stop_unit_mission", Block::new().id("unit", id).word("reason", PLAYER_ACTION))
+}
+
+/// Detaching a kind's regiments or ships, as the card's icon posts it but
+/// for selecting the new unit, which is the interface's.
+fn detach_kind_text(id: u64, kind: UnitKind) -> String {
+    write("detach_subunit", Block::new().id("unit", id).word("type", kind_index(kind)))
+}
+
+fn attach_text(id: u64, target: u64) -> String {
+    write("attach_unit", Block::new().id("unit", id).id("target", target))
+}
+
+fn detach_text(id: u64) -> String {
+    write("detach_unit", Block::new().id("unit", id))
+}
+
+/// Attaching an army to the transports in its port, or with `attach` false
+/// detaching it, which the game writes by leaving the flag out.
+fn to_transport_text(id: u64, attach: bool) -> String {
+    match attach {
+        true => write("connect_to_ship_command", Block::new().id("unit", id).word("do_connect_to_ship", "yes")),
+        false => write("connect_to_ship_command", Block::new().id("unit", id)),
+    }
+}
+
+fn detach_special_text(id: u64) -> String {
+    write("detach_merc", Block::new().id("unit", id))
+}
+
+/// The fleet panel's automatic transportation, which the command turns on
+/// or off as it is.
+fn auto_transport_text(id: u64) -> String {
+    write("toggle_auto_transfer", Block::new().id("unit", id))
+}
+
+/// A kind of regiment or ship as the game numbers it: a country's unit kinds'
+/// order.
+fn kind_index(kind: UnitKind) -> u32 {
+    super::provinces::UnitKind::from(kind) as u32
 }
 
 /// A fleet's mission, its kind in `naval_region_mission` or its command.
@@ -186,6 +252,72 @@ fn may_drill(m: &Memory, unit: usize) -> GResult<Choice> {
     answered(m, |t| MAY_DRILL.call(m, [unit, t, &mut out as *mut u8 as usize]))
 }
 
+fn may_detach_kind(m: &Memory, unit: usize, kind: UnitKind) -> GResult<Choice> {
+    answered(m, |t| MAY_DETACH_KIND.call(m, [unit, kind_index(kind) as usize, t]))
+}
+
+/// The kinds of regiment or ship the unit has, in the game's order, as its
+/// card shows an icon for each.
+fn kinds(m: &Memory, unit: usize) -> GResult<Vec<UnitKind>> {
+    let mut kinds: Vec<UnitKind> = army::regiments_of(m, unit)?.into_iter().map(|r| r.kind.into()).collect();
+    kinds.sort();
+    kinds.dedup();
+    Ok(kinds)
+}
+
+/// Whether `unit` may attach to `target`, as the Attach button asks it.
+fn may_attach_to(m: &Memory, unit: usize, target: usize) -> GResult<bool> {
+    let mut needs_any = 0u8;
+    Ok(MAY_ATTACH.call(m, [unit, target, 0, &mut needs_any as *mut u8 as usize])? as u8 != 0)
+}
+
+/// The units in `unit`'s province it may attach to, as the Attach button
+/// and its window find them.
+fn attach_targets(m: &Memory, unit: usize) -> GResult<Vec<usize>> {
+    let at = m.ptr(unit + unit::LOCATION)?;
+    if at == 0 {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for node in crate::containers::chain(m, m.ptr(at + province::UNITS)?, list::NEXT, super::MAX_UNITS)? {
+        let other = m.ptr(node + list::ITEM)?;
+        if other != 0 && other != unit && may_attach_to(m, unit, other)? {
+            out.push(other);
+        }
+    }
+    Ok(out)
+}
+
+/// The Attach button: whether there is anything to attach to, with the
+/// button's reason when not.
+fn may_attach(m: &Memory, targets: &[usize]) -> GResult<Choice> {
+    Ok(match targets.is_empty() {
+        false => Choice::can(Vec::new()),
+        true => Choice::cannot(vec![super::content::name(m, "NO_TARGETS_TO_ATTACH_TO")?], Vec::new()),
+    })
+}
+
+fn may_to_transport(m: &Memory, unit: usize) -> GResult<Choice> {
+    answered(m, |t| MAY_TO_TRANSPORT.call(m, [unit, t]))
+}
+
+fn may_detach_special(m: &Memory, ctx: &Ctx, unit: usize) -> GResult<Choice> {
+    answered(m, |t| MAY_DETACH_SPECIAL.call(m, [ctx.country, unit, t]))
+}
+
+/// The fleet panel's automatic transportation, as its button asks it: not
+/// while the fleet is mothballed, nor without a ship that carries troops.
+fn may_auto_transport(m: &Memory, fleet: usize) -> GResult<Choice> {
+    let mut reasons = Vec::new();
+    if m.u8(fleet + unit::MOTHBALLED)? != 0 {
+        reasons.push(super::content::name(m, "TRADE_MOTHBALLED")?.trim().to_string());
+    }
+    if TROOP_SHIPS.call(m, [fleet])? as i32 == 0 {
+        reasons.push(super::content::name(m, "AUTO_TRANSPORT_NO_COG")?.trim().to_string());
+    }
+    Ok(if reasons.is_empty() { Choice::can(Vec::new()) } else { Choice::cannot(reasons, Vec::new()) })
+}
+
 /// Whether a command the panel posts would pass the game's check now, as a
 /// choice without reasons.
 fn passes(text: &str) -> GResult<Choice> {
@@ -194,7 +326,7 @@ fn passes(text: &str) -> GResult<Choice> {
 }
 
 fn entry(action: &str, choice: Choice) -> ArmyAction {
-    ArmyAction { action: action.into(), choice }
+    ArmyAction::new(action, choice)
 }
 
 /// What the panel's buttons offer for one of the player's armies or fleets.
@@ -202,18 +334,129 @@ pub fn options(Session { m, ctx, .. }: Session, args::Options { army: ArmyId(id)
     let unit = army::own(m, &ctx, id)?;
     let others: Vec<usize> = mergeable(m, &ctx, unit)?.into_iter().map(|(_, u)| u).collect();
     let mut out = vec![entry("split", may_split(m, unit)?), entry("merge", may_merge(m, &ctx, &others)?), entry("disband", may_disband(m, &ctx, unit)?)];
+    for kind in kinds(m, unit)? {
+        out.push(ArmyAction { kind: Some(kind), ..entry("detach_kind", may_detach_kind(m, unit, kind)?) });
+    }
+    // The Attach button is Detach while the unit is attached.
+    if m.ptr(unit + unit::ATTACHED_TO)? != 0 {
+        out.push(entry("detach", Choice::can(Vec::new())));
+    } else {
+        let targets = attach_targets(m, unit)?;
+        let ids = targets.iter().map(|t| Ok(ArmyId(m.u64(t + unit::ID)?))).collect::<GResult<Vec<_>>>()?;
+        out.push(ArmyAction { targets: Some(ids), ..entry("attach", may_attach(m, &targets)?) });
+    }
     if army::is_army(m, unit)? {
         out.push(entry("consolidate", may_consolidate(m, unit)?));
         let drilling = mission_kind(m, unit)? == DRILLING;
         out.push(entry(if drilling { "stop_drill" } else { "drill" }, if drilling { Choice::can(Vec::new()) } else { may_drill(m, unit)? }));
+        let to_transport = m.u8(unit + unit::TO_TRANSPORT)? != 0;
+        out.push(entry(if to_transport { "detach_from_transport" } else { "attach_to_transport" }, may_to_transport(m, unit)?));
+        out.push(entry("detach_special_units", may_detach_special(m, &ctx, unit)?));
+        for which in super::spendings::ByArmy::ALL {
+            out.push(entry(which.name(), super::spendings::by_army(m, &ctx, unit, which)?));
+        }
     } else {
         let location = army::location(m, unit)?;
         for mission in ["patrol", "evade"] {
             let text = mission_text(mission, id, location, None).map_err(|e| e.to_string())?;
             out.push(entry(mission, passes(&text)?));
         }
+        let auto = m.u8(unit + unit::AUTO_TRANSPORT)? != 0;
+        out.push(entry(if auto { "stop_auto_transport" } else { "auto_transport" }, may_auto_transport(m, unit)?));
     }
     Ok(out)
+}
+
+/// The player's units now, for the one an action split off.
+fn own_ids(m: &Memory, ctx: &Ctx) -> GResult<Vec<u64>> {
+    Ok(army::roster(m, ctx)?.into_iter().map(|(i, _, _)| i).collect())
+}
+
+/// Posts `text`, which splits a new unit off, and answers that unit.
+fn split_off(m: &Memory, ctx: &Ctx, commands: commands::Commands, text: &str, what: &str) -> GResult<u64> {
+    let before = own_ids(m, ctx)?;
+    action::post(commands, text, what)?;
+    match own_ids(m, ctx)?.into_iter().find(|i| !before.contains(i)) {
+        Some(new) => Ok(new),
+        None => Err(checks::none_split_off()),
+    }
+}
+
+pub fn detach_kind(Session { m, ctx, commands, .. }: Session, args::DetachKind { army: ArmyId(id), kind }: args::DetachKind) -> GResult<u64> {
+    let unit = army::own(m, &ctx, id)?;
+    action::allowed(&may_detach_kind(m, unit, kind)?, "detach these regiments")?;
+    split_off(m, &ctx, commands, &detach_kind_text(id, kind), "detach these regiments")
+}
+
+pub fn attach(Session { m, ctx, commands, .. }: Session, args::Attach { army: ArmyId(id), target: ArmyId(target) }: args::Attach) -> GResult<()> {
+    let unit = army::own(m, &ctx, id)?;
+    if m.ptr(unit + unit::ATTACHED_TO)? != 0 {
+        return Err(checks::state("the unit is attached already; detach it first"));
+    }
+    let to = army::by_id(m, target)?.ok_or_else(|| checks::not_there(target))?;
+    if m.ptr(to + unit::LOCATION)? != m.ptr(unit + unit::LOCATION)? {
+        return Err(checks::not_there(target));
+    }
+    if !may_attach_to(m, unit, to)? {
+        return Err(checks::cannot_attach(target));
+    }
+    action::post(commands, &attach_text(id, target), "attach this unit")
+}
+
+pub fn detach(Session { m, ctx, commands, .. }: Session, args::Detach { army: ArmyId(id) }: args::Detach) -> GResult<()> {
+    let unit = army::own(m, &ctx, id)?;
+    if m.ptr(unit + unit::ATTACHED_TO)? == 0 {
+        return Err(checks::state("the unit is not attached"));
+    }
+    action::post(commands, &detach_text(id), "detach this unit")
+}
+
+/// Attaches an army to the transports in its port, or detaches it.
+fn to_transport(Session { m, ctx, commands, .. }: Session, id: u64, attach: bool) -> GResult<()> {
+    let unit = own_army(m, &ctx, id)?;
+    if (m.u8(unit + unit::TO_TRANSPORT)? != 0) == attach {
+        return Err(checks::state(if attach { "the army is attached to transport already" } else { "the army is not attached to transport" }));
+    }
+    let what = if attach { "attach this army to transport" } else { "detach this army from transport" };
+    action::allowed(&may_to_transport(m, unit)?, what)?;
+    action::post(commands, &to_transport_text(id, attach), what)
+}
+
+pub fn attach_to_transport(session: Session, args::AttachToTransport { army: ArmyId(id) }: args::AttachToTransport) -> GResult<()> {
+    to_transport(session, id, true)
+}
+
+pub fn detach_from_transport(session: Session, args::DetachFromTransport { army: ArmyId(id) }: args::DetachFromTransport) -> GResult<()> {
+    to_transport(session, id, false)
+}
+
+pub fn detach_special_units(
+    Session { m, ctx, commands, .. }: Session,
+    args::DetachSpecialUnits { army: ArmyId(id) }: args::DetachSpecialUnits,
+) -> GResult<u64> {
+    let unit = own_army(m, &ctx, id)?;
+    action::allowed(&may_detach_special(m, &ctx, unit)?, "detach this army's special units")?;
+    split_off(m, &ctx, commands, &detach_special_text(id), "detach this army's special units")
+}
+
+/// Turns a fleet's automatic transportation on or off.
+fn auto_transport_to(Session { m, ctx, commands, .. }: Session, id: u64, on: bool) -> GResult<()> {
+    let fleet = own_fleet(m, &ctx, id)?;
+    if (m.u8(fleet + unit::AUTO_TRANSPORT)? != 0) == on {
+        return Err(checks::state(if on { "the fleet transports armies on its own already" } else { "the fleet does not transport armies on its own" }));
+    }
+    // The button asks the same of both states.
+    let what = if on { "have this fleet transport armies on its own" } else { "stop this fleet transporting armies on its own" };
+    action::allowed(&may_auto_transport(m, fleet)?, what)?;
+    action::post(commands, &auto_transport_text(id), what)
+}
+
+pub fn auto_transport(session: Session, args::AutoTransport { army: ArmyId(id) }: args::AutoTransport) -> GResult<()> {
+    auto_transport_to(session, id, true)
+}
+
+pub fn stop_auto_transport(session: Session, args::StopAutoTransport { army: ArmyId(id) }: args::StopAutoTransport) -> GResult<()> {
+    auto_transport_to(session, id, false)
 }
 
 pub fn split(Session { m, ctx, commands, .. }: Session, args::Split { army: ArmyId(id) }: args::Split) -> GResult<u64> {
@@ -336,6 +579,23 @@ pub mod checks {
         Fail::new(Status::Rejected, format!("leader {id} leads an army or a fleet; take it from there first (leader.remove)"))
     }
 
+    /// The refusal of an army or a fleet to attach to that is not in the
+    /// unit's province, or not there at all.
+    pub fn not_there(id: u64) -> Fail {
+        Fail::new(Status::NotFound, format!("there is no army or fleet {id} in the unit's province"))
+    }
+
+    /// The refusal of attaching to a unit the Attach button does not offer.
+    pub fn cannot_attach(id: u64) -> Fail {
+        Fail::new(Status::Rejected, format!("the game does not let the unit attach to {id}; army.options lists those it may attach to"))
+    }
+
+    /// An action that should have split a new unit off, after which the game
+    /// shows none.
+    pub fn none_split_off() -> Fail {
+        Fail::new(Status::Internal, "the game split off no unit")
+    }
+
     /// The refusal of a fleet's action for an army.
     pub fn not_fleet(id: u64) -> Fail {
         Fail::new(Status::InvalidArgument, format!("{id} is an army, not a fleet"))
@@ -383,6 +643,7 @@ pub mod checks {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game::As;
 
     const UNIT: u64 = 12 << 32 | 54;
 
@@ -395,6 +656,14 @@ mod tests {
         assert!(consolidate_text(UNIT, true).ends_with("yes yes } }"));
         assert_eq!(drill_text(UNIT), "drill_army_mission={ unit={ id=12 type=54 } reason=54 }");
         assert_eq!(stop_mission_text(UNIT), "stop_unit_mission={ unit={ id=12 type=54 } reason=54 }");
+        assert_eq!(detach_kind_text(UNIT, UnitKind::Cavalry), "detach_subunit={ unit={ id=12 type=54 } type=1 }");
+        assert_eq!(detach_kind_text(UNIT, UnitKind::Transport), "detach_subunit={ unit={ id=12 type=54 } type=6 }");
+        assert_eq!(attach_text(UNIT, 13 << 32 | 54), "attach_unit={ unit={ id=12 type=54 } target={ id=13 type=54 } }");
+        assert_eq!(detach_text(UNIT), "detach_unit={ unit={ id=12 type=54 } }");
+        assert_eq!(to_transport_text(UNIT, true), "connect_to_ship_command={ unit={ id=12 type=54 } do_connect_to_ship=yes }");
+        assert_eq!(to_transport_text(UNIT, false), "connect_to_ship_command={ unit={ id=12 type=54 } }");
+        assert_eq!(detach_special_text(UNIT), "detach_merc={ unit={ id=12 type=54 } }");
+        assert_eq!(auto_transport_text(UNIT), "toggle_auto_transfer={ unit={ id=12 type=54 } }");
     }
 
     use crate::game::{
@@ -459,7 +728,7 @@ mod tests {
             kind => Some(Object::new(0x10).u64(0, kinds.at() as u64).u64(8, kind.into())),
         };
         let unit = |class: usize, id: u64, owner: Tag, kind: u32| {
-            let unit = Object::new(MISSION + 8).u64(0, m.at(class) as u64).u64(unit::ID, id).u64(unit::OWNER, owner.0);
+            let unit = Object::new(unit::MOTHBALLED + 8).u64(0, m.at(class) as u64).u64(unit::ID, id).u64(unit::OWNER, owner.0);
             match mission(kind) {
                 Some(mission) => unit.points_to(MISSION, mission),
                 None => unit,
@@ -469,7 +738,7 @@ mod tests {
         FOUND.with(|f| *f.borrow_mut() = units.iter().map(|u| (u.read_u64(unit::ID), u.at() + unit::ID_HOLDER)).collect());
         let country = Object::country(tur, 0);
         let countries = Object::countries(&[&country]);
-        let result = action(buffers::session(m, 0, tur, country.at(), countries.at(), Caller::Remote));
+        let result = action(buffers::session(m, 0, tur, country.at(), countries.at(), Caller::Remote(As::Player)));
         drop((units, kinds, country, countries, image));
         result
     }
@@ -495,6 +764,38 @@ mod tests {
             refused(turkey(0, 0, |s| stop_mission(s, args::StopMission { army: ArmyId(UNIT) }))),
         ];
         assert!(on_the_army.iter().all(|r| *r == (Status::InvalidArgument, format!("{UNIT} is an army, not a fleet"))), "{on_the_army:?}");
+        assert!(record::posted().is_empty());
+    }
+
+    #[test]
+    fn organizing_refuses_what_the_unit_s_state_makes_pointless_or_its_kind_has_not() {
+        let army = ArmyId(UNIT);
+        let fleet = ArmyId(FLEET);
+        assert_eq!(refused(turkey(0, 0, |s| detach(s, args::Detach { army }))), (Status::Rejected, "the unit is not attached".into()));
+        assert_eq!(
+            refused(turkey(0, 0, |s| detach_from_transport(s, args::DetachFromTransport { army }))),
+            (Status::Rejected, "the army is not attached to transport".into())
+        );
+        assert_eq!(
+            refused(turkey(0, 0, |s| stop_auto_transport(s, args::StopAutoTransport { army: fleet }))),
+            (Status::Rejected, "the fleet does not transport armies on its own".into())
+        );
+        assert_eq!(
+            refused(turkey(0, 0, |s| attach_to_transport(s, args::AttachToTransport { army: fleet }))),
+            (Status::InvalidArgument, "not a land army".into())
+        );
+        assert_eq!(
+            refused(turkey(0, 0, |s| detach_special_units(s, args::DetachSpecialUnits { army: fleet }))),
+            (Status::InvalidArgument, "not a land army".into())
+        );
+        assert_eq!(
+            refused(turkey(0, 0, |s| auto_transport(s, args::AutoTransport { army }))),
+            (Status::InvalidArgument, format!("{UNIT} is an army, not a fleet"))
+        );
+        assert_eq!(
+            refused(turkey(0, 0, |s| attach(s, args::Attach { army, target: ArmyId(99) }))),
+            (Status::NotFound, "there is no army or fleet 99 in the unit's province".into())
+        );
         assert!(record::posted().is_empty());
     }
 

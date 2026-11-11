@@ -8,7 +8,7 @@ group! {
 
     /// The version of the capability catalogue the game serves, and every
     /// capability remote control has, with its arguments.
-    remote_anywhere All "" {} -> Description, "api_version, and the capabilities: name, what it does, whether it needs a game going on, arguments, result";
+    remote_anywhere All "" {} -> Description, "api_version, and the capabilities: name, what it does, whether it needs a game going on, acts as a country, extensions have it and a request asks for it only as the game, arguments, result";
 }
 
 /// The catalogue, as remote control has it.

@@ -126,6 +126,13 @@ fn army(id: u64, owner: &[u8; 3], kind: eu4_harmony_remote::armies::ArmyKind, pr
         route_by: None,
         aboard: None,
         carrying: 0,
+        units: eu4_harmony_remote::armies::Units { infantry: regiments, ..Default::default() },
+        strength: f64::from(regiments),
+        max_strength: f64::from(regiments),
+        morale: 3.0,
+        max_morale: 3.0,
+        leader: None,
+        maintenance: Some(0.5 * f64::from(regiments)),
     }
 }
 
@@ -156,7 +163,9 @@ impl countries::Layer for Fake {
     /// The Ottomans at war with Byzantium, with Wallachia as their vassal;
     /// Byzantium with nothing; [`wallachia`].
     fn country(&mut self, eu4_harmony_remote::countries::args::Get { country }: eu4_harmony_remote::countries::args::Get) -> GResult<Box<Country>> {
-        use eu4_harmony_remote::countries::{GoverningCapacity, IdeaGroup, Loans, Power, Rebels, RelationKind, Technology};
+        use eu4_harmony_remote::countries::{
+            GoverningCapacity, IdeaGroup, Legitimacy, LegitimacyKind, Loans, ModifierValue, NamedModifier, Person, Power, Rebels, RelationKind, Technology,
+        };
         self.call(format!("country {country}"));
         let found = found(country)?;
         if found == byz() {
@@ -185,6 +194,21 @@ impl countries::Layer for Fake {
             mercantilism: Some(10.0),
             loans: Some(Loans { count: 1, ducats: 120.0 }),
             rebels: Some(vec![Rebels { kind: "nationalist_rebels".into(), name: "Albanian Nationalists".into(), progress: 12.5 }]),
+            ruler: Some(Person { name: "Mehmed II".into(), dynasty: Some("Osmanoğlu".into()), adm: 5, dip: 4, mil: 6, age: 21 }),
+            heir: None,
+            consort: None,
+            legitimacy: Some(Legitimacy {
+                kind: LegitimacyKind::Legitimacy,
+                value: 90.0,
+                max: 100.0,
+                effects: Some(vec![ModifierValue { modifier: "global_unrest".into(), value: -0.8 }]),
+            }),
+            corruption: Some(1.5),
+            absolutism: Some(20.0),
+            army_professionalism: Some(12.5),
+            army_tradition: 35.25,
+            navy_tradition: 10.0,
+            named_modifiers: Some(vec![NamedModifier { key: "janissary_decadence".into(), expires: None }]),
         }))
     }
 
@@ -250,6 +274,16 @@ fn bare(tag: CountryTag) -> Country {
         mercantilism: None,
         loans: None,
         rebels: None,
+        ruler: None,
+        heir: None,
+        consort: None,
+        legitimacy: None,
+        corruption: None,
+        absolutism: None,
+        army_professionalism: None,
+        army_tradition: 0.0,
+        navy_tradition: 0.0,
+        named_modifiers: None,
     }
 }
 
@@ -395,6 +429,13 @@ pub fn constantinople() -> eu4_harmony_remote::provinces::ProvinceSnapshot {
         constructions: None,
         missionary: None,
         colony_size: None,
+        named_modifiers: Vec::new(),
+        prosperity: Some(40.0),
+        devastation: 0.0,
+        local_manpower: 1.5,
+        supply_limit: 12.5,
+        separatism: 0,
+        institutions: vec![eu4_harmony_remote::provinces::InstitutionProgress { institution: "feudalism".into(), progress: 100.0 }],
     }
 }
 
@@ -494,10 +535,71 @@ impl armies::Layer for Fake {
     ) -> GResult<Vec<eu4_harmony_remote::armies::ArmyAction>> {
         use eu4_harmony_remote::{armies::ArmyAction, choices::Choice};
         self.call(format!("army options {id}"));
-        Ok(vec![
-            ArmyAction { action: "split".into(), choice: Choice::can(Vec::new()) },
-            ArmyAction { action: "merge".into(), choice: Choice::cannot(vec!["至少需要两支部队".into()], Vec::new()) },
-        ])
+        Ok(vec![ArmyAction::new("split", Choice::can(Vec::new())), ArmyAction::new("merge", Choice::cannot(vec!["至少需要两支部队".into()], Vec::new()))])
+    }
+
+    fn detach_kind(
+        &mut self,
+        eu4_harmony_remote::armies::args::DetachKind { army: eu4_harmony_remote::ArmyId(id), kind }: eu4_harmony_remote::armies::args::DetachKind,
+    ) -> GResult<u64> {
+        self.call(format!("detach kind {id} {kind:?}"));
+        Ok(id + 1)
+    }
+
+    fn attach(
+        &mut self,
+        eu4_harmony_remote::armies::args::Attach { army: eu4_harmony_remote::ArmyId(id), target: eu4_harmony_remote::ArmyId(target) }: eu4_harmony_remote::armies::args::Attach,
+    ) -> GResult<()> {
+        self.call(format!("attach {id} {target}"));
+        Ok(())
+    }
+
+    fn detach(
+        &mut self,
+        eu4_harmony_remote::armies::args::Detach { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::Detach,
+    ) -> GResult<()> {
+        self.call(format!("detach {id}"));
+        fail(Status::Rejected, "the unit is not attached")
+    }
+
+    fn attach_to_transport(
+        &mut self,
+        eu4_harmony_remote::armies::args::AttachToTransport { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::AttachToTransport,
+    ) -> GResult<()> {
+        self.call(format!("attach to transport {id}"));
+        Ok(())
+    }
+
+    fn detach_from_transport(
+        &mut self,
+        eu4_harmony_remote::armies::args::DetachFromTransport { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::DetachFromTransport,
+    ) -> GResult<()> {
+        self.call(format!("detach from transport {id}"));
+        Ok(())
+    }
+
+    fn detach_special_units(
+        &mut self,
+        eu4_harmony_remote::armies::args::DetachSpecialUnits { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::DetachSpecialUnits,
+    ) -> GResult<u64> {
+        self.call(format!("detach special units {id}"));
+        Ok(id + 1)
+    }
+
+    fn auto_transport(
+        &mut self,
+        eu4_harmony_remote::armies::args::AutoTransport { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::AutoTransport,
+    ) -> GResult<()> {
+        self.call(format!("auto transport {id}"));
+        Ok(())
+    }
+
+    fn stop_auto_transport(
+        &mut self,
+        eu4_harmony_remote::armies::args::StopAutoTransport { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::StopAutoTransport,
+    ) -> GResult<()> {
+        self.call(format!("stop auto transport {id}"));
+        Ok(())
     }
 
     fn split(

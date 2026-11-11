@@ -11,17 +11,18 @@ steps:
 1. Register each test: test("what it checks", function() ... end). Open the
    mod afresh in each with local mod = open(); main.lua runs again.
 2. Answer every capability the code under test calls, before raising the
-   event that calls it: describe a world for the map, the countries and the
+   signal that calls it: describe a world for the map, the countries and the
    armies, and answer the rest one by one. The report notes "<capability>
    had no answer" for any you left out: the mod got nil, not_ready.
-3. Raise the event, then read back what the mod did and assert on it.
+3. Raise the signal, then read back what the mod did and assert on it.
    A test fails when it raises an error, assert included.
 4. Run eu4-harmony test. Done when every test is ok, no note says a
    capability had no answer, and each handler you changed has a test.
 
-a world, which answers session.get, country.get and hostile, province.get,
-list and neighbors, and army.get, list, at, selected, route_to, can_step,
-can_attack, move and stop:
+a world, which answers session.get, country.get, hostile, opinion and
+opinions, province.get, list and neighbors, army.get, list, at, selected,
+route_to, can_step, can_attack, move and stop, and the script group's flags
+and variables, kept as the mod sets them (a flag on the world's date):
 
   mod:world{
     player = "CAS", date = "1444.11.11", hostile = { { "CAS", "GRA" } },
@@ -33,6 +34,7 @@ can_attack, move and stop:
     },
     armies = { { id = 1, owner = "CAS", province = 217, regiments = 10 } },
     selected = 1,
+    opinions = { { of = "GRA", toward = "CAS", opinion = -50, trust = 30 } },
   }
 
 - Neighbors count both ways; a route is the shortest over land, across
@@ -42,6 +44,11 @@ can_attack, move and stop:
   player's, a navy where an army is asked for, an order to an army with no
   regiments or with anything in its blocked list, a target in a province
   that is not visible. Give the armies you order regiments.
+- A pair of countries left out of opinions thinks nothing of each other,
+  with the game's trust of 50.
+- game.time.wait(days) is answered once a mod:day the test raises reaches
+  the date that many days on from the last day raised (or the world's date,
+  or 1444.11.11).
 - Put a world shared by several tests in eu4-harmony/tests/helpers/<name>.lua
   returning the table, and local spain = require("helpers.spain").
 
@@ -68,12 +75,12 @@ An answer is held to its capability's result (eu4-harmony wiki <group>
 a value of the wrong type, is an error at that line. Leave out the fields
 the test is not about.
 
-events, as the game raises them, through the dispatch the game uses:
+signals, as the game raises them, through the dispatch the game uses:
   mod:session(saved)   mod:session_ended(reason)   mod:day("1444.11.12")
   mod:raise(kind, { field = value, ... })
-                       any event eu4-harmony wiki events lists, its fields as
+                       any signal eu4-harmony wiki signals lists, its fields as
                        the handler gets them (a date { year, month, day }),
-                       held to the event's shape:
+                       held to the signal's shape:
                        mod:raise("war_declared", { war = "x", attacker = "CAS", defender = "GRA" })
   mod:frame()          mod:button(name, { right, shift, ctrl })
   mod:army_ordered(army)   mod:army_defeated(army)   mod:map_lost()
@@ -118,7 +125,7 @@ what the mod did:
   mod:told()           what the player was told: errors, a stop
   mod:stopped()        why the mod was stopped, or nil
 
-A waiting task: mod:later(...), raise the event, mod:reply(...), then
+A waiting task: mod:later(...), raise the signal, mod:reply(...), then
 mod:poll() takes the task up (eu4-harmony skills tasks).
 
 files is a folder of the test's own, empty at each open(); mod_files reads

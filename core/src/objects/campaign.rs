@@ -113,6 +113,20 @@ pub mod world {
     pub const IN_VIEW_VALID: usize = IN_VIEW + 7;
     /// The provinces, [`super::province::SIZE`] bytes each, by ID.
     pub const PROVINCES: usize = 0x1ca8;
+    /// Whether each institution has appeared, a vector (begin, end) of i32
+    /// by the institution's [`super::institution::INDEX`], nonzero once it
+    /// has.
+    pub const INSTITUTIONS: usize = 0x22a0;
+    /// The age the world is in, a pointer to the age (its key a
+    /// `std::string` at [`super::age_ability::AGE_KEY`]).
+    pub const AGE: usize = 0x2420;
+    /// The great projects' manager: the projects, [`super::great_project`]s
+    /// of [`super::great_project::SIZE`] bytes, in an array of the game's
+    /// own, its data at [`GREAT_PROJECTS_DATA`] and its length (i32) at
+    /// [`GREAT_PROJECTS_COUNT`] of the manager.
+    pub const GREAT_PROJECTS: usize = 0x25b0;
+    pub const GREAT_PROJECTS_DATA: usize = 0x58;
+    pub const GREAT_PROJECTS_COUNT: usize = 0x64;
     /// Nonzero while there is fog of war, u8.
     pub const FOG: usize = 0x23a6;
     /// The wars going on: pointers to [`super::war`]s, and their count (i32).
@@ -137,6 +151,22 @@ pub mod world {
     /// Nonzero while the world's own reset clears it (`0x74a260`), u8: a
     /// rebel faction's destructor then leaves its provinces be.
     pub const CLEARING: usize = 0x7485;
+    /// What the world keeps of each religion, a pointer to an object whose
+    /// [`RELIGION_STATES_DATA`] is an array of [`RELIGION_STATE_SIZE`]-byte
+    /// records by the religion's [`super::religion::INDEX`] less one
+    /// (docs/research/religion.md, "The defender of the faith").
+    pub const RELIGION_STATES: usize = 0x25a8;
+    pub const RELIGION_STATES_DATA: usize = 0x30;
+    pub const RELIGION_STATE_SIZE: usize = 0x50;
+    /// A religion's record: the tag of the country that defends it, whose
+    /// valid byte is clear while none does.
+    pub const RELIGION_DEFENDER: usize = 0x34;
+}
+
+/// A religion, as a country's [`country::STATE_RELIGION`] points to it.
+pub mod religion {
+    /// Its index among the religions, from 1.
+    pub const INDEX: usize = 0x70;
 }
 
 /// The religions, at [`globals::RELIGIONS`].
@@ -194,6 +224,19 @@ pub mod countries {
 pub mod country {
     /// Its tag.
     pub const TAG: usize = 0x20;
+    /// The age abilities it has taken (`active_age_ability` in saves): a
+    /// vector (begin, end) of pointers to [`super::age_ability`]s.
+    pub const AGE_ABILITIES: usize = 0x30;
+    /// Its splendor, i32 thousandths.
+    pub const SPLENDOR: usize = 0x48;
+    /// The date its golden era started (`golden_era_date` in saves), i32,
+    /// and the months the golden era is lengthened by, i32.
+    pub const GOLDEN_ERA_START: usize = 0x2788;
+    pub const GOLDEN_ERA_MONTHS: usize = 0x278c;
+    /// Whether it has embraced each institution (`institutions` in saves): a
+    /// vector (begin, end) of i32 by the institution's
+    /// [`super::institution::INDEX`], 1 once embraced.
+    pub const EMBRACED: usize = 0xc68;
     /// A byte for each idea group of the game's database (`[0x242bce0]`),
     /// set when the country has taken it: an array the country tags' setup
     /// (`0x283d20`) gives each country that has none, and that the
@@ -213,6 +256,10 @@ pub mod country {
     /// pointers. The country's clear (`0x2e1a30`) lets the vector go
     /// without destroying them (docs/research/main-menu.md).
     pub const REBEL_FACTIONS: usize = 0xe68;
+    /// A native country's tribe, its `native` object; null for a country
+    /// that is not a native one (docs/research/power-spending.md, "The
+    /// province view's and the army panel's spendings").
+    pub const NATIVE: usize = 0x9a78;
     /// Its armies and fleets, a [`super::list`].
     pub const UNITS: usize = 0xd18;
     /// The countries it is at war with: a pointer to [`HOSTILE_SIZE`]-byte
@@ -256,8 +303,8 @@ pub mod country {
     pub const RELATIONS: usize = 0x1510;
     pub const RELATION_SIZE: usize = 0x48;
     pub const RELATION_OTHER: usize = 0x10;
-    /// In a record, the other's trust in it (u8, up to 100), and the favors
-    /// the other owes it (i32, thousandths).
+    /// In a record, its trust in the other (u8, up to 100), and the favors
+    /// it owes the other (i32, thousandths).
     pub const RELATION_TRUST: usize = 0x1e;
     pub const RELATION_FAVORS: usize = 0x20;
     /// Its capital, a pointer to the [`super::province`].
@@ -288,11 +335,78 @@ pub mod country {
     /// a religion as a province's ([`super::province::CULTURE`]).
     pub const PRIMARY_CULTURE: usize = 0x1228;
     pub const STATE_RELIGION: usize = 0xf30;
+    /// The personal deity it follows, a pointer to one of the game's
+    /// deities, null for none; and its cult, a pointer to a cult or the
+    /// game's no-cult object (docs/research/religion.md).
+    pub const PERSONAL_DEITY: usize = 0xfa0;
+    pub const CULT: usize = 0xfa8;
+    /// Its church, a pointer to the object that keeps its church power and
+    /// the aspects its church has chosen; and the blessings it has taken, a
+    /// `std::vector` of pointers to aspects (docs/research/religion.md).
+    pub const CHURCH: usize = 0xf68;
+    pub const BLESSINGS: usize = 0xf70;
+    /// Its religious reforms, a `std::vector` of entries, one for each reform
+    /// group of its religion: the group and which of its reforms are passed
+    /// (docs/research/religion.md).
+    pub const RELIGIOUS_REFORMS: usize = 0x1450;
+    /// Its fervor, a pointer to the object that keeps it and the fervor
+    /// effects active (docs/research/religion.md).
+    pub const FERVOR: usize = 0xf60;
+    /// The religion it is harmonizing with now and the religion group, each a
+    /// pointer, null while it harmonizes with none (docs/research/religion.md).
+    pub const HARMONIZING: usize = 0x1040;
+    pub const HARMONIZING_GROUP: usize = 0x1048;
+    /// Its patriarch authority, i32 thousandths of the whole, and the icon it
+    /// has commissioned, a pointer, null for none (docs/research/religion.md).
+    pub const PATRIARCH_AUTHORITY: usize = 0xf88;
+    pub const ICON: usize = 0xf90;
+    /// Its papal influence, i32 thousandths, which the papacy's actions
+    /// spend (docs/research/religion.md).
+    pub const PAPAL_INFLUENCE: usize = 0xf50;
+    /// The Islamic school it follows, a pointer, null for none: a country
+    /// follows one, and invites a scholar of another from a country that
+    /// follows it (docs/research/religion.md).
+    pub const SCHOOL: usize = 0x28b8;
+    /// Its secondary religion (Tengri's syncretic faith), a pointer to the
+    /// game's no-religion while it has none (docs/research/religion.md).
+    pub const SECONDARY_RELIGION: usize = 0xf38;
+    /// The gurus' teachings it has taken (Sikhism), the game's own array of
+    /// pointers (docs/research/religion.md).
+    pub const TEACHINGS: usize = 0x9aa8;
+    /// The named modifiers its scripts put on it, a [`super::super::list`]
+    /// of [`super::named_modifier`]s.
+    pub const NAMED_MODIFIERS: usize = 0x1f0;
+    /// Its ruler, heir and consort (`monarch`, `heir` and `queen` in saves),
+    /// each a pointer to a [`super::person`]: the game's null person of its
+    /// kind while it has none, whose [`super::person::PRESENT`] method says
+    /// no.
+    pub const RULER: usize = 0x1280;
+    pub const HEIR: usize = 0x1298;
+    pub const CONSORT: usize = 0x12b0;
+    /// Its legitimacy of each kind, i32 thousandths from 0 to 100: a
+    /// monarchy's legitimacy, which is a horde's horde unity as well,
+    /// republican tradition, devotion and meritocracy. Which one its
+    /// government has, the government says (docs/research/government.md).
+    pub const LEGITIMACY: usize = 0x1090;
+    pub const REPUBLICAN_TRADITION: usize = 0x1094;
+    pub const DEVOTION: usize = 0x1430;
+    pub const MERITOCRACY: usize = 0x1434;
+    /// Army and navy tradition, corruption and absolutism, i32 thousandths.
+    pub const ARMY_TRADITION: usize = 0xe40;
+    pub const NAVY_TRADITION: usize = 0xe44;
+    pub const CORRUPTION: usize = 0xed0;
+    pub const ABSOLUTISM: usize = 0x4c;
+    /// Army professionalism, an i64 fixed-point number with 15 bits after
+    /// the point: [`ARMY_PROFESSIONALISM_ONE`] is the whole, 100%.
+    pub const ARMY_PROFESSIONALISM: usize = 0x50;
+    pub const ARMY_PROFESSIONALISM_ONE: i64 = 1 << 15;
     /// Inflation and mercantilism, fixed point, in percent.
     pub const INFLATION: usize = 0xbd4;
     pub const MERCANTILISM: usize = 0x1098;
     /// Its loans, a [`super::super::list`] of [`super::loan`]s.
     pub const LOANS: usize = 0xde8;
+    /// Whether its war taxes are raised, a byte.
+    pub const WAR_TAXES: usize = 0xd08;
     /// Its ledger's tables of this month's income ([`INCOME_CATEGORIES`]
     /// i32 thousandths of a ducat) and expenses ([`EXPENSE_CATEGORIES`]), in
     /// the order of the categories' names.
@@ -300,6 +414,29 @@ pub mod country {
     pub const INCOME_CATEGORIES: usize = 19;
     pub const EXPENSES: usize = 0xb00;
     pub const EXPENSE_CATEGORIES: usize = 38;
+}
+
+/// A ruler, an heir or a consort (`CMonarch`, monarch.cpp), as its save
+/// writer (`0xa4a750`) writes it.
+pub mod person {
+    /// The method (vtable offset) that says whether it is a person and not
+    /// the game's null one of its kind.
+    pub const PRESENT: usize = 0x58;
+    /// The given name, a `std::string` with a ruler's regnal number in it.
+    pub const GIVEN_NAME: usize = 0x28;
+    /// Administrative, diplomatic and military skill, whole i32.
+    pub const ADM: usize = 0x48;
+    pub const DIP: usize = 0x4c;
+    pub const MIL: usize = 0x50;
+    /// Their culture, a pointer to one as a province's.
+    pub const CULTURE: usize = 0x60;
+    /// Their dynasty: a pointer to one whose method [`DYNASTY_VALID`] says
+    /// whether it is one, its name a `std::string` at [`DYNASTY_NAME`].
+    pub const DYNASTY: usize = 0x68;
+    pub const DYNASTY_VALID: usize = 8;
+    pub const DYNASTY_NAME: usize = 8;
+    /// The day they were born, a date.
+    pub const BIRTH: usize = 0x70;
 }
 
 /// What a country keeps of its technology.
@@ -335,6 +472,8 @@ pub mod loan {
 
 /// A rebel faction.
 pub mod rebel_faction {
+    /// Its ID, u64: its type in the low half, its number in the high.
+    pub const ID: usize = 0x10;
     /// Its rebel type, whose key is a `std::string` at [`TYPE_KEY`].
     pub const TYPE: usize = 0x20;
     pub const TYPE_KEY: usize = 0x18;
@@ -385,6 +524,28 @@ pub mod country_diplomacy {
     pub const SUBJECT_COUNT: usize = 0x134;
     pub const SUBJECT_SIZE: usize = 16;
     pub const SUBJECT_RELATION: usize = 8;
+    /// The opinion modifiers its country has toward each other country: a
+    /// pointer to [`OPINIONS_SIZE`]-byte items by the other's index, and
+    /// their count (i32); in an item, a pointer to the
+    /// [`super::opinion_modifier`]s' pointers at [`OPINIONS_LIST`] and their
+    /// count (i32) at [`OPINIONS_COUNT`].
+    pub const OPINIONS: usize = 0x308;
+    pub const OPINIONS_ITEMS: usize = 0x314;
+    pub const OPINIONS_SIZE: usize = 0x18;
+    pub const OPINIONS_LIST: usize = 8;
+    pub const OPINIONS_COUNT: usize = 0x14;
+}
+
+/// One opinion modifier a country has toward another (an `opinion` in
+/// saves).
+pub mod opinion_modifier {
+    /// Its type, whose key is a `std::string` at [`TYPE_KEY`] in it (the
+    /// key `common/opinion_modifiers` gives it, such as
+    /// `aggressive_expansion`).
+    pub const TYPE: usize = 0x10;
+    pub const TYPE_KEY: usize = 0x10;
+    /// What it adds to the opinion now (i32, thousandths).
+    pub const VALUE: usize = 0x20;
 }
 
 /// What a subject is to its overlord, of [`classes::SUBJECT_RELATION`] (a
@@ -412,6 +573,12 @@ pub mod war {
 
 pub mod province {
     pub const SIZE: usize = 0x2e10;
+    /// Its own modifiers, a [`super::modifier_set`]: what its buildings,
+    /// terrain, named modifiers and the like give it.
+    pub const MODIFIERS: usize = 0x998;
+    /// The named modifiers its scripts put on it, a vector (begin, end) of
+    /// pointers to [`super::named_modifier`]s.
+    pub const NAMED_MODIFIERS: usize = 0x2f0;
     /// Its ID, i32.
     pub const ID: usize = 0x20;
     /// Its map data (see [`super::geometry`]).
@@ -498,6 +665,71 @@ pub mod province {
     pub const MISSIONARY_PROGRESS: usize = 0x894;
     /// A colony's size, fixed point, in settlers.
     pub const COLONY_SIZE: usize = 0x3f8;
+    /// Its devastation, fixed point, in percent.
+    pub const DEVASTATION: usize = 0x42c;
+    /// The years of separatism left, i32 (saved as `nationalism`).
+    pub const SEPARATISM: usize = 0x5a0;
+    /// Its progress toward each institution, a vector (begin, end) of i32
+    /// in fixed point by the institution's [`super::institution::INDEX`],
+    /// 100 when it has it.
+    pub const INSTITUTIONS: usize = 0xd0;
+    /// The prosperity of the country state at [`STATE`], fixed point, in
+    /// percent.
+    pub const STATE_PROSPERITY: usize = 0x18;
+}
+
+/// One of the game's institutions (`common/institutions`), as its database
+/// holds it.
+pub mod institution {
+    /// Its index among the institutions, i32: the order of the database's
+    /// vector, which a province's progress and the world's appearances
+    /// follow.
+    pub const INDEX: usize = 0x10;
+    /// Its key (`renaissance`), a `std::string`.
+    pub const KEY: usize = 0x18;
+    /// The database's vector (begin, end) of pointers to institutions, from
+    /// the database its getter answers.
+    pub const DATABASE_LIST: usize = 0x10;
+}
+
+/// An ability of one of the ages (`common/ages`), from the ages' database:
+/// its getter (`0x8db70`) makes it on first use and keeps it at
+/// `[0x242b9e0]`; its abilities of every age are a vector (begin, end) of
+/// pointers at [`DATABASE_LIST`], in order of their [`INDEX`].
+pub mod age_ability {
+    /// Its index among every age's abilities, i32: what the command writes.
+    pub const INDEX: usize = 0x10;
+    /// The age it is of, a pointer to the age.
+    pub const AGE: usize = 0x18;
+    /// Its key (`ab_justified_wars`), a `std::string`.
+    pub const KEY: usize = 0x98;
+    /// The database's vector of every age's abilities.
+    pub const DATABASE_LIST: usize = 0x60;
+    /// An age's key (`age_of_discovery`), a `std::string`.
+    pub const AGE_KEY: usize = 0x10;
+}
+
+/// A great project, a monument or a canal: its definition from
+/// `common/great_projects` and its state in the world, one of the great
+/// projects' manager's (`world::GREAT_PROJECTS`).
+pub mod great_project {
+    /// Each project's bytes in the manager's array.
+    pub const SIZE: usize = 0x5e8;
+    /// Its definition: a pointer whose key (`great_wall_of_china`), a
+    /// `std::string`, is at [`DEFINITION_KEY`] and whose kind, u8, at
+    /// [`DEFINITION_KIND`]: 1 a canal, 2 a monument.
+    pub const DEFINITION: usize = 0x10;
+    pub const DEFINITION_KEY: usize = 0x10;
+    pub const DEFINITION_KIND: usize = 0x1d36;
+    pub const CANAL: u8 = 1;
+    /// The definition's site, the province it is built in, i32 (0 for
+    /// none), and whether it may be built and moved anywhere instead, u8.
+    pub const DEFINITION_SITE: usize = 0x1d30;
+    pub const DEFINITION_MOVABLE: usize = 0x1d34;
+    /// The province it stands in, i32; 0 for one the world does not have.
+    pub const PROVINCE: usize = 0x5e0;
+    /// Its tier, u8, from 0 to 3.
+    pub const TIER: usize = 0x5e4;
 }
 
 /// A province's map data, at [`province::GEOMETRY`].
@@ -549,8 +781,13 @@ pub mod construction {
     /// Whose it is, a tag.
     pub const COUNTRY: usize = 0x40;
     /// What a building's or a military construction makes: a
-    /// [`super::building`] or a [`super::unit_type`].
+    /// [`super::building`] or a [`super::unit_type`]; a great project's
+    /// construction, the project's definition
+    /// ([`super::great_project::DEFINITION`]).
     pub const MAKES: usize = 0x80;
+    /// A great project's construction's builder, a tag, which its cancel
+    /// and boost commands check against the country.
+    pub const BUILDER: usize = 0x88;
 }
 
 /// A kind of regiment or ship, of class [`classes::UNIT_TYPE`].
@@ -560,6 +797,8 @@ pub mod unit_type {
     /// Its key as in common/units (`western_medieval_infantry`), a
     /// `std::string`.
     pub const NAME: usize = 0x60;
+    /// The strength a regiment of it has at full, fixed point.
+    pub const MAX_STRENGTH: usize = 0x58;
 }
 
 /// A connection to a neighbor, [`SIZE`] bytes: the neighbor's ID, the
@@ -623,9 +862,34 @@ pub mod unit {
     pub const MOVEMENT_LOCKED: usize = 0x202;
     pub const RETREATING: [usize; 2] = [0x203, 0x204];
     pub const EXILED: usize = 0x207;
+    /// u8: an army attached to the transports in its port, which it embarks
+    /// on when they leave.
+    pub const TO_TRANSPORT: usize = 0x20d;
+    /// u8 each: a fleet carrying armies on its own, and a fleet mothballed.
+    pub const AUTO_TRANSPORT: usize = 0x280;
+    pub const MOTHBALLED: usize = 0x281;
     /// Methods of [`super::classes::ARMY`], by vtable offset.
     pub const CAN_ENTER: usize = 0x120;
     pub const MILITARY_TAG: usize = 0x138;
+    /// The method of [`super::classes::ARMY`] and [`super::classes::FLEET`]
+    /// that answers what its regiments or ships cost a month: (unit, out).
+    pub const MAINTENANCE: usize = 0xb8;
+}
+
+/// A regiment of an army, or a ship of a fleet, as [`unit::REGIMENTS`]
+/// holds them.
+pub mod regiment {
+    /// Its ID: the type, u32, then the number, u32.
+    pub const ID: usize = 0x10;
+    pub const NUMBER: usize = 0x14;
+    /// Its unit type (see [`super::unit_type`]).
+    pub const TYPE: usize = 0x20;
+    /// Its strength and its morale, fixed point; a strength of 1 is a full
+    /// regiment's, 1000 men.
+    pub const STRENGTH: usize = 0x28;
+    pub const MORALE: usize = 0x2c;
+    /// Its name, a `std::string`.
+    pub const NAME: usize = 0x68;
 }
 
 /// A task's methods an idle task has as [`super::classes::IDLE_TASK`] does,
@@ -726,6 +990,11 @@ pub mod modifiers {
     pub const COPIES: usize = 0x6440;
     /// Their own set, the [`super::modifier_set`] the copies are added to.
     pub const OWN: usize = 8;
+    /// The sets of what its legitimacy adds, made again as the modifiers are
+    /// ([`super::modifier_set`]s): the first for every kind of legitimacy,
+    /// the second a republic's for republican tradition below its whole.
+    pub const LEGITIMACY_EFFECTS: usize = 0x2f08;
+    pub const LEGITIMACY_EFFECTS_SECOND: usize = 0x2fc8;
 }
 
 /// A set of modifiers, the base of [`classes::MODIFIER_SET`] and of the sets
@@ -735,6 +1004,41 @@ pub mod modifier_set {
     /// copy leaves the destination's as it was; its destructor frees the
     /// vector.
     pub const ADDED: usize = 0x38;
+    /// Its values: a byte set when it keeps them by modifier, each at the
+    /// modifier's place; otherwise as pairs. Either way an array of
+    /// [`PAIR`]-byte pairs at [`PAIRS`], a modifier's index (i32), then its
+    /// value (i32 thousandths), and their count (i32) at [`COUNT`]; a place
+    /// kept by modifier that holds none holds [`NONE`].
+    pub const BY_MODIFIER: usize = 0x10;
+    pub const PAIRS: usize = 0x58;
+    pub const COUNT: usize = 0x64;
+    pub const PAIR: usize = 8;
+    pub const NONE: i32 = 0x286;
+    /// A named set's key, such as an event modifier's: a `std::string`.
+    pub const NAME: usize = 0x158;
+}
+
+/// A named modifier a country or a province has: the named set of
+/// modifiers it gives ([`super::modifier_set::NAME`]), the day it ends (a
+/// day no later than [`NEVER`], 1.1.1, for none: one given for good holds
+/// -1.1.1), and bytes set when it does not end and when the scripts hide
+/// it.
+pub mod named_modifier {
+    pub const SET: usize = 0x30;
+    pub const EXPIRES: usize = 0x44;
+    pub const NEVER: i32 = 0x29c77f8;
+    pub const PERMANENT: usize = 0x4a;
+    pub const HIDDEN: usize = 0x4b;
+}
+
+/// The kinds of modifier, built into the code: a vector (begin, end) at
+/// [`TYPES`] of [`SIZE`]-byte records by the modifier's index, each with its
+/// key (a `std::string`) at [`KEY`] and its index at [`INDEX`].
+pub mod modifier_type {
+    pub const TYPES: usize = 0x2358080;
+    pub const SIZE: usize = 0x60;
+    pub const KEY: usize = 0;
+    pub const INDEX: usize = 0x54;
 }
 
 /// The map modes' panel, at the map manager's `+0x2448`, which the game
@@ -816,6 +1120,9 @@ pub mod pending_event {
 pub mod event {
     /// Its id in the game's files (`flavor_fra.1`), a `std::string`.
     pub const NAME: usize = 0x20;
+    /// Its trigger, a content trigger (`game::conditions`), which firing it
+    /// from script asks first.
+    pub const TRIGGER: usize = 0x40;
     /// Its options: a vector (begin, end) of pointers to
     /// [`super::event_option`]s.
     pub const OPTIONS: usize = 0x790;
@@ -826,6 +1133,8 @@ pub mod event {
 pub mod event_option {
     /// The localisation key of its text, a `std::string`.
     pub const NAME: usize = 0x88;
+    /// Its trigger, a content trigger: whether it may be chosen.
+    pub const TRIGGER: usize = 0xa8;
 }
 
 /// An event window, of [`classes::EVENT_WINDOW`], among the map manager's
@@ -1040,6 +1349,19 @@ pub fn points() -> Vec<Point> {
             country::RELATION_FAVORS,
             country::RELATION_TRUST,
         ]),
+        // A relation's writer in saves: its country's opinion modifiers
+        // toward the other, by the other's index, each written in turn.
+        Point::keep(
+            0xa66935usize,
+            "41 3b 88 14 03 00 00 7d 5f 48 8b d1 49 8b 88 08 03 00 00 48 8d 04 52 83 7c c1 14 00 74 4a 48 8d 04 52 4d 89 7b 20 48 8b 74 c1 08 48 63 44 c1 14",
+            "opinion modifiers toward a country",
+        )
+        .uses(&[country_diplomacy::OPINIONS_ITEMS, country_diplomacy::OPINIONS, country_diplomacy::OPINIONS_COUNT, country_diplomacy::OPINIONS_LIST]),
+        // An opinion modifier's writer in saves: its type's key, then (after
+        // the date) the token of `current_opinion` and its value.
+        Point::keep(0x94963fusize, "48 8b 59 10 48 8b fa 48 8b f1 ba 68 29 00 00 48 8b cf 48 83 c3 10", "opinion modifier type key")
+            .uses(&[opinion_modifier::TYPE, opinion_modifier::TYPE_KEY]),
+        Point::keep(0x94969busize, "8b 5e 20 ba ca 2d 00 00", "opinion modifier value").uses(&[opinion_modifier::VALUE]),
         // The sell province window leaving out the capital.
         Point::keep(0x13a3397usize, "48 8b 80 18 01 00 00 48 8b 0c d0 48 8b 03 48 39 81 b0 14 00 00", "country capital").uses(&[country::CAPITAL]),
         // Walking a country's allies, as the AI does.
@@ -1131,6 +1453,12 @@ pub fn points() -> Vec<Point> {
         Point::keep(0xd3ace9usize, "48 89 69 30 48 89 69 38", "unit regiments").uses(&[unit::REGIMENTS, unit::REGIMENTS + 8]),
         Point::keep(0xd3ad0busize, "48 8b 05 96 51 60 01 48 89 41 20", "unit ID").uses(&[unit::ID]),
         Point::keep(0xd3ad1eusize, "48 89 69 50", "unit attached to").uses(&[unit::ATTACHED_TO]),
+        // The army panel's Attach to Transport button, toggled on; the fleet
+        // panel's automatic transportation, toggled on, and its refusal of a
+        // mothballed fleet.
+        Point::keep(0x1487313usize, "0f b6 80 0d 02 00 00", "army attached to transport").uses(&[unit::TO_TRANSPORT]),
+        Point::keep(0x14868abusize, "0f b6 80 80 02 00 00", "fleet auto transport").uses(&[unit::AUTO_TRANSPORT]),
+        Point::keep(0x14863c2usize, "80 bd 81 02 00 00 00", "fleet mothballed").uses(&[unit::MOTHBALLED]),
         Point::keep(0xd3ad6eusize, "48 89 a9 98 00 00 00 48 89 a9 a0 00 00 00 48 89 a9 a8 00 00 00 48 89 a9 b0 00 00 00", "unit contexts")
             .uses(&[unit::CONTEXTS[0], unit::CONTEXTS[1], unit::CONTEXT_VECTOR, unit::CONTEXT_VECTOR + 8]),
         Point::keep(0xd3ae28usize, "48 89 af 00 01 00 00 48 89 af 08 01 00 00 89 af 10 01 00 00 c6 87 14 01 00 00 00", "unit route")

@@ -5,7 +5,9 @@
 //! An extension's `main.lua` runs once, when it is opened, and returns its
 //! handlers. Every handler call runs as a task
 //! (ADR handlers-run-as-tasks-that-can-wait), which may wait for an answer and
-//! is taken up again by a later [`Extension::poll`]. `game`, the same table for
+//! is taken up again by a later [`Extension::poll`]; a task `spawn` starts has
+//! a handle, which other tasks await and which cancels it
+//! (ADR tasks-are-awaited-like-promises). `game`, the same table for
 //! every handler, reaches the capability catalogue through the [`Host`], which
 //! is the running game in the core and a fake game in the command line tool, so
 //! both run the same host. An error ends the call and is logged, and the
@@ -28,7 +30,7 @@ use mlua::{Function, Lua, MultiValue, Table, Thread, ThreadStatus, Value as LuaV
 use serde_json::Value;
 use std::{
     cell::{Cell, RefCell},
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -169,6 +171,9 @@ pub struct Extension {
     game: Table,
     /// The prelude's own function that runs a pop-up's button's action.
     press: Function,
+    /// The prelude's own function that marks a spawned task's handle
+    /// cancelled, for a task dropped with its session.
+    dropped: Function,
     /// The sentinel a function that waits returns to its Lua wrapper.
     wait: LuaValue,
     /// What its tasks are to wait for, shared with its sandbox.
@@ -190,6 +195,10 @@ struct State {
     told: Option<u64>,
     /// Tasks waiting for an answer.
     tasks: Vec<Task>,
+    /// Spawned tasks cancelled while they ran or were being taken up, by
+    /// their handle: dropped at their next wait, or forgotten when they end
+    /// first (ADR tasks-are-awaited-like-promises).
+    cancelling: HashSet<usize>,
 }
 
 /// What tasks are to wait for, by number, until their task takes it as it
@@ -218,14 +227,35 @@ struct Task {
     wait: Waiting,
     /// For the log: the handler it came from.
     from: String,
+    /// A spawned task's handle, which `spawn` returned; none for a
+    /// handler's.
+    handle: Option<Table>,
 }
 
-/// What a task waits for: a capability's answer, or a response from the
-/// network by its deadline.
+impl Task {
+    fn key(&self) -> Option<usize> {
+        self.handle.as_ref().map(key)
+    }
+}
+
+/// A spawned task's handle as [`State::cancelling`] keeps it.
+fn key(handle: &Table) -> usize {
+    handle.to_pointer() as usize
+}
+
+/// What a task waits for: a capability's answer, a response from the
+/// network by its deadline, or any of some spawned tasks to end.
 enum Waiting {
     Capability(Box<dyn Pending<Answered>>),
     Fetch(Box<dyn Pending<fetch::Answer>>, Instant),
+    /// The handles of the tasks awaited; the prelude sets `ended` on one
+    /// when its task ends.
+    Tasks(Vec<Table>),
 }
+
+/// The most passes over the waiting tasks one poll makes: a task that ends
+/// in a pass wakes those awaiting it in the next, within the same frame.
+const PASSES: usize = 16;
 
 static SERIAL: AtomicU64 = AtomicU64::new(1);
 
@@ -325,6 +355,7 @@ pub fn open(index: usize, m: &Mod, host: Arc<dyn Host>) -> Result<Arc<Extension>
         windows,
         game: opened.game,
         press: opened.press,
+        dropped: opened.dropped,
         wait: opened.wait,
         waits,
         state: Mutex::new(State::default()),
@@ -499,7 +530,7 @@ impl Extension {
         match started {
             Ok((thread, all)) => {
                 let outcome = self.stretch(&thread, all);
-                self.after(name, thread, outcome);
+                self.after(name, thread, outcome, None);
             }
             Err(e) => self.error(name, &e.to_string()),
         }
@@ -516,7 +547,7 @@ impl Extension {
         match self.lua.create_thread(self.press.clone()) {
             Ok(thread) => {
                 let outcome = self.stretch(&thread, MultiValue::from_iter([LuaValue::Integer(popup.into()), LuaValue::Integer(button.into())]));
-                self.after(FROM, thread, outcome);
+                self.after(FROM, thread, outcome, None);
             }
             Err(e) => self.error(FROM, &e.to_string()),
         }
@@ -538,42 +569,90 @@ impl Extension {
         })
     }
 
-    /// Starts `function` as a task of its own, from `spawn`.
-    fn spawn(&self, function: Function) -> mlua::Result<()> {
-        let thread = self.lua.create_thread(function)?;
+    /// Starts `runner`, the prelude's wrapper of the function `spawn` was
+    /// given, as a task of its own whose handle is `handle`.
+    fn spawn(&self, handle: Table, runner: Function) -> mlua::Result<()> {
+        let thread = self.lua.create_thread(runner)?;
         // spawn is called from a running stretch: the running task's state
         // is put back once the spawned one gives up its turn.
         let outcome = self.stretch(&thread, MultiValue::new());
-        self.after("spawn", thread, outcome);
+        self.after("spawn", thread, outcome, Some(handle));
         Ok(())
     }
 
-    /// What follows a stretch: the task kept while it waits, an error
-    /// logged, the extension stopped after the time limit too often.
-    fn after(&self, from: &str, thread: Thread, outcome: Stretch) {
+    /// Cancels the spawned task whose handle is `handle`, which the prelude
+    /// has marked cancelled already: a task that waits is dropped now; one
+    /// that runs, or is being taken up, at its next wait.
+    fn cancel(&self, handle: &Table) {
+        let key = key(handle);
+        let mut state = self.state();
+        match state.tasks.iter().position(|t| t.key() == Some(key)) {
+            Some(i) => drop(state.tasks.remove(i)),
+            None => drop(state.cancelling.insert(key)),
+        }
+    }
+
+    /// Whether the task was cancelled since it was last taken up; it is
+    /// forgotten as cancelled once this has said so.
+    fn cancelled(&self, task: &Task) -> bool {
+        task.key().is_some_and(|key| self.state().cancelling.remove(&key))
+    }
+
+    /// What follows a stretch: the task kept while it waits, unless it was
+    /// cancelled; an error logged; the extension stopped after the time
+    /// limit too often.
+    fn after(&self, from: &str, thread: Thread, outcome: Stretch, handle: Option<Table>) {
         match outcome {
-            Stretch::Done => {}
+            Stretch::Done => {
+                if let Some(handle) = &handle {
+                    self.state().cancelling.remove(&key(handle));
+                }
+            }
             Stretch::Waits(number) => {
                 let wait = self.waits.lock().unwrap_or_else(|e| e.into_inner()).by_number.remove(&number);
                 match wait {
-                    Some(wait) => self.state().tasks.push(Task { thread, wait, from: from.to_string() }),
+                    Some(wait) => {
+                        let task = Task { thread, wait, from: from.to_string(), handle };
+                        if !self.cancelled(&task) {
+                            self.state().tasks.push(task);
+                        }
+                    }
                     None => self.error(from, "waited for an answer nobody asked for"),
                 }
             }
-            Stretch::Failed(message) => self.error(from, &message),
+            Stretch::Failed(message) => {
+                if let Some(handle) = &handle {
+                    self.state().cancelling.remove(&key(handle));
+                }
+                self.error(from, &message);
+            }
         }
         if self.state().timeouts >= TIMEOUTS {
             self.stop(&format!("its handlers ran past the time limit ({} s) {TIMEOUTS} times in a row", watch::LIMIT.as_secs()));
         }
     }
 
-    /// Takes up every waiting task whose answer has come.
+    /// Takes up every waiting task whose answer has come, and those
+    /// awaiting a task that ended meanwhile, within the same poll.
     pub fn poll(&self) {
+        for _ in 0..PASSES {
+            if !self.pass() {
+                break;
+            }
+        }
+    }
+
+    /// One pass over the waiting tasks: whether it took any up.
+    fn pass(&self) -> bool {
         let tasks = std::mem::take(&mut self.state().tasks);
         let mut still = Vec::new();
+        let mut took = false;
         for mut task in tasks {
             if self.state().stopped.is_some() {
                 break;
+            }
+            if self.cancelled(&task) {
+                continue;
             }
             let came = match &mut task.wait {
                 Waiting::Capability(pending) => pending.poll().map(|response| answer(&self.lua, &task.from, response)),
@@ -582,26 +661,31 @@ impl Extension {
                     None if Instant::now() >= *deadline => Some(fetch::answer(&self.lua, Err(fetch::Failure::Timeout))),
                     None => None,
                 },
+                Waiting::Tasks(handles) => handles.iter().any(|h| h.raw_get::<bool>("ended").unwrap_or(false)).then(|| Ok(MultiValue::new())),
             };
             match came {
                 None => still.push(task),
                 Some(answer) => {
+                    took = true;
                     // An answer that cannot be read is the task's error.
                     let outcome = match answer {
                         Ok(values) => self.stretch(&task.thread, values),
                         Err(e) => Stretch::Failed(e.to_string()),
                     };
-                    let from = task.from.clone();
-                    self.after(&from, task.thread, outcome);
+                    let Task { thread, from, handle, .. } = task;
+                    self.after(&from, thread, outcome, handle);
                 }
             }
         }
+        // A task cancelled after it was passed over in this pass goes now.
+        still.retain(|task| !self.cancelled(task));
         // Stopped on the way, it keeps no task: they would never run again.
         let mut state = self.state();
         if state.stopped.is_none() {
             still.append(&mut state.tasks);
             state.tasks = still;
         }
+        took
     }
 
     /// An error in a handler: logged, the same one only counted after its
@@ -638,25 +722,32 @@ impl Extension {
             }
             state.stopped = Some(reason.to_string());
             state.tasks.clear();
+            state.cancelling.clear();
         }
         self.waits.lock().unwrap_or_else(|e| e.into_inner()).by_number.clear();
         self.log(&format!("stopped: {reason}"));
         self.host.stopped(self, reason);
     }
 
-    /// The session ended: its waiting tasks are dropped, and the counts of
-    /// errors seen more often than they were written go to the log.
+    /// The session ended: its waiting tasks are dropped, a spawned one's
+    /// handle marked cancelled, and the counts of errors seen more often
+    /// than they were written go to the log.
     pub fn session_over(&self) {
         let (dropped, counted) = {
             let mut state = self.state();
-            let dropped = state.tasks.len();
-            state.tasks.clear();
+            let dropped = std::mem::take(&mut state.tasks);
+            state.cancelling.clear();
             let counted: Vec<(String, u32)> = state.errors.drain().filter(|(_, n)| *n > WRITTEN).collect();
             (dropped, counted)
         };
         self.waits.lock().unwrap_or_else(|e| e.into_inner()).by_number.clear();
-        if dropped > 0 {
-            self.log(&format!("the session ended: {dropped} waiting task(s) dropped"));
+        if !dropped.is_empty() {
+            self.log(&format!("the session ended: {} waiting task(s) dropped", dropped.len()));
+        }
+        for handle in dropped.into_iter().filter_map(|t| t.handle) {
+            if let Err(e) = self.dropped.call::<()>(handle) {
+                self.log(&format!("a dropped task's handle: {e}"));
+            }
         }
         for (key, n) in counted {
             self.log(&format!("error {n} times this session: {key}"));

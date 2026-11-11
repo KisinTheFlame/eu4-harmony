@@ -16,6 +16,9 @@ use crate::{
 pub(super) const SCOPE: GameFunction<4> = GameFunction::at(0x94590);
 /// Frees what a scope owns, without freeing the scope.
 pub(super) const SCOPE_DESTROY: GameFunction<1> = GameFunction::at(0x947f0);
+/// Copies a scope: `(scope, from)`, as the game copies a scope it keeps
+/// before evaluating in it (the imperial incident's pick, `0xc1a77`).
+const SCOPE_COPY: GameFunction<2> = GameFunction::at(0xcf6a0);
 /// A content trigger's verdict: `(trigger, scope) -> bool`, true when every
 /// condition holds.
 pub(super) const EVALUATE: GameFunction<2> = GameFunction::at(0xb98200);
@@ -25,32 +28,81 @@ pub(super) const LINES: GameFunction<6> = GameFunction::at(0xb97cd0);
 const SCOPE_SIZE: usize = 0xd0;
 /// [`LINES`]'s mode for the conditions that do not hold only.
 const FAILING: usize = 2;
+/// A scope's `FROM`, a pointer to another scope, the scope itself when it
+/// has none ([`SCOPE`] starts it so).
+const FROM: usize = 0x18;
 
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(SCOPE, "48 89 51 2c 48 8d 05 bd 3b ba 01 48 89 01 33 d2 c7 41 08 65 01 00 00", "scope maker"),
         Point::keep(SCOPE_DESTROY, "48 89 5c 24 08 57 48 83 ec 20 48 8b 99 c0 00 00 00 48 8b f9 48 85 db", "scope destructor"),
+        Point::keep(SCOPE_COPY, "48 89 5c 24 18 48 89 4c 24 08 55 56 57 41 54 41 55 41 56 41 57 48 83 ec 20 48 8b ea 48 8b f1 c7 41 08 65 01", "scope copy"),
         Point::keep(EVALUATE, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48 8b 59 08 48 8b f2 48 63 41 14", "condition verdict"),
         Point::keep(LINES, "48 89 5c 24 18 48 89 54 24 10 48 89 4c 24 08 55 56 57 41 54 41 55 41 56 41 57", "condition lines"),
+        // The scope maker starts FROM at the scope itself; the bribe
+        // command's execute points its country's scope's FROM at the seat's
+        // province's.
+        Point::keep(0x945abusize, "48 89 49 18", "scope from").uses(&[FROM]),
+        Point::keep(0x2a43f5usize, "48 8d 44 24 20 48 89 45 08", "bribe scope from"),
     ]
 }
 
 /// A scope of the game's for `country`, and `province` when not 0, freed when
 /// it is dropped. A new one for each question: evaluating writes into it.
-struct Scope<'m> {
+pub(super) struct Scope<'m> {
     m: &'m Memory,
     bytes: [u64; SCOPE_SIZE / 8],
 }
 
 impl<'m> Scope<'m> {
-    fn new(m: &'m Memory, country: Tag, province: u32) -> GResult<Box<Self>> {
+    pub(super) fn new(m: &'m Memory, country: Tag, province: u32) -> GResult<Box<Self>> {
         let mut scope = Box::new(Self { m, bytes: [0; SCOPE_SIZE / 8] });
         SCOPE.call(m, [scope.address(), country.0 as usize, province as usize, 0])?;
         Ok(scope)
     }
 
-    fn address(&mut self) -> usize {
+    /// A copy of the game's scope at `from`, so that evaluating in it leaves
+    /// the game's own as it is.
+    pub(super) fn copy(m: &'m Memory, from: usize) -> GResult<Box<Self>> {
+        let mut scope = Box::new(Self { m, bytes: [0; SCOPE_SIZE / 8] });
+        SCOPE_COPY.call(m, [scope.address(), from])?;
+        Ok(scope)
+    }
+
+    /// A scope of `province`'s own, and a scope of `country`'s whose `FROM`
+    /// it is, as the game evaluates a parliament bribe for a seat: bound as
+    /// `let (_from, scope)`, so that the first outlives the second.
+    pub(super) fn with_province_from(m: &'m Memory, country: Tag, province: u32) -> GResult<(Box<Self>, Box<Self>)> {
+        let mut from = Self::new(m, Tag(crate::objects::campaign::route_options::NO_TAG), province)?;
+        let mut scope = Self::new(m, country, 0)?;
+        scope.bytes[FROM / 8] = from.address() as u64;
+        Ok((from, scope))
+    }
+
+    /// A scope of `from`'s own, and a scope of `country`'s whose `FROM` it
+    /// is, as the game asks an Islamic school's conditions of the country
+    /// inviting a scholar with the country sending one as FROM: bound as
+    /// `let (_from, scope)`, so that the first outlives the second.
+    pub(super) fn with_country_from(m: &'m Memory, country: Tag, from: Tag) -> GResult<(Box<Self>, Box<Self>)> {
+        let mut from = Self::new(m, from, 0)?;
+        let mut scope = Self::new(m, country, 0)?;
+        scope.bytes[FROM / 8] = from.address() as u64;
+        Ok((from, scope))
+    }
+
+    pub(super) fn address(&mut self) -> usize {
         self.bytes.as_mut_ptr() as usize
+    }
+
+    /// Whether the content trigger at `trigger` holds in this scope, and
+    /// when not its lines that do not, as [`failing`] gives them.
+    pub(super) fn check(&mut self, trigger: usize) -> GResult<(bool, Vec<String>)> {
+        let at = self.address();
+        if EVALUATE.call(self.m, [trigger, at])? & 0xff != 0 {
+            return Ok((true, Vec::new()));
+        }
+        let (_, text) = game_string::written(self.m, |out| LINES.call(self.m, [trigger, out, at, 0, 0, FAILING]))?;
+        Ok((false, lines(&text)))
     }
 }
 

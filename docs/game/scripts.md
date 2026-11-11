@@ -26,6 +26,13 @@ The game's content is written in script: text files of keys and blocks, the same
 - **Modifier types** are built into the code; `static_modifiers` and the like give them their values ([research/architecture.md](../research/architecture.md), "Script"). The modifiers countries and provinces carry are in [countries.md](countries.md) and [provinces.md](provinces.md).
 - **Scripted GUI** binds `common/custom_gui` to the elements of the interface by name ([research/architecture.md](../research/architecture.md), "Script"; [interface.md](interface.md)).
 
+## Flags, variables and firing events
+
+- **A flag** is a name set on a scope, with the day it was set: a country, a province, the game as a whole, and a country's ruler, heir and consort each keep flags of their own. The game gives every flag name it meets a number, once, and a scope keeps its flags as those numbers beside their days; setting a flag set before sets it again today, and clearing one not set does nothing ([research/scripts.md](../research/scripts.md), "Flags").
+- **Who keeps a monarch's flags**: the person, while the country has one. A country without a ruler keeps its ruler's flags itself; flags set on an heir or a consort a country has not go nowhere. A consort ruling as regent is the consort too ([research/scripts.md](../research/scripts.md), "Flags").
+- **A variable** is a number kept under a name by a country or a province, in thousandths; there are no variables of the game as a whole. A name a scope has none of reads as 0 ([research/scripts.md](../research/scripts.md), "Variables").
+- **Firing an event** from script (`country_event`, `province_event`) asks the event's trigger in a scope of the country, or of the province with no country so that it is its owner's, and fires the event only when the trigger holds; with days to wait, it is put among the country's delayed events instead. Firing has the AI choose an option of its countries' events at once, and makes the player's a question ([research/scripts.md](../research/scripts.md), "Events"; [research/questions-and-offers.md](../research/questions-and-offers.md)).
+
 ## Localisation
 
 - **The text the player reads** comes from `.yml` files: `localisation/languages.yml`, then every `.yml` under `localisation`, then `localisation/replace`, into one table. A lookup fills in `$NAME$` ([research/architecture.md](../research/architecture.md), "Script").
@@ -61,13 +68,15 @@ The game's content is written in script: text files of keys and blocks, the same
 - **The command layer** writes commands in their written form, has the game check them and executes them at once, and hears every command the game executes at the one place each passes ([plans/commands.md](../plans/commands.md); [ADR one-command-layer-in-written-form](../adr/2026-11-03-one-command-layer-in-written-form.md), [ADR commands-run-at-once](../adr/2026-11-03-commands-run-at-once.md)).
 - **Running a console command** goes through the game console's own run, with its refusals, as the game console's window does ([research/game-console.md](../research/game-console.md), "What the framework does"; [plans/remote-control.md](../plans/remote-control.md)).
 - **Content's conditions as text**, for capabilities over decisions, policies and the rest, are the views' own ([research/triggers.md](../research/triggers.md); [plans/player-actions.md](../plans/player-actions.md)).
+- **Flags, variables and events** are read, set and fired as the scripts' own effects do, through the same functions of the game's, for the `script` group ([research/scripts.md](../research/scripts.md), "What the framework does"; [plans/mod-capabilities.md](../plans/mod-capabilities.md)).
 - **The Unicode module** reads script through the text tokenizer and localisation through its import, so that text keeps its characters ([research/architecture.md](../research/architecture.md), "Where the framework attaches"; [ADR built-in-unicode-module](../adr/2026-10-27-built-in-unicode-module.md)).
 
 ## What is not known yet
 
 - What a content trigger's last two fields are for, what several of a scope's fields hold (saved scopes and variables are guesses), and how the decisions view makes its scope ([research/triggers.md](../research/triggers.md), "Not established").
-- Whether any trigger colors its own line; how the interface lists a country's missions; where a reform's `allow` shows; estate agendas, parliament issues and subject interactions, which were not read ([research/triggers.md](../research/triggers.md), "Not established").
-- Where `[Root.GetName]` in localisation is worked out, and where variables are kept ([research/architecture.md](../research/architecture.md), "Open questions").
+- Whether any trigger colors its own line; how the interface lists a country's missions; where a reform's `allow` shows; parliament issues and subject interactions, which were not read; an estate agenda's blocks are in [research/government.md](../research/government.md#estates) ([research/triggers.md](../research/triggers.md), "Not established").
+- Where `[Root.GetName]` in localisation is worked out ([research/architecture.md](../research/architecture.md), "Open questions").
+- The other variable effects, such as `change_variable`, and whether any thread but the main one sets flags ([research/scripts.md](../research/scripts.md), "Not established").
 - Which of the game console's two refusing flags is multiplayer and which ironman; the refusal was tried in an ironman game, not in a multiplayer one ([research/game-console.md](../research/game-console.md)).
 - What the reader's list of strings and its name are for (reading back did without them); which session state a single player game is in while it is played; whether the session's last hand-off of an executed command sends it to other players or records it ([research/commands.md](../research/commands.md), "What this means for the framework", "When the update runs the queue"; [research/architecture.md](../research/architecture.md), "Open questions").
 - What `console_command`, a command type, does when executed ([research/commands.md](../research/commands.md), "Kinds of command").

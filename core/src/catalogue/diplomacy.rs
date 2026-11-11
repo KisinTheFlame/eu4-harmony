@@ -2,7 +2,7 @@
 //! one at once; the answer comes at a later safe point, once the game has
 //! carried it out and the other country has answered, or as `pending` after
 //! [`WAITED`] or when the game returns to the main menu first.
-use super::{events, Outcome as Ran, Poll, Wait};
+use super::{signals, Outcome as Ran, Poll, Wait};
 use crate::game::{
     diplomacy::{self as layer, Act, Answer, Declaration, Details, Ticket},
     GResult,
@@ -144,7 +144,7 @@ impl Wait for Waiting {
 
     /// The game is returning to the main menu, which starts `eu4.exe` again:
     /// the action was sent, and what comes of it can no longer be seen.
-    fn ending(&mut self, _: &events::Buffer) -> Option<Response> {
+    fn ending(&mut self, _: &signals::Buffer) -> Option<Response> {
         Some(self.pending())
     }
 }
