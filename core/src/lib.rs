@@ -46,6 +46,7 @@ pub mod census;
 #[cfg(feature = "dev-command-log")]
 mod command_log;
 pub mod containers;
+mod crash;
 #[cfg(feature = "dev-crossings")]
 mod crossings;
 #[cfg(any(test, dev_build))]
@@ -91,6 +92,7 @@ pub mod settings;
 pub mod sound;
 pub mod speed;
 pub mod splice;
+mod stack;
 mod startup;
 #[cfg(feature = "dev-call-trace")]
 mod trace;

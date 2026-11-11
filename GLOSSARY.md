@@ -132,6 +132,10 @@ _Avoid_: installation
 The file `report.txt` in the user folder's `eu4-harmony\logs\`, written at every startup and again at every session start and every few minutes: what the framework found and loaded, and how long each extension's handlers have taken so far.
 _Avoid_: log (the log is `core.log` beside it, every line in order), status file
 
+**Crash record**:
+The two `crash:` lines the framework writes into `core.log` as the game's crash handling begins: what crashed, where, on which thread and at which date, and the calls it was in.
+_Avoid_: crash log, crash report (the game's crash reporter is its own program)
+
 **Baseline**:
 One particular `eu4.exe` build the framework supports, recognized by where its original sections lie; an exe with that layout is taken as the baseline only when every dependency point holds its bytes. The exe is not hashed.
 _Avoid_: version, base exe

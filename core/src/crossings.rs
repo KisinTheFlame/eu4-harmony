@@ -27,12 +27,10 @@ use crate::points::Point;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use windows_sys::Win32::Foundation::EXCEPTION_ACCESS_VIOLATION;
-use windows_sys::Win32::System::Diagnostics::Debug::{
-    AddVectoredExceptionHandler, RtlLookupFunctionEntry, RtlVirtualUnwind, CONTEXT, EXCEPTION_POINTERS, UNW_FLAG_NHANDLER,
-};
+use windows_sys::Win32::System::Diagnostics::Debug::{AddVectoredExceptionHandler, RtlLookupFunctionEntry, CONTEXT, EXCEPTION_POINTERS};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Memory::{VirtualProtect, PAGE_EXECUTE_READ, PAGE_READONLY};
-use windows_sys::Win32::System::Threading::{GetCurrentThreadId, GetCurrentThreadStackLimits};
+use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 
 const FRAMES: usize = 10;
 const STACKS: usize = 4096;
@@ -126,31 +124,8 @@ fn watched(address: usize) -> bool {
 /// The return addresses of the calls `context` is in, its own address
 /// first.
 fn frames(context: &CONTEXT) -> [u64; FRAMES] {
-    let (mut low, mut high) = (0usize, 0usize);
-    unsafe { GetCurrentThreadStackLimits(&mut low, &mut high) };
     let mut out = [0u64; FRAMES];
-    out[0] = context.Rip;
-    let mut c = *context;
-    for slot in out.iter_mut().skip(1) {
-        let mut image = 0u64;
-        let entry = unsafe { RtlLookupFunctionEntry(c.Rip, &mut image, std::ptr::null_mut()) };
-        if entry.is_null() {
-            let rsp = c.Rsp as usize;
-            if rsp < low || rsp + 8 > high {
-                break;
-            }
-            c.Rip = unsafe { *(rsp as *const u64) };
-            c.Rsp += 8;
-        } else {
-            let mut data = std::ptr::null_mut();
-            let mut frame = 0u64;
-            unsafe { RtlVirtualUnwind(UNW_FLAG_NHANDLER, image, c.Rip, entry, &mut c, &mut data, &mut frame, std::ptr::null_mut()) };
-        }
-        if c.Rip == 0 || (c.Rsp as usize) < low || c.Rsp as usize > high {
-            break;
-        }
-        *slot = c.Rip;
-    }
+    crate::stack::walk(context, &mut out);
     out
 }
 
@@ -248,27 +223,6 @@ pub fn check_after(_: &mut Call) {
     }
 }
 
-/// Where an address is: an RVA into `eu4.exe`, or a module and an offset.
-fn place(address: u64) -> String {
-    use windows_sys::Win32::System::LibraryLoader::{
-        GetModuleFileNameW, GetModuleHandleExW, GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-    };
-    let base = BASE.load(Ordering::Relaxed) as u64;
-    if address >= base && address < base + 0x1b66000 {
-        return format!("{:#x}", address - base);
-    }
-    let mut module = std::ptr::null_mut();
-    let flags = GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT;
-    if unsafe { GetModuleHandleExW(flags, address as _, &mut module) } == 0 {
-        return format!("{address:#x}");
-    }
-    let mut name = [0u16; 260];
-    let n = unsafe { GetModuleFileNameW(module, name.as_mut_ptr(), name.len() as u32) } as usize;
-    let path = String::from_utf16_lossy(&name[..n]);
-    let file = path.rsplit('\\').next().unwrap_or(&path).to_string();
-    format!("{file}+{:#x}", address - module as u64)
-}
-
 fn report(days: usize) {
     let stacks = STACKS_SEEN.lock().unwrap_or_else(|e| e.into_inner());
     let main = crate::main_thread();
@@ -281,10 +235,9 @@ fn report(days: usize) {
         STRETCHES.load(Ordering::Relaxed)
     );
     for s in order {
-        let frames: Vec<String> = s.frames.iter().take_while(|&&f| f != 0).map(|&f| place(f)).collect();
         let thread = if s.thread == main { "main".to_string() } else { format!("thread {}", s.thread) };
         let date = eu4_harmony_checks::Date(s.date).to_string();
-        log!("crossing: {} time(s), {thread}, first {date}: {}", s.count, frames.join(" < "));
+        log!("crossing: {} time(s), {thread}, first {date}: {}", s.count, crate::stack::describe(&s.frames));
     }
 }
 
