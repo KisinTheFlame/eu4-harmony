@@ -105,10 +105,12 @@ const REFORM_SPONSOR: GameFunction<3> = GameFunction::at(0x3cd850);
 /// in file order, which the toggle command names an effect by its place in.
 const FERVOR_EFFECTS: usize = 0x242bc20;
 const FERVOR_LIST: usize = 0x10;
-/// A fervor effect: its key, its number (its place in the list), its cost in
-/// fervor, whole, and its `potential`, which the view lists it by.
+/// A fervor effect, of class [`FERVOR_CLASS`]: its key, which the toggle
+/// command names it by, its cost in fervor, whole, and its `potential`,
+/// which the view lists it by. The list also holds the game's placeholder,
+/// `nullfervor`, of another class.
+const FERVOR_CLASS: usize = 0x1cae138;
 const FERVOR_KEY: usize = 0x10;
-const FERVOR_NUMBER: usize = 0x30;
 const FERVOR_COST: usize = 0x5c;
 const FERVOR_POTENTIAL: usize = 0x210;
 /// A country's fervor ([`country::FERVOR`]): the effects active, a
@@ -144,10 +146,10 @@ const RELIGION_GROUP: usize = 0xd8;
 /// `(religion) -> bool`: whether the religion has icons (Orthodoxy).
 const HAS_ICONS: GameFunction<1> = GameFunction::at(0xa7ec60);
 /// A religion's icons, a `std::vector` of pointers, which the icon command
-/// names one by its place in; an icon's name, the `std::string` its
-/// tooltips show.
+/// names one by its place in; an icon's key, a `std::string`, which the
+/// game looks icons up by (`0xa7a8b0`).
 const RELIGION_ICONS: usize = 0x7b8;
-const ICON_NAME: usize = 0x18;
+const ICON_KEY: usize = 0x158;
 /// `(country, icon, reasons or null) -> bool`: whether the country may
 /// commission the icon now, with the view's lines (the icon commissioned
 /// already, too little patriarch authority, its conditions).
@@ -215,7 +217,7 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x73550ausize, "48 8b 05 0f 67 cf 01 48 85 c0", "fervor effects database").uses(&[FERVOR_EFFECTS]),
         Point::keep(0x7363c7usize, "48 8d 4f 10 48 8b 57 18", "fervor effects' list").uses(&[FERVOR_LIST]),
         Point::keep(0x735150usize, "48 8d 71 10", "fervor effect key").uses(&[FERVOR_KEY]),
-        Point::keep(0x735192usize, "41 89 7f 30", "fervor effect number").uses(&[FERVOR_NUMBER]),
+        Point::keep(0x735146usize, "48 8d 05 eb 8f 57 01", "fervor effect class").uses(&[FERVOR_CLASS]),
         Point::keep(0x735030usize, "8b 41 5c c3", "fervor effect cost").uses(&[FERVOR_COST]),
         Point::keep(0x735237usize, "49 8d bf 10 02 00 00", "fervor effect potential").uses(&[FERVOR_POTENTIAL]),
         Point::keep(0xaadc6busize, "48 8b 89 60 0f 00 00", "country's fervor").uses(&[country::FERVOR]),
@@ -238,7 +240,7 @@ pub fn points() -> Vec<Point> {
         // as the check's lines read them.
         Point::keep(HAS_ICONS, "40 57 48 83 ec 20 80 3d bb 12 8c 01 00 48 8b f9", "religion has icons"),
         Point::keep(0xab17f5usize, "4c 8b 88 b8 07 00 00 48 8b 90 c0 07 00 00", "religion's icons").uses(&[RELIGION_ICONS]),
-        Point::keep(0x404fb1usize, "4d 8d 4e 18", "icon name").uses(&[ICON_NAME]),
+        Point::keep(0xa7aa40usize, "48 8d 8f 58 01 00 00", "icon key").uses(&[ICON_KEY]),
         Point::keep(0x404fa3usize, "4d 3b b7 90 0f 00 00", "icon commissioned").uses(&[country::ICON]),
         Point::keep(0x405015usize, "8b 05 0d 8c f3 01 41 39 87 88 0f 00 00", "icon cost and patriarch authority")
             .uses(&[ICON_COST, country::PATRIARCH_AUTHORITY]),
@@ -374,7 +376,7 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<ReligionOption>> 
     if has(m, HAS_ICONS, ctx.country)? {
         let current = m.ptr(ctx.country + country::ICON)?;
         for icon in religion_list(m, ctx.country, RELIGION_ICONS)? {
-            let key = game_string::key(m, icon + ICON_NAME)?;
+            let key = game_string::key(m, icon + ICON_KEY)?;
             out.push(option(m, "commission_icon", key, icon == current, icon_choice(m, ctx.country, icon)?)?);
         }
         let name = content::name(m, "CONSECRATE_BUTTON")?;
@@ -441,9 +443,9 @@ fn religion_key(m: &Memory, religion: usize) -> GResult<String> {
 }
 
 /// The religions the country may harmonize with now, as the game lists the
-/// candidates: a religion of its own group as itself, another group as each
-/// of its religions, since harmonizing with one of them harmonizes with the
-/// group.
+/// candidates: a religion of its own group as itself, another group as its
+/// first religion, as the view's button names it, since harmonizing with
+/// one of them harmonizes with the group.
 fn harmony_candidates(m: &Memory, country: usize) -> GResult<Vec<usize>> {
     // The game's small vector: its class, its data, its capacity and count,
     // then its storage, all in the framework's memory.
@@ -463,7 +465,14 @@ fn harmony_candidates(m: &Memory, country: usize) -> GResult<Vec<usize>> {
         if religion != 0 {
             out.push(religion);
         } else if group != 0 {
-            out.extend(containers::pointers(m, group, containers::MOST)?);
+            // As the view's button names a group: by its first religion.
+            match m.ptr(group)? {
+                0 => {}
+                first => match m.ptr(first)? {
+                    0 => {}
+                    religion => out.push(religion),
+                },
+            }
         }
     }
     Ok(out)
@@ -478,7 +487,10 @@ fn harmonizing(m: &Memory, country: usize) -> GResult<Option<usize>> {
     }
     Ok(match m.ptr(country + country::HARMONIZING_GROUP)? {
         0 => None,
-        group => containers::pointers(m, group, containers::MOST)?.first().copied(),
+        group => match m.ptr(group)? {
+            0 => None,
+            first => Some(m.ptr(first)?).filter(|&r| r != 0),
+        },
     })
 }
 
@@ -492,7 +504,11 @@ fn fervor(m: &Memory, country: usize) -> GResult<Option<usize>> {
 fn fervor_effects(m: &Memory) -> GResult<Vec<usize>> {
     match m.ptr(m.at(FERVOR_EFFECTS))? {
         0 => Ok(Vec::new()),
-        database => Ok(containers::pointers(m, database + FERVOR_LIST, containers::MOST)?),
+        database => {
+            let class = m.at(FERVOR_CLASS);
+            let effects = containers::pointers(m, database + FERVOR_LIST, containers::MOST)?;
+            Ok(effects.into_iter().filter(|&e| m.ptr(e).is_ok_and(|vtable| vtable == class)).collect())
+        }
     }
 }
 
@@ -740,10 +756,11 @@ pub fn reform_religion(Session { m, ctx, commands, .. }: Session, _: args::Refor
     action::carry_out(commands, &reform_religion_choice(m, ctx.country, &reforms)?, "reform the religion", || Ok(reform_religion_text(ctx.player)))
 }
 
-/// The fervor command, which turns the effect of `number` on, or off when
-/// it is on.
-fn fervor_text(country: Tag, number: i32) -> String {
-    format!("toggle_fervor_effect={{ country=\"{}\" effect={number} }}", content::letters(country))
+/// The fervor command, which turns the effect `key` on, or off when it is
+/// on: its writer writes the effect by its key, and its reader looks the
+/// key up.
+fn fervor_text(country: Tag, key: &str) -> String {
+    format!("toggle_fervor_effect={{ country=\"{}\" effect={key} }}", content::letters(country))
 }
 
 /// The player's fervor and the effect named `key` the view lists, or the
@@ -764,8 +781,7 @@ pub fn enable_fervor(Session { m, ctx, commands, .. }: Session, args::EnableFerv
     if on {
         return Err(content::checks::not_now(format!("{key} is on already")));
     }
-    let number = m.i32(effect + FERVOR_NUMBER)?;
-    action::carry_out(commands, &enable_choice(m, fervor, effect)?, "turn this fervor effect on", || Ok(fervor_text(ctx.player, number)))
+    action::carry_out(commands, &enable_choice(m, fervor, effect)?, "turn this fervor effect on", || Ok(fervor_text(ctx.player, &key)))
 }
 
 /// Turns a fervor effect off.
@@ -774,8 +790,7 @@ pub fn disable_fervor(Session { m, ctx, commands, .. }: Session, args::DisableFe
     if !on {
         return Err(content::checks::not_now(format!("{key} is not on")));
     }
-    let number = m.i32(effect + FERVOR_NUMBER)?;
-    action::carry_out(commands, &Choice::can(Vec::new()), "turn this fervor effect off", || Ok(fervor_text(ctx.player, number)))
+    action::carry_out(commands, &Choice::can(Vec::new()), "turn this fervor effect off", || Ok(fervor_text(ctx.player, &key)))
 }
 
 /// The icon command: the icon by its place in the religion's icons.
@@ -795,7 +810,7 @@ pub fn commission_icon(Session { m, ctx, commands, .. }: Session, args::Commissi
     }
     let icons = religion_list(m, ctx.country, RELIGION_ICONS)?;
     for (place, &icon) in icons.iter().enumerate() {
-        if game_string::key(m, icon + ICON_NAME)? == key {
+        if game_string::key(m, icon + ICON_KEY)? == key {
             return action::carry_out(commands, &icon_choice(m, ctx.country, icon)?, "commission this icon", || Ok(icon_text(ctx.player, place)));
         }
     }
@@ -890,7 +905,7 @@ mod tests {
         assert_eq!(blessing_text(tag(b"ETH"), "legitimize_government"), r#"change_blessing={ aspect="legitimize_government" country="ETH" }"#);
         assert_eq!(reform_text(tag(b"AZT"), 3, PowerKind::Adm), r#"spend_power_command={ country="AZT" power={ data=3 category=31 skill=0 } }"#);
         assert_eq!(reform_religion_text(tag(b"AZT")), r#"reform_religion_command={ country="AZT" }"#);
-        assert_eq!(fervor_text(tag(b"SWI"), 2), r#"toggle_fervor_effect={ country="SWI" effect=2 }"#);
+        assert_eq!(fervor_text(tag(b"SWI"), "fervor_war"), r#"toggle_fervor_effect={ country="SWI" effect=fervor_war }"#);
         assert_eq!(harmonize_text(tag(b"MNG"), 14), r#"harmonize_with_religion={ country="MNG" religion=14 }"#);
         assert_eq!(harmonize_text(tag(b"MNG"), -1), r#"harmonize_with_religion={ country="MNG" religion=-1 }"#);
         assert_eq!(icon_text(tag(b"RUS"), 2), r#"commission_icon={ country="RUS" icon=2 }"#);
