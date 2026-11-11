@@ -37,7 +37,7 @@ To ask the running game things through remote control, such as the session or th
 ## Caveats
 
 - **Claim a test game first.** The game rewrites a save after loading it and rewrites its settings; a test game does that in its own user folder, never the player's ([test-games.md](plans/test-games.md)). Ask it with `eu4-harmony game --test-game <owner>`, or with `EU4_HARMONY_TEST_GAME` set. A player or mod author without the repository backs up with `eu4-harmony backup <new folder>` and restores with `eu4-harmony restore <that folder>`.
-- **Crash dumps** are in the documents folder at `Europa Universalis IV\crashes\eu4_<date>_<time>\minidump.dmp`; the framework's logs are in `eu4-harmony\logs\`. `cargo xtask crash-dump <dump> <log> '!analyze -v' 'kn 30'` writes what the debugger says of one into `<log>`, the core's own frames named from this checkout's release build, or from its player package as `cargo xtask release` last built it.
+- **Crash dumps** are in the documents folder at `Europa Universalis IV\crashes\eu4_<date>_<time>\minidump.dmp`; the framework's logs are in `eu4-harmony\logs\`. A crash the game's crash handling caught has two `crash:` lines in `core.log`: what it was and where, and the calls it was in, `eu4.exe`'s as RVAs and the core's as offsets into `eu4_harmony_core.dll` ([research/crash-handling.md](research/crash-handling.md)). A player's troubleshooting files, from the About page of the settings window, hold both the logs and the last three crash folders. `cargo xtask crash-dump <dump> <log> '!analyze -v' 'kn 30'` writes what the debugger says of one into `<log>`, the core's own frames named from this checkout's release build, or from its player package as `cargo xtask release` last built it.
 
 ## The first upload
 

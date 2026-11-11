@@ -139,10 +139,13 @@ pub enum Page {
     Achievements,
     GameSpeed,
     Sound,
+    /// The framework's version, where to report a problem, and the
+    /// troubleshooting files; no settings.
+    About,
 }
 
 impl Page {
-    pub const ALL: [Page; 5] = [Page::LanguageFonts, Page::Sessions, Page::Achievements, Page::GameSpeed, Page::Sound];
+    pub const ALL: [Page; 6] = [Page::LanguageFonts, Page::Sessions, Page::Achievements, Page::GameSpeed, Page::Sound, Page::About];
 
     /// The key of its name in the side list.
     pub fn title(self) -> &'static str {
@@ -152,6 +155,7 @@ impl Page {
             Page::Achievements => "EU4HARMONY_SETTINGS_PAGE_ACHIEVEMENTS",
             Page::GameSpeed => "EU4HARMONY_SETTINGS_PAGE_GAME_SPEED",
             Page::Sound => "EU4HARMONY_SETTINGS_PAGE_SOUND",
+            Page::About => "EU4HARMONY_SETTINGS_PAGE_ABOUT",
         }
     }
 }

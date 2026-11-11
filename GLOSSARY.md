@@ -136,6 +136,10 @@ _Avoid_: log (the log is `core.log` beside it, every line in order), status file
 The two `crash:` lines the framework writes into `core.log` as the game's crash handling begins: what crashed, where, on which thread and at which date, and the calls it was in.
 _Avoid_: crash log, crash report (the game's crash reporter is its own program)
 
+**Troubleshooting files**:
+The one zip file the About page of the settings window saves on the player's desktop: the framework's logs, the game's logs, the last three crash folders, the settings and the playset, and a summary of where they came from; no saves.
+_Avoid_: diagnostics, dump (a dump is the game's `minidump.dmp`)
+
 **Baseline**:
 One particular `eu4.exe` build the framework supports, recognized by where its original sections lie; an exe with that layout is taken as the baseline only when every dependency point holds its bytes. The exe is not hashed.
 _Avoid_: version, base exe
