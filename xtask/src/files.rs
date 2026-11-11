@@ -199,7 +199,7 @@ pub fn release(args: &Args) -> Result<()> {
     for (_, to) in PLAYER_FILES {
         println!("    {to}");
     }
-    Ok(())
+    crate::workshop::pack(&from)
 }
 
 /// Removes our `version.dll` at `proxy` from the game folder `root`, or,

@@ -9,6 +9,7 @@ mod files;
 mod game;
 mod profile;
 mod scenario;
+mod workshop;
 
 use std::{
     collections::HashMap,
@@ -57,7 +58,20 @@ usage:
   cargo xtask release [--out <dir>]
       Builds the player build and packs the player's files for players:
       <dir> (target\\eu4-harmony by default) and <dir>.zip, whose contents go
-      into the game's root folder. Both are made anew.
+      into the game's root folder. Both are made anew. Packs Harmony's
+      Workshop item too, from workshop\\ (docs/plans/workshop-release.md):
+      target\\workshop\\harmony\\, with the descriptor, the cover, version.dll
+      and the core, and target\\workshop\\images\\, the comparison pages
+      rendered with Microsoft Edge.
+  cargo xtask workshop-upload --user <steam login> [--create]
+      Uploads target\\workshop\\harmony\\ to Harmony's Workshop item with
+      SteamCMD (STEAMCMD, else on PATH), which asks for the password itself,
+      with the version's section of CHANGELOG.md as the change note and no
+      description. It needs a clean checkout of master at origin/master, the
+      item packed from it, and no tag of the version yet, and tags vX.Y.Z
+      after. --create makes the item, private, and records its id in
+      workshop\\item.toml; commit that, release and upload again, so that the
+      proxy is built with it (docs/dev-tools.md).
   cargo xtask disasm <arg>...
       Reads the installed game's code (core/examples/disasm.rs, whose
       arguments docs/dev-tools.md describes), with EU4_GAME_DIR set to the
@@ -229,6 +243,7 @@ fn main() {
         Some("install") => Args::parse(rest, &["uninstall"], &["game-dir"]).and_then(|a| files::install(&a)),
         Some("game") => claim::run(rest),
         Some("release") => Args::parse(rest, &[], &["out"]).and_then(|a| files::release(&a)),
+        Some("workshop-upload") => Args::parse(rest, &["create"], &["user"]).and_then(|a| workshop::upload(&a)),
         Some("disasm") => with_game(
             &["run", "--release", "--quiet", "-p", "eu4-harmony-core", "--features", "analysis", "--example", "disasm", "--"],
             rest,
