@@ -5,6 +5,7 @@ l_english:
  EU4HARMONY_SKIPPED_MANIFEST:0 "Mod "$MOD$" was skipped: its eu4-harmony/manifest.toml is invalid.\n$DETAIL$"
  EU4HARMONY_SKIPPED_DUPLICATE_ID:0 "Mod "$MOD$" was skipped: its id "$ID$" is already used by an earlier mod in the playset."
  EU4HARMONY_STARTUP_FAILED:0 "Harmony could not start, so mods built on it are inactive.\n\n$DETAIL$"
+ EU4HARMONY_PROXY_OUTDATED:0 "Harmony could not start, so mods built on it are inactive: the version.dll in the game folder is too old for it.\n\nCopy version.dll from Harmony's folder in the Steam Workshop into the game folder again, next to eu4.exe."
  EU4HARMONY_FATAL:0 "Harmony ran into an unexpected error, and the game will close.\n\n$DETAIL$\n\nDetails are in eu4-harmony/logs/core.log in the game's documents folder."
  EU4HARMONY_API_MISMATCH:0 "Mod "$MOD$" was not loaded: it was built for Harmony API $BUILT$, but the installed Harmony provides $PROVIDED$. Update the mod or Harmony so that they match."
  EU4HARMONY_NOT_LOADED:0 "Mod "$MOD$" was not loaded:\n$DETAIL$"

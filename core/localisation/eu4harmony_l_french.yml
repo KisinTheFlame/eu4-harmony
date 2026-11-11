@@ -5,6 +5,7 @@ l_french:
  EU4HARMONY_SKIPPED_MANIFEST:0 "Le mod « $MOD$ » a été ignoré : son fichier eu4-harmony/manifest.toml n'est pas valide.\n$DETAIL$"
  EU4HARMONY_SKIPPED_DUPLICATE_ID:0 "Le mod « $MOD$ » a été ignoré : son identifiant « $ID$ » est déjà utilisé par un mod chargé avant lui."
  EU4HARMONY_STARTUP_FAILED:0 "Harmony n'a pas pu démarrer ; les mods qui en dépendent sont donc inactifs.\n\n$DETAIL$"
+ EU4HARMONY_PROXY_OUTDATED:0 "Harmony n'a pas pu démarrer ; les mods qui en dépendent sont donc inactifs : le fichier version.dll du dossier du jeu est trop ancien.\n\nCopiez à nouveau version.dll depuis le dossier de Harmony dans le Workshop Steam vers le dossier du jeu, à côté d'eu4.exe."
  EU4HARMONY_FATAL:0 "Harmony a rencontré une erreur inattendue et le jeu va se fermer.\n\n$DETAIL$\n\nLes détails se trouvent dans eu4-harmony/logs/core.log, dans le dossier de documents du jeu."
  EU4HARMONY_API_MISMATCH:0 "Le mod « $MOD$ » n'a pas été chargé : il a été conçu pour l'API $BUILT$ de Harmony, mais la version installée de Harmony fournit l'API $PROVIDED$. Mettez à jour le mod ou Harmony pour qu'ils correspondent."
  EU4HARMONY_NOT_LOADED:0 "Le mod « $MOD$ » n'a pas été chargé :\n$DETAIL$"

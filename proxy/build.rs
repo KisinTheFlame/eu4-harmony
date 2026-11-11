@@ -70,4 +70,20 @@ eu4h_stub_{i}:
         ),
     )
     .unwrap();
+
+    // Harmony's published file id, so that the proxy loads the core from its
+    // own Workshop item and no other.
+    println!("cargo:rerun-if-changed=../workshop/item.toml");
+    let item = fs::read_to_string("../workshop/item.toml").expect("workshop/item.toml");
+    let id: u64 = published_file_id(&item).expect("workshop/item.toml has no published_file_id = <number>");
+    fs::write(out.join("published_file_id.rs"), format!("{id}_u64\n")).unwrap();
+}
+
+/// The `published_file_id = <number>` of `workshop/item.toml`, read without
+/// a TOML parser: the file holds that key, comments and blank lines.
+fn published_file_id(item: &str) -> Option<u64> {
+    item.lines().find_map(|line| {
+        let (key, value) = line.split('#').next()?.split_once('=')?;
+        (key.trim() == "published_file_id").then(|| value.trim().parse().ok())?
+    })
 }
