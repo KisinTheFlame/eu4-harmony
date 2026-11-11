@@ -175,8 +175,20 @@ A sensitive capability as a mod's manifest declares it. In this version the play
 _Avoid_: grant, right, access
 
 **Frame inside a day**:
-A whole frame the game draws while a day is still being worked out, once the day has taken longer than an interval since the last one: 50 ms at the fastest speed. It executes no commands and draws no random numbers.
+A whole frame the game runs while a day is still being worked out, once the day has taken longer than an interval since the last one: 50 ms at the fastest speed. It executes no commands and draws no random numbers. With the drawing thread it takes the input and updates the interface, and draws nothing.
 _Avoid_: inserted frame, nested frame
+
+**Drawing thread**:
+A thread of the framework's that draws the frames at a pace of its own, the display's refresh rate unless the player chooses no limit, while the main thread goes on with the day: the map with a camera that the drawing thread keeps and moves from the mouse and the keys, and the interface's windows as their last update left them (docs/plans/drawing-thread.md). The interface's update stays on the main thread.
+_Avoid_: render thread, graphics thread
+
+**Crossing**:
+A place where the day's code goes into the interface's or the graphics' own state, such as a popup made, the map mode set again or a unit's model let go. The day takes the presentation lock at each crossing, or, where it reads nothing back, has the call made at the next frame instead.
+_Avoid_: callback, UI hook
+
+**Presentation lock**:
+The one lock between the main thread and the drawing thread: the drawing thread holds it for each frame it draws but for the frame's Present, the main thread for each update of the interface and each crossing, so that the interface's own objects are never used by both at once.
+_Avoid_: render lock, UI mutex
 
 **Safe point**:
 A moment on the game's main thread when game state can be read and changed safely. The framework calls extensions only at safe points.

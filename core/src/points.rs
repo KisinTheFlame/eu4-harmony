@@ -1124,7 +1124,9 @@ mod tests {
         assert!(short.is_empty(), "{short:#?}");
         // The check sees stack arguments: the main text method takes eleven,
         // the button text method fifteen (forwarding fewer once crashed the game).
-        for (rva, count) in [(0x15988e0, 11), (0x1596660, 15)] {
+        // The map's markers' update reads its first argument only in the
+        // body the compiler split from its prologue.
+        for (rva, count) in [(0x15988e0, 11), (0x1596660, 15), (0x10a6d00, 4)] {
             let range = crate::analysis::bounds(image, rva).unwrap();
             assert_eq!(crate::analysis::arguments(&image[range], rva), count, "{rva:#x}");
         }

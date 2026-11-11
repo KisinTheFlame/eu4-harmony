@@ -13,7 +13,7 @@
 
 - **任何文字，处处显示。** 任何文字在整个游戏里都能显示，默认用为你的语言准备的字体，也可以自己选；地图上的地名拉到多近都清晰。不用装字体 Mod。
 - **不再重启。** 几秒回到主菜单，而不是 45 秒。铁人局也能读取别的存档。
-- **更快的游戏，同一局游戏。** 更流畅，最快速度下快约一成，存档时的卡顿只剩约三分之一，启动和读档也更快；游戏后期，AI 的军队在空闲的核心上规划路线。游戏的规则和数据都保持原样。
+- **更快的游戏，同一局游戏。** 地图在单独的线程上按显示器刷新率绘制，计算日更新时也不停，存档时的卡顿只剩约三分之一，启动和读档也更快；游戏后期，AI 的军队在空闲的核心上规划路线。游戏的规则和数据都保持原样。
 - **修好原版至今还有的 bug。** 继承人不会再一半概率重名，反侵略联盟和宗主国覆灭不再有崩溃风险，读档也不会再让你丢掉成就。
 - **成就规则由你定。** 可选：非铁人或开着 Mod 也能拿成就。
 - **Mod 能做更多。** 几行 Lua，Mod 就能读取游戏（细到君主与储君、合法性、各国对彼此的好感度及其由来、阶层正在推行的议程、任一修正的合计，以及脚本给国家和省份挂上的修正）、添加按钮，并在游戏的各个面板里做你能做的事（建造、发展、迁都、研究、选理念和改革、接纳思潮、选取时代能力、开启黄金时代、升级、建造和迁移纪念碑、使用政体机制、巩固政府、提升派系影响力、雇佣和提拔顾问、认同和取消认同文化、选择个人神祇或崇拜、教会信条或神赐、邀请学者、建立圣职团、选择融合信仰或古鲁的教义、通过宗教改革、启用热情、调和宗教、供奉圣像、宣称信仰守护者、使用虔诚行动和教廷行动、购买赎罪券、颁布金玺诏书、以皇帝身份通过神圣罗马帝国和天朝的改革并颁布诏令、在帝国事件中选择立场、贸易、设定土著政策、征收战争税、降低厌战度、宣布破产、选择海军学说、允许殖民地独立、收买议会席位、整编陆军和舰队、宣战与议和、每一种外交行动），不允许时给出游戏自己的原因。Mod 的 Lua 和脚本能互相配合：Lua 读写脚本的 flag 和变量，触发脚本定义的事件。Mod 还能弹出弹窗，打开自己的窗口，样式与游戏原生一致，布局用 Lua 写，入口按钮就在小地图左侧，和教廷、神罗的按钮排在一起（[docs/plans/extension-windows.md](docs/plans/extension-windows.md)）。能读到的细到一个省份的繁荣度、人力、补给上限和思潮，以及一支军队的每个团和它的兵力、士气（[docs/plans/mod-capabilities.md](docs/plans/mod-capabilities.md)）。
@@ -38,7 +38,7 @@
 
 ### 设置
 
-**EU4 Harmony settings** 里可以设置玩家语言和字体、返回主菜单时不重启游戏、成就规则、游戏速度，以及音乐的响度是否统一；每一项在窗口里都有说明。细节见 [docs/plans/player-language.md](docs/plans/player-language.md)、[docs/plans/sessions.md](docs/plans/sessions.md)、[docs/plans/game-speed.md](docs/plans/game-speed.md) 和 [docs/plans/music-volume.md](docs/plans/music-volume.md)。
+**EU4 Harmony settings** 里可以设置玩家语言和字体、返回主菜单时不重启游戏、成就规则、帧率是否限制，以及音乐的响度是否统一；每一项在窗口里都有说明。细节见 [docs/plans/player-language.md](docs/plans/player-language.md)、[docs/plans/sessions.md](docs/plans/sessions.md)、[docs/plans/game-speed.md](docs/plans/game-speed.md)、[docs/plans/drawing-thread.md](docs/plans/drawing-thread.md) 和 [docs/plans/music-volume.md](docs/plans/music-volume.md)。
 
 装上框架后，游戏自己的音量滑块按位置的平方变化，每一格听起来变化差不多大；原版在最后一成会陡降到静音。原来低于 100 的音量会比以前轻，需要重新调一次。
 

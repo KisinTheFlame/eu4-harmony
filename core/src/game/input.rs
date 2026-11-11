@@ -40,8 +40,17 @@ type CursorAt = unsafe extern "C" fn(*mut [i32; 2], u8, u8) -> *mut [i32; 2];
 
 static ORIGINAL_CURSOR_AT: Function<CursorAt> = Function::new();
 
+/// Whether the game reads Windows' cursor rather than SDL's: set by the
+/// event pump as the window is shown or gains the focus, and as a button is
+/// pressed (docs/research/input.md).
+const WINDOWS_CURSOR: usize = 0x1fd10c5;
+
 pub fn points() -> Vec<Point> {
-    vec![Point::replace(CURSOR_AT, "48 89 5c 24 10 55 56 57 48 83 ec 40", "cursor position", cursor_at as CursorAt, &ORIGINAL_CURSOR_AT)]
+    vec![
+        Point::replace(CURSOR_AT, "48 89 5c 24 10 55 56 57 48 83 ec 40", "cursor position", cursor_at as CursorAt, &ORIGINAL_CURSOR_AT),
+        // movzx eax, byte ptr [Windows' cursor]: the camera's input step.
+        Point::keep(0x109e9d8, "0f b6 05 e6 26 f3 00", "whether the cursor is Windows'").uses(&[WINDOWS_CURSOR]),
+    ]
 }
 
 #[called_by_game]
@@ -52,7 +61,7 @@ unsafe extern "C" fn cursor_at(out: *mut [i32; 2], full_screen: u8, borderless: 
         if crate::hidden::hidden() && state().cursor.is_none() {
             hold(None);
         }
-        state().cursor
+        state().cursor.or_else(drawing_thread_cursor)
     };
     match crate::guarded("virtual cursor", held) {
         Some(at) => {
@@ -61,6 +70,32 @@ unsafe extern "C" fn cursor_at(out: *mut [i32; 2], full_screen: u8, borderless: 
         }
         None => ORIGINAL_CURSOR_AT.get()(out, full_screen, borderless),
     }
+}
+
+/// The drawing thread's camera update reads the cursor too, at the drawing
+/// thread's own pace, and the game's read of Windows' cursor takes the
+/// window's corner from the calling thread's active window
+/// (`GetActiveWindow`), which the drawing thread has none of: its read would
+/// lie wherever an unset rectangle puts it, and the camera would scroll
+/// toward that edge. On the drawing thread Windows' cursor is read against
+/// the game's window itself; SDL's, which the game reads otherwise, needs no
+/// window (docs/research/drawing-beside-the-day.md).
+fn drawing_thread_cursor() -> Option<[i32; 2]> {
+    if !crate::drawing::is_drawing_thread() {
+        return None;
+    }
+    let m = crate::hooked_memory();
+    if m.u8(m.at(WINDOWS_CURSOR)).ok()? == 0 {
+        return None;
+    }
+    window::client_cursor()
+}
+
+/// The cursor as the drawing thread keeps what follows it between the
+/// game's reads: the one remote control holds, or else Windows' cursor in
+/// the game's window, in pixels of the frame.
+pub fn cursor_now() -> Option<[i32; 2]> {
+    state().cursor.or_else(window::client_cursor)
 }
 
 /// A screen position: pixels of the frame from its top left corner.
@@ -472,6 +507,7 @@ pub mod checks {
 #[cfg(test)]
 mod tests {
     use super::*;
+
 
     #[test]
     fn a_screenshot_s_pixel_is_the_middle_of_the_frame_s_pixels_it_stands_for() {

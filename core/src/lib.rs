@@ -45,8 +45,11 @@ pub mod census;
 #[cfg(feature = "dev-command-log")]
 mod command_log;
 pub mod containers;
+#[cfg(feature = "dev-crossings")]
+mod crossings;
 #[cfg(any(test, dev_build))]
 pub mod dev;
+pub mod drawing;
 pub mod files;
 pub mod framework_ui;
 pub mod game;

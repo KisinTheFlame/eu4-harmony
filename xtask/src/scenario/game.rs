@@ -281,6 +281,22 @@ impl Game {
         Err(Stop::Failed("session.get: the session changed five times over".into()))
     }
 
+    /// Puts the game in observe mode with no country in view. The game puts
+    /// a country in view as it loads a save of observe mode, and a save made
+    /// with one in view names that country its player, which a load of it
+    /// then plays.
+    pub fn observe_with_no_country(&mut self) -> Played<Session> {
+        let mut session = self.session()?;
+        if !session.observing {
+            self.console("observe")?;
+            session = self.session()?;
+        }
+        if session.observing && session.player.is_some() {
+            session = self.ask(&SessionRequest::LeaveView {})?;
+        }
+        Ok(session)
+    }
+
     /// Runs `command` in the game console; what it printed.
     pub fn console(&mut self, command: &str) -> Played<String> {
         self.ask(&ConsoleRequest::Run { command: command.into() })

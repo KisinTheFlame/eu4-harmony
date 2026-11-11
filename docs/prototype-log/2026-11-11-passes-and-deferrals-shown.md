@@ -1,0 +1,8 @@
+# 2026-11-11 The passes at the preparation and the map's deferrals, in a game shown (tested by the owner)
+
+The owner's look at the drawing thread after the off-screen passes moved to the frame's preparation ([2026-11-11-passes-at-the-preparation.md](2026-11-11-passes-at-the-preparation.md)), the moved capital's map mode and the center of trade's port model deferred, and a mesh object freed by a deferred call kept to the next preparation ([2026-11-11-port-models-deferred.md](2026-11-11-port-models-deferred.md)). A test game from this branch's core with `dev-test-games`, shown, the 1780.7.1 save in observe mode, the camera on Constantinople, paused when handed over; the owner ran it at speed 5 and dragged the map for about a minute. The player's playset and settings, 3840×2160 borderless, a display of 144 Hz.
+
+- **The owner**: about the same as before; it still stutters where it did, and is far better than the game without the framework.
+- **The drawing thread's log** at speed 5, in ten seconds: 105 to 125 frames a second, 68 to 174 late, 0 to 3 held back (the monthly refresh only), 19 to 43 waiting for the lock, 38 to 131 neither, the longest gap 82 to 266 ms. Paused: 129 to 143 frames a second, 3 to 30 late, the longest gap 32 to 184 ms. More late with neither cause than in [2026-11-11-tooltip-and-minimap-shown.md](2026-11-11-tooltip-and-minimap-shown.md) (7 to 16); whether another session's scenario game ran beside it then was not checked.
+- **Not verified**: the provinces' colors and the ports' models looked at one by one; what the frames late with neither cause wait for.
+- **Cleanup**: the test game released; it quit with exit code 0, no crash; its logs kept in its claim's `kept\`.
