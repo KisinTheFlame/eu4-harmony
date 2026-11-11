@@ -1,6 +1,4 @@
-# Harmony
-
-**for Europa Universalis IV**
+![Harmony for Europa Universalis IV](docs/images/banner.jpg)
 
 [![CI](https://github.com/KisinTheFlame/eu4-harmony/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/KisinTheFlame/eu4-harmony/actions/workflows/ci.yml)
 
