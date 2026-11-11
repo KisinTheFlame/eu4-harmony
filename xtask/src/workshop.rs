@@ -486,19 +486,27 @@ fn vdf_id(text: &str) -> Option<u64> {
     })
 }
 
-/// SteamCMD: where `STEAMCMD` names it, else on `PATH`.
+/// SteamCMD: where `STEAMCMD` names it, else on `PATH`, else in the
+/// development folder's `steamcmd\` (`%LOCALAPPDATA%\eu4-harmony-dev`, or
+/// the one `EU4_HARMONY_DEV_DIR` names), where it is kept on this computer.
 fn steamcmd() -> Result<PathBuf> {
     if let Some(path) = std::env::var_os("STEAMCMD").filter(|v| !v.is_empty()) {
         let path = PathBuf::from(path);
         return path.is_file().then_some(path.clone()).ok_or_else(|| format!("STEAMCMD names {}, which does not exist", path.display()));
     }
+    let dev = std::env::var_os("EU4_HARMONY_DEV_DIR")
+        .filter(|d| !d.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("eu4-harmony-dev")));
     std::env::var_os("PATH")
         .into_iter()
         .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
+        .chain(dev.map(|d| d.join("steamcmd")))
         .map(|dir| dir.join("steamcmd.exe"))
         .find(|path| path.is_file())
         .ok_or_else(|| {
-            "SteamCMD not found: install it (https://developer.valvesoftware.com/wiki/SteamCMD) and put it on PATH, or name steamcmd.exe in STEAMCMD".into()
+            "SteamCMD not found: install it (https://developer.valvesoftware.com/wiki/SteamCMD) into %LOCALAPPDATA%\\eu4-harmony-dev\\steamcmd\\ or onto PATH, or name steamcmd.exe in STEAMCMD"
+                .into()
         })
 }
 
