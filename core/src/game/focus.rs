@@ -1,6 +1,7 @@
 //! The national focus: which kind of monarch power the player's country
 //! favors, as the court view's focus buttons set it
 //! (docs/research/power-spending.md, "National focus").
+use super::commands::{write, Block};
 use super::{action, power, technology::key, GResult, Session};
 use crate::{
     game_string,
@@ -69,7 +70,7 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Focus> {
 /// The focus command in its written form: the country by its tag and the
 /// focus as a number, 3 for none, as the focus buttons make it.
 fn written(country: [u8; 3], focus: i32) -> String {
-    format!("set_national_focus_command={{ country=\"{}\" power={focus} }}", String::from_utf8_lossy(&country))
+    write("set_national_focus_command", Block::new().tag("country", country).word("power", focus))
 }
 
 /// Sets the focus on `kind`, as its button does.

@@ -3,6 +3,7 @@
 //! game's own commands, and the event of a building finished
 //! (docs/research/province-view.md).
 use super::administration::checks as refuse;
+use super::commands::{write, Block};
 use super::{action, administration::MOST_CONSTRUCTIONS, context_any, events, game, thousandths, with_state, Ctx, GResult, Session, Tag};
 use crate::containers;
 use crate::{
@@ -227,21 +228,17 @@ fn offer(action: &str, building: String, choice: Choice) -> BuildingOption {
     BuildingOption { action: action.into(), building, choice }
 }
 
-fn letters(tag: Tag) -> String {
-    String::from_utf8_lossy(&tag.letters()).into_owned()
-}
-
 /// The building commands: a building by its index.
 fn build_text(tag: Tag, province: u32, index: u32) -> String {
-    format!("constructbuilding={{ building={index} province={province} builder=\"{}\" }}", letters(tag))
+    write("constructbuilding", Block::new().word("building", index).word("province", province).tag("builder", tag.letters()))
 }
 
 fn cancel_text(tag: Tag, province: u32, index: u32) -> String {
-    format!("cancel_building={{ country=\"{}\" province={province} building={index} }}", letters(tag))
+    write("cancel_building", Block::new().tag("country", tag.letters()).word("province", province).word("building", index))
 }
 
 fn destroy_text(tag: Tag, province: u32, index: u32) -> String {
-    format!("destroybuilding={{ building={index} country=\"{}\" province={province} }}", letters(tag))
+    write("destroybuilding", Block::new().word("building", index).tag("country", tag.letters()).word("province", province))
 }
 
 /// Starts building `key` in the province for the player.

@@ -63,11 +63,6 @@ pub fn checked(m: &Memory, check: impl FnOnce(usize) -> GResult<usize>) -> GResu
     Ok((allowed & 0xff != 0, reasons.filter(|l| !l.is_empty()).collect()))
 }
 
-/// A country tag's letters, as commands write it.
-pub fn letters(tag: super::Tag) -> String {
-    String::from_utf8_lossy(&tag.letters()).into_owned()
-}
-
 /// The refusals the framework words itself in the groups over script
 /// content: ideas, policies, reforms, the rank, estates, parliament,
 /// decisions and missions; those the game gives reasons for are

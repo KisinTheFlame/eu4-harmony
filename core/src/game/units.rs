@@ -2,6 +2,7 @@
 //! consolidating, drilling, and a fleet's missions, through the game's own
 //! commands as the panels post them, with the game's own answers of whether
 //! the player can and why not (docs/research/units.md).
+use super::commands::{write, Block};
 use super::{action, army, commands, Ctx, GResult, Session};
 use crate::{
     game_string,
@@ -64,40 +65,35 @@ pub fn points() -> Vec<Point> {
     ]
 }
 
-/// An ID as the game writes it: its number and its type.
-fn id_text(id: u64) -> String {
-    format!("{{ id={} type={} }}", (id >> 32) as i32, id as u32 as i32)
-}
-
 fn split_text(id: u64, value: usize) -> String {
-    format!("split_unit={{ unit={} value={value} }}", id_text(id))
+    write("split_unit", Block::new().id("unit", id).word("value", value))
 }
 
 fn merge_text(ids: &[u64]) -> String {
-    let units: Vec<String> = ids.iter().map(|id| format!("unit={}", id_text(*id))).collect();
-    format!("merge_units={{ {} }}", units.join(" "))
+    write("merge_units", ids.iter().fold(Block::new(), |block, &id| block.id("unit", id)))
 }
 
 fn disband_text(id: u64) -> String {
-    format!("disband_unit={{ unit={} }}", id_text(id))
+    write("disband_unit", Block::new().id("unit", id))
 }
 
 /// The consolidate command; with `leave_empty`, as the button gives it for a
 /// mercenary company, the emptied regiments stay.
 fn consolidate_text(id: u64, leave_empty: bool) -> String {
+    let unit = Block::new().id("unit", id);
     match leave_empty {
-        true => format!("consolidate={{ unit={} empty={{ {} }} }}", id_text(id), vec!["yes"; CONSOLIDATE_KINDS].join(" ")),
-        false => format!("consolidate={{ unit={} }}", id_text(id)),
+        true => write("consolidate", unit.block("empty", (0..CONSOLIDATE_KINDS).fold(Block::new(), |block, _| block.value("yes")))),
+        false => write("consolidate", unit),
     }
 }
 
 /// The drill command, which starts drilling and stops it.
 fn drill_text(id: u64) -> String {
-    format!("drill_army_mission={{ unit={} reason={PLAYER_ACTION} }}", id_text(id))
+    write("drill_army_mission", Block::new().id("unit", id).word("reason", PLAYER_ACTION))
 }
 
 fn stop_mission_text(id: u64) -> String {
-    format!("stop_unit_mission={{ unit={} reason={PLAYER_ACTION} }}", id_text(id))
+    write("stop_unit_mission", Block::new().id("unit", id).word("reason", PLAYER_ACTION))
 }
 
 /// A fleet's mission, its kind in `naval_region_mission` or its command.
@@ -106,13 +102,12 @@ const MISSIONS: [&str; 8] = ["protect_trade", "privateer", "hunt_pirates", "hunt
 /// The command of a fleet's mission, from the province it is in, toward
 /// `target` where the mission has one.
 fn mission_text(mission: &str, id: u64, location: u32, target: Option<u32>) -> Result<String, &'static str> {
-    let unit = id_text(id);
     let node = |command: &str| match target {
-        Some(index) => Ok(format!("{command}={{ unit={unit} index={index} start={location} replace=yes }}")),
+        Some(index) => Ok(write(command, Block::new().id("unit", id).word("index", index).word("start", location).word("replace", "yes"))),
         None => Err("a trade node's number"),
     };
     let region = |kind: u32| match target {
-        Some(region) => Ok(format!("naval_region_mission={{ type={kind} unit={unit} region={region} }}")),
+        Some(region) => Ok(write("naval_region_mission", Block::new().word("type", kind).id("unit", id).word("region", region))),
         None => Err("a sea region's number"),
     };
     match mission {
@@ -122,8 +117,8 @@ fn mission_text(mission: &str, id: u64, location: u32, target: Option<u32>) -> R
         "hunt_fleets" => region(7),
         "blockade" => region(8),
         "intercept" => region(9),
-        "patrol" => Ok(format!("patrol={{ unit={unit} }}")),
-        "evade" => Ok(format!("evade_mission={{ navy={unit} }}")),
+        "patrol" => Ok(write("patrol", Block::new().id("unit", id))),
+        "evade" => Ok(write("evade_mission", Block::new().id("navy", id))),
         _ => Err("a mission"),
     }
 }
@@ -551,6 +546,7 @@ mod tests {
         assert_eq!(mission_text("blockade", UNIT, 1301, Some(47)).unwrap(), "naval_region_mission={ type=8 unit={ id=12 type=54 } region=47 }");
         assert_eq!(mission_text("privateer", UNIT, 1301, Some(12)).unwrap(), "privateer_mission={ unit={ id=12 type=54 } index=12 start=1301 replace=yes }");
         assert_eq!(mission_text("evade", UNIT, 1301, None).unwrap(), "evade_mission={ navy={ id=12 type=54 } }");
+        assert_eq!(mission_text("patrol", UNIT, 1301, None).unwrap(), "patrol={ unit={ id=12 type=54 } }");
         assert!(mission_text("blockade", UNIT, 1301, None).is_err());
     }
 }

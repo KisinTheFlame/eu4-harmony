@@ -1,6 +1,7 @@
 //! The economy: taking a bank loan and reducing inflation, as the economy
 //! view's buttons do, and raising mercantilism, as the trade view's button
 //! does (docs/research/power-spending.md, "The economy").
+use super::commands::{write, Block};
 use super::{
     action, modifiers,
     power::{self, CAN_REDUCE_INFLATION, PROMOTE_MERCANTILISM, REDUCE_INFLATION},
@@ -136,7 +137,7 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<EconomyOption>> {
 /// The bank loan command in its written form, as the button makes it: the
 /// country by its tag, the rest the game's defaults.
 fn written_loan(country: [u8; 3]) -> String {
-    format!("take_bank_loan={{ country=\"{}\" }}", String::from_utf8_lossy(&country))
+    write("take_bank_loan", Block::new().tag("country", country))
 }
 
 /// Takes a bank loan, as the button does.

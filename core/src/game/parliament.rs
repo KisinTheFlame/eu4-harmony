@@ -1,6 +1,7 @@
 //! Parliament: the issues the parliament view offers, starting a debate,
 //! giving provinces seats, through the game's own commands
 //! (docs/research/government.md, "Parliament").
+use super::commands::{write, Block};
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
 use crate::containers;
@@ -114,11 +115,11 @@ fn debating(m: &Memory, parliament: usize) -> GResult<Option<String>> {
 }
 
 fn written_debate(country: Tag, issue: &str) -> String {
-    format!("start_debate_command={{ country=\"{}\" which=\"{issue}\" }}", content::letters(country))
+    write("start_debate_command", Block::new().tag("country", country.letters()).quoted("which", issue))
 }
 
 fn written_seat(command: &str, country: Tag, province: u32) -> String {
-    format!("{command}={{ country=\"{}\" province={province} }}", content::letters(country))
+    write(command, Block::new().tag("country", country.letters()).word("province", province))
 }
 
 /// Brings an issue on offer to debate.

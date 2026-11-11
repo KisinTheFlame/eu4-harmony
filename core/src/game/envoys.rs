@@ -89,11 +89,6 @@ pub fn lines(text: &[u8]) -> Vec<String> {
     game_text::plain(text).lines().map(|l| l.trim()).map(|l| l.strip_prefix("- ").unwrap_or(l).trim()).filter(|l| !l.is_empty()).map(str::to_string).collect()
 }
 
-/// A tag as a command's text writes it.
-pub fn quoted(tag: super::Tag) -> String {
-    format!("\"{}\"", String::from_utf8_lossy(&tag.letters()))
-}
-
 /// The game's text for the localisation key `key`, as plain Unicode.
 pub fn localized(m: &Memory, key: &str) -> GResult<String> {
     let key = std::ffi::CString::new(key).map_err(|e| e.to_string())?;

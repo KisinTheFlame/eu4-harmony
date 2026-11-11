@@ -1,6 +1,7 @@
 //! Route queries, moving and stopping own land armies with the game's move
 //! command (ADR commands-run-at-once), and the record of which extension set
 //! which route.
+use super::commands::{write, Block};
 use super::{armies::RouteSource, army, commands::Commands, events::Change, fail, paused, world, Caller, Ctx, GResult, Session, Status, MAX_UNITS};
 use crate::containers;
 use crate::{
@@ -456,8 +457,8 @@ pub fn transport(session: &Session, army: usize, id: u64, goal: u32) -> GResult<
 /// The automatic transport command: the army, the fleets that carry it, and
 /// where to.
 fn transport_text(army: u64, fleets: &[u64], goal: u32) -> String {
-    let navies: Vec<String> = fleets.iter().map(|f| format!("navy={}", unit_text(*f))).collect();
-    format!("start_auto_fleet_transport={{ army={} {} province_id={goal} }}", unit_text(army), navies.join(" "))
+    let carried = fleets.iter().fold(Block::new().id("army", army), |block, &fleet| block.id("navy", fleet));
+    write("start_auto_fleet_transport", carried.word("province_id", goal))
 }
 
 /// The game's move command for the army with the ID `id`, in `origin`, to
@@ -465,18 +466,14 @@ fn transport_text(army: u64, fleets: &[u64], goal: u32) -> String {
 /// army's route replaced, and its fleet's own orders cancelled
 /// (docs/research/army-orders.md).
 fn move_text(id: u64, origin: u32, goal: u32) -> String {
-    format!("move_order={{ unit={} province={{ {goal} }} location={origin} clear=yes cancel_autofleet=yes }}", unit_text(id))
+    let order = Block::new().id("unit", id).block("province", Block::new().value(goal)).word("location", origin);
+    write("move_order", order.word("clear", "yes").word("cancel_autofleet", "yes"))
 }
 
 /// The game's command that cancels the movement of the army with the ID
 /// `id`, as the player's right click on the province it is in makes it.
 fn stop_text(id: u64) -> String {
-    format!("cancel_movement={{ unit={} cancel_autofleet=yes reason=1 }}", unit_text(id))
-}
-
-/// An army's ID, as the game writes it: its number and its type.
-fn unit_text(id: u64) -> String {
-    format!("{{ id={} type={} }}", (id >> 32) as i32, id as u32 as i32)
+    write("cancel_movement", Block::new().id("unit", id).word("cancel_autofleet", "yes").word("reason", 1))
 }
 
 /// Has the game carry out the army's command `text` through `commands` at
