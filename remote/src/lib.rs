@@ -546,6 +546,10 @@ groups! {
     Leader(leaders::LeaderRequest, LeaderAnswer),
     /// The player's advisors: hiring, firing and promoting them.
     Advisor(advisors::AdvisorRequest, AdvisorAnswer),
+    /// The Holy Roman Empire: its reforms.
+    Empire(empire::EmpireRequest, EmpireAnswer),
+    /// The Celestial Empire: its reforms and decrees.
+    CelestialEmpire(celestial_empire::CelestialEmpireRequest, CelestialEmpireAnswer),
     /// The mercenary companies the player can hire.
     Mercenary(mercenaries::MercenaryRequest, MercenaryAnswer),
     /// The player's forts.

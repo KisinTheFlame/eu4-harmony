@@ -86,6 +86,12 @@ pub enum Resource {
     /// Points of one of a government mechanic's powers, which its
     /// interactions spend; the entry says which.
     MechanicPower,
+    /// The Holy Roman Empire's imperial authority, which its reforms spend.
+    ImperialAuthority,
+    /// The Celestial Empire's mandate, which its reforms spend.
+    Mandate,
+    /// Meritocracy, which the Celestial Empire's decrees spend.
+    Meritocracy,
 }
 
 /// A kind of monarch power, as the game's panels name them: what a

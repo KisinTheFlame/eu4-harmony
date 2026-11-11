@@ -430,6 +430,8 @@ macro_rules! capability_groups {
             Loan(loans),
             Leader(leaders),
             Advisor(advisors),
+            Empire(empire),
+            CelestialEmpire(celestial_empire),
             Mercenary(mercenaries),
             Fort(forts),
             Siege(sieges),
