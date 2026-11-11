@@ -8,8 +8,8 @@
 //! following the language. The page shows each role's face in the weight
 //! that draws it, so a default asking for a weight its family lacks still
 //! reads back as left alone.
+use super::setting_widgets;
 use super::widgets::{Widget, Window};
-use super::{page_note, setting_widgets};
 use crate::settings::{Page, Role, Settings};
 use crate::unicode::system_font::{self, Face, SystemFonts, REGULAR};
 use eu4_harmony_loc::Language;
@@ -172,7 +172,6 @@ impl<F: FontSystem> FontsPage<F> {
         // The page's own settings, the map outline, follow the map's font.
         out.extend(setting_widgets(Page::LanguageFonts, next, words));
         out.extend(self.role_widgets(Role::Console, words));
-        out.extend(page_note(Page::LanguageFonts, words));
         out
     }
 

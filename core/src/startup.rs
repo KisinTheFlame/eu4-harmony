@@ -73,7 +73,7 @@ impl Setup {
                 data_folder: data_dir.join(&m.manifest.id).display().to_string(),
             })
             .collect();
-        let mut report = vec![format!("\nMods with an EU4 Harmony manifest, in playset order: {}", mods.len())];
+        let mut report = vec![format!("\nMods with a Harmony manifest, in playset order: {}", mods.len())];
         for (m, outcome) in mods.iter().zip(outcomes) {
             report.push(format!(
                 "  {} (id {}, api {}): {}; {} UI fragment(s)",
@@ -272,7 +272,7 @@ mod tests {
         assert_eq!(
             setup.report,
             [
-                "\nMods with an EU4 Harmony manifest, in playset order: 2",
+                "\nMods with a Harmony manifest, in playset order: 2",
                 "  Alpha (id alpha, api 1): loaded; 0 UI fragment(s)",
                 "    D:\\mods\\alpha",
                 "    eu4-harmony/ui/stray.gui: the layout has no place for it, so it is not used",

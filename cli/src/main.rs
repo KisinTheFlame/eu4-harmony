@@ -1,4 +1,4 @@
-//! `eu4-harmony`: create, register and package EU4 Harmony mods, and use the
+//! `eu4-harmony`: create, register and package Harmony mods, and use the
 //! running game through remote control (`game`, in `game.rs`).
 //!
 //! A mod is a folder with `descriptor.mod` and `eu4-harmony/manifest.toml`;
@@ -28,7 +28,7 @@ use eu4_harmony_client::{backup, pipe, start};
 type Result<T> = std::result::Result<T, String>;
 
 const USAGE: &str = "\
-eu4-harmony: create, register and package EU4 Harmony mods, and use the
+eu4-harmony: create, register and package Harmony mods, and use the
 running game through remote control
 
 usage:
@@ -209,7 +209,7 @@ fn mod_root(start: &Path) -> Result<PathBuf> {
         }
         dir = d.parent();
     }
-    Err(format!("{} is not inside an EU4 Harmony mod (no descriptor.mod with eu4-harmony/{})", start.display(), eu4_harmony_manifest::FILE))
+    Err(format!("{} is not inside a Harmony mod (no descriptor.mod with eu4-harmony/{})", start.display(), eu4_harmony_manifest::FILE))
 }
 
 fn start_dir(args: &Args) -> Result<PathBuf> {

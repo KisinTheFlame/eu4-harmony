@@ -62,7 +62,7 @@ impl Manifest {
     /// Why a framework that provides the catalogue version `provided` cannot
     /// run the mod's extension, when it cannot.
     pub fn unsupported(&self, provided: &str) -> Option<String> {
-        (!self.built_for(provided)).then(|| format!("written for api_version {}, this EU4 Harmony provides {provided}", self.api_version))
+        (!self.built_for(provided)).then(|| format!("written for api_version {}, this Harmony provides {provided}", self.api_version))
     }
 }
 
@@ -333,7 +333,7 @@ permissions = { network = [\"https://x.com\"] }"
         assert_eq!(
             read.problems("0.2"),
             [
-                "eu4-harmony/manifest.toml: written for api_version 0.1, this EU4 Harmony provides 0.2",
+                "eu4-harmony/manifest.toml: written for api_version 0.1, this Harmony provides 0.2",
                 "eu4-harmony/ui/stray.gui: not where the layout puts anything, so the game never reads it",
             ]
         );

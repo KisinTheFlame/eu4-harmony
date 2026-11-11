@@ -1,4 +1,4 @@
--- Template Mod: an EU4 Harmony extension.
+-- Template Mod: a Harmony extension.
 --
 -- Its button sits in the army panel's button area. It shows while an own
 -- land army is selected and logs each click to

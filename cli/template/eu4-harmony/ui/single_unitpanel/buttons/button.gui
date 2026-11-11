@@ -1,4 +1,4 @@
-# One slot of the army panel's button area. EU4 Harmony positions it and
+# One slot of the army panel's button area. Harmony positions it and
 # prefixes the element names; refer to them by the names written here.
 guiButtonType = {
 	name = "button"

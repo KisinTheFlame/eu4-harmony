@@ -166,7 +166,7 @@ fn show(message: &Message, style: u32) {
         return;
     }
     let text: Vec<u16> = message.words(lang::player()).encode_utf16().chain([0]).collect();
-    let title: Vec<u16> = "EU4 Harmony\0".encode_utf16().collect();
+    let title: Vec<u16> = "Harmony\0".encode_utf16().collect();
     unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_OK | MB_SETFOREGROUND | style) };
 }
 
