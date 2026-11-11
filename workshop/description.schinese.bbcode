@@ -1,7 +1,7 @@
 [h1]Harmony[/h1]
 [b]从内部把《欧陆风云4》变得更好。[/b]处处能显示中日韩文字、不用重启、游戏更快、bug 更少，Mod 也能做到多得多的事，而游戏的规则保持原样。
 
-[img]COMPARISON_IMAGE_URL[/img]
+[img]https://images.steamusercontent.com/ugc/13140031535680090330/F4C764E83D9596D200FC76C6022FEE06B82F5086/[/img]
 
 游戏的中文文本仍然来自汉化 Mod，照常订阅即可；为双字节补丁制作的汉化 Mod 和用它们玩的存档都能直接使用。
 
@@ -10,13 +10,13 @@ Harmony 是一个运行在游戏里的程序，所以有一个文件要手动放
 
 [olist]
 [*]如果装过让游戏显示中文、日文或韩文的补丁，先按那个补丁自己的说明把它卸载。
-[*]在本页订阅 Harmony。
+[*]在本页订阅 Harmony。订阅后 Harmony 的目录如果一直是空的，重启一下 Steam。
 [*]在 Steam 里右键《欧陆风云4》，选[b]管理 → 浏览本地文件[/b]，打开游戏目录。
-SCREENSHOT_BROWSE_LOCAL_FILES
+[img]https://images.steamusercontent.com/ugc/11066917880090292433/3A3D326E02DE7A7F12B7AEDBE70E5EA8F33A797F/[/img]
 [*]往上两级回到 [b]steamapps[/b]，再打开 [b]workshop\content\236850\3837775887[/b]，这就是 Harmony 的目录。
-SCREENSHOT_WORKSHOP_FOLDER
+[img]https://images.steamusercontent.com/ugc/11089280613892851787/660DAFC945E12981B53125CB4619923DFEF45485/[/img]
 [*]把 Harmony 目录里的 [b]version.dll[/b] 复制到游戏目录，和 [b]eu4.exe[/b] 放在一起。游戏目录里原本已有 version.dll 的话，先把它挪到别处，Harmony 不会加载它。
-SCREENSHOT_COPY_VERSION_DLL
+[img]https://images.steamusercontent.com/ugc/10340509801665553999/E7A3B6C9B8CD6118675F2C4B014351F51BF593DF/[/img]
 [/olist]
 
 照常从 Paradox 启动器启动游戏。Harmony 不用放进合集；基于它的 Mod 照常在合集里启用。主菜单角落会多出两个按钮：[b]Harmony 设置[/b]和 [b]Harmony Mod[/b]。
@@ -40,7 +40,7 @@ Steam 会让 Harmony 保持最新。偶尔有更新需要换新的 version.dll�
 [/list]
 
 [h2]出问题时[/h2]
-看 [b]文档\Paradox Interactive\Europa Universalis IV\eu4-harmony[/b]：report.txt 记着游戏启动时 Harmony 发现了什么、做了什么，logs 文件夹里是它的日志。到 [url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url] 反馈问题，附上 report.txt 和日志。
+看 [b]文档\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs[/b]：report.txt 记着游戏启动时 Harmony 发现了什么、做了什么，core.log 是它的日志。到 [url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url] 反馈问题，附上 report.txt 和日志。
 
 [h2]写给 Mod 作者[/h2]
 基于 Harmony 的 Mod 就是一个普通的 Paradox Mod，多了 Lua 脚本：它读取游戏、像玩家一样操作，添加与游戏风格一致的按钮和窗口，并运行在沙箱里，游戏之外只能做 Mod 自己声明的事。怎么写见 [url=https://github.com/KisinTheFlame/eu4-harmony/blob/master/README.zh-CN.md]GitHub 上的 README[/url]。
