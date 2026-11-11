@@ -332,6 +332,10 @@ pub mod country {
     /// Its fervor, a pointer to the object that keeps it and the fervor
     /// effects active (docs/research/religion.md).
     pub const FERVOR: usize = 0xf60;
+    /// The religion it is harmonizing with now and the religion group, each a
+    /// pointer, null while it harmonizes with none (docs/research/religion.md).
+    pub const HARMONIZING: usize = 0x1040;
+    pub const HARMONIZING_GROUP: usize = 0x1048;
     /// The named modifiers its scripts put on it, a [`super::super::list`]
     /// of [`super::named_modifier`]s.
     pub const NAMED_MODIFIERS: usize = 0x1f0;

@@ -17,7 +17,9 @@ group! {
     /// offers, to add or, once chosen, to remove; and the blessings when it
     /// has them (Coptic, Zoroastrian), each its religion offers; the fervor
     /// effects when it uses fervor (the Reformed), each whose conditions for
-    /// being offered hold, to turn on or, once on, off; the
+    /// being offered hold, to turn on or, once on, off; the religions it
+    /// may harmonize with now when it harmonizes (Confucianism), and
+    /// stopping the harmonization going on; the
     /// religious reforms when it has them (Nahuatl, Inti, Mesoamerican),
     /// each to pass or, once passed, current, and reforming the religion
     /// once all are. Each with whether the player can now and why not, in
@@ -26,7 +28,7 @@ group! {
     /// little church power, stability too low, all the church's slots
     /// taken, holy sites lost), and its cost. Empty for a religion with none
     /// of them.
-    game Options "options" {} -> Vec<ReligionOption>, "each entry: action (choose_deity, choose_cult, add_aspect, remove_aspect, choose_blessing, enable_fervor, disable_fervor, pass_reform or reform_religion), key, name, current, can, reasons, cost";
+    game Options "options" {} -> Vec<ReligionOption>, "each entry: action (choose_deity, choose_cult, add_aspect, remove_aspect, choose_blessing, enable_fervor, disable_fervor, harmonize, stop_harmonizing, pass_reform or reform_religion), key, name, current, can, reasons, cost";
 
     /// Follows a personal deity, as the view's button for it does; it
     /// lasts until the monarch changes. `rejected` with the game's reasons
@@ -93,6 +95,21 @@ group! {
     /// from its own technology. `rejected` when the player cannot now, as
     /// `religion.options` says beforehand.
     game ReformReligion "reform_religion" {} -> (), "null once the game reforms it";
+
+    /// Starts harmonizing with a religion (Confucianism), as the religion
+    /// view's button does; with a religion of another group the game
+    /// harmonizes with the whole group. `not_found` for a key that names
+    /// no religion the game offers to harmonize with now (those of the
+    /// player's provinces, with enough development there, not harmonized
+    /// with yet), as `religion.options` lists them.
+    game Harmonize "harmonize" {
+        /// The religion's content key, such as `sunni`.
+        religion: String,
+    } -> (), "null once the game harmonizes with it";
+
+    /// Stops the harmonization going on, as the religion view's button
+    /// does. `rejected` while there is none.
+    game StopHarmonizing "stop_harmonizing" {} -> (), "null once the game stops";
 
     /// Turns a fervor effect on (the Reformed), as the religion view's
     /// button does, paying its cost in fervor. `rejected` with the game's

@@ -120,6 +120,26 @@ const HAS_FERVOR: GameFunction<1> = GameFunction::at(0xa7b5c0);
 /// the effect on now, with the view's lines: its conditions and its cost.
 const MAY_ENABLE_FERVOR: GameFunction<3> = GameFunction::at(0x736a40);
 
+/// `(religion) -> bool`: whether the religion harmonizes (Confucianism).
+const HAS_HARMONY: GameFunction<1> = GameFunction::at(0xa7eed0);
+/// `(country, list, i32 out or null, _)`: the religions and religion groups
+/// the country may harmonize with now, into a list of [`CANDIDATE`]-byte
+/// entries, each a religion of its own religion's group (and no group) or a
+/// group of another (and no religion), as the harmonize command's check
+/// asks; the list is the game's small vector of [`CANDIDATE_LIST`]'s class,
+/// its storage inline.
+const HARMONY_CANDIDATES: GameFunction<4> = GameFunction::at(0x3ec460);
+const CANDIDATE_LIST: usize = 0x1c40840;
+const CANDIDATE: usize = 0x18;
+/// The most candidates the framework's list holds without the game growing
+/// it: more religions than any game has.
+const MOST_CANDIDATES: usize = 512;
+/// A religion: its number in the religions' list, which the harmonize
+/// command names it by, and its group; a group starts with a `std::vector`
+/// of pointers to its religions.
+const RELIGION_INDEX: usize = 0x70;
+const RELIGION_GROUP: usize = 0xd8;
+
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(0x7e691ausize, "48 8b 05 87 53 c4 01 48 85 c0", "personal deities database").uses(&[DEITIES]),
@@ -184,6 +204,16 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x736fb2usize, "01 4e 28", "fervor value").uses(&[FERVOR_VALUE]),
         Point::keep(HAS_FERVOR, "48 83 ec 28 80 b9 11 01 00 00 00 74 4a", "religion has fervor"),
         Point::keep(MAY_ENABLE_FERVOR, "48 89 5c 24 10 48 89 74 24 18 48 89 7c 24 20 55 41 54 41 55 41 56 41 57", "may enable fervor effect"),
+        // Harmonization: the check's list of candidates, the religion's
+        // group it compares, and what it reads of a harmonization going on;
+        // the button names a religion by its number.
+        Point::keep(HAS_HARMONY, "40 57 48 83 ec 20 80 3d 4f 10 8c 01 00 48 8b f9", "religion harmonizes"),
+        Point::keep(HARMONY_CANDIDATES, "48 89 5c 24 08 44 88 4c 24 20 4c 89 44 24 18 55 56 57 41 54 41 55 41 56 41 57", "harmonization candidates"),
+        Point::keep(0xab0bedusize, "48 c7 44 24 30 0a 00 00 00 48 8d 2d 43 fc 18 01", "harmonization candidates' list").uses(&[CANDIDATE_LIST]),
+        Point::keep(0xab0c74usize, "49 8b 90 d8 00 00 00 48 39 90 d8 00 00 00", "religion's group").uses(&[RELIGION_GROUP]),
+        Point::keep(0xe40641usize, "8b 46 70", "religion's number").uses(&[RELIGION_INDEX]),
+        Point::keep(0xab0d04usize, "48 83 b8 40 10 00 00 00 75 0a 48 83 b8 48 10 00 00 00", "harmonizing now")
+            .uses(&[country::HARMONIZING, country::HARMONIZING_GROUP]),
     ]
 }
 
@@ -309,6 +339,14 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<ReligionOption>> 
             out.push(option(m, action, key, on, choice)?);
         }
     }
+    if has(m, HAS_HARMONY, ctx.country)? {
+        if let Some(now) = harmonizing(m, ctx.country)? {
+            out.push(option(m, "stop_harmonizing", religion_key(m, now)?, true, Choice::can(Vec::new()))?);
+        }
+        for religion in harmony_candidates(m, ctx.country)? {
+            out.push(option(m, "harmonize", religion_key(m, religion)?, false, Choice::can(Vec::new()))?);
+        }
+    }
     let reforms = reforms(m, ctx.country)?;
     if !reforms.is_empty() {
         for reform in &reforms {
@@ -319,6 +357,54 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<ReligionOption>> 
         out.push(ReligionOption { action: "reform_religion".into(), key: "reform_religion".into(), name: content::name(m, "REFORM_RELIGION")?, current: false, choice });
     }
     Ok(out)
+}
+
+/// A religion's key, the name of its token.
+fn religion_key(m: &Memory, religion: usize) -> GResult<String> {
+    let token = m.u32(religion + crate::objects::campaign::province::RELIGION_TOKEN)?;
+    Ok(super::commands::type_name(m, token).ok_or_else(|| format!("no token {token:#x}"))?)
+}
+
+/// The religions the country may harmonize with now, as the game lists the
+/// candidates: a religion of its own group as itself, another group as each
+/// of its religions, since harmonizing with one of them harmonizes with the
+/// group.
+fn harmony_candidates(m: &Memory, country: usize) -> GResult<Vec<usize>> {
+    // The game's small vector: its class, its data, its capacity and count,
+    // then its storage, all in the framework's memory.
+    let mut list = vec![0u64; 3 + MOST_CANDIDATES * CANDIDATE / 8];
+    let base = list.as_mut_ptr() as usize;
+    list[0] = m.at(CANDIDATE_LIST) as u64;
+    list[1] = (base + 0x18) as u64;
+    list[2] = MOST_CANDIDATES as u64;
+    HARMONY_CANDIDATES.call(m, [country, base, 0, 0])?;
+    if list[1] != (base + 0x18) as u64 {
+        return Err("the game grew the harmonization candidates' list".to_string().into());
+    }
+    let count = (list[2] >> 32) as usize;
+    let mut out = Vec::new();
+    for i in 0..count.min(MOST_CANDIDATES) {
+        let (religion, group) = (list[3 + i * 3] as usize, list[4 + i * 3] as usize);
+        if religion != 0 {
+            out.push(religion);
+        } else if group != 0 {
+            out.extend(containers::pointers(m, group, containers::MOST)?);
+        }
+    }
+    Ok(out)
+}
+
+/// The religion the country is harmonizing with now, or the first of the
+/// group: none while it harmonizes with none.
+fn harmonizing(m: &Memory, country: usize) -> GResult<Option<usize>> {
+    let religion = m.ptr(country + country::HARMONIZING)?;
+    if religion != 0 {
+        return Ok(Some(religion));
+    }
+    Ok(match m.ptr(country + country::HARMONIZING_GROUP)? {
+        0 => None,
+        group => containers::pointers(m, group, containers::MOST)?.first().copied(),
+    })
 }
 
 /// The country's fervor, while its religion uses fervor.
@@ -617,8 +703,40 @@ pub fn disable_fervor(Session { m, ctx, commands, .. }: Session, args::DisableFe
     action::carry_out(commands, &Choice::can(Vec::new()), "turn this fervor effect off", || Ok(fervor_text(ctx.player, number)))
 }
 
+/// The harmonize command: a religion by its number, or −1 to stop.
+fn harmonize_text(country: Tag, religion: i32) -> String {
+    format!("harmonize_with_religion={{ country=\"{}\" religion={religion} }}", content::letters(country))
+}
+
+/// Starts harmonizing with a religion, or its group when it is of another.
+pub fn harmonize(Session { m, ctx, commands, .. }: Session, args::Harmonize { religion: key }: args::Harmonize) -> GResult<()> {
+    if !has(m, HAS_HARMONY, ctx.country)? {
+        return Err(checks::not_of_religion("harmony"));
+    }
+    for religion in harmony_candidates(m, ctx.country)? {
+        if religion_key(m, religion)? == key {
+            let number = m.i32(religion + RELIGION_INDEX)?;
+            return action::carry_out(commands, &Choice::can(Vec::new()), "harmonize with this religion", || Ok(harmonize_text(ctx.player, number)));
+        }
+    }
+    Err(content::checks::not_found("religion to harmonize with", &key))
+}
+
+/// Stops the harmonization going on.
+pub fn stop_harmonizing(Session { m, ctx, commands, .. }: Session, _: args::StopHarmonizing) -> GResult<()> {
+    if !has(m, HAS_HARMONY, ctx.country)? {
+        return Err(checks::not_of_religion("harmony"));
+    }
+    if harmonizing(m, ctx.country)?.is_none() {
+        return Err(content::checks::not_now("the player harmonizes with no religion now"));
+    }
+    action::carry_out(commands, &Choice::can(Vec::new()), "stop harmonizing", || Ok(harmonize_text(ctx.player, -1)))
+}
+
 crate::catalogue::bind! {
     eu4_harmony_remote::religion: ReligionRequest => ReligionAnswer;
+    Harmonize => harmonize;
+    StopHarmonizing => stop_harmonizing;
     EnableFervor => enable_fervor;
     DisableFervor => disable_fervor;
     Options => options;
@@ -656,6 +774,8 @@ mod tests {
         assert_eq!(reform_text(tag(b"AZT"), 3, PowerKind::Adm), r#"spend_power_command={ country="AZT" power={ data=3 category=31 skill=0 } }"#);
         assert_eq!(reform_religion_text(tag(b"AZT")), r#"reform_religion_command={ country="AZT" }"#);
         assert_eq!(fervor_text(tag(b"SWI"), 2), r#"toggle_fervor_effect={ country="SWI" effect=2 }"#);
+        assert_eq!(harmonize_text(tag(b"MNG"), 14), r#"harmonize_with_religion={ country="MNG" religion=14 }"#);
+        assert_eq!(harmonize_text(tag(b"MNG"), -1), r#"harmonize_with_religion={ country="MNG" religion=-1 }"#);
     }
 
     /// A country whose state religion is none: neither deities nor cults are
@@ -664,7 +784,7 @@ mod tests {
     fn a_religion_without_them_offers_none() {
         let image = Image::new();
         let fra = tag(b"FRA");
-        let country = Object::country(fra, country::CULT + 8);
+        let country = Object::country(fra, country::RELIGIOUS_REFORMS + 0x10);
         let countries = Object::countries(&[&country]);
         let session = || buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote(As::Player));
         assert!(options(session()).unwrap().is_empty());
