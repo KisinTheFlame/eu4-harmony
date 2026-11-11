@@ -47,18 +47,16 @@ group! {
         province: ProvinceId,
     } -> (), "null once the construction has begun";
 
-    /// Whether the player can move one of their monuments to a province
+    /// Whether the player can move one of their monuments to their capital
     /// now, as the monuments window's move button says: the game's reasons
-    /// why not (too big to move, already moving, no route there, not the
-    /// player's province) and the cost in ducats, by the distance.
+    /// why not (too big to move, already moving, no route there) and the
+    /// cost in ducats, by the distance.
     game EvaluateMove "evaluate_move" {
         /// The great project's content key.
         monument: String,
-        /// The province to move it to.
-        province: ProvinceId,
     } -> Choice, "can, reasons, cost";
 
-    /// Starts moving one of the player's monuments to a province, as the
+    /// Starts moving one of the player's monuments to their capital, as the
     /// monuments window's move button does, paying its cost in ducats.
     /// `rejected` with the game's reasons, as `monument.evaluate_move`
     /// gives them beforehand; `not_found` for a key that names no great
@@ -66,8 +64,6 @@ group! {
     game Move "move" {
         /// The great project's content key.
         monument: String,
-        /// The province to move it to.
-        province: ProvinceId,
     } -> (), "null once the move has begun";
 
     /// The player's great projects under construction (being built,

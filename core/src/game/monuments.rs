@@ -33,18 +33,20 @@ const COST: GameFunction<4> = GameFunction::at(0x7d17a0);
 /// the world has; its site; the province the country's and in its control,
 /// not besieged, not a colony; the cost; its requirements.
 const CAN_BUILD: GameFunction<5> = GameFunction::at(0x7d49d0);
-/// `(definition, out, country)`: what building the great project costs the
-/// country, i32 thousandths of a ducat into `out`.
-const BUILD_COST: GameFunction<3> = GameFunction::at(0x7d7b80);
+/// `(definition, out, country, province, explanation or null)`: what
+/// building the great project in the province costs the country, i32
+/// thousandths of a ducat into `out`, from the definition's own cost.
+const BUILD_COST: GameFunction<5> = GameFunction::at(0x7d7b80);
 /// `(project, country, province, flag, reasons) -> bool`: whether the
 /// country may move the project to the province, writing why not into the
 /// `std::string` reasons, as the move command's check asks it (with no
 /// reasons): its vtable's `+0x98`.
 const CAN_MOVE: GameFunction<5> = GameFunction::at(0x7d1ef0);
-/// `(project, out, province)`: what moving the project to the province
-/// costs, i32 thousandths of a ducat into `out`, by the distance; 0 where
-/// there is no route: its vtable's `+0xa8`.
-const MOVE_COST: GameFunction<3> = GameFunction::at(0x7d2550);
+/// `(project, out, country, province)`: what moving the project to the
+/// province costs the country, i32 thousandths of a ducat into `out`, by
+/// the distance; 0 where there is no route: its vtable's `+0xa8`, as the
+/// move check asks it.
+const MOVE_COST: GameFunction<4> = GameFunction::at(0x7d2550);
 /// `(construction, reasons) -> bool`: whether its builder may bring the
 /// great project's construction forward with manpower, or with money,
 /// writing why not into the `std::string` reasons when it is not null, as
@@ -94,6 +96,8 @@ pub fn points() -> Vec<Point> {
         Point::keep(CAN_MOVE, "48 89 5c 24 10 44 88 4c 24 20 4c 89 44 24 18 55 56 57 41 54 41 55 41 56 41 57", "great project move check"),
         Point::keep(0x26b8a4usize, "4c 8b 91 98 00 00 00", "move_great_project check"),
         Point::keep(MOVE_COST, "48 89 5c 24 18 57 48 83 ec 30 4d 8b d0 48 8b fa 48 63 81 e0 05 00 00", "great project move cost").uses(&[project::PROVINCE]),
+        // The move check asks the cost with the country and the province.
+        Point::keep(0x7d2390usize, "49 8b 07 4c 8b cb 4d 8b c4 48 8d 95 b0 00 00 00 49 8b cf ff 90 a8 00 00 00", "great project move check's cost"),
         // Boosting: the checks, the defines they compare, and the builder
         // the cancel and boost commands' checks compare.
         Point::keep(CAN_BOOST_MANPOWER, "40 53 48 83 ec 40 48 8b 81 88 00 00 00 48 8b", "great project manpower boost check")
@@ -210,7 +214,7 @@ fn place(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
 /// province at `place`, as the build button's check says, and its cost.
 fn build_choice(m: &Memory, ctx: &Ctx, definition: usize, place: usize) -> GResult<Choice> {
     let mut out = 0i32;
-    BUILD_COST.call(m, [definition, &mut out as *mut i32 as usize, ctx.country])?;
+    BUILD_COST.call(m, [definition, &mut out as *mut i32 as usize, ctx.country, place, 0])?;
     let cost = vec![Amount::new(Resource::Ducats, thousandths(out))];
     let (can, reasons) = content::checked(m, |reasons| Ok(CAN_BUILD.call(m, [definition, ctx.country, place, reasons, 0])?))?;
     Ok(if can { Choice::can(cost) } else { Choice::cannot(reasons, cost) })
@@ -258,15 +262,29 @@ pub fn build(Session { m, ctx, commands, .. }: Session, args::Build { monument: 
     action::carry_out(commands, &choice, &format!("build {wanted}"), || Ok(command("constructgreatproject", &key, id, ctx.player)))
 }
 
-/// Whether the player can move one of their great projects to the province
-/// `id` now, and its cost.
-fn move_choice(m: &Memory, ctx: &Ctx, it: &Mine, id: u32) -> GResult<Choice> {
-    let at = place(m, ctx, id)?;
+/// The player's capital, where the window's move button moves a monument:
+/// its address and its ID.
+fn capital(m: &Memory, ctx: &Ctx) -> GResult<(usize, u32)> {
+    let at = m.ptr(ctx.country + country::CAPITAL)?;
+    if at == 0 {
+        return Err(Fail { status: Status::Rejected, message: "the player has no capital to move a monument to".into() });
+    }
+    Ok((at, m.i32(at + province::ID)? as u32))
+}
+
+/// Whether the player can move one of their great projects to their
+/// capital now, and its cost. The game's check refuses one in the capital
+/// already without a reason; the framework words it.
+fn move_choice(m: &Memory, ctx: &Ctx, it: &Mine) -> GResult<(Choice, u32)> {
+    let (at, id) = capital(m, ctx)?;
     let mut out = 0i32;
-    MOVE_COST.call(m, [it.at, &mut out as *mut i32 as usize, at])?;
+    MOVE_COST.call(m, [it.at, &mut out as *mut i32 as usize, ctx.country, at])?;
     let cost = vec![Amount::new(Resource::Ducats, thousandths(out))];
+    if id == it.province {
+        return Ok((Choice::cannot(vec![format!("{} is in the capital already", it.key)], cost), id));
+    }
     let (can, reasons) = content::checked(m, |reasons| Ok(CAN_MOVE.call(m, [it.at, ctx.country, at, 0, reasons])?))?;
-    Ok(if can { Choice::can(cost) } else { Choice::cannot(reasons, cost) })
+    Ok((if can { Choice::can(cost) } else { Choice::cannot(reasons, cost) }, id))
 }
 
 /// One of the player's great projects, by its key.
@@ -274,16 +292,17 @@ fn named(m: &Memory, ctx: &Ctx, wanted: &str) -> GResult<Mine> {
     mine(m, ctx)?.into_iter().find(|it| it.key == wanted).ok_or_else(|| checks::not_found("great project in the player's provinces", wanted))
 }
 
-/// Whether the player can move one of their great projects to a province.
-pub fn evaluate_move(Session { m, ctx, .. }: Session, args::EvaluateMove { monument, province: ProvinceId(id) }: args::EvaluateMove) -> GResult<Choice> {
-    move_choice(m, &ctx, &named(m, &ctx, &monument)?, id)
+/// Whether the player can move one of their great projects to their
+/// capital.
+pub fn evaluate_move(Session { m, ctx, .. }: Session, args::EvaluateMove { monument }: args::EvaluateMove) -> GResult<Choice> {
+    Ok(move_choice(m, &ctx, &named(m, &ctx, &monument)?)?.0)
 }
 
-/// Starts moving one of the player's great projects, as the window's move
-/// button does.
-pub fn move_to(Session { m, ctx, commands, .. }: Session, args::Move { monument, province: ProvinceId(id) }: args::Move) -> GResult<()> {
+/// Starts moving one of the player's great projects to their capital, as
+/// the window's move button does.
+pub fn move_to(Session { m, ctx, commands, .. }: Session, args::Move { monument }: args::Move) -> GResult<()> {
     let it = named(m, &ctx, &monument)?;
-    let choice = move_choice(m, &ctx, &it, id)?;
+    let (choice, id) = move_choice(m, &ctx, &it)?;
     action::carry_out(commands, &choice, &format!("move {monument}"), || Ok(command("move_great_project", &it.key, id, ctx.player)))
 }
 
