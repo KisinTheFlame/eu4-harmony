@@ -5,6 +5,7 @@ l_simp_chinese:
  EU4HARMONY_SKIPPED_MANIFEST:0 "已跳过 Mod“$MOD$”：它的 eu4-harmony/manifest.toml 有误。\n$DETAIL$"
  EU4HARMONY_SKIPPED_DUPLICATE_ID:0 "已跳过 Mod“$MOD$”：它的 id“$ID$”已被前面启用的另一个 Mod 使用。"
  EU4HARMONY_STARTUP_FAILED:0 "EU4 Harmony 没能启动，基于它的 Mod 都不会生效。\n\n$DETAIL$"
+ EU4HARMONY_PROXY_OUTDATED:0 "Harmony 没能启动，基于它的 Mod 都不会生效：游戏目录里的 version.dll 太旧了。\n\n请从 Harmony 在 Steam 创意工坊的文件夹里重新复制 version.dll 到游戏目录，放在 eu4.exe 旁边。"
  EU4HARMONY_FATAL:0 "EU4 Harmony 遇到意外错误，游戏即将关闭。\n\n$DETAIL$\n\n详情见游戏文档目录下的 eu4-harmony/logs/core.log。"
  EU4HARMONY_API_MISMATCH:0 "Mod“$MOD$”没有加载：它是为 EU4 Harmony 接口 $BUILT$ 制作的，而已安装的 EU4 Harmony 提供的是 $PROVIDED$。请更新 Mod 或 EU4 Harmony，让两者一致。"
  EU4HARMONY_NOT_LOADED:0 "Mod“$MOD$”没有加载：\n$DETAIL$"

@@ -113,6 +113,21 @@ extern "C" fn missing_export() -> usize {
     0
 }
 
+/// What the proxy offers the core besides loading it, which a core reads
+/// through [`eu4_harmony_proxy_interface`]. Raised when that changes, so
+/// that a core needing more than an older proxy offers can tell the player
+/// to copy `version.dll` again: Steam updates the core, never this file.
+/// 1: the proxy that finds the core in Harmony's Workshop item. A proxy
+/// without the export is 0.
+const INTERFACE: u32 = 1;
+
+/// The interface this proxy offers the core. A core reads it from the
+/// module, so it can tell an old proxy (no export, 0) from a new one.
+#[no_mangle]
+pub extern "system" fn eu4_harmony_proxy_interface() -> u32 {
+    INTERFACE
+}
+
 /// Harmony's published file id on the Steam Workshop, from
 /// `workshop/item.toml`; 0 until the item is created.
 const PUBLISHED_FILE_ID: u64 = include!(concat!(env!("OUT_DIR"), "/published_file_id.rs"));
@@ -376,6 +391,13 @@ mod tests {
             assert_eq!(super::user_dir_of(line, &game, documents.as_deref()), Some(expected), "{line} {userdir_txt:?}");
         }
         std::fs::remove_dir_all(&game).unwrap();
+    }
+
+    /// The interface a core reads from the proxy.
+    #[test]
+    fn the_proxy_offers_its_interface() {
+        assert_eq!(super::eu4_harmony_proxy_interface(), super::INTERFACE);
+        const { assert!(super::INTERFACE >= 1, "a proxy without the export is 0") };
     }
 
     /// The names and ordinals the DLL at `path` exports, read from its file.

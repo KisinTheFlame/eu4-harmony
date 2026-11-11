@@ -5,6 +5,7 @@ l_german:
  EU4HARMONY_SKIPPED_MANIFEST:0 "Die Mod „$MOD$“ wurde übersprungen: Ihre Datei eu4-harmony/manifest.toml ist ungültig.\n$DETAIL$"
  EU4HARMONY_SKIPPED_DUPLICATE_ID:0 "Die Mod „$MOD$“ wurde übersprungen: Ihre ID „$ID$“ wird bereits von einer früher geladenen Mod verwendet."
  EU4HARMONY_STARTUP_FAILED:0 "EU4 Harmony konnte nicht starten, daher sind die darauf aufbauenden Mods inaktiv.\n\n$DETAIL$"
+ EU4HARMONY_PROXY_OUTDATED:0 "Harmony konnte nicht starten, daher sind die darauf aufbauenden Mods inaktiv: Die version.dll im Spielordner ist zu alt.\n\nKopieren Sie version.dll erneut aus dem Ordner von Harmony im Steam Workshop in den Spielordner, neben eu4.exe."
  EU4HARMONY_FATAL:0 "EU4 Harmony ist auf einen unerwarteten Fehler gestoßen, und das Spiel wird beendet.\n\n$DETAIL$\n\nEinzelheiten stehen in eu4-harmony/logs/core.log im Dokumente-Ordner des Spiels."
  EU4HARMONY_API_MISMATCH:0 "Die Mod „$MOD$“ wurde nicht geladen: Sie wurde für die EU4-Harmony-API $BUILT$ erstellt, das installierte EU4 Harmony bietet aber API $PROVIDED$. Aktualisieren Sie die Mod oder EU4 Harmony, damit beide zusammenpassen."
  EU4HARMONY_NOT_LOADED:0 "Die Mod „$MOD$“ wurde nicht geladen:\n$DETAIL$"
