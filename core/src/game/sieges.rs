@@ -75,7 +75,10 @@ fn action(m: &Memory, ctx: &Ctx, siege: usize, province: u32, (name, category, m
 /// What the siege view offers for the siege in a province.
 pub fn options(Session { m, ctx, view, .. }: Session, args::Options { province: ProvinceId(province) }: args::Options) -> GResult<Vec<SiegeAction>> {
     let siege = siege(m, &ctx, province, view)?;
-    ACTIONS.into_iter().map(|a| action(m, &ctx, siege, province, a)).collect()
+    let mut out = ACTIONS.into_iter().map(|a| action(m, &ctx, siege, province, a)).collect::<GResult<Vec<_>>>()?;
+    let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
+    out.push(SiegeAction { action: "sorties".into(), choice: super::spendings::sorties(m, &ctx, address, province)? });
+    Ok(out)
 }
 
 /// Presses one of the siege view's buttons.
@@ -100,12 +103,22 @@ pub fn assault(session: Session, args::Assault { province: ProvinceId(province) 
     press(session, "assault", province)
 }
 
+/// Sends the garrison of the player's besieged fort out, as the siege
+/// view's sorties button does once the player confirms.
+pub fn sorties(Session { m, ctx, commands, .. }: Session, args::Sorties { province: ProvinceId(province) }: args::Sorties) -> GResult<()> {
+    siege(m, &ctx, province, View::Player)?;
+    let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
+    let choice = super::spendings::sorties(m, &ctx, address, province)?;
+    super::action::carry_out(commands, &choice, "sortie from this fort", || Ok(super::spendings::sorties_written(ctx.player, province)))
+}
+
 crate::catalogue::bind! {
     eu4_harmony_remote::sieges: SiegeRequest => SiegeAnswer;
     Options => options;
     Bombard => bombard;
     NavalBombard => naval_bombard;
     Assault => assault;
+    Sorties => sorties;
 }
 
 #[cfg(test)]
@@ -151,6 +164,7 @@ mod tests {
         for (_, _, f) in ACTIONS {
             image.function(f.rva(), may);
         }
+        image.function(crate::game::spendings::MAY_SORTIE.rva(), may);
         image.function(COST.rva(), fifty as *const ()).function(game_string::DESTROY_AT.rva(), no as *const ()).u64(NO_ID, 0);
         let provinces = Provinces::new(&image, 4);
         let (sieges, fra) = (Object::new(8), Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0")));
@@ -173,8 +187,9 @@ mod tests {
         bombard(siege.session, args::Bombard { province: ProvinceId(2) }).unwrap();
         naval_bombard(siege.session, args::NavalBombard { province: ProvinceId(2) }).unwrap();
         assault(siege.session, args::Assault { province: ProvinceId(2) }).unwrap();
+        sorties(siege.session, args::Sorties { province: ProvinceId(2) }).unwrap();
         let spent = |category| format!(r#"spend_power_command={{ country="FRA" power={{ data=2 category={category} skill=2 }} }}"#);
-        assert_eq!(record::posted(), [spent(37), spent(40), spent(9)]);
+        assert_eq!(record::posted(), [spent(37), spent(40), spent(9), spent(30)]);
     }
 
     #[test]
@@ -190,10 +205,10 @@ mod tests {
     }
 
     #[test]
-    fn the_options_are_the_three_buttons_with_their_costs_and_the_game_s_answers() {
+    fn the_options_are_the_four_buttons_with_their_costs_and_the_game_s_answers() {
         let siege = siege(too_early as *const ());
         let options = options(siege.session, args::Options { province: ProvinceId(2) }).unwrap();
-        assert_eq!(options.iter().map(|a| a.action.as_str()).collect::<Vec<_>>(), ["bombard", "naval_bombard", "assault"]);
+        assert_eq!(options.iter().map(|a| a.action.as_str()).collect::<Vec<_>>(), ["bombard", "naval_bombard", "assault", "sorties"]);
         assert!(options.iter().all(|a| !a.choice.can && a.choice.reasons == ["too early"] && a.choice.cost == [Amount::new(Resource::Mil, 50.0)]));
     }
 }

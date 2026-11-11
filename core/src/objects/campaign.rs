@@ -217,6 +217,10 @@ pub mod country {
     /// pointers. The country's clear (`0x2e1a30`) lets the vector go
     /// without destroying them (docs/research/main-menu.md).
     pub const REBEL_FACTIONS: usize = 0xe68;
+    /// A native country's tribe, its `native` object; null for a country
+    /// that is not a native one (docs/research/power-spending.md, "The
+    /// province view's and the army panel's spendings").
+    pub const NATIVE: usize = 0x9a78;
     /// Its armies and fleets, a [`super::list`].
     pub const UNITS: usize = 0xd18;
     /// The countries it is at war with: a pointer to [`HOSTILE_SIZE`]-byte
@@ -389,6 +393,8 @@ pub mod loan {
 
 /// A rebel faction.
 pub mod rebel_faction {
+    /// Its ID, u64: its type in the low half, its number in the high.
+    pub const ID: usize = 0x10;
     /// Its rebel type, whose key is a `std::string` at [`TYPE_KEY`].
     pub const TYPE: usize = 0x20;
     pub const TYPE_KEY: usize = 0x18;

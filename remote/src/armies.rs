@@ -87,8 +87,9 @@ group! {
     /// kind in its province), disband, detach_kind (once for each kind of
     /// regiment or ship it has), and attach (with the armies or fleets it may
     /// attach to) or detach when it is attached; consolidate, drill or
-    /// stop_drill, attach_to_transport or detach_from_transport, and
-    /// detach_special_units for an army; patrol, evade, and auto_transport or
+    /// stop_drill, attach_to_transport or detach_from_transport,
+    /// detach_special_units, scorch_earth, seize_colony, burn_colony and
+    /// attack_natives for an army; patrol, evade, and auto_transport or
     /// stop_auto_transport for a fleet; each with whether the player can, why
     /// not as the button's tooltip says, and what it costs.
     game Options "options" {
@@ -211,6 +212,31 @@ group! {
     /// Stops a fleet's mission, as the fleet panel's button does.
     game StopMission "stop_mission" {
         /// The player's fleet.
+        army: ArmyId,
+    } -> (), "nothing";
+    /// Scorches the earth of the province the army is in, a province of
+    /// the player's, for military points, as the army panel's button does:
+    /// enemy armies there lose supply.
+    game ScorchEarth "scorch_earth" {
+        /// The player's land army.
+        army: ArmyId,
+    } -> (), "nothing";
+    /// Takes over the colony the army is in, an enemy's, for military
+    /// points, as the army panel's button does.
+    game SeizeColony "seize_colony" {
+        /// The player's land army.
+        army: ArmyId,
+    } -> (), "nothing";
+    /// Burns the colony the army is in, an enemy's, for military points, as
+    /// the army panel's button does.
+    game BurnColony "burn_colony" {
+        /// The player's land army.
+        army: ArmyId,
+    } -> (), "nothing";
+    /// Attacks the natives of the uncolonized province the army is in, for
+    /// military points, as the army panel's button does.
+    game AttackNatives "attack_natives" {
+        /// The player's land army.
         army: ArmyId,
     } -> (), "nothing";
 }

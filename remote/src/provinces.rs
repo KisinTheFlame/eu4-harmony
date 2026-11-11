@@ -159,6 +159,41 @@ group! {
         /// The province.
         province: ProvinceId,
     } -> (), "null once done";
+    /// Moves the player's capital to the province, for administrative
+    /// points, as the province view's button does once the player confirms.
+    game MoveCapital "move_capital" {
+        /// The province.
+        province: ProvinceId,
+    } -> (), "null once done";
+    /// Moves the player's trade port to the coastal province, and with it
+    /// the home trade node, for diplomatic points, as the province view's
+    /// button does once the player confirms.
+    game MoveTradePort "move_trade_port" {
+        /// The province.
+        province: ProvinceId,
+    } -> (), "null once done";
+    /// Starts a Siberian frontier in an uncolonized province, for
+    /// diplomatic points, as the province view's button does once the
+    /// player confirms: it grows into the player's province by itself, with
+    /// no colonist.
+    game EstablishSiberianFrontier "establish_siberian_frontier" {
+        /// The province.
+        province: ProvinceId,
+    } -> (), "null once done";
+    /// Makes an uncolonized province tribal land of the player's native
+    /// country, for administrative points, as the province view's button
+    /// does.
+    game AddTribalLand "add_tribal_land" {
+        /// The province.
+        province: ProvinceId,
+    } -> (), "null once done";
+    /// Razes a province of the player's horde, as the province view's
+    /// button does once the player confirms: the province loses
+    /// development, and the horde gains reform progress.
+    game Raze "raze" {
+        /// The province.
+        province: ProvinceId,
+    } -> (), "null once done";
 }
 
 /// One thing the province view offers the player in a province.

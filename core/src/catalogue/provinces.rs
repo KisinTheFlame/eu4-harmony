@@ -2,6 +2,7 @@
 use crate::game::{
     self,
     administration::{Action, Development as Kind},
+    spendings::InProvince,
 };
 use eu4_harmony_remote::provinces::args;
 use eu4_harmony_remote::countries::ModifierValue;
@@ -10,6 +11,7 @@ use eu4_harmony_remote::provinces::{Neighbor, Province, ProvinceAnswer, Province
 layer! {
     run ProvinceRequest => ProvinceAnswer;
     fn province_act(province: u32, action: Action) -> () = session game::administration::act;
+    fn province_spend(province: u32, which: InProvince) -> () = session game::spendings::press_in_province;
     List => fn provinces -> Vec<Province> = game::provinces::list;
     Neighbors => fn neighbors -> Vec<Neighbor> = game::provinces::neighbors;
     Get => fn province -> Box<ProvinceSnapshot> = game::provinces::province;
@@ -31,6 +33,11 @@ layer! {
     CancelCore { province } => game.province_act(province, Action::CancelCore);
     ChangeCulture { province } => game.province_act(province, Action::ChangeCulture);
     CancelCulture { province } => game.province_act(province, Action::CancelCulture);
+    MoveCapital { province } => game.province_spend(province, InProvince::MoveCapital);
+    MoveTradePort { province } => game.province_spend(province, InProvince::MoveTradePort);
+    EstablishSiberianFrontier { province } => game.province_spend(province, InProvince::SiberianFrontier);
+    AddTribalLand { province } => game.province_spend(province, InProvince::TribalLand);
+    Raze { province } => game.province_spend(province, InProvince::Raze);
 }
 
 

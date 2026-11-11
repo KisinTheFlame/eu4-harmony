@@ -59,7 +59,34 @@ Every command below was found by its type token: the command classes answer it f
 - **An entry** is a pointer, null when the file leaves the function out; it holds a vector of conditions, data `+0x18`, count `+0x24`, each a `condition = { tooltip potential allow }` of the file: `potential` a content trigger at `+0x30`, `allow` one at `+0xa8` (their children at `+0x38`/`+0x44` and `+0xb0`/`+0xbc`). **The verdict** `0xaccac0(entry, tag)` → `0xacd150`: for each condition whose `potential` holds, `allow` must hold.
 - Where a condition's `tooltip` key is kept was not followed: the framework gives `allow`'s failing lines ([triggers.md](triggers.md)), and a mod's own `tooltip` text is not shown.
 
+## The province view's and the army panel's spendings
+
+Read from `eu4.exe` on 2026-11-11 with `cargo xtask disasm` and scripts over the PE file (the strings' references, direct calls to each function, the spend_power check's jump table `0x94fa20`, the price's `0x9551f8`, and every place that builds a spending of class `0x1c55480`), for M16 of [mod-capabilities.md](../plans/mod-capabilities.md); what was tried in the game is in [its run](../prototype-log/2026-11-11-province-and-army-spendings.md).
+
+- **The spend_power check by kind.** After comparing the price with the points of `skill` (above), `0x94f250` jumps on the kind (table at `0x94fa20`, 42 entries). For the kinds here it calls one function each, which is also the one the buttons' tooltips call with a text, so the tooltip and the command ask the same:
+
+| Kind | Name | Its check (arguments) | Where the button is | Kind of power |
+| --- | --- | --- | --- | --- |
+| 10 | `seize_colony` | `0x3435d0(country, unit, text)` | the army panel (`tb_seize_colony`) | military |
+| 11 | `burn_colony` | `0x343ce0(country, unit, text)` | the army panel | military |
+| 12 | `attack_natives` | `0x3442f0(country, unit, text)` | the army panel (`attacknatives_button`) | military |
+| 13 | `scorch_earth` | `0x344a40(country, unit, text)` | the army panel (`scorch_button`) | military |
+| 16 | `move_capital` | `0x3781c0(country, province, text, let the capital through)` | the province view's state tab (`move_capital`) | administrative |
+| 21 | `harsh_treatment` | `0x38cbb0(country, rebel faction, text, _)` | the stability view's rebels (`cv_governmentrebels_handlerebels_harshtreatments`, `0xf9e460`) | military |
+| 28 | `move_trade_port` | inline in the check: the trade node not the capital's, owned and controlled, coastal (`+0x958` bit 0x10), `0x98840`, not at war (`+0x289b`), the price, then `can_move_trade_port` (`+0x1c8`) through `0xacccf0`; the tooltip's is `0x378c20(country, province, text, _)` | the province view's state tab (`move_trade_port`) | diplomatic |
+| 30 | `siege_sorties` | `0x38c3b0(country, province, text)` | the siege view (`sorties_button`) | military |
+| 38 | `establish_siberian_frontier` | `0x404970(country, province, _, text)`, its text last (the buttons pass 0 before it) | the uncolonized province's view (`0xe37f50`, `CONFIRSIBERIANFRONTIER`) | diplomatic |
+| 41 | `add_tribal_land` | `0x9163f0(tribe, province, text)`, the tribe the country's `+0x9a78` (`native`), the check refusing a country without one | the uncolonized province's view (`add_tribal_land_button`) | administrative |
+
+- **Which kind of power** is the button's own: each builds the spending with its kind and `skill` as immediates (`0x3789bf` 16/0, `0x378e36` 28/1, `0xe38034` 38/1, `0x916855` 41/0, `0x38c750` 30/2, `0xf9e560` 21/2, and the army panel's `0x1484f55`, `0x1484845`, `0x1484325`, `0x1483575`, 10 to 13, each 2).
+- **What the spending carries.** The province's: `data` the province's ID (`+0x20` of the province), `second` −1. The army's: the army's ID (`unit+0x20`, u64) in `data` (its low half) and `second` (its high half); the check looks the unit up by them (`0x14cf730`). Harsh treatment's: the rebel faction, a reference at `+0x20` whose ID is at `+0x28`, written by `0x955390` as `rebel_faction={ id type }` (the ID's writer `0xce610`), and read back by the spending's reader (`0x94f030`, token `0x2cc7`). The reader reads `second` (token `0x28e3`) too: the written form is `power={ data=… second=… category=… skill=… }`, `data` left out when 0 and `second` when −1.
+- **Their reasons and price.** Each check writes the tooltip's reasons, the points among them (`MOVE_CAPITAL_SHORT_COST`, `NOBC_NO_POINTS`, `CANT_AFFORD_HARSH_TREATMENT`, `NO_SORTIES_NO_POINTS`, …), building its own spending to price it. The price is the general one, `0x9526d0`: the province's kinds read `data`; attack natives reads the unit by `data` and `second`; harsh treatment the faction by `+0x28` (cases at `0x953ad1` and on, table `0x9551f8`).
+- **A rebel faction's ID** is at `+0x10`, u64, as the faction's writer writes it (`0xa94999`).
+- **Razing is a command of its own**, `raze_province` (token `0x327d`, vtable `0x1c53870`: writer `0x2bb080`, reader `0x2bb150`, check `0x2bb2f0`, execute `0x2bb050`): `raze_province={ country=N province=P }`, the country by its index in the game's countries (the tag's word at `+0x54`, written with `%d`; the reader takes the country at that index), the province by its ID. Its check asks the country valid and `0x9fcf90(province, tag, text)`, which writes `HORDE_RAZE_TOOLTIP_*` (cooldown, only non-cores, only another religion, the least development, under siege, a colony) and is what the province view's `raze_button` tooltip (`0xa29960`) and the map's `CAN_RAZE` ask; its execute razes the province (`0x9fd630(province)`).
+
 ## Not known
 
+- Where the province view's state tab enables the move capital and trade port buttons beyond their checks, and whether the uncolonized province's view shows the Siberian frontier and tribal land buttons only where their checks hold.
+- What the fourth argument of `0x38cbb0` and of `0x378c20` does; the buttons pass a value left in a register and 0.
 - Where the loan window enables its repay button; `pay_all_loans`'s written form; how many bank loans `0x33eb70` allows (France at the start was allowed more than 34).
 - Where a scripted function's `tooltip` is kept, and where `can_change_national_focus` is read.

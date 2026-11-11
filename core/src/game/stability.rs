@@ -1,15 +1,16 @@
 //! Stability: raising it with administrative points, as the stability and
 //! expansion view's button does (docs/research/power-spending.md,
-//! "Stability").
+//! "Stability"), and treating a rebel faction harshly with military
+//! points, as its rebels' buttons do ([`super::spendings`]).
 use super::{
     action,
     power::{self, BOOST_STABILITY, CAN_INCREASE_STABILITY},
-    GResult, Session,
+    spendings, GResult, Session,
 };
 use crate::{objects::campaign::country::STABILITY, points::Point};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind, Resource},
-    stability::{StabilityAction, StabilityOption},
+    stability::{args, StabilityAction, StabilityOption},
 };
 
 /// The most a country's stability, in thousandths, can be.
@@ -46,9 +47,43 @@ fn choice(Session { m, ctx, .. }: Session) -> GResult<Choice> {
     Ok(Choice::can(price))
 }
 
-/// What the stability button offers now.
+/// What the view's buttons offer now: raising stability, then harsh
+/// treatment of each rebel faction against the player.
 pub fn options(session: Session) -> GResult<Vec<StabilityOption>> {
-    Ok(vec![StabilityOption { action: StabilityAction::Raise, choice: choice(session)? }])
+    let mut out = vec![StabilityOption { action: StabilityAction::Raise, faction: None, rebels: None, name: None, choice: choice(session)? }];
+    let Session { m, ctx, .. } = session;
+    for faction in spendings::factions(m, &ctx)? {
+        let choice = spendings::harsh_treatment(m, &ctx, &faction)?;
+        out.push(StabilityOption {
+            action: StabilityAction::HarshTreatment,
+            faction: Some(faction.number()),
+            rebels: Some(faction.rebels),
+            name: Some(faction.name),
+            choice,
+        });
+    }
+    Ok(out)
+}
+
+/// Treats the rebel faction of number `faction` harshly, as its button does
+/// once the player confirms.
+pub fn harsh_treatment(Session { m, ctx, commands, .. }: Session, args::HarshTreatment { faction: number }: args::HarshTreatment) -> GResult<()> {
+    let Some(faction) = spendings::factions(m, &ctx)?.into_iter().find(|f| f.number() == number) else {
+        return Err(checks::no_faction(number));
+    };
+    let choice = spendings::harsh_treatment(m, &ctx, &faction)?;
+    action::carry_out(commands, &choice, "treat these rebels harshly", || Ok(spendings::harsh_written(ctx.player, faction.id)))
+}
+
+/// The refusals the framework words itself in the stability view.
+pub mod checks {
+    use crate::game::{Fail, Status};
+
+    /// The refusal of a number that names no rebel faction against the
+    /// player.
+    pub fn no_faction(number: u32) -> Fail {
+        Fail::new(Status::NotFound, format!("no rebel faction {number} rises against the player"))
+    }
 }
 
 /// Raises stability by one, as the button does.
@@ -61,6 +96,7 @@ crate::catalogue::bind! {
     eu4_harmony_remote::stability: StabilityRequest => StabilityAnswer;
     Options => options;
     Raise => raise;
+    HarshTreatment => harsh_treatment;
 }
 
 #[cfg(test)]
@@ -93,7 +129,7 @@ mod tests {
     fn ottomans(stability: i32, adm: i32) -> Ottomans {
         let image = Image::new();
         image.localisation().function(COST.rva(), fifty as *const ()).u64(NO_ID, 0).u64(FUNCTIONS, 0);
-        let player = Object::country(tur(), STABILITY + 4).i32(STABILITY, stability).i32(country::POWER, adm);
+        let player = Object::country(tur(), country::REBEL_FACTIONS + 16).i32(STABILITY, stability).i32(country::POWER, adm);
         let countries = Object::countries(&[&player]);
         let session = buffers::session(image.memory(), 0, tur(), player.at(), countries.at(), Caller::Remote(As::Player));
         Ottomans { _image: image, _objects: vec![player, countries], session }

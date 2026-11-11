@@ -357,6 +357,9 @@ pub fn options(Session { m, ctx, .. }: Session, args::Options { army: ArmyId(id)
         let to_transport = m.u8(unit + unit::TO_TRANSPORT)? != 0;
         out.push(entry(if to_transport { "detach_from_transport" } else { "attach_to_transport" }, may_to_transport(m, unit)?));
         out.push(entry("detach_special_units", may_detach_special(m, &ctx, unit)?));
+        for which in super::spendings::ByArmy::ALL {
+            out.push(entry(which.name(), super::spendings::by_army(m, &ctx, unit, which)?));
+        }
     } else {
         let location = army::location(m, unit)?;
         for mission in ["patrol", "evade"] {
