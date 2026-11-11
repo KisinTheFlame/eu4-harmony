@@ -2,6 +2,10 @@
 
 What changed in each version of Harmony that players and mod authors notice. Each upload to the Steam Workshop is a version of its own, and its section here is the upload's change note (`cargo xtask workshop-upload`).
 
+## 0.1.2
+
+- Fixed: an event's first option could show part of another window (the top bar's numbers, a shrunken panel, an empty band) and the screen could flash as the event appeared. Everything the game draws in the middle of a day now waits for the map's own drawing to finish.
+
 ## 0.1.1
 
 - A new About page in Harmony's settings shows its version and saves the troubleshooting files to your desktop in one click: Harmony's logs, the game's logs, its last crash folders, your settings and playset, no saves. Attach that file when you report a problem.
