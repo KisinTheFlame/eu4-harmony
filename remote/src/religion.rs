@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 group! {
     /// The religion view: personal deities and cults, a church's aspects,
-    /// blessings.
+    /// blessings, piety's actions, the papacy and the curia.
     "religion": ReligionRequest, ReligionAnswer;
 
     /// What the religion view offers the player now, by content key: the
@@ -25,13 +25,21 @@ group! {
     /// each of the player's states, with the state's province; the
     /// religious reforms when it has them (Nahuatl, Inti, Mesoamerican),
     /// each to pass or, once passed, current, and reforming the religion
-    /// once all are. Each with whether the player can now and why not, in
+    /// once all are; piety's two actions when it uses piety (Islam); and
+    /// when it has a papacy (Catholicism), the papal actions whose
+    /// conditions for being offered hold, calling the ecumenical council,
+    /// buying indulgence, investing papal influence in the curia and the
+    /// golden bulls the curia controller may enact, the one enacted
+    /// current. Each with whether the player can now and why not, in
     /// the game's words where it has them (the conditions that do not hold,
     /// a regency, a cult already followed until the monarch changes, too
     /// little church power, stability too low, all the church's slots
-    /// taken, holy sites lost), and its cost. Empty for a religion with none
+    /// taken, holy sites lost, piety too far from the action's end, an
+    /// action used in the last years, too little papal influence, money or
+    /// curia treasury, the curia locked, not the curia controller), and its
+    /// cost. Empty for a religion with none
     /// of them.
-    game Options "options" {} -> Vec<ReligionOption>, "each entry: action (choose_deity, choose_cult, add_aspect, remove_aspect, choose_blessing, enable_fervor, disable_fervor, harmonize, stop_harmonizing, commission_icon, consecrate_metropolitan, pass_reform or reform_religion), key, name, current, province, can, reasons, cost";
+    game Options "options" {} -> Vec<ReligionOption>, "each entry: action (choose_deity, choose_cult, add_aspect, remove_aspect, choose_blessing, enable_fervor, disable_fervor, harmonize, stop_harmonizing, commission_icon, consecrate_metropolitan, pass_reform, reform_religion, enforce_faithful_adherence, call_on_religious_followers, take_papal_action, call_ecumenical_council, buy_indulgence, invest_papal_influence or pick_golden_bull), key, name, current, province, can, reasons, cost";
 
     /// Follows a personal deity, as the view's button for it does; it
     /// lasts until the monarch changes. `rejected` with the game's reasons
@@ -166,6 +174,56 @@ group! {
         /// The effect's content key.
         effect: String,
     } -> (), "null once the effect is off";
+
+    /// Enforces faithful adherence (Islam), as the religion view's button
+    /// does: with piety far enough toward Legalism, it lowers corruption
+    /// and moves piety toward Mysticism by its cost; once every few years.
+    /// `rejected` with the game's reasons when the player cannot now, as
+    /// `religion.options` says beforehand.
+    game EnforceFaithfulAdherence "enforce_faithful_adherence" {} -> (), "null once the game does it";
+
+    /// Calls on religious followers (Islam), as the religion view's button
+    /// does: with piety far enough toward Mysticism, it gives manpower and
+    /// moves piety toward Legalism by its cost; once every few years.
+    /// `rejected` with the game's reasons when the player cannot now, as
+    /// `religion.options` says beforehand.
+    game CallOnReligiousFollowers "call_on_religious_followers" {} -> (), "null once the game does it";
+
+    /// Takes one of the papacy's actions (Catholicism), as the papacy
+    /// view's button does, paying its papal influence, and from the curia's
+    /// treasury what it costs there. `rejected` with the game's reasons
+    /// when the player cannot now, as `religion.options` says beforehand;
+    /// `not_found` for a key that names no action the view offers the
+    /// player.
+    game TakePapalAction "take_papal_action" {
+        /// The action's content key, such as `bless_monarch`.
+        action: String,
+    } -> (), "null once the game takes it";
+
+    /// Calls the ecumenical council, as the papacy view's button does,
+    /// paying its price in ducats. `rejected` with the game's reasons when
+    /// the player cannot now, as `religion.options` says beforehand.
+    game CallEcumenicalCouncil "call_ecumenical_council" {} -> (), "null once the game calls it";
+
+    /// Buys indulgence for the player's sins, as the papacy view's button
+    /// does, paying its price in ducats. `rejected` with the game's reasons
+    /// when the player cannot now, as `religion.options` says beforehand.
+    game BuyIndulgence "buy_indulgence" {} -> (), "null once it is bought";
+
+    /// Invests papal influence in becoming the next curia controller, as
+    /// the papacy view's button does, as much as the button invests.
+    /// `rejected` with the game's reasons when the player cannot now, as
+    /// `religion.options` says beforehand.
+    game InvestPapalInfluence "invest_papal_influence" {} -> (), "null once it is invested";
+
+    /// Enacts a golden bull as the curia controller, as the papacy view's
+    /// button does, paying from the curia's treasury. `rejected` with the
+    /// game's reasons when the player cannot now, as `religion.options`
+    /// says beforehand; `not_found` for a key that names no golden bull.
+    game PickGoldenBull "pick_golden_bull" {
+        /// The golden bull's content key, such as `apostolicae_servitutis`.
+        bull: String,
+    } -> (), "null once the game enacts it";
 }
 
 /// The defender of the faith of the player's religion, and claiming it.
@@ -182,13 +240,14 @@ pub struct DefenderOfTheFaith {
 /// A deity, a cult, an aspect or a blessing the religion view offers.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct ReligionOption {
-    /// The view's button that does it: `choose_deity`, `choose_cult`,
-    /// `add_aspect`, `remove_aspect` or `choose_blessing`, the capability of
-    /// this group that does it.
+    /// The view's button that does it, the capability of this group that
+    /// does it, as `religion.options` lists them.
     pub action: String,
     /// Its content key, which the game's or a mod's
-    /// `common/personal_deities`, `common/fetishist_cults` or
-    /// `common/church_aspects` give it.
+    /// `common/personal_deities`, `common/fetishist_cults`,
+    /// `common/church_aspects`, the papacy's actions in
+    /// `common/religions` or `common/golden_bulls` give it; for a button of
+    /// its own, such as `buy_indulgence`, the action's name.
     pub key: String,
     /// Its name, as the view shows it, in the player language.
     pub name: String,

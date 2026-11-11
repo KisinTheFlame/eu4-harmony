@@ -100,6 +100,15 @@ pub enum Resource {
     Fervor,
     /// Patriarch authority, in percent, which an Orthodox icon costs.
     PatriarchAuthority,
+    /// Piety, in percent of the scale from Mysticism to Legalism, which a
+    /// piety action moves toward the other end.
+    Piety,
+    /// Papal influence, which the papacy's actions and investing in the
+    /// curia spend.
+    PapalInfluence,
+    /// Ducats of the curia's treasury, which the curia controller's actions
+    /// spend.
+    CuriaTreasury,
 }
 
 /// A kind of monarch power, as the game's panels name them: what a

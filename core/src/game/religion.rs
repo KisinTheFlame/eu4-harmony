@@ -402,6 +402,8 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<ReligionOption>> 
         let choice = reform_religion_choice(m, ctx.country, &reforms)?;
         out.push(ReligionOption { action: "reform_religion".into(), key: "reform_religion".into(), name: content::name(m, "REFORM_RELIGION")?, current: false, province: None, choice });
     }
+    out.extend(super::piety::options(m, &ctx)?);
+    out.extend(super::curia::options(m, &ctx)?);
     Ok(out)
 }
 
@@ -881,6 +883,13 @@ crate::catalogue::bind! {
     ClaimDefenderOfTheFaith => super::faith::claim;
     PassReform => pass_reform;
     ReformReligion => reform_religion;
+    EnforceFaithfulAdherence => super::piety::enforce;
+    CallOnReligiousFollowers => super::piety::call;
+    TakePapalAction => super::curia::take_papal_action;
+    CallEcumenicalCouncil => super::curia::call_ecumenical_council;
+    BuyIndulgence => super::curia::buy_indulgence;
+    InvestPapalInfluence => super::curia::invest_papal_influence;
+    PickGoldenBull => super::curia::pick_golden_bull;
 }
 
 #[cfg(test)]

@@ -25,6 +25,7 @@ pub mod buffers;
 pub mod commands;
 pub mod conditions;
 pub mod content;
+pub mod curia;
 pub mod envoys;
 pub mod factions;
 pub mod faith;
@@ -35,6 +36,7 @@ pub mod mechanics;
 pub mod modifiers;
 pub mod opinions;
 pub mod orders;
+pub mod piety;
 pub mod player;
 pub mod power;
 pub mod signal_costs;
@@ -367,6 +369,8 @@ pub fn points() -> Vec<Point> {
     points.extend(envoys::points());
     points.extend(faith::points());
     points.extend(factions::points());
+    points.extend(piety::points());
+    points.extend(curia::points());
     points
 }
 
