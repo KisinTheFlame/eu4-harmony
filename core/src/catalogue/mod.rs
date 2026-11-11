@@ -449,6 +449,7 @@ macro_rules! capability_groups {
             Institution(institutions),
             Age(ages),
             Monument(monuments),
+            NavalDoctrine(naval_doctrines),
         }
     };
 }

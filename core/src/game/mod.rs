@@ -26,6 +26,7 @@ pub mod commands;
 pub mod conditions;
 pub mod content;
 pub mod envoys;
+pub mod factions;
 pub mod faith;
 pub mod frame;
 pub mod interface;
@@ -365,6 +366,7 @@ pub fn points() -> Vec<Point> {
     points.extend(spendings::points());
     points.extend(envoys::points());
     points.extend(faith::points());
+    points.extend(factions::points());
     points
 }
 

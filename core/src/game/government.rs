@@ -4,6 +4,7 @@
 //! the government with military points (docs/research/power-spending.md,
 //! "The country's other spendings").
 use super::content::checks;
+use super::factions::{boost_faction, factions};
 use super::mechanics::{interact, mechanics};
 use super::{action, conditions, content, power, thousandths, GResult, Session, Tag};
 use crate::containers;
@@ -268,6 +269,8 @@ crate::catalogue::bind! {
     Strengthen => strengthen;
     Mechanics => mechanics;
     Interact => interact;
+    Factions => factions;
+    BoostFaction => boost_faction;
 }
 
 #[cfg(test)]

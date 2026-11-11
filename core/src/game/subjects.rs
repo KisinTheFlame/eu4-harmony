@@ -98,6 +98,26 @@ const TYPE_ALLOWS: GameFunction<2> = GameFunction::at(0xb22910);
 /// interactions going on, a bit set of u32 words.
 const OVERLORD_VALID: usize = country_fields::OVERLORD + tag::VALID / 8;
 const ONGOING_BITS: usize = 0x78;
+/// The subjects view's button that gives a colonial subject its
+/// independence, offered with the interactions under this key.
+const RELEASE_COLONY: &str = "release_colony";
+/// `release_colony`'s check, (command): its two countries valid, and the
+/// first's subject type one that may be released ([`CAN_RELEASE_AND_PLAY`]).
+const RELEASE_CHECK: GameFunction<1> = GameFunction::at(0x2a2910);
+/// `(country, text) -> bool`: whether the country may release a colony now,
+/// as the button's tooltip asks it, writing why not into the `std::string`
+/// text: only the multiplayer option against ruining a nation that lost a
+/// war refuses it.
+const MAY_RELEASE: GameFunction<2> = GameFunction::at(0x3ce0b0);
+/// A subject type's `can_release_and_play`, a byte: the subjects view
+/// offers releasing a subject of it.
+const CAN_RELEASE_AND_PLAY: usize = 0x142;
+/// What the player does releasing a colony, as its refusals say.
+const RELEASE: &str = "release this colony";
+/// The tokens `release_colony`'s writer writes the subject and the overlord
+/// by.
+const SUBJECT_TOKEN: u32 = 0x2992;
+const OVERLORD_TOKEN: u32 = 0x2993;
 
 pub fn points() -> Vec<Point> {
     // Each interaction's class, and its object, as its initializer makes it.
@@ -202,6 +222,14 @@ pub fn points() -> Vec<Point> {
         Point::method(0x1ce6dc8, NAME, 0xaf9dc0, "subject interaction name"),
         // The command writes the interaction's number, the object's `+8`.
         Point::keep(0xaf3c58usize, "48 8b 87 98 00 00 00 48 85 c0 74 11 44 8b 40 08 ba db 31 00 00", "subject command interaction"),
+        // Releasing a colony: the command's check reads the subject type's
+        // byte, the button's tooltip asks the multiplayer option, and the
+        // command writes its two countries by these tokens.
+        Point::keep(RELEASE_CHECK, "48 83 ec 28 4c 8b 49 50 4c 8b d1", "release colony check"),
+        Point::keep(0x2a2952usize, "80 b8 42 01 00 00 00", "subject type can_release_and_play").uses(&[CAN_RELEASE_AND_PLAY]),
+        Point::keep(MAY_RELEASE, "48 89 5c 24 10 48 89 74 24 20 55 57 41 54 41 56 41 57", "may release a colony"),
+        Point::keep(0x2a1b69usize, "ba 92 29 00 00", "release colony command's subject").uses(&[SUBJECT_TOKEN as usize]),
+        Point::keep(0x2a1c0ausize, "ba 93 29 00 00", "release colony command's overlord").uses(&[OVERLORD_TOKEN as usize]),
     ]);
     points
 }
@@ -224,7 +252,43 @@ pub fn options(Session { m, ctx, .. }: Session, args::Options { subject }: args:
         let choice = if can { Choice::can(Vec::new()) } else { Choice::cannot(reasons, Vec::new()) };
         listed.push(Listed { interaction: i.key.into(), name, active, choice });
     }
+    if let Some(choice) = release_choice(m, &ctx, subject, country)? {
+        let name = super::content::name(m, "SUBJECT_RELEASE_COLONY")?;
+        listed.push(Listed { interaction: RELEASE_COLONY.into(), name, active: false, choice });
+    }
     Ok(listed)
+}
+
+/// The command releasing a colony: the subject, then its overlord, each
+/// under the key the command's writer writes it by, named by the game's own
+/// token table.
+fn release_command(m: &Memory, ctx: &Ctx, subject: Tag) -> GResult<String> {
+    let key = |token| commands::type_name(m, token).ok_or_else(|| format!("no token {token:#x}"));
+    let (first, second) = (key(SUBJECT_TOKEN)?, key(OVERLORD_TOKEN)?);
+    Ok(release_written(&first, &second, subject, ctx.player))
+}
+
+fn release_written(first: &str, second: &str, subject: Tag, overlord: Tag) -> String {
+    format!("release_colony={{ {first}=\"{}\" {second}=\"{}\" }}", letters(subject), letters(overlord))
+}
+
+/// Whether the player can release `subject`, the country at `country`, as
+/// the view's button lets it; none when its subject type is not one the
+/// view offers to release.
+fn release_choice(m: &Memory, ctx: &Ctx, subject: Tag, country: usize) -> GResult<Option<Choice>> {
+    let kind = functions::SUBJECT_TYPE.call(m, [country])?;
+    if kind == 0 || m.u8(kind + CAN_RELEASE_AND_PLAY)? == 0 {
+        return Ok(None);
+    }
+    let (may, reasons) = super::content::checked(m, |text| Ok(MAY_RELEASE.call(m, [ctx.country, text])?))?;
+    if !may {
+        return Ok(Some(Choice::cannot(reasons, Vec::new())));
+    }
+    let allowed = commands::with_command(&release_command(m, ctx, subject)?, |m, command| Ok(RELEASE_CHECK.call(m, [command])? as u8 != 0));
+    match allowed.map_err(|refused| action::refused(refused, RELEASE))? {
+        true => Ok(Some(Choice::can(Vec::new()))),
+        false => Ok(Some(Choice::cannot(Vec::new(), Vec::new()))),
+    }
 }
 
 /// Carries out `interaction` with `subject`, or stops it while it goes on, as
@@ -238,6 +302,12 @@ pub fn interact(Session { m, ctx, commands, .. }: Session, args::Interact { subj
     let third_party = third_party.map(|third| countries::named(m, &ctx, third)).transpose()?;
     let province = province.map(|ProvinceId(id)| id);
     let country = subject_of(m, &ctx, subject)?;
+    if interaction == RELEASE_COLONY {
+        let Some(choice) = release_choice(m, &ctx, subject, country)? else {
+            return fail(Status::Rejected, format!("the game does not offer releasing {} as a free nation", letters(subject)));
+        };
+        return action::carry_out(commands, &choice, RELEASE, || release_command(m, &ctx, subject));
+    }
     let Some(i) = INTERACTIONS.iter().find(|i| i.key == interaction) else {
         return fail(Status::InvalidArgument, format!("the game has no subject interaction {interaction}; subject.options lists them"));
     };
@@ -337,6 +407,11 @@ crate::catalogue::bind! {
 mod tests {
     use super::*;
     use crate::catalogue::fake::game_tag;
+
+    #[test]
+    fn releasing_a_colony_names_the_subject_then_its_overlord_by_the_tokens_names() {
+        assert_eq!(release_written("from", "to", game_tag(b"C08", 2), game_tag(b"POR", 1)), r#"release_colony={ from="C08" to="POR" }"#);
+    }
 
     #[test]
     fn the_command_names_both_countries_and_the_interaction_s_number() {
