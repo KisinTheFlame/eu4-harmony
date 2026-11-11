@@ -7,9 +7,12 @@
 //! the capabilities it called, its interface elements, its windows and
 //! pop-ups, the map, its log and its save data. Requests are checked as the core checks them, by the
 //! catalogue: an argument of the wrong kind is the same error. A capability
-//! no test answered answers `not_ready` and is reported.
+//! no test answered answers `not_ready` and is reported. The mod's windows
+//! and pop-ups are kept by the Lua host's own rules
+//! (`eu4_harmony_lua::windows::Windows`), as in the game: a window opens and
+//! a pop-up shows only in a session, and a session's end closes them all.
 use eu4_harmony_loc::{Catalog, Language};
-use eu4_harmony_lua::{dispatch::WindowSeen, fetch, layout, values, Answered, Called, Element, Extension, Host, Pending, Popup, Property, WindowChange};
+use eu4_harmony_lua::{fetch, values, windows::Windows, Answered, Called, Element, Extension, Host, Pending, Popup, Property, WindowChange};
 use eu4_harmony_remote::{Code, Error, Request};
 use mlua::{Function, Lua, Value as LuaValue, WeakLua};
 use serde_json::Value;
@@ -65,19 +68,14 @@ pub struct Store {
     /// The world the test described, which answers what no answer of the
     /// test's does.
     pub world: Option<crate::world::World>,
-    /// The mod's windows as its main.lua lays them out.
-    pub layouts: Vec<layout::Window>,
-    /// Each window as the mod set it, by name.
-    pub windows: BTreeMap<String, FakeWindow>,
-    /// The windows the mod opened or closed itself, which it hears at the
-    /// next frame.
-    pub seen: Vec<WindowSeen>,
-    /// The pop-ups open, oldest first.
-    pub popups: Vec<FakePopup>,
-    pub last_popup: u32,
+    /// The mod's windows and pop-ups, kept by the rules the game keeps
+    /// them by: what it opened or closed itself it hears at the next frame.
+    pub windows: Windows,
+    /// A session goes on: from `mod:session()` to `mod:session_ended()`.
+    pub going_on: bool,
 }
 
-/// One of the mod's windows in the fake game.
+/// One of the mod's windows as a test reads it back.
 #[derive(Default)]
 pub struct FakeWindow {
     pub open: bool,
@@ -93,12 +91,6 @@ pub type Properties = BTreeMap<&'static str, Value>;
 /// A list's row: its game widgets' properties by name.
 pub type Row = BTreeMap<String, Properties>;
 
-/// A pop-up open in the fake game.
-pub struct FakePopup {
-    pub number: u32,
-    pub popup: Popup,
-}
-
 /// A property as a test reads it back.
 fn property_json(value: &Property) -> (&'static str, Value) {
     let json = match value {
@@ -111,27 +103,30 @@ fn property_json(value: &Property) -> (&'static str, Value) {
 }
 
 impl Store {
-    /// Opens or closes the window `name`, as the mod or the player does:
-    /// opening a big panel closes the mod's others. What opened or closed.
-    pub fn show(&mut self, extension: usize, name: &str, open: bool) -> Vec<WindowSeen> {
-        let mut changed = Vec::new();
-        let panel = self.layouts.iter().find(|w| w.name == name).is_some_and(|w| w.panel);
-        if open && panel {
-            let others: Vec<String> = self.layouts.iter().filter(|w| w.panel && w.name != name).map(|w| w.name.clone()).collect();
-            for other in others {
-                let window = self.windows.entry(other.clone()).or_default();
-                if window.open {
-                    window.open = false;
-                    changed.push(WindowSeen { extension, window: other, open: false });
-                }
-            }
-        }
-        let window = self.windows.entry(name.to_string()).or_default();
-        if window.open != open {
-            window.open = open;
-            changed.push(WindowSeen { extension, window: name.to_string(), open });
-        }
-        changed
+    /// `extension`'s window `name` as the mod set it, none before it set
+    /// or opened anything of it.
+    pub fn window(&self, extension: usize, name: &str) -> Option<FakeWindow> {
+        let wanted = self.windows.wanted(extension, name)?;
+        let widgets = wanted.set.iter().map(|(widget, set)| (widget.clone(), set.values().map(property_json).collect())).collect();
+        let rows = wanted
+            .rows
+            .iter()
+            .map(|(list, rows)| {
+                let rows = rows
+                    .iter()
+                    .map(|row| {
+                        let mut out = Row::new();
+                        for (name, value) in row {
+                            let (property, value) = property_json(value);
+                            out.entry(name.clone()).or_default().insert(property, value);
+                        }
+                        out
+                    })
+                    .collect();
+                (list.clone(), rows)
+            })
+            .collect();
+        Some(FakeWindow { open: wanted.open, widgets, rows })
     }
 }
 
@@ -238,47 +233,18 @@ impl Host for Fake {
 
     fn window(&self, extension: usize, change: WindowChange) -> Result<(), String> {
         let mut store = self.store();
-        match change {
-            WindowChange::Open(name) => {
-                let seen = store.show(extension, &name, true);
-                store.seen.extend(seen);
-            }
-            WindowChange::Close(name) => {
-                let seen = store.show(extension, &name, false);
-                store.seen.extend(seen);
-            }
-            WindowChange::Set { window, widget, value } => {
-                let (property, value) = property_json(&value);
-                store.windows.entry(window).or_default().widgets.entry(widget).or_default().insert(property, value);
-            }
-            WindowChange::Rows { window, widget, rows } => {
-                let rows = rows
-                    .iter()
-                    .map(|row| {
-                        let mut out = Row::new();
-                        for (name, value) in row {
-                            let (property, value) = property_json(value);
-                            out.entry(name.clone()).or_default().insert(property, value);
-                        }
-                        out
-                    })
-                    .collect();
-                store.windows.entry(window).or_default().rows.insert(widget, rows);
-            }
-        }
-        Ok(())
+        let in_game = store.going_on;
+        store.windows.change(extension, change, in_game)
     }
 
-    fn popup(&self, _: usize, popup: Popup) -> Result<u32, String> {
+    fn popup(&self, extension: usize, popup: Popup) -> Result<u32, String> {
         let mut store = self.store();
-        store.last_popup += 1;
-        let number = store.last_popup;
-        store.popups.push(FakePopup { number, popup });
-        Ok(number)
+        let in_game = store.going_on;
+        store.windows.popup(extension, popup, in_game)
     }
 
-    fn close_popup(&self, _: usize, popup: u32) -> Result<(), String> {
-        self.store().popups.retain(|p| p.number != popup);
+    fn close_popup(&self, extension: usize, popup: u32) -> Result<(), String> {
+        self.store().windows.close_popup(extension, popup);
         Ok(())
     }
 

@@ -95,8 +95,11 @@ windows):
                        its action runs, and the pop-up closes after it
                        unless it answers { close = false }
 A window the mod opens or closes itself is heard by on_window at the next
-mod:frame(); the player's are heard at once. Opening one of the mod's big
-panels closes its others, as in the game.
+mod:frame(); the player's are heard at once. The fake game holds them to
+the game's own rules: a window opens and a pop-up shows only in a session
+(from mod:session() to mod:session_ended(), which closes them all), at most
+32 pop-ups are open at once, and opening one of the mod's big panels closes
+its others.
 
 A day is followed by month when it is the first heard in its month, and by
 year in a new year, as in the game; the first day of a session by neither.
