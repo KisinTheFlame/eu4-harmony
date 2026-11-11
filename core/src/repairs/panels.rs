@@ -176,11 +176,12 @@ fn build_interface_going(call: &mut Call) {
         if building != 0 && m.vslot(building, BUILD_TAB_DELETE_SLOT)? == m.at(BUILDING_TAB_DELETE) {
             let list_box = m.ptr(building + TAB_LIST_BOX)?;
             if list_box != 0 && m.vslot(list_box, LIST_BOX_DETACH_SLOT)? == m.at(LIST_BOX_DETACH) {
-                let mut node = m.ptr(list_box + LIST_BOX_ENTRIES)?;
                 let mut theirs = false;
-                while node != 0 && !theirs {
-                    theirs = within(m.ptr(node)?.wrapping_sub(ENTRY_PART));
-                    node = m.ptr(node + LIST_BOX_NODE_NEXT)?;
+                for node in crate::containers::chain(m, m.ptr(list_box + LIST_BOX_ENTRIES)?, LIST_BOX_NODE_NEXT, crate::containers::MOST)? {
+                    if within(m.ptr(node)?.wrapping_sub(ENTRY_PART)) {
+                        theirs = true;
+                        break;
+                    }
                 }
                 if theirs {
                     LIST_BOX_DETACH.call(m, [list_box])?;

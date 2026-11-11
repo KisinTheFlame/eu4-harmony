@@ -6,9 +6,9 @@
 //! Here is what they share: letting the game's memory go ([`LettingGo`]),
 //! what waits to be let go until the game can no longer use it
 //! ([`waiting`]), and the moments of the sessions a repair acts on, which the
-//! sessions tell (`crate::sessions`) and a repair declares: the world's
-//! clear, the world's reset, after which all say what they did, and the first
-//! frame after it.
+//! sessions tell (`crate::sessions`) and a repair declares: the main menu
+//! shown, the world's clear, the world's reset, after which all say what they
+//! did, the history read after it, and the first frame after it.
 mod ai_draws;
 mod coalitions;
 mod estates;
@@ -31,7 +31,6 @@ mod text_boxes;
 mod trade_nodes;
 mod waiting;
 
-pub use new_start::after_history;
 pub use session_interface::SessionInterface;
 
 use crate::{memory::Memory, points::Point};
@@ -70,10 +69,14 @@ pub fn first_frame_after_reset(m: &Memory) {
     }
 }
 
-/// The main menu showed: the first time, the Empire's religions as the
-/// definitions give them are kept ([`new_start`]).
+/// A frame of the main menu ran (`crate::safe_point`): each repair acts on
+/// it in turn.
 pub fn main_menu_shown(m: &Memory) {
-    new_start::main_menu_shown(m);
+    for repair in REPAIRS {
+        if let Some(act) = repair.main_menu_shown {
+            act(m);
+        }
+    }
 }
 
 /// The world's own reset begins to clear the world, before any country is
@@ -99,6 +102,16 @@ pub fn world_reset(m: &Memory, world: usize) {
     log!("repair: since the last world reset, {}", since_reset());
 }
 
+/// After a world reset that read the game's history (`crate::sessions`):
+/// each repair acts on it in turn.
+pub fn after_history(m: &Memory) {
+    for repair in REPAIRS {
+        if let Some(act) = repair.after_history {
+            act(m);
+        }
+    }
+}
+
 /// A repair as the sessions and startup see it, which its own file declares
 /// as its `REPAIR`: its dependency points, what it says it let go since the
 /// last world reset, taking its counts, if it counts any, and the moments of
@@ -106,11 +119,15 @@ pub fn world_reset(m: &Memory, world: usize) {
 struct Repair {
     points: fn() -> Vec<Point>,
     since_reset: Option<fn() -> String>,
+    /// At every frame of the main menu.
+    main_menu_shown: Option<fn(&Memory)>,
     /// As the world's own reset begins to clear the world, before any
     /// country is cleared.
     world_clearing: Option<fn(&Memory)>,
     /// After every world reset, of the world given.
     world_reset: Option<fn(&Memory, usize)>,
+    /// After a world reset that read the game's history.
+    after_history: Option<fn(&Memory)>,
     /// The first safe frame after a world reset.
     first_frame_after_reset: Option<fn(&Memory)>,
 }
@@ -118,7 +135,15 @@ struct Repair {
 impl Repair {
     /// A repair with no points that counts nothing and acts at no moment, to
     /// declare one from.
-    const NONE: Repair = Repair { points: Vec::new, since_reset: None, world_clearing: None, world_reset: None, first_frame_after_reset: None };
+    const NONE: Repair = Repair {
+        points: Vec::new,
+        since_reset: None,
+        main_menu_shown: None,
+        world_clearing: None,
+        world_reset: None,
+        after_history: None,
+        first_frame_after_reset: None,
+    };
 }
 
 /// Every repair, in the order they act at each moment.
