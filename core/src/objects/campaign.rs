@@ -320,6 +320,11 @@ pub mod country {
     /// game's no-cult object (docs/research/religion.md).
     pub const PERSONAL_DEITY: usize = 0xfa0;
     pub const CULT: usize = 0xfa8;
+    /// Its church, a pointer to the object that keeps its church power and
+    /// the aspects its church has chosen; and the blessings it has taken, a
+    /// `std::vector` of pointers to aspects (docs/research/religion.md).
+    pub const CHURCH: usize = 0xf68;
+    pub const BLESSINGS: usize = 0xf70;
     /// The named modifiers its scripts put on it, a [`super::super::list`]
     /// of [`super::named_modifier`]s.
     pub const NAMED_MODIFIERS: usize = 0x1f0;

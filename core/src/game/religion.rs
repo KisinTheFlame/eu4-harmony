@@ -7,8 +7,8 @@ use crate::{
     memory::Memory,
     points::{GameFunction, Point},
 };
+use eu4_harmony_remote::choices::{Amount, Choice, Resource};
 use eu4_harmony_remote::religion::{args, ReligionOption};
-use eu4_harmony_remote::choices::Choice;
 
 /// The personal deities' database, made on first use by its getter
 /// (`0x7e6910`): the deities at `+0x10`, a `std::vector` of pointers, in file
@@ -45,6 +45,37 @@ const HAS_CULTS: GameFunction<1> = GameFunction::at(0xa7ee00);
 const MAY_CHANGE_DEITY: GameFunction<2> = GameFunction::at(0x3d6e70);
 const MAY_CHANGE_CULT: GameFunction<2> = GameFunction::at(0x3d7850);
 
+/// A religion's church aspects, which a church of its chooses among
+/// (Protestantism's), and its blessings (the Copts', the Zoroastrians'):
+/// `std::vector`s of pointers to aspects (`common/church_aspects`).
+const RELIGION_ASPECTS: usize = 0x730;
+const RELIGION_BLESSINGS: usize = 0x760;
+/// An aspect: its key, and its cost in church power, i32 thousandths.
+const ASPECT_KEY: usize = 0x10;
+const ASPECT_COST: usize = 0x358;
+/// A country's church, at [`country::CHURCH`]: its church power, i32
+/// thousandths, and its slots, a `std::vector` of pointers to the aspects
+/// chosen, the game's no-aspect ([`NO_ASPECT`]) in a free one.
+const CHURCH_POWER: usize = 0x10;
+const CHURCH_SLOTS: usize = 0x20;
+/// The game's no-aspect, a pointer to it.
+const NO_ASPECT: usize = 0x2458be0;
+/// `(church, aspect, reasons or null) -> bool`: whether the church may take
+/// the aspect into a free slot now (a free slot, the church power), with the
+/// church's tooltip lines; the command's operation 0.
+const MAY_ADD_ASPECT: GameFunction<3> = GameFunction::at(0x7f8e70);
+/// `(church, reasons or null) -> bool`: whether the church's aspects may be
+/// changed now (stability), which removing one asks.
+const MAY_CHANGE_ASPECTS: GameFunction<2> = GameFunction::at(0x7f9610);
+/// `(country, blessing, reasons or null) -> bool`: whether the country may
+/// take the blessing now (its religion's, the holy sites kept), the
+/// blessing command's check.
+const MAY_BLESS: GameFunction<3> = GameFunction::at(0x37adb0);
+/// The church aspect command's operations: taking an aspect into a free
+/// slot, and removing one.
+const ADD: u8 = 0;
+const REMOVE: u8 = 1;
+
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(0x7e691ausize, "48 8b 05 87 53 c4 01 48 85 c0", "personal deities database").uses(&[DEITIES]),
@@ -66,6 +97,21 @@ pub fn points() -> Vec<Point> {
         // deity and cult.
         Point::keep(0x3d6c12usize, "48 8b 89 a0 0f 00 00", "country's personal deity").uses(&[country::PERSONAL_DEITY]),
         Point::keep(0x3d78bausize, "48 8b 99 a8 0f 00 00", "country's cult").uses(&[country::CULT]),
+        // The church's aspects (`0x7f8270`) and the blessing check: the
+        // religion's lists.
+        Point::keep(0x7f82a5usize, "48 05 30 07 00 00", "religion's church aspects").uses(&[RELIGION_ASPECTS]),
+        Point::keep(0x37adebusize, "48 8b 90 68 07 00 00 48 8b 88 60 07 00 00", "religion's blessings").uses(&[RELIGION_BLESSINGS]),
+        // The church aspect command's execute: the country's church; the
+        // add check: the aspect's cost against the church power, the slots.
+        Point::keep(0xaae7c7usize, "48 8b b8 68 0f 00 00", "country's church").uses(&[country::CHURCH]),
+        Point::keep(0x7f8fe2usize, "8b 87 58 03 00 00 39 43 10", "aspect cost, church power").uses(&[ASPECT_COST, CHURCH_POWER]),
+        Point::keep(0x7f8bf2usize, "48 8b 4b 28 48 8b 43 20", "church slots").uses(&[CHURCH_SLOTS]),
+        Point::keep(0x7f8ed4usize, "4c 8b 05 05 fd c5 01", "no aspect").uses(&[NO_ASPECT]),
+        // The blessing check: the country's blessings.
+        Point::keep(0x37aef6usize, "48 8b bb 78 0f 00 00 48 2b bb 70 0f 00 00", "country's blessings").uses(&[country::BLESSINGS]),
+        Point::keep(MAY_ADD_ASPECT, "48 89 5c 24 08 48 89 74 24 18 48 89 7c 24 20 55 41 54 41 55", "may add aspect"),
+        Point::keep(MAY_CHANGE_ASPECTS, "48 89 5c 24 10 48 89 74 24 18 57 48 81 ec c0 00 00 00 48 8b", "may change aspects"),
+        Point::keep(MAY_BLESS, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 40 48 8b 02 48 8b", "may take blessing"),
     ]
 }
 
@@ -158,7 +204,69 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<ReligionOption>> 
             out.push(option(m, "choose_cult", key, cult == current, cult_choice(m, ctx.country, ctx.player, cult)?)?);
         }
     }
+    if let Some(church) = church(m, ctx.country)? {
+        let chosen = slots(m, church)?;
+        for aspect in religion_list(m, ctx.country, RELIGION_ASPECTS)? {
+            let key = game_string::key(m, aspect + ASPECT_KEY)?;
+            out.push(if chosen.contains(&aspect) {
+                option(m, "remove_aspect", key, true, remove_choice(m, church)?)?
+            } else {
+                option(m, "add_aspect", key, false, add_choice(m, church, aspect)?)?
+            });
+        }
+    }
+    let taken = containers::pointers(m, ctx.country + country::BLESSINGS, containers::MOST)?;
+    for blessing in religion_list(m, ctx.country, RELIGION_BLESSINGS)? {
+        let key = game_string::key(m, blessing + ASPECT_KEY)?;
+        out.push(option(m, "choose_blessing", key, taken.contains(&blessing), blessing_choice(m, ctx.country, blessing)?)?);
+    }
     Ok(out)
+}
+
+/// One of the religion's lists of aspects, none without a religion.
+fn religion_list(m: &Memory, country: usize, list: usize) -> GResult<Vec<usize>> {
+    match religion(m, country)? {
+        0 => Ok(Vec::new()),
+        religion => Ok(containers::pointers(m, religion + list, containers::MOST)?),
+    }
+}
+
+/// The country's church, while its religion has church aspects to choose
+/// among.
+fn church(m: &Memory, country: usize) -> GResult<Option<usize>> {
+    let church = m.ptr(country + country::CHURCH)?;
+    Ok((church != 0 && !religion_list(m, country, RELIGION_ASPECTS)?.is_empty()).then_some(church))
+}
+
+/// The aspects the church has chosen, its free slots left out.
+fn slots(m: &Memory, church: usize) -> GResult<Vec<usize>> {
+    let none = m.ptr(m.at(NO_ASPECT))?;
+    Ok(containers::pointers(m, church + CHURCH_SLOTS, containers::MOST)?.into_iter().filter(|&a| a != 0 && a != none).collect())
+}
+
+/// An aspect's cost, in church power.
+fn aspect_cost(m: &Memory, aspect: usize) -> GResult<Vec<Amount>> {
+    Ok(vec![Amount::new(Resource::ChurchPower, f64::from(m.i32(aspect + ASPECT_COST)?) / 1000.0)])
+}
+
+/// Whether the church may take `aspect` into a free slot now, with the
+/// church's lines, and its cost.
+fn add_choice(m: &Memory, church: usize, aspect: usize) -> GResult<Choice> {
+    let (may, reasons) = content::checked(m, |t| Ok(MAY_ADD_ASPECT.call(m, [church, aspect, t])?))?;
+    let cost = aspect_cost(m, aspect)?;
+    Ok(if may { Choice::can(cost) } else { Choice::cannot(reasons, cost) })
+}
+
+/// Whether the church may give up one of its aspects now.
+fn remove_choice(m: &Memory, church: usize) -> GResult<Choice> {
+    let (may, reasons) = content::checked(m, |t| Ok(MAY_CHANGE_ASPECTS.call(m, [church, t])?))?;
+    Ok(if may { Choice::can(Vec::new()) } else { Choice::cannot(reasons, Vec::new()) })
+}
+
+/// Whether the country may take `blessing` now, with the game's lines.
+fn blessing_choice(m: &Memory, country: usize, blessing: usize) -> GResult<Choice> {
+    let (may, reasons) = content::checked(m, |t| Ok(MAY_BLESS.call(m, [country, blessing, t])?))?;
+    Ok(if may { Choice::can(Vec::new()) } else { Choice::cannot(reasons, Vec::new()) })
 }
 
 fn find(m: &Memory, list: Vec<usize>, key_at: usize, kind: &str, key: &str) -> GResult<usize> {
@@ -201,11 +309,57 @@ pub fn choose_cult(Session { m, ctx, commands, .. }: Session, args::ChooseCult {
     action::carry_out(commands, &cult_choice(m, ctx.country, ctx.player, cult)?, "embrace this cult", || Ok(cult_text(ctx.player, &key)))
 }
 
+/// The church aspect command, for `aspect` and the operation; with no
+/// slot, which the game then finds itself (a free one to add to, the
+/// aspect's own to remove).
+fn aspect_text(country: Tag, aspect: &str, operation: u8) -> String {
+    format!("change_church_aspect={{ aspect=\"{aspect}\" country=\"{}\" operation={operation} }}", content::letters(country))
+}
+
+fn blessing_text(country: Tag, blessing: &str) -> String {
+    format!("change_blessing={{ aspect=\"{blessing}\" country=\"{}\" }}", content::letters(country))
+}
+
+/// The player's church, or the refusal for a religion without one.
+fn own_church(m: &Memory, country: usize) -> GResult<usize> {
+    church(m, country)?.ok_or_else(|| checks::not_of_religion("church aspects"))
+}
+
+/// Adds an aspect to the player's church.
+pub fn add_aspect(Session { m, ctx, commands, .. }: Session, args::AddAspect { aspect: key }: args::AddAspect) -> GResult<()> {
+    let church = own_church(m, ctx.country)?;
+    let aspect = find(m, religion_list(m, ctx.country, RELIGION_ASPECTS)?, ASPECT_KEY, "church aspect", &key)?;
+    if slots(m, church)?.contains(&aspect) {
+        return Err(content::checks::not_now(format!("the church has {key} already")));
+    }
+    action::carry_out(commands, &add_choice(m, church, aspect)?, "add this aspect", || Ok(aspect_text(ctx.player, &key, ADD)))
+}
+
+/// Removes an aspect from the player's church.
+pub fn remove_aspect(Session { m, ctx, commands, .. }: Session, args::RemoveAspect { aspect: key }: args::RemoveAspect) -> GResult<()> {
+    let church = own_church(m, ctx.country)?;
+    find(m, slots(m, church)?, ASPECT_KEY, "aspect of the church", &key)?;
+    action::carry_out(commands, &remove_choice(m, church)?, "remove this aspect", || Ok(aspect_text(ctx.player, &key, REMOVE)))
+}
+
+/// Takes a blessing.
+pub fn choose_blessing(Session { m, ctx, commands, .. }: Session, args::ChooseBlessing { blessing: key }: args::ChooseBlessing) -> GResult<()> {
+    let blessings = religion_list(m, ctx.country, RELIGION_BLESSINGS)?;
+    if blessings.is_empty() {
+        return Err(checks::not_of_religion("blessings"));
+    }
+    let blessing = find(m, blessings, ASPECT_KEY, "blessing", &key)?;
+    action::carry_out(commands, &blessing_choice(m, ctx.country, blessing)?, "take this blessing", || Ok(blessing_text(ctx.player, &key)))
+}
+
 crate::catalogue::bind! {
     eu4_harmony_remote::religion: ReligionRequest => ReligionAnswer;
     Options => options;
     ChooseDeity => choose_deity;
     ChooseCult => choose_cult;
+    AddAspect => add_aspect;
+    RemoveAspect => remove_aspect;
+    ChooseBlessing => choose_blessing;
 }
 
 #[cfg(test)]
@@ -227,6 +381,9 @@ mod tests {
     fn the_commands_name_the_deity_or_the_cult_and_the_country() {
         assert_eq!(deity_text(tag(b"VIJ"), "shiva"), r#"personal_deity={ personal_deity="shiva" country="VIJ" }"#);
         assert_eq!(cult_text(tag(b"KON"), "yemoja_cult"), r#"fetishist_cult={ country="KON" fetishist_cult="yemoja_cult" }"#);
+        assert_eq!(aspect_text(tag(b"SWE"), "allow_usury_aspect", ADD), r#"change_church_aspect={ aspect="allow_usury_aspect" country="SWE" operation=0 }"#);
+        assert_eq!(aspect_text(tag(b"SWE"), "allow_usury_aspect", REMOVE), r#"change_church_aspect={ aspect="allow_usury_aspect" country="SWE" operation=1 }"#);
+        assert_eq!(blessing_text(tag(b"ETH"), "legitimize_government"), r#"change_blessing={ aspect="legitimize_government" country="ETH" }"#);
     }
 
     /// A country whose state religion is none: neither deities nor cults are
