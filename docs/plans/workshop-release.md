@@ -1,6 +1,6 @@
 # Workshop release plan
 
-Status: decided 2026-11-11; W1 to W7 built 2026-11-11, W4 and W5 and the core's side of W1 tried in the game ([The settings window without explanations, and the name Harmony](../prototype-log/2026-11-11-harmony-settings-window.md)); the proxy's own side of W1, and W8 as far as the first install, tried 2026-11-11 ([Harmony installed from its Workshop item](../prototype-log/2026-11-11-harmony-from-the-workshop.md)); the rest of W8 in progress. The decision to ship the framework on the Steam Workshop is [ADR the-framework-ships-on-the-workshop](../adr/2026-11-11-the-framework-ships-on-the-workshop.md), which supersedes the line of [v1.md](v1.md) that kept it off the Workshop. Adds Harmony to [GLOSSARY.md](../../GLOSSARY.md).
+Status: decided 2026-11-11; W1 to W7 built 2026-11-11, W4 and W5 and the core's side of W1 tried in the game ([The settings window without explanations, and the name Harmony](../prototype-log/2026-11-11-harmony-settings-window.md)); the proxy's own side of W1, and W8 as far as the first install, tried 2026-11-11 ([Harmony installed from its Workshop item](../prototype-log/2026-11-11-harmony-from-the-workshop.md)); W8 done 2026-11-11 but for uninstalling, not yet tried: Harmony (3837775887) and Regional Combat (3837793510) visible to friends, Regional Combat requiring Harmony. The decision to ship the framework on the Steam Workshop is [ADR the-framework-ships-on-the-workshop](../adr/2026-11-11-the-framework-ships-on-the-workshop.md), which supersedes the line of [v1.md](v1.md) that kept it off the Workshop. Adds Harmony to [GLOSSARY.md](../../GLOSSARY.md).
 
 ## Goal and scope
 
@@ -48,7 +48,7 @@ A setting's label says what it does; the window has no explanations under its se
 | --- | --- | --- |
 | Title | Harmony | Regional Combat · powered by Harmony / 区域战斗 · 由 Harmony 驱动 |
 | Holds | `descriptor.mod`, `thumbnail.png`, `version.dll`, `eu4-harmony\eu4_harmony_core.dll`; no `.exe` | the mod |
-| Uploaded by | `cargo xtask workshop-upload` (SteamCMD) | the Paradox launcher |
+| Uploaded by | `cargo xtask workshop-upload` (SteamCMD) | SteamCMD, from the folder `eu4-harmony package` writes |
 | Requires | | Harmony |
 
 `supported_version` is `v1.37.5` in both, and in the template `eu4-harmony new` writes.
