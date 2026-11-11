@@ -7,7 +7,8 @@ use crate::Date;
 use serde::{Deserialize, Serialize};
 
 group! {
-    /// The player's government: its reforms and its rank.
+    /// The player's government: its reforms and its rank, strengthening it,
+    /// its government mechanics and its factions.
     "government": GovernmentRequest, GovernmentAnswer;
 
     /// The player's government as the government view shows it: its type,

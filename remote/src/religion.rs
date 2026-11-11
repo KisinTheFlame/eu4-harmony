@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 
 group! {
     /// The religion view: personal deities and cults, a church's aspects,
-    /// blessings, piety's actions, the papacy and the curia.
+    /// blessings, religious reforms, fervor, harmonizing, icons and
+    /// metropolitans, piety's actions, the papacy and the curia, scholars,
+    /// holy orders, a secondary religion, the gurus' teachings and the
+    /// defender of the faith.
     "religion": ReligionRequest, ReligionAnswer;
 
     /// What the religion view offers the player now, by content key: the

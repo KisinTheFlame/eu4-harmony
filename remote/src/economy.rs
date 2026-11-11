@@ -6,7 +6,8 @@ use crate::choices::{Amount, Choice};
 use serde::{Deserialize, Serialize};
 
 group! {
-    /// The treasury's monarch-point spending and bank loans.
+    /// The treasury's monarch-point spending, bank loans, war taxes and
+    /// bankruptcy.
     "economy": EconomyRequest, EconomyAnswer;
 
     /// What the buttons offer now: taking a bank loan, reducing inflation

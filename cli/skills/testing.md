@@ -19,9 +19,10 @@ steps:
 4. Run eu4-harmony test. Done when every test is ok, no note says a
    capability had no answer, and each handler you changed has a test.
 
-a world, which answers session.get, country.get and hostile, province.get,
-list and neighbors, and army.get, list, at, selected, route_to, can_step,
-can_attack, move and stop:
+a world, which answers session.get, country.get, hostile, opinion and
+opinions, province.get, list and neighbors, army.get, list, at, selected,
+route_to, can_step, can_attack, move and stop, and the script group's flags
+and variables, kept as the mod sets them (a flag on the world's date):
 
   mod:world{
     player = "CAS", date = "1444.11.11", hostile = { { "CAS", "GRA" } },
@@ -33,6 +34,7 @@ can_attack, move and stop:
     },
     armies = { { id = 1, owner = "CAS", province = 217, regiments = 10 } },
     selected = 1,
+    opinions = { { of = "GRA", toward = "CAS", opinion = -50, trust = 30 } },
   }
 
 - Neighbors count both ways; a route is the shortest over land, across
@@ -42,6 +44,11 @@ can_attack, move and stop:
   player's, a navy where an army is asked for, an order to an army with no
   regiments or with anything in its blocked list, a target in a province
   that is not visible. Give the armies you order regiments.
+- A pair of countries left out of opinions thinks nothing of each other,
+  with the game's trust of 50.
+- game.time.wait(days) is answered once a mod:day the test raises reaches
+  the date that many days on from the last day raised (or the world's date,
+  or 1444.11.11).
 - Put a world shared by several tests in eu4-harmony/tests/helpers/<name>.lua
   returning the table, and local spain = require("helpers.spain").
 
