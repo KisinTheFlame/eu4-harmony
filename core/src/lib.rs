@@ -64,6 +64,7 @@ pub mod hosts;
 pub mod icu;
 pub mod lang;
 pub mod loading;
+mod loading_times;
 pub mod loc;
 pub mod lua;
 mod main_thread;
@@ -124,6 +125,14 @@ pub(crate) static MAIN_THREAD: AtomicU32 = AtomicU32::new(0);
 static MEMORY: OnceLock<memory::Memory> = OnceLock::new();
 /// What startup installed, for the report.
 static STARTUP: OnceLock<String> = OnceLock::new();
+/// When the proxy called the bootstrap, as the game's process began.
+static BOOTSTRAP: OnceLock<std::time::Instant> = OnceLock::new();
+
+/// The time since the framework's bootstrap, which the log's times of the
+/// game's loading count from.
+pub(crate) fn since_bootstrap() -> std::time::Duration {
+    BOOTSTRAP.get_or_init(std::time::Instant::now).elapsed()
+}
 
 pub fn thread_id() -> u32 {
     unsafe { GetCurrentThreadId() }
@@ -230,6 +239,7 @@ impl From<String> for Failure {
 }
 
 fn bootstrap() -> std::result::Result<(), Failure> {
+    let _ = BOOTSTRAP.set(std::time::Instant::now());
     log_panics();
     MAIN_THREAD.store(thread_id(), Ordering::Relaxed);
     let game_dir = paths::game_dir()?;

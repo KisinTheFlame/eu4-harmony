@@ -1,6 +1,6 @@
 # Where startup and a save's load spend their time
 
-Read 2026-11-05 for making the game's startup and its loads shorter. Sampled with `cargo xtask profile` (`--wait --slice 5` from the process's start, `--thread` for threads other than the main one), the player build of the framework installed, the player's playset, every DLC; the machine's processor was 88% busy with other work throughout, so the times are long. Addresses are RVAs into the 1.37.5 baseline.
+Read 2026-11-05 for making the game's startup and its loads shorter. Sampled with `cargo xtask profile` (`--wait --slice 5` from the process's start, `--thread` for threads other than the main one), the player build of the framework installed, the player's playset, every DLC; the machine's processor was 88% busy with other work throughout, so the times are long. In the framework, `core/src/loading_times.rs` logs the startup's stretches named here in every build ("The startup's stretches in the framework log"). Addresses are RVAs into the 1.37.5 baseline.
 
 ## Startup
 
@@ -256,6 +256,22 @@ The triggers' optimization profile (`0xb9b4e0`, about 1.1 s) and the effects' va
 ### What the startup's path could become
 
 Of the LoadingThread's 17.6 s (3.0 to 20.6 s) and the main thread's 4.5 s after it: the meshes beside the databases take about 2.2 s off the LoadingThread; the map graphics in the main thread's wait take up to 2.1 s off the main thread's part, the glyphs drawn earlier (the framework's own, "The startup after L5, broken down") up to 2 s more; the flags beside the events at most 0.6 s. The databases and the events stay one after the other: the databases' loaders in their fixed order, the events after them.
+
+## The startup's stretches in the framework log
+
+Since 2026-11-11 every build, a player's too, logs the stretches of "The startup after L5, broken down" in `core.log` (`core/src/loading_times.rs`), so that a player's troubleshooting pack says where a slow start spent its time; the game's own `setup.log` and `game.log` carry no times. Each stretch is its function's first call, observed at the function's start (a dependency point each); the observers only read the clock. As each returns, on its own thread, a line gives its start and end in seconds from the framework's bootstrap:
+
+```
+loading: the databases (0x208620) from 6.41 to 10.57 s, 4.16 s
+```
+
+InitGame (`0x2043a0`) gets one too, from the databases' start to its end. At the main menu one line gathers them, with the stretches that lie between the functions: `main` up to the engine's Init, from the bootstrap to `0x14c02b0`'s start, and the rest of InitGame, from the flags' end to InitGame's:
+
+```
+loading: the main menu at 18.69 s; from, to in s: main up to the engine's Init 0.00 to 2.47; the engine's Init 2.47 to 2.68; the gfx stage 2.80 to 6.30; meshes and particles 4.43 to 6.23; the databases 6.41 to 10.57; the events 10.60 to 12.71; flags and loading screens 12.75 to 13.19; the rest of InitGame 13.19 to 16.19; the main menu's part 16.21 to 18.27
+```
+
+The meshes and particles (`0x14dc5d0`) are part of the gfx stage, so their times lie inside its. A stretch whose function had not returned by the main menu is "not seen". A save's load is logged the same way at each load: the read of the save and the world's setup (`0x5cf740`), which every load makes, as "the save read and the world set up", and the load with what follows it (`0xd84b80`), the way in of the menu's, the continue box's and the queued load command's loads ([saves.md](saves.md)) but not of the in-game load (`0x5d0580`), as "a save's load". The times matched `dev-call-trace`'s ([the run](../prototype-log/2026-11-11-startup-stretches-in-the-log.md)). A first start without the music kept yet shows as an engine's Init of about 10 s instead of 0.2 s.
 
 ## Not looked into
 

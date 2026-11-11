@@ -457,6 +457,7 @@ fn menu_after(call: &mut Call) {
     }
     crate::safe_point::main_menu_frame(call.arg(0));
     crate::unicode::log_once();
+    crate::loading_times::log_main_menu();
     match main_menu_page(&m, call.arg(0)) {
         Ok(true) => crate::framework_ui::main_menu_frame(),
         Ok(false) => {}
