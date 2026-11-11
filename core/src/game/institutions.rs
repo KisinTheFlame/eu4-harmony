@@ -1,6 +1,7 @@
 //! Institutions: those that have appeared in the world, as the institutions
 //! view lists them, and embracing one through the game's own command
 //! (docs/research/institutions-ages-monuments.md, "Institutions").
+use super::commands::{write, Block};
 use super::content::{self, checks};
 use super::provinces::{i32s, INSTITUTIONS};
 use super::{action, thousandths, GResult, Session, Tag};
@@ -86,7 +87,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<InstitutionOption>> 
 /// The embrace command, the country and the institution by their indices,
 /// as the view's button sends it.
 fn command(player: Tag, index: i32) -> String {
-    format!("embrace_institution_command={{ country={} institutions={index} message=yes }}", player.index())
+    write("embrace_institution_command", Block::new().word("country", player.index()).word("institutions", index).word("message", "yes"))
 }
 
 /// Embraces an institution, as the view's button does.
