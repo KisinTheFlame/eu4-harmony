@@ -2,4 +2,4 @@
 # that it loads the core from this item and no other (ADR
 # the-framework-ships-on-the-workshop). 0 until the item is created; the
 # proxy then looks for the core beside itself only.
-published_file_id = 0
+published_file_id = 3837775887
