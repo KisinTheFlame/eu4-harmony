@@ -79,6 +79,17 @@ impl<'m> Scope<'m> {
         Ok((from, scope))
     }
 
+    /// A scope of `from`'s own, and a scope of `country`'s whose `FROM` it
+    /// is, as the game asks an Islamic school's conditions of the country
+    /// inviting a scholar with the country sending one as FROM: bound as
+    /// `let (_from, scope)`, so that the first outlives the second.
+    pub(super) fn with_country_from(m: &'m Memory, country: Tag, from: Tag) -> GResult<(Box<Self>, Box<Self>)> {
+        let mut from = Self::new(m, from, 0)?;
+        let mut scope = Self::new(m, country, 0)?;
+        scope.bytes[FROM / 8] = from.address() as u64;
+        Ok((from, scope))
+    }
+
     pub(super) fn address(&mut self) -> usize {
         self.bytes.as_mut_ptr() as usize
     }

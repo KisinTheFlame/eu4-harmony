@@ -360,6 +360,10 @@ pub mod country {
     /// has commissioned, a pointer, null for none (docs/research/religion.md).
     pub const PATRIARCH_AUTHORITY: usize = 0xf88;
     pub const ICON: usize = 0xf90;
+    /// The Islamic school it follows, a pointer, null for none: a country
+    /// follows one, and invites a scholar of another from a country that
+    /// follows it (docs/research/religion.md).
+    pub const SCHOOL: usize = 0x28b8;
     /// The named modifiers its scripts put on it, a [`super::super::list`]
     /// of [`super::named_modifier`]s.
     pub const NAMED_MODIFIERS: usize = 0x1f0;
