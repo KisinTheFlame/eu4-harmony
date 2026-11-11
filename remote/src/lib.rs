@@ -546,6 +546,8 @@ groups! {
     Leader(leaders::LeaderRequest, LeaderAnswer),
     /// The player's advisors: hiring, firing and promoting them.
     Advisor(advisors::AdvisorRequest, AdvisorAnswer),
+    /// The religion view: personal deities and cults.
+    Religion(religion::ReligionRequest, ReligionAnswer),
     /// The mercenary companies the player can hire.
     Mercenary(mercenaries::MercenaryRequest, MercenaryAnswer),
     /// The player's forts.

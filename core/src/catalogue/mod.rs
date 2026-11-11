@@ -430,6 +430,7 @@ macro_rules! capability_groups {
             Loan(loans),
             Leader(leaders),
             Advisor(advisors),
+            Religion(religion),
             Mercenary(mercenaries),
             Fort(forts),
             Siege(sieges),
