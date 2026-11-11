@@ -541,8 +541,10 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<ReligionOption>> 
         let key = game_string::key(m, school + SCHOOL_KEY)?;
         out.push(option(m, "invite_scholar", key, school == own, school_choice(m, ctx.player, ctx.country, school)?)?);
     }
-    for (key, order) in holy_orders(m)? {
-        out.push(option(m, "establish_holy_order", key, false, order_choice(m, ctx.player, ctx.country, order)?)?);
+    if religion(m, ctx.country)? != 0 {
+        for (key, order) in holy_orders(m)? {
+            out.push(option(m, "establish_holy_order", key, false, order_choice(m, ctx.player, ctx.country, order)?)?);
+        }
     }
     let taken = teachings_taken(m, ctx.country)?;
     for teaching in teachings(m, ctx.country)? {
@@ -561,6 +563,9 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<ReligionOption>> 
 /// The religions the country may take as its secondary one, as the view
 /// lists them; none when its religion has no secondary one.
 fn secondary_candidates(m: &Memory, country: usize) -> GResult<Vec<usize>> {
+    if religion(m, country)? == 0 {
+        return Ok(Vec::new());
+    }
     let mut vector = [0usize; 3];
     SECONDARY_CANDIDATES.call(m, [country, vector.as_mut_ptr() as usize, 1])?;
     let read = (|| {
@@ -1297,12 +1302,19 @@ mod tests {
     }
 
     /// A country whose state religion is none: neither deities nor cults are
+    /// The establish command writes the province, the order and the
+    /// country, as its members' writer does.
+    #[test]
+    fn a_holy_order_is_written_as_its_members() {
+        assert_eq!(holy_order_text(tag(b"CAS"), 217, "santiago_order"), r#"establish_holy_order={ members={ dummy=217 dummy="santiago_order" dummy="CAS" } }"#);
+    }
+
     /// offered, and choosing one is refused before anything is posted.
     #[test]
     fn a_religion_without_them_offers_none() {
         let image = Image::new();
         let fra = tag(b"FRA");
-        let country = Object::country(fra, country::RELIGIOUS_REFORMS + 0x10);
+        let country = Object::country(fra, country::TEACHINGS + 0x20);
         let countries = Object::countries(&[&country]);
         let session = || buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote(As::Player));
         assert!(options(session()).unwrap().is_empty());
