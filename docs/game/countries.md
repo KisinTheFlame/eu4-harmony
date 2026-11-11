@@ -56,6 +56,10 @@ A country is what a player or the AI plays: a tag such as `FRA`, with its treasu
 - **Fervor effects are turned on and off by one command**, which turns an effect on for its cost in fervor, once, or off when it is on; several may be on at once, and the view offers those whose `potential` holds ([research/religion.md](../research/religion.md#fervor)).
 - **Harmonization's candidates are the religions of the country's own provinces**, those of other groups standing for their whole group, less those harmonized already; the check asks the same list the view shows ([research/religion.md](../research/religion.md#harmonization)).
 - **An Orthodox icon costs a tenth of the patriarch authority**, which consecrating a metropolitan in a state of 30 development raises; both are commands of their own ([research/religion.md](../research/religion.md#icons-and-metropolitans)).
+- **A scholar comes from a country that follows the school**: each Islamic country follows one school of its group's, and invites another's scholar from a country that follows it, the school's `potential_invite_scholar` and `can_invite_scholar` asked of the inviting country with that one as FROM (an alliance, a subject or an overlord, and opinion); the scholar is a 20-year modifier ([research/religion.md](../research/religion.md#islamic-schools-scholars)).
+- **A holy order belongs to a state**: one order a state, established in a province of a state the country owns whole, for the order's points of its kind; the order's own trigger (religion, culture) decides who may ([research/religion.md](../research/religion.md#holy-orders)).
+- **A secondary religion is Tengri's syncretic faith**: the religions a Tengri country may take are a list the game makes, which leaves out the one it has and, while it has one, offers no religion, dropping it ([research/religion.md](../research/religion.md#the-secondary-religion)).
+- **Sikhism's gurus each bring teachings**, taken for monarch points of the teaching's kind and kept by the country; the command asks only the points ([research/religion.md](../research/religion.md#the-gurus-teachings)).
 
 ## Subjects
 
