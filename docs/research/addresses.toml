@@ -470,9 +470,9 @@
 "0x202490" = { kind = "function", notes = ["research/architecture.md"] }
 "0x2024d2" = { kind = "code", notes = ["research/loading.md"] }
 "0x202696" = { kind = "code", notes = ["research/loading.md"] }
-"0x202850" = { kind = "function", notes = ["research/architecture.md", "research/loading.md", "research/main-menu.md", "research/ui-injection.md"] }
+"0x202850" = { kind = "function", name = "the gfx stage", notes = ["research/architecture.md", "research/loading.md", "research/main-menu.md", "research/ui-injection.md"] }
 "0x203821" = { kind = "code", notes = ["research/loading.md"] }
-"0x2043a0" = { kind = "function", notes = ["research/architecture.md", "research/loading.md", "research/main-menu.md"] }
+"0x2043a0" = { kind = "function", name = "InitGame", notes = ["research/architecture.md", "research/loading.md", "research/main-menu.md"] }
 "0x20491d" = { kind = "code", notes = ["research/loading.md"] }
 "0x204ea4" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x205830" = { kind = "code", name = "main menu size", notes = ["research/main-menu.md"] }
@@ -480,9 +480,9 @@
 "0x205974" = { kind = "code", notes = ["research/architecture.md"] }
 "0x205990" = { kind = "code", notes = ["research/achievements.md"] }
 "0x2060f0" = { kind = "function", notes = ["research/main-menu.md"] }
-"0x206260" = { kind = "function", notes = ["research/loading.md"] }
+"0x206260" = { kind = "function", name = "the main menu's part", notes = ["research/loading.md"] }
 "0x207310" = { kind = "function", notes = ["research/main-menu.md"] }
-"0x208620" = { kind = "function", notes = ["research/architecture.md", "research/countries.md", "research/loading.md", "research/main-menu.md"] }
+"0x208620" = { kind = "function", name = "the databases", notes = ["research/architecture.md", "research/countries.md", "research/loading.md", "research/main-menu.md"] }
 "0x208699" = { kind = "code", notes = ["research/loading.md"] }
 "0x20878b" = { kind = "code", notes = ["research/loading.md"] }
 "0x20c3ab" = { kind = "code", notes = ["research/loading.md"] }
@@ -1361,11 +1361,11 @@
 "0x5cf1ab" = { kind = "code", notes = ["research/saves.md"] }
 "0x5cf262" = { kind = "code", notes = ["research/saves.md"] }
 "0x5cf287" = { kind = "code", notes = ["research/saves.md"] }
-"0x5cf740" = { kind = "function", notes = ["research/loading.md", "research/main-menu.md", "research/saves.md"] }
+"0x5cf740" = { kind = "function", name = "the save read and the world set up", notes = ["research/loading.md", "research/main-menu.md", "research/saves.md"] }
 "0x5cf7a1" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x5d01b0" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x5d053b" = { kind = "code", notes = ["research/achievements.md"] }
-"0x5d0580" = { kind = "function", name = "in-game load", notes = ["research/main-menu.md", "research/notice-window.md", "research/save-transfer-copy.md", "research/saves.md", "research/time.md"] }
+"0x5d0580" = { kind = "function", name = "in-game load", notes = ["research/loading.md", "research/main-menu.md", "research/notice-window.md", "research/save-transfer-copy.md", "research/saves.md", "research/time.md"] }
 "0x5d05ac" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x5d0653" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x5d06c4" = { kind = "code", name = "in-game load without a name", notes = ["research/main-menu.md"] }
@@ -1527,7 +1527,7 @@
 "0x6f2660" = { kind = "function", notes = ["research/questions-and-offers.md"] }
 "0x6f2700" = { kind = "function", notes = ["research/country-knowledge.md", "research/questions-and-offers.md"] }
 "0x6f2fa0" = { kind = "function", name = "event manager", notes = ["research/scripts.md"] }
-"0x6f3250" = { kind = "function", notes = ["research/architecture.md", "research/loading.md"] }
+"0x6f3250" = { kind = "function", name = "the events", notes = ["research/architecture.md", "research/loading.md"] }
 "0x6f4f40" = { kind = "function", name = "trigger event", notes = ["research/questions-and-offers.md", "research/scripts.md"] }
 "0x6f6b30" = { kind = "leaf", name = "event option open", notes = ["research/questions-and-offers.md"] }
 "0x6f7ba0" = { kind = "leaf", notes = ["research/triggers.md"] }
@@ -3434,7 +3434,7 @@
 "0xd81e10" = { kind = "function", notes = ["research/saves.md"] }
 "0xd84490" = { kind = "function", notes = ["research/architecture.md", "research/save-transfer-copy.md"] }
 "0xd84815" = { kind = "code", notes = ["research/save-transfer-copy.md"] }
-"0xd84b80" = { kind = "function", notes = ["research/loading.md", "research/main-menu.md", "research/saves.md"] }
+"0xd84b80" = { kind = "function", name = "a save's load", notes = ["research/loading.md", "research/main-menu.md", "research/saves.md"] }
 "0xd856b0" = { kind = "function", notes = ["research/countries.md"] }
 "0xd859b0" = { kind = "function", notes = ["research/countries.md"] }
 "0xd88520" = { kind = "function", notes = ["research/countries.md"] }
@@ -3847,7 +3847,7 @@
 "0x10af990" = { kind = "leaf", name = "the map told of a province's new owner", notes = ["research/drawing-beside-the-day.md"] }
 "0x10b2830" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x10b2a00" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
-"0x10b2b70" = { kind = "function", notes = ["research/loading.md"] }
+"0x10b2b70" = { kind = "function", name = "flags and loading screens", notes = ["research/loading.md"] }
 "0x10b2ee0" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x10b3600" = { kind = "function", notes = ["research/loading.md", "research/main-menu.md"] }
 "0x10b3bd0" = { kind = "function", notes = ["research/ui-injection.md"] }
@@ -4435,7 +4435,7 @@
 "0x14bf770" = { kind = "function", notes = ["research/triggers.md"] }
 "0x14bf798" = { kind = "code", notes = ["research/triggers.md"] }
 "0x14bfd80" = { kind = "function", notes = ["research/architecture.md"] }
-"0x14c02b0" = { kind = "function", notes = ["research/architecture.md", "research/headless.md", "research/loading.md"] }
+"0x14c02b0" = { kind = "function", name = "the engine's Init", notes = ["research/architecture.md", "research/headless.md", "research/loading.md"] }
 "0x14c02ca" = { kind = "code", name = "init shows the window", notes = ["research/headless.md"] }
 "0x14c02d6" = { kind = "code", notes = ["research/headless.md"] }
 "0x14c2500" = { kind = "leaf", name = "restart", notes = ["research/architecture.md", "research/main-menu.md"] }
@@ -4533,7 +4533,7 @@
 "0x14dc240" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x14dc2a5" = { kind = "code", name = "graphics group unload", notes = ["research/main-menu.md"] }
 "0x14dc390" = { kind = "function", notes = ["research/loading.md"] }
-"0x14dc5d0" = { kind = "function", notes = ["research/loading.md"] }
+"0x14dc5d0" = { kind = "function", name = "meshes and particles", notes = ["research/loading.md"] }
 "0x14dcd30" = { kind = "function", notes = ["research/loading.md", "research/main-thread.md", "research/map-drawing-reads.md"] }
 "0x14dcde0" = { kind = "function", notes = ["research/main-thread.md", "research/map-drawing-reads.md"] }
 "0x14dcf90" = { kind = "function", notes = ["research/gui-drawing.md"] }

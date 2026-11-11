@@ -31,6 +31,7 @@ fn framework() -> Vec<Point> {
     all.extend(crate::crash::points());
     all.extend(crate::main_thread::points());
     all.extend(crate::sound::points());
+    all.extend(crate::loading_times::points());
     all
 }
 
