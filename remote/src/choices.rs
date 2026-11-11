@@ -83,6 +83,32 @@ pub enum Resource {
     MonthlyDucats,
     /// Reform progress, which government reforms spend.
     ReformProgress,
+    /// Points of one of a government mechanic's powers, which its
+    /// interactions spend; the entry says which.
+    MechanicPower,
+    /// The Holy Roman Empire's imperial authority, which its reforms spend.
+    ImperialAuthority,
+    /// The Celestial Empire's mandate, which its reforms spend.
+    Mandate,
+    /// Meritocracy, which the Celestial Empire's decrees spend.
+    Meritocracy,
+    /// Splendor, which the age's abilities cost.
+    Splendor,
+    /// Church power, which a church's aspects cost.
+    ChurchPower,
+    /// Fervor, which turning on a fervor effect costs.
+    Fervor,
+    /// Patriarch authority, in percent, which an Orthodox icon costs.
+    PatriarchAuthority,
+    /// Piety, in percent of the scale from Mysticism to Legalism, which a
+    /// piety action moves toward the other end.
+    Piety,
+    /// Papal influence, which the papacy's actions and investing in the
+    /// curia spend.
+    PapalInfluence,
+    /// Ducats of the curia's treasury, which the curia controller's actions
+    /// spend.
+    CuriaTreasury,
 }
 
 /// A kind of monarch power, as the game's panels name them: what a

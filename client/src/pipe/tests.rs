@@ -327,7 +327,7 @@ fn a_pipe_that_breaks_ends_the_wait_at_once() {
     let served = serve_one(&name, |_, _| thread::sleep(Duration::from_millis(100)));
     let mut client = connect_to(&name);
     let started = Instant::now();
-    let failure = client.ask("{\"capability\":\"events\",\"wait_ms\":60000}", None).unwrap_err();
+    let failure = client.ask("{\"capability\":\"signals\",\"wait_ms\":60000}", None).unwrap_err();
     assert!(matches!(failure, Failure::Broken), "{failure:?}");
     assert!(started.elapsed() < Duration::from_secs(5));
     served.join().unwrap();
@@ -356,7 +356,7 @@ fn a_request_without_an_answer_in_time_is_given_up() {
     let served = serve_one(&name, move |pipe, _| gone.send(client_gone(pipe)).unwrap());
     let mut client = connect_to(&name);
     let started = Instant::now();
-    let failure = client.ask("{\"capability\":\"events\",\"wait_ms\":60000}", Some(started + Duration::from_millis(200))).unwrap_err();
+    let failure = client.ask("{\"capability\":\"signals\",\"wait_ms\":60000}", Some(started + Duration::from_millis(200))).unwrap_err();
     assert!(matches!(failure, Failure::TimedOut), "{failure:?}");
     assert!(started.elapsed() >= Duration::from_millis(200));
     // Closing the pipe is what gives the request up.

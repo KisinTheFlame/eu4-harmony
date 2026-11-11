@@ -87,7 +87,7 @@ usage:
   eu4-harmony wiki [<topic>...]
       The reference: every capability, how Lua and the command line call
       it, what it answers; a mod's handlers, globals and manifest; how a
-      remote client plays a game; errors and events.
+      remote client plays a game; errors and signals.
   eu4-harmony skills [<topic>...]
       Guides for making a mod, for a coding agent or a person: the steps,
       and how to tell each is done.

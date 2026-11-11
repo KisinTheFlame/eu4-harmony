@@ -48,8 +48,13 @@ impl Date {
         Some(Self(Self::from_ymd(year, month + 1, day)?.0.checked_add(self.0.rem_euclid(24))?))
     }
 
+    /// The date `days` on, at the same hour; None past the calendar's end.
+    pub fn days_later(self, days: u32) -> Option<Self> {
+        i32::try_from(days).ok()?.checked_mul(24).and_then(|hours| self.0.checked_add(hours)).map(Self)
+    }
+
     /// Whether the day `self`, heard after the day `before`, is in a new
-    /// month, and in a new year, as the `month` and `year` events tell it.
+    /// month, and in a new year, as the `month` and `year` signals tell it.
     /// The first day heard in a session (`before` none) is in neither.
     pub fn turned(self, before: Option<Self>) -> (bool, bool) {
         let Some(before) = before else { return (false, false) };
@@ -128,6 +133,16 @@ mod tests {
             assert_eq!(Date::parse(bad), None, "{bad}");
         }
         assert_eq!(serde_json::to_value(start).unwrap(), json!("1444.11.11"));
+    }
+
+    #[test]
+    fn days_on_cross_months_and_years_with_no_leap_day() {
+        let date = |year, month, day| Date::from_ymd(year, month, day).unwrap();
+        assert_eq!(date(1444, 11, 11).days_later(30), Some(date(1444, 12, 11)));
+        assert_eq!(date(1444, 12, 31).days_later(1), Some(date(1445, 1, 1)));
+        assert_eq!(date(1445, 2, 28).days_later(1), Some(date(1445, 3, 1)));
+        assert_eq!(date(1444, 11, 11).days_later(365), Some(date(1445, 11, 11)));
+        assert_eq!(Date(i32::MAX - 10).days_later(1), None);
     }
 
     #[test]

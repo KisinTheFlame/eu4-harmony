@@ -111,6 +111,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     #[test]
     fn the_command_names_the_decision_and_the_player_s_scope() {
         let fra = super::super::Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
@@ -151,7 +152,7 @@ mod tests {
         image.u64(DATABASE, database.at() as u64);
         let player = Object::country(tur(), 0);
         let countries = Object::countries(&[&player]);
-        let session = buffers::session(image.memory(), 0, tur(), player.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), 0, tur(), player.at(), countries.at(), Caller::Remote(As::Player));
         let mut objects = made;
         objects.extend([database, player, countries]);
         Decisions { _image: image, _objects: objects, session }

@@ -1,18 +1,22 @@
 //! Government: the player's government reforms and rank, as the government
 //! view shows them, and adopting reforms and raising the rank as its buttons
-//! do.
+//! do, and its government mechanics: their powers and using their
+//! interactions, and its factions: their influence and boosting one.
 use crate::choices::Choice;
+use crate::Date;
 use serde::{Deserialize, Serialize};
 
 group! {
-    /// The player's government: its reforms and its rank.
+    /// The player's government: its reforms and its rank, strengthening it,
+    /// its government mechanics and its factions.
     "government": GovernmentRequest, GovernmentAnswer;
 
     /// The player's government as the government view shows it: its type,
     /// its rank (1 a duchy, 2 a kingdom, 3 an empire in the unmodded game),
-    /// the reform progress, and whether the player can raise the rank now,
-    /// with the game's reasons when not.
-    game Options "options" {} -> Government, "government (the type's content key), rank, reform_progress, reforms_adopted, raise_rank: can, reasons, cost";
+    /// the reform progress, whether the player can raise the rank now, and
+    /// whether it can strengthen the government and at what cost in
+    /// military points, with the game's reasons when not.
+    game Options "options" {} -> Government, "government (the type's content key), rank, reform_progress, reforms_adopted, raise_rank: can, reasons, cost; strengthen: can, reasons, cost";
 
     /// The government reforms the government view offers, tier by tier: in
     /// each tier the reforms whose conditions for being offered hold and the
@@ -38,6 +42,66 @@ group! {
     /// for it. `rejected` with the game's reasons when the game would not
     /// let the player raise it now.
     game RaiseRank "raise_rank" {} -> (), "null once the game has raised it";
+
+    /// Strengthens the government, as the government view's button does,
+    /// paying its cost in military points: it raises the government's
+    /// legitimacy of its kind (or, for a revolutionary republic, its
+    /// zeal). `rejected` with the game's reasons when the player cannot now,
+    /// as `government.options` says beforehand.
+    game Strengthen "strengthen" {} -> (), "null once the government is strengthened";
+
+    /// The government mechanics the player's government has, as the
+    /// government view shows them: each mechanic's powers, their values and
+    /// bounds and the modifiers each gives now, and its interactions the
+    /// player is offered, with whether the player can use each now, why
+    /// not, what it costs, and the day a cooldown ends. What an interaction
+    /// does is the mechanic's script's, and is not given.
+    game Mechanics "mechanics" {} -> Vec<Mechanic>, "each mechanic: mechanic (its content key), name, powers (power, name, value, min, max, effects: modifier, value), interactions (interaction, name, can, reasons, cost, cost_power, ready_on)";
+
+    /// Uses an interaction of one of the player's government mechanics, as
+    /// its button in the government view does, paying its cost. `rejected`
+    /// with the game's reasons when the game would not let the player use it
+    /// now, as `government.mechanics` says beforehand; `not_found` for a
+    /// mechanic the player's government does not have, or an interaction it
+    /// does not offer.
+    game Interact "interact" {
+        /// The mechanic's content key, such as `mamluk_mechanic`.
+        mechanic: String,
+        /// The interaction's content key, such as `recruit_from_culture_lands`.
+        interaction: String,
+    } -> (), "null once the game has carried it out";
+
+    /// The factions of the player's government, as the government view's
+    /// factions panel shows them (a merchant republic's, a revolutionary
+    /// republic's, a pirate republic's): each faction's influence, and
+    /// whether the player can boost it now, why not, and its cost in the
+    /// monarch points of its kind. None for a government without factions.
+    game Factions "factions" {} -> Vec<Faction>, "the factions: faction (its content key), name, influence, can, reasons, cost";
+
+    /// Boosts a faction's influence, as its button in the factions panel
+    /// does, paying its cost in the monarch points of its kind. `rejected`
+    /// when the player cannot now, as `government.factions` says
+    /// beforehand; `not_found` for a key that names no faction of the
+    /// player's government.
+    game BoostFaction "boost_faction" {
+        /// The faction's content key, such as `mr_traders`.
+        faction: String,
+    } -> (), "null once the game has boosted it";
+}
+
+/// A faction of the player's government.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Faction {
+    /// Its content key, which the game's or a mod's `common/factions`
+    /// gives it, such as `mr_traders`.
+    pub faction: String,
+    /// Its name, in the player language.
+    pub name: String,
+    /// Its influence, in percent.
+    pub influence: f64,
+    /// Whether the player can boost it now, why not, and what it costs.
+    #[serde(flatten)]
+    pub choice: Choice,
 }
 
 /// The player's government.
@@ -55,6 +119,9 @@ pub struct Government {
     pub reforms_adopted: Vec<String>,
     /// Whether the player can raise the rank now, and why not.
     pub raise_rank: Choice,
+    /// Whether the player can strengthen the government now, why not, and
+    /// its cost.
+    pub strengthen: Choice,
 }
 
 /// A tier of reforms.
@@ -79,4 +146,53 @@ pub struct Reform {
     /// Whether the player can adopt it now, why not, and its cost.
     #[serde(flatten)]
     pub choice: Choice,
+}
+
+/// A government mechanic of the player's government.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Mechanic {
+    /// Its content key, which the game's or a mod's
+    /// `common/government_mechanics` gives it, such as `mamluk_mechanic`.
+    pub mechanic: String,
+    /// Its name, in the player language.
+    pub name: String,
+    pub powers: Vec<MechanicPower>,
+    /// The interactions it offers the player: those whose conditions for
+    /// being offered hold.
+    pub interactions: Vec<MechanicInteraction>,
+}
+
+/// A mechanic power: a value of the mechanic's between its bounds.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct MechanicPower {
+    /// Its content key, such as `mamluk_adm_power`.
+    pub power: String,
+    /// Its name, in the player language.
+    pub name: String,
+    /// What the player's country has of it now.
+    pub value: f64,
+    pub min: f64,
+    pub max: f64,
+    /// What it adds to the country's modifiers now: what its scaled and
+    /// range modifiers come to at its value. How the value is turned into
+    /// them is the mechanic's script's, and is not given.
+    pub effects: Vec<crate::countries::ModifierValue>,
+}
+
+/// An interaction a government mechanic offers the player.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct MechanicInteraction {
+    /// Its content key, such as `recruit_from_culture_lands`.
+    pub interaction: String,
+    /// Its name, in the player language.
+    pub name: String,
+    /// Whether the player can use it now, why not, and what it costs: an
+    /// amount of `mechanic_power`, of the power `cost_power` names.
+    #[serde(flatten)]
+    pub choice: Choice,
+    /// The power its cost is paid in, by its content key; none when it
+    /// costs none of the mechanic's powers.
+    pub cost_power: Option<String>,
+    /// The day its cooldown ends, while one runs.
+    pub ready_on: Option<Date>,
 }

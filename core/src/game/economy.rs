@@ -1,10 +1,12 @@
-//! The economy: taking a bank loan and reducing inflation, as the economy
-//! view's buttons do, and raising mercantilism, as the trade view's button
-//! does (docs/research/power-spending.md, "The economy").
+//! The economy: taking a bank loan, reducing inflation, raising and
+//! lowering war taxes and declaring bankruptcy, as the economy view's
+//! buttons do, and raising mercantilism, as the trade view's button does
+//! (docs/research/power-spending.md, "The economy" and "The country's other
+//! spendings").
 use super::{
     action, modifiers,
-    power::{self, CAN_REDUCE_INFLATION, PROMOTE_MERCANTILISM, REDUCE_INFLATION},
-    Ctx, GResult, Session,
+    power::{self, CAN_DECLARE_BANKRUPTCY, CAN_REDUCE_INFLATION, PROMOTE_MERCANTILISM, REDUCE_INFLATION},
+    Ctx, GResult, Session, Tag,
 };
 use crate::{
     game_string,
@@ -35,6 +37,10 @@ const MAY_NOT_REDUCE_INFLATION: usize = 0xf0;
 /// Whether the country may raise mercantilism now, and why not:
 /// `(country, text, cost text)`.
 const MAY_PROMOTE_MERCANTILISM: GameFunction<3> = GameFunction::at(0x3f47a0);
+/// `(country, text) -> bool`: whether the country may declare bankruptcy
+/// now, the economy view's button's check, writing its tooltip: why not,
+/// but nothing when `can_declare_bankruptcy` does not allow it.
+const MAY_GO_BANKRUPT: GameFunction<2> = GameFunction::at(0x33b600);
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -58,7 +64,65 @@ pub fn points() -> Vec<Point> {
         ]),
         Point::keep(0x38d625usize, "39 9e d4 0b 00 00", "inflation").uses(&[country::INFLATION]),
         Point::keep(MAY_PROMOTE_MERCANTILISM, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18 55 41 54 41 55 41 56 41 57", "may promote mercantilism"),
+        Point::keep(MAY_GO_BANKRUPT, "48 89 5c 24 08 57 48 83 ec 40 48 8b da 48 8b f9", "may go bankrupt"),
+        // The war taxes command's check: raising them while they are not
+        // raised, lowering them while they are; its data the country's tag
+        // and whether to raise, written as `members` (`0x2aa9`).
+        Point::keep(
+            0xc20f0usize,
+            "48 8b 41 52 48 c1 e8 20 80 79 50 00 4c 0f bf c0 48 8b 05 c9 b7 27 02 48 8b 90 18 01 00 00 4a 8b 04 c2 0f b6 80 08 0d 00 00 74 05 84 c0 0f 94 c0 c3",
+            "war taxes command check",
+        )
+        .uses(&[country::WAR_TAXES]),
+        Point::keep(0xc2069usize, "ba a9 2a 00 00", "war taxes command's members"),
+        // The go_bankrupt command's writer writes the country alone.
+        Point::keep(0x2a4d95usize, "ba 9d 28 00 00", "go_bankrupt command's country"),
     ]
+}
+
+/// Whether the player can raise war taxes (`raise`) or lower them now:
+/// raising them while they are not raised, lowering them while they are, as
+/// the command's check allows; they cost nothing at once.
+fn war_taxes(m: &Memory, ctx: &Ctx, raise: bool) -> GResult<Choice> {
+    let raised = m.u8(ctx.country + country::WAR_TAXES)? != 0;
+    Ok(match (raise, raised) {
+        (true, false) | (false, true) => Choice::can(Vec::new()),
+        (true, true) => Choice::cannot(vec![checks::RAISED.to_string()], Vec::new()),
+        (false, false) => Choice::cannot(vec![checks::NOT_RAISED.to_string()], Vec::new()),
+    })
+}
+
+/// Whether the player can declare bankruptcy now, as the button's tooltip
+/// says, or `can_declare_bankruptcy`'s failing lines when it says nothing.
+fn bankruptcy(m: &Memory, ctx: &Ctx) -> GResult<Choice> {
+    let (may, why) = game_string::written(m, |out| MAY_GO_BANKRUPT.call(m, [ctx.country, out]))?;
+    if may & 0xff != 0 {
+        return Ok(Choice::can(Vec::new()));
+    }
+    let mut reasons = power::plain_lines(&why);
+    if reasons.is_empty() {
+        reasons = power::scripted(m, CAN_DECLARE_BANKRUPTCY, ctx.player)?.1;
+    }
+    Ok(Choice::cannot(reasons, Vec::new()))
+}
+
+/// The war taxes command: the country's tag, then whether to raise them.
+fn written_war_taxes(tag: Tag, raise: bool) -> String {
+    let letters = String::from_utf8_lossy(&tag.letters()).into_owned();
+    format!("raise_war_taxes={{ members={{ dummy=\"{letters}\" dummy={} }} }}", if raise { "yes" } else { "no" })
+}
+
+/// The bankruptcy command: the country alone.
+fn written_bankruptcy(tag: Tag) -> String {
+    format!("go_bankrupt={{ country=\"{}\" }}", String::from_utf8_lossy(&tag.letters()))
+}
+
+/// The refusals the framework words itself in the economy view.
+pub mod checks {
+    /// Raising war taxes that are raised, and lowering ones that are not:
+    /// the command's check says no without a word.
+    pub const RAISED: &str = "War taxes are raised already.";
+    pub const NOT_RAISED: &str = "War taxes are not raised.";
 }
 
 /// The ducats a bank loan of the country at `country` brings, as the view
@@ -130,7 +194,25 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<EconomyOption>> {
         take_loan(m, &ctx)?,
         spending(EconomyAction::ReduceInflation, reduce_inflation(m, &ctx)?),
         spending(EconomyAction::RaiseMercantilism, raise_mercantilism(m, &ctx)?),
+        spending(EconomyAction::RaiseWarTaxes, war_taxes(m, &ctx, true)?),
+        spending(EconomyAction::LowerWarTaxes, war_taxes(m, &ctx, false)?),
+        spending(EconomyAction::DeclareBankruptcy, bankruptcy(m, &ctx)?),
     ])
+}
+
+/// Raises war taxes, as the button does.
+pub fn raise_war_taxes(Session { m, ctx, commands, .. }: Session) -> GResult<()> {
+    action::carry_out(commands, &war_taxes(m, &ctx, true)?, "raise war taxes", || Ok(written_war_taxes(ctx.player, true)))
+}
+
+/// Lowers war taxes, as the button does.
+pub fn lower_war_taxes(Session { m, ctx, commands, .. }: Session) -> GResult<()> {
+    action::carry_out(commands, &war_taxes(m, &ctx, false)?, "lower war taxes", || Ok(written_war_taxes(ctx.player, false)))
+}
+
+/// Declares bankruptcy, as the button does once the player confirms.
+pub fn declare_bankruptcy(Session { m, ctx, commands, .. }: Session) -> GResult<()> {
+    action::carry_out(commands, &bankruptcy(m, &ctx)?, "declare bankruptcy", || Ok(written_bankruptcy(ctx.player)))
 }
 
 /// The bank loan command in its written form, as the button makes it: the
@@ -162,10 +244,14 @@ crate::catalogue::bind! {
     TakeLoan => take_bank_loan;
     ReduceInflation => reduce;
     RaiseMercantilism => promote;
+    RaiseWarTaxes => raise_war_taxes;
+    LowerWarTaxes => lower_war_taxes;
+    DeclareBankruptcy => declare_bankruptcy;
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
     use crate::catalogue::fake::tur;
     use crate::game::{
@@ -240,6 +326,16 @@ mod tests {
         0
     }
 
+    /// The bankruptcy check: refused with no loans, as this test arranges
+    /// it, writing the game's line.
+    extern "C" fn may_go_bankrupt(country: usize, text: usize) -> usize {
+        if unsafe { *((country + LOAN_SIZE) as *const u8) } != 0 {
+            return 1;
+        }
+        unsafe { write_reason(text, b"VOLUNTEER_BANKRUPT_NO_LOANS") };
+        0
+    }
+
     /// The month and year a date is written as, for a test.
     extern "C" fn month_year(_: usize, out: usize) -> usize {
         unsafe { write_reason(out, b"May 1450") };
@@ -269,6 +365,7 @@ mod tests {
             .function(OF_COUNTRY.rva(), modifiers as *const ())
             .function(HAS.rva(), has as *const ())
             .function(MAY_PROMOTE_MERCANTILISM.rva(), may_promote as *const ())
+            .function(MAY_GO_BANKRUPT.rva(), may_go_bankrupt as *const ())
             .function(crate::wording::dates::NEXT_MONTH_YEAR.rva(), month_year as *const ());
         let player = Object::country(tur(), country::MODIFIERS + 8)
             .i32(country::POWER, adm)
@@ -277,7 +374,7 @@ mod tests {
             .i32(ESTIMATED_LOAN, 50_000)
             .i32(RUIN_BLOCKED_UNTIL, 1);
         let countries = Object::countries(&[&player]);
-        let session = buffers::session(image.memory(), 0, tur(), player.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), 0, tur(), player.at(), countries.at(), Caller::Remote(As::Player));
         Ottomans { _image: image, _objects: vec![player, countries], session }
     }
 
@@ -296,8 +393,38 @@ mod tests {
                 (EconomyAction::TakeLoan, true, vec![], vec![Amount::new(Resource::Ducats, 600.0)]),
                 (EconomyAction::ReduceInflation, true, vec![Amount::new(Resource::Adm, 50.0)], vec![]),
                 (EconomyAction::RaiseMercantilism, true, vec![Amount::new(Resource::Dip, 50.0)], vec![]),
+                (EconomyAction::RaiseWarTaxes, true, vec![], vec![]),
+                (EconomyAction::LowerWarTaxes, false, vec![], vec![]),
+                (EconomyAction::DeclareBankruptcy, true, vec![], vec![]),
             ]
         );
+    }
+
+    #[test]
+    fn war_taxes_are_raised_or_lowered_by_the_command_as_they_stand() {
+        let ottomans = ottomans(LETS, 100, 2);
+        assert_eq!(refused(lower_war_taxes(ottomans.session)), (Status::Rejected, checks::NOT_RAISED.into()));
+        raise_war_taxes(ottomans.session).unwrap();
+        let raised = self::ottomans(LETS, 100, 2);
+        let country = raised.session.ctx.country;
+        unsafe { *((country + country::WAR_TAXES) as *mut u8) = 1 };
+        assert_eq!(refused(raise_war_taxes(raised.session)), (Status::Rejected, checks::RAISED.into()));
+        lower_war_taxes(raised.session).unwrap();
+        assert_eq!(
+            record::posted(),
+            [r#"raise_war_taxes={ members={ dummy="TUR" dummy=yes } }"#, r#"raise_war_taxes={ members={ dummy="TUR" dummy=no } }"#]
+        );
+    }
+
+    #[test]
+    fn bankruptcy_is_declared_or_refused_with_the_button_s_tooltip() {
+        let ottomans = ottomans(LETS, 100, 2);
+        declare_bankruptcy(ottomans.session).unwrap();
+        assert_eq!(record::posted(), [r#"go_bankrupt={ country="TUR" }"#]);
+        let no_loans = self::ottomans(LETS, 100, 2);
+        unsafe { *((no_loans.session.ctx.country + LOAN_SIZE) as *mut u8) = 0 };
+        assert_eq!(refused(declare_bankruptcy(no_loans.session)), (Status::Rejected, "VOLUNTEER_BANKRUPT_NO_LOANS".into()));
+        assert!(record::posted().is_empty());
     }
 
     #[test]

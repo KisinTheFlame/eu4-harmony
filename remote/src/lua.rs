@@ -8,10 +8,10 @@
 //! A type is written as the editor's type definitions write it (LuaLS):
 //! `string`, `integer`, `eu4.Date`, `eu4.Err`, `string[]`.
 
-use crate::events::{Event, Kind, EVENTS};
 use crate::shape::Shape;
+use crate::signals::{Kind, Signal, SIGNALS};
 
-/// A handler: a function `main.lua`'s table may hold, called for an event.
+/// A handler: a function `main.lua`'s table may hold, called for a signal.
 #[derive(Clone, Debug)]
 pub struct Handler {
     pub name: &'static str,
@@ -36,7 +36,7 @@ pub struct Arg {
 pub enum Ty {
     /// As the editor's type definitions write it.
     Written(&'static str),
-    /// The shape of the event's field it is, or of the event as a whole.
+    /// The shape of the signal's field it is, or of the signal as a whole.
     Shaped(Shape),
 }
 
@@ -46,13 +46,13 @@ impl From<&Value> for Arg {
     }
 }
 
-/// What an event's handler is called with after `game`
-/// (`crate::events::Kind::called`).
+/// What a signal's handler is called with after `game`
+/// (`crate::signals::Kind::called`).
 #[derive(Clone, Copy, Debug)]
 pub enum Called {
-    /// The event's fields, one argument each, by its name.
+    /// The signal's fields, one argument each, by its name.
     Fields,
-    /// The whole event as one table, named as the event.
+    /// The whole signal as one table, named as the signal.
     Table,
     /// Arguments the Lua host gives itself.
     Given(&'static [Value]),
@@ -113,7 +113,7 @@ pub struct Permission {
     pub about: &'static str,
 }
 
-/// The handlers besides the events': name, arguments, what it may return
+/// The handlers besides the signals': name, arguments, what it may return
 /// and what it is for.
 const OTHER_HANDLERS: &[(&str, &[Value], Option<Value>, &str)] = &[
     (
@@ -132,7 +132,7 @@ const OTHER_HANDLERS: &[(&str, &[Value], Option<Value>, &str)] = &[
         "One of this mod's windows opened or closed: by the mod, its entry button, its close button, Esc, or another of the game's big panels opening.",
     ),
     ("on_map_lost", &[], None, "Another mod, or the player changing the map mode, took the map this mod painted."),
-    ("on_frame", &[], None, "Every frame of a game, after the events above. Keep it short: it runs as often as the game draws."),
+    ("on_frame", &[], None, "Every frame of a game, after the signals above. Keep it short: it runs as often as the game draws."),
     (
         "save_data",
         &[],
@@ -141,16 +141,16 @@ const OTHER_HANDLERS: &[(&str, &[Value], Option<Value>, &str)] = &[
     ),
 ];
 
-/// Every handler: one for each event ([`EVENTS`]), as its declaration says
-/// it is called (`crate::events::Kind::called`) and with what it says of the
-/// event, then the others.
+/// Every handler: one for each signal ([`SIGNALS`]), as its declaration says
+/// it is called (`crate::signals::Kind::called`) and with what it says of the
+/// signal, then the others.
 pub fn handlers() -> Vec<Handler> {
-    let events = EVENTS.iter().map(|(kind, about)| {
+    let signals = SIGNALS.iter().map(|(kind, about)| {
         let about = match kind.note() {
             "" => crate::prose(about),
             note => format!("{} {note}", crate::prose(about)),
         };
-        Handler { name: kind.handler(), args: event_args(*kind), returns: None, about }
+        Handler { name: kind.handler(), args: signal_args(*kind), returns: None, about }
     });
     let others = OTHER_HANDLERS.iter().map(|(name, args, returns, about)| Handler {
         name,
@@ -158,11 +158,11 @@ pub fn handlers() -> Vec<Handler> {
         returns: returns.as_ref().map(Arg::from),
         about: about.to_string(),
     });
-    events.chain(others).collect()
+    signals.chain(others).collect()
 }
 
 /// The arguments the handler of `kind` is called with after `game`.
-fn event_args(kind: Kind) -> Vec<Arg> {
+fn signal_args(kind: Kind) -> Vec<Arg> {
     match kind.called() {
         Called::Fields => kind
             .fields()
@@ -178,7 +178,7 @@ fn event_args(kind: Kind) -> Vec<Arg> {
         Called::Table => {
             let fields = kind.fields();
             let names: Vec<&str> = fields.iter().map(|f| f.name).collect();
-            let about = format!("{{ {} }}, the {kind} event's fields (eu4-harmony wiki events)", names.join(", "));
+            let about = format!("{{ {} }}, the {kind} signal's fields (eu4-harmony wiki signals)", names.join(", "));
             let shape = Shape::Object { class: kind.class(), about: "", fields };
             vec![Arg { name: kind.name(), ty: Ty::Shaped(shape), optional: false, about }]
         }
@@ -186,21 +186,21 @@ fn event_args(kind: Kind) -> Vec<Arg> {
     }
 }
 
-/// The handler `event` calls, `on_<kind>`, and its arguments in Lua's form
+/// The handler `signal` calls, `on_<kind>`, and its arguments in Lua's form
 /// (`eu4_harmony_checks::form`), as its kind says it is called. None for an
-/// event whose handler's arguments the Lua host gives itself (`on_session`'s
+/// signal whose handler's arguments the Lua host gives itself (`on_session`'s
 /// saved data).
-pub fn handler_call(event: &Event) -> Option<(&'static str, Vec<serde_json::Value>)> {
-    let kind = event.kind();
-    let mut table = eu4_harmony_checks::form::as_lua(|| serde_json::to_value(event)).ok()?;
+pub fn handler_call(signal: &Signal) -> Option<(&'static str, Vec<serde_json::Value>)> {
+    let kind = signal.kind();
+    let mut table = eu4_harmony_checks::form::as_lua(|| serde_json::to_value(signal)).ok()?;
     let fields = table.as_object_mut()?;
-    fields.remove("event");
+    fields.remove("signal");
     Some((kind.handler(), handler_args(kind, fields)?))
 }
 
 /// The arguments the handler of `kind` is called with after `game`, from
-/// the event's fields in Lua's form, as its kind says it is called; a field
-/// left out is nil. None for an event whose handler's arguments the Lua host
+/// the signal's fields in Lua's form, as its kind says it is called; a field
+/// left out is nil. None for a signal whose handler's arguments the Lua host
 /// gives itself.
 pub fn handler_args(kind: Kind, fields: &serde_json::Map<String, serde_json::Value>) -> Option<Vec<serde_json::Value>> {
     match kind.called() {
@@ -277,10 +277,34 @@ pub const FUNCTIONS: &[Function] = &[
     },
     Function {
         name: "spawn",
-        args: &[value("fn", "fun()", "the task's function")],
-        returns: &[],
-        about: "Starts fn as a task of its own, from a handler or a task, and returns as soon as fn first waits or ends.",
+        args: &[value("fn", "fun(...): T", "the task's function"), value("...", "any", "what fn is called with")],
+        returns: &[value("task", "eu4.Task<T>", "the task, to await, cancel or ask whether it is done")],
+        about: "Starts fn as a task of its own, from a handler or a task, and returns its task as soon as fn first waits or ends.",
         waits: false,
+        permission: None,
+    },
+    Function {
+        name: "async",
+        args: &[value("fn", "fun(...): T", "the tasks' function")],
+        returns: &[value("start", "fun(...): eu4.Task<T>", "a function that starts fn as a task with what it is called with, and returns the task")],
+        about: "Makes fn an async function, as JavaScript's: each call starts it as a task, as spawn does.",
+        waits: false,
+        permission: None,
+    },
+    Function {
+        name: "await_all",
+        args: &[value("tasks", "eu4.Task[]", "the tasks")],
+        returns: &[value("results", "any[]", "each task's first result, in the order of tasks")],
+        about: "Waits until every task has ended, as Promise.all; the first task found failed or cancelled raises its error here.",
+        waits: true,
+        permission: None,
+    },
+    Function {
+        name: "await_any",
+        args: &[value("tasks", "eu4.Task[]", "at least one task")],
+        returns: &[value("index", "integer", "the place in tasks of the first to end"), value("...", "any", "what its function returned")],
+        about: "Waits until one of the tasks has ended, as Promise.race; one that failed or was cancelled raises its error here.",
+        waits: true,
         permission: None,
     },
     Function {
@@ -398,7 +422,37 @@ pub const FUNCTIONS: &[Function] = &[
 
 /// The globals the framework puts in the sandbox, besides Lua's own and the
 /// `game` its handlers get: each a function or a table of them.
-pub const GLOBALS: &[&str] = &["log", "print", "json", "mod_files", "text", "require", "spawn", "files", "http"];
+pub const GLOBALS: &[&str] = &["log", "print", "json", "mod_files", "text", "require", "spawn", "async", "await_all", "await_any", "files", "http"];
+
+/// A task's methods (ADR tasks-are-awaited-like-promises): what `spawn` and
+/// an async function return, `eu4.Task<T>` in the editor's types, `T` what
+/// its function returns.
+pub const TASK_METHODS: &[Function] = &[
+    Function {
+        name: "await",
+        args: &[],
+        returns: &[value("...", "T", "what the task's function returned")],
+        about: "Waits until the task has ended and returns what its function returned; an error it raised is raised again here, and a cancelled task raises one whose code is cancelled. Catch either with pcall(t.await, t).",
+        waits: true,
+        permission: None,
+    },
+    Function {
+        name: "cancel",
+        args: &[],
+        returns: &[],
+        about: "Ends the task at the wait it is in, or at its next; nothing it asked of the game is taken back, and an answer still to come is dropped. Nothing for a task that has ended.",
+        waits: false,
+        permission: None,
+    },
+    Function {
+        name: "done",
+        args: &[],
+        returns: &[value("done", "boolean", "whether it has ended: returned, failed or been cancelled")],
+        about: "Whether the task has ended.",
+        waits: false,
+        permission: None,
+    },
+];
 
 /// What Lua has in the sandbox of its own.
 pub const SANDBOX: &str = "Lua 5.4 with its string, table, math, utf8 and coroutine libraries and the base library, \

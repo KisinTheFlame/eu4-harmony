@@ -1,8 +1,10 @@
 //! `extensions`: extensions that go wrong, in the real game, on the player
 //! build (docs/plans/whole-game.md). Four test mods are in its test game's
 //! playset (`mods/`): `qa-steady` counts the days and keeps its count as
-//! save data, `qa-failing` raises errors, `qa-looping` loops without end and
-//! `qa-hungry` runs into the memory limit.
+//! save data, `qa-failing` raises errors, `qa-looping` loops without end,
+//! `qa-hungry` runs into the memory limit and `qa-tasks` tries tasks, game
+//! days, the script group and the reads in each session, writing a line for
+//! each check.
 //!
 //! From the main menu it starts a new game as the country, lets days run,
 //! writes the autosave and loads it in the game, reloads `qa-steady` again
@@ -10,8 +12,10 @@
 //! reads the extensions' logs: `qa-steady` counted every day and got its
 //! count back after the load and each reload; `qa-failing` logged its error
 //! and was not stopped; `qa-looping` was stopped by the time limit, then for
-//! good; `qa-hungry` was refused memory and was not stopped. The date went
-//! on through all of it.
+//! good; `qa-hungry` was refused memory and was not stopped; `qa-tasks`
+//! passed each of its checks in both sessions, the task it left waiting at
+//! the first one's end raising cancelled in the second, and failed none. The
+//! date went on through all of it.
 use super::{game::days_between, logs::Mark, text, Build, Game, Parameter, Parameters, Played, Scenario, Stop};
 use eu4_harmony_remote::{
     extensions::{ExtensionRequest, Reloaded},
@@ -26,7 +30,10 @@ pub struct Extensions;
 
 /// The test mods, by their folders' names under `mods/`, which are their
 /// ids too.
-const MODS: [&str; 4] = ["qa-steady", "qa-failing", "qa-looping", "qa-hungry"];
+const MODS: [&str; 5] = ["qa-steady", "qa-failing", "qa-looping", "qa-hungry", "qa-tasks"];
+
+/// What `qa-tasks` checks in each session, as its lines name them.
+const TASK_CHECKS: [&str; 8] = ["wait", "all", "any", "cancel", "error", "async", "script", "reads"];
 
 impl Scenario for Extensions {
     fn name(&self) -> &'static str {
@@ -83,7 +90,7 @@ impl Scenario for Extensions {
         game.return_to_menu()?;
 
         let lines: Vec<Vec<String>> = MODS.iter().zip(&marks).map(|(m, mark)| mark.since(&log(m))).collect();
-        let [steady, failing, looping, hungry] = [&lines[0], &lines[1], &lines[2], &lines[3]];
+        let [steady, failing, looping, hungry, tasks] = [&lines[0], &lines[1], &lines[2], &lines[3], &lines[4]];
         let elapsed = days_between(began.date, end.date);
         // Each day qa-steady heard: its count and the date. The first day of
         // a session is heard at the session's own date, so the date of the
@@ -104,6 +111,13 @@ impl Scenario for Extensions {
         let time_limit = looping.iter().filter(|l| l.contains("more than 1 s without waiting")).count();
         let stopped_for_good = looping.iter().any(|l| l.starts_with("stopped:") && l.contains("ran past the time limit"));
         let refused = hungry.iter().filter(|l| l.contains("qa-hungry: false") && l.contains("memory")).count();
+        // qa-tasks: each check passed in both sessions, the task left
+        // waiting at the first one's end raised cancelled in the second, and
+        // none failed.
+        let passed = |name: &str| tasks.iter().filter(|l| l.as_str() == format!("qa-tasks ok {name}")).count();
+        let short: Vec<&str> = TASK_CHECKS.iter().copied().filter(|c| passed(c) < 2).collect();
+        let dropped = passed("dropped");
+        let task_failures: Vec<&String> = tasks.iter().filter(|l| l.starts_with("qa-tasks FAIL")).collect();
         // Stopped for good; the time limit's own error says "stopped" too.
         let stopped = |lines: &[String]| lines.iter().any(|l| l.starts_with("stopped:"));
         *record = json!({
@@ -113,6 +127,8 @@ impl Scenario for Extensions {
             "failing_errors": errors, "failing_wrong_calls": wrong_calls, "failing_stopped": stopped(failing),
             "looping_time_limit": time_limit, "looping_stopped_for_good": stopped_for_good,
             "hungry_refused": refused, "hungry_stopped": stopped(hungry),
+            "tasks_checks_passed": TASK_CHECKS.iter().map(|c| passed(c)).sum::<usize>(), "tasks_short": short, "tasks_dropped": dropped,
+            "tasks_failed": task_failures, "tasks_stopped": stopped(tasks),
             "logs": MODS.iter().zip(&lines).map(|(m, l)| (m.to_string(), json!(l.iter().rev().take(5).rev().collect::<Vec<_>>()))).collect::<serde_json::Map<_, _>>(),
         });
         game.check(
@@ -143,6 +159,13 @@ impl Scenario for Extensions {
             refused >= 1 && !stopped(hungry),
             format!("qa-hungry was refused memory {refused} times and was {}stopped", if stopped(hungry) { "" } else { "not " }),
         )?;
+        game.check(
+            short.is_empty() && dropped == 1 && task_failures.is_empty() && !stopped(tasks),
+            format!(
+                "qa-tasks passed every check twice but {short:?}, the left task's cancel {dropped} times, failed {task_failures:?} and was {}stopped",
+                if stopped(tasks) { "" } else { "not " }
+            ),
+        )?;
         Ok(())
     }
 
@@ -165,6 +188,11 @@ impl Scenario for Extensions {
             row("qa-looping stopped for good", "looping_stopped_for_good"),
             row("qa-hungry refused memory", "hungry_refused"),
             row("qa-hungry stopped", "hungry_stopped"),
+            row("qa-tasks' checks passed, both sessions", "tasks_checks_passed"),
+            row("qa-tasks' checks not passed twice", "tasks_short"),
+            row("qa-tasks' left task raised cancelled in the next session", "tasks_dropped"),
+            row("qa-tasks' checks failed", "tasks_failed"),
+            row("qa-tasks stopped", "tasks_stopped"),
         ];
         if let Some(logs) = record["logs"].as_object() {
             md.extend([String::new(), "The last lines of each log:".into(), String::new(), "```text".into()]);

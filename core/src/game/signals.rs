@@ -1,7 +1,7 @@
 //! When extensions run, and what they hear about.
 //!
 //! * The map manager's frame (also while paused) is the safe point in a game
-//!   (`crate::safe_point`): the core dispatches every queued event and
+//!   (`crate::safe_point`): the core dispatches every queued signal and
 //!   `on_frame` there, and remote control runs.
 //! * Visibility is "current" only after a complete fog-of-war refresh with no
 //!   daily update or external change since; `on_day` waits for that.
@@ -24,7 +24,7 @@ use crate::{
     points::Point,
     Result,
 };
-use eu4_harmony_remote::events::Kind;
+use eu4_harmony_remote::signals::Kind;
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::sync::Mutex;
@@ -284,10 +284,10 @@ fn route_after(call: &mut Call) {
     }
 }
 
-/// Which kinds of event someone listens to: those an extension has a
+/// Which kinds of signal someone listens to: those an extension has a
 /// handler for, and those a remote client has read in this process (every
 /// kind once one read them all). A kind nobody listens to is not worked out
-/// (docs/plans/player-actions.md, "Events").
+/// (docs/plans/player-actions.md, "Signals").
 #[derive(Default)]
 struct Listening {
     extensions: BTreeSet<Kind>,
@@ -302,7 +302,7 @@ fn listening<T>(f: impl FnOnce(&mut Listening) -> T) -> T {
     f(guard.get_or_insert_with(Listening::default))
 }
 
-/// Whether anyone listens to events of `kind`.
+/// Whether anyone listens to signals of `kind`.
 pub fn listened(kind: Kind) -> bool {
     listening(|l| l.remote_all || l.remote.contains(&kind) || l.extensions.contains(&kind))
 }
@@ -312,7 +312,7 @@ pub fn extensions_listen(kinds: BTreeSet<Kind>) {
     listening(|l| l.extensions = kinds);
 }
 
-/// A remote client read events of the kinds named `kinds`, or of every
+/// A remote client read signals of the kinds named `kinds`, or of every
 /// kind. A name no kind has, which the read refuses, is none.
 pub fn read_remotely(kinds: Option<&[String]>) {
     listening(|l| match kinds {
@@ -366,7 +366,7 @@ fn defeat_before(call: &mut Call) {
     })();
     match result {
         Ok(ids) => ids.into_iter().for_each(|id| record(Change::Defeated(id))),
-        Err(e) => log!("events: {e}"),
+        Err(e) => log!("signals: {e}"),
     }
 }
 
@@ -381,10 +381,10 @@ fn results_before(call: &mut Call) {
     if back == m.at(UNIT_TAKEN_OUT) {
         return;
     }
-    match super::event_costs::BATTLES.time(|| battle(m, a[0], a[1] & 255 == 0)) {
+    match super::signal_costs::BATTLES.time(|| battle(m, a[0], a[1] & 255 == 0)) {
         Ok(Some(battle)) => record(Change::Battle(battle)),
         Ok(None) => {}
-        Err(e) => log!("events: battle: {e}"),
+        Err(e) => log!("signals: battle: {e}"),
     }
 }
 
@@ -424,7 +424,7 @@ fn manager_after(call: &mut Call) {
     }
 }
 
-/// The frame, fog, daily and command functions that drive events.
+/// The frame, fog, daily and command functions that drive signals.
 pub fn points() -> Vec<Point> {
     vec![
         Point::observe(FOW_REFRESH, "48 89 5c 24 08 55 56 57 41 54 41 55 41 56 41 57", "fog of war refresh", 0, Some(fow_before), Some(fow_after)),

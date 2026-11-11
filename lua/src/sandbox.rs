@@ -1,8 +1,9 @@
 //! An extension's Lua state: the sandbox (ADR extensions-are-lua-in-a-sandbox)
 //! and what the host puts in it. Lua's own string, table, math, utf8 and
 //! coroutine libraries, the base library without loading files or bytecode,
-//! `os.clock`; the framework's globals `log`, `json`, `mod_files`, `text` and
-//! `spawn`, and `require` for the mod's own modules; the sensitive capabilities
+//! `os.clock`; the framework's globals `log`, `json`, `mod_files`, `text`, and
+//! the tasks' `spawn`, `async`, `await_all` and `await_any`, which the prelude
+//! builds, and `require` for the mod's own modules; the sensitive capabilities
 //! (ADR sensitive-capabilities-are-declared) `os.time` and `os.date`, `files`
 //! and `http`, which raise an error where the manifest does not declare them;
 //! and `game`.
@@ -27,6 +28,9 @@ pub struct Opened {
     pub game: Table,
     /// The prelude's own function that runs a pop-up's button's action.
     pub press: Function,
+    /// The prelude's own function that marks a dropped task's handle
+    /// cancelled.
+    pub dropped: Function,
     pub wait: LuaValue,
     /// The state's main thread, for the time limit on plain calls.
     pub main_state: *const c_void,
@@ -173,19 +177,24 @@ pub fn open(at: &Opening) -> mlua::Result<Opened> {
         })?,
     )?;
 
-    // spawn: a task of its own (ADR handlers-run-as-tasks-that-can-wait).
-    globals.set(
-        "spawn",
-        lua.create_function(move |lua, function: Function| {
-            if !super::running(serial) {
-                return Err(mlua::Error::runtime("spawn: a task is started only from a handler, not at the top of main.lua"));
-            }
-            match super::extension_of(lua) {
-                Some(e) => e.spawn(function),
-                None => Err(mlua::Error::runtime("spawn: the extension is not loaded")),
-            }
-        })?,
-    )?;
+    // spawn, async, await_all and await_any, which the prelude builds on
+    // these: a task of its own and its handle, cancelling it, and waiting for
+    // tasks to end (ADR tasks-are-awaited-like-promises).
+    let start = lua.create_function(move |lua, (handle, runner): (Table, Function)| {
+        if !super::running(serial) {
+            return Err(mlua::Error::runtime("spawn: a task is started only from a handler or a task, not at the top of main.lua"));
+        }
+        match super::extension_of(lua) {
+            Some(e) => e.spawn(handle, runner),
+            None => Err(mlua::Error::runtime("spawn: the extension is not loaded")),
+        }
+    })?;
+    let cancel = lua.create_function(|lua, handle: Table| {
+        if let Some(e) = super::extension_of(lua) {
+            e.cancel(&handle);
+        }
+        Ok(())
+    })?;
 
     // files: the extension's data folder.
     globals.set("files", files::table(&lua, at.m.data.clone(), permissions.files)?)?;
@@ -230,7 +239,15 @@ pub fn open(at: &Opening) -> mlua::Result<Opened> {
         super::watch::resumed(co.to_pointer());
         Ok(())
     })?;
-    let (game, press): (Table, Function) = lua.load(include_str!("prelude.lua")).set_name("@prelude").call((
+    // Waiting for any of some tasks to end: the wait sentinel and its number.
+    let at_await = calling.clone();
+    let awaiting = lua.create_function(move |_, handles: Vec<Table>| {
+        if !super::running(at_await.serial) {
+            return Err(mlua::Error::runtime("a task is awaited only from a handler or a task"));
+        }
+        Ok(Waits::keep(&at_await.waits, &at_await.wait, super::Waiting::Tasks(handles)))
+    })?;
+    let (game, press, dropped): (Table, Function, Function) = lua.load(include_str!("prelude.lua")).set_name("@prelude").call((
         call,
         wait.clone(),
         task,
@@ -242,6 +259,9 @@ pub fn open(at: &Opening) -> mlua::Result<Opened> {
         window,
         popup,
         close_popup,
+        start,
+        cancel,
+        awaiting,
     ))?;
     let map = lua.create_table()?;
     let at_paint = calling.clone();
@@ -261,7 +281,7 @@ pub fn open(at: &Opening) -> mlua::Result<Opened> {
     )?;
     game.set("map", map)?;
     let main_state = main_state(&lua);
-    Ok(Opened { lua, game, press, wait, main_state })
+    Ok(Opened { lua, game, press, dropped, wait, main_state })
 }
 
 /// The state's main thread, a `lua_State*`.

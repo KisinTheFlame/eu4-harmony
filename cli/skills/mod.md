@@ -17,13 +17,13 @@ steps:
 
 1. Create it: eu4-harmony new <id> --name "<display name>". Done when the
    folder has descriptor.mod and eu4-harmony/manifest.toml.
-2. Write main.lua. It returns a table of handlers, one per event the mod
+2. Write main.lua. It returns a table of handlers, one per signal the mod
    hears (eu4-harmony wiki lua lists them); keep ---@type eu4.Handlers above
    it so the editor checks every capability call. Each handler gets game and
    reaches the game only through it: game.<group>.<name>(...), as
    eu4-harmony wiki <group> <name> shows. Test every result: a capability
    returns nil, err when the game refuses, and the handler goes on from
-   there. Done when every event the mod needs has its handler and every
+   there. Done when every signal the mod needs has its handler and every
    result is tested.
 3. Declare what the mod uses beyond the game, if anything: the real time,
    files of its own, HTTP. Add permissions to the manifest

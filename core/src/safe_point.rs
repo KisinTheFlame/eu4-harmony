@@ -2,7 +2,7 @@
 //! game's main thread, and what they hear there, in one order:
 //!
 //! * In a game, after the map manager's frame, also while paused
-//!   (`game::events`): extensions hear what happened, then remote control
+//!   (`game::signals`): extensions hear what happened, then remote control
 //!   keeps it and runs.
 //! * Just before the main thread presents a frame (`framework_ui::hook`), when
 //!   remote control did not run at a game frame since the last one. It runs
@@ -28,7 +28,7 @@
 //! and in what order:
 //!
 //! - A session's end, as the sessions tell it, while its state is still the
-//!   game's: remote control first, which keeps it as an event, and its
+//!   game's: remote control first, which keeps it as a signal, and its
 //!   requests sent from then on belong to the next session; then the
 //!   extensions, whose handlers may change the game. A listener that cannot
 //!   hear it then, an extension inside a call of its own (a console command
@@ -189,12 +189,12 @@ pub fn game_frame() {
                     panic!("the test switch panic is on");
                 }
             }
-            let mut heard = game::event_costs::EVENTS.time(|| frame.heard());
+            let mut heard = game::signal_costs::SIGNALS.time(|| frame.heard());
             // The pop-ups extensions showed since the last frame.
             heard.extend(
                 crate::windows::take_shown()
                     .into_iter()
-                    .map(|(popup, from)| game::Heard { event: eu4_harmony_remote::events::Event::Popup { popup, from }, seen: true }),
+                    .map(|(popup, from)| game::Heard { signal: eu4_harmony_remote::signals::Signal::Popup { popup, from }, seen: true }),
             );
             LISTENERS.frame(frame.session(), &heard);
         }
@@ -229,7 +229,7 @@ pub fn presented() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eu4_harmony_remote::events::Event;
+    use eu4_harmony_remote::signals::Signal;
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
@@ -264,8 +264,8 @@ mod tests {
         }
 
         fn frame(&self, session: u64, heard: &[Heard]) {
-            let events: Vec<String> = heard.iter().map(|h| h.event.kind().to_string()).collect();
-            self.log.borrow_mut().push(format!("{} frame {session} [{}]", self.name, events.join(" ")));
+            let signals: Vec<String> = heard.iter().map(|h| h.signal.kind().to_string()).collect();
+            self.log.borrow_mut().push(format!("{} frame {session} [{}]", self.name, signals.join(" ")));
             if let Some(during) = self.during_frame.borrow().as_ref() {
                 during();
             }
@@ -277,7 +277,7 @@ mod tests {
     }
 
     fn began(session: u64) -> Vec<Heard> {
-        vec![Heard { event: Event::Session { session }, seen: true }]
+        vec![Heard { signal: Signal::Session { session }, seen: true }]
     }
 
     #[test]

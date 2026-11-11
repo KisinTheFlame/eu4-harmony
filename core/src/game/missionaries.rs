@@ -166,6 +166,7 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
 
     #[test]
@@ -228,7 +229,7 @@ mod tests {
             .points_to(POOLS, buffers::envoys(vec![(Kind::Missionary, vec![buffers::envoy(true, 0), buffers::envoy(false, 0)])]))
             .i32(AUTOMATIC, automatic);
         let countries = Object::countries(&[&france]);
-        let session = buffers::session(image.memory(), provinces.world(), fra, france.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), provinces.world(), fra, france.at(), countries.at(), Caller::Remote(As::Player));
         France { _image: image, _provinces: provinces, _objects: vec![missionary, france, countries], session }
     }
 

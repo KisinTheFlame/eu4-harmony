@@ -17,7 +17,7 @@
 //!   than the last. Sessions are numbered here, and only here. What the
 //!   capability layer keeps of the last frame's session, its map, routes
 //!   and wars, and the changes it collected for it, is let go (`game`,
-//!   `game::events`), and the map's coloring put back (`crate::map`), before
+//!   `game::signals`), and the map's coloring put back (`crate::map`), before
 //!   anything hears that session ended. The last day and the country in
 //!   view the session's frames showed are forgotten by the frame that sees
 //!   the new session (`game::frame`).
@@ -32,7 +32,7 @@
 //!   that one first, for another country when nothing was read or reset since
 //!   (the game console's `tag`).
 //! - The campaign changes, as a save begins to be read: the capability
-//!   layer forgets the old one (`game::events`), routes turned off for the
+//!   layer forgets the old one (`game::signals`), routes turned off for the
 //!   old world come back (`game::orders`), and remote control's requests
 //!   sent from then on belong to the next session.
 //! - The world reset, every time the game resets it: at startup, before every
@@ -76,8 +76,8 @@ pub enum End {
 
 impl End {
     /// What remote control and extensions are told the session ended for.
-    pub fn reason(self) -> eu4_harmony_remote::events::SessionEnd {
-        use eu4_harmony_remote::events::SessionEnd;
+    pub fn reason(self) -> eu4_harmony_remote::signals::SessionEnd {
+        use eu4_harmony_remote::signals::SessionEnd;
         match self {
             End::Return => SessionEnd::Return,
             End::Load => SessionEnd::Load,
@@ -86,9 +86,9 @@ impl End {
         }
     }
 
-    /// The event extensions and remote control hear it by.
-    pub fn event(self) -> eu4_harmony_remote::events::Event {
-        eu4_harmony_remote::events::Event::SessionEnded { reason: self.reason() }
+    /// The signal extensions and remote control hear it by.
+    pub fn signal(self) -> eu4_harmony_remote::signals::Signal {
+        eu4_harmony_remote::signals::Signal::SessionEnded { reason: self.reason() }
     }
 }
 
@@ -298,17 +298,17 @@ fn tell(happened: Vec<Happening>) {
         match happening {
             Happening::Forgotten(_) => {
                 game::session_forgotten();
-                game::events::session_forgotten();
+                game::signals::session_forgotten();
                 crate::map::reset_session();
             }
             Happening::Began(_) => game::input::session_began(),
             Happening::Ended(session, end) => {
                 log!("session {session} ending ({end:?})");
-                game::event_costs::log_session();
+                game::signal_costs::log_session();
                 crate::safe_point::session_ended(end);
             }
             Happening::CampaignChanges => {
-                game::events::load_begin();
+                game::signals::load_begin();
                 game::orders::world_replaced();
                 crate::remote::campaign_changes();
             }
@@ -319,7 +319,7 @@ fn tell(happened: Vec<Happening>) {
             }
             Happening::FirstFrameAfterReset => crate::repairs::first_frame_after_reset(&crate::hooked_memory()),
             Happening::ResetWithHistory => {
-                game::events::world_reset();
+                game::signals::world_reset();
                 game::orders::world_replaced();
                 crate::repairs::after_history(&crate::hooked_memory());
             }

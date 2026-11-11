@@ -553,5 +553,5 @@ The framework calls extensions and remote control from the in-game frame, after 
 - Whether TBB's `parallel_for` is ever taken by default, and which settings set `[0x2357b34]` and `[0x1fd10f2]`.
 - The session's modes (`+0x50`), and whether `0x157b1a0` sends executed commands to the other players or records them for a replay.
 - Several steps of the day's body (`world+0x21b0`, the map's `+0x6a8`, `0xacfae0`) and what the parallel country passes do.
-- Where a scope keeps its root and from, where `[Root.GetName]` in localisation is evaluated, where variables are kept, and where a country's modifiers are summed and cached.
+- Where a scope keeps its root and from, where `[Root.GetName]` in localisation is evaluated, and where a country's modifiers are summed and cached. Where flags and variables are kept is [scripts.md](scripts.md).
 - How an army's 3D entity is made and moved on the map; which OGG decoder plays the music.

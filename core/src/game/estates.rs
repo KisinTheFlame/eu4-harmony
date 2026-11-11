@@ -1,7 +1,7 @@
-//! Estates: the player's estates, their privileges and the estates view's
-//! interactions over crown land, granting and revoking privileges and the
-//! interactions, through the game's own commands
-//! (docs/research/government.md, "Estates").
+//! Estates: the player's estates, their privileges, the estates view's
+//! interactions over crown land and the agenda an estate pursues, granting
+//! and revoking privileges and the interactions, through the game's own
+//! commands (docs/research/government.md, "Estates").
 use super::content::checks;
 use super::{action, conditions, content, modifiers, thousandths, GResult, Session, Tag};
 use crate::containers;
@@ -14,7 +14,7 @@ use crate::{
 use eu4_harmony_remote::estates::args;
 use eu4_harmony_remote::{
     choices::Choice,
-    estates::{Estate, EstateInteraction, Privilege},
+    estates::{AgendaInProgress, Estate, EstateAgenda, EstateInteraction, Privilege},
 };
 
 use crate::objects::campaign::country::ESTATES;
@@ -56,6 +56,18 @@ const INTERACTION: usize = 0x128;
 const INTERACTION_KEY: usize = 0x18;
 const CAN_INTERACT: GameFunction<3> = GameFunction::at(0x4128b0);
 const MOST: usize = 10_000;
+/// The agenda in progress (country `+0x21c8`, null for none): its
+/// definition, the day it expires, its estate, and its own scope, which
+/// keeps the provinces and countries its script picked (`agenda_province`).
+const ACTIVE_AGENDA: usize = 0x21c8;
+const ACTIVE_DEFINITION: usize = 0x0;
+const ACTIVE_EXPIRES: usize = 0x8;
+const ACTIVE_ESTATE: usize = 0x10;
+const ACTIVE_SCOPE: usize = 0x18;
+/// An agenda's key and its requirements (`task_requirements`), a block of
+/// conditions.
+const AGENDA_KEY: usize = 0x18;
+const AGENDA_REQUIREMENTS: usize = 0x38;
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -82,6 +94,21 @@ pub fn points() -> Vec<Point> {
         Point::keep(INFLUENCE, "48 89 5c 24 18 57 48 83 ec 20 48 8b da 48 8b f9", "estate influence getter"),
         Point::keep(CROWN_LAND, "48 89 5c 24 18 48 89 74 24 20 57 48 83 ec 20 48", "crown land getter"),
         Point::keep(CAN_INTERACT, "48 89 5c 24 18 55 56 57 41 56 41 57", "crown land interaction check"),
+        // The country's writer of its agenda in progress, and the agenda
+        // command's check, which refuses a country pursuing one.
+        Point::keep(0x2ddca5usize, "49 8d 8f c8 21 00 00", "country agenda in progress").uses(&[ACTIVE_AGENDA]),
+        Point::keep(0x2c2362usize, "48 83 b9 c8 21 00 00 00", "agenda command's check").uses(&[ACTIVE_AGENDA]),
+        // The agenda in progress's writer: its agenda by key, its estate by
+        // key, its scope and the day it expires.
+        Point::keep(0x42061ausize, "48 83 7b 30 10 48 8d 53 18", "agenda key").uses(&[AGENDA_KEY]),
+        Point::keep(0x420636usize, "48 8b 5e 10", "agenda estate").uses(&[ACTIVE_ESTATE]),
+        Point::keep(0x42064cusize, "48 83 7b 28 10 48 8d 53 10", "agenda estate key").uses(&[ESTATE_KEY]),
+        Point::keep(0x420675usize, "48 8b 46 18 48 8d 4e 18", "agenda scope").uses(&[ACTIVE_SCOPE]),
+        Point::keep(0x420683usize, "4c 8d 46 08", "agenda expiry").uses(&[ACTIVE_EXPIRES]),
+        // The agenda's constructor: its first block of conditions, which its
+        // reader fills from `task_requirements` (at the block's `+0x38`).
+        Point::keep(0x72509fusize, "48 8d 5f 38", "agenda requirements").uses(&[AGENDA_REQUIREMENTS]),
+        Point::keep(0x7254eeusize, "48 8b 41 70 48 83 c1 70", "agenda requirements reader").uses(&[AGENDA_REQUIREMENTS + 0x38]),
     ]
 }
 
@@ -211,6 +238,32 @@ fn find(m: &Memory, country: usize, estate: &str, privilege: &str) -> GResult<(u
     Err(checks::not_found("estate", estate))
 }
 
+/// The agenda an estate of the player's pursues, as the estates view shows
+/// it: whether its requirements hold, in the agenda's own scope.
+pub fn agenda(Session { m, ctx, .. }: Session) -> GResult<AgendaInProgress> {
+    let active = m.ptr(ctx.country + ACTIVE_AGENDA)?;
+    if active == 0 {
+        return Ok(AgendaInProgress { agenda: None });
+    }
+    let definition = m.ptr(active + ACTIVE_DEFINITION)?;
+    let estate = m.ptr(active + ACTIVE_ESTATE)?;
+    if definition == 0 || estate == 0 {
+        return Err("an agenda in progress with no agenda or estate".to_string().into());
+    }
+    let key = game_string::key(m, definition + AGENDA_KEY)?;
+    let (met, unmet) = conditions::Scope::copy(m, active + ACTIVE_SCOPE)?.check(definition + AGENDA_REQUIREMENTS)?;
+    Ok(AgendaInProgress {
+        agenda: Some(EstateAgenda {
+            estate: game_string::key(m, estate + ESTATE_KEY)?,
+            name: content::name(m, &key)?,
+            agenda: key,
+            expires: eu4_harmony_remote::Date(m.i32(active + ACTIVE_EXPIRES)?),
+            met,
+            unmet,
+        }),
+    })
+}
+
 /// The grant and revoke commands: the country, the estate and the privilege
 /// by their indices.
 fn written(command: &str, country: Tag, estate: usize, privilege: usize) -> String {
@@ -269,10 +322,12 @@ crate::catalogue::bind! {
     GrantPrivilege => grant_privilege;
     RevokePrivilege => revoke_privilege;
     Interact => interact;
+    Agenda => agenda;
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
 
     #[test]
@@ -312,7 +367,7 @@ mod tests {
         let begin = entry.at() as u64;
         let country = Object::country(fra, ESTATES + 0x10).points_to(ESTATES, entry).u64(ESTATES + 8, begin + ENTRY as u64);
         let countries = Object::countries(&[&country]);
-        let session = buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote);
+        let session = buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote(As::Player));
         France { _image: image, _objects: vec![country, countries, land, army], session }
     }
 

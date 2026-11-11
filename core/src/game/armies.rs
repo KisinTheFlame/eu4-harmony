@@ -6,7 +6,7 @@
 //! army back from the extension that was moving it, and extensions hear that
 //! the player gave the army an order, exactly once
 //! (ADR remote-control-uses-capabilities).
-use super::{army, events, orders, with_state, Caller, GResult, Session, Tag, View};
+use super::{army, orders, player::Eyes, signals, thousandths, with_state, Caller, GResult, Session, Tag, View};
 use crate::{memory::Memory, objects::campaign::unit};
 use eu4_harmony_checks::armies as checks;
 use eu4_harmony_remote::armies::{self as remote, args, ArmyKind, Blocked, RouteBy};
@@ -72,8 +72,55 @@ impl Army {
     }
 }
 
+/// What a capability tells of an army's units beyond its record: its
+/// regiments by kind, their strength, its morale, its leader and what it
+/// costs, the last only where the caller sees its owner's budget.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Detail {
+    units: remote::Units,
+    strength: i32,
+    max_strength: i32,
+    morale: i32,
+    max_morale: i32,
+    leader: Option<u32>,
+    maintenance: Option<i32>,
+}
+
+impl Detail {
+    /// Of the unit at `unit`; its maintenance only `with_maintenance`.
+    fn of(m: &Memory, unit: usize, with_maintenance: bool) -> GResult<Self> {
+        let mut units = remote::Units::default();
+        let (mut strength, mut max_strength) = (0i32, 0i32);
+        for r in army::regiments_of(m, unit)? {
+            use super::provinces::UnitKind as K;
+            let count = match r.kind {
+                K::Infantry => &mut units.infantry,
+                K::Cavalry => &mut units.cavalry,
+                K::Artillery => &mut units.artillery,
+                K::HeavyShip => &mut units.heavy_ship,
+                K::LightShip => &mut units.light_ship,
+                K::Galley => &mut units.galley,
+                K::Transport => &mut units.transport,
+            };
+            *count += 1;
+            strength = strength.saturating_add(r.strength);
+            max_strength = max_strength.saturating_add(r.max_strength);
+        }
+        let (morale, max_morale) = army::morale(m, unit)?;
+        Ok(Self {
+            units,
+            strength,
+            max_strength,
+            morale,
+            max_morale,
+            leader: super::leaders::leading(m, unit)?,
+            maintenance: if with_maintenance { Some(army::maintenance(m, unit)?) } else { None },
+        })
+    }
+}
+
 /// An army as a capability answers it, with its route and who set it.
-fn shown(a: &Army, route: Vec<ProvinceId>, source: RouteSource) -> remote::Army {
+fn shown(a: &Army, detail: Detail, route: Vec<ProvinceId>, source: RouteSource) -> remote::Army {
     let blocked = [
         (a.in_battle, Blocked::InBattle),
         (a.sieging, Blocked::Sieging),
@@ -102,6 +149,13 @@ fn shown(a: &Army, route: Vec<ProvinceId>, source: RouteSource) -> remote::Army 
         },
         aboard: a.aboard.map(ArmyId),
         carrying: a.carrying,
+        units: detail.units,
+        strength: thousandths(detail.strength),
+        max_strength: thousandths(detail.max_strength),
+        morale: thousandths(detail.morale),
+        max_morale: thousandths(detail.max_morale),
+        leader: detail.leader,
+        maintenance: detail.maintenance.map(thousandths),
     }
 }
 
@@ -110,7 +164,7 @@ fn own(m: &Memory, caller: Caller, address: usize, id: u64) -> GResult<remote::A
     let army = army::record(m, &super::special_countries(m)?, address)?;
     let route = orders::read_path(m, address + unit::PATH)?.ids.into_iter().map(ProvinceId).collect();
     let source = with_state(|s| s.orders.route_source(m, address, id, caller))?;
-    Ok(shown(&army, route, source))
+    Ok(shown(&army, Detail::of(m, address, true)?, route, source))
 }
 
 /// One of the player's armies or fleets, with its route.
@@ -119,6 +173,24 @@ pub fn get(Session { m, ctx, caller, .. }: Session, args::Get { army: ArmyId(id)
         return Err(checks::not_own(id).into());
     };
     own(m, caller, address, id)
+}
+
+/// The regiments of one of the player's armies, or a fleet's ships.
+pub fn regiments(Session { m, ctx, .. }: Session, args::Regiments { army: ArmyId(id) }: args::Regiments) -> GResult<Vec<remote::Regiment>> {
+    let Some((_, address, _)) = army::roster(m, &ctx)?.into_iter().find(|(i, _, _)| *i == id) else {
+        return Err(checks::not_own(id).into());
+    };
+    Ok(army::regiments_of(m, address)?
+        .into_iter()
+        .map(|r| remote::Regiment {
+            id: r.number,
+            name: r.name,
+            kind: r.kind.into(),
+            unit_type: r.unit_type,
+            strength: thousandths(r.strength),
+            morale: thousandths(r.morale),
+        })
+        .collect())
 }
 
 /// All the player's armies and fleets, each with its route.
@@ -131,7 +203,7 @@ pub fn list(Session { m, ctx, caller, .. }: Session) -> GResult<Vec<remote::Army
 /// and of another country's only whether it fights, besieges or retreats,
 /// which the map shows; in the full view every one, as the game keeps it.
 pub fn in_province(Session { m, ctx, view, .. }: Session, args::At { province: ProvinceId(province) }: args::At) -> GResult<Vec<remote::Army>> {
-    if view == View::Player && !events::visibility_current(m, &ctx) {
+    if view == View::Player && !signals::visibility_current(m, &ctx) {
         return Err(checks::visibility_not_current().into());
     }
     let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
@@ -139,7 +211,11 @@ pub fn in_province(Session { m, ctx, view, .. }: Session, args::At { province: P
         true => Army { exiled: false, movement_locked: false, attached: false, has_followers: false, busy: false, ..a },
         false => a,
     };
-    Ok(army::in_province(m, &ctx, address, view)?.into_iter().map(|(a, _)| shown(&seen(a), Vec::new(), RouteSource::None)).collect())
+    let eyes = Eyes::acting(view, ctx.player);
+    army::in_province(m, &ctx, address, view)?
+        .into_iter()
+        .map(|(a, unit)| Ok(shown(&seen(a), Detail::of(m, unit, eyes.sees_inside(Some(a.owner)))?, Vec::new(), RouteSource::None)))
+        .collect()
 }
 
 /// Whether an own land army may enter a province now (military access and
@@ -158,7 +234,7 @@ pub fn strait_open(Session { m, ctx, .. }: Session, id: u64, from: u32, to: u32)
 
 /// Whether an own land army may attack a visible army in `province`.
 pub fn can_attack(Session { m, ctx, .. }: Session, id: u64, target: u64, province: u32) -> GResult<bool> {
-    if !events::visibility_current(m, &ctx) {
+    if !signals::visibility_current(m, &ctx) {
         return Err(checks::visibility_not_current().into());
     }
     let army = army::own_land(m, &ctx, id)?;
@@ -172,7 +248,7 @@ pub fn can_attack(Session { m, ctx, .. }: Session, id: u64, target: u64, provinc
 /// Whether an own land army may attack an army the player sees, wherever
 /// that is.
 pub fn can_attack_seen(Session { m, ctx, .. }: Session, args::CanAttack { army: ArmyId(army), target: ArmyId(target) }: args::CanAttack) -> GResult<bool> {
-    if !events::visibility_current(m, &ctx) {
+    if !signals::visibility_current(m, &ctx) {
         return Err(checks::visibility_not_current().into());
     }
     let army = army::own_land(m, &ctx, army)?;
@@ -210,7 +286,7 @@ pub fn move_to(session: Session, args::Move { army: ArmyId(id), province: Provin
     }
     let army = army::own(m, &ctx, id)?;
     let ordered = with_state(|s| s.orders.move_army(&session, &mut s.geography, army, id, goal))?;
-    ordered.into_iter().for_each(events::raise);
+    ordered.into_iter().for_each(signals::raise);
     Ok(())
 }
 
@@ -219,7 +295,7 @@ pub fn stop(session: Session, args::Stop { army: ArmyId(id) }: args::Stop) -> GR
     let Session { m, ctx, .. } = session;
     let army = army::own_land(m, &ctx, id)?;
     let ordered = with_state(|s| s.orders.stop_army(&session, army, id))?;
-    ordered.into_iter().for_each(events::raise);
+    ordered.into_iter().for_each(signals::raise);
     Ok(())
 }
 
@@ -235,6 +311,7 @@ pub fn points() -> Vec<crate::points::Point> {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
     use crate::catalogue::fake::{byz, tur};
     use crate::game::{
@@ -243,7 +320,7 @@ mod tests {
         Fail, Status,
     };
     use crate::objects::{
-        campaign::{classes, country, globals},
+        campaign::{classes, country, globals, regiment, unit_type},
         list,
     };
     use std::cell::RefCell;
@@ -251,6 +328,21 @@ mod tests {
     thread_local! {
         /// The units the game's lookup finds in this test's thread, by ID.
         static UNITS: RefCell<Vec<(u64, usize)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// The game's morale of a unit, and its most: 2.5 of 3.
+    extern "C" fn morale(_: usize, out: *mut i32, _: usize) -> *mut i32 {
+        unsafe { *out = 2500 };
+        out
+    }
+    extern "C" fn max_morale(_: usize, out: *mut i32, _: usize, _: usize) -> *mut i32 {
+        unsafe { *out = 3000 };
+        out
+    }
+    /// What a unit costs a month: 0.75 ducats.
+    extern "C" fn maintenance(_: usize, out: *mut i32) -> *mut i32 {
+        unsafe { *out = 750 };
+        out
     }
 
     /// The game's lookup of an object by its ID: where a unit keeps it.
@@ -273,12 +365,23 @@ mod tests {
         let image = Image::new();
         let m = image.memory();
         image.function(army::FIND_ID.rva(), find_id as *const ());
+        image.function(army::MORALE.rva(), morale as *const ());
+        for (rva, function) in army::unit_functions(max_morale as *const (), maintenance as *const ()) {
+            image.function(rva, function);
+        }
         for rva in globals::SPECIAL_COUNTRIES {
             image.i32(rva, 0);
         }
         let provinces = Provinces::new(&image, 3);
         provinces.owner(1, tur()).owner(2, byz());
-        let regiment = Object::new(8);
+        // A regiment of infantry at 900 men, its type full at 1000.
+        let unit_type = Object::new(0x80).i32(unit_type::KIND, 0).i32(unit_type::MAX_STRENGTH, 1000).string(unit_type::NAME, "tercio");
+        let regiment = Object::new(0x88)
+            .u32(regiment::NUMBER, 7)
+            .u64(regiment::TYPE, unit_type.at() as u64)
+            .i32(regiment::STRENGTH, 900)
+            .i32(regiment::MORALE, 2500)
+            .string(regiment::NAME, "1st Regiment");
         let unit = |class: usize, id: u64, owner: Tag, province: u32, regiments: usize| {
             Object::new(0x240)
                 .u64(0, m.at(class) as u64)
@@ -294,8 +397,8 @@ mod tests {
         let first = Object::new(list::NODE_SIZE).u64(list::ITEM, army.at() as u64).u64(list::NEXT, second.at() as u64);
         let player = Object::country(tur(), country::UNITS + 8).u64(country::UNITS, first.at() as u64);
         let countries = Object::countries(&[&player]);
-        let session = buffers::session(m, provinces.world(), tur(), player.at(), countries.at(), Caller::Remote);
-        Units { _image: image, _provinces: provinces, _objects: vec![regiment, army, fleet, theirs, second, first, player, countries], session }
+        let session = buffers::session(m, provinces.world(), tur(), player.at(), countries.at(), Caller::Remote(As::Player));
+        Units { _image: image, _provinces: provinces, _objects: vec![unit_type, regiment, army, fleet, theirs, second, first, player, countries], session }
     }
 
     /// An order to move `id` to `goal`, on land.
@@ -316,6 +419,26 @@ mod tests {
         assert_eq!(summary, [(11, ArmyKind::Army, Some(ProvinceId(1)), 2, 0, None), (12, ArmyKind::Navy, Some(ProvinceId(1)), 1, 0, None)]);
         assert_eq!(get(units.session, args::Get { army: ArmyId(11) }).unwrap(), all[0]);
         assert_eq!(get(units.session, args::Get { army: ArmyId(21) }).unwrap_err().message, "no own army 21");
+        // Its two regiments of infantry at 900 men each, as their panel
+        // shows them.
+        let army = &all[0];
+        assert_eq!(army.units, remote::Units { infantry: 2, ..Default::default() });
+        assert_eq!((army.strength, army.max_strength, army.morale, army.max_morale), (1.8, 2.0, 2.5, 3.0));
+        assert_eq!((army.leader, army.maintenance), (None, Some(0.75)));
+        let read = regiments(units.session, args::Regiments { army: ArmyId(11) }).unwrap();
+        assert_eq!(read.len(), 2);
+        assert_eq!(
+            read[0],
+            remote::Regiment {
+                id: 7,
+                name: "1st Regiment".into(),
+                kind: eu4_harmony_remote::recruiting::UnitKind::Infantry,
+                unit_type: "tercio".into(),
+                strength: 0.9,
+                morale: 2.5,
+            }
+        );
+        assert_eq!(regiments(units.session, args::Regiments { army: ArmyId(21) }).unwrap_err().message, "no own army 21");
     }
 
     #[test]

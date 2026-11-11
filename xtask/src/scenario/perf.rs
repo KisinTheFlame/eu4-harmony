@@ -10,22 +10,22 @@
 //!
 //! With `menu_only` it records CPU at the idle main menu for 30 s instead.
 //!
-//! With `events`, a remote client reads events of those kinds before the
-//! game runs, so that they are worked out from then on, and the events heard
+//! With `signals`, a remote client reads signals of those kinds before the
+//! game runs, so that they are worked out from then on, and the signals heard
 //! while it ran are counted by kind. With `reads`, after the run it times
 //! `country.get` and `country.budget` of the countries that own provinces and
 //! `province.get` of every owned land province, one at a time, from the
 //! client.
 //! Either way it returns to the main menu at the end, where the framework's
-//! log tells what working out the events cost the session
-//! (`event costs:`).
+//! log tells what working out the signals cost the session
+//! (`signal costs:`).
 use super::{text, Build, Game, Parameter, Parameters, Played, Scenario, Stop};
 use eu4_harmony_remote::{
     countries::{Budget, Country, CountryRequest},
-    events::{Events, EventsRequest},
     menu::MenuRequest,
     provinces::{Province, ProvinceKind, ProvinceRequest, ProvinceSnapshot},
     session::Session,
+    signals::{Signals, SignalsRequest},
     time::{Time, TimeRequest},
     CountryTag, Words,
 };
@@ -81,7 +81,7 @@ impl Scenario for Perf {
         &[
             Parameter { name: "country", default: "MNG", about: "the country of the new game" },
             Parameter { name: "menu_only", default: "false", about: "CPU at the idle main menu instead of a game" },
-            Parameter { name: "events", default: "", about: "the kinds of events a remote client listens to while the game runs, by commas" },
+            Parameter { name: "signals", default: "", about: "the kinds of signals a remote client listens to while the game runs, by commas" },
             Parameter { name: "reads", default: "false", about: "after the run, time country.get, country.budget and province.get" },
             Parameter {
                 name: "game_paths",
@@ -114,12 +114,12 @@ impl Scenario for Perf {
         pause(PAUSED);
         let b = process.sample()?;
         record["paused"] = json!({ "cpu_share": rounded((b.cpu - a.cpu) / PAUSED as f64, 3), "ws": b.ws, "priv": b.private });
-        let kinds: Vec<String> = parameters.text("events").split(',').map(str::trim).filter(|k| !k.is_empty()).map(String::from).collect();
+        let kinds: Vec<String> = parameters.text("signals").split(',').map(str::trim).filter(|k| !k.is_empty()).map(String::from).collect();
         let since = if kinds.is_empty() {
             None
         } else {
-            let read: Events = game.ask(&listen(&kinds, None))?;
-            record["events"] = json!(kinds);
+            let read: Signals = game.ask(&listen(&kinds, None))?;
+            record["signals"] = json!(kinds);
             Some(read.last)
         };
         let before: Time = game.ask(&TimeRequest::Get {})?;
@@ -140,10 +140,10 @@ impl Scenario for Perf {
         let days = (after.date.0 - before.date.0) as f64 / 24.0;
         record["days_a_minute"] = rounded(days * 60.0 / ran, 1);
         if let Some(since) = since {
-            let read: Events = game.ask(&listen(&kinds, Some(since)))?;
+            let read: Signals = game.ask(&listen(&kinds, Some(since)))?;
             let mut heard = BTreeMap::new();
-            for numbered in &read.events {
-                *heard.entry(numbered.event.kind()).or_insert(0u32) += 1;
+            for numbered in &read.signals {
+                *heard.entry(numbered.signal.kind()).or_insert(0u32) += 1;
             }
             record["heard"] = json!(heard);
             record["heard_missed"] = json!(read.missed);
@@ -181,9 +181,9 @@ impl Scenario for Perf {
             row("Dates", format!("{} to {} in {} s", text(&record["date0"]), text(&record["date1"]), text(&record["running"]["seconds"])));
         }
         row("Game days a minute at speed 5", text(&record["days_a_minute"]));
-        row("Events listened to", record["events"].as_array().map(|k| k.iter().map(text).collect::<Vec<_>>().join(", ")).unwrap_or_default());
+        row("Signals listened to", record["signals"].as_array().map(|k| k.iter().map(text).collect::<Vec<_>>().join(", ")).unwrap_or_default());
         row(
-            "Events heard at speed 5",
+            "Signals heard at speed 5",
             record["heard"].as_object().map(|h| h.iter().map(|(k, n)| format!("{k} {}", text(n))).collect::<Vec<_>>().join(", ")).unwrap_or_default(),
         );
         for (read, what) in [("country_get", "country.get"), ("country_budget", "country.budget"), ("province_get", "province.get")] {
@@ -196,10 +196,10 @@ impl Scenario for Perf {
     }
 }
 
-/// A read of the events of `kinds` after `since`, which has them worked out
+/// A read of the signals of `kinds` after `since`, which has them worked out
 /// from then on.
-fn listen(kinds: &[String], since: Option<u64>) -> EventsRequest {
-    EventsRequest::Read { since, wait_ms: None, process: None, kinds: Some(Words(kinds.to_vec())), countries: None }
+fn listen(kinds: &[String], since: Option<u64>) -> SignalsRequest {
+    SignalsRequest::Read { since, wait_ms: None, process: None, kinds: Some(Words(kinds.to_vec())), countries: None }
 }
 
 /// `country.get` and `country.budget` of every country that owns a

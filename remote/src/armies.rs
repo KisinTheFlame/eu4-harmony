@@ -1,7 +1,7 @@
 //! The player's armies and the armies they can see: reading them, the routes
 //! the game would choose, and moving and stopping them. A move or stop is the
 //! player's order: it takes the army back from an extension moving it.
-use crate::{choices::Choice, ArmyId, ArmyList, CountryTag, ProvinceId};
+use crate::{choices::Choice, recruiting::UnitKind, ArmyId, ArmyList, CountryTag, ProvinceId};
 use serde::{Deserialize, Serialize};
 
 group! {
@@ -12,9 +12,15 @@ group! {
     game Get "get" {
         /// The army.
         army: ArmyId,
-    } -> Army, "the army: id, owner, kind (army or navy; of a navy id, owner, kind, province, regiments (its ships) and route are read), province, regiments, blocked (what stops it taking orders now: in_battle, sieging, retreating, exiled, movement_locked, attached, has_followers, busy), route (the provinces still to go, in order), route_by (who set the route: this_mod, other_mod or player_or_game; null without one), aboard (the navy an army is aboard; null on land) and carrying (a navy's regiments aboard)";
+    } -> Army, "the army: id, owner, kind (army or navy; of a navy id, owner, kind, province, regiments (its ships) and route are read), province, regiments, blocked (what stops it taking orders now: in_battle, sieging, retreating, exiled, movement_locked, attached, has_followers, busy), route (the provinces still to go, in order), route_by (who set the route: this_mod, other_mod or player_or_game; null without one), aboard (the navy an army is aboard; null on land), carrying (a navy's regiments aboard), units (its regiments, or a navy's ships, by kind), strength and max_strength (its regiments' or ships' summed, 1 for one at full: an army's men are 1000 times it), morale and max_morale (as its panel shows them), leader (the leader's id; null without one) and maintenance (ducats a month at full maintenance, before the sliders; null in the player's view for another country's)";
     /// The player's armies and fleets.
     game List "list" {} -> Vec<Army>, "the armies and fleets, each as army.get answers it";
+    /// The regiments of an army of the player's, or a fleet's ships, in the
+    /// game's order (the panel sorts them by kind).
+    game Regiments "regiments" {
+        /// The player's army or fleet.
+        army: ArmyId,
+    } -> Vec<Regiment>, "each regiment or ship: id, name, kind, unit_type (its key), strength (1 at full) and morale";
     /// The land armies in a province: every one for an extension and in the
     /// full view; in the player's view only those the player sees, none
     /// under fog of war, and not ready while visibility has not caught up
@@ -78,13 +84,18 @@ group! {
     game Selected "selected" {} -> ArmyId, "the army's id";
     /// What the army or fleet panel's buttons offer for one of the player's
     /// armies or fleets now: split, merge (with the player's others of its
-    /// kind in its province), disband, consolidate and drill or stop_drill
-    /// for an army, patrol and evade for a fleet; each with whether the
-    /// player can, why not as the button's tooltip says, and what it costs.
+    /// kind in its province), disband, detach_kind (once for each kind of
+    /// regiment or ship it has), and attach (with the armies or fleets it may
+    /// attach to) or detach when it is attached; consolidate, drill or
+    /// stop_drill, attach_to_transport or detach_from_transport,
+    /// detach_special_units, scorch_earth, seize_colony, burn_colony and
+    /// attack_natives for an army; patrol, evade, and auto_transport or
+    /// stop_auto_transport for a fleet; each with whether the player can, why
+    /// not as the button's tooltip says, and what it costs.
     game Options "options" {
         /// The player's army or fleet.
         army: ArmyId,
-    } -> Vec<ArmyAction>, "the buttons: action (the capability that presses it), can, reasons, cost";
+    } -> Vec<ArmyAction>, "the buttons: action (the capability that presses it), can, reasons, cost, kind (detach_kind's; null for the others) and targets (attach's; null for the others)";
     /// Splits an army or a fleet in half, as the panel's button does: the
     /// new one takes the smaller half.
     game Split "split" {
@@ -121,6 +132,66 @@ group! {
         /// The player's land army.
         army: ArmyId,
     } -> (), "nothing";
+    /// Detaches every regiment or ship of a kind from an army or a fleet of
+    /// the player's into a new one, as a click on the kind's icon on its
+    /// card does. Refused with the game's reasons, which `army.options`
+    /// gives beforehand.
+    game DetachKind "detach_kind" {
+        /// The player's army or fleet.
+        army: ArmyId,
+        /// The kind to detach: infantry, cavalry or artillery from an army,
+        /// heavy_ship, light_ship, galley or transport from a fleet.
+        kind: UnitKind,
+    } -> ArmyId, "the new army or fleet";
+    /// Attaches an army or a fleet of the player's to another in its
+    /// province, as the panel's Attach button and its window do: it then
+    /// follows that one. Refused when the game would not let it attach
+    /// there; `army.options` lists those it may attach to.
+    game Attach "attach" {
+        /// The player's army or fleet.
+        army: ArmyId,
+        /// The army or fleet to attach to.
+        target: ArmyId,
+    } -> (), "nothing";
+    /// Detaches an army or a fleet of the player's from the one it is
+    /// attached to, as the panel's Detach button does.
+    game Detach "detach" {
+        /// The player's attached army or fleet.
+        army: ArmyId,
+    } -> (), "nothing";
+    /// Attaches an army of the player's in a port to the transports there,
+    /// as the panel's Attach to Transport button does: it embarks when they
+    /// leave. Refused with the game's reasons.
+    game AttachToTransport "attach_to_transport" {
+        /// The player's land army.
+        army: ArmyId,
+    } -> (), "nothing";
+    /// Detaches an army of the player's from the transports it waits for,
+    /// as the panel's Detach from Transport button does.
+    game DetachFromTransport "detach_from_transport" {
+        /// The player's land army.
+        army: ArmyId,
+    } -> (), "nothing";
+    /// Detaches an army's special units (those a government, an estate or
+    /// an idea gives, such as banners) into a new army, as the panel's
+    /// Detach Special Units button does. Refused with the game's reasons.
+    game DetachSpecialUnits "detach_special_units" {
+        /// The player's land army.
+        army: ArmyId,
+    } -> ArmyId, "the new army";
+    /// Has a fleet of the player's carry the player's armies on its own, as
+    /// the fleet panel's Enable Automatic Transportation button does.
+    /// Refused while it is mothballed or has no ship that carries troops.
+    game AutoTransport "auto_transport" {
+        /// The player's fleet.
+        army: ArmyId,
+    } -> (), "nothing";
+    /// Stops a fleet of the player's carrying armies on its own, as the
+    /// fleet panel's Disable Automatic Transportation button does.
+    game StopAutoTransport "stop_auto_transport" {
+        /// The player's fleet.
+        army: ArmyId,
+    } -> (), "nothing";
     /// Gives a fleet of the player's a mission, as the fleet panel's mission
     /// buttons and then the map do: protect_trade, privateer or
     /// hunt_pirates in a trade node; hunt_fleets, blockade or intercept in
@@ -143,16 +214,55 @@ group! {
         /// The player's fleet.
         army: ArmyId,
     } -> (), "nothing";
+    /// Scorches the earth of the province the army is in, a province of
+    /// the player's, for military points, as the army panel's button does:
+    /// enemy armies there lose supply.
+    game ScorchEarth "scorch_earth" {
+        /// The player's land army.
+        army: ArmyId,
+    } -> (), "nothing";
+    /// Takes over the colony the army is in, an enemy's, for military
+    /// points, as the army panel's button does.
+    game SeizeColony "seize_colony" {
+        /// The player's land army.
+        army: ArmyId,
+    } -> (), "nothing";
+    /// Burns the colony the army is in, an enemy's, for military points, as
+    /// the army panel's button does.
+    game BurnColony "burn_colony" {
+        /// The player's land army.
+        army: ArmyId,
+    } -> (), "nothing";
+    /// Attacks the natives of the uncolonized province the army is in, for
+    /// military points, as the army panel's button does.
+    game AttackNatives "attack_natives" {
+        /// The player's land army.
+        army: ArmyId,
+    } -> (), "nothing";
 }
 
 /// One of the army or fleet panel's buttons.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct ArmyAction {
-    /// The capability that presses it: split, merge, disband, consolidate,
-    /// drill, stop_drill, or for a fleet the mission patrol or evade.
+    /// The capability that presses it: split, merge, disband, detach_kind,
+    /// attach, detach, consolidate, drill, stop_drill, attach_to_transport,
+    /// detach_from_transport, detach_special_units, or for a fleet the
+    /// mission patrol or evade, auto_transport or stop_auto_transport.
     pub action: String,
     #[serde(flatten)]
     pub choice: Choice,
+    /// For detach_kind, the kind it detaches; null for the others.
+    pub kind: Option<UnitKind>,
+    /// For attach, the armies or fleets in its province the game would let
+    /// it attach to; null for the others.
+    pub targets: Option<Vec<ArmyId>>,
+}
+
+impl ArmyAction {
+    /// A button that takes nothing more than the army.
+    pub fn new(action: &str, choice: Choice) -> Self {
+        ArmyAction { action: action.into(), choice, kind: None, targets: None }
+    }
 }
 
 /// Whether an army fights on land or at sea.
@@ -196,7 +306,7 @@ pub enum RouteBy {
 
 /// An army, or a navy, of which the ID, owner, kind, province, ships (as
 /// regiments) and route are read.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Army {
     pub id: ArmyId,
     pub owner: CountryTag,
@@ -216,4 +326,50 @@ pub struct Army {
     pub aboard: Option<ArmyId>,
     /// A navy's regiments aboard; 0 for an army.
     pub carrying: u32,
+    /// Its regiments by kind; a navy's ships.
+    pub units: Units,
+    /// Its regiments' or ships' strength, summed, 1 for one at full: an
+    /// army's men are 1000 times it.
+    pub strength: f64,
+    /// The strength it has at full.
+    pub max_strength: f64,
+    /// Its morale as its panel shows it: its regiments' or ships' morale
+    /// weighted by their strength.
+    pub morale: f64,
+    /// The morale it can have, as its panel shows it.
+    pub max_morale: f64,
+    /// The leader leading it, by its id (as leader.list gives it); none
+    /// without one.
+    pub leader: Option<u32>,
+    /// What its regiments or ships cost its owner a month in ducats at full
+    /// maintenance, before the maintenance sliders; null in the player's
+    /// view for another country's.
+    pub maintenance: Option<f64>,
+}
+
+/// An army's regiments, or a navy's ships, by kind.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Units {
+    pub infantry: u32,
+    pub cavalry: u32,
+    pub artillery: u32,
+    pub heavy_ship: u32,
+    pub light_ship: u32,
+    pub galley: u32,
+    pub transport: u32,
+}
+
+/// A regiment of an army, or a ship of a navy.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Regiment {
+    /// Its number among the game's regiments.
+    pub id: u32,
+    /// Its name as the game shows it.
+    pub name: String,
+    pub kind: UnitKind,
+    /// The key of its unit type, such as `western_medieval_infantry`.
+    pub unit_type: String,
+    /// 1 at full: a regiment's men are 1000 times it.
+    pub strength: f64,
+    pub morale: f64,
 }

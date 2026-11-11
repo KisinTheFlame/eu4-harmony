@@ -5,14 +5,14 @@
 //! drives it through the handle `open` returns (`eu4-harmony skills testing`
 //! lists what it can do). A test fails when it raises an error, an `assert`
 //! included.
-use crate::fake::{check, code_named, Answer, Fake};
+use crate::fake::{check, code_named, lua_date, Answer, Fake};
 use eu4_harmony_lua::{
     dispatch::{self, Heard},
     fetch, layout, values, Extension, Mod,
 };
 use eu4_harmony_manifest::Manifest;
 use eu4_harmony_remote::{
-    events::{Event, Kind, SessionEnd},
+    signals::{Kind, SessionEnd, Signal},
     ArmyId, Date,
 };
 use mlua::{Function, Lua, LuaOptions, StdLib, Table, UserData, UserDataMethods, Value as LuaValue, Variadic};
@@ -219,7 +219,7 @@ struct TestMod {
     calendar: Mutex<Calendar>,
 }
 
-/// Where the fake game's time is, as the events raised have it.
+/// Where the fake game's time is, as the signals raised have it.
 #[derive(Default)]
 struct Calendar {
     /// The number of the session going on; 0 before the first.
@@ -257,12 +257,6 @@ impl dispatch::Feed for Fed {
     }
 }
 
-/// A date in Lua's form, `{ year, month, day }`.
-fn lua_date(value: &Value) -> Option<Date> {
-    let part = |name: &str| value.get(name).and_then(Value::as_i64);
-    Date::from_ymd(i32::try_from(part("year")?).ok()?, u32::try_from(part("month")?).ok()?, u32::try_from(part("day")?).ok()?)
-}
-
 impl TestMod {
     fn calendar(&self) -> std::sync::MutexGuard<'_, Calendar> {
         self.calendar.lock().unwrap_or_else(|e| e.into_inner())
@@ -275,18 +269,21 @@ impl TestMod {
     }
 
     /// The mod hears the day `date`, and its month and its year when it is
-    /// the first heard in them, as the game raises them.
+    /// the first heard in them, as the game raises them; first, as at the
+    /// game's frame, its tasks waiting for the day are taken up.
     fn day(&self, lua: &Lua, date: Date) {
         let (month, year) = {
             let mut calendar = self.calendar();
             date.turned(calendar.day.replace(date))
         };
-        self.hear(lua, &Heard::of(&Event::Day { date }), None);
+        *self.fake.today.lock().unwrap_or_else(|e| e.into_inner()) = Some(date);
+        self.extension.poll();
+        self.hear(lua, &Heard::of(&Signal::Day { date }), None);
         if month {
-            self.hear(lua, &Heard::of(&Event::Month { date }), None);
+            self.hear(lua, &Heard::of(&Signal::Month { date }), None);
         }
         if year {
-            self.hear(lua, &Heard::of(&Event::Year { date }), None);
+            self.hear(lua, &Heard::of(&Signal::Year { date }), None);
         }
     }
 
@@ -388,7 +385,7 @@ impl UserData for TestMod {
             Ok(())
         });
 
-        // Events, as the game raises them (`eu4_harmony_lua::dispatch`).
+        // Signals, as the game raises them (`eu4_harmony_lua::dispatch`).
         methods.add_method("session", |lua, this, saved: LuaValue| {
             let saved = json(&saved)?;
             let session = {
@@ -397,14 +394,15 @@ impl UserData for TestMod {
                 calendar.day = None;
                 calendar.session
             };
-            this.hear(lua, &Heard::of(&Event::Session { session }), Some(saved));
+            *this.fake.today.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            this.hear(lua, &Heard::of(&Signal::Session { session }), Some(saved));
             Ok(())
         });
         methods.add_method("session_ended", |lua, this, reason: Option<String>| {
             let reason = reason.unwrap_or_else(|| "return".into());
             let reason: SessionEnd = serde_json::from_value(Value::String(reason.clone()))
                 .map_err(|_| mlua::Error::runtime(format!("{}a session ends for return, load, new_game or country, not {reason}", here(lua))))?;
-            this.hear(lua, &Heard::of(&Event::SessionEnded { reason }), None);
+            this.hear(lua, &Heard::of(&Signal::SessionEnded { reason }), None);
             Ok(())
         });
         methods.add_method("day", |lua, this, date: LuaValue| {
@@ -418,8 +416,8 @@ impl UserData for TestMod {
             Ok(())
         });
         methods.add_method("raise", |lua, this, (kind, fields): (String, Option<LuaValue>)| {
-            let named =
-                Kind::named(&kind).ok_or_else(|| mlua::Error::runtime(format!("{}there is no event {kind}; eu4-harmony wiki events lists them", here(lua))))?;
+            let named = Kind::named(&kind)
+                .ok_or_else(|| mlua::Error::runtime(format!("{}there is no signal {kind}; eu4-harmony wiki signals lists them", here(lua))))?;
             if named == Kind::Session {
                 return Err(mlua::Error::runtime(format!("{}mod:session(saved) starts a session, with the save data it began from", here(lua))));
             }
@@ -530,11 +528,11 @@ impl UserData for TestMod {
             Ok(())
         });
         methods.add_method("army_ordered", |lua, this, army: u64| {
-            this.hear(lua, &Heard::of(&Event::ArmyOrdered { army: ArmyId(army) }), None);
+            this.hear(lua, &Heard::of(&Signal::ArmyOrdered { army: ArmyId(army) }), None);
             Ok(())
         });
         methods.add_method("army_defeated", |lua, this, army: u64| {
-            this.hear(lua, &Heard::of(&Event::ArmyDefeated { army: ArmyId(army) }), None);
+            this.hear(lua, &Heard::of(&Signal::ArmyDefeated { army: ArmyId(army) }), None);
             Ok(())
         });
         methods.add_method("map_lost", |lua, this, ()| {
@@ -713,11 +711,11 @@ fn respond(this: &TestMod, n: usize, answer: fetch::Answer) -> mlua::Result<()> 
 mod tests {
     use super::*;
 
-    /// A test raises any event, held to its shape, and a day raises its
+    /// A test raises any signal, held to its shape, and a day raises its
     /// month and its year as the game does.
     #[test]
-    fn a_test_raises_every_event_as_the_game_does() {
-        let dir = std::env::temp_dir().join(format!("eu4h-test-events-{}", std::process::id()));
+    fn a_test_raises_every_signal_as_the_game_does() {
+        let dir = std::env::temp_dir().join(format!("eu4h-test-signals-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let write = |file: &str, text: &str| {
             let path = dir.join("eu4-harmony").join(file);
@@ -741,9 +739,9 @@ mod tests {
             "#,
         );
         write(
-            "tests/events_test.lua",
+            "tests/signals_test.lua",
             r#"
-            test("events", function()
+            test("signals", function()
               local mod = open()
               mod:session({ n = 2 })
               mod:day("1444.12.31")
@@ -758,12 +756,12 @@ mod tests {
               local log = table.concat(mod:log(), "|")
               assert(log == "session 2|day 12.31|day 1.1|month 1|year 1445|war Castilian Conquest CAS GRA|battle 151 attackers|day 2.1|month 2|ordered integer 4294967377|ended load|session nil|day 3.1", log)
             end)
-            test("a misshapen event", function()
+            test("a misshapen signal", function()
               local mod = open()
               local ok, why = pcall(mod.raise, mod, "war_declared", { war = "x" })
               assert(not ok and tostring(why):find("has no attacker, defender"), tostring(why))
-              ok, why = pcall(mod.raise, mod, "no_such_event", {})
-              assert(not ok and tostring(why):find("there is no event no_such_event"), tostring(why))
+              ok, why = pcall(mod.raise, mod, "no_such_signal", {})
+              assert(not ok and tostring(why):find("there is no signal no_such_signal"), tostring(why))
               ok, why = pcall(mod.session_ended, mod, "quit")
               assert(not ok and tostring(why):find("return, load, new_game or country"), tostring(why))
             end)
@@ -772,6 +770,113 @@ mod tests {
         let manifest = Manifest::parse(&format!("id = \"e\"\napi_version = \"{}\"", eu4_harmony_remote::API_VERSION)).unwrap();
         let outcome = run(&dir, manifest, "E".into()).unwrap();
         assert_eq!((outcome.passed, outcome.failed), (2, 0), "{}", outcome.report);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Tasks run in the fake game as in the game, and game.time.wait answers
+    /// once the days a test raises reach its date.
+    #[test]
+    fn tasks_and_waits_for_days_run_as_in_the_game() {
+        let dir = std::env::temp_dir().join(format!("eu4h-test-tasks-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let write = |file: &str, text: &str| {
+            let path = dir.join("eu4-harmony").join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        write(
+            "lua/main.lua",
+            r#"
+            local check_later = async(function(game, days)
+              local date = game.time.wait(days)
+              return date.month .. "." .. date.day
+            end)
+            local pending
+            return {
+              on_button = function(game, name)
+                if name == "later" then
+                  log("on " .. check_later(game, 3):await())
+                elseif name == "cancel" then
+                  pending = spawn(function() game.time.wait(1) log("not cancelled") end)
+                  pending:cancel()
+                else
+                  local date, err = game.time.wait(0)
+                  log(tostring(date) .. " " .. err.message)
+                end
+              end,
+            }
+            "#,
+        );
+        write(
+            "tests/tasks_test.lua",
+            r#"
+            test("a wait for days", function()
+              local mod = open()
+              mod:session()
+              mod:day("1444.11.11")
+              mod:button("later")
+              mod:day("1444.11.12")
+              mod:day("1444.11.13")
+              assert(#mod:log() == 0, table.concat(mod:log(), "|"))
+              mod:day("1444.11.14")
+              mod:button("cancel")
+              mod:day("1444.11.15")
+              mod:button("zero")
+              local log = table.concat(mod:log(), "|")
+              assert(log:find("^on 11.14|nil ") and log:find("days is from 1 to 36500, not 0") and not log:find("not cancelled"), log)
+            end)
+            "#,
+        );
+        let manifest = Manifest::parse(&format!("id = \"w\"\napi_version = \"{}\"", eu4_harmony_remote::API_VERSION)).unwrap();
+        let outcome = run(&dir, manifest, "W".into()).unwrap();
+        assert_eq!((outcome.passed, outcome.failed), (1, 0), "{}", outcome.report);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_world_keeps_the_flags_and_variables_a_mod_sets() {
+        let dir = std::env::temp_dir().join(format!("eu4h-test-script-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let write = |file: &str, text: &str| {
+            let path = dir.join("eu4-harmony").join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        write(
+            "lua/main.lua",
+            r#"
+            return {
+              on_button = function(game, name)
+                local me = { country = "CAS" }
+                game.script.set_flag(me, "met")
+                game.script.set_variable({ province = 1 }, "count", 2.0005)
+                local flag = game.script.flag(me, "met")
+                local none = game.script.flag({ global = true }, "met")
+                local var = game.script.variable({ province = 1 }, "count")
+                local _, err = game.script.variable({ ruler = "CAS" }, "count")
+                game.script.clear_flag(me, "met")
+                log(tostring(flag.set) .. " " .. flag.day.year .. " " .. tostring(none.set) .. " " .. var.value .. " " .. err.code
+                  .. " " .. tostring(game.script.flag(me, "met").set))
+              end,
+            }
+            "#,
+        );
+        write(
+            "tests/script_test.lua",
+            r#"
+            test("flags and variables", function()
+              local mod = open()
+              mod:world{ player = "CAS", provinces = { { id = 1, owner = "CAS" } } }
+              mod:session()
+              mod:button("go")
+              local log = table.concat(mod:log(), "|")
+              assert(log == "true 1444 false 2.001 invalid_argument false", log)
+            end)
+            "#,
+        );
+        let manifest = Manifest::parse(&format!("id = \"s\"\napi_version = \"{}\"", eu4_harmony_remote::API_VERSION)).unwrap();
+        let outcome = run(&dir, manifest, "S".into()).unwrap();
+        assert_eq!((outcome.passed, outcome.failed), (1, 0), "{}", outcome.report);
         let _ = std::fs::remove_dir_all(dir);
     }
 

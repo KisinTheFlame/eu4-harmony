@@ -278,7 +278,7 @@ pub fn stop_at(caller: Caller, date: i32) -> GResult<Stop> {
     Ok(Stop { number, released: false })
 }
 
-/// After the daily update (`events`' observer): pauses the game with the
+/// After the daily update (`signals`' observer): pauses the game with the
 /// player's pause when a stop's date is reached, or when a question came up
 /// on the day while an advance runs, so that the next frame begins no other
 /// day, and a window that holds the game paused too (an event window, a
@@ -354,9 +354,11 @@ pub fn points() -> Vec<Point> {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::As;
     use super::*;
 
     mod through_the_layer {
+        use crate::game::As;
         use super::super::*;
         use crate::catalogue::fake::tur;
         use crate::game::{
@@ -400,7 +402,7 @@ mod tests {
             let state = Object::new(pause_state::MANAGER + 8).u64(pause_state::MANAGER, manager.at() as u64).u8(pause_state::PLAYER_PAUSED, held.0.into());
             manager.set(manager::PAUSE, &(state.at() as u64).to_le_bytes());
             let world = Object::new(world::OBSERVER_RUNS_TIME + 8).points_to(world::MAP_MANAGER, manager).u8(world::PLAYER + 7, plays.into());
-            let result = action(buffers::world_session(m, world.at(), date, tur(), 0, Caller::Remote));
+            let result = action(buffers::world_session(m, world.at(), date, tur(), 0, Caller::Remote(As::Player)));
             drop((state, world, image));
             (result, HELD.get())
         }
@@ -514,8 +516,8 @@ mod tests {
     fn only_remote_control_holds_a_stop_and_one_dropped_is_called_off() {
         assert_eq!(stop_at(Caller::Extension(0), 100).unwrap_err().status, Status::Unavailable);
         let session = crate::sessions::number();
-        let answered = stop_at(Caller::Remote, 100).unwrap();
-        let given_up = stop_at(Caller::Remote, 1000).unwrap();
+        let answered = stop_at(Caller::Remote(As::Player), 100).unwrap();
+        let given_up = stop_at(Caller::Remote(As::Player), 1000).unwrap();
         answered.release();
         drop(given_up);
         assert!(stops(|s| s.held.iter().all(|held| held.called_off && held.date == i32::MIN) && s.held.len() == 1));

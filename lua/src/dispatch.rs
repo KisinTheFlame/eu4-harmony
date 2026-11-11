@@ -15,12 +15,12 @@
 //! each asked for when its turn
 //! comes, since a handler before may change it.
 use crate::{Arg, Extension};
-use eu4_harmony_remote::events::{Event, Kind, EVENTS};
 use eu4_harmony_remote::shape::Shape;
+use eu4_harmony_remote::signals::{Kind, Signal, SIGNALS};
 use serde_json::{Map, Value};
 use std::sync::Arc;
 
-/// An event as extensions hear it: its kind and its fields in Lua's form
+/// A signal as extensions hear it: its kind and its fields in Lua's form
 /// (`eu4_harmony_checks::form`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Heard {
@@ -29,28 +29,28 @@ pub struct Heard {
 }
 
 impl Heard {
-    /// `event`, as extensions hear it.
-    pub fn of(event: &Event) -> Self {
-        let written = eu4_harmony_checks::form::as_lua(|| serde_json::to_value(event));
+    /// `signal`, as extensions hear it.
+    pub fn of(signal: &Signal) -> Self {
+        let written = eu4_harmony_checks::form::as_lua(|| serde_json::to_value(signal));
         let mut fields = match written {
             Ok(Value::Object(fields)) => fields,
             _ => Map::new(),
         };
-        fields.remove("event");
-        Self { kind: event.kind(), fields }
+        fields.remove("signal");
+        Self { kind: signal.kind(), fields }
     }
 
-    /// An event of `kind` with `fields`, a table in Lua's form, as a test
-    /// raises it: held to the event's shape, every field it does not leave
+    /// A signal of `kind` with `fields`, a table in Lua's form, as a test
+    /// raises it: held to the signal's shape, every field it does not leave
     /// optional given.
     pub fn new(kind: Kind, fields: Value) -> Result<Self, String> {
         let shape = Shape::Object { class: kind.class(), about: "", fields: kind.fields() };
-        let Value::Object(fields) = fields else { return Err(format!("the {kind} event's fields are a table, not {}", type_name(&fields))) };
-        shape.check(&Value::Object(fields.clone())).map_err(|why| format!("the {kind} event: {why}"))?;
+        let Value::Object(fields) = fields else { return Err(format!("the {kind} signal's fields are a table, not {}", type_name(&fields))) };
+        shape.check(&Value::Object(fields.clone())).map_err(|why| format!("the {kind} signal: {why}"))?;
         let missing: Vec<&str> =
             kind.fields().into_iter().filter(|f| !matches!(f.shape, Shape::Optional(_)) && !fields.contains_key(f.name)).map(|f| f.name).collect();
         if !missing.is_empty() {
-            return Err(format!("the {kind} event has no {}", missing.join(", ")));
+            return Err(format!("the {kind} signal has no {}", missing.join(", ")));
         }
         Ok(Self { kind, fields })
     }
@@ -213,7 +213,7 @@ pub fn window(extensions: &[Arc<Extension>], seen: &WindowSeen) {
     }
 }
 
-/// The kinds of event some extension has a handler for.
+/// The kinds of signal some extension has a handler for.
 pub fn listened(extensions: &[Arc<Extension>]) -> Vec<Kind> {
-    EVENTS.iter().map(|(kind, _)| *kind).filter(|kind| extensions.iter().any(|e| e.has_handler(kind.handler()))).collect()
+    SIGNALS.iter().map(|(kind, _)| *kind).filter(|kind| extensions.iter().any(|e| e.has_handler(kind.handler()))).collect()
 }

@@ -387,7 +387,7 @@ fn a_capability_runs_inside_its_extension_s_call() {
 }
 
 #[test]
-fn an_error_ends_the_call_and_the_next_event_calls_again() {
+fn an_error_ends_the_call_and_the_next_signal_calls_again() {
     let e = load_one("errors", "return { on_frame = function(game) CALLS = (CALLS or 0) + 1 error('boom') end }", &[]).unwrap();
     for _ in 0..5 {
         e.handle("on_frame", &[]);
@@ -416,6 +416,225 @@ fn spawn_starts_a_task_only_from_a_handler() {
     assert!(text(e.lua.globals().get("TOP").unwrap()).contains("only from a handler"));
     // From a handler, the function runs at once.
     assert_eq!(after(&e, "on_frame", "AFTER"), LuaValue::Boolean(true), "{:?}", errors(&e));
+}
+
+const NETWORK: &str = "id = \"t\"\napi_version = \"0.3\"\npermissions = { network = [\"api.example.com\"] }";
+
+/// Answers the waiting requests whose path is `path` with `status`.
+fn respond(host: &TestHost, path: &str, status: u32) {
+    for (request, slot) in host.requests.lock().unwrap().iter() {
+        if request.target.url().ends_with(path) {
+            *slot.lock().unwrap() = Some(Ok(fetch::Response { status, headers: vec![], body: vec![] }));
+        }
+    }
+}
+
+#[test]
+fn a_spawned_task_is_awaited_for_what_its_function_returned() {
+    let main = r#"
+        return {
+          on_frame = function(game)
+            local t = spawn(function(a, b)
+              local r = http.fetch("https://api.example.com/a")
+              return a + b, r.status
+            end, 1, 2)
+            local before = t:done()
+            local sum, status = t:await()
+            GOT = sum .. " " .. status .. " " .. tostring(before) .. " " .. tostring(t:done())
+          end,
+        }
+        "#;
+    let (e, host) = load_with("await", main, &[("eu4-harmony/manifest.toml", NETWORK)]).unwrap();
+    e.handle("on_frame", &[]);
+    // The spawned task waits for its response, the handler for the task.
+    assert_eq!(e.waiting(), 2, "{:?}", errors(&e));
+    e.poll();
+    assert_eq!(e.waiting(), 2);
+    respond(&host, "/a", 200);
+    // Both are taken up in the same poll.
+    e.poll();
+    assert_eq!(text(e.lua.globals().get("GOT").unwrap()), "3 200 false true", "{:?}", errors(&e));
+    assert_eq!(e.waiting(), 0);
+}
+
+#[test]
+fn await_raises_a_task_s_error_again_and_a_cancelled_task_s() {
+    let main = r#"
+        return {
+          on_frame = function(game)
+            local failing = spawn(function() http.fetch("https://api.example.com/f") error("boom") end)
+            local ok, err = pcall(failing.await, failing)
+            FAILED = tostring(ok) .. " " .. tostring(err)
+          end,
+          on_day = function(game)
+            local waiting = spawn(function() http.fetch("https://api.example.com/w") LEAKED = true end)
+            waiting:cancel()
+            waiting:cancel()
+            local ok, err = pcall(waiting.await, waiting)
+            CANCELLED = tostring(ok) .. " " .. err.code .. " " .. tostring(err) .. " " .. tostring(waiting:done())
+          end,
+        }
+        "#;
+    let (e, host) = load_with("await-errors", main, &[("eu4-harmony/manifest.toml", NETWORK)]).unwrap();
+    e.handle("on_frame", &[]);
+    respond(&host, "/f", 200);
+    e.poll();
+    let failed = text(e.lua.globals().get("FAILED").unwrap());
+    assert!(failed.starts_with("false ") && failed.contains("boom"), "{failed}");
+    // The task's own error is logged as any task's.
+    assert!(errors(&e).iter().any(|k| k.starts_with("spawn: ") && k.contains("boom")), "{:?}", errors(&e));
+    // A cancelled task waits no more, and its answer is dropped.
+    e.handle("on_day", &[]);
+    assert_eq!(text(e.lua.globals().get("CANCELLED").unwrap()), "false cancelled cancelled: the task was cancelled true", "{:?}", errors(&e));
+    assert_eq!(e.waiting(), 0);
+    respond(&host, "/w", 200);
+    e.poll();
+    assert!(e.lua.globals().get::<LuaValue>("LEAKED").unwrap().is_nil());
+}
+
+#[test]
+fn await_all_waits_for_every_task_and_await_any_for_the_first() {
+    let main = r#"
+        return {
+          on_frame = function(game)
+            local a = spawn(function() return http.fetch("https://api.example.com/a").status end)
+            local b = spawn(function() return http.fetch("https://api.example.com/b").status end)
+            local first, status = await_any({ a, b })
+            ANY = first .. " " .. status
+            local all = await_all({ a, b })
+            ALL = all[1] .. " " .. all[2]
+          end,
+          on_day = function(game)
+            local ok = spawn(function() return http.fetch("https://api.example.com/c").status end)
+            local bad = spawn(function() http.fetch("https://api.example.com/d") error("bad") end)
+            local caught, err = pcall(await_all, { ok, bad })
+            ALL_FAILED = tostring(caught) .. " " .. tostring(err)
+            local caught_any, any_err = pcall(await_any, {})
+            EMPTY = tostring(caught_any) .. " " .. any_err
+            local wrong, wrong_err = pcall(await_all, { 1 })
+            NOT_TASK = tostring(wrong) .. " " .. wrong_err
+          end,
+        }
+        "#;
+    let (e, host) = load_with("await-all", main, &[("eu4-harmony/manifest.toml", NETWORK)]).unwrap();
+    e.handle("on_frame", &[]);
+    respond(&host, "/b", 202);
+    e.poll();
+    assert_eq!(text(e.lua.globals().get("ANY").unwrap()), "2 202", "{:?}", errors(&e));
+    assert!(e.lua.globals().get::<LuaValue>("ALL").unwrap().is_nil());
+    respond(&host, "/a", 201);
+    e.poll();
+    assert_eq!(text(e.lua.globals().get("ALL").unwrap()), "201 202", "{:?}", errors(&e));
+    // The first task found failed raises its error, though another runs on.
+    e.handle("on_day", &[]);
+    respond(&host, "/d", 200);
+    e.poll();
+    let failed = text(e.lua.globals().get("ALL_FAILED").unwrap());
+    assert!(failed.starts_with("false ") && failed.contains("bad"), "{failed}");
+    assert!(text(e.lua.globals().get("EMPTY").unwrap()).contains("await_any takes at least one task"));
+    assert!(text(e.lua.globals().get("NOT_TASK").unwrap()).contains("await_all takes tasks, as spawn and async functions return them, not a number"));
+}
+
+#[test]
+fn an_async_function_starts_a_task_at_each_call() {
+    let main = r#"
+        local double = async(function(x) return x * 2 end)
+        return {
+          on_frame = function(game)
+            local a, b = double(21), double(4)
+            ASYNC = a:await() + b:await()
+            SAME = a ~= b
+          end,
+        }
+        "#;
+    let e = load_one("async", main, &[]).unwrap();
+    assert_eq!(after(&e, "on_frame", "ASYNC"), LuaValue::Integer(50), "{:?}", errors(&e));
+    assert_eq!(e.lua.globals().get::<LuaValue>("SAME").unwrap(), LuaValue::Boolean(true));
+}
+
+#[test]
+fn awaiting_waits_only_in_a_task_and_never_for_itself() {
+    let main = r#"
+        return {
+          on_frame = function(game)
+            ME = spawn(function()
+              http.fetch("https://api.example.com/me")
+              local ok, err = pcall(ME.await, ME)
+              SELF = tostring(err)
+            end)
+          end,
+          on_day = function(game)
+            local t = spawn(function() http.fetch("https://api.example.com/x") end)
+            local co = coroutine.wrap(function() return pcall(t.await, t) end)
+            local ok, err = co()
+            OWN = tostring(err)
+          end,
+        }
+        "#;
+    let (e, host) = load_with("await-self", main, &[("eu4-harmony/manifest.toml", NETWORK)]).unwrap();
+    e.handle("on_frame", &[]);
+    respond(&host, "/me", 200);
+    e.poll();
+    assert!(text(e.lua.globals().get("SELF").unwrap()).contains("a task cannot await itself"), "{:?}", errors(&e));
+    e.handle("on_day", &[]);
+    assert!(text(e.lua.globals().get("OWN").unwrap()).contains("await waits for its answer, which it cannot do here"), "{:?}", errors(&e));
+}
+
+#[test]
+fn a_task_cancelled_while_it_runs_or_is_taken_up_is_dropped_at_its_wait() {
+    let main = r#"
+        return {
+          on_frame = function(game)
+            ME = spawn(function()
+              http.fetch("https://api.example.com/one")
+              ME:cancel()
+              http.fetch("https://api.example.com/two")
+              PAST_SELF = true
+            end)
+          end,
+          on_day = function(game)
+            spawn(function() http.fetch("https://api.example.com/first") OTHER:cancel() end)
+            OTHER = spawn(function() http.fetch("https://api.example.com/second") PAST_OTHER = true end)
+          end,
+        }
+        "#;
+    let (e, host) = load_with("cancel-running", main, &[("eu4-harmony/manifest.toml", NETWORK)]).unwrap();
+    e.handle("on_frame", &[]);
+    respond(&host, "/one", 200);
+    e.poll();
+    // It cancelled itself, and went at its next wait.
+    assert_eq!(e.waiting(), 0, "{:?}", errors(&e));
+    respond(&host, "/two", 200);
+    e.poll();
+    assert!(e.lua.globals().get::<LuaValue>("PAST_SELF").unwrap().is_nil());
+    // A task cancelled by one taken up before it in the same poll is not
+    // taken up, though its answer came.
+    e.handle("on_day", &[]);
+    respond(&host, "/first", 200);
+    respond(&host, "/second", 200);
+    e.poll();
+    assert!(e.lua.globals().get::<LuaValue>("PAST_OTHER").unwrap().is_nil(), "{:?}", errors(&e));
+    assert_eq!(e.waiting(), 0);
+    assert!(e.state().cancelling.is_empty());
+}
+
+#[test]
+fn a_task_dropped_with_its_session_is_cancelled_for_whoever_awaits_it_later() {
+    let main = r#"
+        return {
+          on_frame = function(game) KEPT = spawn(function() http.fetch("https://api.example.com/never") end) end,
+          on_day = function(game)
+            local ok, err = pcall(KEPT.await, KEPT)
+            LATER = err.code
+          end,
+        }
+        "#;
+    let e = load_one("session-dropped", main, &[("eu4-harmony/manifest.toml", NETWORK)]).unwrap();
+    e.handle("on_frame", &[]);
+    assert_eq!(e.waiting(), 1);
+    e.session_over();
+    assert_eq!(e.waiting(), 0);
+    assert_eq!(after(&e, "on_day", "LATER"), LuaValue::String(e.lua.create_string("cancelled").unwrap()), "{:?}", errors(&e));
 }
 
 #[test]
@@ -724,13 +943,13 @@ fn a_frame_reaches_every_extension_in_its_order() {
         let m = Mod { id, name: id, harmony: dir.join("eu4-harmony"), permissions: &manifest.permissions, data: None };
         opened.push(open(index, &m, host.clone()).unwrap());
     }
-    use eu4_harmony_remote::{events::*, ArmyId, CountryTag, Date, ProvinceId};
+    use eu4_harmony_remote::{signals::*, ArmyId, CountryTag, Date, ProvinceId};
     let date = Date::parse("1444.12.1").unwrap();
     let tag = |t: &str| serde_json::from_value::<CountryTag>(serde_json::json!(t)).unwrap();
     let heard: Vec<dispatch::Heard> = [
-        Event::Session { session: 3 },
-        Event::ArmyOrdered { army: ArmyId(4294967377) },
-        Event::Battle {
+        Signal::Session { session: 3 },
+        Signal::ArmyOrdered { army: ArmyId(4294967377) },
+        Signal::Battle {
             province: ProvinceId(151),
             naval: false,
             attackers: vec![tag("TUR")],
@@ -739,8 +958,8 @@ fn a_frame_reaches_every_extension_in_its_order() {
             attacker_losses: 100,
             defender_losses: 900,
         },
-        Event::Day { date },
-        Event::Month { date },
+        Signal::Day { date },
+        Signal::Month { date },
     ]
     .iter()
     .map(dispatch::Heard::of)
@@ -752,7 +971,7 @@ fn a_frame_reaches_every_extension_in_its_order() {
         ..Default::default()
     };
     dispatch::frame(&opened, &heard, &mut feed);
-    dispatch::hear(&opened, &dispatch::Heard::of(&Event::SessionEnded { reason: SessionEnd::Load }), &mut feed);
+    dispatch::hear(&opened, &dispatch::Heard::of(&Signal::SessionEnded { reason: SessionEnd::Load }), &mut feed);
     let log: Vec<String> = host.log.lock().unwrap().iter().filter(|l| !l.starts_with("slow stretch:")).cloned().collect();
     assert_eq!(
         log,
@@ -784,12 +1003,12 @@ fn a_frame_reaches_every_extension_in_its_order() {
 }
 
 #[test]
-fn an_event_a_test_raises_is_held_to_its_shape() {
-    use eu4_harmony_remote::events::Kind;
+fn an_signal_a_test_raises_is_held_to_its_shape() {
+    use eu4_harmony_remote::signals::Kind;
     use serde_json::json;
     let heard = dispatch::Heard::new(Kind::WarDeclared, json!({ "war": "The War", "attacker": "FRA", "defender": "ENG" })).unwrap();
     assert_eq!(heard.field("attacker"), Some(&json!("FRA")));
-    // An optional field may be left out; one the event requires may not.
+    // An optional field may be left out; one the signal requires may not.
     assert!(dispatch::Heard::new(Kind::ProvinceOwnerChanged, json!({ "province": 1 })).is_ok());
     let missing = dispatch::Heard::new(Kind::WarDeclared, json!({ "war": "The War" })).unwrap_err();
     assert!(missing.contains("attacker, defender"), "{missing}");

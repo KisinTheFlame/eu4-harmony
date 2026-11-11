@@ -416,14 +416,14 @@ impl crate::safe_point::Listener for Extensions {
 
 /// Dispatches a game's safe frame to every extension
 /// (`eu4_harmony_lua::dispatch`): what happened in its order
-/// ([`game::Frame::heard`]), every event whether the player's view shows it
+/// ([`game::Frame::heard`]), every signal whether the player's view shows it
 /// or not.
 fn frame(heard: &[game::Heard]) {
     let all = extensions();
-    let heard: Vec<Heard> = heard.iter().map(|h| Heard::of(&h.event)).collect();
+    let heard: Vec<Heard> = heard.iter().map(|h| Heard::of(&h.signal)).collect();
     let mut feed = Fed { began: false };
     dispatch::frame(&all, &heard, &mut feed);
-    game::events::extensions_listen(dispatch::listened(&all).into_iter().collect());
+    game::signals::extensions_listen(dispatch::listened(&all).into_iter().collect());
     crate::windows::frame();
     refresh_report(feed.began);
 }
@@ -476,7 +476,7 @@ impl dispatch::Feed for Fed {
 }
 
 fn tell_ended(end: crate::sessions::End) {
-    dispatch::hear(&extensions(), &Heard::of(&end.event()), &mut Fed { began: false });
+    dispatch::hear(&extensions(), &Heard::of(&end.signal()), &mut Fed { began: false });
     crate::windows::session_ended();
     let Some(began) = SESSION_CLOCKS.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };
     let now = Clocks::now();

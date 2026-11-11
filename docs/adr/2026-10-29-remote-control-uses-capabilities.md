@@ -1,10 +1,12 @@
 ---
-status: superseded in part by one-capability-catalogue
+status: superseded in part by one-capability-catalogue and requests-act-as-the-player-or-as-the-game
 ---
 
 # Remote control is built into the framework and uses the same capabilities as extensions
 
 Neither adapter mirrors the layer below it any more: both expose one capability catalogue (ADR one-capability-catalogue). Which side sees which capability still holds; the C ABI named here is now the Lua host (ADR extensions-are-lua-in-a-sandbox), whose host functions are in `core/src/lua/` rather than `core/src/ext.rs`, and the development tools that were scripts in `tools/` are commands of `cargo xtask` ([dev-tools.md](../dev-tools.md)).
+
+A remote client's request now acts as the player unless it asks to act as the game (ADR requests-act-as-the-player-or-as-the-game); as the player it still acts as this ADR says.
 
 Programs outside the game process, such as a debugging session or an AI playing the game from the command line, use the game through remote control, a part of the framework itself. It needs no mod in the playset. A remote client reaches the game only through capabilities, the same ones extensions use (ADR extensions-use-capabilities-only): there is no way to read memory, call game functions or patch code from outside.
 
