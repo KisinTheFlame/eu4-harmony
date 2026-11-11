@@ -47,9 +47,9 @@ pub(super) fn points() -> Vec<Point> {
 
 /// The crossings the day reaches, at their entries (docs/research/drawing-beside-the-day.md,
 /// "Where the day reaches the interface and the graphics", "The crossings a
-/// late day reaches"): the RVA, its first bytes, what it is, the arguments it
-/// reads.
-const CROSSINGS_AT: [(usize, &str, &str, u32); 8] = [
+/// late day reaches", "An event's window, met half made"): the RVA, its first
+/// bytes, what it is, the arguments it reads.
+const CROSSINGS_AT: [(usize, &str, &str, u32); 9] = [
     (0x81e280, "40 55 53 56 57 41 54", "the interface's monthly refresh", 1),
     (0x8c1430, "4c 89 44 24 18", "a message's popup", 3),
     (0x10a03f0, "48 89 5c 24 18", "a window made", 5),
@@ -58,6 +58,7 @@ const CROSSINGS_AT: [(usize, &str, &str, u32); 8] = [
     (0xde6300, "48 89 5c 24 10", "a combat's result drawn into a texture", 2),
     (0xe428b0, "48 89 5c 24 08", "a country's window to the player", 4),
     (0x123f800, "48 89 5c 24 10", "an item of the message list", 4),
+    (0x828c00, "48 89 5c 24 08", "an event's window shown to the player", 4),
 ];
 
 fn crossed(call: &mut Call) {
