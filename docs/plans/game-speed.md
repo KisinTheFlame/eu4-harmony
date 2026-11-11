@@ -1,6 +1,6 @@
 # Game speed plan
 
-Status: decided (2026-11-04). S0, the sampler, is built and was used for the measurements in [research/main-thread.md](../research/main-thread.md); S1 to S4 are built, and S7 researched, in one pull request; S4 was taken out on 2026-11-09, the frames inside a day drawing nothing once the drawing thread draws ([drawing-thread.md](drawing-thread.md), "Behavior"); S5 and S6 are set aside. S9, the armies' searches on idle threads, is built (2026-11-08) under the ADR that allows reasoned differences, and S10, sets of modifiers added through an index. S8, a save's stall made shorter, was asked for by the owner afterwards (2026-11-04): built in one pull request, its three steps as far as the research found them worth doing (2026-11-05): the file's own steps after the zip stay the game's. How a part is chosen, and the candidates for the next, were written down on 2026-11-08 ("How a part is chosen", "Which part comes next"). Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Dependency point, Frame inside a day, Framework settings, Choice bar, Info mark). The bar a change must meet is [ADR making-the-game-faster-leaves-what-it-computes-as-it-is](../adr/2026-11-04-making-the-game-faster-leaves-what-it-computes-as-it-is.md). What the framework itself costs the game is in [performance.md](../performance.md).
+Status: decided (2026-11-04). S0, the sampler, is built and was used for the measurements in [research/main-thread.md](../research/main-thread.md); S1 to S4 are built, and S7 researched, in one pull request; S4 was taken out on 2026-11-09, the frames inside a day drawing nothing once the drawing thread draws ([drawing-thread.md](drawing-thread.md), "Behavior"); S5 and S6 are set aside. S9, the armies' searches on idle threads, is built (2026-11-08) under the ADR that allows reasoned differences, and S10, sets of modifiers added through an index. S8, a save's stall made shorter, was asked for by the owner afterwards (2026-11-04): built in one pull request, its three steps as far as the research found them worth doing (2026-11-05): the file's own steps after the zip stay the game's. How a part is chosen, and the candidates for the next, were written down on 2026-11-08 ("How a part is chosen", "Which part comes next"); six more candidates, four of the day and two of a start and a load, were researched and timed on 2026-11-11 ("Candidates of 2026-11-11"); of them S11, a save chosen in single player without the transfer's copy, and S12, parameterized script given its arguments in one pass, were asked for by the owner and built the same day. Terms are in [GLOSSARY.md](../../GLOSSARY.md) (Dependency point, Frame inside a day, Framework settings, Choice bar, Info mark). The bar a change must meet is [ADR making-the-game-faster-leaves-what-it-computes-as-it-is](../adr/2026-11-04-making-the-game-faster-leaves-what-it-computes-as-it-is.md). What the framework itself costs the game is in [performance.md](../performance.md).
 
 ## Goal and scope
 
@@ -78,6 +78,26 @@ What this says, for the owner to choose:
 - **No way is ready now**: S10 is built, and the support check's exact ways are bounded under 3% of a day for a rewrite of it.
 - **The drawing's ways are smaller** than the day's parts, and each needs a proof or a measurement first.
 
+### Candidates of 2026-11-11
+
+Researched from the game's code and timed on the 1780.7.1 save in observe mode at speed 5, with another test game running beside it: 1,529 days in 180 s, 117.7 ms of the main thread a day, so the shares matter more than the milliseconds ([the run](../prototype-log/2026-11-11-five-candidates-timed.md)). Each way gives the game's own answers, checkable against the game's code as S10's are.
+
+| What | ms a day late, the most a way could give | The way | Its game logic understood | Kind |
+| --- | --- | --- | --- | --- |
+| The army's questions repeated at every step of a search: whether it may pass forts, the route's copy, its movement speed ([research/army-checks-in-searches.md](../research/army-checks-in-searches.md)) | about 3: 1.9 of the main thread's own, 1.2 of its wait in the AI stage | each answered once a search, on the search's thread | Well: what each question reads, and that nothing in a search or in the AI stage writes it (read 2026-11-11), so exact under S9 too; how many moves a search asks, not counted | C, the same answers |
+| A country's tolerance of a religion in a province, in religious unity and the AI's religion plan ([research/tolerance-in-a-province.md](../research/tolerance-in-a-province.md)) | about 0.65 of the main thread | not asked where religious unity does not read it; the province's modifiers read in place instead of copied | Well; the second way rests on two of the modifier table's objects being null, a check at startup | C, the same answers |
+| The trade range, checked for every merchant every day ([research/trade-range-and-naval-supply.md](../research/trade-range-and-naval-supply.md)) | about 0.6 of the main thread | the province that ended the last walk kept as a witness and checked first | Well; how many checks answer no, which a witness cannot spare, not counted | C, the same answers |
+| The naval supply table (same note) | 0.07; 0.26 s of a load | none in the day: the game builds it only when marked changed | Well | — |
+
+At a start and a load, outside the day's measure:
+
+| What | Time | The way | Kind |
+| --- | --- | --- | --- |
+| A plain text save chosen in the single player setup, deflated at level 9 for a multiplayer transfer no one receives ([research/save-transfer-copy.md](../research/save-transfer-copy.md)) | **2.5 s of the main thread** for the 69 MB save of 1780.7.1, before its 3.1 s load; every autosave continued is plain unless the player compresses autosaves | the file added without the deflate in single player; the load reads the same bytes. **Built: S11** | A |
+| Parameterized scripted triggers and effects, each use's text rebuilt for every block and parameter ([research/parameterized-script.md](../research/parameterized-script.md)) | 1.4 s of the LoadingThread in a start with the player's playset, 1.2 of it the parameters' substitution; much more with large mods | one pass over the definition's text, the same text: **built**, S12 | A |
+
+What this says, for the owner to choose: the save chosen is the one large gain, about 2.5 s of every late single player load, and of the kind that writes no game state; the parameterized script next, on the start's path and the more so for large mods. The three of the day are small, together about 4 ms of a 118 ms day, 3.6% at that run's pace, the army's questions most of it.
+
 ## Behavior
 
 ### Always on
@@ -116,6 +136,14 @@ The game stops while it saves: an ironman save of 1724 stopped it for about 1.2 
 - The file is written, checked and moved into place by the game, as before: on the disk once the stop ends.
 - Measured: that ironman save stopped the game for 0.31 to 0.45 s instead of 1.0 to 1.4 s with the first step; with all of them, 0.28 to 0.30 s instead of 1.15 to 1.31 s on a machine whose processor other work held at 100% ([performance.md](../performance.md)).
 
+### A save chosen sooner (S11)
+
+Choosing a plain text save in the single player setup, or continuing one, stopped the game for 2.5 to 2.8 s late in a game before the save began to load: the game deflated the whole file at level 9 for a multiplayer transfer, and in single player nothing reads that copy ([research/save-transfer-copy.md](../research/save-transfer-copy.md)).
+
+- In single player the file is added to the transfer without the copy, as the game's own multiplayer host adds its file; the load reads the same bytes as before. A zipped save was never deflated and is as it was.
+- A hosted multiplayer game, and any game whose world is not a single player one, keeps the game's way.
+- Measured: the setup's read of the 1780.7.1 save took 0.047 s instead of 2.852 s, of an autosave of the same size 0.033 s instead of 2.542 s ([the run](../prototype-log/2026-11-11-save-chosen-without-transfer-copy.md)).
+
 ### No frames inside a day (S4)
 
 - **The setting**: the settings window has a last group, "Game speed" (游戏速度), with one setting, "At the fastest speed" (最快速度时), followed by an info mark, set with a choice bar of two options:
@@ -124,6 +152,10 @@ The game stops while it saves: an ironman save of 1724 stopped it for about 1.2 
 - **The info mark** shows, while the pointer is on it: "Faster time: late in a game, days pass about a tenth faster at the fastest speed, but the map is redrawn less often, so it looks choppier and answers clicks a little later." (时间更快：游戏后期，最快速度下日子过得更快（实测约快一成），但地图刷新变少，会显得一顿一顿，点击的反应也慢一点。)
 - **When**: the setting takes effect when the settings window closes, in the game going on too. "Faster time" acts at speed 5 only; at speeds 1 to 4, where time waits between days anyway, frames inside a day are the game's.
 - **The widgets**: the choice bar shows its options side by side in one bar, the chosen one under a highlight that slides to the other when it is clicked; the info mark is a small i in a circle, which shows its text beside it while the pointer is on it and does nothing when clicked. Both are widgets of the framework UI any setting may use.
+
+### Parameterized script in one pass (S12)
+
+A start makes the text of every use of a parameterized scripted trigger or effect, 320,000 with the player's playset and more than a million with a large mod. The framework puts a use's arguments in place of its parameters in one pass where the game made the whole text again for each parameter; the text is the game's, byte for byte, and the main menu comes about a second sooner with the player's playset, seven with the 2000 AD mod. Always on, with no setting; the developer build's `game-paths = ["script-parameters"]` leaves the game's function as it is, and `checked = ["script-parameters"]` has it make each text too and compares the two.
 
 ### Cheaper drawing (S7)
 
@@ -142,6 +174,8 @@ Each part sits behind an interface no larger than what its callers need; what it
 - **The save's speed-ups** (`saving`): `background-compression`, `stored-copy`, `parallel-saves`, `save-sum` and `update-thread`, one file each; `saves` keeps extension save data.
 - **Saves in the background** (`saving::background`). Its interface is `wait()`, which the loader's and the restart's observers call, and its points: observers on the two local saves (which wait, then mark a save under way), on the game's zip entry (whose level they make 0 while one is), and on the game's file move (which notes each file the save moved into place). One thread of the framework's compresses each such file with `miniz_oxide`'s deflate (a pure Rust library, MIT, pinned as the workspace pins its dependencies) through a pure function, `compact(bytes: &[u8]) -> Result<Option<Vec<u8>>>` (None when it is no zip file or has nothing uncompressed), tested by reading its output back with the framework's own zip reader, `zip`, which every reader and writer of zip files in the framework is. The cloud save's path has no point.
 - **A save's countries and provinces side by side** (`saving::parallel`). It has no interface but `start()`, which starts the pool at startup, and `threads()`, which the write watch leaves running; its points are the two loops' starts, the two functions that hold a value in a static object and the five places with that code inline. Inside: the loop's items cut into runs, a pool that takes them in turn, a run's writer and stream made from the game's, and the runs' bytes written into the game's stream; the pool writes both loops while the game writes on, and `join(writer)`, which the save data's writer calls where the world has written its game state, puts their bytes where each loop began (`splice`); a developer build's `compare-saves` has the game's loops write beside the pool and compares the two there. The pool takes any task (`each`), which `saving::sum` (the save checksum's sum in parts, its interface its point and `SaveSum`, which the repair of a file's sum uses too, tested against the game's sum) and the zip's CRC use. `saving::background` stores a local save's entries at level 0 through the framework's own copy (`stored_blocks`, tested by inflating what it writes), the CRC in parts combined by `zip::crc32_combine` (tested against the CRC of the whole). `saving::update_thread` has no interface but its points: the update replaced, and the place the main thread tells the thread to stop.
+- **A save chosen without the transfer's copy** (`loading::transfer`, the speed-up `transfer-copy`, the group `loading`). It has no interface but its points: the transfer's add (`0xd7aad0`) replaced by a function that asks for no copy when the world is a single player one (`world+0x747c` 0) and calls the game's add; the add's two reads of `compress`, the setup's call of it and an instruction that reads the world's kind, kept. It has nothing to check against the game's: what it leaves out is a copy nothing reads.
+- **Parameterized script** (`loading::parameters`, S12): no interface but its point, `0xdb1800` replaced by a naked stub that hands its four arguments to the pass and runs the game's function when the pass declines (parameters out of order, overlapping or outside the text, or a NUL in it), so that whatever the game's function throws reaches the game's caller with no Rust frame between. The pass is a pure function over the text, the parameters' places and the arguments, tested against a model of the game's steps on made-up and random texts; the result goes into the game's string through the game's own append.
 - **The settings window** (`framework_ui`, `settings`). Two widgets, `Widget::Choice { id, options, selected }`, which draws the choice bar and slides its highlight, and `Widget::Explained { label, info }`, a label followed by the info mark. `Settings` gains `fastest_speed: Pace`, written as `fastest_speed="smooth"` or `"faster"`, taken up when saved as the two leaving-session settings are.
 
 ## Parts
@@ -227,6 +261,14 @@ Built (2026-11-08) under [ADR the-game-may-be-made-faster-with-reasoned-differen
 ### S10 Sets of modifiers added through an index
 
 Built (2026-11-08): the search `0x8ea420` and `0x8ea730` make for each modifier added to a set kept as pairs answered from an index of the set's pairs instead of pair by pair, each answer the game's search's; the rest of the adding stays the game's code. It took the function from about 104 ms of the main thread a game month to about 41, late in a game; 63 million answers checked against the game's search, none differing ([research/late-game.md](../research/late-game.md), "Adding sets of modifiers"). Always on; the developer build's `game-paths = ["modifier-sums"]` leaves the game's code as it is, and `checked = ["modifier-sums"]` checks the answers.
+
+### S11 A save chosen without the transfer's copy
+
+Asked for by the owner on 2026-11-11, from "Candidates of 2026-11-11", and built the same day: in single player, the save chosen in the setup is added to the file transfer without the deflated copy that only a multiplayer peer would read. The setup's read of a late plain save of 69 MB went from 2.5 to 2.8 s to under 0.05 s; with the part left to the game (`game-paths = ["transfer-copy"]`) the deflate ran as before ([the run](../prototype-log/2026-11-11-save-chosen-without-transfer-copy.md)). Always on. A hosted multiplayer game was not tried; the part leaves it to the game by the world's kind.
+
+### S12 Parameterized script in one pass
+
+Built (2026-11-11): the parameters' substitution `0xdb1800` replaced by one pass from the left, the game's own function kept for a use whose parameters are not in order and apart or whose text has a NUL ([research/parameterized-script.md](../research/parameterized-script.md)). It took the uses' making from 1.25 s of the LoadingThread to 0.25 s in a start with the player's playset, three starts each way, and the main menu from 17 s to 16; with Voltaire's Nightmare from 1.44 to 0.11 s and 23 s to 21, with the 2000 AD mod from 4.03 to 0.98 s and 90 s to 83, one start each. 1,564,994 uses checked against the game's text over the three playsets, none differing ([the run](../prototype-log/2026-11-11-script-parameters-in-one-pass.md)). Always on; the developer build's `game-paths = ["script-parameters"]` leaves the game's code as it is, and `checked = ["script-parameters"]` checks the texts.
 
 ## Order
 
