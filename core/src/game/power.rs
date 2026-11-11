@@ -133,6 +133,20 @@ impl Spending {
         Ok(spending)
     }
 
+    /// The same spending with `second` its second value: an army's
+    /// spendings carry the army's ID in their two values.
+    pub fn with_second(mut self, second: i32) -> Self {
+        self.0[SECOND..SECOND + 4].copy_from_slice(&second.to_le_bytes());
+        self
+    }
+
+    /// The same spending about the object the game has under `id`, as harsh
+    /// treatment is about a rebel faction.
+    pub fn about_id(mut self, id: u64) -> Self {
+        self.0[ABOUT_ID..ABOUT_ID + 8].copy_from_slice(&id.to_le_bytes());
+        self
+    }
+
     fn at(&mut self) -> usize {
         self.0.as_mut_ptr() as usize
     }

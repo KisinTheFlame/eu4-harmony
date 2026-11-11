@@ -336,6 +336,16 @@ fn rebels_of(m: &Memory, c: usize) -> GResult<Vec<Rebels>> {
         .collect()
 }
 
+/// The rebel factions against the country at `c`: their objects.
+pub(crate) fn rebel_factions(m: &Memory, c: usize) -> GResult<Vec<usize>> {
+    factions(m, c)
+}
+
+/// A rebel faction's rebel type, by its key.
+pub(crate) fn rebel_kind(m: &Memory, faction: usize) -> GResult<String> {
+    faction_kind(m, faction)
+}
+
 /// The country's rebel factions' objects.
 fn factions(m: &Memory, c: usize) -> GResult<Vec<usize>> {
     let begin = m.ptr(c + fields::REBEL_FACTIONS)?;

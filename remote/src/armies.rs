@@ -84,9 +84,10 @@ group! {
     game Selected "selected" {} -> ArmyId, "the army's id";
     /// What the army or fleet panel's buttons offer for one of the player's
     /// armies or fleets now: split, merge (with the player's others of its
-    /// kind in its province), disband, consolidate and drill or stop_drill
-    /// for an army, patrol and evade for a fleet; each with whether the
-    /// player can, why not as the button's tooltip says, and what it costs.
+    /// kind in its province), disband, consolidate and drill or stop_drill,
+    /// scorch_earth, seize_colony, burn_colony and attack_natives for an
+    /// army, patrol and evade for a fleet; each with whether the player
+    /// can, why not as the button's tooltip says, and what it costs.
     game Options "options" {
         /// The player's army or fleet.
         army: ArmyId,
@@ -147,6 +148,31 @@ group! {
     /// Stops a fleet's mission, as the fleet panel's button does.
     game StopMission "stop_mission" {
         /// The player's fleet.
+        army: ArmyId,
+    } -> (), "nothing";
+    /// Scorches the earth of the province the army is in, a province of
+    /// the player's, for military points, as the army panel's button does:
+    /// enemy armies there lose supply.
+    game ScorchEarth "scorch_earth" {
+        /// The player's land army.
+        army: ArmyId,
+    } -> (), "nothing";
+    /// Takes over the colony the army is in, an enemy's, for military
+    /// points, as the army panel's button does.
+    game SeizeColony "seize_colony" {
+        /// The player's land army.
+        army: ArmyId,
+    } -> (), "nothing";
+    /// Burns the colony the army is in, an enemy's, for military points, as
+    /// the army panel's button does.
+    game BurnColony "burn_colony" {
+        /// The player's land army.
+        army: ArmyId,
+    } -> (), "nothing";
+    /// Attacks the natives of the uncolonized province the army is in, for
+    /// military points, as the army panel's button does.
+    game AttackNatives "attack_natives" {
+        /// The player's land army.
         army: ArmyId,
     } -> (), "nothing";
 }

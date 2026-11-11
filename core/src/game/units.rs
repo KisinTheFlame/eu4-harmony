@@ -211,6 +211,9 @@ pub fn options(Session { m, ctx, .. }: Session, args::Options { army: ArmyId(id)
         out.push(entry("consolidate", may_consolidate(m, unit)?));
         let drilling = mission_kind(m, unit)? == DRILLING;
         out.push(entry(if drilling { "stop_drill" } else { "drill" }, if drilling { Choice::can(Vec::new()) } else { may_drill(m, unit)? }));
+        for which in super::spendings::ByArmy::ALL {
+            out.push(entry(which.name(), super::spendings::by_army(m, &ctx, unit, which)?));
+        }
     } else {
         let location = army::location(m, unit)?;
         for mission in ["patrol", "evade"] {

@@ -36,6 +36,7 @@ pub mod player;
 pub mod power;
 pub mod signal_costs;
 pub mod signals;
+pub mod spendings;
 pub mod units;
 pub mod wars;
 pub mod world;
@@ -358,6 +359,7 @@ pub fn points() -> Vec<Point> {
     points.extend(modifiers::points());
     points.extend(administration::points());
     points.extend(units::points());
+    points.extend(spendings::points());
     points.extend(envoys::points());
     points
 }

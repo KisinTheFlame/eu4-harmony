@@ -1,12 +1,13 @@
 //! The player's armies and the armies they can see. A move or a stop from a
 //! remote client is the player's order (ADR remote-control-uses-capabilities):
 //! the capability layer takes the army back from an extension moving it.
-use crate::game::{armies as layer, units};
+use crate::game::{armies as layer, spendings::ByArmy, units};
 use eu4_harmony_remote::armies::args;
 use eu4_harmony_remote::armies::{Army, ArmyAction, ArmyAnswer, ArmyRequest, Regiment};
 
 layer! {
     run ArmyRequest => ArmyAnswer;
+    fn army_spend(army: u64, which: ByArmy) -> () = session crate::game::spendings::press_by_army;
     Get => fn army -> Army = layer::get;
     List => fn armies -> Vec<Army> = layer::list;
     Regiments => fn regiments -> Vec<Regiment> = layer::regiments;
@@ -26,4 +27,8 @@ layer! {
     StopDrill => fn stop_drill -> () = units::stop_drill;
     Mission => fn mission -> () = units::mission;
     StopMission => fn stop_mission -> () = units::stop_mission;
+    ScorchEarth { army } => game.army_spend(army, ByArmy::ScorchEarth);
+    SeizeColony { army } => game.army_spend(army, ByArmy::SeizeColony);
+    BurnColony { army } => game.army_spend(army, ByArmy::BurnColony);
+    AttackNatives { army } => game.army_spend(army, ByArmy::AttackNatives);
 }

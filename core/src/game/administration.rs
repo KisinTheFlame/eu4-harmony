@@ -448,6 +448,9 @@ pub fn options(Session { m, ctx, .. }: Session, args::Options { province: Provin
             }
         }
     }
+    for which in super::spendings::InProvince::ALL {
+        out.push(ProvinceOption { action: which.name().into(), edict: None, choice: super::spendings::in_province(m, &ctx, place.address, which)? });
+    }
     Ok(out)
 }
 
@@ -597,7 +600,7 @@ mod tests {
         buffers::{self, write_reason, Image, Object, Provinces},
         commands::record,
         power::{ABOUT_PROVINCE, COST, NO_ID},
-        Fail,
+        spendings, Fail,
     };
     use std::cell::Cell;
 
@@ -680,7 +683,11 @@ mod tests {
             .function(CAN_MAKE_TERRITORY.rva(), third as *const ())
             .function(CAN_SET_EDICT.rva(), third as *const ())
             .function(CAN_CORE.rva(), third as *const ())
-            .function(CAN_CHANGE_CULTURE.rva(), third as *const ());
+            .function(CAN_CHANGE_CULTURE.rva(), third as *const ())
+            .function(spendings::MAY_MOVE_CAPITAL.rva(), third as *const ())
+            .function(spendings::MAY_MOVE_TRADE_PORT.rva(), third as *const ())
+            .function(spendings::MAY_SIBERIAN_FRONTIER.rva(), fourth as *const ())
+            .function(spendings::MAY_RAZE.rva(), third as *const ());
         let tokens = image.tokens(&["none", "turkish", "greek"]);
         let (turkish, greek) = (Object::new(0x18).u32(field::CULTURE_TOKEN, 1), Object::new(0x18).u32(field::CULTURE_TOKEN, 2));
         let edict = |index: u32, key: &str| Object::new(EDICT_INDEX + 4).string(field::EDICT_KEY, key).u32(EDICT_INDEX, index);
@@ -699,7 +706,7 @@ mod tests {
         );
         provinces.owner(2, byz()).u64(2, field::CULTURE, greek.at() as u64);
         provinces.owner(3, tur()).u64(3, field::CULTURE, turkish.at() as u64);
-        let player = Object::country(tur(), country::PRIMARY_CULTURE + 8)
+        let player = Object::country(tur(), country::NATIVE + 8)
             .i32(country::POWER, 100)
             .i32(country::POWER_DIP, dip)
             .i32(country::POWER + 8, 100)
@@ -742,6 +749,12 @@ mod tests {
                 ("cancel_core", None, true),
                 ("change_culture", None, true),
                 ("cancel_culture", None, false),
+                ("move_capital", None, true),
+                ("move_trade_port", None, true),
+                ("establish_siberian_frontier", None, true),
+                // Only a native country has the button.
+                ("add_tribal_land", None, false),
+                ("raze", None, true),
             ]
         );
         let cost = |action: &str| options.iter().find(|o| o.action == action).unwrap().choice.cost.clone();
