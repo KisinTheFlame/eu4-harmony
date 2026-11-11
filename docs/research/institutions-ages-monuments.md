@@ -8,14 +8,14 @@ Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` on 2026-11-11 with 
 - **Whether a country has embraced one**: a vector (begin, end) of i32 at country `+0xc68`, 1 by the institution's index once embraced; the country's save writer writes it as `institutions` (`0x2dc992`).
 - **The check** `0x3f6340(country, institution, reasons, with_cost) -> bool`, which the institutions view (`0x10167aa`) and the command's check (`0x2bc481`) call, the view with a `std::string` for its reasons and `with_cost` set, the check with none:
   1. the institution has appeared, or `INSTI_NOT_ACTIVE`;
-  2. the share of the country's development that has it (`0x3f5510(country, out, institution, null)`, i32 thousandths into `out`) is at least 100 (10%), or `INSTI_NOT_ENOUGH_HOLD` with the share and what is needed;
+  2. the share of the country's development that has it (`0x3f5510(country, out, institution, null)`, i32 thousandths into `out`; 1000 for one embraced) is at least 100 (10%), or `INSTI_NOT_ENOUGH_HOLD` with the share and what is needed;
   3. with `with_cost`, the cost (`0x3f6b50(country, out, institution, null)`, i32 thousandths of a ducat) no more than the treasury (`+0xbb0`), or `INSTI_TOO_EXPENSIVE`.
   It does not ask whether the country has embraced it already; the view does not offer it then.
 - **The command** `embrace_institution_command` (vtable `0x1c53528`; write `0x2bc160`, read `0x2bc250`, check `0x2bc450`, execute `0x2bb3a0`): `country` is the tag's index (`%d` of the tag's bits 32–47, read back through the country manager), `institutions` the institution's index, `message` a bool the view's button sets (`0x10193e1`). As the button writes it: `embrace_institution_command={ country=<index> institutions=<index> message=yes }`. The execute pays the cost as a single-time expense `embrace_institution` and sets the flag.
 
 ## Ages
 
-- **The ages' database**: its getter `0x8db70` makes it on first use (0x78 bytes) and keeps it at `[0x242b9e0]`; three maps by key with a vector of pointers each: the ages (`+0x10`), the objectives (`+0x38`) and the abilities of every age (`+0x60`), in order of their index.
+- **The ages' database**: its getter `0x8db70` makes it on first use (0x78 bytes) and keeps it at `[0x242b9e0]`; three maps by key with a vector of pointers each, the last the abilities of every age (`+0x60`, as the command's reader indexes it, `0x2bdb2c`), in order of their index; that the first two are the ages and the objectives is inferred from the constructor's layout and the reader's keys, not read.
 - **The age the world is in**: a pointer at world `+0x2420`, its key a `std::string` at `+0x10`; the world's save writer writes it as `current_age` (`0x750a43`).
 - **An ability**, made by the age's reader (`0x8c65a`): its index at `+0x10` (the count of the database's vector when made), its age at `+0x18`, its `allow` triggers an array at `+0x28` (count `+0x34`), its key a `std::string` at `+0x98`.
 - **A country's abilities taken**: a vector of pointers at country `+0x30`, written as `active_age_ability`; its splendor an i32 of thousandths at `+0x48`.
