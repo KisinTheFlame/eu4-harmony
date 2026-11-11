@@ -96,6 +96,10 @@ pub enum Resource {
     Splendor,
     /// Church power, which a church's aspects cost.
     ChurchPower,
+    /// Fervor, which turning on a fervor effect costs.
+    Fervor,
+    /// Patriarch authority, in percent, which an Orthodox icon costs.
+    PatriarchAuthority,
 }
 
 /// A kind of monarch power, as the game's panels name them: what a

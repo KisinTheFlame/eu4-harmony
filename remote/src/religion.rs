@@ -2,6 +2,7 @@
 //! player's religion lets it follow, and choosing them as the view's
 //! buttons do (docs/research/religion.md).
 use crate::choices::Choice;
+use crate::ProvinceId;
 use serde::{Deserialize, Serialize};
 
 group! {
@@ -15,13 +16,22 @@ group! {
     /// them (Fetishism, the Dreamtime), each the game has; a church's
     /// aspects when it has a church (Protestantism), each its religion
     /// offers, to add or, once chosen, to remove; and the blessings when it
-    /// has them (Coptic, Zoroastrian), each its religion offers. Each with
-    /// whether the player can now and why not, in the game's words (the
-    /// conditions that do not hold, a regency, a cult already followed
-    /// until the monarch changes, too little church power, stability too
-    /// low, all the church's slots taken, holy sites lost), and its cost.
-    /// Empty for a religion with none of them.
-    game Options "options" {} -> Vec<ReligionOption>, "each entry: action (choose_deity, choose_cult, add_aspect, remove_aspect or choose_blessing), key, name, current, can, reasons, cost";
+    /// has them (Coptic, Zoroastrian), each its religion offers; the fervor
+    /// effects when it uses fervor (the Reformed), each whose conditions for
+    /// being offered hold, to turn on or, once on, off; the religions it
+    /// may harmonize with now when it harmonizes (Confucianism), and
+    /// stopping the harmonization going on; the icons when it has them
+    /// (Orthodoxy), each to commission, and consecrating a metropolitan in
+    /// each of the player's states, with the state's province; the
+    /// religious reforms when it has them (Nahuatl, Inti, Mesoamerican),
+    /// each to pass or, once passed, current, and reforming the religion
+    /// once all are. Each with whether the player can now and why not, in
+    /// the game's words where it has them (the conditions that do not hold,
+    /// a regency, a cult already followed until the monarch changes, too
+    /// little church power, stability too low, all the church's slots
+    /// taken, holy sites lost), and its cost. Empty for a religion with none
+    /// of them.
+    game Options "options" {} -> Vec<ReligionOption>, "each entry: action (choose_deity, choose_cult, add_aspect, remove_aspect, choose_blessing, enable_fervor, disable_fervor, harmonize, stop_harmonizing, commission_icon, consecrate_metropolitan, pass_reform or reform_religion), key, name, current, province, can, reasons, cost";
 
     /// Follows a personal deity, as the view's button for it does; it
     /// lasts until the monarch changes. `rejected` with the game's reasons
@@ -85,6 +95,77 @@ group! {
     /// `rejected` with the game's reasons when the player cannot now, as
     /// `religion.defender_of_the_faith` says beforehand.
     game ClaimDefenderOfTheFaith "claim_defender_of_the_faith" {} -> (), "null once the player defends it";
+
+    /// Passes one of the religion's reforms (Nahuatl, Inti, Mesoamerican),
+    /// as the religious reforms window's button does once the player
+    /// confirms; they are passed in any order. `rejected` with the game's
+    /// reasons when the player cannot now, as `religion.options` says
+    /// beforehand; `not_found` for a key that names no reform of the
+    /// player's.
+    game PassReform "pass_reform" {
+        /// The reform's content key, such as `nahuatl_reform_1`.
+        reform: String,
+    } -> (), "null once the reform is passed";
+
+    /// Reforms the religion once every religious reform is passed, as the
+    /// religious reforms window's button does: the country takes another
+    /// religion, government and institutions, learning from a neighbor or
+    /// from its own technology. `rejected` when the player cannot now, as
+    /// `religion.options` says beforehand.
+    game ReformReligion "reform_religion" {} -> (), "null once the game reforms it";
+
+    /// Commissions an Orthodox icon, as the religion view's button does,
+    /// paying its patriarch authority; it lasts twenty years.
+    /// `rejected` with the game's reasons when the player cannot now, as
+    /// `religion.options` says beforehand; `not_found` for a key that names
+    /// no icon of the player's religion.
+    game CommissionIcon "commission_icon" {
+        /// The icon's name, as `religion.options` gives it in `key`, such as
+        /// `icon_michael`.
+        icon: String,
+    } -> (), "null once the icon is commissioned";
+
+    /// Consecrates a metropolitan in a state of the player's (Orthodoxy),
+    /// as the province view's button does. `rejected` with the game's
+    /// reasons when the player cannot there now, as `religion.options` says
+    /// beforehand.
+    game ConsecrateMetropolitan "consecrate_metropolitan" {
+        /// A province of the state.
+        province: ProvinceId,
+    } -> (), "null once the metropolitan is consecrated";
+
+    /// Starts harmonizing with a religion (Confucianism), as the religion
+    /// view's button does; with a religion of another group the game
+    /// harmonizes with the whole group. `not_found` for a key that names
+    /// no religion the game offers to harmonize with now (those of the
+    /// player's provinces, with enough development there, not harmonized
+    /// with yet), as `religion.options` lists them.
+    game Harmonize "harmonize" {
+        /// The religion's content key, such as `sunni`.
+        religion: String,
+    } -> (), "null once the game harmonizes with it";
+
+    /// Stops the harmonization going on, as the religion view's button
+    /// does. `rejected` while there is none.
+    game StopHarmonizing "stop_harmonizing" {} -> (), "null once the game stops";
+
+    /// Turns a fervor effect on (the Reformed), as the religion view's
+    /// button does, paying its cost in fervor. `rejected` with the game's
+    /// reasons when the player cannot now, as `religion.options` says
+    /// beforehand; `not_found` for a key that names no effect the view
+    /// offers the player.
+    game EnableFervor "enable_fervor" {
+        /// The effect's content key, such as `fervor_trade`.
+        effect: String,
+    } -> (), "null once the effect is on";
+
+    /// Turns a fervor effect off, as the religion view's button does.
+    /// `rejected` when it is not on; `not_found` for a key that names no
+    /// effect the view offers the player.
+    game DisableFervor "disable_fervor" {
+        /// The effect's content key.
+        effect: String,
+    } -> (), "null once the effect is off";
 }
 
 /// The defender of the faith of the player's religion, and claiming it.
@@ -114,6 +195,10 @@ pub struct ReligionOption {
     /// The player follows it, its church has it or the player has taken
     /// it, now.
     pub current: bool,
+    /// For consecrating a metropolitan, a province of the state it is
+    /// consecrated in, as `religion.consecrate_metropolitan` takes it; none
+    /// for the rest.
+    pub province: Option<ProvinceId>,
     /// Whether the player can follow it now, and why not.
     #[serde(flatten)]
     pub choice: Choice,

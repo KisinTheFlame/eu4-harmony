@@ -345,6 +345,21 @@ pub mod country {
     /// `std::vector` of pointers to aspects (docs/research/religion.md).
     pub const CHURCH: usize = 0xf68;
     pub const BLESSINGS: usize = 0xf70;
+    /// Its religious reforms, a `std::vector` of entries, one for each reform
+    /// group of its religion: the group and which of its reforms are passed
+    /// (docs/research/religion.md).
+    pub const RELIGIOUS_REFORMS: usize = 0x1450;
+    /// Its fervor, a pointer to the object that keeps it and the fervor
+    /// effects active (docs/research/religion.md).
+    pub const FERVOR: usize = 0xf60;
+    /// The religion it is harmonizing with now and the religion group, each a
+    /// pointer, null while it harmonizes with none (docs/research/religion.md).
+    pub const HARMONIZING: usize = 0x1040;
+    pub const HARMONIZING_GROUP: usize = 0x1048;
+    /// Its patriarch authority, i32 thousandths of the whole, and the icon it
+    /// has commissioned, a pointer, null for none (docs/research/religion.md).
+    pub const PATRIARCH_AUTHORITY: usize = 0xf88;
+    pub const ICON: usize = 0xf90;
     /// The named modifiers its scripts put on it, a [`super::super::list`]
     /// of [`super::named_modifier`]s.
     pub const NAMED_MODIFIERS: usize = 0x1f0;
