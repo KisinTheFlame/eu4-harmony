@@ -522,7 +522,7 @@ All of these are started in `main` and served at the top of every application fr
 | Epic (`pdx_egs`) | `0x1699500` | `0x169a2f0` | Login and invites |
 | POPS | `0x14ab0a0` (login) | `0x14ada90` | Wrapper `0x2340148`; Paradox account, telemetry, cloud files; `pdx_social` sits on it |
 | Nakama | in the context owner | `0x168dff0` | Wrapper `[0x2433e88]`; matches for multiplayer through `pdx_net` |
-| Crash reporter (`pdx_crashreport2`) | `0x874b40` | | Installs an unhandled exception filter (`0x1654c00`); writes `meta.yml` and `minidump.dmp` |
+| Crash reporter (`pdx_crashreport2`) | `0x874b40` | | Installs an unhandled exception filter (`0x1654c00`); writes `meta.yml` and `minidump.dmp` ([crash-handling.md](crash-handling.md)) |
 
 ## Where the framework attaches
 

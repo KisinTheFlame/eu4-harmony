@@ -54,17 +54,37 @@ pub fn now() -> String {
 
 pub fn write(args: std::fmt::Arguments) {
     let line = format!("{} tid={} {}\n", now(), unsafe { GetCurrentThreadId() }, args);
-    let mut sink = SINK.lock().unwrap_or_else(|e| e.into_inner());
+    put(&mut SINK.lock().unwrap_or_else(|e| e.into_inner()), line);
+}
+
+/// [`write`], waiting at most `wait` for the log: for a crash, where the
+/// thread that holds it may be the one that crashed and never let it go.
+/// False when the line was not written.
+pub fn write_within(args: std::fmt::Arguments, wait: std::time::Duration) -> bool {
+    let line = format!("{} tid={} {}\n", now(), unsafe { GetCurrentThreadId() }, args);
+    let until = std::time::Instant::now() + wait;
+    loop {
+        match SINK.try_lock() {
+            Ok(mut sink) => return put(&mut sink, line),
+            Err(std::sync::TryLockError::Poisoned(e)) => return put(&mut e.into_inner(), line),
+            Err(std::sync::TryLockError::WouldBlock) if std::time::Instant::now() < until => std::thread::sleep(std::time::Duration::from_millis(1)),
+            Err(std::sync::TryLockError::WouldBlock) => return false,
+        }
+    }
+}
+
+fn put(sink: &mut Sink, line: String) -> bool {
     match sink.file.as_mut() {
         Some(file) => {
             let _ = file.write_all(line.as_bytes());
             let _ = file.flush();
+            true
         }
-        None => {
-            if sink.pending.len() < 10_000 {
-                sink.pending.push(line);
-            }
+        None if sink.pending.len() < 10_000 => {
+            sink.pending.push(line);
+            true
         }
+        None => false,
     }
 }
 

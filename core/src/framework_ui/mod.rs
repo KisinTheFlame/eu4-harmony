@@ -120,14 +120,36 @@ fn settings_page(page: Page, shown: &Settings, words: &dyn Fn(&str) -> String) -
     setting_widgets(page, shown, words)
 }
 
-/// Where problems with the framework are reported, as the settings window's
-/// foot names it.
+/// Where problems with the framework are reported, as the About page names
+/// it.
 const ISSUES: &str = "https://github.com/KisinTheFlame/eu4-harmony/issues";
 
-/// The settings window's foot: the framework's version, and where to report
-/// a problem.
-fn settings_foot() -> String {
-    words_with("EU4HARMONY_SETTINGS_FOOT", &[("VERSION", env!("CARGO_PKG_VERSION")), ("ISSUES", ISSUES)])
+/// The button on the About page that packs the troubleshooting files.
+const TROUBLESHOOTING: &str = "troubleshooting";
+
+/// The About page: the framework's version, where to report a problem, and
+/// the button that packs the troubleshooting files, with the line after it
+/// that says what it did.
+fn about_page(words: &dyn Fn(&str) -> String, words_with: mods_window::Words) -> Vec<Widget> {
+    vec![
+        Widget::Heading(words_with("EU4HARMONY_ABOUT_VERSION", &[("VERSION", env!("CARGO_PKG_VERSION"))])),
+        Widget::Label(words_with("EU4HARMONY_ABOUT_ISSUES", &[("ISSUES", ISSUES)])),
+        Widget::Gap,
+        Widget::Button { id: TROUBLESHOOTING, label: words("EU4HARMONY_ABOUT_TROUBLESHOOTING") },
+        Widget::Label(troubleshooting_line(&crate::troubleshooting::state(), words_with)),
+    ]
+}
+
+/// What the troubleshooting files' packing has come to, as the line under
+/// its button says it.
+fn troubleshooting_line(state: &crate::troubleshooting::State, words_with: mods_window::Words) -> String {
+    use crate::troubleshooting::State;
+    match state {
+        State::Idle => String::new(),
+        State::Packing => words_with("EU4HARMONY_ABOUT_PACKING", &[]),
+        State::Saved(file) => words_with("EU4HARMONY_ABOUT_SAVED", &[("FILE", file)]),
+        State::Failed(why) => words_with("EU4HARMONY_ABOUT_NOT_SAVED", &[("ERROR", why)]),
+    }
 }
 
 /// The place in the settings window's footer of the line that says a change
@@ -159,12 +181,19 @@ fn read_back(w: &Window, chosen: &mut Settings) {
 
 /// The settings window showing `next`, the settings the next start runs
 /// with, to a session running with `current`; its language and fonts page is
-/// `fonts`, and `foot` stands at its bottom.
-fn settings_window(current: &Settings, next: &Settings, fonts: &FontsPage<impl FontSystem>, words: &dyn Fn(&str) -> String, foot: String) -> Window {
+/// `fonts`.
+fn settings_window(
+    current: &Settings,
+    next: &Settings,
+    fonts: &FontsPage<impl FontSystem>,
+    words: &dyn Fn(&str) -> String,
+    words_with: mods_window::Words,
+) -> Window {
     let pages = Page::ALL
         .into_iter()
         .map(|page| match page {
             Page::LanguageFonts => fonts.widgets(next, words),
+            Page::About => about_page(words, words_with),
             _ => settings_page(page, next, words),
         })
         .collect();
@@ -173,7 +202,6 @@ fn settings_window(current: &Settings, next: &Settings, fonts: &FontsPage<impl F
         Widget::Label(String::new()),
         Widget::Button { id: "save", label: words("EU4HARMONY_SETTINGS_SAVE") },
         Widget::Button { id: "cancel", label: words("EU4HARMONY_SETTINGS_CANCEL") },
-        Widget::Label(foot),
     ];
     let side = Side::new("pages", Page::ALL.iter().map(|page| words(page.title())).collect(), SETTINGS_LIST);
     let mut window = Window::new(words("EU4HARMONY_SETTINGS_TITLE"), Vec::new(), SETTINGS_WIDTH).with_side(side).with_pages(pages).with_footer(footer);
@@ -210,7 +238,7 @@ impl FrameworkUi {
     fn open_settings(&mut self) {
         let next = settings::next();
         let fonts = FontsPage::new(SystemFonts::new().ok(), &next);
-        let mut window = settings_window(&settings::current(), &next, &fonts, &words, settings_foot());
+        let mut window = settings_window(&settings::current(), &next, &fonts, &words, &words_with);
         window.center(&self.font, self.screen.0, self.screen.1);
         self.settings = Some(window);
         self.fonts_page = Some(fonts);
@@ -308,6 +336,10 @@ impl FrameworkUi {
                 }
                 Some(Action::Switched(..)) => self.settings_changed(),
                 Some(Action::Pressed("save")) => self.close_settings(true),
+                Some(Action::Pressed(TROUBLESHOOTING)) => {
+                    crate::troubleshooting::start();
+                    w.set_label_after(TROUBLESHOOTING, troubleshooting_line(&crate::troubleshooting::state(), &words_with));
+                }
                 Some(Action::Pressed(_)) | Some(Action::Closed) => self.close_settings(false),
                 None => {}
             }
@@ -487,6 +519,9 @@ pub unsafe fn frame(device: *mut c_void) {
     ui.font.set_scale(scale);
     ui.screen = (pixels.0 / scale, pixels.1 / scale);
     ui.update_notice();
+    if let Some(w) = ui.settings.as_mut() {
+        w.set_label_after(TROUBLESHOOTING, troubleshooting_line(&crate::troubleshooting::state(), &words_with));
+    }
     let commands = ui.commands();
     if let Err(e) = unsafe { ui.backend.draw(device, &ui.font, &commands, scale) } {
         log!("framework UI draw failed: {e}");
@@ -509,6 +544,10 @@ mod tests {
 
     fn keys(key: &str) -> String {
         key.to_string()
+    }
+
+    fn keys_with(key: &str, args: &[(&str, &str)]) -> String {
+        args.iter().fold(key.to_string(), |text, (name, value)| format!("{text} {name}={value}"))
     }
 
     /// The ids of the widgets that are read back.
@@ -580,7 +619,7 @@ mod tests {
             for next in [following, chosen] {
                 for fonts in [Some(fonts_page::tests::installed()), None] {
                     let page = FontsPage::new(fonts, &next);
-                    let window = settings_window(&next, &next, &page, &keys, String::new());
+                    let window = settings_window(&next, &next, &page, &keys, &keys_with);
                     assert_eq!(chosen_settings(&window, &next, &page), next, "{language:?}");
                 }
             }
@@ -591,7 +630,7 @@ mod tests {
     fn the_settings_window_saves_the_language_chosen() {
         let next = Settings { language: Some(Language::English), ..Settings::default() };
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &next);
-        let mut window = settings_window(&next, &next, &page, &keys, String::new());
+        let mut window = settings_window(&next, &next, &page, &keys, &keys_with);
         let languages = Language::ALL.iter().map(|l| l.native_name().to_string()).collect();
         let korean = Language::ALL.iter().position(|&l| l == Language::Korean).unwrap();
         window.set_options("language", languages, korean);
@@ -611,25 +650,37 @@ mod tests {
         let current = Settings { language: Some(Language::English), ..Settings::default() };
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &current);
         // Nothing changed: no line, but its room, so the buttons stay put.
-        let mut window = settings_window(&current, &current, &page, &keys, "foot".into());
+        let mut window = settings_window(&current, &current, &page, &keys, &keys_with);
         assert_eq!(restart_shown(&mut window), "");
-        assert!(matches!(window.footer_mut().last(), Some(Widget::Label(foot)) if foot == "foot"));
         // A change that takes effect when saved needs no restart.
         let mut sound = current.clone();
         sound.music_loudness = !sound.music_loudness;
-        let mut window = settings_window(&current, &sound, &page, &keys, String::new());
+        let mut window = settings_window(&current, &sound, &page, &keys, &keys_with);
         assert_eq!(restart_shown(&mut window), "");
         // One that takes effect at the next start, saved before or chosen
         // now, does.
         let mut outline = current.clone();
         outline.map_outline = !outline.map_outline;
-        let mut window = settings_window(&current, &outline, &FontsPage::new(Some(fonts_page::tests::installed()), &outline), &keys, String::new());
+        let mut window = settings_window(&current, &outline, &FontsPage::new(Some(fonts_page::tests::installed()), &outline), &keys, &keys_with);
         assert_eq!(restart_shown(&mut window), "EU4HARMONY_SETTINGS_RESTART");
-        let mut window = settings_window(&current, &current, &page, &keys, String::new());
+        let mut window = settings_window(&current, &current, &page, &keys, &keys_with);
         let languages = Language::ALL.iter().map(|l| l.native_name().to_string()).collect();
         let korean = Language::ALL.iter().position(|&l| l == Language::Korean).unwrap();
         window.set_options("language", languages, korean);
         window.footer_mut()[RESTART_LINE] = restart_line(&window, &current, &current, &page, &keys);
         assert_eq!(restart_shown(&mut window), "EU4HARMONY_SETTINGS_RESTART");
+    }
+
+    #[test]
+    fn the_about_page_shows_the_version_and_what_the_troubleshooting_button_did() {
+        let current = Settings::default();
+        let page = FontsPage::new(Some(fonts_page::tests::installed()), &current);
+        let mut window = settings_window(&current, &current, &page, &keys, &keys_with);
+        let about = Page::ALL.iter().position(|&p| p == Page::About).unwrap();
+        let version = format!("EU4HARMONY_ABOUT_VERSION VERSION={}", env!("CARGO_PKG_VERSION"));
+        assert!(matches!(&window.pages[about][0], Widget::Heading(text) if *text == version));
+        window.set_label_after(TROUBLESHOOTING, troubleshooting_line(&crate::troubleshooting::State::Saved("a.zip".into()), &keys_with));
+        let line = window.pages[about].iter().skip_while(|w| !matches!(w, Widget::Button { id: TROUBLESHOOTING, .. })).nth(1);
+        assert!(matches!(line, Some(Widget::Label(text)) if text == "EU4HARMONY_ABOUT_SAVED FILE=a.zip"));
     }
 }

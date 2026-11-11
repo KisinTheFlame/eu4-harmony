@@ -46,7 +46,9 @@ Steam 会让 Harmony 保持最新。偶尔有更新需要换新的 `version.dll`
 
 ## 出问题时
 
-看 `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`：`report.txt` 记着游戏启动时 Harmony 发现了什么、做了什么，`core.log` 是它的日志；只有出了问题才会有 `proxy.log`，它说明 Harmony 为什么根本没启动。到 [GitHub Issues](https://github.com/KisinTheFlame/eu4-harmony/issues) 反馈问题，附上 `report.txt` 和日志。
+在主菜单打开 Harmony 的设置，进入**关于**，点**把排查问题用的文件存到桌面**：它把 Harmony 的日志、游戏的日志、最近几次崩溃的文件夹、你的设置和模组列表（不含存档）打成一个 zip 文件放到桌面上。到 [GitHub Issues](https://github.com/KisinTheFlame/eu4-harmony/issues) 反馈问题，附上这个文件。
+
+日志在 `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`：`report.txt` 记着游戏启动时 Harmony 发现了什么、做了什么，`core.log` 是它的日志，游戏崩溃时会记下崩在哪里；只有出了问题才会有 `proxy.log`，它说明 Harmony 为什么根本没启动。
 
 ## 写一个 Mod
 

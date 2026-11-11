@@ -46,6 +46,7 @@ pub mod census;
 #[cfg(feature = "dev-command-log")]
 mod command_log;
 pub mod containers;
+mod crash;
 #[cfg(feature = "dev-crossings")]
 mod crossings;
 #[cfg(any(test, dev_build))]
@@ -91,9 +92,11 @@ pub mod settings;
 pub mod sound;
 pub mod speed;
 pub mod splice;
+mod stack;
 mod startup;
 #[cfg(feature = "dev-call-trace")]
 mod trace;
+mod troubleshooting;
 pub mod ui;
 pub mod unicode;
 pub mod windows;
@@ -112,6 +115,11 @@ use windows_sys::Win32::System::{
 };
 
 static GAME_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
+
+/// The game folder, once the proxy has told it.
+pub(crate) fn game_dir() -> Option<&'static std::path::Path> {
+    GAME_DIR.get().map(std::path::PathBuf::as_path)
+}
 static MAIN_THREAD: AtomicU32 = AtomicU32::new(0);
 static MEMORY: OnceLock<memory::Memory> = OnceLock::new();
 /// What startup installed, for the report.
