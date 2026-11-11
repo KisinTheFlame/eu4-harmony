@@ -2082,7 +2082,7 @@
 "0x827c0c" = { kind = "code", name = "province discovery", notes = ["research/fog-of-war.md"] }
 "0x828083" = { kind = "code", notes = ["research/fog-of-war.md"] }
 "0x828140" = { kind = "function", notes = ["research/leaders.md"] }
-"0x828c00" = { kind = "function", name = "map manager shows one of the game's events", notes = ["research/questions-and-offers.md", "research/time.md"] }
+"0x828c00" = { kind = "function", name = "map manager shows one of the game's events", notes = ["research/drawing-beside-the-day.md", "research/questions-and-offers.md", "research/time.md"] }
 "0x828cd0" = { kind = "function", notes = ["research/questions-and-offers.md"] }
 "0x828d20" = { kind = "function", notes = ["research/questions-and-offers.md"] }
 "0x828e71" = { kind = "code", notes = ["research/questions-and-offers.md"] }
@@ -3876,8 +3876,9 @@
 "0x10b5fb0" = { kind = "function", notes = ["research/world-interface-seams.md"] }
 "0x10b6c50" = { kind = "function", name = "the minimap drawn again", notes = ["research/drawing-beside-the-day.md", "research/loading.md"] }
 "0x10b9a20" = { kind = "leaf", notes = ["research/questions-and-offers.md"] }
-"0x10b9a50" = { kind = "function", notes = ["research/questions-and-offers.md", "research/time.md"] }
+"0x10b9a50" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/questions-and-offers.md", "research/time.md"] }
 "0x10ba030" = { kind = "function", notes = ["research/time.md"] }
+"0x10ba1a0" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
 "0x10bb5c3" = { kind = "code", notes = ["research/questions-and-offers.md"] }
 "0x10bbeb0" = { kind = "function", notes = ["research/questions-and-offers.md"] }
 "0x10bc220" = { kind = "function", notes = ["research/questions-and-offers.md"] }
@@ -3962,7 +3963,7 @@
 "0x11376b0" = { kind = "function", notes = ["research/save-transfer-copy.md"] }
 "0x114133c" = { kind = "leaf", notes = ["research/save-transfer-copy.md"] }
 "0x1142e70" = { kind = "function", name = "goto box deleting destructor", notes = ["research/main-menu.md"] }
-"0x1148230" = { kind = "leaf", notes = ["research/gui-drawing.md"] }
+"0x1148230" = { kind = "leaf", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md"] }
 "0x1148250" = { kind = "leaf", notes = ["research/extension-windows.md"] }
 "0x114a7a0" = { kind = "function", notes = ["research/loading.md"] }
 "0x114aa10" = { kind = "function", notes = ["research/loading.md"] }
@@ -4734,8 +4735,14 @@
 "0x154e500" = { kind = "function", notes = ["research/extension-windows.md"] }
 "0x154f697" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x15503cc" = { kind = "leaf", notes = ["research/notice-window.md"] }
-"0x1550950" = { kind = "function", notes = ["research/gui-drawing.md"] }
-"0x1550e90" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md"] }
+"0x1550950" = { kind = "function", name = "a text element drawn", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md"] }
+"0x15509ee" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x15509fb" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x1550b30" = { kind = "function", name = "a text element activated", notes = ["research/drawing-beside-the-day.md"] }
+"0x1550c33" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x1550c90" = { kind = "function", name = "a text element deactivated", notes = ["research/drawing-beside-the-day.md"] }
+"0x1550d10" = { kind = "function", name = "a text element given its text", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md"] }
+"0x1550e90" = { kind = "function", name = "a text element laid out into its texture", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md"] }
 "0x1552680" = { kind = "function", notes = ["research/interface-bindings.md"] }
 "0x15529e0" = { kind = "function", name = "own an animation", notes = ["research/interface-bindings.md"] }
 "0x1552aa0" = { kind = "function", notes = ["research/interface-bindings.md"] }
@@ -4851,6 +4858,10 @@
 "0x1597991" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x1597998" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x15979c5" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x1597ca6" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x1597cf7" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x159840f" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x1598453" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x15988e0" = { kind = "function", notes = ["research/gui-drawing.md", "research/main-thread.md", "research/unicode-text.md"] }
 "0x1599682" = { kind = "code", notes = ["research/unicode-text.md"] }
 "0x159972c" = { kind = "code", notes = ["research/unicode-text.md"] }
@@ -4882,6 +4893,7 @@
 "0x15ac670" = { kind = "function", notes = ["research/interface-bindings.md"] }
 "0x15ad841" = { kind = "code", notes = ["research/interface-bindings.md"] }
 "0x15ad950" = { kind = "function", notes = ["research/window-elements.md"] }
+"0x15ae089" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x15ae44c" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x15ae930" = { kind = "function", name = "button place", notes = ["research/extension-windows.md"] }
 "0x15aea30" = { kind = "function", notes = ["research/notice-window.md"] }
