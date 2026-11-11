@@ -352,6 +352,8 @@ pub mod country {
     pub const MERCANTILISM: usize = 0x1098;
     /// Its loans, a [`super::super::list`] of [`super::loan`]s.
     pub const LOANS: usize = 0xde8;
+    /// Whether its war taxes are raised, a byte.
+    pub const WAR_TAXES: usize = 0xd08;
     /// Its ledger's tables of this month's income ([`INCOME_CATEGORIES`]
     /// i32 thousandths of a ducat) and expenses ([`EXPENSE_CATEGORIES`]), in
     /// the order of the categories' names.

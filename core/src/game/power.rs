@@ -57,6 +57,8 @@ pub const PROMOTE_MERCANTILISM: i32 = 26;
 pub(super) const FUNCTIONS: usize = 0x242bdd8;
 pub const CAN_REDUCE_INFLATION: usize = 0x78;
 pub const CAN_INCREASE_STABILITY: usize = 0xc8;
+pub const CAN_REDUCE_WAR_EXHAUSTION: usize = 0x68;
+pub const CAN_DECLARE_BANKRUPTCY: usize = 0x88;
 const FUNCTION_DATA: usize = 0x18;
 const FUNCTION_COUNT: usize = 0x24;
 const POTENTIAL: usize = 0x30;
@@ -100,6 +102,10 @@ pub fn points() -> Vec<Point> {
         Point::keep(0xacd1d1usize, "48 8b 98 b0 00 00 00 48 63 80 bc 00 00 00", "scripted function's allow"),
         Point::keep(0x3829c1usize, "48 8b 05 10 94 0a 02 48 8b 88 c8 00 00 00", "can_increase_stability").uses(&[FUNCTIONS, CAN_INCREASE_STABILITY]),
         Point::keep(0x38d689usize, "48 8b 05 48 e7 09 02 48 8b 48 78", "can_reduce_inflation").uses(&[FUNCTIONS, CAN_REDUCE_INFLATION]),
+        // The war exhaustion and bankruptcy checks ask theirs through the
+        // object's getter.
+        Point::keep(0x38d557usize, "e8 44 fe 73 00 48 8b 48 68", "can_reduce_war_exhaustion").uses(&[CAN_REDUCE_WAR_EXHAUSTION]),
+        Point::keep(0x33b6e5usize, "e8 b6 1c 79 00 48 8b 88 88 00 00 00", "can_declare_bankruptcy").uses(&[CAN_DECLARE_BANKRUPTCY]),
     ]
 }
 
