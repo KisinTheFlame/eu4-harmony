@@ -1,6 +1,7 @@
 //! Estates: the player's estates as the estates view shows them, their
-//! privileges, and the view's interactions over crown land; granting and
-//! revoking privileges and the interactions, as its buttons do.
+//! privileges, the view's interactions over crown land and the agenda an
+//! estate pursues; granting and revoking privileges and the interactions, as
+//! its buttons do.
 use crate::choices::Choice;
 use serde::{Deserialize, Serialize};
 
@@ -52,6 +53,42 @@ group! {
         /// The interaction's content key, such as `seize_land`.
         interaction: String,
     } -> (), "null once the game has carried it out";
+
+    /// The agenda an estate of the player's pursues, as the estates view
+    /// shows it: the estate, the agenda (a content key of the game's or a
+    /// mod's estate agenda files), the day it expires, and whether its
+    /// requirements hold now, with those that do not in the game's words, as
+    /// the agenda's tooltip writes them in the agenda's own scope. The game
+    /// completes an agenda itself once its requirements hold, and fails it
+    /// when it expires. `agenda` is null while no estate pursues one: an
+    /// estate takes one up when the player answers the game's event offering
+    /// the estates' agendas (`question.answer`); no button asks for one, or
+    /// completes or dismisses it.
+    game Agenda "agenda" {} -> AgendaInProgress, "agenda: null, or estate, agenda, name, expires, met, unmet";
+}
+
+/// The agenda an estate of the player's pursues, if any.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct AgendaInProgress {
+    pub agenda: Option<EstateAgenda>,
+}
+
+/// An agenda an estate pursues.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct EstateAgenda {
+    /// The estate's content key, such as `estate_nobles`.
+    pub estate: String,
+    /// The agenda's content key, such as `estate_nobles_develop_x_agenda`.
+    pub agenda: String,
+    /// Its name, as the view shows it, in the player language.
+    pub name: String,
+    /// The day it expires, after which the game fails it.
+    pub expires: crate::Date,
+    /// Its requirements hold now.
+    pub met: bool,
+    /// Its requirements that do not hold, in the game's words; empty when
+    /// they all do.
+    pub unmet: Vec<String>,
 }
 
 /// An estate of the player's.
