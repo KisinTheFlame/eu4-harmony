@@ -169,6 +169,9 @@ pub enum Action {
     Jump { stub: usize, resume: &'static [Resume] },
     /// Overwrites the point's bytes with these, of the same length.
     Write(&'static str),
+    /// Sends a method's calls to `with`, written in its place in the
+    /// vtable; the function it held stays callable through `original`.
+    Redirect { with: usize, original: &'static AtomicUsize },
 }
 
 pub struct Point {
@@ -185,11 +188,14 @@ pub struct Point {
     /// For a vtable's method, the function whose address must be there in
     /// place of bytes.
     pub method: Option<usize>,
+    /// For a function `eu4.exe` imports, the module and the function's name
+    /// its import table must give for the place, in place of bytes.
+    pub import: Option<(&'static str, &'static str)>,
 }
 
 impl Point {
     fn new(place: impl Into<Place>, bytes: &'static str, what: &'static str, action: Action) -> Self {
-        Self { place: place.into(), bytes, what, action, record: None, uses: &[], method: None }
+        Self { place: place.into(), bytes, what, action, record: None, uses: &[], method: None, import: None }
     }
 
     pub fn keep(place: impl Into<Place>, bytes: &'static str, what: &'static str) -> Self {
@@ -217,6 +223,21 @@ impl Point {
     /// function at `function`.
     pub fn method(vtable: usize, offset: usize, function: usize, what: &'static str) -> Self {
         Self { method: Some(function), ..Self::new(vtable + offset, "", what, Action::Keep) }
+    }
+
+    /// The address of the function `eu4.exe` imports as `name` from `module`,
+    /// where its import table keeps it, at `iat`: checked by the import table
+    /// rather than by bytes, which the loader writes.
+    pub fn import(iat: usize, module: &'static str, name: &'static str, what: &'static str) -> Self {
+        Self { import: Some((module, name)), ..Self::new(iat, "", what, Action::Keep) }
+    }
+
+    /// Sends the calls of a method ([`Self::method`]) or an import
+    /// ([`Self::import`]) through its slot to
+    /// `with`, which reaches the method's function through `original`.
+    pub fn redirected(mut self, with: usize, original: &'static AtomicUsize) -> Self {
+        self.action = Action::Redirect { with, original };
+        self
     }
 
     /// Stores the point's address in `slot` when it is installed.
@@ -342,15 +363,17 @@ fn changed_len(point: &Point, expected: usize) -> usize {
         Action::Keep => 0,
         Action::Observe { .. } | Action::Replace { .. } => HOOK_LEN,
         Action::Jump { .. } | Action::Write(_) => expected,
+        // The method's address in the vtable.
+        Action::Redirect { .. } => 8,
     }
 }
 
 /// What is wrong with how a point is written, whatever the game holds: bytes
 /// that do not parse, a replacement of another length, too little to hook.
 fn malformed(point: &Point) -> Vec<String> {
-    if point.method.is_some() {
-        let keeps = point.bytes.is_empty() && matches!(point.action, Action::Keep);
-        return if keeps { Vec::new() } else { vec![format!("{}: a method only names its function", describe(point))] };
+    if point.method.is_some() || point.import.is_some() {
+        let keeps = point.bytes.is_empty() && matches!(point.action, Action::Keep | Action::Redirect { .. });
+        return if keeps { Vec::new() } else { vec![format!("{}: a method or an import only names its function", describe(point))] };
     }
     let mut problems = Vec::new();
     let expected = match hex(point.bytes) {
@@ -358,6 +381,9 @@ fn malformed(point: &Point) -> Vec<String> {
         Ok(_) => return vec![format!("{}: no bytes", describe(point))],
         Err(e) => return vec![format!("{}: {e}", describe(point))],
     };
+    if let Action::Redirect { .. } = point.action {
+        problems.push(format!("{}: only a method or an import is redirected", describe(point)));
+    }
     if let Action::Write(bytes) = point.action {
         match hex(bytes) {
             Ok(replacement) if replacement.len() == expected.len() => {}
@@ -403,6 +429,14 @@ fn check(m: Memory, points: &[Point], lookup: &Lookup) -> Result<Vec<usize>> {
             problems.extend(wrong);
             continue;
         }
+        if let Some((module, name)) = point.import {
+            match (resolve(m, point.place, lookup), imported_at(m, module, name)) {
+                (Ok(at), Ok(rva)) if at == m.base + rva => addresses.push(at),
+                (Ok(at), Ok(rva)) => problems.push(format!("{}: the import table has it at {rva:#x}, not {:#x}", describe(point), at - m.base)),
+                (Err(e), _) | (_, Err(e)) => problems.push(format!("{}: {e}", describe(point))),
+            }
+            continue;
+        }
         let expected = match point.method {
             Some(function) => ((m.base + function) as u64).to_le_bytes().to_vec(),
             None => hex(point.bytes)?,
@@ -434,6 +468,37 @@ fn check(m: Memory, points: &[Point], lookup: &Lookup) -> Result<Vec<usize>> {
     Ok(addresses)
 }
 
+/// Where `eu4.exe`'s import table keeps the address of `name`, imported
+/// from `module`: the RVA of its entry, found by the names the loader leaves
+/// as they are.
+fn imported_at(m: Memory, module: &str, name: &str) -> Result<usize> {
+    let rd = |rva: usize| m.u32(m.base + rva).map(|v| v as usize);
+    let text = |rva: usize| -> Result<String> {
+        let bytes = m.bytes(m.base + rva, 64)?;
+        Ok(String::from_utf8_lossy(&bytes[..bytes.iter().position(|&b| b == 0).unwrap_or(64)]).into_owned())
+    };
+    let imports = rd(rd(0x3c)? + 24 + 120)?;
+    for d in (imports..).step_by(20) {
+        let (names, dll, entries) = (rd(d)?, rd(d + 12)?, rd(d + 16)?);
+        if dll == 0 {
+            break;
+        }
+        if !text(dll)?.eq_ignore_ascii_case(module) {
+            continue;
+        }
+        for i in 0.. {
+            let thunk = m.u64(m.base + names + 8 * i)?;
+            if thunk == 0 {
+                break;
+            }
+            if thunk >> 63 == 0 && text(thunk as usize + 2)? == name {
+                return Ok(entries + 8 * i);
+            }
+        }
+    }
+    Err(format!("eu4.exe does not import {name} from {module}"))
+}
+
 fn write_code(m: Memory, at: usize, bytes: &[u8]) -> Result<()> {
     m.write(at, bytes)?;
     unsafe { FlushInstructionCache(GetCurrentProcess(), at as _, bytes.len()) };
@@ -453,7 +518,8 @@ impl Undo {
             hooks::remove(target);
         }
         for (at, original) in self.writes.into_iter().rev() {
-            if let Err(e) = write_code(m, at, &original) {
+            // An import's slot is in read-only data.
+            if let Err(e) = write_code(m, at, &original).or_else(|_| m.write_read_only(at, &original)) {
                 log!("cannot restore {at:#x}: {e}");
             }
         }
@@ -470,7 +536,7 @@ fn apply(m: Memory, points: &[Point], addresses: &[usize], undo: &mut Undo) -> R
         }
         let made = |r: Result<()>| r.map_err(|e| format!("{}: {e}", describe(point)));
         match &point.action {
-            Action::Keep | Action::Write(_) => continue,
+            Action::Keep | Action::Write(_) | Action::Redirect { .. } => continue,
             Action::Observe { argc, before, after } => made(hooks::observe(at, *argc, m, point.what, *before, *after))?,
             Action::Replace { with, original } => made(hooks::create(at, *with).map(|t| original.store(t, Ordering::Release)))?,
             Action::Jump { stub, resume } => {
@@ -488,6 +554,13 @@ fn apply(m: Memory, points: &[Point], addresses: &[usize], undo: &mut Undo) -> R
             let original = m.bytes(at, replacement.len())?;
             write_code(m, at, &replacement).map_err(|e| format!("{}: {e}", describe(point)))?;
             undo.writes.push((at, original));
+        }
+        if let Action::Redirect { with, original } = point.action {
+            let held = m.bytes(at, 8)?;
+            original.store(u64::from_le_bytes(held.as_slice().try_into().map_err(|_| "a method's slot is 8 bytes".to_string())?) as usize, Ordering::Release);
+            // An import's slot is in read-only data.
+            m.write_read_only(at, &(with as u64).to_le_bytes()).map_err(|e| format!("{}: {e}", describe(point)))?;
+            undo.writes.push((at, held));
         }
     }
     #[cfg(test)]
@@ -1130,6 +1203,26 @@ mod tests {
             let range = crate::analysis::bounds(image, rva).unwrap();
             assert_eq!(crate::analysis::arguments(&image[range], rva), count, "{rva:#x}");
         }
+    }
+
+    #[test]
+    fn a_redirected_method_goes_to_its_entry_and_keeps_its_function() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        static ORIGINAL: AtomicUsize = AtomicUsize::new(0);
+        // A vtable whose method at 8 is the function at `function`.
+        let vtable = code("00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00", PAGE_READWRITE);
+        let function = code(ADDER, PAGE_EXECUTE_READWRITE).base;
+        vtable.write(vtable.base + 8, &(function as u64).to_le_bytes()).unwrap();
+        let point = || [Point::method(vtable.base, 8, function, "method").redirected(0x1234, &ORIGINAL)];
+        FAIL_BEFORE_ENABLE.store(true, Ordering::SeqCst);
+        assert_eq!(install(ANYWHERE, &point()).unwrap_err(), "injected failure");
+        FAIL_BEFORE_ENABLE.store(false, Ordering::SeqCst);
+        assert_eq!(vtable.ptr(vtable.base + 8).unwrap(), function);
+        install(ANYWHERE, &point()).unwrap();
+        assert_eq!(vtable.ptr(vtable.base + 8).unwrap(), 0x1234);
+        assert_eq!(ORIGINAL.load(Ordering::Acquire), function);
+        let not_a_method = Point { action: Action::Redirect { with: 0x1234, original: &ORIGINAL }, ..Point::keep(vtable.base, "00", "not a method") };
+        assert!(malformed(&not_a_method)[0].contains("only a method or an import is redirected"));
     }
 
     #[test]
