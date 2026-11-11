@@ -83,13 +83,16 @@ const UNIT_DESTROYED: usize = 0xd3b130;
 /// vertex declaration it keeps (`+0x108`) as a scene begins, and the drawing
 /// reads it as it draws a mesh's part (`0x16d4fa0`). A scene the main thread
 /// begins in a day (drawing into a texture) is a crossing, whatever led
-/// there; the drawing thread's own scenes are its frames.
+/// there; the drawing thread's own scenes are its frames. One the main
+/// thread begins with the lock held is not ([`renderer_called`]).
 const SCENE_BEGINS: usize = 0x16d4e00;
 const RENDERER_DECLARATION: usize = 0x108;
 
 fn scene_begins(call: &mut Call) {
     if on_main() {
-        crossing(call.observed().unwrap_or(0));
+        if !super::main_holds() {
+            crossing(call.observed().unwrap_or(0));
+        }
     } else if drawing_on() && !is_drawing_thread() && !OTHER_SCENE_LOGGED.swap(true, Ordering::Relaxed) {
         log!("drawing: thread {} began a scene of the renderer, which the drawing thread may be drawing with", crate::thread_id());
     }
@@ -126,12 +129,20 @@ static RENDERER_ORIGINALS: [AtomicUsize; 81] = [const { AtomicUsize::new(0) }; 8
 /// The bytes of each entry of [`renderer_entries`].
 const RENDERER_ENTRY_LEN: usize = 16;
 
-/// The `slot`th function of the table called by the main thread. With the
-/// lock held and the frame already marked changed, a crossing does nothing
-/// more, and the table is called often.
+/// The `slot`th function of the table called by the main thread: a crossing
+/// unless the main thread holds the lock. What the renderer is shared for is
+/// its state between a frame's calls (the render target, the vertex
+/// declaration): with the lock held, the drawing thread is in no frame, and
+/// a text drawn into its texture, a texture made or let go, is whole before
+/// the lock goes, its owner holding the new one. So it is no change the next
+/// update has to finish, and the frame prepared is not held back for it. The
+/// in-game frame, after its drawing, draws the war overview's buttons into
+/// their textures again at every frame while the player is at war
+/// (docs/research/drawing-beside-the-day.md, "The war overview after the
+/// drawing"): held back each time, the frame was never drawn.
 #[called_by_game]
 extern "C" fn renderer_called(slot: usize) {
-    if super::main_holds() && CHANGED.load(Ordering::Acquire) {
+    if super::main_holds() {
         return;
     }
     crossing(crate::hooked_memory().at(RENDERER_TABLE[slot]));
