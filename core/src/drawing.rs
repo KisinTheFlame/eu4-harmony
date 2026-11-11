@@ -878,7 +878,7 @@ fn run() {
             if let Err(e) = icons::follow_camera(&m) {
                 log!("drawing: the map icons could not follow the camera: {e}");
             }
-            if let Err(e) = tooltip::follow_cursor(&m) {
+            if let Err(e) = tooltip::follow_cursor(&m, idler) {
                 log!("drawing: the tooltip could not follow the cursor: {e}");
             }
             IN_FRAME.store(true, Ordering::Release);

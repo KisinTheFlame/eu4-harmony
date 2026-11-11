@@ -74,6 +74,8 @@ pub(super) fn points() -> Vec<Point> {
 /// drawing is taken out: nothing the drawing does is read by it (the drawing
 /// reads `+0x310`, never writes it), and its only caller is that one.
 const UPDATE: usize = 0x6eb6e0;
+/// The idler's tooltips, which the update reads first (`0x6eb6e0`).
+const IDLER_TOOLTIPS: usize = 0x3b0;
 const UPDATE_AFTER_DRAWING: usize = 0x815949;
 const IDLER_TOOLTIPS_TIME: usize = 0x310;
 const MAP_TOOLTIPS_ON: usize = 0x530;
@@ -163,11 +165,17 @@ extern "C" fn placed(tooltips: usize, cursor: usize, place_at: usize) {
 /// Before the drawing thread draws a frame, under the lock: the tooltip
 /// moved by what the cursor moved since the main thread placed it, kept on
 /// the screen as the game keeps it, and set as the game sets it.
-pub(super) fn follow_cursor(m: &Memory) -> crate::Result<()> {
+pub(super) fn follow_cursor(m: &Memory, idler: usize) -> crate::Result<()> {
     let mut placing = PLACING.lock().unwrap_or_else(|e| e.into_inner());
     let Some((placed, set)) = placing.as_mut() else {
         return Ok(());
     };
+    // A tooltip placed by another idler's tooltips (the main menu's, before
+    // a game was loaded) is not this frame's, and they may be gone.
+    if m.ptr(idler + IDLER_TOOLTIPS)? != placed.tooltips {
+        *placing = None;
+        return Ok(());
+    }
     // Another camera's tooltip is placed otherwise (`0x1415816`).
     if m.u8(m.at(OTHER_CAMERA))? != 0 {
         return Ok(());
