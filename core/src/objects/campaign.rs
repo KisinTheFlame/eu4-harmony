@@ -885,6 +885,8 @@ pub mod event {
 pub mod event_option {
     /// The localisation key of its text, a `std::string`.
     pub const NAME: usize = 0x88;
+    /// Its trigger, a content trigger: whether it may be chosen.
+    pub const TRIGGER: usize = 0xa8;
 }
 
 /// An event window, of [`classes::EVENT_WINDOW`], among the map manager's

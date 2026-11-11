@@ -2,15 +2,16 @@
 //! can pass it as the game's own check says, and passing and revoking them
 //! through the game's own commands; and what the Celestial Empire's view
 //! shares with it, an empire's reforms (docs/research/empires.md).
-use super::{action, conditions, content, thousandths, Ctx, GResult, Session, Tag};
+use super::{action, conditions, content, envoys, questions, script, thousandths, Ctx, GResult, Session, Tag};
 use crate::{
     containers, game_string,
     memory::Memory,
+    objects::campaign::event_option,
     points::{GameFunction, Point},
 };
 use eu4_harmony_remote::choices::{Amount, Choice, Resource};
-use eu4_harmony_remote::empire::{args, EmpireReforms, ImperialReform};
-use eu4_harmony_remote::CountryTag;
+use eu4_harmony_remote::empire::{args, EmpireReforms, ImperialIncident, ImperialReform, IncidentOption};
+use eu4_harmony_remote::{CountryTag, Date};
 
 /// The Holy Roman Empire and the Celestial Empire, in the world itself.
 pub(super) const HRE: usize = 0x15d0;
@@ -66,6 +67,51 @@ const REVOKE_COST: usize = 0x233fb10;
 /// How many reforms are read at most.
 const MOST: usize = 10_000;
 
+/// The Holy Roman Empire's membership and its incident, in the world.
+mod world_field {
+    /// Nonzero once the Empire is gone, u8.
+    pub const GONE: usize = 0x1620;
+    /// Whether each country is a member: a pointer to bytes, one for each
+    /// country by its [`super::MEMBER_INDEX`].
+    pub const MEMBERS: usize = 0x1648;
+    /// How many princes the Empire has, i32, as the incident's options count
+    /// their votes of them.
+    pub const PRINCES: usize = 0x162c;
+    /// The imperial incident in progress, a pointer to an [`super::incident`];
+    /// null with none.
+    pub const INCIDENT: usize = 0x1b18;
+}
+/// A country's index into [`world_field::MEMBERS`], i32.
+const MEMBER_INDEX: usize = 0x14b8;
+/// The imperial incident in progress.
+mod incident {
+    /// Its definition, a pointer to a [`super::definition`].
+    pub const DEFINITION: usize = 0x0;
+    /// The scope its options are asked in, a scope of the game's own.
+    pub const SCOPE: usize = 0x8;
+    /// The option the emperor favors, i32.
+    pub const FAVORED: usize = 0xd8;
+    /// The day the emperor's choice comes into effect, i32, as the game
+    /// keeps dates.
+    pub const ENDS: usize = 0xe0;
+    /// The members' picks, a game array of 12-byte entries: the member's tag
+    /// (u64) and the option it supports (i32, at [`VOTE_OPTION`]).
+    pub const VOTES: usize = 0xe8;
+    pub const VOTE_SIZE: usize = 0xc;
+    pub const VOTE_OPTION: usize = 0x8;
+}
+/// An imperial incident as its file defines it.
+mod definition {
+    /// Its key, a `std::string`, which is also the localisation key of its
+    /// name.
+    pub const KEY: usize = 0x8;
+    /// The id of its event, a `std::string`: the event's options are the
+    /// incident's.
+    pub const EVENT: usize = 0x28;
+}
+/// How many votes are read at most.
+const MOST_VOTES: usize = 1_000;
+
 pub fn points() -> Vec<Point> {
     vec![
         // The database's maker, which keeps it in the global.
@@ -97,6 +143,25 @@ pub fn points() -> Vec<Point> {
         Point::keep(REFORM_NAME, "48 89 5c 24 08 57 48 83 ec 50 48 8b da 48 8b f9", "reform name"),
         Point::keep(MAY_PASS, "48 89 5c 24 08 4c 89 4c 24 20 4c 89 44 24 18 55 56 57 41 54 41 55", "may pass an imperial reform"),
         Point::keep(MAY_REVOKE, "48 89 5c 24 08 55 48 8b ec 48 81 ec 80 00 00 00 48 8b da", "may revoke an imperial reform"),
+        // The pick command's check: the Empire standing, the member's byte,
+        // the incident, its event's id, its options and the scope they are
+        // asked in.
+        Point::keep(0xc19d0usize, "80 ba 20 16 00 00 00", "the Empire gone").uses(&[world_field::GONE]),
+        Point::keep(0xc19f7usize, "48 63 81 b8 14 00 00", "a country's member index").uses(&[MEMBER_INDEX]),
+        Point::keep(0xc19feusize, "48 03 82 48 16 00 00", "the Empire's members").uses(&[world_field::MEMBERS]),
+        Point::keep(0xc1a1fusize, "48 8b 9a 18 1b 00 00", "imperial incident").uses(&[world_field::INCIDENT]),
+        Point::keep(0xc1a2fusize, "48 8b 0b 48 85 c9", "incident's definition"),
+        Point::keep(0xc1a3busize, "48 83 c1 28", "incident's event").uses(&[definition::EVENT]),
+        Point::keep(0xc1a6eusize, "48 8d 53 08", "incident's scope").uses(&[incident::SCOPE]),
+        // The view's option row: the emperor's favored option, the members'
+        // picks, and the princes they are counted of; and the title's day.
+        Point::keep(0x1162bd0usize, "8b 8d d8 00 00 00", "incident's favored option").uses(&[incident::FAVORED]),
+        Point::keep(0x1162be9usize, "48 8b 8d f0 00 00 00", "incident's votes").uses(&[incident::VOTES + containers::ARRAY_DATA]),
+        Point::keep(0x1162bf0usize, "48 63 95 fc 00 00 00", "incident's votes count").uses(&[incident::VOTES + containers::ARRAY_COUNT]),
+        Point::keep(0x1162cd3usize, "39 4a 08", "a vote's option").uses(&[incident::VOTE_OPTION]),
+        Point::keep(0x1162ce4usize, "8b 9b 2c 16 00 00", "the Empire's princes").uses(&[world_field::PRINCES]),
+        Point::keep(0x1161167usize, "49 8d 89 e0 00 00 00", "incident's end").uses(&[incident::ENDS]),
+        Point::keep(0x70d29eusize, "48 8d 51 08", "incident's key").uses(&[definition::KEY]),
     ]
 }
 
@@ -216,11 +281,163 @@ pub fn revoke_reform(Session { m, ctx, commands, .. }: Session) -> GResult<()> {
     action::post(commands, &written_revoke(ctx.player), "revoke a reform")
 }
 
+/// The imperial incident in progress, read as the view reads it.
+struct Incident {
+    at: usize,
+    definition: usize,
+    event: usize,
+}
+
+/// The incident in progress and its event, when there is one and the
+/// Empire stands.
+fn in_progress(m: &Memory, ctx: &Ctx) -> GResult<Option<Incident>> {
+    if m.u8(ctx.world + world_field::GONE)? != 0 {
+        return Ok(None);
+    }
+    let at = m.ptr(ctx.world + world_field::INCIDENT)?;
+    if at == 0 {
+        return Ok(None);
+    }
+    let definition = m.ptr(at + incident::DEFINITION)?;
+    if definition == 0 {
+        return Ok(None);
+    }
+    let id = game_string::read(m, definition + definition::EVENT)?;
+    Ok(script::find_event(m, &id)?.map(|event| Incident { at, definition, event }))
+}
+
+/// Whether the player is the emperor, and whether a member: who may pick an
+/// incident's option, as the pick command's check asks.
+fn standing(m: &Memory, ctx: &Ctx) -> GResult<(bool, bool)> {
+    let emperor = Tag(m.u64(ctx.world + HRE + field::EMPEROR)?).index() == ctx.player.index();
+    let members = m.ptr(ctx.world + world_field::MEMBERS)?;
+    let index = m.i32(ctx.country + MEMBER_INDEX)?;
+    let member = members != 0 && index >= 0 && m.u8(members + index as usize)? != 0;
+    Ok((emperor, member))
+}
+
+/// The members' picks: each member's tag and the option it supports.
+fn votes(m: &Memory, at: usize) -> GResult<Vec<(Tag, i32)>> {
+    let data = m.ptr(at + incident::VOTES + containers::ARRAY_DATA)?;
+    let count = m.i32(at + incident::VOTES + containers::ARRAY_COUNT)?;
+    if data == 0 || count <= 0 {
+        return Ok(Vec::new());
+    }
+    let count = (count as usize).min(MOST_VOTES);
+    (0..count)
+        .map(|i| {
+            let entry = data + i * incident::VOTE_SIZE;
+            Ok((Tag(m.u64(entry)?), m.i32(entry + incident::VOTE_OPTION)?))
+        })
+        .collect()
+}
+
+/// The option the player has picked: the one the emperor favors, or the
+/// one the player supports; none before a pick.
+fn picked(m: &Memory, ctx: &Ctx, at: usize, emperor: bool) -> GResult<Option<i32>> {
+    if emperor {
+        return Ok(Some(m.i32(at + incident::FAVORED)?));
+    }
+    Ok(votes(m, at)?.into_iter().find(|(tag, _)| tag.index() == ctx.player.index()).map(|(_, option)| option))
+}
+
+/// Whether the player may pick each of the incident's options, as the pick
+/// command's check asks: the player must be the emperor or a member, and
+/// the option's conditions must hold in the incident's scope.
+fn choices(m: &Memory, ctx: &Ctx, incident: &Incident) -> GResult<Vec<(usize, Choice)>> {
+    let (emperor, member) = standing(m, ctx)?;
+    let mut scope = conditions::Scope::copy(m, incident.at + incident::SCOPE)?;
+    questions::options(m, incident.event)?
+        .into_iter()
+        .map(|option| {
+            let choice = if !emperor && !member {
+                Choice::cannot(vec![checks::NOT_A_MEMBER.to_string()], Vec::new())
+            } else {
+                let (can, reasons) = scope.check(option + event_option::TRIGGER)?;
+                if can {
+                    Choice::can(Vec::new())
+                } else {
+                    Choice::cannot(reasons, Vec::new())
+                }
+            };
+            Ok((option, choice))
+        })
+        .collect()
+}
+
+/// The imperial incident in progress, as the Empire's view shows it.
+pub fn incident(Session { m, ctx, .. }: Session) -> GResult<ImperialIncident> {
+    let princes = m.i32(ctx.world + world_field::PRINCES)?.max(0) as u32;
+    let Some(found) = in_progress(m, &ctx)? else {
+        return Ok(ImperialIncident { incident: None, name: String::new(), event: None, ends: None, princes, options: Vec::new() });
+    };
+    let key = game_string::key(m, found.definition + definition::KEY)?;
+    let (emperor, _) = standing(m, &ctx)?;
+    let favored = m.i32(found.at + incident::FAVORED)?;
+    let mine = picked(m, &ctx, found.at, emperor)?;
+    let votes = votes(m, found.at)?;
+    let mut scope = conditions::Scope::copy(m, found.at + incident::SCOPE)?;
+    let options = choices(m, &ctx, &found)?
+        .into_iter()
+        .enumerate()
+        .map(|(index, (option, choice))| {
+            let index = index as i32;
+            Ok(IncidentOption {
+                option: index as u32,
+                name: questions::localize(m, scope.address(), &game_string::read(m, option + event_option::NAME)?)?,
+                votes: votes.iter().filter(|(_, o)| *o == index).count() as u32,
+                favored: favored == index,
+                picked: mine == Some(index),
+                choice,
+            })
+        })
+        .collect::<GResult<_>>()?;
+    Ok(ImperialIncident {
+        name: envoys::localized(m, &key)?,
+        incident: Some(key),
+        event: Some(game_string::key(m, found.definition + definition::EVENT)?),
+        ends: Some(Date(m.i32(found.at + incident::ENDS)?)),
+        princes,
+        options,
+    })
+}
+
+/// Picks one of the incident's options, as its button does.
+pub fn pick_incident_option(Session { m, ctx, commands, .. }: Session, args::PickIncidentOption { option }: args::PickIncidentOption) -> GResult<()> {
+    let Some(found) = in_progress(m, &ctx)? else {
+        return Err(checks::no_incident());
+    };
+    let choices = choices(m, &ctx, &found)?;
+    let Some((_, choice)) = choices.get(option as usize) else {
+        return Err(content::checks::not_found("incident option", &option.to_string()));
+    };
+    if !choice.can {
+        return Err(action::not_allowed("pick this option", &choice.reasons));
+    }
+    action::post(commands, &written_pick(ctx.player, option), "pick this option")
+}
+
+/// The pick command: the member's tag and the option's number, in that
+/// order, both under `dummy`, as its writer (`0xc88b0`) writes them.
+fn written_pick(member: Tag, option: u32) -> String {
+    format!("pick_imperial_incident_option={{ members={{ dummy=\"{}\" dummy={option} }} }}", content::letters(member))
+}
+
 /// The refusals the framework words itself.
 pub mod checks {
+    use crate::game::{Fail, Status};
+
     /// Revoking is the emperor's alone; the game's check does not say so,
     /// since its button is not shown to another.
     pub const NOT_EMPEROR: &str = "Only the emperor can revoke a reform.";
+    /// Picking an incident's option is the emperor's and the members'; the
+    /// view shows no buttons to another.
+    pub const NOT_A_MEMBER: &str = "Only the emperor and the Empire's members can pick an option of an imperial incident.";
+
+    /// No imperial incident is in progress.
+    pub fn no_incident() -> Fail {
+        Fail::new(Status::NotFound, "no imperial incident is in progress")
+    }
 }
 
 crate::catalogue::bind! {
@@ -228,6 +445,8 @@ crate::catalogue::bind! {
     Reforms => reforms;
     PassReform => pass_reform;
     RevokeReform => revoke_reform;
+    Incident => incident;
+    PickIncidentOption => pick_incident_option;
 }
 
 #[cfg(test)]
@@ -237,5 +456,6 @@ mod tests {
         assert_eq!(super::written_pass("emperor_reichsreform"), r#"enact_imperial_reform={ which="emperor_reichsreform" }"#);
         let hab = super::Tag(u64::from_le_bytes(*b"HAB\0\0\0\0\0"));
         assert_eq!(super::written_revoke(hab), r#"revoke_imperial_reform={ members={ dummy="HAB" } }"#);
+        assert_eq!(super::written_pick(hab, 2), r#"pick_imperial_incident_option={ members={ dummy="HAB" dummy=2 } }"#);
     }
 }
