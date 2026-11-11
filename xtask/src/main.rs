@@ -26,9 +26,10 @@ usage:
       library that holds Europa Universalis IV. Every command that needs the
       game finds it so; game, install and scenario take --game-dir for
       another.
-  cargo xtask game claim --purpose <text> [--owner <name>]
-  cargo xtask game start [--save <name>]... [--visible] [--sound] [--seed <n>] [--timeout <seconds>]
-  cargo xtask game stop | release | status
+  cargo xtask game claim --owner <name> --purpose <text>
+  cargo xtask game start --owner <name> [--save <name>]... [--visible] [--sound] [--seed <n>] [--timeout <seconds>]
+  cargo xtask game stop | release --owner <name>
+  cargo xtask game status
       Claims of test games: games started from the game folder with a user
       folder, a core and a pipe of their own, any number at once
       (docs/plans/test-games.md). claim makes the claim's folder, with a user
@@ -43,8 +44,8 @@ usage:
       EU4_HARMONY_TEST_GAME. stop ends it. release ends it, keeps its logs
       and crash folders in the claim's kept\\ and removes the rest; a claim
       holds its test game until then. status lists the test games and the
-      eu4.exe no test game's. The owner is this checkout's folder's name unless
-      --owner names another.
+      eu4.exe no test game's. --owner names the test game and its pipe;
+      it has no default, so that no two runs share a test game.
   cargo xtask install [--uninstall] [--game-dir <dir>]
       With no game running, copies the player's files as last built, a
       player build or a developer build, into the game folder: version.dll in its root, the core and
@@ -68,27 +69,28 @@ usage:
       build and then in a developer build with every tool, whose points
       only it declares.
   cargo xtask scenario
-  cargo xtask scenario <name>... [--out <dir>] [--owner <name>] [--jobs <n>]
+  cargo xtask scenario <name>... --owner <name> [--out <dir>] [--jobs <n>]
                        [--game-dir <dir>] [--<name>.<parameter> <value>]...
   cargo xtask scenario --from-report <dir>
       Plays scenarios in the game, driven through remote control, and
       writes report.json and report.md into <dir> (target\\scenarios\\<time>
       by default): how each ended and what it found (docs/plans/scenarios.md).
       With no name it lists them, with their builds and parameters. It
-      needs Steam running, claims a test game unless this checkout holds
-      one, builds each build the scenarios need with the test games' pipes,
-      starts the test game hidden with it, and releases the claim it made. --<name>.<parameter> changes a parameter for this run.
+      needs Steam running, builds each build the scenarios need with the
+      test games' pipes, set aside in the report's folder, and plays each
+      scenario in a test game of its own, claimed as
+      <owner>-<scenario>-<six letters and digits>, started hidden with its
+      build and released after it. --<name>.<parameter> changes a parameter for this run.
       --jobs <n> plays n scenarios at a time, at most the 4 test games that
-      run at once (whole and release: 4 unless given), each in a test game
-      of its own claimed as <owner>-<scenario>,
-      the longest first, its builds made first and set aside in the report's
+      run at once (whole and release: 4 unless given; else 1), the longest
+      first; its builds made first and set aside in the report's
       folder; perf, which measures what the game costs the computer, plays
       alone after the rest, once other games have ended or 20 minutes passed.
       --from-report writes report.md again from the report.json there.
   cargo xtask profile <out> [--seconds 60] [--hz 50] [--slice <seconds>] [--wait] [--threads] [--waiting-in <functions>] [--test-game <name>]
   cargo xtask profile <out>.folded --tree [--root <frame>] [--depth 6] [--min 1]
       Samples the running game's main thread (the test game --test-game
-      names, else this checkout's, else the only eu4.exe), its call stack
+      names, else the only eu4.exe), its call stack
       at a steady rate, and writes where its time went into <out>.txt, and its stacks
       into <out>.folded for flame graph tools: inside days, in frames inside
       days and between days, by part and by function. A sample holds the
