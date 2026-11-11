@@ -19,9 +19,10 @@ const RELIGION_PAPACY: usize = 0x578;
 /// `(papacy) -> curia`: the curia of the papacy's religion, which the
 /// world keeps with the religion's record.
 const CURIA: GameFunction<1> = GameFunction::at(0xa47db0);
-/// The papacy's actions, a `std::vector` of pointers, which the papal
-/// action command names one by its place in.
-const PAPACY_ACTIONS: usize = 0x18;
+/// The papacy's actions, the game's own array of pointers (its data at
+/// `+0x18`, its count at `+0x24`), which the papal action command names
+/// one by its place in.
+const PAPACY_ACTIONS: usize = 0x10;
 /// A papal action: its key, a `std::string`; its place among the
 /// papacy's actions, i32; its `allow` and `potential`, content triggers.
 const ACTION_KEY: usize = 0x10;
@@ -77,7 +78,10 @@ pub fn points() -> Vec<Point> {
         // The papal action command's execute: the action by its place, the
         // papal influence it takes, the treasury it adds to; its check, the
         // curia active.
-        Point::keep(0xaab1e0usize, "48 8b 40 18", "papacy's actions").uses(&[PAPACY_ACTIONS]),
+        Point::keep(0xaab1e0usize, "48 8b 40 18", "papacy's actions").uses(&[PAPACY_ACTIONS + containers::ARRAY_DATA]),
+        // The AI walks them: their data and count.
+        Point::keep(0xacddfusize, "48 8b 4f 18 48 89 4c 24 20 48 63 47 24", "papacy's actions' count")
+            .uses(&[PAPACY_ACTIONS + containers::ARRAY_DATA, PAPACY_ACTIONS + containers::ARRAY_COUNT]),
         Point::keep(0xaab3e3usize, "41 8b 97 50 0f 00 00", "papal influence").uses(&[country::PAPAL_INFLUENCE]),
         Point::keep(0xaab470usize, "01 b8 00 01 00 00", "curia treasury").uses(&[CURIA_TREASURY]),
         Point::keep(0xaaba3ausize, "80 78 20 00", "curia active").uses(&[CURIA_ACTIVE]),
@@ -173,7 +177,7 @@ fn line(m: &Memory, key: &str, cost: f64) -> GResult<String> {
 /// holds.
 fn actions(m: &Memory, ctx: &Ctx, papacy: usize) -> GResult<Vec<usize>> {
     let mut out = Vec::new();
-    for action in containers::pointers(m, papacy + PAPACY_ACTIONS, containers::MOST)? {
+    for action in containers::array(m, papacy + PAPACY_ACTIONS, containers::MOST)? {
         if conditions::holds(m, action + ACTION_POTENTIAL, ctx.player, 0)? {
             out.push(action);
         }
@@ -188,7 +192,10 @@ fn action_choice(m: &Memory, ctx: &Ctx, curia: usize, action: usize) -> GResult<
     let tag = ctx.player.0 as usize;
     let influence = out(|o| Ok(ACTION_COST.call(m, [action, o, tag])?))?;
     let treasury = out(|o| Ok(ACTION_TREASURY_COST.call(m, [action, o, tag])?))?;
-    let mut cost = vec![Amount::new(Resource::PapalInfluence, whole(influence))];
+    let mut cost = Vec::new();
+    if influence > 0 {
+        cost.push(Amount::new(Resource::PapalInfluence, whole(influence)));
+    }
     if treasury > 0 {
         cost.push(Amount::new(Resource::CuriaTreasury, whole(treasury)));
     }
@@ -254,7 +261,11 @@ fn bull_choice(m: &Memory, ctx: &Ctx, curia: usize, bull: usize) -> GResult<Choi
         }
     };
     let tag = ctx.player.0 as usize;
-    let (may, reasons) = content::checked(m, |text| Ok(MAY_PICK_BULL.call(m, [curia, bull, tag, text])?))?;
+    let (may, mut reasons) = content::checked(m, |text| Ok(MAY_PICK_BULL.call(m, [curia, bull, tag, text])?))?;
+    // The view heads the bull's conditions with a line of its own, which it
+    // writes even when none of them fails.
+    let header = content::name(m, "CURIA_GOLDEN_BULL_TRIGGER_DESC")?;
+    reasons.retain(|line| *line != header);
     Ok(if may { Choice::can(cost) } else { Choice::cannot(reasons, cost) })
 }
 
