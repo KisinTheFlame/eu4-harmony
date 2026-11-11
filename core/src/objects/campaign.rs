@@ -709,6 +709,10 @@ pub mod great_project {
     pub const DEFINITION_KEY: usize = 0x10;
     pub const DEFINITION_KIND: usize = 0x1d36;
     pub const CANAL: u8 = 1;
+    /// The definition's site, the province it is built in, i32 (0 for
+    /// none), and whether it may be built and moved anywhere instead, u8.
+    pub const DEFINITION_SITE: usize = 0x1d30;
+    pub const DEFINITION_MOVABLE: usize = 0x1d34;
     /// The province it stands in, i32; 0 for one the world does not have.
     pub const PROVINCE: usize = 0x5e0;
     /// Its tier, u8, from 0 to 3.
@@ -764,8 +768,13 @@ pub mod construction {
     /// Whose it is, a tag.
     pub const COUNTRY: usize = 0x40;
     /// What a building's or a military construction makes: a
-    /// [`super::building`] or a [`super::unit_type`].
+    /// [`super::building`] or a [`super::unit_type`]; a great project's
+    /// construction, the project's definition
+    /// ([`super::great_project::DEFINITION`]).
     pub const MAKES: usize = 0x80;
+    /// A great project's construction's builder, a tag, which its cancel
+    /// and boost commands check against the country.
+    pub const BUILDER: usize = 0x88;
 }
 
 /// A kind of regiment or ship, of class [`classes::UNIT_TYPE`].
