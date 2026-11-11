@@ -70,7 +70,7 @@ The foreign minister goes through every country it knows every 10 to 24 days. Wh
 ## The economy
 
 - **Money** is spent by command, so it is taken only when the command runs in a later frame; recruitment and spending may count the same ducats on the same day at war (inferred) ([research/ai.md](../research/ai.md), "The economy").
-- **Recruitment** builds from the money set aside for it, or from the whole treasury while its offensive is under way; **spending** builds buildings, great projects and trade companies, hires advisors and takes loans; **trade**, **colonization** and **religion** send merchants, colonists and missionaries ([research/ai.md](../research/ai.md), "The economy").
+- **Recruitment** builds from the money set aside for it, or from the whole treasury while its offensive is under way; **spending** builds buildings, great projects and trade companies, hires advisors and takes loans; **trade**, **colonization** and **religion** send merchants, colonists and missionaries ([research/ai.md](../research/ai.md), "The economy"). The religion plan asks the country's tolerance of the religion in each of its provinces at every think, every 1 to 3 days, and again for the provinces it weighs for missionaries ([research/tolerance-in-a-province.md](../research/tolerance-in-a-province.md#who-asks); [countries.md](countries.md)).
 - **Country-wide choices**, by command: privileges granted and revoked every 64 days, the naval doctrine, reforms, development ([research/ai.md](../research/ai.md), "The economy"). Countries are in [countries.md](countries.md), provinces and trade in [provinces.md](provinces.md).
 
 ## What one agent sees of another
