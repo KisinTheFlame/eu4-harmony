@@ -24,10 +24,12 @@ These rules hold for everyone who changes this repository, people and coding age
 ```powershell
 cargo fmt --all
 cargo build --release
-cargo test --release
+cargo test
 cargo clippy --workspace --all-targets -- -D warnings
 cargo clippy --workspace --all-targets --features eu4-harmony-core/dev -- -D warnings
 ```
+
+The tests are built in the dev profile, which compiles incrementally: after a change to the core they are ready in seconds, where the release profile optimizes the whole core again, its test build alone for more than a minute, and they pass the same in both. CI runs them in the release profile, as a player's build is built, with no debug assertions or overflow checks; the offline checks below do too, since one of them times the decoding of a track.
 
 The second clippy is the developer build's: the development tools, each a feature of the core (`dev` has them all), are on when built in, with their options in `dev.toml`; [docs/dev-tools.md](docs/dev-tools.md) lists them. A player's build has none of them.
 

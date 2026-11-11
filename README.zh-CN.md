@@ -136,7 +136,7 @@ eu4-harmony game menu return               # 回到主菜单
 
 ```powershell
 cargo build --release
-cargo test --release
+cargo test
 cargo xtask release        # 打出玩家包
 ```
 

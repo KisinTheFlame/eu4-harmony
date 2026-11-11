@@ -136,7 +136,7 @@ You need Windows, [rustup](https://rustup.rs/) (it picks up the Rust version [ru
 
 ```powershell
 cargo build --release
-cargo test --release
+cargo test
 cargo xtask release        # pack the player package
 ```
 
