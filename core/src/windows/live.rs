@@ -17,7 +17,7 @@
 //! game calls back (clicks, Kill, tooltips) takes it only with `try_lock`;
 //! clicks are put in [`CLICKED`] alone and taken up at the next frame.
 //! [`super::WINDOWS`] is never held while the game is called.
-use super::{gui, type_name, with, Wanted};
+use super::{gui, type_name, with};
 use crate::called_by_game;
 use crate::{
     game::{self, Caller, WorldSession},
@@ -33,6 +33,7 @@ use crate::{
     unicode::game_text,
     Result,
 };
+use eu4_harmony_lua::windows::Wanted;
 use eu4_harmony_lua::{
     dispatch::Click,
     layout::{self, Kind, Placed, Window},
@@ -519,15 +520,17 @@ fn wants() -> Wants {
     with(|all| {
         let mut windows = Vec::new();
         let mut definitions = Vec::new();
-        for d in &all.declared {
+        let none = BTreeMap::new();
+        for d in all.wanted.declared() {
+            let words = all.words.get(&d.extension).unwrap_or(&none);
             for w in &d.windows {
                 let type_name = format!("{}_{}", type_name(&d.id, &w.name), all.generation);
-                definitions.push(gui::window(&type_name, w, &|k| super::words_of(d, k)));
-                let wanted = all.wanted.get(&(d.extension, w.name.clone())).cloned().unwrap_or_default();
-                windows.push(WantWindow { extension: d.extension, type_name, layout: w.clone(), words: d.words.clone(), wanted });
+                definitions.push(gui::window(&type_name, w, &|k| super::words_of(words, k)));
+                let wanted = all.wanted.wanted(d.extension, &w.name).cloned().unwrap_or_default();
+                windows.push(WantWindow { extension: d.extension, type_name, layout: w.clone(), words: words.clone(), wanted });
             }
         }
-        let popups = all.popups.iter().map(|p| (p.number, p.popup.clone())).collect();
+        let popups = all.wanted.popups().iter().map(|p| (p.number, p.popup.clone())).collect();
         Wants { generation: all.generation, windows, definitions, popups }
     })
 }
@@ -596,14 +599,16 @@ fn clicks(m: &Memory) {
                 }
             }),
             Was::Close(extension, window) => with(|all| all.show(extension, &window, false)),
-            Was::Popup(number, button) => super::press(number, button),
+            Was::Popup(number, button) => {
+                let _ = super::press_popup(number, button);
+            }
             Was::Shield(number, side) => {
                 if let Err(e) = open_diplomacy(m, number, side) {
                     log!("windows: pop-up {number}'s shield: {e}");
                 }
             }
             Was::Entry(extension, window) => with(|all| {
-                let open = all.wanted.get(&(extension, window.clone())).is_some_and(|w| w.open);
+                let open = all.wanted.is_open(extension, &window);
                 all.show(extension, &window, !open);
             }),
         }
@@ -660,11 +665,7 @@ fn sync(m: &Memory, live: &mut Live, wants: &Wants) -> Result<()> {
             let now = unpack(m.u64(built.root + window::POSITION)?);
             if now != built.placed {
                 built.placed = now;
-                with(|all| {
-                    if let Some(w) = all.wanted.get_mut(&(want.extension, want.layout.name.clone())) {
-                        w.dragged = Some(now);
-                    }
-                });
+                with(|all| all.wanted.dragged(want.extension, &want.layout.name, now));
             }
         }
         live.built.push(built);
@@ -685,7 +686,7 @@ fn sync(m: &Memory, live: &mut Live, wants: &Wants) -> Result<()> {
             // Closed: the player cannot see it to press its buttons.
             Err(e) => {
                 live.report(format!("pop-up {number} not built: {e}"));
-                with(|all| all.popups.retain(|p| p.number != *number));
+                with(|all| all.wanted.lost_popup(*number));
             }
         }
     }
@@ -783,7 +784,7 @@ fn player_letters(m: &Memory) -> Option<String> {
 /// Opens the diplomacy view on the country of a pop-up's shield, on the
 /// `side` of [`gui::SHIELDS`], as a click on the game's own shields does.
 fn open_diplomacy(m: &Memory, number: u32, side: usize) -> Result<()> {
-    let named = with(|all| all.popups.iter().find(|p| p.number == number).map(|p| p.popup.shields[side].clone()));
+    let named = with(|all| all.wanted.open_popup(number).map(|p| p.popup.shields[side].clone()));
     let Some(letters) = named.flatten().or_else(|| player_letters(m)) else { return Ok(()) };
     let session = WorldSession::open(Caller::Remote).map_err(|e| e.message)?;
     let bytes: [u8; 3] = letters.as_bytes().try_into().map_err(|_| format!("{letters:?} is not a tag"))?;
@@ -818,7 +819,10 @@ pub(crate) fn session_ended() {
             }
         });
     }
-    with(|all| all.end_session());
+    with(|all| {
+        all.wanted.end_session();
+        all.clicks.clear();
+    });
 }
 
 // ---------- the game's big panels and tooltips ----------
@@ -828,7 +832,10 @@ pub(crate) fn session_ended() {
 /// closes them to open one.
 fn panels_closing(_: &mut Call) {
     if !OPENING.load(Ordering::Relaxed) {
-        with(|all| all.close_panels(None));
+        with(|all| {
+            let closed = all.wanted.close_panels(None);
+            all.wanted.hear_at_frame(closed);
+        });
     }
 }
 
@@ -880,9 +887,9 @@ fn strip_after(call: &mut Call) {
     let idler = call.arg(0);
     let entries = with(|all| {
         let mut out = Vec::new();
-        for d in &all.declared {
+        for d in all.wanted.declared() {
             for w in d.windows.iter().filter(|w| w.entry.is_some()) {
-                let set = all.wanted.get(&(d.extension, w.name.clone())).and_then(|w| w.set.get(layout::ENTRY)).cloned().unwrap_or_default();
+                let set = all.wanted.wanted(d.extension, &w.name).and_then(|w| w.set.get(layout::ENTRY)).cloned().unwrap_or_default();
                 out.push((d.extension, d.id.clone(), w.name.clone(), set, w.entry.clone()));
             }
         }
