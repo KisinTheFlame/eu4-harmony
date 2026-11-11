@@ -1,6 +1,7 @@
 //! Forts: the player's forts, and mothballing and reopening them with the
 //! game's command that the province view's fort maintenance box posts
 //! (docs/research/sieges.md, "Mothballing and reopening a fort").
+use super::commands::{write, Block};
 use super::units::checks;
 use super::{action, with_state, Ctx, GResult, Session};
 use crate::{
@@ -36,7 +37,7 @@ pub fn points() -> Vec<Point> {
 /// The command the box posts, which mothballs an open fort and reopens a
 /// mothballed one.
 fn toggle_text(country: [u8; 3], province: u32) -> String {
-    format!("mothball_fort={{ province={province} country=\"{}\" }}", String::from_utf8_lossy(&country))
+    write("mothball_fort", Block::new().word("province", province).tag("country", country))
 }
 
 fn read(m: &Memory, ctx: &Ctx, id: u32, address: usize) -> GResult<PlayerFort> {

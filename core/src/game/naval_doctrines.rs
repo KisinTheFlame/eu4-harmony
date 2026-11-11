@@ -1,6 +1,7 @@
 //! Naval doctrines: the doctrines of the game's database as the military
 //! view's list offers them, and choosing one through the game's own command
 //! (docs/research/power-spending.md, "The country's other spendings").
+use super::commands::{write, Block};
 use super::content::{self, checks};
 use super::{action, power, thousandths, Ctx, GResult, Session, Tag};
 use crate::{
@@ -118,7 +119,7 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<NavalDoctrineOpti
 /// The command choosing a doctrine: the country and the doctrine's key, as
 /// the members of a tuple, written last first.
 fn command(player: Tag, key: &str) -> String {
-    format!("naval_doctrine={{ members={{ dummy=\"{}\" dummy=\"{key}\" }} }}", content::letters(player))
+    write("naval_doctrine", Block::new().block("members", Block::new().tag("dummy", player.letters()).quoted("dummy", key)))
 }
 
 /// Chooses a doctrine, as its button in the view's list does.

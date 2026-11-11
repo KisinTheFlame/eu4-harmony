@@ -1,10 +1,11 @@
 //! Advisors: the player's advisors and the pool the court view offers to
 //! hire from, and hiring, firing and promoting them through the game's own
 //! commands, as the court view posts them (docs/research/advisors.md).
+use super::commands::{write, Block};
 use super::army::FIND_ID;
 use super::{action, commands, content, thousandths, Ctx, GResult, Session, Tag};
 use crate::{
-    game_string,
+    containers, game_string,
     memory::Memory,
     objects::campaign::{country as country_fields, functions, province as culture_fields},
     points::{GameFunction, Point},
@@ -182,16 +183,11 @@ fn pool(m: &Memory, ctx: &Ctx) -> GResult<Vec<usize>> {
     }
     let seats = seated(m, ctx)?;
     let mut found = Vec::new();
-    let mut node = m.ptr(pool + POOL_FIRST)?;
-    while node != 0 {
-        if found.len() >= MOST {
-            return Err("an advisor pool longer than the framework reads".to_string().into());
-        }
+    for node in containers::chain(m, m.ptr(pool + POOL_FIRST)?, NODE_NEXT, MOST)? {
         let advisor = FIND_ID.call(m, [node + NODE_ID])?;
         if real(m, advisor)? && !seats.contains(&advisor) {
             found.push(advisor);
         }
-        node = m.ptr(node + NODE_NEXT)?;
     }
     Ok(found)
 }
@@ -245,18 +241,24 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<AdvisorOption>> {
 }
 
 /// An advisor's ID as the game writes it.
-fn id_text(number: u32) -> String {
-    format!("{{ id={number} type={} }}", advisor::ID_TYPE)
+fn id_block(number: u32) -> Block {
+    Block::new().word("id", number).word("type", advisor::ID_TYPE)
 }
 
 /// Hiring into the seat of a power, or, with no advisor, emptying it.
 fn change_text(country: Tag, power: PowerKind, advisor: Option<u32>) -> String {
-    let advisor = advisor.map_or(String::new(), |n| format!(" advisor={}", id_text(n)));
-    format!("change_advisor={{ country=\"{}\" index={}{advisor} }}", content::letters(country), seat(power))
+    let block = Block::new().tag("country", country.letters()).word("index", seat(power));
+    write(
+        "change_advisor",
+        match advisor {
+            Some(n) => block.block("advisor", id_block(n)),
+            None => block,
+        },
+    )
 }
 
 fn promote_text(country: Tag, advisor: u32) -> String {
-    format!("promote_advisor={{ members={{ dummy=\"{}\" dummy={} }} }}", content::letters(country), id_text(advisor))
+    write("promote_advisor", Block::new().block("members", Block::new().tag("dummy", country.letters()).block("dummy", id_block(advisor))))
 }
 
 /// The advisor among `advisors` with the number `id`.

@@ -1,6 +1,7 @@
 //! Ideas: the idea groups of the ideas view, taking one, buying its ideas
 //! and abandoning it, through the game's own commands
 //! (docs/research/government.md, "Ideas").
+use super::commands::{write, Block};
 use super::content::checks;
 use super::{action, conditions, content, power, GResult, Session, Tag};
 use crate::containers;
@@ -218,14 +219,15 @@ fn find(m: &Memory, key: &str) -> GResult<Group> {
 
 /// The add and abandon commands: the country and the group by its key.
 fn written(command: &str, country: Tag, group: &str) -> String {
-    format!("{command}={{ country=\"{}\" idea_group=\"{group}\" }}", content::letters(country))
+    write(command, Block::new().tag("country", country.letters()).quoted("idea_group", group))
 }
 
 /// The spend command for buying the idea at `index` of the database, its
 /// kind of monarch points `skill`; the game leaves `data` out when it is 0.
 fn written_buy(country: Tag, index: u32, skill: u32) -> String {
-    let data = if index == 0 { String::new() } else { format!("data={index} ") };
-    format!("spend_power_command={{ country=\"{}\" power={{ {data}category={BUY_IDEA} skill={skill} }} }}", content::letters(country))
+    let power = if index == 0 { Block::new() } else { Block::new().word("data", index) };
+    let power = power.word("category", BUY_IDEA).word("skill", skill);
+    write("spend_power_command", Block::new().tag("country", country.letters()).block("power", power))
 }
 
 /// Takes an idea group for the player, as its button does.

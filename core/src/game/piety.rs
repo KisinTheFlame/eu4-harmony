@@ -1,6 +1,7 @@
 //! Islamic piety's two actions, enforcing faithful adherence and calling on
 //! religious followers, as the religion view's buttons post them, with the
 //! view's own lines (docs/research/religion.md, "Piety").
+use super::commands::{write, Block};
 use super::{action, content, Ctx, GResult, Session, Tag};
 use crate::{
     memory::Memory,
@@ -83,7 +84,7 @@ pub fn options(m: &Memory, ctx: &Ctx) -> GResult<Vec<ReligionOption>> {
 
 /// The command of either action: the country, as their members hold it.
 fn text(command: &str, country: Tag) -> String {
-    format!("{command}={{ members={{ dummy=\"{}\" }} }}", content::letters(country))
+    write(command, Block::new().block("members", Block::new().tag("dummy", country.letters())))
 }
 
 fn take(Session { m, ctx, commands, .. }: Session, command: &str, check: GameFunction<2>, doing: &str) -> GResult<()> {

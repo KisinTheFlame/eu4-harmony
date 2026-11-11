@@ -2,6 +2,7 @@
 //! interactions over crown land and the agenda an estate pursues, granting
 //! and revoking privileges and the interactions, through the game's own
 //! commands (docs/research/government.md, "Estates").
+use super::commands::{write, Block};
 use super::content::checks;
 use super::{action, conditions, content, modifiers, thousandths, GResult, Session, Tag};
 use crate::containers;
@@ -267,11 +268,13 @@ pub fn agenda(Session { m, ctx, .. }: Session) -> GResult<AgendaInProgress> {
 /// The grant and revoke commands: the country, the estate and the privilege
 /// by their indices.
 fn written(command: &str, country: Tag, estate: usize, privilege: usize) -> String {
-    format!("{command}={{ members={{ dummy=\"{}\" dummy={estate} dummy={privilege} }} }}", content::letters(country))
+    let members = Block::new().tag("dummy", country.letters()).word("dummy", estate).word("dummy", privilege);
+    write(command, Block::new().block("members", members))
 }
 
 fn written_interaction(country: Tag, interaction: usize) -> String {
-    format!("crown_land_interaction={{ members={{ dummy=\"{}\" dummy={interaction} }} }}", content::letters(country))
+    let members = Block::new().tag("dummy", country.letters()).word("dummy", interaction);
+    write("crown_land_interaction", Block::new().block("members", members))
 }
 
 /// Grants an estate of the player's a privilege.

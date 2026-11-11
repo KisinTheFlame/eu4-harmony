@@ -2,9 +2,10 @@
 //! sending, recalling and steering merchants and choosing the node's trading
 //! policy through the game's own commands (docs/research/envoys.md,
 //! "Merchants").
+use super::commands::{write, Block};
 use super::{
     action,
-    envoys::{self, quoted, Kind},
+    envoys::{self, Kind},
     trade::{self, DEFINITION, ENTRIES, ENTRY_SIZE, HAS_MERCHANT, HOME, KEY, LINKS, LINK_SIZE, LINK_TO, MOST, NAME, STEER_LINK},
     Ctx, GResult, Session, Tag,
 };
@@ -269,7 +270,7 @@ fn send_written(player: Tag, location: i32, merchant: i32, mission: Mission) -> 
         Mission::Collect => 0,
         Mission::Steer => 1,
     };
-    format!("send_merchant={{ province={location} country={} name={merchant} type={kind} }}", quoted(player))
+    write("send_merchant", Block::new().word("province", location).tag("country", player.letters()).word("name", merchant).word("type", kind))
 }
 
 /// Sends a merchant to the node `key` for `mission`, or has the one there
@@ -302,7 +303,7 @@ pub fn recall(Session { m, ctx, commands, .. }: Session, key: &str) -> GResult<(
         Some(p) if p.arriving => return Err(envoys::checks::on_its_way("merchant")),
         Some(_) => {}
     }
-    let text = format!("cancel_merchant={{ node={} country={} }}", m.i32(node.definition + LOCATION)?, quoted(ctx.player));
+    let text = write("cancel_merchant", Block::new().word("node", m.i32(node.definition + LOCATION)?).tag("country", ctx.player.letters()));
     action::post(commands, &text, "recall the merchant")
 }
 
@@ -318,7 +319,7 @@ pub fn steer_to(Session { m, ctx, commands, .. }: Session, args::SteerTo { node,
     if !choice.can {
         return Err(action::not_allowed("steer trade there", &choice.reasons));
     }
-    let text = format!("steer_command={{ country={} to={along} trade={} }}", quoted(ctx.player), m.i32(node.address + INDEX)?);
+    let text = write("steer_command", Block::new().tag("country", ctx.player.letters()).word("to", along).word("trade", m.i32(node.address + INDEX)?));
     action::post(commands, &text, "steer trade there")
 }
 
@@ -368,7 +369,8 @@ fn read_policies(m: &Memory, ctx: &Ctx, node: &Node) -> GResult<TradingPolicies>
 /// The command the trade view's policy button posts: the node by its
 /// definition's index, the policy by its index.
 fn policy_written(player: Tag, definition: i32, policy: i32) -> String {
-    format!("select_trading_policy={{ members={{ dummy={} dummy={definition} dummy={policy} }} }}", quoted(player))
+    let members = Block::new().tag("dummy", player.letters()).word("dummy", definition).word("dummy", policy);
+    write("select_trading_policy", Block::new().block("members", members))
 }
 
 /// Chooses the trading policy `policy` for the player in the node `node`.

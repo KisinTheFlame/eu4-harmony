@@ -2,6 +2,7 @@
 //! with whether the player can pass or enact it as the game's own check
 //! says, and passing and enacting them through the game's own commands
 //! (docs/research/empires.md).
+use super::commands::{write, Block};
 use super::empire::{self, CELESTIAL, CELESTIAL_TOKEN};
 use super::{action, conditions, content, thousandths, GResult, Session};
 use crate::{
@@ -134,7 +135,7 @@ pub fn decrees(Session { m, ctx, .. }: Session) -> GResult<CelestialDecrees> {
 /// The enact command: the decree by its key. The command names no country:
 /// the game enacts it as the Celestial Emperor.
 fn written_enact(decree: &str) -> String {
-    format!("enact_decree={{ decree_name=\"{decree}\" }}")
+    write("enact_decree", Block::new().quoted("decree_name", decree))
 }
 
 /// Enacts one of the emperor's decrees.

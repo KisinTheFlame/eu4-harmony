@@ -3,6 +3,7 @@
 //! controller's golden bulls, through the game's own commands, with the
 //! game's own checks (docs/research/religion.md, "The papacy and the
 //! curia").
+use super::commands::{write, Block};
 use super::{action, conditions, content, Ctx, GResult, Session, Tag};
 use crate::{
     containers, game_string,
@@ -306,19 +307,19 @@ pub fn options(m: &Memory, ctx: &Ctx) -> GResult<Vec<ReligionOption>> {
 
 /// The commands the view's buttons post.
 fn papal_action_text(country: Tag, index: i32) -> String {
-    format!("papacy_action_command={{ country=\"{}\" id={index} }}", content::letters(country))
+    write("papacy_action_command", Block::new().tag("country", country.letters()).word("id", index))
 }
 
 fn members_text(command: &str, country: Tag) -> String {
-    format!("{command}={{ members={{ dummy=\"{}\" }} }}", content::letters(country))
+    write(command, Block::new().block("members", Block::new().tag("dummy", country.letters())))
 }
 
 fn invest_text(country: Tag, amount: i32) -> String {
-    format!("invest_papal_influence_command={{ country=\"{}\" index={amount} }}", content::letters(country))
+    write("invest_papal_influence_command", Block::new().tag("country", country.letters()).word("index", amount))
 }
 
 fn bull_text(country: Tag, bull: &str) -> String {
-    format!("pick_golden_bull={{ members={{ dummy=\"{}\" dummy=\"{bull}\" }} }}", content::letters(country))
+    write("pick_golden_bull", Block::new().block("members", Block::new().tag("dummy", country.letters()).quoted("dummy", bull)))
 }
 
 /// Takes a papal action.

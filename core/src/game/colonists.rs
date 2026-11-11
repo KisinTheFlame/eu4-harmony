@@ -2,9 +2,10 @@
 //! province, expelling a minority into a new colony and promoting settlement
 //! growth, and carrying each out through the game's own commands
 //! (docs/research/envoys.md, "Colonists").
+use super::commands::{write, Block};
 use super::{
     action,
-    envoys::{self, quoted},
+    envoys,
     with_state, Ctx, GResult, Session, Tag,
 };
 use crate::{
@@ -196,13 +197,13 @@ enum Work {
 
 /// The command each of the province view's colonist buttons posts.
 fn written(player: Tag, province: u32, work: Work) -> String {
-    let country = quoted(player);
+    let to = Block::new().tag("country", player.letters()).word("location", province);
     match work {
-        Work::Colonize => format!("send_colonist={{ country={country} location={province} }}"),
-        Work::Recall => format!("cancel_colonist={{ country={country} location={province} }}"),
-        Work::Expel { from } => format!("send_colonist={{ country={country} location={province} expulsion_province={from} }}"),
-        Work::StartGrowth => format!("send_colonist={{ country={country} location={province} settlement_growth_construction=yes }}"),
-        Work::StopGrowth => format!("cancel_colonist={{ country={country} location={province} settlement_growth_construction=yes }}"),
+        Work::Colonize => write("send_colonist", to),
+        Work::Recall => write("cancel_colonist", to),
+        Work::Expel { from } => write("send_colonist", to.word("expulsion_province", from)),
+        Work::StartGrowth => write("send_colonist", to.word("settlement_growth_construction", "yes")),
+        Work::StopGrowth => write("cancel_colonist", to.word("settlement_growth_construction", "yes")),
     }
 }
 

@@ -2,10 +2,11 @@
 //! player's leaders, and giving one to an army or a fleet, through the
 //! game's own commands, as the military view and the unit panels post them
 //! (docs/research/leaders.md).
+use super::commands::{write, Block};
 use super::units::checks;
 use super::{action, army, modifiers, Caller, Ctx, GResult, Session};
 use crate::{
-    game_string,
+    containers, game_string,
     memory::Memory,
     objects::campaign::{country as country_fields, unit},
     points::{GameFunction, Point},
@@ -30,11 +31,9 @@ const LEADER_SPENDING: usize = 3;
 /// it.
 const MAY_LEAVE: GameFunction<2> = GameFunction::at(0x862a70);
 const MAY_TAKE: GameFunction<3> = GameFunction::at(0x862fa0);
-/// The country's leaders, a [`crate::objects::list`]: head, its count; a
-/// node holds the leader at `+0`, the next node at `+0x10`.
+/// The country's leaders, a [`crate::objects::list`] of them, and its count.
 const LEADERS: usize = 0x1468;
 const LEADERS_COUNT: usize = LEADERS + crate::objects::list::COUNT;
-use crate::objects::list::NEXT as NODE_NEXT;
 /// A leader's fields: its ID (type at `+0x10`, number at `+0x14`), name,
 /// kind, skills (siege, maneuver, fire, shock), the unit it leads, and its
 /// monarch's ID.
@@ -117,12 +116,7 @@ pub fn kind(word: &str) -> GResult<LeaderKind> {
 /// The recruit command: the kind by its number, and no name, so that the
 /// game picks the name and the sex, as it does for the name it offers.
 fn create_text(country: [u8; 3], kind: LeaderKind) -> String {
-    format!("create_leader={{ country=\"{}\" leader={} }}", String::from_utf8_lossy(&country), index(kind))
-}
-
-/// An ID as the game writes it: its number and its type.
-fn id_text(id: u64) -> String {
-    format!("{{ id={} type={} }}", (id >> 32) as i32, id as u32 as i32)
+    write("create_leader", Block::new().tag("country", country).word("leader", index(kind)))
 }
 
 fn leader_id(number: u32) -> u64 {
@@ -130,11 +124,11 @@ fn leader_id(number: u32) -> u64 {
 }
 
 fn assign_text(leader: u64, unit: u64) -> String {
-    format!("assign_leader={{ leader={} unit={} }}", id_text(leader), id_text(unit))
+    write("assign_leader", Block::new().id("leader", leader).id("unit", unit))
 }
 
 fn dismiss_text(country: [u8; 3], leader: u64) -> String {
-    format!("dismiss_leader={{ country=\"{}\" leader={} }}", String::from_utf8_lossy(&country), id_text(leader))
+    write("dismiss_leader", Block::new().tag("country", country).id("leader", leader))
 }
 
 /// What a kind of leader costs, in whole points of the power it is paid in.
@@ -222,16 +216,7 @@ fn addresses(m: &Memory, ctx: &Ctx) -> GResult<Vec<usize>> {
     if !(0..MOST as i32).contains(&count) {
         return Err(format!("{count} leaders").into());
     }
-    let mut node = m.ptr(ctx.country + LEADERS)?;
-    let mut out = Vec::new();
-    while node != 0 {
-        if out.len() >= count as usize {
-            return Err("the leader list is longer than its count".to_string().into());
-        }
-        out.push(m.ptr(node)?);
-        node = m.ptr(node + NODE_NEXT)?;
-    }
-    Ok(out)
+    Ok(containers::items(m, ctx.country + LEADERS, count as usize)?)
 }
 
 fn read(m: &Memory, address: usize) -> GResult<Leader> {
@@ -429,21 +414,12 @@ mod tests {
         };
         let leading = leader(12, LeaderKind::General, army.at()).u8(SAYS_NO, stuck.into());
         let army = army.u64(UNIT_LEADER, leading.at() as u64);
-        let leaders = [leading, leader(13, LeaderKind::General, 0), leader(14, LeaderKind::Admiral, 0)];
-        let mut next = 0u64;
-        let mut nodes = Vec::new();
-        for l in leaders.iter().rev() {
-            let node = Object::new(NODE_NEXT + 8).u64(0, l.at() as u64).u64(NODE_NEXT, next);
-            next = node.at() as u64;
-            nodes.push(node);
-        }
+        let leaders = vec![(leading, false), (leader(13, LeaderKind::General, 0), false), (leader(14, LeaderKind::Admiral, 0), false)];
         buffers::units(&image, &[&army, &fleet]);
-        let country = Object::country(cas, LEADERS_COUNT + 4).u64(LEADERS, next).i32(LEADERS_COUNT, 3);
+        let country = Object::country(cas, LEADERS_COUNT + 4).list(LEADERS, leaders);
         let countries = Object::countries(&[&country]);
         let session = buffers::session(m, 0, cas, country.at(), countries.at(), Caller::Remote(As::Player));
-        let mut objects = vec![army, fleet, country, countries];
-        objects.extend(leaders);
-        objects.extend(nodes);
+        let objects = vec![army, fleet, country, countries];
         Castile { _image: image, _objects: objects, session }
     }
 

@@ -2,6 +2,7 @@
 //! hiring one with the game's recruit command, as the view and the map post
 //! it once the player has picked a company and a province
 //! (docs/research/leaders.md, "Hiring a mercenary company").
+use super::commands::{write, Block};
 use super::units::checks;
 use super::{action, with_state, Ctx, GResult, Session};
 use crate::{
@@ -58,7 +59,8 @@ pub fn points() -> Vec<Point> {
 /// The recruit command for a company: its ID, the special kind 1, and no
 /// unit type.
 fn hire_text(country: [u8; 3], province: u32, number: i32, kind: i32) -> String {
-    format!("buildunit={{ country=\"{}\" province={province} mercenary={{ id={number} type={kind} }} category=1 }}", String::from_utf8_lossy(&country))
+    let company = Block::new().word("id", number).word("type", kind);
+    write("buildunit", Block::new().tag("country", country).word("province", province).block("mercenary", company).word("category", 1))
 }
 
 fn addresses(m: &Memory, ctx: &Ctx) -> GResult<Vec<usize>> {

@@ -6,6 +6,7 @@
 //! says why not, or lists the allies that may take it; the window lists
 //! those, and picking one posts the transfer command for it, which asks the
 //! same check before the game carries it out.
+use super::commands::{write, Block};
 use super::peace::checks;
 use super::{action, countries, diplomacy, with_state, GResult, Session, Tag};
 use crate::{
@@ -66,7 +67,7 @@ pub fn transfer(Session { m, ctx, commands, .. }: Session, args::Transfer { prov
 /// The transfer command's written form: the ally to take the province, and
 /// the player handing it over.
 fn command(ally: Tag, province: u32, player: Tag) -> String {
-    format!("transfer_controller_command={{ country=\"{}\" province={province} commander=\"{}\" }}", diplomacy::letters(ally), diplomacy::letters(player))
+    write("transfer_controller_command", Block::new().tag("country", ally.letters()).word("province", province).tag("commander", player.letters()))
 }
 
 /// What the check says of the player's country at `country` and the

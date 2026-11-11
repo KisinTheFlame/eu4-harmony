@@ -39,6 +39,7 @@ mod agents_order;
 pub mod analysis;
 mod army_search;
 pub mod baseline;
+mod bound_element;
 pub mod catalogue;
 #[cfg(feature = "dev-heap-census")]
 pub mod census;

@@ -2,6 +2,7 @@
 //! can pass it as the game's own check says, and passing and revoking them
 //! through the game's own commands; and what the Celestial Empire's view
 //! shares with it, an empire's reforms (docs/research/empires.md).
+use super::commands::{write, Block};
 use super::{action, conditions, content, envoys, questions, script, thousandths, Ctx, GResult, Session, Tag};
 use crate::{
     containers, game_string,
@@ -235,12 +236,12 @@ pub(super) fn pass(Session { m, ctx, commands, .. }: Session, empire: usize, tok
 /// The enact command: the reform by its key. The command names no country:
 /// the game enacts it as the empire's emperor.
 fn written_pass(reform: &str) -> String {
-    format!("enact_imperial_reform={{ which=\"{reform}\" }}")
+    write("enact_imperial_reform", Block::new().quoted("which", reform))
 }
 
 /// The revoke command: the emperor's tag.
 fn written_revoke(emperor: Tag) -> String {
-    format!("revoke_imperial_reform={{ members={{ dummy=\"{}\" }} }}", content::letters(emperor))
+    write("revoke_imperial_reform", Block::new().block("members", Block::new().tag("dummy", emperor.letters())))
 }
 
 /// The Empire as its view shows it.
@@ -420,7 +421,7 @@ pub fn pick_incident_option(Session { m, ctx, commands, .. }: Session, args::Pic
 /// The pick command: the member's tag and the option's number, in that
 /// order, both under `dummy`, as its writer (`0xc88b0`) writes them.
 fn written_pick(member: Tag, option: u32) -> String {
-    format!("pick_imperial_incident_option={{ members={{ dummy=\"{}\" dummy={option} }} }}", content::letters(member))
+    write("pick_imperial_incident_option", Block::new().block("members", Block::new().tag("dummy", member.letters()).word("dummy", option)))
 }
 
 /// The refusals the framework words itself.
