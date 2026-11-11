@@ -74,7 +74,7 @@ The game's content is written in script: text files of keys and blocks, the same
 ## What is not known yet
 
 - What a content trigger's last two fields are for, what several of a scope's fields hold (saved scopes and variables are guesses), and how the decisions view makes its scope ([research/triggers.md](../research/triggers.md), "Not established").
-- Whether any trigger colors its own line; how the interface lists a country's missions; where a reform's `allow` shows; estate agendas, parliament issues and subject interactions, which were not read ([research/triggers.md](../research/triggers.md), "Not established").
+- Whether any trigger colors its own line; how the interface lists a country's missions; where a reform's `allow` shows; parliament issues and subject interactions, which were not read; an estate agenda's blocks are in [research/government.md](../research/government.md#estates) ([research/triggers.md](../research/triggers.md), "Not established").
 - Where `[Root.GetName]` in localisation is worked out ([research/architecture.md](../research/architecture.md), "Open questions").
 - The other variable effects, such as `change_variable`, and whether any thread but the main one sets flags ([research/scripts.md](../research/scripts.md), "Not established").
 - Which of the game console's two refusing flags is multiplayer and which ironman; the refusal was tried in an ironman game, not in a multiplayer one ([research/game-console.md](../research/game-console.md)).

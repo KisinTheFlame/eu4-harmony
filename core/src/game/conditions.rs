@@ -28,6 +28,9 @@ pub(super) const LINES: GameFunction<6> = GameFunction::at(0xb97cd0);
 const SCOPE_SIZE: usize = 0xd0;
 /// [`LINES`]'s mode for the conditions that do not hold only.
 const FAILING: usize = 2;
+/// A scope's `FROM`, a pointer to another scope, the scope itself when it
+/// has none ([`SCOPE`] starts it so).
+const FROM: usize = 0x18;
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -36,6 +39,11 @@ pub fn points() -> Vec<Point> {
         Point::keep(SCOPE_COPY, "48 89 5c 24 18 48 89 4c 24 08 55 56 57 41 54 41 55 41 56 41 57 48 83 ec 20 48 8b ea 48 8b f1 c7 41 08 65 01", "scope copy"),
         Point::keep(EVALUATE, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48 8b 59 08 48 8b f2 48 63 41 14", "condition verdict"),
         Point::keep(LINES, "48 89 5c 24 18 48 89 54 24 10 48 89 4c 24 08 55 56 57 41 54 41 55 41 56 41 57", "condition lines"),
+        // The scope maker starts FROM at the scope itself; the bribe
+        // command's execute points its country's scope's FROM at the seat's
+        // province's.
+        Point::keep(0x945abusize, "48 89 49 18", "scope from").uses(&[FROM]),
+        Point::keep(0x2a43f5usize, "48 8d 44 24 20 48 89 45 08", "bribe scope from"),
     ]
 }
 
@@ -59,6 +67,16 @@ impl<'m> Scope<'m> {
         let mut scope = Box::new(Self { m, bytes: [0; SCOPE_SIZE / 8] });
         SCOPE_COPY.call(m, [scope.address(), from])?;
         Ok(scope)
+    }
+
+    /// A scope of `province`'s own, and a scope of `country`'s whose `FROM`
+    /// it is, as the game evaluates a parliament bribe for a seat: bound as
+    /// `let (_from, scope)`, so that the first outlives the second.
+    pub(super) fn with_province_from(m: &'m Memory, country: Tag, province: u32) -> GResult<(Box<Self>, Box<Self>)> {
+        let mut from = Self::new(m, Tag(crate::objects::campaign::route_options::NO_TAG), province)?;
+        let mut scope = Self::new(m, country, 0)?;
+        scope.bytes[FROM / 8] = from.address() as u64;
+        Ok((from, scope))
     }
 
     pub(super) fn address(&mut self) -> usize {
