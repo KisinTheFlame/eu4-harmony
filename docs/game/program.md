@@ -61,6 +61,11 @@
 - **What a world reset leaves**: some of the old session's state (the Empire's religious status, the achievements), interface windows the map manager never lets go, and memory the game never frees ([research/main-menu.md](../research/main-menu.md), "The world reset", "The memory a world reset and a session leave"). Sprites still counted by that interface are drawn from textures let go after a return, which crashed the game until a repair kept them loaded ([research/main-menu.md](../research/main-menu.md), "A return after time ran").
 - **Commands queued in the last day** belong to the application's session, not to the game state, so a session left while time runs carries them into whatever comes next ([research/main-menu.md](../research/main-menu.md), "Leaving while time runs").
 
+## Crashes
+
+- **One crash a process is handled**, by the crash reporter `main` sets up: an unhandled exception (a stack overflow on a thread of its own), a pure virtual function's call or `abort` comes to one function that writes the crash folder (`exception.txt`, `minidump.dmp`, a screenshot, `meta.yml`) and starts `CrashReporter.exe`, after which the game ends itself ([research/crash-handling.md](../research/crash-handling.md)).
+- **A corrupted heap ends the game with no crash folder**: its end does not come to the filter ([research/crash-handling.md](../research/crash-handling.md), "The three ways in").
+
 ## Running unseen, and several at once
 
 - **The window is made shown, and Init shows it again**; nothing else in the game shows it. A hidden window is not occluded, so a hidden game runs as fast as a shown one, once the framework opts it out of Windows' power throttling, which otherwise gives a game no one sees a tenth of a core; a minimized one runs at about ten frames a second and draws one in two ([research/headless.md](../research/headless.md), "What keeps the window on screen", "What the game does when it is not seen").

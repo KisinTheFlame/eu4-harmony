@@ -147,7 +147,7 @@ pub struct Window {
     pub side: Option<Side>,
     /// The pages the side list chooses among, when the window keeps them
     /// itself: the page shown is the body, and its place here is empty.
-    pages: Vec<Vec<Widget>>,
+    pub(super) pages: Vec<Vec<Widget>>,
     /// What stands below the body on every page, such as the buttons that
     /// save and cancel.
     footer: Vec<Widget>,
@@ -277,6 +277,19 @@ impl Window {
     /// is open.
     pub fn footer_mut(&mut self) -> &mut [Widget] {
         &mut self.footer
+    }
+
+    /// Sets the text of the label just after the button `button`, on
+    /// whichever page it is: a line that says what the button did.
+    pub fn set_label_after(&mut self, button: &str, text: String) {
+        let lists = std::iter::once(&mut self.body).chain(self.pages.iter_mut()).chain(std::iter::once(&mut self.footer));
+        for list in lists {
+            let at = list.iter().position(|w| matches!(w, Widget::Button { id, .. } if *id == button));
+            if let Some(Widget::Label(label)) = at.and_then(|i| list.get_mut(i + 1)) {
+                *label = text;
+                return;
+            }
+        }
     }
 
     /// Puts the window in the middle of a screen.

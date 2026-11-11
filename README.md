@@ -46,7 +46,9 @@ Good to know:
 
 ## When something goes wrong
 
-Look in `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`: `report.txt` says what Harmony found and did as the game started, `core.log` is its log, and `proxy.log`, there only when something went wrong, says why Harmony did not start at all. Report a problem on [GitHub Issues](https://github.com/KisinTheFlame/eu4-harmony/issues), with `report.txt` and the logs attached.
+In the main menu, open Harmony's settings, go to **About** and press **Save troubleshooting files to the desktop**: it packs Harmony's logs, the game's logs, its last crash folders and your settings and playset (no saves) into one zip file on your desktop. Report a problem on [GitHub Issues](https://github.com/KisinTheFlame/eu4-harmony/issues), with that file attached.
+
+The logs are in `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`: `report.txt` says what Harmony found and did as the game started, `core.log` is its log, with a line for where the game crashed when it did, and `proxy.log`, there only when something went wrong, says why Harmony did not start at all.
 
 ## Writing a mod
 
