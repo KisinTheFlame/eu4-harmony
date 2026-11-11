@@ -30,6 +30,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 | | |
 | --- | --- |
 | [game-speed.md](plans/game-speed.md) | Making the game faster without changing the game it plays; how a part is chosen, and which comes next |
+| [third-deepening.md](plans/third-deepening.md) | The presentation lock's turns, extensions' windows and pop-ups, a bound game element, commands' written form and the repairs' moments each gathered into one module |
 | [drawing-thread.md](plans/drawing-thread.md) | The simulation, the interface and the drawing apart: the frames drawn by a thread of their own at the display's rate, the crossings made into events, then the world double buffered |
 
 ### Built
