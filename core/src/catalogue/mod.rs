@@ -432,6 +432,7 @@ macro_rules! capability_groups {
             Advisor(advisors),
             Empire(empire),
             CelestialEmpire(celestial_empire),
+            Religion(religion),
             Mercenary(mercenaries),
             Fort(forts),
             Siege(sieges),

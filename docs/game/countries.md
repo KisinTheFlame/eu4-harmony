@@ -39,6 +39,12 @@ A country is what a player or the AI plays: a tag such as `FRA`, with its treasu
 - **A new heir's name is drawn from the country's list** by its weights; the game's arithmetic overflows when it weighs both sexes, so the list's first name is drawn about half the time, and the heir takes that name's sex then too ([research/names.md](../research/names.md#picking-a-name-from-a-list)).
 - **Cultures and culture groups** are the game's data; the East Asian groups are those whose people put the family name first, which the game's full names do not ([research/names.md](../research/names.md#cultures)).
 
+## Religion
+
+- **A country's state religion decides what its religion view offers**: Hinduism and the Norse faith a personal deity, Fetishism and the Dreamtime a cult, the Protestants church aspects, the Reformed fervor, Confucianism harmonization, the Orthodox icons and their patriarch, and so on, each the religion's own. Every one of them is a command of its own, posted by the view's button with the country and the content key of what is chosen ([research/religion.md](../research/religion.md#the-religion-views-commands)).
+- **A deity or a cult lasts until the monarch changes**: a deity may be changed at any time but during a regency, a cult may be embraced only while none is followed and not during a regency ([research/religion.md](../research/religion.md#personal-deities)).
+- **The commands' own checks leave out the deity's and the cult's conditions**: the view asks them, and the framework with it, as the deity's `potential` and `trigger` and the cult's `allow` say ([research/religion.md](../research/religion.md#cults)).
+
 ## Subjects
 
 - **What kind of subject a country is** (a vassal, a personal union, a tributary, an appanage, 26 kinds in the unmodded game, more with mods) is not kept in the country but in the relation between overlord and subject; the country keeps its overlord and its list of subjects ([research/countries.md](../research/countries.md#a-countrys-snapshot-countriessnapshot)).
@@ -84,6 +90,7 @@ A country is what a player or the AI plays: a tag such as `FRA`, with its treasu
 - **Where the notes disagree**, the later note answers what the earlier left open: [research/countries.md](../research/countries.md#not-known) did not find the function that answers an estate's influence, which idea of a group is next, or how a reform is found by its key; [research/government.md](../research/government.md) found all three. Neither was read back in the game for these.
 - What every reader of a country's knowledge expects of how new it is, and what some of its facts are ([research/country-knowledge.md](../research/country-knowledge.md#not-verified)).
 - Parliament's seats and the debate's layout; how many bank loans a country is allowed; where the game reads `can_change_national_focus`; what locks a country's envoys when it is a subject ([research/countries.md](../research/countries.md#not-known), [research/government.md](../research/government.md#not-established), [research/power-spending.md](../research/power-spending.md#not-known), [research/envoys.md](../research/envoys.md#envoys)).
+- How the religion view lists its deities and cults, and what its other buttons check (church aspects, blessings, fervor, reforms, harmonization, piety, icons, the patriarch, scholars, the curia, holy orders) ([research/religion.md](../research/religion.md#not-known)).
 - Why a subject's support-of-independence list mixes both directions ([research/dependency-teardown.md](../research/dependency-teardown.md#the-defect)).
 - Which of the achievement check's inputs stand for multiplayer and another human in the session ([research/achievements.md](../research/achievements.md#not-settled)).
 - Whether an army overrun is heard defeated twice; an army that survives a defeat, a retreat with nowhere to go, a naval battle ([research/defeat.md](../research/defeat.md#in-the-running-game)).

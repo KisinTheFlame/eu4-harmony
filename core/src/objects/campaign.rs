@@ -296,6 +296,11 @@ pub mod country {
     /// a religion as a province's ([`super::province::CULTURE`]).
     pub const PRIMARY_CULTURE: usize = 0x1228;
     pub const STATE_RELIGION: usize = 0xf30;
+    /// The personal deity it follows, a pointer to one of the game's
+    /// deities, null for none; and its cult, a pointer to a cult or the
+    /// game's no-cult object (docs/research/religion.md).
+    pub const PERSONAL_DEITY: usize = 0xfa0;
+    pub const CULT: usize = 0xfa8;
     /// The named modifiers its scripts put on it, a [`super::super::list`]
     /// of [`super::named_modifier`]s.
     pub const NAMED_MODIFIERS: usize = 0x1f0;

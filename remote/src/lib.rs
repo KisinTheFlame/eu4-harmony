@@ -550,6 +550,8 @@ groups! {
     Empire(empire::EmpireRequest, EmpireAnswer),
     /// The Celestial Empire: its reforms and decrees.
     CelestialEmpire(celestial_empire::CelestialEmpireRequest, CelestialEmpireAnswer),
+    /// The religion view: personal deities and cults.
+    Religion(religion::ReligionRequest, ReligionAnswer),
     /// The mercenary companies the player can hire.
     Mercenary(mercenaries::MercenaryRequest, MercenaryAnswer),
     /// The player's forts.
