@@ -94,6 +94,8 @@ pub enum Resource {
     Meritocracy,
     /// Splendor, which the age's abilities cost.
     Splendor,
+    /// Church power, which a church's aspects cost.
+    ChurchPower,
 }
 
 /// A kind of monarch power, as the game's panels name them: what a
