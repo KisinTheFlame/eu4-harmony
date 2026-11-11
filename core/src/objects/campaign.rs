@@ -336,6 +336,10 @@ pub mod country {
     /// pointer, null while it harmonizes with none (docs/research/religion.md).
     pub const HARMONIZING: usize = 0x1040;
     pub const HARMONIZING_GROUP: usize = 0x1048;
+    /// Its patriarch authority, i32 thousandths of the whole, and the icon it
+    /// has commissioned, a pointer, null for none (docs/research/religion.md).
+    pub const PATRIARCH_AUTHORITY: usize = 0xf88;
+    pub const ICON: usize = 0xf90;
     /// The named modifiers its scripts put on it, a [`super::super::list`]
     /// of [`super::named_modifier`]s.
     pub const NAMED_MODIFIERS: usize = 0x1f0;

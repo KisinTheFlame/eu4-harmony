@@ -8,6 +8,7 @@ use crate::{
     points::{GameFunction, Point},
 };
 use eu4_harmony_remote::choices::{Amount, Choice, PowerKind, Resource};
+use eu4_harmony_remote::ProvinceId;
 use eu4_harmony_remote::religion::{args, ReligionOption};
 
 /// The personal deities' database, made on first use by its getter
@@ -140,6 +141,24 @@ const MOST_CANDIDATES: usize = 512;
 const RELIGION_INDEX: usize = 0x70;
 const RELIGION_GROUP: usize = 0xd8;
 
+/// `(religion) -> bool`: whether the religion has icons (Orthodoxy).
+const HAS_ICONS: GameFunction<1> = GameFunction::at(0xa7ec60);
+/// A religion's icons, a `std::vector` of pointers, which the icon command
+/// names one by its place in; an icon's name, the `std::string` its
+/// tooltips show.
+const RELIGION_ICONS: usize = 0x7b8;
+const ICON_NAME: usize = 0x18;
+/// `(country, icon, reasons or null) -> bool`: whether the country may
+/// commission the icon now, with the view's lines (the icon commissioned
+/// already, too little patriarch authority, its conditions).
+const MAY_COMMISSION_ICON: GameFunction<3> = GameFunction::at(0x404f20);
+/// What an icon costs in patriarch authority, i32 thousandths
+/// (`ORTHODOX_ICON_AUTHORITY_COST`).
+const ICON_COST: usize = 0x233dc28;
+/// `(state, reasons or null) -> bool`: whether a metropolitan may be
+/// consecrated in the state, with the province view's lines.
+const MAY_CONSECRATE: GameFunction<2> = GameFunction::at(0xabf060);
+
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(0x7e691ausize, "48 8b 05 87 53 c4 01 48 85 c0", "personal deities database").uses(&[DEITIES]),
@@ -214,6 +233,19 @@ pub fn points() -> Vec<Point> {
         Point::keep(0xe40641usize, "8b 46 70", "religion's number").uses(&[RELIGION_INDEX]),
         Point::keep(0xab0d04usize, "48 83 b8 40 10 00 00 00 75 0a 48 83 b8 48 10 00 00 00", "harmonizing now")
             .uses(&[country::HARMONIZING, country::HARMONIZING_GROUP]),
+        // Icons: the religion's list, as the icon command's check reads it;
+        // the icon's name, the icon commissioned, the authority and its cost,
+        // as the check's lines read them.
+        Point::keep(HAS_ICONS, "40 57 48 83 ec 20 80 3d bb 12 8c 01 00 48 8b f9", "religion has icons"),
+        Point::keep(0xab17f5usize, "4c 8b 88 b8 07 00 00 48 8b 90 c0 07 00 00", "religion's icons").uses(&[RELIGION_ICONS]),
+        Point::keep(0x404fb1usize, "4d 8d 4e 18", "icon name").uses(&[ICON_NAME]),
+        Point::keep(0x404fa3usize, "4d 3b b7 90 0f 00 00", "icon commissioned").uses(&[country::ICON]),
+        Point::keep(0x405015usize, "8b 05 0d 8c f3 01 41 39 87 88 0f 00 00", "icon cost and patriarch authority")
+            .uses(&[ICON_COST, country::PATRIARCH_AUTHORITY]),
+        Point::keep(MAY_COMMISSION_ICON, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18 55 41 54 41 55 41 56 41 57 48 8d ac 24 c0 fd ff ff", "may commission icon"),
+        Point::keep(MAY_CONSECRATE, "48 89 5c 24 10 48 89 4c 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8d ac 24 60 fe ff ff", "may consecrate metropolitan"),
+        // The patriarch command's check finds the province's state.
+        Point::keep(0xab0ef9usize, "48 8b 8c 0a e0 02 00 00", "patriarch command's state"),
     ]
 }
 
@@ -288,7 +320,7 @@ fn cult_choice(m: &Memory, country: usize, player: Tag, cult: usize) -> GResult<
 }
 
 fn option(m: &Memory, action: &str, key: String, current: bool, choice: Choice) -> GResult<ReligionOption> {
-    Ok(ReligionOption { action: action.into(), name: content::name(m, &key)?, key, current, choice })
+    Ok(ReligionOption { action: action.into(), name: content::name(m, &key)?, key, current, province: None, choice })
 }
 
 /// The deities and cults the religion view offers the player.
@@ -339,6 +371,18 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<ReligionOption>> 
             out.push(option(m, action, key, on, choice)?);
         }
     }
+    if has(m, HAS_ICONS, ctx.country)? {
+        let current = m.ptr(ctx.country + country::ICON)?;
+        for icon in religion_list(m, ctx.country, RELIGION_ICONS)? {
+            let key = game_string::key(m, icon + ICON_NAME)?;
+            out.push(option(m, "commission_icon", key, icon == current, icon_choice(m, ctx.country, icon)?)?);
+        }
+        let name = content::name(m, "CONSECRATE_BUTTON")?;
+        for (id, state) in states(m, &ctx)? {
+            let choice = consecrate_choice(m, state)?;
+            out.push(ReligionOption { action: "consecrate_metropolitan".into(), key: "consecrate_metropolitan".into(), name: name.clone(), current: false, province: Some(ProvinceId(id)), choice });
+        }
+    }
     if has(m, HAS_HARMONY, ctx.country)? {
         if let Some(now) = harmonizing(m, ctx.country)? {
             out.push(option(m, "stop_harmonizing", religion_key(m, now)?, true, Choice::can(Vec::new()))?);
@@ -351,12 +395,43 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<ReligionOption>> 
     if !reforms.is_empty() {
         for reform in &reforms {
             let choice = if reform.passed { Choice::can(Vec::new()) } else { reform_choice(m, ctx.country, ctx.player, reform)? };
-            out.push(ReligionOption { action: "pass_reform".into(), name: content::name(m, &reform.key)?, key: reform.key.clone(), current: reform.passed, choice });
+            out.push(ReligionOption { action: "pass_reform".into(), name: content::name(m, &reform.key)?, key: reform.key.clone(), current: reform.passed, province: None, choice });
         }
         let choice = reform_religion_choice(m, ctx.country, &reforms)?;
-        out.push(ReligionOption { action: "reform_religion".into(), key: "reform_religion".into(), name: content::name(m, "REFORM_RELIGION")?, current: false, choice });
+        out.push(ReligionOption { action: "reform_religion".into(), key: "reform_religion".into(), name: content::name(m, "REFORM_RELIGION")?, current: false, province: None, choice });
     }
     Ok(out)
+}
+
+/// Whether the country may commission `icon` now, with the view's lines, and
+/// its cost in patriarch authority, in percent as the view writes it.
+fn icon_choice(m: &Memory, country: usize, icon: usize) -> GResult<Choice> {
+    let (may, reasons) = content::checked(m, |t| Ok(MAY_COMMISSION_ICON.call(m, [country, icon, t])?))?;
+    let cost = vec![Amount::new(Resource::PatriarchAuthority, f64::from(m.i32(m.at(ICON_COST))?) / 10.0)];
+    Ok(if may { Choice::can(cost) } else { Choice::cannot(reasons, cost) })
+}
+
+/// The player's states, each once: the number of its first province of the
+/// player's and the state.
+fn states(m: &Memory, ctx: &super::Ctx) -> GResult<Vec<(u32, usize)>> {
+    let (ids, count) = (m.ptr(ctx.country + country::OWNED)?, m.i32(ctx.country + country::OWNED_COUNT)?);
+    let mut out: Vec<(u32, usize)> = Vec::new();
+    for i in 0..count.clamp(0, containers::MOST as i32) as usize {
+        let id = m.u32(ids + i * 4)?;
+        let province = super::with_state(|s| s.geography.province_address(m, ctx, id))?;
+        let state = m.ptr(province + crate::objects::campaign::province::STATE)?;
+        if state != 0 && out.iter().all(|&(_, s)| s != state) {
+            out.push((id, state));
+        }
+    }
+    Ok(out)
+}
+
+/// Whether a metropolitan may be consecrated in `state` now, with the
+/// province view's lines.
+fn consecrate_choice(m: &Memory, state: usize) -> GResult<Choice> {
+    let (may, reasons) = content::checked(m, |t| Ok(MAY_CONSECRATE.call(m, [state, t])?))?;
+    Ok(if may { Choice::can(Vec::new()) } else { Choice::cannot(reasons, Vec::new()) })
 }
 
 /// A religion's key, the name of its token.
@@ -703,6 +778,46 @@ pub fn disable_fervor(Session { m, ctx, commands, .. }: Session, args::DisableFe
     action::carry_out(commands, &Choice::can(Vec::new()), "turn this fervor effect off", || Ok(fervor_text(ctx.player, number)))
 }
 
+/// The icon command: the icon by its place in the religion's icons.
+fn icon_text(country: Tag, icon: usize) -> String {
+    format!("commission_icon={{ country=\"{}\" icon={icon} }}", content::letters(country))
+}
+
+/// The patriarch command: a province of the state.
+fn consecrate_text(country: Tag, province: u32) -> String {
+    format!("consecrate_patriarch_command={{ country=\"{}\" province={province} }}", content::letters(country))
+}
+
+/// Commissions an icon.
+pub fn commission_icon(Session { m, ctx, commands, .. }: Session, args::CommissionIcon { icon: key }: args::CommissionIcon) -> GResult<()> {
+    if !has(m, HAS_ICONS, ctx.country)? {
+        return Err(checks::not_of_religion("icons"));
+    }
+    let icons = religion_list(m, ctx.country, RELIGION_ICONS)?;
+    for (place, &icon) in icons.iter().enumerate() {
+        if game_string::key(m, icon + ICON_NAME)? == key {
+            return action::carry_out(commands, &icon_choice(m, ctx.country, icon)?, "commission this icon", || Ok(icon_text(ctx.player, place)));
+        }
+    }
+    Err(content::checks::not_found("icon", &key))
+}
+
+/// Consecrates a metropolitan in a state of the player's.
+pub fn consecrate_metropolitan(Session { m, ctx, commands, .. }: Session, args::ConsecrateMetropolitan { province: ProvinceId(id) }: args::ConsecrateMetropolitan) -> GResult<()> {
+    if !has(m, HAS_ICONS, ctx.country)? {
+        return Err(checks::not_of_religion("metropolitans"));
+    }
+    let province = super::with_state(|s| s.geography.province_address(m, &ctx, id))?;
+    if m.u64(province + crate::objects::campaign::province::OWNER)? != ctx.player.0 {
+        return Err(content::checks::not_now(format!("province {id} is not the player's")));
+    }
+    let state = m.ptr(province + crate::objects::campaign::province::STATE)?;
+    if state == 0 {
+        return Err(content::checks::not_now(format!("province {id} is in no state")));
+    }
+    action::carry_out(commands, &consecrate_choice(m, state)?, "consecrate a metropolitan there", || Ok(consecrate_text(ctx.player, id)))
+}
+
 /// The harmonize command: a religion by its number, or −1 to stop.
 fn harmonize_text(country: Tag, religion: i32) -> String {
     format!("harmonize_with_religion={{ country=\"{}\" religion={religion} }}", content::letters(country))
@@ -735,6 +850,8 @@ pub fn stop_harmonizing(Session { m, ctx, commands, .. }: Session, _: args::Stop
 
 crate::catalogue::bind! {
     eu4_harmony_remote::religion: ReligionRequest => ReligionAnswer;
+    CommissionIcon => commission_icon;
+    ConsecrateMetropolitan => consecrate_metropolitan;
     Harmonize => harmonize;
     StopHarmonizing => stop_harmonizing;
     EnableFervor => enable_fervor;
@@ -776,6 +893,8 @@ mod tests {
         assert_eq!(fervor_text(tag(b"SWI"), 2), r#"toggle_fervor_effect={ country="SWI" effect=2 }"#);
         assert_eq!(harmonize_text(tag(b"MNG"), 14), r#"harmonize_with_religion={ country="MNG" religion=14 }"#);
         assert_eq!(harmonize_text(tag(b"MNG"), -1), r#"harmonize_with_religion={ country="MNG" religion=-1 }"#);
+        assert_eq!(icon_text(tag(b"RUS"), 2), r#"commission_icon={ country="RUS" icon=2 }"#);
+        assert_eq!(consecrate_text(tag(b"RUS"), 295), r#"consecrate_patriarch_command={ country="RUS" province=295 }"#);
     }
 
     /// A country whose state religion is none: neither deities nor cults are
