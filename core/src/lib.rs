@@ -5,6 +5,10 @@
 //! game's own setup (its file system, the user directory) waits for the game's
 //! first `PHYSFS_init`, on the game thread. When startup fails nothing is
 //! hooked; a thread of its own writes the report and tells the player.
+// The capability groups' list declares every group's modules inside its
+// macro, so a module's own macros, such as a test's large `json!`, expand
+// deeper with each group the list holds.
+#![recursion_limit = "256"]
 pub type Result<T> = std::result::Result<T, String>;
 
 /// Marks a function the game's code calls, which runs under [`guarded`].
