@@ -13,15 +13,16 @@ English | [简体中文](README.zh-CN.md)
 | Chinese, Japanese and Korean display correctly, with no double-byte patch or font mod | ✗ | ✓ |
 | Back to the main menu in seconds, without restarting the game | ✗ | ✓ |
 | Load another save from an ironman game | ✗ | ✓ |
-| The map drawn at your display's rate, not held up by the days being worked out | ✗ | ✓ |
+| The map scrolls and zooms smoothly, even at top speed | ✗ | ✓ |
 | Saving pauses the game a third as long | ✗ | ✓ |
-| Late in the game, the AI's armies plan their routes on idle CPU cores | ✗ | ✓ |
+| The game starts and loads saves sooner | ✗ | ✓ |
+| A faster late game | ✗ | ✓ |
 | Heirs no longer get the same name half the time | ✗ | ✓ |
-| Coalitions and an overlord's fall no longer risk a crash | ✗ | ✓ |
+| Fewer crashes | ✗ | ✓ |
 | Loading a save no longer costs you achievements | ✗ | ✓ |
-| Memory leaks fixed: a long game no longer keeps growing | ✗ | ✓ |
+| A long game no longer eats ever more memory | ✗ | ✓ |
 | Optionally, achievements outside ironman or with mods | ✗ | ✓ |
-| Mods in Lua that read the game, act as the player does, and add buttons and windows | ✗ | ✓ |
+| Mods that do far more: buttons, windows, acting for you | ✗ | ✓ |
 | **The game's rules and data unchanged** | ✓ | ✓ |
 
 Your translation mod is still what translates the game; translation mods made for the old double-byte patch, and the saves played with them, work as they are. Harmony runs on EU4 1.37.5 for Windows, in single player.
