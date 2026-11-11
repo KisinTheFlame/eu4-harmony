@@ -852,6 +852,7 @@
 "0x2ee4e6" = { kind = "code", notes = ["research/country-daily-update.md"] }
 "0x2ee526" = { kind = "code", notes = ["research/country-daily-update.md"] }
 "0x2f0854" = { kind = "code", notes = ["research/country-knowledge.md"] }
+"0x2f15a4" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x2f36c0" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/late-game.md", "research/monthly-update.md", "research/trade-range-and-naval-supply.md"] }
 "0x2f76b1" = { kind = "code", notes = ["research/trade-range-and-naval-supply.md"] }
 "0x2f7e81" = { kind = "leaf", notes = ["research/monthly-update.md"] }
@@ -1970,14 +1971,21 @@
 "0x815816" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x815914" = { kind = "code", notes = ["research/notice-window.md"] }
 "0x81591c" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x815921" = { kind = "code", name = "the in-game frame after its drawing", notes = ["research/drawing-beside-the-day.md"] }
 "0x815949" = { kind = "code", name = "the tooltips updated after the drawing", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
 "0x815bce" = { kind = "code", notes = ["research/extension-windows.md"] }
 "0x815c9f" = { kind = "code", name = "return to main menu", notes = ["research/main-menu.md"] }
 "0x815cf3" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x815d5c" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x815d72" = { kind = "code", notes = ["research/extension-windows.md"] }
+"0x816357" = { kind = "code", name = "war enthusiasm icon set, high", notes = ["research/drawing-beside-the-day.md"] }
+"0x81635d" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x816383" = { kind = "code", name = "war enthusiasm icon set, low", notes = ["research/drawing-beside-the-day.md"] }
+"0x81639c" = { kind = "code", name = "war enthusiasm icon set, medium", notes = ["research/drawing-beside-the-day.md"] }
 "0x8165f2" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x816607" = { kind = "code", notes = ["research/recruiting.md"] }
+"0x816641" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x816ab0" = { kind = "leaf", notes = ["research/drawing-beside-the-day.md"] }
 "0x816ad0" = { kind = "function", notes = ["research/army-orders.md"] }
 "0x816b73" = { kind = "code", notes = ["research/time.md"] }
 "0x8171e0" = { kind = "code", notes = ["research/army-orders.md"] }
@@ -2674,6 +2682,7 @@
 "0xa12460" = { kind = "function", notes = ["research/monthly-update.md"] }
 "0xa12ab0" = { kind = "function", notes = ["research/monthly-update.md"] }
 "0xa14e60" = { kind = "function", name = "culture price", notes = ["research/province-view.md", "research/provinces.md"] }
+"0xa1994a" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0xa1a010" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
 "0xa1a18f" = { kind = "code", name = "a moved capital's map mode set", notes = ["research/map-drawing-reads.md"] }
 "0xa1a194" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
@@ -4529,6 +4538,7 @@
 "0x14db6a0" = { kind = "function", notes = ["research/extension-windows.md", "research/window-elements.md"] }
 "0x14db870" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/loading.md"] }
 "0x14db940" = { kind = "function", notes = ["research/window-elements.md"] }
+"0x14dbb0b" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x14dbdc0" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x14dc240" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x14dc2a5" = { kind = "code", name = "graphics group unload", notes = ["research/main-menu.md"] }
@@ -4722,6 +4732,7 @@
 "0x154ac90" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x154b2f0" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x154e500" = { kind = "function", notes = ["research/extension-windows.md"] }
+"0x154f697" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x15503cc" = { kind = "leaf", notes = ["research/notice-window.md"] }
 "0x1550950" = { kind = "function", notes = ["research/gui-drawing.md"] }
 "0x1550e90" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md"] }
@@ -4752,6 +4763,7 @@
 "0x156a703" = { kind = "code", notes = ["research/interface-bindings.md"] }
 "0x156aa28" = { kind = "code", notes = ["research/input.md"] }
 "0x156aa80" = { kind = "function", notes = ["research/interface-bindings.md"] }
+"0x156b873" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x156ba70" = { kind = "function", notes = ["research/main-menu.md", "research/world-interface-seams.md"] }
 "0x156bfb0" = { kind = "function", notes = ["research/gui-drawing.md", "research/main-menu.md", "research/main-thread.md"] }
 "0x156c032" = { kind = "code", notes = ["research/main-menu.md"] }
@@ -4794,6 +4806,7 @@
 "0x1585eb0" = { kind = "leaf", name = "icon hide", notes = ["research/window-elements.md"] }
 "0x1585ed0" = { kind = "leaf", name = "icon frame", notes = ["research/window-elements.md"] }
 "0x15864b0" = { kind = "function", notes = ["research/window-elements.md"] }
+"0x158675a" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x1587e10" = { kind = "function", notes = ["research/gui-drawing.md"] }
 "0x1589060" = { kind = "function", notes = ["research/loading.md"] }
 "0x158d740" = { kind = "function", notes = ["research/gui-drawing.md"] }
@@ -4831,6 +4844,8 @@
 "0x1595d07" = { kind = "code", notes = ["research/unicode-text.md"] }
 "0x1595f01" = { kind = "code", name = "font char id rejected", notes = ["research/unicode-text.md"] }
 "0x1596660" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/unicode-text.md"] }
+"0x15978d4" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x1597909" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x1597977" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x1597991" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x1597998" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
@@ -4878,11 +4893,15 @@
 "0x15afbec" = { kind = "code", notes = ["research/extension-windows.md"] }
 "0x15b17e0" = { kind = "function", notes = ["research/ui-injection.md"] }
 "0x15b1ea0" = { kind = "leaf", notes = ["research/gui-drawing.md"] }
+"0x15ba25d" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x15ba630" = { kind = "leaf", notes = ["research/drawing-beside-the-day.md"] }
 "0x15bd180" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
 "0x15bd460" = { kind = "function", notes = ["research/main-menu.md"] }
+"0x15bd4ac" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x15bd500" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x15bd540" = { kind = "function", notes = ["research/gui-drawing.md", "research/main-thread.md"] }
 "0x15bd79f" = { kind = "code", notes = ["research/main-menu.md"] }
+"0x15bd91b" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x15bdce0" = { kind = "function", notes = ["research/gui-drawing.md"] }
 "0x15bdeae" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x15c92c0" = { kind = "function", notes = ["research/loading.md"] }
@@ -5160,6 +5179,7 @@
 "0x173ad10" = { kind = "code", notes = ["research/text-input.md"] }
 "0x173f830" = { kind = "function", notes = ["research/notice-window.md"] }
 "0x17458b0" = { kind = "function", notes = ["research/architecture.md"] }
+"0x1746aa9" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x1761e20" = { kind = "function", notes = ["research/late-game.md"] }
 "0x1761fd0" = { kind = "function", notes = ["research/late-game.md"] }
 "0x1763260" = { kind = "function", notes = ["research/loading.md"] }
@@ -5791,7 +5811,7 @@
 "0x1fd1308" = { kind = "data", notes = ["research/architecture.md"] }
 "0x1fd1310" = { kind = "data", notes = ["research/drawing-beside-the-day.md"] }
 "0x1fd1320" = { kind = "data", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/font-textures.md", "research/gui-drawing.md"] }
-"0x1fd1328" = { kind = "data", notes = ["research/font-textures.md", "research/gui-drawing.md"] }
+"0x1fd1328" = { kind = "data", notes = ["research/drawing-beside-the-day.md", "research/font-textures.md", "research/gui-drawing.md"] }
 "0x1fd1330" = { kind = "data", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/font-textures.md", "research/gui-drawing.md"] }
 "0x1fd1338" = { kind = "data", notes = ["research/drawing-beside-the-day.md"] }
 "0x1fd1348" = { kind = "data", notes = ["research/gui-drawing.md", "research/map-drawing-reads.md"] }

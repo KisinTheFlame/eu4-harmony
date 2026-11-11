@@ -577,8 +577,12 @@ extern "C" fn frame_draws(idler: usize) {
     deferred::done(&m);
     prepare::tooltips(&m, idler);
     // A frame the main thread draws itself leaves the last one prepared
-    // behind: its scenes are crossings, which hold it back.
+    // behind, which it holds back: its scenes, begun with the lock held, are
+    // no crossings.
     if !drawing_on() || main_draws(&m) {
+        if drawing_on() {
+            crossings::crossing(m.at(DRAWING.rva()));
+        }
         draw_here(&m, idler);
         return;
     }
