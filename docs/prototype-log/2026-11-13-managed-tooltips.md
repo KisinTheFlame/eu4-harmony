@@ -1,6 +1,6 @@
 # 2026-11-13 Managed tooltips and panel entries (tested by me)
 
-The shared tooltip adapters, direct entry images and independent numbers were checked on EU4 1.37.5 in the private hidden claim `panel-tooltip-final`, based on master `b7f07360` with the implementation in this change. This follows the [earlier static entry check](2026-11-12-convenience-entry.md); it does not repeat the country-wide batch runs. Native verification is complete for the cases below. The implementation was then rebased onto logging merge `564cf60a`; final integration checks passed without further product-source changes.
+The shared tooltip adapters, direct entry images and independent numbers were checked on EU4 1.37.5 in the private hidden claim `panel-tooltip-final`, based on master `b7f07360` with the implementation in this change. This follows the [earlier static entry check](2026-11-12-convenience-entry.md); it does not repeat the country-wide batch runs. Native verification is complete for the cases below. The implementation was then rebased onto logging merge `564cf60a`; final integration checks passed. A later shared visible-text interface correction is recorded below; the native drawing source and captures were retained.
 
 ## Setup
 
@@ -40,6 +40,12 @@ Temporary diagnostic logging was removed before the final native captures. A suc
 ![Published Regional Combat tooltip and radius window](images/2026-11-13-published-regional-tooltip.png)
 
 The final process's main thread was 82348 and its drawing thread 28356. Main-menu captures ran on 82348; in-game captures ran on 28356, matching the drawing thread's startup line and its 127–132 frames-per-second log. The screenshot log's fixed wording says “on the main thread” even for that drawing-thread capture; thread identity, not that wording, establishes which path ran. No late-scene error or further fatal error was logged in the final process.
+
+## Shared visible-text interface follow-up
+
+Review found that the same `{ key = "COUNT", values = { N = 3 } }` accepted by a tooltip was rejected by ordinary text setters. Product correction `467b04b5` routes existing window/title/button-label declarations, supported window and hosted text setters, row text and pop-up words through the same `Text` model. It adds no dynamic title or button-label property. Declaration strings normalize to keys and finished runtime strings remain literal in the shared internal adapter.
+
+The public Lua regression uses one description across declaration, text, tooltip, host, row and pop-up paths, then checks nil clearing, independent source/readback copies, colors/newlines and a finished `text.get` result that must not be translated again. A second state regression checks replacement, clearing across close/reopen, and initialization at the next session for both text and tooltip. The final workspace tests (including 65 Lua tests), both clippy configurations, locked release build, 13 Convenience Tools tests, 50 Regional Combat source tests and both offline-check configurations passed. The native drawing implementation and the captures above were not changed or rerun for this interface correction.
 
 ## Automated checks and limits
 
