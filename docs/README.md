@@ -40,6 +40,8 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 | [prototype-log/2026-11-12-mercenary-drill.md](prototype-log/2026-11-12-mercenary-drill.md) | Mercenary drill growth and its army-panel display in the supplied save's reduced playset |
 | [prototype-log/2026-11-12-mercenary-drill-eligibility.md](prototype-log/2026-11-12-mercenary-drill-eligibility.md) | The country's runtime mercenary drill permission, checked separately from its ideas |
 | [prototype-log/2026-11-12-mercenary-discipline-panel.md](prototype-log/2026-11-12-mercenary-discipline-panel.md) | The battle overview's 105% discipline and the separate mercenary and company modifiers |
+| [prototype-log/2026-11-12-event-texture-master-check.md](prototype-log/2026-11-12-event-texture-master-check.md) | A bounded check of event-option textures on the then-current master; the reported corruption was not reproduced |
+| [prototype-log/2026-11-12-event-texture-published-check.md](prototype-log/2026-11-12-event-texture-published-check.md) | The 0.1.3 core-source comparison: text initialization overlaps observed, exact texture corruption not reproduced |
 
 ## Plans
 
