@@ -57,7 +57,6 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 
 | | |
 | --- | --- |
-| [fourth-deepening.md](plans/fourth-deepening.md) | Native window lifetimes and the tooltip's frame handoff tested through their complete processes |
 | [panel-entries-and-tooltips.md](plans/panel-entries-and-tooltips.md) | Shared tooltip content and lifetime, checked entry images and independent formatted numbers |
 | [game-speed.md](plans/game-speed.md) | Making the game faster without changing the game it plays; how a part is chosen, and which comes next |
 | [mod-capabilities.md](plans/mod-capabilities.md) | What the framework opens to mods, what each area still lacks, and the parts taking it up: signals, reads, the script group and requests as the game, tasks, the panels' actions |
@@ -68,6 +67,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 
 | | |
 | --- | --- |
+| [fourth-deepening.md](plans/fourth-deepening.md) | Native window lifetimes and the tooltip's frame handoff tested through their complete processes |
 | [bounded-logs.md](plans/bounded-logs.md) | Bounded owned logs, useful event context, safe cleanup and bounded troubleshooting files |
 | [v1.md](plans/v1.md) | The design of the first version |
 | [area-governing-cost.md](plans/area-governing-cost.md) | General area grouping and checked governing capacity for state commands |

@@ -1,6 +1,6 @@
 # Fourth deepening plan
 
-Status: decided on 2026-11-13 after an architecture review of the recent window, tooltip and drawing changes; both parts authorized together and built. The [native window courses](../prototype-log/2026-11-13-fourth-deepening-native-windows.md) and [tooltip handoff](../prototype-log/2026-11-13-fourth-deepening-tooltip-handoff.md) passed on 2026-11-13; all nine scenarios in the [private-registration replay](../prototype-log/2026-11-13-fourth-deepening-private-registrations.md) passed, while the [whole scenario set](../prototype-log/2026-11-13-fourth-deepening-whole.md) is finishing its first long-game stretch and performance check. No glossary terms or new ADRs are needed.
+Status: decided on 2026-11-13 after an architecture review of the recent window, tooltip and drawing changes; both parts authorized together and built. The [native window courses](../prototype-log/2026-11-13-fourth-deepening-native-windows.md) and [tooltip handoff](../prototype-log/2026-11-13-fourth-deepening-tooltip-handoff.md) passed on 2026-11-13; all sixteen scenarios of the [whole set](../prototype-log/2026-11-13-fourth-deepening-whole.md) have passing coverage across the original seven successful cases and all nine cases in the [private-registration replay](../prototype-log/2026-11-13-fourth-deepening-private-registrations.md). All test games were released and the temporary replay tool was restored. No glossary terms or new ADRs are needed.
 
 ## Goal and scope
 
