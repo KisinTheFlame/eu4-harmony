@@ -35,6 +35,13 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 | [Convenience Tools window](prototype-log/2026-11-12-convenience-ui.md) | Grouped native controls, a single result line with a text tooltip, and four-language rendering |
 | [Reviewed area and live capacity](prototype-log/2026-11-12-convenience-reviewed-capacity.md) | Separate national reads, nullable prediction failures, tooltip regressions and a focused native comparison |
 | [Convenience Tools hands-on](prototype-log/2026-11-12-convenience-hands-on.md) | The isolated visible game handed to the user before publication |
+| [research/mercenary-drill.md](research/mercenary-drill.md) | Mercenary drill eligibility, per-regiment damage modifiers, and their path into land-battle losses |
+| [research/mercenary-discipline.md](research/mercenary-discipline.md) | The battle panel's discipline overview, the separate mercenary and company additions used by regiments, and the supplied save's sources |
+| [prototype-log/2026-11-12-mercenary-drill.md](prototype-log/2026-11-12-mercenary-drill.md) | Mercenary drill growth and its army-panel display in the supplied save's reduced playset |
+| [prototype-log/2026-11-12-mercenary-drill-eligibility.md](prototype-log/2026-11-12-mercenary-drill-eligibility.md) | The country's runtime mercenary drill permission, checked separately from its ideas |
+| [prototype-log/2026-11-12-mercenary-discipline-panel.md](prototype-log/2026-11-12-mercenary-discipline-panel.md) | The battle overview's 105% discipline and the separate mercenary and company modifiers |
+| [prototype-log/2026-11-12-event-texture-master-check.md](prototype-log/2026-11-12-event-texture-master-check.md) | A bounded check of event-option textures on the then-current master; the reported corruption was not reproduced |
+| [prototype-log/2026-11-12-event-texture-published-check.md](prototype-log/2026-11-12-event-texture-published-check.md) | The 0.1.3 core-source comparison: text initialization overlaps observed, exact texture corruption not reproduced |
 
 ## Plans
 
