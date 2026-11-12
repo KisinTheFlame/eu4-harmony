@@ -498,14 +498,88 @@ fn copy_saves(from: &[PathBuf], to: &Path, saves: &[String]) -> Result<()> {
 /// The folder of a claim's test mods, beside its user folder.
 const TEST_MODS: &str = "test-mods";
 
-/// Puts the test mods `mods` in the playset of the test game of the claim
-/// in `folder`: each copied into its `test-mods\`, with a descriptor that
-/// names it by its full path, which the test game's own `dlc_load.json`
-/// names by its full path in turn. Nothing goes into the player's `mod`
-/// folder, which the user folder reaches through its junction; the test
-/// mods of an earlier start are taken out first.
+/// Puts test mods in the claim's private registry, using the game's standard
+/// relative descriptor names. The content remains in `test-mods` beside the
+/// user folder; neither descriptors nor content are written through a
+/// junction into the player's registry. Earlier test entries are removed.
+fn private_registry(folder: &Path) -> Result<PathBuf> {
+    let registry = folder.join("mod-registry");
+    let link = folder.join("user").join("mod");
+    if registry.is_dir() && link.canonicalize().ok() == registry.canonicalize().ok() {
+        return Ok(registry);
+    }
+    let original = match fs::symlink_metadata(&link) {
+        Ok(metadata) if metadata.file_type().is_symlink() || is_junction(&link) => {
+            Some(link.canonicalize().map_err(|e| format!("cannot resolve {}: {e}", link.display()))?)
+        }
+        Ok(_) => return Err(format!("{} is no junction; its registry was not changed", link.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(format!("cannot inspect {}: {e}", link.display())),
+    };
+    fs::create_dir_all(&registry).map_err(|e| format!("cannot make {}: {e}", registry.display()))?;
+    if let Some(original) = &original {
+        let user = original.parent().ok_or("the original mod registry has no user folder")?;
+        for entry in fs::read_dir(original).map_err(|e| format!("cannot read the original mod registry: {e}"))? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            if entry.path().extension().is_some_and(|e| e.eq_ignore_ascii_case("mod")) && entry.file_type().is_ok_and(|t| t.is_file()) {
+                let text = fs::read_to_string(entry.path()).map_err(|e| format!("cannot read {}: {e}", entry.path().display()))?;
+                fs::write(registry.join(entry.file_name()), absolute_descriptor_paths(&text, user)?)
+                    .map_err(|e| format!("cannot copy a private mod descriptor: {e}"))?;
+            }
+        }
+    }
+    // Only the junction itself is removed. A failed replacement restores it;
+    // release keeps the same junction-first cleanup rule for old and new claims.
+    unlink_mods(&folder.join("user"))?;
+    if let Err(e) = junction(&link, &registry) {
+        if let Some(original) = original {
+            junction(&link, &original)?;
+        }
+        return Err(e);
+    }
+    Ok(registry)
+}
+
+fn absolute_descriptor_paths(text: &str, original_user: &Path) -> Result<String> {
+    let mut out = String::new();
+    for line in text.lines() {
+        let field = line.split_once('=').filter(|(key, _)| ["path", "archive"].contains(&key.trim()));
+        match field {
+            Some((key, value)) => {
+                let value = value.trim();
+                let quoted = value.strip_prefix('"').and_then(|s| s.split_once('"'));
+                let (value, trailing) = match quoted {
+                    Some((value, trailing)) => (value, trailing),
+                    None if !value.starts_with('"') => (value.split('#').next().unwrap_or_default().trim(), ""),
+                    _ => return Err("a copied mod descriptor has an incomplete path string".into()),
+                };
+                if value.is_empty() {
+                    return Err("a copied mod descriptor has an empty path".into());
+                }
+                let path = original_user.join(backslashed(Path::new(value)));
+                out.push_str(&format!("{}=\"{}\"{}\n", key.trim(), path.display().to_string().replace('\\', "/"), trailing));
+            }
+            None => {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+    }
+    Ok(out)
+}
+
 fn place_test_mods(folder: &Path, mods: &[PathBuf]) -> Result<()> {
     let dir = folder.join(TEST_MODS);
+    let registry = if !mods.is_empty() || folder.join("mod-registry").is_dir() { Some(private_registry(folder)?) } else { None };
+    const PREFIX: &str = "eu4harmony-test-";
+    if let Some(registry) = &registry {
+        for entry in fs::read_dir(registry).map_err(|e| format!("cannot read the private registry: {e}"))? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            if entry.file_name().to_string_lossy().starts_with(PREFIX) && entry.file_type().is_ok_and(|t| t.is_file()) {
+                remove_file(&entry.path())?;
+            }
+        }
+    }
     if dir.exists() {
         fs::remove_dir_all(&dir).map_err(|e| format!("cannot remove {}: {e}", dir.display()))?;
     }
@@ -513,17 +587,19 @@ fn place_test_mods(folder: &Path, mods: &[PathBuf]) -> Result<()> {
     let mut load = read_json(&playset).unwrap_or_else(|| serde_json::json!({ "enabled_mods": [], "disabled_dlcs": [] }));
     let prefix = backslashed(&dir).display().to_string();
     let mut enabled: Vec<serde_json::Value> = load["enabled_mods"].as_array().cloned().unwrap_or_default();
-    enabled.retain(|entry| !entry.as_str().is_some_and(|e| e.replace('/', "\\").starts_with(&prefix)));
+    enabled
+        .retain(|entry| !entry.as_str().is_some_and(|e| e.replace('/', "\\").starts_with(&prefix) || e.replace('\\', "/").starts_with("mod/eu4harmony-test-")));
     for source in mods {
         let name = source.file_name().ok_or_else(|| format!("{} names no folder", source.display()))?;
         let to = dir.join(name);
         copy_tree(source, &to).map_err(|e| format!("cannot copy the test mod {} to {}: {e}", source.display(), to.display()))?;
         let own = fs::read_to_string(source.join("descriptor.mod")).map_err(|e| format!("the test mod {} has no descriptor.mod: {e}", source.display()))?;
         let kept: Vec<&str> = own.lines().filter(|l| !l.trim_start().starts_with("path")).collect();
-        let descriptor = dir.join(format!("{}.mod", name.to_string_lossy()));
+        let descriptor_name = format!("{PREFIX}{}.mod", name.to_string_lossy());
+        let descriptor = registry.as_ref().expect("test mods have a private registry").join(&descriptor_name);
         let text = format!("{}\npath=\"{}\"\n", kept.join("\n"), backslashed(&to).display().to_string().replace('\\', "/"));
         fs::write(&descriptor, text).map_err(|e| format!("cannot write {}: {e}", descriptor.display()))?;
-        enabled.push(serde_json::Value::String(backslashed(&descriptor).display().to_string()));
+        enabled.push(serde_json::Value::String(format!("mod/{descriptor_name}")));
     }
     load["enabled_mods"] = serde_json::Value::Array(enabled);
     write_json(&playset, &load)
@@ -699,7 +775,7 @@ mod tests {
     }
 
     /// A test mod is copied beside the user folder and put in the test
-    /// game's playset by its descriptor's full path, the player's mods kept
+    /// game's playset by a private relative descriptor, the player's mods kept
     /// there; a start with none takes it out again.
     #[test]
     fn test_mods_join_the_test_game_s_playset_and_leave_it() {
@@ -709,16 +785,38 @@ mod tests {
         s.write("mods\\qa-steady\\eu4-harmony\\manifest.toml", "id = \"qa-steady\"");
         let folder = s.0.join("claim");
         place_test_mods(&folder, &[s.0.join("mods\\qa-steady")]).unwrap();
-        let descriptor = folder.join("test-mods\\qa-steady.mod");
+        let descriptor = folder.join("mod-registry\\eu4harmony-test-qa-steady.mod");
         let text = fs::read_to_string(&descriptor).unwrap();
         assert!(text.contains("name=\"QA steady\"") && !text.contains("somewhere"), "{text}");
         assert!(text.contains(&format!("path=\"{}\"", folder.join("test-mods\\qa-steady").display().to_string().replace('\\', "/"))), "{text}");
         assert!(folder.join("test-mods\\qa-steady\\eu4-harmony\\manifest.toml").is_file());
         let enabled = |folder: &Path| read_json(&folder.join("user\\dlc_load.json")).unwrap()["enabled_mods"].clone();
-        assert_eq!(enabled(&folder), serde_json::json!(["mod/ugc_1.mod", descriptor.display().to_string()]));
+        assert_eq!(enabled(&folder), serde_json::json!(["mod/ugc_1.mod", "mod/eu4harmony-test-qa-steady.mod"]));
+        assert!(folder.join("user\\mod\\eu4harmony-test-qa-steady.mod").is_file());
         place_test_mods(&folder, &[]).unwrap();
         assert_eq!(enabled(&folder), serde_json::json!(["mod/ugc_1.mod"]));
         assert!(!folder.join("test-mods").exists());
+    }
+
+    #[test]
+    fn private_registration_keeps_player_descriptors_and_content_untouched() {
+        let s = Scratch::new("private-registry");
+        let original = "name=\"Base\"\npath=\"mod/base\" # inherited\narchive=\"mod/base.zip\"\n";
+        s.write("player\\mod\\base.mod", original);
+        s.write("player\\mod\\base\\asset.gfx", "the player's resource");
+        s.write("player\\mod\\base.zip", "the player's archive");
+        let (player, claim) = (s.0.join("player"), s.0.join("claim"));
+        make_user_folder(&player, &claim.join("user")).unwrap();
+        let registry = private_registry(&claim).unwrap();
+        let private = fs::read_to_string(registry.join("base.mod")).unwrap();
+        assert!(private.contains(&player.canonicalize().unwrap().join("mod\\base").display().to_string().replace('\\', "/")), "{private}");
+        assert_eq!(fs::read_to_string(player.join("mod\\base.mod")).unwrap(), original);
+        fs::write(claim.join("user\\mod\\own.mod"), "only private").unwrap();
+        assert!(!player.join("mod\\own.mod").exists());
+        assert_eq!(private_registry(&claim).unwrap(), registry, "a later start reuses only its own registry");
+        ThisComputer.remove_folder(&claim).unwrap();
+        assert_eq!(fs::read_to_string(player.join("mod\\base.mod")).unwrap(), original);
+        assert_eq!(fs::read_to_string(player.join("mod\\base\\asset.gfx")).unwrap(), "the player's resource");
     }
 
     /// The test game's user folder starts with the player's settings and

@@ -194,6 +194,10 @@ pub mod window_gui {
 
 /// A list box, in a window.
 pub mod list_box {
+    pub const ELEMENT: usize = 8;
+    pub const ELEMENT_CLASS: usize = 0x1d90fd8;
+    pub const SHOW: usize = 0x1533224;
+    pub const HIDE: usize = 0x153320c;
     /// The method that answers where its entries start, by vtable offset:
     /// the address of the first node of a linked list (null when empty),
     /// each node the entry at 0 and the next node at 0x10.

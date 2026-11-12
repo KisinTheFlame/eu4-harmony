@@ -32,7 +32,7 @@ use crate::{
         gui::{classes, element, functions, globals, list_box, list_entry, manager, scene, window, window_gui},
     },
     points::{GameFunction, Point},
-    ui::{self, Callback, Subscription},
+    ui::{self, Callback},
     unicode::game_text,
     Result,
 };
@@ -42,7 +42,7 @@ use eu4_harmony_lua::{
     layout::{self, Kind, Placed, Window},
     Popup, Property,
 };
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
@@ -67,6 +67,12 @@ const OPEN_DIPLOMACY: GameFunction<2> = GameFunction::at(0x821420);
 const TOOLTIP: usize = 0xb81870;
 /// The idler's laying out of the panel button strip `(idler)`.
 const STRIP_LAYOUT: usize = 0x80c9f0;
+/// Independent instant-text methods (research/panel-entry-text.md).
+const TEXT_PLACE: GameFunction<2> = GameFunction::at(0x152af90);
+const TEXT_SHOW: GameFunction<1> = GameFunction::at(0x152ac90);
+const TEXT_HIDE: GameFunction<1> = GameFunction::at(0x152ad10);
+const TEXT_PLACE_SLOT: usize = 0x260;
+const LIST_ELEMENT: usize = list_box::ELEMENT;
 
 /// The strip's own slots, their names' stem, and the first one's place;
 /// the slots are this far apart, and an entry button's background lies so
@@ -95,6 +101,7 @@ struct Bound {
     /// ([`gui::CLOSE`], a pop-up's button).
     name: String,
     element: BoundElement,
+    tooltip_object: usize,
     /// The list and the row, from 1, a game widget in a list's row is in.
     row: Option<(String, u32)>,
 }
@@ -114,8 +121,11 @@ struct Built {
 struct Entry {
     extension: usize,
     window: String,
-    button: usize,
-    subscription: Option<Subscription>,
+    strip: usize,
+    element: BoundElement,
+    background: BoundElement,
+    number: usize,
+    number_text: Option<String>,
 }
 
 #[derive(Default)]
@@ -129,8 +139,6 @@ struct Live {
     /// The callbacks of subscriptions let go; the game may still hold
     /// pointers to them.
     retired: Vec<Callback>,
-    /// What each entry button's tooltip says, game text, by the button.
-    entry_tooltips: HashMap<usize, Vec<u8>>,
     /// The window definitions the game would not build, by name.
     failed: HashSet<String>,
     reported: HashSet<String>,
@@ -254,13 +262,6 @@ fn find(m: &Memory, root: usize, kind: Option<&Kind>, name: &str) -> Result<usiz
     Ok(object)
 }
 
-/// A button's listener on its clicks, subscribed.
-fn subscribe(m: &Memory, object: usize) -> Result<Subscription> {
-    let mut s = bound_element::listener(m, object, Hears::Windows)?;
-    s.link(m)?;
-    Ok(s)
-}
-
 /// The element `object`, of `look`, hearing its clicks, subscribed.
 fn listening(m: &Memory, object: usize, look: Look) -> Result<BoundElement> {
     let mut element = BoundElement::listening(m, object, look, Hears::Windows)?;
@@ -275,7 +276,7 @@ fn look(kind: &Kind) -> Look {
         Kind::Icon { .. } | Kind::Progress { .. } => Look::Icon,
         Kind::Button { .. } => Look::Button,
         Kind::Flag { .. } => Look::Flag,
-        Kind::List { .. } => Look::Plain,
+        Kind::List { .. } => Look::List,
     }
 }
 
@@ -290,7 +291,12 @@ fn bind(m: &Memory, root: usize, widgets: &[Placed], row: Option<(String, u32)>,
             _ => BoundElement::new(object, look(&placed.kind)),
         };
         let name = placed.name.clone().unwrap_or(element);
-        out.push(Bound { name, element: bound, row: row.clone() });
+        out.push(Bound {
+            name,
+            tooltip_object: object + if matches!(placed.kind, Kind::List { .. }) { LIST_ELEMENT } else { 0 },
+            element: bound,
+            row: row.clone(),
+        });
     }
     Ok(())
 }
@@ -317,17 +323,19 @@ fn tear_down(m: &Memory, live: &mut Live, mut built: Built) -> Result<()> {
 // ---------- applying what is wanted ----------
 
 /// What a game widget shows at first, from its layout.
-fn initial(placed: &Placed, words: &dyn Fn(&Option<String>) -> String) -> BTreeMap<&'static str, Property> {
+fn initial(placed: &Placed, words: &BTreeMap<String, String>) -> BTreeMap<&'static str, Property> {
+    let tooltip = placed.tooltip.as_ref().map(|t| t.resolve(|key| words.get(key).cloned()));
+    let words = |text: &Option<eu4_harmony_lua::Text>| super::words_of(words, text);
     let mut out = BTreeMap::new();
     let mut put = |p: Property| {
         out.insert(p.name(), p);
     };
     put(Property::Visible(placed.visible));
-    if placed.tooltip.is_some() {
-        put(Property::Tooltip(words(&placed.tooltip)));
+    if let Some(tooltip) = tooltip {
+        put(Property::Tooltip(tooltip.into()));
     }
     match &placed.kind {
-        Kind::Text { text, .. } => put(Property::Text(words(text))),
+        Kind::Text { text, .. } => put(Property::Text(words(text).into())),
         Kind::Icon { frame, .. } => put(Property::Frame(*frame)),
         Kind::Button { frame, sprite: Some(_), .. } => put(Property::Frame(*frame)),
         Kind::Progress { value, .. } => put(Property::Value(*value)),
@@ -344,16 +352,8 @@ fn apply_element(m: &Memory, built: &mut Built, index: usize, want: &BTreeMap<&'
 }
 
 /// Builds a list's rows again: every row deleted, and each added and set.
-fn fill_rows(
-    m: &Memory,
-    live: &mut Live,
-    built: &mut Built,
-    list: &str,
-    layout: &Window,
-    generation_type: &str,
-    rows: &[Vec<(String, Property)>],
-) -> Result<()> {
-    let Some(Placed { kind: Kind::List { row, .. }, .. }) = layout.widget(list) else { return Ok(()) };
+fn fill_rows(m: &Memory, live: &mut Live, built: &mut Built, list: &str, want: &WantWindow, rows: &[Vec<(String, Property)>]) -> Result<()> {
+    let Some(Placed { kind: Kind::List { row, .. }, .. }) = want.layout.widget(list) else { return Ok(()) };
     let Some(list_index) = built.elements.iter().position(|b| b.name == list && b.row.is_none()) else { return Ok(()) };
     let list_box = built.elements[list_index].element.object;
     // The rows' elements go with them: let go of them first.
@@ -368,7 +368,7 @@ fn fill_rows(
     }
     functions::LIST_CLEAR.call(m, [list_box])?;
     let mgr = m.ptr(m.at(globals::MANAGER))?;
-    let row_type = gui::row_type(generation_type, list);
+    let row_type = gui::row_type(&want.type_name, list);
     for (n, cells) in rows.iter().enumerate() {
         let entry = game_heap::new(m, list_entry::SIZE)?;
         with_string(m, row_type.as_bytes(), |t| functions::LIST_ENTRY.call(m, [entry, mgr, t]))?;
@@ -379,14 +379,13 @@ fn fill_rows(
         functions::LIST_ADD.call(m, [list_box, entry, 1])?;
         let first = built.elements.len();
         bind(m, row_window, &row.widgets, Some((list.to_string(), n as u32 + 1)), &mut built.elements)?;
-        let words = |_: &Option<String>| String::new();
         for (i, placed) in row.widgets.iter().enumerate() {
-            let mut want = initial(placed, &words);
+            let mut wanted = initial(placed, &want.words);
             for (name, property) in cells.iter().filter(|(name, _)| Some(name) == placed.name.as_ref()) {
                 let _ = name;
-                want.insert(property.name(), property.clone());
+                wanted.insert(property.name(), property.clone());
             }
-            apply_element(m, built, first + i, &want)?;
+            apply_element(m, built, first + i, &wanted)?;
         }
     }
     built.rows.insert(list.to_string(), rows.to_vec());
@@ -424,7 +423,18 @@ fn wants() -> Wants {
             for w in &d.windows {
                 let type_name = format!("{}_{}", type_name(&d.id, &w.name), all.generation);
                 definitions.push(gui::window(&type_name, w, &|k| super::words_of(words, k)));
-                let wanted = all.wanted.wanted(d.extension, &w.name).cloned().unwrap_or_default();
+                let mut wanted = all.wanted.wanted(d.extension, &w.name).cloned().unwrap_or_default();
+                let resolve = |property: &mut Property| {
+                    if let Property::Text(content) | Property::Tooltip(content) = property {
+                        *content = content.resolve(|key| crate::loc::mod_text(&d.id, key)).into();
+                    }
+                };
+                for property in wanted.set.values_mut().flat_map(|p| p.values_mut()) {
+                    resolve(property);
+                }
+                for (_, property) in wanted.rows.values_mut().flatten().flatten() {
+                    resolve(property);
+                }
                 windows.push(WantWindow { extension: d.extension, type_name, layout: w.clone(), words: words.clone(), wanted });
             }
         }
@@ -468,7 +478,7 @@ fn clicks(m: &Memory) {
         clicked
             .into_iter()
             .filter_map(|clicked| {
-                let bound_element::Clicked { context, button, right, modifiers } = clicked;
+                let bound_element::Clicked { right, modifiers, .. } = clicked;
                 for built in &live.built {
                     let Some(b) = built.elements.iter().find(|b| b.element.heard(&clicked)) else {
                         continue;
@@ -482,10 +492,7 @@ fn clicks(m: &Memory) {
                         Key::Window(e, w) => Some(Was::Widget(*e, w.clone(), b.name.clone(), b.row.as_ref().map(|(_, r)| *r), right, modifiers)),
                     };
                 }
-                live.entries
-                    .iter()
-                    .find(|en| en.button == button && en.subscription.as_ref().is_some_and(|s| s.context() == context))
-                    .map(|en| Was::Entry(en.extension, en.window.clone()))
+                live.entries.iter().find(|en| en.element.heard(&clicked)).map(|en| Was::Entry(en.extension, en.window.clone()))
             })
             .collect()
     });
@@ -507,8 +514,8 @@ fn clicks(m: &Memory) {
                 }
             }
             Was::Entry(extension, window) => with(|all| {
-                let open = all.wanted.is_open(extension, &window);
-                all.show(extension, &window, !open);
+                let seen = all.wanted.entry(extension, &window);
+                all.wanted.hear_at_frame(seen);
             }),
         }
     }
@@ -608,7 +615,7 @@ fn build_window(m: &Memory, mgr: usize, live: &mut Live, key: Key, want: &WantWi
     let bound = (|| {
         if layout.close {
             let close = find(m, root, None, gui::CLOSE)?;
-            built.elements.push(Bound { name: gui::CLOSE.into(), element: listening(m, close, Look::Plain)?, row: None });
+            built.elements.push(Bound { name: gui::CLOSE.into(), tooltip_object: close, element: listening(m, close, Look::Plain)?, row: None });
         }
         // Nothing on a window that does not move is pressed by a press on
         // its background.
@@ -626,18 +633,22 @@ fn build_window(m: &Memory, mgr: usize, live: &mut Live, key: Key, want: &WantWi
 }
 
 fn apply_window(m: &Memory, live: &mut Live, built: &mut Built, want: &WantWindow) -> Result<()> {
-    let words = |k: &Option<String>| k.as_ref().and_then(|k| want.words.get(k)).cloned().unwrap_or_default();
     for (index, placed) in want.layout.widgets.iter().enumerate() {
         let name = placed.name.clone().unwrap_or_else(|| gui::element(placed, index));
         let Some(at) = built.elements.iter().position(|b| b.name == name && b.row.is_none()) else { continue };
         if matches!(placed.kind, Kind::List { .. }) {
             let rows = want.wanted.rows.get(&name).cloned().unwrap_or_default();
             if built.rows.get(&name) != Some(&rows) {
-                fill_rows(m, live, built, &name, &want.layout, &want.type_name, &rows)?;
+                fill_rows(m, live, built, &name, want, &rows)?;
             }
+            let mut wanted = initial(placed, &want.words);
+            if let Some(set) = want.wanted.set.get(&name) {
+                wanted.extend(set.iter().map(|(key, value)| (*key, value.clone())));
+            }
+            apply_element(m, built, at, &wanted)?;
             continue;
         }
-        let mut wanted = initial(placed, &words);
+        let mut wanted = initial(placed, &want.words);
         if let Some(set) = want.wanted.set.get(&name) {
             wanted.extend(set.iter().map(|(k, v)| (*k, v.clone())));
         }
@@ -664,11 +675,11 @@ fn build_popup(m: &Memory, mgr: usize, number: u32, popup: &Popup, name: &str, (
             log!("windows: pop-up {number}'s shield {tag}: {e}");
             continue;
         }
-        elements.push(Bound { name: element.to_string(), element: listening(m, shield, Look::Plain)?, row: None });
+        elements.push(Bound { name: element.to_string(), tooltip_object: shield, element: listening(m, shield, Look::Plain)?, row: None });
     }
     for (name, _) in gui::shown(popup) {
         let object = find(m, root, None, &name)?;
-        elements.push(Bound { name, element: listening(m, object, Look::Plain)?, row: None });
+        elements.push(Bound { name, tooltip_object: object, element: listening(m, object, Look::Plain)?, row: None });
     }
     show_window(m, root, true)?;
     Ok(Built { key: Key::Popup(number), root, placed: (x, y), moveable: true, elements, rows: BTreeMap::new() })
@@ -699,6 +710,9 @@ fn open_diplomacy(m: &Memory, number: u32, side: usize) -> Result<()> {
 pub(crate) fn killed(m: &Memory, root: usize) {
     let Ok(mut guard) = LIVE.try_lock() else { return };
     let Some(live) = guard.as_mut() else { return };
+    if let Err(e) = retire_entries(m, live, |entry| entry.strip == root) {
+        live.report(format!("a killed entry strip could not let go of its buttons: {e}"));
+    }
     let Some(at) = live.built.iter().position(|b| b.root == root) else { return };
     let mut built = live.built.remove(at);
     if let Err(e) = unlink(m, live, &mut built.elements) {
@@ -709,8 +723,12 @@ pub(crate) fn killed(m: &Memory, root: usize) {
 /// The session ended: every window and pop-up is killed, and the state
 /// forgets them.
 pub(crate) fn session_ended() {
+    crate::tooltips::clear();
     if let Some(m) = crate::memory() {
         with_live(|live| {
+            if let Err(e) = retire_entries(m, live, |_| true) {
+                live.report(format!("entry buttons at the session's end: {e}"));
+            }
             for b in std::mem::take(&mut live.built) {
                 if let Err(e) = tear_down(m, live, b) {
                     live.report(format!("a window at the session's end: {e}"));
@@ -738,26 +756,26 @@ fn panels_closing(_: &mut Call) {
     }
 }
 
-/// Fills the tooltip of an extension window's element under the pointer.
+/// Passes the actual hit to the shared native presentation adapter.
 fn tooltip_after(call: &mut Call) {
-    if crate::thread_id() != crate::main_thread() {
-        return;
+    if !call.faulted() && crate::thread_id() == crate::main_thread() {
+        crate::tooltips::hit(call.arg(2));
     }
-    let m = call.memory();
-    let (out, element) = (call.arg(1), call.arg(2));
-    let Ok(guard) = LIVE.try_lock() else { return };
-    let text = guard.as_ref().and_then(|live| {
-        let bound = live.built.iter().flat_map(|b| &b.elements).find(|b| b.element.object == element);
-        match bound {
-            Some(b) => b.element.tooltip().map(<[u8]>::to_vec),
-            None => live.entry_tooltips.get(&element).filter(|t| !t.is_empty()).cloned(),
+}
+
+pub(crate) fn managed_tooltip(element: usize) -> Option<Vec<u8>> {
+    let guard = LIVE.try_lock().ok()?;
+    let live = guard.as_ref()?;
+    for built in &live.built {
+        if let Some(bound) = built.elements.iter().find(|b| b.tooltip_object == element) {
+            let row_hidden = bound
+                .row
+                .as_ref()
+                .is_some_and(|(list, _)| built.elements.iter().any(|parent| parent.row.is_none() && &parent.name == list && !parent.element.wanted_visible()));
+            return Some(if row_hidden { Vec::new() } else { bound.element.tooltip().unwrap_or_default().to_vec() });
         }
-    });
-    drop(guard);
-    let Some(text) = text else { return };
-    if let Err(e) = bound_element::fill_tooltip(&m, out, &text) {
-        log!("windows: tooltip append failed: {e}");
     }
+    live.entries.iter().find(|e| e.element.object == element).map(|e| e.element.tooltip().unwrap_or_default().to_vec())
 }
 
 // ---------- entry buttons ----------
@@ -774,7 +792,8 @@ pub fn entry_fragment(id: &str, window: &str, entry: &layout::Entry) -> String {
     let (button, background) = entry_names(id, window);
     format!(
         "\n\t\ticonType = {{ name = \"{background}\" spriteType = \"GFX_menubar_floating_bg\" position = {{ x = -362 y = -36 }} Orientation = \"LOWER_RIGHT\" }}\n\
-         \t\tguiButtonType = {{ name = \"{button}\" position = {{ x = -360 y = -58 }} quadTextureSprite = \"{}\" frame = {} Orientation = \"LOWER_RIGHT\" clicksound = click }}\n",
+         \t\tguiButtonType = {{ name = \"{button}\" position = {{ x = -360 y = -58 }} quadTextureSprite = \"{}\" frame = {} Orientation = \"LOWER_RIGHT\" clicksound = click }}\n\
+         \t\tinstantTextBoxType = {{ name = \"{button}_number\" position = {{ x = -364 y = -18 }} font = \"vic_18\" maxWidth = 50 maxHeight = 32 format = centre Orientation = \"LOWER_RIGHT\" }}\n",
         entry.sprite.replace('"', ""),
         entry.frame
     )
@@ -792,7 +811,13 @@ fn strip_after(call: &mut Call) {
         let mut out = Vec::new();
         for d in all.wanted.declared() {
             for w in d.windows.iter().filter(|w| w.entry.is_some()) {
-                let set = all.wanted.wanted(d.extension, &w.name).and_then(|w| w.set.get(layout::ENTRY)).cloned().unwrap_or_default();
+                let set = all
+                    .wanted
+                    .wanted(d.extension, &w.name)
+                    .and_then(|w| w.set.get(layout::ENTRY))
+                    .cloned()
+                    .unwrap_or_else(|| BTreeMap::from([("visible", Property::Visible(false)), ("enabled", Property::Enabled(false))]));
+                let set = entry_properties(set, |key| crate::loc::mod_text(&d.id, key));
                 out.push((d.extension, d.id.clone(), w.name.clone(), set, w.entry.clone()));
             }
         }
@@ -806,6 +831,15 @@ fn strip_after(call: &mut Call) {
     if let Err(e) = place_entries(&m, live, idler, &entries) {
         live.report(format!("entry buttons: {e}"));
     }
+}
+
+fn entry_properties(mut set: BTreeMap<&'static str, Property>, words: impl Fn(&str) -> Option<String>) -> BTreeMap<&'static str, Property> {
+    let text = match set.get("tooltip") {
+        Some(Property::Tooltip(text)) => text.resolve(words),
+        _ => String::new(),
+    };
+    set.insert("tooltip", Property::Tooltip(text.into()));
+    set
 }
 
 type EntryWant = (usize, String, String, BTreeMap<&'static str, Property>, Option<layout::Entry>);
@@ -836,49 +870,51 @@ fn place_entries(m: &Memory, live: &mut Live, idler: usize, entries: &[EntryWant
         // Bound again whenever the game made the strip anew.
         let known = live.entries.iter().position(|e| e.extension == *extension && &e.window == window_name);
         let fresh = match known {
-            Some(i) => live.entries[i].button != button || !live.entries[i].subscription.as_ref().is_some_and(|s| s.subscribed(m).unwrap_or(false)),
+            Some(i) => live.entries[i].element.object != button || !live.entries[i].element.subscribed(m).unwrap_or(false),
             None => true,
         };
         if fresh {
             if let Some(i) = known {
                 let old = live.entries.remove(i);
-                live.retired.extend(old.subscription.map(|s| s.wrapper));
+                live.retired.extend(old.element.retire());
             }
-            live.entries.push(Entry { extension: *extension, window: window_name.clone(), button, subscription: Some(subscribe(m, button)?) });
+            let number = ui::lookup(m, strip, (window::FIND_TEXT, functions::FIND_TEXT), &format!("{button_name}_number"))?;
+            if number == 0 || m.ptr(number)? != m.at(classes::TEXT_BOX) || ui::element_name(m, number)? != format!("{button_name}_number").as_bytes() {
+                return Err(format!("the entry {button_name} has no independent number"));
+            }
+            live.entries.push(Entry {
+                extension: *extension,
+                window: window_name.clone(),
+                strip,
+                element: listening(m, button, Look::Button)?,
+                background: BoundElement::new(background, Look::Icon),
+                number,
+                number_text: None,
+            });
         }
         let visible = set.get("visible") != Some(&Property::Visible(false));
         let frame = match set.get("frame") {
             Some(Property::Frame(f)) => *f,
             _ => entry.frame,
         };
-        let tooltip = match set.get("tooltip") {
-            Some(Property::Tooltip(t)) => Some(game_text::from_str(t)),
-            _ => None,
+        let bound = live.entries.iter_mut().find(|e| e.element.object == button).unwrap();
+        let mut shown = Shown::of(set);
+        shown.visible = Some(visible);
+        shown.enabled = Some(set.get("enabled") != Some(&Property::Enabled(false)));
+        shown.frame = Some(frame);
+        bound.element.apply(m, &shown)?;
+        if background != 0 {
+            bound.background.apply(m, &Shown { visible: Some(visible), ..Default::default() })?;
+        }
+        let value = match set.get("value") {
+            Some(Property::Number(value)) => *value,
+            _ => entry.value,
         };
-        if let Some(t) = tooltip {
-            live.entry_tooltips.insert(button, t);
-        }
-        let shown = m.u8(button + element::VISIBLE)? != 0;
-        if visible != shown {
-            let (slot_at, known) = if visible { (element::SHOW, ui::SHOW) } else { (element::HIDE, ui::HIDE) };
-            let at = m.vslot(button, slot_at)?;
-            if at == m.at(known) {
-                m.call(at, &[button])?;
-            }
-            if background != 0 {
-                let known: &[usize] = if visible { &functions::ICON_SHOWS } else { &functions::ICON_HIDES };
-                let at = m.vslot(background, slot_at)?;
-                if known.iter().any(|&k| m.at(k) == at) {
-                    m.call(at, &[background])?;
-                }
-            }
-        }
+        let text = entry.format.show(if visible { value } else { None });
+        let number_at = (STRIP_FIRST.0 - STRIP_STEP * slot - 4, STRIP_FIRST.1 + 40);
+        show_entry_number(m, bound, text, number_at)?;
         if !visible {
             continue;
-        }
-        let frame_at = m.vslot(button, element::FRAME)?;
-        if frame_at == m.at(functions::BUTTON_FRAME) {
-            m.call(frame_at, &[button, frame as usize])?;
         }
         let at = (STRIP_FIRST.0 - STRIP_STEP * slot, STRIP_FIRST.1);
         if m.vslot(button, element::PLACE)? == m.at(functions::BUTTON_PLACE.rva()) {
@@ -896,8 +932,53 @@ fn place_entries(m: &Memory, live: &mut Live, idler: usize, entries: &[EntryWant
     Ok(())
 }
 
+fn retire_entries(m: &Memory, live: &mut Live, gone: impl Fn(&Entry) -> bool) -> Result<()> {
+    let (old, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut live.entries).into_iter().partition(gone);
+    live.entries = kept;
+    let mut result = Ok(());
+    for mut entry in old {
+        result = result.and(entry.element.unlink(m));
+        live.retired.extend(entry.element.retire());
+    }
+    result
+}
+
+fn show_entry_number(m: &Memory, entry: &mut Entry, text: String, at: (i32, i32)) -> Result<()> {
+    let visible = !text.is_empty();
+    if entry.number_text.as_ref() != Some(&text) {
+        bound_element::write_text(m, entry.number, &game_text::from_str(&text))?;
+        entry.number_text = Some(text);
+    }
+    if (m.u8(entry.number + element::VISIBLE)? != 0) != visible {
+        let (slot, function) = if visible { (element::SHOW, TEXT_SHOW) } else { (element::HIDE, TEXT_HIDE) };
+        if m.vslot(entry.number, slot)? != m.at(function.rva()) {
+            return Err("entry number visibility method changed".into());
+        }
+        function.call(m, [entry.number])?;
+    }
+    if visible {
+        if m.vslot(entry.number, TEXT_PLACE_SLOT)? != m.at(TEXT_PLACE.rva()) {
+            return Err("entry number position method changed".into());
+        }
+        let position = [at.0, at.1];
+        TEXT_PLACE.call(m, [entry.number, position.as_ptr() as usize])?;
+    }
+    Ok(())
+}
+
 pub fn points() -> Vec<Point> {
     vec![
+        Point::keep(list_box::SHOW, "48 83 e9 08 e9 b3 e3 ff ff", "list show visual interface"),
+        Point::keep(list_box::HIDE, "48 83 e9 08 e9 fb e4 ff ff", "list hide visual interface"),
+        Point::method(list_box::ELEMENT_CLASS, element::SHOW, list_box::SHOW, "list show method"),
+        Point::method(list_box::ELEMENT_CLASS, element::HIDE, list_box::HIDE, "list hide method"),
+        Point::keep(0x152e2cdusize, "49 89 46 08", "list visual element interface").uses(&[LIST_ELEMENT]),
+        Point::keep(TEXT_PLACE, "40 53 48 83 ec 20 48 8b d9 48 8b 89 18 01 00 00", "entry number position"),
+        Point::keep(TEXT_SHOW, "40 53 48 83 ec 20 80 b9 9c 01 00 00 00 48 8b d9", "entry number show"),
+        Point::keep(TEXT_HIDE, "40 53 48 83 ec 20 c6 81 c5 00 00 00 00 48 8b d9", "entry number hide"),
+        Point::method(classes::TEXT_BOX, TEXT_PLACE_SLOT, TEXT_PLACE.rva(), "entry number position method"),
+        Point::method(classes::TEXT_BOX, element::SHOW, TEXT_SHOW.rva(), "entry number show method"),
+        Point::method(classes::TEXT_BOX, element::HIDE, TEXT_HIDE.rva(), "entry number hide method"),
         Point::keep(CLOSE_VIEWS, "48 89 5c 24 10 57 48 83 ec 20 48 8b 99 80 1b 00 00 48 8b f9", "closing the views over the map"),
         Point::keep(OPEN_DIPLOMACY, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48 8b 81 10 11", "opening the diplomacy view on a country"),
         Point::observe(CLOSE_PANELS, "48 89 5c 24 10 57 48 83 ec 20 48 8b 99 b8 10 00 00 48 8b f9", "closing the big panels", 1, Some(panels_closing), None),
@@ -919,4 +1000,50 @@ pub fn points() -> Vec<Point> {
             Some(strip_after),
         ),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_entry_localizes_its_default_tooltip_and_keeps_explicit_overrides() {
+        let windows =
+            layout::read(&serde_json::json!({ "tools": { "size": [200, 200], "entry": { "sprite": "GFX_tools", "tooltip": "ENTRY" } } }), &|_| true).unwrap();
+        let mut state = eu4_harmony_lua::windows::Windows::default();
+        state.declare(0, "tools", &windows);
+        let initial = state.wanted(0, "tools").unwrap().set[layout::ENTRY].clone();
+        for title in ["Convenience Tools", "便捷工具", "便利ツール", "편의 도구"] {
+            let words = |_: &str| Some(title.to_string());
+            let properties = entry_properties(initial.clone(), words);
+            assert_eq!(properties.get("tooltip"), Some(&Property::Tooltip(title.into())));
+            for explicit in ["Changed", ""] {
+                let set = BTreeMap::from([("tooltip", Property::Tooltip(explicit.into()))]);
+                assert_eq!(entry_properties(set.clone(), words), set);
+            }
+        }
+        assert_eq!(
+            entry_properties(BTreeMap::new(), |_| None).get("tooltip"),
+            Some(&Property::Tooltip(String::new().into())),
+            "forgetting state clears any old native cache value"
+        );
+    }
+
+    #[test]
+    fn a_list_rows_static_text_and_tooltip_use_the_windows_localisation() {
+        let windows = layout::read(
+            &serde_json::json!({ "tools": { "size": [400, 320], "items": [
+                { "type": "list", "name": "results", "size": [300, 120], "row": { "size": [300, 30], "items": [
+                    { "type": "text", "name": "result", "size": [250, 25], "text": "RESULT", "tooltip": "WHY" }
+                ]}}
+            ]}}),
+            &|_| true,
+        )
+        .unwrap();
+        let Kind::List { row, .. } = &windows[0].widget("results").unwrap().kind else { panic!() };
+        let words = BTreeMap::from([("RESULT".into(), "One row".into()), ("WHY".into(), "The localized reason".into())]);
+        let properties = initial(&row.widgets[0], &words);
+        assert_eq!(properties.get("text"), Some(&Property::Text("One row".into())));
+        assert_eq!(properties.get("tooltip"), Some(&Property::Tooltip("The localized reason".into())));
+    }
 }

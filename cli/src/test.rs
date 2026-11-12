@@ -484,8 +484,7 @@ impl UserData for TestMod {
             }
             let seen = {
                 let mut store = this.fake.store();
-                let open = store.windows.is_open(this.extension.index(), &window);
-                store.windows.show(this.extension.index(), &window, !open)
+                store.windows.entry(this.extension.index(), &window)
             };
             for seen in seen {
                 dispatch::window(std::slice::from_ref(&this.extension), &seen);
@@ -578,7 +577,8 @@ impl UserData for TestMod {
             if !this.extension.windows().iter().any(|w| w.name == name) {
                 return Err(mlua::Error::runtime(format!("{}the mod has no window {name:?}", here(lua))));
             }
-            let window = this.fake.store().window(this.extension.index(), &name);
+            let window =
+                this.fake.store().window(this.extension.index(), &name, |key| eu4_harmony_lua::Host::text(this.fake.as_ref(), this.extension.id(), key));
             let t = lua.create_table()?;
             let Some(window) = window else {
                 t.set("open", false)?;

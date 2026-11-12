@@ -154,6 +154,14 @@ impl session::Layer for Fake {
 }
 
 impl countries::Layer for Fake {
+    fn governing_capacity(
+        &mut self,
+        _: eu4_harmony_remote::countries::args::GoverningCapacity,
+    ) -> GResult<eu4_harmony_remote::countries::CurrentGoverningCapacity> {
+        self.call("country governing_capacity".into());
+        Ok(eu4_harmony_remote::countries::CurrentGoverningCapacity { used: 512500, max: 700000 })
+    }
+
     fn hostile(&mut self, eu4_harmony_remote::countries::args::Hostile { country, other }: eu4_harmony_remote::countries::args::Hostile) -> GResult<bool> {
         self.call(format!("hostile {country} {other}"));
         let (a, b) = (found(country)?, found(other)?);
@@ -357,6 +365,22 @@ impl provinces::Layer for Fake {
             return Err(eu4_harmony_checks::provinces::not_found(province).into());
         }
         Ok(Box::new(constantinople()))
+    }
+
+    fn province_area(&mut self, args: eu4_harmony_remote::provinces::args::Area) -> GResult<eu4_harmony_remote::provinces::AreaSnapshot> {
+        use eu4_harmony_remote::provinces::{AreaSnapshot, StateKind};
+        self.call(format!("province area {}", args.province.0));
+        Ok(AreaSnapshot {
+            area: "thrace_area".into(),
+            owner: letters("TUR"),
+            provinces: vec![args.province],
+            development: 25.5,
+            trade_company: false,
+            state: StateKind::Territory,
+            governing_cost: 6375,
+            make_state_cost: Some(6375),
+            unavailable_reason: None,
+        })
     }
 
     /// In Constantinople the player can develop tax for 50 administrative

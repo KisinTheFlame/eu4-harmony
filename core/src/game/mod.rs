@@ -19,6 +19,7 @@
 //! defeat.md, time.md, fog-of-war.md).
 pub mod action;
 pub mod administration;
+pub mod areas;
 pub mod army;
 #[cfg(test)]
 pub mod buffers;
@@ -364,6 +365,7 @@ pub fn points() -> Vec<Point> {
     points.extend(modifiers::points());
     points.extend(opinions::points());
     points.extend(administration::points());
+    points.extend(areas::points());
     points.extend(units::points());
     points.extend(spendings::points());
     points.extend(envoys::points());

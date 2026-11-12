@@ -215,7 +215,7 @@ pub fn open(at: &Opening) -> mlua::Result<Opened> {
     let names = lua.create_sequence_from(extension_capabilities().map(|c| c.name()))?;
     let at_element = calling.clone();
     let set_element =
-        lua.create_function(move |_, (element, property, value): (String, String, LuaValue)| set_element(&at_element, &element, &property, value))?;
+        lua.create_function(move |lua, (element, property, value): (String, String, LuaValue)| set_element(lua, &at_element, &element, &property, value))?;
     // game.window and game.popup, which the prelude wraps.
     let at_window = calling.clone();
     let window = lua.create_function(move |lua, (op, window, widget, property, value): (String, String, Option<String>, Option<String>, LuaValue)| {
@@ -247,6 +247,11 @@ pub fn open(at: &Opening) -> mlua::Result<Opened> {
         }
         Ok(Waits::keep(&at_await.waits, &at_await.wait, super::Waiting::Tasks(handles)))
     })?;
+    let at_tooltip = calling.clone();
+    let tooltip = lua.create_function(move |lua, (window, widget): (Option<String>, String)| {
+        let text = at_tooltip.host.tooltip(at_tooltip.index, window.as_deref(), &widget).map_err(mlua::Error::runtime)?;
+        text.to_lua(lua)
+    })?;
     let (game, press, dropped): (Table, Function, Function) = lua.load(include_str!("prelude.lua")).set_name("@prelude").call((
         call,
         wait.clone(),
@@ -262,6 +267,7 @@ pub fn open(at: &Opening) -> mlua::Result<Opened> {
         start,
         cancel,
         awaiting,
+        tooltip,
     ))?;
     let map = lua.create_table()?;
     let at_paint = calling.clone();
@@ -357,15 +363,10 @@ fn module_file(modules: &Path, name: &str) -> Result<PathBuf, String> {
 }
 
 /// `game.ui.<element>.<property> = value`.
-fn set_element(at: &Calling, element: &str, property: &str, value: LuaValue) -> mlua::Result<()> {
+fn set_element(lua: &Lua, at: &Calling, element: &str, property: &str, value: LuaValue) -> mlua::Result<()> {
     if !super::running(at.serial) {
         return Err(mlua::Error::runtime(format!("game.ui.{element}: the game is reached only from a handler, not at the top of main.lua")));
     }
-    let text = |v: &LuaValue| match v {
-        LuaValue::String(s) => Ok(s.to_str()?.to_string()),
-        LuaValue::Nil => Ok(String::new()),
-        other => Err(mlua::Error::runtime(format!("game.ui.{element}.{property} takes a string, not a {}", other.type_name()))),
-    };
     let flag = |v: &LuaValue| match v {
         LuaValue::Boolean(b) => Ok(*b),
         other => Err(mlua::Error::runtime(format!("game.ui.{element}.{property} takes true or false, not a {}", other.type_name()))),
@@ -373,11 +374,24 @@ fn set_element(at: &Calling, element: &str, property: &str, value: LuaValue) -> 
     let value = match property {
         "visible" => Element::Visible(flag(&value)?),
         "enabled" => Element::Enabled(flag(&value)?),
-        "text" => Element::Text(text(&value)?),
-        "tooltip" => Element::Tooltip(text(&value)?),
+        "text" => {
+            let text = crate::Text::from_lua(value)?;
+            check_text(lua, at, &text)?;
+            Element::Text(text)
+        }
+        "tooltip" => {
+            let text = crate::Text::from_lua(value)?;
+            check_text(lua, at, &text)?;
+            Element::Tooltip(text)
+        }
         other => return Err(mlua::Error::runtime(format!("game.ui.{element}.{other}: an element has visible, enabled, text and tooltip"))),
     };
     at.host.set_element(at.index, element, value).map_err(|e| mlua::Error::runtime(format!("game.ui.{element}.{property}: {e}")))
+}
+
+fn check_text(lua: &Lua, at: &Calling, text: &crate::Text) -> mlua::Result<()> {
+    let extension = super::extension_of(lua).ok_or_else(|| mlua::Error::runtime("the extension is not loaded"))?;
+    text.check(&|key| at.host.text(extension.id(), key).is_some()).map_err(mlua::Error::runtime)
 }
 
 /// `game.window.open(name)`, `game.window.close(name)` and
@@ -399,6 +413,21 @@ fn window_change(lua: &Lua, at: &Calling, op: &str, name: &str, widget: Option<&
         _ => Err("set as game.window.<window>.<widget>.<property> = value".to_string()),
     }
     .map_err(mlua::Error::runtime)?;
+    let check = |property: &windows::Property| -> mlua::Result<()> {
+        if let windows::Property::Text(text) | windows::Property::Tooltip(text) = property {
+            check_text(lua, at, text)?;
+        }
+        Ok(())
+    };
+    match &change {
+        windows::WindowChange::Set { value, .. } => check(value)?,
+        windows::WindowChange::Rows { rows, .. } => {
+            for (_, property) in rows.iter().flatten() {
+                check(property)?;
+            }
+        }
+        _ => {}
+    }
     at.host.window(at.index, change).map_err(|e| mlua::Error::runtime(format!("{what}: {e}")))
 }
 
@@ -408,11 +437,7 @@ fn show_popup(lua: &Lua, at: &Calling, id: &str, spec: &Table) -> mlua::Result<u
     if !super::running(at.serial) {
         return Err(mlua::Error::runtime("game.popup: a pop-up is shown only from a handler or a task"));
     }
-    let words = |key: &str, values: &[(String, String)]| {
-        let raw = at.host.text(id, key)?;
-        let values: Vec<(&str, &str)> = values.iter().map(|(n, v)| (n.as_str(), v.as_str())).collect();
-        Some(eu4_harmony_loc::fill(&raw, &values))
-    };
+    let words = |key: &str| at.host.text(id, key);
     let popup = windows::popup(spec, &words, lua).map_err(mlua::Error::runtime)?;
     at.host.popup(at.index, popup).map_err(|e| mlua::Error::runtime(format!("game.popup: {e}")))
 }

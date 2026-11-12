@@ -50,7 +50,7 @@ pub struct Window {
     /// Width and height.
     pub size: (i32, i32),
     /// The title's localisation key.
-    pub title: Option<String>,
+    pub title: Option<crate::Text>,
     pub close: bool,
     pub anchor: Anchor,
     /// From the anchor, in pixels, right and down.
@@ -118,9 +118,14 @@ impl Anchor {
 /// A window's button on the panel button strip.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Entry {
+    pub visible: bool,
+    pub enabled: bool,
+    pub format: crate::numbers::Format,
+    pub value: Option<f64>,
+    pub image: Option<String>,
     pub sprite: String,
     pub frame: u32,
-    pub tooltip: Option<String>,
+    pub tooltip: Option<crate::Text>,
 }
 
 /// A game widget at its place: `x` and `y` from the top left corner of its
@@ -134,7 +139,7 @@ pub struct Placed {
     pub width: i32,
     pub height: i32,
     /// Its tooltip's localisation key.
-    pub tooltip: Option<String>,
+    pub tooltip: Option<crate::Text>,
     pub visible: bool,
 }
 
@@ -143,7 +148,7 @@ pub struct Placed {
 pub enum Kind {
     Text {
         /// A localisation key.
-        text: Option<String>,
+        text: Option<crate::Text>,
         font: Font,
         align: Align,
     },
@@ -154,7 +159,7 @@ pub enum Kind {
     /// A text button when it has a text, an icon button when it has a
     /// sprite.
     Button {
-        text: Option<String>,
+        text: Option<crate::Text>,
         sprite: Option<String>,
         frame: u32,
     },
@@ -267,7 +272,7 @@ fn read_window(name: &str, value: &Value, has_text: &dyn Fn(&str) -> bool) -> Re
     if size.0 <= 0 || size.1 <= 0 {
         return Err("size is a width and a height above 0".into());
     }
-    let title = key(table.get("title"), "title", has_text)?;
+    let title = content(table.get("title"), "title", has_text)?;
     let close = flag(table.get("close"), "close")?.unwrap_or(true);
     let anchor = match table.get("anchor") {
         None => Anchor::Center,
@@ -290,11 +295,27 @@ fn read_window(name: &str, value: &Value, has_text: &dyn Fn(&str) -> bool) -> Re
         None => None,
         Some(value) => {
             let entry = object(value, "entry")?;
-            known(entry, &["sprite", "frame", "tooltip"]).map_err(|e| format!("entry: {e}"))?;
+            known(entry, &["image", "sprite", "frame", "tooltip", "visible", "enabled", "format", "decimals", "value"]).map_err(|e| format!("entry: {e}"))?;
+            let image = text(entry.get("image"), "entry.image")?;
+            let sprite = text(entry.get("sprite"), "entry.sprite")?;
+            if image.is_some() == sprite.is_some() {
+                return Err("entry has either image or sprite".into());
+            }
+            if image.is_some() && frame(entry.get("frame"), "entry.frame")? != 1 {
+                return Err("entry image has one frame".into());
+            }
+            let format = crate::numbers::Format::read(entry.get("format"), entry.get("decimals"))?;
+            let value =
+                entry.get("value").map(|v| v.as_f64().filter(|v| format.accepts(*v)).ok_or("entry.value is a finite number in its format")).transpose()?;
             Some(Entry {
-                sprite: text(entry.get("sprite"), "entry.sprite")?.ok_or("entry has a sprite")?,
+                visible: flag(entry.get("visible"), "entry.visible")?.unwrap_or(true),
+                enabled: flag(entry.get("enabled"), "entry.enabled")?.unwrap_or(true),
+                format,
+                value,
+                image,
+                sprite: sprite.unwrap_or_default(),
                 frame: frame(entry.get("frame"), "entry.frame")?,
-                tooltip: key(entry.get("tooltip"), "entry.tooltip", has_text)?,
+                tooltip: entry.get("tooltip").map(|v| crate::Text::declaration(v, has_text)).transpose().map_err(|e| format!("entry.tooltip: {e}"))?,
             })
         }
     };
@@ -428,10 +449,7 @@ fn item(table: &Map<String, Value>, place: (i32, i32), has_text: &dyn Fn(&str) -
     if size.0 <= 0 || size.1 <= 0 {
         return Err(fail("size is a width and a height above 0".into()));
     }
-    let tooltip = key(table.get("tooltip"), "tooltip", has_text).map_err(fail)?;
-    if kind == "text" && tooltip.is_some() {
-        return Err(fail("a text has no tooltip: the game's text boxes show none".into()));
-    }
+    let tooltip = table.get("tooltip").map(|v| crate::Text::declaration(v, has_text)).transpose().map_err(fail)?;
     let visible = flag(table.get("visible"), "visible").map_err(fail)?.unwrap_or(true);
     let kind = match kind.as_str() {
         "text" => {
@@ -444,14 +462,14 @@ fn item(table: &Map<String, Value>, place: (i32, i32), has_text: &dyn Fn(&str) -
                 None => Align::Start,
                 Some(word) => Align::named(&word).ok_or_else(|| fail("align is left, center or right".into()))?,
             };
-            Kind::Text { text: key(table.get("text"), "text", has_text).map_err(fail)?, font, align }
+            Kind::Text { text: content(table.get("text"), "text", has_text).map_err(fail)?, font, align }
         }
         "icon" => Kind::Icon {
             sprite: text(table.get("sprite"), "sprite").map_err(fail)?.ok_or_else(|| fail("an icon has a sprite".into()))?,
             frame: frame(table.get("frame"), "frame").map_err(fail)?,
         },
         "button" => {
-            let text_key = key(table.get("text"), "text", has_text).map_err(fail)?;
+            let text_key = content(table.get("text"), "text", has_text).map_err(fail)?;
             let sprite = text(table.get("sprite"), "sprite").map_err(fail)?;
             if text_key.is_some() == sprite.is_some() {
                 return Err(fail("a button has a text or a sprite, not both".into()));
@@ -593,13 +611,9 @@ fn text(value: Option<&Value>, what: &str) -> Result<Option<String>, String> {
     }
 }
 
-/// A localisation key the mod has.
-fn key(value: Option<&Value>, what: &str, has_text: &dyn Fn(&str) -> bool) -> Result<Option<String>, String> {
-    let key = text(value, what)?;
-    match key {
-        Some(k) if !has_text(&k) => Err(format!("{what}: the mod has no text {k:?} in its localisation")),
-        other => Ok(other),
-    }
+/// Visible text, checked through the shared description parser.
+fn content(value: Option<&Value>, what: &str, has_text: &dyn Fn(&str) -> bool) -> Result<Option<crate::Text>, String> {
+    value.map(|value| crate::Text::declaration(value, has_text).map_err(|error| format!("{what}: {error}"))).transpose()
 }
 
 #[cfg(test)]

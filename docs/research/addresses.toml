@@ -859,6 +859,7 @@
 "0x2ee4e6" = { kind = "code", notes = ["research/country-daily-update.md"] }
 "0x2ee526" = { kind = "code", notes = ["research/country-daily-update.md"] }
 "0x2f0854" = { kind = "code", notes = ["research/country-knowledge.md"] }
+"0x2f1120" = { kind = "function", name = "country cached province totals", notes = ["research/area-governing-cost.md"] }
 "0x2f15a4" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x2f36c0" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/late-game.md", "research/monthly-update.md", "research/trade-range-and-naval-supply.md"] }
 "0x2f76b1" = { kind = "code", notes = ["research/trade-range-and-naval-supply.md"] }
@@ -1120,10 +1121,14 @@
 "0x3ec460" = { kind = "function", name = "harmonization candidates", notes = ["research/religion.md", "research/tolerance-in-a-province.md"] }
 "0x3ed100" = { kind = "function", name = "may set the native policy", notes = ["research/power-spending.md"] }
 "0x3ed490" = { kind = "function", name = "nation ruining blocked", notes = ["research/power-spending.md"] }
-"0x3f0810" = { kind = "function", notes = ["research/provinces.md"] }
+"0x3f0810" = { kind = "function", notes = ["research/area-governing-cost.md", "research/provinces.md"] }
+"0x3f12e0" = { kind = "function", name = "owned development and governing cost in an area", notes = ["research/area-governing-cost.md"] }
+"0x3f130e" = { kind = "code", name = "area province numbers", notes = ["research/area-governing-cost.md"] }
 "0x3f14a0" = { kind = "function", notes = ["research/trade-range-and-naval-supply.md"] }
-"0x3f2e10" = { kind = "function", name = "maximum governing capacity", notes = ["research/countries.md"] }
+"0x3f2e10" = { kind = "function", name = "maximum governing capacity", notes = ["research/area-governing-cost.md", "research/countries.md"] }
 "0x3f2e37" = { kind = "code", notes = ["research/countries.md"] }
+"0x3f31d0" = { kind = "function", name = "current governing capacity used", notes = ["research/area-governing-cost.md"] }
+"0x3f32f4" = { kind = "code", name = "state governing cost increase modifier", notes = ["research/area-governing-cost.md"] }
 "0x3f34f0" = { kind = "function", name = "make state check", notes = ["research/province-view.md", "research/provinces.md"] }
 "0x3f3bd0" = { kind = "function", name = "abandon state check", notes = ["research/province-view.md"] }
 "0x3f47a0" = { kind = "function", name = "may promote mercantilism", notes = ["research/power-spending.md"] }
@@ -1518,7 +1523,7 @@
 "0x6ea1c0" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x6ea380" = { kind = "function", notes = ["research/architecture.md", "research/main-thread.md", "research/notice-window.md", "research/questions-and-offers.md", "research/time.md"] }
 "0x6eaa10" = { kind = "function", notes = ["research/achievements.md", "research/game-console.md", "research/time.md"] }
-"0x6eb6e0" = { kind = "leaf", name = "the tooltips' update", notes = ["research/drawing-beside-the-day.md"] }
+"0x6eb6e0" = { kind = "leaf", name = "the tooltips' update", notes = ["research/drawing-beside-the-day.md", "research/panel-entry-text.md"] }
 "0x6eb9f0" = { kind = "function", notes = ["research/achievements.md"] }
 "0x6ebd10" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
 "0x6ec450" = { kind = "function", notes = ["research/map-drawing-reads.md", "research/map-modes.md"] }
@@ -2064,6 +2069,7 @@
 "0x81f020" = { kind = "function", notes = ["research/extension-windows.md"] }
 "0x81f0a9" = { kind = "code", notes = ["research/extension-windows.md"] }
 "0x81f0ea" = { kind = "code", notes = ["research/extension-windows.md"] }
+"0x81f4a0" = { kind = "function", name = "move the main and delayed tooltip strings", notes = ["research/panel-entry-text.md"] }
 "0x81fdc0" = { kind = "function", notes = ["research/notice-window.md"] }
 "0x81ffb0" = { kind = "function", notes = ["research/notice-window.md"] }
 "0x82007a" = { kind = "code", notes = ["research/main-menu.md"] }
@@ -2103,7 +2109,7 @@
 "0x82f9e0" = { kind = "function", notes = ["research/saves.md"] }
 "0x830150" = { kind = "function", notes = ["research/message-pop-up-actions.md"] }
 "0x83065d" = { kind = "code", notes = ["research/message-pop-up-actions.md"] }
-"0x830700" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/extension-windows.md", "research/window-elements.md"] }
+"0x830700" = { kind = "function", name = "arrange the panel button strip", notes = ["research/drawing-beside-the-day.md", "research/extension-windows.md", "research/panel-entry-text.md", "research/window-elements.md"] }
 "0x830fd0" = { kind = "function", notes = ["research/architecture.md", "research/army-orders.md", "research/drawing-beside-the-day.md", "research/main-thread.md"] }
 "0x831132" = { kind = "code", notes = ["research/army-orders.md"] }
 "0x831137" = { kind = "code", name = "what holds the camera, first", notes = ["research/army-orders.md"] }
@@ -2300,7 +2306,7 @@
 "0x8d8155" = { kind = "code", notes = ["research/loading.md"] }
 "0x8d84a0" = { kind = "function", notes = ["research/architecture.md", "research/army-checks-in-searches.md", "research/modifiers.md", "research/tolerance-in-a-province.md"] }
 "0x8e6120" = { kind = "leaf", notes = ["research/modifiers.md"] }
-"0x8e6bd0" = { kind = "function", name = "a modifier's value", notes = ["research/modifiers.md"] }
+"0x8e6bd0" = { kind = "function", name = "a modifier's value", notes = ["research/area-governing-cost.md", "research/modifiers.md"] }
 "0x8e6be2" = { kind = "code", name = "modifier set by modifier", notes = ["research/modifiers.md"] }
 "0x8e6bf9" = { kind = "code", name = "modifier set pairs", notes = ["research/modifiers.md"] }
 "0x8e6c3e" = { kind = "code", notes = ["research/modifiers.md"] }
@@ -2318,8 +2324,15 @@
 "0x8ea730" = { kind = "function", name = "modifiers taken from a set", notes = ["research/late-game.md"] }
 "0x8ea7e2" = { kind = "code", name = "set's search for a modifier taken", notes = ["research/late-game.md"] }
 "0x8ea920" = { kind = "function", notes = ["research/army-checks-in-searches.md", "research/modifiers.md"] }
-"0x8ecec0" = { kind = "function", notes = ["research/army-checks-in-searches.md", "research/provinces.md"] }
+"0x8ecec0" = { kind = "function", name = "static modifiers database", notes = ["research/area-governing-cost.md", "research/army-checks-in-searches.md", "research/provinces.md"] }
 "0x8ed090" = { kind = "function", notes = ["research/architecture.md"] }
+"0x8ed850" = { kind = "function", name = "read the static modifiers", notes = ["research/area-governing-cost.md"] }
+"0x8edff2" = { kind = "code", name = "in state static modifier", notes = ["research/area-governing-cost.md"] }
+"0x8ee0b0" = { kind = "code", name = "core static modifier", notes = ["research/area-governing-cost.md"] }
+"0x8ee0c3" = { kind = "code", name = "non core static modifier", notes = ["research/area-governing-cost.md"] }
+"0x8ee0d6" = { kind = "code", name = "colonial core static modifier", notes = ["research/area-governing-cost.md"] }
+"0x8ee0e9" = { kind = "code", name = "territory core static modifier", notes = ["research/area-governing-cost.md"] }
+"0x8ee0fc" = { kind = "code", name = "territory non core static modifier", notes = ["research/area-governing-cost.md"] }
 "0x8ef620" = { kind = "function", notes = ["research/loading.md"] }
 "0x8effc0" = { kind = "function", notes = ["research/loading.md"] }
 "0x8f0350" = { kind = "function", notes = ["research/loading.md"] }
@@ -2494,6 +2507,9 @@
 "0x959091" = { kind = "code", notes = ["research/triggers.md"] }
 "0x959863" = { kind = "code", notes = ["research/countries.md"] }
 "0x959882" = { kind = "code", name = "policy category", notes = ["research/government.md"] }
+"0x95d2a0" = { kind = "function", name = "province core status modifiers", notes = ["research/area-governing-cost.md"] }
+"0x95d31d" = { kind = "code", name = "territorial core countries", notes = ["research/area-governing-cost.md"] }
+"0x95db70" = { kind = "function", name = "province state modifiers", notes = ["research/area-governing-cost.md"] }
 "0x95f050" = { kind = "function", notes = ["research/tolerance-in-a-province.md"] }
 "0x960330" = { kind = "function", notes = ["research/late-game.md"] }
 "0x9608f0" = { kind = "function", notes = ["research/countries.md"] }
@@ -2651,7 +2667,7 @@
 "0x9f7a4d" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
 "0x9f7a80" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/monthly-update.md"] }
 "0x9f8620" = { kind = "function", notes = ["research/envoys.md"] }
-"0x9f9500" = { kind = "function", notes = ["research/late-game.md", "research/main-menu.md", "research/monthly-update.md", "research/sieges.md"] }
+"0x9f9500" = { kind = "function", notes = ["research/area-governing-cost.md", "research/late-game.md", "research/main-menu.md", "research/monthly-update.md", "research/sieges.md"] }
 "0x9f95d0" = { kind = "function", notes = ["research/late-game.md", "research/monthly-update.md"] }
 "0x9f9ae0" = { kind = "leaf", notes = ["research/provinces.md"] }
 "0x9f9de0" = { kind = "function", notes = ["research/provinces.md"] }
@@ -2721,6 +2737,15 @@
 "0xa28cf0" = { kind = "function", notes = ["research/tolerance-in-a-province.md"] }
 "0xa28d70" = { kind = "function", notes = ["research/tolerance-in-a-province.md"] }
 "0xa29960" = { kind = "function", notes = ["research/power-spending.md"] }
+"0xa2e0f0" = { kind = "function", name = "province governing cost factor", notes = ["research/area-governing-cost.md"] }
+"0xa2e170" = { kind = "code", name = "governing cost modifier", notes = ["research/area-governing-cost.md"] }
+"0xa2e1c0" = { kind = "code", name = "territory governing cost modifier", notes = ["research/area-governing-cost.md"] }
+"0xa2e1d6" = { kind = "code", name = "state governing cost modifier", notes = ["research/area-governing-cost.md"] }
+"0xa2e264" = { kind = "code", name = "local governing cost modifier", notes = ["research/area-governing-cost.md"] }
+"0xa2e4f8" = { kind = "code", name = "statewide governing cost modifier", notes = ["research/area-governing-cost.md"] }
+"0xa2e5c9" = { kind = "code", name = "minimum governing cost factor", notes = ["research/area-governing-cost.md"] }
+"0xa2e6f0" = { kind = "function", name = "province governing cost from its factor", notes = ["research/area-governing-cost.md"] }
+"0xa2e7d3" = { kind = "code", name = "local governing cost increase modifier", notes = ["research/area-governing-cost.md"] }
 "0xa2ec80" = { kind = "function", name = "country highlight bitset resized", notes = ["research/map-drawing-reads.md"] }
 "0xa368eb" = { kind = "code", notes = ["research/loading.md"] }
 "0xa40700" = { kind = "function", notes = ["research/provinces.md"] }
@@ -2883,7 +2908,9 @@
 "0xabf060" = { kind = "function", name = "may consecrate metropolitan", notes = ["research/religion.md"] }
 "0xac0350" = { kind = "function", name = "may establish holy order in state", notes = ["research/religion.md"] }
 "0xac0790" = { kind = "function", notes = ["research/religion.md"] }
-"0xac2c10" = { kind = "function", notes = ["research/provinces.md"] }
+"0xac2800" = { kind = "function", name = "find or create a country state in an area", notes = ["research/area-governing-cost.md"] }
+"0xac2c10" = { kind = "function", name = "write an area and its country states", notes = ["research/area-governing-cost.md", "research/provinces.md"] }
+"0xac2c36" = { kind = "code", name = "area content key", notes = ["research/area-governing-cost.md"] }
 "0xac9be0" = { kind = "function", notes = ["research/peace.md"] }
 "0xacb950" = { kind = "function", notes = ["research/architecture.md", "research/loading.md", "research/parameterized-script.md"] }
 "0xacc344" = { kind = "code", notes = ["research/parameterized-script.md"] }
@@ -3916,6 +3943,7 @@
 "0x10d3a68" = { kind = "code", name = "start tag setup page", notes = ["research/main-menu.md"] }
 "0x10d3ab3" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x10d3b1a" = { kind = "code", notes = ["research/main-menu.md"] }
+"0x10d3c4d" = { kind = "code", name = "main-menu tooltip update call", notes = ["research/panel-entry-text.md"] }
 "0x10d3c55" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x10d3d32" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x10d3d5b" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
@@ -4200,6 +4228,8 @@
 "0x1337c90" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
 "0x133a503" = { kind = "code", notes = ["research/dates.md"] }
 "0x133b0e0" = { kind = "function", notes = ["research/religion.md"] }
+"0x133eba0" = { kind = "function", name = "make state confirmation", notes = ["research/area-governing-cost.md"] }
+"0x133ece8" = { kind = "code", name = "province area definition", notes = ["research/area-governing-cost.md"] }
 "0x1343bd0" = { kind = "function", name = "province view deleting destructor", notes = ["research/main-menu.md"] }
 "0x1343c50" = { kind = "function", notes = ["research/envoys.md"] }
 "0x1343cde" = { kind = "code", name = "investment index", notes = ["research/envoys.md"] }
@@ -4323,12 +4353,20 @@
 "0x140c210" = { kind = "function", name = "tutorial hints deleting destructor", notes = ["research/main-menu.md"] }
 "0x140cdc0" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x1411cb0" = { kind = "function", notes = ["research/interface-bindings.md"] }
-"0x1414ef0" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
+"0x1414780" = { kind = "function", name = "construct the tooltip owner", notes = ["research/panel-entry-text.md"] }
+"0x1414b60" = { kind = "function", name = "delete the tooltip owner", notes = ["research/panel-entry-text.md"] }
+"0x1414c00" = { kind = "function", name = "rebuild the tooltip graphical holder", notes = ["research/panel-entry-text.md"] }
+"0x1414de9" = { kind = "code", name = "clear the tooltip node's hit target", notes = ["research/panel-entry-text.md"] }
+"0x1414e50" = { kind = "function", name = "invalidate the tooltip graphical holder", notes = ["research/panel-entry-text.md"] }
+"0x1414ef0" = { kind = "function", name = "update tooltip content and fade", notes = ["research/drawing-beside-the-day.md", "research/panel-entry-text.md"] }
 "0x1415000" = { kind = "code", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/world-in-a-second-process.md"] }
-"0x1415390" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
+"0x1415390" = { kind = "function", name = "select and present the current tooltip", notes = ["research/drawing-beside-the-day.md", "research/panel-entry-text.md"] }
+"0x141548a" = { kind = "code", name = "query the ordinary tooltip hit", notes = ["research/panel-entry-text.md"] }
+"0x141548f" = { kind = "code", name = "ordinary tooltip hit return", notes = ["research/panel-entry-text.md"] }
+"0x1415703" = { kind = "code", name = "submit the final tooltip aggregate", notes = ["research/panel-entry-text.md"] }
 "0x14159d2" = { kind = "code", name = "the tooltip's place worked out", notes = ["research/drawing-beside-the-day.md"] }
-"0x1415bf0" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
-"0x14164a0" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
+"0x1415bf0" = { kind = "function", name = "prepare the final tooltip content", notes = ["research/drawing-beside-the-day.md", "research/panel-entry-text.md"] }
+"0x14164a0" = { kind = "function", name = "offset the tooltip and keep it wholly on screen", notes = ["research/drawing-beside-the-day.md"] }
 "0x1417b90" = { kind = "function", notes = ["research/trade-range-and-naval-supply.md"] }
 "0x1418e70" = { kind = "function", notes = ["research/trade-range-and-naval-supply.md", "research/units.md"] }
 "0x1419470" = { kind = "function", notes = ["research/units.md"] }
@@ -4569,25 +4607,28 @@
 "0x14db870" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/loading.md"] }
 "0x14db940" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x14dbb0b" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
-"0x14dbdc0" = { kind = "function", notes = ["research/window-elements.md"] }
+"0x14dbdc0" = { kind = "function", name = "create a text drawing node", notes = ["research/panel-entry-text.md", "research/window-elements.md"] }
 "0x14dc240" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x14dc2a5" = { kind = "code", name = "graphics group unload", notes = ["research/main-menu.md"] }
 "0x14dc390" = { kind = "function", notes = ["research/loading.md"] }
 "0x14dc5d0" = { kind = "function", name = "meshes and particles", notes = ["research/loading.md"] }
 "0x14dcd30" = { kind = "function", notes = ["research/loading.md", "research/main-thread.md", "research/map-drawing-reads.md"] }
 "0x14dcde0" = { kind = "function", notes = ["research/main-thread.md", "research/map-drawing-reads.md"] }
-"0x14dcf90" = { kind = "function", notes = ["research/gui-drawing.md"] }
+"0x14dcf90" = { kind = "function", name = "set up native GUI drawing state", notes = ["research/gui-drawing.md", "research/panel-entry-text.md"] }
 "0x14dd010" = { kind = "function", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/late-game.md", "research/main-thread.md", "research/map-drawing-reads.md"] }
-"0x14dd350" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/late-game.md", "research/main-thread.md"] }
+"0x14dd2bd" = { kind = "code", name = "first ordinary GUI draw-list return", notes = ["research/panel-entry-text.md"] }
+"0x14dd350" = { kind = "function", name = "draw a prepared GUI node list", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/late-game.md", "research/main-thread.md", "research/panel-entry-text.md"] }
 "0x14dd4ee" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x14dd540" = { kind = "function", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/map-drawing-reads.md"] }
-"0x14dd7a0" = { kind = "function", notes = ["research/gui-drawing.md"] }
+"0x14dd742" = { kind = "code", name = "second ordinary GUI draw-list return", notes = ["research/panel-entry-text.md"] }
+"0x14dd7a0" = { kind = "function", name = "walk GUI nodes into the draw list", notes = ["research/gui-drawing.md", "research/panel-entry-text.md"] }
 "0x14dda50" = { kind = "function", notes = ["research/extension-windows.md", "research/gui-drawing.md", "research/notice-window.md"] }
 "0x14ddc10" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
 "0x14ddc40" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/headless.md", "research/main-thread.md"] }
 "0x14ddc70" = { kind = "function", notes = ["research/architecture.md", "research/loading.md"] }
 "0x14ddd50" = { kind = "function", notes = ["research/architecture.md", "research/loading.md"] }
 "0x14de440" = { kind = "function", notes = ["research/extension-windows.md"] }
+"0x14debe0" = { kind = "function", name = "select the visible element under the cursor", notes = ["research/panel-entry-text.md"] }
 "0x14df050" = { kind = "function", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/headless.md", "research/loading.md", "research/map-drawing-reads.md"] }
 "0x14df580" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x14df7b0" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
@@ -4615,6 +4656,7 @@
 "0x14e5fbe" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x14e6170" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
 "0x14e8640" = { kind = "function", notes = ["research/ui-injection.md"] }
+"0x14e8cf0" = { kind = "function", name = "create a named native text box", notes = ["research/panel-entry-text.md"] }
 "0x14e8fb0" = { kind = "function", notes = ["research/ui-injection.md"] }
 "0x14e9030" = { kind = "function", name = "building a window", notes = ["research/extension-windows.md", "research/notice-window.md", "research/ui-injection.md"] }
 "0x14e9078" = { kind = "code", notes = ["research/notice-window.md"] }
@@ -4650,18 +4692,31 @@
 "0x1505dc0" = { kind = "function", notes = ["research/architecture.md"] }
 "0x1506d30" = { kind = "function", notes = ["research/architecture.md"] }
 "0x1528950" = { kind = "function", notes = ["research/save-transfer-copy.md"] }
-"0x1529d20" = { kind = "function", notes = ["research/interface-bindings.md"] }
+"0x1529d20" = { kind = "function", name = "construct a text box", notes = ["research/interface-bindings.md", "research/panel-entry-text.md"] }
 "0x1529f85" = { kind = "code", notes = ["research/interface-bindings.md", "research/main-menu.md"] }
 "0x152a00a" = { kind = "code", notes = ["research/interface-bindings.md"] }
 "0x152a106" = { kind = "code", notes = ["research/interface-bindings.md"] }
 "0x152aab0" = { kind = "function", notes = ["research/interface-bindings.md"] }
 "0x152aad6" = { kind = "code", notes = ["research/interface-bindings.md"] }
 "0x152aaf0" = { kind = "function", name = "text box destructor", notes = ["research/interface-bindings.md"] }
-"0x152ac90" = { kind = "function", notes = ["research/window-elements.md"] }
-"0x152ad10" = { kind = "function", notes = ["research/interface-bindings.md", "research/window-elements.md"] }
-"0x152ae10" = { kind = "function", name = "text box setter", notes = ["research/extension-windows.md", "research/interface-bindings.md"] }
+"0x152ab70" = { kind = "function", name = "handle text-box input", notes = ["research/panel-entry-text.md"] }
+"0x152ac90" = { kind = "function", name = "show a text box", notes = ["research/panel-entry-text.md", "research/window-elements.md"] }
+"0x152ad10" = { kind = "function", name = "hide a text box", notes = ["research/interface-bindings.md", "research/panel-entry-text.md", "research/window-elements.md"] }
+"0x152ae10" = { kind = "function", name = "text box setter", notes = ["research/extension-windows.md", "research/interface-bindings.md", "research/panel-entry-text.md"] }
+"0x152af90" = { kind = "function", name = "place a text box in oriented coordinates", notes = ["research/panel-entry-text.md"] }
+"0x152b060" = { kind = "function", name = "read the text-box position", notes = ["research/panel-entry-text.md"] }
+"0x152b0a0" = { kind = "function", notes = ["research/panel-entry-text.md"] }
+"0x152b120" = { kind = "function", notes = ["research/panel-entry-text.md"] }
+"0x152b220" = { kind = "function", notes = ["research/panel-entry-text.md"] }
+"0x152b2c0" = { kind = "function", notes = ["research/panel-entry-text.md"] }
+"0x152b2f0" = { kind = "leaf", notes = ["research/panel-entry-text.md"] }
+"0x152b300" = { kind = "leaf", notes = ["research/panel-entry-text.md"] }
+"0x152b390" = { kind = "function", name = "set the text scroll offset", notes = ["research/panel-entry-text.md"] }
 "0x152b3f0" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/interface-bindings.md"] }
-"0x152dce0" = { kind = "leaf", name = "a place turned by an orientation", notes = ["research/drawing-beside-the-day.md", "research/extension-windows.md"] }
+"0x152b6f0" = { kind = "leaf", notes = ["research/panel-entry-text.md"] }
+"0x152b7d0" = { kind = "function", name = "handle the text-box scrollbar callback", notes = ["research/panel-entry-text.md"] }
+"0x152b8c8" = { kind = "leaf", notes = ["research/panel-entry-text.md"] }
+"0x152dce0" = { kind = "leaf", name = "a place turned by an orientation", notes = ["research/drawing-beside-the-day.md", "research/extension-windows.md", "research/panel-entry-text.md"] }
 "0x152df00" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x152df34" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x152df80" = { kind = "function", name = "list row", notes = ["research/main-menu.md", "research/window-elements.md"] }
@@ -4674,9 +4729,14 @@
 "0x152e910" = { kind = "function", name = "list add", notes = ["research/window-elements.md"] }
 "0x1530150" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x1530640" = { kind = "function", name = "list box detaches its entries", notes = ["research/main-menu.md"] }
+"0x15315e0" = { kind = "function", name = "show the list root and its rows", notes = ["research/panel-entry-text.md"] }
+"0x1531710" = { kind = "function", name = "hide the list root", notes = ["research/panel-entry-text.md"] }
 "0x1531750" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x15320f0" = { kind = "function", name = "list clear", notes = ["research/window-elements.md"] }
 "0x1532310" = { kind = "function", notes = ["research/main-menu.md"] }
+"0x1532c60" = { kind = "function", name = "deactivate list graphics and rows", notes = ["research/panel-entry-text.md"] }
+"0x153320c" = { kind = "leaf", name = "hide a list through its visual interface", notes = ["research/panel-entry-text.md"] }
+"0x1533224" = { kind = "leaf", name = "show a list through its visual interface", notes = ["research/panel-entry-text.md"] }
 "0x1533360" = { kind = "function", notes = ["research/text-input.md"] }
 "0x15343bc" = { kind = "code", name = "edit box caret position", notes = ["research/text-input.md"] }
 "0x1535250" = { kind = "function", notes = ["research/text-input.md"] }
@@ -4764,7 +4824,9 @@
 "0x154e500" = { kind = "function", notes = ["research/extension-windows.md"] }
 "0x154f697" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x15503cc" = { kind = "leaf", notes = ["research/notice-window.md"] }
-"0x1550950" = { kind = "function", name = "a text element drawn", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md"] }
+"0x15506e0" = { kind = "function", name = "construct a text-texture drawing node", notes = ["research/panel-entry-text.md"] }
+"0x155072c" = { kind = "code", name = "install the text-texture drawing-node class", notes = ["research/panel-entry-text.md"] }
+"0x1550950" = { kind = "function", name = "a text element drawn", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/panel-entry-text.md"] }
 "0x15509ee" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x15509fb" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x1550b30" = { kind = "function", name = "a text element activated", notes = ["research/drawing-beside-the-day.md"] }
@@ -4772,9 +4834,12 @@
 "0x1550c90" = { kind = "function", name = "a text element deactivated", notes = ["research/drawing-beside-the-day.md"] }
 "0x1550d10" = { kind = "function", name = "a text element given its text", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md"] }
 "0x1550e90" = { kind = "function", name = "a text element laid out into its texture", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md"] }
+"0x1551840" = { kind = "function", name = "draw the prepared text mesh", notes = ["research/panel-entry-text.md"] }
 "0x1552680" = { kind = "function", notes = ["research/interface-bindings.md"] }
+"0x1552800" = { kind = "function", name = "dispatch native element input", notes = ["research/panel-entry-text.md"] }
 "0x15529e0" = { kind = "function", name = "own an animation", notes = ["research/interface-bindings.md"] }
 "0x1552aa0" = { kind = "function", notes = ["research/interface-bindings.md"] }
+"0x1558b80" = { kind = "leaf", name = "deactivate a text renderer", notes = ["research/panel-entry-text.md"] }
 "0x1558b90" = { kind = "function", notes = ["research/gui-drawing.md"] }
 "0x155a6a0" = { kind = "function", notes = ["research/architecture.md"] }
 "0x155b8e0" = { kind = "function", notes = ["research/ui-injection.md"] }
@@ -4785,6 +4850,7 @@
 "0x156044b" = { kind = "code", notes = ["research/unicode-text.md"] }
 "0x1561fd0" = { kind = "function", notes = ["research/gui-drawing.md"] }
 "0x15621f0" = { kind = "function", notes = ["research/window-elements.md"] }
+"0x15625a0" = { kind = "leaf", name = "activate a text renderer", notes = ["research/panel-entry-text.md"] }
 "0x15632d0" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
 "0x1564830" = { kind = "function", notes = ["research/architecture.md"] }
 "0x1569c70" = { kind = "function", notes = ["research/architecture.md", "research/input.md", "research/text-input.md"] }
@@ -4910,6 +4976,9 @@
 "0x159f510" = { kind = "function", notes = ["research/unicode-text.md"] }
 "0x15a0390" = { kind = "function", notes = ["research/unicode-text.md"] }
 "0x15a04f0" = { kind = "function", notes = ["research/text-input.md"] }
+"0x15a0d20" = { kind = "function", name = "construct the tooltip text holder", notes = ["research/panel-entry-text.md"] }
+"0x15a1240" = { kind = "function", name = "delete the tooltip text holder", notes = ["research/panel-entry-text.md"] }
+"0x15a1540" = { kind = "function", name = "mark the tooltip text holder dead", notes = ["research/panel-entry-text.md"] }
 "0x15a25d0" = { kind = "function", notes = ["research/interface-bindings.md"] }
 "0x15a2658" = { kind = "code", notes = ["research/interface-bindings.md"] }
 "0x15a26c0" = { kind = "function", notes = ["research/interface-bindings.md"] }
@@ -4937,7 +5006,7 @@
 "0x15b1ea0" = { kind = "leaf", notes = ["research/gui-drawing.md"] }
 "0x15ba25d" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x15ba630" = { kind = "leaf", notes = ["research/drawing-beside-the-day.md"] }
-"0x15bd180" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
+"0x15bd180" = { kind = "function", name = "submit the text mesh drawing", notes = ["research/map-drawing-reads.md", "research/panel-entry-text.md"] }
 "0x15bd460" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/main-menu.md"] }
 "0x15bd4ac" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x15bd500" = { kind = "function", notes = ["research/main-menu.md"] }
@@ -4960,16 +5029,22 @@
 "0x15d90a0" = { kind = "leaf", notes = ["research/window-elements.md"] }
 "0x15d90d0" = { kind = "leaf", notes = ["research/window-elements.md"] }
 "0x15d9f80" = { kind = "function", notes = ["research/gui-drawing.md"] }
+"0x15da800" = { kind = "function", name = "allocate a text-texture drawing node", notes = ["research/panel-entry-text.md"] }
 "0x15e4c80" = { kind = "function", notes = ["research/loading.md"] }
 "0x15e4f00" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
+"0x15e6d60" = { kind = "function", name = "allocate a native text holder", notes = ["research/panel-entry-text.md"] }
 "0x15e7600" = { kind = "function", notes = ["research/interface-bindings.md"] }
 "0x15ebbf0" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x15ebd10" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x15f2d20" = { kind = "function", notes = ["research/interface-bindings.md"] }
+"0x15f3b40" = { kind = "function", name = "construct the text-box renderer", notes = ["research/panel-entry-text.md"] }
+"0x15f3ea0" = { kind = "function", name = "read the text renderer size", notes = ["research/panel-entry-text.md"] }
 "0x15f3f20" = { kind = "function", notes = ["research/gui-drawing.md", "research/main-thread.md"] }
 "0x15f41b9" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x15f4240" = { kind = "function", name = "resolve the text renderer position", notes = ["research/panel-entry-text.md"] }
 "0x15f42c0" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/extension-windows.md", "research/interface-bindings.md"] }
 "0x15f440f" = { kind = "code", notes = ["research/unicode-text.md"] }
+"0x15f45d0" = { kind = "leaf", name = "store the text renderer position", notes = ["research/panel-entry-text.md"] }
 "0x162ddb0" = { kind = "function", notes = ["research/input.md"] }
 "0x162e2d0" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/input.md"] }
 "0x162e480" = { kind = "leaf", notes = ["research/headless.md"] }
@@ -5065,9 +5140,9 @@
 "0x16d4c10" = { kind = "leaf", name = "a function of the graphics back end's table", notes = ["research/gui-drawing.md"] }
 "0x16d4c80" = { kind = "function", name = "a function of the graphics back end's table", notes = ["research/gui-drawing.md"] }
 "0x16d4db0" = { kind = "function", name = "frame present", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/headless.md", "research/loading.md", "research/safe-points.md", "research/screenshots.md"] }
-"0x16d4e00" = { kind = "function", name = "the renderer begins a scene", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/map-drawing-reads.md"] }
+"0x16d4e00" = { kind = "function", name = "the renderer begins a scene", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/map-drawing-reads.md", "research/panel-entry-text.md"] }
 "0x16d4e2f" = { kind = "code", name = "a scene forgets the renderer's vertex declaration", notes = ["research/drawing-beside-the-day.md"] }
-"0x16d4e50" = { kind = "function", name = "a function of the graphics back end's table", notes = ["research/architecture.md", "research/gui-drawing.md"] }
+"0x16d4e50" = { kind = "function", name = "a function of the graphics back end's table", notes = ["research/architecture.md", "research/gui-drawing.md", "research/panel-entry-text.md"] }
 "0x16d4e70" = { kind = "leaf", name = "a function of the graphics back end's table", notes = ["research/gui-drawing.md"] }
 "0x16d4e90" = { kind = "leaf", name = "a function of the graphics back end's table", notes = ["research/architecture.md", "research/gui-drawing.md"] }
 "0x16d4f00" = { kind = "function", name = "a function of the graphics back end's table", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/main-thread.md"] }
@@ -5725,6 +5800,7 @@
 "0x1d749d8" = { kind = "data", notes = ["research/map-drawing-reads.md"] }
 "0x1d7e848" = { kind = "data", notes = ["research/gui-drawing.md"] }
 "0x1d824c8" = { kind = "data", notes = ["research/map-drawing-reads.md"] }
+"0x1d83788" = { kind = "data", name = "tooltip owner class", notes = ["research/panel-entry-text.md"] }
 "0x1d84238" = { kind = "data", notes = ["research/notice-window.md"] }
 "0x1d84250" = { kind = "data", notes = ["research/main-menu.md", "research/notice-window.md"] }
 "0x1d84880" = { kind = "data", notes = ["research/leaders.md"] }
@@ -5749,10 +5825,10 @@
 "0x1d8c900" = { kind = "data", notes = ["research/recruiting.md"] }
 "0x1d8dc00" = { kind = "data", notes = ["research/ui-injection.md"] }
 "0x1d8dc40" = { kind = "data", notes = ["research/notice-window.md"] }
-"0x1d8fd10" = { kind = "data", notes = ["research/interface-bindings.md"] }
+"0x1d8fd10" = { kind = "data", name = "text-box class", notes = ["research/interface-bindings.md", "research/panel-entry-text.md"] }
 "0x1d90748" = { kind = "data", notes = ["research/main-menu.md"] }
-"0x1d90ea0" = { kind = "data", notes = ["research/window-elements.md"] }
-"0x1d90fd8" = { kind = "data", notes = ["research/window-elements.md"] }
+"0x1d90ea0" = { kind = "data", name = "list root class", notes = ["research/panel-entry-text.md", "research/window-elements.md"] }
+"0x1d90fd8" = { kind = "data", name = "list visual interface class", notes = ["research/panel-entry-text.md", "research/window-elements.md"] }
 "0x1d917d8" = { kind = "data", notes = ["research/text-input.md"] }
 "0x1d91810" = { kind = "data", notes = ["research/interface-bindings.md"] }
 "0x1d91cd0" = { kind = "data", notes = ["research/saves.md"] }
@@ -5762,7 +5838,7 @@
 "0x1d926b0" = { kind = "data", notes = ["research/interface-bindings.md", "research/notice-window.md", "research/window-elements.md"] }
 "0x1d929d0" = { kind = "data", notes = ["research/main-menu.md", "research/notice-window.md"] }
 "0x1d930d8" = { kind = "data", notes = ["research/gui-drawing.md"] }
-"0x1d933b0" = { kind = "data", notes = ["research/gui-drawing.md"] }
+"0x1d933b0" = { kind = "data", name = "text-texture drawing-node class", notes = ["research/gui-drawing.md", "research/panel-entry-text.md"] }
 "0x1d93c08" = { kind = "data", notes = ["research/gui-drawing.md"] }
 "0x1d94478" = { kind = "data", notes = ["research/ui-injection.md"] }
 "0x1d94728" = { kind = "data", notes = ["research/gui-drawing.md"] }
@@ -5778,6 +5854,7 @@
 "0x1d97ef0" = { kind = "data", notes = ["research/window-elements.md"] }
 "0x1d99108" = { kind = "data", notes = ["research/gui-drawing.md"] }
 "0x1d99120" = { kind = "data", notes = ["research/unicode-text.md"] }
+"0x1d99230" = { kind = "data", name = "tooltip text-holder class", notes = ["research/panel-entry-text.md"] }
 "0x1d997c0" = { kind = "data", notes = ["research/interface-bindings.md"] }
 "0x1d99d94" = { kind = "data", notes = ["research/trade-range-and-naval-supply.md"] }
 "0x1d9a830" = { kind = "data", notes = ["research/gui-drawing.md"] }
@@ -5785,7 +5862,7 @@
 "0x1d9b848" = { kind = "data", notes = ["research/gui-drawing.md", "research/main-menu.md"] }
 "0x1d9cf40" = { kind = "data", notes = ["research/main-menu.md"] }
 "0x1d9d3c8" = { kind = "data", notes = ["research/gui-drawing.md", "research/window-elements.md"] }
-"0x1da1d40" = { kind = "data", notes = ["research/gui-drawing.md"] }
+"0x1da1d40" = { kind = "data", name = "text-box renderer class", notes = ["research/gui-drawing.md", "research/panel-entry-text.md"] }
 "0x1da3530" = { kind = "data", notes = ["research/headless.md"] }
 "0x1da3630" = { kind = "data", notes = ["research/gui-drawing.md"] }
 "0x1da3960" = { kind = "data", notes = ["research/gui-drawing.md"] }

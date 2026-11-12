@@ -18,12 +18,16 @@
 pub mod dispatch;
 pub mod fetch;
 mod files;
+pub mod images;
 pub mod layout;
+pub mod numbers;
 mod sandbox;
+pub mod text;
 mod times;
 pub mod values;
 mod watch;
 pub mod windows;
+pub use text::Text;
 
 use eu4_harmony_remote::{Code, Request};
 use mlua::{Function, Lua, MultiValue, Table, Thread, ThreadStatus, Value as LuaValue};
@@ -65,6 +69,9 @@ pub trait Host: Send + Sync {
     /// Makes a change to one of the extension's windows, checked against
     /// its layout already.
     fn window(&self, extension: usize, change: WindowChange) -> Result<(), String>;
+    /// The tooltip content an extension currently owns. A window name selects
+    /// a declared window widget; none selects a supported hosted element.
+    fn tooltip(&self, extension: usize, window: Option<&str>, widget: &str) -> Result<Text, String>;
     /// Shows a pop-up of the extension's, and gives its number. A button
     /// pressed comes back as a [`dispatch::PopupPressed`], which runs the
     /// button's action; the pop-up stays open until it is closed.
@@ -122,8 +129,8 @@ pub trait Pending<T>: Send {
 pub enum Element {
     Visible(bool),
     Enabled(bool),
-    Text(String),
-    Tooltip(String),
+    Text(Text),
+    Tooltip(Text),
 }
 
 /// What a handler gets after `game`.
@@ -172,6 +179,7 @@ pub struct Extension {
     handlers: Table,
     /// The windows its `main.lua` returns, laid out.
     windows: Vec<layout::Window>,
+    images: Vec<images::Image>,
     /// The `game` every handler gets.
     game: Table,
     /// The prelude's own function that runs a pop-up's button's action.
@@ -341,13 +349,14 @@ pub fn open(index: usize, m: &Mod, host: Arc<dyn Host>) -> Result<Arc<Extension>
         other if stopped => return Err(format!("main.lua {}; it returned {}", watch::STOPPED, other.type_name())),
         other => return Err(format!("main.lua returned {} instead of a table of handlers", other.type_name())),
     };
-    let windows = match handlers.get::<LuaValue>("windows").map_err(|e| e.to_string())? {
+    let mut windows = match handlers.get::<LuaValue>("windows").map_err(|e| e.to_string())? {
         LuaValue::Nil => Vec::new(),
         declared => {
             let declared = values::to_json(&declared).map_err(|e| format!("main.lua's windows: {e}"))?;
             layout::read(&declared, &|key| host.text(m.id, key).is_some()).map_err(|e| format!("main.lua's {e}"))?
         }
     };
+    let images = images::load(m.harmony.parent().unwrap_or(&m.harmony), m.id, &mut windows)?;
     let extension = Arc::new(Extension {
         index,
         serial,
@@ -358,6 +367,7 @@ pub fn open(index: usize, m: &Mod, host: Arc<dyn Host>) -> Result<Arc<Extension>
         main: opened.main_state as usize,
         handlers,
         windows,
+        images,
         game: opened.game,
         press: opened.press,
         dropped: opened.dropped,
@@ -392,6 +402,11 @@ impl Extension {
     /// The windows its `main.lua` returns, laid out, in name order.
     pub fn windows(&self) -> &[layout::Window] {
         &self.windows
+    }
+
+    /// Validated entry images, kept alive with the extension's declaration.
+    pub fn images(&self) -> &[images::Image] {
+        &self.images
     }
 
     /// Its Lua state, for tests.

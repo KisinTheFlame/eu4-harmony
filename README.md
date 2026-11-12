@@ -100,6 +100,10 @@ my-mod/
 
 `main.lua` returns handlers, such as `on_day` for a day passing and `on_button` for a click on its button. Each gets `game`, through which every capability is called; a refusal returns `nil, err` with the game's reason. A handler can wait for an answer, such as another country's to a proposal, or for days to pass, and do several things at once as tasks it awaits. An extension that needs the real time, files or the network declares it under `permissions` in its manifest, and players see that in the Harmony mods window.
 
+`province.area` reads an owned area's members and governing costs, including the capacity added by making it a state without completing cores. `country.governing_capacity` separately recomputes the live national total in integer thousandths; [the province page](docs/game/provinces.md) explains the distinction.
+
+Visible text and tooltips share text descriptions: `{ text = "Ready" }` or `{ key = "MYMOD_DETAILS", values = { N = 3 } }`. The same descriptions work in declarations and supported runtime text setters; tooltips are also readable. Assignment replaces the content, and `nil` clears it, including across window rebuilding. Panel entries can use a checked mod-relative DDS or TGA image, change visibility and enabled state, and show an independently formatted number below the icon; the [window guide](cli/skills/ui/windows.md) covers layouts and properties.
+
 Where to learn more:
 
 - `eu4-harmony wiki`: every capability with its arguments and results, the handlers and globals (`wiki lua`), the manifest (`wiki manifest`). It needs no game.

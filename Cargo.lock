@@ -243,6 +243,7 @@ dependencies = [
  "eu4-harmony-manifest",
  "eu4-harmony-remote",
  "mlua",
+ "serde",
  "serde_json",
 ]
 

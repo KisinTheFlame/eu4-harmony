@@ -48,6 +48,32 @@ impl Host for TestHost {
         self.windows.lock().unwrap().push(change);
         Ok(())
     }
+    fn tooltip(&self, _: usize, window: Option<&str>, widget: &str) -> Result<Text, String> {
+        if let Some(window) = window {
+            return Ok(self
+                .windows
+                .lock()
+                .unwrap()
+                .iter()
+                .rev()
+                .find_map(|change| match change {
+                    WindowChange::Set { window: w, widget: name, value: Property::Tooltip(text) } if w == window && name == widget => Some(text.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default());
+        }
+        Ok(self
+            .elements
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find_map(|(name, value)| match value {
+                Element::Tooltip(text) if name == widget => Some(text.clone()),
+                _ => None,
+            })
+            .unwrap_or_default())
+    }
     fn popup(&self, _: usize, popup: Popup) -> Result<u32, String> {
         let mut popups = self.popups.lock().unwrap();
         let number = popups.len() as u32 + 1;
@@ -635,6 +661,99 @@ fn a_task_dropped_with_its_session_is_cancelled_for_whoever_awaits_it_later() {
     e.session_over();
     assert_eq!(e.waiting(), 0);
     assert_eq!(after(&e, "on_day", "LATER"), LuaValue::String(e.lua.create_string("cancelled").unwrap()), "{:?}", errors(&e));
+}
+
+#[test]
+fn one_text_description_reaches_window_row_host_and_popup_fields_without_aliasing() {
+    let main = r#"
+        local initial = {key="COUNT", values={N=3}}
+        return {
+          windows = { tools = { size={400,400}, title=initial, items={
+            {type="text",name="result",size={200,20},text=initial,tooltip=initial},
+            {type="button",name="button",text=initial},
+            {type="list",name="rows",size={200,100},row={size={200,30},items={
+              {type="text",name="cell",size={200,20},text=initial,tooltip=initial}
+            }}}
+          }}},
+          on_frame = function(game)
+            local content = {key="COUNT",values={N=3}}
+            game.window.tools.result.text = content
+            game.window.tools.result.tooltip = content
+            game.ui.label.text = content
+            game.ui.label.tooltip = content
+            game.window.tools.rows.rows = {{cell={text=content,tooltip=content}},{cell=content}}
+            game.popup{title=content,text={text="COUNT"},buttons={{text=content}}}
+            content.values.N = 99
+            local copy = game.window.tools.result.tooltip
+            copy.values.N = 42
+            assert(game.window.tools.result.tooltip.values.N == "3")
+          end,
+          on_day = function(game)
+            game.window.tools.result.text = nil
+            game.window.tools.result.tooltip = nil
+            game.ui.label.text = nil
+            game.ui.label.tooltip = nil
+          end,
+          on_button = function(game)
+            game.ui.label.text = text.get("COUNT",{N=7})
+            game.window.tools.result.text = "COUNT"
+          end,
+        }
+    "#;
+    let (e, host) = load_texts("shared-visible-text", main, &[("COUNT", "§YCount $N$§!\nReady")]).unwrap();
+    let expected = Text::declaration(&serde_json::json!({"key":"COUNT","values":{"N":3}}), &|_| true).unwrap();
+    let window = &e.windows()[0];
+    assert_eq!(window.title.as_ref(), Some(&expected));
+    assert!(matches!(&window.widgets[0].kind, layout::Kind::Text { text: Some(text), .. } if text == &expected));
+    assert!(matches!(&window.widgets[1].kind, layout::Kind::Button { text: Some(text), .. } if text == &expected));
+    e.handle("on_frame", &[]);
+    assert!(errors(&e).is_empty(), "{:?}", errors(&e));
+    assert_eq!(host.elements.lock().unwrap()[0].1, Element::Text(expected.clone()));
+    let changes = host.windows.lock().unwrap();
+    assert!(matches!(&changes[0], WindowChange::Set { value: Property::Text(text), .. } if text == &expected));
+    let WindowChange::Rows { rows, .. } = &changes[2] else { panic!("missing rows") };
+    assert!(rows.iter().all(|row| row.iter().any(|(_, property)| property == &Property::Text(expected.clone()))));
+    drop(changes);
+    let popups = host.popups.lock().unwrap();
+    assert_eq!(popups[0].1.title, "§YCount 3§!\nReady");
+    assert_eq!(popups[0].1.text, "COUNT", "literal text is not looked up again");
+    assert_eq!(popups[0].1.buttons, ["§YCount 3§!\nReady"]);
+    drop(popups);
+    e.handle("on_day", &[]);
+    assert!(matches!(&host.windows.lock().unwrap()[3], WindowChange::Set { value: Property::Text(text), .. } if text == &Text::default()));
+    assert_eq!(host.elements.lock().unwrap()[2].1, Element::Text(Text::default()));
+    e.handle("on_button", &[]);
+    assert_eq!(host.elements.lock().unwrap().last().unwrap().1, Element::Text("§YCount 7§!\nReady".into()));
+    assert!(matches!(host.windows.lock().unwrap().last().unwrap(), WindowChange::Set { value: Property::Text(text), .. } if text == &Text::from("COUNT")));
+    assert!(errors(&e).is_empty(), "{:?}", errors(&e));
+}
+
+#[test]
+fn tooltips_are_readable_descriptions_and_reading_does_not_expose_mutable_state() {
+    let main = r#"
+        return {
+          windows = { tools = { size = {300,200}, items = {
+            {type="text", name="result", size={200,20}}
+          }}},
+          on_frame = function(game)
+            local source = {key="COUNT", values={N=0}}
+            game.window.tools.result.tooltip = source
+            game.ui.button.tooltip = source
+            source.values.N = 99
+            assert(game.window.tools.result.tooltip.values.N == "0")
+            local copy = game.ui.button.tooltip
+            copy.values.N = 42
+            assert(game.ui.button.tooltip.values.N == "0")
+            game.window.tools.result.tooltip = nil
+            game.ui.button.tooltip = {text="§YReady§!\\nNext"}
+            assert(game.window.tools.result.tooltip.text == "")
+            assert(game.ui.button.tooltip.text == "§YReady§!\\nNext")
+          end,
+        }
+    "#;
+    let (e, _) = load_texts("tooltip-content", main, &[("COUNT", "$N$")]).unwrap();
+    e.handle("on_frame", &[]);
+    assert!(errors(&e).is_empty(), "{:?}", errors(&e));
 }
 
 #[test]

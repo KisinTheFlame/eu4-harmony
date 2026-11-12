@@ -132,14 +132,21 @@ impl Host for Live {
         let result = match value {
             Element::Visible(on) => interface::set_visible(caller, element, on),
             Element::Enabled(on) => interface::set_enabled(caller, element, on),
-            Element::Text(text) => interface::set_text(caller, element, &text),
-            Element::Tooltip(text) => interface::set_tooltip(caller, element, &text),
+            Element::Text(text) => ui::set_text(extension, element, text),
+            Element::Tooltip(text) => ui::set_tooltip(extension, element, text),
         };
         result.map_err(|e| e.message)
     }
 
     fn window(&self, extension: usize, change: WindowChange) -> Result<(), String> {
         crate::windows::change(extension, change)
+    }
+
+    fn tooltip(&self, extension: usize, window: Option<&str>, widget: &str) -> Result<eu4_harmony_lua::Text, String> {
+        match window {
+            Some(window) => crate::windows::tooltip(extension, window, widget),
+            None => ui::tooltip(extension, widget),
+        }
     }
 
     fn popup(&self, extension: usize, popup: Popup) -> Result<u32, String> {
@@ -338,7 +345,9 @@ pub fn load(mods: &[DiscoveredMod], log_dir: &Path, data_dir: &Path) -> Vec<Load
 /// The windows an extension's main.lua returns, for the framework to build.
 fn declare_windows(extension: &Extension) {
     let id = extension.id().to_string();
-    crate::windows::declare(extension.index(), &id, extension.windows(), |key| crate::loc::mod_text(&id, key).map(|t| eu4_harmony_loc::fill(&t, &[])));
+    crate::windows::declare(extension.index(), &id, extension.windows(), extension.images(), |key| {
+        crate::loc::mod_text(&id, key).map(|t| eu4_harmony_loc::fill(&t, &[]))
+    });
 }
 
 /// What an extension reload came to.
@@ -394,6 +403,10 @@ fn reload_now(id: &str) -> game::GResult<Reloaded> {
         }
     };
     let Some(old) = extensions().get(index).cloned() else { return refuse(game::Status::NotFound, format!("no extension of a mod {id:?} is loaded")) };
+    if new.images() != old.images() {
+        crate::loc::restore_mod(id, earlier);
+        return Err(rejected("entry images changed; their native resources take effect at the next start, and the old extension goes on".into()));
+    }
     let session = crate::sessions::going_on();
     // A stopped extension's code is not run again, save_data included.
     let (saved, lost) = match (session, old.stopped()) {
@@ -637,6 +650,9 @@ mod tests {
         }
         fn window(&self, _: usize, _: WindowChange) -> Result<(), String> {
             Ok(())
+        }
+        fn tooltip(&self, _: usize, _: Option<&str>, _: &str) -> Result<eu4_harmony_lua::Text, String> {
+            Ok(Default::default())
         }
         fn popup(&self, _: usize, _: Popup) -> Result<u32, String> {
             Err("no game in a test".into())

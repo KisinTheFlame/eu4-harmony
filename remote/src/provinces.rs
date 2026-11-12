@@ -40,6 +40,16 @@ group! {
         /// The province.
         province: ProvinceId,
     } -> Box<ProvinceSnapshot>, "its snapshot: id, name, owner, controller, development, terrain, fort, buildings, autonomy (percent), culture, religion and trade_good (their keys), unrest, trade_node (its key), center_of_trade (its level, 0 for none), trade_company, state (state or territory, null when it has no owner), edict (the state edict's key), cores, claims, constructions (each its kind, the game's key such as building_construction, the country, progress from 0 to 1, start and end dates, and the building or unit type it makes), missionary (a missionary's progress in percent, null when none works there), colony_size (null for no colony), prosperity (its state's, in percent; null in a territory), devastation (percent), local_manpower (thousands of men), supply_limit (regiments, for the country acted as), separatism (years left), institutions (each appeared institution's key and the progress toward it in percent) and named_modifiers (each its key and the day it ends, null for one that does not); in the player's view unrest, constructions and missionary are null for a province another country owns";
+    /// The province's area as held by the country acted as: its own provinces,
+    /// development, trade company membership, state status and governing cost.
+    /// Costs are integer thousandths. For live country capacity, call
+    /// country.governing_capacity separately before and after a command.
+    /// Refused for another country's province. A state projection is absent
+    /// when its costs cannot be determined without changing the world.
+    game Area "area" {
+        /// An owned province of the area.
+        province: ProvinceId,
+    } -> AreaSnapshot, "area (content key), owner, provinces (owned province numbers), development (their total), trade_company (any owned member belongs to one), state, governing_cost, make_state_cost (additional cost of statehood without coring, null when unavailable), unavailable_reason; all costs in integer thousandths";
     /// What a province has of each modifier asked for, by its key, as the
     /// game totals the province's own: its buildings, terrain, trade good,
     /// named modifiers and the rest, not what its owner's modifiers add
@@ -306,6 +316,20 @@ pub struct ProvinceSnapshot {
     /// Its progress toward each institution that has appeared in the world,
     /// in the game's order.
     pub institutions: Vec<InstitutionProgress>,
+}
+
+/// The country's share of an area, with exact governing costs in thousandths.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct AreaSnapshot {
+    pub area: String,
+    pub owner: CountryTag,
+    pub provinces: Vec<ProvinceId>,
+    pub development: f64,
+    pub trade_company: bool,
+    pub state: StateKind,
+    pub governing_cost: i32,
+    pub make_state_cost: Option<i32>,
+    pub unavailable_reason: Option<String>,
 }
 
 /// A province's progress toward an institution.

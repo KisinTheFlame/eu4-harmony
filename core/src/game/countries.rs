@@ -492,13 +492,18 @@ fn own_of(m: &Memory, ctx: &impl InWorld, c: usize) -> GResult<Own> {
 /// Governing capacity used and its maximum, as the game's own share of them
 /// reads them.
 fn governing_capacity(m: &Memory, c: usize) -> GResult<GoverningCapacity> {
+    let max = maximum_governing_capacity(m, c)?;
+    Ok(GoverningCapacity { used: thousandths(m.i32(c + fields::USED_GOVERNING_CAPACITY)?), max: thousandths(max) })
+}
+
+pub(super) fn maximum_governing_capacity(m: &Memory, c: usize) -> GResult<i32> {
     let values = modifiers::values(m, c)?;
     let mut max = 0i32;
     let out = &mut max as *mut i32 as usize;
     if MAX_GOVERNING_CAPACITY.call(m, [c, out, values, 0])? != out {
         return Err("governing capacity getter returned an unexpected pointer".to_string().into());
     }
-    Ok(GoverningCapacity { used: thousandths(m.i32(c + fields::USED_GOVERNING_CAPACITY)?), max: thousandths(max) })
+    Ok(max)
 }
 
 /// The country's loans, in the order it keeps them.

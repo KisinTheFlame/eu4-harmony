@@ -121,14 +121,19 @@ pub fn indices(m: &Memory, keys: &[String]) -> GResult<Vec<i32>> {
 pub fn totals(m: &Memory, set: usize, keys: &[String]) -> GResult<Vec<ModifierValue>> {
     let mut out = Vec::with_capacity(keys.len());
     for (key, index) in keys.iter().zip(indices(m, keys)?) {
-        let mut value = 0i32;
-        let at = &mut value as *mut i32 as usize;
-        if VALUE.call(m, [set, at, index as usize])? != at {
-            return Err("modifier getter returned an unexpected pointer".to_string().into());
-        }
-        out.push(ModifierValue { modifier: key.clone(), value: thousandths(value) });
+        out.push(ModifierValue { modifier: key.clone(), value: thousandths(value(m, set, index)?) });
     }
     Ok(out)
+}
+
+/// A known modifier's value in the game's thousandths, including its callback.
+pub(super) fn value(m: &Memory, set: usize, index: i32) -> GResult<i32> {
+    let mut value = 0i32;
+    let at = &mut value as *mut i32 as usize;
+    if VALUE.call(m, [set, at, index as usize])? != at {
+        return Err("modifier getter returned an unexpected pointer".to_string().into());
+    }
+    Ok(value)
 }
 
 /// The named modifiers at `entries`, each with the day it ends; one the

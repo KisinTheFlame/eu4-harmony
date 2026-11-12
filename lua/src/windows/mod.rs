@@ -37,12 +37,14 @@ pub enum WindowChange {
 pub enum Property {
     Visible(bool),
     Enabled(bool),
-    /// Words, as the player reads them.
-    Text(String),
-    Tooltip(String),
+    /// The same semantic text description used by declarations and tooltips.
+    Text(crate::Text),
+    Tooltip(crate::Text),
     Frame(u32),
     /// A progress bar's, from 0 to 1.
     Value(f64),
+    /// An entry's independent number; none hides it.
+    Number(Option<f64>),
     /// A flag's country, by its tag.
     Country(String),
 }
@@ -55,7 +57,7 @@ impl Property {
             Property::Text(_) => "text",
             Property::Tooltip(_) => "tooltip",
             Property::Frame(_) => "frame",
-            Property::Value(_) => "value",
+            Property::Value(_) | Property::Number(_) => "value",
             Property::Country(_) => "country",
         }
     }
@@ -111,14 +113,14 @@ fn property(placed: Option<&Placed>, property: &str, value: &LuaValue, what: &st
     let kind = placed.map(|p| &p.kind);
     let has = |names: &[&str]| names.contains(&property);
     let allowed: &[&str] = match kind {
-        None => &["visible", "tooltip", "frame"],
-        Some(Kind::Text { .. }) => &["visible", "text"],
+        None => &["visible", "enabled", "tooltip", "frame", "value"],
+        Some(Kind::Text { .. }) => &["visible", "text", "tooltip"],
         Some(Kind::Icon { .. }) => &["visible", "tooltip", "frame"],
         Some(Kind::Button { sprite: Some(_), .. }) => &["visible", "tooltip", "enabled", "frame"],
         Some(Kind::Button { .. }) => &["visible", "tooltip", "enabled"],
         Some(Kind::Progress { .. }) => &["visible", "tooltip", "value"],
         Some(Kind::Flag { .. }) => &["visible", "tooltip", "country"],
-        Some(Kind::List { .. }) => &["visible", "rows"],
+        Some(Kind::List { .. }) => &["visible", "tooltip", "rows"],
     };
     if !has(allowed) {
         let thing = kind.map(Kind::word).unwrap_or("entry button");
@@ -127,8 +129,8 @@ fn property(placed: Option<&Placed>, property: &str, value: &LuaValue, what: &st
     Ok(match property {
         "visible" => Property::Visible(flag()?),
         "enabled" => Property::Enabled(flag()?),
-        "text" => Property::Text(words()?),
-        "tooltip" => Property::Tooltip(words()?),
+        "text" => Property::Text(crate::Text::from_lua(value.clone()).map_err(|e| format!("{what}.text: {e}"))?),
+        "tooltip" => Property::Tooltip(crate::Text::from_lua(value.clone()).map_err(|e| format!("{what}.tooltip: {e}"))?),
         "frame" => {
             let n = number()?;
             if n < 1.0 || n.fract() != 0.0 || n > 1000.0 {
@@ -171,6 +173,19 @@ pub fn set(windows: &[Window], name: &str, widget: &str, property_name: &str, va
     } else {
         Some(w.widget(widget).ok_or_else(|| format!("{what}: the window has no game widget named {widget}"))?)
     };
+    if widget == layout::ENTRY && property_name == "value" {
+        let entry = w.entry.as_ref().unwrap();
+        let value = match value {
+            LuaValue::Nil => None,
+            LuaValue::Integer(n) => Some(*n as f64),
+            LuaValue::Number(n) => Some(*n),
+            _ => return Err(format!("{what}.value is a finite number or nil")),
+        };
+        if value.is_some_and(|value| !entry.format.accepts(value)) {
+            return Err(format!("{what}.value is a finite number in its format"));
+        }
+        return Ok(WindowChange::Set { window: name.to_string(), widget: widget.to_string(), value: Property::Number(value) });
+    }
     if property_name == "rows" {
         let Some(Placed { kind: Kind::List { row, .. }, .. }) = placed else {
             return Err(format!("{what}.rows: only a list has rows"));
@@ -178,6 +193,9 @@ pub fn set(windows: &[Window], name: &str, widget: &str, property_name: &str, va
         return rows(row, value, &what).map(|rows| WindowChange::Rows { window: name.to_string(), widget: widget.to_string(), rows });
     }
     let value = property(placed, property_name, value, &what)?;
+    if widget == layout::ENTRY && w.entry.as_ref().is_some_and(|entry| entry.image.is_some()) && matches!(value, Property::Frame(frame) if frame != 1) {
+        return Err(format!("{what}.frame: an entry image has one frame"));
+    }
     Ok(WindowChange::Set { window: name.to_string(), widget: widget.to_string(), value })
 }
 
@@ -198,6 +216,11 @@ fn rows(row: &layout::Row, value: &LuaValue, what: &str) -> Result<Vec<Vec<(Stri
             let placed = row.widget(&name).ok_or_else(|| format!("{at}: its row has no game widget named {name}"))?;
             let here = format!("{at}.{name}");
             match &cell {
+                LuaValue::Table(properties)
+                    if matches!(placed.kind, Kind::Text { .. }) && properties.contains_key("key").map_err(|error| format!("{here}: {error}"))? =>
+                {
+                    row_out.push((name.clone(), property(Some(placed), "text", &cell, &here)?));
+                }
                 LuaValue::Table(properties) => {
                     for pair in properties.pairs::<String, LuaValue>() {
                         let (p, v) = pair.map_err(|e| format!("{here}: {e}"))?;
@@ -224,7 +247,7 @@ fn rows(row: &layout::Row, value: &LuaValue, what: &str) -> Result<Vec<Vec<(Stri
 
 /// What puts a key of the mod's into the player language with its values,
 /// or says it has none.
-pub type Words<'a> = &'a dyn Fn(&str, &[(String, String)]) -> Option<String>;
+pub type Words<'a> = &'a dyn Fn(&str) -> Option<String>;
 
 /// `game.popup { header = key, title = key, text = key, values = { ... },
 /// buttons = { { text = key, action = function }, ... }, shields = { tag, tag } }`
@@ -248,19 +271,31 @@ pub fn popup(spec: &Table, words: Words, lua: &Lua) -> Result<Popup, String> {
             values.push((name, tostring.call::<String>(value).map_err(fail)?));
         }
     }
-    let text_of = |field: &str, key: Option<String>| -> Result<String, String> {
-        let key = key.ok_or_else(|| format!("game.popup has a {field}, a localisation key of the mod's"))?;
-        words(&key, &values).ok_or_else(|| format!("game.popup: {field}: the mod has no text {key:?} in its localisation"))
+    let text_of = |field: &str, value: LuaValue| -> Result<String, String> {
+        if value.is_nil() {
+            return Err(format!("game.popup has a {field}, a text description"));
+        }
+        let legacy = matches!(value, LuaValue::String(_));
+        let mut text = crate::Text::declaration_lua(value).map_err(fail)?;
+        if legacy {
+            if let crate::Text::Localized(localized) = &mut text {
+                localized.values.extend(values.iter().cloned());
+            }
+        }
+        text.check(&|key| words(key).is_some()).map_err(|error| format!("game.popup: {field}: {error}"))?;
+        Ok(text.resolve(words))
     };
     let optional = |field: &str| -> Result<Option<String>, String> {
-        match spec.get::<Option<String>>(field).map_err(fail)? {
-            Some(key) => Ok(Some(text_of(field, Some(key))?)),
-            None => Ok(None),
+        let value = spec.get::<LuaValue>(field).map_err(fail)?;
+        if value.is_nil() {
+            Ok(None)
+        } else {
+            text_of(field, value).map(Some)
         }
     };
     let header = optional("header")?;
-    let title = text_of("title", spec.get::<Option<String>>("title").map_err(fail)?)?;
-    let text = text_of("text", spec.get::<Option<String>>("text").map_err(fail)?)?;
+    let title = text_of("title", spec.get::<LuaValue>("title").map_err(fail)?)?;
+    let text = text_of("text", spec.get::<LuaValue>("text").map_err(fail)?)?;
     let mut buttons = Vec::new();
     if let Some(list) = spec.get::<Option<Table>>("buttons").map_err(fail)? {
         let list: Vec<Table> = list
@@ -281,7 +316,7 @@ pub fn popup(spec: &Table, words: Words, lua: &Lua) -> Result<Popup, String> {
             if !matches!(button.get::<LuaValue>("action").map_err(fail)?, LuaValue::Nil | LuaValue::Function(_)) {
                 return Err(format!("game.popup: {here}.action is a function, called when the button is pressed"));
             }
-            buttons.push(text_of(&format!("{here}.text"), button.get::<Option<String>>("text").map_err(fail)?)?);
+            buttons.push(text_of(&format!("{here}.text"), button.get::<LuaValue>("text").map_err(fail)?)?);
         }
     }
     let mut shields = [None, None];
@@ -309,7 +344,7 @@ mod tests {
         let windows = json!({ "reforms": {
             "size": [400, 480], "entry": { "sprite": "GFX_x" },
             "items": [
-                { "type": "text", "name": "status", "size": [100, 20] },
+                { "type": "text", "name": "status", "size": [100, 20], "tooltip": "STATUS_DETAILS" },
                 { "type": "button", "name": "pick", "sprite": "GFX_pick", "size": [30, 30] },
                 { "type": "list", "name": "countries", "size": [300, 280], "row": { "size": [300, 150], "items": [
                     { "type": "flag", "name": "flag" }, { "type": "progress", "name": "share" }, { "type": "text", "name": "name", "size": [100, 20] },
@@ -328,7 +363,15 @@ mod tests {
             set(&w, "reforms", "status", "text", &words),
             Ok(WindowChange::Set { window: "reforms".into(), widget: "status".into(), value: Property::Text("Reformed".into()) })
         );
-        assert!(set(&w, "reforms", "status", "frame", &LuaValue::Integer(2)).unwrap_err().contains("a text has visible, text"));
+        assert!(set(&w, "reforms", "status", "frame", &LuaValue::Integer(2)).unwrap_err().contains("a text has visible, text, tooltip"));
+        assert_eq!(
+            set(&w, "reforms", "status", "tooltip", &words),
+            Ok(WindowChange::Set { window: "reforms".into(), widget: "status".into(), value: Property::Tooltip("Reformed".into()) })
+        );
+        assert_eq!(
+            set(&w, "reforms", "status", "tooltip", &LuaValue::Nil),
+            Ok(WindowChange::Set { window: "reforms".into(), widget: "status".into(), value: Property::Tooltip(String::new().into()) })
+        );
         assert!(set(&w, "reforms", "pick", "frame", &LuaValue::Integer(2)).is_ok(), "an icon button's frame");
         assert!(set(&w, "reforms", "entry", "frame", &LuaValue::Integer(3)).is_ok());
         assert!(set(&w, "reforms", "gone", "visible", &LuaValue::Boolean(true)).unwrap_err().contains("no game widget named gone"));
@@ -361,9 +404,9 @@ mod tests {
     #[test]
     fn a_popup_is_put_into_words() {
         let lua = Lua::new();
-        let words = |key: &str, values: &[(String, String)]| match key {
+        let words = |key: &str| match key {
             "T" => Some("Title".to_string()),
-            "B" => Some(format!("Body {}", values.iter().map(|(n, v)| format!("{n}={v}")).collect::<String>())),
+            "B" => Some("Body N=$N$".into()),
             "OK" => Some("Fine".into()),
             _ => None,
         };
