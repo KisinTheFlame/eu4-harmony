@@ -42,6 +42,17 @@ impl Mark {
         lines.into_iter().filter(|line| TROUBLES.iter().any(|t| line.contains(t))).collect()
     }
 
+    /// Messages from `source` since the mark, without the shared journal's
+    /// timestamp and process fields. Headers and another source are excluded.
+    pub fn messages(&self, path: &Path, source: &str) -> Vec<String> {
+        let source = format!("{source} ");
+        self.since(path)
+            .iter()
+            .filter(|line| !line.starts_with('#'))
+            .filter_map(|line| line.split_once(" source=")?.1.strip_prefix(&source).map(String::from))
+            .collect()
+    }
+
     /// The lines the log `path` gained since the mark.
     pub fn since(&self, path: &Path) -> Vec<String> {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("log");
@@ -153,6 +164,22 @@ mod tests {
         s.log("core.log", "current retained\n");
         assert_eq!(mark.troubles(&user), ["1 panic on thread main (1): retained", "2 fatal error, ending the game: retained"]);
         assert_eq!(mark.since(&user.core_log()).last().unwrap(), "current retained");
+    }
+
+    #[test]
+    fn extension_messages_skip_journal_fields_headers_and_other_sources_across_rotation() {
+        let s = Scratch::new("messages");
+        let user = UserFolder::new(&s.0);
+        let header = "# eu4-harmony owned log source=extension-qa-windows run=one\n";
+        s.log("qa-windows.log", &format!("{header}old run=one source=extension-qa-windows before\n"));
+        let path = user.logs().join("qa-windows.log");
+        let mark = Mark::of_file(&path);
+        s.log(
+            "qa-windows.prev.log",
+            &format!("{header}old run=one source=extension-qa-windows before\nnow pid=1 tid=2 source=extension-qa-windows qa-windows completed 1\n"),
+        );
+        s.log("qa-windows.log", "# eu4-harmony owned log source=extension-qa-windows run=two\nnow pid=1 tid=2 source=extension-qa-windows-extra wrong source\nnow pid=1 tid=2 source=extension-qa-windows qa-windows completed 2\n");
+        assert_eq!(mark.messages(&path, "extension-qa-windows"), ["qa-windows completed 1", "qa-windows completed 2"]);
     }
 
     #[test]

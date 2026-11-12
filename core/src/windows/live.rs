@@ -20,16 +20,19 @@
 //! game calls back (Kill, tooltips) takes it only with `try_lock`; clicks
 //! are only queued, and taken up at the next frame.
 //! [`super::WINDOWS`] is never held while the game is called.
+#[path = "lifecycle.rs"]
+mod lifecycle;
+
 use super::{gui, type_name, with};
 use crate::{
     bound_element::{self, BoundElement, Hears, Look, Shown},
     game::{self, Caller, WorldSession},
-    game_heap, game_string,
+    game_string,
     hooks::Call,
     memory::Memory,
     objects::{
         campaign::{self, map_manager},
-        gui::{classes, element, functions, globals, list_box, list_entry, manager, scene, window, window_gui},
+        gui::{classes, element, functions, list_box, manager, scene, window, window_gui},
     },
     points::{GameFunction, Point},
     ui::{self, Callback},
@@ -131,6 +134,10 @@ struct Entry {
 #[derive(Default)]
 struct Live {
     built: Vec<Built>,
+    /// Roots whose cleanup has not entered native Kill; kept until it can
+    /// be called or the game reports their destruction. An attempted Kill
+    /// relinquishes the root even if it faults: the sweep may free it.
+    closing: Vec<Built>,
     /// The generation of definitions the game has read.
     read: Option<u64>,
     /// The pop-ups whose definitions the game has read.
@@ -280,46 +287,6 @@ fn look(kind: &Kind) -> Look {
     }
 }
 
-/// Binds the game widgets `widgets` of the window `root`, those of a row
-/// with `row`, into `out`.
-fn bind(m: &Memory, root: usize, widgets: &[Placed], row: Option<(String, u32)>, out: &mut Vec<Bound>) -> Result<()> {
-    for (index, placed) in widgets.iter().enumerate() {
-        let element = gui::element(placed, index);
-        let object = find(m, root, Some(&placed.kind), &element)?;
-        let bound = match placed.kind {
-            Kind::Button { .. } => listening(m, object, look(&placed.kind))?,
-            _ => BoundElement::new(object, look(&placed.kind)),
-        };
-        let name = placed.name.clone().unwrap_or(element);
-        out.push(Bound {
-            name,
-            tooltip_object: object + if matches!(placed.kind, Kind::List { .. }) { LIST_ELEMENT } else { 0 },
-            element: bound,
-            row: row.clone(),
-        });
-    }
-    Ok(())
-}
-
-/// Lets go of a built window's subscriptions while its elements are alive.
-fn unlink(m: &Memory, live: &mut Live, elements: &mut Vec<Bound>) -> Result<()> {
-    let mut result = Ok(());
-    for mut b in elements.drain(..) {
-        result = result.and(b.element.unlink(m));
-        live.retired.extend(b.element.retire());
-    }
-    result
-}
-
-/// Kills a built window, its subscriptions let go first.
-fn tear_down(m: &Memory, live: &mut Live, mut built: Built) -> Result<()> {
-    unlink(m, live, &mut built.elements)?;
-    show_window(m, built.root, false)?;
-    // Checked to be the game's Kill as the window was built.
-    let kill = m.vslot(built.root, window::KILL)?;
-    m.call(kill, &[built.root]).map(|_| ())
-}
-
 // ---------- applying what is wanted ----------
 
 /// What a game widget shows at first, from its layout.
@@ -343,53 +310,6 @@ fn initial(placed: &Placed, words: &BTreeMap<String, String>) -> BTreeMap<&'stat
         _ => {}
     }
     out
-}
-
-/// Makes element `index` show `want`, what differs from what it was set
-/// to before.
-fn apply_element(m: &Memory, built: &mut Built, index: usize, want: &BTreeMap<&'static str, Property>) -> Result<()> {
-    built.elements[index].element.apply(m, &Shown::of(want))
-}
-
-/// Builds a list's rows again: every row deleted, and each added and set.
-fn fill_rows(m: &Memory, live: &mut Live, built: &mut Built, list: &str, want: &WantWindow, rows: &[Vec<(String, Property)>]) -> Result<()> {
-    let Some(Placed { kind: Kind::List { row, .. }, .. }) = want.layout.widget(list) else { return Ok(()) };
-    let Some(list_index) = built.elements.iter().position(|b| b.name == list && b.row.is_none()) else { return Ok(()) };
-    let list_box = built.elements[list_index].element.object;
-    // The rows' elements go with them: let go of them first.
-    let (mut old, kept): (Vec<Bound>, Vec<Bound>) =
-        std::mem::take(&mut built.elements).into_iter().partition(|b| b.row.as_ref().is_some_and(|(l, _)| l == list));
-    built.elements = kept;
-    unlink(m, live, &mut old)?;
-    for (slot, function) in [(list_box::CLEAR, functions::LIST_CLEAR.rva()), (list_box::ADD, functions::LIST_ADD.rva())] {
-        if m.vslot(list_box, slot)? != m.at(function) {
-            return Err("a list box's method is not the one the framework knows".into());
-        }
-    }
-    functions::LIST_CLEAR.call(m, [list_box])?;
-    let mgr = m.ptr(m.at(globals::MANAGER))?;
-    let row_type = gui::row_type(&want.type_name, list);
-    for (n, cells) in rows.iter().enumerate() {
-        let entry = game_heap::new(m, list_entry::SIZE)?;
-        with_string(m, row_type.as_bytes(), |t| functions::LIST_ENTRY.call(m, [entry, mgr, t]))?;
-        let row_window = m.ptr(entry + list_entry::WINDOW)?;
-        if row_window == 0 {
-            return Err(format!("the game built no row {row_type}"));
-        }
-        functions::LIST_ADD.call(m, [list_box, entry, 1])?;
-        let first = built.elements.len();
-        bind(m, row_window, &row.widgets, Some((list.to_string(), n as u32 + 1)), &mut built.elements)?;
-        for (i, placed) in row.widgets.iter().enumerate() {
-            let mut wanted = initial(placed, &want.words);
-            for (name, property) in cells.iter().filter(|(name, _)| Some(name) == placed.name.as_ref()) {
-                let _ = name;
-                wanted.insert(property.name(), property.clone());
-            }
-            apply_element(m, built, first + i, &wanted)?;
-        }
-    }
-    built.rows.insert(list.to_string(), rows.to_vec());
-    Ok(())
 }
 
 // ---------- the frame ----------
@@ -453,7 +373,7 @@ pub(crate) fn frame() {
     clicks(m);
     let wants = wants();
     with_live(|live| {
-        if let Err(e) = sync(m, live, &wants) {
+        if let Err(e) = lifecycle::frame(m, live, &wants) {
             live.report(e);
         }
     });
@@ -521,170 +441,6 @@ fn clicks(m: &Memory) {
     }
 }
 
-fn sync(m: &Memory, live: &mut Live, wants: &Wants) -> Result<()> {
-    let mgr = m.ptr(m.at(globals::MANAGER))?;
-    if mgr == 0 {
-        return Ok(());
-    }
-    // Definitions of another generation: its windows go, the new are read.
-    if live.read != Some(wants.generation) {
-        let (old, popups): (Vec<Built>, Vec<Built>) = std::mem::take(&mut live.built).into_iter().partition(|b| matches!(b.key, Key::Window(..)));
-        live.built = popups;
-        for b in old {
-            tear_down(m, live, b)?;
-        }
-        if !wants.definitions.is_empty() {
-            read_definitions(m, mgr, WINDOWS_FILE, gui::file(&wants.definitions))?;
-        }
-        live.read = Some(wants.generation);
-    }
-    // What is no longer wanted goes.
-    let open_popups: HashSet<u32> = wants.popups.iter().map(|(n, _)| *n).collect();
-    let (gone, kept): (Vec<Built>, Vec<Built>) = std::mem::take(&mut live.built).into_iter().partition(|b| match &b.key {
-        Key::Popup(n) => !open_popups.contains(n),
-        Key::Window(e, w) => !wants.windows.iter().any(|ww| ww.extension == *e && &ww.layout.name == w && ww.wanted.open),
-    });
-    live.built = kept;
-    for b in gone {
-        tear_down(m, live, b)?;
-    }
-    let screen = screen(m, mgr)?;
-    // Windows wanted open and not built are built; what is wanted applied.
-    for want in &wants.windows {
-        let key = Key::Window(want.extension, want.layout.name.clone());
-        // A window the game would not build is not tried again until its
-        // definitions are read anew.
-        if want.wanted.open && !live.built.iter().any(|b| b.key == key) && !live.failed.contains(&want.type_name) {
-            match build_window(m, mgr, live, key.clone(), want, screen) {
-                Ok(built) => live.built.push(built),
-                Err(e) => {
-                    live.failed.insert(want.type_name.clone());
-                    live.report(format!("{} not built: {e}", want.layout.name));
-                }
-            }
-        }
-        let Some(at) = live.built.iter().position(|b| b.key == key) else { continue };
-        let mut built = live.built.remove(at);
-        let result = apply_window(m, live, &mut built, want);
-        // Where the player dragged it.
-        if built.moveable {
-            let now = unpack(m.u64(built.root + window::POSITION)?);
-            if now != built.placed {
-                built.placed = now;
-                with(|all| all.wanted.dragged(want.extension, &want.layout.name, now));
-            }
-        }
-        live.built.push(built);
-        result?;
-    }
-    // Pop-ups not built yet: each read and built, cascading.
-    for (number, popup) in &wants.popups {
-        if live.built.iter().any(|b| b.key == Key::Popup(*number)) {
-            continue;
-        }
-        let name = format!("eu4h_popup_{number}");
-        if live.popups_read.insert(*number) {
-            read_definitions(m, mgr, POPUPS_FILE, gui::file(&[gui::popup(&name, popup)]))?;
-        }
-        let shown = live.built.iter().filter(|b| matches!(b.key, Key::Popup(_))).count() as i32 % 8;
-        match build_popup(m, mgr, *number, popup, &name, screen, shown) {
-            Ok(built) => live.built.push(built),
-            // Closed: the player cannot see it to press its buttons.
-            Err(e) => {
-                live.report(format!("pop-up {number} not built: {e}"));
-                with(|all| all.wanted.lost_popup(*number));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn build_window(m: &Memory, mgr: usize, live: &mut Live, key: Key, want: &WantWindow, screen: (i32, i32)) -> Result<Built> {
-    let layout = &want.layout;
-    let root = create(m, mgr, &want.type_name)?;
-    if layout.panel {
-        let idler = idler(m)?;
-        OPENING.store(true, Ordering::Relaxed);
-        let closed = CLOSE_VIEWS.call(m, [idler]).and_then(|_| CLOSE_PANELS.call(m, [idler]));
-        OPENING.store(false, Ordering::Relaxed);
-        closed?;
-    }
-    let at = want.wanted.dragged.unwrap_or_else(|| place(layout, screen));
-    set_position(m, root, at)?;
-    let mut built = Built { key, root, placed: at, moveable: layout.moveable, elements: Vec::new(), rows: BTreeMap::new() };
-    let bound = (|| {
-        if layout.close {
-            let close = find(m, root, None, gui::CLOSE)?;
-            built.elements.push(Bound { name: gui::CLOSE.into(), tooltip_object: close, element: listening(m, close, Look::Plain)?, row: None });
-        }
-        // Nothing on a window that does not move is pressed by a press on
-        // its background.
-        if !layout.moveable {
-            ui::keep_still(m, root, gui::BACKGROUND)?;
-        }
-        bind(m, root, &layout.widgets, None, &mut built.elements)
-    })();
-    if let Err(e) = bound {
-        let _ = tear_down(m, live, built);
-        return Err(e);
-    }
-    show_window(m, root, true)?;
-    Ok(built)
-}
-
-fn apply_window(m: &Memory, live: &mut Live, built: &mut Built, want: &WantWindow) -> Result<()> {
-    for (index, placed) in want.layout.widgets.iter().enumerate() {
-        let name = placed.name.clone().unwrap_or_else(|| gui::element(placed, index));
-        let Some(at) = built.elements.iter().position(|b| b.name == name && b.row.is_none()) else { continue };
-        if matches!(placed.kind, Kind::List { .. }) {
-            let rows = want.wanted.rows.get(&name).cloned().unwrap_or_default();
-            if built.rows.get(&name) != Some(&rows) {
-                fill_rows(m, live, built, &name, want, &rows)?;
-            }
-            let mut wanted = initial(placed, &want.words);
-            if let Some(set) = want.wanted.set.get(&name) {
-                wanted.extend(set.iter().map(|(key, value)| (*key, value.clone())));
-            }
-            apply_element(m, built, at, &wanted)?;
-            continue;
-        }
-        let mut wanted = initial(placed, &want.words);
-        if let Some(set) = want.wanted.set.get(&name) {
-            wanted.extend(set.iter().map(|(k, v)| (*k, v.clone())));
-        }
-        apply_element(m, built, at, &wanted)?;
-    }
-    Ok(())
-}
-
-fn build_popup(m: &Memory, mgr: usize, number: u32, popup: &Popup, name: &str, (sw, sh): (i32, i32), shown: i32) -> Result<Built> {
-    let root = create(m, mgr, name)?;
-    let x = (sw - gui::POPUP_WIDTH) / 2 + CASCADE * shown;
-    let y = (sh - gui::popup_height(popup)) / 2 + CASCADE * shown;
-    set_position(m, root, (x, y))?;
-    let text = find(m, root, Some(&Kind::Text { text: None, font: layout::Font::Body, align: layout::Align::Start }), gui::TEXT)?;
-    bound_element::write_text(m, text, &game_text::from_str(&popup.text))?;
-    // The shields: the countries named, the player's where none is, and
-    // none to show in observe mode with no country in view. A click on one
-    // opens the diplomacy view on its country, as on the game's.
-    let mut elements = Vec::new();
-    for (element, tag) in gui::SHIELDS.iter().zip(&popup.shields) {
-        let Some(tag) = tag.clone().or_else(|| player_letters(m)) else { continue };
-        let shield = find(m, root, None, element)?;
-        if let Err(e) = bound_element::set_country(m, shield, &tag) {
-            log!("windows: pop-up {number}'s shield {tag}: {e}");
-            continue;
-        }
-        elements.push(Bound { name: element.to_string(), tooltip_object: shield, element: listening(m, shield, Look::Plain)?, row: None });
-    }
-    for (name, _) in gui::shown(popup) {
-        let object = find(m, root, None, &name)?;
-        elements.push(Bound { name, tooltip_object: object, element: listening(m, object, Look::Plain)?, row: None });
-    }
-    show_window(m, root, true)?;
-    Ok(Built { key: Key::Popup(number), root, placed: (x, y), moveable: true, elements, rows: BTreeMap::new() })
-}
-
 /// The letters of the player's country, none in observe mode with no
 /// country in view.
 fn player_letters(m: &Memory) -> Option<String> {
@@ -713,9 +469,7 @@ pub(crate) fn killed(m: &Memory, root: usize) {
     if let Err(e) = retire_entries(m, live, |entry| entry.strip == root) {
         live.report(format!("a killed entry strip could not let go of its buttons: {e}"));
     }
-    let Some(at) = live.built.iter().position(|b| b.root == root) else { return };
-    let mut built = live.built.remove(at);
-    if let Err(e) = unlink(m, live, &mut built.elements) {
+    if let Err(e) = lifecycle::killed(m, live, root) {
         live.report(format!("a window the game killed could not let go of its buttons: {e}"));
     }
 }
@@ -729,10 +483,8 @@ pub(crate) fn session_ended() {
             if let Err(e) = retire_entries(m, live, |_| true) {
                 live.report(format!("entry buttons at the session's end: {e}"));
             }
-            for b in std::mem::take(&mut live.built) {
-                if let Err(e) = tear_down(m, live, b) {
-                    live.report(format!("a window at the session's end: {e}"));
-                }
+            if let Err(e) = lifecycle::session_ended(m, live) {
+                live.report(format!("a window at the session's end: {e}"));
             }
         });
     }
@@ -1027,23 +779,5 @@ mod tests {
             Some(&Property::Tooltip(String::new().into())),
             "forgetting state clears any old native cache value"
         );
-    }
-
-    #[test]
-    fn a_list_rows_static_text_and_tooltip_use_the_windows_localisation() {
-        let windows = layout::read(
-            &serde_json::json!({ "tools": { "size": [400, 320], "items": [
-                { "type": "list", "name": "results", "size": [300, 120], "row": { "size": [300, 30], "items": [
-                    { "type": "text", "name": "result", "size": [250, 25], "text": "RESULT", "tooltip": "WHY" }
-                ]}}
-            ]}}),
-            &|_| true,
-        )
-        .unwrap();
-        let Kind::List { row, .. } = &windows[0].widget("results").unwrap().kind else { panic!() };
-        let words = BTreeMap::from([("RESULT".into(), "One row".into()), ("WHY".into(), "The localized reason".into())]);
-        let properties = initial(&row.widgets[0], &words);
-        assert_eq!(properties.get("text"), Some(&Property::Text("One row".into())));
-        assert_eq!(properties.get("tooltip"), Some(&Property::Tooltip("The localized reason".into())));
     }
 }

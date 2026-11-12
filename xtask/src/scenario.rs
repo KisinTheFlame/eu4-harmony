@@ -19,6 +19,7 @@ mod logs;
 mod perf;
 mod sessions;
 mod sweep;
+mod windows;
 
 pub use game::{Game, Played, Stop};
 
@@ -182,6 +183,7 @@ fn all() -> Vec<&'static dyn Scenario> {
         &sessions::Sessions,
         &achievements::Achievements,
         &extensions::Extensions,
+        &windows::Windows,
         &late::Late,
         &late::LONG,
         &late::CHECKED,
@@ -213,6 +215,7 @@ const SETS: &[Set] = &[
             "sessions",
             "achievements",
             "extensions",
+            "windows",
             "late",
             "long-1444",
             "long-1600",

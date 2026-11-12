@@ -21,6 +21,14 @@ Runtime follow-up on 2026-11-12: an extension's ordinary text box also reaches t
 
 The extension property layer suppresses a text box's retained tooltip while its logical `visible` property is false, since hiding text only clears its displayed string; showing it restores the tooltip. List-row text and tooltip defaults resolve through the same window-localisation map as top-level elements. Both cases have regressions in `bound_element` and `windows::live`.
 
+## Native lifetime ownership in the framework
+
+The private `windows::live::lifecycle` module now reconciles definition generations, native roots, list-row replacement and subscription retirement through the same process in the game and in a recording adapter. A root belongs to that process before positioning, panel closing, binding or showing can fail. A listener is recorded before native subscription is attempted, so a call that retains its callback and then fails still reaches retirement. The applied-row cache is invalidated before replacement and committed only after all rows have been applied; asking for the old contents after a partial failure rebuilds them rather than accepting stale state.
+
+The native destruction observer retires subscriptions without calling Kill again. Framework teardown makes hiding best effort and distinguishes failure before entering Kill from a failure returned by Kill: only the former keeps a root for retry. Once Kill has been attempted, the framework never reads that root again, even after an error, because the game may already have marked it dead and swept it. Retired callbacks stay retained. A native Kill fault is logged as uncertain native ownership, not reported as proof that every allocation was reclaimed.
+
+Process tests inject failures at the native-operation seam, including a Kill that frees the object before returning an error. They establish the framework's ordering, ownership and retry rules. They cannot establish rollback of arbitrary partial effects inside a game constructor or list insertion that faults under SEH. No game location or native lifetime rule is newly inferred by this refactoring; the static ownership evidence below remains its basis. The `windows` scenario repeats a native course through extension reload, an in-game load and another session, retaining captures for visual inspection.
+
 ## 1. Reading an interface file after startup
 
 `0x14eb7d0(GuiManager* mgr, const std::string* path)`, `void` (verified):
