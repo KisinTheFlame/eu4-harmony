@@ -1,6 +1,6 @@
 # Area governing costs
 
-Status: decided 2026-11-12 by the owner as a prerequisite of a separate convenience mod; A1 to A3 built and tried the same day, with limits recorded in [the run](../prototype-log/2026-11-12-convenience-tools.md).
+Status: decided 2026-11-12 by the owner as a prerequisite of a separate convenience mod; A1 to A3 built and tried the same day, with limits recorded in [the run](../prototype-log/2026-11-12-convenience-tools.md). Review refinement separates live national capacity into `country.governing_capacity`; the current interface and prediction failure boundary are in [the research](../research/area-governing-cost.md).
 
 ## Goal and scope
 

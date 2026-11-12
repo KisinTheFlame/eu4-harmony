@@ -29,6 +29,8 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 | [area-governing-cost.md](research/area-governing-cost.md) | Owned areas, native governing costs, and statehood without completing cores |
 | [Convenience Tools run](prototype-log/2026-11-12-convenience-tools.md) | Three finite batches in a separate mod, live area costs and trade-company exclusion |
 | [Convenience Tools window](prototype-log/2026-11-12-convenience-ui.md) | Grouped native controls, a single result line with a text tooltip, and four-language rendering |
+| [Reviewed area and live capacity](prototype-log/2026-11-12-convenience-reviewed-capacity.md) | Separate national reads, nullable prediction failures, tooltip regressions and a focused native comparison |
+| [Convenience Tools hands-on](prototype-log/2026-11-12-convenience-hands-on.md) | The isolated visible game handed to the user before publication |
 
 ## Plans
 

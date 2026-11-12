@@ -154,6 +154,14 @@ impl session::Layer for Fake {
 }
 
 impl countries::Layer for Fake {
+    fn governing_capacity(
+        &mut self,
+        _: eu4_harmony_remote::countries::args::GoverningCapacity,
+    ) -> GResult<eu4_harmony_remote::countries::CurrentGoverningCapacity> {
+        self.call("country governing_capacity".into());
+        Ok(eu4_harmony_remote::countries::CurrentGoverningCapacity { used: 512500, max: 700000 })
+    }
+
     fn hostile(&mut self, eu4_harmony_remote::countries::args::Hostile { country, other }: eu4_harmony_remote::countries::args::Hostile) -> GResult<bool> {
         self.call(format!("hostile {country} {other}"));
         let (a, b) = (found(country)?, found(other)?);
@@ -371,8 +379,6 @@ impl provinces::Layer for Fake {
             state: StateKind::Territory,
             governing_cost: 6375,
             make_state_cost: Some(6375),
-            governing_capacity_used: 512500,
-            governing_capacity_max: 700000,
             unavailable_reason: None,
         })
     }

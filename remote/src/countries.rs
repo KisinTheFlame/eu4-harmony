@@ -7,6 +7,11 @@ group! {
     /// Countries.
     "country": CountryRequest, CountryAnswer;
 
+    /// Live governing capacity of the country acted as. Recomputes used
+    /// capacity from its owned areas; both values are integer thousandths.
+    /// Separate from the cached, displayed values in country.get.
+    game GoverningCapacity "governing_capacity" {} -> CurrentGoverningCapacity, "used and max, in integer thousandths; used is recomputed now";
+
     /// Whether two countries are at war with each other, or either is a
     /// rebel faction.
     world Hostile "hostile" {
@@ -214,6 +219,13 @@ pub struct IdeaGroup {
     pub ideas: i32,
     /// It is the country's national ideas, which take no slot.
     pub national: bool,
+}
+
+/// Live governing capacity in integer thousandths, without the display cache.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct CurrentGoverningCapacity {
+    pub used: i32,
+    pub max: i32,
 }
 
 /// Governing capacity, as the government view shows it.

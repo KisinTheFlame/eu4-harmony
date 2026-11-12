@@ -1117,10 +1117,12 @@
 "0x3ed490" = { kind = "function", name = "nation ruining blocked", notes = ["research/power-spending.md"] }
 "0x3f0810" = { kind = "function", notes = ["research/area-governing-cost.md", "research/provinces.md"] }
 "0x3f12e0" = { kind = "function", name = "owned development and governing cost in an area", notes = ["research/area-governing-cost.md"] }
+"0x3f130e" = { kind = "code", name = "area province numbers", notes = ["research/area-governing-cost.md"] }
 "0x3f14a0" = { kind = "function", notes = ["research/trade-range-and-naval-supply.md"] }
 "0x3f2e10" = { kind = "function", name = "maximum governing capacity", notes = ["research/area-governing-cost.md", "research/countries.md"] }
 "0x3f2e37" = { kind = "code", notes = ["research/countries.md"] }
 "0x3f31d0" = { kind = "function", name = "current governing capacity used", notes = ["research/area-governing-cost.md"] }
+"0x3f32f4" = { kind = "code", name = "state governing cost increase modifier", notes = ["research/area-governing-cost.md"] }
 "0x3f34f0" = { kind = "function", name = "make state check", notes = ["research/province-view.md", "research/provinces.md"] }
 "0x3f3bd0" = { kind = "function", name = "abandon state check", notes = ["research/province-view.md"] }
 "0x3f47a0" = { kind = "function", name = "may promote mercantilism", notes = ["research/power-spending.md"] }
@@ -2318,6 +2320,12 @@
 "0x8ecec0" = { kind = "function", name = "static modifiers database", notes = ["research/area-governing-cost.md", "research/army-checks-in-searches.md", "research/provinces.md"] }
 "0x8ed090" = { kind = "function", notes = ["research/architecture.md"] }
 "0x8ed850" = { kind = "function", name = "read the static modifiers", notes = ["research/area-governing-cost.md"] }
+"0x8edff2" = { kind = "code", name = "in state static modifier", notes = ["research/area-governing-cost.md"] }
+"0x8ee0b0" = { kind = "code", name = "core static modifier", notes = ["research/area-governing-cost.md"] }
+"0x8ee0c3" = { kind = "code", name = "non core static modifier", notes = ["research/area-governing-cost.md"] }
+"0x8ee0d6" = { kind = "code", name = "colonial core static modifier", notes = ["research/area-governing-cost.md"] }
+"0x8ee0e9" = { kind = "code", name = "territory core static modifier", notes = ["research/area-governing-cost.md"] }
+"0x8ee0fc" = { kind = "code", name = "territory non core static modifier", notes = ["research/area-governing-cost.md"] }
 "0x8ef620" = { kind = "function", notes = ["research/loading.md"] }
 "0x8effc0" = { kind = "function", notes = ["research/loading.md"] }
 "0x8f0350" = { kind = "function", notes = ["research/loading.md"] }
@@ -2493,6 +2501,7 @@
 "0x959863" = { kind = "code", notes = ["research/countries.md"] }
 "0x959882" = { kind = "code", name = "policy category", notes = ["research/government.md"] }
 "0x95d2a0" = { kind = "function", name = "province core status modifiers", notes = ["research/area-governing-cost.md"] }
+"0x95d31d" = { kind = "code", name = "territorial core countries", notes = ["research/area-governing-cost.md"] }
 "0x95db70" = { kind = "function", name = "province state modifiers", notes = ["research/area-governing-cost.md"] }
 "0x95f050" = { kind = "function", notes = ["research/tolerance-in-a-province.md"] }
 "0x960330" = { kind = "function", notes = ["research/late-game.md"] }
@@ -2722,7 +2731,14 @@
 "0xa28d70" = { kind = "function", notes = ["research/tolerance-in-a-province.md"] }
 "0xa29960" = { kind = "function", notes = ["research/power-spending.md"] }
 "0xa2e0f0" = { kind = "function", name = "province governing cost factor", notes = ["research/area-governing-cost.md"] }
+"0xa2e170" = { kind = "code", name = "governing cost modifier", notes = ["research/area-governing-cost.md"] }
+"0xa2e1c0" = { kind = "code", name = "territory governing cost modifier", notes = ["research/area-governing-cost.md"] }
+"0xa2e1d6" = { kind = "code", name = "state governing cost modifier", notes = ["research/area-governing-cost.md"] }
+"0xa2e264" = { kind = "code", name = "local governing cost modifier", notes = ["research/area-governing-cost.md"] }
+"0xa2e4f8" = { kind = "code", name = "statewide governing cost modifier", notes = ["research/area-governing-cost.md"] }
+"0xa2e5c9" = { kind = "code", name = "minimum governing cost factor", notes = ["research/area-governing-cost.md"] }
 "0xa2e6f0" = { kind = "function", name = "province governing cost from its factor", notes = ["research/area-governing-cost.md"] }
+"0xa2e7d3" = { kind = "code", name = "local governing cost increase modifier", notes = ["research/area-governing-cost.md"] }
 "0xa2ec80" = { kind = "function", name = "country highlight bitset resized", notes = ["research/map-drawing-reads.md"] }
 "0xa368eb" = { kind = "code", notes = ["research/loading.md"] }
 "0xa40700" = { kind = "function", notes = ["research/provinces.md"] }
@@ -2887,7 +2903,7 @@
 "0xac0790" = { kind = "function", notes = ["research/religion.md"] }
 "0xac2800" = { kind = "function", name = "find or create a country state in an area", notes = ["research/area-governing-cost.md"] }
 "0xac2c10" = { kind = "function", name = "write an area and its country states", notes = ["research/area-governing-cost.md", "research/provinces.md"] }
-"0xac2c36" = { kind = "code", notes = ["research/area-governing-cost.md"] }
+"0xac2c36" = { kind = "code", name = "area content key", notes = ["research/area-governing-cost.md"] }
 "0xac9be0" = { kind = "function", notes = ["research/peace.md"] }
 "0xacb950" = { kind = "function", notes = ["research/architecture.md", "research/loading.md", "research/parameterized-script.md"] }
 "0xacc344" = { kind = "code", notes = ["research/parameterized-script.md"] }
@@ -4200,7 +4216,7 @@
 "0x133a503" = { kind = "code", notes = ["research/dates.md"] }
 "0x133b0e0" = { kind = "function", notes = ["research/religion.md"] }
 "0x133eba0" = { kind = "function", name = "make state confirmation", notes = ["research/area-governing-cost.md"] }
-"0x133ece8" = { kind = "code", notes = ["research/area-governing-cost.md"] }
+"0x133ece8" = { kind = "code", name = "province area definition", notes = ["research/area-governing-cost.md"] }
 "0x1343bd0" = { kind = "function", name = "province view deleting destructor", notes = ["research/main-menu.md"] }
 "0x1343c50" = { kind = "function", notes = ["research/envoys.md"] }
 "0x1343cde" = { kind = "code", name = "investment index", notes = ["research/envoys.md"] }

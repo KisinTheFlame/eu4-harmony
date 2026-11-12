@@ -107,13 +107,14 @@ fn static_value(m: &Memory, statics: usize, slot: usize, which: i32) -> GResult<
 
 #[derive(Clone)]
 struct Member {
-    address: usize,
     development: i32,
     local: i32,
     flat: i32,
     area_flat: i32,
     statewide: i32,
-    transition: [i32; 4],
+    current_factor: i32,
+    current_cost: i32,
+    transition: GResult<[i32; 4]>,
 }
 
 /// Fixed-point arithmetic of the native cost getter, with checked overflow.
@@ -132,29 +133,61 @@ fn area_total(total: i32) -> i32 {
 }
 
 /// A projection built from the same modifiers, with no writes to the world.
-fn projected(m: &Memory, owner: Tag, country_values: usize, members: &[Member]) -> GResult<i32> {
-    let global = value(m, country_values, GOVERNING)?;
-    let territory = value(m, country_values, TERRITORIES)?;
-    let state = value(m, country_values, STATES)?;
+fn projected(m: &Memory, country_values: usize, members: &[Member]) -> GResult<i32> {
+    project(value(m, country_values, GOVERNING)?, value(m, country_values, TERRITORIES)?, value(m, country_values, STATES)?, members)
+}
+
+fn project(global: i32, territory: i32, state: i32, members: &[Member]) -> GResult<i32> {
     let statewide = sum(members.iter().map(|p| p.statewide))?;
-    let future_statewide = sum(members.iter().map(|p| sum([p.statewide, p.transition[3]])).collect::<GResult<Vec<_>>>()?)?;
+    let future_statewide = sum(members.iter().map(|p| sum([p.statewide, p.transition.as_ref().map_err(Clone::clone)?[3]])).collect::<GResult<Vec<_>>>()?)?;
     let mut before = Vec::new();
     let mut after = Vec::new();
     for p in members {
         let factor = sum([1000, global, territory, p.local, statewide])?.max(MIN_FACTOR);
-        if out(m, COST_FACTOR, p.address, &owner.0, None)? != factor {
+        if p.current_factor != factor {
             return Err("province governing factor differs from its modifiers".to_string().into());
         }
         let current = cost(p.development, factor, p.flat)?;
-        if out(m, COST, p.address, &owner.0, Some(factor))? != current {
+        if p.current_cost != current {
             return Err("province governing cost differs from its development and modifiers".to_string().into());
         }
-        let future_factor = sum([1000, global, state, p.local, p.transition[0], future_statewide])?.max(MIN_FACTOR);
-        let future_flat = sum([p.flat, p.transition[1]])?;
+        let transition = p.transition.as_ref().map_err(Clone::clone)?;
+        let future_factor = sum([1000, global, state, p.local, transition[0], future_statewide])?.max(MIN_FACTOR);
+        let future_flat = sum([p.flat, transition[1]])?;
         before.push(sum([current, p.area_flat])?);
-        after.push(sum([cost(p.development, future_factor, future_flat)?, p.area_flat, p.transition[2]])?);
+        after.push(sum([cost(p.development, future_factor, future_flat)?, p.area_flat, transition[2]])?);
     }
     area_total(sum(after)?).checked_sub(area_total(sum(before)?)).ok_or_else(|| "governing cost overflow".to_string().into())
+}
+
+fn transition_value(old: i32, new: i32, in_state: i32) -> GResult<i32> {
+    let removed = old.checked_neg().ok_or_else(|| "governing modifier overflow".to_string())?;
+    sum([new, removed, in_state])
+}
+
+struct AreaCosts {
+    current: i32,
+    make_state: Option<i32>,
+    unavailable_reason: Option<String>,
+}
+
+fn area_costs(members: &[Member], projection: GResult<i32>) -> GResult<AreaCosts> {
+    let current = area_total(sum(members.iter().map(|p| sum([p.current_cost, p.area_flat])).collect::<GResult<Vec<_>>>()?)?);
+    let (make_state, unavailable_reason) = match projection {
+        Ok(cost) => (Some(cost), None),
+        Err(e) => (None, Some(e.message)),
+    };
+    Ok(AreaCosts { current, make_state, unavailable_reason })
+}
+
+pub fn governing_capacity(
+    Session { m, ctx, .. }: Session,
+    _: eu4_harmony_remote::countries::args::GoverningCapacity,
+) -> GResult<eu4_harmony_remote::countries::CurrentGoverningCapacity> {
+    Ok(eu4_harmony_remote::countries::CurrentGoverningCapacity {
+        used: total_used(m, ctx.country)?,
+        max: countries::maximum_governing_capacity(m, ctx.country)?,
+    })
 }
 
 pub fn area(Session { m, ctx, .. }: Session, args::Area { province: ProvinceId(id) }: args::Area) -> GResult<AreaSnapshot> {
@@ -175,13 +208,12 @@ pub fn area(Session { m, ctx, .. }: Session, args::Area { province: ProvinceId(i
     let count = containers::span(start, m.ptr(definition + AREA_PROVINCES + 8)?, 4, 0x10000)?;
     let ids = m.bytes(start, count * 4)?;
     let country_values = modifiers::values(m, ctx.country)?;
-    let statics = STATICS.call(m, [])?;
+    let statics = STATICS.call(m, []);
     let in_state = m.ptr(address + province::STATE)? != 0;
     let mut members = Vec::new();
     let mut provinces = Vec::new();
     let mut trade_company = false;
     let mut development = 0i32;
-    let mut governing_cost = 0i32;
     for number in ids.chunks_exact(4) {
         let id = u32::from_le_bytes(number.try_into().unwrap());
         let p = with_state(|s| s.geography.province_address(m, &ctx, id))?;
@@ -201,9 +233,13 @@ pub fn area(Session { m, ctx, .. }: Session, args::Area { province: ProvinceId(i
         let area_flat = value(m, set, AREA_FLAT)?;
         let statewide = value(m, set, STATEWIDE)?;
         let current_factor = out(m, COST_FACTOR, p, &ctx.player.0, None)?;
-        governing_cost = sum([governing_cost, out(m, COST, p, &ctx.player.0, Some(current_factor))?, area_flat])?;
-        let mut transition = [0i32; 4];
-        if !in_state {
+        let current_cost = out(m, COST, p, &ctx.player.0, Some(current_factor))?;
+        let transition = (|| {
+            let mut transition = [0i32; 4];
+            if in_state {
+                return Ok(transition);
+            }
+            let statics = *statics.as_ref().map_err(Clone::clone)?;
             let core = has_tag(m, p, province::CORES, ctx.player)?;
             let old = if core { TERRITORY_CORE } else { TERRITORY_NON_CORE };
             let new = if !core {
@@ -214,24 +250,21 @@ pub fn area(Session { m, ctx, .. }: Session, args::Area { province: ProvinceId(i
                 CORE
             };
             for (i, which) in [LOCAL, FLAT, AREA_FLAT, STATEWIDE].into_iter().enumerate() {
-                let old_value = static_value(m, statics, old, which)?.checked_neg().ok_or_else(|| "governing modifier overflow".to_string())?;
-                transition[i] = sum([static_value(m, statics, new, which)?, old_value, static_value(m, statics, IN_STATE, which)?])?;
+                transition[i] =
+                    transition_value(static_value(m, statics, old, which)?, static_value(m, statics, new, which)?, static_value(m, statics, IN_STATE, which)?)?;
             }
-        }
-        members.push(Member { address: p, development: dev, local, flat, area_flat, statewide, transition });
+            Ok(transition)
+        })();
+        members.push(Member { development: dev, local, flat, area_flat, statewide, current_factor, current_cost, transition });
     }
-    let used = total_used(m, ctx.country)?;
-    let max = (countries::governing_capacity(m, ctx.country)?.max * 1000.0).round() as i32;
-    let (make_state_cost, unavailable_reason) = if in_state {
-        (Some(0), None)
+    let projection = if in_state {
+        Ok(0)
     } else if trade_company {
-        (None, Some("the area contains a trade company province".to_string()))
+        Err("the area contains a trade company province".to_string().into())
     } else {
-        match projected(m, ctx.player, country_values, &members) {
-            Ok(cost) => (Some(cost), None),
-            Err(e) => (None, Some(e.message)),
-        }
+        projected(m, country_values, &members)
     };
+    let costs = area_costs(&members, projection)?;
     Ok(AreaSnapshot {
         area: key,
         owner: CountryTag(ctx.player.letters()),
@@ -239,17 +272,55 @@ pub fn area(Session { m, ctx, .. }: Session, args::Area { province: ProvinceId(i
         development: super::thousandths(development),
         trade_company,
         state: if in_state { StateKind::State } else { StateKind::Territory },
-        governing_cost: area_total(governing_cost),
-        make_state_cost,
-        governing_capacity_used: used,
-        governing_capacity_max: max,
-        unavailable_reason,
+        governing_cost: costs.current,
+        make_state_cost: costs.make_state,
+        unavailable_reason: costs.unavailable_reason,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_core_transition_overflow_keeps_current_cost_and_only_rejects_the_projection() {
+        for transition in [transition_value(i32::MIN, 0, 0), transition_value(0, i32::MAX, 1)] {
+            let members = [Member {
+                development: 30_000,
+                local: -750,
+                flat: 0,
+                area_flat: 0,
+                statewide: 0,
+                current_factor: 250,
+                current_cost: 7_500,
+                transition: transition.map(|value| [value, 0, 0, 0]),
+            }];
+            let costs = area_costs(&members, project(0, 0, 0, &members)).unwrap();
+            assert_eq!(costs.current, 7_500);
+            assert_eq!(costs.make_state, None);
+            assert!(costs.unavailable_reason.unwrap().contains("overflow"));
+        }
+    }
+
+    #[test]
+    fn a_projection_checks_the_native_values_read_in_the_same_area_snapshot() {
+        let mut members = [Member {
+            development: 30_000,
+            local: -750,
+            flat: 0,
+            area_flat: 0,
+            statewide: 0,
+            current_factor: 250,
+            current_cost: 7_500,
+            transition: Ok([250, 0, 0, 0]),
+        }];
+        assert_eq!(project(0, 0, 0, &members).unwrap(), 7_500);
+        members[0].current_factor = 251;
+        assert!(project(0, 0, 0, &members).unwrap_err().message.contains("factor differs"));
+        members[0].current_factor = 250;
+        members[0].current_cost = 7_501;
+        assert!(project(0, 0, 0, &members).unwrap_err().message.contains("cost differs"));
+    }
+
     #[test]
     fn costs_keep_thousandths_and_apply_the_floor_before_flat_cost() {
         assert_eq!(cost(30_001, 500, 0).unwrap(), 15_000);

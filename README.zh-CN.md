@@ -99,7 +99,7 @@ my-mod/
 
 `main.lua` 返回处理函数，比如过了一天时的 `on_day`、按钮被点击时的 `on_button`。每个都拿到 `game`，所有能力都从它调用；被拒绝时返回 `nil, err`，带着游戏给的理由。处理函数可以等一个答复，比如别国对提议的答复，或者等游戏里过去若干天，也可以把几件事作为任务同时进行、再等它们完成。需要现实时间、文件或网络的扩展，要在清单的 `permissions` 里声明，玩家在 Harmony Mod 窗口里能看到。
 
-`province.area` 读取一个州内的自有省份与行政容量占用，包括只设立直辖州、不补完整核心时的新增占用；两者的区别见[省份机制](docs/game/provinces.md)。
+`province.area` 读取一个州内的自有省份与行政容量占用，包括只设立直辖州、不补完整核心时的新增占用。`country.governing_capacity` 单独实时重算全国占用，以整数千分值返回；两者的区别见[省份机制](docs/game/provinces.md)。
 
 扩展窗口中的文字也可通过 `game.window.<window>.<text>.tooltip` 设置悬浮提示；布局与属性见[窗口指南](cli/skills/ui/windows.md)。
 
