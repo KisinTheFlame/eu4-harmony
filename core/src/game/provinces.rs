@@ -584,6 +584,15 @@ fn text_at(m: &Memory, string: usize) -> GResult<String> {
     Ok(game_string::key(m, string)?)
 }
 
+/// Total development in the game's fixed point, including tribal development.
+pub(super) fn development(m: &Memory, province: usize) -> GResult<i32> {
+    let mut total = 0i32;
+    for getter in [BASE_TAX, BASE_PRODUCTION, BASE_MANPOWER] {
+        total = total.checked_add(base(m, getter, province)?).ok_or_else(|| "province development overflow".to_string())?;
+    }
+    Ok(total)
+}
+
 /// One of the base development getters.
 fn base(m: &Memory, getter: GameFunction<3>, province: usize) -> GResult<i32> {
     let mut out = 0i32;

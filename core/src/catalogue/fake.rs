@@ -359,6 +359,24 @@ impl provinces::Layer for Fake {
         Ok(Box::new(constantinople()))
     }
 
+    fn province_area(&mut self, args: eu4_harmony_remote::provinces::args::Area) -> GResult<eu4_harmony_remote::provinces::AreaSnapshot> {
+        use eu4_harmony_remote::provinces::{AreaSnapshot, StateKind};
+        self.call(format!("province area {}", args.province.0));
+        Ok(AreaSnapshot {
+            area: "thrace_area".into(),
+            owner: letters("TUR"),
+            provinces: vec![args.province],
+            development: 25.5,
+            trade_company: false,
+            state: StateKind::Territory,
+            governing_cost: 6375,
+            make_state_cost: Some(6375),
+            governing_capacity_used: 512500,
+            governing_capacity_max: 700000,
+            unavailable_reason: None,
+        })
+    }
+
     /// In Constantinople the player can develop tax for 50 administrative
     /// points and cannot core it; elsewhere nothing.
     fn province_options(

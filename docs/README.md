@@ -26,6 +26,8 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 | [2026-11-12-prepared-core-highlights.md](prototype-log/2026-11-12-prepared-core-highlights.md) | Prepared highlights checked across target changes, removal, loading, the country in view and a speed-5 run |
 | [2026-11-12-core-highlights-final.md](prototype-log/2026-11-12-core-highlights-final.md) | The final source's core-hover smoke check and standard validation |
 | [2026-11-12-core-highlight-capture-reuse.md](prototype-log/2026-11-12-core-highlight-capture-reuse.md) | Capture-buffer reuse, failed-capture invalidation and the final short game check |
+| [area-governing-cost.md](research/area-governing-cost.md) | Owned areas, native governing costs, and statehood without completing cores |
+| [Convenience Tools run](prototype-log/2026-11-12-convenience-tools.md) | Three finite batches in a separate mod, live area costs and trade-company exclusion |
 
 ## Plans
 
@@ -46,6 +48,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 | --- | --- |
 | [bounded-logs.md](plans/bounded-logs.md) | Bounded owned logs, useful event context, safe cleanup and bounded troubleshooting files |
 | [v1.md](plans/v1.md) | The design of the first version |
+| [area-governing-cost.md](plans/area-governing-cost.md) | General area grouping and checked governing capacity for state commands |
 | [unicode-module.md](plans/unicode-module.md) | The Unicode module and the framework UI |
 | [remote-control.md](plans/remote-control.md) | Remote control: its parts and what each delivers |
 | [sessions.md](plans/sessions.md) | Leaving a session without a restart |

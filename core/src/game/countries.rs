@@ -491,7 +491,7 @@ fn own_of(m: &Memory, ctx: &impl InWorld, c: usize) -> GResult<Own> {
 
 /// Governing capacity used and its maximum, as the game's own share of them
 /// reads them.
-fn governing_capacity(m: &Memory, c: usize) -> GResult<GoverningCapacity> {
+pub(super) fn governing_capacity(m: &Memory, c: usize) -> GResult<GoverningCapacity> {
     let values = modifiers::values(m, c)?;
     let mut max = 0i32;
     let out = &mut max as *mut i32 as usize;

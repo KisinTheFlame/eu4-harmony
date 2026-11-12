@@ -99,6 +99,8 @@ my-mod/
 
 `main.lua` returns handlers, such as `on_day` for a day passing and `on_button` for a click on its button. Each gets `game`, through which every capability is called; a refusal returns `nil, err` with the game's reason. A handler can wait for an answer, such as another country's to a proposal, or for days to pass, and do several things at once as tasks it awaits. An extension that needs the real time, files or the network declares it under `permissions` in its manifest, and players see that in the Harmony mods window.
 
+`province.area` reads an owned area's members and governing costs, including the capacity added by making it a state without completing cores; [the province page](docs/game/provinces.md) explains the distinction.
+
 Where to learn more:
 
 - `eu4-harmony wiki`: every capability with its arguments and results, the handlers and globals (`wiki lua`), the manifest (`wiki manifest`). It needs no game.
