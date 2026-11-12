@@ -2,6 +2,10 @@
 
 What changed in each version of Harmony that players and mod authors notice. Each upload to the Steam Workshop is a version of its own, and its section here is the upload's change note (`cargo xtask workshop-upload`).
 
+## 0.1.4
+
+- Fixed: an event's option text could be drawn before its initialization finished, leaving the text misaligned. The drawing thread now waits for the whole event window and its options to be initialized.
+
 ## 0.1.3
 
 - Fixed: since 0.1.2, the picture could stop while the sound and the game's time went on, after switching country, declaring war or continuing a saved game.
