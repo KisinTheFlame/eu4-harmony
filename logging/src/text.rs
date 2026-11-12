@@ -8,7 +8,10 @@ fn sensitive(key: &str) -> bool {
         || key.contains("passwd")
         || key.contains("token")
         || key.contains("secret")
-        || matches!(key.as_str(), "auth" | "authorization" | "authentication" | "login" | "credential" | "credentials" | "ticket" | "access_key" | "api_key")
+        || matches!(
+            key.as_str(),
+            "auth" | "authorization" | "proxy_authorization" | "authentication" | "login" | "credential" | "credentials" | "ticket" | "access_key" | "api_key"
+        )
         || key == "paradox_account_userid"
         || key.starts_with("auth_")
         || key.ends_with("_auth")
@@ -34,6 +37,11 @@ pub fn redact(text: &str) -> String {
         if !sensitive(&text[start..at]) {
             continue;
         }
+        let command = text[start..at].starts_with('-');
+        let query = start > 0 && matches!(bytes[start - 1], b'?' | b'&');
+        let quoted_key = bytes.get(at).is_some_and(|b| matches!(b, b'"' | b'\''));
+        let key = text[start..at].trim_start_matches('-');
+        let authorization = ["authorization", "proxy-authorization", "proxy_authorization"].iter().any(|field| key.eq_ignore_ascii_case(field));
         let mut next = at;
         if bytes.get(next).is_some_and(|b| matches!(b, b'"' | b'\'')) {
             next += 1;
@@ -42,13 +50,13 @@ pub fn redact(text: &str) -> String {
         if !separated {
             continue;
         }
-        while bytes.get(next).is_some_and(|b| b.is_ascii_whitespace() || matches!(b, b'=' | b':')) {
+        while bytes.get(next).is_some_and(|b| matches!(b, b' ' | b'\t' | b'=' | b':')) {
             next += 1;
         }
         if next >= bytes.len() {
             continue;
         }
-        let quote = bytes.get(next).copied().filter(|b| matches!(b, b'"' | b'\''));
+        let quote = if authorization && !command && !query && !quoted_key { None } else { bytes.get(next).copied().filter(|b| matches!(b, b'"' | b'\'')) };
         if quote.is_some() {
             next += 1;
         }
@@ -61,17 +69,20 @@ pub fn redact(text: &str) -> String {
                     next += 1;
                 }
             }
+        } else if authorization {
+            // Authentication schemes can have several words, quoted values
+            // and commas (Digest, for example). Redact the entire field,
+            // regardless of its scheme, without crossing a header line or
+            // consuming the next URL field or command switch.
+            while next < bytes.len() && !matches!(bytes[next], b'\r' | b'\n') && !(query && bytes[next] == b'&') {
+                if command && bytes[next].is_ascii_whitespace() && bytes.get(next + 1) == Some(&b'-') {
+                    break;
+                }
+                next += 1;
+            }
         } else {
             while next < bytes.len() && !bytes[next].is_ascii_whitespace() && !matches!(bytes[next], b'&' | b',' | b'}' | b'"' | b'\'') {
                 next += 1;
-            }
-            if text[start..at].eq_ignore_ascii_case("authorization") && text[value..next].eq_ignore_ascii_case("bearer") {
-                while bytes.get(next).is_some_and(u8::is_ascii_whitespace) {
-                    next += 1;
-                }
-                while next < bytes.len() && !bytes[next].is_ascii_whitespace() && !matches!(bytes[next], b',' | b'}' | b'"') {
-                    next += 1;
-                }
             }
         }
         if next > value {
@@ -96,6 +107,26 @@ pub fn redact(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn authorization_redacts_complete_values_for_every_scheme_and_keeps_field_boundaries() {
+        for value in [
+            "Basic c3ludGhldGljOnNlY3JldA==",
+            "Bearer synthetic-token",
+            "Custom one two three",
+            "Custom -parameter synthetic-value",
+            r#"Digest username="synthetic", response="synthetic-response""#,
+            r#"Digest username="synthetic&private", response="synthetic-response""#,
+            r#""Custom" synthetic-value"#,
+        ] {
+            assert_eq!(redact(&format!("Authorization: {value}\r\nNext: visible")), "Authorization: [redacted]\r\nNext: visible");
+        }
+        assert_eq!(redact("--authorization Basic synthetic-value -userdir visible"), "--authorization [redacted] -userdir visible");
+        assert_eq!(redact("?authorization=Basic synthetic-value&keep=visible"), "?authorization=[redacted]&keep=visible");
+        assert_eq!(redact(r#"{"Authorization":"Custom one two","keep":"visible"}"#), r#"{"Authorization":"[redacted]","keep":"visible"}"#);
+        assert_eq!(redact("Authorization:\nNext: visible"), "Authorization:\nNext: visible");
+        assert_eq!(redact("Proxy-Authorization: Basic synthetic-value\nNext: visible"), "Proxy-Authorization: [redacted]\nNext: visible");
+    }
+
     #[test]
     fn command_json_and_url_credentials_are_removed_without_losing_nonsecret_context() {
         let line = r#"eu4.exe -userdir="C:\my games" -auth_token="one two" --password=three -harmony_core=D:\core.dll -ticket four"#;

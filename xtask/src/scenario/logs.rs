@@ -56,9 +56,7 @@ impl Mark {
             }
             return lines;
         }
-        let mut lines = all(&texts[2]);
-        lines.extend(all(&texts[3]));
-        lines
+        texts.iter().flat_map(|text| all(text)).collect()
     }
 }
 
@@ -141,6 +139,20 @@ mod tests {
         s.log("core.prev.log", "segment two\nnext\n");
         s.log("core.log", "segment three\nlast\n");
         assert_eq!(mark.since(&user.core_log()), ["new before rotation", "segment two", "next", "segment three", "last"]);
+    }
+
+    #[test]
+    fn an_evicted_mark_still_checks_all_retained_segments_for_failures() {
+        let s = Scratch::new("evicted-mark");
+        let user = UserFolder::new(&s.0);
+        s.log("core.log", "evicted segment\n");
+        let mark = Mark::of(&user);
+        s.log("core.3.log", "oldest retained\n1 panic on thread main (1): retained\n");
+        s.log("core.2.log", "next retained\n2 fatal error, ending the game: retained\n");
+        s.log("core.prev.log", "previous retained\n");
+        s.log("core.log", "current retained\n");
+        assert_eq!(mark.troubles(&user), ["1 panic on thread main (1): retained", "2 fatal error, ending the game: retained"]);
+        assert_eq!(mark.since(&user.core_log()).last().unwrap(), "current retained");
     }
 
     #[test]

@@ -8,12 +8,15 @@
 //! megabytes, and the game goes on drawing meanwhile.
 use crate::zip::{self, Entry};
 use eu4_harmony_folders::UserFolder;
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 use std::fs::{File, OpenOptions};
 #[cfg(test)]
 use std::io::Write as _;
 use std::io::{Read as _, Seek as _};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// How many of the last crash folders are packed.
 const CRASHES: usize = 3;
@@ -68,33 +71,84 @@ pub fn start() {
     }
 }
 
-/// One file to pack: its name in the zip file, and where it is.
+/// Evidence order is cached once, rather than reading metadata during every
+/// heap comparison. Current segments precede archives; newer crash folders
+/// precede older ones, even when their files have identical modification times.
+#[derive(Eq, PartialEq, Ord, PartialOrd)]
 struct Source {
+    order: (u8, u8, Reverse<String>, Reverse<SystemTime>),
     name: String,
     path: PathBuf,
 }
 
-/// The files of `dir`, not its folders, each named in the zip file under
-/// `under`.
-fn files_in(dir: &Path, under: &str) -> Vec<Source> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
-    let mut out: Vec<Source> = entries
-        .flatten()
-        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()) && !e.file_name().to_string_lossy().ends_with(".snapshot.new"))
-        .take(MAX_FILES)
-        .map(|e| Source { name: format!("{under}/{}", e.file_name().to_string_lossy()), path: e.path() })
-        .collect();
-    out.sort_by(|a, b| a.name.cmp(&b.name));
-    out
+impl Source {
+    fn new(name: String, path: PathBuf) -> Self {
+        let segment = if name.ends_with(".3.log") {
+            3
+        } else if name.ends_with(".2.log") {
+            2
+        } else if name.ends_with(".prev.log") {
+            1
+        } else {
+            0
+        };
+        let crash = if name.starts_with("crashes/") { name.split('/').nth(1).unwrap_or_default() } else { "" };
+        let modified = path.metadata().and_then(|m| m.modified()).unwrap_or(UNIX_EPOCH);
+        Self { order: (priority(&name), segment, Reverse(crash.into()), Reverse(modified)), name, path }
+    }
+}
+
+/// Keep the best candidates across every folder, independent of enumeration
+/// order, with one ZIP entry reserved for about.txt. Count every rejected or
+/// displaced candidate without retaining an unbounded list of names.
+#[derive(Default)]
+struct Sources {
+    files: BinaryHeap<Source>,
+    omitted: usize,
+}
+
+impl Sources {
+    fn push(&mut self, source: Source) {
+        if self.files.len() < MAX_FILES - 1 {
+            self.files.push(source);
+        } else {
+            if self.files.peek().is_some_and(|worst| source < *worst) {
+                self.files.pop();
+                self.files.push(source);
+            }
+            self.omitted = self.omitted.saturating_add(1);
+        }
+    }
+}
+
+impl FromIterator<Source> for Sources {
+    fn from_iter<T: IntoIterator<Item = Source>>(iter: T) -> Self {
+        let mut sources = Self::default();
+        for source in iter {
+            sources.push(source);
+        }
+        sources
+    }
+}
+
+fn files_in(dir: &Path, under: &str, out: &mut Sources) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if entry.file_type().is_ok_and(|t| t.is_file()) && !(name.ends_with(".new") && (name.ends_with(".snapshot.new") || name.contains(".snapshot-"))) {
+            out.push(Source::new(format!("{under}/{name}"), entry.path()));
+        }
+    }
 }
 
 /// Every file the troubleshooting files hold of the user folder `user`.
-fn sources(user: &UserFolder) -> Vec<Source> {
-    let mut out = files_in(&user.logs(), "harmony-logs");
-    out.extend(files_in(&user.game_logs(), "game-logs"));
+fn sources(user: &UserFolder) -> Sources {
+    let mut out = Sources::default();
+    files_in(&user.logs(), "harmony-logs", &mut out);
+    files_in(&user.game_logs(), "game-logs", &mut out);
     let crashes = user.crash_folders().unwrap_or_default();
     for name in crashes.iter().rev().take(CRASHES).rev() {
-        out.extend(files_in(&user.crashes().join(name), &format!("crashes/{name}")));
+        files_in(&user.crashes().join(name), &format!("crashes/{name}"), &mut out);
     }
     for (name, path) in [
         ("settings/harmony-settings.txt", user.harmony().join("settings.txt")),
@@ -102,7 +156,7 @@ fn sources(user: &UserFolder) -> Vec<Source> {
         ("settings/dlc_load.json", user.path().join("dlc_load.json")),
     ] {
         if path.is_file() {
-            out.push(Source { name: name.into(), path });
+            out.push(Source::new(name.into(), path));
         }
     }
     out
@@ -118,7 +172,7 @@ fn about(user: &UserFolder, now: &str) -> Vec<String> {
         format!("user folder: {}", user.path().display()),
         format!("command line: {}", eu4_harmony_logging::redact(crate::paths::command_line())),
         format!("run: {}", eu4_harmony_logging::run_id()),
-        format!("collection: total payload at most {TOTAL} bytes; at most {MAX_FILES} files per folder; large text files keep their tail; binary dumps are never truncated"),
+        format!("collection: total payload at most {TOTAL} bytes; at most {MAX_FILES} ZIP entries including about.txt; large text files keep their tail; binary dumps are never truncated"),
         "playset:".into(),
     ];
     lines.extend(crate::mods::playset().iter().map(|m| format!("  {m}")));
@@ -205,19 +259,19 @@ fn portion(path: &Path, limit: u64, binary: bool) -> std::io::Result<Option<Port
     Ok(Some(Portion { bytes, original, offset, truncated }))
 }
 
-fn priority(source: &Source) -> u8 {
-    if source.name.starts_with("harmony-logs/core-emergency") {
+fn priority(name: &str) -> u8 {
+    if name.starts_with("harmony-logs/core-emergency") {
         0
-    } else if source.name.starts_with("harmony-logs/core")
-        || (source.name.starts_with("harmony-logs/") && source.name.ends_with(".snapshot.txt"))
-        || source.name.starts_with("harmony-logs/report")
+    } else if name.starts_with("harmony-logs/core")
+        || (name.starts_with("harmony-logs/") && name.ends_with(".snapshot.txt"))
+        || name.starts_with("harmony-logs/report")
     {
         1
-    } else if source.name.starts_with("crashes/") {
+    } else if name.starts_with("crashes/") {
         2
-    } else if source.name.starts_with("harmony-logs/") {
+    } else if name.starts_with("harmony-logs/") {
         3
-    } else if source.name.starts_with("settings/") {
+    } else if name.starts_with("settings/") {
         4
     } else {
         5
@@ -233,14 +287,11 @@ fn add<W: std::io::Write>(stream: &mut zip::Stream<W>, name: &str, bytes: &[u8],
     stream.entry(&entry, &compressed)
 }
 
-fn collect<W: std::io::Write>(output: W, mut sources: Vec<Source>, mut summary: Vec<String>, when: (u16, u16), budget: u64) -> std::io::Result<W> {
-    sources.sort_by(|a, b| (priority(a), &a.name).cmp(&(priority(b), &b.name)));
-    let omitted = sources.len().saturating_sub(MAX_FILES);
-    sources.truncate(MAX_FILES);
-    summary.push(format!("files ({} omitted by count limit):", omitted));
+fn collect<W: std::io::Write>(output: W, sources: Sources, mut summary: Vec<String>, when: (u16, u16), budget: u64) -> std::io::Result<W> {
+    summary.push(format!("files ({} omitted by count limit across all folders):", sources.omitted));
     let mut stream = zip::Stream::new(output);
     let mut left = budget;
-    for source in sources {
+    for source in sources.files.into_sorted_vec() {
         let size = std::fs::metadata(&source.path).map(|m| m.len()).unwrap_or(0);
         if left == 0 {
             summary.push(format!("  {}: omitted by total budget, original_bytes={size}", source.name));
@@ -343,19 +394,20 @@ mod tests {
         put(&dir.join("settings.txt"), "game");
         put(&dir.join("dlc_load.json"), "{}");
         put(&user.save_games().join("a.eu4"), "save");
-        let names: Vec<String> = sources(&user).into_iter().map(|s| s.name).collect();
+        let mut names: Vec<String> = sources(&user).files.into_sorted_vec().into_iter().map(|s| s.name).collect();
+        names.sort();
         assert_eq!(
             names,
             [
-                "harmony-logs/core.log",
-                "harmony-logs/report.txt",
-                "game-logs/error.log",
                 "crashes/eu4_2026_11_09/exception.txt",
                 "crashes/eu4_2026_11_10/exception.txt",
                 "crashes/eu4_2026_11_11/exception.txt",
+                "game-logs/error.log",
+                "harmony-logs/core.log",
+                "harmony-logs/report.txt",
+                "settings/dlc_load.json",
                 "settings/harmony-settings.txt",
                 "settings/settings.txt",
-                "settings/dlc_load.json",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);
@@ -402,10 +454,10 @@ mod tests {
         let dir = scratch("budget");
         put(&dir.join("core.log"), "essential core record");
         put(&dir.join("error.log"), "noise\n".repeat(100).as_str());
-        let source = |name: &str, file: &str| Source { name: name.into(), path: dir.join(file) };
+        let source = |name: &str, file: &str| Source::new(name.into(), dir.join(file));
         let bytes = collect(
             Vec::new(),
-            vec![source("game-logs/error.log", "error.log"), source("harmony-logs/core.log", "core.log")],
+            [source("game-logs/error.log", "error.log"), source("harmony-logs/core.log", "core.log")].into_iter().collect(),
             vec!["test".into()],
             (0, 0x21),
             21,
@@ -417,6 +469,53 @@ mod tests {
         assert_eq!(zip::read(&mut zip, core, 4096).unwrap(), b"essential core record");
         let summary = zip::find(&mut zip, b"about.txt", 4096).unwrap();
         assert!(String::from_utf8(summary).unwrap().contains("omitted by total budget"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn candidate_selection_keeps_critical_files_even_when_enumerated_after_the_count_limit() {
+        let dir = scratch("candidate-limit");
+        let mut candidates = Sources::default();
+        for n in 0..MAX_FILES + 7 {
+            let name = format!("a-noise-{n:04}.log");
+            put(&dir.join(&name), "noise");
+            candidates.push(Source::new(format!("harmony-logs/{name}"), dir.join(name)));
+        }
+        for name in ["core.log", "core-emergency.log", "core.snapshot.txt"] {
+            put(&dir.join(name), "essential");
+            candidates.push(Source::new(format!("harmony-logs/{name}"), dir.join(name)));
+        }
+        assert_eq!(candidates.files.len(), MAX_FILES - 1);
+        assert_eq!(candidates.omitted, 11);
+        assert!(candidates.files.iter().any(|s| s.name == "harmony-logs/core-emergency.log"));
+        let mut scanned = Sources::default();
+        files_in(&dir, "harmony-logs", &mut scanned);
+        assert_eq!(scanned.omitted, 11);
+        assert!(scanned.files.iter().any(|s| s.name == "harmony-logs/core.snapshot.txt"));
+        let mut archive = std::io::Cursor::new(collect(Vec::new(), candidates, Vec::new(), (0, 0x21), TOTAL).unwrap());
+        assert!(zip::find(&mut archive, b"harmony-logs/core.log", 1 << 20).is_ok());
+        let summary = zip::find(&mut archive, b"about.txt", 1 << 20).unwrap();
+        assert!(String::from_utf8(summary).unwrap().contains("11 omitted by count limit across all folders"));
+        assert_eq!(zip::directory(&mut archive, 1 << 20).unwrap().len(), MAX_FILES);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn tight_budgets_keep_current_segments_and_the_newest_crash_first() {
+        let dir = scratch("recent-evidence");
+        put(&dir.join("current"), "current evidence");
+        put(&dir.join("old"), "old evidence that must be omitted");
+        for (wanted, names) in [
+            ("harmony-logs/core.log", ["harmony-logs/core.2.log", "harmony-logs/core.3.log"]),
+            ("crashes/eu4_2026_11_13/exception.txt", ["crashes/eu4_2026_11_11/exception.txt", "crashes/eu4_2026_11_12/exception.txt"]),
+        ] {
+            let mut candidates: Sources = names.into_iter().map(|name| Source::new(name.into(), dir.join("old"))).collect();
+            candidates.push(Source::new(wanted.into(), dir.join("current")));
+            let mut archive = std::io::Cursor::new(collect(Vec::new(), candidates, Vec::new(), (0, 0x21), 16).unwrap());
+            assert_eq!(zip::find(&mut archive, wanted.as_bytes(), 4096).unwrap(), b"current evidence");
+            let summary = String::from_utf8(zip::find(&mut archive, b"about.txt", 4096).unwrap()).unwrap();
+            assert_eq!(summary.matches("omitted by total budget").count(), 2);
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 

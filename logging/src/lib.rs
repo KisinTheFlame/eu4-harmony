@@ -14,7 +14,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
-        OnceLock,
+        Arc, OnceLock,
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -151,6 +151,7 @@ struct Operation {
 /// in that case safety takes precedence and the next cleanup retries.
 pub struct Journal {
     dir: PathBuf,
+    directory: Arc<retention::Directory>,
     stem: String,
     source: String,
     _lease: File,
@@ -186,6 +187,8 @@ impl Journal {
         if !retention::plain_directory(&registry) {
             return Err(io::Error::other("the log registry is not an ordinary directory"));
         }
+        let directory = retention::Directory::of(dir)?;
+        let registration = retention::registry_guard(dir)?;
         let mut selected = None;
         for attempt in 0..16 {
             let stem = if attempt == 0 { source.to_string() } else { format!("{source}-{}-{}", run_id(), SERIAL.fetch_add(1, Ordering::Relaxed)) };
@@ -217,6 +220,7 @@ impl Journal {
         let tick = monotonic_ms();
         let mut journal = Self {
             dir: dir.into(),
+            directory,
             stem,
             source: source.into(),
             _lease: lease,
@@ -237,6 +241,7 @@ impl Journal {
             omitted_operations: 0,
         };
         journal.roll()?;
+        drop(registration);
         // A failed cleanup never prevents the current source from logging.
         journal.cleanup();
         Ok(journal)
@@ -348,18 +353,35 @@ impl Journal {
     }
 
     fn append(&mut self, text: &str) -> io::Result<()> {
+        self.append_with(text, |file, bytes| {
+            file.write_all(bytes)?;
+            file.flush()
+        })
+    }
+
+    fn append_with(&mut self, text: &str, write: impl FnOnce(&mut File, &[u8]) -> io::Result<()>) -> io::Result<()> {
         let result = (|| {
             if self.file.is_none() || (self.bytes.saturating_add(text.len() as u64) > self.limits.segment && self.bytes > 256) {
                 self.roll()?;
             }
             let file = self.file.as_mut().ok_or_else(|| io::Error::other("the log file is closed"))?;
-            file.write_all(text.as_bytes())?;
-            file.flush()?;
+            write(file, text.as_bytes())?;
             self.bytes = self.bytes.saturating_add(text.len() as u64);
             Ok(())
         })();
         if result.is_err() {
             self.failures = self.failures.saturating_add(1);
+            // write_all may have appended a prefix before failing. Never use
+            // the old length for the next rotation decision. If the actual
+            // length cannot be read, close the file so the next write rolls.
+            if let Some(file) = &self.file {
+                match file.metadata() {
+                    Ok(metadata) => self.bytes = metadata.len(),
+                    Err(_) => {
+                        self.file.take();
+                    }
+                }
+            }
         }
         result
     }
@@ -448,13 +470,7 @@ impl Journal {
 
     fn cleanup(&mut self) {
         let now = SystemTime::now();
-        let mut pressure = match retention::clean(&self.dir, self.limits, now) {
-            Ok(total) => total.saturating_sub(self.limits.total),
-            Err(_) => {
-                self.cleanup_failures = self.cleanup_failures.saturating_add(1);
-                0
-            }
-        };
+        self.directory.maintain(self.limits, monotonic_ms());
         // Other writers never touch a leased source. This writer alone can
         // safely expire its own archived segments while keeping its current
         // segment and snapshot, even during a long game with no restart.
@@ -465,9 +481,9 @@ impl Journal {
             }
             let Ok(metadata) = path.metadata() else { continue };
             let expired = now.duration_since(metadata.modified().unwrap_or(now)).unwrap_or_default() > self.limits.retain;
-            if expired || pressure > 0 {
+            if expired || self.directory.excess.load(Ordering::Relaxed) > 0 {
                 if fs::remove_file(path).is_ok() {
-                    pressure = pressure.saturating_sub(metadata.len());
+                    self.directory.reclaimed(metadata.len());
                 } else {
                     self.cleanup_failures = self.cleanup_failures.saturating_add(1);
                 }
@@ -507,41 +523,50 @@ impl Journal {
             if path.exists() && !owned(&path, &self.source) {
                 return Err(io::Error::other("the snapshot is not owned by Harmony"));
             }
-            let temporary = self.dir.join(format!("{}.snapshot.new", self.stem));
-            if temporary.exists() && !retention::plain_file(&temporary) {
-                return Err(io::Error::other("the snapshot temporary file is not ordinary"));
-            }
-            let mut file = File::create(&temporary)?;
-            writeln!(file, "{HEADER}source={} run={}", self.source, run_id())?;
-            writeln!(
+            // Never truncate a preexisting staging file, even a regular
+            // file. Each attempt creates its own name exclusively.
+            let temporary = self.dir.join(format!("{}.snapshot-{}-{}.new", self.stem, run_id(), SERIAL.fetch_add(1, Ordering::Relaxed)));
+            let mut file = OpenOptions::new().create_new(true).write(true).open(&temporary)?;
+            let written = (|| {
+                writeln!(file, "{HEADER}source={} run={}", self.source, run_id())?;
+                writeln!(
                 file,
-                "snapshot={} up_ms={} write_failures={} cleanup_failures={} truncated_records={} events={} pending_error_identities={}",
+                "snapshot={} up_ms={} write_failures={} cleanup_failures={} cleanup_skipped_receipts={} truncated_records={} events={} pending_error_identities={}",
                 now(),
                 monotonic_ms(),
                 self.failures,
-                self.cleanup_failures,
+                self.cleanup_failures.saturating_add(self.directory.failures.load(Ordering::Relaxed)),
+                self.directory.skipped.load(Ordering::Relaxed),
                 self.truncated,
                 self.events.len(),
                 self.errors.len()
             )?;
-            writeln!(file, "operation_kinds_omitted={}", self.omitted_operations)?;
-            for (name, operation) in &self.operations {
-                writeln!(
-                    file,
-                    "operation={name} begun={} succeeded={} failed={} unmatched_begins={} last_up_ms={}",
-                    operation.begun, operation.succeeded, operation.failed, operation.active, operation.last_ms
-                )?;
+                writeln!(file, "operation_kinds_omitted={}", self.omitted_operations)?;
+                for (name, operation) in &self.operations {
+                    writeln!(
+                        file,
+                        "operation={name} begun={} succeeded={} failed={} unmatched_begins={} last_up_ms={}",
+                        operation.begun, operation.succeeded, operation.failed, operation.active, operation.last_ms
+                    )?;
+                }
+                for line in &self.events {
+                    file.write_all(line.as_bytes())?;
+                }
+                for (message, error) in &self.errors {
+                    writeln!(file, "pending error: count={} first={} last={} {}", error.count, error.first, error.last, bounded(message, EVENT_BYTES))?;
+                }
+                file.flush()?;
+                // Keep the handle open through rename: an exclusive probe must
+                // not mistake the close/rename gap for abandoned staging data.
+                fs::rename(&temporary, path)?;
+                drop(file);
+                Ok(())
+            })();
+            if written.is_err() {
+                // Only this attempt's newly created file can be removed.
+                let _ = fs::remove_file(&temporary);
             }
-            for line in &self.events {
-                file.write_all(line.as_bytes())?;
-            }
-            for (message, error) in &self.errors {
-                writeln!(file, "pending error: count={} first={} last={} {}", error.count, error.first, error.last, bounded(message, EVENT_BYTES))?;
-            }
-            file.flush()?;
-            drop(file);
-            fs::rename(temporary, path)?;
-            Ok(())
+            written
         })();
         if result.is_err() {
             self.failures = self.failures.saturating_add(1);
@@ -666,6 +691,7 @@ mod tests {
             log.write(Kind::Note, &format!("{n} {}", "x".repeat(300))).unwrap();
         }
         log.limits.total = 1;
+        log.directory.next.store(0, Ordering::Relaxed);
         log.cleanup();
         assert!(log.path().exists());
         assert!((1..SEGMENTS).all(|n| !segment(&s.0, "core", n).exists()));
@@ -704,6 +730,103 @@ mod tests {
         drop(log);
         retention::clean(&s.0, limits(), SystemTime::now() + Duration::from_secs(100)).unwrap();
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn malformed_receipts_do_not_block_valid_cleanup_and_are_counted_and_preserved() {
+        let s = Scratch::new("malformed-receipts");
+        let log = Journal::open_with(&s.0, "expired", limits()).unwrap();
+        let path = log.path();
+        drop(log);
+        let malformed = s.0.join(".harmony-logs/malformed.owned");
+        fs::write(&malformed, [0xff, 0xfe]).unwrap();
+        let unreadable = s.0.join(".harmony-logs/not-a-file.owned");
+        fs::create_dir(&unreadable).unwrap();
+        let outcome = retention::clean(&s.0, limits(), SystemTime::now() + Duration::from_secs(100)).unwrap();
+        assert!(!path.exists());
+        assert_eq!(outcome.skipped, 2);
+        assert_eq!(fs::read(malformed).unwrap(), [0xff, 0xfe]);
+        assert!(unreadable.is_dir());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_unreadable_regular_receipt_is_skipped_without_stopping_other_sources() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let s = Scratch::new("unreadable-receipt");
+        let log = Journal::open_with(&s.0, "expired", limits()).unwrap();
+        let path = log.path();
+        drop(log);
+        let receipt = s.0.join(".harmony-logs/locked.owned");
+        fs::write(&receipt, format!("{HEADER}source=locked\n")).unwrap();
+        let held = OpenOptions::new().read(true).share_mode(0).open(&receipt).unwrap();
+        let outcome = retention::clean(&s.0, limits(), SystemTime::now() + Duration::from_secs(100)).unwrap();
+        assert_eq!(outcome.skipped, 1);
+        assert!(!path.exists());
+        drop(held);
+        assert_eq!(fs::read_to_string(receipt).unwrap(), format!("{HEADER}source=locked\n"));
+    }
+
+    #[test]
+    fn idle_registration_metadata_is_reclaimed_and_new_writers_share_the_registry_lock() {
+        let s = Scratch::new("metadata-reclamation");
+        for n in 0..40 {
+            let log = Journal::open_with(&s.0, &format!("old-{n}"), limits()).unwrap();
+            drop(log);
+        }
+        let active = Journal::open_with(&s.0, "active", limits()).unwrap();
+        let guard = retention::registry_guard(&s.0).unwrap();
+        assert!(Journal::open_with(&s.0, "fresh", limits()).is_err());
+        drop(guard);
+        retention::clean(&s.0, limits(), SystemTime::now() + Duration::from_secs(100)).unwrap();
+        let names: Vec<_> = fs::read_dir(s.0.join(".harmony-logs")).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names.len(), 3, "only the directory lease and active source's two files remain");
+        assert!(active.path().exists());
+        drop(active);
+        retention::clean(&s.0, limits(), SystemTime::now() + Duration::from_secs(100)).unwrap();
+        assert_eq!(fs::read_dir(s.0.join(".harmony-logs")).unwrap().count(), 1);
+        let reopened = Journal::open_with(&s.0, "active", limits()).unwrap();
+        let another = Journal::open_with(&s.0, "active", limits()).unwrap();
+        assert_ne!(reopened.path(), another.path());
+    }
+
+    #[test]
+    fn directory_maintenance_runs_once_for_many_sources_and_independently_for_other_directories() {
+        let s = Scratch::new("shared-schedule");
+        let mut logs: Vec<_> = (0..40).map(|n| Journal::open_with(&s.0, &format!("source-{n}"), limits()).unwrap()).collect();
+        let directory = logs[0].directory.clone();
+        assert!(logs.iter().all(|log| Arc::ptr_eq(&log.directory, &directory)));
+        assert_eq!(directory.passes.load(Ordering::Relaxed), 1);
+        for log in &mut logs {
+            log.cleanup();
+        }
+        assert_eq!(directory.passes.load(Ordering::Relaxed), 1);
+        let next = directory.next.load(Ordering::Relaxed);
+        for log in &logs {
+            log.directory.maintain(limits(), next);
+        }
+        assert_eq!(directory.passes.load(Ordering::Relaxed), 2);
+        let other = Scratch::new("independent-schedule");
+        let log = Journal::open_with(&other.0, "core", limits()).unwrap();
+        assert!(!Arc::ptr_eq(&directory, &log.directory));
+        assert_eq!(log.directory.passes.load(Ordering::Relaxed), 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn abandoned_unique_snapshots_are_reclaimed_but_open_snapshot_writes_are_protected() {
+        let s = Scratch::new("snapshot-staging-cleanup");
+        let log = Journal::open_with(&s.0, "core", limits()).unwrap();
+        let path = s.0.join("core.snapshot-synthetic-run-0.new");
+        let mut held = OpenOptions::new().create_new(true).write(true).open(&path).unwrap();
+        writeln!(held, "{HEADER}source=core run=synthetic-run").unwrap();
+        held.flush().unwrap();
+        retention::clean(&s.0, Limits { total: 1, ..limits() }, SystemTime::now()).unwrap();
+        assert!(path.exists());
+        drop(held);
+        retention::clean(&s.0, Limits { total: 1, ..limits() }, SystemTime::now()).unwrap();
+        assert!(!path.exists());
+        assert!(log.path().exists());
     }
 
     #[test]
@@ -772,6 +895,40 @@ mod tests {
         log.roll().unwrap();
         log.checkpoint().unwrap();
         assert!(fs::read_to_string(log.path()).unwrap().contains("count=2"));
+    }
+
+    #[test]
+    fn a_partial_write_failure_counts_the_bytes_that_reached_disk_before_recovery() {
+        let s = Scratch::new("partial-write");
+        let mut log = Journal::open_with(&s.0, "core", limits()).unwrap();
+        assert!(log
+            .append_with(&"p".repeat(700), |file, bytes| {
+                file.write_all(&bytes[..600])?;
+                Err(io::Error::other("synthetic failure after a partial write"))
+            })
+            .is_err());
+        assert_eq!(log.bytes, log.path().metadata().unwrap().len());
+        log.append(&"r".repeat(400)).unwrap();
+        assert!(segment(&s.0, "core", 1).exists());
+        for n in 0..2 {
+            assert!(segment(&s.0, "core", n).metadata().unwrap().len() <= limits().segment);
+        }
+        assert_eq!(log.bytes, log.path().metadata().unwrap().len());
+    }
+
+    #[test]
+    fn snapshots_never_overwrite_unknown_or_another_runs_staging_file() {
+        let s = Scratch::new("snapshot-ownership");
+        let mut log = Journal::open_with(&s.0, "core", limits()).unwrap();
+        let unknown = s.0.join("core.snapshot.new");
+        let other = s.0.join("core.snapshot-other-run-0.new");
+        fs::write(&unknown, "unrecognized staging contents").unwrap();
+        fs::write(&other, format!("{HEADER}source=core run=other-run\nother context")).unwrap();
+        let before = fs::read(&other).unwrap();
+        log.checkpoint().unwrap();
+        assert_eq!(fs::read_to_string(unknown).unwrap(), "unrecognized staging contents");
+        assert_eq!(fs::read(other).unwrap(), before);
+        assert!(owned(&s.0.join("core.snapshot.txt"), "core"));
     }
 
     #[test]
