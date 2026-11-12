@@ -43,7 +43,9 @@ impl Scenario for Windows {
     fn play(&self, game: &mut Game, _: &Parameters, record: &mut Value) -> Played<()> {
         let user = game.user()?;
         let core = Mark::of(&user);
-        let extension_log = user.logs().join(format!("{MOD}.log"));
+        let load_error = Mark::default().messages(&user.core_log(), "core").into_iter().find(|line| line.contains(&format!("extension \"{MOD}\" not loaded:")));
+        game.check(load_error.is_none(), load_error.unwrap_or_default())?;
+        let extension_log = user.logs().join(format!("extension-{MOD}.log"));
         let extension = Mark::of_file(&extension_log);
         let _: Session = game.ask(&MenuRequest::Start { country: Some(CountryTag(*b"FRA")) })?;
         let _: () = game.ask(&TimeRequest::Pause {})?;

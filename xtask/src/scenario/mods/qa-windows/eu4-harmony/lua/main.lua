@@ -46,7 +46,7 @@ end
 return {
   windows = {
     probe = {
-      size = { 440, 400 }, title = words("Native lifetime probe"),
+      size = { 440, 500 }, title = words("Native lifetime probe"),
       anchor = "top_left", offset = { 100, 120 },
       items = {
         { type = "text", name = "status", size = { 380, 50 }, text = words("Native window"), tooltip = words("Declared native tooltip") },
@@ -60,7 +60,7 @@ return {
       },
     },
     other = {
-      size = { 320, 160 }, title = words("Second native panel"),
+      size = { 320, 220 }, title = words("Second native panel"),
       anchor = "top_left", offset = { 580, 120 },
       items = { { type = "text", name = "status", size = { 260, 35 }, text = words("The first panel closes") } },
     },

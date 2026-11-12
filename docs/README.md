@@ -21,6 +21,8 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 | [adr/](adr/) | Decisions that are hard to reverse, one file each, and why they were made |
 | [research/](research/) | The research into the game's code that the pages of [game/](game/) rest on, with addresses as RVAs into the 1.37.5 baseline; [addresses.toml](research/addresses.toml) indexes every address they name |
 | [prototype-log/](prototype-log/) | What was tested in the running game and what came out, one file per run |
+| [2026-11-13-fourth-deepening-journal-path.md](prototype-log/2026-11-13-fourth-deepening-journal-path.md) | Four native window courses completed, but the scenario read the old extension-log filename; the reader was corrected |
+| [2026-11-13-fourth-deepening-probe-layout.md](prototype-log/2026-11-13-fourth-deepening-probe-layout.md) | The first native window course rejected an undersized test-mod layout; no native result claimed |
 | [2026-11-13-non-ironman-achievement-tracking.md](prototype-log/2026-11-13-non-ironman-achievement-tracking.md) | Empty non-ironman achievement lists reproduced and repaired; a daily completion checked with platform submission intercepted |
 | [2026-11-12-core-highlights-baseline.md](prototype-log/2026-11-12-core-highlights-baseline.md) | The missing core-hover outlines reproduced on the 0.1.4 baseline |
 | [2026-11-12-core-highlights-clearing.md](prototype-log/2026-11-12-core-highlights-clearing.md) | Skipping only post-draw clearing established why asynchronous drawing lost the outlines |

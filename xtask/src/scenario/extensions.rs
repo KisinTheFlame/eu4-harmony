@@ -70,7 +70,7 @@ impl Scenario for Extensions {
         let days = parameters.number("days")?;
         let reloads = parameters.number("reloads")?;
         let user = game.user()?;
-        let log = |id: &str| user.logs().join(format!("{id}.log"));
+        let log = |id: &str| user.logs().join(format!("extension-{id}.log"));
         let marks: Vec<Mark> = MODS.iter().map(|m| Mark::of_file(&log(m))).collect();
 
         let began: Session = game.ask(&MenuRequest::Start { country: Some(tag) })?;
