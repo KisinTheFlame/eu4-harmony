@@ -2,6 +2,18 @@
 
 What changed in each version of Harmony that players and mod authors notice. Each upload to the Steam Workshop is a version of its own, and its section here is the upload's change note (`cargo xtask workshop-upload`).
 
+## 0.1.5
+
+- Fixed: hovering a country's core icon could lose the map outlines of its core provinces when the drawing thread was enabled. Prepared frames now retain the temporary highlights they need.
+- Fixed: with achievements outside ironman enabled, new non-ironman games now build and retain their tracked achievement list, and daily completion uses the same eligibility setting.
+- Mods can use one localized text description for labels and tooltips. Managed windows, panel entries and framework controls share tooltip updates, visibility and cleanup, with the game's native presentation.
+- Panel entries can use a mod's own image file, show an optional formatted number, and be hidden or disabled. The icon and the number follow the game's separate interaction rules.
+- Mods can read an owned area's members and governing costs, predict the capacity added by making it a state without completing cores, and separately read live national governing capacity.
+- Framework logs now rotate and clean up their own old files, summarize repeated errors, and retain a small recent-event snapshot. Records identify the run, process, thread and source; critical writes have a separate fallback.
+- Troubleshooting files collect evidence within a size limit, prefer current logs and recent crashes, retain the tail of large game logs, and redact authentication fields.
+
+To apply the proxy's new log rotation, copy the updated `version.dll` from Harmony's Workshop folder into the game folder while the game is closed. The core updates through Steam as usual.
+
 ## 0.1.4
 
 - Fixed: an event's option text could be drawn before its initialization finished, leaving the text misaligned. The drawing thread now waits for the whole event window and its options to be initialized.
