@@ -1,6 +1,6 @@
 # Panel entries and tooltips
 
-**Status:** Decided on 2026-11-12; implementation in progress. Native behavior still to be checked is called out below. Builds on [extension windows](extension-windows.md) and [interface bindings](../research/interface-bindings.md).
+**Status:** Built on 2026-11-13. The [bounded native run](../prototype-log/2026-11-13-managed-tooltips.md) records verified cases, failures corrected and remaining coverage limits; final integration checks passed after the logging merge. Builds on [extension windows](extension-windows.md) and [interface bindings](../research/interface-bindings.md).
 
 ## Goal and scope
 

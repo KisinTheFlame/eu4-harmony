@@ -1,6 +1,6 @@
 # 2026-11-12 Convenience Tools hands-on handoff
 
-Status: handed to the user for the requested trial; awaiting their feedback and release. This is not a report of the user's results.
+Status: released on 2026-11-13 after a read-only check confirmed that process 71172 had already exited normally with code zero. Its logs were kept by the release command; no input, restart or core replacement was sent after handoff. This is not a report of the user's results.
 
 After [the reviewed-capacity smoke](2026-11-12-convenience-reviewed-capacity.md), a separate claim `convenience-hands-on` was prepared in `convenience-hands-on-20261112-200922`, with its own user directory, core, mod copy and pipe. The user explicitly asked to see and operate it before publication. Preparation was hidden; `desktop.show` then returned `hidden: false` without taking focus. No other EU4 process was present before showing it.
 

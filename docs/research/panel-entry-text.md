@@ -1,6 +1,6 @@
 # Panel-entry text and shared tooltip presentation
 
-This note looks into the independent number below a panel button and the final tooltip-content path shared by the game and the main menu. The framework's panel entries and managed-element tooltips use these methods. Evidence is static reading of the installed EU4 1.37.5 baseline on 2026-11-12; runtime claims belong to the separate prototype log. It extends [extension-windows.md](extension-windows.md) and [gui-drawing.md](gui-drawing.md). RVAs are into that baseline.
+This note looks into the independent number below a panel button and the final tooltip-content path shared by the game and the main menu. The framework's panel entries and managed-element tooltips use these methods. Evidence is static reading of the installed EU4 1.37.5 baseline on 2026-11-12 and 2026-11-13; runtime claims belong to the separate prototype log. It extends [extension-windows.md](extension-windows.md) and [gui-drawing.md](gui-drawing.md). RVAs are into that baseline.
 
 ## Independent floating numbers
 

@@ -4355,7 +4355,7 @@
 "0x1415703" = { kind = "code", name = "submit the final tooltip aggregate", notes = ["research/panel-entry-text.md"] }
 "0x14159d2" = { kind = "code", name = "the tooltip's place worked out", notes = ["research/drawing-beside-the-day.md"] }
 "0x1415bf0" = { kind = "function", name = "prepare the final tooltip content", notes = ["research/drawing-beside-the-day.md", "research/panel-entry-text.md"] }
-"0x14164a0" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
+"0x14164a0" = { kind = "function", name = "offset the tooltip and keep it wholly on screen", notes = ["research/drawing-beside-the-day.md"] }
 "0x1417b90" = { kind = "function", notes = ["research/trade-range-and-naval-supply.md"] }
 "0x1418e70" = { kind = "function", notes = ["research/trade-range-and-naval-supply.md", "research/units.md"] }
 "0x1419470" = { kind = "function", notes = ["research/units.md"] }
