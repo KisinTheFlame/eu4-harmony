@@ -42,7 +42,8 @@ Each button of the province view sends one command, which the session executes (
 - **The map manager** keeps the current map mode, the one before it, and a secondary option that picks what the second layer of colors shows. Switching asks it to refresh (`0x821ff0`). A refresh to the mode already shown draws nothing unless it is forced ([research/map-modes.md](../research/map-modes.md#the-map-mode), [Switching](../research/map-modes.md#switching-the-refresh)).
 - **Two layers of province colors.** The first is the mode's colors. The second is drawn over the whole province as the stripes of the occupation mask ([research/map-modes.md](../research/map-modes.md#the-color-texture)).
 - **The unrest mode's second layer** shows the areas the player's armies suppress rebels in, the selected army's in one color and the others' in another. It does so only when one of the game's switches is on (perhaps a DLC's); otherwise it gets a plain option ([research/map-modes.md](../research/map-modes.md#the-secondary-colors), [Not known](../research/map-modes.md#not-known)).
-- The map is drawn on the thread the game's interface runs on ([interface.md](interface.md); [research/map-modes.md](../research/map-modes.md#what-the-framework-does)).
+- **Hovering a core or claim flag** marks that country's owned provinces and its unowned cores for the map's borders. The game clears those temporary marks after each drawing. Harmony keeps the prepared frame's marks for its drawing thread, while the game's real arrays are cleared as usual; changing the hovered target replaces the marks ([research/map-drawing-reads.md](../research/map-drawing-reads.md#the-frames-temporary-highlights-read-and-tested-2026-11-12)).
+- The unmodified game draws the map on the thread the interface runs on; Harmony's drawing thread draws prepared frames between updates ([interface.md](interface.md); [research/map-drawing-reads.md](../research/map-drawing-reads.md)).
 
 ## Fog of war
 

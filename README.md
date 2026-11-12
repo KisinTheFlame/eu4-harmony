@@ -11,7 +11,7 @@ English | [简体中文](README.zh-CN.md)
 | Chinese, Japanese and Korean display correctly, with no double-byte patch or font mod | ✗ | ✓ |
 | Back to the main menu in seconds, without restarting the game | ✗ | ✓ |
 | Load another save from an ironman game | ✗ | ✓ |
-| The map scrolls and zooms smoothly, even at top speed | ✗ | ✓ |
+| The map scrolls and zooms smoothly, even at top speed, with core hover highlights preserved | ✗ | ✓ |
 | Saving pauses the game a third as long | ✗ | ✓ |
 | The game starts and loads saves sooner | ✗ | ✓ |
 | A faster late game | ✗ | ✓ |
