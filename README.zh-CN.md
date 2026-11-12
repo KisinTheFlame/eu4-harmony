@@ -101,6 +101,8 @@ my-mod/
 
 `province.area` 读取一个州内的自有省份与行政容量占用，包括只设立直辖州、不补完整核心时的新增占用；两者的区别见[省份机制](docs/game/provinces.md)。
 
+扩展窗口中的文字也可通过 `game.window.<window>.<text>.tooltip` 设置悬浮提示；布局与属性见[窗口指南](cli/skills/ui/windows.md)。
+
 进一步了解：
 
 - `eu4-harmony wiki`：每项能力的参数和结果、处理函数和全局函数（`wiki lua`）、清单（`wiki manifest`）。不需要游戏运行。

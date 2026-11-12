@@ -429,9 +429,6 @@ fn item(table: &Map<String, Value>, place: (i32, i32), has_text: &dyn Fn(&str) -
         return Err(fail("size is a width and a height above 0".into()));
     }
     let tooltip = key(table.get("tooltip"), "tooltip", has_text).map_err(fail)?;
-    if kind == "text" && tooltip.is_some() {
-        return Err(fail("a text has no tooltip: the game's text boxes show none".into()));
-    }
     let visible = flag(table.get("visible"), "visible").map_err(fail)?.unwrap_or(true);
     let kind = match kind.as_str() {
         "text" => {

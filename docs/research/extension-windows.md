@@ -17,6 +17,8 @@ It builds on [ui-injection.md](ui-injection.md) (how `.gui` files are read), [no
 - **The panel button strip** (verified): after `0x80c9f0(idler)` the used slots are `f_button_1..n`, the first `n` shown ones; the next entry button stands at `x = -360 - 45 * n`, `y = -58`, `LOWER_RIGHT`. A button's `+0x288` (`0x15ae930`) places it by its orientation every frame; an icon's `+0x288` (`0x1571cf0`) takes a position already resolved.
 - **Text and tooltips**: `TEXT_SET` fits the text into the box (wraps to its width, cuts at its lines, or grows a scrolling box's lines) (verified); the formatting codes are read when the text is drawn (inferred). Every in-game tooltip goes through the idler's `0xb81870(idler, out, element)` (verified), where an observer can fill the tooltip of any of the framework's elements as `ui` does for the army panel's (inferred).
 
+Runtime follow-up on 2026-11-12: an extension's ordinary text box also reaches this tooltip path. After assigning its `tooltip` property, hovering the visible result text showed the game's tooltip with the assigned reason and count, without an overlaid button or another native hook ([the run](../prototype-log/2026-11-12-convenience-ui.md)). This verifies text boxes, not every possible widget kind.
+
 ## 1. Reading an interface file after startup
 
 `0x14eb7d0(GuiManager* mgr, const std::string* path)`, `void` (verified):

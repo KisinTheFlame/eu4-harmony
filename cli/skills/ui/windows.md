@@ -46,8 +46,8 @@ steps:
    progressbartype sprite, GFX_wargoal_progressbar 288 by 18 unless named,
    value 0 to 1), flag (a maskedShieldType, GFX_shield_thin 92 by 92
    unless named, country = tag), list (size, row = { size, items }, which
-   scrolls). Buttons, icons, progress bars and flags take tooltip = key;
-   texts take none. Every key is the mod's; a layout that is wrong, or a key
+   scrolls). Texts, buttons, icons, progress bars and flags take
+   tooltip = key. Every key is the mod's; a layout that is wrong, or a key
    the mod lacks, keeps the extension from loading, with the reason.
 3. From a handler, open and close: game.window.open("reforms"),
    game.window.close("reforms"). Set what shows, never read it:
@@ -59,8 +59,10 @@ steps:
    A row's entry is words for a text, a number for a progress bar or an
    icon's frame, a tag for a flag, true or false for whether a text button
    is enabled, or a table of properties. What is set while a window is
-   closed shows when it opens. A text button's words and a text's tooltip
-   do not change once laid out; the entry button shows no number.
+   closed shows when it opens. Set a text's tooltip with
+   game.window.reforms.status.tooltip = text.get("MYMOD_DETAILS"); an empty
+   string clears it. A text button's words do not change once laid out;
+   the entry button shows no number.
 4. Hear it: on_button(game, "reforms.pick", click), click.row set for a
    button in a list's row; on_window(game, "reforms", open) whenever it
    opens or closes, whoever did it: the mod, its entry button, its close

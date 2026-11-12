@@ -112,7 +112,7 @@ fn property(placed: Option<&Placed>, property: &str, value: &LuaValue, what: &st
     let has = |names: &[&str]| names.contains(&property);
     let allowed: &[&str] = match kind {
         None => &["visible", "tooltip", "frame"],
-        Some(Kind::Text { .. }) => &["visible", "text"],
+        Some(Kind::Text { .. }) => &["visible", "text", "tooltip"],
         Some(Kind::Icon { .. }) => &["visible", "tooltip", "frame"],
         Some(Kind::Button { sprite: Some(_), .. }) => &["visible", "tooltip", "enabled", "frame"],
         Some(Kind::Button { .. }) => &["visible", "tooltip", "enabled"],
@@ -309,7 +309,7 @@ mod tests {
         let windows = json!({ "reforms": {
             "size": [400, 480], "entry": { "sprite": "GFX_x" },
             "items": [
-                { "type": "text", "name": "status", "size": [100, 20] },
+                { "type": "text", "name": "status", "size": [100, 20], "tooltip": "STATUS_DETAILS" },
                 { "type": "button", "name": "pick", "sprite": "GFX_pick", "size": [30, 30] },
                 { "type": "list", "name": "countries", "size": [300, 280], "row": { "size": [300, 150], "items": [
                     { "type": "flag", "name": "flag" }, { "type": "progress", "name": "share" }, { "type": "text", "name": "name", "size": [100, 20] },
@@ -328,7 +328,15 @@ mod tests {
             set(&w, "reforms", "status", "text", &words),
             Ok(WindowChange::Set { window: "reforms".into(), widget: "status".into(), value: Property::Text("Reformed".into()) })
         );
-        assert!(set(&w, "reforms", "status", "frame", &LuaValue::Integer(2)).unwrap_err().contains("a text has visible, text"));
+        assert!(set(&w, "reforms", "status", "frame", &LuaValue::Integer(2)).unwrap_err().contains("a text has visible, text, tooltip"));
+        assert_eq!(
+            set(&w, "reforms", "status", "tooltip", &words),
+            Ok(WindowChange::Set { window: "reforms".into(), widget: "status".into(), value: Property::Tooltip("Reformed".into()) })
+        );
+        assert_eq!(
+            set(&w, "reforms", "status", "tooltip", &LuaValue::Nil),
+            Ok(WindowChange::Set { window: "reforms".into(), widget: "status".into(), value: Property::Tooltip(String::new()) })
+        );
         assert!(set(&w, "reforms", "pick", "frame", &LuaValue::Integer(2)).is_ok(), "an icon button's frame");
         assert!(set(&w, "reforms", "entry", "frame", &LuaValue::Integer(3)).is_ok());
         assert!(set(&w, "reforms", "gone", "visible", &LuaValue::Boolean(true)).unwrap_err().contains("no game widget named gone"));
