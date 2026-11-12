@@ -116,19 +116,20 @@ fn capture_into(m: &Memory, idler: usize, kept: &mut Kept) -> crate::Result<()> 
     Ok(())
 }
 
-/// The classifier's read-only input prefix and private arrays. Only the
-/// drawing thread uses its reader, and nothing calls out after the stub:
-/// its storage stays put until the classifier has returned. A later call
-/// reuses it. The main thread's classifier always gets its original idler.
+/// The classifier's read-only input prefix and mixed province flags. Only
+/// the drawing thread uses its reader. Country bits are borrowed directly
+/// from Kept: the presentation lock excludes capture until classification
+/// returns, before Present. No call in the classifier's remaining code can
+/// release that lock. A later call reuses the reader's storage; main-thread
+/// classification always gets its original idler.
 struct Reader {
     prefix: [u8; READER_SIZE],
     provinces: Vec<u8>,
-    countries: Vec<u8>,
 }
 
 impl Default for Reader {
     fn default() -> Self {
-        Self { prefix: [0; READER_SIZE], provinces: Vec::new(), countries: Vec::new() }
+        Self { prefix: [0; READER_SIZE], provinces: Vec::new() }
     }
 }
 
@@ -158,9 +159,11 @@ fn prepared_reader(m: &Memory, idler: usize, reader: &mut Reader, kept: &Kept) -
     for (live, prepared) in reader.provinces.iter_mut().zip(&kept.provinces) {
         *live = (*live & !TEMPORARY) | (*prepared & TEMPORARY);
     }
-    reader.countries.clone_from(&kept.countries);
     let provinces = reader.provinces.as_ptr() as usize;
-    let countries = reader.countries.as_ptr() as usize;
+    // The KEPT mutex guard ends when border_reader returns, but the
+    // presentation lock still excludes its sole writer (keep) until after
+    // the classifier returns. Its country bits need no per-draw copy.
+    let countries = kept.countries.as_ptr() as usize;
     pointer(&mut reader.prefix, PROVINCES, provinces);
     pointer(&mut reader.prefix, COUNTRIES, countries);
     reader.prefix[COUNTRY_LIMIT..COUNTRY_LIMIT + 4].copy_from_slice(&kept.country_limit.to_le_bytes());
@@ -234,7 +237,11 @@ mod tests {
         let mut reader = Reader::default();
         assert!(prepared_reader(&m, idler, &mut reader, &kept).unwrap());
         assert_eq!(reader.provinces, [5, 2, 0]);
-        assert_eq!(reader.countries, 2u32.to_le_bytes());
+        // After the Rust helper returns, native classification borrows the
+        // prepared bits directly, even though the game's bits are now zero.
+        let country_bits = m.ptr(reader.prefix.as_ptr() as usize + COUNTRIES).unwrap();
+        assert_eq!(country_bits, kept.countries.as_ptr() as usize);
+        assert_eq!(m.u32(country_bits).unwrap(), 2);
         assert_eq!(m.ptr(idler + PROVINCES).unwrap(), provinces.as_ptr() as usize);
         assert_eq!(m.ptr(idler + COUNTRIES).unwrap(), countries.as_ptr() as usize);
         assert_eq!(provinces, [1, 2, 4]);
@@ -244,13 +251,17 @@ mod tests {
         provinces[0] = 0;
         assert!(prepared_reader(&m, idler, &mut reader, &kept).unwrap());
         assert_eq!(reader.provinces, [4, 2, 0]);
+        assert_eq!(m.ptr(reader.prefix.as_ptr() as usize + COUNTRIES).unwrap(), country_bits);
+        assert_eq!(m.u32(country_bits).unwrap(), 2);
         assert_eq!(provinces, [0, 2, 4]);
         // Preparing the next target replaces, rather than accumulates, marks.
         let next = capture(&m, idler).unwrap();
         provinces[2] = 0;
         assert!(prepared_reader(&m, idler, &mut reader, &next).unwrap());
         assert_eq!(reader.provinces, [0, 2, 4]);
-        assert_eq!(reader.countries, [0; 4]);
+        let country_bits = m.ptr(reader.prefix.as_ptr() as usize + COUNTRIES).unwrap();
+        assert_eq!(country_bits, next.countries.as_ptr() as usize);
+        assert_eq!(m.u32(country_bits).unwrap(), 0);
         // A frame without a hovered target removes the last target's marks.
         let empty = capture(&m, idler).unwrap();
         assert!(prepared_reader(&m, idler, &mut reader, &empty).unwrap());
