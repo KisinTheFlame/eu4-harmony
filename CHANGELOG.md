@@ -8,7 +8,7 @@ What changed in each version of Harmony that players and mod authors notice. Eac
 - Mods can use one localised text description for labels and tooltips. Managed windows, panel entries and framework controls share tooltip updates, visibility and cleanup, with the game's native presentation.
 - Panel entries can use a mod's own image file, show an optional formatted number, and be hidden or disabled. The icon and the number follow the game's separate interaction rules.
 - Mods can read an owned area's members and governing costs, predict the capacity added by making it a state without completing cores, and separately read live national governing capacity.
-- Framework logs now rotate and clean up their own old files, summarise repeated errors, and retain a small recent-event snapshot. Records identify the run, process, thread and source; critical writes have a separate fallback.
+- Framework logs now rotate and clean up their own old files, summarize repeated errors, and retain a small recent-event snapshot. Records identify the run, process, thread and source; critical writes have a separate fallback.
 - Troubleshooting files collect evidence within a size limit, prefer current logs and recent crashes, retain the tail of large game logs, and redact authentication fields.
 
 To apply the proxy's new log rotation, copy the updated `version.dll` from Harmony's Workshop folder into the game folder while the game is closed. The core updates through Steam as usual.
