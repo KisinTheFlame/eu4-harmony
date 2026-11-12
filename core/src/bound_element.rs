@@ -206,7 +206,7 @@ impl BoundElement {
 
     /// Its tooltip, if it has one.
     pub(crate) fn tooltip(&self) -> Option<&[u8]> {
-        Some(self.tooltip.as_slice()).filter(|t| !t.is_empty())
+        Some(self.tooltip.as_slice()).filter(|t| !t.is_empty() && (self.look != Look::Text || self.applied.visible != Some(false)))
     }
 
     /// Makes it show `want`: what differs from what was set before, and
@@ -218,10 +218,14 @@ impl BoundElement {
         match self.look {
             Look::Plain => Ok(()),
             Look::Text => {
-                let Some(text) = want.text_box() else { return Ok(()) };
-                if self.applied.text.as_ref() != Some(&text) {
-                    write_text(m, self.object, &text)?;
-                    self.applied.text = Some(text);
+                if let Some(text) = want.text_box() {
+                    if self.applied.text.as_ref() != Some(&text) {
+                        write_text(m, self.object, &text)?;
+                        self.applied.text = Some(text);
+                    }
+                }
+                if let Some(visible) = want.visible {
+                    self.applied.visible = Some(visible);
                 }
                 Ok(())
             }
@@ -452,6 +456,11 @@ mod tests {
         assert_eq!(taken(), [("text", 0), ("destroy", 0)]);
         b.apply(m, &Shown { visible: Some(false), text: Some(b"34".to_vec()), ..Shown::default() }).unwrap();
         assert_eq!(taken(), [], "still hidden, still empty");
+        b.apply(m, &Shown { tooltip: Some(b"Why".to_vec()), ..Shown::default() }).unwrap();
+        assert_eq!(b.tooltip(), None, "hidden text must not supply a tooltip, even after a tooltip-only update");
+        b.apply(m, &Shown { visible: Some(true), ..Shown::default() }).unwrap();
+        assert_eq!(b.tooltip(), Some(&b"Why"[..]), "showing the text restores its retained tooltip");
+        assert_eq!(taken(), [], "a visibility-only update retains the tooltip without another text write");
     }
 
     #[test]

@@ -317,7 +317,8 @@ fn tear_down(m: &Memory, live: &mut Live, mut built: Built) -> Result<()> {
 // ---------- applying what is wanted ----------
 
 /// What a game widget shows at first, from its layout.
-fn initial(placed: &Placed, words: &dyn Fn(&Option<String>) -> String) -> BTreeMap<&'static str, Property> {
+fn initial(placed: &Placed, words: &BTreeMap<String, String>) -> BTreeMap<&'static str, Property> {
+    let words = |key: &Option<String>| key.as_ref().and_then(|key| words.get(key)).cloned().unwrap_or_default();
     let mut out = BTreeMap::new();
     let mut put = |p: Property| {
         out.insert(p.name(), p);
@@ -344,16 +345,8 @@ fn apply_element(m: &Memory, built: &mut Built, index: usize, want: &BTreeMap<&'
 }
 
 /// Builds a list's rows again: every row deleted, and each added and set.
-fn fill_rows(
-    m: &Memory,
-    live: &mut Live,
-    built: &mut Built,
-    list: &str,
-    layout: &Window,
-    generation_type: &str,
-    rows: &[Vec<(String, Property)>],
-) -> Result<()> {
-    let Some(Placed { kind: Kind::List { row, .. }, .. }) = layout.widget(list) else { return Ok(()) };
+fn fill_rows(m: &Memory, live: &mut Live, built: &mut Built, list: &str, want: &WantWindow, rows: &[Vec<(String, Property)>]) -> Result<()> {
+    let Some(Placed { kind: Kind::List { row, .. }, .. }) = want.layout.widget(list) else { return Ok(()) };
     let Some(list_index) = built.elements.iter().position(|b| b.name == list && b.row.is_none()) else { return Ok(()) };
     let list_box = built.elements[list_index].element.object;
     // The rows' elements go with them: let go of them first.
@@ -368,7 +361,7 @@ fn fill_rows(
     }
     functions::LIST_CLEAR.call(m, [list_box])?;
     let mgr = m.ptr(m.at(globals::MANAGER))?;
-    let row_type = gui::row_type(generation_type, list);
+    let row_type = gui::row_type(&want.type_name, list);
     for (n, cells) in rows.iter().enumerate() {
         let entry = game_heap::new(m, list_entry::SIZE)?;
         with_string(m, row_type.as_bytes(), |t| functions::LIST_ENTRY.call(m, [entry, mgr, t]))?;
@@ -379,14 +372,13 @@ fn fill_rows(
         functions::LIST_ADD.call(m, [list_box, entry, 1])?;
         let first = built.elements.len();
         bind(m, row_window, &row.widgets, Some((list.to_string(), n as u32 + 1)), &mut built.elements)?;
-        let words = |_: &Option<String>| String::new();
         for (i, placed) in row.widgets.iter().enumerate() {
-            let mut want = initial(placed, &words);
+            let mut wanted = initial(placed, &want.words);
             for (name, property) in cells.iter().filter(|(name, _)| Some(name) == placed.name.as_ref()) {
                 let _ = name;
-                want.insert(property.name(), property.clone());
+                wanted.insert(property.name(), property.clone());
             }
-            apply_element(m, built, first + i, &want)?;
+            apply_element(m, built, first + i, &wanted)?;
         }
     }
     built.rows.insert(list.to_string(), rows.to_vec());
@@ -626,18 +618,17 @@ fn build_window(m: &Memory, mgr: usize, live: &mut Live, key: Key, want: &WantWi
 }
 
 fn apply_window(m: &Memory, live: &mut Live, built: &mut Built, want: &WantWindow) -> Result<()> {
-    let words = |k: &Option<String>| k.as_ref().and_then(|k| want.words.get(k)).cloned().unwrap_or_default();
     for (index, placed) in want.layout.widgets.iter().enumerate() {
         let name = placed.name.clone().unwrap_or_else(|| gui::element(placed, index));
         let Some(at) = built.elements.iter().position(|b| b.name == name && b.row.is_none()) else { continue };
         if matches!(placed.kind, Kind::List { .. }) {
             let rows = want.wanted.rows.get(&name).cloned().unwrap_or_default();
             if built.rows.get(&name) != Some(&rows) {
-                fill_rows(m, live, built, &name, &want.layout, &want.type_name, &rows)?;
+                fill_rows(m, live, built, &name, want, &rows)?;
             }
             continue;
         }
-        let mut wanted = initial(placed, &words);
+        let mut wanted = initial(placed, &want.words);
         if let Some(set) = want.wanted.set.get(&name) {
             wanted.extend(set.iter().map(|(k, v)| (*k, v.clone())));
         }
@@ -919,4 +910,27 @@ pub fn points() -> Vec<Point> {
             Some(strip_after),
         ),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_list_rows_static_text_and_tooltip_use_the_windows_localisation() {
+        let windows = layout::read(
+            &serde_json::json!({ "tools": { "size": [400, 320], "items": [
+                { "type": "list", "name": "results", "size": [300, 120], "row": { "size": [300, 30], "items": [
+                    { "type": "text", "name": "result", "size": [250, 25], "text": "RESULT", "tooltip": "WHY" }
+                ]}}
+            ]}}),
+            &|_| true,
+        )
+        .unwrap();
+        let Kind::List { row, .. } = &windows[0].widget("results").unwrap().kind else { panic!() };
+        let words = BTreeMap::from([("RESULT".into(), "One row".into()), ("WHY".into(), "The localized reason".into())]);
+        let properties = initial(&row.widgets[0], &words);
+        assert_eq!(properties.get("text"), Some(&Property::Text("One row".into())));
+        assert_eq!(properties.get("tooltip"), Some(&Property::Tooltip("The localized reason".into())));
+    }
 }

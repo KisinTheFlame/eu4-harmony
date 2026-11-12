@@ -61,7 +61,9 @@ steps:
    is enabled, or a table of properties. What is set while a window is
    closed shows when it opens. Set a text's tooltip with
    game.window.reforms.status.tooltip = text.get("MYMOD_DETAILS"); an empty
-   string clears it. A text button's words do not change once laid out;
+   string clears it. A hidden text's tooltip is suppressed and returns
+   when it is shown again. Static text and tooltip keys in list rows use
+   the window's localisation. A text button's words do not change once laid out;
    the entry button shows no number.
 4. Hear it: on_button(game, "reforms.pick", click), click.row set for a
    button in a list's row; on_window(game, "reforms", open) whenever it

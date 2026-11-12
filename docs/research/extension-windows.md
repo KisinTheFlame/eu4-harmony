@@ -19,6 +19,8 @@ It builds on [ui-injection.md](ui-injection.md) (how `.gui` files are read), [no
 
 Runtime follow-up on 2026-11-12: an extension's ordinary text box also reaches this tooltip path. After assigning its `tooltip` property, hovering the visible result text showed the game's tooltip with the assigned reason and count, without an overlaid button or another native hook ([the run](../prototype-log/2026-11-12-convenience-ui.md)). This verifies text boxes, not every possible widget kind.
 
+The extension property layer suppresses a text box's retained tooltip while its logical `visible` property is false, since hiding text only clears its displayed string; showing it restores the tooltip. List-row text and tooltip defaults resolve through the same window-localisation map as top-level elements. Both cases have regressions in `bound_element` and `windows::live`.
+
 ## 1. Reading an interface file after startup
 
 `0x14eb7d0(GuiManager* mgr, const std::string* path)`, `void` (verified):
