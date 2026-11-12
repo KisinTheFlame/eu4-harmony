@@ -518,6 +518,7 @@
 "0x21c7a0" = { kind = "function", notes = ["research/sieges.md"] }
 "0x21d470" = { kind = "function", notes = ["research/defeat.md"] }
 "0x21d540" = { kind = "leaf", notes = ["research/defeat.md"] }
+"0x21d880" = { kind = "function", name = "battle side discipline overview", notes = ["research/mercenary-discipline.md"] }
 "0x21eb30" = { kind = "function", notes = ["research/armies.md", "research/army-checks-in-searches.md", "research/army-orders.md", "research/defeat.md", "research/routes.md"] }
 "0x21eb42" = { kind = "code", name = "battle side units", notes = ["research/defeat.md"] }
 "0x21ec87" = { kind = "code", name = "battle side count", notes = ["research/defeat.md"] }
@@ -526,9 +527,32 @@
 "0x21ee3e" = { kind = "code", notes = ["research/routes.md"] }
 "0x21ef40" = { kind = "function", notes = ["research/defeat.md"] }
 "0x21f5f0" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
+"0x21fd90" = { kind = "function", name = "country represented by the battle side", notes = ["research/mercenary-discipline.md"] }
 "0x21fe80" = { kind = "function", notes = ["research/battles.md", "research/sieges.md"] }
 "0x21ff04" = { kind = "code", notes = ["research/sieges.md"] }
+"0x220c00" = { kind = "function", name = "apply a battle side's pending losses", notes = ["research/mercenary-discipline.md", "research/mercenary-drill.md"] }
+"0x220d9a" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0x220dea" = { kind = "code", notes = ["research/mercenary-drill.md"] }
 "0x221750" = { kind = "function", notes = ["research/late-game.md"] }
+"0x225860" = { kind = "function", name = "a land regiment attacks its target", notes = ["research/mercenary-discipline.md", "research/mercenary-drill.md"] }
+"0x225be4" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0x2262ee" = { kind = "code", notes = ["research/mercenary-discipline.md"] }
+"0x226432" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0x226524" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0x2265bf" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0x226624" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0x226689" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0x22677d" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0x226812" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0x22686e" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0x226b0b" = { kind = "code", notes = ["research/mercenary-discipline.md"] }
+"0x226e2d" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0x226e4a" = { kind = "code", notes = ["research/mercenary-discipline.md", "research/mercenary-drill.md"] }
+"0x226ee4" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0x226fb0" = { kind = "function", name = "land battle side attacks", notes = ["research/mercenary-drill.md"] }
+"0x22743b" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0x22745c" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0x228fe0" = { kind = "function", notes = ["research/mercenary-drill.md"] }
 "0x22a420" = { kind = "function", notes = ["research/sieges.md"] }
 "0x22a449" = { kind = "code", name = "combat province", notes = ["research/sieges.md"] }
 "0x22a58e" = { kind = "code", notes = ["research/sieges.md"] }
@@ -547,8 +571,12 @@
 "0x22c007" = { kind = "code", notes = ["research/battles.md"] }
 "0x22c04c" = { kind = "code", notes = ["research/battles.md", "research/defeat.md"] }
 "0x22c054" = { kind = "code", notes = ["research/defeat.md"] }
-"0x22c080" = { kind = "function", notes = ["game/military.md", "research/battles.md", "research/defeat.md", "research/late-game.md", "research/sieges.md"] }
+"0x22c080" = { kind = "function", notes = ["game/military.md", "research/battles.md", "research/defeat.md", "research/late-game.md", "research/mercenary-drill.md", "research/sieges.md"] }
 "0x22c9ef" = { kind = "code", notes = ["research/defeat.md"] }
+"0x22cad1" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0x22caee" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0x22cb30" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0x22cb56" = { kind = "code", notes = ["research/mercenary-drill.md"] }
 "0x22ce87" = { kind = "code", notes = ["research/defeat.md"] }
 "0x22ceef" = { kind = "code", notes = ["research/defeat.md"] }
 "0x22cf5d" = { kind = "code", notes = ["research/defeat.md"] }
@@ -950,6 +978,7 @@
 "0x33e390" = { kind = "function", notes = ["research/countries.md"] }
 "0x33eb70" = { kind = "function", notes = ["research/power-spending.md"] }
 "0x33f410" = { kind = "function", notes = ["research/leaders.md"] }
+"0x341820" = { kind = "function", name = "country ordinary discipline", notes = ["research/mercenary-discipline.md"] }
 "0x342170" = { kind = "function", name = "fleets that may carry an army", notes = ["research/units.md"] }
 "0x3428c0" = { kind = "function", name = "may disband a unit", notes = ["research/units.md"] }
 "0x342f60" = { kind = "function", name = "may merge units", notes = ["research/units.md"] }
@@ -2190,7 +2219,8 @@
 "0x8650f0" = { kind = "leaf", notes = ["research/window-elements.md"] }
 "0x865100" = { kind = "function", notes = ["research/leaders.md"] }
 "0x8664e0" = { kind = "function", notes = ["research/leaders.md"] }
-"0x866900" = { kind = "function", notes = ["research/sieges.md"] }
+"0x866900" = { kind = "function", notes = ["research/mercenary-drill.md", "research/sieges.md"] }
+"0x8685a0" = { kind = "function", notes = ["research/mercenary-discipline.md"] }
 "0x86aed0" = { kind = "function", notes = ["research/power-spending.md"] }
 "0x86b0e0" = { kind = "function", notes = ["research/countries.md"] }
 "0x86b1af" = { kind = "code", name = "loan interest", notes = ["research/countries.md"] }
@@ -2304,19 +2334,22 @@
 "0x8d80d0" = { kind = "function", notes = ["research/loading.md"] }
 "0x8d8100" = { kind = "code", notes = ["research/loading.md"] }
 "0x8d8155" = { kind = "code", notes = ["research/loading.md"] }
-"0x8d84a0" = { kind = "function", notes = ["research/architecture.md", "research/army-checks-in-searches.md", "research/modifiers.md", "research/tolerance-in-a-province.md"] }
+"0x8d84a0" = { kind = "function", notes = ["research/architecture.md", "research/army-checks-in-searches.md", "research/mercenary-drill.md", "research/modifiers.md", "research/tolerance-in-a-province.md"] }
+"0x8ded00" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0x8dfef4" = { kind = "code", notes = ["research/mercenary-discipline.md"] }
+"0x8dff24" = { kind = "code", notes = ["research/mercenary-discipline.md"] }
 "0x8e6120" = { kind = "leaf", notes = ["research/modifiers.md"] }
 "0x8e6bd0" = { kind = "function", name = "a modifier's value", notes = ["research/area-governing-cost.md", "research/modifiers.md"] }
 "0x8e6be2" = { kind = "code", name = "modifier set by modifier", notes = ["research/modifiers.md"] }
 "0x8e6bf9" = { kind = "code", name = "modifier set pairs", notes = ["research/modifiers.md"] }
 "0x8e6c3e" = { kind = "code", notes = ["research/modifiers.md"] }
-"0x8e7b60" = { kind = "function", name = "has a modifier", notes = ["research/army-checks-in-searches.md", "research/leaders.md", "research/modifiers.md", "research/power-spending.md", "research/tolerance-in-a-province.md"] }
+"0x8e7b60" = { kind = "function", name = "has a modifier", notes = ["research/army-checks-in-searches.md", "research/leaders.md", "research/mercenary-drill.md", "research/modifiers.md", "research/power-spending.md", "research/tolerance-in-a-province.md"] }
 "0x8e7b83" = { kind = "code", notes = ["research/modifiers.md"] }
 "0x8e7bab" = { kind = "code", notes = ["research/modifiers.md"] }
 "0x8e8ca0" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
 "0x8ea1e0" = { kind = "function", notes = ["research/government.md", "research/modifiers.md"] }
 "0x8ea2d0" = { kind = "function", name = "modifier set copy", notes = ["research/army-checks-in-searches.md", "research/main-menu.md", "research/modifiers.md"] }
-"0x8ea420" = { kind = "function", name = "modifiers added to a set", notes = ["research/army-checks-in-searches.md", "research/late-game.md", "research/main-menu.md", "research/modifiers.md", "research/world-interface-seams.md"] }
+"0x8ea420" = { kind = "function", name = "modifiers added to a set", notes = ["research/army-checks-in-searches.md", "research/late-game.md", "research/main-menu.md", "research/mercenary-drill.md", "research/modifiers.md", "research/world-interface-seams.md"] }
 "0x8ea4d0" = { kind = "code", name = "set's search for a modifier added", notes = ["research/late-game.md"] }
 "0x8ea4e0" = { kind = "code", notes = ["research/late-game.md"] }
 "0x8ea610" = { kind = "function", notes = ["research/main-menu.md"] }
@@ -2324,15 +2357,17 @@
 "0x8ea730" = { kind = "function", name = "modifiers taken from a set", notes = ["research/late-game.md"] }
 "0x8ea7e2" = { kind = "code", name = "set's search for a modifier taken", notes = ["research/late-game.md"] }
 "0x8ea920" = { kind = "function", notes = ["research/army-checks-in-searches.md", "research/modifiers.md"] }
-"0x8ecec0" = { kind = "function", name = "static modifiers database", notes = ["research/area-governing-cost.md", "research/army-checks-in-searches.md", "research/provinces.md"] }
+"0x8ecec0" = { kind = "function", name = "static modifiers database", notes = ["research/area-governing-cost.md", "research/army-checks-in-searches.md", "research/mercenary-drill.md", "research/provinces.md"] }
 "0x8ed090" = { kind = "function", notes = ["research/architecture.md"] }
-"0x8ed850" = { kind = "function", name = "read the static modifiers", notes = ["research/area-governing-cost.md"] }
+"0x8ed850" = { kind = "function", name = "read the static modifiers", notes = ["research/area-governing-cost.md", "research/mercenary-drill.md"] }
 "0x8edff2" = { kind = "code", name = "in state static modifier", notes = ["research/area-governing-cost.md"] }
 "0x8ee0b0" = { kind = "code", name = "core static modifier", notes = ["research/area-governing-cost.md"] }
 "0x8ee0c3" = { kind = "code", name = "non core static modifier", notes = ["research/area-governing-cost.md"] }
 "0x8ee0d6" = { kind = "code", name = "colonial core static modifier", notes = ["research/area-governing-cost.md"] }
 "0x8ee0e9" = { kind = "code", name = "territory core static modifier", notes = ["research/area-governing-cost.md"] }
 "0x8ee0fc" = { kind = "code", name = "territory non core static modifier", notes = ["research/area-governing-cost.md"] }
+"0x8ee9f7" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0x8eea18" = { kind = "code", notes = ["research/mercenary-drill.md"] }
 "0x8ef620" = { kind = "function", notes = ["research/loading.md"] }
 "0x8effc0" = { kind = "function", notes = ["research/loading.md"] }
 "0x8f0350" = { kind = "function", notes = ["research/loading.md"] }
@@ -2365,7 +2400,7 @@
 "0x8ffad0" = { kind = "function", notes = ["research/leaders.md"] }
 "0x8ffcb0" = { kind = "function", name = "mercenary company name", notes = ["research/leaders.md"] }
 "0x8fff70" = { kind = "function", notes = ["research/main-menu.md"] }
-"0x900070" = { kind = "function", notes = ["research/army-checks-in-searches.md"] }
+"0x900070" = { kind = "function", notes = ["research/army-checks-in-searches.md", "research/mercenary-drill.md"] }
 "0x900100" = { kind = "function", name = "mercenary company regiments", notes = ["research/leaders.md"] }
 "0x900660" = { kind = "function", name = "mercenary company upkeep", notes = ["research/leaders.md"] }
 "0x900cb0" = { kind = "function", name = "mercenary company hiring cost", notes = ["research/leaders.md"] }
@@ -2415,7 +2450,7 @@
 "0x93c790" = { kind = "function", notes = ["research/country-daily-update.md"] }
 "0x93ca70" = { kind = "function", notes = ["research/country-daily-update.md"] }
 "0x93d130" = { kind = "function", notes = ["research/army-checks-in-searches.md", "research/late-game.md", "research/main-menu.md", "research/monthly-update.md", "research/tolerance-in-a-province.md"] }
-"0x93d750" = { kind = "function", name = "country modifiers", notes = ["research/army-checks-in-searches.md", "research/countries.md", "research/drawing-beside-the-day.md", "research/government.md", "research/leaders.md", "research/modifiers.md", "research/power-spending.md", "research/provinces.md", "research/tolerance-in-a-province.md", "research/trade-range-and-naval-supply.md"] }
+"0x93d750" = { kind = "function", name = "country modifiers", notes = ["research/army-checks-in-searches.md", "research/countries.md", "research/drawing-beside-the-day.md", "research/government.md", "research/leaders.md", "research/mercenary-drill.md", "research/modifiers.md", "research/power-spending.md", "research/provinces.md", "research/tolerance-in-a-province.md", "research/trade-range-and-naval-supply.md"] }
 "0x93da40" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x93dcc8" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x93e630" = { kind = "function", notes = ["research/dependency-teardown.md"] }
@@ -2939,12 +2974,29 @@
 "0xadc98f" = { kind = "code", name = "regiment type", notes = ["research/units.md"] }
 "0xadc9bf" = { kind = "code", name = "regiment morale", notes = ["research/units.md"] }
 "0xadca87" = { kind = "code", name = "regiment strength", notes = ["research/units.md"] }
-"0xadcb50" = { kind = "function", notes = ["research/army-checks-in-searches.md"] }
+"0xadcb50" = { kind = "function", name = "regiment qualifies for drill", notes = ["research/army-checks-in-searches.md", "research/mercenary-drill.md"] }
+"0xadcc31" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0xadcc51" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0xadccfd" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0xadcd43" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0xadd8d0" = { kind = "function", name = "accumulate regiment strength and morale damage", notes = ["research/mercenary-discipline.md", "research/mercenary-drill.md"] }
 "0xaddd70" = { kind = "function", notes = ["research/army-checks-in-searches.md"] }
 "0xadde10" = { kind = "function", notes = ["research/army-checks-in-searches.md"] }
+"0xadf040" = { kind = "function", notes = ["research/mercenary-discipline.md"] }
+"0xadf180" = { kind = "function", notes = ["research/mercenary-discipline.md"] }
 "0xae0f00" = { kind = "function", notes = ["research/country-daily-update.md"] }
 "0xae1a40" = { kind = "function", name = "regiments a ship carries", notes = ["research/units.md"] }
-"0xae7230" = { kind = "function", notes = ["research/army-checks-in-searches.md"] }
+"0xae6580" = { kind = "function", name = "regiment discipline including mercenary discipline", notes = ["research/mercenary-discipline.md"] }
+"0xae65ce" = { kind = "code", notes = ["research/mercenary-discipline.md"] }
+"0xae65ec" = { kind = "code", notes = ["research/mercenary-discipline.md"] }
+"0xae667d" = { kind = "code", notes = ["research/mercenary-discipline.md"] }
+"0xae66f4" = { kind = "code", notes = ["research/mercenary-discipline.md"] }
+"0xae7190" = { kind = "function", name = "regiment local modifiers", notes = ["research/mercenary-discipline.md", "research/mercenary-drill.md"] }
+"0xae71ad" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0xae7230" = { kind = "function", name = "regiment drill modifiers", notes = ["research/army-checks-in-searches.md", "research/mercenary-drill.md"] }
+"0xae72da" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0xae7300" = { kind = "code", notes = ["research/mercenary-drill.md"] }
+"0xae7600" = { kind = "function", notes = ["research/mercenary-discipline.md", "research/mercenary-drill.md"] }
 "0xae8c10" = { kind = "function", notes = ["research/provinces.md"] }
 "0xaf0c50" = { kind = "function", notes = ["research/countries.md"] }
 "0xaf1390" = { kind = "leaf", notes = ["research/countries.md"] }
@@ -3274,7 +3326,8 @@
 "0xd40710" = { kind = "function", notes = ["research/army-checks-in-searches.md"] }
 "0xd40790" = { kind = "function", notes = ["research/army-checks-in-searches.md"] }
 "0xd40ae0" = { kind = "function", notes = ["research/army-checks-in-searches.md", "research/late-game.md"] }
-"0xd40ce0" = { kind = "function", name = "may drill", notes = ["research/units.md"] }
+"0xd40ce0" = { kind = "function", name = "may drill", notes = ["research/mercenary-drill.md", "research/units.md"] }
+"0xd40d30" = { kind = "code", notes = ["research/mercenary-drill.md"] }
 "0xd41870" = { kind = "leaf", notes = ["research/armies.md"] }
 "0xd41ae0" = { kind = "function", notes = ["research/armies.md"] }
 "0xd423a0" = { kind = "leaf", notes = ["research/army-orders.md", "research/sieges.md", "research/units.md"] }
@@ -3311,7 +3364,7 @@
 "0xd4c060" = { kind = "function", name = "unit morale", notes = ["research/units.md"] }
 "0xd4c390" = { kind = "function", notes = ["research/army-checks-in-searches.md"] }
 "0xd4c6e0" = { kind = "function", notes = ["research/army-checks-in-searches.md"] }
-"0xd4ca70" = { kind = "function", notes = ["research/army-checks-in-searches.md"] }
+"0xd4ca70" = { kind = "function", notes = ["research/army-checks-in-searches.md", "research/mercenary-drill.md"] }
 "0xd4cbc0" = { kind = "function", name = "unit's flag for the threat", notes = ["research/armies.md"] }
 "0xd4cd10" = { kind = "function", name = "unit max morale", notes = ["research/units.md"] }
 "0xd4f0c0" = { kind = "leaf", notes = ["research/units.md"] }
@@ -3786,6 +3839,11 @@
 "0x103a800" = { kind = "function", notes = ["research/trade-range-and-naval-supply.md"] }
 "0x1044e97" = { kind = "code", notes = ["research/text-input.md"] }
 "0x1045640" = { kind = "function", name = "close the country history", notes = ["research/main-menu.md"] }
+"0x104d2c0" = { kind = "function", notes = ["research/mercenary-discipline.md"] }
+"0x104e2f3" = { kind = "code", notes = ["research/mercenary-discipline.md"] }
+"0x1051fd0" = { kind = "function", notes = ["research/mercenary-discipline.md"] }
+"0x1053a9f" = { kind = "code", notes = ["research/mercenary-discipline.md"] }
+"0x1053abc" = { kind = "code", notes = ["research/mercenary-discipline.md"] }
 "0x1054a20" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
 "0x10555ae" = { kind = "code", notes = ["research/unicode-text.md"] }
 "0x1056d90" = { kind = "function", name = "reform chooser deleting destructor", notes = ["research/main-menu.md"] }
@@ -5489,7 +5547,9 @@
 "0x1c48bf8" = { kind = "data", notes = ["research/architecture.md"] }
 "0x1c4a0c8" = { kind = "data", notes = ["research/sieges.md"] }
 "0x1c4a168" = { kind = "data", notes = ["research/sieges.md"] }
+"0x1c4a208" = { kind = "data", notes = ["research/mercenary-drill.md"] }
 "0x1c4a2e0" = { kind = "data", notes = ["research/sieges.md"] }
+"0x1c4a420" = { kind = "data", notes = ["research/mercenary-drill.md"] }
 "0x1c4b498" = { kind = "data", notes = ["research/province-view.md", "research/provinces.md"] }
 "0x1c4d6c8" = { kind = "data", notes = ["research/envoys.md"] }
 "0x1c4d818" = { kind = "data", notes = ["research/envoys.md"] }
@@ -6023,7 +6083,7 @@
 "0x233e4fc" = { kind = "data", notes = ["research/government.md"] }
 "0x233e514" = { kind = "data", notes = ["research/countries.md"] }
 "0x233e51c" = { kind = "data", notes = ["research/sieges.md"] }
-"0x233e530" = { kind = "data", notes = ["research/army-checks-in-searches.md"] }
+"0x233e530" = { kind = "data", notes = ["research/army-checks-in-searches.md", "research/mercenary-drill.md"] }
 "0x233e598" = { kind = "data", notes = ["research/religion.md"] }
 "0x233e664" = { kind = "data", notes = ["research/religion.md"] }
 "0x233e714" = { kind = "data", notes = ["research/camera.md"] }
