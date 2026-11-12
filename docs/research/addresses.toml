@@ -168,6 +168,7 @@
 "0xcf460" = { kind = "leaf", notes = ["research/gui-drawing.md"] }
 "0xcf470" = { kind = "leaf", name = "idea group's ideas taken", notes = ["research/countries.md"] }
 "0xcf6a0" = { kind = "function", name = "scope copy", notes = ["research/empires.md", "research/government.md", "research/questions-and-offers.md", "research/triggers.md"] }
+"0xcf9f0" = { kind = "function", name = "word array storage replaced", notes = ["research/map-drawing-reads.md"] }
 "0xcfb90" = { kind = "function", notes = ["research/triggers.md"] }
 "0xcfc70" = { kind = "function", notes = ["research/armies.md", "research/army-orders.md", "research/map-modes.md", "research/provinces.md", "research/units.md"] }
 "0xcfd70" = { kind = "leaf", name = "date year", notes = ["research/dates.md", "research/scripts.md"] }
@@ -1511,7 +1512,7 @@
 "0x6ea1c0" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x6ea380" = { kind = "function", notes = ["research/architecture.md", "research/main-thread.md", "research/notice-window.md", "research/questions-and-offers.md", "research/time.md"] }
 "0x6eaa10" = { kind = "function", notes = ["research/achievements.md", "research/game-console.md", "research/time.md"] }
-"0x6eb6e0" = { kind = "leaf", name = "the tooltips' update", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
+"0x6eb6e0" = { kind = "leaf", name = "the tooltips' update", notes = ["research/drawing-beside-the-day.md"] }
 "0x6eb9f0" = { kind = "function", notes = ["research/achievements.md"] }
 "0x6ebd10" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
 "0x6ec450" = { kind = "function", notes = ["research/map-drawing-reads.md", "research/map-modes.md"] }
@@ -1944,7 +1945,7 @@
 "0x811aa0" = { kind = "leaf", name = "map manager session", notes = ["research/recruiting.md", "research/time.md"] }
 "0x811b20" = { kind = "leaf", name = "player country", notes = ["research/armies.md", "research/fog-of-war.md"] }
 "0x812e20" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
-"0x8137c0" = { kind = "function", name = "map manager frame", notes = ["research/architecture.md", "research/army-orders.md", "research/drawing-beside-the-day.md", "research/extension-windows.md", "research/main-menu.md", "research/main-thread.md", "research/notice-window.md", "research/recruiting.md", "research/safe-points.md", "research/time.md"] }
+"0x8137c0" = { kind = "function", name = "map manager frame", notes = ["research/architecture.md", "research/army-orders.md", "research/drawing-beside-the-day.md", "research/extension-windows.md", "research/main-menu.md", "research/main-thread.md", "research/map-drawing-reads.md", "research/notice-window.md", "research/recruiting.md", "research/safe-points.md", "research/time.md"] }
 "0x813ac5" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x813c56" = { kind = "code", notes = ["research/recruiting.md"] }
 "0x813f8e" = { kind = "code", notes = ["research/recruiting.md"] }
@@ -1972,7 +1973,8 @@
 "0x815914" = { kind = "code", notes = ["research/notice-window.md"] }
 "0x81591c" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x815921" = { kind = "code", name = "the in-game frame after its drawing", notes = ["research/drawing-beside-the-day.md"] }
-"0x815949" = { kind = "code", name = "the tooltips updated after the drawing", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
+"0x815928" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
+"0x815949" = { kind = "code", name = "the tooltips updated after the drawing", notes = ["research/drawing-beside-the-day.md"] }
 "0x815bce" = { kind = "code", notes = ["research/extension-windows.md"] }
 "0x815c9f" = { kind = "code", name = "return to main menu", notes = ["research/main-menu.md"] }
 "0x815cf3" = { kind = "code", notes = ["research/main-menu.md"] }
@@ -2713,6 +2715,7 @@
 "0xa28cf0" = { kind = "function", notes = ["research/tolerance-in-a-province.md"] }
 "0xa28d70" = { kind = "function", notes = ["research/tolerance-in-a-province.md"] }
 "0xa29960" = { kind = "function", notes = ["research/power-spending.md"] }
+"0xa2ec80" = { kind = "function", name = "country highlight bitset resized", notes = ["research/map-drawing-reads.md"] }
 "0xa368eb" = { kind = "code", notes = ["research/loading.md"] }
 "0xa40700" = { kind = "function", notes = ["research/provinces.md"] }
 "0xa407ac" = { kind = "code", notes = ["research/provinces.md"] }
@@ -3519,7 +3522,11 @@
 "0xe15030" = { kind = "function", notes = ["research/units.md"] }
 "0xe151a0" = { kind = "leaf", notes = ["research/interface-bindings.md"] }
 "0xe17020" = { kind = "function", notes = ["research/religion.md"] }
-"0xe1ac80" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
+"0xe1ac80" = { kind = "function", name = "temporary map highlights cleared", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
+"0xe1acc0" = { kind = "function", name = "temporary country and core highlights", notes = ["research/map-drawing-reads.md"] }
+"0xe1adac" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
+"0xe1adb3" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
+"0xe1b030" = { kind = "leaf", name = "a province flag bit cleared across the array", notes = ["research/map-drawing-reads.md"] }
 "0xe214b0" = { kind = "function", notes = ["research/recruiting.md"] }
 "0xe2151f" = { kind = "code", notes = ["research/recruiting.md"] }
 "0xe2156e" = { kind = "code", notes = ["research/provinces.md"] }
@@ -3637,6 +3644,7 @@
 "0xf54508" = { kind = "code", notes = ["research/power-spending.md"] }
 "0xf5f646" = { kind = "code", notes = ["research/dates.md"] }
 "0xf669e0" = { kind = "function", notes = ["research/power-spending.md"] }
+"0xf80d03" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
 "0xf84130" = { kind = "function", notes = ["research/power-spending.md"] }
 "0xf86f80" = { kind = "code", notes = ["research/main-menu.md"] }
 "0xf8a4d0" = { kind = "function", notes = ["research/power-spending.md"] }
@@ -3899,6 +3907,7 @@
 "0x10d3b1a" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x10d3c55" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x10d3d32" = { kind = "code", notes = ["research/main-menu.md"] }
+"0x10d3d5b" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
 "0x10d5bc0" = { kind = "function", name = "main menu takes over", notes = ["research/main-menu.md", "research/notice-window.md"] }
 "0x10d5c4d" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x10d5cb1" = { kind = "code", notes = ["research/main-menu.md"] }
@@ -4094,13 +4103,21 @@
 "0x12dd0a0" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
 "0x12dd0c0" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
 "0x12dd3b0" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
+"0x12dd5f1" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
 "0x12dd5f6" = { kind = "code", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
-"0x12dd610" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
+"0x12dd610" = { kind = "function", name = "visible province borders classified", notes = ["research/map-drawing-reads.md"] }
+"0x12dd7c0" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
 "0x12dd9c2" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
-"0x12dda90" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
-"0x12ddac2" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x12dda90" = { kind = "code", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
+"0x12ddac2" = { kind = "code", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
+"0x12ddac7" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
 "0x12ddb75" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x12ddba6" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x12ddbb6" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
+"0x12ddbd9" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
+"0x12ddbfb" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
+"0x12ddc05" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
+"0x12ddc97" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
 "0x12ddda0" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
 "0x12de4f6" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x12deeb0" = { kind = "function", notes = ["research/world-interface-seams.md"] }
@@ -4180,7 +4197,8 @@
 "0x1355080" = { kind = "function", notes = ["research/envoys.md"] }
 "0x1362060" = { kind = "function", notes = ["research/envoys.md"] }
 "0x136215c" = { kind = "code", notes = ["research/envoys.md"] }
-"0x13626b0" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
+"0x13626b0" = { kind = "function", name = "core and claim flag tooltip", notes = ["research/map-drawing-reads.md"] }
+"0x13626e7" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
 "0x1367a30" = { kind = "function", notes = ["research/province-view.md"] }
 "0x1369a80" = { kind = "function", notes = ["research/envoys.md"] }
 "0x136a6a0" = { kind = "function", notes = ["research/envoys.md"] }
@@ -5259,6 +5277,7 @@
 "0x1a337c8" = { kind = "function", notes = ["research/architecture.md", "research/ui-injection.md"] }
 "0x1a35124" = { kind = "function", notes = ["research/diplomacy.md", "research/gui-drawing.md", "research/main-menu.md"] }
 "0x1a35140" = { kind = "leaf", notes = ["research/crash-handling.md"] }
+"0x1a35e00" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
 "0x1a35fa0" = { kind = "function", notes = ["research/parameterized-script.md"] }
 "0x1a42041" = { kind = "code", notes = ["research/saves.md"] }
 "0x1a43386" = { kind = "code", notes = ["research/saves.md"] }
@@ -5872,7 +5891,7 @@
 "0x233d850" = { kind = "data", notes = ["research/monthly-update.md", "research/world-in-a-second-process.md"] }
 "0x233d890" = { kind = "data", notes = ["research/achievements.md", "research/architecture.md", "research/main-menu.md", "research/saves.md"] }
 "0x233d8a4" = { kind = "data", notes = ["research/armies.md", "research/army-checks-in-searches.md", "research/diplomacy.md"] }
-"0x233d8d0" = { kind = "data", notes = ["research/architecture.md", "research/countries.md", "research/drawing-beside-the-day.md", "research/message-pop-up-actions.md", "research/scripts.md", "research/window-elements.md"] }
+"0x233d8d0" = { kind = "data", notes = ["research/architecture.md", "research/countries.md", "research/drawing-beside-the-day.md", "research/map-drawing-reads.md", "research/message-pop-up-actions.md", "research/scripts.md", "research/window-elements.md"] }
 "0x233d8d8" = { kind = "data", notes = ["research/armies.md", "research/diplomacy.md", "research/provinces.md", "research/trade.md"] }
 "0x233d8dc" = { kind = "data", notes = ["research/armies.md", "research/diplomacy.md", "research/provinces.md"] }
 "0x233d92c" = { kind = "data", notes = ["research/envoys.md"] }

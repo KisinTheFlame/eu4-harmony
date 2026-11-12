@@ -37,6 +37,7 @@
 mod crossings;
 mod deferred;
 mod icons;
+mod marks;
 mod prepare;
 mod tooltip;
 mod turns;
@@ -163,6 +164,7 @@ fn points() -> Vec<Point> {
     ]
     .into_iter()
     .chain(prepare::points())
+    .chain(marks::points())
     .chain(crossings::points())
     .chain(deferred::points())
     .chain(tooltip::points())
@@ -590,6 +592,9 @@ extern "C" fn frame_draws(idler: usize) {
         log!("drawing: the frame could not be prepared: {e}");
         return;
     }
+    if let Err(e) = marks::keep(&m, idler) {
+        log!("drawing: the frame's temporary map highlights could not be kept: {e}");
+    }
     // This frame's update, and what of the drawing was done here, which may
     // draw into textures in scenes of their own, have finished whatever the
     // crossings before began.
@@ -878,7 +883,7 @@ fn run() {
             if let Err(e) = icons::follow_camera(&m) {
                 log!("drawing: the map icons could not follow the camera: {e}");
             }
-            if let Err(e) = tooltip::follow_cursor(&m) {
+            if let Err(e) = tooltip::follow_cursor(&m, idler) {
                 log!("drawing: the tooltip could not follow the cursor: {e}");
             }
             IN_FRAME.store(true, Ordering::Release);
