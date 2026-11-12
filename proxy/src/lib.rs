@@ -22,11 +22,10 @@
 use std::{
     ffi::c_void,
     fs,
-    io::Write as _,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicUsize, Ordering},
-        OnceLock,
+        Mutex, OnceLock,
     },
 };
 use windows_sys::Win32::{
@@ -144,10 +143,16 @@ fn report(message: &str) {
         let base = user_dir_of(&command_line(), game, documents().as_deref()).unwrap_or_else(|| game.clone());
         Some(base.join("eu4-harmony").join("logs"))
     });
+    static JOURNAL: Mutex<Option<eu4_harmony_logging::Journal>> = Mutex::new(None);
     if let Some(logs) = logs {
-        let _ = fs::create_dir_all(logs);
-        if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(logs.join("proxy.log")) {
-            let _ = writeln!(f, "{message}");
+        // Never wait on another thread while under the Windows loader lock.
+        if let Ok(mut journal) = JOURNAL.try_lock() {
+            if journal.is_none() {
+                *journal = eu4_harmony_logging::Journal::open(logs, "proxy").ok();
+            }
+            if let Some(journal) = journal.as_mut() {
+                let _ = journal.write(eu4_harmony_logging::Kind::Critical, message);
+            }
         }
     }
 }

@@ -221,6 +221,79 @@ pub fn write<'a>(entries: impl IntoIterator<Item = (&'a Entry, &'a [u8])>) -> Ve
     out
 }
 
+/// Writes one bounded entry at a time, retaining only central-directory
+/// metadata. Used when troubleshooting files must not all be held in memory.
+/// Entries are already stored or compressed by the caller, like [`write`].
+pub struct Stream<W> {
+    output: W,
+    directory: Vec<u8>,
+    position: u64,
+    count: u16,
+}
+
+impl<W: std::io::Write> Stream<W> {
+    pub fn new(output: W) -> Self {
+        Self { output, directory: Vec::new(), position: 0, count: 0 }
+    }
+
+    pub fn entry(&mut self, entry: &Entry, data: &[u8]) -> std::io::Result<()> {
+        use std::io::{Error, ErrorKind};
+        if self.count == u16::MAX
+            || entry.name.len() > u16::MAX as usize
+            || entry.unpacked > u32::MAX as usize
+            || data.len() > u32::MAX as usize
+            || self.position > u64::from(u32::MAX)
+        {
+            return Err(Error::new(ErrorKind::InvalidInput, "zip entry exceeds the non-ZIP64 limits"));
+        }
+        let local = self.position as u32;
+        let common = |out: &mut Vec<u8>| {
+            for v in [20u16, entry.flags & !DATA_DESCRIPTOR, entry.method, entry.time, entry.date] {
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+            for v in [entry.crc, data.len() as u32, entry.unpacked as u32] {
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+            out.extend_from_slice(&(entry.name.len() as u16).to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+        };
+        let mut header = LOCAL.to_vec();
+        common(&mut header);
+        header.extend_from_slice(&entry.name);
+        self.output.write_all(&header)?;
+        self.output.write_all(data)?;
+        self.position += (header.len() + data.len()) as u64;
+        self.directory.extend_from_slice(DIRECTORY);
+        self.directory.extend_from_slice(&20u16.to_le_bytes());
+        common(&mut self.directory);
+        for v in [0u16, 0, 0] {
+            self.directory.extend_from_slice(&v.to_le_bytes());
+        }
+        self.directory.extend_from_slice(&entry.attributes.to_le_bytes());
+        self.directory.extend_from_slice(&local.to_le_bytes());
+        self.directory.extend_from_slice(&entry.name);
+        self.count += 1;
+        Ok(())
+    }
+
+    pub fn finish(mut self) -> std::io::Result<W> {
+        if self.position > u64::from(u32::MAX) || self.directory.len() > u32::MAX as usize {
+            return Err(std::io::Error::other("zip directory exceeds the non-ZIP64 limits"));
+        }
+        self.output.write_all(&self.directory)?;
+        let mut end = END.to_vec();
+        for v in [0u16, 0, self.count, self.count] {
+            end.extend_from_slice(&v.to_le_bytes());
+        }
+        end.extend_from_slice(&(self.directory.len() as u32).to_le_bytes());
+        end.extend_from_slice(&(self.position as u32).to_le_bytes());
+        end.extend_from_slice(&0u16.to_le_bytes());
+        self.output.write_all(&end)?;
+        self.output.flush()?;
+        Ok(self.output)
+    }
+}
+
 /// The data a raw deflate stream holds, at most `most` bytes.
 ///
 /// It is inflated in one go into a buffer of `most` bytes, which callers
@@ -354,6 +427,27 @@ fn gf2_square(matrix: &[u32; 32]) -> [u32; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_streaming_writer_matches_the_existing_writer_without_retaining_payloads() {
+        let a = Entry::stored(b"a.txt", b"first");
+        let b = Entry::stored(b"b.txt", b"second");
+        let mut stream = Stream::new(Vec::new());
+        stream.entry(&a, b"first").unwrap();
+        stream.entry(&b, b"second").unwrap();
+        let bytes = stream.finish().unwrap();
+        assert_eq!(bytes, write([(&a, b"first".as_slice()), (&b, b"second".as_slice())]));
+        let mut file = std::io::Cursor::new(bytes);
+        let entries = directory(&mut file, 4096).unwrap();
+        assert_eq!(read(&mut file, &entries[1], 4096).unwrap(), b"second");
+    }
+
+    #[test]
+    fn the_streaming_writer_reports_an_output_error() {
+        let mut bytes = [0u8; 8];
+        let mut stream = Stream::new(std::io::Cursor::new(bytes.as_mut_slice()));
+        assert!(stream.entry(&Entry::stored(b"a", b"data"), b"data").is_err());
+    }
     use std::io::Cursor;
 
     const MOST: usize = 1 << 20;

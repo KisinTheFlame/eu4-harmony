@@ -25,7 +25,7 @@ steps:
    menu.load <save> (menu.saves lists them). Let time run with
    eu4-harmony game time advance <days>; answer what stops it with
    question.list and question.answer.
-5. Read what the mod did: its log, eu4-harmony/logs/<id>.log in that
+5. Read what the mod did: its log, eu4-harmony/logs/extension-<id>.log in that
    Documents folder, and the startup report beside it, report.txt, which
    says whether the extension loaded and how long its handlers ran. For
    the screen, eu4-harmony game screenshot --out shot.png. Done when each

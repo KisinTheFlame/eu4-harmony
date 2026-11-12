@@ -48,7 +48,7 @@ Steam 会让 Harmony 保持最新。偶尔有更新需要换新的 `version.dll`
 
 在主菜单打开 Harmony 的设置，进入**关于**，点**把排查问题用的文件存到桌面**：它把 Harmony 的日志、游戏的日志、最近几次崩溃的文件夹、你的设置和模组列表（不含存档）打成一个 zip 文件放到桌面上。到 [GitHub Issues](https://github.com/KisinTheFlame/eu4-harmony/issues) 反馈问题，附上这个文件。
 
-日志在 `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`：`report.txt` 记着游戏启动时 Harmony 发现了什么、做了什么，`core.log` 是它的日志，游戏崩溃时会记下崩在哪里；只有出了问题才会有 `proxy.log`，它说明 Harmony 为什么根本没启动。
+日志在 `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`：`report.txt` 记着游戏启动时 Harmony 发现了什么、做了什么，`core.log` 记录框架工作及经过游戏异常处理的崩溃；只有出了问题才会有 `proxy.log`，它说明 Harmony 为什么根本没启动。框架日志分段限长、汇总重复错误，并保留小型近期事件快照；自动清理不再使用的过期自有日志，不动游戏日志、存档、崩溃转储和你保存的排障包。大文本日志只把注明截断的尾部加入排障包。[日志限制与诊断范围](docs/logs.md)说明了保留内容，以及异常退出后仍可能无法确定的事情。
 
 ## 写一个 Mod
 
@@ -178,6 +178,7 @@ cargo xtask game release --owner mine   # 留下日志，删掉其余
 | `checks/` | 能力调用要经过的检查，以及游戏的历法 |
 | `client/` | 从游戏进程外接触运行中的游戏：远程控制的管道；游戏进程的启动、跟踪到退出码和结束；备份和还原玩家的文件，命令行工具和 `cargo xtask` 共用 |
 | `folders/` | 各个程序以同一方式找到的游戏文件夹和用户文件夹，以及用户文件夹里各项的名字 |
+| `logging/` | 有界框架日志、重复错误汇总、事件快照及认证字段脱敏 |
 | `loc/`、`manifest/` | 本地化文件和 Mod 清单，核心和命令行工具共用 |
 | `cli/` | `eu4-harmony.exe`，以及 `new` 生成的模板 Mod |
 | `xtask/` | 仓库自己的开发命令（`cargo xtask`） |

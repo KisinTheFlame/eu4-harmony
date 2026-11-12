@@ -12,6 +12,7 @@ name = "version"
 crate-type = ["cdylib"]
 
 [dependencies]
+eu4-harmony-logging = { path = "../logging" }
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_System_Environment",

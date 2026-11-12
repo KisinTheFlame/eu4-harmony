@@ -48,7 +48,7 @@ Good to know:
 
 In the main menu, open Harmony's settings, go to **About** and press **Save troubleshooting files to the desktop**: it packs Harmony's logs, the game's logs, its last crash folders and your settings and playset (no saves) into one zip file on your desktop. Report a problem on [GitHub Issues](https://github.com/KisinTheFlame/eu4-harmony/issues), with that file attached.
 
-The logs are in `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`: `report.txt` says what Harmony found and did as the game started, `core.log` is its log, with a line for where the game crashed when it did, and `proxy.log`, there only when something went wrong, says why Harmony did not start at all.
+The logs are in `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`: `report.txt` says what Harmony found and did as the game started, `core.log` records its work and crashes that reach the game's crash handling, and `proxy.log`, there only when something went wrong, says why Harmony did not start at all. Framework logs rotate in bounded segments, count repeated errors and keep a small recent-event snapshot; inactive owned logs expire automatically. Game logs, saves, crash dumps and your saved troubleshooting files are left alone. Large text logs contribute a marked tail to troubleshooting files. [Log limits and diagnostic coverage](docs/logs.md) describe what is kept and what an unexplained exit may still leave unknown.
 
 ## Writing a mod
 
@@ -178,6 +178,7 @@ Read [AGENTS.md](AGENTS.md) first: it has the rules for code, commits, checks an
 | `checks/` | The checks a capability's call goes through, and the game's calendar |
 | `client/` | Reaching the running game from outside: remote control's pipe, the game's process, started, followed to its exit code and ended, and backing up and restoring the player's files, shared by the tool and `cargo xtask` |
 | `folders/` | The game folder and the user folder, as every program finds them, and the names of what the user folder holds |
+| `logging/` | Bounded framework log files, repeated-error summaries, event snapshots and credential redaction |
 | `loc/`, `manifest/` | Localisation files and mod manifests, shared by the core and the tool |
 | `cli/` | `eu4-harmony.exe`, and the template mod `new` writes |
 | `xtask/` | The repository's development commands (`cargo xtask`) |

@@ -322,6 +322,7 @@ pub mod record {
 /// [`Commands::post_with`] for the game.
 fn post_with(text: &str, around: impl FnOnce(&dyn Fn() -> GResult<()>) -> GResult<()>) -> Result<(), Refused> {
     let given = Written::parse(text).map_err(Refused::Unread)?;
+    let mut operation = crate::log::Operation::begin(&given.kind);
     let m = game()?;
     // The game's own commands, such as the speed's, go also while the player
     // observes.
@@ -357,6 +358,7 @@ fn post_with(text: &str, around: impl FnOnce(&dyn Fn() -> GResult<()>) -> GResul
     if EXECUTED.load(Ordering::Relaxed) == executed {
         return Err("the game did not execute the command".to_string().into());
     }
+    operation.succeeded();
     Ok(())
 }
 

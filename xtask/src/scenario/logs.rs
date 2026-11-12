@@ -1,9 +1,7 @@
-//! The lines a test game's logs gained while a scenario played. A log is
-//! written afresh at each start of the game, the one before kept as
-//! `<name>.prev.<ext>` (core/src/log.rs), so the lines since a moment are
-//! those after its mark in the log of that start, wherever it is now, and
-//! all of the log of a later start. A log of a start between those two was
-//! overwritten, and is missing.
+//! The lines a test game's logs gained while a scenario played. The shared
+//! logger retains current, previous and two older segments. Find the marked
+//! segment by its unique first line, then follow every newer segment. A mark
+//! evicted by the bounded history cannot recover the overwritten lines.
 use eu4_harmony_folders::UserFolder;
 use std::path::{Path, PathBuf};
 
@@ -17,38 +15,48 @@ const TROUBLES: [&str; 2] = [" panic on thread ", " fatal error, ending the game
 pub struct Mark {
     first: Option<String>,
     length: usize,
+    emergency: Option<Box<Mark>>,
 }
 
 impl Mark {
     /// Where the framework's log of the test game in `user` stands now.
     pub fn of(user: &UserFolder) -> Self {
-        Self::of_file(&user.core_log())
+        let mut mark = Self::of_file(&user.core_log());
+        mark.emergency = Some(Box::new(Self::of_file(&user.logs().join("core-emergency.log"))));
+        mark
     }
 
     /// Where the log `path` stands now.
     pub fn of_file(path: &Path) -> Self {
         let text = read(path);
-        Self { first: text.lines().next().map(String::from), length: text.len() }
+        Self { first: text.lines().next().map(String::from), length: text.len(), emergency: None }
     }
 
     /// The lines of the framework's log since the mark that tell of a panic
     /// or a fatal error.
     pub fn troubles(&self, user: &UserFolder) -> Vec<String> {
-        self.since(&user.core_log()).into_iter().filter(|line| TROUBLES.iter().any(|t| line.contains(t))).collect()
+        let mut lines = self.since(&user.core_log());
+        if let Some(mark) = &self.emergency {
+            lines.extend(mark.since(&user.logs().join("core-emergency.log")));
+        }
+        lines.into_iter().filter(|line| TROUBLES.iter().any(|t| line.contains(t))).collect()
     }
 
     /// The lines the log `path` gained since the mark.
     pub fn since(&self, path: &Path) -> Vec<String> {
-        let (now, before) = (read(path), read(&previous(path)));
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("log");
+        let texts = [path.with_extension(format!("3.{ext}")), path.with_extension(format!("2.{ext}")), previous(path), path.to_path_buf()].map(|p| read(&p));
         let first = |text: &str| text.lines().next().map(String::from);
         let after = |text: &str| text.get(self.length..).unwrap_or_default().lines().map(String::from).collect::<Vec<_>>();
         let all = |text: &str| text.lines().map(String::from).collect::<Vec<_>>();
-        if self.first.is_some() && first(&now) == self.first {
-            return after(&now);
+        if let Some(at) = texts.iter().position(|text| self.first.is_some() && first(text) == self.first) {
+            let mut lines = after(&texts[at]);
+            for text in &texts[at + 1..] {
+                lines.extend(all(text));
+            }
+            return lines;
         }
-        let mut lines = if self.first.is_some() && first(&before) == self.first { after(&before) } else { all(&before) };
-        lines.extend(all(&now));
-        lines
+        texts.iter().flat_map(|text| all(text)).collect()
     }
 }
 
@@ -108,6 +116,43 @@ mod tests {
         s.log("core.log", "11:00 start again\n11:01 panic on thread main (1): a panic\n");
         assert_eq!(mark.since(&user.core_log()), ["10:02 new in the first", "11:00 start again", "11:01 panic on thread main (1): a panic"]);
         assert_eq!(mark.troubles(&user).len(), 1);
+    }
+
+    #[test]
+    fn a_new_emergency_panic_is_found_but_an_old_one_is_not_reported_again() {
+        let s = Scratch::new("emergency");
+        let user = UserFolder::new(&s.0);
+        s.log("core.log", "start\n");
+        s.log("core-emergency.log", "emergency start\nold panic on thread (1): before\n");
+        let mark = Mark::of(&user);
+        s.log("core-emergency.log", "emergency start\nold panic on thread (1): before\nnew panic on thread (2): after\n");
+        assert_eq!(mark.troubles(&user), ["new panic on thread (2): after"]);
+    }
+
+    #[test]
+    fn a_size_rollover_follows_the_mark_through_multiple_older_segments() {
+        let s = Scratch::new("segments");
+        let user = UserFolder::new(&s.0);
+        s.log("core.log", "segment one\nold\n");
+        let mark = Mark::of(&user);
+        s.log("core.2.log", "segment one\nold\nnew before rotation\n");
+        s.log("core.prev.log", "segment two\nnext\n");
+        s.log("core.log", "segment three\nlast\n");
+        assert_eq!(mark.since(&user.core_log()), ["new before rotation", "segment two", "next", "segment three", "last"]);
+    }
+
+    #[test]
+    fn an_evicted_mark_still_checks_all_retained_segments_for_failures() {
+        let s = Scratch::new("evicted-mark");
+        let user = UserFolder::new(&s.0);
+        s.log("core.log", "evicted segment\n");
+        let mark = Mark::of(&user);
+        s.log("core.3.log", "oldest retained\n1 panic on thread main (1): retained\n");
+        s.log("core.2.log", "next retained\n2 fatal error, ending the game: retained\n");
+        s.log("core.prev.log", "previous retained\n");
+        s.log("core.log", "current retained\n");
+        assert_eq!(mark.troubles(&user), ["1 panic on thread main (1): retained", "2 fatal error, ending the game: retained"]);
+        assert_eq!(mark.since(&user.core_log()).last().unwrap(), "current retained");
     }
 
     #[test]

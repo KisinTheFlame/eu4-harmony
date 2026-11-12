@@ -9,6 +9,7 @@ What is written down about the framework, and where. Terms are in [GLOSSARY.md](
 | [game/](game/) | What is known of the game, one page for each of its systems |
 | [dev-tools.md](dev-tools.md) | The development tools, what each is for and how to use it |
 | [performance.md](performance.md) | What the framework costs the game, as measured in the running game |
+| [logs.md](logs.md) | Bounded framework logs, repeated-error summaries, event snapshots, cleanup and troubleshooting collection |
 | [adding-a-capability.md](adding-a-capability.md) | How a capability is added, layer by layer |
 
 What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, its modules' own comments in the code.
@@ -43,6 +44,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 
 | | |
 | --- | --- |
+| [bounded-logs.md](plans/bounded-logs.md) | Bounded owned logs, useful event context, safe cleanup and bounded troubleshooting files |
 | [v1.md](plans/v1.md) | The design of the first version |
 | [unicode-module.md](plans/unicode-module.md) | The Unicode module and the framework UI |
 | [remote-control.md](plans/remote-control.md) | Remote control: its parts and what each delivers |

@@ -295,6 +295,7 @@ fn lifecycle<T>(f: impl FnOnce(&mut Lifecycle) -> T) -> T {
 /// Hands each happening to those that hear it, in order.
 fn tell(happened: Vec<Happening>) {
     for happening in happened {
+        crate::log::event(format_args!("sessions: {happening:?}"));
         match happening {
             Happening::Forgotten(_) => {
                 game::session_forgotten();
@@ -306,6 +307,7 @@ fn tell(happened: Vec<Happening>) {
                 log!("session {session} ending ({end:?})");
                 game::signal_costs::log_session();
                 crate::safe_point::session_ended(end);
+                crate::log::checkpoint();
             }
             Happening::CampaignChanges => {
                 game::signals::load_begin();
@@ -338,6 +340,18 @@ fn tell(happened: Vec<Happening>) {
 pub fn frame_read(world: &game::World) -> Seen {
     let (seen, happened) = lifecycle(|l| l.frame_read((world.world, world.player.own().0)));
     tell(happened);
+    if seen.new_session {
+        let tag =
+            |tag: Option<game::Tag>| tag.filter(|t| t.normal()).map(|t| String::from_utf8_lossy(&t.letters()).into_owned()).unwrap_or_else(|| "none".into());
+        crate::log::event(format_args!(
+            "session {} context: game_date={} own={} in_view={} observing={}",
+            seen.session,
+            eu4_harmony_checks::Date(world.date),
+            tag(Some(world.player.own())),
+            tag(world.player.acting()),
+            world.player.observing()
+        ));
+    }
     seen
 }
 
@@ -360,6 +374,7 @@ pub fn load_began() {
 /// The game read the save it is reading into its world, or not.
 pub fn load_read(read: bool) {
     lifecycle(|l| l.load_read(read));
+    crate::log::event(format_args!("save read completed: success={read}"));
 }
 
 /// The game is done reading a save, whatever came of it.
