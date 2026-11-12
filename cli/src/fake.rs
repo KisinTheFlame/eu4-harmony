@@ -85,6 +85,7 @@ pub struct Store {
     pub later: Vec<(String, Slot<Answered>)>,
     /// Each element's properties as the mod set them.
     pub elements: BTreeMap<String, BTreeMap<&'static str, Value>>,
+    pub tooltips: BTreeMap<String, eu4_harmony_lua::Text>,
     /// The map as the mod painted it, `[r, g, b, a]` by province; none when
     /// it holds no map.
     pub map: Option<BTreeMap<u32, [u8; 4]>>,
@@ -122,10 +123,11 @@ pub type Properties = BTreeMap<&'static str, Value>;
 pub type Row = BTreeMap<String, Properties>;
 
 /// A property as a test reads it back.
-fn property_json(value: &Property) -> (&'static str, Value) {
+fn property_json(value: &Property, words: &impl Fn(&str) -> Option<String>) -> (&'static str, Value) {
     let json = match value {
         Property::Visible(b) | Property::Enabled(b) => Value::Bool(*b),
-        Property::Text(t) | Property::Tooltip(t) | Property::Country(t) => Value::String(t.clone()),
+        Property::Text(t) | Property::Country(t) => Value::String(t.clone()),
+        Property::Tooltip(t) => Value::String(t.resolve(words)),
         Property::Frame(n) => Value::from(*n),
         Property::Value(v) => serde_json::Number::from_f64(*v).map_or(Value::Null, Value::Number),
     };
@@ -135,9 +137,9 @@ fn property_json(value: &Property) -> (&'static str, Value) {
 impl Store {
     /// `extension`'s window `name` as the mod set it, none before it set
     /// or opened anything of it.
-    pub fn window(&self, extension: usize, name: &str) -> Option<FakeWindow> {
+    pub fn window(&self, extension: usize, name: &str, words: impl Fn(&str) -> Option<String>) -> Option<FakeWindow> {
         let wanted = self.windows.wanted(extension, name)?;
-        let widgets = wanted.set.iter().map(|(widget, set)| (widget.clone(), set.values().map(property_json).collect())).collect();
+        let widgets = wanted.set.iter().map(|(widget, set)| (widget.clone(), set.values().map(|p| property_json(p, &words)).collect())).collect();
         let rows = wanted
             .rows
             .iter()
@@ -147,7 +149,7 @@ impl Store {
                     .map(|row| {
                         let mut out = Row::new();
                         for (name, value) in row {
-                            let (property, value) = property_json(value);
+                            let (property, value) = property_json(value, &words);
                             out.entry(name.clone()).or_default().insert(property, value);
                         }
                         out
@@ -271,7 +273,11 @@ impl Host for Fake {
             Element::Visible(on) => ("visible", Value::Bool(on)),
             Element::Enabled(on) => ("enabled", Value::Bool(on)),
             Element::Text(text) => ("text", Value::String(text)),
-            Element::Tooltip(text) => ("tooltip", Value::String(text)),
+            Element::Tooltip(text) => {
+                let rendered = text.resolve(|key| self.text("", key));
+                self.store().tooltips.insert(element.to_string(), text);
+                ("tooltip", Value::String(rendered))
+            }
         };
         self.store().elements.entry(element.to_string()).or_default().insert(property, value);
         Ok(())
@@ -281,6 +287,14 @@ impl Host for Fake {
         let mut store = self.store();
         let in_game = store.going_on;
         store.windows.change(extension, change, in_game)
+    }
+
+    fn tooltip(&self, extension: usize, window: Option<&str>, widget: &str) -> Result<eu4_harmony_lua::Text, String> {
+        let store = self.store();
+        match window {
+            Some(window) => store.windows.tooltip(extension, window, widget).ok_or_else(|| format!("no tooltip target {window}.{widget}")),
+            None => Ok(store.tooltips.get(widget).cloned().unwrap_or_default()),
+        }
     }
 
     fn popup(&self, extension: usize, popup: Popup) -> Result<u32, String> {

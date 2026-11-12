@@ -39,7 +39,7 @@ pub enum Property {
     Enabled(bool),
     /// Words, as the player reads them.
     Text(String),
-    Tooltip(String),
+    Tooltip(crate::Text),
     Frame(u32),
     /// A progress bar's, from 0 to 1.
     Value(f64),
@@ -118,7 +118,7 @@ fn property(placed: Option<&Placed>, property: &str, value: &LuaValue, what: &st
         Some(Kind::Button { .. }) => &["visible", "tooltip", "enabled"],
         Some(Kind::Progress { .. }) => &["visible", "tooltip", "value"],
         Some(Kind::Flag { .. }) => &["visible", "tooltip", "country"],
-        Some(Kind::List { .. }) => &["visible", "rows"],
+        Some(Kind::List { .. }) => &["visible", "tooltip", "rows"],
     };
     if !has(allowed) {
         let thing = kind.map(Kind::word).unwrap_or("entry button");
@@ -128,7 +128,7 @@ fn property(placed: Option<&Placed>, property: &str, value: &LuaValue, what: &st
         "visible" => Property::Visible(flag()?),
         "enabled" => Property::Enabled(flag()?),
         "text" => Property::Text(words()?),
-        "tooltip" => Property::Tooltip(words()?),
+        "tooltip" => Property::Tooltip(crate::Text::from_lua(value.clone()).map_err(|e| format!("{what}.tooltip: {e}"))?),
         "frame" => {
             let n = number()?;
             if n < 1.0 || n.fract() != 0.0 || n > 1000.0 {
@@ -335,7 +335,7 @@ mod tests {
         );
         assert_eq!(
             set(&w, "reforms", "status", "tooltip", &LuaValue::Nil),
-            Ok(WindowChange::Set { window: "reforms".into(), widget: "status".into(), value: Property::Tooltip(String::new()) })
+            Ok(WindowChange::Set { window: "reforms".into(), widget: "status".into(), value: Property::Tooltip(String::new().into()) })
         );
         assert!(set(&w, "reforms", "pick", "frame", &LuaValue::Integer(2)).is_ok(), "an icon button's frame");
         assert!(set(&w, "reforms", "entry", "frame", &LuaValue::Integer(3)).is_ok());

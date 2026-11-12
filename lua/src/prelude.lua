@@ -1,6 +1,6 @@
 -- Run once in every extension's Lua state, before its main.lua, with what
 -- the Lua host gives it. It finishes the sandbox and builds `game`.
-local call, WAIT, task, names, set_element, fetch, resuming, resumed, set_window, show_popup, close_popup, start, cancel_task, awaiting = ...
+local call, WAIT, task, names, set_element, fetch, resuming, resumed, set_window, show_popup, close_popup, start, cancel_task, awaiting, get_tooltip = ...
 
 -- The sandbox (ADR extensions-are-lua-in-a-sandbox): code from text only,
 -- nothing that reads files.
@@ -270,6 +270,9 @@ game.ui = setmetatable({}, {
         set_element(element, property, value)
       end,
       __index = function(_, property)
+        if property == "tooltip" then
+          return get_tooltip(nil, element)
+        end
         error("game.ui." .. tostring(element) .. "." .. tostring(property) .. " is set, not read", 2)
       end,
     })
@@ -294,6 +297,9 @@ game.window = setmetatable({
             set_window("set", window, widget, property, value)
           end,
           __index = function(_, property)
+            if property == "tooltip" then
+              return get_tooltip(window, widget)
+            end
             error("game.window." .. tostring(window) .. "." .. tostring(widget) .. "." .. tostring(property) .. " is set, not read", 2)
           end,
         })

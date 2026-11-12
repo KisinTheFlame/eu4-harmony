@@ -113,7 +113,7 @@ pub fn row_type(window_type: &str, list: &str) -> String {
 pub fn keys(window: &Window, out: &mut Vec<String>) {
     fn of_widgets(widgets: &[Placed], out: &mut Vec<String>) {
         for w in widgets {
-            out.extend(w.tooltip.clone());
+            out.extend(w.tooltip.as_ref().and_then(|t| t.localisation_key()).map(str::to_string));
             match &w.kind {
                 Kind::Text { text, .. } | Kind::Button { text, .. } => out.extend(text.clone()),
                 Kind::List { row, .. } => of_widgets(&row.widgets, out),
@@ -122,7 +122,7 @@ pub fn keys(window: &Window, out: &mut Vec<String>) {
         }
     }
     out.extend(window.title.clone());
-    out.extend(window.entry.as_ref().and_then(|e| e.tooltip.clone()));
+    out.extend(window.entry.as_ref().and_then(|e| e.tooltip.as_ref()).and_then(|t| t.localisation_key()).map(str::to_string));
     of_widgets(&window.widgets, out);
 }
 

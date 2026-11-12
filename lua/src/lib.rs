@@ -20,10 +20,12 @@ pub mod fetch;
 mod files;
 pub mod layout;
 mod sandbox;
+pub mod text;
 mod times;
 pub mod values;
 mod watch;
 pub mod windows;
+pub use text::Text;
 
 use eu4_harmony_remote::{Code, Request};
 use mlua::{Function, Lua, MultiValue, Table, Thread, ThreadStatus, Value as LuaValue};
@@ -65,6 +67,9 @@ pub trait Host: Send + Sync {
     /// Makes a change to one of the extension's windows, checked against
     /// its layout already.
     fn window(&self, extension: usize, change: WindowChange) -> Result<(), String>;
+    /// The tooltip content an extension currently owns. A window name selects
+    /// a declared window widget; none selects a supported hosted element.
+    fn tooltip(&self, extension: usize, window: Option<&str>, widget: &str) -> Result<Text, String>;
     /// Shows a pop-up of the extension's, and gives its number. A button
     /// pressed comes back as a [`dispatch::PopupPressed`], which runs the
     /// button's action; the pop-up stays open until it is closed.
@@ -123,7 +128,7 @@ pub enum Element {
     Visible(bool),
     Enabled(bool),
     Text(String),
-    Tooltip(String),
+    Tooltip(Text),
 }
 
 /// What a handler gets after `game`.

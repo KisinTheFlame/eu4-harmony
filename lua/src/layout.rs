@@ -120,7 +120,7 @@ impl Anchor {
 pub struct Entry {
     pub sprite: String,
     pub frame: u32,
-    pub tooltip: Option<String>,
+    pub tooltip: Option<crate::Text>,
 }
 
 /// A game widget at its place: `x` and `y` from the top left corner of its
@@ -134,7 +134,7 @@ pub struct Placed {
     pub width: i32,
     pub height: i32,
     /// Its tooltip's localisation key.
-    pub tooltip: Option<String>,
+    pub tooltip: Option<crate::Text>,
     pub visible: bool,
 }
 
@@ -294,7 +294,7 @@ fn read_window(name: &str, value: &Value, has_text: &dyn Fn(&str) -> bool) -> Re
             Some(Entry {
                 sprite: text(entry.get("sprite"), "entry.sprite")?.ok_or("entry has a sprite")?,
                 frame: frame(entry.get("frame"), "entry.frame")?,
-                tooltip: key(entry.get("tooltip"), "entry.tooltip", has_text)?,
+                tooltip: entry.get("tooltip").map(|v| crate::Text::declaration(v, has_text)).transpose().map_err(|e| format!("entry.tooltip: {e}"))?,
             })
         }
     };
@@ -428,7 +428,7 @@ fn item(table: &Map<String, Value>, place: (i32, i32), has_text: &dyn Fn(&str) -
     if size.0 <= 0 || size.1 <= 0 {
         return Err(fail("size is a width and a height above 0".into()));
     }
-    let tooltip = key(table.get("tooltip"), "tooltip", has_text).map_err(fail)?;
+    let tooltip = table.get("tooltip").map(|v| crate::Text::declaration(v, has_text)).transpose().map_err(fail)?;
     let visible = flag(table.get("visible"), "visible").map_err(fail)?.unwrap_or(true);
     let kind = match kind.as_str() {
         "text" => {

@@ -133,13 +133,20 @@ impl Host for Live {
             Element::Visible(on) => interface::set_visible(caller, element, on),
             Element::Enabled(on) => interface::set_enabled(caller, element, on),
             Element::Text(text) => interface::set_text(caller, element, &text),
-            Element::Tooltip(text) => interface::set_tooltip(caller, element, &text),
+            Element::Tooltip(text) => ui::set_tooltip(extension, element, text),
         };
         result.map_err(|e| e.message)
     }
 
     fn window(&self, extension: usize, change: WindowChange) -> Result<(), String> {
         crate::windows::change(extension, change)
+    }
+
+    fn tooltip(&self, extension: usize, window: Option<&str>, widget: &str) -> Result<eu4_harmony_lua::Text, String> {
+        match window {
+            Some(window) => crate::windows::tooltip(extension, window, widget),
+            None => ui::tooltip(extension, widget),
+        }
     }
 
     fn popup(&self, extension: usize, popup: Popup) -> Result<u32, String> {
@@ -637,6 +644,9 @@ mod tests {
         }
         fn window(&self, _: usize, _: WindowChange) -> Result<(), String> {
             Ok(())
+        }
+        fn tooltip(&self, _: usize, _: Option<&str>, _: &str) -> Result<eu4_harmony_lua::Text, String> {
+            Ok(Default::default())
         }
         fn popup(&self, _: usize, _: Popup) -> Result<u32, String> {
             Err("no game in a test".into())

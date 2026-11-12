@@ -74,6 +74,36 @@ impl Windows {
         self.declared.retain(|d| d.extension != extension);
         if !windows.is_empty() {
             self.declared.push(Declared { extension, id: id.to_string(), windows: windows.to_vec() });
+            self.initialize_tooltips(extension);
+        }
+    }
+
+    /// Initial values are state, not a fallback applied again by a native
+    /// binding. An explicitly cleared tooltip therefore stays empty.
+    fn initialize_tooltips(&mut self, extension: usize) {
+        let Some(declared) = self.declared.iter().find(|d| d.extension == extension) else { return };
+        for window in &declared.windows {
+            if window.entry.is_none() && window.widgets.iter().all(|p| p.name.is_none()) {
+                continue;
+            }
+            let wanted = self.wanted.entry((extension, window.name.clone())).or_default();
+            for placed in &window.widgets {
+                if let Some(name) = &placed.name {
+                    wanted.set.entry(name.clone()).or_default().insert("tooltip", Property::Tooltip(placed.tooltip.clone().unwrap_or_default()));
+                }
+            }
+            if let Some(entry) = &window.entry {
+                wanted.set.entry(crate::layout::ENTRY.into()).or_default().insert("tooltip", Property::Tooltip(entry.tooltip.clone().unwrap_or_default()));
+            }
+        }
+    }
+
+    /// The current content, including an initial value, without depending on
+    /// whether the native window exists.
+    pub fn tooltip(&self, extension: usize, window: &str, widget: &str) -> Option<crate::Text> {
+        match self.wanted(extension, window)?.set.get(widget)?.get("tooltip")? {
+            Property::Tooltip(text) => Some(text.clone()),
+            _ => None,
         }
     }
 
@@ -243,6 +273,10 @@ impl Windows {
         self.seen.clear();
         self.pressed.clear();
         self.shown.clear();
+        let extensions: Vec<_> = self.declared.iter().map(|d| d.extension).collect();
+        for extension in extensions {
+            self.initialize_tooltips(extension);
+        }
     }
 
     /// The extension windows opened and closed since the last frame.
@@ -291,6 +325,39 @@ mod tests {
 
     fn open(all: &mut Windows, e: usize, w: &str) {
         all.change(e, WindowChange::Open(w.into()), true).unwrap();
+    }
+
+    #[test]
+    fn tooltip_content_survives_close_and_clear_until_a_new_session_or_declaration() {
+        let windows = layout::read(
+            &json!({ "tools": {
+                "size": [300, 200], "entry": {"sprite":"GFX_tools", "tooltip":{"key":"TITLE"}},
+                "items": [{"type":"text", "name":"result", "size":[200,20], "tooltip":{"key":"COUNT", "values":{"N":"0"}}}]
+            }}),
+            &|_| true,
+        )
+        .unwrap();
+        let mut all = Windows::default();
+        all.declare(0, "tools", &windows);
+        let initial = all.tooltip(0, "tools", "result").unwrap();
+        assert_eq!(initial.resolve(|_| Some("Count: $N$".into())), "Count: 0");
+        assert_eq!(initial.resolve(|_| Some("数量：$N$".into())), "数量：0");
+        assert_eq!(all.tooltip(0, "tools", "entry").unwrap().localisation_key(), Some("TITLE"));
+        let set = |text| WindowChange::Set { window: "tools".into(), widget: "result".into(), value: Property::Tooltip(text) };
+        all.change(0, set("Replacement".into()), false).unwrap();
+        all.show(0, "tools", true);
+        all.show(0, "tools", false);
+        assert_eq!(all.tooltip(0, "tools", "result"), Some("Replacement".into()));
+        all.change(0, set(Default::default()), false).unwrap();
+        all.show(0, "tools", true);
+        assert_eq!(all.tooltip(0, "tools", "result"), Some(Default::default()), "opening never restores a cleared initial value");
+        all.end_session();
+        assert_eq!(all.tooltip(0, "tools", "result"), Some(initial.clone()));
+        all.change(0, set("Before reload".into()), false).unwrap();
+        all.declare(0, "tools", &windows);
+        assert_eq!(all.tooltip(0, "tools", "result"), Some(initial));
+        all.forget(0);
+        assert_eq!(all.tooltip(0, "tools", "result"), None);
     }
 
     #[test]

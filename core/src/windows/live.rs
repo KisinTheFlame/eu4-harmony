@@ -318,14 +318,15 @@ fn tear_down(m: &Memory, live: &mut Live, mut built: Built) -> Result<()> {
 
 /// What a game widget shows at first, from its layout.
 fn initial(placed: &Placed, words: &BTreeMap<String, String>) -> BTreeMap<&'static str, Property> {
+    let tooltip = placed.tooltip.as_ref().map(|t| t.resolve(|key| words.get(key).cloned()));
     let words = |key: &Option<String>| key.as_ref().and_then(|key| words.get(key)).cloned().unwrap_or_default();
     let mut out = BTreeMap::new();
     let mut put = |p: Property| {
         out.insert(p.name(), p);
     };
     put(Property::Visible(placed.visible));
-    if placed.tooltip.is_some() {
-        put(Property::Tooltip(words(&placed.tooltip)));
+    if let Some(tooltip) = tooltip {
+        put(Property::Tooltip(tooltip.into()));
     }
     match &placed.kind {
         Kind::Text { text, .. } => put(Property::Text(words(text))),
@@ -416,7 +417,18 @@ fn wants() -> Wants {
             for w in &d.windows {
                 let type_name = format!("{}_{}", type_name(&d.id, &w.name), all.generation);
                 definitions.push(gui::window(&type_name, w, &|k| super::words_of(words, k)));
-                let wanted = all.wanted.wanted(d.extension, &w.name).cloned().unwrap_or_default();
+                let mut wanted = all.wanted.wanted(d.extension, &w.name).cloned().unwrap_or_default();
+                let resolve = |property: &mut Property| {
+                    if let Property::Tooltip(content) = property {
+                        *content = content.resolve(|key| crate::loc::mod_text(&d.id, key)).into();
+                    }
+                };
+                for property in wanted.set.values_mut().flat_map(|p| p.values_mut()) {
+                    resolve(property);
+                }
+                for (_, property) in wanted.rows.values_mut().flatten().flatten() {
+                    resolve(property);
+                }
                 windows.push(WantWindow { extension: d.extension, type_name, layout: w.clone(), words: words.clone(), wanted });
             }
         }
@@ -784,6 +796,7 @@ fn strip_after(call: &mut Call) {
         for d in all.wanted.declared() {
             for w in d.windows.iter().filter(|w| w.entry.is_some()) {
                 let set = all.wanted.wanted(d.extension, &w.name).and_then(|w| w.set.get(layout::ENTRY)).cloned().unwrap_or_default();
+                let set = entry_properties(set, |key| crate::loc::mod_text(&d.id, key));
                 out.push((d.extension, d.id.clone(), w.name.clone(), set, w.entry.clone()));
             }
         }
@@ -797,6 +810,15 @@ fn strip_after(call: &mut Call) {
     if let Err(e) = place_entries(&m, live, idler, &entries) {
         live.report(format!("entry buttons: {e}"));
     }
+}
+
+fn entry_properties(mut set: BTreeMap<&'static str, Property>, words: impl Fn(&str) -> Option<String>) -> BTreeMap<&'static str, Property> {
+    let text = match set.get("tooltip") {
+        Some(Property::Tooltip(text)) => text.resolve(words),
+        _ => String::new(),
+    };
+    set.insert("tooltip", Property::Tooltip(text.into()));
+    set
 }
 
 type EntryWant = (usize, String, String, BTreeMap<&'static str, Property>, Option<layout::Entry>);
@@ -843,7 +865,7 @@ fn place_entries(m: &Memory, live: &mut Live, idler: usize, entries: &[EntryWant
             _ => entry.frame,
         };
         let tooltip = match set.get("tooltip") {
-            Some(Property::Tooltip(t)) => Some(game_text::from_str(t)),
+            Some(Property::Tooltip(t)) => Some(game_text::from_str(&t.resolve(|_| None))),
             _ => None,
         };
         if let Some(t) = tooltip {
@@ -915,6 +937,29 @@ pub fn points() -> Vec<Point> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_entry_localizes_its_default_tooltip_and_keeps_explicit_overrides() {
+        let windows =
+            layout::read(&serde_json::json!({ "tools": { "size": [200, 200], "entry": { "sprite": "GFX_tools", "tooltip": "ENTRY" } } }), &|_| true).unwrap();
+        let mut state = eu4_harmony_lua::windows::Windows::default();
+        state.declare(0, "tools", &windows);
+        let initial = state.wanted(0, "tools").unwrap().set[layout::ENTRY].clone();
+        for title in ["Convenience Tools", "便捷工具", "便利ツール", "편의 도구"] {
+            let words = |_: &str| Some(title.to_string());
+            let properties = entry_properties(initial.clone(), words);
+            assert_eq!(properties.get("tooltip"), Some(&Property::Tooltip(title.into())));
+            for explicit in ["Changed", ""] {
+                let set = BTreeMap::from([("tooltip", Property::Tooltip(explicit.into()))]);
+                assert_eq!(entry_properties(set.clone(), words), set);
+            }
+        }
+        assert_eq!(
+            entry_properties(BTreeMap::new(), |_| None).get("tooltip"),
+            Some(&Property::Tooltip(String::new().into())),
+            "forgetting state clears any old native cache value"
+        );
+    }
 
     #[test]
     fn a_list_rows_static_text_and_tooltip_use_the_windows_localisation() {

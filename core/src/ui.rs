@@ -66,6 +66,7 @@ struct Declared {
     /// Index of the extension that receives this element's clicks.
     extension: Option<usize>,
     desired: Shown,
+    tooltip: eu4_harmony_lua::Text,
 }
 
 /// The elements spliced this run and what their extensions want of them,
@@ -80,8 +81,10 @@ struct Elements {
 impl Elements {
     /// The elements spliced this run, with the extension that owns each.
     fn declare(&mut self, elements: Vec<(Element, Option<usize>)>, frames: Vec<Host>) {
-        self.declared =
-            elements.into_iter().map(|(element, extension)| Declared { host: element.host, element, extension, desired: Shown::default() }).collect();
+        self.declared = elements
+            .into_iter()
+            .map(|(element, extension)| Declared { host: element.host, element, extension, desired: Shown::default(), tooltip: Default::default() })
+            .collect();
         self.frames = frames;
     }
 
@@ -100,6 +103,7 @@ impl Elements {
     fn forget(&mut self, extension: usize) {
         for d in self.declared.iter_mut().filter(|d| d.extension == Some(extension)) {
             d.desired = Shown::default();
+            d.tooltip = Default::default();
         }
     }
 
@@ -423,7 +427,10 @@ pub(crate) fn keep_still(m: &Memory, window: usize, name: &str) -> Result<()> {
 fn apply(m: &Memory, ui: &mut Ui, host: Host) -> Result<()> {
     let Some(binding) = ui.bindings.iter_mut().find(|b| b.host == host) else { return Ok(()) };
     for b in &mut binding.bound {
-        b.element.apply(m, &ui.elements.declared[b.index].desired)?;
+        let declared = &mut ui.elements.declared[b.index];
+        let owner = declared.extension.and_then(crate::lua::mod_id).unwrap_or_default();
+        declared.desired.tooltip = Some(crate::unicode::game_text::from_str(&declared.tooltip.resolve(|key| crate::loc::mod_text(&owner, key))));
+        b.element.apply(m, &declared.desired)?;
     }
     if let Some(frame) = binding.frame {
         let mut any = false;
@@ -681,8 +688,25 @@ pub fn set_enabled(extension: usize, name: &str, enabled: bool) -> GResult<()> {
 pub fn set_text(extension: usize, name: &str, text: Vec<u8>) -> GResult<()> {
     desired(extension, name, |d| d.text = Some(text))
 }
-pub fn set_tooltip(extension: usize, name: &str, text: Vec<u8>) -> GResult<()> {
-    desired(extension, name, |d| d.tooltip = Some(text))
+pub fn set_tooltip(extension: usize, name: &str, text: eu4_harmony_lua::Text) -> GResult<()> {
+    with_ui(|ui| match ui.elements.declared.iter_mut().find(|d| d.extension == Some(extension) && d.element.name == name) {
+        Some(d) => {
+            d.tooltip = text;
+            Ok(())
+        }
+        None => fail(Status::NotFound, format!("no element {name:?} declared by this mod")),
+    })
+}
+
+pub fn tooltip(extension: usize, name: &str) -> std::result::Result<eu4_harmony_lua::Text, String> {
+    with_ui(|ui| {
+        ui.elements
+            .declared
+            .iter()
+            .find(|d| d.extension == Some(extension) && d.element.name == name)
+            .map(|d| d.tooltip.clone())
+            .ok_or_else(|| format!("no element {name:?} declared by this mod"))
+    })
 }
 
 /// Forgets what a reloaded extension set on its elements: its new code sets

@@ -19,5 +19,5 @@ pub fn set_text(caller: Caller, name: &str, text: &str) -> GResult<()> {
 
 /// The tooltip of a button; an empty text removes it.
 pub fn set_tooltip(caller: Caller, name: &str, text: &str) -> GResult<()> {
-    ui::set_tooltip(caller.extension(ELEMENTS)?, name, game_text::from_str(text))
+    ui::set_tooltip(caller.extension(ELEMENTS)?, name, text.into())
 }

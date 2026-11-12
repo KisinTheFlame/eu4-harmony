@@ -578,7 +578,8 @@ impl UserData for TestMod {
             if !this.extension.windows().iter().any(|w| w.name == name) {
                 return Err(mlua::Error::runtime(format!("{}the mod has no window {name:?}", here(lua))));
             }
-            let window = this.fake.store().window(this.extension.index(), &name);
+            let window =
+                this.fake.store().window(this.extension.index(), &name, |key| eu4_harmony_lua::Host::text(this.fake.as_ref(), this.extension.id(), key));
             let t = lua.create_table()?;
             let Some(window) = window else {
                 t.set("open", false)?;

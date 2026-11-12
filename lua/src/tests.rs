@@ -48,6 +48,32 @@ impl Host for TestHost {
         self.windows.lock().unwrap().push(change);
         Ok(())
     }
+    fn tooltip(&self, _: usize, window: Option<&str>, widget: &str) -> Result<Text, String> {
+        if let Some(window) = window {
+            return Ok(self
+                .windows
+                .lock()
+                .unwrap()
+                .iter()
+                .rev()
+                .find_map(|change| match change {
+                    WindowChange::Set { window: w, widget: name, value: Property::Tooltip(text) } if w == window && name == widget => Some(text.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default());
+        }
+        Ok(self
+            .elements
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find_map(|(name, value)| match value {
+                Element::Tooltip(text) if name == widget => Some(text.clone()),
+                _ => None,
+            })
+            .unwrap_or_default())
+    }
     fn popup(&self, _: usize, popup: Popup) -> Result<u32, String> {
         let mut popups = self.popups.lock().unwrap();
         let number = popups.len() as u32 + 1;
@@ -635,6 +661,34 @@ fn a_task_dropped_with_its_session_is_cancelled_for_whoever_awaits_it_later() {
     e.session_over();
     assert_eq!(e.waiting(), 0);
     assert_eq!(after(&e, "on_day", "LATER"), LuaValue::String(e.lua.create_string("cancelled").unwrap()), "{:?}", errors(&e));
+}
+
+#[test]
+fn tooltips_are_readable_descriptions_and_reading_does_not_expose_mutable_state() {
+    let main = r#"
+        return {
+          windows = { tools = { size = {300,200}, items = {
+            {type="text", name="result", size={200,20}}
+          }}},
+          on_frame = function(game)
+            local source = {key="COUNT", values={N=0}}
+            game.window.tools.result.tooltip = source
+            game.ui.button.tooltip = source
+            source.values.N = 99
+            assert(game.window.tools.result.tooltip.values.N == "0")
+            local copy = game.ui.button.tooltip
+            copy.values.N = 42
+            assert(game.ui.button.tooltip.values.N == "0")
+            game.window.tools.result.tooltip = nil
+            game.ui.button.tooltip = {text="§YReady§!\\nNext"}
+            assert(game.window.tools.result.tooltip.text == "")
+            assert(game.ui.button.tooltip.text == "§YReady§!\\nNext")
+          end,
+        }
+    "#;
+    let (e, _) = load_texts("tooltip-content", main, &[("COUNT", "$N$")]).unwrap();
+    e.handle("on_frame", &[]);
+    assert!(errors(&e).is_empty(), "{:?}", errors(&e));
 }
 
 #[test]

@@ -94,6 +94,11 @@ pub fn change(extension: usize, change: WindowChange) -> Result<(), String> {
     with(|all| all.wanted.change(extension, change, in_game))
 }
 
+/// The tooltip content retained independently of a native binding.
+pub fn tooltip(extension: usize, window: &str, widget: &str) -> Result<eu4_harmony_lua::Text, String> {
+    with(|all| all.wanted.tooltip(extension, window, widget).ok_or_else(|| format!("no tooltip target {window}.{widget} declared by this mod")))
+}
+
 /// Shows a pop-up of `extension`'s, and gives its number.
 pub fn popup(extension: usize, popup: Popup) -> Result<u32, String> {
     let in_game = crate::sessions::going_on();

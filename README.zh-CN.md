@@ -101,7 +101,7 @@ my-mod/
 
 `province.area` 读取一个州内的自有省份与行政容量占用，包括只设立直辖州、不补完整核心时的新增占用。`country.governing_capacity` 单独实时重算全国占用，以整数千分值返回；两者的区别见[省份机制](docs/game/provinces.md)。
 
-扩展窗口中的文字也可通过 `game.window.<window>.<text>.tooltip` 设置悬浮提示；布局与属性见[窗口指南](cli/skills/ui/windows.md)。
+扩展的悬浮提示是可读写的文字描述：`{ text = "Ready" }` 或 `{ key = "MYMOD_DETAILS", values = { N = 3 } }`。赋值替换内容，`nil` 清空内容，窗口重建后也保留这一状态；布局与属性见[窗口指南](cli/skills/ui/windows.md)。
 
 进一步了解：
 

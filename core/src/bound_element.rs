@@ -67,7 +67,7 @@ impl Shown {
                 Property::Visible(on) => shown.visible = Some(*on),
                 Property::Enabled(on) => shown.enabled = Some(*on),
                 Property::Text(words) => shown.text = Some(game_text::from_str(words)),
-                Property::Tooltip(words) => shown.tooltip = Some(game_text::from_str(words)),
+                Property::Tooltip(words) => shown.tooltip = Some(game_text::from_str(&words.resolve(|_| None))),
                 Property::Frame(frame) => shown.frame = Some(*frame),
                 Property::Value(value) => shown.value = Some(*value),
                 Property::Country(tag) => shown.country = Some(tag.clone()),
