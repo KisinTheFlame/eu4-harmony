@@ -86,7 +86,7 @@ const UNIT_DESTROYED: usize = 0xd3b130;
 /// begins in a day (drawing into a texture) is a crossing, whatever led
 /// there; the drawing thread's own scenes are its frames. One the main
 /// thread begins with the lock held is not ([`renderer_called`]).
-const SCENE_BEGINS: usize = 0x16d4e00;
+pub(crate) const SCENE_BEGINS: usize = 0x16d4e00;
 const RENDERER_DECLARATION: usize = 0x108;
 
 fn scene_begins(call: &mut Call) {

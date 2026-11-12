@@ -48,6 +48,15 @@ pub trait Measure {
 }
 
 pub enum Widget {
+    /// Presentation state belongs to this visual element, not its layout
+    /// parent. The native tooltip adapter consumes the same text description
+    /// as native controls do.
+    Managed {
+        element: Box<Widget>,
+        tooltip: eu4_harmony_lua::Text,
+        visible: bool,
+        enabled: bool,
+    },
     Label(String),
     /// A heading: larger text, with room above it where something comes
     /// before.
@@ -86,6 +95,53 @@ pub enum Widget {
         label: String,
         info: String,
     },
+}
+
+impl Widget {
+    fn kind(&self) -> &Self {
+        match self {
+            Self::Managed { element, .. } => element.kind(),
+            _ => self,
+        }
+    }
+
+    fn kind_mut(&mut self) -> &mut Self {
+        match self {
+            Self::Managed { element, .. } => element.kind_mut(),
+            _ => self,
+        }
+    }
+
+    fn visible(&self) -> bool {
+        !matches!(self, Self::Managed { visible: false, .. })
+    }
+
+    fn enabled(&self) -> bool {
+        !matches!(self, Self::Managed { enabled: false, .. })
+    }
+
+    pub fn tooltip(&self) -> eu4_harmony_lua::Text {
+        match self {
+            Self::Managed { tooltip, .. } => tooltip.clone(),
+            _ => Default::default(),
+        }
+    }
+
+    pub fn set_tooltip(&mut self, text: eu4_harmony_lua::Text) {
+        assert!(!matches!(self.kind(), Self::Gap), "a layout gap has no tooltip target");
+        match self {
+            Self::Managed { tooltip, .. } => *tooltip = text,
+            _ => {
+                let element = Box::new(std::mem::replace(self, Self::Gap));
+                *self = Self::Managed { element, tooltip: text, visible: true, enabled: true };
+            }
+        }
+    }
+
+    pub fn with_tooltip(mut self, text: eu4_harmony_lua::Text) -> Self {
+        self.set_tooltip(text);
+        self
+    }
 }
 
 /// A side list (GLOSSARY): a list down a window's left side, one row per
@@ -136,8 +192,6 @@ const SCROLL_BAR: f32 = 4.0;
 /// The info mark, and how far it stands after its label.
 const MARK: &str = "ⓘ";
 const MARK_GAP: f32 = 6.0;
-/// How wide an info mark's text is laid out.
-const INFO_W: f32 = 320.0;
 /// How long a choice bar's highlight takes to slide to another option.
 const SLIDE: Duration = Duration::from_millis(150);
 
@@ -169,7 +223,7 @@ pub struct Window {
 
 /// One laid-out piece of a window.
 enum Slot {
-    Lines(Vec<String>, Rect, Style),
+    Lines(usize, Vec<String>, Rect, Style),
     Control(usize, Rect),
     /// The info mark of an explained label, by body index.
     Mark(usize, Rect),
@@ -255,21 +309,25 @@ impl Window {
     /// Every widget the window has: the body's, the other pages', the
     /// footer's.
     fn widgets(&self) -> impl Iterator<Item = &Widget> {
-        self.body.iter().chain(self.pages.iter().flatten()).chain(&self.footer)
+        self.body.iter().chain(self.pages.iter().flatten()).chain(&self.footer).map(Widget::kind)
     }
 
     /// The widget a slot stands for: the body's are numbered first, then the
     /// footer's.
-    fn widget(&self, i: usize) -> &Widget {
+    fn raw_widget(&self, i: usize) -> &Widget {
         self.body.get(i).unwrap_or_else(|| &self.footer[i - self.body.len()])
+    }
+
+    fn widget(&self, i: usize) -> &Widget {
+        self.raw_widget(i).kind()
     }
 
     fn widget_mut(&mut self, i: usize) -> &mut Widget {
         let n = self.body.len();
         if i < n {
-            &mut self.body[i]
+            self.body[i].kind_mut()
         } else {
-            &mut self.footer[i - n]
+            self.footer[i - n].kind_mut()
         }
     }
 
@@ -284,8 +342,8 @@ impl Window {
     pub fn set_label_after(&mut self, button: &str, text: String) {
         let lists = std::iter::once(&mut self.body).chain(self.pages.iter_mut()).chain(std::iter::once(&mut self.footer));
         for list in lists {
-            let at = list.iter().position(|w| matches!(w, Widget::Button { id, .. } if *id == button));
-            if let Some(Widget::Label(label)) = at.and_then(|i| list.get_mut(i + 1)) {
+            let at = list.iter().position(|w| matches!(w.kind(), Widget::Button { id, .. } if *id == button));
+            if let Some(Widget::Label(label)) = at.and_then(|i| list.get_mut(i + 1)).map(Widget::kind_mut) {
                 *label = text;
                 return;
             }
@@ -317,7 +375,7 @@ impl Window {
     /// Gives the drop-down list `id` new options, with `selected` chosen.
     pub fn set_options(&mut self, id: &str, options: Vec<String>, selected: usize) {
         for w in self.body.iter_mut().chain(self.pages.iter_mut().flatten()).chain(&mut self.footer) {
-            if let Widget::Dropdown { id: i, options: o, selected: s } = w {
+            if let Widget::Dropdown { id: i, options: o, selected: s } = w.kind_mut() {
                 if *i == id {
                     (*o, *s) = (options, selected);
                     return;
@@ -406,7 +464,12 @@ impl Window {
         let mut slots = Vec::new();
         for (n, w) in widgets.iter().enumerate() {
             let i = first + n;
+            if !w.visible() {
+                continue;
+            }
+            let w = w.kind();
             match w {
+                Widget::Managed { .. } => unreachable!("kind unwraps presentation"),
                 Widget::Label(text) | Widget::Heading(text) | Widget::Item(text) => {
                     let style = match w {
                         Widget::Heading(_) => Style::Heading,
@@ -419,7 +482,7 @@ impl Window {
                     let indent = if style == Style::Item { INDENT } else { 0.0 };
                     let lines = measure.wrap(text, style.size(), self.inner() - indent);
                     let h = lines.len().max(1) as f32 * style.line();
-                    slots.push(Slot::Lines(lines, Rect { x: self.left(), y, w: self.inner(), h }, style));
+                    slots.push(Slot::Lines(i, lines, Rect { x: self.left(), y, w: self.inner(), h }, style));
                     y += h + 4.0;
                 }
                 Widget::Gap => y += GAP,
@@ -429,7 +492,7 @@ impl Window {
                     let h = lines.len().max(1) as f32 * LINE;
                     let last = lines.last().map_or(0.0, |l| measure.width(l, TEXT_SIZE));
                     let mark = Rect { x: self.left() + last + MARK_GAP, y: y + h - LINE, w: mark, h: LINE };
-                    slots.push(Slot::Lines(lines, Rect { x: self.left(), y, w: self.inner(), h }, Style::Body));
+                    slots.push(Slot::Lines(i, lines, Rect { x: self.left(), y, w: self.inner(), h }, Style::Body));
                     slots.push(Slot::Mark(i, mark));
                     y += h + 4.0;
                 }
@@ -526,6 +589,9 @@ impl Window {
         if let Some((list, i)) = self.open_list(measure) {
             self.open = None;
             if list.contains(x, y) {
+                if !self.raw_widget(i).enabled() || !self.raw_widget(i).visible() {
+                    return None;
+                }
                 let index = self.scroll + ((y - list.y) / ROW) as usize;
                 if let Widget::Dropdown { id, selected, options } = self.widget_mut(i) {
                     if index < options.len() {
@@ -554,6 +620,9 @@ impl Window {
         for slot in self.layout(measure) {
             if let Slot::Control(i, r) = slot {
                 if r.contains(x, y) {
+                    if !self.raw_widget(i).enabled() {
+                        return None;
+                    }
                     if let Widget::Toggle { id, on, .. } = self.widget_mut(i) {
                         *on = !*on;
                         return Some(Action::Switched(id, *on));
@@ -582,7 +651,8 @@ impl Window {
                         | Widget::Gap
                         | Widget::Toggle { .. }
                         | Widget::Choice { .. }
-                        | Widget::Explained { .. } => None,
+                        | Widget::Explained { .. }
+                        | Widget::Managed { .. } => None,
                     };
                 }
             }
@@ -591,6 +661,34 @@ impl Window {
     }
 
     /// The drawing commands for the window as it is now.
+    /// Only the hit visual element supplies content. A covered region with no
+    /// tooltip is explicitly empty, suppressing an underlying native target.
+    pub fn tooltip_at(&self, measure: &dyn Measure, x: f32, y: f32) -> Option<eu4_harmony_lua::Text> {
+        if !self.covers(measure, x, y) {
+            return None;
+        }
+        if self.open_list(measure).is_some_and(|(rect, _)| rect.contains(x, y)) {
+            return Some(Default::default());
+        }
+        for slot in self.layout(measure).into_iter().rev() {
+            let (i, rect) = match slot {
+                Slot::Lines(i, _, rect, _) | Slot::Control(i, rect) => (i, rect),
+                Slot::Mark(i, rect) => {
+                    if rect.contains(x, y) {
+                        if let Widget::Explained { info, .. } = self.widget(i) {
+                            return Some(info.as_str().into());
+                        }
+                    }
+                    continue;
+                }
+            };
+            if rect.contains(x, y) {
+                return Some(self.raw_widget(i).tooltip());
+            }
+        }
+        Some(Default::default())
+    }
+
     pub fn draw(&self, measure: &dyn Measure) -> Vec<Command> {
         let bounds = self.bounds(measure);
         let hover = |r: &Rect| r.contains(self.mouse.0, self.mouse.1);
@@ -626,7 +724,7 @@ impl Window {
         out.push(Command::Text { x: close.x + 6.0, y: close.y + 1.0, text: "×".into(), size: TEXT_SIZE, color: TEXT });
         for slot in self.layout(measure) {
             match slot {
-                Slot::Lines(lines, r, style) => {
+                Slot::Lines(_, lines, r, style) => {
                     let x = if style == Style::Item {
                         out.push(Command::Text { x: r.x + 2.0, y: r.y, text: "•".into(), size: TEXT_SIZE, color: TEXT });
                         r.x + INDENT
@@ -687,7 +785,8 @@ impl Window {
                         | Widget::Gap
                         | Widget::Toggle { .. }
                         | Widget::Choice { .. }
-                        | Widget::Explained { .. } => continue,
+                        | Widget::Explained { .. }
+                        | Widget::Managed { .. } => continue,
                     };
                     let x = if centred { r.x + (r.w - measure.width(&label, TEXT_SIZE)) / 2.0 } else { r.x + 8.0 };
                     out.push(Command::Text { x, y: r.y + (ROW - TEXT_SIZE) / 2.0 - 2.0, text: label, size: TEXT_SIZE, color: TEXT });
@@ -708,21 +807,6 @@ impl Window {
                 }
             }
         }
-        // An info mark's text, over everything, while the pointer is on it.
-        for slot in self.layout(measure) {
-            let Slot::Mark(i, mark) = slot else { continue };
-            let Widget::Explained { info, .. } = self.widget(i) else { continue };
-            if !hover(&mark) {
-                continue;
-            }
-            let lines = measure.wrap(info, TEXT_SIZE, INFO_W - 2.0 * PAD);
-            let r = Rect { x: mark.x + mark.w + MARK_GAP, y: mark.y, w: INFO_W, h: lines.len().max(1) as f32 * LINE + PAD };
-            out.push(Command::Fill { rect: Rect { x: r.x - 1.0, y: r.y - 1.0, w: r.w + 2.0, h: r.h + 2.0 }, color: BORDER });
-            out.push(Command::Fill { rect: r, color: LIST });
-            for (n, line) in lines.into_iter().enumerate() {
-                out.push(Command::Text { x: r.x + PAD, y: r.y + PAD / 2.0 + n as f32 * LINE, text: line, size: TEXT_SIZE, color: TEXT });
-            }
-        }
         out
     }
 }
@@ -732,7 +816,7 @@ fn bottom(slots: &[Slot], top: f32) -> f32 {
     slots
         .iter()
         .map(|s| match s {
-            Slot::Lines(_, r, _) | Slot::Control(_, r) | Slot::Mark(_, r) => r.y + r.h,
+            Slot::Lines(_, _, r, _) | Slot::Control(_, r) | Slot::Mark(_, r) => r.y + r.h,
         })
         .fold(top, f32::max)
 }
@@ -868,12 +952,41 @@ mod tests {
         assert!(!shows(&w, "Faster time"));
         let (mx, my) = spot(&w, MARK);
         w.mouse_move(mx + 1.0, my + 4.0);
-        let (ix, _) = spot(&w, "Faster time");
-        assert!(ix > mx);
+        assert_eq!(w.tooltip_at(&Mono, mx + 1.0, my + 4.0), Some("Faster time: days pass sooner".into()));
+        assert!(!shows(&w, "Faster time"), "the native adapter owns the tooltip pixels");
         // A click on it does nothing.
         assert_eq!(w.mouse_down(&Mono, mx + 1.0, my + 4.0), None);
         w.mouse_move(0.0, 0.0);
         assert!(!shows(&w, "Faster time"));
+        assert_eq!(w.tooltip_at(&Mono, 0.0, 0.0), None);
+    }
+
+    #[test]
+    fn self_drawn_tooltips_replace_clear_and_follow_only_the_visible_hit() {
+        let mut w = Window::new(
+            "Tools",
+            vec![Widget::Button { id: "run", label: "Run".into() }.with_tooltip("Initial".into()), Widget::Label("Plain label".into())],
+            300.0,
+        );
+        w.center(&Mono, 1000.0, 800.0);
+        let (x, y) = spot(&w, "Run");
+        assert_eq!(w.tooltip_at(&Mono, x, y), Some("Initial".into()));
+        let Widget::Managed { enabled, .. } = &mut w.body[0] else { panic!() };
+        *enabled = false;
+        assert_eq!(w.mouse_down(&Mono, x, y), None);
+        assert_eq!(w.tooltip_at(&Mono, x, y), Some("Initial".into()), "disabled still has a tooltip");
+        w.body[0].set_tooltip("Updated".into());
+        assert_eq!(w.tooltip_at(&Mono, x, y), Some("Updated".into()), "the pointer need not move");
+        w.body[0].set_tooltip(Default::default());
+        assert_eq!(w.tooltip_at(&Mono, x, y), Some(Default::default()));
+        w.body[0].set_tooltip("Retained".into());
+        let Widget::Managed { visible, .. } = &mut w.body[0] else { panic!() };
+        *visible = false;
+        assert!(spot_of(&w, "Run").is_none());
+        assert_eq!(w.body[0].tooltip(), "Retained".into());
+        let (x, y) = spot(&w, "Plain label");
+        assert_eq!(w.tooltip_at(&Mono, x, y), Some(Default::default()), "another element never inherits the hidden hint");
+        assert_eq!(w.tooltip_at(&Mono, 0.0, 0.0), None);
     }
 
     #[test]

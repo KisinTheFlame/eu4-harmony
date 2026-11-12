@@ -15,6 +15,7 @@ layer! {
     List => fn provinces -> Vec<Province> = game::provinces::list;
     Neighbors => fn neighbors -> Vec<Neighbor> = game::provinces::neighbors;
     Get => fn province -> Box<ProvinceSnapshot> = game::provinces::province;
+    Area => fn province_area -> eu4_harmony_remote::provinces::AreaSnapshot = game::areas::area;
     Modifiers => fn province_modifiers -> Vec<ModifierValue> = game::provinces::modifiers;
     Options => fn province_options -> Vec<ProvinceOption> = game::administration::options;
     DevelopTax { province } => game.province_act(province, Action::Develop(Kind::Tax));

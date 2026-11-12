@@ -8,8 +8,7 @@
 //! for its look, and a fault or a method it does not know is an error. A text
 //! box hides by showing no text, since the show and hide methods of the text
 //! boxes are not known on this build. The tooltip is kept, and given to the
-//! game by [`fill_tooltip`] where the game's tooltip of the element under the
-//! pointer is asked for. A clicked button is heard into a bounded queue of
+//! game by [`crate::tooltips`] at its native presentation seam. A clicked button is heard into a bounded queue of
 //! its owner's ([`Hears`]), with the keys held down with the click, and taken
 //! up at the next frame.
 use crate::called_by_game;
@@ -17,7 +16,7 @@ use crate::{
     game::{self, Caller, WorldSession},
     game_string,
     memory::Memory,
-    objects::gui::{button, element, functions},
+    objects::gui::{button, element, functions, list_box},
     ui::{self, Callback, Subscription},
     unicode::game_text,
     Result,
@@ -41,6 +40,8 @@ pub(crate) enum Look {
     /// An element the framework only hears or reads, such as a window's
     /// close button: nothing is set on it.
     Plain,
+    /// A list's visual interface is separate from its row-container interface.
+    List,
 }
 
 /// What is wanted of an element: each property, or none for what is left as
@@ -66,10 +67,11 @@ impl Shown {
             match property {
                 Property::Visible(on) => shown.visible = Some(*on),
                 Property::Enabled(on) => shown.enabled = Some(*on),
-                Property::Text(words) => shown.text = Some(game_text::from_str(words)),
-                Property::Tooltip(words) => shown.tooltip = Some(game_text::from_str(words)),
+                Property::Text(words) => shown.text = Some(game_text::from_str(&words.resolve(|_| None))),
+                Property::Tooltip(words) => shown.tooltip = Some(game_text::from_str(&words.resolve(|_| None))),
                 Property::Frame(frame) => shown.frame = Some(*frame),
                 Property::Value(value) => shown.value = Some(*value),
+                Property::Number(_) => {}
                 Property::Country(tag) => shown.country = Some(tag.clone()),
             }
         }
@@ -189,24 +191,30 @@ impl BoundElement {
         self.subscription.map(|s| s.wrapper)
     }
 
-    /// Whether it listens to its clicks.
-    pub(crate) fn listens(&self) -> bool {
-        self.subscription.is_some()
-    }
-
     /// Whether `clicked` is a click it heard.
     pub(crate) fn heard(&self, clicked: &Clicked) -> bool {
-        clicked.button == self.object && self.subscription.as_ref().is_some_and(|s| s.linked() && s.context() == clicked.context)
+        self.applied.visible != Some(false)
+            && self.applied.enabled != Some(false)
+            && clicked.button == self.object
+            && self.subscription.as_ref().is_some_and(|s| s.linked() && s.context() == clicked.context)
+    }
+
+    pub(crate) fn subscribed(&self, m: &Memory) -> Result<bool> {
+        self.subscription.as_ref().map_or(Ok(false), |s| s.subscribed(m))
     }
 
     /// Whether it is shown now, as the game has it.
     pub(crate) fn visible(&self, m: &Memory) -> Result<bool> {
-        Ok(m.u8(self.object + element::VISIBLE)? != 0)
+        Ok(m.u8(self.native_object() + element::VISIBLE)? != 0)
+    }
+
+    pub(crate) fn wanted_visible(&self) -> bool {
+        self.applied.visible != Some(false)
     }
 
     /// Its tooltip, if it has one.
     pub(crate) fn tooltip(&self) -> Option<&[u8]> {
-        Some(self.tooltip.as_slice()).filter(|t| !t.is_empty())
+        Some(self.tooltip.as_slice()).filter(|t| !t.is_empty() && self.applied.visible != Some(false))
     }
 
     /// Makes it show `want`: what differs from what was set before, and
@@ -215,13 +223,29 @@ impl BoundElement {
         if let Some(tooltip) = &want.tooltip {
             self.tooltip.clone_from(tooltip);
         }
+        if let Some(visible) = want.visible {
+            self.applied.visible = Some(visible);
+        }
         match self.look {
             Look::Plain => Ok(()),
+            Look::List => {
+                if let Some(visible) = want.visible {
+                    if self.visible(m)? != visible {
+                        let (slot, known) = if visible { (element::SHOW, list_box::SHOW) } else { (element::HIDE, list_box::HIDE) };
+                        self.call(m, slot, &[known], &[])?;
+                    }
+                }
+                Ok(())
+            }
             Look::Text => {
-                let Some(text) = want.text_box() else { return Ok(()) };
-                if self.applied.text.as_ref() != Some(&text) {
-                    write_text(m, self.object, &text)?;
-                    self.applied.text = Some(text);
+                if let Some(text) = want.text_box() {
+                    if self.applied.text.as_ref() != Some(&text) {
+                        write_text(m, self.object, &text)?;
+                        self.applied.text = Some(text);
+                    }
+                }
+                if let Some(visible) = want.visible {
+                    self.applied.visible = Some(visible);
                 }
                 Ok(())
             }
@@ -267,13 +291,18 @@ impl BoundElement {
         }
     }
 
+    fn native_object(&self) -> usize {
+        self.object + if self.look == Look::List { list_box::ELEMENT } else { 0 }
+    }
+
     /// Calls its method in `slot` with `args`, when it is one of `known`.
     fn call(&self, m: &Memory, slot: usize, known: &[usize], args: &[usize]) -> Result<()> {
-        let at = m.vslot(self.object, slot)?;
+        let object = self.native_object();
+        let at = m.vslot(object, slot)?;
         if !known.iter().any(|&k| m.at(k) == at) {
             return Err(format!("an element's method at {slot:#x} is not one the framework knows"));
         }
-        let mut all = vec![self.object];
+        let mut all = vec![object];
         all.extend_from_slice(args);
         m.call(at, &all).map(|_| ())
     }
@@ -312,16 +341,6 @@ pub(crate) fn set_country(m: &Memory, object: usize, letters: &str) -> Result<()
     }
     functions::SET_COUNTRY.call(m, [object, argument.as_ptr() as usize])?;
     functions::SET_INDEX.call(m, [object, tag.index() as i32 as u32 as usize])?;
-    Ok(())
-}
-
-/// Fills the game's tooltip at `out`, its main text at `+0` and its delayed
-/// text after it, with `text`, only where the game left both empty.
-pub(crate) fn fill_tooltip(m: &Memory, out: usize, text: &[u8]) -> Result<()> {
-    let empty = |offset: usize| game_string::untouched(m, out + offset);
-    if empty(0)? && empty(game_string::OBJECT)? {
-        game_string::append_checked(m, out, text)?;
-    }
     Ok(())
 }
 
@@ -452,6 +471,11 @@ mod tests {
         assert_eq!(taken(), [("text", 0), ("destroy", 0)]);
         b.apply(m, &Shown { visible: Some(false), text: Some(b"34".to_vec()), ..Shown::default() }).unwrap();
         assert_eq!(taken(), [], "still hidden, still empty");
+        b.apply(m, &Shown { tooltip: Some(b"Why".to_vec()), ..Shown::default() }).unwrap();
+        assert_eq!(b.tooltip(), None, "hidden text must not supply a tooltip, even after a tooltip-only update");
+        b.apply(m, &Shown { visible: Some(true), ..Shown::default() }).unwrap();
+        assert_eq!(b.tooltip(), Some(&b"Why"[..]), "showing the text restores its retained tooltip");
+        assert_eq!(taken(), [], "a visibility-only update retains the tooltip without another text write");
     }
 
     #[test]
@@ -461,6 +485,8 @@ mod tests {
         let mut b = game.bound(Look::Plain);
         b.apply(m, &Shown { visible: Some(false), tooltip: Some(b"Why".to_vec()), ..Shown::default() }).unwrap();
         assert_eq!(taken(), []);
+        assert_eq!(b.tooltip(), None, "a hidden managed element does not supply its retained tooltip");
+        b.apply(m, &Shown { visible: Some(true), ..Shown::default() }).unwrap();
         assert_eq!(b.tooltip(), Some(&b"Why"[..]));
         b.apply(m, &Shown { tooltip: Some(Vec::new()), ..Shown::default() }).unwrap();
         assert_eq!(b.tooltip(), None);

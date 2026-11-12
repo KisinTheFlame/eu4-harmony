@@ -411,7 +411,7 @@ pub const FUNCTIONS: &[Function] = &[
         args: &[value(
             "popup",
             "eu4.Popup",
-            "{ header = key, title = key, text = key, values = { NAME = value }, buttons = { { text = key, action = function(game, popup) end }, ... }, shields = { tag, tag } }: the mod's localisation keys, the header optional; at most two buttons, left to right, c and Return pressing the right one, or the only one, z and Esc the left one; none for the game's own OK; the shields' countries, left and right, the player's where none",
+            "{ header = description, title = description, text = description, buttons = { { text = description, action = function(game, popup) end }, ... }, shields = { tag, tag } }: every description is { text = words } or { key = key, values = named_values }, the header optional; at most two buttons, left to right, c and Return pressing the right one, or the only one, z and Esc the left one; none for the game's own OK; the shields' countries, left and right, the player's where none",
         )],
         returns: &[value("popup", "eu4.PopupShown", "the pop-up shown: its number, and close(), which closes it")],
         about: "Shows the player a pop-up as the game's message pop-ups are, at once, waiting for nothing. A button's action runs when it is pressed, and the pop-up closes after it unless it answers { close = false }; a button with no action closes it. Several may be open at once; it does not pause the game.",
@@ -461,10 +461,11 @@ and os.time and os.date for a mod that declares clock. Nothing reaches the proce
 A Lua state holds at most 256 MiB; past that, an allocation raises Lua's not enough memory error.";
 
 /// What `game.ui.<element>` is.
-pub const WINDOWS: &str = "game.window.<window>.<widget>, a game widget of one of the windows main.lua returns by its name, or entry for its entry button, has visible, enabled, text, tooltip, frame, value (a progress bar's, 0 to 1), country (a flag's tag), number (an entry button's) and rows (a list's, a list of tables by its row's game widgets' names), as its kind has them; they are set and never read.";
+pub const WINDOWS: &str = "game.window.<window>.<widget>, a game widget of one of the windows main.lua returns by its name, or entry for its entry button, has visible, enabled, text, tooltip, frame, value (a progress bar's 0 to 1, or an entry's number; nil hides an entry number), country (a flag's tag) and rows (a list's, a list of tables by its row's game widgets' names), as its kind has them. Text and tooltip share the description { text = words } or { key = key, values = named_values }; assignment replaces the content and nil clears it. Tooltip is also readable, returning an independent description. Other properties are set and never read.";
 
 pub const ELEMENTS: &str = "game.ui.<element>, an element of the mod's interface fragments by its name, has visible, enabled \
-(true or false), text and tooltip (strings), which are set and never read.";
+(true or false), text and tooltip (the same { text = words } or { key = key, values = named_values } description; nil clears either; tooltip is also readable and returns an independent description). \
+Other properties are set and never read.";
 
 pub const MANIFEST: &[Field] = &[
     Field {

@@ -71,9 +71,56 @@ impl Windows {
     /// reload, are closed.
     pub fn declare(&mut self, extension: usize, id: &str, windows: &[Window]) {
         self.forget(extension);
-        self.declared.retain(|d| d.extension != extension);
-        if !windows.is_empty() {
-            self.declared.push(Declared { extension, id: id.to_string(), windows: windows.to_vec() });
+        if windows.is_empty() {
+            self.declared.retain(|d| d.extension != extension);
+            return;
+        }
+        let declared = Declared { extension, id: id.to_string(), windows: windows.to_vec() };
+        match self.declared.iter().position(|d| d.extension == extension) {
+            Some(at) => self.declared[at] = declared,
+            None => self.declared.push(declared),
+        }
+        self.initialize_texts(extension);
+    }
+
+    /// Initial values are state, not a fallback applied again by a native
+    /// binding. An explicitly cleared tooltip therefore stays empty.
+    fn initialize_texts(&mut self, extension: usize) {
+        let Some(declared) = self.declared.iter().find(|d| d.extension == extension) else { return };
+        for window in &declared.windows {
+            if window.entry.is_none() && window.widgets.iter().all(|p| p.name.is_none()) {
+                continue;
+            }
+            let wanted = self.wanted.entry((extension, window.name.clone())).or_default();
+            for placed in &window.widgets {
+                if let Some(name) = &placed.name {
+                    let properties = wanted.set.entry(name.clone()).or_default();
+                    properties.insert("tooltip", Property::Tooltip(placed.tooltip.clone().unwrap_or_default()));
+                    if let crate::layout::Kind::Text { text, .. } = &placed.kind {
+                        properties.insert("text", Property::Text(text.clone().unwrap_or_default()));
+                    }
+                }
+            }
+            if let Some(entry) = &window.entry {
+                let properties = wanted.set.entry(crate::layout::ENTRY.into()).or_default();
+                for property in [
+                    Property::Tooltip(entry.tooltip.clone().unwrap_or_default()),
+                    Property::Visible(entry.visible),
+                    Property::Enabled(entry.enabled),
+                    Property::Number(entry.value),
+                ] {
+                    properties.insert(property.name(), property);
+                }
+            }
+        }
+    }
+
+    /// The current content, including an initial value, without depending on
+    /// whether the native window exists.
+    pub fn tooltip(&self, extension: usize, window: &str, widget: &str) -> Option<crate::Text> {
+        match self.wanted(extension, window)?.set.get(widget)?.get("tooltip")? {
+            Property::Tooltip(text) => Some(text.clone()),
+            _ => None,
         }
     }
 
@@ -90,6 +137,16 @@ impl Windows {
     /// opened anything of it.
     pub fn wanted(&self, extension: usize, name: &str) -> Option<&Wanted> {
         self.wanted.get(&(extension, name.to_string()))
+    }
+
+    /// A native entry click, also used by the fake game. Recheck current
+    /// desired state so a queued click cannot outlive disabling or hiding it.
+    pub fn entry(&mut self, extension: usize, name: &str) -> Vec<WindowSeen> {
+        let Some(properties) = self.wanted(extension, name).and_then(|w| w.set.get(crate::layout::ENTRY)) else { return Vec::new() };
+        if properties.get("visible") == Some(&Property::Visible(false)) || properties.get("enabled") == Some(&Property::Enabled(false)) {
+            return Vec::new();
+        }
+        self.show(extension, name, !self.is_open(extension, name))
     }
 
     /// Whether `extension`'s window `name` is to be open.
@@ -243,6 +300,10 @@ impl Windows {
         self.seen.clear();
         self.pressed.clear();
         self.shown.clear();
+        let extensions: Vec<_> = self.declared.iter().map(|d| d.extension).collect();
+        for extension in extensions {
+            self.initialize_texts(extension);
+        }
     }
 
     /// The extension windows opened and closed since the last frame.
@@ -291,6 +352,95 @@ mod tests {
 
     fn open(all: &mut Windows, e: usize, w: &str) {
         all.change(e, WindowChange::Open(w.into()), true).unwrap();
+    }
+
+    #[test]
+    fn hidden_or_disabled_entries_ignore_queued_clicks_and_reload_keeps_order() {
+        let windows = layout::read(&json!({"tools":{"size":[200,200],"entry":{"sprite":"GFX_tools", "value":0}}}), &|_| true).unwrap();
+        let mut all = Windows::default();
+        all.declare(0, "a", &windows);
+        all.declare(1, "b", &windows);
+        all.declare(0, "a", &windows);
+        assert_eq!(all.declared().iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), ["a", "b"]);
+        assert_eq!(all.wanted(0, "tools").unwrap().set[crate::layout::ENTRY]["value"], Property::Number(Some(0.0)));
+        let set = |value| WindowChange::Set { window: "tools".into(), widget: crate::layout::ENTRY.into(), value };
+        all.change(0, set(Property::Enabled(false)), true).unwrap();
+        assert!(all.entry(0, "tools").is_empty() && !all.is_open(0, "tools"));
+        all.change(0, set(Property::Enabled(true)), true).unwrap();
+        all.change(0, set(Property::Visible(false)), true).unwrap();
+        assert!(all.entry(0, "tools").is_empty() && !all.is_open(0, "tools"));
+        all.change(0, set(Property::Visible(true)), true).unwrap();
+        assert_eq!(all.entry(0, "tools"), [seen(0, "tools", true)]);
+        assert_eq!(all.entry(0, "tools"), [seen(0, "tools", false)]);
+        all.forget(0);
+        assert!(all.entry(0, "tools").is_empty(), "stopped extensions keep no clickable entry state");
+    }
+
+    #[test]
+    fn tooltip_content_survives_close_and_clear_until_a_new_session_or_declaration() {
+        let windows = layout::read(
+            &json!({ "tools": {
+                "size": [300, 200], "entry": {"sprite":"GFX_tools", "tooltip":{"key":"TITLE"}},
+                "items": [{"type":"text", "name":"result", "size":[200,20], "tooltip":{"key":"COUNT", "values":{"N":"0"}}}]
+            }}),
+            &|_| true,
+        )
+        .unwrap();
+        let mut all = Windows::default();
+        all.declare(0, "tools", &windows);
+        let initial = all.tooltip(0, "tools", "result").unwrap();
+        assert_eq!(initial.resolve(|_| Some("Count: $N$".into())), "Count: 0");
+        assert_eq!(initial.resolve(|_| Some("数量：$N$".into())), "数量：0");
+        assert_eq!(all.tooltip(0, "tools", "entry").unwrap().localisation_key(), Some("TITLE"));
+        let set = |text| WindowChange::Set { window: "tools".into(), widget: "result".into(), value: Property::Tooltip(text) };
+        all.change(0, set("Replacement".into()), false).unwrap();
+        all.show(0, "tools", true);
+        all.show(0, "tools", false);
+        assert_eq!(all.tooltip(0, "tools", "result"), Some("Replacement".into()));
+        all.change(0, set(Default::default()), false).unwrap();
+        all.show(0, "tools", true);
+        assert_eq!(all.tooltip(0, "tools", "result"), Some(Default::default()), "opening never restores a cleared initial value");
+        all.end_session();
+        assert_eq!(all.tooltip(0, "tools", "result"), Some(initial.clone()));
+        all.change(0, set("Before reload".into()), false).unwrap();
+        all.declare(0, "tools", &windows);
+        assert_eq!(all.tooltip(0, "tools", "result"), Some(initial));
+        all.forget(0);
+        assert_eq!(all.tooltip(0, "tools", "result"), None);
+    }
+
+    #[test]
+    fn declared_text_and_tooltips_share_replacement_clear_and_session_rules() {
+        let layouts = layout::read(
+            &json!({"tools":{"size":[300,200],"items":[{
+                "type":"text","name":"result","size":[200,20],
+                "text":{"key":"COUNT","values":{"N":3}},"tooltip":{"key":"COUNT","values":{"N":3}}
+            }]}}),
+            &|key| key == "COUNT",
+        )
+        .unwrap();
+        for name in ["text", "tooltip"] {
+            let mut all = Windows::default();
+            all.declare(0, "tools", &layouts);
+            let initial = all.wanted(0, "tools").unwrap().set["result"][name].clone();
+            let content = match &initial {
+                Property::Text(text) | Property::Tooltip(text) => text,
+                _ => unreachable!(),
+            };
+            assert_eq!(content.resolve(|_| Some("§YCount $N$§!\nReady".into())), "§YCount 3§!\nReady");
+            assert_eq!(content.resolve(|_| Some("数量：$N$".into())), "数量：3");
+            let property = |text| if name == "text" { Property::Text(text) } else { Property::Tooltip(text) };
+            let change = |text| WindowChange::Set { window: "tools".into(), widget: "result".into(), value: property(text) };
+            all.change(0, change("COUNT".into()), false).unwrap();
+            assert_eq!(all.wanted(0, "tools").unwrap().set["result"][name], property("COUNT".into()));
+            all.change(0, change(Default::default()), false).unwrap();
+            all.show(0, "tools", true);
+            all.show(0, "tools", false);
+            all.show(0, "tools", true);
+            assert_eq!(all.wanted(0, "tools").unwrap().set["result"][name], property(Default::default()));
+            all.end_session();
+            assert_eq!(all.wanted(0, "tools").unwrap().set["result"][name], initial);
+        }
     }
 
     #[test]

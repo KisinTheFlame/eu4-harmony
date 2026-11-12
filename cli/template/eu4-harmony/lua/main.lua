@@ -11,7 +11,7 @@ local clicks = 0
 ---@type eu4.Handlers
 return {
   on_session = function(game)
-    game.ui.button.tooltip = text.get("TEMPLATE_MOD_TOOLTIP")
+    game.ui.button.tooltip = { key = "TEMPLATE_MOD_TOOLTIP" }
   end,
 
   on_frame = function(game)

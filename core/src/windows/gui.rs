@@ -113,16 +113,16 @@ pub fn row_type(window_type: &str, list: &str) -> String {
 pub fn keys(window: &Window, out: &mut Vec<String>) {
     fn of_widgets(widgets: &[Placed], out: &mut Vec<String>) {
         for w in widgets {
-            out.extend(w.tooltip.clone());
+            out.extend(w.tooltip.as_ref().and_then(|t| t.localisation_key()).map(str::to_string));
             match &w.kind {
-                Kind::Text { text, .. } | Kind::Button { text, .. } => out.extend(text.clone()),
+                Kind::Text { text, .. } | Kind::Button { text, .. } => out.extend(text.as_ref().and_then(|text| text.localisation_key()).map(str::to_string)),
                 Kind::List { row, .. } => of_widgets(&row.widgets, out),
                 _ => {}
             }
         }
     }
-    out.extend(window.title.clone());
-    out.extend(window.entry.as_ref().and_then(|e| e.tooltip.clone()));
+    out.extend(window.title.as_ref().and_then(|text| text.localisation_key()).map(str::to_string));
+    out.extend(window.entry.as_ref().and_then(|e| e.tooltip.as_ref()).and_then(|t| t.localisation_key()).map(str::to_string));
     of_widgets(&window.widgets, out);
 }
 
@@ -145,7 +145,7 @@ fn quoted(words: &str) -> String {
 
 /// The `windowType` of an extension window, and one for each of its lists'
 /// rows; `words` puts a key of the mod's into the player language.
-pub fn window(type_name: &str, window: &Window, words: &dyn Fn(&Option<String>) -> String) -> String {
+pub fn window(type_name: &str, window: &Window, words: &dyn Fn(&Option<eu4_harmony_lua::Text>) -> String) -> String {
     let mut out = String::new();
     let (w, h) = window.size;
     open_window(&mut out, type_name, (w, h), window.moveable, Some(BACKGROUND_SPRITE));
@@ -302,7 +302,7 @@ fn button_sprite(width: i32) -> &'static str {
     }
 }
 
-fn widget(out: &mut String, placed: &Placed, index: usize, words: &dyn Fn(&Option<String>) -> String) {
+fn widget(out: &mut String, placed: &Placed, index: usize, words: &dyn Fn(&Option<eu4_harmony_lua::Text>) -> String) {
     let name = element(placed, index);
     let (x, y) = (placed.x, placed.y);
     match &placed.kind {
@@ -399,7 +399,7 @@ mod tests {
     }
 
     fn window_text(window: &Window) -> String {
-        super::window("eu4harmony_m_reforms", window, &|k| k.as_ref().map(|k| format!("[{k}]")).unwrap_or_default())
+        super::window("eu4harmony_m_reforms", window, &|k| k.as_ref().map(|text| text.resolve(|key| Some(format!("[{key}]")))).unwrap_or_default())
     }
 
     #[test]

@@ -200,8 +200,9 @@ fn settings_window(
     let footer = vec![
         Widget::Gap,
         Widget::Label(String::new()),
-        Widget::Button { id: "save", label: words("EU4HARMONY_SETTINGS_SAVE") },
-        Widget::Button { id: "cancel", label: words("EU4HARMONY_SETTINGS_CANCEL") },
+        Widget::Button { id: "save", label: words("EU4HARMONY_SETTINGS_SAVE") }.with_tooltip(eu4_harmony_lua::Text::key("EU4HARMONY_SETTINGS_SAVE".into())),
+        Widget::Button { id: "cancel", label: words("EU4HARMONY_SETTINGS_CANCEL") }
+            .with_tooltip(eu4_harmony_lua::Text::key("EU4HARMONY_SETTINGS_CANCEL".into())),
     ];
     let side = Side::new("pages", Page::ALL.iter().map(|page| words(page.title())).collect(), SETTINGS_LIST);
     let mut window = Window::new(words("EU4HARMONY_SETTINGS_TITLE"), Vec::new(), SETTINGS_WIDTH).with_side(side).with_pages(pages).with_footer(footer);
@@ -425,6 +426,32 @@ impl FrameworkUi {
             Command::Text { x: r.x + 24.0, y: r.y + 14.0, text, size: widgets::TEXT_SIZE, color: widgets::TEXT },
         ]
     }
+}
+
+/// The actual self-drawn visual target, in the same units and stacking order
+/// as drawing and input. Empty content belongs to the hit, too.
+pub(crate) fn tooltip_at() -> Option<Vec<u8>> {
+    if FAILED.load(Ordering::Relaxed) || HOLDING.load(Ordering::Relaxed) {
+        return None;
+    }
+    let guard = UI.try_lock().ok()?;
+    let ui = guard.as_ref()?;
+    let (x, y) = ui.mouse;
+    if !(Rect { x: 0.0, y: 0.0, w: ui.screen.0, h: ui.screen.1 }).contains(x, y) {
+        return None;
+    }
+    let content = if let Some(window) = ui.settings.as_ref().or(ui.mods.as_ref()) {
+        // The modal dimmer is itself a managed visual element with no hint.
+        Some(window.tooltip_at(&ui.font, x, y).unwrap_or_default())
+    } else if let Some(content) = ui.notice.as_ref().and_then(|(_, window)| window.tooltip_at(&ui.font, x, y)) {
+        Some(content)
+    } else if in_main_menu() {
+        corner(ui.screen, &ui.font).into_iter().find(|(rect, ..)| rect.contains(x, y)).map(|(_, label, _)| label.into())
+    } else {
+        None
+    }?;
+    let text = content.resolve(|key| Some(crate::loc::framework(crate::lang::player(), key, &[])));
+    Some(crate::unicode::game_text::from_str(&text))
 }
 
 /// Shows the framework's words for `key` over the frame the game presented

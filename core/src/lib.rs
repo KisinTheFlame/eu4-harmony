@@ -95,6 +95,7 @@ pub mod speed;
 pub mod splice;
 mod stack;
 mod startup;
+mod tooltips;
 #[cfg(feature = "dev-call-trace")]
 mod trace;
 mod troubleshooting;

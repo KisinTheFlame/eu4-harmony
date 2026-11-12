@@ -26,6 +26,14 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 | [2026-11-12-prepared-core-highlights.md](prototype-log/2026-11-12-prepared-core-highlights.md) | Prepared highlights checked across target changes, removal, loading, the country in view and a speed-5 run |
 | [2026-11-12-core-highlights-final.md](prototype-log/2026-11-12-core-highlights-final.md) | The final source's core-hover smoke check and standard validation |
 | [2026-11-12-core-highlight-capture-reuse.md](prototype-log/2026-11-12-core-highlight-capture-reuse.md) | Capture-buffer reuse, failed-capture invalidation and the final short game check |
+| [panel-entry-text.md](research/panel-entry-text.md) | Independent native numbers and the shared final tooltip-content seam |
+| [area-governing-cost.md](research/area-governing-cost.md) | Owned areas, native governing costs, and statehood without completing cores |
+| [Convenience Tools run](prototype-log/2026-11-12-convenience-tools.md) | Three finite batches in a separate mod, live area costs and trade-company exclusion |
+| [Convenience Tools entry](prototype-log/2026-11-12-convenience-entry.md) | Native static title, original image and button states; isolated resource-registration diagnosis |
+| [Managed tooltips and panel entries](prototype-log/2026-11-13-managed-tooltips.md) | Shared tooltip adapters, direct images and independent entry numbers; native verification and its limits |
+| [Convenience Tools window](prototype-log/2026-11-12-convenience-ui.md) | Grouped native controls, a single result line with a text tooltip, and four-language rendering |
+| [Reviewed area and live capacity](prototype-log/2026-11-12-convenience-reviewed-capacity.md) | Separate national reads, nullable prediction failures, tooltip regressions and a focused native comparison |
+| [Convenience Tools hands-on](prototype-log/2026-11-12-convenience-hands-on.md) | The isolated visible game handed to the user before publication |
 
 ## Plans
 
@@ -35,6 +43,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 
 | | |
 | --- | --- |
+| [panel-entries-and-tooltips.md](plans/panel-entries-and-tooltips.md) | Shared tooltip content and lifetime, checked entry images and independent formatted numbers |
 | [game-speed.md](plans/game-speed.md) | Making the game faster without changing the game it plays; how a part is chosen, and which comes next |
 | [mod-capabilities.md](plans/mod-capabilities.md) | What the framework opens to mods, what each area still lacks, and the parts taking it up: signals, reads, the script group and requests as the game, tasks, the panels' actions |
 | [drawing-thread.md](plans/drawing-thread.md) | The simulation, the interface and the drawing apart: the frames drawn by a thread of their own at the display's rate, the crossings made into events, then the world double buffered |
@@ -46,6 +55,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 | --- | --- |
 | [bounded-logs.md](plans/bounded-logs.md) | Bounded owned logs, useful event context, safe cleanup and bounded troubleshooting files |
 | [v1.md](plans/v1.md) | The design of the first version |
+| [area-governing-cost.md](plans/area-governing-cost.md) | General area grouping and checked governing capacity for state commands |
 | [unicode-module.md](plans/unicode-module.md) | The Unicode module and the framework UI |
 | [remote-control.md](plans/remote-control.md) | Remote control: its parts and what each delivers |
 | [sessions.md](plans/sessions.md) | Leaving a session without a restart |
