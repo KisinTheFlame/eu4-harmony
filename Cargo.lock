@@ -191,6 +191,7 @@ dependencies = [
  "eu4-harmony-core-macros",
  "eu4-harmony-folders",
  "eu4-harmony-loc",
+ "eu4-harmony-logging",
  "eu4-harmony-lua",
  "eu4-harmony-manifest",
  "eu4-harmony-remote",
@@ -227,6 +228,13 @@ name = "eu4-harmony-loc"
 version = "0.1.4"
 
 [[package]]
+name = "eu4-harmony-logging"
+version = "0.1.4"
+dependencies = [
+ "windows-sys",
+]
+
+[[package]]
 name = "eu4-harmony-lua"
 version = "0.1.4"
 dependencies = [
@@ -251,6 +259,7 @@ name = "eu4-harmony-proxy"
 version = "0.1.4"
 dependencies = [
  "eu4-harmony-folders",
+ "eu4-harmony-logging",
  "windows-sys",
 ]
 

@@ -84,6 +84,11 @@ pub trait Host: Send + Sync {
     fn fetch(&self, request: fetch::Request) -> Box<dyn Pending<fetch::Answer>>;
     /// A line for the mod's own log.
     fn log(&self, id: &str, line: &str);
+    /// A counted handler error after its first few written occurrences. The
+    /// live host folds these into periodic, bounded error summaries too.
+    fn repeated_error(&self, _id: &str, _message: &str) {}
+    /// Flushes periodic summaries, or all pending counts at a session change.
+    fn maintain_logs(&self, _checkpoint: bool) {}
     /// The number of the session the game is in, for counting errors by
     /// session.
     fn session(&self) -> u64;
@@ -704,6 +709,8 @@ impl Extension {
         };
         if count <= WRITTEN {
             self.log(&format!("error in {key}"));
+        } else {
+            self.host.repeated_error(self.id(), &key);
         }
         if count == WRITTEN {
             self.log(&format!("(the same error at the same place is counted from now on, and its count written when the session ends: {key})"));

@@ -36,21 +36,25 @@ pub fn command_line() -> &'static str {
     })
 }
 
-/// The folder this core's DLL was loaded from: `eu4-harmony\` in the game
-/// folder, or the test game's own, which `-harmony_core` names
-/// (docs/plans/test-games.md).
-pub fn core_dir() -> Result<PathBuf> {
+/// The actual loaded core's DLL, including a test game's file named by
+/// `-harmony_core` (docs/plans/test-games.md).
+pub fn core_file() -> Result<PathBuf> {
     use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleExW, GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT};
     let mut module = std::ptr::null_mut();
     let flags = GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT;
-    if unsafe { GetModuleHandleExW(flags, core_dir as *const () as *const u16, &mut module) } == 0 {
+    if unsafe { GetModuleHandleExW(flags, core_file as *const () as *const u16, &mut module) } == 0 {
         return Err("GetModuleHandleExW of the core failed".into());
     }
     let mut buf = vec![0u16; 32768];
     let n = unsafe { GetModuleFileNameW(module, buf.as_mut_ptr(), buf.len() as u32) } as usize;
-    if n == 0 {
-        return Err("GetModuleFileNameW of the core failed".into());
+    if n == 0 || n >= buf.len() {
+        return Err("GetModuleFileNameW of the core failed or was truncated".into());
     }
-    let dll = PathBuf::from(String::from_utf16_lossy(&buf[..n]));
+    Ok(PathBuf::from(String::from_utf16_lossy(&buf[..n])))
+}
+
+/// The folder containing the actual loaded core, not a guessed install path.
+pub fn core_dir() -> Result<PathBuf> {
+    let dll = core_file()?;
     dll.parent().map(Path::to_path_buf).ok_or_else(|| "the core has no folder".into())
 }

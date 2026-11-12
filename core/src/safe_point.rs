@@ -163,6 +163,7 @@ pub fn game_frame() {
     if crate::thread_id() != crate::main_thread() {
         return;
     }
+    crate::log::poll();
     // An in-game load remote control asked for takes the frame: the next
     // one is the new session's.
     if game::menu::game_frame(&m) {
@@ -216,6 +217,7 @@ pub fn game_frame() {
 
 /// Just before the main thread presents a frame.
 pub fn presented() {
+    crate::log::poll();
     let frontend = MAIN_MENU.swap(0, Ordering::Relaxed);
     let Some(m) = crate::memory() else { return };
     if GAME_FRAME.swap(false, Ordering::Relaxed) {

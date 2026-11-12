@@ -9,7 +9,7 @@
 //! (ADR one-capability-catalogue);
 //! interface elements, the map, texts and the player language through the
 //! core's own modules; the network through [`http`]. Each extension's log is
-//! `eu4-harmony/logs/<id>.log`, the last start's kept beside it.
+//! `eu4-harmony/logs/extension-<id>.log`, with bounded older segments beside it.
 mod http;
 
 use crate::{
@@ -28,8 +28,6 @@ use eu4_harmony_remote::extensions::args;
 use eu4_harmony_remote::{Code, Error, Request, Response};
 use std::{
     collections::{BTreeMap, HashMap},
-    fs::{File, OpenOptions},
-    io::Write as _,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock, RwLock},
     time::{Duration, Instant},
@@ -78,8 +76,14 @@ pub fn extension_indices(mods: &[DiscoveredMod]) -> BTreeMap<usize, usize> {
 struct Live {
     /// The logs folder, and each extension's log once it is open.
     logs: PathBuf,
-    open: Mutex<HashMap<String, File>>,
+    open: Mutex<HashMap<String, ExtensionLog>>,
     reach: Reach,
+}
+
+struct ExtensionLog {
+    file: Option<eu4_harmony_logging::Journal>,
+    retry: Instant,
+    unconfirmed: u64,
 }
 
 /// How the live host reaches the capability catalogue as an extension: hands
@@ -169,14 +173,51 @@ impl Host for Live {
 
     fn log(&self, id: &str, line: &str) {
         let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
-        if !open.contains_key(id) {
-            if let Ok(file) = OpenOptions::new().create(true).append(true).open(log_file(&self.logs, id)) {
-                open.insert(id.to_string(), file);
+        let state = open.entry(id.to_string()).or_insert_with(|| ExtensionLog { file: None, retry: Instant::now(), unconfirmed: 0 });
+        if state.file.is_none() && Instant::now() >= state.retry {
+            match eu4_harmony_logging::Journal::open(&self.logs, &eu4_harmony_logging::extension_source(id)) {
+                Ok(mut file) => {
+                    if state.unconfirmed != 0
+                        && file
+                            .write(
+                                eu4_harmony_logging::Kind::Event,
+                                &format!("extension log recovered; {} earlier records were not confirmed persisted", state.unconfirmed),
+                            )
+                            .is_ok()
+                    {
+                        state.unconfirmed = 0;
+                    }
+                    state.file = Some(file);
+                }
+                Err(error) => {
+                    state.retry = Instant::now() + Duration::from_secs(60);
+                    log!("cannot open extension log {id:?}: {error}");
+                }
             }
         }
-        if let Some(file) = open.get_mut(id) {
-            let _ = writeln!(file, "{line}");
-            let _ = file.flush();
+        let written = state.file.as_mut().is_some_and(|file| {
+            let kind = eu4_harmony_logging::kind(line);
+            file.write(if kind == eu4_harmony_logging::Kind::Note { eu4_harmony_logging::Kind::Event } else { kind }, line).is_ok()
+        });
+        if !written {
+            state.unconfirmed = state.unconfirmed.saturating_add(1);
+        }
+    }
+
+    fn repeated_error(&self, id: &str, message: &str) {
+        self.log(id, &format!("error in {message}"));
+    }
+
+    fn maintain_logs(&self, checkpoint: bool) {
+        if let Ok(mut open) = self.open.try_lock() {
+            for (id, state) in open.iter_mut() {
+                if let Some(file) = state.file.as_mut() {
+                    let _ = if checkpoint { file.checkpoint() } else { file.maintain() };
+                }
+                if checkpoint && state.unconfirmed != 0 {
+                    log!("extension log {id:?}: {} records not confirmed persisted", state.unconfirmed);
+                }
+            }
         }
     }
 
@@ -207,9 +248,17 @@ impl Host for Live {
     }
 }
 
-/// The log of the mod `id`'s extension in the logs folder `dir`.
+/// Log maintenance shares the safe frame's clock gate with the core. It
+/// never waits for an extension that is writing a line on another thread.
+pub(crate) fn maintain_logs(checkpoint: bool) {
+    if let Some(host) = HOST.get() {
+        host.maintain_logs(checkpoint);
+    }
+}
+
+#[cfg(test)]
 fn log_file(dir: &Path, id: &str) -> PathBuf {
-    dir.join(format!("{id}.log"))
+    dir.join(format!("{}.log", eu4_harmony_logging::extension_source(id)))
 }
 
 // ---------- loading ----------
@@ -240,12 +289,14 @@ pub fn load(mods: &[DiscoveredMod], log_dir: &Path, data_dir: &Path) -> Vec<Load
         } else if let Some(why) = m.manifest.unsupported(eu4_harmony_remote::API_VERSION) {
             Err(why)
         } else {
-            // The last start's log is kept beside it; this start's begins
-            // before main.lua runs, which may write to it already.
-            let path = log_file(log_dir, &m.manifest.id);
-            if path.exists() {
-                let _ = std::fs::rename(&path, path.with_extension("prev.log"));
-            }
+            // The shared journal opens on the first log call, before main.lua
+            // can write; leases prevent another process rotating this run.
+            crate::log::event(format_args!(
+                "extension loading: id={} version={} interface={}",
+                m.manifest.id,
+                m.descriptor.version.as_deref().unwrap_or("not declared"),
+                m.manifest.api_version
+            ));
             let opening = Mod {
                 id: &m.manifest.id,
                 name: &m.descriptor.name,
@@ -654,10 +705,42 @@ mod tests {
         // refusal nil and why. On a busy machine the host also logs the
         // handler's stretch as slow, which is not the extension's line.
         let logged = std::fs::read_to_string(log_file(&dir, "calling")).unwrap();
-        let logged: Vec<&str> = logged.lines().filter(|line| !line.starts_with("slow stretch:")).collect();
+        let logged: Vec<&str> = logged
+            .lines()
+            .filter(|line| !line.starts_with("# "))
+            .filter_map(|line| line.split_once(" source=extension-calling ").map(|(_, text)| text))
+            .filter(|line| !line.starts_with("slow stretch:"))
+            .collect();
         assert_eq!(logged, ["integer 4294967377 1444.11.11 nil not_found"]);
         GAME.with(|game| assert_eq!(game.borrow().calls, ["army 4294967377", "session", "army 1"]));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unavailable_extension_log_backs_off_and_reports_unconfirmed_records_on_recovery() {
+        let dir = std::env::temp_dir().join(format!("eu4h-extension-log-recovery-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let logs = dir.join("logs");
+        std::fs::write(&logs, "not a folder").unwrap();
+        let host = Live { logs: logs.clone(), open: Mutex::new(HashMap::new()), reach: fake_game };
+        host.log("recovery", "first");
+        host.log("recovery", "second");
+        {
+            let open = host.open.lock().unwrap();
+            let log = open.get("recovery").unwrap();
+            assert!(log.file.is_none());
+            assert_eq!(log.unconfirmed, 2);
+            assert!(log.retry > Instant::now());
+        }
+        std::fs::remove_file(&logs).unwrap();
+        std::fs::create_dir_all(&logs).unwrap();
+        host.open.lock().unwrap().get_mut("recovery").unwrap().retry = Instant::now();
+        host.log("recovery", "working again");
+        let text = std::fs::read_to_string(log_file(&logs, "recovery")).unwrap();
+        assert!(text.contains("2 earlier records were not confirmed persisted"));
+        assert!(text.contains("working again"));
+        drop(host);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

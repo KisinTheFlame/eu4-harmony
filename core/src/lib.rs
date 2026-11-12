@@ -220,7 +220,15 @@ fn log_panics() {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let thread = std::thread::current();
-        log!("panic on thread {} ({}): {info}\n{}", thread.name().unwrap_or("of the game's"), thread_id(), std::backtrace::Backtrace::force_capture());
+        log::write_within(
+            format_args!(
+                "panic on thread {} ({}): {info}\n{}",
+                thread.name().unwrap_or("of the game's"),
+                thread_id(),
+                std::backtrace::Backtrace::force_capture()
+            ),
+            std::time::Duration::from_secs(1),
+        );
         default(info);
     }));
 }
@@ -284,6 +292,15 @@ fn build() -> String {
 /// in a developer build, its tools' options.
 fn report_header(game_dir: Option<&std::path::Path>) {
     report::line(format!("Harmony {}{}, started {}", env!("CARGO_PKG_VERSION"), build(), log::now()));
+    report::line(format!("run: {}, process {}", eu4_harmony_logging::run_id(), std::process::id()));
+    if let Ok(path) = paths::core_file() {
+        let metadata = path.metadata().ok();
+        let bytes = metadata.as_ref().map_or(0, |m| m.len());
+        let modified = metadata.and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis());
+        let identity = eu4_harmony_logging::redact(&format!("core image on disk: {} (bytes={bytes}, modified_unix_ms={modified})", path.display()));
+        log::event(format_args!("{identity}"));
+        report::line(identity);
+    }
     if let Some(dir) = game_dir {
         report::line(format!("game: {}", dir.display()));
     }
