@@ -53,10 +53,13 @@
 "0x95dd7" = { kind = "code", notes = ["research/unicode-text.md"] }
 "0x95f77" = { kind = "code", notes = ["research/unicode-text.md"] }
 "0x96080" = { kind = "function", name = "achievements", notes = ["research/achievements.md", "research/main-menu.md"] }
-"0x96130" = { kind = "function", notes = ["research/achievements.md"] }
-"0x962d0" = { kind = "function", notes = ["research/achievements.md"] }
-"0x96440" = { kind = "function", notes = ["research/achievements.md"] }
-"0x967b0" = { kind = "function", notes = ["research/achievements.md"] }
+"0x96130" = { kind = "function", name = "check daily achievements", notes = ["research/achievements.md"] }
+"0x961d7" = { kind = "code", notes = ["research/achievements.md"] }
+"0x961f6" = { kind = "code", notes = ["research/achievements.md"] }
+"0x962d0" = { kind = "function", name = "restore tracked achievements", notes = ["research/achievements.md"] }
+"0x96440" = { kind = "function", name = "build tracked achievements", notes = ["research/achievements.md"] }
+"0x965bb" = { kind = "code", notes = ["research/achievements.md"] }
+"0x967b0" = { kind = "function", name = "initialize tracked achievements", notes = ["research/achievements.md"] }
 "0x96810" = { kind = "function", name = "achievement check", notes = ["research/achievements.md", "research/main-menu.md"] }
 "0x96837" = { kind = "code", name = "achievement check keeps ignore ironman", notes = ["research/achievements.md"] }
 "0x9687c" = { kind = "code", notes = ["research/achievements.md"] }
@@ -64,11 +67,13 @@
 "0x96900" = { kind = "function", notes = ["research/achievements.md", "research/saves.md"] }
 "0x9696d" = { kind = "code", notes = ["research/achievements.md"] }
 "0x96994" = { kind = "code", notes = ["research/achievements.md"] }
+"0x96ed0" = { kind = "function", notes = ["research/achievements.md"] }
 "0x97500" = { kind = "function", notes = ["research/achievements.md", "research/saves.md"] }
 "0x97770" = { kind = "function", name = "game checksum known", notes = ["research/achievements.md"] }
 "0x97786" = { kind = "code", name = "game checksum answer", notes = ["research/achievements.md"] }
 "0x977ae" = { kind = "code", name = "game checksum answer kept", notes = ["research/achievements.md"] }
 "0x977cc" = { kind = "code", name = "game checksum answer kept without the platform", notes = ["research/achievements.md"] }
+"0x979d0" = { kind = "function", name = "map achievements to platform", notes = ["research/achievements.md"] }
 "0x985c0" = { kind = "leaf", notes = ["research/countries.md"] }
 "0x98840" = { kind = "leaf", notes = ["research/power-spending.md", "research/recruiting.md"] }
 "0x98a30" = { kind = "function", notes = ["research/power-spending.md"] }
@@ -571,6 +576,7 @@
 "0x2485b0" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
 "0x249120" = { kind = "function", notes = ["research/architecture.md", "research/commands.md"] }
 "0x24d630" = { kind = "function", notes = ["research/triggers.md"] }
+"0x24f3b0" = { kind = "leaf", name = "platform achievement unlocked", notes = ["research/achievements.md"] }
 "0x24f9d0" = { kind = "function", notes = ["research/provinces.md"] }
 "0x24fff0" = { kind = "leaf", name = "construction progress", notes = ["research/provinces.md"] }
 "0x250000" = { kind = "function", notes = ["research/provinces.md"] }
@@ -3118,12 +3124,13 @@
 "0xb89710" = { kind = "function", notes = ["research/religion.md", "research/triggers.md"] }
 "0xb89f60" = { kind = "function", notes = ["research/architecture.md"] }
 "0xb8ba90" = { kind = "function", notes = ["research/architecture.md"] }
+"0xb8f1ff" = { kind = "code", notes = ["research/achievements.md"] }
 "0xb97cd0" = { kind = "function", name = "condition lines", notes = ["research/triggers.md"] }
 "0xb97f60" = { kind = "function", notes = ["research/triggers.md"] }
 "0xb97ff0" = { kind = "function", notes = ["research/triggers.md"] }
 "0xb98020" = { kind = "function", notes = ["research/triggers.md"] }
 "0xb980a0" = { kind = "function", notes = ["research/loading.md"] }
-"0xb98200" = { kind = "function", name = "condition verdict", notes = ["research/religion.md", "research/triggers.md"] }
+"0xb98200" = { kind = "function", name = "condition verdict", notes = ["research/achievements.md", "research/religion.md", "research/triggers.md"] }
 "0xb98260" = { kind = "function", notes = ["research/triggers.md"] }
 "0xb985b0" = { kind = "function", notes = ["research/country-daily-update.md"] }
 "0xb98910" = { kind = "function", notes = ["research/country-daily-update.md"] }
@@ -3135,6 +3142,7 @@
 "0xb9a490" = { kind = "function", notes = ["research/parameterized-script.md"] }
 "0xb9a4e9" = { kind = "code", notes = ["research/parameterized-script.md"] }
 "0xb9b4e0" = { kind = "function", notes = ["research/loading.md", "research/parameterized-script.md"] }
+"0xbb4060" = { kind = "function", name = "ironman condition constructor", notes = ["research/achievements.md"] }
 "0xbbdf20" = { kind = "function", notes = ["research/world-interface-seams.md"] }
 "0xbbf000" = { kind = "code", notes = ["research/architecture.md"] }
 "0xbce550" = { kind = "function", notes = ["research/trade.md"] }
@@ -3174,6 +3182,9 @@
 "0xcc31e0" = { kind = "function", notes = ["research/trade.md"] }
 "0xcc34f2" = { kind = "code", notes = ["research/trade.md"] }
 "0xcc34fd" = { kind = "code", name = "trade node value", notes = ["research/trade.md"] }
+"0xcc6db0" = { kind = "leaf", name = "script ironman condition", notes = ["research/achievements.md"] }
+"0xcc6dc3" = { kind = "leaf", name = "script ironman state", notes = ["research/achievements.md"] }
+"0xcc6dca" = { kind = "leaf", name = "script ironman comparison", notes = ["research/achievements.md"] }
 "0xccf500" = { kind = "function", notes = ["research/provinces.md"] }
 "0xccf82e" = { kind = "code", notes = ["research/provinces.md"] }
 "0xccf8b7" = { kind = "code", notes = ["research/provinces.md"] }
@@ -4973,6 +4984,7 @@
 "0x163d790" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x163da90" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x1640000" = { kind = "code", notes = ["research/drawing-beside-the-day.md", "research/world-interface-seams.md"] }
+"0x164b7f0" = { kind = "leaf", name = "unlock a platform achievement", notes = ["research/achievements.md"] }
 "0x164ea00" = { kind = "function", notes = ["research/crash-handling.md"] }
 "0x164ebd0" = { kind = "function", notes = ["research/crash-handling.md"] }
 "0x164f450" = { kind = "function", notes = ["research/crash-handling.md", "research/headless.md"] }
@@ -5611,6 +5623,7 @@
 "0x1cf1b00" = { kind = "data", notes = ["research/provinces.md"] }
 "0x1cf1b80" = { kind = "data", notes = ["research/provinces.md"] }
 "0x1cf2670" = { kind = "data", notes = ["research/provinces.md"] }
+"0x1cf2ae8" = { kind = "data", name = "ironman condition vtable", notes = ["research/achievements.md"] }
 "0x1cf2e00" = { kind = "data", notes = ["research/provinces.md"] }
 "0x1cf2f80" = { kind = "data", notes = ["research/provinces.md"] }
 "0x1cf7d10" = { kind = "data", notes = ["research/architecture.md", "research/countries.md", "research/triggers.md"] }
@@ -5873,6 +5886,7 @@
 "0x20c23f0" = { kind = "data", notes = ["research/provinces.md"] }
 "0x21337d0" = { kind = "data", notes = ["research/provinces.md"] }
 "0x216b590" = { kind = "data", notes = ["research/provinces.md"] }
+"0x218a328" = { kind = "data", name = "ironman script token", notes = ["research/achievements.md"] }
 "0x2325220" = { kind = "data", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/main-thread.md", "research/monthly-update.md", "research/random.md"] }
 "0x23266f8" = { kind = "data", notes = ["research/triggers.md"] }
 "0x2326720" = { kind = "data", notes = ["research/architecture.md"] }
@@ -6155,7 +6169,7 @@
 "0x242be78" = { kind = "data", notes = ["research/envoys.md"] }
 "0x242bed0" = { kind = "data", notes = ["research/architecture.md"] }
 "0x242bef8" = { kind = "data", notes = ["research/main-menu.md"] }
-"0x242bf50" = { kind = "data", notes = ["research/architecture.md", "research/input.md", "research/loading.md", "research/recruiting.md", "research/save-transfer-copy.md", "research/saves.md"] }
+"0x242bf50" = { kind = "data", notes = ["research/achievements.md", "research/architecture.md", "research/input.md", "research/loading.md", "research/recruiting.md", "research/save-transfer-copy.md", "research/saves.md"] }
 "0x242bf7d" = { kind = "data", notes = ["research/crash-handling.md"] }
 "0x242bf88" = { kind = "data", notes = ["research/loading.md"] }
 "0x242bf90" = { kind = "data", notes = ["research/unicode-text.md"] }

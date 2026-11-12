@@ -10,6 +10,7 @@
 //! claim, whatever ends the run: an error, a panic or Ctrl-C
 //! (docs/plans/test-games.md). Only cargo, for the builds, and the game run as
 //! programs of their own.
+mod achievements;
 mod extensions;
 mod game;
 mod late;
@@ -173,8 +174,18 @@ pub trait Scenario: Sync {
 }
 
 fn all() -> Vec<&'static dyn Scenario> {
-    let mut all: Vec<&'static dyn Scenario> =
-        vec![&perf::Perf, &leak::GROWTH, &leak::LEAK, &sweep::Sweep, &sessions::Sessions, &extensions::Extensions, &late::Late, &late::LONG, &late::CHECKED];
+    let mut all: Vec<&'static dyn Scenario> = vec![
+        &perf::Perf,
+        &leak::GROWTH,
+        &leak::LEAK,
+        &sweep::Sweep,
+        &sessions::Sessions,
+        &achievements::Achievements,
+        &extensions::Extensions,
+        &late::Late,
+        &late::LONG,
+        &late::CHECKED,
+    ];
     all.extend(late::SEGMENTS.iter().map(|s| s as &dyn Scenario));
     all
 }
@@ -200,6 +211,7 @@ const SETS: &[Set] = &[
         scenarios: &[
             "sweep",
             "sessions",
+            "achievements",
             "extensions",
             "late",
             "long-1444",
@@ -790,6 +802,7 @@ mod tests {
         let whole = expanded(&words("whole"));
         assert!(whole.iter().any(|s| s == "long-1444") && !whole.iter().any(|s| s == "long"), "{whole:?}");
         assert!(whole.iter().all(|s| find(s).is_some()), "{whole:?}");
+        assert!(whole.iter().any(|s| s == "achievements"), "{whole:?}");
         let release = expanded(&words("release"));
         assert_eq!(release.len(), whole.len() + 1);
         assert_eq!(release.last().map(String::as_str), Some("long"));

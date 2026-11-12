@@ -21,6 +21,7 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 | [adr/](adr/) | Decisions that are hard to reverse, one file each, and why they were made |
 | [research/](research/) | The research into the game's code that the pages of [game/](game/) rest on, with addresses as RVAs into the 1.37.5 baseline; [addresses.toml](research/addresses.toml) indexes every address they name |
 | [prototype-log/](prototype-log/) | What was tested in the running game and what came out, one file per run |
+| [2026-11-13-non-ironman-achievement-tracking.md](prototype-log/2026-11-13-non-ironman-achievement-tracking.md) | Empty non-ironman achievement lists reproduced and repaired; a daily completion checked with platform submission intercepted |
 | [2026-11-12-core-highlights-baseline.md](prototype-log/2026-11-12-core-highlights-baseline.md) | The missing core-hover outlines reproduced on the 0.1.4 baseline |
 | [2026-11-12-core-highlights-clearing.md](prototype-log/2026-11-12-core-highlights-clearing.md) | Skipping only post-draw clearing established why asynchronous drawing lost the outlines |
 | [2026-11-12-prepared-core-highlights.md](prototype-log/2026-11-12-prepared-core-highlights.md) | Prepared highlights checked across target changes, removal, loading, the country in view and a speed-5 run |
