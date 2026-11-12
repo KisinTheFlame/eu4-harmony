@@ -367,11 +367,6 @@ fn set_element(lua: &Lua, at: &Calling, element: &str, property: &str, value: Lu
     if !super::running(at.serial) {
         return Err(mlua::Error::runtime(format!("game.ui.{element}: the game is reached only from a handler, not at the top of main.lua")));
     }
-    let text = |v: &LuaValue| match v {
-        LuaValue::String(s) => Ok(s.to_str()?.to_string()),
-        LuaValue::Nil => Ok(String::new()),
-        other => Err(mlua::Error::runtime(format!("game.ui.{element}.{property} takes a string, not a {}", other.type_name()))),
-    };
     let flag = |v: &LuaValue| match v {
         LuaValue::Boolean(b) => Ok(*b),
         other => Err(mlua::Error::runtime(format!("game.ui.{element}.{property} takes true or false, not a {}", other.type_name()))),
@@ -379,7 +374,11 @@ fn set_element(lua: &Lua, at: &Calling, element: &str, property: &str, value: Lu
     let value = match property {
         "visible" => Element::Visible(flag(&value)?),
         "enabled" => Element::Enabled(flag(&value)?),
-        "text" => Element::Text(text(&value)?),
+        "text" => {
+            let text = crate::Text::from_lua(value)?;
+            check_text(lua, at, &text)?;
+            Element::Text(text)
+        }
         "tooltip" => {
             let text = crate::Text::from_lua(value)?;
             check_text(lua, at, &text)?;
@@ -415,7 +414,7 @@ fn window_change(lua: &Lua, at: &Calling, op: &str, name: &str, widget: Option<&
     }
     .map_err(mlua::Error::runtime)?;
     let check = |property: &windows::Property| -> mlua::Result<()> {
-        if let windows::Property::Tooltip(text) = property {
+        if let windows::Property::Text(text) | windows::Property::Tooltip(text) = property {
             check_text(lua, at, text)?;
         }
         Ok(())
@@ -438,11 +437,7 @@ fn show_popup(lua: &Lua, at: &Calling, id: &str, spec: &Table) -> mlua::Result<u
     if !super::running(at.serial) {
         return Err(mlua::Error::runtime("game.popup: a pop-up is shown only from a handler or a task"));
     }
-    let words = |key: &str, values: &[(String, String)]| {
-        let raw = at.host.text(id, key)?;
-        let values: Vec<(&str, &str)> = values.iter().map(|(n, v)| (n.as_str(), v.as_str())).collect();
-        Some(eu4_harmony_loc::fill(&raw, &values))
-    };
+    let words = |key: &str| at.host.text(id, key);
     let popup = windows::popup(spec, &words, lua).map_err(mlua::Error::runtime)?;
     at.host.popup(at.index, popup).map_err(|e| mlua::Error::runtime(format!("game.popup: {e}")))
 }

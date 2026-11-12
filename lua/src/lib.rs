@@ -129,7 +129,7 @@ pub trait Pending<T>: Send {
 pub enum Element {
     Visible(bool),
     Enabled(bool),
-    Text(String),
+    Text(Text),
     Tooltip(Text),
 }
 

@@ -214,8 +214,8 @@ pub fn splice_entries(plan: &mut crate::splice::Plan) -> Vec<String> {
 }
 
 /// A key's words as the game is to show them, for [`live`].
-fn words_of(words: &BTreeMap<String, String>, key: &Option<String>) -> String {
-    key.as_ref().and_then(|k| words.get(k)).cloned().unwrap_or_default()
+fn words_of(words: &BTreeMap<String, String>, text: &Option<eu4_harmony_lua::Text>) -> String {
+    text.as_ref().map(|text| text.resolve(|key| words.get(key).cloned())).unwrap_or_default()
 }
 
 /// The element names of a window's definition: its own, and its game

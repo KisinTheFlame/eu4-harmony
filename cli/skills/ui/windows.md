@@ -14,12 +14,12 @@ steps:
 
      windows = {
        reforms = {
-         size = { 460, 560 }, title = "MYMOD_REFORMS_TITLE",
+         size = { 460, 560 }, title = { key = "MYMOD_REFORMS_TITLE" },
          entry = { image = "gfx/interface/my_entry.dds", tooltip = { key = "MYMOD_REFORMS_ENTRY" } },
          items = {
-           { type = "text", name = "status", size = { 412, 40 }, text = "MYMOD_STATUS" },
+           { type = "text", name = "status", size = { 412, 40 }, text = { key = "MYMOD_STATUS" } },
            { type = "row", spacing = 10, items = {
-             { type = "button", name = "pick", text = "MYMOD_PICK" },
+             { type = "button", name = "pick", text = { key = "MYMOD_PICK" } },
              { type = "icon", name = "seal", sprite = "GFX_my_seal", size = { 40, 40 } },
            }},
            { type = "progress", name = "authority", value = 0.5 },
@@ -39,14 +39,14 @@ steps:
    with no title has none), anchor ("center", "top_left", ..., "right",
    "bottom_right") with offset = { x, y }, entry (a button on the panel
    button strip left of the minimap, beside the papacy's and the Empire's).
-2. Game widgets: text (size, text = key, font "body" or "heading", align),
-   icon (sprite, frame, size), button (text = key for the game's text
+2. Game widgets: text (size, text = description, font "body" or "heading", align),
+   icon (sprite, frame, size), button (text = description for the game's text
    button, which comes 79, 109, 149, 189 or 224 wide and 31 high; or
    sprite and frame for an icon button, with its size), progress (a
    progressbartype sprite, GFX_wargoal_progressbar 288 by 18 unless named,
    value 0 to 1), flag (a maskedShieldType, GFX_shield_thin 92 by 92
    unless named, country = tag), list (size, row = { size, items }, which
-   scrolls). Visual widgets take tooltip = { key = "MYMOD_DETAILS",
+   scrolls). Text fields (including declared titles and button labels) and tooltips use the same description. Visual widgets take tooltip = { key = "MYMOD_DETAILS",
    values = { N = 3 } } or tooltip = { text = "Ready" }. Values are named
    strings or finite numbers; the game's colors and line breaks are kept.
    Layout rows and columns have no tooltip target. Every key is the mod's;
@@ -54,19 +54,19 @@ steps:
    loading, with the reason.
 3. From a handler, open and close: game.window.open("reforms"),
    game.window.close("reforms"). Set what shows:
-     game.window.reforms.status.text = text.get("MYMOD_DONE")
+     game.window.reforms.status.text = { key = "MYMOD_DONE" }
      game.window.reforms.pick.enabled = false
      game.window.reforms.authority.value = 0.8
      game.window.reforms.entry.visible = false
-     game.window.reforms.electors.rows = { { flag = "FRA", name = "France" }, ... }
-   A row's entry is words for a text, a number for a progress bar or an
+     game.window.reforms.electors.rows = { { flag = "FRA", name = { text = "France" } }, ... }
+   A row's entry is a text description for a text, a number for a progress bar or an
    icon's frame, a tag for a flag, true or false for whether a text button
    is enabled, or a table of properties. What is set while a window is
    closed shows when it opens. The tooltip property is readable and writable:
      game.window.reforms.status.tooltip = { key = "MYMOD_DETAILS", values = { N = 3 } }
      local content = game.window.reforms.status.tooltip
      game.window.reforms.status.tooltip = nil
-   Reading returns an independent description. Assignment replaces the same
+   Reading returns an independent description. Both text and tooltip assignment replace the same
    content initialized by the declaration; nil clears it and rebuilding or
    reopening the window keeps it cleared. A new session initializes the
    declaration again. Hidden elements suppress their tooltip; disabled
@@ -94,14 +94,14 @@ steps:
    opens or closes, whoever did it: the mod, its entry button, its close
    button, Esc, or another of the game's big panels opening.
 5. A pop-up, from a handler, shown at once:
-     local popup = game.popup { header = "MYMOD_STEWARD", title = "MYMOD_ASK",
-       text = "MYMOD_ASK_TEXT", values = { N = 3 }, shields = { "FRA", "ENG" },
+     local popup = game.popup { header = { key = "MYMOD_STEWARD" }, title = { key = "MYMOD_ASK" },
+       text = { key = "MYMOD_ASK_TEXT", values = { N = 3 } }, shields = { "FRA", "ENG" },
        buttons = {
-         { text = "MYMOD_LOOK", action = function(game, popup)
+         { text = { key = "MYMOD_LOOK" }, action = function(game, popup)
              game.camera.look_at { province = 151, glide = true }
              return { close = false }
            end },
-         { text = "MYMOD_YES", action = function(game, popup) agree() end },
+         { text = { key = "MYMOD_YES" }, action = function(game, popup) agree() end },
        } }
    It is the game's message pop-up: a header line, the title on the green
    band, a shield at each corner (the player's country unless named), the

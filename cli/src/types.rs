@@ -48,15 +48,14 @@ const CLASSES: &str = r#"---@class eu4.Date
 ---@field row integer|nil the row of the list the button is in, from 1
 
 ---@class eu4.Popup
----@field header? string a localisation key of the mod's, the small line above the title
----@field title string a localisation key of the mod's
----@field text string a localisation key of the mod's
----@field values? table<string, any> the keys' $NAME$s
+---@field header? eu4.Text the small line above the title
+---@field title eu4.Text
+---@field text eu4.Text
 ---@field buttons? eu4.PopupButton[] at most two, left to right; c and Return press the right one, or the only one, z and Esc the left one; none for the game's own OK
 ---@field shields? string[] the left and right shields' countries, the player's where none
 
 ---@class eu4.PopupButton
----@field text string a localisation key of the mod's
+---@field text eu4.Text
 ---@field action? fun(game: eu4.Game, popup: eu4.PopupShown): { close: boolean }? what pressing it does; the pop-up closes after it unless it answers { close = false }; none closes it
 
 ---@class eu4.PopupShown
@@ -92,13 +91,13 @@ const CLASSES: &str = r#"---@class eu4.Date
 ---@class eu4.Element
 ---@field visible boolean set, never read
 ---@field enabled boolean set, never read
----@field text string|nil set, never read; nil is no text
+---@field text eu4.Text|nil set, never read; nil clears the content
 ---@field tooltip eu4.Text|nil readable and writable; nil clears the content
 
 ---@class eu4.Widget
 ---@field visible boolean set, never read
 ---@field enabled boolean set, never read; a button's
----@field text string|nil set, never read; a text's or a text button's
+---@field text eu4.Text|nil set, never read; a text widget's content
 ---@field tooltip eu4.Text|nil readable and writable; nil clears the content
 ---@field frame integer set, never read; an icon's or an icon button's, from 1
 ---@field value number|nil set, never read; a progress bar's 0 to 1, or an entry's number (nil hides it)

@@ -50,7 +50,7 @@ pub struct Window {
     /// Width and height.
     pub size: (i32, i32),
     /// The title's localisation key.
-    pub title: Option<String>,
+    pub title: Option<crate::Text>,
     pub close: bool,
     pub anchor: Anchor,
     /// From the anchor, in pixels, right and down.
@@ -148,7 +148,7 @@ pub struct Placed {
 pub enum Kind {
     Text {
         /// A localisation key.
-        text: Option<String>,
+        text: Option<crate::Text>,
         font: Font,
         align: Align,
     },
@@ -159,7 +159,7 @@ pub enum Kind {
     /// A text button when it has a text, an icon button when it has a
     /// sprite.
     Button {
-        text: Option<String>,
+        text: Option<crate::Text>,
         sprite: Option<String>,
         frame: u32,
     },
@@ -272,7 +272,7 @@ fn read_window(name: &str, value: &Value, has_text: &dyn Fn(&str) -> bool) -> Re
     if size.0 <= 0 || size.1 <= 0 {
         return Err("size is a width and a height above 0".into());
     }
-    let title = key(table.get("title"), "title", has_text)?;
+    let title = content(table.get("title"), "title", has_text)?;
     let close = flag(table.get("close"), "close")?.unwrap_or(true);
     let anchor = match table.get("anchor") {
         None => Anchor::Center,
@@ -462,14 +462,14 @@ fn item(table: &Map<String, Value>, place: (i32, i32), has_text: &dyn Fn(&str) -
                 None => Align::Start,
                 Some(word) => Align::named(&word).ok_or_else(|| fail("align is left, center or right".into()))?,
             };
-            Kind::Text { text: key(table.get("text"), "text", has_text).map_err(fail)?, font, align }
+            Kind::Text { text: content(table.get("text"), "text", has_text).map_err(fail)?, font, align }
         }
         "icon" => Kind::Icon {
             sprite: text(table.get("sprite"), "sprite").map_err(fail)?.ok_or_else(|| fail("an icon has a sprite".into()))?,
             frame: frame(table.get("frame"), "frame").map_err(fail)?,
         },
         "button" => {
-            let text_key = key(table.get("text"), "text", has_text).map_err(fail)?;
+            let text_key = content(table.get("text"), "text", has_text).map_err(fail)?;
             let sprite = text(table.get("sprite"), "sprite").map_err(fail)?;
             if text_key.is_some() == sprite.is_some() {
                 return Err(fail("a button has a text or a sprite, not both".into()));
@@ -611,13 +611,9 @@ fn text(value: Option<&Value>, what: &str) -> Result<Option<String>, String> {
     }
 }
 
-/// A localisation key the mod has.
-fn key(value: Option<&Value>, what: &str, has_text: &dyn Fn(&str) -> bool) -> Result<Option<String>, String> {
-    let key = text(value, what)?;
-    match key {
-        Some(k) if !has_text(&k) => Err(format!("{what}: the mod has no text {k:?} in its localisation")),
-        other => Ok(other),
-    }
+/// Visible text, checked through the shared description parser.
+fn content(value: Option<&Value>, what: &str, has_text: &dyn Fn(&str) -> bool) -> Result<Option<crate::Text>, String> {
+    value.map(|value| crate::Text::declaration(value, has_text).map_err(|error| format!("{what}: {error}"))).transpose()
 }
 
 #[cfg(test)]

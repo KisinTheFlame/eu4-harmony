@@ -89,6 +89,15 @@ impl Text {
         Ok(text)
     }
 
+    /// Internal declaration adapter: bare strings are keys here, while the
+    /// same string assigned at runtime remains finished literal text.
+    pub fn declaration_lua(value: LuaValue) -> mlua::Result<Self> {
+        match value {
+            LuaValue::String(key) => Ok(Self::key(key.to_str()?.to_string())),
+            value => Self::from_lua(value),
+        }
+    }
+
     pub fn check(&self, has_text: &dyn Fn(&str) -> bool) -> Result<(), String> {
         if let Some(key) = self.localisation_key() {
             if key.is_empty() || !has_text(key) {
@@ -111,6 +120,8 @@ impl Text {
             LuaValue::Nil => Ok(Self::default()),
             // Internal migration: old hosted controls supply finished strings.
             LuaValue::String(s) => Ok(s.to_str()?.to_string().into()),
+            LuaValue::Integer(n) => Ok(n.to_string().into()),
+            LuaValue::Number(n) if n.is_finite() => Ok(n.to_string().into()),
             LuaValue::Table(table) => {
                 for pair in table.clone().pairs::<String, LuaValue>() {
                     let (key, _) = pair?;

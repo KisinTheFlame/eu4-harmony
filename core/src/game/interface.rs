@@ -1,7 +1,7 @@
 //! The interface elements a mod declares: showing, enabling and labeling
 //! them. Only extensions have them.
 use super::{Caller, GResult};
-use crate::{ui, unicode::game_text};
+use crate::ui;
 
 const ELEMENTS: &str = "interface elements";
 
@@ -14,7 +14,7 @@ pub fn set_enabled(caller: Caller, name: &str, enabled: bool) -> GResult<()> {
 }
 
 pub fn set_text(caller: Caller, name: &str, text: &str) -> GResult<()> {
-    ui::set_text(caller.extension(ELEMENTS)?, name, game_text::from_str(text))
+    ui::set_text(caller.extension(ELEMENTS)?, name, text.into())
 }
 
 /// The tooltip of a button; an empty text removes it.

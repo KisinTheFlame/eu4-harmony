@@ -80,12 +80,12 @@ impl Windows {
             Some(at) => self.declared[at] = declared,
             None => self.declared.push(declared),
         }
-        self.initialize_tooltips(extension);
+        self.initialize_texts(extension);
     }
 
     /// Initial values are state, not a fallback applied again by a native
     /// binding. An explicitly cleared tooltip therefore stays empty.
-    fn initialize_tooltips(&mut self, extension: usize) {
+    fn initialize_texts(&mut self, extension: usize) {
         let Some(declared) = self.declared.iter().find(|d| d.extension == extension) else { return };
         for window in &declared.windows {
             if window.entry.is_none() && window.widgets.iter().all(|p| p.name.is_none()) {
@@ -94,7 +94,11 @@ impl Windows {
             let wanted = self.wanted.entry((extension, window.name.clone())).or_default();
             for placed in &window.widgets {
                 if let Some(name) = &placed.name {
-                    wanted.set.entry(name.clone()).or_default().insert("tooltip", Property::Tooltip(placed.tooltip.clone().unwrap_or_default()));
+                    let properties = wanted.set.entry(name.clone()).or_default();
+                    properties.insert("tooltip", Property::Tooltip(placed.tooltip.clone().unwrap_or_default()));
+                    if let crate::layout::Kind::Text { text, .. } = &placed.kind {
+                        properties.insert("text", Property::Text(text.clone().unwrap_or_default()));
+                    }
                 }
             }
             if let Some(entry) = &window.entry {
@@ -298,7 +302,7 @@ impl Windows {
         self.shown.clear();
         let extensions: Vec<_> = self.declared.iter().map(|d| d.extension).collect();
         for extension in extensions {
-            self.initialize_tooltips(extension);
+            self.initialize_texts(extension);
         }
     }
 
@@ -403,6 +407,40 @@ mod tests {
         assert_eq!(all.tooltip(0, "tools", "result"), Some(initial));
         all.forget(0);
         assert_eq!(all.tooltip(0, "tools", "result"), None);
+    }
+
+    #[test]
+    fn declared_text_and_tooltips_share_replacement_clear_and_session_rules() {
+        let layouts = layout::read(
+            &json!({"tools":{"size":[300,200],"items":[{
+                "type":"text","name":"result","size":[200,20],
+                "text":{"key":"COUNT","values":{"N":3}},"tooltip":{"key":"COUNT","values":{"N":3}}
+            }]}}),
+            &|key| key == "COUNT",
+        )
+        .unwrap();
+        for name in ["text", "tooltip"] {
+            let mut all = Windows::default();
+            all.declare(0, "tools", &layouts);
+            let initial = all.wanted(0, "tools").unwrap().set["result"][name].clone();
+            let content = match &initial {
+                Property::Text(text) | Property::Tooltip(text) => text,
+                _ => unreachable!(),
+            };
+            assert_eq!(content.resolve(|_| Some("§YCount $N$§!\nReady".into())), "§YCount 3§!\nReady");
+            assert_eq!(content.resolve(|_| Some("数量：$N$".into())), "数量：3");
+            let property = |text| if name == "text" { Property::Text(text) } else { Property::Tooltip(text) };
+            let change = |text| WindowChange::Set { window: "tools".into(), widget: "result".into(), value: property(text) };
+            all.change(0, change("COUNT".into()), false).unwrap();
+            assert_eq!(all.wanted(0, "tools").unwrap().set["result"][name], property("COUNT".into()));
+            all.change(0, change(Default::default()), false).unwrap();
+            all.show(0, "tools", true);
+            all.show(0, "tools", false);
+            all.show(0, "tools", true);
+            assert_eq!(all.wanted(0, "tools").unwrap().set["result"][name], property(Default::default()));
+            all.end_session();
+            assert_eq!(all.wanted(0, "tools").unwrap().set["result"][name], initial);
+        }
     }
 
     #[test]

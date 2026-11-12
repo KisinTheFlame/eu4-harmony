@@ -37,8 +37,8 @@ pub enum WindowChange {
 pub enum Property {
     Visible(bool),
     Enabled(bool),
-    /// Words, as the player reads them.
-    Text(String),
+    /// The same semantic text description used by declarations and tooltips.
+    Text(crate::Text),
     Tooltip(crate::Text),
     Frame(u32),
     /// A progress bar's, from 0 to 1.
@@ -129,7 +129,7 @@ fn property(placed: Option<&Placed>, property: &str, value: &LuaValue, what: &st
     Ok(match property {
         "visible" => Property::Visible(flag()?),
         "enabled" => Property::Enabled(flag()?),
-        "text" => Property::Text(words()?),
+        "text" => Property::Text(crate::Text::from_lua(value.clone()).map_err(|e| format!("{what}.text: {e}"))?),
         "tooltip" => Property::Tooltip(crate::Text::from_lua(value.clone()).map_err(|e| format!("{what}.tooltip: {e}"))?),
         "frame" => {
             let n = number()?;
@@ -216,6 +216,11 @@ fn rows(row: &layout::Row, value: &LuaValue, what: &str) -> Result<Vec<Vec<(Stri
             let placed = row.widget(&name).ok_or_else(|| format!("{at}: its row has no game widget named {name}"))?;
             let here = format!("{at}.{name}");
             match &cell {
+                LuaValue::Table(properties)
+                    if matches!(placed.kind, Kind::Text { .. }) && properties.contains_key("key").map_err(|error| format!("{here}: {error}"))? =>
+                {
+                    row_out.push((name.clone(), property(Some(placed), "text", &cell, &here)?));
+                }
                 LuaValue::Table(properties) => {
                     for pair in properties.pairs::<String, LuaValue>() {
                         let (p, v) = pair.map_err(|e| format!("{here}: {e}"))?;
@@ -242,7 +247,7 @@ fn rows(row: &layout::Row, value: &LuaValue, what: &str) -> Result<Vec<Vec<(Stri
 
 /// What puts a key of the mod's into the player language with its values,
 /// or says it has none.
-pub type Words<'a> = &'a dyn Fn(&str, &[(String, String)]) -> Option<String>;
+pub type Words<'a> = &'a dyn Fn(&str) -> Option<String>;
 
 /// `game.popup { header = key, title = key, text = key, values = { ... },
 /// buttons = { { text = key, action = function }, ... }, shields = { tag, tag } }`
@@ -266,19 +271,31 @@ pub fn popup(spec: &Table, words: Words, lua: &Lua) -> Result<Popup, String> {
             values.push((name, tostring.call::<String>(value).map_err(fail)?));
         }
     }
-    let text_of = |field: &str, key: Option<String>| -> Result<String, String> {
-        let key = key.ok_or_else(|| format!("game.popup has a {field}, a localisation key of the mod's"))?;
-        words(&key, &values).ok_or_else(|| format!("game.popup: {field}: the mod has no text {key:?} in its localisation"))
+    let text_of = |field: &str, value: LuaValue| -> Result<String, String> {
+        if value.is_nil() {
+            return Err(format!("game.popup has a {field}, a text description"));
+        }
+        let legacy = matches!(value, LuaValue::String(_));
+        let mut text = crate::Text::declaration_lua(value).map_err(fail)?;
+        if legacy {
+            if let crate::Text::Localized(localized) = &mut text {
+                localized.values.extend(values.iter().cloned());
+            }
+        }
+        text.check(&|key| words(key).is_some()).map_err(|error| format!("game.popup: {field}: {error}"))?;
+        Ok(text.resolve(words))
     };
     let optional = |field: &str| -> Result<Option<String>, String> {
-        match spec.get::<Option<String>>(field).map_err(fail)? {
-            Some(key) => Ok(Some(text_of(field, Some(key))?)),
-            None => Ok(None),
+        let value = spec.get::<LuaValue>(field).map_err(fail)?;
+        if value.is_nil() {
+            Ok(None)
+        } else {
+            text_of(field, value).map(Some)
         }
     };
     let header = optional("header")?;
-    let title = text_of("title", spec.get::<Option<String>>("title").map_err(fail)?)?;
-    let text = text_of("text", spec.get::<Option<String>>("text").map_err(fail)?)?;
+    let title = text_of("title", spec.get::<LuaValue>("title").map_err(fail)?)?;
+    let text = text_of("text", spec.get::<LuaValue>("text").map_err(fail)?)?;
     let mut buttons = Vec::new();
     if let Some(list) = spec.get::<Option<Table>>("buttons").map_err(fail)? {
         let list: Vec<Table> = list
@@ -299,7 +316,7 @@ pub fn popup(spec: &Table, words: Words, lua: &Lua) -> Result<Popup, String> {
             if !matches!(button.get::<LuaValue>("action").map_err(fail)?, LuaValue::Nil | LuaValue::Function(_)) {
                 return Err(format!("game.popup: {here}.action is a function, called when the button is pressed"));
             }
-            buttons.push(text_of(&format!("{here}.text"), button.get::<Option<String>>("text").map_err(fail)?)?);
+            buttons.push(text_of(&format!("{here}.text"), button.get::<LuaValue>("text").map_err(fail)?)?);
         }
     }
     let mut shields = [None, None];
@@ -387,9 +404,9 @@ mod tests {
     #[test]
     fn a_popup_is_put_into_words() {
         let lua = Lua::new();
-        let words = |key: &str, values: &[(String, String)]| match key {
+        let words = |key: &str| match key {
             "T" => Some("Title".to_string()),
-            "B" => Some(format!("Body {}", values.iter().map(|(n, v)| format!("{n}={v}")).collect::<String>())),
+            "B" => Some("Body N=$N$".into()),
             "OK" => Some("Fine".into()),
             _ => None,
         };

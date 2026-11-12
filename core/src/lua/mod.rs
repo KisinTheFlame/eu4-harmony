@@ -132,7 +132,7 @@ impl Host for Live {
         let result = match value {
             Element::Visible(on) => interface::set_visible(caller, element, on),
             Element::Enabled(on) => interface::set_enabled(caller, element, on),
-            Element::Text(text) => interface::set_text(caller, element, &text),
+            Element::Text(text) => ui::set_text(extension, element, text),
             Element::Tooltip(text) => ui::set_tooltip(extension, element, text),
         };
         result.map_err(|e| e.message)

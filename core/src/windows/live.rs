@@ -325,7 +325,7 @@ fn tear_down(m: &Memory, live: &mut Live, mut built: Built) -> Result<()> {
 /// What a game widget shows at first, from its layout.
 fn initial(placed: &Placed, words: &BTreeMap<String, String>) -> BTreeMap<&'static str, Property> {
     let tooltip = placed.tooltip.as_ref().map(|t| t.resolve(|key| words.get(key).cloned()));
-    let words = |key: &Option<String>| key.as_ref().and_then(|key| words.get(key)).cloned().unwrap_or_default();
+    let words = |text: &Option<eu4_harmony_lua::Text>| super::words_of(words, text);
     let mut out = BTreeMap::new();
     let mut put = |p: Property| {
         out.insert(p.name(), p);
@@ -335,7 +335,7 @@ fn initial(placed: &Placed, words: &BTreeMap<String, String>) -> BTreeMap<&'stat
         put(Property::Tooltip(tooltip.into()));
     }
     match &placed.kind {
-        Kind::Text { text, .. } => put(Property::Text(words(text))),
+        Kind::Text { text, .. } => put(Property::Text(words(text).into())),
         Kind::Icon { frame, .. } => put(Property::Frame(*frame)),
         Kind::Button { frame, sprite: Some(_), .. } => put(Property::Frame(*frame)),
         Kind::Progress { value, .. } => put(Property::Value(*value)),
@@ -425,7 +425,7 @@ fn wants() -> Wants {
                 definitions.push(gui::window(&type_name, w, &|k| super::words_of(words, k)));
                 let mut wanted = all.wanted.wanted(d.extension, &w.name).cloned().unwrap_or_default();
                 let resolve = |property: &mut Property| {
-                    if let Property::Tooltip(content) = property {
+                    if let Property::Text(content) | Property::Tooltip(content) = property {
                         *content = content.resolve(|key| crate::loc::mod_text(&d.id, key)).into();
                     }
                 };

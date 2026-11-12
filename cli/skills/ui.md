@@ -18,11 +18,10 @@ any of them should look and behave: eu4-harmony skills ui design.
   localisation).
 
 From Lua, game.ui.<name> is the element: set visible and enabled to true or
-false and text to a string (nil is none). Its tooltip is readable and
-writable: { key = "MYMOD_DETAILS", values = { N = 3 } } or { text = "Ready" }.
-Assignment replaces the content; nil clears it. Reading gives an independent
-description, and the framework resolves keys in the player language when
-presenting it. Disabled elements keep their tooltip; hidden elements do not
+false. Text and tooltip use the same description: { key = "MYMOD_DETAILS",
+values = { N = 3 } } or { text = "Ready" }. Assignment replaces the content;
+nil clears it. The framework resolves keys in the player language when
+presenting them. Tooltip is also readable, returning an independent description. Disabled elements keep their tooltip; hidden elements do not
 show one. The tooltip belongs only to the element hit. Other properties are
 set, never read.
 

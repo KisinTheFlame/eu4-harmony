@@ -66,6 +66,7 @@ struct Declared {
     /// Index of the extension that receives this element's clicks.
     extension: Option<usize>,
     desired: Shown,
+    text: Option<eu4_harmony_lua::Text>,
     tooltip: eu4_harmony_lua::Text,
 }
 
@@ -83,7 +84,7 @@ impl Elements {
     fn declare(&mut self, elements: Vec<(Element, Option<usize>)>, frames: Vec<Host>) {
         self.declared = elements
             .into_iter()
-            .map(|(element, extension)| Declared { host: element.host, element, extension, desired: Shown::default(), tooltip: Default::default() })
+            .map(|(element, extension)| Declared { host: element.host, element, extension, desired: Shown::default(), text: None, tooltip: Default::default() })
             .collect();
         self.frames = frames;
     }
@@ -103,6 +104,7 @@ impl Elements {
     fn forget(&mut self, extension: usize) {
         for d in self.declared.iter_mut().filter(|d| d.extension == Some(extension)) {
             d.desired = Shown::default();
+            d.text = None;
             d.tooltip = Default::default();
         }
     }
@@ -429,6 +431,9 @@ fn apply(m: &Memory, ui: &mut Ui, host: Host) -> Result<()> {
     for b in &mut binding.bound {
         let declared = &mut ui.elements.declared[b.index];
         let owner = declared.extension.and_then(crate::lua::mod_id).unwrap_or_default();
+        if let Some(text) = &declared.text {
+            declared.desired.text = Some(crate::unicode::game_text::from_str(&text.resolve(|key| crate::loc::mod_text(&owner, key))));
+        }
         declared.desired.tooltip = Some(crate::unicode::game_text::from_str(&declared.tooltip.resolve(|key| crate::loc::mod_text(&owner, key))));
         b.element.apply(m, &declared.desired)?;
     }
@@ -683,8 +688,14 @@ pub fn set_visible(extension: usize, name: &str, visible: bool) -> GResult<()> {
 pub fn set_enabled(extension: usize, name: &str, enabled: bool) -> GResult<()> {
     desired(extension, name, |d| d.enabled = Some(enabled))
 }
-pub fn set_text(extension: usize, name: &str, text: Vec<u8>) -> GResult<()> {
-    desired(extension, name, |d| d.text = Some(text))
+pub fn set_text(extension: usize, name: &str, text: eu4_harmony_lua::Text) -> GResult<()> {
+    with_ui(|ui| match ui.elements.declared.iter_mut().find(|d| d.extension == Some(extension) && d.element.name == name) {
+        Some(d) => {
+            d.text = Some(text);
+            Ok(())
+        }
+        None => fail(Status::NotFound, format!("no element {name:?} declared by this mod")),
+    })
 }
 pub fn set_tooltip(extension: usize, name: &str, text: eu4_harmony_lua::Text) -> GResult<()> {
     with_ui(|ui| match ui.elements.declared.iter_mut().find(|d| d.extension == Some(extension) && d.element.name == name) {

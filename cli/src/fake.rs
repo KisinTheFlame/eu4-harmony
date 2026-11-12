@@ -126,8 +126,8 @@ pub type Row = BTreeMap<String, Properties>;
 fn property_json(value: &Property, words: &impl Fn(&str) -> Option<String>) -> (&'static str, Value) {
     let json = match value {
         Property::Visible(b) | Property::Enabled(b) => Value::Bool(*b),
-        Property::Text(t) | Property::Country(t) => Value::String(t.clone()),
-        Property::Tooltip(t) => Value::String(t.resolve(words)),
+        Property::Country(t) => Value::String(t.clone()),
+        Property::Text(t) | Property::Tooltip(t) => Value::String(t.resolve(words)),
         Property::Frame(n) => Value::from(*n),
         Property::Value(v) => serde_json::Number::from_f64(*v).map_or(Value::Null, Value::Number),
         Property::Number(v) => v.and_then(serde_json::Number::from_f64).map_or(Value::Null, Value::Number),
@@ -273,7 +273,7 @@ impl Host for Fake {
         let (property, value) = match value {
             Element::Visible(on) => ("visible", Value::Bool(on)),
             Element::Enabled(on) => ("enabled", Value::Bool(on)),
-            Element::Text(text) => ("text", Value::String(text)),
+            Element::Text(text) => ("text", Value::String(text.resolve(|key| self.text("", key)))),
             Element::Tooltip(text) => {
                 let rendered = text.resolve(|key| self.text("", key));
                 self.store().tooltips.insert(element.to_string(), text);
