@@ -42,6 +42,7 @@ Steam 会让 Harmony 保持最新。偶尔有更新需要换新的 `version.dll`
 
 - 用 Harmony 玩的游戏里，你输入的名字以 UTF-8 保存，没有 Harmony 时会显示成乱码。
 - 会保存自己数据的 Mod 把数据写进存档；这样的存档不保证在没有 Harmony 时还能读取。
+- 非铁人成就要在新开局前启用。没有保存待达成成就列表的存档（包括受此前非铁人成就追踪缺陷影响的存档）需要重新开局；打开选项无法重建当初的开局条件。[成就追踪](docs/research/achievements.md#each-achievements-script-conditions)说明了原因。
 - 装上 Harmony 后，游戏自己的音量滑块按位置的平方变化，每一格听起来变化差不多大。原来低于 100 的音量会比以前轻，重新调一次即可。
 
 ## 出问题时

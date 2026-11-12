@@ -42,6 +42,7 @@ Good to know:
 
 - Names you type in a game played with Harmony are saved as UTF-8, and show as garbage without it.
 - A mod that keeps data of its own writes it into the save; such a save is not promised to load without Harmony.
+- Achievements outside ironman must be enabled before starting a new game. Saves made without a tracked achievement list, including those affected by the earlier non-ironman tracking bug, need a new game; enabling the setting cannot reconstruct their starting conditions. [Achievement tracking](docs/research/achievements.md#each-achievements-script-conditions) explains why.
 - With Harmony, the game's volume sliders go as the square of their position, so each step sounds about as large. Volumes saved below 100 sound quieter than before; set them once again.
 
 ## When something goes wrong

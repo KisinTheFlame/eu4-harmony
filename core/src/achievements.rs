@@ -5,7 +5,9 @@
 //!
 //! - Outside ironman: the game's check is always asked to ignore ironman, as
 //!   the single player setup already asks it, and that setup's text about
-//!   achievements stops wanting its own ironman checkbox.
+//!   achievements stops wanting its own ironman checkbox. The script's ironman
+//!   condition also sees ironman while achievement candidates and daily
+//!   completion conditions are evaluated, without changing ordinary scripts.
 //! - With a changed game checksum: the game is told its game checksum is
 //!   vanilla's wherever it keeps the answer, which the check, the save
 //!   checksum's salt and the ironman load in a modded game all read.
@@ -15,11 +17,14 @@
 //! change.
 use crate::called_by_game;
 use crate::{
-    objects::campaign::achievements,
+    objects::campaign::{achievements, world},
     points::{Function, Point},
     settings::Settings,
 };
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
+use std::{
+    cell::Cell,
+    sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},
+};
 
 /// `(achievements, reasons, ignore ironman, ignore player) -> bool`: the
 /// game's check of whether the current game can earn achievements, which
@@ -75,6 +80,76 @@ pub fn follow(settings: &Settings) {
 /// not.
 fn taken_as_vanilla(vanilla: bool) -> bool {
     vanilla || CHANGED_CHECKSUM.load(Ordering::Relaxed)
+}
+
+// Each achievement also has script conditions of its own. Vanilla's
+// `possible` blocks all ask `ironman = yes`, independently of CHECK. Treat
+// ironman as true only while those achievement conditions are evaluated;
+// ordinary events and the world's actual ironman flag must stay unchanged.
+thread_local! {
+    static EVALUATING_ACHIEVEMENTS: Cell<bool> = const { Cell::new(false) };
+}
+
+fn evaluating_achievements<R>(evaluate: impl FnOnce() -> R) -> R {
+    EVALUATING_ACHIEVEMENTS.with(|inside| {
+        struct Restore<'a>(&'a Cell<bool>, bool);
+        impl Drop for Restore<'_> {
+            fn drop(&mut self) {
+                self.0.set(self.1);
+            }
+        }
+        let _restore = Restore(inside, inside.replace(true));
+        evaluate()
+    })
+}
+
+fn ironman_for_script(actual: u8, outside_ironman: bool) -> u8 {
+    if outside_ironman && EVALUATING_ACHIEVEMENTS.get() {
+        1
+    } else {
+        actual
+    }
+}
+
+const BUILD_TRACKED: usize = 0x96440;
+type BuildTracked = unsafe extern "C" fn(usize, usize, usize);
+static ORIGINAL_BUILD_TRACKED: Function<BuildTracked> = Function::new();
+
+#[called_by_game]
+unsafe extern "C" fn build_tracked(achievements: usize, objects: usize, ids: usize) {
+    evaluating_achievements(|| unsafe { ORIGINAL_BUILD_TRACKED.get()(achievements, objects, ids) });
+}
+
+const DAILY: usize = 0x96130;
+type Daily = unsafe extern "C" fn(usize, usize);
+static ORIGINAL_DAILY: Function<Daily> = Function::new();
+
+#[called_by_game]
+unsafe extern "C" fn daily(achievements: usize, scope: usize) {
+    evaluating_achievements(|| unsafe { ORIGINAL_DAILY.get()(achievements, scope) });
+}
+
+// In the script's ironman trigger, after its developer-command bypass and
+// before comparing with the script's expected yes/no. Keeping both the
+// bypass and comparison in the game preserves `ironman = no` and negation.
+const SCRIPT_IRONMAN: usize = 0xcc6dc3;
+crate::resume!(SCRIPT_IRONMAN_RESUME: SCRIPT_IRONMAN_COMPARE = 0xcc6dca);
+
+#[called_by_game]
+extern "C" fn script_ironman(actual: u8) -> u8 {
+    ironman_for_script(actual, OUTSIDE_IRONMAN.load(Ordering::Relaxed))
+}
+
+#[unsafe(naked)]
+extern "C" fn script_ironman_stub() {
+    std::arch::naked_asm!(
+        "movzx eax, byte ptr [rax + {ironman}]",
+        crate::call_rust!("mov ecx, eax", call script_ironman, "mov rax, [rsp + 0x48]"),
+        "jmp qword ptr [rip + {compare}]",
+        ironman = const world::IRONMAN,
+        script_ironman = sym script_ironman,
+        compare = sym SCRIPT_IRONMAN_COMPARE,
+    );
 }
 
 type Check = unsafe extern "C" fn(usize, usize, u8, u8) -> u8;
@@ -143,6 +218,17 @@ extern "C" fn reasons_stub() {
 pub fn points() -> Vec<Point> {
     vec![
         Point::replace(CHECK, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57", "achievement check", check as Check, &ORIGINAL_CHECK),
+        Point::replace(
+            BUILD_TRACKED,
+            "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18",
+            "build tracked achievements",
+            build_tracked as BuildTracked,
+            &ORIGINAL_BUILD_TRACKED,
+        ),
+        Point::replace(DAILY, "48 89 5c 24 20 55 48 83 ec 20 80 79 03 00", "daily achievements", daily as Daily, &ORIGINAL_DAILY),
+        Point::jump(SCRIPT_IRONMAN, "0f b6 80 d0 24 00 00", "achievement script ironman", script_ironman_stub as *const () as usize, &SCRIPT_IRONMAN_RESUME)
+            .uses(&[world::IRONMAN]),
+        Point::keep(0xcc6dcausize, "38 41 68 0f 94 c0 c3", "script ironman expected value and result"),
         // The check hands its third argument on as `0x96900`'s fourth, which
         // passes ironman or not when it is set.
         Point::keep(0x96837usize, "45 0f b6 f8", "achievement check keeps ignore ironman"),
@@ -169,4 +255,47 @@ pub fn points() -> Vec<Point> {
         Point::keep(REASONS_IRONMAN, "e8 86 f1 cd fe", "setup achievement reasons listed"),
         Point::keep(REASONS_NOT_IRONMAN, "48 8b 8e 90 02 00 00", "setup achievement reasons skipped"),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn achievement_scripts_see_ironman_only_when_the_setting_allows_it() {
+        assert_eq!(ironman_for_script(0, true), 0);
+        evaluating_achievements(|| {
+            assert_eq!(ironman_for_script(0, true), 1);
+            assert_eq!(ironman_for_script(1, true), 1);
+            assert_eq!(ironman_for_script(0, false), 0);
+            assert_eq!(ironman_for_script(1, false), 1);
+            // The game compares this value with the script's expected
+            // yes/no; it is not an unconditional successful trigger.
+            assert_ne!(ironman_for_script(0, true), 0);
+        });
+        assert_eq!(ironman_for_script(0, true), 0);
+    }
+
+    #[test]
+    fn nested_achievement_evaluations_restore_the_outer_scope() {
+        evaluating_achievements(|| {
+            evaluating_achievements(|| assert_eq!(ironman_for_script(0, true), 1));
+            assert_eq!(ironman_for_script(0, true), 1);
+        });
+        assert_eq!(ironman_for_script(0, true), 0);
+    }
+
+    #[test]
+    fn ordinary_scripts_on_other_threads_keep_the_actual_ironman_state() {
+        evaluating_achievements(|| {
+            assert_eq!(std::thread::spawn(|| ironman_for_script(0, true)).join().unwrap(), 0);
+        });
+    }
+
+    #[test]
+    fn unwind_restores_the_ordinary_script_scope() {
+        let result = std::panic::catch_unwind(|| evaluating_achievements(|| panic!("test the scope's cleanup")));
+        assert!(result.is_err());
+        assert_eq!(ironman_for_script(0, true), 0);
+    }
 }
