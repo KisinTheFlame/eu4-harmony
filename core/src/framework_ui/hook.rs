@@ -34,6 +34,7 @@ static ORIGINAL_PRESENT: Function<Present> = Function::new();
 unsafe extern "C" fn present(renderer: usize) -> u8 {
     if crate::thread_id() == crate::main_thread() {
         if super::held() {
+            crate::tooltips::discard_late();
             // Answered as a frame presented on a working device.
             return 1;
         }
@@ -47,6 +48,7 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
                 super::frame(device)
             }
         });
+        crate::guarded("native tooltip over framework UI", || crate::tooltips::draw_late(renderer));
         // The frame as the player sees it, the framework UI included.
         crate::guarded("screenshot", || {
             if let Some(device) = device {
@@ -75,6 +77,7 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
                 super::frame(device)
             }
         });
+        crate::guarded("native tooltip over framework UI", || crate::tooltips::draw_late(renderer));
         crate::guarded("screenshot", || {
             if let Some(device) = device {
                 crate::game::screenshot::presenting(device)
@@ -95,6 +98,7 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
 }
 
 fn before_reset(_: &mut Call) {
+    crate::tooltips::clear();
     super::device_reset();
     crate::game::screenshot::device_reset();
 }

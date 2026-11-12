@@ -613,7 +613,7 @@ mod tests {
             }
         }
         let main = fs::read_to_string(root.join("eu4-harmony/lua/main.lua")).unwrap();
-        assert!(main.contains("text.get(\"MY_MOD_TOOLTIP\")") && main.contains("my-mod.log"));
+        assert!(main.contains("tooltip = { key = \"MY_MOD_TOOLTIP\" }") && main.contains("my-mod.log"));
         assert_eq!(check::check(&root).problems, Vec::<String>::new());
         assert!(root.join(types::FILE).is_file() && root.join(types::LUARC).is_file());
         let (texts, problems) = eu4_harmony_loc::load_dir(&root.join("eu4-harmony/localisation"));

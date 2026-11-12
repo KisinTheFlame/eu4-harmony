@@ -101,7 +101,7 @@ my-mod/
 
 `province.area` reads an owned area's members and governing costs, including the capacity added by making it a state without completing cores. `country.governing_capacity` separately recomputes the live national total in integer thousandths; [the province page](docs/game/provinces.md) explains the distinction.
 
-Extension tooltips are readable and writable text descriptions: `{ text = "Ready" }` or `{ key = "MYMOD_DETAILS", values = { N = 3 } }`. Assignment replaces the content, and `nil` clears it, including across window rebuilding; the [window guide](cli/skills/ui/windows.md) covers layouts and properties.
+Extension tooltips are readable and writable text descriptions: `{ text = "Ready" }` or `{ key = "MYMOD_DETAILS", values = { N = 3 } }`. Assignment replaces the content, and `nil` clears it, including across window rebuilding. Panel entries can use a checked mod-relative DDS or TGA image, change visibility and enabled state, and show an independently formatted number below the icon; the [window guide](cli/skills/ui/windows.md) covers layouts and properties.
 
 Where to learn more:
 

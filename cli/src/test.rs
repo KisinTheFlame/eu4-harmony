@@ -484,8 +484,7 @@ impl UserData for TestMod {
             }
             let seen = {
                 let mut store = this.fake.store();
-                let open = store.windows.is_open(this.extension.index(), &window);
-                store.windows.show(this.extension.index(), &window, !open)
+                store.windows.entry(this.extension.index(), &window)
             };
             for seen in seen {
                 dispatch::window(std::slice::from_ref(&this.extension), &seen);

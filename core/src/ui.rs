@@ -597,22 +597,20 @@ fn button_input(call: &mut Call) {
     }
 }
 
-/// Fills the panel's tooltip for our buttons that have one. The game builds
-/// the output aggregate: main text at +0, delayed text at +32.
+/// The actual native hit, for the shared presentation adapter.
 fn tooltip_after(call: &mut Call) {
-    let m = call.memory();
-    if call.result() != Some(call.arg(1)) || crate::thread_id() != crate::main_thread() {
-        return;
+    if call.result() == Some(call.arg(1)) && crate::thread_id() == crate::main_thread() {
+        crate::tooltips::hit(call.arg(2));
     }
-    let Ok(guard) = UI.try_lock() else { return };
-    let Some(ui) = guard.as_ref() else { return };
-    let Some(binding) = ui.bindings.iter().find(|b| b.host == Host::ArmyPanel && b.holder == call.arg(0)) else { return };
-    let Some(b) = binding.bound.iter().find(|b| b.element.object == call.arg(2) && b.element.listens()) else { return };
-    let Some(text) = b.element.tooltip().map(<[u8]>::to_vec) else { return };
-    drop(guard);
-    if let Err(e) = bound_element::fill_tooltip(&m, call.arg(1), &text) {
-        log!("ui: tooltip append failed: {e}");
-    }
+}
+
+/// Every bound visual element participates, whether it listens for clicks or
+/// not. An empty managed value still replaces the native content.
+pub(crate) fn managed_tooltip(element: usize) -> Option<Vec<u8>> {
+    let guard = UI.try_lock().ok()?;
+    let ui = guard.as_ref()?;
+    let bound = ui.bindings.iter().flat_map(|b| &b.bound).find(|b| b.element.object == element)?;
+    Some(bound.element.tooltip().unwrap_or_default().to_vec())
 }
 
 /// The army panel, button and window functions the UI hooks or calls.

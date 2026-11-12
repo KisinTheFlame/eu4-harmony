@@ -461,10 +461,11 @@ and os.time and os.date for a mod that declares clock. Nothing reaches the proce
 A Lua state holds at most 256 MiB; past that, an allocation raises Lua's not enough memory error.";
 
 /// What `game.ui.<element>` is.
-pub const WINDOWS: &str = "game.window.<window>.<widget>, a game widget of one of the windows main.lua returns by its name, or entry for its entry button, has visible, enabled, text, tooltip, frame, value (a progress bar's, 0 to 1), country (a flag's tag), number (an entry button's) and rows (a list's, a list of tables by its row's game widgets' names), as its kind has them; they are set and never read.";
+pub const WINDOWS: &str = "game.window.<window>.<widget>, a game widget of one of the windows main.lua returns by its name, or entry for its entry button, has visible, enabled, text, tooltip, frame, value (a progress bar's 0 to 1, or an entry's number; nil hides an entry number), country (a flag's tag) and rows (a list's, a list of tables by its row's game widgets' names), as its kind has them. Tooltip is a readable and writable description: { text = words } or { key = key, values = named_values }; assignment replaces it, nil clears it. Other properties are set and never read.";
 
 pub const ELEMENTS: &str = "game.ui.<element>, an element of the mod's interface fragments by its name, has visible, enabled \
-(true or false), text and tooltip (strings), which are set and never read.";
+(true or false), text (a string), and tooltip (a readable and writable { text = words } or { key = key, values = named_values } description; nil clears it). \
+Other properties are set and never read.";
 
 pub const MANIFEST: &[Field] = &[
     Field {

@@ -130,6 +130,7 @@ fn property_json(value: &Property, words: &impl Fn(&str) -> Option<String>) -> (
         Property::Tooltip(t) => Value::String(t.resolve(words)),
         Property::Frame(n) => Value::from(*n),
         Property::Value(v) => serde_json::Number::from_f64(*v).map_or(Value::Null, Value::Number),
+        Property::Number(v) => v.and_then(serde_json::Number::from_f64).map_or(Value::Null, Value::Number),
     };
     (value.name(), json)
 }

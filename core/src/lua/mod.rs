@@ -345,7 +345,9 @@ pub fn load(mods: &[DiscoveredMod], log_dir: &Path, data_dir: &Path) -> Vec<Load
 /// The windows an extension's main.lua returns, for the framework to build.
 fn declare_windows(extension: &Extension) {
     let id = extension.id().to_string();
-    crate::windows::declare(extension.index(), &id, extension.windows(), |key| crate::loc::mod_text(&id, key).map(|t| eu4_harmony_loc::fill(&t, &[])));
+    crate::windows::declare(extension.index(), &id, extension.windows(), extension.images(), |key| {
+        crate::loc::mod_text(&id, key).map(|t| eu4_harmony_loc::fill(&t, &[]))
+    });
 }
 
 /// What an extension reload came to.
@@ -401,6 +403,10 @@ fn reload_now(id: &str) -> game::GResult<Reloaded> {
         }
     };
     let Some(old) = extensions().get(index).cloned() else { return refuse(game::Status::NotFound, format!("no extension of a mod {id:?} is loaded")) };
+    if new.images() != old.images() {
+        crate::loc::restore_mod(id, earlier);
+        return Err(rejected("entry images changed; their native resources take effect at the next start, and the old extension goes on".into()));
+    }
     let session = crate::sessions::going_on();
     // A stopped extension's code is not run again, save_data included.
     let (saved, lost) = match (session, old.stopped()) {

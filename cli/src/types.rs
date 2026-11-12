@@ -80,19 +80,28 @@ const CLASSES: &str = r#"---@class eu4.Date
 ---@field headers table<string, string> names in lowercase
 ---@field body string
 
+---@class eu4.LiteralText
+---@field text string
+
+---@class eu4.LocalizedText
+---@field key string a key in the mod's localisation
+---@field values? table<string, string|number> named values
+
+---@alias eu4.Text eu4.LiteralText|eu4.LocalizedText
+
 ---@class eu4.Element
 ---@field visible boolean set, never read
 ---@field enabled boolean set, never read
 ---@field text string|nil set, never read; nil is no text
----@field tooltip string|nil set, never read; nil is no tooltip
+---@field tooltip eu4.Text|nil readable and writable; nil clears the content
 
 ---@class eu4.Widget
 ---@field visible boolean set, never read
 ---@field enabled boolean set, never read; a button's
 ---@field text string|nil set, never read; a text's or a text button's
----@field tooltip string|nil set, never read
+---@field tooltip eu4.Text|nil readable and writable; nil clears the content
 ---@field frame integer set, never read; an icon's or an icon button's, from 1
----@field value number set, never read; a progress bar's, 0 to 1
+---@field value number|nil set, never read; a progress bar's 0 to 1, or an entry's number (nil hides it)
 ---@field country string set, never read; a flag's tag
 ---@field rows table[] set, never read; a list's, each a table by its row's game widgets' names
 "#;
@@ -436,8 +445,8 @@ mod tests {
         // err is not nil-checked once the result has been (LuaLS, 2026-11-03).
         assert!(declare.contains(&format!("---@return {ERR}")) && fetch.contains(&format!("---@return {ERR}")), "{declare}\n{fetch}");
         assert!(!text.contains("eu4.Err|nil"));
-        // An element takes nil, as text.get may answer.
-        assert!(text.contains("---@field tooltip string|nil"));
+        // Tooltip content is readable and writable; nil explicitly clears it.
+        assert!(text.contains("---@field tooltip eu4.Text|nil readable and writable"));
         // A handler's argument that may be nil says so.
         assert!(text.contains("province: integer, from: string|nil, to: string|nil)"), "{text}");
         assert!(text.contains("saved: any)"));
@@ -477,9 +486,12 @@ mod tests {
             .find(|block| block.contains("function eu4_game_army.get("))
             .unwrap();
         assert!(get.contains("---@return eu4.Army result"), "{get}");
-        // Every class a result names is written.
+        // Every type a result names has a class or alias declaration.
         for class in text.match_indices("eu4.").map(|(i, _)| text[i + 4..].split(|c: char| !c.is_ascii_alphanumeric()).next().unwrap()) {
-            assert!(text.contains(&format!("---@class eu4.{class}")) || class == "game", "eu4.{class} is named but not written");
+            assert!(
+                text.contains(&format!("---@class eu4.{class}")) || text.contains(&format!("---@alias eu4.{class} ")) || class == "game",
+                "eu4.{class} is named but not written"
+            );
         }
         // A result with err is nil only when err is not.
         assert!(!text.contains("|nil result") && !text.contains("string|nil text"));

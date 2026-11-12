@@ -42,6 +42,8 @@ mod prepare;
 mod tooltip;
 mod turns;
 
+pub(crate) use crossings::SCENE_BEGINS;
+
 use crate::called_by_game;
 use crate::hooks::Call;
 use crate::memory::Memory;

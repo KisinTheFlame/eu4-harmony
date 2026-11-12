@@ -18,8 +18,13 @@ any of them should look and behave: eu4-harmony skills ui design.
   localisation).
 
 From Lua, game.ui.<name> is the element: set visible and enabled to true or
-false, text and tooltip to a string (nil is none). They are set, never
-read: keep what you set in the mod's own state when you need it again.
+false and text to a string (nil is none). Its tooltip is readable and
+writable: { key = "MYMOD_DETAILS", values = { N = 3 } } or { text = "Ready" }.
+Assignment replaces the content; nil clears it. Reading gives an independent
+description, and the framework resolves keys in the player language when
+presenting it. Disabled elements keep their tooltip; hidden elements do not
+show one. The tooltip belongs only to the element hit. Other properties are
+set, never read.
 
   on_frame = function(game)
     game.ui.button.visible = game.army.selected() ~= nil

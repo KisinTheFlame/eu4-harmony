@@ -26,7 +26,7 @@ use eu4_harmony_lua::{
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
-pub(crate) use live::{frame, killed, session_ended, show_window, with_string};
+pub(crate) use live::{frame, killed, managed_tooltip, session_ended, show_window, with_string};
 
 #[derive(Default)]
 struct Windows {
@@ -35,6 +35,7 @@ struct Windows {
     /// Each extension's texts in the player language, by key, for its
     /// windows' definitions.
     words: BTreeMap<usize, BTreeMap<String, String>>,
+    images: BTreeMap<usize, Vec<eu4_harmony_lua::images::Image>>,
     /// The clicks on extension windows' buttons, heard at the next frame.
     clicks: Vec<Click>,
     /// Bumped whenever the declared windows change, so that their
@@ -69,7 +70,7 @@ impl Windows {
 /// The windows the extension `extension` of the mod `id` declares, from its
 /// main.lua, with `words` putting the mod's keys into the player language;
 /// its earlier windows, at an extension reload, are closed.
-pub fn declare(extension: usize, id: &str, windows: &[Window], words: impl Fn(&str) -> Option<String>) {
+pub fn declare(extension: usize, id: &str, windows: &[Window], images: &[eu4_harmony_lua::images::Image], words: impl Fn(&str) -> Option<String>) {
     let mut keys = Vec::new();
     for w in windows {
         gui::keys(w, &mut keys);
@@ -79,6 +80,7 @@ pub fn declare(extension: usize, id: &str, windows: &[Window], words: impl Fn(&s
         all.forget(extension);
         all.wanted.declare(extension, id, windows);
         all.words.insert(extension, words);
+        all.images.insert(extension, images.to_vec());
         all.generation += 1;
     });
 }
@@ -171,7 +173,15 @@ pub fn points() -> Vec<crate::points::Point> {
 pub fn files() -> Vec<crate::files::File> {
     let mut files: Vec<crate::files::File> =
         [live::WINDOWS_FILE, live::POPUPS_FILE].into_iter().map(|path| crate::files::File { path: path.into(), data: gui::file(&[]).into_bytes() }).collect();
-    files.push(crate::files::File { path: SPRITES_FILE.into(), data: gui::SPRITES.as_bytes().to_vec() });
+    let mut sprites = gui::SPRITES.trim_end().strip_suffix('}').expect("the framework sprites close their block").to_string();
+    with(|all| {
+        for image in all.images.values().flatten() {
+            sprites.push_str(&image.definition());
+            files.push(crate::files::File { path: image.path.clone(), data: image.data.to_vec() });
+        }
+    });
+    sprites.push_str("}\n");
+    files.push(crate::files::File { path: SPRITES_FILE.into(), data: sprites.into_bytes() });
     files
 }
 

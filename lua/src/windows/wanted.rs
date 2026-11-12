@@ -71,11 +71,16 @@ impl Windows {
     /// reload, are closed.
     pub fn declare(&mut self, extension: usize, id: &str, windows: &[Window]) {
         self.forget(extension);
-        self.declared.retain(|d| d.extension != extension);
-        if !windows.is_empty() {
-            self.declared.push(Declared { extension, id: id.to_string(), windows: windows.to_vec() });
-            self.initialize_tooltips(extension);
+        if windows.is_empty() {
+            self.declared.retain(|d| d.extension != extension);
+            return;
         }
+        let declared = Declared { extension, id: id.to_string(), windows: windows.to_vec() };
+        match self.declared.iter().position(|d| d.extension == extension) {
+            Some(at) => self.declared[at] = declared,
+            None => self.declared.push(declared),
+        }
+        self.initialize_tooltips(extension);
     }
 
     /// Initial values are state, not a fallback applied again by a native
@@ -93,7 +98,15 @@ impl Windows {
                 }
             }
             if let Some(entry) = &window.entry {
-                wanted.set.entry(crate::layout::ENTRY.into()).or_default().insert("tooltip", Property::Tooltip(entry.tooltip.clone().unwrap_or_default()));
+                let properties = wanted.set.entry(crate::layout::ENTRY.into()).or_default();
+                for property in [
+                    Property::Tooltip(entry.tooltip.clone().unwrap_or_default()),
+                    Property::Visible(entry.visible),
+                    Property::Enabled(entry.enabled),
+                    Property::Number(entry.value),
+                ] {
+                    properties.insert(property.name(), property);
+                }
             }
         }
     }
@@ -120,6 +133,16 @@ impl Windows {
     /// opened anything of it.
     pub fn wanted(&self, extension: usize, name: &str) -> Option<&Wanted> {
         self.wanted.get(&(extension, name.to_string()))
+    }
+
+    /// A native entry click, also used by the fake game. Recheck current
+    /// desired state so a queued click cannot outlive disabling or hiding it.
+    pub fn entry(&mut self, extension: usize, name: &str) -> Vec<WindowSeen> {
+        let Some(properties) = self.wanted(extension, name).and_then(|w| w.set.get(crate::layout::ENTRY)) else { return Vec::new() };
+        if properties.get("visible") == Some(&Property::Visible(false)) || properties.get("enabled") == Some(&Property::Enabled(false)) {
+            return Vec::new();
+        }
+        self.show(extension, name, !self.is_open(extension, name))
     }
 
     /// Whether `extension`'s window `name` is to be open.
@@ -325,6 +348,28 @@ mod tests {
 
     fn open(all: &mut Windows, e: usize, w: &str) {
         all.change(e, WindowChange::Open(w.into()), true).unwrap();
+    }
+
+    #[test]
+    fn hidden_or_disabled_entries_ignore_queued_clicks_and_reload_keeps_order() {
+        let windows = layout::read(&json!({"tools":{"size":[200,200],"entry":{"sprite":"GFX_tools", "value":0}}}), &|_| true).unwrap();
+        let mut all = Windows::default();
+        all.declare(0, "a", &windows);
+        all.declare(1, "b", &windows);
+        all.declare(0, "a", &windows);
+        assert_eq!(all.declared().iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), ["a", "b"]);
+        assert_eq!(all.wanted(0, "tools").unwrap().set[crate::layout::ENTRY]["value"], Property::Number(Some(0.0)));
+        let set = |value| WindowChange::Set { window: "tools".into(), widget: crate::layout::ENTRY.into(), value };
+        all.change(0, set(Property::Enabled(false)), true).unwrap();
+        assert!(all.entry(0, "tools").is_empty() && !all.is_open(0, "tools"));
+        all.change(0, set(Property::Enabled(true)), true).unwrap();
+        all.change(0, set(Property::Visible(false)), true).unwrap();
+        assert!(all.entry(0, "tools").is_empty() && !all.is_open(0, "tools"));
+        all.change(0, set(Property::Visible(true)), true).unwrap();
+        assert_eq!(all.entry(0, "tools"), [seen(0, "tools", true)]);
+        assert_eq!(all.entry(0, "tools"), [seen(0, "tools", false)]);
+        all.forget(0);
+        assert!(all.entry(0, "tools").is_empty(), "stopped extensions keep no clickable entry state");
     }
 
     #[test]

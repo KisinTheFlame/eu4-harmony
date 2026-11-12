@@ -30,7 +30,7 @@ Images may be declared by a mod-relative file path or by an existing sprite and 
 - **M1:** Migrate Convenience Tools, Regional Combat source and examples to the current interface; repair private test-game registration.
 - **V1:** Formatting, release build, tests, both clippy builds, offline checks and a bounded hidden-game run, with evidence recorded in its own prototype log.
 
-Every part is done when its implementation, developer documentation and meaningful regression checks agree, and native claims have actual native evidence. The user's current hands-on game is not changed or controlled. Steam creation and uploads remain paused.
+Every part is done when its implementation, developer documentation and meaningful regression checks agree, and native claims have actual native evidence. The user's current hands-on game is not changed or controlled. Publishing follows completion, native verification and independent review; this implementation work does not upload an unfinished build.
 
 ## Internal migration record
 

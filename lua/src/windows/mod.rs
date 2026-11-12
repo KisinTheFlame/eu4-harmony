@@ -43,6 +43,8 @@ pub enum Property {
     Frame(u32),
     /// A progress bar's, from 0 to 1.
     Value(f64),
+    /// An entry's independent number; none hides it.
+    Number(Option<f64>),
     /// A flag's country, by its tag.
     Country(String),
 }
@@ -55,7 +57,7 @@ impl Property {
             Property::Text(_) => "text",
             Property::Tooltip(_) => "tooltip",
             Property::Frame(_) => "frame",
-            Property::Value(_) => "value",
+            Property::Value(_) | Property::Number(_) => "value",
             Property::Country(_) => "country",
         }
     }
@@ -111,7 +113,7 @@ fn property(placed: Option<&Placed>, property: &str, value: &LuaValue, what: &st
     let kind = placed.map(|p| &p.kind);
     let has = |names: &[&str]| names.contains(&property);
     let allowed: &[&str] = match kind {
-        None => &["visible", "tooltip", "frame"],
+        None => &["visible", "enabled", "tooltip", "frame", "value"],
         Some(Kind::Text { .. }) => &["visible", "text", "tooltip"],
         Some(Kind::Icon { .. }) => &["visible", "tooltip", "frame"],
         Some(Kind::Button { sprite: Some(_), .. }) => &["visible", "tooltip", "enabled", "frame"],
@@ -171,6 +173,19 @@ pub fn set(windows: &[Window], name: &str, widget: &str, property_name: &str, va
     } else {
         Some(w.widget(widget).ok_or_else(|| format!("{what}: the window has no game widget named {widget}"))?)
     };
+    if widget == layout::ENTRY && property_name == "value" {
+        let entry = w.entry.as_ref().unwrap();
+        let value = match value {
+            LuaValue::Nil => None,
+            LuaValue::Integer(n) => Some(*n as f64),
+            LuaValue::Number(n) => Some(*n),
+            _ => return Err(format!("{what}.value is a finite number or nil")),
+        };
+        if value.is_some_and(|value| !entry.format.accepts(value)) {
+            return Err(format!("{what}.value is a finite number in its format"));
+        }
+        return Ok(WindowChange::Set { window: name.to_string(), widget: widget.to_string(), value: Property::Number(value) });
+    }
     if property_name == "rows" {
         let Some(Placed { kind: Kind::List { row, .. }, .. }) = placed else {
             return Err(format!("{what}.rows: only a list has rows"));
@@ -178,6 +193,9 @@ pub fn set(windows: &[Window], name: &str, widget: &str, property_name: &str, va
         return rows(row, value, &what).map(|rows| WindowChange::Rows { window: name.to_string(), widget: widget.to_string(), rows });
     }
     let value = property(placed, property_name, value, &what)?;
+    if widget == layout::ENTRY && w.entry.as_ref().is_some_and(|entry| entry.image.is_some()) && matches!(value, Property::Frame(frame) if frame != 1) {
+        return Err(format!("{what}.frame: an entry image has one frame"));
+    }
     Ok(WindowChange::Set { window: name.to_string(), widget: widget.to_string(), value })
 }
 

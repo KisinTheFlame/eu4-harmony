@@ -118,6 +118,11 @@ impl Anchor {
 /// A window's button on the panel button strip.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Entry {
+    pub visible: bool,
+    pub enabled: bool,
+    pub format: crate::numbers::Format,
+    pub value: Option<f64>,
+    pub image: Option<String>,
     pub sprite: String,
     pub frame: u32,
     pub tooltip: Option<crate::Text>,
@@ -290,9 +295,25 @@ fn read_window(name: &str, value: &Value, has_text: &dyn Fn(&str) -> bool) -> Re
         None => None,
         Some(value) => {
             let entry = object(value, "entry")?;
-            known(entry, &["sprite", "frame", "tooltip"]).map_err(|e| format!("entry: {e}"))?;
+            known(entry, &["image", "sprite", "frame", "tooltip", "visible", "enabled", "format", "decimals", "value"]).map_err(|e| format!("entry: {e}"))?;
+            let image = text(entry.get("image"), "entry.image")?;
+            let sprite = text(entry.get("sprite"), "entry.sprite")?;
+            if image.is_some() == sprite.is_some() {
+                return Err("entry has either image or sprite".into());
+            }
+            if image.is_some() && frame(entry.get("frame"), "entry.frame")? != 1 {
+                return Err("entry image has one frame".into());
+            }
+            let format = crate::numbers::Format::read(entry.get("format"), entry.get("decimals"))?;
+            let value =
+                entry.get("value").map(|v| v.as_f64().filter(|v| format.accepts(*v)).ok_or("entry.value is a finite number in its format")).transpose()?;
             Some(Entry {
-                sprite: text(entry.get("sprite"), "entry.sprite")?.ok_or("entry has a sprite")?,
+                visible: flag(entry.get("visible"), "entry.visible")?.unwrap_or(true),
+                enabled: flag(entry.get("enabled"), "entry.enabled")?.unwrap_or(true),
+                format,
+                value,
+                image,
+                sprite: sprite.unwrap_or_default(),
                 frame: frame(entry.get("frame"), "entry.frame")?,
                 tooltip: entry.get("tooltip").map(|v| crate::Text::declaration(v, has_text)).transpose().map_err(|e| format!("entry.tooltip: {e}"))?,
             })

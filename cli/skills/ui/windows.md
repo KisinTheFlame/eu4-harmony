@@ -15,7 +15,7 @@ steps:
      windows = {
        reforms = {
          size = { 460, 560 }, title = "MYMOD_REFORMS_TITLE",
-         entry = { sprite = "GFX_my_entry", frame = 1, tooltip = "MYMOD_REFORMS_ENTRY" },
+         entry = { image = "gfx/interface/my_entry.dds", tooltip = { key = "MYMOD_REFORMS_ENTRY" } },
          items = {
            { type = "text", name = "status", size = { 412, 40 }, text = "MYMOD_STATUS" },
            { type = "row", spacing = 10, items = {
@@ -46,11 +46,14 @@ steps:
    progressbartype sprite, GFX_wargoal_progressbar 288 by 18 unless named,
    value 0 to 1), flag (a maskedShieldType, GFX_shield_thin 92 by 92
    unless named, country = tag), list (size, row = { size, items }, which
-   scrolls). Texts, buttons, icons, progress bars and flags take
-   tooltip = key. Every key is the mod's; a layout that is wrong, or a key
-   the mod lacks, keeps the extension from loading, with the reason.
+   scrolls). Visual widgets take tooltip = { key = "MYMOD_DETAILS",
+   values = { N = 3 } } or tooltip = { text = "Ready" }. Values are named
+   strings or finite numbers; the game's colors and line breaks are kept.
+   Layout rows and columns have no tooltip target. Every key is the mod's;
+   a layout that is wrong, or a key the mod lacks, keeps the extension from
+   loading, with the reason.
 3. From a handler, open and close: game.window.open("reforms"),
-   game.window.close("reforms"). Set what shows, never read it:
+   game.window.close("reforms"). Set what shows:
      game.window.reforms.status.text = text.get("MYMOD_DONE")
      game.window.reforms.pick.enabled = false
      game.window.reforms.authority.value = 0.8
@@ -59,12 +62,33 @@ steps:
    A row's entry is words for a text, a number for a progress bar or an
    icon's frame, a tag for a flag, true or false for whether a text button
    is enabled, or a table of properties. What is set while a window is
-   closed shows when it opens. Set a text's tooltip with
-   game.window.reforms.status.tooltip = text.get("MYMOD_DETAILS"); an empty
-   string clears it. A hidden text's tooltip is suppressed and returns
-   when it is shown again. Static text and tooltip keys in list rows use
-   the window's localisation. A text button's words do not change once laid out;
-   the entry button shows no number.
+   closed shows when it opens. The tooltip property is readable and writable:
+     game.window.reforms.status.tooltip = { key = "MYMOD_DETAILS", values = { N = 3 } }
+     local content = game.window.reforms.status.tooltip
+     game.window.reforms.status.tooltip = nil
+   Reading returns an independent description. Assignment replaces the same
+   content initialized by the declaration; nil clears it and rebuilding or
+   reopening the window keeps it cleared. A new session initializes the
+   declaration again. Hidden elements suppress their tooltip; disabled
+   elements keep it. Only the hit element supplies content. List rows use
+   their declared localisation and the properties assigned to that row.
+   A text button's words do not change once laid out.
+
+   An entry image is a mod-relative .dds (DXT1, DXT3, DXT5 or 32-bit BGRA)
+   or uncompressed true-color .tga, 41 by 40 pixels. The framework checks and
+   registers it, including native hover and pressed appearance. An existing
+   sprite may instead be named by sprite and frame. Entry image changes take
+   effect at the next start. The entry opens and closes its window; visible
+   and enabled are dynamic, and hidden entries close the gap in their stable
+   order. Its optional value is a separate native number below the icon:
+     entry = { image = "gfx/interface/my_entry.dds", format = "percent", decimals = 1 }
+     game.window.reforms.entry.value = 0.125
+     game.window.reforms.entry.enabled = false
+     game.window.reforms.entry.value = nil
+   Formats are integer (default), decimal and percent; decimal places range
+   from 0 to 2, with none for integer. The framework compacts large numbers.
+   Nil hides the number and zero shows zero. Only the icon owns the entry's
+   click and tooltip; the number keeps the native floating-number interaction.
 4. Hear it: on_button(game, "reforms.pick", click), click.row set for a
    button in a list's row; on_window(game, "reforms", open) whenever it
    opens or closes, whoever did it: the mod, its entry button, its close
