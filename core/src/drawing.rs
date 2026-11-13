@@ -398,6 +398,9 @@ impl turns::Lock for DrawingLock {
 /// The drawing thread's ID, 0 until it runs; the head's stub compares it.
 static DRAWING_THREAD: AtomicU32 = AtomicU32::new(0);
 static FRAMES: course::FrameCoordinator = course::FrameCoordinator::new();
+/// Wakes the drawing thread when the first frame of a session is prepared (or
+/// when the game quits), so that it sleeps at startup and on the main menu.
+static PREPARED_WAKE: (Mutex<()>, Condvar) = (Mutex::new(()), Condvar::new());
 /// The longest a frame waits so.
 const PACE_AT_MOST: Duration = Duration::from_millis(50);
 /// Whether the drawing thread draws the frames: its speed-up not left to the
@@ -517,6 +520,9 @@ fn app_frame_after(call: &mut Call) {
 fn stop() {
     STOPPED.store(true, Ordering::Release);
     clear_staged_frame();
+    let _guard = PREPARED_WAKE.0.lock().unwrap_or_else(|e| e.into_inner());
+    PREPARED_WAKE.1.notify_all();
+    drop(_guard);
     main_side(|s| s.quits(&MainLock, || IN_FRAME.load(Ordering::Acquire)));
     deferred::done(&crate::hooked_memory());
     crossings::clear();
@@ -602,8 +608,13 @@ extern "C" fn frame_draws(idler: usize) {
     // crossings before began.
     crossings::frame_prepared();
     icons::prepared();
+    let was_idle = FRAMES.prepared_idler() == 0;
     FRAMES.publish_prepared(idler);
     CAMERA_MOVED_THERE.store(1, Ordering::Relaxed);
+    if was_idle {
+        let _guard = PREPARED_WAKE.0.lock().unwrap_or_else(|e| e.into_inner());
+        PREPARED_WAKE.1.notify_all();
+    }
     // What the main thread does as it presents a frame: the safe point of a
     // frame outside a game, and the input taken for the next.
     crate::safe_point::presented();
@@ -755,6 +766,37 @@ fn run() {
             CAMERA_MOVED_THERE.store(0, Ordering::Relaxed);
             std::thread::sleep(Duration::from_millis(20));
             next = Instant::now();
+            continue;
+        }
+        if FRAMES.prepared_idler() == 0 {
+            CAMERA_MOVED_THERE.store(0, Ordering::Relaxed);
+            if logged.elapsed() >= Duration::from_secs(10) {
+                let drawn = DRAWN.load(Ordering::Relaxed);
+                let (crossings_taken, held_longest) = crossings::logged(m.at(0usize));
+                log!(
+                    "drawing: {:.1} frames a second, {}; {} drawn by the main thread; the main thread waited {:.0} ms for the lock ({:.0} at frames, {:.0} at crossings, {:.0} at days' ends) and {:.0} ms for frames drawn, the drawing thread {:.0} ms; {} crossing(s), {} deferred, the frames held back longest by {}",
+                    (drawn - last_drawn) as f64 / logged.elapsed().as_secs_f64(),
+                    gaps.told(m.at(0usize)),
+                    HERE.swap(0, Ordering::Relaxed),
+                    MAIN_WAITED.swap(0, Ordering::Relaxed) as f64 / 1000.0,
+                    WAITED_AT[AT_FRAME].swap(0, Ordering::Relaxed) as f64 / 1000.0,
+                    WAITED_AT[AT_CROSSING].swap(0, Ordering::Relaxed) as f64 / 1000.0,
+                    WAITED_AT[AT_DAY_END].swap(0, Ordering::Relaxed) as f64 / 1000.0,
+                    PACED.swap(0, Ordering::Relaxed) as f64 / 1000.0,
+                    DRAWING_WAITED.swap(0, Ordering::Relaxed) as f64 / 1000.0,
+                    crossings_taken,
+                    deferred::logged(),
+                    held_longest
+                );
+                last_drawn = drawn;
+                logged = Instant::now();
+            }
+            let guard = PREPARED_WAKE.0.lock().unwrap_or_else(|e| e.into_inner());
+            if FRAMES.prepared_idler() == 0 && drawing_on() {
+                let _ = PREPARED_WAKE.1.wait_timeout(guard, Duration::from_millis(200));
+            }
+            next = Instant::now();
+            last_frame = next;
             continue;
         }
         if !UNLIMITED.load(Ordering::Relaxed) {

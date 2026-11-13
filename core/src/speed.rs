@@ -32,7 +32,7 @@ pub struct SpeedUp {
 }
 
 /// Every speed-up, in the order the report names them.
-pub static ALL: [&SpeedUp; 16] = [
+pub static ALL: [&SpeedUp; 18] = [
     &pops::SPEED_UP,
     &crate::drawing::SPEED_UP,
     &crate::loading::music::SPEED_UP,
@@ -42,6 +42,8 @@ pub static ALL: [&SpeedUp; 16] = [
     &crate::loading::listed::SPEED_UP,
     &crate::loading::transfer::SPEED_UP,
     &crate::loading::parameters::SPEED_UP,
+    &crate::loading::localisation::SPEED_UP,
+    &crate::loading::trigger_profile::SPEED_UP,
     &crate::saving::background::SPEED_UP,
     &crate::saving::stored::SPEED_UP,
     &crate::saving::parallel::SPEED_UP,
@@ -146,7 +148,7 @@ pub fn checked(speed_up: &SpeedUp) -> bool {
 }
 
 /// Answers checked and answers that differed, for each speed-up.
-static COUNTS: [[AtomicU64; 2]; 16] = [const { [AtomicU64::new(0), AtomicU64::new(0)] }; 16];
+static COUNTS: [[AtomicU64; 2]; 18] = [const { [AtomicU64::new(0), AtomicU64::new(0)] }; 18];
 /// A speed-up's first differences are each logged; after these, only when
 /// their count reaches a power of two.
 const LOGGED: u64 = 20;
@@ -240,10 +242,15 @@ mod tests {
         let all = Chosen::of(&[], &strings(&["all"])).unwrap();
         assert_eq!(
             all.checked,
-            ["music", "lookups", "listed-folders", "script-parameters", "parallel-saves", "army-searches", "modifier-sums"].iter().fold(0, |b, n| b | bit(n))
+            ["music", "lookups", "listed-folders", "script-parameters", "localisation", "trigger-profile", "parallel-saves", "army-searches", "modifier-sums"]
+                .iter()
+                .fold(0, |b, n| b | bit(n))
         );
         let both = Chosen::of(&strings(&["music"]), &strings(&["loading"])).unwrap();
-        assert_eq!((both.game_paths, both.checked), (bit("music"), bit("lookups") | bit("listed-folders") | bit("script-parameters")));
+        assert_eq!(
+            (both.game_paths, both.checked),
+            (bit("music"), bit("lookups") | bit("listed-folders") | bit("script-parameters") | bit("localisation") | bit("trigger-profile"))
+        );
         assert!(Chosen::of(&[], &strings(&["children"])).unwrap_err().contains("cannot be checked"));
         assert!(Chosen::of(&strings(&["muisc"]), &[]).unwrap_err().contains("no speed-up"));
     }

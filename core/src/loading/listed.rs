@@ -10,10 +10,11 @@
 //! Where PhysFS asks a folder and reads no more of the answer than whether
 //! the path is there and whether it is a file, a folder or a link (the path's
 //! check, and the lookup under `PHYSFS_exists` and `PHYSFS_getRealDir`), the
-//! framework answers from the folder's listings: a file or a folder, or
-//! PhysFS's "not found". A link, a name Windows would read otherwise than as
-//! written and a folder whose listing holds such a name are left to the game,
-//! and so is every other stat.
+//! framework answers ASCII paths from the folder's listings: a file or a
+//! folder, or PhysFS's "not found". A link, a non-ASCII path, a name Windows
+//! would read otherwise than as written, and every other stat are left to the
+//! game; non-ASCII entries in a listed folder are skipped, since Windows's
+//! ordinal case folding maps none of them to ASCII.
 //!
 //! A listing is kept only while it holds. Each folder of the search path is
 //! watched from before its first listing (`ReadDirectoryChangesW`) for names
@@ -254,13 +255,13 @@ fn list(folder: &str) -> Option<Listing> {
             t if t.is_file() => Kind::File,
             _ => Kind::Other,
         };
-        let name = entry.file_name().into_string().ok()?;
-        if !name.is_ascii() {
-            // A name the folder's listing cannot be matched against for
-            // certain: the whole folder goes to the game's stat.
-            return None;
+        // Only ASCII paths without `~` reach the listings, and Windows's
+        // ordinal case folding maps no non-ASCII code unit to ASCII.
+        if let Ok(name) = entry.file_name().into_string() {
+            if name.is_ascii() {
+                names.insert(name.to_ascii_lowercase().into(), kind);
+            }
         }
-        names.insert(name.to_ascii_lowercase().into(), kind);
     }
     Some(names)
 }
@@ -492,6 +493,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("gfx").join("Interface")).unwrap();
         std::fs::write(dir.join("gfx").join("Interface").join("Icon.dds"), b"x").unwrap();
+        std::fs::write(dir.join("1.310\u{66f4}\u{65b0}\u{5185}\u{5bb9}.txt"), b"x").unwrap();
+        std::fs::create_dir_all(dir.join("\u{7d20}\u{6750}")).unwrap();
         let root = root_at(&dir);
         let mut buffer = [0; 512];
         let mut ask = |path: &str| root.kind(lowered(path.as_bytes(), &mut buffer).unwrap());
@@ -501,8 +504,11 @@ mod tests {
         assert_eq!(ask("gfx/interface"), Ok(Some(Kind::Folder)));
         assert_eq!(ask("gfx/interface/other.dds"), Ok(None));
         assert_eq!(ask("gfx/missing/icon.dds"), Ok(None));
+        assert_eq!(ask("missing/icon.dds"), Ok(None));
         // A file where a folder would be.
         assert_eq!(ask("gfx/interface/icon.dds/more"), Ok(None));
+        // Non-ASCII paths stay with the game's stat.
+        assert_eq!(lowered("1.310\u{66f4}\u{65b0}\u{5185}\u{5bb9}.txt".as_bytes(), &mut buffer), None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

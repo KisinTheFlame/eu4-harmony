@@ -18,15 +18,23 @@
 //! - `parameters`: a parameterized scripted trigger's or effect's use given
 //!   its arguments in one pass, instead of the whole text made again for
 //!   each parameter.
+//! - `localisation`: localisation loaded once at startup instead of twice,
+//!   its replacement provenance lookups indexed, and its duplicate check
+//!   answered without discarded formatting when `text.log` is off.
+//! - `trigger_profile`: the triggers' optimization profile matched through a
+//!   compact interned index instead of allocating a temporary hash table at
+//!   every tree node.
 use std::path::Path;
 
 pub mod children;
 pub mod listed;
+pub mod localisation;
 pub mod lookups;
 pub mod music;
 pub mod opens;
 pub mod parameters;
 pub mod transfer;
+pub mod trigger_profile;
 
 /// Where the game and the player's files are, once known; before the game
 /// reads its music.

@@ -21,6 +21,9 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 | [adr/](adr/) | Decisions that are hard to reverse, one file each, and why they were made |
 | [research/](research/) | The research into the game's code that the pages of [game/](game/) rest on, with addresses as RVAs into the 1.37.5 baseline; [addresses.toml](research/addresses.toml) indexes every address they name |
 | [prototype-log/](prototype-log/) | What was tested in the running game and what came out, one file per run |
+| [2026-11-14-large-mod-startup.md](prototype-log/2026-11-14-large-mod-startup.md) | Single-pass localisation, indexed replacements and interned trigger profiles checked and timed across Guixu, 2000 AD and the player's playset |
+| [localisation-loading.md](research/localisation-loading.md) | `main` loading the whole localisation twice, the quadratic scans in `localisation/replace` and duplicate checking, and the triggers' optimization profile |
+| [2026-11-13-guixu-startup-sampled.md](prototype-log/2026-11-13-guixu-startup-sampled.md) | Guixu and 2000 AD startups sampled and timed, showing 11–14 s in double localisation loading and `localisation/replace` |
 | [2026-11-13-fifth-deepening.md](prototype-log/2026-11-13-fifth-deepening.md) | Concurrent extension, window and achievement runs plus three-process ironman setup-save handoff |
 | [2026-11-13-fourth-deepening-whole.md](prototype-log/2026-11-13-fourth-deepening-whole.md) | The full scenario set, with old local-mod registration mismatches recorded separately from native behavior |
 | [2026-11-13-fourth-deepening-private-registrations.md](prototype-log/2026-11-13-fourth-deepening-private-registrations.md) | The blocked save scenarios replayed with identical cores and private aliases for the actual loaded mod |
@@ -68,6 +71,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 
 | | |
 | --- | --- |
+| [large-mod-startup.md](plans/large-mod-startup.md) | Localisation loaded once with indexed replacements, the triggers' optimization profile interned, non-ASCII folder entries tolerated, and the drawing thread asleep while idle |
 | [fifth-deepening.md](plans/fifth-deepening.md) | Mod descriptors, bounded journal reading, process handoff, resolved UI views, native entry bindings, save-data authority and drawing coordination |
 | [fourth-deepening.md](plans/fourth-deepening.md) | Native window lifetimes and the tooltip's frame handoff tested through their complete processes |
 | [bounded-logs.md](plans/bounded-logs.md) | Bounded owned logs, useful event context, safe cleanup and bounded troubleshooting files |
