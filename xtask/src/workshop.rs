@@ -340,17 +340,15 @@ pub fn upload(args: &Args) -> Result<()> {
         write(&path, &with_id(&text, new))?;
         println!(
             "created Harmony's item {new}, private: https://steamcommunity.com/sharedfiles/filedetails/?id={new}\n\
-             recorded in workshop/item.toml. Next: commit it, merge it into master, then run\n  \
+             recorded in workshop/item.toml. Next: commit it, merge it into master, create and push\n\
+             that version's tag, then run\n  \
              cargo xtask release\n  cargo xtask workshop-upload --user {user}\n\
              so that the proxy is built with the id and the item holds it."
         );
         return Ok(());
     }
 
-    let tag = format!("v{}", version());
-    run(git_command(&["tag", &tag]), "git tag")?;
-    run(git_command(&["push", "origin", &tag]), "git push of the tag")?;
-    println!("uploaded Harmony {} to https://steamcommunity.com/sharedfiles/filedetails/?id={id}, tagged {tag}", version());
+    println!("uploaded Harmony {} to https://steamcommunity.com/sharedfiles/filedetails/?id={id}", version());
     Ok(())
 }
 
@@ -358,51 +356,24 @@ pub fn upload(args: &Args) -> Result<()> {
 /// note, from `CHANGELOG.md`.
 fn ready_to_update(item: &Path, id: u64) -> Result<String> {
     let version = version();
-    let changelog = repo().join("CHANGELOG.md");
-    let text = fs::read_to_string(&changelog).map_err(|e| format!("cannot read {}: {e}", changelog.display()))?;
-    let section = changelog_section(&text, version).ok_or_else(|| format!("CHANGELOG.md has no section for {version}"))?;
+    let release = crate::release::check(&repo(), Some(&format!("v{version}")))?;
+    let packed_from = fs::read_to_string(packed().join("harmony.commit")).unwrap_or_default();
+    validate_packed(item, &packed_from, version, &release.commit, id)?;
+    Ok(change_note(&release.notes))
+}
 
-    let tag = format!("v{version}");
-    if !git(&["tag", "--list", &tag])?.is_empty() || !git(&["ls-remote", "--tags", "origin", &format!("refs/tags/{tag}")])?.is_empty() {
-        return Err(format!("{tag} is tagged already: raise the version in Cargo.toml for a new upload"));
-    }
-    if git(&["rev-parse", "--abbrev-ref", "HEAD"])? != "master" {
-        return Err("upload from master".into());
-    }
-    if !git(&["status", "--porcelain"])?.is_empty() {
-        return Err("the checkout has changes; upload from a clean one".into());
-    }
-    run(git_command(&["fetch", "--quiet", "origin", "master"]), "git fetch")?;
-    if git(&["rev-parse", "HEAD"])? != git(&["rev-parse", "origin/master"])? {
-        return Err("HEAD is not origin/master: pull or push first".into());
-    }
-    let stamp = packed().join("harmony.commit");
-    let packed_from = fs::read_to_string(&stamp).unwrap_or_default();
-    if packed_from.trim() != git(&["rev-parse", "HEAD"])? {
+/// The packed item still belongs to this clean tagged source, version and
+/// item. Kept separate from SteamCMD so refusals can be checked offline.
+fn validate_packed(item: &Path, packed_from: &str, version: &str, commit: &str, id: u64) -> Result<()> {
+    if packed_from.trim() != commit {
         return Err("the packed item is not from this commit, or was packed with changes: run cargo xtask release again".into());
     }
     let descriptor = fs::read_to_string(item.join("descriptor.mod")).map_err(|e| format!("cannot read the packed descriptor: {e}"))?;
-    if !descriptor.contains(&format!("version=\"{version}\"")) || !descriptor.contains(&format!("remote_file_id=\"{id}\"")) {
+    let has = |field: &str| descriptor.lines().any(|line| line.trim() == field);
+    if !has(&format!("version=\"{version}\"")) || !has(&format!("remote_file_id=\"{id}\"")) {
         return Err("the packed descriptor is not this version's or this item's: run cargo xtask release again".into());
     }
-    Ok(change_note(&section))
-}
-
-/// The text under `## <version>` in a changelog, up to the next section.
-fn changelog_section(text: &str, version: &str) -> Option<String> {
-    let mut lines = text.lines().skip_while(|line| !is_heading_of(line, version));
-    lines.next()?;
-    let body: Vec<&str> = lines.take_while(|line| !line.starts_with("## ")).collect();
-    let body = body.join("\n").trim().to_string();
-    (!body.is_empty()).then_some(body)
-}
-
-/// Whether `line` is the heading of `version`'s section: `## 0.1.0`, also
-/// `## [0.1.0]` or with a date after it.
-fn is_heading_of(line: &str, version: &str) -> bool {
-    let Some(rest) = line.strip_prefix("## ") else { return false };
-    let rest = rest.trim().trim_start_matches('[');
-    rest.strip_prefix(version).is_some_and(|after| after.is_empty() || after.starts_with([']', ' ', '\t']))
+    Ok(())
 }
 
 /// A changelog section as Steam's change note: Markdown lists as BBCode
@@ -510,19 +481,9 @@ fn steamcmd() -> Result<PathBuf> {
         })
 }
 
-fn git_command(arguments: &[&str]) -> Command {
-    let mut git = Command::new("git");
-    git.current_dir(repo()).args(arguments);
-    git
-}
-
 /// What git prints for `arguments`, trimmed; an error unless it succeeds.
 fn git(arguments: &[&str]) -> Result<String> {
-    let output = git_command(arguments).output().map_err(|e| format!("cannot run git: {e}"))?;
-    if !output.status.success() {
-        return Err(format!("git {} failed: {}", arguments.join(" "), String::from_utf8_lossy(&output.stderr).trim()));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    crate::release::git(&repo(), arguments)
 }
 
 fn copy(from: &Path, to: &Path) -> Result<()> {
@@ -536,6 +497,7 @@ fn write(path: &Path, text: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::release::changelog_section;
 
     #[test]
     fn reads_and_records_the_published_file_id() {
@@ -562,6 +524,19 @@ mod tests {
         assert!(text.contains("version=\"1.2.3\"") && text.contains("name=\"Harmony\"") && text.contains("supported_version=\"v1.37.5\""));
         assert!(!text.contains("{version}") && !text.contains("remote_file_id"));
         assert!(parse_id(&fs::read_to_string(sources().join("item.toml")).unwrap()).is_some());
+    }
+
+    #[test]
+    fn packed_item_must_match_the_tagged_commit_version_and_item() {
+        let item = std::env::temp_dir().join(format!("harmony-workshop-validation-{}", std::process::id()));
+        fs::create_dir_all(&item).unwrap();
+        fs::write(item.join("descriptor.mod"), "version=\"0.2.0\"\nremote_file_id=\"123\"\n").unwrap();
+        assert!(validate_packed(&item, "commit\n", "0.2.0", "commit", 123).is_ok());
+        assert!(validate_packed(&item, "commit dirty\n", "0.2.0", "commit", 123).unwrap_err().contains("packed item"));
+        assert!(validate_packed(&item, "older\n", "0.2.0", "commit", 123).is_err());
+        assert!(validate_packed(&item, "commit\n", "0.2.1", "commit", 123).unwrap_err().contains("packed descriptor"));
+        assert!(validate_packed(&item, "commit\n", "0.2.0", "commit", 456).is_err());
+        fs::remove_dir_all(item).unwrap();
     }
 
     #[test]
