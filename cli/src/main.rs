@@ -96,7 +96,7 @@ usage:
 ";
 
 use eu4_harmony_loc::Language;
-use eu4_harmony_manifest::{line_entries, line_entry, HarmonyMod, LOCATION_KEYS};
+use eu4_harmony_manifest::{Descriptor, HarmonyMod};
 
 /// Positional arguments and `--key value` / `--flag` options.
 #[derive(Debug)]
@@ -195,10 +195,6 @@ fn plain(path: &Path) -> Result<PathBuf> {
     Ok(PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text).to_string()))
 }
 
-fn forward_slashes(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
-}
-
 /// The mod folder at or above `start`.
 fn mod_root(start: &Path) -> Result<PathBuf> {
     let start = plain(start)?;
@@ -217,18 +213,6 @@ fn start_dir(args: &Args) -> Result<PathBuf> {
         Some(p) => Ok(PathBuf::from(p)),
         None => std::env::current_dir().map_err(|e| e.to_string()),
     }
-}
-
-/// Descriptor text without the `path=`/`archive=` lines the launcher adds.
-fn strip_location(descriptor: &str) -> String {
-    let mut out = String::new();
-    for line in descriptor.lines() {
-        if !line_entry(line).is_some_and(|(key, _)| LOCATION_KEYS.contains(&key)) {
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
-    out
 }
 
 fn write(path: &Path, text: &str) -> Result<()> {
@@ -326,7 +310,8 @@ fn cmd_test(args: &Args) -> Result<()> {
     let root = mod_root(&start_dir(args)?)?;
     let manifest = HarmonyMod::read(&root)?.manifest;
     let descriptor = fs::read_to_string(root.join("descriptor.mod")).map_err(|e| e.to_string())?;
-    let name = line_entries(&descriptor).find(|(k, _)| *k == "name").map_or_else(|| manifest.id.clone(), |(_, v)| v.to_string());
+    let parsed = Descriptor::parse(&descriptor, &root);
+    let name = if parsed.name.is_empty() { manifest.id.clone() } else { parsed.name };
     let outcome = test::run(&root, manifest, name)?;
     print!("{}", outcome.report);
     if outcome.failed > 0 {
@@ -361,7 +346,7 @@ fn link_mod(root: &Path, user_dir: &Path) -> Result<PathBuf> {
     }
     let descriptor = fs::read_to_string(root.join("descriptor.mod")).map_err(|e| e.to_string())?;
     let file = user_dir.join("mod").join(format!("eu4-harmony-{}.mod", manifest.id));
-    write(&file, &format!("{}path=\"{}\"\n", strip_location(&descriptor), forward_slashes(root)))?;
+    write(&file, &Descriptor::with_path(&descriptor, root))?;
     Ok(file)
 }
 
@@ -464,7 +449,7 @@ fn package_mod(root: &Path, out: &Path) -> Result<Vec<PathBuf>> {
     }
     let mut files = Vec::new();
     let descriptor = fs::read_to_string(root.join("descriptor.mod")).map_err(|e| e.to_string())?;
-    write(&out.join("descriptor.mod"), &strip_location(&descriptor))?;
+    write(&out.join("descriptor.mod"), &Descriptor::without_location(&descriptor))?;
     files.push(out.join("descriptor.mod"));
     if root.join("thumbnail.png").is_file() {
         copy_file(&root.join("thumbnail.png"), &out.join("thumbnail.png"), &mut files)?;
@@ -552,7 +537,7 @@ mod tests {
     #[test]
     fn descriptor_location_is_stripped() {
         let d = "name=\"X\"\npath=\"D:/m\"\n archive = \"x.zip\"\nversion=\"1\"\n";
-        assert_eq!(strip_location(d), "name=\"X\"\nversion=\"1\"\n");
+        assert_eq!(Descriptor::without_location(d), "name=\"X\"\nversion=\"1\"\n");
     }
 
     /// The template mod is written for the catalogue the framework serves.
@@ -813,7 +798,7 @@ end)
         let file = link_mod(&root, &user).unwrap();
         assert_eq!(file, user.join("mod").join("eu4-harmony-linked.mod"));
         let text = fs::read_to_string(file).unwrap();
-        assert!(text.contains("name=\"Linked\"") && text.ends_with(&format!("path=\"{}\"\n", forward_slashes(&root))));
+        assert!(text.contains("name=\"Linked\"") && text.ends_with(&format!("path=\"{}\"\n", eu4_harmony_manifest::slash_path(&root))));
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -846,7 +831,8 @@ end)
         write(&root.join("eu4-harmony/ui/stray.gui"), "x").unwrap();
         assert!(package_mod(&root, &out).unwrap_err().contains("eu4-harmony/ui/stray.gui: not where the layout puts anything"));
         fs::remove_file(root.join("eu4-harmony/ui/stray.gui")).unwrap();
-        let mut files: Vec<String> = package_mod(&root, &out).unwrap().iter().map(|f| forward_slashes(f.strip_prefix(&out).unwrap())).collect();
+        let mut files: Vec<String> =
+            package_mod(&root, &out).unwrap().iter().map(|f| eu4_harmony_manifest::slash_path(f.strip_prefix(&out).unwrap())).collect();
         files.sort();
         assert_eq!(
             files,

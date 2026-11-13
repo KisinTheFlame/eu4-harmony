@@ -5,28 +5,12 @@
 //! A mod is a Harmony mod when it has `eu4-harmony/manifest.toml`; where its
 //! other files are says the rest (ADR manifest-in-toml-layout-by-convention).
 use crate::{notice::Message, Result};
-use serde::Deserialize;
 use std::{
     path::{Path, PathBuf},
     sync::OnceLock,
 };
 
-#[derive(Deserialize)]
-struct DlcLoad {
-    #[serde(default)]
-    enabled_mods: Vec<String>,
-}
-
-pub use eu4_harmony_manifest::{HarmonyMod, Layout, Manifest, Permissions, UiFragment};
-
-#[derive(Debug)]
-pub struct Descriptor {
-    pub name: String,
-    /// The mod's own version, as its descriptor gives it.
-    pub version: Option<String>,
-    pub path: Option<PathBuf>,
-    pub archive: Option<String>,
-}
+pub use eu4_harmony_manifest::{same_descriptor, Descriptor, HarmonyMod, Layout, Manifest, Permissions, Playset, UiFragment};
 
 #[derive(Debug)]
 pub struct DiscoveredMod {
@@ -40,24 +24,7 @@ pub struct DiscoveredMod {
 
 /// Minimal reader for the `key="value"` lines of a `.mod` descriptor.
 pub fn parse_descriptor(text: &str, user_dir: &Path) -> Descriptor {
-    let mut name = String::new();
-    let mut version = None;
-    let mut path = None;
-    let mut archive = None;
-    for (key, value) in eu4_harmony_manifest::line_entries(text) {
-        let value = value.replace('\\', "/");
-        match key {
-            "name" => name = value,
-            "version" => version = Some(value),
-            "path" => {
-                let p = PathBuf::from(&value);
-                path = Some(if p.is_absolute() { p } else { user_dir.join(p) });
-            }
-            "archive" => archive = Some(value),
-            _ => {}
-        }
-    }
-    Descriptor { name, version, path, archive }
+    Descriptor::parse(text, user_dir)
 }
 
 /// An enabled mod that discovery skipped, and why.
@@ -85,24 +52,15 @@ pub fn playset() -> &'static [String] {
     PLAYSET.get().map_or(&[], Vec::as_slice)
 }
 
-/// Whether `descriptor`, as a save or the playset names a mod's descriptor,
-/// is the one `other` names: the same path in either case, with either
-/// slash.
-pub fn same_descriptor(descriptor: &str, other: &str) -> bool {
-    let normal = |path: &str| path.trim().replace('\\', "/").to_lowercase();
-    normal(descriptor) == normal(other)
-}
-
 /// Returns the enabled mods that carry a manifest, in playset order, plus
 /// every entry that was skipped and why. Keeps the playset for [`playset`].
 pub fn discover(user_dir: &Path) -> Result<(Vec<DiscoveredMod>, Vec<Skipped>)> {
     let dlc_load = user_dir.join("dlc_load.json");
-    let text = std::fs::read_to_string(&dlc_load).map_err(|e| format!("read {}: {e}", dlc_load.display()))?;
-    let load: DlcLoad = serde_json::from_str(&text).map_err(|e| format!("parse {}: {e}", dlc_load.display()))?;
-    let _ = PLAYSET.set(load.enabled_mods.clone());
+    let enabled = Playset::read(&dlc_load)?.enabled();
+    let _ = PLAYSET.set(enabled.clone());
     let mut mods = Vec::new();
     let mut notes = Vec::new();
-    for entry in load.enabled_mods {
+    for entry in enabled {
         let descriptor_file = user_dir.join(entry.replace('/', "\\"));
         let text = match std::fs::read_to_string(&descriptor_file) {
             Ok(t) => t,

@@ -19,9 +19,8 @@ use crate::{
 use eu4_harmony_remote::binary as base64;
 use serde_json::Value;
 use std::{
-    cell::RefCell,
     collections::{BTreeMap, BTreeSet},
-    sync::{atomic::AtomicUsize, Mutex, OnceLock},
+    sync::{atomic::AtomicUsize, Mutex},
 };
 
 /// In the world's write of itself into a save (`0x74ff30(world, writer)`), the
@@ -81,41 +80,166 @@ const VERSION: &str = "1";
 /// The game's reader returns an empty string for one of 512 bytes or more.
 const CHUNK: usize = 500;
 
-/// The extensions loaded in this run, the only ones a save's data is kept for.
-static EXTENSIONS: OnceLock<BTreeSet<String>> = OnceLock::new();
-/// What the save being read held in its entry, once read.
-static READ: Mutex<Option<Result<BTreeMap<String, Value>>>> = Mutex::new(None);
-/// Data loaded with the last save, waiting for the session that loaded it.
-static LOADED: Mutex<Option<BTreeMap<String, Value>>> = Mutex::new(None);
-/// Current data of every extension, written with every save.
-static CURRENT: Mutex<BTreeMap<String, Value>> = Mutex::new(BTreeMap::new());
+struct LoadFrame {
+    world: usize,
+    success: usize,
+    read: Option<Result<BTreeMap<String, Value>>>,
+}
+
+/// Authoritative lifecycle of extension save data across nested save reads,
+/// pre-session ironman setup saves, session start (`on_session`), mid-session
+/// main-thread or background saves, and in-place extension reloads.
+#[derive(Default)]
+struct SaveData {
+    extensions: BTreeSet<String>,
+    frames: Vec<LoadFrame>,
+    /// Data from a completed world-replacing load not yet handed to `on_session`.
+    pending_session: Option<BTreeMap<String, Value>>,
+    /// Data written into a save if written right now.
+    current: BTreeMap<String, Value>,
+    /// True once the active session's initial data has been handed to
+    /// `on_session`, making live `save_data` handlers authoritative on the main
+    /// thread. False between `load_finished` and `begin_session`, protecting
+    /// loaded data during an ironman setup save before the first safe frame.
+    delivered: bool,
+}
+
+impl SaveData {
+    fn keep_for(&mut self, ids: impl IntoIterator<Item = String>) {
+        self.extensions = ids.into_iter().collect();
+    }
+
+    fn load_began(&mut self, world: usize, success: usize) {
+        self.frames.push(LoadFrame { world, success, read: None });
+    }
+
+    fn entry_read(&mut self, result: Result<BTreeMap<String, Value>>) -> bool {
+        let Some(top) = self.frames.last_mut() else { return false };
+        top.read = Some(result);
+        true
+    }
+
+    fn load_finished(&mut self, check: impl FnOnce(usize, usize) -> Result<bool>) -> Result<Option<usize>> {
+        let Some(frame) = self.frames.pop() else { return Ok(None) };
+        let replaced_world = check(frame.world, frame.success)?;
+        let raw = frame.read.unwrap_or_else(|| Ok(BTreeMap::new()));
+        let filtered = raw.map(|mut data| {
+            data.retain(|id, _| {
+                let kept = self.extensions.contains(id);
+                if !kept {
+                    log!("saves: dropped the data of {id:?}, which is not loaded");
+                }
+                kept
+            });
+            data
+        });
+        if !replaced_world {
+            return filtered.map(|_| None);
+        }
+        self.delivered = false;
+        match filtered {
+            Ok(data) => {
+                let count = data.len();
+                self.current = data.clone();
+                self.pending_session = Some(data);
+                Ok(Some(count))
+            }
+            Err(e) => {
+                self.current.clear();
+                self.pending_session = Some(BTreeMap::new());
+                Err(e)
+            }
+        }
+    }
+
+    /// Marks the session's initial data as handed to `on_session`; returns
+    /// whether the session began from a loaded save.
+    fn begin_session(&mut self) -> bool {
+        self.delivered = true;
+        match self.pending_session.take() {
+            Some(loaded) => {
+                self.current = loaded;
+                true
+            }
+            None => {
+                self.current.clear();
+                false
+            }
+        }
+    }
+
+    fn get(&self, id: &str) -> Option<Value> {
+        self.current.get(id).cloned()
+    }
+
+    fn clear_session(&mut self) {
+        self.current.clear();
+        self.delivered = false;
+    }
+
+    fn reloaded(&mut self, id: &str, carried: Option<Value>) {
+        match carried {
+            Some(v) if self.extensions.contains(id) => {
+                self.current.insert(id.to_string(), v);
+            }
+            _ => {
+                self.current.remove(id);
+            }
+        }
+    }
+
+    fn should_poll_live(&self, on_main_thread: bool) -> bool {
+        on_main_thread && self.delivered
+    }
+
+    fn apply_polled(&mut self, polled: Vec<(String, Option<Value>)>) -> BTreeMap<String, Value> {
+        for (id, value) in polled {
+            match value {
+                Some(v) if self.extensions.contains(&id) => {
+                    self.current.insert(id, v);
+                }
+                _ => {
+                    self.current.remove(&id);
+                }
+            }
+        }
+        self.current.clone()
+    }
+}
+
+static SAVE_DATA: Mutex<SaveData> =
+    Mutex::new(SaveData { extensions: BTreeSet::new(), frames: Vec::new(), pending_session: None, current: BTreeMap::new(), delivered: false });
+
+fn with_data<T>(f: impl FnOnce(&mut SaveData) -> T) -> T {
+    f(&mut SAVE_DATA.lock().unwrap_or_else(|e| e.into_inner()))
+}
 
 /// Says which extensions loaded, once they have.
 pub fn keep_for(ids: impl IntoIterator<Item = String>) {
-    let _ = EXTENSIONS.set(ids.into_iter().collect());
+    with_data(|d| d.keep_for(ids));
 }
 
-/// Data the last load brought along, if the session has not taken it yet.
-pub fn take_loaded() -> Option<BTreeMap<String, Value>> {
-    LOADED.lock().unwrap_or_else(|e| e.into_inner()).take()
+/// Prepares the extensions' save data for a session that is starting now and
+/// returns whether that session came from a loaded save.
+pub fn begin_session() -> bool {
+    with_data(SaveData::begin_session)
 }
 
 pub fn get(id: &str) -> Option<Value> {
-    CURRENT.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
+    with_data(|d| d.get(id))
 }
 
-pub fn set(id: &str, value: Option<Value>) {
-    let mut current = CURRENT.lock().unwrap_or_else(|e| e.into_inner());
-    match value {
-        Some(v) => current.insert(id.to_string(), v),
-        None => current.remove(id),
-    };
+/// Synchronizes `id`'s current save data after an in-place extension reload.
+pub fn reloaded(id: &str, carried: Option<Value>) {
+    with_data(|d| d.reloaded(id, carried));
 }
 
-/// Replaces all extensions' data, when a load replaces the world and at a
-/// session start.
-pub fn replace_all(data: BTreeMap<String, Value>) {
-    *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = data;
+/// Clears the previous session's save-data authority after its exit save (if
+/// any) and `on_session_ended` have finished, or on a world reset, so a new
+/// ironman game's pre-session setup save never inherits an earlier session's
+/// state.
+pub fn clear_session() {
+    with_data(SaveData::clear_session);
 }
 
 /// One step of writing the entry, as the game's writer takes it.
@@ -197,28 +321,6 @@ fn decode(tokens: &[Token]) -> Result<BTreeMap<String, Value>> {
     serde_json::from_slice(&json).map_err(|e| format!("the data is not JSON of extension ids: {e}"))
 }
 
-/// Keeps what a load brought, only for the extensions loaded in this run,
-/// for its session. Once the load has replaced the world, the data is current
-/// at once: the game saves an ironman game it loads before the session starts,
-/// and that save must carry it.
-fn loaded(read: bool, data: Result<BTreeMap<String, Value>>, extensions: &BTreeSet<String>) -> Result<()> {
-    let data = data.map(|mut data| {
-        data.retain(|id, _| {
-            let kept = extensions.contains(id);
-            if !kept {
-                log!("saves: dropped the data of {id:?}, which is not loaded");
-            }
-            kept
-        });
-        data
-    });
-    if read {
-        replace_all(data.clone().unwrap_or_default());
-    }
-    *LOADED.lock().unwrap_or_else(|e| e.into_inner()) = Some(data?);
-    Ok(())
-}
-
 /// A token as the game's writer takes it: its type, then its text up to a
 /// NUL; the byte after the text stays 0, as the game's own callers leave it.
 #[repr(C)]
@@ -247,15 +349,20 @@ impl GameToken {
 /// Writes the entry with the game's writer, after the world's game state and
 /// before the checksum is taken of it.
 fn write_entry(m: Memory, writer: usize) -> Result<()> {
-    // Each extension's data is what its save_data returns now
-    // (ADR save-data-is-asked-for-by-save-data). Off the main thread the data
-    // its last save_data returned is written.
-    if crate::thread_id() == crate::main_thread() {
-        crate::lua::save_data();
-    } else {
+    // Each extension's data is what its save_data returns now once the session
+    // has delivered `on_session` (ADR save-data-is-asked-for-by-save-data).
+    // Before `on_session` (an ironman setup save on load) or off the main
+    // thread, the authoritative `current` map is written without polling Lua.
+    let on_main = crate::thread_id() == crate::main_thread();
+    if !on_main {
         log!("saves: the world is written off the main thread; the data from each extension's last save_data is written");
     }
-    let data = CURRENT.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let data = if with_data(|d| d.should_poll_live(on_main)) {
+        let polled = crate::lua::collect_save_data();
+        with_data(|d| d.apply_polled(polled))
+    } else {
+        with_data(|d| d.current.clone())
+    };
     if data.is_empty() {
         return Ok(());
     }
@@ -369,13 +476,11 @@ extern "C" fn take_entry(reader: usize) -> bool {
             return false;
         }
         Err(e) => {
-            *READ.lock().unwrap_or_else(|e| e.into_inner()) = Some(Err(e));
+            let _ = with_data(|d| d.entry_read(Err(e)));
             return false;
         }
     };
-    if crate::sessions::loading() {
-        *READ.lock().unwrap_or_else(|e| e.into_inner()) = Some(read);
-    } else {
+    if !with_data(|d| d.entry_read(read)) {
         log!("saves: read a {KEY} entry outside a load, and left it");
     }
     true
@@ -404,14 +509,6 @@ extern "C" fn entry_stub() {
     );
 }
 
-/// The loads in progress on this thread: the world each reads into, and where
-/// its loader reports success.
-struct Load {
-    world: usize,
-    success: usize,
-}
-thread_local! { static LOADING: RefCell<Vec<Load>> = const { RefCell::new(Vec::new()) }; }
-
 fn world_state(m: &Memory) -> Result<(usize, u8)> {
     use crate::objects::campaign::{globals, world};
     let at = m.ptr(m.at(globals::WORLD))?;
@@ -424,10 +521,8 @@ fn world_state(m: &Memory) -> Result<(usize, u8)> {
 fn load_before(call: &mut Call) {
     // A save compressed in the background is in its place before any is read.
     crate::saving::background::wait();
-    *LOADED.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    *READ.lock().unwrap_or_else(|e| e.into_inner()) = None;
     crate::sessions::load_began();
-    LOADING.with(|l| l.borrow_mut().push(Load { world: call.arg(2), success: call.arg(1) }));
+    with_data(|d| d.load_began(call.arg(2), call.arg(1)));
 }
 
 fn load_after(call: &mut Call) {
@@ -438,26 +533,22 @@ fn load_after(call: &mut Call) {
         }
     }
     let _exit = Exit;
-    let Some(load) = LOADING.with(|l| l.borrow_mut().pop()) else { return };
-    let outcome = (|| {
-        if call.faulted() {
-            return Err("the loader unwound".to_string());
-        }
-        let m = call.memory();
-        let (world, daily) = world_state(&m)?;
-        let read = call.result() == Some(load.success) && m.u8(load.success)? == 1 && world == load.world && daily == 0;
-        crate::sessions::load_read(read);
-        let data = READ.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_else(|| Ok(BTreeMap::new()));
-        if read {
-            match &data {
-                Ok(d) => log!("saves: loaded a save with data for {} extension(s)", d.len()),
-                Err(e) => log!("saves: loaded a save whose data cannot be read, so no extension has any: {e}"),
+    let outcome = with_data(|d| {
+        d.load_finished(|expected_world, success_ptr| {
+            if call.faulted() {
+                return Err("the loader unwound".to_string());
             }
-        }
-        loaded(read, data, EXTENSIONS.get().unwrap_or(&BTreeSet::new()))
-    })();
-    if let Err(e) = outcome {
-        log!("saves: {e}");
+            let m = call.memory();
+            let (world, daily) = world_state(&m)?;
+            let read = call.result() == Some(success_ptr) && m.u8(success_ptr)? == 1 && world == expected_world && daily == 0;
+            crate::sessions::load_read(read);
+            Ok(read)
+        })
+    });
+    match outcome {
+        Ok(Some(count)) => log!("saves: loaded a save with data for {count} extension(s)"),
+        Ok(None) => {}
+        Err(e) => log!("saves: loaded a save whose data cannot be read, or failed to finish: {e}"),
     }
 }
 
@@ -554,22 +645,55 @@ mod tests {
     }
 
     #[test]
-    fn a_load_keeps_the_data_of_loaded_extensions_and_makes_it_current() {
-        let loaded_here = BTreeSet::from(["regional-combat".to_string()]);
-        let data = BTreeMap::from([("regional-combat".to_string(), json!({"armies": [1]})), ("gone".to_string(), json!(1))]);
-        replace_all(BTreeMap::new());
-        loaded(true, Ok(data), &loaded_here).unwrap();
-        assert_eq!(get("regional-combat"), Some(json!({"armies": [1]})));
-        assert_eq!(get("gone"), None);
-        assert_eq!(take_loaded(), Some(BTreeMap::from([("regional-combat".to_string(), json!({"armies": [1]}))])));
-        // A world whose data could not be read starts with none.
-        assert!(loaded(true, Err("the data is not base64".into()), &loaded_here).is_err());
-        assert_eq!(get("regional-combat"), None);
-        assert_eq!(take_loaded(), None);
-        // A load that did not replace the world leaves its data alone.
-        set("regional-combat", Some(json!(2)));
-        assert!(loaded(false, Err("the save ends inside the eu4_harmony entry".into()), &loaded_here).is_err());
-        assert_eq!(get("regional-combat"), Some(json!(2)));
-        replace_all(BTreeMap::new());
+    fn lifecycle_preserves_loaded_data_across_ironman_setup_saves_nested_loads_and_reloads() {
+        let mut state = SaveData::default();
+        state.keep_for(["regional-combat".into(), "tools".into()]);
+
+        // Outer load parses extension data; a nested non-replacing load inside it must not wipe outer `read`.
+        state.load_began(0x1000, 0x2000);
+        assert!(state.entry_read(Ok(BTreeMap::from([("regional-combat".into(), json!({"armies": [7]})), ("unloaded".into(), json!(99)),]))));
+        state.load_began(0x3000, 0x4000);
+        assert_eq!(state.load_finished(|_, _| Ok(false)).unwrap(), None);
+        assert_eq!(state.load_finished(|_, _| Ok(true)).unwrap(), Some(1));
+
+        // Ironman setup save runs on the main thread BEFORE `begin_session` / `on_session`:
+        // it must not poll stale/uninitialized Lua handlers or clobber loaded data.
+        assert!(!state.should_poll_live(true));
+        assert_eq!(state.get("regional-combat"), Some(json!({"armies": [7]})));
+        assert_eq!(state.get("unloaded"), None);
+
+        // First safe frame delivers `on_session`; from now on main-thread saves poll live handlers.
+        assert!(state.begin_session());
+        assert!(state.should_poll_live(true));
+        assert!(!state.should_poll_live(false));
+        assert_eq!(state.get("regional-combat"), Some(json!({"armies": [7]})));
+
+        // Mid-session save updates `current`; reload carries new data or clears removed handlers.
+        let saved = state.apply_polled(vec![("regional-combat".into(), Some(json!({"armies": [8]}))), ("tools".into(), Some(json!(1)))]);
+        assert_eq!(saved["regional-combat"], json!({"armies": [8]}));
+        state.reloaded("tools", Some(json!(2)));
+        assert_eq!(state.get("tools"), Some(json!(2)));
+        state.reloaded("tools", None);
+        assert_eq!(state.get("tools"), None);
+
+        // Ending the session (after any ironman exit save) clears authority so a
+        // subsequent new ironman game's pre-session setup save writes nothing from the old game.
+        state.clear_session();
+        assert!(!state.should_poll_live(true) && state.current.is_empty());
+
+        // Starting a fresh game without a save keeps `current` empty and enables live polling.
+        assert!(!state.begin_session());
+        assert!(state.should_poll_live(true) && state.current.is_empty());
+
+        // Corrupted data on a world-replacing load clears `current`; on a failed load it leaves `current` intact.
+        state.reloaded("regional-combat", Some(json!(42)));
+        state.load_began(0x1000, 0x2000);
+        state.entry_read(Err("bad base64".into()));
+        assert!(state.load_finished(|_, _| Ok(false)).is_err());
+        assert_eq!(state.get("regional-combat"), Some(json!(42)));
+        state.load_began(0x1000, 0x2000);
+        state.entry_read(Err("bad base64".into()));
+        assert!(state.load_finished(|_, _| Ok(true)).is_err());
+        assert_eq!(state.get("regional-combat"), None);
     }
 }

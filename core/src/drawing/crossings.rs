@@ -10,8 +10,7 @@ use super::{drawing_on, is_drawing_thread, main_side, on_main, MainLock};
 use crate::called_by_game;
 use crate::hooks::Call;
 use crate::points::Point;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::time::Instant;
 
 pub(super) fn points() -> Vec<Point> {
@@ -198,9 +197,7 @@ const ENTER_SECTION: usize = 0x1b66750;
 const ACQUIRE_SRW: usize = 0x1b66538;
 static ORIGINAL_ENTER_SECTION: AtomicUsize = AtomicUsize::new(0);
 static ORIGINAL_ACQUIRE_SRW: AtomicUsize = AtomicUsize::new(0);
-/// The locks the drawing thread has taken, as many as it keeps.
-static DRAWING_LOCKS: [AtomicUsize; 64] = [const { AtomicUsize::new(0) }; 64];
-static DRAWING_LOCKS_KNOWN: AtomicUsize = AtomicUsize::new(0);
+static LOCK_ORDER: super::course::LockOrder<64> = super::course::LockOrder::new();
 
 #[called_by_game]
 unsafe extern "system" fn section_entered(section: usize) {
@@ -220,26 +217,19 @@ fn lock_taken(lock: usize, by: usize) {
     if !drawing_on() {
         return;
     }
-    let known = DRAWING_LOCKS_KNOWN.load(Ordering::Acquire).min(DRAWING_LOCKS.len());
-    let drawing_takes = DRAWING_LOCKS[..known].iter().any(|l| l.load(Ordering::Relaxed) == lock);
-    if is_drawing_thread() {
-        if !drawing_takes && known < DRAWING_LOCKS.len() {
-            DRAWING_LOCKS[known].store(lock, Ordering::Relaxed);
-            DRAWING_LOCKS_KNOWN.store(known + 1, Ordering::Release);
-        } else if !drawing_takes && !LOCKS_FULL_LOGGED.swap(true, Ordering::Relaxed) {
-            log!("drawing: the drawing thread took more than {} of the game's locks; the rest are not kept in order", DRAWING_LOCKS.len());
+    match LOCK_ORDER.observe(lock, is_drawing_thread(), on_main() && !super::main_holds()) {
+        super::course::LockAction::WarnOverflow => {
+            log!("drawing: the drawing thread took more than 64 of the game's locks; the rest are not kept in order");
         }
-    } else if drawing_takes && on_main() && !super::main_holds() {
-        main_side(|s| {
-            count(crate::hooked_memory().at(by), 1, 0);
-            if s.crossing(&MainLock) {
-                TAKEN.fetch_add(1, Ordering::Relaxed);
-            }
-        });
+        super::course::LockAction::TakePresentationFirst => {
+            main_side(|s| {
+                let took = s.crossing(&MainLock);
+                TRACKER.record_lock_order(crate::hooked_memory().at(by), took);
+            });
+        }
+        super::course::LockAction::None => {}
     }
 }
-
-static LOCKS_FULL_LOGGED: AtomicBool = AtomicBool::new(false);
 
 static OTHER_SCENE_LOGGED: AtomicBool = AtomicBool::new(false);
 
@@ -297,21 +287,7 @@ fn unit_destroyed(call: &mut Call) {
     }
 }
 
-/// A crossing changed what the frame prepared draws since it was prepared:
-/// what it began (a unit's model let go, still on the map's lists) the next
-/// update finishes, and the game never draws between the two, so neither
-/// does the drawing thread. A crossing in an update comes before the frame
-/// is prepared, which forgets it; one in a day or at the safe frame after the
-/// update, after it.
-static CHANGED: AtomicBool = AtomicBool::new(false);
-/// The crossing that marked the frame changed, and when.
-static HELD_BACK_BY: Mutex<Option<(usize, Instant)>> = Mutex::new(None);
-/// For the log: the crossings that took the lock in a day, and by crossing,
-/// the function crossed into, how many times, and how long the frames it
-/// held back were held back for, in microseconds (from the first crossing
-/// after an update to the next update).
-static TAKEN: AtomicU64 = AtomicU64::new(0);
-static BY_CROSSING: Mutex<Vec<(usize, u64, u64)>> = Mutex::new(Vec::new());
+static TRACKER: super::course::CrossingsTracker = super::course::CrossingsTracker::new();
 
 /// The day reaches the interface or the graphics, in the function at
 /// `into`: the lock first, kept until the next check for a frame inside the
@@ -321,58 +297,30 @@ pub(super) fn crossing(into: usize) {
         return;
     }
     main_side(|s| {
-        // Wherever it comes: one in an update is followed by the frame's
-        // drawing, which forgets it; one after the frame was prepared (in a
-        // day, or at the safe frame after the update) changes what the
-        // prepared frame draws, so the drawing thread waits for the next
-        // update.
-        if !CHANGED.swap(true, Ordering::AcqRel) {
-            *HELD_BACK_BY.lock().unwrap_or_else(|e| e.into_inner()) = Some((into, Instant::now()));
-        }
-        count(into, 1, 0);
-        if s.crossing(&MainLock) {
-            TAKEN.fetch_add(1, Ordering::Relaxed);
-        }
+        let took = s.crossing(&MainLock);
+        TRACKER.record_crossing(into, Instant::now(), took);
     });
 }
 
 /// The crossing that holds the frame prepared back, if one does (0 when it
 /// is not known yet).
 pub(super) fn holding_back() -> Option<usize> {
-    CHANGED.load(Ordering::Acquire).then(|| HELD_BACK_BY.lock().unwrap_or_else(|e| e.into_inner()).map_or(0, |(into, _)| into))
+    TRACKER.holding_back()
 }
 
 /// A frame is prepared, by the main thread holding the lock: its update has
 /// finished whatever the crossings before began.
 pub(super) fn frame_prepared() {
-    CHANGED.store(false, Ordering::Release);
-    if let Some((into, at)) = HELD_BACK_BY.lock().unwrap_or_else(|e| e.into_inner()).take() {
-        count(into, 0, at.elapsed().as_micros() as u64);
-    }
+    TRACKER.frame_prepared(Instant::now());
 }
 
-fn count(into: usize, times: u64, held: u64) {
-    let mut by = BY_CROSSING.lock().unwrap_or_else(|e| e.into_inner());
-    match by.iter_mut().find(|c| c.0 == into) {
-        Some(c) => {
-            c.1 += times;
-            c.2 += held;
-        }
-        None => by.push((into, times, held)),
-    }
+pub(super) fn clear() {
+    TRACKER.clear();
 }
 
 /// The crossings since the last log: how many took the lock in a day, and
 /// the three that held the frames back longest, the RVA crossed into, the
 /// times, the milliseconds held back.
 pub(super) fn logged(base: usize) -> (u64, String) {
-    let mut by = std::mem::take(&mut *BY_CROSSING.lock().unwrap_or_else(|e| e.into_inner()));
-    by.sort_by_key(|c| std::cmp::Reverse(c.2));
-    let longest = by
-        .iter()
-        .take(3)
-        .map(|&(into, times, held)| format!("{:#x} {times}x {:.0} ms", into.wrapping_sub(base), held as f64 / 1000.0))
-        .collect::<Vec<_>>()
-        .join(", ");
-    (TAKEN.swap(0, Ordering::Relaxed), longest)
+    TRACKER.logged(base)
 }

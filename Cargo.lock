@@ -176,6 +176,7 @@ name = "eu4-harmony-client"
 version = "0.1.5"
 dependencies = [
  "eu4-harmony-folders",
+ "eu4-harmony-logging",
  "eu4-harmony-remote",
  "serde",
  "serde_json",
@@ -252,6 +253,7 @@ name = "eu4-harmony-manifest"
 version = "0.1.5"
 dependencies = [
  "serde",
+ "serde_json",
  "toml",
 ]
 
@@ -1633,6 +1635,8 @@ version = "0.1.5"
 dependencies = [
  "eu4-harmony-client",
  "eu4-harmony-folders",
+ "eu4-harmony-logging",
+ "eu4-harmony-manifest",
  "eu4-harmony-remote",
  "serde",
  "serde_json",

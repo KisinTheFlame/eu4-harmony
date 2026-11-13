@@ -8,7 +8,7 @@
 use crate::fake::{check, code_named, lua_date, Answer, Fake};
 use eu4_harmony_lua::{
     dispatch::{self, Heard},
-    fetch, layout, values, Extension, Mod,
+    fetch, values, Extension, Mod,
 };
 use eu4_harmony_manifest::Manifest;
 use eu4_harmony_remote::{
@@ -446,6 +446,7 @@ impl UserData for TestMod {
             Ok(())
         });
         methods.add_method("button", |lua, this, (name, click): (String, Option<Table>)| {
+            this.fake.store().hosted.check_press(this.extension.index(), &name).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?;
             let flag = |key: &str| -> mlua::Result<bool> { Ok(click.as_ref().map(|t| t.get::<Option<bool>>(key)).transpose()?.flatten().unwrap_or(false)) };
             let click = dispatch::Click {
                 extension: this.extension.index(),
@@ -464,7 +465,11 @@ impl UserData for TestMod {
         methods.add_method("press", |lua, this, (window, widget, click): (String, String, Option<Table>)| {
             let flag = |key: &str| -> mlua::Result<bool> { Ok(click.as_ref().map(|t| t.get::<Option<bool>>(key)).transpose()?.flatten().unwrap_or(false)) };
             let row = click.as_ref().map(|t| t.get::<Option<u32>>("row")).transpose()?.flatten();
-            pressable(this, &window, &widget, row).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?;
+            this.fake
+                .store()
+                .windows
+                .check_press(this.extension.index(), &window, &widget, row)
+                .map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?;
             let click = dispatch::Click {
                 extension: this.extension.index(),
                 button: format!("{window}.{widget}"),
@@ -478,13 +483,9 @@ impl UserData for TestMod {
             Ok(())
         });
         methods.add_method("entry", |lua, this, window: String| {
-            let has_entry = this.extension.windows().iter().any(|w| w.name == window && w.entry.is_some());
-            if !has_entry {
-                return Err(mlua::Error::runtime(format!("{}the mod's window {window:?} has no entry button", here(lua))));
-            }
             let seen = {
                 let mut store = this.fake.store();
-                store.windows.entry(this.extension.index(), &window)
+                store.windows.press_entry(this.extension.index(), &window).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?
             };
             for seen in seen {
                 dispatch::window(std::slice::from_ref(&this.extension), &seen);
@@ -511,7 +512,7 @@ impl UserData for TestMod {
                 t.set("title", p.popup.title.as_str())?;
                 t.set("text", p.popup.text.as_str())?;
                 t.set("header", p.popup.header.clone())?;
-                t.set("buttons", lua.create_sequence_from(shown(&p.popup))?)?;
+                t.set("buttons", lua.create_sequence_from(p.popup.shown_buttons("OK"))?)?;
                 list.push(t)?;
             }
             Ok(list)
@@ -566,10 +567,10 @@ impl UserData for TestMod {
         });
         methods.add_method("element", |lua, this, name: String| {
             let element = lua.create_table()?;
-            if let Some(properties) = this.fake.store().elements.get(&name) {
-                for (property, value) in properties {
-                    element.set(*property, values::to_lua(lua, value)?)?;
-                }
+            let properties =
+                this.fake.store().element(this.extension.index(), &name, |key| eu4_harmony_lua::Host::text(this.fake.as_ref(), this.extension.id(), key));
+            for (property, value) in properties {
+                element.set(property, values::to_lua(lua, &value)?)?;
             }
             Ok(element)
         });
@@ -648,45 +649,6 @@ impl UserData for TestMod {
         methods.add_method("waiting", |_, this, ()| Ok(this.extension.waiting()));
         methods.add_method("told", |lua, this, ()| lua.create_sequence_from(this.fake.store().told.clone()));
         methods.add_method("stopped", |_, this, ()| Ok(this.extension.stopped()));
-    }
-}
-
-/// Whether the player can press `widget` of the mod's `window`, in the
-/// list's row `row` when one is given, or why not.
-fn pressable(this: &TestMod, window: &str, widget: &str, row: Option<u32>) -> Result<(), String> {
-    let Some(layout) = this.extension.windows().iter().find(|w| w.name == window) else { return Err(format!("the mod has no window {window:?}")) };
-    if !this.fake.store().windows.is_open(this.extension.index(), window) {
-        return Err(format!("the mod's window {window:?} is not open"));
-    }
-    let button = |w: &layout::Placed| matches!(w.kind, layout::Kind::Button { .. });
-    let found = match row {
-        None => layout.widget(widget).is_some_and(button),
-        Some(n) => {
-            let rows = this.fake.store().windows.wanted(this.extension.index(), window).map(|w| w.rows.clone()).unwrap_or_default();
-            let in_list = layout.widgets.iter().find_map(|w| match &w.kind {
-                layout::Kind::List { row, .. } if row.widget(widget).is_some_and(button) => w.name.clone(),
-                _ => None,
-            });
-            match in_list {
-                Some(list) if (1..=rows.get(&list).map_or(0, Vec::len) as u32).contains(&n) => true,
-                Some(list) => return Err(format!("the list {list} has no row {n}")),
-                None => false,
-            }
-        }
-    };
-    if !found {
-        return Err(format!("the window {window:?} has no button {widget}{}", if row.is_some() { " in a list's row" } else { "" }));
-    }
-    Ok(())
-}
-
-/// A pop-up's buttons' words as they stand, left to right, as remote
-/// control's popup.list gives them: the game's OK when the mod gave none.
-fn shown(popup: &eu4_harmony_lua::Popup) -> Vec<String> {
-    if popup.buttons.is_empty() {
-        vec!["OK".to_string()]
-    } else {
-        popup.buttons.clone()
     }
 }
 
@@ -842,6 +804,94 @@ mod tests {
         );
         let manifest = Manifest::parse(&format!("id = \"w\"\napi_version = \"{}\"", eu4_harmony_remote::API_VERSION)).unwrap();
         let outcome = run(&dir, manifest, "W".into()).unwrap();
+        assert_eq!((outcome.passed, outcome.failed), (1, 0), "{}", outcome.report);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn fake_game_resolves_defaults_entry_numbers_language_switches_and_refuses_disabled_or_hidden_presses() {
+        let dir = std::env::temp_dir().join(format!("eu4h-test-resolved-ui-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let write = |file: &str, text: &str| {
+            let path = dir.join("eu4-harmony").join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        write("localisation/u_l_english.yml", "\u{feff}l_english:\n U_STATUS:0 \"Count $N$\"\n U_BTN:0 \"Act\"\n U_TIP:0 \"Ready\"\n");
+        write("localisation/u_l_simp_chinese.yml", "\u{feff}l_simp_chinese:\n U_STATUS:0 \"计数 $N$\"\n U_BTN:0 \"执行\"\n U_TIP:0 \"就绪\"\n");
+        write(
+            "lua/main.lua",
+            r#"
+            return {
+              windows = {
+                tools = {
+                  size = { 320, 320 },
+                  entry = { sprite = "GFX_tools", format = "percent", decimals = 1, value = 0.125, tooltip = { key = "U_TIP" } },
+                  items = {
+                    { type = "text", name = "status", size = { 200, 20 }, text = { key = "U_STATUS", values = { N = 4 } } },
+                    { type = "button", name = "act", text = { key = "U_BTN" } },
+                    { type = "list", name = "items", size = { 260, 120 }, row = { size = { 240, 64 }, items = {
+                      { type = "button", name = "pick", text = { key = "U_BTN" } },
+                      { type = "text", name = "label", size = { 100, 20 }, text = { key = "U_STATUS", values = { N = 9 } } },
+                    }}},
+                  },
+                },
+              },
+              on_session = function(game)
+                game.ui.toggle.text = { key = "U_STATUS", values = { N = 7 } }
+                game.ui.toggle.tooltip = { key = "U_TIP" }
+                game.ui.toggle.enabled = false
+                game.window.tools.items.rows = { { pick = false }, {} }
+              end,
+              on_button = function(game, name, click)
+                log(name .. ":" .. tostring(click.row))
+                if name == "tools.act" then
+                  game.window.tools.act.enabled = false
+                  game.window.tools.items.visible = false
+                  game.window.tools.entry.enabled = false
+                end
+              end,
+            }
+            "#,
+        );
+        write(
+            "tests/resolved_test.lua",
+            r#"
+            test("resolved views and pressability", function()
+              local mod = open()
+              local initial = mod:window("tools")
+              assert(not initial.open and initial.status.text == "Count 4" and initial.act.enabled == true)
+              assert(initial.entry.value == 0.125 and initial.entry.text == "12.5%" and initial.entry.tooltip == "Ready")
+
+              mod:session()
+              assert(mod:element("toggle").text == "Count 7" and mod:element("toggle").tooltip == "Ready")
+              local ok, why = pcall(mod.button, mod, "toggle")
+              assert(not ok and tostring(why):find("disabled"), tostring(why))
+
+              mod:language("simp_chinese")
+              assert(mod:element("toggle").text == "计数 7" and mod:element("toggle").tooltip == "就绪")
+              assert(mod:window("tools").status.text == "计数 4" and mod:window("tools").entry.tooltip == "就绪")
+              assert(mod:window("tools").items.rows[2].label.text == "计数 9")
+
+              mod:entry("tools")
+              assert(mod:window("tools").open)
+              ok, why = pcall(mod.press, mod, "tools", "pick", { row = 1 })
+              assert(not ok and tostring(why):find("row 1 is disabled"), tostring(why))
+              mod:press("tools", "pick", { row = 2 })
+              mod:press("tools", "act")
+
+              ok, why = pcall(mod.press, mod, "tools", "act")
+              assert(not ok and tostring(why):find("tools%.act is disabled"), tostring(why))
+              ok, why = pcall(mod.press, mod, "tools", "pick", { row = 2 })
+              assert(not ok and tostring(why):find("list tools%.items is hidden"), tostring(why))
+              ok, why = pcall(mod.entry, mod, "tools")
+              assert(not ok and tostring(why):find("entry button of \"tools\" is disabled"), tostring(why))
+              assert(table.concat(mod:log(), "|") == "tools.pick:2|tools.act:nil")
+            end)
+            "#,
+        );
+        let manifest = Manifest::parse(&format!("id = \"u\"\napi_version = \"{}\"", eu4_harmony_remote::API_VERSION)).unwrap();
+        let outcome = run(&dir, manifest, "U".into()).unwrap();
         assert_eq!((outcome.passed, outcome.failed), (1, 0), "{}", outcome.report);
         let _ = std::fs::remove_dir_all(dir);
     }

@@ -112,6 +112,38 @@ fn lua_form(response: Response) -> Answered {
     eu4_harmony_checks::form::as_lua(|| serde_json::to_value(&answer)).map_err(|e| Error::new(Code::Internal, format!("the answer cannot be written: {e}")))
 }
 
+impl Live {
+    fn with_journal(&self, id: &str, write: impl FnOnce(&mut eu4_harmony_logging::Journal) -> std::io::Result<()>) {
+        let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
+        let state = open.entry(id.to_string()).or_insert_with(|| ExtensionLog { file: None, retry: Instant::now(), unconfirmed: 0 });
+        if state.file.is_none() && Instant::now() >= state.retry {
+            match eu4_harmony_logging::Journal::open(&self.logs, &eu4_harmony_logging::extension_source(id)) {
+                Ok(mut file) => {
+                    if state.unconfirmed != 0
+                        && file
+                            .write(
+                                eu4_harmony_logging::Kind::Event,
+                                &format!("extension log recovered; {} earlier records were not confirmed persisted", state.unconfirmed),
+                            )
+                            .is_ok()
+                    {
+                        state.unconfirmed = 0;
+                    }
+                    state.file = Some(file);
+                }
+                Err(error) => {
+                    state.retry = Instant::now() + Duration::from_secs(60);
+                    log!("cannot open extension log {id:?}: {error}");
+                }
+            }
+        }
+        let written = state.file.as_mut().is_some_and(|file| write(file).is_ok());
+        if !written {
+            state.unconfirmed = state.unconfirmed.saturating_add(1);
+        }
+    }
+}
+
 impl Host for Live {
     fn run(&self, extension: usize, request: Request) -> Called {
         let caller = Caller::Extension(extension);
@@ -179,40 +211,16 @@ impl Host for Live {
     }
 
     fn log(&self, id: &str, line: &str) {
-        let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
-        let state = open.entry(id.to_string()).or_insert_with(|| ExtensionLog { file: None, retry: Instant::now(), unconfirmed: 0 });
-        if state.file.is_none() && Instant::now() >= state.retry {
-            match eu4_harmony_logging::Journal::open(&self.logs, &eu4_harmony_logging::extension_source(id)) {
-                Ok(mut file) => {
-                    if state.unconfirmed != 0
-                        && file
-                            .write(
-                                eu4_harmony_logging::Kind::Event,
-                                &format!("extension log recovered; {} earlier records were not confirmed persisted", state.unconfirmed),
-                            )
-                            .is_ok()
-                    {
-                        state.unconfirmed = 0;
-                    }
-                    state.file = Some(file);
-                }
-                Err(error) => {
-                    state.retry = Instant::now() + Duration::from_secs(60);
-                    log!("cannot open extension log {id:?}: {error}");
-                }
-            }
-        }
-        let written = state.file.as_mut().is_some_and(|file| {
-            let kind = eu4_harmony_logging::kind(line);
-            file.write(if kind == eu4_harmony_logging::Kind::Note { eu4_harmony_logging::Kind::Event } else { kind }, line).is_ok()
-        });
-        if !written {
-            state.unconfirmed = state.unconfirmed.saturating_add(1);
-        }
+        let kind = match eu4_harmony_logging::kind(line) {
+            eu4_harmony_logging::Kind::Critical => eu4_harmony_logging::Kind::Critical,
+            _ => eu4_harmony_logging::Kind::Event,
+        };
+        self.with_journal(id, |file| file.write(kind, line));
     }
 
-    fn repeated_error(&self, id: &str, message: &str) {
-        self.log(id, &format!("error in {message}"));
+    fn repeated_error(&self, id: &str, message: &str) -> bool {
+        self.with_journal(id, |file| file.count_repeated(&format!("error in {message}")));
+        true
     }
 
     fn maintain_logs(&self, checkpoint: bool) {
@@ -344,10 +352,7 @@ pub fn load(mods: &[DiscoveredMod], log_dir: &Path, data_dir: &Path) -> Vec<Load
 
 /// The windows an extension's main.lua returns, for the framework to build.
 fn declare_windows(extension: &Extension) {
-    let id = extension.id().to_string();
-    crate::windows::declare(extension.index(), &id, extension.windows(), extension.images(), |key| {
-        crate::loc::mod_text(&id, key).map(|t| eu4_harmony_loc::fill(&t, &[]))
-    });
+    crate::windows::declare(extension.index(), extension.id(), extension.windows(), extension.images());
 }
 
 /// What an extension reload came to.
@@ -429,6 +434,7 @@ fn reload_now(id: &str) -> game::GResult<Reloaded> {
         log!("extension {id:?} reloaded: localisation/{problem}");
     }
     log!("extension {id:?} reloaded{}", lost.as_ref().map(|l| format!("; its state was not carried: {l}")).unwrap_or_default());
+    saves::reloaded(id, saved.clone());
     if session {
         new.handle("on_session", &[Arg::Json(saved.unwrap_or(serde_json::Value::Null))]);
     }
@@ -501,10 +507,9 @@ struct Fed {
 
 impl dispatch::Feed for Fed {
     fn session_begins(&mut self, session: u64) {
-        let loaded = saves::take_loaded();
-        log!("session {session} started (from a loaded save: {})", loaded.is_some());
+        let from_save = saves::begin_session();
+        log!("session {session} started (from a loaded save: {from_save})");
         *SESSION_CLOCKS.lock().unwrap_or_else(|e| e.into_inner()) = Some(Clocks::now());
-        saves::replace_all(loaded.unwrap_or_default());
         self.began = true;
     }
 
@@ -595,18 +600,20 @@ impl Clocks {
     }
 }
 
-/// Every extension's save data, from its `save_data`
-/// (ADR save-data-is-asked-for-by-save-data), as the game writes its world, on
-/// the main thread. One whose `save_data` fails or returns what JSON cannot
-/// hold has none in this save.
-pub fn save_data() {
-    for e in extensions() {
-        match e.save_data() {
-            None => {}
-            Some(Ok(data)) => saves::set(e.id(), data),
-            Some(Err(_)) => saves::set(e.id(), None),
-        }
-    }
+/// Polls every live extension's `save_data` handler on the main thread
+/// (ADR save-data-is-asked-for-by-save-data). An extension that is stopped, has
+/// no `save_data`, returns `nil`, or fails contributes `None`.
+pub(crate) fn collect_save_data() -> Vec<(String, Option<serde_json::Value>)> {
+    extensions()
+        .into_iter()
+        .map(|e| {
+            let value = match e.save_data() {
+                Some(Ok(data)) => data,
+                None | Some(Err(_)) => None,
+            };
+            (e.id().to_string(), value)
+        })
+        .collect()
 }
 
 /// Rewrites the startup report at session starts and every few minutes.
@@ -720,16 +727,43 @@ mod tests {
         // An army's ID an integer, a date its year, month and day, and a
         // refusal nil and why. On a busy machine the host also logs the
         // handler's stretch as slow, which is not the extension's line.
+        let source = eu4_harmony_logging::extension_source("calling");
         let logged = std::fs::read_to_string(log_file(&dir, "calling")).unwrap();
-        let logged: Vec<&str> = logged
-            .lines()
-            .filter(|line| !line.starts_with("# "))
-            .filter_map(|line| line.split_once(" source=extension-calling ").map(|(_, text)| text))
-            .filter(|line| !line.starts_with("slow stretch:"))
-            .collect();
+        let logged: Vec<&str> =
+            logged.lines().filter_map(|line| eu4_harmony_logging::record_message(line, &source)).filter(|line| !line.starts_with("slow stretch:")).collect();
         assert_eq!(logged, ["integer 4294967377 1444.11.11 nil not_found"]);
         GAME.with(|game| assert_eq!(game.borrow().calls, ["army 4294967377", "session", "army 1"]));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn handler_errors_write_three_times_in_full_and_summarize_remaining_counts_once() {
+        let dir = std::env::temp_dir().join(format!("eu4h-handler-error-dedup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let harmony = dir.join("eu4-harmony");
+        std::fs::create_dir_all(harmony.join("lua")).unwrap();
+        std::fs::write(harmony.join("lua/main.lua"), "return { on_day = function(game) error('boom') end }").unwrap();
+        let logs = dir.join("logs");
+        let host = Arc::new(Live { logs: logs.clone(), open: Mutex::new(HashMap::new()), reach: fake_game });
+        let permissions = eu4_harmony_manifest::Permissions::default();
+        let m = Mod { id: "failing", name: "Failing", harmony, permissions: &permissions, data: None };
+        let extension = eu4_harmony_lua::open(0, &m, host.clone()).unwrap();
+        for _ in 0..6 {
+            extension.handle("on_day", &[]);
+        }
+        extension.session_over();
+        host.maintain_logs(true);
+        let source = eu4_harmony_logging::extension_source("failing");
+        let messages = eu4_harmony_logging::SourceMark::default().messages_since(&logs, &source);
+        let full = messages.iter().filter(|m| m.starts_with("error in on_day:") && m.contains("boom")).count();
+        let summaries: Vec<&String> = messages.iter().filter(|m| m.starts_with("repeated error: count=3 ") && m.contains("error in on_day:")).collect();
+        let duplicate_session_lines = messages.iter().filter(|m| m.contains("times this session:")).count();
+        assert_eq!(full, 3, "{messages:?}");
+        assert_eq!(summaries.len(), 1, "{messages:?}");
+        assert_eq!(duplicate_session_lines, 0, "{messages:?}");
+        drop(extension);
+        drop(host);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

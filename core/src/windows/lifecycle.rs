@@ -372,7 +372,7 @@ fn apply_window(native: &mut impl Native, live: &mut Live, built: &mut Built, wa
                 fill_rows(native, live, built, &name, want, &rows)?;
             }
         }
-        let mut wanted = live::initial(placed, &want.words);
+        let mut wanted = eu4_harmony_lua::windows::placed_defaults(placed, &*want.words);
         if let Some(set) = want.wanted.set.get(&name) {
             wanted.extend(set.iter().map(|(key, value)| (*key, value.clone())));
         }
@@ -399,7 +399,7 @@ fn fill_rows(native: &mut impl Native, live: &mut Live, built: &mut Built, list:
             let first = built.elements.len();
             bind(native, built, row_window, &row.widgets, Some((list.to_string(), n as u32 + 1)))?;
             for (i, placed) in row.widgets.iter().enumerate() {
-                let mut wanted = live::initial(placed, &want.words);
+                let mut wanted = eu4_harmony_lua::windows::placed_defaults(placed, &*want.words);
                 for (_, property) in cells.iter().filter(|(name, _)| Some(name) == placed.name.as_ref()) {
                     wanted.insert(property.name(), property.clone());
                 }

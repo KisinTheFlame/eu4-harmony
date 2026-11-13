@@ -9,23 +9,44 @@
 //! checkouts a little behind share it still, guards every read and write of
 //! it. Each claim has a folder under `claims\`
 //! (docs/plans/test-games.md): `user\`, the test game's user folder, made from the
-//! player's with a junction to their `mod` folder; `core\`, the core and
-//! `dev.toml` its start copied; `follow.exe`, which follows its games to
-//! their ends into `game-ends.tsv`; and `kept\` after the release.
+//! player's with a private `mod` folder of relocated descriptors; `core\`, the
+//! core and `dev.toml` its start copied; `follow.exe`, which follows its games
+//! to their ends into `game-ends.tsv`; and `kept\` after the release.
 use super::course::Starting;
 use super::record::{GameEnd, Process, State};
 use crate::{built, repo, Result};
 use eu4_harmony_client::game::{self, Game};
 use eu4_harmony_client::start::{Failed, Start};
 use eu4_harmony_folders::UserFolder;
+use eu4_harmony_manifest::{Descriptor, Playset};
 use std::{
     fs,
     path::{Path, PathBuf},
     time::Duration,
 };
 
+/// An owned handle to a newly started test game, carrying its identity and, on
+/// a real machine, holding the OS process open until `follow.exe` takes over.
+pub trait StartedGame {
+    fn process(&self) -> Process;
+}
+
+impl StartedGame for Game {
+    fn process(&self) -> Process {
+        Process { id: self.id(), started: self.started() }
+    }
+}
+
+impl StartedGame for Process {
+    fn process(&self) -> Process {
+        *self
+    }
+}
+
 /// The computer, as the claim reaches it.
 pub trait Machine {
+    type Started: StartedGame;
+
     /// Runs `action` on the record, holding the mutex that guards it, and
     /// writes back what it changed.
     fn locked<T>(&self, action: impl FnOnce(&mut State) -> T) -> Result<T>;
@@ -40,9 +61,6 @@ pub trait Machine {
 
     /// This process.
     fn me(&self) -> Process;
-    /// The process `id` is now, with when it started; none when no process
-    /// has that id.
-    fn process(&self, id: u32) -> Option<Process>;
     /// Whether `p` runs still. One that cannot be looked at for another
     /// reason than its being gone runs, as far as the claim goes.
     fn alive(&self, p: &Process) -> bool;
@@ -64,13 +82,13 @@ pub trait Machine {
     /// saves it names from the player's; the core's path.
     fn prepare_start(&self, folder: &Path, game_dir: &Path, starting: &Starting) -> Result<PathBuf>;
     /// Starts the game from `game_dir` as `start` says, waiting up to `wait`
-    /// for its main menu, `log` being the framework's log: its process id,
-    /// and the seconds it took. A test game that does not reach it is ended.
-    fn start_game(&self, game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> std::result::Result<(u32, f64), Failed>;
-    /// Starts the claim's `follow.exe`, which follows the game `id` and the
-    /// games the test game restarts in its place, serving the pipe `pipe`,
-    /// to their ends.
-    fn follow(&self, folder: &Path, id: u32, pipe: &str) -> Result<()>;
+    /// for its main menu, `log` being the framework's log: its owned game
+    /// handle and the seconds it took. A test game that does not reach it is ended.
+    fn start_game(&self, game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> std::result::Result<(Self::Started, f64), Failed>;
+    /// Starts the claim's `follow.exe`, holding `started` open until the
+    /// follower holds the process too, so concurrent scenario starts never
+    /// clobber one another's handle or lose an early exit code.
+    fn follow(&self, folder: &Path, started: Self::Started, pipe: &str) -> Result<()>;
     /// Tells the claim's `follow.exe` that the claim is released, and waits
     /// for it to end, a few seconds at most.
     fn stop_following(&self, folder: &Path);
@@ -121,14 +139,11 @@ const FOLLOWING: &str = "following";
 /// How long a start waits for `follow.exe` to hold the game.
 const TAKING_OVER: Duration = Duration::from_secs(10);
 
-/// The game this process started, held open until `follow.exe` holds it
-/// too, so that its exit code cannot be lost in between.
-static STARTED: std::sync::Mutex<Option<Game>> = std::sync::Mutex::new(None);
-
 /// This computer.
 pub struct ThisComputer;
 
 impl Machine for ThisComputer {
+    type Started = Game;
     fn locked<T>(&self, action: impl FnOnce(&mut State) -> T) -> Result<T> {
         use windows_sys::Win32::{
             Foundation::{CloseHandle, WAIT_ABANDONED, WAIT_OBJECT_0},
@@ -184,11 +199,7 @@ impl Machine for ThisComputer {
     }
 
     fn me(&self) -> Process {
-        self.process(std::process::id()).unwrap_or(Process { id: std::process::id(), started: 0 })
-    }
-
-    fn process(&self, id: u32) -> Option<Process> {
-        process(id)
+        process(std::process::id()).unwrap_or(Process { id: std::process::id(), started: 0 })
     }
 
     fn alive(&self, p: &Process) -> bool {
@@ -258,15 +269,14 @@ impl Machine for ThisComputer {
         Ok(dll)
     }
 
-    fn start_game(&self, game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> std::result::Result<(u32, f64), Failed> {
+    fn start_game(&self, game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> std::result::Result<(Game, f64), Failed> {
         let began = std::time::Instant::now();
         let game = eu4_harmony_client::start::start(game_dir, log, start, wait)?;
-        let id = game.id();
-        *STARTED.lock().unwrap_or_else(|e| e.into_inner()) = Some(game);
-        Ok((id, began.elapsed().as_secs_f64()))
+        Ok((game, began.elapsed().as_secs_f64()))
     }
 
-    fn follow(&self, folder: &Path, id: u32, pipe: &str) -> Result<()> {
+    fn follow(&self, folder: &Path, started: Game, pipe: &str) -> Result<()> {
+        let id = started.id();
         // One follower a claim: the one of a game that ended may still be
         // looking for the game a restart starts, and would follow this one
         // too.
@@ -274,18 +284,23 @@ impl Machine for ThisComputer {
         let follower = folder.join("follow.exe");
         let _ = fs::remove_file(folder.join(RELEASED));
         let me = std::env::current_exe().map_err(|e| format!("cannot find this program: {e}"))?;
-        if fs::read(&follower).ok() != fs::read(&me).ok() {
+        let same_binary = match (fs::metadata(&follower), fs::metadata(&me)) {
+            (Ok(f), Ok(m)) => f.len() == m.len() && f.modified().ok() == m.modified().ok(),
+            _ => false,
+        };
+        if !same_binary {
             copy(&me, &follower)?;
         }
         let _ = fs::remove_file(folder.join(FOLLOWING));
         let words = ["game".to_string(), "follow".into(), folder.display().to_string(), id.to_string(), pipe.to_string()];
         spawn_detached(&follower, &words)?;
-        // The game this process started is let go once the follower holds it.
+        // Hold this start's `Game` handle locally until `follow.exe` holds the
+        // process too, without sharing a process-wide slot across workers.
         let began = std::time::Instant::now();
         while began.elapsed() < TAKING_OVER && !folder.join(FOLLOWING).exists() {
             std::thread::sleep(Duration::from_millis(50));
         }
-        STARTED.lock().unwrap_or_else(|e| e.into_inner()).take();
+        drop(started);
         Ok(())
     }
 
@@ -418,7 +433,8 @@ fn copy(from: &Path, to: &Path) -> Result<()> {
 }
 
 /// Makes a test game's user folder `user` from the player's `player`: the
-/// files it starts with, copied, and `mod` a junction to theirs.
+/// files it starts with, copied, and `mod` a private folder of relocated
+/// `.mod` descriptors so nothing links into the player's `mod` folder.
 fn make_user_folder(player: &Path, user: &Path) -> Result<()> {
     fs::create_dir_all(user.join("eu4-harmony")).map_err(|e| format!("cannot make {}: {e}", user.display()))?;
     for file in USER_FILES {
@@ -427,48 +443,67 @@ fn make_user_folder(player: &Path, user: &Path) -> Result<()> {
             copy(&from, &user.join(file))?;
         }
     }
-    let mods = player.join("mod");
-    if mods.is_dir() {
-        junction(&user.join("mod"), &mods)?;
+    let mods = init_private_mods(&user.join("mod"))?;
+    copy_relocated_descriptors(&player.join("mod"), &plain_path(player), &mods)
+}
+
+/// Ownership marker inside a claim's private `user\mod` directory, so removal
+/// refuses any non-claim `mod` folder that is not an older claim's junction.
+const CLAIM_MODS_MARKER: &str = ".harmony-claim-mods";
+
+fn init_private_mods(mods: &Path) -> Result<PathBuf> {
+    fs::create_dir_all(mods).map_err(|e| format!("cannot make {}: {e}", mods.display()))?;
+    let marker = mods.join(CLAIM_MODS_MARKER);
+    fs::write(&marker, "").map_err(|e| format!("cannot write {}: {e}", marker.display()))?;
+    Ok(mods.to_path_buf())
+}
+
+fn plain_path(path: &Path) -> PathBuf {
+    match path.canonicalize() {
+        Ok(full) => {
+            let text = full.to_string_lossy();
+            PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text).to_string())
+        }
+        Err(_) => path.to_path_buf(),
+    }
+}
+
+fn copy_relocated_descriptors(from_mods: &Path, original_user: &Path, to_mods: &Path) -> Result<()> {
+    if !from_mods.is_dir() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(from_mods).map_err(|e| format!("cannot read {}: {e}", from_mods.display()))? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if entry.path().extension().is_some_and(|e| e.eq_ignore_ascii_case("mod")) && entry.file_type().is_ok_and(|t| t.is_file()) {
+            let text = fs::read_to_string(entry.path()).map_err(|e| format!("cannot read {}: {e}", entry.path().display()))?;
+            let relocated = Descriptor::relocate(&text, original_user)?;
+            fs::write(to_mods.join(entry.file_name()), relocated).map_err(|e| format!("cannot copy a private mod descriptor: {e}"))?;
+        }
     }
     Ok(())
 }
 
-/// Makes `link` a junction to the folder `target`.
-fn junction(link: &Path, target: &Path) -> Result<()> {
-    let system = PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into())).join("System32");
-    let made = std::process::Command::new(system.join("cmd.exe"))
-        .arg("/c")
-        .arg("mklink")
-        .arg("/J")
-        .arg(backslashed(link))
-        .arg(backslashed(target))
-        .stdout(std::process::Stdio::null())
-        .status()
-        .map_err(|e| format!("cannot run mklink: {e}"))?;
-    made.success().then_some(()).ok_or_else(|| format!("cannot make the junction {} to {}", link.display(), target.display()))
-}
-
-/// `path` with Windows' own separators, which `mklink` and the game's
-/// command line read.
+/// `path` with Windows' own separators, which the game's command line reads.
 fn backslashed(path: &Path) -> PathBuf {
     PathBuf::from(path.display().to_string().replace('/', "\\"))
 }
 
-/// Removes the junction `user\mod`, never what it leads to, before the
-/// folder is removed.
+/// Unlinks an older claim's `user\mod` junction or verifies that a plain `mod`
+/// directory carries [`CLAIM_MODS_MARKER`], refusing to touch any unmarked
+/// `mod` folder before removal.
 fn unlink_mods(user: &Path) -> Result<()> {
     let link = user.join("mod");
     match fs::symlink_metadata(&link) {
         Ok(m) if m.file_type().is_symlink() || is_junction(&link) => {
             fs::remove_dir(&link).map_err(|e| format!("cannot remove the junction {}: {e}", link.display()))
         }
-        Ok(_) => Err(format!("{} is no junction; nothing of the claim's folder was removed", link.display())),
+        Ok(_) if link.join(CLAIM_MODS_MARKER).is_file() => Ok(()),
+        Ok(_) => Err(format!("{} is no junction or claim mod folder; nothing of the claim's folder was removed", link.display())),
         Err(_) => Ok(()),
     }
 }
 
-/// Whether `path` is a reparse point, as a junction is.
+/// Whether `path` is a reparse point, as an older claim's junction is.
 fn is_junction(path: &Path) -> bool {
     use std::os::windows::fs::MetadataExt;
     const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
@@ -498,82 +533,45 @@ fn copy_saves(from: &[PathBuf], to: &Path, saves: &[String]) -> Result<()> {
 /// The folder of a claim's test mods, beside its user folder.
 const TEST_MODS: &str = "test-mods";
 
-/// Puts test mods in the claim's private registry, using the game's standard
-/// relative descriptor names. The content remains in `test-mods` beside the
-/// user folder; neither descriptors nor content are written through a
-/// junction into the player's registry. Earlier test entries are removed.
-fn private_registry(folder: &Path) -> Result<PathBuf> {
-    let registry = folder.join("mod-registry");
-    let link = folder.join("user").join("mod");
-    if registry.is_dir() && link.canonicalize().ok() == registry.canonicalize().ok() {
-        return Ok(registry);
-    }
-    let original = match fs::symlink_metadata(&link) {
-        Ok(metadata) if metadata.file_type().is_symlink() || is_junction(&link) => {
-            Some(link.canonicalize().map_err(|e| format!("cannot resolve {}: {e}", link.display()))?)
-        }
-        Ok(_) => return Err(format!("{} is no junction; its registry was not changed", link.display())),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => return Err(format!("cannot inspect {}: {e}", link.display())),
-    };
-    fs::create_dir_all(&registry).map_err(|e| format!("cannot make {}: {e}", registry.display()))?;
-    if let Some(original) = &original {
-        let user = original.parent().ok_or("the original mod registry has no user folder")?;
-        for entry in fs::read_dir(original).map_err(|e| format!("cannot read the original mod registry: {e}"))? {
-            let entry = entry.map_err(|e| e.to_string())?;
-            if entry.path().extension().is_some_and(|e| e.eq_ignore_ascii_case("mod")) && entry.file_type().is_ok_and(|t| t.is_file()) {
-                let text = fs::read_to_string(entry.path()).map_err(|e| format!("cannot read {}: {e}", entry.path().display()))?;
-                fs::write(registry.join(entry.file_name()), absolute_descriptor_paths(&text, user)?)
-                    .map_err(|e| format!("cannot copy a private mod descriptor: {e}"))?;
-            }
-        }
-    }
-    // Only the junction itself is removed. A failed replacement restores it;
-    // release keeps the same junction-first cleanup rule for old and new claims.
-    unlink_mods(&folder.join("user"))?;
-    if let Err(e) = junction(&link, &registry) {
-        if let Some(original) = original {
-            junction(&link, &original)?;
-        }
-        return Err(e);
-    }
-    Ok(registry)
-}
-
-fn absolute_descriptor_paths(text: &str, original_user: &Path) -> Result<String> {
-    let mut out = String::new();
-    for line in text.lines() {
-        let field = line.split_once('=').filter(|(key, _)| ["path", "archive"].contains(&key.trim()));
-        match field {
-            Some((key, value)) => {
-                let value = value.trim();
-                let quoted = value.strip_prefix('"').and_then(|s| s.split_once('"'));
-                let (value, trailing) = match quoted {
-                    Some((value, trailing)) => (value, trailing),
-                    None if !value.starts_with('"') => (value.split('#').next().unwrap_or_default().trim(), ""),
-                    _ => return Err("a copied mod descriptor has an incomplete path string".into()),
-                };
-                if value.is_empty() {
-                    return Err("a copied mod descriptor has an empty path".into());
+/// Ensures `folder\user\mod` is the claim's own marked private directory,
+/// migrating an older claim's junction if encountered and refusing an unmarked
+/// plain directory.
+fn private_mods(folder: &Path) -> Result<PathBuf> {
+    let user = folder.join("user");
+    let mods = user.join("mod");
+    match fs::symlink_metadata(&mods) {
+        Ok(m) if m.file_type().is_symlink() || is_junction(&mods) => {
+            let original = plain_path(&mods);
+            let parent = original.parent().ok_or("the original mod registry has no user folder")?.to_path_buf();
+            let mut copied = Vec::new();
+            for entry in fs::read_dir(&original).map_err(|e| format!("cannot read the original mod registry: {e}"))? {
+                let entry = entry.map_err(|e| e.to_string())?;
+                if entry.path().extension().is_some_and(|e| e.eq_ignore_ascii_case("mod")) && entry.file_type().is_ok_and(|t| t.is_file()) {
+                    let text = fs::read_to_string(entry.path()).map_err(|e| format!("cannot read {}: {e}", entry.path().display()))?;
+                    copied.push((entry.file_name(), Descriptor::relocate(&text, &parent)?));
                 }
-                let path = original_user.join(backslashed(Path::new(value)));
-                out.push_str(&format!("{}=\"{}\"{}\n", key.trim(), path.display().to_string().replace('\\', "/"), trailing));
             }
-            None => {
-                out.push_str(line);
-                out.push('\n');
+            fs::remove_dir(&mods).map_err(|e| format!("cannot remove the junction {}: {e}", mods.display()))?;
+            init_private_mods(&mods)?;
+            for (name, relocated) in copied {
+                fs::write(mods.join(name), relocated).map_err(|e| format!("cannot copy a private mod descriptor: {e}"))?;
             }
+            Ok(mods)
         }
+        Ok(_) if mods.join(CLAIM_MODS_MARKER).is_file() => Ok(mods),
+        Ok(_) => Err(format!("{} is no claim mod folder; its registry was not changed", mods.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => init_private_mods(&mods),
+        Err(e) => Err(format!("cannot inspect {}: {e}", mods.display())),
     }
-    Ok(out)
 }
 
 fn place_test_mods(folder: &Path, mods: &[PathBuf]) -> Result<()> {
     let dir = folder.join(TEST_MODS);
-    let registry = if !mods.is_empty() || folder.join("mod-registry").is_dir() { Some(private_registry(folder)?) } else { None };
+    let user = folder.join("user");
+    let registry = if !mods.is_empty() || user.join("mod").exists() { Some(private_mods(folder)?) } else { None };
     const PREFIX: &str = "eu4harmony-test-";
     if let Some(registry) = &registry {
-        for entry in fs::read_dir(registry).map_err(|e| format!("cannot read the private registry: {e}"))? {
+        for entry in fs::read_dir(registry).map_err(|e| format!("cannot read the private mod folder: {e}"))? {
             let entry = entry.map_err(|e| e.to_string())?;
             if entry.file_name().to_string_lossy().starts_with(PREFIX) && entry.file_type().is_ok_and(|t| t.is_file()) {
                 remove_file(&entry.path())?;
@@ -583,26 +581,22 @@ fn place_test_mods(folder: &Path, mods: &[PathBuf]) -> Result<()> {
     if dir.exists() {
         fs::remove_dir_all(&dir).map_err(|e| format!("cannot remove {}: {e}", dir.display()))?;
     }
-    let playset = folder.join("user").join("dlc_load.json");
-    let mut load = read_json(&playset).unwrap_or_else(|| serde_json::json!({ "enabled_mods": [], "disabled_dlcs": [] }));
+    let playset_path = user.join("dlc_load.json");
+    let mut playset = Playset::read_or_default(&playset_path);
     let prefix = backslashed(&dir).display().to_string();
-    let mut enabled: Vec<serde_json::Value> = load["enabled_mods"].as_array().cloned().unwrap_or_default();
-    enabled
-        .retain(|entry| !entry.as_str().is_some_and(|e| e.replace('/', "\\").starts_with(&prefix) || e.replace('\\', "/").starts_with("mod/eu4harmony-test-")));
+    playset.retain(|entry| !entry.replace('/', "\\").starts_with(&prefix) && !entry.replace('\\', "/").starts_with("mod/eu4harmony-test-"));
     for source in mods {
         let name = source.file_name().ok_or_else(|| format!("{} names no folder", source.display()))?;
         let to = dir.join(name);
         copy_tree(source, &to).map_err(|e| format!("cannot copy the test mod {} to {}: {e}", source.display(), to.display()))?;
         let own = fs::read_to_string(source.join("descriptor.mod")).map_err(|e| format!("the test mod {} has no descriptor.mod: {e}", source.display()))?;
-        let kept: Vec<&str> = own.lines().filter(|l| !l.trim_start().starts_with("path")).collect();
         let descriptor_name = format!("{PREFIX}{}.mod", name.to_string_lossy());
-        let descriptor = registry.as_ref().expect("test mods have a private registry").join(&descriptor_name);
-        let text = format!("{}\npath=\"{}\"\n", kept.join("\n"), backslashed(&to).display().to_string().replace('\\', "/"));
+        let descriptor = registry.as_ref().expect("test mods have a private mod folder").join(&descriptor_name);
+        let text = Descriptor::with_path(&own, &plain_path(&to));
         fs::write(&descriptor, text).map_err(|e| format!("cannot write {}: {e}", descriptor.display()))?;
-        enabled.push(serde_json::Value::String(format!("mod/{descriptor_name}")));
+        playset.enable(format!("mod/{descriptor_name}"));
     }
-    load["enabled_mods"] = serde_json::Value::Array(enabled);
-    write_json(&playset, &load)
+    playset.write(&playset_path)
 }
 
 /// Removes the claims' folders whose `kept\` is older than [`KEEP_DAYS`]
@@ -713,6 +707,68 @@ fn write_end(folder: &Path, end: &GameEnd) {
     }
 }
 
+trait FollowEnv {
+    type Handle;
+    fn open(&mut self, id: u32) -> Option<(Self::Handle, u64)>;
+    fn note_following(&mut self, id: u32);
+    fn wait_exit(&mut self, handle: Self::Handle) -> Option<u32>;
+    fn record_end(&mut self, game: Process, code: u32);
+    fn next_restarted(&mut self, previous_id: u32) -> Option<u32>;
+}
+
+struct FolderFollow<'a> {
+    folder: &'a Path,
+    pipe: &'a str,
+}
+
+impl FollowEnv for FolderFollow<'_> {
+    type Handle = Game;
+
+    fn open(&mut self, id: u32) -> Option<(Game, u64)> {
+        let held = Game::open(id)?;
+        let started = held.started();
+        Some((held, started))
+    }
+
+    fn note_following(&mut self, id: u32) {
+        let _ = fs::write(self.folder.join(FOLLOWING), id.to_string());
+    }
+
+    fn wait_exit(&mut self, handle: Game) -> Option<u32> {
+        handle.wait()
+    }
+
+    fn record_end(&mut self, game: Process, code: u32) {
+        write_end(self.folder, &GameEnd { game, seen: local_time(), code });
+    }
+
+    fn next_restarted(&mut self, previous_id: u32) -> Option<u32> {
+        let began = std::time::Instant::now();
+        while began.elapsed() < RESTART_WAIT && !self.folder.join(RELEASED).exists() {
+            if let Some(again) = serving(self.pipe).filter(|&again| again != previous_id) {
+                return Some(again);
+            }
+            std::thread::sleep(Duration::from_secs(1));
+        }
+        None
+    }
+}
+
+fn run_follower<E: FollowEnv>(env: &mut E, first: u32) {
+    let mut next = Some(first);
+    while let Some(id) = next.take() {
+        let Some((held, started)) = env.open(id) else { return };
+        env.note_following(id);
+        let Some(code) = env.wait_exit(held) else { return };
+        env.record_end(Process { id, started }, code);
+        // A restart ends the game with 0; one ended by these commands, or a
+        // crash, starts nothing in its place.
+        if code == 0 {
+            next = env.next_restarted(id);
+        }
+    }
+}
+
 /// `follow.exe`'s work, `cargo xtask game follow <folder> <id> <pipe>`:
 /// follows the game `id` to its end and writes how it ended into the
 /// claim's `game-ends.tsv`; then, when it ended with 0, as a restart does,
@@ -720,27 +776,7 @@ fn write_end(folder: &Path, end: &GameEnd) {
 /// restarts in its place, the one that opens its pipe within
 /// [`RESTART_WAIT`].
 pub fn follow_games(folder: &Path, first: u32, pipe: &str) -> Result<()> {
-    let mut next = Some(first);
-    while let Some(id) = next.take() {
-        let Some(held) = Game::open(id) else { return Ok(()) };
-        let _ = fs::write(folder.join(FOLLOWING), id.to_string());
-        let game = Process { id, started: held.started() };
-        let Some(code) = held.wait() else { return Ok(()) };
-        write_end(folder, &GameEnd { game, seen: local_time(), code });
-        // A restart ends the game with 0; one ended by these commands, or a
-        // crash, starts nothing in its place.
-        if code != 0 {
-            break;
-        }
-        let began = std::time::Instant::now();
-        while began.elapsed() < RESTART_WAIT && !folder.join(RELEASED).exists() {
-            if let Some(again) = serving(pipe).filter(|&again| again != id) {
-                next = Some(again);
-                break;
-            }
-            std::thread::sleep(Duration::from_secs(1));
-        }
-    }
+    run_follower(&mut FolderFollow { folder, pipe }, first);
     Ok(())
 }
 
@@ -781,48 +817,49 @@ mod tests {
     fn test_mods_join_the_test_game_s_playset_and_leave_it() {
         let s = Scratch::new("test-mods");
         s.write("claim\\user\\dlc_load.json", r#"{"enabled_mods":["mod/ugc_1.mod"],"disabled_dlcs":[]}"#);
-        s.write("mods\\qa-steady\\descriptor.mod", "name=\"QA steady\"\npath=\"somewhere\"\n");
+        s.write("mods\\qa-steady\\descriptor.mod", "\u{feff}name=\"QA steady\"\npath=\"somewhere\"\narchive=\"old.zip\"\n");
         s.write("mods\\qa-steady\\eu4-harmony\\manifest.toml", "id = \"qa-steady\"");
         let folder = s.0.join("claim");
         place_test_mods(&folder, &[s.0.join("mods\\qa-steady")]).unwrap();
-        let descriptor = folder.join("mod-registry\\eu4harmony-test-qa-steady.mod");
+        let descriptor = folder.join("user\\mod\\eu4harmony-test-qa-steady.mod");
         let text = fs::read_to_string(&descriptor).unwrap();
-        assert!(text.contains("name=\"QA steady\"") && !text.contains("somewhere"), "{text}");
-        assert!(text.contains(&format!("path=\"{}\"", folder.join("test-mods\\qa-steady").display().to_string().replace('\\', "/"))), "{text}");
+        assert!(text.contains("name=\"QA steady\"") && !text.contains("somewhere") && !text.contains("old.zip"), "{text}");
+        assert!(text.contains(&format!("path=\"{}\"", plain_path(&folder.join("test-mods\\qa-steady")).display().to_string().replace('\\', "/"))), "{text}");
         assert!(folder.join("test-mods\\qa-steady\\eu4-harmony\\manifest.toml").is_file());
         let enabled = |folder: &Path| read_json(&folder.join("user\\dlc_load.json")).unwrap()["enabled_mods"].clone();
         assert_eq!(enabled(&folder), serde_json::json!(["mod/ugc_1.mod", "mod/eu4harmony-test-qa-steady.mod"]));
-        assert!(folder.join("user\\mod\\eu4harmony-test-qa-steady.mod").is_file());
+        assert!(!folder.join("mod-registry").exists());
         place_test_mods(&folder, &[]).unwrap();
         assert_eq!(enabled(&folder), serde_json::json!(["mod/ugc_1.mod"]));
         assert!(!folder.join("test-mods").exists());
+        assert!(!descriptor.exists());
     }
 
     #[test]
     fn private_registration_keeps_player_descriptors_and_content_untouched() {
         let s = Scratch::new("private-registry");
-        let original = "name=\"Base\"\npath=\"mod/base\" # inherited\narchive=\"mod/base.zip\"\n";
+        let original = "\u{feff}name=\"Base\"\npath=\"mod/base\" # inherited\narchive=\"mod/base.zip\"\n";
         s.write("player\\mod\\base.mod", original);
         s.write("player\\mod\\base\\asset.gfx", "the player's resource");
         s.write("player\\mod\\base.zip", "the player's archive");
         let (player, claim) = (s.0.join("player"), s.0.join("claim"));
         make_user_folder(&player, &claim.join("user")).unwrap();
-        let registry = private_registry(&claim).unwrap();
+        let registry = private_mods(&claim).unwrap();
+        assert!(!is_junction(&registry), "a new claim uses an ordinary private mod directory");
         let private = fs::read_to_string(registry.join("base.mod")).unwrap();
-        assert!(private.contains(&player.canonicalize().unwrap().join("mod\\base").display().to_string().replace('\\', "/")), "{private}");
+        assert!(private.contains(&plain_path(&player).join("mod\\base").display().to_string().replace('\\', "/")), "{private}");
         assert_eq!(fs::read_to_string(player.join("mod\\base.mod")).unwrap(), original);
         fs::write(claim.join("user\\mod\\own.mod"), "only private").unwrap();
         assert!(!player.join("mod\\own.mod").exists());
-        assert_eq!(private_registry(&claim).unwrap(), registry, "a later start reuses only its own registry");
+        assert_eq!(private_mods(&claim).unwrap(), registry, "a later start reuses only its own private mod directory");
         ThisComputer.remove_folder(&claim).unwrap();
         assert_eq!(fs::read_to_string(player.join("mod\\base.mod")).unwrap(), original);
         assert_eq!(fs::read_to_string(player.join("mod\\base\\asset.gfx")).unwrap(), "the player's resource");
     }
 
-    /// The test game's user folder starts with the player's settings and
-    /// playset and reaches their mods through a junction; the release keeps
-    /// its logs and crash folders and removes the rest, the player's mods
-    /// untouched.
+    /// The test game's user folder starts with the player's settings, playset,
+    /// and a private folder of relocated descriptors; the release keeps its
+    /// logs and crash folders and removes the rest, the player's mods untouched.
     #[test]
     fn a_test_game_s_folder_is_made_from_the_player_s_and_removed_leaving_theirs() {
         let s = Scratch::new("folder");
@@ -838,7 +875,7 @@ mod tests {
         let user = folder.join("user");
         assert_eq!(fs::read_to_string(user.join("settings.txt")).unwrap(), "the player's settings");
         assert_eq!(fs::read_to_string(user.join("eu4-harmony\\settings.txt")).unwrap(), "the language");
-        assert_eq!(fs::read_to_string(user.join("mod\\a.mod")).unwrap(), "a descriptor");
+        assert_eq!(fs::read_to_string(user.join("mod\\a.mod")).unwrap(), "a descriptor\n");
         assert!(!user.join("pdx_login_cache.txt").exists());
         s.write("dev\\saves\\observer-1700.1.1.eu4", "a developer's save");
         let from = [player.join("save games"), s.0.join("dev\\saves")];
@@ -860,13 +897,66 @@ mod tests {
         assert_eq!(fs::read_to_string(player.join("mod\\a.mod")).unwrap(), "a descriptor");
     }
 
-    /// A `mod` that is a folder and no junction stops the removal: it might
-    /// be the player's.
+    /// An unmarked `mod` folder that is no junction stops removal and mutation:
+    /// it might be the player's own user folder.
     #[test]
-    fn a_mod_folder_that_is_no_junction_is_never_removed() {
+    fn an_unmarked_mod_folder_that_is_no_junction_is_never_removed_or_changed() {
         let s = Scratch::new("no-junction");
         s.write("claim\\user\\mod\\a.mod", "a descriptor");
-        assert!(ThisComputer.remove_folder(&s.0.join("claim")).unwrap_err().contains("no junction"));
+        assert!(private_mods(&s.0.join("claim")).unwrap_err().contains("no claim mod folder"));
+        assert!(ThisComputer.remove_folder(&s.0.join("claim")).unwrap_err().contains("no junction or claim mod folder"));
         assert!(s.0.join("claim\\user\\mod\\a.mod").is_file());
+    }
+
+    #[test]
+    fn follower_records_restart_chains_and_stops_on_non_zero_exit_or_release() {
+        #[derive(Default)]
+        struct Scripted {
+            runs: std::collections::VecDeque<(u32, u64, u32)>,
+            restarts: std::collections::VecDeque<Option<u32>>,
+            following: Vec<u32>,
+            recorded: Vec<(Process, u32)>,
+        }
+        impl FollowEnv for Scripted {
+            type Handle = u32;
+            fn open(&mut self, id: u32) -> Option<(u32, u64)> {
+                let &(expected, started, _) = self.runs.front()?;
+                (expected == id).then_some((id, started))
+            }
+            fn note_following(&mut self, id: u32) {
+                self.following.push(id);
+            }
+            fn wait_exit(&mut self, id: u32) -> Option<u32> {
+                let (expected, _, code) = self.runs.pop_front()?;
+                (expected == id).then_some(code)
+            }
+            fn record_end(&mut self, game: Process, code: u32) {
+                self.recorded.push((game, code));
+            }
+            fn next_restarted(&mut self, previous: u32) -> Option<u32> {
+                while let Some(candidate) = self.restarts.pop_front() {
+                    let id = candidate?;
+                    if id != previous {
+                        return Some(id);
+                    }
+                }
+                None
+            }
+        }
+
+        // Restart (0) -> same PID ignored -> new PID (200) -> crash (0xc0000005) -> stops without polling restarts.
+        let mut env = Scripted {
+            runs: [(100, 10, 0), (200, 20, 0xc000_0005), (300, 30, 1)].into(),
+            restarts: [Some(100), Some(200), Some(300)].into(),
+            ..Default::default()
+        };
+        run_follower(&mut env, 100);
+        assert_eq!(env.following, [100, 200]);
+        assert_eq!(env.recorded, [(Process { id: 100, started: 10 }, 0), (Process { id: 200, started: 20 }, 0xc000_0005)]);
+
+        // Released during restart wait (None) ends cleanly after recording exit 0.
+        let mut released = Scripted { runs: [(100, 10, 0)].into(), restarts: [None].into(), ..Default::default() };
+        run_follower(&mut released, 100);
+        assert_eq!(released.recorded, [(Process { id: 100, started: 10 }, 0)]);
     }
 }

@@ -32,9 +32,6 @@ pub(crate) use live::{frame, killed, managed_tooltip, session_ended, show_window
 struct Windows {
     /// What extensions want of their windows and pop-ups.
     wanted: eu4_harmony_lua::windows::Windows,
-    /// Each extension's texts in the player language, by key, for its
-    /// windows' definitions.
-    words: BTreeMap<usize, BTreeMap<String, String>>,
     images: BTreeMap<usize, Vec<eu4_harmony_lua::images::Image>>,
     /// The clicks on extension windows' buttons, heard at the next frame.
     clicks: Vec<Click>,
@@ -68,18 +65,11 @@ impl Windows {
 // ---------- what the Lua host and remote control call ----------
 
 /// The windows the extension `extension` of the mod `id` declares, from its
-/// main.lua, with `words` putting the mod's keys into the player language;
-/// its earlier windows, at an extension reload, are closed.
-pub fn declare(extension: usize, id: &str, windows: &[Window], images: &[eu4_harmony_lua::images::Image], words: impl Fn(&str) -> Option<String>) {
-    let mut keys = Vec::new();
-    for w in windows {
-        gui::keys(w, &mut keys);
-    }
-    let words = keys.into_iter().filter_map(|k| words(&k).map(|t| (k, t))).collect();
+/// main.lua; its earlier windows, at an extension reload, are closed.
+pub fn declare(extension: usize, id: &str, windows: &[Window], images: &[eu4_harmony_lua::images::Image]) {
     with(|all| {
         all.forget(extension);
         all.wanted.declare(extension, id, windows);
-        all.words.insert(extension, words);
         all.images.insert(extension, images.to_vec());
         all.generation += 1;
     });
@@ -132,7 +122,7 @@ pub fn popups() -> Vec<eu4_harmony_remote::popups::Popup> {
             header: popup.header.clone(),
             title: popup.title.clone(),
             text: popup.text.clone(),
-            buttons: if popup.buttons.is_empty() { vec![game_words(gui::OK)] } else { popup.buttons.clone() },
+            buttons: popup.shown_buttons(&game_words(gui::OK)),
         })
         .collect()
 }
@@ -211,11 +201,6 @@ pub fn splice_entries(plan: &mut crate::splice::Plan) -> Vec<String> {
         }
         Vec::new()
     })
-}
-
-/// A key's words as the game is to show them, for [`live`].
-fn words_of(words: &BTreeMap<String, String>, text: &Option<eu4_harmony_lua::Text>) -> String {
-    text.as_ref().map(|text| text.resolve(|key| words.get(key).cloned())).unwrap_or_default()
 }
 
 /// The element names of a window's definition: its own, and its game

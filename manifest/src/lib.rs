@@ -209,6 +209,178 @@ impl HarmonyMod {
 /// and an upload leaves them out.
 pub const LOCATION_KEYS: [&str; 2] = ["path", "archive"];
 
+/// A Paradox `.mod` descriptor, resolved against the user folder it sits in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Descriptor {
+    pub name: String,
+    /// The mod's own version, as its descriptor gives it.
+    pub version: Option<String>,
+    pub path: Option<PathBuf>,
+    pub archive: Option<String>,
+}
+
+/// `path` written with `/`, without Windows' `\\?\` prefix.
+pub fn slash_path(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    text.strip_prefix(r"\\?\").unwrap_or(&text).replace('\\', "/")
+}
+
+impl Descriptor {
+    /// Reads the `key="value"` lines of a `.mod` descriptor against `user_dir`.
+    pub fn parse(text: &str, user_dir: &Path) -> Self {
+        let mut name = String::new();
+        let mut version = None;
+        let mut path = None;
+        let mut archive = None;
+        for (key, value) in line_entries(text) {
+            let value = value.replace('\\', "/");
+            match key {
+                "name" => name = value,
+                "version" => version = Some(value),
+                "path" => {
+                    let p = PathBuf::from(&value);
+                    path = Some(if p.is_absolute() { p } else { user_dir.join(p) });
+                }
+                "archive" => archive = Some(value),
+                _ => {}
+            }
+        }
+        Self { name, version, path, archive }
+    }
+
+    /// Descriptor text without the `path=` and `archive=` lines the launcher adds.
+    pub fn without_location(text: &str) -> String {
+        let mut out = String::new();
+        for line in text.lines() {
+            if !line_entry(line).is_some_and(|(key, _)| LOCATION_KEYS.contains(&key)) {
+                out.push_str(line.strip_prefix('\u{feff}').unwrap_or(line));
+                out.push('\n');
+            }
+        }
+        out
+    }
+
+    /// Descriptor text pointing at `mod_dir`, with any earlier location lines removed.
+    pub fn with_path(text: &str, mod_dir: &Path) -> String {
+        format!("{}path=\"{}\"\n", Self::without_location(text), slash_path(mod_dir))
+    }
+
+    /// Descriptor text relocated from `original_user` into another user folder:
+    /// relative `path=` and `archive=` entries become absolute paths under
+    /// `original_user`, while already-absolute paths and trailing comments stay.
+    pub fn relocate(text: &str, original_user: &Path) -> Result<String, String> {
+        let mut out = String::new();
+        for raw_line in text.lines() {
+            let line = raw_line.strip_prefix('\u{feff}').unwrap_or(raw_line);
+            let mut quoted = false;
+            let comment_at = line
+                .char_indices()
+                .find(|&(_, c)| {
+                    quoted ^= c == '"';
+                    c == '#' && !quoted
+                })
+                .map_or(line.len(), |(at, _)| at);
+            let field = line[..comment_at].split_once('=').filter(|(key, _)| LOCATION_KEYS.contains(&key.trim()));
+            match field {
+                Some((key, rest)) => {
+                    let trimmed = rest.trim_start();
+                    let (value, trailing) = if let Some(after_open) = trimmed.strip_prefix('"') {
+                        let Some((inside, after_close)) = after_open.split_once('"') else {
+                            return Err("a copied mod descriptor has an incomplete path string".into());
+                        };
+                        (inside, format!("{}{}", after_close, &line[comment_at..]))
+                    } else {
+                        (trimmed.trim_end(), line[comment_at..].to_string())
+                    };
+                    if value.is_empty() {
+                        return Err("a copied mod descriptor has an empty path".into());
+                    }
+                    let candidate = PathBuf::from(value.replace('/', "\\"));
+                    let resolved = if candidate.is_absolute() { candidate } else { original_user.join(candidate) };
+                    out.push_str(&format!("{}=\"{}\"{}\n", key.trim(), slash_path(&resolved), trailing));
+                }
+                None => {
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// Whether `descriptor`, as a save or the playset names a mod's descriptor,
+/// is the one `other` names: the same path in either case, with either slash.
+pub fn same_descriptor(descriptor: &str, other: &str) -> bool {
+    let normal = |path: &str| path.trim().replace('\\', "/").to_lowercase();
+    normal(descriptor) == normal(other)
+}
+
+/// The active playset in `<user_dir>/dlc_load.json`, preserving non-mod fields
+/// such as `disabled_dlcs` when written back.
+#[derive(Debug, Clone)]
+pub struct Playset(serde_json::Value);
+
+impl Default for Playset {
+    fn default() -> Self {
+        Self(serde_json::json!({ "enabled_mods": [], "disabled_dlcs": [] }))
+    }
+}
+
+impl Playset {
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let value: serde_json::Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).map_err(|e| e.to_string())?;
+        let Some(object) = value.as_object() else {
+            return Err("playset is not a JSON object".into());
+        };
+        if let Some(enabled) = object.get("enabled_mods") {
+            let Some(list) = enabled.as_array() else {
+                return Err("enabled_mods is not a list".into());
+            };
+            if !list.iter().all(serde_json::Value::is_string) {
+                return Err("enabled_mods holds a non-string entry".into());
+            }
+        }
+        Ok(Self(value))
+    }
+
+    pub fn read(path: &Path) -> Result<Self, String> {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+        Self::parse(&text).map_err(|e| format!("parse {}: {e}", path.display()))
+    }
+
+    pub fn read_or_default(path: &Path) -> Self {
+        Self::read(path).unwrap_or_default()
+    }
+
+    pub fn enabled(&self) -> Vec<String> {
+        self.0
+            .get("enabled_mods")
+            .and_then(serde_json::Value::as_array)
+            .map(|a| a.iter().filter_map(serde_json::Value::as_str).map(String::from).collect())
+            .unwrap_or_default()
+    }
+
+    pub fn retain(&mut self, mut keep: impl FnMut(&str) -> bool) {
+        let kept: Vec<serde_json::Value> = self.enabled().into_iter().filter(|e| keep(e)).map(serde_json::Value::String).collect();
+        self.0["enabled_mods"] = serde_json::Value::Array(kept);
+    }
+
+    pub fn enable(&mut self, descriptor: impl Into<String>) {
+        let descriptor = descriptor.into();
+        let mut list = self.enabled();
+        if !list.iter().any(|existing| same_descriptor(existing, &descriptor)) {
+            list.push(descriptor);
+        }
+        self.0["enabled_mods"] = serde_json::Value::Array(list.into_iter().map(serde_json::Value::String).collect());
+    }
+
+    pub fn write(&self, path: &Path) -> Result<(), String> {
+        let text = serde_json::to_string_pretty(&self.0).map_err(|e| e.to_string())?;
+        std::fs::write(path, text).map_err(|e| format!("cannot write {}: {e}", path.display()))
+    }
+}
+
 /// The key and the value of one line of the game's plain `key="value"`
 /// files, as a `.mod` descriptor, the game's `settings.txt`, the framework
 /// settings and a plain save's header have them: both trimmed, the value's
@@ -354,5 +526,51 @@ permissions = { network = [\"https://x.com\"] }"
         // A byte order mark, as Notepad saves a file with.
         assert_eq!(line_entries("\u{feff}body_font=\"Microsoft YaHei\"\r\n}\r\nx = 2").collect::<Vec<_>>(), [("body_font", "Microsoft YaHei"), ("x", "2")]);
         assert_eq!(line_entry(""), None);
+    }
+
+    #[test]
+    fn descriptors_parse_strip_location_and_relocate_with_bom_and_comments() {
+        let user = Path::new(r"C:\Users\p\Documents\EU4");
+        let raw = "\u{feff}name=\"Mod #1\" # display\nversion=\"1.2\"\npath=\"mod/local #1\" # kept\narchive=\"mod/pack.zip\"\npath_hint=\"kept\"\n";
+        let parsed = Descriptor::parse(raw, user);
+        assert_eq!((parsed.name.as_str(), parsed.version.as_deref()), ("Mod #1", Some("1.2")));
+        assert_eq!(parsed.path.unwrap(), user.join("mod/local #1"));
+        assert_eq!(parsed.archive.as_deref(), Some("mod/pack.zip"));
+
+        let stripped = Descriptor::without_location(raw);
+        assert_eq!(stripped, "name=\"Mod #1\" # display\nversion=\"1.2\"\npath_hint=\"kept\"\n");
+
+        let linked = Descriptor::with_path(raw, Path::new(r"\\?\D:\mods\m"));
+        assert_eq!(linked, "name=\"Mod #1\" # display\nversion=\"1.2\"\npath_hint=\"kept\"\npath=\"D:/mods/m\"\n");
+
+        let relocated = Descriptor::relocate(raw, user).unwrap();
+        assert_eq!(
+            relocated,
+            "name=\"Mod #1\" # display\nversion=\"1.2\"\npath=\"C:/Users/p/Documents/EU4/mod/local #1\" # kept\narchive=\"C:/Users/p/Documents/EU4/mod/pack.zip\"\npath_hint=\"kept\"\n"
+        );
+        let workshop = Descriptor::relocate("name=\"W\"\npath=\"E:/Steam/workshop/content/236850/1\"\n", user).unwrap();
+        assert_eq!(workshop, "name=\"W\"\npath=\"E:/Steam/workshop/content/236850/1\"\n");
+        assert!(Descriptor::relocate("path=\"unclosed\n", user).is_err());
+        assert!(Descriptor::relocate("path=\"\"\n", user).is_err());
+        assert!(same_descriptor("mod\\Harmony.mod", " MOD/harmony.mod"));
+    }
+
+    #[test]
+    fn playset_preserves_other_fields_and_deduplicates_descriptors() {
+        let dir = std::env::temp_dir().join(format!("eu4h-playset-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("dlc_load.json");
+        let mut playset = Playset::parse("\u{feff}{\"enabled_mods\":[\"mod/ugc_1.mod\"],\"disabled_dlcs\":[\"dlc/a.dlc\"],\"extra\":1}").unwrap();
+        playset.enable("MOD\\ugc_1.mod");
+        playset.enable("mod/eu4harmony-test-qa.mod");
+        assert_eq!(playset.enabled(), ["mod/ugc_1.mod", "mod/eu4harmony-test-qa.mod"]);
+        playset.retain(|e| !e.starts_with("mod/eu4harmony-test-"));
+        playset.write(&file).unwrap();
+        let reread: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert_eq!(reread["enabled_mods"], serde_json::json!(["mod/ugc_1.mod"]));
+        assert_eq!(reread["disabled_dlcs"], serde_json::json!(["dlc/a.dlc"]));
+        assert_eq!(reread["extra"], serde_json::json!(1));
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
