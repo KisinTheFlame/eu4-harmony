@@ -198,13 +198,17 @@ fn daily_before(call: &mut Call) {
     crate::drawing::day_begins();
     #[cfg(feature = "dev-crossings")]
     crate::crossings::day_begins(&call.memory());
-    #[cfg(not(feature = "dev-crossings"))]
+    #[cfg(feature = "dev-performance")]
+    crate::performance_hooks::day_begins(call);
+    #[cfg(not(any(feature = "dev-crossings", feature = "dev-performance")))]
     let _ = call;
 }
 
 /// The day is over: time stops here when remote control advances it to this
 /// date (`time`).
 fn daily_after(call: &mut Call) {
+    #[cfg(feature = "dev-performance")]
+    crate::performance_hooks::day_ends(call);
     #[cfg(feature = "dev-crossings")]
     crate::crossings::day_ends();
     crate::drawing::day_ends();

@@ -412,6 +412,8 @@ macro_rules! capability_groups {
             Extension(extensions),
             #[cfg(feature = "dev-memory")]
             Memory => Outcome::Done(crate::memory_account::answer(request).map(Answer::Memory)),
+            #[cfg(feature = "dev-performance")]
+            Performance => Outcome::Done(crate::performance_hooks::answer(request).map(Answer::Performance).map_err(Error::from)),
             Input(input: Layer) => input::run(request, game),
             Desktop(desktop),
             Decision(decisions),

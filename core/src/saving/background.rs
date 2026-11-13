@@ -69,13 +69,29 @@ use eu4_harmony_folders::SAVE_GAMES;
 /// on the main thread, as before.
 pub const SPEED_UP: SpeedUp = SpeedUp { name: "background-compression", group: "saving", points, checkable: false };
 
-fn points() -> Vec<Point> {
+#[cfg(feature = "dev-performance")]
+pub fn performance_points() -> Vec<Point> {
+    // The tool owns these shared observers in this build, including when
+    // background compression is left to the game.
+    save_points()
+}
+
+fn save_points() -> Vec<Point> {
     vec![
         Point::observe(LOCAL_SAVE, "48 89 5c 24 10 48 89 74 24 18 57 41 54 41 55", "local save", 1, Some(save_before), Some(save_after)),
         Point::observe(IRONMAN_SAVE, "48 89 5c 24 18 48 89 74 24 20 57 41 54 41 55", "local ironman save", 1, Some(save_before), Some(save_after)),
+    ]
+}
+
+fn points() -> Vec<Point> {
+    let mut points = vec![
         Point::observe(ADD_ENTRY, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18", "zip entry", 5, Some(entry_before), None),
         Point::observe(MOVE_FILE, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 20", "file move", 2, None, Some(moved)),
-    ]
+    ];
+    if !cfg!(feature = "dev-performance") {
+        points.extend(save_points());
+    }
+    points
 }
 
 /// A local save is under way on the main thread.
@@ -105,14 +121,32 @@ fn remove_leftovers(dir: &Path) -> usize {
     entries.flatten().filter(|e| e.file_name().to_string_lossy().ends_with(TMP_SUFFIX)).filter(|e| std::fs::remove_file(e.path()).is_ok()).count()
 }
 
-fn save_before(_: &mut Call) {
+fn save_before(call: &mut Call) {
+    #[cfg(feature = "dev-performance")]
+    {
+        crate::performance_hooks::save_begins(call);
+        if crate::speed::game_path(&SPEED_UP) {
+            return;
+        }
+    }
+    #[cfg(not(feature = "dev-performance"))]
+    let _ = call;
     wait();
     MOVED.lock().unwrap_or_else(|e| e.into_inner()).clear();
     SAVING.store(crate::thread_id() == crate::main_thread(), Ordering::SeqCst);
     *BEGAN.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
 }
 
-fn save_after(_: &mut Call) {
+fn save_after(call: &mut Call) {
+    #[cfg(feature = "dev-performance")]
+    {
+        crate::performance_hooks::save_ends(call);
+        if crate::speed::game_path(&SPEED_UP) {
+            return;
+        }
+    }
+    #[cfg(not(feature = "dev-performance"))]
+    let _ = call;
     if !SAVING.swap(false, Ordering::SeqCst) {
         return;
     }

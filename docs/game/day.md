@@ -78,6 +78,7 @@ The frames between days, and the frames inside them, are the in-game idler's fra
 ## What the framework relies on
 
 - **Time for remote control** (`game::time`): the speed set through the speed commands, the pause through the toggle, and an advance stopped on its date by pausing as the day's update returns, so that no further day begins ([research/time.md](../research/time.md), "Stopping on a date"; [plans/remote-control.md](../plans/remote-control.md)). The commands run at once ([ADR commands-run-at-once](../adr/2026-11-03-commands-run-at-once.md)).
+- **Completed-day performance** is counted at the return of the full daily update, with its nested interface updates and waits included in the daily call duration. The date increment at entry is not completion; the framework's subsequent day-end presentation-lock wait is outside that duration ([research/performance-boundaries.md](../research/performance-boundaries.md)).
 - **A new day for extensions**, observed at both ends of the day's update; the game is not ready to be read while the day's flag is set ([research/time.md](../research/time.md), "The daily update").
 - **Dates in the player language**: the framework writes the dates the game writes in code from templates of the player language ([research/dates.md](../research/dates.md), "What the framework does"; [plans/player-language.md](../plans/player-language.md)).
 - **The drawing thread** draws the frames beside the day, and the frames inside a day update the interface without drawing ([plans/drawing-thread.md](../plans/drawing-thread.md)).

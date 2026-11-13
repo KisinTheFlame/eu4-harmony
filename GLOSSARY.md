@@ -198,6 +198,14 @@ _Avoid_: callback, UI hook
 The one lock between the main thread and the drawing thread: the drawing thread holds it for each frame it draws but for the frame's Present, the main thread for each update of the interface and each crossing, so that the interface's own objects are never used by both at once.
 _Avoid_: render lock, UI mutex
 
+**Performance window**:
+A bounded stretch of real time in one game over which completed days, frame submissions and interface updates are measured together. Retrieving its report later does not extend it; a change of session, speed or pause state divides its results into separate segments.
+_Avoid_: frame sample (a window contains many frames), benchmark score
+
+**Interface update age**:
+The real time since the interface update represented by the last successfully submitted frame became ready. It grows while drawing or updates stall, including while the game is paused, and does not establish the freshness of every value on screen.
+_Avoid_: input latency, world lag
+
 **Safe point**:
 A moment on the game's main thread when game state can be read and changed safely. The framework calls extensions only at safe points.
 _Avoid_: tick

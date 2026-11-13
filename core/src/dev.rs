@@ -1,7 +1,7 @@
 //! A developer build: which development tools are built in, each a feature of
 //! its own (`dev-call-trace`, `dev-memory`, `dev-heap-census`,
 //! `dev-command-log`, `dev-test-switches`, `dev-write-watch`,
-//! `dev-test-games`, `dev-crossings`), and their options. A tool built in is on; its options
+//! `dev-test-games`, `dev-crossings`, `dev-performance`), and their options. A tool built in is on; its options
 //! are in `dev.toml` beside the core, `eu4-harmony\dev.toml` in the game
 //! folder or a test game's own, one section a tool, and a section left out
 //! takes its defaults (`core/dev.toml.example` shows them all). A player's
@@ -13,7 +13,7 @@ use std::sync::OnceLock;
 
 /// The tools: each one's name, its section in dev.toml, and whether it is
 /// built in.
-const TOOLS: [(&str, &str, bool); 8] = [
+const TOOLS: [(&str, &str, bool); 9] = [
     ("call trace", "call-trace", cfg!(feature = "dev-call-trace")),
     ("memory account", "memory-account", cfg!(feature = "dev-memory")),
     ("heap census", "heap-census", cfg!(feature = "dev-heap-census")),
@@ -22,6 +22,7 @@ const TOOLS: [(&str, &str, bool); 8] = [
     ("write watch", "write-watch", cfg!(feature = "dev-write-watch")),
     ("test games' pipes", "test-games", cfg!(feature = "dev-test-games")),
     ("crossings", "crossings", cfg!(feature = "dev-crossings")),
+    ("performance", "performance", cfg!(feature = "dev-performance")),
 ];
 
 /// What dev.toml says.
@@ -30,6 +31,7 @@ const TOOLS: [(&str, &str, bool); 8] = [
 pub struct Options {
     pub call_trace: CallTrace,
     pub memory_account: MemoryAccount,
+    pub performance: Performance,
     pub heap_census: HeapCensus,
     pub command_log: CommandLog,
     pub test_switches: TestSwitches,
@@ -70,6 +72,11 @@ impl Default for CallTrace {
 #[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct MemoryAccount {}
+
+/// Performance has no persistent options: each request bounds its window.
+#[derive(Debug, Default, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Performance {}
 
 /// The census has no options: a generation ends at every world reset and
 /// when remote control asks.
@@ -240,6 +247,9 @@ impl Options {
         }
         if built("memory-account") {
             lines.push("memory account: at memory, from remote control".to_string());
+        }
+        if built("performance") {
+            lines.push("performance: bounded windows at performance.begin and performance.end".to_string());
         }
         if built("heap-census") {
             lines.push("heap census: a generation ends at every world reset and at memory.generation".to_string());

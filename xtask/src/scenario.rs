@@ -54,6 +54,8 @@ pub enum Build {
     /// A developer build with the test switches, which leave speed-ups to
     /// the game (core/src/speed.rs).
     Switches,
+    /// Bounded performance collection, optionally with game-path switches.
+    Performance { switches: bool },
 }
 
 impl Build {
@@ -63,6 +65,8 @@ impl Build {
             Self::Memory => "memory account",
             Self::Census => "heap census",
             Self::Switches => "test switches",
+            Self::Performance { switches: false } => "performance collection",
+            Self::Performance { switches: true } => "performance collection and test switches",
         }
     }
 
@@ -74,6 +78,8 @@ impl Build {
             Self::Memory => "eu4-harmony-core/dev-test-games,eu4-harmony-core/dev-memory",
             Self::Census => "eu4-harmony-core/dev-test-games,eu4-harmony-core/dev-heap-census",
             Self::Switches => "eu4-harmony-core/dev-test-games,eu4-harmony-core/dev-test-switches",
+            Self::Performance { switches: false } => "eu4-harmony-core/dev-test-games,eu4-harmony-core/dev-performance",
+            Self::Performance { switches: true } => "eu4-harmony-core/dev-test-games,eu4-harmony-core/dev-performance,eu4-harmony-core/dev-test-switches",
         }
     }
 }

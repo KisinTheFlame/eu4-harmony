@@ -170,6 +170,8 @@ cargo xtask game release --owner mine   # 留下日志，删掉其余
 
 `cargo xtask scenario windows --owner mine` 在扩展重载和会话切换中验证原生扩展窗口与列表替换，保留截图供人工检查；它也在 `scenario whole` 中运行。[开发工具](docs/dev-tools.md)说明了检查内容和验证范围。
 
+`cargo xtask scenario perf --owner mine` 在暂停和五速窗口中测量完成的游戏日、画面提交间隔和界面更新，同时记录启动、CPU 和内存。它使用专门的性能开发构建，输出 JSON 与 Markdown 报告；[开发工具](docs/dev-tools.md)说明了测量内容和局限。
+
 框架和游戏一样，按游戏自己的 `-userdir` 找用户文件夹。
 
 `cargo xtask --help` 列出其他开发命令。

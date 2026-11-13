@@ -118,6 +118,18 @@ const IDLER_HOLDS_CAMERA_2: usize = 0x3b0;
 const OTHER_CAMERA: usize = 0x233ff4f;
 const APP_FOCUS: usize = 0xb8;
 
+#[cfg(feature = "dev-performance")]
+pub fn performance_points() -> Vec<Point> {
+    vec![Point::observe(
+        DRAWING,
+        "48 8b c4 48 89 58 08 55 56 57 41 54 41 55 41 56 41 57",
+        "performance: main-thread drawing",
+        1,
+        Some(crate::performance_hooks::main_draws),
+        None,
+    )]
+}
+
 fn points() -> Vec<Point> {
     vec![
         Point::jump(FRAME_DRAWS, "49 8b cd e8 8f 2a 00 00", "the in-game frame calls its drawing", frame_draws_stub as *const () as usize, &FRAME_RESUME),
@@ -610,6 +622,8 @@ extern "C" fn frame_draws(idler: usize) {
     icons::prepared();
     let was_idle = FRAMES.prepared_idler() == 0;
     FRAMES.publish_prepared(idler);
+    #[cfg(feature = "dev-performance")]
+    crate::performance::prepared();
     CAMERA_MOVED_THERE.store(1, Ordering::Relaxed);
     if was_idle {
         let _guard = PREPARED_WAKE.0.lock().unwrap_or_else(|e| e.into_inner());
@@ -710,6 +724,17 @@ fn direct3(m: &Memory, function: GameFunction<3>) -> unsafe extern "C" fn(usize,
     unsafe { std::mem::transmute::<usize, unsafe extern "C" fn(usize, usize, usize) -> usize>(m.at(function.rva())) }
 }
 
+#[cfg(feature = "dev-performance")]
+static PERFORMANCE_RATE: AtomicU32 = AtomicU32::new(0);
+
+/// The actual target used by the drawing thread; the native main-thread
+/// path and unlimited drawing have no declared target for threshold counts.
+#[cfg(feature = "dev-performance")]
+pub fn performance_interval() -> Option<Duration> {
+    let rate = PERFORMANCE_RATE.load(Ordering::Relaxed);
+    (drawing_on() && !UNLIMITED.load(Ordering::Relaxed) && rate != 0).then(|| Duration::from_secs_f64(1.0 / rate as f64))
+}
+
 /// The display's refresh rate, 60 when Windows does not say.
 fn refresh_rate() -> u32 {
     use windows_sys::Win32::Graphics::Gdi::{EnumDisplaySettingsW, DEVMODEW, ENUM_CURRENT_SETTINGS};
@@ -754,6 +779,8 @@ fn run() {
     DRAWING_THREAD.store(crate::thread_id(), Ordering::Relaxed);
     let m = crate::hooked_memory();
     let rate = refresh_rate();
+    #[cfg(feature = "dev-performance")]
+    PERFORMANCE_RATE.store(rate, Ordering::Relaxed);
     let interval = Duration::from_secs_f64(1.0 / rate as f64);
     log!("drawing: the drawing thread runs, at {rate} frames a second unless no limit");
     let mut next = Instant::now();

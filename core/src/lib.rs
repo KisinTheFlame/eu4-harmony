@@ -78,6 +78,10 @@ pub mod notice;
 pub mod objects;
 pub mod paths;
 pub mod pdx;
+#[cfg(feature = "dev-performance")]
+mod performance;
+#[cfg(feature = "dev-performance")]
+mod performance_hooks;
 pub mod physfs;
 pub mod pipe;
 pub mod points;

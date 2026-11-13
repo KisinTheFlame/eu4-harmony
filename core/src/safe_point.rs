@@ -136,6 +136,8 @@ static LISTENERS: Listeners<lua::Extensions, remote::Remote> = Listeners::new(lu
 
 /// The session going on ended, for `end` (`crate::sessions`).
 pub(crate) fn session_ended(end: End) {
+    #[cfg(feature = "dev-performance")]
+    crate::performance_hooks::session_ended();
     LISTENERS.ended(end);
 }
 
@@ -197,7 +199,11 @@ pub fn game_frame() {
                     .into_iter()
                     .map(|(popup, from)| game::Heard { signal: eu4_harmony_remote::signals::Signal::Popup { popup, from }, seen: true }),
             );
+            #[cfg(feature = "dev-performance")]
+            crate::performance_hooks::frame();
             LISTENERS.frame(frame.session(), &heard);
+            #[cfg(feature = "dev-performance")]
+            crate::performance_hooks::frame();
         }
         // A frame the game is not ready in comes and goes: the frame's
         // presenting decides.
