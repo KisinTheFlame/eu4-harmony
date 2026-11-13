@@ -9,6 +9,7 @@ What is written down about the framework, and where. Terms are in [GLOSSARY.md](
 | [game/](game/) | What is known of the game, one page for each of its systems |
 | [dev-tools.md](dev-tools.md) | The development tools, what each is for and how to use it |
 | [performance.md](performance.md) | What the framework costs the game, as measured in the running game |
+| [releases.md](releases.md) | Tag-triggered GitHub publication, separate downloads, source checks, retries and local Workshop uploads |
 | [logs.md](logs.md) | Bounded framework logs, repeated-error summaries, event snapshots, cleanup and troubleshooting collection |
 | [adding-a-capability.md](adding-a-capability.md) | How a capability is added, layer by layer |
 
@@ -32,6 +33,7 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 | [adr/](adr/) | Decisions that are hard to reverse, one file each, and why they were made |
 | [research/](research/) | The research into the game's code that the pages of [game/](game/) rest on, with addresses as RVAs into the 1.37.5 baseline; [addresses.toml](research/addresses.toml) indexes every address they name |
 | [prototype-log/](prototype-log/) | What was tested in the running game and what came out, one file per run |
+| [2026-11-14-release-0.2.0-smoke.md](prototype-log/2026-11-14-release-0.2.0-smoke.md) | Version 0.2.0 local build, offline checks and hidden window and achievement scenarios before automated publication |
 | [2026-11-14-large-mod-startup.md](prototype-log/2026-11-14-large-mod-startup.md) | Single-pass localisation, indexed replacements and interned trigger profiles checked and timed across Guixu, 2000 AD and the player's playset |
 | [localisation-loading.md](research/localisation-loading.md) | `main` loading the whole localisation twice, the quadratic scans in `localisation/replace` and duplicate checking, and the triggers' optimization profile |
 | [2026-11-13-guixu-startup-sampled.md](prototype-log/2026-11-13-guixu-startup-sampled.md) | Guixu and 2000 AD startups sampled and timed, showing 11–14 s in double localisation loading and `localisation/replace` |
@@ -73,6 +75,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 | | |
 | --- | --- |
 | [performance-metrics.md](plans/performance-metrics.md) | Completed-day, submission and interface collection built and checked; action response, pure interface-work timing and the full save comparison matrix remain deferred |
+| [automated-releases.md](plans/automated-releases.md) | Tag-triggered GitHub Releases with separate framework and CLI packages, checked sources, retries and local Workshop uploads |
 | [panel-entries-and-tooltips.md](plans/panel-entries-and-tooltips.md) | Shared tooltip content and lifetime, checked entry images and independent formatted numbers |
 | [game-speed.md](plans/game-speed.md) | Making the game faster without changing the game it plays; how a part is chosen, and which comes next |
 | [mod-capabilities.md](plans/mod-capabilities.md) | What the framework opens to mods, what each area still lacks, and the parts taking it up: signals, reads, the script group and requests as the game, tasks, the panels' actions |

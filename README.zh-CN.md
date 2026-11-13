@@ -38,6 +38,8 @@ Steam 会让 Harmony 保持最新。偶尔有更新需要换新的 `version.dll`
 
 **卸载：** 取消订阅 Harmony，游戏就回到原样。想不留痕迹，再删掉游戏目录里的 `version.dll`；之前挪走过别的 `version.dll` 的话，把它放回去。
 
+手动安装可从 [GitHub Releases](https://github.com/KisinTheFlame/eu4-harmony/releases) 下载 `eu4-harmony-<version>-windows-x64.zip`，关闭游戏后解压到游戏目录，和 `eu4.exe` 放在一起；原本有其他补丁的 `version.dll` 时，先把它挪走。这个包同时安装代理和核心。每次更新都需要自己下载并解压：本地核心优先于工坊核心，Steam 不会更新这份本地副本。要恢复工坊更新，删掉本地的 `eu4-harmony\eu4_harmony_core.dll`；要卸载手动安装的框架，删掉这个 DLL 和 `version.dll`。CLI 另有 `eu4-harmony-cli-<version>-windows-x64.zip`，可以放在游戏目录之外运行，玩家不需要安装它。[发布说明](docs/releases.md)介绍版本标签和发布流程。
+
 需要知道的几件事：
 
 - 用 Harmony 玩的游戏里，你输入的名字以 UTF-8 保存，没有 Harmony 时会显示成乱码。
@@ -154,7 +156,7 @@ cargo test
 cargo xtask release        # 打出玩家包和创意工坊条目的文件夹
 ```
 
-`cargo xtask release` 打出 `target\eu4-harmony\`：一个文件夹，里面是 `version.dll` 和装着核心与命令行工具的 `eu4-harmony\` 文件夹，另有它的 zip。要手动安装一个构建，就把这两样复制到游戏目录，和 `eu4.exe` 放在一起；`cargo xtask install` 就是做这件事的，`--uninstall` 把它们删掉。游戏目录里的核心先于创意工坊的被加载，所以这样装的构建就是实际运行的那个。
+`cargo xtask release` 构建优化后的玩家配置，在 `target\dist\` 下分别生成框架和 CLI 的 ZIP，以及 `framework\` 和 `cli\` 暂存文件夹。把框架包里的 `version.dll` 和 `eu4-harmony\` 文件夹复制到游戏目录，和 `eu4.exe` 放在一起；CLI 放在你运行它的位置即可。`cargo xtask install` 安装代理和核心，`--uninstall` 把它们删掉。本地核心优先于工坊核心。`cargo xtask release --no-workshop` 跳过工坊文件和对比图渲染，GitHub 发布就采用这个方式。[发布说明](docs/releases.md)介绍检查、标签和重跑。
 
 游戏通过 `EU4_GAME_DIR` 或 Steam 找到。要在游戏里试构建，就认领一局测试游戏：它从游戏目录启动，有自己的用户文件夹、核心和远程控制管道，既不碰玩家的文件，也不碰游戏目录里装好的框架，几局可以同时跑（[docs/plans/test-games.md](docs/plans/test-games.md)）。游戏目录里要先装一次支持测试游戏的框架，装时玩家自己的游戏要关着（`cargo xtask install`）。
 

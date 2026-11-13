@@ -38,6 +38,8 @@ Steam keeps Harmony up to date. Once in a while an update needs a new `version.d
 
 **Uninstalling:** unsubscribe from Harmony, and the game runs as it always did. To leave nothing behind, delete `version.dll` from the game's folder too, and put back the one you moved, if any.
 
+For a manual install, download `eu4-harmony-<version>-windows-x64.zip` from [GitHub Releases](https://github.com/KisinTheFlame/eu4-harmony/releases), close the game and extract it into the game folder beside `eu4.exe`, moving aside another patch's `version.dll` first. This installs the proxy and core together. Download and extract each update yourself: the local core takes precedence over the Workshop's, so Steam does not update this copy. To return to Workshop updates, remove the local `eu4-harmony\eu4_harmony_core.dll`; to uninstall the manual build, remove that DLL and `version.dll`. The CLI is a separate `eu4-harmony-cli-<version>-windows-x64.zip` download and can run outside the game folder; players do not need it. [Releases](docs/releases.md) describe version tags and publication.
+
 Good to know:
 
 - Names you type in a game played with Harmony are saved as UTF-8, and show as garbage without it.
@@ -154,7 +156,7 @@ cargo test
 cargo xtask release        # pack the player package and the Workshop item's folder
 ```
 
-`cargo xtask release` packs `target\eu4-harmony\`, a folder holding `version.dll` and an `eu4-harmony\` folder with the core and the command line tool, and a zip of it. To install a build by hand, copy both into the game's folder, next to `eu4.exe`; `cargo xtask install` does that, and `--uninstall` removes them. A core in the game's folder is loaded before the one from the Workshop, so a build installed this way is the one that runs.
+`cargo xtask release` builds the optimized player profile and writes separate framework and CLI ZIPs under `target\dist\`, alongside staging folders `framework\` and `cli\`. Copy the framework package's `version.dll` and `eu4-harmony\` folder into the game folder beside `eu4.exe`; keep the CLI wherever you run it. `cargo xtask install` installs the proxy and core, and `--uninstall` removes them. A local core takes precedence over the Workshop's. `cargo xtask release --no-workshop` skips the Workshop files and comparison-image rendering, as GitHub publication does. [Releases](docs/releases.md) cover checks, tags and retries.
 
 The game is found through `EU4_GAME_DIR` or Steam. To try the build in the game, claim a test game: a game started from the game folder with a user folder, a core and a remote control pipe of its own, so that it touches neither the player's files nor the framework installed in the game folder, and several run side by side ([docs/plans/test-games.md](docs/plans/test-games.md)). The game folder needs a framework from test games on, installed once with the player's game closed (`cargo xtask install`).
 

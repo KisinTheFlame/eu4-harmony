@@ -1,6 +1,6 @@
 # Harmony's Workshop item
 
-The sources of what the Steam Workshop shows of Harmony ([docs/plans/workshop-release.md](../docs/plans/workshop-release.md)). `cargo xtask release` packs the item from them into `target\workshop\`, and `cargo xtask workshop-upload` uploads it ([docs/dev-tools.md](../docs/dev-tools.md)).
+The sources of what the Steam Workshop shows of Harmony ([docs/plans/workshop-release.md](../docs/plans/workshop-release.md)). `cargo xtask release` packs the item from them into `target\workshop\`, and `cargo xtask workshop-upload` uploads it locally ([docs/dev-tools.md](../docs/dev-tools.md)). The version's existing local and remote tag must select the clean source being uploaded; upload never creates a tag. GitHub Releases use the separate framework and CLI ZIPs, with `--no-workshop` to omit this item and image rendering ([releases](../docs/releases.md)).
 
 | File | What it is |
 | --- | --- |

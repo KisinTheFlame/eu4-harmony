@@ -1,0 +1,126 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  # Preparation only. Publication has no manual-dispatch entry point.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Different versions do not cancel each other, and attempts for one tag
+# cannot edit its draft at the same time.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source:
+    runs-on: windows-2025
+    outputs:
+      commit: ${{ steps.metadata.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require master for a preparation run
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -ne 'refs/heads/master') {
+            throw 'Preparation runs must select master.'
+          }
+      - name: Rust
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-source
+          save-if: ${{ github.event_name == 'workflow_dispatch' }}
+      - name: Validate the selected source and version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq 'push') {
+            cargo run --locked -p xtask -- release-check --tag "$env:RELEASE_TAG" --out target/dist
+          } else {
+            cargo run --locked -p xtask -- release-check --out target/dist
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Record the validated commit
+        id: metadata
+        shell: pwsh
+        run: |
+          $release = Get-Content target/dist/release.json -Raw | ConvertFrom-Json
+          "commit=$($release.commit)" >> $env:GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-source
+          path: target/dist/release.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  checks:
+    needs: source
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  package:
+    needs: [source, checks]
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.source.outputs.commit }}
+          persist-credentials: false
+      - name: Rust
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-player
+          save-if: ${{ github.event_name == 'workflow_dispatch' }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-source
+          path: target/dist
+      # Do not inherit ordinary CI's optimization overrides: these files are
+      # the actual optimized player build, with no development features.
+      - name: Build and check both player packages
+        run: cargo xtask release --out target/dist --no-workshop
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-packages
+          path: |
+            target/dist/*.zip
+            target/dist/release.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [source, checks, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.source.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-packages
+          path: target/dist
+      - name: Complete the draft and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/scripts/release.mjs target/dist

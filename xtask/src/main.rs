@@ -9,6 +9,7 @@ mod crash_dump;
 mod files;
 mod game;
 mod profile;
+mod release;
 mod scenario;
 mod workshop;
 
@@ -57,21 +58,25 @@ usage:
       dev.toml goes into eu4-harmony\\ too, and one installed before is
       removed when the repository has none. --uninstall removes them all and
       puts a moved version.dll back.
-  cargo xtask release [--out <dir>]
-      Builds the player build and packs the player's files for players:
-      <dir> (target\\eu4-harmony by default) and <dir>.zip, whose contents go
-      into the game's root folder. Both are made anew. Packs Harmony's
-      Workshop item too, from workshop\\ (docs/plans/workshop-release.md):
-      target\\workshop\\harmony\\, with the descriptor, the cover, version.dll
-      and the core, and target\\workshop\\images\\, the comparison pages
-      rendered with Microsoft Edge.
+  cargo xtask release-check [--tag vX.Y.Z] [--out <dir>]
+      Checks clean source merged into master, matching workspace and lockfile
+      versions, and the version's change note. --tag also requires that local
+      and remote tag to name HEAD. Writes release.json under <dir>
+      (target\\dist by default); without --tag prepares a dry run.
+  cargo xtask release [--out <dir>] [--no-workshop]
+      Builds the optimized player build and packs two versioned Windows x64
+      ZIPs under <dir> (target\\dist by default): the framework's proxy and
+      core, and the separate command line tool. Checks each archive's files
+      against the build. Packs Harmony's Workshop item and renders its
+      comparison images too, unless --no-workshop is given. GitHub publication
+      uses --no-workshop and needs neither the game nor Steam.
   cargo xtask workshop-upload --user <steam login> [--create]
       Uploads target\\workshop\\harmony\\ to Harmony's Workshop item with
       SteamCMD (STEAMCMD, else on PATH), which asks for the password itself,
       with the version's section of CHANGELOG.md as the change note and no
-      description. It needs a clean checkout of master at origin/master, the
-      item packed from it, and no tag of the version yet, and tags vX.Y.Z
-      after. --create makes the item, private, and records its id in
+      description. It needs clean source merged into master, the existing
+      local and remote vX.Y.Z tag at HEAD, and the item packed from that
+      commit. A detached checkout is supported; it never creates a tag. --create makes the item, private, and records its id in
       workshop\\item.toml; commit that, release and upload again, so that the
       proxy is built with it (docs/dev-tools.md).
   cargo xtask disasm <arg>...
@@ -253,7 +258,8 @@ fn main() {
         Some("game-dir") => game::dir().map(|dir| println!("{}", dir.display())),
         Some("install") => Args::parse(rest, &["uninstall"], &["game-dir"]).and_then(|a| files::install(&a)),
         Some("game") => claim::run(rest),
-        Some("release") => Args::parse(rest, &[], &["out"]).and_then(|a| files::release(&a)),
+        Some("release") => Args::parse(rest, &["no-workshop"], &["out"]).and_then(|a| files::release(&a)),
+        Some("release-check") => Args::parse(rest, &[], &["tag", "out"]).and_then(|a| release::run(&a)),
         Some("workshop-upload") => Args::parse(rest, &["create"], &["user"]).and_then(|a| workshop::upload(&a)),
         Some("disasm") => with_game(
             &["run", "--release", "--quiet", "-p", "eu4-harmony-core", "--features", "analysis", "--example", "disasm", "--"],
