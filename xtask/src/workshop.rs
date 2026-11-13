@@ -340,7 +340,8 @@ pub fn upload(args: &Args) -> Result<()> {
         write(&path, &with_id(&text, new))?;
         println!(
             "created Harmony's item {new}, private: https://steamcommunity.com/sharedfiles/filedetails/?id={new}\n\
-             recorded in workshop/item.toml. Next: commit it, merge it into master, then run\n  \
+             recorded in workshop/item.toml. Next: commit it, merge it into master, create and push\n\
+             that version's tag, then run\n  \
              cargo xtask release\n  cargo xtask workshop-upload --user {user}\n\
              so that the proxy is built with the id and the item holds it."
         );
