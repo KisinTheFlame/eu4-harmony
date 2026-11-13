@@ -16,16 +16,9 @@ const GAME_FILES: [(&str, &str); 2] = [
     ("eu4_harmony_core.dll", "eu4-harmony\\eu4_harmony_core.dll"),
 ];
 
-/// The command line tool, for remote control (eu4-harmony game) and for
-/// making mods, as the player package holds it. `install` leaves it out: a
-/// developer runs the one in `target\`.
-const TOOL: (&str, &str) = ("eu4-harmony.exe", "eu4-harmony\\eu4-harmony.exe");
-
-/// The files a player puts into the game folder, as the player package holds
-/// them. The README's installing section names the same files.
-fn player_files() -> impl Iterator<Item = (&'static str, &'static str)> {
-    GAME_FILES.into_iter().chain([TOOL])
-}
+/// Distributed separately from the framework installation. `install`
+/// leaves it out: a developer runs the one in `target\` or the CLI ZIP.
+const TOOL: (&str, &str) = ("eu4-harmony.exe", "eu4-harmony.exe");
 
 /// The developer build's options, copied from the repository.
 const DEV_OPTIONS: &str = "eu4-harmony\\dev.toml";
@@ -170,44 +163,90 @@ pub fn install_from(out: &Path, options: &Path, root: &Path) -> Result<Vec<PathB
 }
 
 pub fn release(args: &Args) -> Result<()> {
-    let out = args.value("out").map_or_else(|| repo().join("target").join("eu4-harmony"), PathBuf::from);
+    let out = args.value("out").map_or_else(|| repo().join("target").join("dist"), PathBuf::from);
     let out = std::path::absolute(&out).map_err(|e| format!("{}: {e}", out.display()))?;
-    let zip = PathBuf::from(format!("{}.zip", out.display()));
-
-    // In a profile of its own (Cargo.toml), with no features: a release
-    // build, or a developer build, built last is never packed.
+    // A profile of its own, without features: a developer build or CI's
+    // unoptimized release build is never packed.
     build_in(PACKAGE_PROFILE, None)?;
     let from = built_package();
-    for (name, _) in player_files() {
-        if !from.join(name).is_file() {
-            return Err(format!("missing {} after cargo build --profile {PACKAGE_PROFILE}", from.join(name).display()));
+    pack_from(&from, &out, env!("CARGO_PKG_VERSION"))?;
+    if !args.flag("no-workshop") {
+        crate::workshop::pack(&from)?;
+    }
+    Ok(())
+}
+
+/// Packs the two independent products. Check all inputs before replacing
+/// either output, and leave release.json from release-check alone.
+fn pack_from(from: &Path, out: &Path, version: &str) -> Result<()> {
+    for (name, _) in GAME_FILES.into_iter().chain([TOOL]) {
+        if !from.join(name).metadata().is_ok_and(|m| m.is_file() && m.len() > 0) {
+            return Err(format!("missing or empty {} after cargo build --profile {PACKAGE_PROFILE}", from.join(name).display()));
         }
     }
-    if out.exists() {
-        fs::remove_dir_all(&out).map_err(|e| format!("cannot remove {}: {e}", out.display()))?;
+    create_dir(out)?;
+    let (framework, cli) = crate::release::artifact_names(version);
+    pack_archive(from, &out.join("framework"), &out.join(framework), &GAME_FILES)?;
+    pack_archive(from, &out.join("cli"), &out.join(cli), &[TOOL])
+}
+
+fn tar() -> std::process::Command {
+    let system = PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into())).join("System32");
+    std::process::Command::new(system.join("tar.exe"))
+}
+
+fn pack_archive(from: &Path, folder: &Path, zip: &Path, files: &[(&str, &str)]) -> Result<()> {
+    if folder.exists() {
+        fs::remove_dir_all(folder).map_err(|e| format!("cannot remove {}: {e}", folder.display()))?;
     }
     if zip.exists() {
-        remove_file(&zip)?;
+        remove_file(zip)?;
     }
-    for (name, to) in player_files() {
-        let to = out.join(to);
+    for (name, relative) in files {
+        let to = folder.join(relative);
         create_dir(to.parent().expect("a file's folder"))?;
         copy(&from.join(name), &to)?;
     }
-    // Windows' own tar writes zip archives; the zip holds what the folder
-    // holds at its top.
-    let system = PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into())).join("System32");
-    let mut tar = std::process::Command::new(system.join("tar.exe"));
-    tar.arg("-a").arg("-c").arg("-f").arg(&zip).arg("-C").arg(&out);
-    let mut top: Vec<&str> = player_files().map(|(_, to)| to.split('\\').next().expect("a path")).collect();
-    top.dedup();
-    tar.args(&top);
-    run(tar, "tar")?;
-    println!("packed:\n  {}\n  {}", out.display(), zip.display());
-    for (_, to) in player_files() {
-        println!("    {to}");
+    let mut archive = tar();
+    archive.arg("-a").arg("-c").arg("-f").arg(zip).arg("-C").arg(folder);
+    // Explicit file names prevent an unrelated file or an old CLI from
+    // being included through a recursively archived folder.
+    archive.args(files.iter().map(|(_, relative)| *relative));
+    run(archive, "tar")?;
+    verify_archive(zip, from, files)?;
+    println!("packed: {}", zip.display());
+    Ok(())
+}
+
+/// Check the actual archive's file set and bytes, not just the staging
+/// folder. This is local validation, not a published checksum deliverable.
+fn verify_archive(zip: &Path, from: &Path, files: &[(&str, &str)]) -> Result<()> {
+    let listing = tar().arg("-t").arg("-f").arg(zip).output().map_err(|e| format!("cannot list {}: {e}", zip.display()))?;
+    if !listing.status.success() {
+        return Err(format!("cannot list {}: {}", zip.display(), String::from_utf8_lossy(&listing.stderr).trim()));
     }
-    crate::workshop::pack(&from)
+    let mut actual: Vec<String> = String::from_utf8_lossy(&listing.stdout).lines().map(|line| line.replace('\\', "/")).collect();
+    let mut expected: Vec<String> = files.iter().map(|(_, relative)| relative.replace('\\', "/")).collect();
+    actual.sort();
+    expected.sort();
+    if actual != expected {
+        return Err(format!("{} has unexpected contents: {actual:?}, expected {expected:?}", zip.display()));
+    }
+    for (name, relative) in files {
+        let extracted = tar()
+            .arg("-x")
+            .arg("-O")
+            .arg("-f")
+            .arg(zip)
+            .arg(relative.replace('\\', "/"))
+            .output()
+            .map_err(|e| format!("cannot check {relative} in {}: {e}", zip.display()))?;
+        let original = fs::read(from.join(name)).map_err(|e| format!("cannot read {name}: {e}"))?;
+        if !extracted.status.success() || extracted.stdout != original {
+            return Err(format!("{relative} in {} differs from the player build", zip.display()));
+        }
+    }
+    Ok(())
 }
 
 /// Removes our `version.dll` at `proxy` from the game folder `root`, or,
@@ -286,6 +325,33 @@ mod tests {
         let module = unsafe { LoadLibraryExW(wide.as_ptr(), std::ptr::null_mut(), LOAD_LIBRARY_AS_IMAGE_RESOURCE) };
         assert!(!module.is_null(), "cannot load {}", path.display());
         module
+    }
+
+    #[test]
+    fn packages_keep_framework_and_cli_separate_and_preserve_release_metadata() {
+        let dir = scratch("packages");
+        let from = dir.join("build");
+        let out = dir.join("dist");
+        build_output(&from, b"release bytes");
+        create_dir(&out.join("framework")).unwrap();
+        fs::write(out.join("framework").join("dev.toml"), "obsolete").unwrap();
+        fs::write(out.join("release.json"), "metadata").unwrap();
+        pack_from(&from, &out, "0.2.0").unwrap();
+        assert!(!out.join("framework").join("dev.toml").exists());
+        assert!(!out.join("framework").join("eu4-harmony.exe").exists());
+        assert!(!out.join("framework").join("eu4-harmony").join("eu4-harmony.exe").exists());
+        assert!(!out.join("cli").join("version.dll").exists());
+        assert_eq!(fs::read(out.join("cli").join("eu4-harmony.exe")).unwrap(), b"release bytes");
+        assert_eq!(fs::read_to_string(out.join("release.json")).unwrap(), "metadata");
+        let (framework, cli) = crate::release::artifact_names("0.2.0");
+        verify_archive(&out.join(&framework), &from, &GAME_FILES).unwrap();
+        verify_archive(&out.join(&cli), &from, &[TOOL]).unwrap();
+        fs::write(from.join("eu4-harmony.exe"), b"changed").unwrap();
+        assert!(verify_archive(&out.join(cli), &from, &[TOOL]).unwrap_err().contains("differs from"));
+        fs::remove_file(from.join("eu4-harmony.exe")).unwrap();
+        assert!(pack_from(&from, &out, "0.2.0").unwrap_err().contains("missing or empty"));
+        assert!(out.join(framework).is_file(), "missing input does not delete a previous package");
+        fs::remove_dir_all(dir).unwrap();
     }
 
     /// While a test game has the proxy loaded, an install of the same proxy
