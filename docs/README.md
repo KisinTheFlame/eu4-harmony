@@ -63,7 +63,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 
 | | |
 | --- | --- |
-| [automated-releases.md](plans/automated-releases.md) | Tag-triggered GitHub Releases with separate framework and CLI packages, checked sources, retries and local Workshop uploads |
+| [releases-after-version-prs.md](plans/releases-after-version-prs.md) | Merged version PRs automatically create tags and publish, retaining separate packages and local Workshop upload |
 | [panel-entries-and-tooltips.md](plans/panel-entries-and-tooltips.md) | Shared tooltip content and lifetime, checked entry images and independent formatted numbers |
 | [game-speed.md](plans/game-speed.md) | Making the game faster without changing the game it plays; how a part is chosen, and which comes next |
 | [mod-capabilities.md](plans/mod-capabilities.md) | What the framework opens to mods, what each area still lacks, and the parts taking it up: signals, reads, the script group and requests as the game, tasks, the panels' actions |
@@ -74,6 +74,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 
 | | |
 | --- | --- |
+| [automated-releases.md](plans/automated-releases.md) | First GitHub Release with separate framework and CLI packages; manual tag creation superseded by version PR automation |
 | [large-mod-startup.md](plans/large-mod-startup.md) | Localisation loaded once with indexed replacements, the triggers' optimization profile interned, non-ASCII folder entries tolerated, and the drawing thread asleep while idle |
 | [fifth-deepening.md](plans/fifth-deepening.md) | Mod descriptors, bounded journal reading, process handoff, resolved UI views, native entry bindings, save-data authority and drawing coordination |
 | [fourth-deepening.md](plans/fourth-deepening.md) | Native window lifetimes and the tooltip's frame handoff tested through their complete processes |

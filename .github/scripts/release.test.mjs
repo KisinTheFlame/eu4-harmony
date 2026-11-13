@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { GitHub, publishRelease, readArtifacts, resolveTag, validateMetadata } from "./release.mjs";
+import { GitHub, ensureTag, publishRelease, readArtifacts, resolveTag, validateMetadata } from "./release.mjs";
 
 const commit = "a".repeat(40);
 const metadata = {
@@ -50,7 +50,20 @@ class FakeGitHub {
   async request(method, route, body) {
     this.calls.push({ method, route, body: clone(body) });
     this.before(method, route, body);
-    if (route.startsWith("/git/ref/tags/")) return { object: clone(this.tagObject) };
+    if (route.startsWith("/git/ref/tags/")) {
+      if (!this.tagObject) throw Object.assign(new Error("Not found"), { status: 404 });
+      return { object: clone(this.tagObject) };
+    }
+    if (method === "POST" && route === "/git/tags") {
+      const sha = "d".repeat(40);
+      this.tagObjects[sha] = { type: body.type, sha: body.object };
+      return { sha };
+    }
+    if (method === "POST" && route === "/git/refs") {
+      if (this.tagObject) throw Object.assign(new Error("Reference exists"), { status: 422 });
+      this.tagObject = { type: "tag", sha: body.sha };
+      return { ref: body.ref, object: clone(this.tagObject) };
+    }
     if (route.startsWith("/git/tags/")) return { object: clone(this.tagObjects[route.slice("/git/tags/".length)]) };
     if (method === "GET" && route.startsWith("/releases?")) {
       const page = Number(new URLSearchParams(route.split("?")[1]).get("page"));
@@ -230,6 +243,57 @@ test("an API error before publication leaves a complete draft for a retry", asyn
   assert.equal((await publish(api)).release.draft, false);
 });
 
+test("a merged version can create its annotated tag and publish in the same run", async () => {
+  const api = new FakeGitHub();
+  api.tagObject = undefined;
+  const result = await publishRelease({ api, metadata, artifacts, createTag: true });
+  assert.equal(result.release.draft, false);
+  const tag = api.calls.findIndex((call) => call.method === "POST" && call.route === "/git/refs");
+  const draft = api.calls.findIndex((call) => call.method === "POST" && call.route === "/releases");
+  assert.ok(tag >= 0 && tag < draft);
+  assert.deepEqual(api.calls[tag].body, { ref: "refs/tags/v0.2.0", sha: "d".repeat(40) });
+  assert.equal(await resolveTag(api, metadata.tag), commit);
+});
+
+test("an existing matching tag is reused without mutation", async () => {
+  const api = new FakeGitHub();
+  assert.equal(await ensureTag(api, metadata), commit);
+  assert.ok(api.calls.every((call) => call.method === "GET"));
+});
+
+test("an existing tag at another commit is refused without mutation", async () => {
+  const api = new FakeGitHub();
+  api.tagObject.sha = "b".repeat(40);
+  await assert.rejects(ensureTag(api, metadata), /another source/);
+  assert.ok(api.calls.every((call) => call.method === "GET"));
+});
+
+test("a racing tag creation is accepted only for the exact same commit", async () => {
+  for (const selected of [commit, "b".repeat(40)]) {
+    const api = new FakeGitHub();
+    api.tagObject = undefined;
+    api.before = (method, route) => {
+      if (method === "POST" && route === "/git/refs") {
+        api.tagObject = { type: "commit", sha: selected };
+        throw Object.assign(new Error("Reference exists"), { status: 422 });
+      }
+    };
+    if (selected === commit) assert.equal(await ensureTag(api, metadata), commit);
+    else await assert.rejects(ensureTag(api, metadata), /does not name the validated source/);
+    assert.ok(!api.calls.some((call) => call.method === "PATCH" || call.method === "DELETE"));
+  }
+});
+
+test("tag creation failure leaves no draft or public release", async () => {
+  const api = new FakeGitHub();
+  api.tagObject = undefined;
+  api.before = (method, route) => {
+    if (method === "POST" && route === "/git/tags") throw Object.assign(new Error("Forbidden"), { status: 403 });
+  };
+  await assert.rejects(publishRelease({ api, metadata, artifacts, createTag: true }), /Forbidden/);
+  assert.equal(api.release, undefined);
+});
+
 test("malformed versions, source identities, notes and archive paths are refused", () => {
   for (const change of [
     { version: "0.2.0-rc.1" },
@@ -247,12 +311,23 @@ test("only the two declared ZIP archives are loaded and manual dispatch cannot p
     await writeFile(path.join(directory, "release.json"), JSON.stringify(metadata));
     for (const artifact of artifacts) await writeFile(path.join(directory, artifact.name), artifact.data);
     assert.deepEqual((await readArtifacts(metadata, directory)).map((value) => value.name), names);
-    const result = spawnSync(process.execPath, [path.resolve(".github/scripts/release.mjs"), directory], {
+    const invoke = (change) => spawnSync(process.execPath, [path.resolve(".github/scripts/release.mjs"), directory], {
       encoding: "utf8",
-      env: { ...process.env, GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_REF: `refs/tags/${metadata.tag}`, GH_TOKEN: "" },
+      env: { ...process.env, GITHUB_EVENT_NAME: "push", GITHUB_REF: "refs/heads/master", GITHUB_SHA: commit, GITHUB_REPOSITORY: "owner/repo", RELEASE_REQUESTED: "true", GH_TOKEN: "", ...change },
     });
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /Only a pushed version tag/);
+    for (const change of [
+      { GITHUB_EVENT_NAME: "workflow_dispatch" },
+      { RELEASE_REQUESTED: "false" },
+      { GITHUB_REF: `refs/tags/${metadata.tag}` },
+      { GITHUB_SHA: "b".repeat(40) },
+    ]) {
+      const result = invoke(change);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /Only a version increase merged into master/);
+    }
+    const allowed = invoke({});
+    assert.equal(allowed.status, 1);
+    assert.match(allowed.stderr, /Missing GitHub token/, "the version merge passes the event guard but never calls GitHub without a token");
     await writeFile(path.join(directory, names[0]), "not a zip");
     await assert.rejects(readArtifacts(metadata, directory), /Invalid ZIP archive/);
   } finally {

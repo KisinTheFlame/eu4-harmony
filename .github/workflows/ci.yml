@@ -98,6 +98,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
+      - name: Check version PR publication requests
+        run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
       - name: Check release publication and recovery
         run: node --test .github/scripts/release.test.mjs
 

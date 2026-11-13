@@ -148,7 +148,7 @@ dependencies = [
 
 [[package]]
 name = "eu4-harmony-checks"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -156,7 +156,7 @@ dependencies = [
 
 [[package]]
 name = "eu4-harmony-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "eu4-harmony-checks",
  "eu4-harmony-client",
@@ -173,7 +173,7 @@ dependencies = [
 
 [[package]]
 name = "eu4-harmony-client"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "eu4-harmony-folders",
  "eu4-harmony-logging",
@@ -185,7 +185,7 @@ dependencies = [
 
 [[package]]
 name = "eu4-harmony-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "cc",
  "eu4-harmony-checks",
@@ -210,7 +210,7 @@ dependencies = [
 
 [[package]]
 name = "eu4-harmony-core-macros"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -219,25 +219,25 @@ dependencies = [
 
 [[package]]
 name = "eu4-harmony-folders"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "windows-sys",
 ]
 
 [[package]]
 name = "eu4-harmony-loc"
-version = "0.2.0"
+version = "0.2.1"
 
 [[package]]
 name = "eu4-harmony-logging"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "windows-sys",
 ]
 
 [[package]]
 name = "eu4-harmony-lua"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "eu4-harmony-checks",
  "eu4-harmony-loc",
@@ -250,7 +250,7 @@ dependencies = [
 
 [[package]]
 name = "eu4-harmony-manifest"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -259,7 +259,7 @@ dependencies = [
 
 [[package]]
 name = "eu4-harmony-proxy"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "eu4-harmony-folders",
  "eu4-harmony-logging",
@@ -268,7 +268,7 @@ dependencies = [
 
 [[package]]
 name = "eu4-harmony-remote"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "eu4-harmony-checks",
  "eu4-harmony-remote-derive",
@@ -278,7 +278,7 @@ dependencies = [
 
 [[package]]
 name = "eu4-harmony-remote-derive"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1631,7 +1631,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "eu4-harmony-client",
  "eu4-harmony-folders",

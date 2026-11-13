@@ -1,22 +1,40 @@
 name: Release
+run-name: ${{ github.event_name == 'workflow_dispatch' && 'Check release packages' || 'Publish merged version' }}
 
 on:
   push:
-    tags: ["v*"]
-  # Preparation only. Publication has no manual-dispatch entry point.
+    branches: [master]
+    paths: [Cargo.toml]
+  # Preparation only. A version increase merged into master requests publication.
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# Different versions do not cancel each other, and attempts for one tag
-# cannot edit its draft at the same time.
+# Different merged versions do not cancel each other. Retries for the same
+# source cannot edit its tag or draft at the same time.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
+  request:
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.request.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check whether the merged PR increases the workspace version
+        id: request
+        run: python3 .github/scripts/release_request.py
+
   source:
+    needs: request
+    if: needs.request.outputs.publish == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: windows-2025
     outputs:
       commit: ${{ steps.metadata.outputs.commit }}
@@ -26,30 +44,14 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Require master for a preparation run
-        if: github.event_name == 'workflow_dispatch'
-        shell: pwsh
-        run: |
-          if ($env:GITHUB_REF -ne 'refs/heads/master') {
-            throw 'Preparation runs must select master.'
-          }
       - name: Rust
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: release-source
-          save-if: ${{ github.event_name == 'workflow_dispatch' }}
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - name: Validate the selected source and version
-        shell: pwsh
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          if ($env:GITHUB_EVENT_NAME -eq 'push') {
-            cargo run --locked -p xtask -- release-check --tag "$env:RELEASE_TAG" --out target/dist
-          } else {
-            cargo run --locked -p xtask -- release-check --out target/dist
-          }
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        run: cargo run --locked -p xtask -- release-check --out target/dist
       - name: Record the validated commit
         id: metadata
         shell: pwsh
@@ -83,7 +85,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: release-player
-          save-if: ${{ github.event_name == 'workflow_dispatch' }}
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - uses: actions/download-artifact@v8
         with:
           name: release-source
@@ -103,8 +105,8 @@ jobs:
           retention-days: 7
 
   publish:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [source, checks, package]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.request.outputs.publish == 'true'
+    needs: [request, source, checks, package]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -120,7 +122,8 @@ jobs:
         with:
           name: release-packages
           path: target/dist
-      - name: Complete the draft and publish
+      - name: Create the version tag and publish the completed release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_REQUESTED: ${{ needs.request.outputs.publish }}
         run: node .github/scripts/release.mjs target/dist

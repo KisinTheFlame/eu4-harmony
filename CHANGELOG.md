@@ -1,6 +1,13 @@
 # Changelog
 
-What changed in each version of Harmony that players and mod authors notice. A version tag publishes its section as the GitHub Release notes; a local Steam Workshop upload uses the same section as its change note (`cargo xtask workshop-upload`).
+What changed in each version of Harmony that players and mod authors notice. Merging a version PR automatically publishes its section as the GitHub Release notes; a local Steam Workshop upload uses the same section as its change note (`cargo xtask workshop-upload`).
+
+## 0.2.1
+
+- Merging a version PR now automatically checks the source, builds the framework and CLI packages, creates the version tag and publishes the GitHub Release. A separate manual tag push is no longer needed.
+- Ordinary code merges and optional manual preparation do not publish. Existing version tags and public release attachments are never moved or overwritten.
+
+The game runtime and the separate framework and CLI package contents are unchanged from 0.2.0. Steam Workshop upload remains a local operation.
 
 ## 0.2.0
 
