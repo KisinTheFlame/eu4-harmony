@@ -2,7 +2,7 @@
 
 What changed in each version of Harmony that players and mod authors notice. Each upload to the Steam Workshop is a version of its own, and its section here is the upload's change note (`cargo xtask workshop-upload`).
 
-## 0.1.6
+## 0.2.0
 
 - Faster startup with large mods: localisation is loaded once, replacement lookups are indexed, and trigger profile matching reuses equivalent trigger structures. The drawing thread also sleeps while it has no prepared frame during startup.
 - Improved startup folder lookups when a mod includes non-ASCII filenames.
