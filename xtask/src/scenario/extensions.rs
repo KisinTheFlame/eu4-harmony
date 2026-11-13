@@ -70,7 +70,7 @@ impl Scenario for Extensions {
         let days = parameters.number("days")?;
         let reloads = parameters.number("reloads")?;
         let user = game.user()?;
-        let log = |id: &str| user.logs().join(format!("{id}.log"));
+        let log = |id: &str| user.logs().join(format!("extension-{id}.log"));
         let marks: Vec<Mark> = MODS.iter().map(|m| Mark::of_file(&log(m))).collect();
 
         let began: Session = game.ask(&MenuRequest::Start { country: Some(tag) })?;
@@ -89,7 +89,7 @@ impl Scenario for Extensions {
         let minutes = ran.elapsed().as_secs_f64() / 60.0;
         game.return_to_menu()?;
 
-        let lines: Vec<Vec<String>> = MODS.iter().zip(&marks).map(|(m, mark)| mark.since(&log(m))).collect();
+        let lines: Vec<Vec<String>> = MODS.iter().zip(&marks).map(|(m, mark)| mark.messages(&log(m), &format!("extension-{m}"))).collect();
         let [steady, failing, looping, hungry, tasks] = [&lines[0], &lines[1], &lines[2], &lines[3], &lines[4]];
         let elapsed = days_between(began.date, end.date);
         // Each day qa-steady heard: its count and the date. The first day of

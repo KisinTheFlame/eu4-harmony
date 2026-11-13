@@ -166,6 +166,8 @@ eu4-harmony game --test-game mine session get
 cargo xtask game release --owner mine   # 留下日志，删掉其余
 ```
 
+`cargo xtask scenario windows --owner mine` 在扩展重载和会话切换中验证原生扩展窗口与列表替换，保留截图供人工检查；它也在 `scenario whole` 中运行。[开发工具](docs/dev-tools.md)说明了检查内容和验证范围。
+
 框架和游戏一样，按游戏自己的 `-userdir` 找用户文件夹。
 
 `cargo xtask --help` 列出其他开发命令。

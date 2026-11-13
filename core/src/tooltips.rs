@@ -3,12 +3,15 @@
 //! text, and places the tooltip within the screen. Only a framework-owned
 //! target replaces the final content (research/panel-entry-text.md).
 use crate::{game_string, hooks::Call, memory::Memory, points::Point, Result};
-use std::cell::Cell;
 mod drawing;
+mod handoff;
+use drawing::with_handoff;
 pub(crate) use drawing::{discard_late, draw_late};
+use handoff::{Content, Handoff};
 pub(crate) fn clear() {
+    // Invalidating shared content cancels every thread's pending frame. The
+    // saved pointers are never read again unless the handoff is still current.
     drawing::clear();
-    drawing::discard_late();
 }
 
 const PRESENT: usize = 0x1415390;
@@ -17,43 +20,32 @@ const HIT_RETURN: usize = 0x141548f;
 const CONTENT: usize = 0x1415bf0;
 const HIT_ELEMENT: usize = 8;
 
-thread_local! {
-    // A native pointer never survives the current presentation call. In
-    // particular, a destroyed or rebuilt row cannot supply next frame's text.
-    static ACTIVE: Cell<bool> = const { Cell::new(false) };
-    static TARGET: Cell<Option<usize>> = const { Cell::new(None) };
-    static SELF_DRAWN: Cell<bool> = const { Cell::new(false) };
-}
-
 fn before(_: &mut Call) {
     if crate::thread_id() == crate::main_thread() {
-        ACTIVE.set(true);
-        TARGET.set(None);
-        SELF_DRAWN.set(false);
+        with_handoff(Handoff::begin);
     }
 }
 
 fn after(call: &mut Call) {
-    if crate::thread_id() != crate::main_thread() {
-        return;
+    if crate::thread_id() == crate::main_thread() {
+        with_handoff(|handoff| handoff.end(call.faulted()));
     }
-    if call.faulted() || !SELF_DRAWN.replace(false) {
-        drawing::clear();
-    }
-    TARGET.set(None);
-    ACTIVE.set(false);
 }
 
 /// The view callback also supplies the actual hit in the alternative camera
 /// path, whose scene lookup differs from the normal cursor lookup.
 pub(crate) fn hit(element: usize) {
-    if ACTIVE.get() {
-        TARGET.set(Some(element));
+    if crate::thread_id() == crate::main_thread() {
+        with_handoff(|handoff| handoff.hit(element));
     }
 }
 
 fn hit_after(call: &mut Call) {
-    if ACTIVE.get() && !call.faulted() && call.caller() == call.memory().at(HIT_RETURN) {
+    if crate::thread_id() == crate::main_thread()
+        && with_handoff(|handoff| handoff.presenting())
+        && !call.faulted()
+        && call.caller() == call.memory().at(HIT_RETURN)
+    {
         if let Ok(element) = call.memory().ptr(call.arg(1) + HIT_ELEMENT) {
             hit(element);
         }
@@ -61,18 +53,21 @@ fn hit_after(call: &mut Call) {
 }
 
 fn content_before(call: &mut Call) {
-    if !ACTIVE.get() || crate::thread_id() != crate::main_thread() {
+    if crate::thread_id() != crate::main_thread() || !with_handoff(|handoff| handoff.presenting()) {
         return;
     }
-    let text = if let Some(text) = crate::framework_ui::tooltip_at() {
-        SELF_DRAWN.set(true);
-        if let Err(e) = drawing::showing(&call.memory(), call.arg(0), &text) {
-            drawing::clear();
-            log!("native self-drawn tooltip binding: {e}");
+    let framework = crate::framework_ui::tooltip_at();
+    let content = with_handoff(|handoff| handoff.content(framework));
+    let text = match content {
+        Some(Content::Framework(text)) => {
+            if let Err(e) = drawing::showing(&call.memory(), call.arg(0), &text) {
+                drawing::clear();
+                log!("native self-drawn tooltip binding: {e}");
+            }
+            Some(text)
         }
-        Some(text)
-    } else {
-        TARGET.get().and_then(|target| crate::windows::managed_tooltip(target).or_else(|| crate::ui::managed_tooltip(target)))
+        Some(Content::Managed(target)) => crate::windows::managed_tooltip(target).or_else(|| crate::ui::managed_tooltip(target)),
+        None => None,
     };
     // None is an unmanaged hit: preserve both native strings and every flag.
     // Some(empty) is an explicitly empty or hidden managed target.
