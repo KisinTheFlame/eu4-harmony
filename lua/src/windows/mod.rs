@@ -3,9 +3,11 @@
 //! pop-ups it shows, put into words in the player language, before the host
 //! has either. The running game and the fake game take them the same, and
 //! keep what extensions want of them by the same rules ([`Windows`]).
+mod hosted;
 mod wanted;
 
-pub use wanted::{Declared, OpenPopup, Wanted, Windows, POPUPS};
+pub use hosted::{HostedElement, HostedElements};
+pub use wanted::{placed_defaults, Declared, OpenPopup, ResolvedEntry, ResolvedWindow, Wanted, Windows, POPUPS};
 
 use crate::layout::{self, Kind, Placed, Window};
 use mlua::{Lua, Table, Value as LuaValue};
@@ -83,6 +85,15 @@ impl Popup {
     /// How many buttons it shows: its own, or the game's own "OK".
     pub fn buttons_shown(&self) -> usize {
         self.buttons.len().max(1)
+    }
+
+    /// Its buttons' words left to right, or `[default_ok]` when the mod gave none.
+    pub fn shown_buttons(&self, default_ok: &str) -> Vec<String> {
+        if self.buttons.is_empty() {
+            vec![default_ok.to_string()]
+        } else {
+            self.buttons.clone()
+        }
     }
 }
 

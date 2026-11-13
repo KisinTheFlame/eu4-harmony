@@ -4,9 +4,14 @@
 //! A source holds a separate lease, not a lock on its readable log. Another
 //! process uses a different stem; cleanup skips every leased source. Only
 //! files registered here AND carrying our header are eligible for cleanup.
+mod reader;
 mod retention;
 mod text;
 
+pub use reader::{
+    classify_file, extract_startup_reason, is_header, is_trouble_line, record_message, source_segments, split_record, startup_failure_reason, troubles_since,
+    Artifact, SourceMark, CORE, CORE_EMERGENCY, PROXY,
+};
 use std::{
     collections::{HashMap, VecDeque},
     fs::{self, File, OpenOptions},
@@ -134,6 +139,7 @@ struct Repeated {
     count: u64,
     first: String,
     last: String,
+    emit_single: bool,
 }
 
 #[derive(Default)]
@@ -276,7 +282,7 @@ impl Journal {
                 // Bound error identity memory too; flush counts before eviction.
                 self.summaries()?;
             }
-            self.errors.insert(message.clone(), Repeated { count: 1, first: stamp.clone(), last: stamp.clone() });
+            self.errors.insert(message.clone(), Repeated { count: 1, first: stamp.clone(), last: stamp.clone(), emit_single: false });
         }
         let line = self.line(&stamp, &message);
         if matches!(kind, Kind::Event | Kind::Error | Kind::Critical) {
@@ -300,6 +306,32 @@ impl Journal {
             self.maintain()?;
         }
         Ok(())
+    }
+
+    /// Counts a suppressed repetition of `message` whose initial occurrences
+    /// were already written in full, so periodic and checkpoint summaries emit
+    /// the exact suppressed count even when only one additional occurrence came.
+    pub fn count_repeated(&mut self, message: &str) -> io::Result<()> {
+        let oversized = message.len() > MESSAGE_BYTES;
+        let mut message = redact(&bounded(message, MESSAGE_BYTES));
+        if oversized || message.len() > MESSAGE_BYTES {
+            cut(&mut message, MESSAGE_BYTES);
+            message.push_str(" [record truncated]");
+            self.truncated += 1;
+        }
+        let stamp = now();
+        if let Some(error) = self.errors.get_mut(&message) {
+            error.count = error.count.saturating_add(1);
+            error.last = stamp;
+            error.emit_single = true;
+            return self.maintain();
+        }
+        if self.errors.len() >= ERRORS {
+            self.summaries()?;
+        }
+        self.errors.insert(message, Repeated { count: 1, first: stamp.clone(), last: stamp, emit_single: true });
+        self.error_snapshot = true;
+        self.maintain()
     }
 
     /// Aggregate command kinds only, not arguments or a record per unit
@@ -455,7 +487,7 @@ impl Journal {
         let mut errors = std::mem::take(&mut self.errors).into_iter();
         self.last_summary = monotonic_ms();
         while let Some((message, error)) = errors.next() {
-            if error.count > 1 {
+            if error.count > 1 || error.emit_single {
                 let line = self.line(&now(), &format!("repeated error: count={} first={} last={} {message}", error.count, error.first, error.last));
                 self.remember(&line);
                 if let Err(failed) = self.append(&line) {
@@ -965,5 +997,58 @@ mod tests {
         assert!(log.write(Kind::Critical, "crash: write must fail").is_err());
         assert!(log.failures() > 0);
         assert!(!valid_stem("../error"));
+    }
+
+    #[test]
+    fn source_marks_ignore_preexisting_archives_follow_fallback_stems_and_adopt_legacy_tails() {
+        let s = Scratch::new("reader-marks");
+        let ext = extension_source("qa_mod");
+        // Write an earlier run's archived segment while current `.log` is absent.
+        {
+            let mut old = Journal::open_with(&s.0, &ext, limits()).unwrap();
+            old.write(Kind::Event, "stale from earlier run").unwrap();
+        }
+        fs::rename(s.0.join(format!("{ext}.log")), s.0.join(format!("{ext}.prev.log"))).unwrap();
+        let lazy_mark = SourceMark::of(&s.0, &ext);
+        assert!(lazy_mark.messages_since(&s.0, &ext).is_empty(), "an uncreated current log must not replay preexisting archives");
+        {
+            let mut fresh = Journal::open_with(&s.0, &ext, limits()).unwrap();
+            fresh.write(Kind::Event, "fresh after lazy open").unwrap();
+            fresh.count_repeated("error in on_day: boom").unwrap();
+            fresh.checkpoint().unwrap();
+        }
+        let messages = lazy_mark.messages_since(&s.0, &ext);
+        assert_eq!(messages.len(), 2, "{messages:?}");
+        assert_eq!(messages[0], "fresh after lazy open");
+        assert!(messages[1].starts_with("repeated error: count=1 ") && messages[1].ends_with("error in on_day: boom"), "{messages:?}");
+
+        // Legacy tail adoption and fallback stem when primary `.log` is held open.
+        fs::write(s.0.join("core.log"), "legacy before mark\n").unwrap();
+        let core_mark = SourceMark::of(&s.0, CORE);
+        let emergency_mark = SourceMark::of(&s.0, CORE_EMERGENCY);
+        {
+            let mut adopted = Journal::open_with(&s.0, CORE, limits()).unwrap();
+            adopted.write(Kind::Event, "after legacy adoption").unwrap();
+            let _held = OpenOptions::new().read(true).write(true).open(s.0.join("core.log")).unwrap();
+            // Simulate a second writer forced onto a fallback stem.
+            let mut fallback = Journal::open_with(&s.0, CORE, limits()).unwrap();
+            fallback.write(Kind::Critical, "crash: 0xc0000005 at eu4+0x1234").unwrap();
+        }
+        let core_msgs = core_mark.messages_since(&s.0, CORE);
+        assert_eq!(core_msgs, ["after legacy adoption", "crash: 0xc0000005 at eu4+0x1234"]);
+        let troubles = troubles_since(&s.0, &core_mark, &emergency_mark);
+        assert_eq!(troubles.len(), 1);
+        assert!(troubles[0].contains("crash: 0xc0000005"));
+
+        // Startup failure reason finds proxy and emergency logs too.
+        let before_proxy = SystemTime::now() - Duration::from_secs(2);
+        let mut proxy = Journal::open_with(&s.0, PROXY, limits()).unwrap();
+        proxy.write(Kind::Critical, "LoadLibraryExW of the named core failed").unwrap();
+        drop(proxy);
+        let s_proxy = Scratch::new("proxy-only");
+        let mut only_proxy = Journal::open_with(&s_proxy.0, PROXY, limits()).unwrap();
+        only_proxy.write(Kind::Critical, "cannot load named core").unwrap();
+        drop(only_proxy);
+        assert_eq!(startup_failure_reason(&s_proxy.0, before_proxy).as_deref(), Some("proxy: cannot load named core"));
     }
 }

@@ -592,15 +592,28 @@ fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, owner
     // started by the scenario's first step, which a scenario that times the
     // start takes itself.
     let at_main_menu = if game.runs() { game.at_main_menu() } else { Ok(()) };
-    let ended = at_main_menu.and_then(|()| scenario.play(game, parameters, &mut record)).and_then(|()| match (&user, &logs_before) {
-        // The framework's logs since the scenario began hold no panic and
-        // no fatal error.
-        (Ok(user), Some(mark)) => match mark.troubles(user).first() {
-            Some(line) => Err(Stop::Failed(format!("the framework logged: {line}"))),
-            None => Ok(()),
-        },
-        _ => Ok(()),
-    });
+    let mut ended = at_main_menu.and_then(|()| scenario.play(game, parameters, &mut record));
+    let mut crash_value = None;
+    match &ended {
+        Err(Stop::Crashed(_)) => {
+            // A game in its crash handler ends on its own once its dump is
+            // written, with the exit code that says how it crashed.
+            game.wait_gone(CRASH_HANDLER);
+            crash_value = Some(crash(owner, &crashes, game.ended(), build, &out.join(format!("{}-crash.log", scenario.name()))));
+            game.end();
+        }
+        Err(Stop::Hung(_)) => game.end(),
+        _ => {}
+    }
+    let troubles = match (&user, &logs_before) {
+        (Ok(user), Some(mark)) => mark.troubles(user),
+        _ => Vec::new(),
+    };
+    if ended.is_ok() {
+        if let Some(line) = troubles.first() {
+            ended = Err(Stop::Failed(format!("the framework logged: {line}")));
+        }
+    }
     let (outcome, why) = match &ended {
         Ok(()) => ("passed", None),
         Err(Stop::Failed(why)) => ("failed", Some(why.clone())),
@@ -610,18 +623,16 @@ fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, owner
     };
     let mut entry = entry(scenario, parameters, outcome, why.as_deref());
     entry["minutes"] = json!((began.elapsed().as_secs_f64() / 6.0).round() / 10.0);
-    entry["games_beside"] = json!(beside);
+    entry["games_beside"] = json!(beside.max(game.beside()));
     entry["alone"] = json!(scenario.alone());
-    match ended {
-        Err(Stop::Crashed(_)) => {
-            // A game in its crash handler ends on its own once its dump is
-            // written, with the exit code that says how it crashed.
-            game.wait_gone(CRASH_HANDLER);
-            entry["crash"] = crash(owner, &crashes, game.ended(), build, &out.join(format!("{}-crash.log", scenario.name())));
-            game.end();
+    if !troubles.is_empty() {
+        entry["framework_troubles"] = json!(troubles);
+    }
+    if let Some(mut crash_entry) = crash_value {
+        if !troubles.is_empty() {
+            crash_entry["framework_log"] = json!(troubles);
         }
-        Err(Stop::Hung(_)) => game.end(),
-        _ => {}
+        entry["crash"] = crash_entry;
     }
     entry["record"] = record;
     println!("{}: {outcome}{}", scenario.name(), why.map_or(String::new(), |w| format!(": {w}")));
@@ -718,6 +729,19 @@ fn markdown(report: &Value) -> String {
                 if crash["stack"].as_array().is_none_or(|s| s.is_empty()) {
                     md.extend([String::new(), "Its dump was not read in time.".into()]);
                 }
+            }
+            let logged: Vec<String> = crash["framework_log"].as_array().into_iter().flatten().map(text).collect();
+            if !logged.is_empty() {
+                md.extend([String::new(), "Framework log records:".into(), String::new(), "```text".into()]);
+                md.extend(logged);
+                md.push("```".into());
+            }
+        } else {
+            let logged: Vec<String> = s["framework_troubles"].as_array().into_iter().flatten().map(text).collect();
+            if !logged.is_empty() {
+                md.extend([String::new(), "### Framework log records".into(), String::new(), "```text".into()]);
+                md.extend(logged);
+                md.push("```".into());
             }
         }
         if let Some(scenario) = find(&text(&s["name"])) {

@@ -195,6 +195,7 @@ impl Subscription {
 
     /// Unsubscribes it while the button is still alive.
     pub(crate) fn unlink(&mut self, m: &Memory) -> Result<()> {
+        TAKING_RIGHT.lock().unwrap_or_else(|e| e.into_inner()).retain(|&b| b != self.object);
         if !self.linked {
             return Ok(());
         }
@@ -206,7 +207,6 @@ impl Subscription {
             return Err("observer still subscribed after unsubscribe".into());
         }
         self.linked = false;
-        TAKING_RIGHT.lock().unwrap_or_else(|e| e.into_inner()).retain(|&b| b != self.object);
         SET_RIGHT_CLICK.call(m, [self.object, self.old_right_click as usize])?;
         SET_DOUBLE_CLICK.call(m, [self.object, self.old_double_click as usize])?;
         Ok(())
@@ -383,13 +383,28 @@ fn bind(m: &Memory, ui: &mut Ui, host: Host, holder: usize, root: usize) -> Resu
             }
         }
     }
-    // Keep every wrapper reachable before the first subscription.
+    // Keep every wrapper reachable before the first subscription; if a later
+    // button fails to link, detach and retire the partial binding rather than
+    // leaving a half-linked entry in `ui.bindings` that blocks future retries.
     ui.bindings.push(binding);
-    let binding = ui.bindings.last_mut().unwrap();
-    for b in &mut binding.bound {
-        b.element.link(m)?;
+    let link_result = (|| -> Result<()> {
+        let binding = ui.bindings.last_mut().unwrap();
+        for b in &mut binding.bound {
+            b.element.link(m)?;
+        }
+        Ok(())
+    })();
+    if let Err(e) = link_result {
+        if let Some(failed) = ui.bindings.pop() {
+            for mut b in failed.bound {
+                let _ = b.element.unlink(m);
+                ui.retired.extend(b.element.retire());
+            }
+        }
+        return Err(e);
     }
-    log!("ui: bound {} element(s) in {host:?} {holder:#x}", binding.bound.len());
+    let bound_count = ui.bindings.last().map_or(0, |b| b.bound.len());
+    log!("ui: bound {bound_count} element(s) in {host:?} {holder:#x}");
     Ok(())
 }
 
@@ -767,5 +782,83 @@ mod tests {
         assert_eq!(elements.declared[0].desired.enabled, None);
         elements.hide(1);
         assert_eq!((elements.declared[0].desired.visible, elements.declared[1].desired.visible), (None, Some(false)));
+    }
+
+    #[test]
+    fn subscriptions_link_unlink_restore_click_flags_and_drop_taking_right_even_on_dispatch_failure() {
+        use crate::game::buffers::{Image, Object};
+        use std::cell::Cell;
+
+        thread_local! {
+            static NODE: Cell<usize> = const { Cell::new(0) };
+        }
+        extern "C" fn subscribe(sig: usize, ctx: usize) -> usize {
+            NODE.with(|n| {
+                let node = n.get();
+                unsafe {
+                    *(node as *mut usize) = ctx;
+                    *((sig + signal::LISTENERS + list::HEAD) as *mut usize) = node;
+                    *((sig + signal::LISTENERS + list::TAIL) as *mut usize) = node;
+                    *((sig + signal::LISTENERS + list::COUNT) as *mut u32) = 1;
+                }
+            });
+            0
+        }
+        extern "C" fn unsubscribe(sig: usize, _: usize) -> usize {
+            unsafe {
+                *((sig + signal::LISTENERS + list::HEAD) as *mut usize) = 0;
+                *((sig + signal::LISTENERS + list::TAIL) as *mut usize) = 0;
+                *((sig + signal::LISTENERS + list::COUNT) as *mut u32) = 0;
+            }
+            0
+        }
+        extern "C" fn set_right(btn: usize, on: usize) -> usize {
+            unsafe { *((btn + button::RIGHT_CLICK) as *mut u8) = on as u8 };
+            0
+        }
+        extern "C" fn set_double(btn: usize, on: usize) -> usize {
+            unsafe { *((btn + button::DOUBLE_CLICK) as *mut u8) = on as u8 };
+            0
+        }
+
+        let image = Image::new();
+        let m = image.memory();
+        image
+            .function(SUBSCRIBE.rva(), subscribe as *const ())
+            .function(functions::UNSUBSCRIBE.rva(), unsubscribe as *const ())
+            .function(SET_RIGHT_CLICK.rva(), set_right as *const ())
+            .function(SET_DOUBLE_CLICK.rva(), set_double as *const ());
+
+        let btn_vt = Object::new(0x200)
+            .u64(button::SET_RIGHT_CLICK, m.at(SET_RIGHT_CLICK.rva()) as u64)
+            .u64(button::SET_DOUBLE_CLICK, m.at(SET_DOUBLE_CLICK.rva()) as u64);
+        let node = Object::new(list::NODE_SIZE);
+        NODE.with(|n| n.set(node.at()));
+        image
+            .u64(classes::SIGNAL + signal::SUBSCRIBE, m.at(SUBSCRIBE.rva()) as u64)
+            .u64(classes::SIGNAL + signal::UNSUBSCRIBE, m.at(functions::UNSUBSCRIBE.rva()) as u64);
+        let btn = Object::new(0x300)
+            .u64(0, btn_vt.at() as u64)
+            .u64(button::SIGNAL, m.at(classes::SIGNAL) as u64)
+            .u8(button::RIGHT_CLICK, 0)
+            .u8(button::DOUBLE_CLICK, 1);
+
+        let mut sub = Subscription::new(m, btn.at(), 0x1111, 0x2222).unwrap();
+        sub.link(m).unwrap();
+        assert!(sub.linked() && sub.subscribed(m).unwrap());
+        assert!(TAKING_RIGHT.lock().unwrap().contains(&btn.at()));
+        assert_eq!((m.u8(btn.at() + button::RIGHT_CLICK).unwrap(), m.u8(btn.at() + button::DOUBLE_CLICK).unwrap()), (1, 1));
+
+        // Clean unlink restores original right/double flags and removes TAKING_RIGHT.
+        sub.unlink(m).unwrap();
+        assert!(!sub.linked() && !sub.subscribed(m).unwrap());
+        assert!(!TAKING_RIGHT.lock().unwrap().contains(&btn.at()));
+        assert_eq!((m.u8(btn.at() + button::RIGHT_CLICK).unwrap(), m.u8(btn.at() + button::DOUBLE_CLICK).unwrap()), (0, 1));
+
+        // Even if unlink is refused because the signal is dispatching (CHANGING = 1), TAKING_RIGHT drops the dead button.
+        sub.link(m).unwrap();
+        unsafe { *((btn.at() + button::SIGNAL + signal::LISTENERS + list::CHANGING) as *mut u8) = 1 };
+        assert!(sub.unlink(m).is_err());
+        assert!(!TAKING_RIGHT.lock().unwrap().contains(&btn.at()));
     }
 }

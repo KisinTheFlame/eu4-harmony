@@ -121,6 +121,10 @@ struct Placed {
 /// The last placing, and the place the drawing thread last set from it.
 static PLACING: Mutex<Option<(Placed, [i32; 2])>> = Mutex::new(None);
 
+pub(super) fn clear() {
+    *PLACING.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
 /// At every in-game frame, as it calls its drawing, by the main thread: the
 /// tooltips updated as the frame would after its drawing ([`UPDATE`]).
 pub(super) fn update(m: &Memory, idler: usize) -> crate::Result<()> {

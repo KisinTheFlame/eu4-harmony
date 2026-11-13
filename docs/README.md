@@ -21,6 +21,7 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 | [adr/](adr/) | Decisions that are hard to reverse, one file each, and why they were made |
 | [research/](research/) | The research into the game's code that the pages of [game/](game/) rest on, with addresses as RVAs into the 1.37.5 baseline; [addresses.toml](research/addresses.toml) indexes every address they name |
 | [prototype-log/](prototype-log/) | What was tested in the running game and what came out, one file per run |
+| [2026-11-13-fifth-deepening.md](prototype-log/2026-11-13-fifth-deepening.md) | Concurrent extension, window and achievement runs plus three-process ironman setup-save handoff |
 | [2026-11-13-fourth-deepening-whole.md](prototype-log/2026-11-13-fourth-deepening-whole.md) | The full scenario set, with old local-mod registration mismatches recorded separately from native behavior |
 | [2026-11-13-fourth-deepening-private-registrations.md](prototype-log/2026-11-13-fourth-deepening-private-registrations.md) | The blocked save scenarios replayed with identical cores and private aliases for the actual loaded mod |
 | [2026-11-13-fourth-deepening-native-windows.md](prototype-log/2026-11-13-fourth-deepening-native-windows.md) | All 28 native window steps passed through reload and session changes, with selected captures inspected |
@@ -67,6 +68,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 
 | | |
 | --- | --- |
+| [fifth-deepening.md](plans/fifth-deepening.md) | Mod descriptors, bounded journal reading, process handoff, resolved UI views, native entry bindings, save-data authority and drawing coordination |
 | [fourth-deepening.md](plans/fourth-deepening.md) | Native window lifetimes and the tooltip's frame handoff tested through their complete processes |
 | [bounded-logs.md](plans/bounded-logs.md) | Bounded owned logs, useful event context, safe cleanup and bounded troubleshooting files |
 | [v1.md](plans/v1.md) | The design of the first version |

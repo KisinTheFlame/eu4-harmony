@@ -307,6 +307,7 @@ fn tell(happened: Vec<Happening>) {
                 log!("session {session} ending ({end:?})");
                 game::signal_costs::log_session();
                 crate::safe_point::session_ended(end);
+                crate::saves::clear_session();
                 crate::log::checkpoint();
             }
             Happening::CampaignChanges => {
@@ -315,6 +316,7 @@ fn tell(happened: Vec<Happening>) {
                 crate::remote::campaign_changes();
             }
             Happening::WorldReset(world) => {
+                crate::saves::clear_session();
                 crate::repairs::world_reset(&crate::hooked_memory(), world);
                 #[cfg(feature = "dev-heap-census")]
                 crate::census::world_reset();

@@ -6,7 +6,7 @@
 //! giving it back (docs/plans/test-games.md). It reaches the computer only through
 //! [`Machine`], so that the order of its writes of the record against what
 //! it does to the games and the folders is what the tests below follow.
-use super::machine::Machine;
+use super::machine::{Machine, StartedGame};
 use super::record::{self, Claim, Found, GameEnd, Process, Seen, State, AT_ONCE};
 use crate::Result;
 use eu4_harmony_client::start::{Start, TestGame};
@@ -226,15 +226,15 @@ fn start_in_place<M: Machine>(m: &M, owner: &str, claim: &Claim, game_dir: &Path
     let start = Start { hidden: true, sound: starting.sound, seed: starting.seed, test_game: Some(test_game) };
     // A game that ends before its main menu is followed by no `follow.exe`,
     // so the start records its end, for the release to tell of.
-    let (id, seconds) = m.start_game(game_dir, &log, &start, wait).map_err(|failed| {
+    let (started, seconds) = m.start_game(game_dir, &log, &start, wait).map_err(|failed| {
         if let Some(ended) = failed.ended {
             m.record_end(folder, Process { id: ended.id, started: ended.started }, ended.code);
         }
         failed.message
     })?;
-    let game = m.process(id);
-    m.locked(|s| s.of_mut(owner).map(|c| c.game = game))?;
-    if let Err(e) = m.follow(folder, id, &start.pipe()?) {
+    let game = started.process();
+    m.locked(|s| s.of_mut(owner).map(|c| c.game = Some(game)))?;
+    if let Err(e) = m.follow(folder, started, &start.pipe()?) {
         m.say(&format!("its end will not be followed: {e}"));
     }
     Ok(seconds)

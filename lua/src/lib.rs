@@ -91,9 +91,12 @@ pub trait Host: Send + Sync {
     fn fetch(&self, request: fetch::Request) -> Box<dyn Pending<fetch::Answer>>;
     /// A line for the mod's own log.
     fn log(&self, id: &str, line: &str);
-    /// A counted handler error after its first few written occurrences. The
-    /// live host folds these into periodic, bounded error summaries too.
-    fn repeated_error(&self, _id: &str, _message: &str) {}
+    /// A counted handler error after its first few written occurrences. Returns
+    /// true when the host summarizes repeated counts in its bounded journal so
+    /// [`Extension::session_over`] does not emit a duplicate summary line.
+    fn repeated_error(&self, _id: &str, _message: &str) -> bool {
+        false
+    }
     /// Flushes periodic summaries, or all pending counts at a session change.
     fn maintain_logs(&self, _checkpoint: bool) {}
     /// The number of the session the game is in, for counting errors by
@@ -204,6 +207,8 @@ struct State {
     timeouts: u32,
     /// Errors of this session by where and what, and how often.
     errors: HashMap<String, u32>,
+    /// Whether the host took over repeated-error summaries for this session.
+    host_summarized: bool,
     /// The session whose first error the player was told of.
     told: Option<u64>,
     /// Tasks waiting for an answer.
@@ -724,11 +729,11 @@ impl Extension {
         };
         if count <= WRITTEN {
             self.log(&format!("error in {key}"));
-        } else {
-            self.host.repeated_error(self.id(), &key);
+        } else if self.host.repeated_error(self.id(), &key) {
+            self.state().host_summarized = true;
         }
         if count == WRITTEN {
-            self.log(&format!("(the same error at the same place is counted from now on, and its count written when the session ends: {key})"));
+            self.log(&format!("(the same error at the same place is counted from now on: {key})"));
         }
         if tell {
             self.host.first_error(self, from, message);
@@ -752,14 +757,15 @@ impl Extension {
     }
 
     /// The session ended: its waiting tasks are dropped, a spawned one's
-    /// handle marked cancelled, and the counts of errors seen more often
-    /// than they were written go to the log.
+    /// handle marked cancelled, and any error counts not already summarized by
+    /// the host's journal go to the log.
     pub fn session_over(&self) {
         let (dropped, counted) = {
             let mut state = self.state();
             let dropped = std::mem::take(&mut state.tasks);
             state.cancelling.clear();
-            let counted: Vec<(String, u32)> = state.errors.drain().filter(|(_, n)| *n > WRITTEN).collect();
+            let host_summarized = std::mem::replace(&mut state.host_summarized, false);
+            let counted: Vec<(String, u32)> = state.errors.drain().filter(|(_, n)| !host_summarized && *n > WRITTEN).collect();
             (dropped, counted)
         };
         self.waits.lock().unwrap_or_else(|e| e.into_inner()).by_number.clear();

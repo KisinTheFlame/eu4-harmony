@@ -14,8 +14,6 @@ use crate::game_string;
 use crate::memory::Memory;
 use crate::objects::campaign::globals::WORLD;
 use crate::points::{Function, Point};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Mutex;
 
 pub(super) fn points() -> Vec<Point> {
     vec![
@@ -131,26 +129,20 @@ enum Deferred {
     MeshLetGo { mesh: usize, free: u32 },
 }
 
-static DEFERRED: Mutex<Vec<Deferred>> = Mutex::new(Vec::new());
-/// The calls deferred since the last log.
-static COUNT: AtomicU64 = AtomicU64::new(0);
+static DEFERRED: super::course::DeferredQueue<Deferred> = super::course::DeferredQueue::new();
 
 fn defer(call: Deferred) {
-    DEFERRED.lock().unwrap_or_else(|e| e.into_inner()).push(call);
-    COUNT.fetch_add(1, Ordering::Relaxed);
+    DEFERRED.push(call);
 }
 
 /// How many calls were deferred since the last log.
 pub(super) fn logged() -> u64 {
-    COUNT.swap(0, Ordering::Relaxed)
+    DEFERRED.logged()
 }
-
-/// The deferred calls are being done: what they call is not deferred again.
-static DOING: AtomicBool = AtomicBool::new(false);
 
 /// Whether a call of the main thread's waits for the next frame's preparation.
 fn deferring() -> bool {
-    on_main() && drawing_on() && !DOING.load(Ordering::Relaxed)
+    on_main() && drawing_on() && !DEFERRED.is_doing()
 }
 
 #[called_by_game]
@@ -217,14 +209,7 @@ extern "C" fn minimap(minimap: usize, flag: u32) -> bool {
     let idler = m.ptr(m.at(APP)).and_then(|app| m.ptr(app + APP_IDLER)).unwrap_or(0);
     let flag = flag & 0xff;
     let due = Deferred::Minimap { idler, minimap, flag };
-    let already = DEFERRED
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .iter()
-        .any(|d| matches!(d, Deferred::Minimap { minimap: m, flag: f, .. } if *m == minimap && *f == flag));
-    if !already {
-        defer(due);
-    }
+    DEFERRED.push_if_absent(due, |d| matches!(d, Deferred::Minimap { minimap: m, flag: f, .. } if *m == minimap && *f == flag));
     true
 }
 
@@ -322,11 +307,9 @@ unsafe extern "C" fn mesh_let_go(mesh: usize, free: u32) -> usize {
 /// before the idler is switched or the game quits. Those whose idler,
 /// interface or map has gone since are left out; every mesh object is let go.
 pub(super) fn done(m: &Memory) {
-    let deferred = std::mem::take(&mut *DEFERRED.lock().unwrap_or_else(|e| e.into_inner()));
-    if deferred.is_empty() {
+    let Some((deferred, _doing)) = DEFERRED.take_for_execution() else {
         return;
-    }
-    DOING.store(true, Ordering::Relaxed);
+    };
     let idler = m.ptr(m.at(APP)).and_then(|app| m.ptr(app + APP_IDLER)).unwrap_or(0);
     let interface = m.ptr(m.at(WORLD)).and_then(|world| m.ptr(world + WORLD_INTERFACE)).unwrap_or(0);
     let map = m.ptr(m.at(APP)).and_then(|app| m.ptr(app + APP_MAP)).unwrap_or(0);
@@ -365,5 +348,4 @@ pub(super) fn done(m: &Memory) {
             _ => {}
         }
     }
-    DOING.store(false, Ordering::Relaxed);
 }

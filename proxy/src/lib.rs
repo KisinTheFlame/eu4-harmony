@@ -148,7 +148,7 @@ fn report(message: &str) {
         // Never wait on another thread while under the Windows loader lock.
         if let Ok(mut journal) = JOURNAL.try_lock() {
             if journal.is_none() {
-                *journal = eu4_harmony_logging::Journal::open(logs, "proxy").ok();
+                *journal = eu4_harmony_logging::Journal::open(logs, eu4_harmony_logging::PROXY).ok();
             }
             if let Some(journal) = journal.as_mut() {
                 let _ = journal.write(eu4_harmony_logging::Kind::Critical, message);

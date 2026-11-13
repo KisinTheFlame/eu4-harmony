@@ -12,7 +12,11 @@
 //! (`eu4_harmony_lua::windows::Windows`), as in the game: a window opens and
 //! a pop-up shows only in a session, and a session's end closes them all.
 use eu4_harmony_loc::{Catalog, Language};
-use eu4_harmony_lua::{fetch, values, windows::Windows, Answered, Called, Element, Extension, Host, Pending, Popup, Property, WindowChange};
+use eu4_harmony_lua::{
+    fetch, values,
+    windows::{HostedElements, Windows},
+    Answered, Called, Element, Extension, Host, Pending, Popup, Property, WindowChange,
+};
 use eu4_harmony_remote::{Code, Date, Error, Request};
 use mlua::{Function, Lua, Value as LuaValue, WeakLua};
 use serde_json::Value;
@@ -83,9 +87,9 @@ pub struct Store {
     pub unanswered: Vec<String>,
     /// Answers that come later, by capability, oldest first.
     pub later: Vec<(String, Slot<Answered>)>,
-    /// Each element's properties as the mod set them.
-    pub elements: BTreeMap<String, BTreeMap<&'static str, Value>>,
-    pub tooltips: BTreeMap<String, eu4_harmony_lua::Text>,
+    /// Hosted interface elements (`game.ui.<element>`), retaining semantic
+    /// descriptions so language changes re-resolve dynamically.
+    pub hosted: HostedElements,
     /// The map as the mod painted it, `[r, g, b, a]` by province; none when
     /// it holds no map.
     pub map: Option<BTreeMap<u32, [u8; 4]>>,
@@ -136,30 +140,54 @@ fn property_json(value: &Property, words: &impl Fn(&str) -> Option<String>) -> (
 }
 
 impl Store {
-    /// `extension`'s window `name` as the mod set it, none before it set
-    /// or opened anything of it.
+    /// `extension`'s window `name` resolved in the current player language,
+    /// merging layout defaults, dynamic overrides, list rows and entry formatting.
     pub fn window(&self, extension: usize, name: &str, words: impl Fn(&str) -> Option<String>) -> Option<FakeWindow> {
-        let wanted = self.windows.wanted(extension, name)?;
-        let widgets = wanted.set.iter().map(|(widget, set)| (widget.clone(), set.values().map(|p| property_json(p, &words)).collect())).collect();
-        let rows = wanted
+        let resolved = self.windows.resolved_window(extension, name, &words)?;
+        let mut widgets: BTreeMap<String, Properties> =
+            resolved.widgets.iter().map(|(widget, set)| (widget.clone(), set.values().map(|p| property_json(p, &words)).collect())).collect();
+        if let Some(entry) = resolved.entry {
+            let mut props = Properties::new();
+            props.insert("visible", Value::Bool(entry.visible));
+            props.insert("enabled", Value::Bool(entry.enabled));
+            props.insert("frame", Value::from(entry.frame));
+            props.insert("value", entry.value.and_then(serde_json::Number::from_f64).map_or(Value::Null, Value::Number));
+            props.insert("text", Value::String(entry.text));
+            props.insert("tooltip", Value::String(entry.tooltip));
+            widgets.insert(eu4_harmony_lua::layout::ENTRY.into(), props);
+        }
+        let rows = resolved
             .rows
             .iter()
             .map(|(list, rows)| {
                 let rows = rows
                     .iter()
-                    .map(|row| {
-                        let mut out = Row::new();
-                        for (name, value) in row {
-                            let (property, value) = property_json(value, &words);
-                            out.entry(name.clone()).or_default().insert(property, value);
-                        }
-                        out
-                    })
+                    .map(|row| row.iter().map(|(cell, set)| (cell.clone(), set.values().map(|p| property_json(p, &words)).collect())).collect())
                     .collect();
                 (list.clone(), rows)
             })
             .collect();
-        Some(FakeWindow { open: wanted.open, widgets, rows })
+        Some(FakeWindow { open: resolved.open, widgets, rows })
+    }
+
+    /// `extension`'s hosted element `name`, dynamically resolved in the current
+    /// player language.
+    pub fn element(&self, extension: usize, name: &str, words: impl Fn(&str) -> Option<String>) -> Properties {
+        let mut out = Properties::new();
+        let Some(state) = self.hosted.get(extension, name) else { return out };
+        if let Some(visible) = state.visible {
+            out.insert("visible", Value::Bool(visible));
+        }
+        if let Some(enabled) = state.enabled {
+            out.insert("enabled", Value::Bool(enabled));
+        }
+        if let Some(text) = &state.text {
+            out.insert("text", Value::String(text.resolve(&words)));
+        }
+        if state.tooltip_set {
+            out.insert("tooltip", Value::String(state.tooltip.resolve(&words)));
+        }
+        out
     }
 }
 
@@ -269,18 +297,8 @@ impl Host for Fake {
         Called::Done(answered)
     }
 
-    fn set_element(&self, _: usize, element: &str, value: Element) -> Result<(), String> {
-        let (property, value) = match value {
-            Element::Visible(on) => ("visible", Value::Bool(on)),
-            Element::Enabled(on) => ("enabled", Value::Bool(on)),
-            Element::Text(text) => ("text", Value::String(text.resolve(|key| self.text("", key)))),
-            Element::Tooltip(text) => {
-                let rendered = text.resolve(|key| self.text("", key));
-                self.store().tooltips.insert(element.to_string(), text);
-                ("tooltip", Value::String(rendered))
-            }
-        };
-        self.store().elements.entry(element.to_string()).or_default().insert(property, value);
+    fn set_element(&self, extension: usize, element: &str, value: Element) -> Result<(), String> {
+        self.store().hosted.set(extension, element, value);
         Ok(())
     }
 
@@ -294,7 +312,7 @@ impl Host for Fake {
         let store = self.store();
         match window {
             Some(window) => store.windows.tooltip(extension, window, widget).ok_or_else(|| format!("no tooltip target {window}.{widget}")),
-            None => Ok(store.tooltips.get(widget).cloned().unwrap_or_default()),
+            None => Ok(store.hosted.tooltip(extension, widget)),
         }
     }
 
@@ -346,7 +364,11 @@ impl Host for Fake {
         self.store().told.push(format!("error in {from}: {message}"));
     }
 
-    fn stopped(&self, _: &Extension, reason: &str) {
-        self.store().told.push(format!("stopped: {reason}"));
+    fn stopped(&self, extension: &Extension, reason: &str) {
+        let mut store = self.store();
+        store.hosted.hide(extension.index());
+        store.windows.forget(extension.index());
+        store.map = None;
+        store.told.push(format!("stopped: {reason}"));
     }
 }
