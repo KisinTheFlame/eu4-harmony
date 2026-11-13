@@ -6,7 +6,7 @@ Status: decided 2026-11-14 at the owner's request after the first tagged release
 
 Merging a version PR into master is the approval to publish. The owner maintains the workspace version, internal lockfile versions and change note in that PR. GitHub performs the checks, builds both packages, creates the immutable version tag and publishes the completed Release without a second manual action.
 
-Do not infer versions from commit-message prefixes or introduce a second bot-maintained changelog. Ordinary code PRs do not publish. Manual preparation remains optional and never publishes. Do not move the existing `v0.2.0` tag or rebuild its published attachments.
+Do not infer versions from commit-message prefixes or introduce a second bot-maintained changelog. Ordinary code PRs do not publish. Manual preparation remains optional and never publishes. Do not move the existing `v0.2.0` tag or rebuild its published attachments. At the owner's request, this change also raises the workspace to 0.2.1, so merging this PR provides the first real publication through the new trigger.
 
 ## Behavior
 
@@ -33,7 +33,7 @@ Keep the normal GitHub workflow token, scoped contents-write permission in the p
 - **V2 Create the tag and publish.** Create the immutable tag only after checks and packaging, handle retries and reference races without moving existing tags, and publish in the same run.
 - **V3 Verify and document.** Add offline tests for request selection, event guards and tag creation; lint the workflow, update the paired READMEs and release guide, and verify cloud preparation after merge.
 
-Every part is done when its tests pass and documentation agrees. An actual new-version publication through this new trigger is only verified when a later version PR is merged; do not publish an unnecessary version or move the first release tag solely to test the trigger.
+Every part is done when its tests pass, documentation agrees, and merging this PR has automatically published 0.2.1 with both expected public packages. The existing 0.2.0 release and its tag stay unchanged.
 
 ## Evidence and limits
 
