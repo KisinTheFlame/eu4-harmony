@@ -1362,12 +1362,12 @@
 "0x5c44e0" = { kind = "leaf", name = "map manager camera", notes = ["research/camera.md"] }
 "0x5c44f0" = { kind = "function", notes = ["research/saves.md"] }
 "0x5c5170" = { kind = "function", notes = ["research/saves.md"] }
-"0x5c6500" = { kind = "function", name = "local save", notes = ["research/saves.md"] }
+"0x5c6500" = { kind = "function", name = "local save", notes = ["research/performance-boundaries.md", "research/saves.md"] }
 "0x5c68e6" = { kind = "code", notes = ["research/saves.md"] }
 "0x5c6c0f" = { kind = "code", notes = ["research/saves.md"] }
 "0x5c76ab" = { kind = "code", notes = ["research/saves.md"] }
 "0x5c7888" = { kind = "code", notes = ["research/saves.md"] }
-"0x5c7ac0" = { kind = "function", name = "local ironman save", notes = ["research/main-menu.md", "research/main-thread.md", "research/saves.md"] }
+"0x5c7ac0" = { kind = "function", name = "local ironman save", notes = ["research/main-menu.md", "research/main-thread.md", "research/performance-boundaries.md", "research/saves.md"] }
 "0x5c7ea4" = { kind = "code", notes = ["research/saves.md"] }
 "0x5c81d2" = { kind = "code", notes = ["research/saves.md"] }
 "0x5c88ef" = { kind = "code", notes = ["research/saves.md"] }
@@ -1737,7 +1737,7 @@
 "0x7579f0" = { kind = "function", name = "set speed", notes = ["research/commands.md", "research/time.md"] }
 "0x757ad0" = { kind = "function", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/time.md"] }
 "0x757ad6" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
-"0x758430" = { kind = "function", name = "daily update", notes = ["game/README.md", "game/day.md", "research/architecture.md", "research/drawing-beside-the-day.md", "research/main-menu.md", "research/main-thread.md", "research/time.md"] }
+"0x758430" = { kind = "function", name = "daily update", notes = ["game/README.md", "game/day.md", "research/architecture.md", "research/drawing-beside-the-day.md", "research/main-menu.md", "research/main-thread.md", "research/performance-boundaries.md", "research/time.md"] }
 "0x7584a2" = { kind = "code", notes = ["research/drawing-beside-the-day.md", "research/time.md"] }
 "0x7584f9" = { kind = "code", notes = ["research/time.md"] }
 "0x758aef" = { kind = "code", notes = ["research/time.md"] }
@@ -2041,7 +2041,7 @@
 "0x817254" = { kind = "code", notes = ["research/army-orders.md"] }
 "0x818080" = { kind = "function", name = "closing the views over the map", notes = ["research/extension-windows.md", "research/message-pop-up-actions.md"] }
 "0x8181d0" = { kind = "function", notes = ["research/message-pop-up-actions.md"] }
-"0x8183b0" = { kind = "function", name = "the in-game frame's drawing", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/headless.md", "research/late-game.md", "research/main-thread.md", "research/map-drawing-reads.md"] }
+"0x8183b0" = { kind = "function", name = "the in-game frame's drawing", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/headless.md", "research/late-game.md", "research/main-thread.md", "research/map-drawing-reads.md", "research/performance-boundaries.md"] }
 "0x818614" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x818619" = { kind = "code", name = "the map mode's colors' flags", notes = ["research/drawing-beside-the-day.md"] }
 "0x818652" = { kind = "code", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
@@ -5255,10 +5255,10 @@
 "0x16d22e0" = { kind = "leaf", name = "a function of the graphics back end's table", notes = ["research/gui-drawing.md"] }
 "0x16d4a40" = { kind = "function", name = "a function of the graphics back end's table", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/loading.md"] }
 "0x16d4b20" = { kind = "function", name = "a function of the graphics back end's table", notes = ["research/architecture.md"] }
-"0x16d4bb0" = { kind = "function", name = "before device reset", notes = ["research/architecture.md"] }
+"0x16d4bb0" = { kind = "function", name = "before device reset", notes = ["research/architecture.md", "research/performance-boundaries.md"] }
 "0x16d4c10" = { kind = "leaf", name = "a function of the graphics back end's table", notes = ["research/gui-drawing.md"] }
 "0x16d4c80" = { kind = "function", name = "a function of the graphics back end's table", notes = ["research/gui-drawing.md"] }
-"0x16d4db0" = { kind = "function", name = "frame present", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/headless.md", "research/loading.md", "research/safe-points.md", "research/screenshots.md"] }
+"0x16d4db0" = { kind = "function", name = "frame present", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/headless.md", "research/loading.md", "research/performance-boundaries.md", "research/safe-points.md", "research/screenshots.md"] }
 "0x16d4e00" = { kind = "function", name = "the renderer begins a scene", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/map-drawing-reads.md", "research/panel-entry-text.md"] }
 "0x16d4e2f" = { kind = "code", name = "a scene forgets the renderer's vertex declaration", notes = ["research/drawing-beside-the-day.md"] }
 "0x16d4e50" = { kind = "function", name = "a function of the graphics back end's table", notes = ["research/architecture.md", "research/gui-drawing.md", "research/panel-entry-text.md"] }

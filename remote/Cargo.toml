@@ -19,6 +19,8 @@ serde_json = { workspace = true }
 # The memory group, which a developer build with the heap census answers
 # (src/memory.rs).
 dev-memory = []
+# In-process performance windows, available only in an instrumented core.
+dev-performance = []
 
 [lints]
 workspace = true

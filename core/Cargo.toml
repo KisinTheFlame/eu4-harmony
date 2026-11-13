@@ -90,7 +90,9 @@ analysis = ["dep:iced-x86"]
 # The development tools, for finding things out in the game; each is on when
 # built in, with its options in dev.toml (src/dev.rs). A player's build has
 # none of them, and `dev` has them all.
-dev = ["dev-call-trace", "dev-memory", "dev-heap-census", "dev-command-log", "dev-test-switches", "dev-write-watch", "dev-test-games", "dev-crossings"]
+dev = ["dev-call-trace", "dev-memory", "dev-heap-census", "dev-command-log", "dev-test-switches", "dev-write-watch", "dev-test-games", "dev-crossings", "dev-performance"]
+# Bounded on-demand performance windows (src/performance.rs).
+dev-performance = ["dep:toml", "eu4-harmony-remote/dev-performance"]
 # Logs calls of the game functions dev.toml names (src/trace.rs).
 dev-call-trace = ["analysis", "dep:toml"]
 # Answers remote control's memory: what the process holds, by where it

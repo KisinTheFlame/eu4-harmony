@@ -1,0 +1,29 @@
+# Boundaries for performance collection
+
+This note maps the existing research on the day, the frame and Present to the framework's performance collection (`core/src/performance_hooks.rs`, `core/src/drawing.rs` and `core/src/framework_ui/hook.rs`). It uses the 1.37.5 baseline and the prior reads cited below; it adds no new disassembly or claim about GPU/display timing.
+
+## Completed days
+
+The full daily update is `0x758430`, already observed by `game::signals`. It moves the date first and then runs the daily, monthly and yearly work; completion is its return, not the date increment ([time.md](time.md), [architecture.md](architecture.md)). Collection begins after the framework has released the presentation lock for that call, and ends before the framework reacquires it. The duration includes interface updates and worker waits inside the daily call; it excludes the framework's subsequent day-end lock wait. The raw game date is read through the already checked world-date field and classifies the completed day as ordinary, month start or year start, with year start taking precedence.
+
+A window or context segment may begin inside a daily call. Its completion still counts toward throughput, but a duration without an observed entry is unknown. Frames inside a day do not execute queued commands, even though they update the interface ([drawing-beside-the-day.md](drawing-beside-the-day.md)).
+
+## Update readiness
+
+The framework's drawing path publishes its prepared sequence after deferred calls, tooltip preparation, frame preparation and map-highlight retention. That publication is the readiness boundary. The main-thread drawing path instead enters the in-game drawing function `0x8183b0` after the interface's update; its readiness is recorded there, including when the drawing-thread speed-up is left to the game. Native drawing still performs its own drawing preparation inside that call, so its readiness-to-submission duration includes that work. These two boundaries are labeled in the development tool documentation and must not be interpreted as pure interface-work timing.
+
+The in-game frame contains interface work both before and after the commands. Timing the complete frame would therefore include simulation; collection does not report that as interface work ([drawing-beside-the-day.md](drawing-beside-the-day.md), "The in-game frame's steps, in order"). A crossing that makes the prepared data ineligible records invalidation. A frame already in Present retains the update it began submitting, even if the main thread invalidates or replaces that update while Present runs without the lock.
+
+## Submitted frames
+
+The game's Present wrapper is `0x16d4db0`, already replaced by the framework UI. Its result is false for a negative device result or `S_PRESENT_OCCLUDED`, as recorded in [headless.md](headless.md), "What the game does when it is not seen". A nonzero result from the original wrapper is therefore the success boundary used here. The framework's held-frame branch returns success without calling that wrapper; collection deliberately does not count it. The loading thread's presentations are excluded; both main-thread and drawing-thread presentations during the measured game are included.
+
+The update association is captured while the presentation lock is still held. The return timestamp is taken immediately after the original wrapper returns, before the drawing thread reacquires that lock. A call that began before the collection window still contributes its return, with no call-duration sample or update attribution; an earlier window's token cannot carry its entry time or update identifier into a later one. The measured call span includes wrapper and lock-release overhead. It is not GPU time, a scan-out timestamp or proof of display. Existing ten-second drawing logs timestamp the end of the whole drawing function instead, so their gaps are not interchangeable with the new submission intervals.
+
+The before-reset observer at `0x16d4bb0` adds an interruption marker. Failed submissions remain failures; they do not close the interval between successful submissions.
+
+## Saves and interruptions
+
+The local save `0x5c6500` and local ironman save `0x5c7ac0` already have checked observers for background compression ([saves.md](saves.md), `core/src/saving/background.rs`). Performance builds register those shared observers through the collection tool exactly once, whether background compression is enabled or left to the game. Their callbacks always record the collection markers and run compression work only when the speed-up is enabled. Player builds register the same observers through the speed-up. Both the complete dependency list and the installed list therefore avoid overlapping hooks, including in `game_paths` comparisons. These labels mean local saves, not proof that a particular save was automatically scheduled. Cloud-save paths are not marked by these observers.
+
+All these markers remain inside the inclusive measurement window. Pause, speed, session and frame-target changes start new statistical segments. Within the same session, an update's lifetime and the last submitted update's age continue across those boundaries, while event-interval distributions restart. Final update outcomes and first-submission delays are assigned once to the preparing segment after replaying the retained timeline, including returns from calls in flight across a boundary. A pending update's age is measured at the retained timeline's end. A new session clears associations and age and invalidates prepared data from the previous session. Collection does not assume that an update is a whole-day snapshot or that every window refreshes its contents at every preparation. The age of a submitted update describes its scheduling, not the semantic freshness of every number it draws.

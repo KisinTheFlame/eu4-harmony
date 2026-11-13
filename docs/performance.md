@@ -1,5 +1,52 @@
 # Performance
 
+`scenario perf` now collects completed days, frame submission intervals and interface updates in bounded in-process windows on a dedicated performance developer build. [Performance windows](dev-tools.md#performance-windows) explains its output and collection-off comparisons; the [metric plan](plans/performance-metrics.md) also defines action response, which remains unmeasured. The historical results below retain their original methods: their date-based rates and frame counts are not retrospectively redefined as the new measurements.
+
+## Completed days, submissions and updates (2026-11-14)
+
+The [first complete run](prototype-log/2026-11-14-performance-baseline.md) used the performance developer build, a hidden new Ming campaign with the player's playset (including Regional Combat and Convenience Tools), 3840x2160, and drawing on its own thread with no framework frame limit. After paused warmup, it collected 30 s paused and 120 s at speed 5. Both windows were complete, with no lost events; neither is an uninstrumented player-build measurement.
+
+| Measure | Paused | Speed 5 |
+| --- | --- | --- |
+| Completed days/min | 0 | 1,015.5 (2,031 days) |
+| Successful submissions/s | 144.033 | 128.825 |
+| Submission interval P95 / P99 / max, ms | 7.329 / 7.967 / 17.215 | 10.019 / 38.034 / 150.687 |
+| Completed submission gaps over 50 / 100 ms | 0 / 0 | 78 / 14 |
+| Interface updates ready/s | 72.067 | 24.525 |
+| Update-ready interval P95 / P99, ms | 14.325 / 14.971 | 62.939 / 76.513 |
+| Ready-to-first-submission P95 / P99, ms | 7.190 / 7.938 | 9.065 / 20.056 |
+| Time-weighted interface age P95 / P99 / max, ms | 20.055 / 20.690 / 30.851 | 62.138 / 90.098 / 163.525 |
+| CPU, cores | 0.656 | 3.494 |
+
+The running window contained 15,459 submissions and 2,943 prepared updates, 749 of them inside daily calls. Drawing could therefore remain frequent while reusing the same update. Eleven marked local saves remain included. There were only six year starts, too few to treat their P95 as stable. The run record gives counts, update outcomes, missing age coverage and unfinished intervals; the JSON and Markdown reports are in `target/scenarios/perf-baseline/`.
+
+[The main-thread check](prototype-log/2026-11-14-performance-native.md) also collected complete windows with `drawing-thread` and `background-compression` disabled, all successful submissions attributed to the main thread, and both local saves marked. It establishes path coverage, not a controlled speed comparison. Physical display latency, GPU time, pure interface-work duration and action response remain unmeasured.
+
+### Collection on/off comparison
+
+Six further runs used that same compiled core (all retained startup reports agreed on its size and modification timestamp), playset, resolution and initial camera. Each restarted a hidden new Ming game with the same warmup, then ran 5 s paused and 30 s at speed 5. The order was on/off, off/on, on/off. All passed; all collection-on windows reached their deadlines with no lost events, and collection-off reports correctly left the in-process metrics absent. No other game was running at any start, and all test games were released.
+
+| Run, in execution order | Collection | External date-days/min | Paused CPU, cores | Speed-5 CPU, cores |
+| --- | --- | --- | --- | --- |
+| [Pair 1 on](prototype-log/2026-11-14-performance-overhead-1-on.md) | On | 975.7 | 0.672 | 3.404 |
+| [Pair 1 off](prototype-log/2026-11-14-performance-overhead-1-off.md) | Off | 1,116.9 | 0.725 | 3.598 |
+| [Pair 2 off](prototype-log/2026-11-14-performance-overhead-2-off.md) | Off | 1,014.8 | 0.731 | 3.378 |
+| [Pair 2 on](prototype-log/2026-11-14-performance-overhead-2-on.md) | On | 1,056.8 | 0.742 | 3.629 |
+| [Pair 3 on](prototype-log/2026-11-14-performance-overhead-3-on.md) | On | 1,061.2 | 0.735 | 3.625 |
+| [Pair 3 off](prototype-log/2026-11-14-performance-overhead-3-off.md) | Off | 1,071.0 | 0.644 | 3.249 |
+
+| Measure | Collection on: median (range) | Collection off: median (range) |
+| --- | --- | --- |
+| External date-days/min | 1,056.8 (975.7–1,061.2) | 1,071.0 (1,014.8–1,116.9) |
+| Paused CPU, cores | 0.735 (0.672–0.742) | 0.725 (0.644–0.731) |
+| Speed-5 CPU, cores | 3.625 (3.404–3.629) | 3.378 (3.249–3.598) |
+
+The collection-on date-rate median was 1.3% lower, but the individual paired differences were −12.6%, +4.1% and −0.9%. The speed-5 CPU median was 0.247 cores (7.3%) higher with collection on. These short independent campaigns have overlapping ranges and materially different outcomes; they do not isolate a stable collection cost or establish that it is negligible. No randomness seed or saved starting state was fixed, and background machine load was not controlled. The on path also begins and exports a window: the external date interval includes that request and export time before pausing, while the CPU bracket ends before export. These results include those control costs and cannot identify the recorder's hot-path cost alone.
+
+Only the external date-based rate is compared, because collection-off runs have no completed-day observations. This is the cost of enabling collection in one developer build, not the fixed cost of that build's observers versus a player build and not a framework-versus-unmodified-game comparison. The bounded measurements and explicit missing values are verified; a precise overhead estimate remains unresolved.
+
+## Original measurement (2026-10-28)
+
 What the framework costs the game, measured on 2026-10-28 with the framework at commit 44b89f3. In short:
 
 - **Running the game**: at speed 5 the game advanced about 2.5% fewer days per second with the framework, on as much CPU: with the English playset, each of three runs with the framework was behind each of three runs without it (17.8 against 18.2 days per second). Where the time goes was not looked into.

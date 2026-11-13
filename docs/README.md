@@ -18,6 +18,17 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 
 | | |
 | --- | --- |
+| [2026-11-14-performance-overhead-1-on.md](prototype-log/2026-11-14-performance-overhead-1-on.md) | First collection-on repeat: complete paused and running windows, with external rate and CPU |
+| [2026-11-14-performance-overhead-1-off.md](prototype-log/2026-11-14-performance-overhead-1-off.md) | First collection-off repeat in the same build, with absent in-process metrics |
+| [2026-11-14-performance-overhead-2-off.md](prototype-log/2026-11-14-performance-overhead-2-off.md) | Second collection-off repeat, beginning the reversed-order pair |
+| [2026-11-14-performance-overhead-2-on.md](prototype-log/2026-11-14-performance-overhead-2-on.md) | Second collection-on repeat, whose rate ordering reversed the first pair |
+| [2026-11-14-performance-overhead-3-on.md](prototype-log/2026-11-14-performance-overhead-3-on.md) | Third collection-on repeat with complete windows and no dropped events |
+| [2026-11-14-performance-overhead-3-off.md](prototype-log/2026-11-14-performance-overhead-3-off.md) | Final collection-off repeat, matching build/setup evidence and release of all test games |
+| [2026-11-14-performance-baseline.md](prototype-log/2026-11-14-performance-baseline.md) | First complete 30 s paused and 120 s speed-5 windows, with distinct day throughput, submissions, interface updates and time-weighted age |
+| [2026-11-14-performance-native.md](prototype-log/2026-11-14-performance-native.md) | Main-thread submission attribution and local-save markers with drawing-thread and background-compression speed-ups disabled |
+| [2026-11-14-performance-smoke.md](prototype-log/2026-11-14-performance-smoke.md) | Complete short paused and speed-5 windows with attributed submissions, interface ages, save markers and unfinished intervals |
+| [2026-11-14-performance-startup-refused.md](prototype-log/2026-11-14-performance-startup-refused.md) | First performance-collection startup refused overlapping local-save observers; no performance window ran |
+| [performance-boundaries.md](research/performance-boundaries.md) | Existing daily-update, interface-readiness and Present boundaries used by bounded performance collection, with their limits |
 | [adr/](adr/) | Decisions that are hard to reverse, one file each, and why they were made |
 | [research/](research/) | The research into the game's code that the pages of [game/](game/) rest on, with addresses as RVAs into the 1.37.5 baseline; [addresses.toml](research/addresses.toml) indexes every address they name |
 | [prototype-log/](prototype-log/) | What was tested in the running game and what came out, one file per run |
@@ -61,6 +72,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 
 | | |
 | --- | --- |
+| [performance-metrics.md](plans/performance-metrics.md) | Completed-day, submission and interface collection built and checked; action response, pure interface-work timing and the full save comparison matrix remain deferred |
 | [panel-entries-and-tooltips.md](plans/panel-entries-and-tooltips.md) | Shared tooltip content and lifetime, checked entry images and independent formatted numbers |
 | [game-speed.md](plans/game-speed.md) | Making the game faster without changing the game it plays; how a part is chosen, and which comes next |
 | [mod-capabilities.md](plans/mod-capabilities.md) | What the framework opens to mods, what each area still lacks, and the parts taking it up: signals, reads, the script group and requests as the game, tasks, the panels' actions |

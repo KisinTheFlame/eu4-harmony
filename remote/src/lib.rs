@@ -504,6 +504,9 @@ groups! {
     /// What the game holds in memory, and what the heap census found: a
     /// developer build's (docs/plans/leak-finding.md).
     Memory(memory::MemoryRequest, MemoryAnswer),
+    #[cfg(feature = "dev-performance")]
+    /// Bounded in-process performance measurements in a developer build.
+    Performance(performance::PerformanceRequest, PerformanceAnswer),
     /// Mouse and keyboard input at screen positions, as the player gives it.
     Input(input::InputRequest, InputAnswer),
     /// The game on the player's desktop: a hidden start, showing and hiding it.

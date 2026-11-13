@@ -168,6 +168,8 @@ cargo xtask game release --owner mine   # keep its logs, remove the rest
 
 `cargo xtask scenario windows --owner mine` exercises native extension windows and list replacement through extension reload and session changes, retaining screenshots for visual inspection. It also runs in `scenario whole`; [development tools](docs/dev-tools.md) describe its checks and limits.
 
+`cargo xtask scenario perf --owner mine` measures completed days, frame submission intervals and interface updates in paused and speed-5 windows, alongside startup, CPU and memory. It uses a dedicated performance developer build and writes JSON and Markdown reports; [development tools](docs/dev-tools.md) describe the measurements and their limits.
+
 The framework takes the game's own `-userdir` for the user folder, as the game does.
 
 `cargo xtask --help` lists the other development commands.
