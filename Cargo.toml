@@ -3,7 +3,7 @@ resolver = "2"
 members = ["checks", "cli", "client", "core", "core/macros", "folders", "loc", "lua", "manifest", "logging", "proxy", "remote", "remote/derive", "xtask"]
 
 [workspace.package]
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 publish = false
 license = "MIT"

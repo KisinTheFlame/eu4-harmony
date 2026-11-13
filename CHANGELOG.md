@@ -2,6 +2,15 @@
 
 What changed in each version of Harmony that players and mod authors notice. Each upload to the Steam Workshop is a version of its own, and its section here is the upload's change note (`cargo xtask workshop-upload`).
 
+## 0.1.6
+
+- Faster startup with large mods: localisation is loaded once, replacement lookups are indexed, and trigger profile matching reuses equivalent trigger structures. The drawing thread also sleeps while it has no prepared frame during startup.
+- Improved startup folder lookups when a mod includes non-ASCII filenames.
+- More reliable native window and tooltip lifetimes: partial window creation is cleaned up, replaced controls retain their current bindings, and delayed tooltip drawing follows explicit ownership.
+- Extension save data is retained through ironman setup saves that run before the session starts.
+
+The large-mod startup changes were checked against the game's own results with zero differences in the tested runs. Guixu 1.254 reached the main menu in about 20 seconds instead of 31–32 seconds on the test computer; results depend on the mod and computer.
+
 ## 0.1.5
 
 - Fixed: hovering a country's core icon could lose the map outlines of its core provinces when the drawing thread was enabled. Prepared frames now retain the temporary highlights they need.
