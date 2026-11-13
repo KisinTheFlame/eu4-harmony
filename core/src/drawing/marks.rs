@@ -100,6 +100,13 @@ pub(super) fn keep(m: &Memory, idler: usize) -> crate::Result<()> {
     capture_into(m, idler, kept.get_or_insert_with(Kept::default))
 }
 
+pub(super) fn clear() {
+    if let Some(kept) = KEPT.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        kept.valid = false;
+        kept.idler = 0;
+    }
+}
+
 fn capture_into(m: &Memory, idler: usize, kept: &mut Kept) -> crate::Result<()> {
     kept.valid = false;
     let provinces_at = array(m, idler, PROVINCES, PROVINCE_COUNT, 1, &mut kept.provinces)?;

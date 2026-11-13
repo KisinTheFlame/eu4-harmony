@@ -43,10 +43,12 @@ impl Scenario for Windows {
     fn play(&self, game: &mut Game, _: &Parameters, record: &mut Value) -> Played<()> {
         let user = game.user()?;
         let core = Mark::of(&user);
-        let load_error = Mark::default().messages(&user.core_log(), "core").into_iter().find(|line| line.contains(&format!("extension \"{MOD}\" not loaded:")));
+        let load_error = Mark::default()
+            .messages(&user.core_log(), eu4_harmony_logging::CORE)
+            .into_iter()
+            .find(|line| line.contains(&format!("extension \"{MOD}\" not loaded:")));
         game.check(load_error.is_none(), load_error.unwrap_or_default())?;
-        let extension_log = user.logs().join(format!("extension-{MOD}.log"));
-        let extension = Mark::of_file(&extension_log);
+        let extension = Mark::of_extension(&user, MOD);
         let _: Session = game.ask(&MenuRequest::Start { country: Some(CountryTag(*b"FRA")) })?;
         let _: () = game.ask(&TimeRequest::Pause {})?;
         *record = json!({"courses": [], "captures": [], "native_errors": []});
@@ -64,7 +66,7 @@ impl Scenario for Windows {
         let _: () = game.ask(&TimeRequest::Pause {})?;
         course(game, "next-session", record)?;
         game.return_to_menu()?;
-        let lines = extension.messages(&extension_log, "extension-qa-windows");
+        let lines = extension.extension_messages(&user, MOD);
         let completed = lines.iter().filter(|line| line.starts_with("qa-windows completed ")).count();
         let failures: Vec<_> =
             lines.iter().filter(|line| line.contains("error:") || line.starts_with("stopped:") || line.contains("assertion failed")).collect();

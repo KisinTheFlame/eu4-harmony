@@ -34,6 +34,7 @@
 //! reads the countries), when the console's debug text is on (which works a
 //! country's values out as it is drawn), and while the framework holds frames
 //! back.
+mod course;
 mod crossings;
 mod deferred;
 mod icons;
@@ -197,15 +198,24 @@ extern "C" fn idler_switch_stub() {
 /// to its drawing's return.
 static IN_FRAME: AtomicBool = AtomicBool::new(false);
 
+fn clear_staged_frame() {
+    FRAMES.clear_idler();
+    icons::clear();
+    tooltip::clear();
+    marks::clear();
+    crossings::clear();
+}
+
 /// The idler is about to be switched, by the main thread holding the lock. A
 /// frame of the drawing thread's may be in Present, without the lock, and is
 /// to end with the idler it began with: the main thread lets the lock go
 /// until it has. What was deferred is done before the idler goes.
 #[called_by_game]
 extern "C" fn idler_switches() {
-    PREPARED.store(0, Ordering::Release);
+    clear_staged_frame();
     main_side(|s| s.drawing_frame_ends(&MainLock, || IN_FRAME.load(Ordering::Acquire)));
     deferred::done(&crate::hooked_memory());
+    crossings::clear();
 }
 
 crate::resume!(FRAME_RESUME: FRAME_DRAWN_AT = FRAME_DRAWN);
@@ -387,17 +397,7 @@ impl turns::Lock for DrawingLock {
 
 /// The drawing thread's ID, 0 until it runs; the head's stub compares it.
 static DRAWING_THREAD: AtomicU32 = AtomicU32::new(0);
-/// The in-game idler whose frame the main thread prepared last, 0 for none.
-static PREPARED: AtomicUsize = AtomicUsize::new(0);
-/// How many frames the main thread prepared, and the last of them drawn. The
-/// game's frames are paced by Present, which waits for the display; the main
-/// thread no longer presents, so a frame that runs no day (paused, or between
-/// the days of a slow speed) waits for the last one to be drawn instead, as
-/// it waited for the display, and the main thread does not spin.
-static PREPARED_SEQ: AtomicU64 = AtomicU64::new(0);
-static DRAWN_SEQ: AtomicU64 = AtomicU64::new(0);
-/// A day ran since the last application frame began.
-static DAY_RAN: AtomicBool = AtomicBool::new(false);
+static FRAMES: course::FrameCoordinator = course::FrameCoordinator::new();
 /// The longest a frame waits so.
 const PACE_AT_MOST: Duration = Duration::from_millis(50);
 /// Whether the drawing thread draws the frames: its speed-up not left to the
@@ -490,7 +490,7 @@ fn app_frame_before(_: &mut Call) {
     if !on_main() {
         return;
     }
-    if !DAY_RAN.swap(false, Ordering::AcqRel) {
+    if !FRAMES.take_day_ran() {
         pace();
     }
     main_side(|s| s.frame_begins(&MainLock));
@@ -516,21 +516,22 @@ fn app_frame_after(call: &mut Call) {
 /// began to wait for before it was stopped never begins.
 fn stop() {
     STOPPED.store(true, Ordering::Release);
+    clear_staged_frame();
     main_side(|s| s.quits(&MainLock, || IN_FRAME.load(Ordering::Acquire)));
     deferred::done(&crate::hooked_memory());
+    crossings::clear();
     log!("drawing: the game quits; the drawing thread draws no more");
 }
 
 /// Waits for the drawing thread to draw the last frame prepared, unless it
-/// cannot (a crossing changed what it draws) or the main thread holds the
-/// lock (a frame inside another).
+/// cannot (a crossing or main-drawn frame invalidated what it draws) or the
+/// main thread holds the lock (a frame inside another).
 fn pace() {
-    let wanted = PREPARED_SEQ.load(Ordering::Acquire);
-    if DRAWN_SEQ.load(Ordering::Acquire) >= wanted || !drawing_on() || crossings::holding_back().is_some() || !main_side(|s| s.may_pace()) {
+    let Some(wanted) = FRAMES.pace_target(drawing_on(), crossings::holding_back().is_some(), main_side(|s| s.may_pace())) else {
         return;
-    }
+    };
     let began = Instant::now();
-    while DRAWN_SEQ.load(Ordering::Acquire) < wanted && began.elapsed() < PACE_AT_MOST && drawing_on() {
+    while !FRAMES.drawn_caught_up(wanted) && began.elapsed() < PACE_AT_MOST && drawing_on() {
         std::thread::sleep(Duration::from_micros(250));
     }
     PACED.fetch_add(began.elapsed().as_micros() as u64, Ordering::Relaxed);
@@ -541,7 +542,7 @@ pub fn day_begins() {
     if !on_main() || !drawing_on() {
         return;
     }
-    DAY_RAN.store(true, Ordering::Release);
+    FRAMES.note_day_ran();
     #[cfg(feature = "dev-write-watch")]
     crate::write_watch::drawing::day_begins(&crate::hooked_memory());
     main_side(|s| s.day_begins(&MainLock));
@@ -580,17 +581,16 @@ extern "C" fn frame_draws(idler: usize) {
     // crossings, if any, forgotten as the frame is prepared.
     deferred::done(&m);
     prepare::tooltips(&m, idler);
-    // A frame the main thread draws itself leaves the last one prepared
-    // behind, which it holds back: its scenes, begun with the lock held, are
-    // no crossings.
+    // A frame the main thread draws itself invalidates the earlier prepared
+    // frame and drops icons staged during this update without faking a crossing.
     if !drawing_on() || main_draws(&m) {
-        if drawing_on() {
-            crossings::crossing(m.at(DRAWING.rva()));
-        }
+        FRAMES.main_draws_frame();
+        icons::discard_placing();
         draw_here(&m, idler);
         return;
     }
     if let Err(e) = prepare::frame(&m, idler) {
+        icons::discard_placing();
         log!("drawing: the frame could not be prepared: {e}");
         return;
     }
@@ -602,8 +602,7 @@ extern "C" fn frame_draws(idler: usize) {
     // crossings before began.
     crossings::frame_prepared();
     icons::prepared();
-    PREPARED.store(idler, Ordering::Release);
-    PREPARED_SEQ.fetch_add(1, Ordering::AcqRel);
+    FRAMES.publish_prepared(idler);
     CAMERA_MOVED_THERE.store(1, Ordering::Relaxed);
     // What the main thread does as it presents a frame: the safe point of a
     // frame outside a game, and the input taken for the next.
@@ -739,101 +738,6 @@ fn wait_until(until: Instant) {
     }
 }
 
-/// The frames that came late, for the log: a gap between two frames drawn
-/// longer than two of the display's refreshes, by what happened in it: a
-/// crossing holding the frame back while the drawing thread had the lock
-/// (by the crossing that marked the frame changed first); else what took the
-/// gap's most time, the drawing thread waiting for the lock before its frame,
-/// the drawing, Present, waiting for the lock after Present, or the rest (the
-/// thread waiting for its time, or not run).
-#[derive(Default)]
-struct Gaps {
-    last: Option<Instant>,
-    held: Option<usize>,
-    /// The gap's parts so far, as in [`LATE_BY`].
-    parts: [Duration; 4],
-    late: [u32; 6],
-    by: Vec<(usize, u32)>,
-    longest: Duration,
-    /// The frames' drawing, Present and the lock after it left out: in all,
-    /// how many, the longest.
-    drawing: (Duration, u32, Duration),
-}
-
-/// What a late frame is counted by: held back, then the gap's parts and the
-/// rest.
-const LATE_BY: [&str; 6] = ["held back", "the lock before", "drawing", "Present", "the lock after Present", "other"];
-
-impl Gaps {
-    /// The drawing thread had the lock, and a crossing (`into`) held the
-    /// frame back.
-    fn held_by(&mut self, into: usize) {
-        self.held.get_or_insert(into);
-    }
-
-    /// The drawing thread waited for the lock before a frame.
-    fn waited(&mut self, waited: Duration) {
-        self.parts[0] += waited;
-    }
-
-    /// A frame drawn, its drawing taking `drawing` in all, Present and the
-    /// lock after it within that.
-    fn drawn(&mut self, interval: Duration, drawing: Duration, present: Duration, lock_after: Duration) {
-        let own = drawing.saturating_sub(present + lock_after);
-        self.parts[1] += own;
-        self.drawing = (self.drawing.0 + own, self.drawing.1 + 1, self.drawing.2.max(own));
-        self.parts[2] += present;
-        self.parts[3] += lock_after;
-        let now = Instant::now();
-        if let Some(last) = self.last.replace(now) {
-            let gap = now - last;
-            if gap > interval * 2 {
-                let rest = gap.saturating_sub(self.parts.iter().sum());
-                let why = match self.held {
-                    Some(_) => 0,
-                    None => {
-                        let parts = [self.parts[0], self.parts[1], self.parts[2], self.parts[3], rest];
-                        1 + (0..parts.len()).max_by_key(|&i| parts[i]).unwrap_or(4)
-                    }
-                };
-                self.late[why] += 1;
-                if let Some(into) = self.held {
-                    match self.by.iter_mut().find(|b| b.0 == into) {
-                        Some(b) => b.1 += 1,
-                        None => self.by.push((into, 1)),
-                    }
-                }
-            }
-            self.longest = self.longest.max(gap);
-        }
-        self.held = None;
-        self.parts = [Duration::ZERO; 4];
-    }
-
-    /// The line for the log, and a new count.
-    fn told(&mut self, base: usize) -> String {
-        self.by.sort_by_key(|b| std::cmp::Reverse(b.1));
-        let by: Vec<String> = self.by.iter().take(3).map(|(into, n)| format!("{:#x} {n}", into.wrapping_sub(base))).collect();
-        let others: Vec<String> = (1..LATE_BY.len()).map(|i| format!("{} {}", LATE_BY[i], self.late[i])).collect();
-        let (all, frames, longest) = self.drawing;
-        let told = format!(
-            "{} late (held back {} by {}, {}), the longest gap {:.0} ms; a frame's drawing {:.1} ms, the longest {:.1} ms",
-            self.late.iter().sum::<u32>(),
-            self.late[0],
-            by.join(", "),
-            others.join(", "),
-            self.longest.as_secs_f64() * 1000.0,
-            all.as_secs_f64() * 1000.0 / frames.max(1) as f64,
-            longest.as_secs_f64() * 1000.0
-        );
-        self.drawing = Default::default();
-        self.late = [0; 6];
-        self.by.clear();
-        self.longest = Duration::ZERO;
-        told
-    }
-}
-
 /// The drawing thread.
 fn run() {
     DRAWING_THREAD.store(crate::thread_id(), Ordering::Relaxed);
@@ -845,7 +749,7 @@ fn run() {
     let mut logged = Instant::now();
     let mut last_drawn = 0u64;
     let mut last_frame = Instant::now();
-    let mut gaps = Gaps::default();
+    let mut gaps = course::Gaps::default();
     loop {
         if !drawing_on() {
             CAMERA_MOVED_THERE.store(0, Ordering::Relaxed);
@@ -863,9 +767,8 @@ fn run() {
         }
         let waited = drawing_side(|d| d.turn_begins(&DrawingLock));
         gaps.waited(waited);
-        let idler = PREPARED.load(Ordering::Acquire);
+        let idler = FRAMES.prepared_idler();
         let current = m.ptr(m.at(APP)).and_then(|app| m.ptr(app + APP_IDLER)).unwrap_or(0);
-        let seq = PREPARED_SEQ.load(Ordering::Acquire);
         // This frame's length, for the camera and the map's fades.
         let length = last_frame.elapsed().as_secs_f32().min(0.1);
         last_frame = Instant::now();
@@ -880,7 +783,7 @@ fn run() {
         if let Some(into) = held {
             gaps.held_by(into);
         }
-        if idler != 0 && current == idler && held.is_none() && !must_draw_here(&m) {
+        if let Some((idler, seq)) = FRAMES.drawable(current, held, must_draw_here(&m)) {
             DRAWING_LENGTH.store(length.to_bits(), Ordering::Relaxed);
             if let Err(e) = icons::follow_camera(&m) {
                 log!("drawing: the map icons could not follow the camera: {e}");
@@ -903,8 +806,8 @@ fn run() {
             crate::write_watch::drawing::frame_ends(watched);
             IN_FRAME.store(false, Ordering::Release);
             DRAWN.fetch_add(1, Ordering::Relaxed);
-            DRAWN_SEQ.store(seq, Ordering::Release);
-            gaps.drawn(interval, drawing, present, lock_after);
+            FRAMES.note_drawn(seq);
+            gaps.drawn(Instant::now(), interval, drawing, present, lock_after);
         }
         drawing_side(|d| d.turn_ends(&DrawingLock));
         if logged.elapsed() >= Duration::from_secs(10) {

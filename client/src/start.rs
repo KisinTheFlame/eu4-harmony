@@ -188,9 +188,15 @@ pub fn start(game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> std:
     }
 }
 
-/// The framework's own word on why the game ended: the last failed startup
-/// or fatal error in its log, when the log was written since `since`.
+/// The framework's own word on why the game ended: the last failed startup,
+/// fatal error, crash record, panic, or proxy load error in its logs folder
+/// (or in `log` itself when only a single file is given) written since `since`.
 fn why_it_ended(log: &Path, since: std::time::SystemTime) -> Option<String> {
+    if let Some(dir) = log.parent() {
+        if let Some(found) = eu4_harmony_logging::startup_failure_reason(dir, since) {
+            return Some(found);
+        }
+    }
     std::fs::metadata(log).and_then(|m| m.modified()).ok().filter(|&written| written >= since)?;
     let text = std::fs::read_to_string(log).ok()?;
     reason(&text)
@@ -199,9 +205,7 @@ fn why_it_ended(log: &Path, since: std::time::SystemTime) -> Option<String> {
 /// The last line of a log that tells why the framework ended the game, and
 /// the lines a failed startup lists after it.
 fn reason(log: &str) -> Option<String> {
-    let lines: Vec<&str> = log.lines().collect();
-    let at = lines.iter().rposition(|line| line.contains("fatal error, ending the game") || line.contains("startup failed"))?;
-    Some(lines[at..].iter().take(4).map(|line| line.trim()).collect::<Vec<_>>().join(" / "))
+    eu4_harmony_logging::extract_startup_reason(log, eu4_harmony_logging::CORE)
 }
 
 #[cfg(test)]

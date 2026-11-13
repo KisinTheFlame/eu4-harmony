@@ -90,9 +90,11 @@ signals, as the game raises them, through the dispatch the game uses:
 the mod's windows and pop-ups, as the player uses them (eu4-harmony skills ui
 windows):
   mod:press(window, widget, { row, right, shift, ctrl })
-                       presses a button of an open window, in a list's row
-                       when row is given: on_button hears "window.widget"
-  mod:entry(window)    the window's entry button: opens or closes it
+                       presses an enabled visible button of an open window, in
+                       a visible list's row when row is given: on_button hears
+                       "window.widget"; hidden or disabled buttons fail the test
+  mod:entry(window)    presses the window's enabled visible entry button: opens
+                       or closes it; hidden or disabled entries fail the test
   mod:close(window)    the player closes it, by its close button or Esc
   mod:popups()         the open pop-ups: { popup, header, title, text,
                        buttons } each, in the player language, the
@@ -115,10 +117,11 @@ session_ended's reason is return, load, new_game or country.
 what the mod did:
   mod:log()            its log lines; mod:errors() those of errors
   mod:calls(capability)    the requests it made, every one without a capability
-  mod:element(name)    { visible, enabled, text, tooltip } as it set them
-  mod:window(name)     { open, [widget] = { visible, text, ... } as it set
-                       them, [list] = { rows = { { [widget] = { ... } } } },
-                       entry = { ... } }
+  mod:element(name)    { visible, enabled, text, tooltip } in the current
+                       player language
+  mod:window(name)     { open, [widget] = { visible, text, ... } resolved from
+                       its declaration and changes, [list] = { rows = { {
+                       [widget] = { ... } } } }, entry = { value, text, ... } }
   mod:map()            { [province] = { r, g, b, a } }, or nil
   mod:requests()       { url, method, headers, body, timeout } each
   mod:waiting()        how many tasks wait

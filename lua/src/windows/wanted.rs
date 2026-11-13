@@ -13,7 +13,7 @@
 //! pop-up closes, unheard.
 use super::{Popup, Property, WindowChange};
 use crate::dispatch::{PopupPressed, WindowSeen};
-use crate::layout::Window;
+use crate::layout::{Kind, Placed, Window};
 use std::collections::BTreeMap;
 
 /// The most pop-ups open at once, past which a new one is refused.
@@ -39,6 +39,56 @@ pub struct Declared {
     /// Its mod's id.
     pub id: String,
     pub windows: Vec<Window>,
+}
+
+/// Initial resolved properties of a placed game widget, given `words` for the
+/// mod's localisation keys in the current player language.
+pub fn placed_defaults(placed: &Placed, words: impl Fn(&str) -> Option<String>) -> BTreeMap<&'static str, Property> {
+    let tooltip = placed.tooltip.as_ref().map(|t| t.resolve(&words));
+    let mut out = BTreeMap::new();
+    let mut put = |p: Property| {
+        out.insert(p.name(), p);
+    };
+    put(Property::Visible(placed.visible));
+    if let Some(tooltip) = tooltip {
+        put(Property::Tooltip(tooltip.into()));
+    }
+    match &placed.kind {
+        Kind::Text { text, .. } => put(Property::Text(text.as_ref().map(|t| t.resolve(&words)).unwrap_or_default().into())),
+        Kind::Icon { frame, .. } | Kind::Button { frame, sprite: Some(_), .. } => put(Property::Frame(*frame)),
+        Kind::Progress { value, .. } => put(Property::Value(*value)),
+        Kind::Flag { country: Some(c), .. } => put(Property::Country(c.clone())),
+        _ => {}
+    }
+    out
+}
+
+/// Resolved presentation state of a window's panel-strip entry button.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResolvedEntry {
+    pub sprite: String,
+    pub visible: bool,
+    pub enabled: bool,
+    pub frame: u32,
+    pub value: Option<f64>,
+    /// Formatted independent number below the icon; empty when `value` is `None`.
+    pub text: String,
+    pub tooltip: String,
+}
+
+/// Resolved properties of one game widget, keyed by property name.
+pub type ResolvedProperties = BTreeMap<&'static str, Property>;
+/// Resolved properties of each named cell in one list row.
+pub type ResolvedRow = BTreeMap<String, ResolvedProperties>;
+
+/// Resolved presentation state of an extension window, merging layout defaults,
+/// dynamic properties, list rows, and its entry button in the current language.
+#[derive(Clone, Default, Debug, PartialEq)]
+pub struct ResolvedWindow {
+    pub open: bool,
+    pub widgets: BTreeMap<String, ResolvedProperties>,
+    pub rows: BTreeMap<String, Vec<ResolvedRow>>,
+    pub entry: Option<ResolvedEntry>,
 }
 
 /// A pop-up open.
@@ -96,7 +146,7 @@ impl Windows {
                 if let Some(name) = &placed.name {
                     let properties = wanted.set.entry(name.clone()).or_default();
                     properties.insert("tooltip", Property::Tooltip(placed.tooltip.clone().unwrap_or_default()));
-                    if let crate::layout::Kind::Text { text, .. } = &placed.kind {
+                    if let Kind::Text { text, .. } = &placed.kind {
                         properties.insert("text", Property::Text(text.clone().unwrap_or_default()));
                     }
                 }
@@ -113,6 +163,183 @@ impl Windows {
                 }
             }
         }
+    }
+
+    /// Resolved presentation state of `extension`'s panel-strip entry button on
+    /// `window`, if that window declares one.
+    pub fn resolved_entry(&self, extension: usize, window: &str, words: impl Fn(&str) -> Option<String>) -> Option<ResolvedEntry> {
+        let layout = self.window(extension, window)?;
+        let entry = layout.entry.as_ref()?;
+        let set = self.wanted(extension, window).and_then(|w| w.set.get(crate::layout::ENTRY));
+        let visible = match set.and_then(|s| s.get("visible")) {
+            Some(Property::Visible(on)) => *on,
+            _ => entry.visible,
+        };
+        let enabled = match set.and_then(|s| s.get("enabled")) {
+            Some(Property::Enabled(on)) => *on,
+            _ => entry.enabled,
+        };
+        let frame = match set.and_then(|s| s.get("frame")) {
+            Some(Property::Frame(f)) => *f,
+            _ => entry.frame,
+        };
+        let value = match set.and_then(|s| s.get("value")) {
+            Some(Property::Number(v)) => *v,
+            _ => entry.value,
+        };
+        let tooltip = match set.and_then(|s| s.get("tooltip")) {
+            Some(Property::Tooltip(t)) => t.resolve(&words),
+            _ => entry.tooltip.as_ref().map(|t| t.resolve(&words)).unwrap_or_default(),
+        };
+        Some(ResolvedEntry { sprite: entry.sprite.clone(), visible, enabled, frame, value, text: entry.format.show(value), tooltip })
+    }
+
+    /// Resolved presentation state of `extension`'s declared window `name`.
+    pub fn resolved_window(&self, extension: usize, name: &str, words: impl Fn(&str) -> Option<String>) -> Option<ResolvedWindow> {
+        let layout = self.window(extension, name)?;
+        let wanted = self.wanted(extension, name);
+        let resolve_prop = |prop: &Property| match prop {
+            Property::Text(t) => Property::Text(t.resolve(&words).into()),
+            Property::Tooltip(t) => Property::Tooltip(t.resolve(&words).into()),
+            other => other.clone(),
+        };
+        let mut widgets = BTreeMap::new();
+        for placed in &layout.widgets {
+            let Some(widget_name) = &placed.name else { continue };
+            let mut props = placed_defaults(placed, &words);
+            if matches!(placed.kind, Kind::Button { .. }) {
+                props.insert("enabled", Property::Enabled(true));
+            }
+            if let Some(overrides) = wanted.and_then(|w| w.set.get(widget_name)) {
+                for (k, v) in overrides {
+                    props.insert(*k, resolve_prop(v));
+                }
+            }
+            widgets.insert(widget_name.clone(), props);
+        }
+        let mut rows = BTreeMap::new();
+        for placed in &layout.widgets {
+            let (Some(list_name), Kind::List { row: row_layout, .. }) = (&placed.name, &placed.kind) else { continue };
+            let Some(raw_rows) = wanted.and_then(|w| w.rows.get(list_name)) else { continue };
+            let mut resolved_rows = Vec::with_capacity(raw_rows.len());
+            for cells in raw_rows {
+                let mut row_map = BTreeMap::new();
+                for cell_placed in &row_layout.widgets {
+                    let Some(cell_name) = &cell_placed.name else { continue };
+                    let mut props = placed_defaults(cell_placed, &words);
+                    if matches!(cell_placed.kind, Kind::Button { .. }) {
+                        props.insert("enabled", Property::Enabled(true));
+                    }
+                    for (_, prop) in cells.iter().filter(|(n, _)| n == cell_name) {
+                        props.insert(prop.name(), resolve_prop(prop));
+                    }
+                    row_map.insert(cell_name.clone(), props);
+                }
+                resolved_rows.push(row_map);
+            }
+            rows.insert(list_name.clone(), resolved_rows);
+        }
+        let entry = self.resolved_entry(extension, name, &words);
+        Some(ResolvedWindow { open: wanted.is_some_and(|w| w.open), widgets, rows, entry })
+    }
+
+    /// Checks whether the player can press `widget` on `extension`'s `window`
+    /// (or inside row `row`, 1-based), matching native click rules: the window
+    /// must be open, any containing list must be visible, and the button itself
+    /// must be visible and enabled.
+    pub fn check_press(&self, extension: usize, window: &str, widget: &str, row: Option<u32>) -> Result<(), String> {
+        let Some(layout) = self.window(extension, window) else {
+            return Err(format!("the mod has no window {window:?}"));
+        };
+        if !self.is_open(extension, window) {
+            return Err(format!("the mod's window {window:?} is not open"));
+        }
+        let wanted = self.wanted(extension, window);
+        match row {
+            None => {
+                let Some(placed) = layout.widget(widget).filter(|w| matches!(w.kind, Kind::Button { .. })) else {
+                    return Err(format!("the window {window:?} has no button {widget}"));
+                };
+                let overrides = wanted.and_then(|w| w.set.get(widget));
+                let visible = match overrides.and_then(|s| s.get("visible")) {
+                    Some(Property::Visible(on)) => *on,
+                    _ => placed.visible,
+                };
+                if !visible {
+                    return Err(format!("the button {window}.{widget} is hidden"));
+                }
+                let enabled = !matches!(overrides.and_then(|s| s.get("enabled")), Some(Property::Enabled(false)));
+                if !enabled {
+                    return Err(format!("the button {window}.{widget} is disabled"));
+                }
+                Ok(())
+            }
+            Some(n) => {
+                let Some((list_placed, list_name, button_placed)) = layout.widgets.iter().find_map(|w| match &w.kind {
+                    Kind::List { row, .. } => {
+                        let btn = row.widget(widget).filter(|rw| matches!(rw.kind, Kind::Button { .. }))?;
+                        Some((w, w.name.as_deref()?, btn))
+                    }
+                    _ => None,
+                }) else {
+                    return Err(format!("the window {window:?} has no button {widget} in a list's row"));
+                };
+                let list_visible = match wanted.and_then(|w| w.set.get(list_name)).and_then(|s| s.get("visible")) {
+                    Some(Property::Visible(on)) => *on,
+                    _ => list_placed.visible,
+                };
+                if !list_visible {
+                    return Err(format!("the list {window}.{list_name} is hidden"));
+                }
+                let list_rows = wanted.and_then(|w| w.rows.get(list_name)).map(Vec::as_slice).unwrap_or(&[]);
+                let Some(cells) = n.checked_sub(1).and_then(|i| list_rows.get(i as usize)) else {
+                    return Err(format!("the list {list_name} has no row {n}"));
+                };
+                let mut visible = button_placed.visible;
+                let mut enabled = true;
+                for (_, prop) in cells.iter().filter(|(name, _)| name == widget) {
+                    match prop {
+                        Property::Visible(on) => visible = *on,
+                        Property::Enabled(on) => enabled = *on,
+                        _ => {}
+                    }
+                }
+                if !visible {
+                    return Err(format!("the button {window}.{widget} in row {n} is hidden"));
+                }
+                if !enabled {
+                    return Err(format!("the button {window}.{widget} in row {n} is disabled"));
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Presses `window`'s entry button from a test, refusing when the window
+    /// has no entry button or when the entry button is hidden or disabled.
+    pub fn press_entry(&mut self, extension: usize, name: &str) -> Result<Vec<WindowSeen>, String> {
+        let Some(layout) = self.window(extension, name) else {
+            return Err(format!("the mod has no window {name:?}"));
+        };
+        let Some(entry) = &layout.entry else {
+            return Err(format!("the mod's window {name:?} has no entry button"));
+        };
+        let overrides = self.wanted(extension, name).and_then(|w| w.set.get(crate::layout::ENTRY));
+        let visible = match overrides.and_then(|s| s.get("visible")) {
+            Some(Property::Visible(on)) => *on,
+            _ => entry.visible,
+        };
+        if !visible {
+            return Err(format!("the entry button of {name:?} is hidden"));
+        }
+        let enabled = match overrides.and_then(|s| s.get("enabled")) {
+            Some(Property::Enabled(on)) => *on,
+            _ => entry.enabled,
+        };
+        if !enabled {
+            return Err(format!("the entry button of {name:?} is disabled"));
+        }
+        Ok(self.show(extension, name, !self.is_open(extension, name)))
     }
 
     /// The current content, including an initial value, without depending on

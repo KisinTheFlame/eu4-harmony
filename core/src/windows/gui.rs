@@ -109,23 +109,6 @@ pub fn row_type(window_type: &str, list: &str) -> String {
     format!("{window_type}_{list}")
 }
 
-/// The localisation keys a window's definition and its first state take.
-pub fn keys(window: &Window, out: &mut Vec<String>) {
-    fn of_widgets(widgets: &[Placed], out: &mut Vec<String>) {
-        for w in widgets {
-            out.extend(w.tooltip.as_ref().and_then(|t| t.localisation_key()).map(str::to_string));
-            match &w.kind {
-                Kind::Text { text, .. } | Kind::Button { text, .. } => out.extend(text.as_ref().and_then(|text| text.localisation_key()).map(str::to_string)),
-                Kind::List { row, .. } => of_widgets(&row.widgets, out),
-                _ => {}
-            }
-        }
-    }
-    out.extend(window.title.as_ref().and_then(|text| text.localisation_key()).map(str::to_string));
-    out.extend(window.entry.as_ref().and_then(|e| e.tooltip.as_ref()).and_then(|t| t.localisation_key()).map(str::to_string));
-    of_widgets(&window.widgets, out);
-}
-
 /// Words as a `.gui` string holds them: no quotes or line breaks, which the
 /// game's script reading would take for the string's end.
 fn quoted(words: &str) -> String {
@@ -238,10 +221,7 @@ pub fn popup(type_name: &str, popup: &Popup) -> String {
 /// name and its words, or the key of the game's own OK, which the game puts
 /// into its language, when the mod gave none.
 pub fn shown(popup: &Popup) -> Vec<(String, String)> {
-    if popup.buttons.is_empty() {
-        return vec![(POPUP_BUTTONS[0].to_string(), OK.to_string())];
-    }
-    POPUP_BUTTONS.iter().zip(&popup.buttons).map(|(name, words)| (name.to_string(), words.clone())).collect()
+    POPUP_BUTTONS.iter().zip(popup.shown_buttons(OK)).map(|(name, words)| ((*name).to_string(), words)).collect()
 }
 
 /// The button, from 1, of a pop-up's element `name`.

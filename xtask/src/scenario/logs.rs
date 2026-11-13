@@ -1,89 +1,66 @@
-//! The lines a test game's logs gained while a scenario played. The shared
-//! logger retains current, previous and two older segments. Find the marked
-//! segment by its unique first line, then follow every newer segment. A mark
-//! evicted by the bounded history cannot recover the overwritten lines.
+//! The lines a test game's logs gained while a scenario played, delegating
+//! segment order, header recognition, source filtering and trouble matching to
+//! `eu4_harmony_logging`.
 use eu4_harmony_folders::UserFolder;
-use std::path::{Path, PathBuf};
+use eu4_harmony_logging::{extension_source, troubles_since, Artifact, SourceMark, CORE, CORE_EMERGENCY};
+use std::path::Path;
 
-/// Lines of the framework's log that tell of a panic or a fatal error
-/// (`log_panics` and `fatal` in core/src/lib.rs).
-const TROUBLES: [&str; 2] = [" panic on thread ", " fatal error, ending the game: "];
-
-/// Where a log stood at a moment: the first line of that start's log, and
-/// how long the log was.
+/// Where a log stood at a moment, across its segments and any fallback stems.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Mark {
-    first: Option<String>,
-    length: usize,
-    emergency: Option<Box<Mark>>,
+    source: SourceMark,
+    emergency: Option<SourceMark>,
 }
 
 impl Mark {
-    /// Where the framework's log of the test game in `user` stands now.
+    /// Where the framework's core and emergency logs of `user` stand now.
     pub fn of(user: &UserFolder) -> Self {
-        let mut mark = Self::of_file(&user.core_log());
-        mark.emergency = Some(Box::new(Self::of_file(&user.logs().join("core-emergency.log"))));
-        mark
+        let dir = user.logs();
+        Self { source: SourceMark::of(&dir, CORE), emergency: Some(SourceMark::of(&dir, CORE_EMERGENCY)) }
     }
 
-    /// Where the log `path` stands now.
-    pub fn of_file(path: &Path) -> Self {
-        let text = read(path);
-        Self { first: text.lines().next().map(String::from), length: text.len(), emergency: None }
+    /// Where the extension `id`'s journal in `user` stands now.
+    pub fn of_extension(user: &UserFolder, id: &str) -> Self {
+        Self { source: SourceMark::of(&user.logs(), &extension_source(id)), emergency: None }
     }
 
-    /// The lines of the framework's log since the mark that tell of a panic
-    /// or a fatal error.
+    /// The lines of the framework's core and emergency logs since the mark that
+    /// tell of a panic, a fatal error, or a `crash:` record.
     pub fn troubles(&self, user: &UserFolder) -> Vec<String> {
-        let mut lines = self.since(&user.core_log());
-        if let Some(mark) = &self.emergency {
-            lines.extend(mark.since(&user.logs().join("core-emergency.log")));
-        }
-        lines.into_iter().filter(|line| TROUBLES.iter().any(|t| line.contains(t))).collect()
+        let empty = SourceMark::default();
+        troubles_since(&user.logs(), &self.source, self.emergency.as_ref().unwrap_or(&empty))
     }
 
-    /// Messages from `source` since the mark, without the shared journal's
-    /// timestamp and process fields. Headers and another source are excluded.
+    /// Messages written by extension `id` in `user` since the mark, without
+    /// timestamps or headers.
+    pub fn extension_messages(&self, user: &UserFolder, id: &str) -> Vec<String> {
+        self.source.messages_since(&user.logs(), &extension_source(id))
+    }
+
+    /// Messages from `source` in `path`'s folder since the mark.
     pub fn messages(&self, path: &Path, source: &str) -> Vec<String> {
-        let source = format!("{source} ");
-        self.since(path)
-            .iter()
-            .filter(|line| !line.starts_with('#'))
-            .filter_map(|line| line.split_once(" source=")?.1.strip_prefix(&source).map(String::from))
-            .collect()
-    }
-
-    /// The lines the log `path` gained since the mark.
-    pub fn since(&self, path: &Path) -> Vec<String> {
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("log");
-        let texts = [path.with_extension(format!("3.{ext}")), path.with_extension(format!("2.{ext}")), previous(path), path.to_path_buf()].map(|p| read(&p));
-        let first = |text: &str| text.lines().next().map(String::from);
-        let after = |text: &str| text.get(self.length..).unwrap_or_default().lines().map(String::from).collect::<Vec<_>>();
-        let all = |text: &str| text.lines().map(String::from).collect::<Vec<_>>();
-        if let Some(at) = texts.iter().position(|text| self.first.is_some() && first(text) == self.first) {
-            let mut lines = after(&texts[at]);
-            for text in &texts[at + 1..] {
-                lines.extend(all(text));
-            }
-            return lines;
+        match path.parent() {
+            Some(dir) => self.source.messages_since(dir, source),
+            None => Vec::new(),
         }
-        texts.iter().flat_map(|text| all(text)).collect()
     }
-}
 
-/// The log kept from the start before: `core.log`'s is `core.prev.log`.
-fn previous(path: &Path) -> PathBuf {
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("log");
-    path.with_extension(format!("prev.{ext}"))
-}
-
-fn read(path: &Path) -> String {
-    std::fs::read(path).map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).unwrap_or_default()
+    /// Raw lines added to `path`'s journal stem since the mark.
+    pub fn since(&self, path: &Path) -> Vec<String> {
+        let Some(dir) = path.parent() else { return Vec::new() };
+        let stem = match path.file_name().and_then(|n| n.to_str()).map(eu4_harmony_logging::classify_file) {
+            Some(Artifact::Segment { stem, .. }) => stem,
+            _ => CORE,
+        };
+        self.source.lines_since(dir, stem)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eu4_harmony_logging::{Journal, Kind};
+    use std::path::PathBuf;
 
     struct Scratch(PathBuf);
 
@@ -130,14 +107,14 @@ mod tests {
     }
 
     #[test]
-    fn a_new_emergency_panic_is_found_but_an_old_one_is_not_reported_again() {
+    fn a_new_emergency_panic_or_crash_is_found_but_an_old_one_is_not_reported_again() {
         let s = Scratch::new("emergency");
         let user = UserFolder::new(&s.0);
         s.log("core.log", "start\n");
         s.log("core-emergency.log", "emergency start\nold panic on thread (1): before\n");
         let mark = Mark::of(&user);
-        s.log("core-emergency.log", "emergency start\nold panic on thread (1): before\nnew panic on thread (2): after\n");
-        assert_eq!(mark.troubles(&user), ["new panic on thread (2): after"]);
+        s.log("core-emergency.log", "emergency start\nold panic on thread (1): before\nnew panic on thread (2): after\n2026 run=1 pid=1 tid=1 up_ms=1 source=core-emergency crash: 0xc0000005\n");
+        assert_eq!(mark.troubles(&user), ["new panic on thread (2): after", "2026 run=1 pid=1 tid=1 up_ms=1 source=core-emergency crash: 0xc0000005"]);
     }
 
     #[test]
@@ -167,19 +144,26 @@ mod tests {
     }
 
     #[test]
-    fn extension_messages_skip_journal_fields_headers_and_other_sources_across_rotation() {
+    fn real_extension_journals_round_trip_across_rotation_and_ignore_other_sources() {
         let s = Scratch::new("messages");
         let user = UserFolder::new(&s.0);
-        let header = "# eu4-harmony owned log source=extension-qa-windows run=one\n";
-        s.log("qa-windows.log", &format!("{header}old run=one source=extension-qa-windows before\n"));
-        let path = user.logs().join("qa-windows.log");
-        let mark = Mark::of_file(&path);
-        s.log(
-            "qa-windows.prev.log",
-            &format!("{header}old run=one source=extension-qa-windows before\nnow pid=1 tid=2 source=extension-qa-windows qa-windows completed 1\n"),
-        );
-        s.log("qa-windows.log", "# eu4-harmony owned log source=extension-qa-windows run=two\nnow pid=1 tid=2 source=extension-qa-windows-extra wrong source\nnow pid=1 tid=2 source=extension-qa-windows qa-windows completed 2\n");
-        assert_eq!(mark.messages(&path, "extension-qa-windows"), ["qa-windows completed 1", "qa-windows completed 2"]);
+        let dir = user.logs();
+        {
+            let mut first = Journal::open(&dir, &extension_source("qa-windows")).unwrap();
+            first.write(Kind::Event, "before").unwrap();
+        }
+        let mark = Mark::of_extension(&user, "qa-windows");
+        {
+            let mut second = Journal::open(&dir, &extension_source("qa-windows")).unwrap();
+            second.write(Kind::Event, "qa-windows completed 1").unwrap();
+            let mut other = Journal::open(&dir, &extension_source("qa-windows-extra")).unwrap();
+            other.write(Kind::Event, "wrong source").unwrap();
+        }
+        {
+            let mut third = Journal::open(&dir, &extension_source("qa-windows")).unwrap();
+            third.write(Kind::Event, "qa-windows completed 2").unwrap();
+        }
+        assert_eq!(mark.extension_messages(&user, "qa-windows"), ["qa-windows completed 1", "qa-windows completed 2"]);
     }
 
     #[test]

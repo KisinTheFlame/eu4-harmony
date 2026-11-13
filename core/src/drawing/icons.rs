@@ -112,6 +112,19 @@ pub(super) fn prepared() {
     *PREPARED.lock().unwrap_or_else(|e| e.into_inner()) = placed;
 }
 
+/// Discards icons staged during an update whose frame was drawn on the main
+/// thread or aborted before publication, preventing stale windows from
+/// accumulating into the next prepared frame.
+pub(super) fn discard_placing() {
+    PLACING.lock().unwrap_or_else(|e| e.into_inner()).clear();
+}
+
+/// Clears both staged and prepared icons on idler switch or shutdown.
+pub(super) fn clear() {
+    PLACING.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    PREPARED.lock().unwrap_or_else(|e| e.into_inner()).clear();
+}
+
 /// Before the drawing thread draws a frame, under the lock: each icon of the
 /// frame prepared moved to where its point shows now.
 pub(super) fn follow_camera(m: &Memory) -> crate::Result<()> {

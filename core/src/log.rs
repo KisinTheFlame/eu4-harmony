@@ -80,7 +80,7 @@ pub fn rotate(path: &Path) {
 
 pub fn open(path: &Path) -> std::io::Result<()> {
     let dir = path.parent().ok_or_else(|| std::io::Error::other("the log has no folder"))?;
-    let mut file = Journal::open(dir, "core")?;
+    let mut file = Journal::open(dir, eu4_harmony_logging::CORE)?;
     let mut sink = SINK.lock().unwrap_or_else(|e| e.into_inner());
     for (kind, message) in sink.pending.drain(..) {
         let _ = file.write(kind, &message);
@@ -91,7 +91,7 @@ pub fn open(path: &Path) -> std::io::Result<()> {
     }
     sink.file = Some(file);
     drop(sink);
-    *EMERGENCY.lock().unwrap_or_else(|e| e.into_inner()) = Journal::open(dir, "core-emergency").ok();
+    *EMERGENCY.lock().unwrap_or_else(|e| e.into_inner()) = Journal::open(dir, eu4_harmony_logging::CORE_EMERGENCY).ok();
     Ok(())
 }
 

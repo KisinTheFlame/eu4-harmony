@@ -83,14 +83,9 @@ struct Source {
 
 impl Source {
     fn new(name: String, path: PathBuf) -> Self {
-        let segment = if name.ends_with(".3.log") {
-            3
-        } else if name.ends_with(".2.log") {
-            2
-        } else if name.ends_with(".prev.log") {
-            1
-        } else {
-            0
+        let segment = match name.rsplit('/').next().map(eu4_harmony_logging::classify_file) {
+            Some(eu4_harmony_logging::Artifact::Segment { rank, .. }) => rank,
+            _ => 0,
         };
         let crash = if name.starts_with("crashes/") { name.split('/').nth(1).unwrap_or_default() } else { "" };
         let modified = path.metadata().and_then(|m| m.modified()).unwrap_or(UNIX_EPOCH);
@@ -135,7 +130,7 @@ fn files_in(dir: &Path, under: &str, out: &mut Sources) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if entry.file_type().is_ok_and(|t| t.is_file()) && !(name.ends_with(".new") && (name.ends_with(".snapshot.new") || name.contains(".snapshot-"))) {
+        if entry.file_type().is_ok_and(|t| t.is_file()) && !matches!(eu4_harmony_logging::classify_file(&name), eu4_harmony_logging::Artifact::Staging) {
             out.push(Source::new(format!("{under}/{name}"), entry.path()));
         }
     }
@@ -260,17 +255,16 @@ fn portion(path: &Path, limit: u64, binary: bool) -> std::io::Result<Option<Port
 }
 
 fn priority(name: &str) -> u8 {
-    if name.starts_with("harmony-logs/core-emergency") {
-        0
-    } else if name.starts_with("harmony-logs/core")
-        || (name.starts_with("harmony-logs/") && name.ends_with(".snapshot.txt"))
-        || name.starts_with("harmony-logs/report")
-    {
-        1
+    if let Some(leaf) = name.strip_prefix("harmony-logs/") {
+        match eu4_harmony_logging::classify_file(leaf) {
+            eu4_harmony_logging::Artifact::Segment { stem, .. } if stem == eu4_harmony_logging::CORE_EMERGENCY || stem.starts_with("core-emergency-") => 0,
+            eu4_harmony_logging::Artifact::Segment { stem, .. } if stem == eu4_harmony_logging::CORE || stem.starts_with("core-") => 1,
+            eu4_harmony_logging::Artifact::Snapshot { .. } => 1,
+            _ if leaf.starts_with("report") => 1,
+            _ => 3,
+        }
     } else if name.starts_with("crashes/") {
         2
-    } else if name.starts_with("harmony-logs/") {
-        3
     } else if name.starts_with("settings/") {
         4
     } else {

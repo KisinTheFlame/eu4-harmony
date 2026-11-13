@@ -109,6 +109,10 @@ pub trait RunGame {
     fn ends(&self) -> Vec<GameEnd>;
     /// Waits before looking again.
     fn wait(&self, time: Duration);
+    /// How many other `eu4.exe` processes run beside this claim's own game.
+    fn others_running(&self) -> usize {
+        0
+    }
 }
 
 /// The test game of `owner`'s run on `m`.
@@ -139,6 +143,11 @@ impl<M: machine::Machine> RunGame for InClaim<'_, M> {
 
     fn wait(&self, time: Duration) {
         self.m.wait(time);
+    }
+
+    fn others_running(&self) -> usize {
+        let own = self.game();
+        self.m.games().map(|all| all.into_iter().filter(|&id| Some(id) != own).count()).unwrap_or(0)
     }
 }
 

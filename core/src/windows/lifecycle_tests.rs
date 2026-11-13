@@ -176,12 +176,18 @@ impl Native for Recording {
 }
 
 fn wants() -> Wants {
+    let dictionary = BTreeMap::from([
+        ("PRESS".to_string(), "Press".to_string()),
+        ("ROW".to_string(), "Row".to_string()),
+        ("LABEL".to_string(), "Default $N$".to_string()),
+        ("WHY".to_string(), "Reason".to_string()),
+    ]);
     let windows = layout::read(
         &json!({ "tools": { "size": [400, 300], "panel": true, "items": [
             { "type": "button", "name": "press", "at": [5, 5], "size": [80, 20], "text": "PRESS" },
             { "type": "list", "name": "results", "at": [5, 40], "size": [300, 120], "row": { "size": [280, 40], "items": [
                 { "type": "button", "name": "row_press", "size": [80, 20], "text": "ROW" },
-                { "type": "text", "name": "label", "at": [90, 0], "size": [160, 20], "text": "LABEL", "tooltip": "WHY" }
+                { "type": "text", "name": "label", "at": [90, 0], "size": [160, 20], "text": { "key": "LABEL", "values": { "N": 2 } }, "tooltip": "WHY" }
             ]}}
         ]}}),
         &|_| true,
@@ -196,12 +202,7 @@ fn wants() -> Wants {
             extension: 4,
             type_name: "tools_1".into(),
             layout: windows[0].clone(),
-            words: BTreeMap::from([
-                ("PRESS".into(), "Press".into()),
-                ("ROW".into(), "Row".into()),
-                ("LABEL".into(), "Default".into()),
-                ("WHY".into(), "Reason".into()),
-            ]),
+            words: std::sync::Arc::new(move |key| dictionary.get(key).cloned()),
             wanted,
         }],
         popups: vec![],
@@ -224,7 +225,7 @@ fn repeated_frames_keep_objects_and_localized_rows_then_replace_them_before_dest
     assert_eq!(native.applied[&row.element.object]["tooltip"], Property::Tooltip("Reason".into()));
     let old_row = row.element.object;
     let default = live.built[0].elements.iter().find(|e| e.name == "label" && e.row.as_ref().is_some_and(|(_, number)| *number == 2)).unwrap();
-    assert_eq!(native.applied[&default.element.object]["text"], Property::Text("Default".into()));
+    assert_eq!(native.applied[&default.element.object]["text"], Property::Text("Default 2".into()));
     assert_eq!(native.applied[&default.element.object]["tooltip"], Property::Tooltip("Reason".into()));
     reconcile(&mut native, &mut live, &wants).unwrap();
     assert_eq!(native.occurrences("create"), creates);

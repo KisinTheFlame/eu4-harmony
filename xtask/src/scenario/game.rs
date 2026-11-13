@@ -88,6 +88,9 @@ pub struct Game {
     running: bool,
     /// How many of the claim's games had ended when the scenario began.
     ends_before: usize,
+    /// Peak count of other `eu4.exe` processes observed while this scenario's
+    /// game ran.
+    beside: usize,
     /// How long a step may take, and the wait for the main menu.
     step: Duration,
     menu_wait: Duration,
@@ -115,6 +118,7 @@ impl Game {
             started_with: None,
             running: false,
             ends_before: 0,
+            beside: 0,
             step: STEP,
             menu_wait: MAIN_MENU,
         }
@@ -145,6 +149,12 @@ impl Game {
     /// Whether the test game runs.
     pub fn runs(&self) -> bool {
         self.run.game().is_some()
+    }
+
+    /// How many other `eu4.exe` processes were observed running beside this
+    /// scenario's game once it started.
+    pub fn beside(&self) -> usize {
+        self.beside.max(self.run.others_running())
     }
 
     /// The test game's process.
@@ -217,6 +227,7 @@ impl Game {
         let answer = client.ask_for(request, Some(deadline));
         if answer.is_ok() {
             self.client = Some(client);
+            self.beside = self.beside.max(self.run.others_running());
         }
         Ok(answer)
     }
@@ -410,6 +421,7 @@ impl Game {
         }
         self.running = self.runs();
         self.ends_before = self.run.ends().len();
+        self.beside = if self.running { self.run.others_running() } else { 0 };
     }
 
     /// The game for the scenario: started unless it ran, an end when it ran
@@ -420,6 +432,7 @@ impl Game {
                 self.start()?;
             }
             self.running = true;
+            self.beside = self.beside.max(self.run.others_running());
         } else if self.gone() {
             return Err(Stop::Crashed("the game ended".into()));
         }

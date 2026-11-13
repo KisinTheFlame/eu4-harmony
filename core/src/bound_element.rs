@@ -5,12 +5,13 @@
 //!
 //! What it shows is set only where it differs from what was set before, each
 //! of the element's methods checked first to be the one the framework knows
-//! for its look, and a fault or a method it does not know is an error. A text
-//! box hides by showing no text, since the show and hide methods of the text
-//! boxes are not known on this build. The tooltip is kept, and given to the
-//! game by [`crate::tooltips`] at its native presentation seam. A clicked button is heard into a bounded queue of
-//! its owner's ([`Hears`]), with the keys held down with the click, and taken
-//! up at the next frame.
+//! for its look, and a fault or a method it does not know is an error. Window
+//! text boxes hide by showing no text, while independent floating numbers on
+//! the panel button strip use text-box show and hide (`windows::entries`). The
+//! tooltip is kept, and given to the game by [`crate::tooltips`] at its native
+//! presentation seam. A clicked button is heard into a bounded queue of its
+//! owner's ([`Hears`]), with the keys held down with the click, and taken up
+//! at the next frame.
 use crate::called_by_game;
 use crate::{
     game::{self, Caller, WorldSession},
@@ -215,6 +216,22 @@ impl BoundElement {
     /// Its tooltip, if it has one.
     pub(crate) fn tooltip(&self) -> Option<&[u8]> {
         Some(self.tooltip.as_slice()).filter(|t| !t.is_empty() && self.applied.visible != Some(false))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn record_for_test(&mut self, want: &Shown) {
+        if let Some(tooltip) = &want.tooltip {
+            self.tooltip.clone_from(tooltip);
+        }
+        if let Some(visible) = want.visible {
+            self.applied.visible = Some(visible);
+        }
+        if let Some(enabled) = want.enabled {
+            self.applied.enabled = Some(enabled);
+        }
+        if let Some(frame) = want.frame {
+            self.applied.frame = Some(frame);
+        }
     }
 
     /// Makes it show `want`: what differs from what was set before, and

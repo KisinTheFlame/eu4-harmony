@@ -86,6 +86,8 @@ pub(crate) fn described(state: &State) -> String {
 }
 
 impl Machine for Recorded {
+    type Started = Process;
+
     fn locked<T>(&self, action: impl FnOnce(&mut State) -> T) -> Result<T> {
         let mut state = self.state.lock().unwrap();
         let before = described(&state);
@@ -113,9 +115,6 @@ impl Machine for Recorded {
     }
     fn me(&self) -> Process {
         ME
-    }
-    fn process(&self, id: u32) -> Option<Process> {
-        (id == GAME.id).then_some(GAME)
     }
     fn alive(&self, p: &Process) -> bool {
         *p == ME || self.serving.lock().unwrap().iter().any(|(_, id)| *id == p.id)
@@ -145,17 +144,17 @@ impl Machine for Recorded {
         self.push(Did::Prepare);
         Ok(folder.join("core").join("eu4_harmony_core.dll"))
     }
-    fn start_game(&self, _: &Path, _: &Path, start: &Start, _: Duration) -> std::result::Result<(u32, f64), Failed> {
+    fn start_game(&self, _: &Path, _: &Path, start: &Start, _: Duration) -> std::result::Result<(Process, f64), Failed> {
         self.push(Did::Start);
         if let Some(code) = self.ends_before_menu {
             let ended = Ended { id: GAME.id, started: GAME.started, code };
             return Err(Failed { message: format!("the game ended (exit code {code}) before its main menu"), ended: Some(ended) });
         }
         self.serving.lock().unwrap().push((start.pipe()?, GAME.id));
-        Ok((GAME.id, 30.0))
+        Ok((GAME, 30.0))
     }
-    fn follow(&self, _: &Path, id: u32, _: &str) -> Result<()> {
-        self.push(Did::Follow(id));
+    fn follow(&self, _: &Path, started: Process, _: &str) -> Result<()> {
+        self.push(Did::Follow(started.id));
         Ok(())
     }
     fn stop_following(&self, _: &Path) {

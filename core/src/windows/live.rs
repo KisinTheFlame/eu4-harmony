@@ -20,18 +20,20 @@
 //! game calls back (Kill, tooltips) takes it only with `try_lock`; clicks
 //! are only queued, and taken up at the next frame.
 //! [`super::WINDOWS`] is never held while the game is called.
+#[path = "entries.rs"]
+mod entries;
 #[path = "lifecycle.rs"]
 mod lifecycle;
 
 use super::{gui, type_name, with};
 use crate::{
-    bound_element::{self, BoundElement, Hears, Look, Shown},
+    bound_element::{self, BoundElement, Hears, Look},
     game::{self, Caller, WorldSession},
     game_string,
     hooks::Call,
     memory::Memory,
     objects::{
-        campaign::{self, map_manager},
+        campaign,
         gui::{classes, element, functions, list_box, manager, scene, window, window_gui},
     },
     points::{GameFunction, Point},
@@ -42,7 +44,7 @@ use crate::{
 use eu4_harmony_lua::windows::Wanted;
 use eu4_harmony_lua::{
     dispatch::Click,
-    layout::{self, Kind, Placed, Window},
+    layout::{self, Kind, Window},
     Popup, Property,
 };
 use std::collections::{BTreeMap, HashSet};
@@ -90,6 +92,9 @@ const CASCADE: i32 = 24;
 /// Set while the framework itself closes the game's big panels, to open a
 /// window that is one: what the observer of that closing then ignores.
 static OPENING: AtomicBool = AtomicBool::new(false);
+/// Set when `strip_after` could not take [`LIVE`] immediately, so the next
+/// safe frame reconciles the panel button strip.
+static STRIP_DIRTY: AtomicBool = AtomicBool::new(false);
 
 /// What the framework built.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -269,13 +274,6 @@ fn find(m: &Memory, root: usize, kind: Option<&Kind>, name: &str) -> Result<usiz
     Ok(object)
 }
 
-/// The element `object`, of `look`, hearing its clicks, subscribed.
-fn listening(m: &Memory, object: usize, look: Look) -> Result<BoundElement> {
-    let mut element = BoundElement::listening(m, object, look, Hears::Windows)?;
-    element.link(m)?;
-    Ok(element)
-}
-
 /// How a game widget of `kind` is set.
 fn look(kind: &Kind) -> Look {
     match kind {
@@ -287,32 +285,9 @@ fn look(kind: &Kind) -> Look {
     }
 }
 
-// ---------- applying what is wanted ----------
-
-/// What a game widget shows at first, from its layout.
-fn initial(placed: &Placed, words: &BTreeMap<String, String>) -> BTreeMap<&'static str, Property> {
-    let tooltip = placed.tooltip.as_ref().map(|t| t.resolve(|key| words.get(key).cloned()));
-    let words = |text: &Option<eu4_harmony_lua::Text>| super::words_of(words, text);
-    let mut out = BTreeMap::new();
-    let mut put = |p: Property| {
-        out.insert(p.name(), p);
-    };
-    put(Property::Visible(placed.visible));
-    if let Some(tooltip) = tooltip {
-        put(Property::Tooltip(tooltip.into()));
-    }
-    match &placed.kind {
-        Kind::Text { text, .. } => put(Property::Text(words(text).into())),
-        Kind::Icon { frame, .. } => put(Property::Frame(*frame)),
-        Kind::Button { frame, sprite: Some(_), .. } => put(Property::Frame(*frame)),
-        Kind::Progress { value, .. } => put(Property::Value(*value)),
-        Kind::Flag { country: Some(c), .. } => put(Property::Country(c.clone())),
-        _ => {}
-    }
-    out
-}
-
 // ---------- the frame ----------
+
+type LookupWords = std::sync::Arc<dyn Fn(&str) -> Option<String>>;
 
 /// One extension window as a frame needs it.
 struct WantWindow {
@@ -320,7 +295,7 @@ struct WantWindow {
     /// Its definition's name, of this generation.
     type_name: String,
     layout: Window,
-    words: BTreeMap<String, String>,
+    words: LookupWords,
     wanted: Wanted,
 }
 
@@ -337,16 +312,16 @@ fn wants() -> Wants {
     with(|all| {
         let mut windows = Vec::new();
         let mut definitions = Vec::new();
-        let none = BTreeMap::new();
         for d in all.wanted.declared() {
-            let words = all.words.get(&d.extension).unwrap_or(&none);
+            let id = d.id.clone();
+            let words: LookupWords = std::sync::Arc::new(move |key| crate::loc::mod_text(&id, key));
             for w in &d.windows {
                 let type_name = format!("{}_{}", type_name(&d.id, &w.name), all.generation);
-                definitions.push(gui::window(&type_name, w, &|k| super::words_of(words, k)));
+                definitions.push(gui::window(&type_name, w, &|text| text.as_ref().map(|t| t.resolve(&*words)).unwrap_or_default()));
                 let mut wanted = all.wanted.wanted(d.extension, &w.name).cloned().unwrap_or_default();
                 let resolve = |property: &mut Property| {
                     if let Property::Text(content) | Property::Tooltip(content) = property {
-                        *content = content.resolve(|key| crate::loc::mod_text(&d.id, key)).into();
+                        *content = content.resolve(&*words).into();
                     }
                 };
                 for property in wanted.set.values_mut().flat_map(|p| p.values_mut()) {
@@ -372,9 +347,15 @@ pub(crate) fn frame() {
     }
     clicks(m);
     let wants = wants();
+    let pending_entries = STRIP_DIRTY.swap(false, Ordering::AcqRel).then(entry_specs).unwrap_or_default();
     with_live(|live| {
         if let Err(e) = lifecycle::frame(m, live, &wants) {
             live.report(e);
+        }
+        if !pending_entries.is_empty() {
+            if let Ok(idler) = idler(m) {
+                entries::sync(m, live, idler, &pending_entries);
+            }
         }
     });
 }
@@ -466,7 +447,7 @@ fn open_diplomacy(m: &Memory, number: u32, side: usize) -> Result<()> {
 pub(crate) fn killed(m: &Memory, root: usize) {
     let Ok(mut guard) = LIVE.try_lock() else { return };
     let Some(live) = guard.as_mut() else { return };
-    if let Err(e) = retire_entries(m, live, |entry| entry.strip == root) {
+    if let Err(e) = entries::retire(m, live, |entry| entry.strip == root) {
         live.report(format!("a killed entry strip could not let go of its buttons: {e}"));
     }
     if let Err(e) = lifecycle::killed(m, live, root) {
@@ -478,9 +459,10 @@ pub(crate) fn killed(m: &Memory, root: usize) {
 /// forgets them.
 pub(crate) fn session_ended() {
     crate::tooltips::clear();
+    STRIP_DIRTY.store(false, Ordering::Release);
     if let Some(m) = crate::memory() {
         with_live(|live| {
-            if let Err(e) = retire_entries(m, live, |_| true) {
+            if let Err(e) = entries::retire(m, live, |_| true) {
                 live.report(format!("entry buttons at the session's end: {e}"));
             }
             if let Err(e) = lifecycle::session_ended(m, live) {
@@ -551,6 +533,20 @@ pub fn entry_fragment(id: &str, window: &str, entry: &layout::Entry) -> String {
     )
 }
 
+fn entry_specs() -> Vec<entries::EntrySpec> {
+    with(|all| {
+        let mut out = Vec::new();
+        for d in all.wanted.declared() {
+            for w in &d.windows {
+                if let Some(resolved) = all.wanted.resolved_entry(d.extension, &w.name, |key| crate::loc::mod_text(&d.id, key)) {
+                    out.push(entries::EntrySpec { extension: d.extension, id: d.id.clone(), window: w.name.clone(), resolved });
+                }
+            }
+        }
+        out
+    })
+}
+
 /// After the game laid out its panel button strip: each entry button that
 /// shows is placed in the next slot, left of the game's own.
 fn strip_after(call: &mut Call) {
@@ -559,163 +555,16 @@ fn strip_after(call: &mut Call) {
     }
     let m = call.memory();
     let idler = call.arg(0);
-    let entries = with(|all| {
-        let mut out = Vec::new();
-        for d in all.wanted.declared() {
-            for w in d.windows.iter().filter(|w| w.entry.is_some()) {
-                let set = all
-                    .wanted
-                    .wanted(d.extension, &w.name)
-                    .and_then(|w| w.set.get(layout::ENTRY))
-                    .cloned()
-                    .unwrap_or_else(|| BTreeMap::from([("visible", Property::Visible(false)), ("enabled", Property::Enabled(false))]));
-                let set = entry_properties(set, |key| crate::loc::mod_text(&d.id, key));
-                out.push((d.extension, d.id.clone(), w.name.clone(), set, w.entry.clone()));
-            }
-        }
-        out
-    });
-    if entries.is_empty() {
+    let specs = entry_specs();
+    if specs.is_empty() {
         return;
     }
-    let Ok(mut guard) = LIVE.try_lock() else { return };
-    let live = guard.get_or_insert_with(Live::default);
-    if let Err(e) = place_entries(&m, live, idler, &entries) {
-        live.report(format!("entry buttons: {e}"));
-    }
-}
-
-fn entry_properties(mut set: BTreeMap<&'static str, Property>, words: impl Fn(&str) -> Option<String>) -> BTreeMap<&'static str, Property> {
-    let text = match set.get("tooltip") {
-        Some(Property::Tooltip(text)) => text.resolve(words),
-        _ => String::new(),
+    let Ok(mut guard) = LIVE.try_lock() else {
+        STRIP_DIRTY.store(true, Ordering::Release);
+        return;
     };
-    set.insert("tooltip", Property::Tooltip(text.into()));
-    set
-}
-
-type EntryWant = (usize, String, String, BTreeMap<&'static str, Property>, Option<layout::Entry>);
-
-fn place_entries(m: &Memory, live: &mut Live, idler: usize, entries: &[EntryWant]) -> Result<()> {
-    let strip = m.ptr(idler + map_manager::PANEL_BUTTONS)?;
-    if strip == 0 || m.ptr(strip)? != m.at(classes::WINDOW) {
-        return Ok(());
-    }
-    // The game's own slots in use: the first shown.
-    let mut used = 0;
-    for k in 1..=STRIP_SLOTS {
-        let button = ui::lookup(m, strip, (window::FIND_BUTTON, functions::FIND_BUTTON), &format!("f_button_{k}"))?;
-        if button == 0 || m.u8(button + element::VISIBLE)? == 0 {
-            break;
-        }
-        used = k;
-    }
-    let mut slot = used as i32;
-    for (extension, id, window_name, set, entry) in entries {
-        let Some(entry) = entry else { continue };
-        let (button_name, background_name) = entry_names(id, window_name);
-        let button = ui::lookup(m, strip, (window::FIND_BUTTON, functions::FIND_BUTTON), &button_name)?;
-        if button == 0 || ui::element_name(m, button)? != button_name.as_bytes() || m.ptr(button)? != m.at(classes::BUTTON) {
-            continue;
-        }
-        let background = ui::lookup(m, strip, (window::FIND_ICON, functions::FIND_ICON), &background_name)?;
-        // Bound again whenever the game made the strip anew.
-        let known = live.entries.iter().position(|e| e.extension == *extension && &e.window == window_name);
-        let fresh = match known {
-            Some(i) => live.entries[i].element.object != button || !live.entries[i].element.subscribed(m).unwrap_or(false),
-            None => true,
-        };
-        if fresh {
-            if let Some(i) = known {
-                let old = live.entries.remove(i);
-                live.retired.extend(old.element.retire());
-            }
-            let number = ui::lookup(m, strip, (window::FIND_TEXT, functions::FIND_TEXT), &format!("{button_name}_number"))?;
-            if number == 0 || m.ptr(number)? != m.at(classes::TEXT_BOX) || ui::element_name(m, number)? != format!("{button_name}_number").as_bytes() {
-                return Err(format!("the entry {button_name} has no independent number"));
-            }
-            live.entries.push(Entry {
-                extension: *extension,
-                window: window_name.clone(),
-                strip,
-                element: listening(m, button, Look::Button)?,
-                background: BoundElement::new(background, Look::Icon),
-                number,
-                number_text: None,
-            });
-        }
-        let visible = set.get("visible") != Some(&Property::Visible(false));
-        let frame = match set.get("frame") {
-            Some(Property::Frame(f)) => *f,
-            _ => entry.frame,
-        };
-        let bound = live.entries.iter_mut().find(|e| e.element.object == button).unwrap();
-        let mut shown = Shown::of(set);
-        shown.visible = Some(visible);
-        shown.enabled = Some(set.get("enabled") != Some(&Property::Enabled(false)));
-        shown.frame = Some(frame);
-        bound.element.apply(m, &shown)?;
-        if background != 0 {
-            bound.background.apply(m, &Shown { visible: Some(visible), ..Default::default() })?;
-        }
-        let value = match set.get("value") {
-            Some(Property::Number(value)) => *value,
-            _ => entry.value,
-        };
-        let text = entry.format.show(if visible { value } else { None });
-        let number_at = (STRIP_FIRST.0 - STRIP_STEP * slot - 4, STRIP_FIRST.1 + 40);
-        show_entry_number(m, bound, text, number_at)?;
-        if !visible {
-            continue;
-        }
-        let at = (STRIP_FIRST.0 - STRIP_STEP * slot, STRIP_FIRST.1);
-        if m.vslot(button, element::PLACE)? == m.at(functions::BUTTON_PLACE.rva()) {
-            functions::BUTTON_PLACE.call(m, [button, pack(at)])?;
-        }
-        let place = if background != 0 { m.vslot(background, element::PLACE)? } else { 0 };
-        if background != 0 && functions::ICON_PLACES.iter().any(|&k| m.at(k) == place) {
-            let mut resolved = 0u64;
-            functions::PLACED.call(m, [button, &mut resolved as *mut u64 as usize])?;
-            let (x, y) = unpack(resolved);
-            m.call(place, &[background, pack((x + STRIP_BACKGROUND.0, y + STRIP_BACKGROUND.1))])?;
-        }
-        slot += 1;
-    }
-    Ok(())
-}
-
-fn retire_entries(m: &Memory, live: &mut Live, gone: impl Fn(&Entry) -> bool) -> Result<()> {
-    let (old, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut live.entries).into_iter().partition(gone);
-    live.entries = kept;
-    let mut result = Ok(());
-    for mut entry in old {
-        result = result.and(entry.element.unlink(m));
-        live.retired.extend(entry.element.retire());
-    }
-    result
-}
-
-fn show_entry_number(m: &Memory, entry: &mut Entry, text: String, at: (i32, i32)) -> Result<()> {
-    let visible = !text.is_empty();
-    if entry.number_text.as_ref() != Some(&text) {
-        bound_element::write_text(m, entry.number, &game_text::from_str(&text))?;
-        entry.number_text = Some(text);
-    }
-    if (m.u8(entry.number + element::VISIBLE)? != 0) != visible {
-        let (slot, function) = if visible { (element::SHOW, TEXT_SHOW) } else { (element::HIDE, TEXT_HIDE) };
-        if m.vslot(entry.number, slot)? != m.at(function.rva()) {
-            return Err("entry number visibility method changed".into());
-        }
-        function.call(m, [entry.number])?;
-    }
-    if visible {
-        if m.vslot(entry.number, TEXT_PLACE_SLOT)? != m.at(TEXT_PLACE.rva()) {
-            return Err("entry number position method changed".into());
-        }
-        let position = [at.0, at.1];
-        TEXT_PLACE.call(m, [entry.number, position.as_ptr() as usize])?;
-    }
-    Ok(())
+    let live = guard.get_or_insert_with(Live::default);
+    entries::sync(&m, live, idler, &specs);
 }
 
 pub fn points() -> Vec<Point> {
@@ -752,32 +601,4 @@ pub fn points() -> Vec<Point> {
             Some(strip_after),
         ),
     ]
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_entry_localizes_its_default_tooltip_and_keeps_explicit_overrides() {
-        let windows =
-            layout::read(&serde_json::json!({ "tools": { "size": [200, 200], "entry": { "sprite": "GFX_tools", "tooltip": "ENTRY" } } }), &|_| true).unwrap();
-        let mut state = eu4_harmony_lua::windows::Windows::default();
-        state.declare(0, "tools", &windows);
-        let initial = state.wanted(0, "tools").unwrap().set[layout::ENTRY].clone();
-        for title in ["Convenience Tools", "便捷工具", "便利ツール", "편의 도구"] {
-            let words = |_: &str| Some(title.to_string());
-            let properties = entry_properties(initial.clone(), words);
-            assert_eq!(properties.get("tooltip"), Some(&Property::Tooltip(title.into())));
-            for explicit in ["Changed", ""] {
-                let set = BTreeMap::from([("tooltip", Property::Tooltip(explicit.into()))]);
-                assert_eq!(entry_properties(set.clone(), words), set);
-            }
-        }
-        assert_eq!(
-            entry_properties(BTreeMap::new(), |_| None).get("tooltip"),
-            Some(&Property::Tooltip(String::new().into())),
-            "forgetting state clears any old native cache value"
-        );
-    }
 }
