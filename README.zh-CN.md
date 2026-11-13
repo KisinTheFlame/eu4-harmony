@@ -38,7 +38,7 @@ Steam 会让 Harmony 保持最新。偶尔有更新需要换新的 `version.dll`
 
 **卸载：** 取消订阅 Harmony，游戏就回到原样。想不留痕迹，再删掉游戏目录里的 `version.dll`；之前挪走过别的 `version.dll` 的话，把它放回去。
 
-手动安装可从 [GitHub Releases](https://github.com/KisinTheFlame/eu4-harmony/releases) 下载 `eu4-harmony-<version>-windows-x64.zip`，关闭游戏后解压到游戏目录，和 `eu4.exe` 放在一起；原本有其他补丁的 `version.dll` 时，先把它挪走。这个包同时安装代理和核心。每次更新都需要自己下载并解压：本地核心优先于工坊核心，Steam 不会更新这份本地副本。要恢复工坊更新，删掉本地的 `eu4-harmony\eu4_harmony_core.dll`；要卸载手动安装的框架，删掉这个 DLL 和 `version.dll`。CLI 另有 `eu4-harmony-cli-<version>-windows-x64.zip`，可以放在游戏目录之外运行，玩家不需要安装它。[发布说明](docs/releases.md)介绍版本标签和发布流程。
+手动安装可从 [GitHub Releases](https://github.com/KisinTheFlame/eu4-harmony/releases) 下载 `eu4-harmony-<version>-windows-x64.zip`，关闭游戏后解压到游戏目录，和 `eu4.exe` 放在一起；原本有其他补丁的 `version.dll` 时，先把它挪走。这个包同时安装代理和核心。每次更新都需要自己下载并解压：本地核心优先于工坊核心，Steam 不会更新这份本地副本。要恢复工坊更新，删掉本地的 `eu4-harmony\eu4_harmony_core.dll`；要卸载手动安装的框架，删掉这个 DLL 和 `version.dll`。CLI 另有 `eu4-harmony-cli-<version>-windows-x64.zip`，可以放在游戏目录之外运行，玩家不需要安装它。合并版本 PR 后会自动创建标签并发布下载包；[发布说明](docs/releases.md)介绍检查和重跑方式。
 
 需要知道的几件事：
 

@@ -62,10 +62,10 @@ The proxy is built with Harmony's published file id (`workshop\item.toml`), whic
 
 1. `cargo xtask release`, then `cargo xtask workshop-upload --user <login> --create`: SteamCMD makes the item, private, writes its id back into `target\workshop\harmony.vdf`, and the command records it in `workshop\item.toml`.
 2. Commit `workshop\item.toml` and merge it into master.
-3. Create and push the version tag for that merged source. From a clean checkout of the tag, run `cargo xtask release`, which builds the proxy with the id and writes it into the descriptor as `remote_file_id`, then `cargo xtask workshop-upload --user <login>`. Upload uses the existing tag without creating one.
+3. Merge the version PR and let GitHub create its tag and Release. From a clean checkout of that tag, run `cargo xtask release`, which builds the proxy with the id and writes it into the descriptor as `remote_file_id`, then `cargo xtask workshop-upload --user <login>`. Upload uses the existing tag without creating one.
 4. On the item's page: the descriptions by language, the comparison images as preview images, then the visibility.
 
-Every later version is step 3 after raising the workspace and internal lockfile versions, adding the changelog section and merging through a PR. Pushing the tag also starts GitHub publication; Workshop upload remains local.
+Every later version is step 3 after raising the workspace and internal lockfile versions, adding the changelog section and merging through a PR. Merging the version PR starts GitHub publication and creates the tag automatically; Workshop upload remains local.
 
 ## Disassembly
 

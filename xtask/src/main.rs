@@ -62,7 +62,7 @@ usage:
       Checks clean source merged into master, matching workspace and lockfile
       versions, and the version's change note. --tag also requires that local
       and remote tag to name HEAD. Writes release.json under <dir>
-      (target\\dist by default); without --tag prepares a dry run.
+      (target\\dist by default); without --tag checks before tag creation.
   cargo xtask release [--out <dir>] [--no-workshop]
       Builds the optimized player build and packs two versioned Windows x64
       ZIPs under <dir> (target\\dist by default): the framework's proxy and
