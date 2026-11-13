@@ -105,6 +105,20 @@ Then the game state's other sections written while the pool writes the loops, th
 | With Voltaire's Nightmare: the uses' making (114,886), s; the main menu, s | 1.44; 23 | 0.11; 21 |
 | With the 2000 AD mod: the uses' making (1,129,203), s; the main menu, s | 4.03; 90 | 0.98; 83 |
 
+## Localisation and the triggers' optimization profile (2026-11-14)
+
+[large-mod-startup.md](plans/large-mod-startup.md)'s M1 to M4, one developer build with the test switches, `game-paths = ["localisation", "trigger-profile"]` for the game's own code; every DLC, music cached, the files in the system's cache, no other game running ([the run](prototype-log/2026-11-14-large-mod-startup.md)). Seconds from the framework's log (`core.log`):
+
+| | The game's | The framework's |
+| --- | --- | --- |
+| With Guixu (`ugc_3047072888`, 333 `localisation/replace` files): `main` up to the engine's Init, s | 11.78, 11.76, 11.70 | 2.48, 2.38, 2.44 |
+| With Guixu: the rest of `InitGame` after the flags, s | 3.57, 3.69, 3.72 | 2.39, 2.43, 2.42 |
+| With Guixu: from the bootstrap to the main menu, s | 30.52, 30.55, 32.38 | 20.55, 20.16, 20.02 |
+| The player's playset: `main` to `Init`, s; rest of `InitGame`, s; main menu, s | 2.23, 2.18; 3.08, 2.95; 18.24, 17.91 | 1.91, 1.79; 2.01, 1.97; 16.88, 16.45 |
+| With the 2000 AD mod: `main` to `Init`, s; rest of `InitGame`, s; main menu, s | 5.54; 10.16; 78.08 | 2.24; 8.46; 75.61 |
+
+- On the player build (`cargo xtask scenario perf`, the player's playset, music not cached yet in the scenario's fresh user folder): 26.5 s to the main menu (10 s of it reading the music on the first start), 2410 MB working set / 3721 MB private at the main menu, 4.3 s for `menu.start MNG`, 0.647 cores paused, and 1047.8 game days a minute at speed 5 on 3.412 cores.
+
 ## The events (2026-11-05)
 
 What the events of [player-actions.md](plans/player-actions.md) cost the game: `building_finished`, `battle`, `war_declared`, `peace_made`, `province_owner_changed`, `month` and `year`. `cargo xtask scenario perf` on the player build of `claude/player-actions-fu-cost-view-4c4534`: a new game as Ming, 120 s at speed 5 from 1444.11.11, about 5.4 years; with `--perf.events` naming the seven kinds, a remote client reads events of those kinds before the game runs, so they are worked out from then on, and counts what was heard at the end. The framework counts the time each piece of that work takes and logs it when the session ends (`event costs:`, since `signal costs:` in [`core/src/game/signal_costs.rs`](../core/src/game/signal_costs.rs), the events now being signals). The machine was the one under [Machine](#machine), busy with other sessions' builds.

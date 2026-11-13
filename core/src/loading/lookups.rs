@@ -158,13 +158,11 @@ fn list(folder: &str) -> Option<HashMap<String, Kind>> {
             t if t.is_file() => Kind::File,
             _ => Kind::Other,
         };
-        let name = entry.file_name().into_string().ok()?;
-        if !name.is_ascii() {
-            // A name the folder's listing cannot be matched against for
-            // certain: the whole folder goes to the game's stat.
-            return None;
+        if let Ok(name) = entry.file_name().into_string() {
+            if name.is_ascii() {
+                names.insert(name.to_ascii_lowercase(), kind);
+            }
         }
-        names.insert(name.to_ascii_lowercase(), kind);
     }
     Some(names)
 }
@@ -179,6 +177,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("gfx").join("Interface")).unwrap();
         std::fs::write(dir.join("gfx").join("Interface").join("Icon.dds"), b"x").unwrap();
+        std::fs::write(dir.join("1.310\u{66f4}\u{65b0}\u{5185}\u{5bb9}.txt"), b"x").unwrap();
         std::fs::create_dir_all(dir.join("eu4-harmony")).unwrap();
         set_roots(&dir);
         let root = dir.to_string_lossy().into_owned();
@@ -191,6 +190,7 @@ mod tests {
         assert_eq!(ask("gfx\\interface\\icon.dds\\more"), Some(true));
         assert_eq!(ask("gfx\\interface"), Some(false));
         // Not the listings' to say.
+        assert_eq!(ask("1.310\u{66f4}\u{65b0}\u{5185}\u{5bb9}.txt"), None);
         assert_eq!(ask("eu4-harmony\\logs\\core.log"), None);
         assert_eq!(ask("gfx\\..\\gfx\\interface\\icon.dds"), None);
         assert_eq!(ask("gfx\\interface\\ICON~1.DDS"), None);

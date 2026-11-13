@@ -387,8 +387,11 @@ impl turns::Lock for DrawingLock {
 
 /// The drawing thread's ID, 0 until it runs; the head's stub compares it.
 static DRAWING_THREAD: AtomicU32 = AtomicU32::new(0);
-/// The in-game idler whose frame the main thread prepared last, 0 for none.
+/// The in-game idler whose frame the main thread prepared last, 0 for none;
+/// [`PREPARED_WAKE`] wakes the drawing thread when the first frame of a
+/// session is prepared, so that it sleeps at startup and on the main menu.
 static PREPARED: AtomicUsize = AtomicUsize::new(0);
+static PREPARED_WAKE: (Mutex<()>, Condvar) = (Mutex::new(()), Condvar::new());
 /// How many frames the main thread prepared, and the last of them drawn. The
 /// game's frames are paced by Present, which waits for the display; the main
 /// thread no longer presents, so a frame that runs no day (paused, or between
@@ -516,6 +519,9 @@ fn app_frame_after(call: &mut Call) {
 /// began to wait for before it was stopped never begins.
 fn stop() {
     STOPPED.store(true, Ordering::Release);
+    let _guard = PREPARED_WAKE.0.lock().unwrap_or_else(|e| e.into_inner());
+    PREPARED_WAKE.1.notify_all();
+    drop(_guard);
     main_side(|s| s.quits(&MainLock, || IN_FRAME.load(Ordering::Acquire)));
     deferred::done(&crate::hooked_memory());
     log!("drawing: the game quits; the drawing thread draws no more");
@@ -602,9 +608,13 @@ extern "C" fn frame_draws(idler: usize) {
     // crossings before began.
     crossings::frame_prepared();
     icons::prepared();
-    PREPARED.store(idler, Ordering::Release);
+    let was_idle = PREPARED.swap(idler, Ordering::Release) == 0;
     PREPARED_SEQ.fetch_add(1, Ordering::AcqRel);
     CAMERA_MOVED_THERE.store(1, Ordering::Relaxed);
+    if was_idle {
+        let _guard = PREPARED_WAKE.0.lock().unwrap_or_else(|e| e.into_inner());
+        PREPARED_WAKE.1.notify_all();
+    }
     // What the main thread does as it presents a frame: the safe point of a
     // frame outside a game, and the input taken for the next.
     crate::safe_point::presented();
@@ -851,6 +861,37 @@ fn run() {
             CAMERA_MOVED_THERE.store(0, Ordering::Relaxed);
             std::thread::sleep(Duration::from_millis(20));
             next = Instant::now();
+            continue;
+        }
+        if PREPARED.load(Ordering::Acquire) == 0 {
+            CAMERA_MOVED_THERE.store(0, Ordering::Relaxed);
+            if logged.elapsed() >= Duration::from_secs(10) {
+                let drawn = DRAWN.load(Ordering::Relaxed);
+                let (crossings_taken, held_longest) = crossings::logged(m.at(0usize));
+                log!(
+                    "drawing: {:.1} frames a second, {}; {} drawn by the main thread; the main thread waited {:.0} ms for the lock ({:.0} at frames, {:.0} at crossings, {:.0} at days' ends) and {:.0} ms for frames drawn, the drawing thread {:.0} ms; {} crossing(s), {} deferred, the frames held back longest by {}",
+                    (drawn - last_drawn) as f64 / logged.elapsed().as_secs_f64(),
+                    gaps.told(m.at(0usize)),
+                    HERE.swap(0, Ordering::Relaxed),
+                    MAIN_WAITED.swap(0, Ordering::Relaxed) as f64 / 1000.0,
+                    WAITED_AT[AT_FRAME].swap(0, Ordering::Relaxed) as f64 / 1000.0,
+                    WAITED_AT[AT_CROSSING].swap(0, Ordering::Relaxed) as f64 / 1000.0,
+                    WAITED_AT[AT_DAY_END].swap(0, Ordering::Relaxed) as f64 / 1000.0,
+                    PACED.swap(0, Ordering::Relaxed) as f64 / 1000.0,
+                    DRAWING_WAITED.swap(0, Ordering::Relaxed) as f64 / 1000.0,
+                    crossings_taken,
+                    deferred::logged(),
+                    held_longest
+                );
+                last_drawn = drawn;
+                logged = Instant::now();
+            }
+            let guard = PREPARED_WAKE.0.lock().unwrap_or_else(|e| e.into_inner());
+            if PREPARED.load(Ordering::Acquire) == 0 && drawing_on() {
+                let _ = PREPARED_WAKE.1.wait_timeout(guard, Duration::from_millis(200));
+            }
+            next = Instant::now();
+            last_frame = next;
             continue;
         }
         if !UNLIMITED.load(Ordering::Relaxed) {

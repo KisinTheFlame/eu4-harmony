@@ -468,27 +468,33 @@
 "0x1fdf32" = { kind = "code", notes = ["research/loading.md"] }
 "0x1fe740" = { kind = "function", notes = ["research/architecture.md"] }
 "0x1fe8f0" = { kind = "function", notes = ["research/architecture.md"] }
-"0x2003d0" = { kind = "function", notes = ["research/architecture.md", "research/main-menu.md", "research/ui-injection.md"] }
+"0x2003d0" = { kind = "function", notes = ["research/architecture.md", "research/localisation-loading.md", "research/main-menu.md", "research/ui-injection.md"] }
 "0x200810" = { kind = "function", notes = ["research/architecture.md", "research/loading.md", "research/ui-injection.md"] }
 "0x200abc" = { kind = "code", notes = ["research/loading.md"] }
-"0x200af0" = { kind = "function", notes = ["research/architecture.md"] }
+"0x200af0" = { kind = "function", notes = ["research/architecture.md", "research/localisation-loading.md"] }
 "0x202296" = { kind = "code", name = "main theme gain", notes = ["research/architecture.md"] }
 "0x202490" = { kind = "function", notes = ["research/architecture.md"] }
 "0x2024d2" = { kind = "code", notes = ["research/loading.md"] }
 "0x202696" = { kind = "code", notes = ["research/loading.md"] }
-"0x202850" = { kind = "function", name = "the gfx stage", notes = ["research/architecture.md", "research/loading.md", "research/main-menu.md", "research/ui-injection.md"] }
+"0x202850" = { kind = "function", name = "the gfx stage", notes = ["research/architecture.md", "research/loading.md", "research/localisation-loading.md", "research/main-menu.md", "research/ui-injection.md"] }
 "0x203821" = { kind = "code", notes = ["research/loading.md"] }
-"0x2043a0" = { kind = "function", name = "InitGame", notes = ["research/architecture.md", "research/loading.md", "research/main-menu.md"] }
+"0x2043a0" = { kind = "function", name = "InitGame", notes = ["research/architecture.md", "research/loading.md", "research/localisation-loading.md", "research/main-menu.md"] }
 "0x20491d" = { kind = "code", notes = ["research/loading.md"] }
 "0x204ea4" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x205830" = { kind = "code", name = "main menu size", notes = ["research/main-menu.md"] }
 "0x205855" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x205974" = { kind = "code", notes = ["research/architecture.md"] }
 "0x205990" = { kind = "code", notes = ["research/achievements.md"] }
+"0x205baa" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x205bed" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x205c51" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x205c53" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x205c92" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x205ca0" = { kind = "code", notes = ["research/localisation-loading.md"] }
 "0x2060f0" = { kind = "function", notes = ["research/main-menu.md"] }
-"0x206260" = { kind = "function", name = "the main menu's part", notes = ["research/loading.md"] }
+"0x206260" = { kind = "function", name = "the main menu's part", notes = ["research/loading.md", "research/localisation-loading.md"] }
 "0x207310" = { kind = "function", notes = ["research/main-menu.md"] }
-"0x208620" = { kind = "function", name = "the databases", notes = ["research/architecture.md", "research/countries.md", "research/loading.md", "research/main-menu.md"] }
+"0x208620" = { kind = "function", name = "the databases", notes = ["research/architecture.md", "research/countries.md", "research/loading.md", "research/localisation-loading.md", "research/main-menu.md"] }
 "0x208699" = { kind = "code", notes = ["research/loading.md"] }
 "0x20878b" = { kind = "code", notes = ["research/loading.md"] }
 "0x20c3ab" = { kind = "code", notes = ["research/loading.md"] }
@@ -1452,7 +1458,7 @@
 "0x5dc560" = { kind = "function", name = "make state command check", notes = ["research/province-view.md"] }
 "0x5dc760" = { kind = "function", name = "abandon state command check", notes = ["research/province-view.md"] }
 "0x5ddc30" = { kind = "function", notes = ["research/power-spending.md"] }
-"0x5dec50" = { kind = "function", notes = ["research/architecture.md", "research/scripts.md"] }
+"0x5dec50" = { kind = "function", notes = ["research/architecture.md", "research/localisation-loading.md", "research/scripts.md"] }
 "0x5e4f34" = { kind = "code", notes = ["research/scripts.md"] }
 "0x5e5250" = { kind = "code", notes = ["research/scripts.md"] }
 "0x5e540c" = { kind = "code", notes = ["research/scripts.md"] }
@@ -1569,7 +1575,7 @@
 "0x6f2660" = { kind = "function", notes = ["research/questions-and-offers.md"] }
 "0x6f2700" = { kind = "function", notes = ["research/country-knowledge.md", "research/questions-and-offers.md"] }
 "0x6f2fa0" = { kind = "function", name = "event manager", notes = ["research/scripts.md"] }
-"0x6f3250" = { kind = "function", name = "the events", notes = ["research/architecture.md", "research/loading.md"] }
+"0x6f3250" = { kind = "function", name = "the events", notes = ["research/architecture.md", "research/loading.md", "research/localisation-loading.md"] }
 "0x6f4f40" = { kind = "function", name = "trigger event", notes = ["research/questions-and-offers.md", "research/scripts.md"] }
 "0x6f6b30" = { kind = "leaf", name = "event option open", notes = ["research/questions-and-offers.md"] }
 "0x6f7ba0" = { kind = "leaf", notes = ["research/triggers.md"] }
@@ -2250,15 +2256,22 @@
 "0x86ef60" = { kind = "leaf", notes = ["research/leaders.md"] }
 "0x86f060" = { kind = "function", notes = ["research/leaders.md"] }
 "0x86f0e9" = { kind = "code", notes = ["research/leaders.md"] }
-"0x872bd0" = { kind = "function", notes = ["research/architecture.md"] }
+"0x86fb20" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x86fb70" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x871130" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x87283b" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x872863" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x872889" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x872bd0" = { kind = "function", notes = ["research/architecture.md", "research/localisation-loading.md"] }
+"0x873508" = { kind = "code", notes = ["research/localisation-loading.md"] }
 "0x873700" = { kind = "function", notes = ["research/game-console.md"] }
 "0x873be0" = { kind = "function", notes = ["research/architecture.md"] }
-"0x873fc0" = { kind = "function", notes = ["research/architecture.md"] }
+"0x873fc0" = { kind = "function", notes = ["research/architecture.md", "research/localisation-loading.md"] }
 "0x874010" = { kind = "function", notes = ["research/architecture.md", "research/ui-injection.md"] }
 "0x8740b0" = { kind = "function", notes = ["research/game-console.md"] }
 "0x874b40" = { kind = "function", notes = ["research/architecture.md", "research/crash-handling.md"] }
 "0x875600" = { kind = "function", notes = ["research/architecture.md"] }
-"0x8757e0" = { kind = "function", notes = ["game/program.md", "research/architecture.md", "research/game-console.md", "research/main-menu.md", "research/random.md", "research/several-games.md", "research/ui-injection.md"] }
+"0x8757e0" = { kind = "function", notes = ["game/program.md", "research/architecture.md", "research/game-console.md", "research/localisation-loading.md", "research/main-menu.md", "research/random.md", "research/several-games.md", "research/ui-injection.md"] }
 "0x875809" = { kind = "code", notes = ["research/several-games.md"] }
 "0x876500" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x876558" = { kind = "code", notes = ["research/main-menu.md"] }
@@ -2267,6 +2280,12 @@
 "0x876a8b" = { kind = "code", notes = ["research/late-game.md"] }
 "0x876b37" = { kind = "code", name = "suppress error messages", notes = ["research/headless.md"] }
 "0x876b6d" = { kind = "code", notes = ["research/headless.md"] }
+"0x876b7d" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x877979" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x8779b0" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x8779b5" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x877a74" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x877a79" = { kind = "code", notes = ["research/localisation-loading.md"] }
 "0x878043" = { kind = "code", notes = ["research/architecture.md"] }
 "0x878050" = { kind = "code", notes = ["research/loading.md"] }
 "0x878242" = { kind = "code", notes = ["research/main-menu.md"] }
@@ -3198,17 +3217,19 @@
 "0xb88710" = { kind = "function", notes = ["research/countries.md"] }
 "0xb8887e" = { kind = "code", notes = ["research/modifiers.md"] }
 "0xb88a70" = { kind = "function", notes = ["research/countries.md"] }
-"0xb89560" = { kind = "function", notes = ["research/loading.md"] }
-"0xb89690" = { kind = "function", notes = ["research/loading.md"] }
-"0xb89710" = { kind = "function", notes = ["research/religion.md", "research/triggers.md"] }
+"0xb89560" = { kind = "function", notes = ["research/loading.md", "research/localisation-loading.md"] }
+"0xb89690" = { kind = "function", notes = ["research/loading.md", "research/localisation-loading.md"] }
+"0xb89710" = { kind = "function", notes = ["research/localisation-loading.md", "research/religion.md", "research/triggers.md"] }
 "0xb89f60" = { kind = "function", notes = ["research/architecture.md"] }
+"0xb8b6e0" = { kind = "function", notes = ["research/localisation-loading.md"] }
 "0xb8ba90" = { kind = "function", notes = ["research/architecture.md"] }
 "0xb8f1ff" = { kind = "code", notes = ["research/achievements.md"] }
 "0xb97cd0" = { kind = "function", name = "condition lines", notes = ["research/triggers.md"] }
 "0xb97f60" = { kind = "function", notes = ["research/triggers.md"] }
 "0xb97ff0" = { kind = "function", notes = ["research/triggers.md"] }
 "0xb98020" = { kind = "function", notes = ["research/triggers.md"] }
-"0xb980a0" = { kind = "function", notes = ["research/loading.md"] }
+"0xb980a0" = { kind = "function", notes = ["research/loading.md", "research/localisation-loading.md"] }
+"0xb980f3" = { kind = "code", notes = ["research/localisation-loading.md"] }
 "0xb98200" = { kind = "function", name = "condition verdict", notes = ["research/achievements.md", "research/religion.md", "research/triggers.md"] }
 "0xb98260" = { kind = "function", notes = ["research/triggers.md"] }
 "0xb985b0" = { kind = "function", notes = ["research/country-daily-update.md"] }
@@ -3218,11 +3239,19 @@
 "0xb99bc0" = { kind = "function", notes = ["research/parameterized-script.md"] }
 "0xb99c12" = { kind = "code", notes = ["research/parameterized-script.md"] }
 "0xb99e70" = { kind = "function", notes = ["research/parameterized-script.md"] }
-"0xb9a490" = { kind = "function", notes = ["research/parameterized-script.md"] }
+"0xb9a490" = { kind = "function", notes = ["research/localisation-loading.md", "research/parameterized-script.md"] }
 "0xb9a4e9" = { kind = "code", notes = ["research/parameterized-script.md"] }
-"0xb9b4e0" = { kind = "function", notes = ["research/loading.md", "research/parameterized-script.md"] }
+"0xb9b380" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0xb9b4e0" = { kind = "function", notes = ["research/loading.md", "research/localisation-loading.md", "research/parameterized-script.md"] }
+"0xb9b5a0" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0xb9bea0" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0xb9c160" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0xb9c9a0" = { kind = "function", notes = ["research/localisation-loading.md"] }
 "0xbb4060" = { kind = "function", name = "ironman condition constructor", notes = ["research/achievements.md"] }
-"0xbbdf20" = { kind = "function", notes = ["research/world-interface-seams.md"] }
+"0xbbc0e0" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0xbbd0b0" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0xbbdf20" = { kind = "function", notes = ["research/localisation-loading.md", "research/world-interface-seams.md"] }
+"0xbbdfe0" = { kind = "function", notes = ["research/localisation-loading.md"] }
 "0xbbf000" = { kind = "code", notes = ["research/architecture.md"] }
 "0xbce550" = { kind = "function", notes = ["research/trade.md"] }
 "0xbce85f" = { kind = "code", notes = ["research/trade.md"] }
@@ -3561,7 +3590,7 @@
 "0xdaace0" = { kind = "function", name = "may invite scholar", notes = ["research/religion.md"] }
 "0xdacf90" = { kind = "function", notes = ["research/religion.md"] }
 "0xdb04d0" = { kind = "function", notes = ["research/parameterized-script.md"] }
-"0xdb0860" = { kind = "function", notes = ["research/parameterized-script.md"] }
+"0xdb0860" = { kind = "function", notes = ["research/localisation-loading.md", "research/parameterized-script.md"] }
 "0xdb08c0" = { kind = "code", notes = ["research/parameterized-script.md"] }
 "0xdb0990" = { kind = "function", notes = ["research/architecture.md", "research/parameterized-script.md"] }
 "0xdb0d60" = { kind = "function", notes = ["research/parameterized-script.md"] }
@@ -3588,8 +3617,12 @@
 "0xdd4090" = { kind = "function", notes = ["research/parameterized-script.md"] }
 "0xdd40dc" = { kind = "code", notes = ["research/parameterized-script.md"] }
 "0xdd4330" = { kind = "function", notes = ["research/loading.md", "research/parameterized-script.md"] }
-"0xdd47b0" = { kind = "function", notes = ["research/parameterized-script.md"] }
+"0xdd47b0" = { kind = "function", notes = ["research/localisation-loading.md", "research/parameterized-script.md"] }
 "0xdd4803" = { kind = "code", notes = ["research/parameterized-script.md"] }
+"0xdd4939" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0xdd49ac" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0xdd49c7" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0xdd49e2" = { kind = "code", notes = ["research/localisation-loading.md"] }
 "0xde12f4" = { kind = "code", notes = ["research/main-menu.md"] }
 "0xde5000" = { kind = "code", notes = ["research/architecture.md"] }
 "0xde6000" = { kind = "code", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/world-in-a-second-process.md", "research/world-interface-seams.md"] }
@@ -3652,6 +3685,8 @@
 "0xe45000" = { kind = "code", notes = ["research/architecture.md"] }
 "0xe54ea0" = { kind = "function", notes = ["research/modifiers.md"] }
 "0xe590d0" = { kind = "function", notes = ["research/notice-window.md", "research/ui-injection.md"] }
+"0xe5a03f" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0xe5a5c0" = { kind = "function", notes = ["research/localisation-loading.md"] }
 "0xe5bb30" = { kind = "function", notes = ["research/questions-and-offers.md"] }
 "0xe5db50" = { kind = "function", notes = ["research/time.md"] }
 "0xe64f60" = { kind = "function", notes = ["research/game-console.md"] }
@@ -3785,7 +3820,7 @@
 "0xfd464b" = { kind = "code", notes = ["research/unicode-text.md"] }
 "0xfd4683" = { kind = "code", name = "map name curve upright single character", notes = ["research/unicode-text.md"] }
 "0xfd46af" = { kind = "code", notes = ["research/unicode-text.md"] }
-"0xfd58b0" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/loading.md"] }
+"0xfd58b0" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/loading.md", "research/localisation-loading.md"] }
 "0xfd5b70" = { kind = "function", notes = ["research/loading.md"] }
 "0xfd63a0" = { kind = "code", notes = ["research/unicode-text.md"] }
 "0xfd7140" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
@@ -3815,6 +3850,7 @@
 "0xff97e0" = { kind = "function", notes = ["research/religion.md"] }
 "0x1000000" = { kind = "code", notes = ["research/font-textures.md", "research/map-name-shader.md"] }
 "0x1000001" = { kind = "code", notes = ["research/window-elements.md"] }
+"0x1000193" = { kind = "code", notes = ["research/localisation-loading.md"] }
 "0x1009350" = { kind = "function", notes = ["research/power-spending.md"] }
 "0x10093f4" = { kind = "code", notes = ["research/power-spending.md"] }
 "0x1009480" = { kind = "code", name = "technology view's spending", notes = ["research/power-spending.md"] }
@@ -3929,7 +3965,7 @@
 "0x10a2885" = { kind = "code", notes = ["research/questions-and-offers.md"] }
 "0x10a29e0" = { kind = "function", notes = ["research/message-pop-up-actions.md"] }
 "0x10a2a80" = { kind = "function", notes = ["research/message-pop-up-actions.md"] }
-"0x10a2e40" = { kind = "function", notes = ["research/loading.md", "research/main-menu.md"] }
+"0x10a2e40" = { kind = "function", notes = ["research/loading.md", "research/localisation-loading.md", "research/main-menu.md"] }
 "0x10a3dd0" = { kind = "function", notes = ["research/army-orders.md"] }
 "0x10a3e50" = { kind = "function", notes = ["research/architecture.md"] }
 "0x10a51e0" = { kind = "function", name = "the off-screen passes", notes = ["research/drawing-beside-the-day.md", "research/main-thread.md", "research/map-drawing-reads.md"] }
@@ -3951,16 +3987,16 @@
 "0x10a7a90" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
 "0x10a7e62" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
 "0x10a7f87" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
-"0x10a8930" = { kind = "function", notes = ["research/main-menu.md", "research/world-interface-seams.md"] }
+"0x10a8930" = { kind = "function", notes = ["research/localisation-loading.md", "research/main-menu.md", "research/world-interface-seams.md"] }
 "0x10a8c30" = { kind = "function", name = "map renderer", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/map-drawing-reads.md", "research/map-modes.md"] }
 "0x10a9be0" = { kind = "function", name = "the map's names made", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md", "research/map-modes.md"] }
 "0x10ad9f0" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x10ae980" = { kind = "function", notes = ["research/loading.md"] }
-"0x10af270" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/loading.md", "research/map-drawing-reads.md"] }
+"0x10af270" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/loading.md", "research/localisation-loading.md", "research/map-drawing-reads.md"] }
 "0x10af990" = { kind = "leaf", name = "the map told of a province's new owner", notes = ["research/drawing-beside-the-day.md"] }
 "0x10b2830" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x10b2a00" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
-"0x10b2b70" = { kind = "function", name = "flags and loading screens", notes = ["research/loading.md"] }
+"0x10b2b70" = { kind = "function", name = "flags and loading screens", notes = ["research/loading.md", "research/localisation-loading.md"] }
 "0x10b2ee0" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x10b3600" = { kind = "function", notes = ["research/loading.md", "research/main-menu.md"] }
 "0x10b3bd0" = { kind = "function", notes = ["research/ui-injection.md"] }
@@ -4118,7 +4154,7 @@
 "0x11a9f76" = { kind = "code", name = "budget income", notes = ["research/countries.md"] }
 "0x11ade66" = { kind = "code", name = "budget expenses", notes = ["research/countries.md"] }
 "0x11bb450" = { kind = "function", notes = ["research/main-menu.md"] }
-"0x11bb4f0" = { kind = "function", notes = ["research/loading.md", "research/main-menu.md"] }
+"0x11bb4f0" = { kind = "function", notes = ["research/loading.md", "research/localisation-loading.md", "research/main-menu.md"] }
 "0x11bb850" = { kind = "function", notes = ["research/loading.md", "research/main-menu.md"] }
 "0x11bbbc0" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x11bbc10" = { kind = "function", notes = ["research/main-menu.md"] }
@@ -4219,6 +4255,7 @@
 "0x12de4f6" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x12deeb0" = { kind = "function", notes = ["research/world-interface-seams.md"] }
 "0x12e0e40" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
+"0x12e4470" = { kind = "function", notes = ["research/localisation-loading.md"] }
 "0x12e5d30" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
 "0x12e6d70" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x12e78a1" = { kind = "code", notes = ["research/headless.md"] }
@@ -4557,9 +4594,28 @@
 "0x14a6bb0" = { kind = "function", notes = ["research/architecture.md"] }
 "0x14ab0a0" = { kind = "function", notes = ["research/architecture.md"] }
 "0x14ada90" = { kind = "function", notes = ["research/architecture.md", "research/main-thread.md"] }
-"0x14b34a0" = { kind = "function", name = "localisation lookup", notes = ["research/architecture.md", "research/diplomacy.md", "research/leaders.md", "research/main-menu.md", "research/names.md", "research/power-spending.md", "research/provinces.md", "research/sieges.md", "research/trade.md", "research/triggers.md", "research/units.md"] }
+"0x14b3000" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x14b34a0" = { kind = "function", name = "localisation lookup", notes = ["research/architecture.md", "research/diplomacy.md", "research/leaders.md", "research/localisation-loading.md", "research/main-menu.md", "research/names.md", "research/power-spending.md", "research/provinces.md", "research/sieges.md", "research/trade.md", "research/triggers.md", "research/units.md"] }
 "0x14b36a4" = { kind = "code", notes = ["research/main-menu.md"] }
-"0x14b9370" = { kind = "function", notes = ["research/architecture.md"] }
+"0x14b36c0" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x14b3940" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x14b3a9f" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x14b3bf0" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x14b3db0" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x14b3e38" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x14b4150" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x14b4204" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x14b4320" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x14b4740" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x14b4a20" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x14b5b10" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x14b6670" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x14b7331" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x14b7690" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x14b8b60" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x14b9190" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x14b9370" = { kind = "function", notes = ["research/architecture.md", "research/localisation-loading.md"] }
+"0x14ba500" = { kind = "code", notes = ["research/localisation-loading.md"] }
 "0x14bb940" = { kind = "function", notes = ["research/diplomacy.md"] }
 "0x14be7e0" = { kind = "function", notes = ["research/diplomacy.md"] }
 "0x14bf460" = { kind = "function", notes = ["research/triggers.md"] }
@@ -4570,7 +4626,7 @@
 "0x14bf770" = { kind = "function", notes = ["research/triggers.md"] }
 "0x14bf798" = { kind = "code", notes = ["research/triggers.md"] }
 "0x14bfd80" = { kind = "function", notes = ["research/architecture.md"] }
-"0x14c02b0" = { kind = "function", name = "the engine's Init", notes = ["research/architecture.md", "research/headless.md", "research/loading.md"] }
+"0x14c02b0" = { kind = "function", name = "the engine's Init", notes = ["research/architecture.md", "research/headless.md", "research/loading.md", "research/localisation-loading.md"] }
 "0x14c02ca" = { kind = "code", name = "init shows the window", notes = ["research/headless.md"] }
 "0x14c02d6" = { kind = "code", notes = ["research/headless.md"] }
 "0x14c2500" = { kind = "leaf", name = "restart", notes = ["research/architecture.md", "research/main-menu.md"] }
@@ -4669,7 +4725,7 @@
 "0x14dc240" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x14dc2a5" = { kind = "code", name = "graphics group unload", notes = ["research/main-menu.md"] }
 "0x14dc390" = { kind = "function", notes = ["research/loading.md"] }
-"0x14dc5d0" = { kind = "function", name = "meshes and particles", notes = ["research/loading.md"] }
+"0x14dc5d0" = { kind = "function", name = "meshes and particles", notes = ["research/loading.md", "research/localisation-loading.md"] }
 "0x14dcd30" = { kind = "function", notes = ["research/loading.md", "research/main-thread.md", "research/map-drawing-reads.md"] }
 "0x14dcde0" = { kind = "function", notes = ["research/main-thread.md", "research/map-drawing-reads.md"] }
 "0x14dcf90" = { kind = "function", name = "set up native GUI drawing state", notes = ["research/gui-drawing.md", "research/panel-entry-text.md"] }
@@ -4694,6 +4750,7 @@
 "0x14e0d90" = { kind = "function", notes = ["research/notice-window.md", "research/ui-injection.md"] }
 "0x14e1140" = { kind = "function", notes = ["research/extension-windows.md", "research/notice-window.md", "research/ui-injection.md"] }
 "0x14e13b8" = { kind = "code", notes = ["research/extension-windows.md"] }
+"0x14e1542" = { kind = "code", notes = ["research/localisation-loading.md"] }
 "0x14e16e0" = { kind = "function", notes = ["research/ui-injection.md"] }
 "0x14e1f60" = { kind = "function", notes = ["research/ui-injection.md"] }
 "0x14e3390" = { kind = "function", notes = ["research/saves.md"] }
@@ -4909,7 +4966,11 @@
 "0x1561fd0" = { kind = "function", notes = ["research/gui-drawing.md"] }
 "0x15621f0" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x15625a0" = { kind = "leaf", name = "activate a text renderer", notes = ["research/panel-entry-text.md"] }
-"0x15632d0" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
+"0x15630c0" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x15632d0" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/localisation-loading.md"] }
+"0x1563dac" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x1563f20" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x1564470" = { kind = "function", notes = ["research/localisation-loading.md"] }
 "0x1564830" = { kind = "function", notes = ["research/architecture.md"] }
 "0x1569c70" = { kind = "function", notes = ["research/architecture.md", "research/input.md", "research/text-input.md"] }
 "0x1569d75" = { kind = "code", notes = ["research/headless.md"] }
@@ -5241,11 +5302,36 @@
 "0x16dd0b0" = { kind = "code", notes = ["research/headless.md"] }
 "0x16dd0c2" = { kind = "code", notes = ["research/headless.md"] }
 "0x16f7a20" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
+"0x16fa000" = { kind = "code", notes = ["research/localisation-loading.md"] }
 "0x16fa460" = { kind = "function", notes = ["research/architecture.md"] }
-"0x16fa8d0" = { kind = "function", name = "localisation entry registration", notes = ["research/unicode-text.md"] }
+"0x16fa8d0" = { kind = "function", name = "localisation entry registration", notes = ["research/localisation-loading.md", "research/unicode-text.md"] }
+"0x16fa949" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x16faae0" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x16fabf0" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x16fac06" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x16fac60" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x16faec0" = { kind = "function", notes = ["research/localisation-loading.md"] }
 "0x16fb000" = { kind = "code", notes = ["research/drawing-beside-the-day.md", "research/world-interface-seams.md"] }
-"0x16fb030" = { kind = "leaf", name = "find a localisation text", notes = ["research/leaders.md"] }
-"0x16fd650" = { kind = "function", name = "localisation entry import", notes = ["research/architecture.md", "research/unicode-text.md"] }
+"0x16fb030" = { kind = "leaf", name = "find a localisation text", notes = ["research/leaders.md", "research/localisation-loading.md"] }
+"0x16fb1c0" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x16fb233" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x16fb380" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x16fb3e8" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x16fb470" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x16fb590" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x16fb7c0" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x16fb890" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x16fd600" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x16fd632" = { kind = "code", notes = ["research/localisation-loading.md"] }
+"0x16fd650" = { kind = "function", name = "localisation entry import", notes = ["research/architecture.md", "research/localisation-loading.md", "research/unicode-text.md"] }
+"0x16fd7a0" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x16fd880" = { kind = "leaf", notes = ["research/localisation-loading.md"] }
+"0x16fd8c0" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x16fd910" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x16ffd10" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x1700560" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x17006e0" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x1702000" = { kind = "code", notes = ["research/localisation-loading.md"] }
 "0x17039a0" = { kind = "function", notes = ["research/extension-windows.md"] }
 "0x17043c0" = { kind = "function", notes = ["research/game-console.md", "research/user-folder.md"] }
 "0x17047c0" = { kind = "function", notes = ["research/game-console.md"] }
@@ -5254,7 +5340,7 @@
 "0x17059e0" = { kind = "function", notes = ["research/unicode-text.md"] }
 "0x1705e00" = { kind = "function", notes = ["research/unicode-text.md"] }
 "0x1705ec0" = { kind = "function", notes = ["research/unicode-text.md"] }
-"0x17068b0" = { kind = "function", notes = ["research/architecture.md", "research/commands.md", "research/loading.md", "research/parameterized-script.md", "research/saves.md", "research/ui-injection.md"] }
+"0x17068b0" = { kind = "function", notes = ["research/architecture.md", "research/commands.md", "research/loading.md", "research/localisation-loading.md", "research/parameterized-script.md", "research/saves.md", "research/ui-injection.md"] }
 "0x1707670" = { kind = "function", notes = ["research/commands.md"] }
 "0x17079f0" = { kind = "function", notes = ["research/countries.md"] }
 "0x1707a20" = { kind = "function", name = "save writer writes a country", notes = ["research/saves.md"] }
@@ -5292,14 +5378,17 @@
 "0x170e700" = { kind = "function", name = "script lexer next token", notes = ["research/architecture.md", "research/saves.md"] }
 "0x170ebf0" = { kind = "function", name = "binary save lexer next token", notes = ["research/saves.md"] }
 "0x170f9b0" = { kind = "function", notes = ["research/saves.md"] }
-"0x170ffe0" = { kind = "function", notes = ["research/architecture.md", "research/ui-injection.md"] }
+"0x170ffe0" = { kind = "function", notes = ["research/architecture.md", "research/localisation-loading.md", "research/ui-injection.md"] }
 "0x1710220" = { kind = "function", notes = ["research/loading.md"] }
 "0x1710440" = { kind = "function", notes = ["research/saves.md"] }
 "0x1710c00" = { kind = "leaf", name = "file stream sum method", notes = ["research/saves.md"] }
 "0x17114e2" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
-"0x1711d40" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
+"0x17115f0" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x1711d40" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/localisation-loading.md"] }
 "0x1711eb0" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
 "0x1711f80" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
+"0x1712170" = { kind = "function", notes = ["research/localisation-loading.md"] }
+"0x1712200" = { kind = "function", notes = ["research/localisation-loading.md"] }
 "0x17122a0" = { kind = "function", notes = ["research/save-transfer-copy.md"] }
 "0x1712860" = { kind = "leaf", notes = ["research/power-spending.md"] }
 "0x17128a0" = { kind = "function", notes = ["research/trade-range-and-naval-supply.md"] }
@@ -5316,7 +5405,7 @@
 "0x1715bb0" = { kind = "function", name = "file move", notes = ["research/saves.md"] }
 "0x17181d0" = { kind = "function", notes = ["research/user-folder.md"] }
 "0x1718300" = { kind = "function", name = "the game's open", notes = ["game/program.md", "research/architecture.md", "research/extension-windows.md", "research/loading.md", "research/save-transfer-copy.md", "research/saves.md", "research/text-input.md", "research/ui-injection.md", "research/user-folder.md"] }
-"0x1718f80" = { kind = "function", notes = ["research/parameterized-script.md"] }
+"0x1718f80" = { kind = "function", notes = ["research/localisation-loading.md", "research/parameterized-script.md"] }
 "0x1719120" = { kind = "function", notes = ["research/architecture.md"] }
 "0x1719b50" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x1719c40" = { kind = "function", notes = ["research/main-menu.md"] }
@@ -5422,7 +5511,7 @@
 "0x1a337c8" = { kind = "function", notes = ["research/architecture.md", "research/ui-injection.md"] }
 "0x1a35124" = { kind = "function", notes = ["research/diplomacy.md", "research/gui-drawing.md", "research/main-menu.md"] }
 "0x1a35140" = { kind = "leaf", notes = ["research/crash-handling.md"] }
-"0x1a35e00" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
+"0x1a35e00" = { kind = "function", notes = ["research/localisation-loading.md", "research/map-drawing-reads.md"] }
 "0x1a35fa0" = { kind = "function", notes = ["research/parameterized-script.md"] }
 "0x1a42041" = { kind = "code", notes = ["research/saves.md"] }
 "0x1a43386" = { kind = "code", notes = ["research/saves.md"] }
@@ -6002,6 +6091,7 @@
 "0x1fd1368" = { kind = "data", notes = ["research/gui-drawing.md", "research/loading.md"] }
 "0x1fd1370" = { kind = "data", notes = ["research/font-textures.md", "research/gui-drawing.md"] }
 "0x1fd1378" = { kind = "data", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/gui-drawing.md"] }
+"0x1fd179e" = { kind = "data", notes = ["research/localisation-loading.md"] }
 "0x1fd1c38" = { kind = "data", notes = ["research/diplomacy.md"] }
 "0x1fd2dd0" = { kind = "data", notes = ["research/main-menu.md", "research/saves.md"] }
 "0x1fd39a8" = { kind = "data", notes = ["research/main-menu.md"] }
@@ -6012,7 +6102,9 @@
 "0x1fd5228" = { kind = "data", notes = ["research/subjects.md"] }
 "0x1fd522c" = { kind = "data", notes = ["research/subjects.md"] }
 "0x1fd5230" = { kind = "data", notes = ["research/subjects.md"] }
+"0x1fd5c00" = { kind = "data", notes = ["research/localisation-loading.md"] }
 "0x1fd5fa8" = { kind = "data", notes = ["research/scripts.md"] }
+"0x1fd8428" = { kind = "data", notes = ["research/localisation-loading.md"] }
 "0x1fd8660" = { kind = "data", notes = ["research/architecture.md", "research/commands.md", "research/diplomacy.md", "research/peace.md", "research/religion.md", "research/units.md"] }
 "0x1fe67dc" = { kind = "data", notes = ["research/window-elements.md"] }
 "0x20744c0" = { kind = "data", notes = ["research/provinces.md"] }
@@ -6170,7 +6262,7 @@
 "0x233fff8" = { kind = "data", notes = ["research/countries.md"] }
 "0x233fffc" = { kind = "data", notes = ["research/countries.md"] }
 "0x2340000" = { kind = "data", notes = ["research/countries.md"] }
-"0x2340010" = { kind = "data", notes = ["research/triggers.md"] }
+"0x2340010" = { kind = "data", notes = ["research/localisation-loading.md", "research/triggers.md"] }
 "0x2340028" = { kind = "data", notes = ["research/save-transfer-copy.md"] }
 "0x2340030" = { kind = "data", notes = ["research/diplomacy.md"] }
 "0x2340040" = { kind = "data", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
@@ -6195,7 +6287,7 @@
 "0x2349538" = { kind = "data", notes = ["research/loading.md"] }
 "0x2349570" = { kind = "data", notes = ["research/architecture.md"] }
 "0x2349580" = { kind = "data", notes = ["research/architecture.md"] }
-"0x2349598" = { kind = "data", notes = ["research/drawing-beside-the-day.md"] }
+"0x2349598" = { kind = "data", notes = ["research/drawing-beside-the-day.md", "research/localisation-loading.md"] }
 "0x23495a8" = { kind = "data", notes = ["research/headless.md"] }
 "0x23495b0" = { kind = "data", notes = ["research/loading.md"] }
 "0x23495c8" = { kind = "data", notes = ["research/gui-drawing.md"] }
@@ -6209,7 +6301,7 @@
 "0x23496b8" = { kind = "data", notes = ["research/crash-handling.md"] }
 "0x234db20" = { kind = "data", notes = ["research/unicode-text.md"] }
 "0x234fb20" = { kind = "data", notes = ["research/unicode-text.md"] }
-"0x2357b20" = { kind = "data", notes = ["research/architecture.md", "research/leaders.md", "research/unicode-text.md"] }
+"0x2357b20" = { kind = "data", notes = ["research/architecture.md", "research/leaders.md", "research/localisation-loading.md", "research/unicode-text.md"] }
 "0x2357b28" = { kind = "data", notes = ["research/provinces.md"] }
 "0x2357b30" = { kind = "data", notes = ["research/provinces.md"] }
 "0x2357b33" = { kind = "data", notes = ["research/headless.md"] }
@@ -6237,6 +6329,10 @@
 "0x2358340" = { kind = "data", notes = ["research/map-drawing-reads.md"] }
 "0x2358390" = { kind = "data", notes = ["research/map-drawing-reads.md"] }
 "0x2358730" = { kind = "data", notes = ["research/map-drawing-reads.md"] }
+"0x2358778" = { kind = "data", notes = ["research/localisation-loading.md"] }
+"0x2358780" = { kind = "data", notes = ["research/localisation-loading.md"] }
+"0x2358790" = { kind = "data", notes = ["research/localisation-loading.md"] }
+"0x2358798" = { kind = "data", notes = ["research/localisation-loading.md"] }
 "0x23587b0" = { kind = "data", notes = ["research/architecture.md", "research/commands.md"] }
 "0x23587b8" = { kind = "data", notes = ["research/commands.md"] }
 "0x23587e0" = { kind = "data", notes = ["research/ai.md"] }
@@ -6302,6 +6398,7 @@
 "0x242be48" = { kind = "data", notes = ["research/architecture.md", "research/main-menu.md", "research/trade.md"] }
 "0x242be50" = { kind = "data", notes = ["research/countries.md", "research/power-spending.md"] }
 "0x242be58" = { kind = "data", notes = ["research/architecture.md"] }
+"0x242be60" = { kind = "data", notes = ["research/localisation-loading.md"] }
 "0x242be70" = { kind = "data", notes = ["research/architecture.md"] }
 "0x242be78" = { kind = "data", notes = ["research/envoys.md"] }
 "0x242bed0" = { kind = "data", notes = ["research/architecture.md"] }
@@ -6313,7 +6410,7 @@
 "0x2433ccc" = { kind = "data", notes = ["research/input.md"] }
 "0x2433cd0" = { kind = "data", notes = ["research/unicode-text.md"] }
 "0x2433e88" = { kind = "data", notes = ["research/architecture.md"] }
-"0x2456bc0" = { kind = "data", notes = ["research/loading.md"] }
+"0x2456bc0" = { kind = "data", notes = ["research/loading.md", "research/localisation-loading.md"] }
 "0x2458be0" = { kind = "data", notes = ["research/religion.md"] }
 "0x2458bf0" = { kind = "data", notes = ["research/saves.md"] }
 "0x2458c00" = { kind = "data", notes = ["research/saves.md"] }
