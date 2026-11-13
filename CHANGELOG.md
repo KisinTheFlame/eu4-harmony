@@ -1,6 +1,6 @@
 # Changelog
 
-What changed in each version of Harmony that players and mod authors notice. A version tag publishes its section as the GitHub Release notes; a local Steam Workshop upload uses the same section as its change note (`cargo xtask workshop-upload`).
+What changed in each version of Harmony that players and mod authors notice. Merging a version PR automatically publishes its section as the GitHub Release notes; a local Steam Workshop upload uses the same section as its change note (`cargo xtask workshop-upload`).
 
 ## 0.2.0
 

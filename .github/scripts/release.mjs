@@ -1,4 +1,6 @@
-// Tag-triggered publication. Preparation and ordinary CI never call this entry point.
+// A merged version increase requests publication. Create its immutable tag
+// here and publish in the same run: workflow-token tag pushes do not start
+// another workflow. Preparation and ordinary CI never call this entry point.
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -52,6 +54,35 @@ export async function resolveTag(api, tag) {
   return object.sha;
 }
 
+export async function ensureTag(api, metadata) {
+  let existing;
+  try {
+    existing = await resolveTag(api, metadata.tag);
+  } catch (error) {
+    if (error.status !== 404) throw error;
+  }
+  if (existing !== undefined) {
+    requireThat(existing === metadata.commit, "The existing tag names another source");
+    return existing;
+  }
+  const annotated = await api.request("POST", "/git/tags", {
+    tag: metadata.tag,
+    message: `Release Harmony ${metadata.version}`,
+    object: metadata.commit,
+    type: "commit",
+  });
+  requireThat(/^[a-f0-9]{40}$/.test(annotated.sha), "GitHub did not create the annotated tag");
+  try {
+    await api.request("POST", "/git/refs", { ref: `refs/tags/${metadata.tag}`, sha: annotated.sha });
+  } catch (error) {
+    // Another request may have created this exact ref. Never update it.
+    if (error.status !== 409 && error.status !== 422) throw error;
+  }
+  const selected = await resolveTag(api, metadata.tag);
+  requireThat(selected === metadata.commit, "The created tag does not name the validated source");
+  return selected;
+}
+
 async function list(api, route) {
   const values = [];
   for (let page = 1; ; page++) {
@@ -78,14 +109,15 @@ function validateRelease(release, metadata) {
   requireThat(!release.prerelease, "The existing release is a prerelease");
 }
 
-export async function publishRelease({ api, metadata, artifacts }) {
+export async function publishRelease({ api, metadata, artifacts, createTag = false }) {
   validateMetadata(metadata);
   const names = [metadata.framework_asset, metadata.cli_asset];
   requireThat(artifacts.length === 2 && names.every((name) => artifacts.filter((artifact) => artifact.name === name).length === 1), "The build must supply exactly the two expected archives");
   for (const artifact of artifacts) {
     requireThat(Buffer.isBuffer(artifact.data) && artifact.data.length > 0, `Empty build attachment: ${artifact.name}`);
   }
-  requireThat(await resolveTag(api, metadata.tag) === metadata.commit, "The remote tag no longer names the validated source");
+  const selected = createTag ? await ensureTag(api, metadata) : await resolveTag(api, metadata.tag);
+  requireThat(selected === metadata.commit, "The remote tag no longer names the validated source");
 
   // Listing with the publisher token also finds drafts; get-by-tag alone is
   // documented for published releases and cannot be our recovery lookup.
@@ -176,7 +208,11 @@ export class GitHub {
     } catch {
       throw new Error(`GitHub ${method} failed to return JSON (HTTP ${response.status})`);
     }
-    requireThat(response.ok, `GitHub ${method} failed (HTTP ${response.status}): ${result?.message || "request refused"}`);
+    if (!response.ok) {
+      const error = new Error(`GitHub ${method} failed (HTTP ${response.status}): ${result?.message || "request refused"}`);
+      error.status = response.status;
+      throw error;
+    }
     return result;
   }
 
@@ -193,10 +229,12 @@ async function main() {
   const directory = process.argv[2];
   requireThat(directory, "Usage: node release.mjs <package directory>");
   const metadata = validateMetadata(JSON.parse(await readFile(path.join(directory, "release.json"), "utf8")));
-  requireThat(process.env.GITHUB_EVENT_NAME === "push" && process.env.GITHUB_REF === `refs/tags/${metadata.tag}`, "Only a pushed version tag may publish a release");
+  requireThat(process.env.GITHUB_EVENT_NAME === "push" && process.env.GITHUB_REF === "refs/heads/master"
+    && process.env.RELEASE_REQUESTED === "true" && process.env.GITHUB_SHA === metadata.commit,
+  "Only a version increase merged into master may publish a release");
   const artifacts = await readArtifacts(metadata, directory);
   const api = new GitHub(process.env.GITHUB_REPOSITORY, process.env.GH_TOKEN);
-  const { release, alreadyPublished } = await publishRelease({ api, metadata, artifacts });
+  const { release, alreadyPublished } = await publishRelease({ api, metadata, artifacts, createTag: true });
   console.log(`${alreadyPublished ? "Already published" : "Published"}: ${release.html_url}`);
 }
 

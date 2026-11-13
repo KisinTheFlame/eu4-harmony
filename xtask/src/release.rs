@@ -80,8 +80,8 @@ pub fn git(root: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().into())
 }
 
-/// The exact source a release may use. Without a tag, checks the preparation
-/// run before the first tag is pushed; it still needs clean, merged source.
+/// The exact source a release may use. Without a tag, checks before the
+/// publication job creates it; preparation also needs clean, merged source.
 pub fn check(root: &Path, tag: Option<&str>) -> Result<Release> {
     let mut release = metadata(root)?;
     if tag.is_some_and(|tag| tag != release.tag) {
