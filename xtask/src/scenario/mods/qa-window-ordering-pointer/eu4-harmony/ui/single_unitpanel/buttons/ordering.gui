@@ -1,0 +1,4 @@
+guiButtonType = {
+ name = "ordering_probe"
+ quadTextureSprite = "GFX_unitpanel_button_hunt_rebels"
+}

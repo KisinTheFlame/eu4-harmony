@@ -19,6 +19,7 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 
 | | |
 | --- | --- |
+| [2026-11-14-window-ordering-pointer-acceptance.md](prototype-log/2026-11-14-window-ordering-pointer-acceptance.md) | Pointer activation runs its action once; the army attach picker covers the button area, receives input, and restores the area after closing |
 | [window-placement.md](research/window-placement.md) | Same-parent scene placement, fixed anchors, complete control node groups, and why named-child promotion is not a general reorder operation |
 | [window-visibility.md](research/window-visibility.md) | Four native show/hide paths, ancestor traversal gates, and window lifetime observations |
 | [window-activation.md](research/window-activation.md) | Accepted mouse targets, per-event dispatch, hit-state invalidation and presentation-lock evidence |
@@ -89,7 +90,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 
 | | |
 | --- | --- |
-| [window-ordering.md](plans/window-ordering.md) | Native interface ordering implemented; pointer, same-batch input and army-picker acceptance remain open |
+| [window-ordering.md](plans/window-ordering.md) | Native interface ordering implemented; critical pointer and army-picker acceptance passed; same-batch input and live scrollbar movement remain unverified |
 | [performance-metrics.md](plans/performance-metrics.md) | Completed-day, submission and interface collection built and checked; action response, pure interface-work timing and the full save comparison matrix remain deferred |
 | [releases-after-version-prs.md](plans/releases-after-version-prs.md) | Merged version PRs automatically create tags and publish, retaining separate packages and local Workshop upload |
 | [panel-entries-and-tooltips.md](plans/panel-entries-and-tooltips.md) | Shared tooltip content and lifetime, checked entry images and independent formatted numbers |
