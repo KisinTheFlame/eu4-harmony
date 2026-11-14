@@ -35,6 +35,35 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 | [2026-11-14-window-ordering-traversal.md](prototype-log/2026-11-14-window-ordering-traversal.md) | Fifty-three exact native traversal comparisons with the drawing thread enabled; setup refusals and unverified input behavior |
 | [2026-11-14-window-ordering-native-traversal.md](prototype-log/2026-11-14-window-ordering-native-traversal.md) | Forty-four exact traversal comparisons with native main-thread drawing; input behavior remains unverified |
 | [window-ordering.md](research/window-ordering.md) | Native definition and scene order, reorder methods, input qualifications, and the army attach picker's overlap with the button area |
+| [2026-11-14-frame-p99-user-game.md](prototype-log/2026-11-14-frame-p99-user-game.md) | Current implementation launched visibly at the main menu for the user; gameplay not measured |
+| [2026-11-14-frame-p99-boundary-a1r.md](prototype-log/2026-11-14-frame-p99-boundary-a1r.md) | Replacement timing baseline: P99 44.338 ms, 576.5 completed days/min |
+| [2026-11-14-frame-p99-boundary-b1.md](prototype-log/2026-11-14-frame-p99-boundary-b1.md) | First four-scope timing prototype: P99 13.166 ms, with slower daily progress and higher machine load |
+| [2026-11-14-frame-p99-boundary-b2.md](prototype-log/2026-11-14-frame-p99-boundary-b2.md) | Second timing prototype repeats P99 13.248 ms at 579.5 completed days/min |
+| [2026-11-14-frame-p99-boundary-a2.md](prototype-log/2026-11-14-frame-p99-boundary-a2.md) | Closing baseline: P99 43.929 ms, 581.5 completed days/min; all four games released |
+| [2026-11-14-frame-p99-boundary-a1.md](prototype-log/2026-11-14-frame-p99-boundary-a1.md) | Initial timing baseline disturbed by another test game; retained separately from the replacement comparison |
+| [2026-11-14-frame-p99-boundary-diag-e.md](prototype-log/2026-11-14-frame-p99-boundary-diag-e.md) | Complete four-scope trace confirms 41,197 early releases; external-game overlap excludes isolated speed attribution |
+| [2026-11-14-frame-p99-boundary-diag-d.md](prototype-log/2026-11-14-frame-p99-boundary-diag-d.md) | Complete formal report but overflowing temporary probes; rejected as a full mechanism trace |
+| [2026-11-14-frame-p99-boundary-diag-c.md](prototype-log/2026-11-14-frame-p99-boundary-diag-c.md) | Third boundary also releases in microseconds; the remaining formatting-chain acquisition is retained for further analysis |
+| [2026-11-14-frame-p99-boundary-diag-a.md](prototype-log/2026-11-14-frame-p99-boundary-diag-a.md) | Matched baseline for the second-boundary diagnostic, with complete raw replay |
+| [2026-11-14-frame-p99-boundary-diag-b.md](prototype-log/2026-11-14-frame-p99-boundary-diag-b.md) | Second boundary releases in microseconds; a later third acquisition retains the long hold |
+| [frame-drawing-p99-safe-boundary.md](research/frame-drawing-p99-safe-boundary.md) | Four stream-lock boundaries, cold-path exclusion, the complete captured formatting path and guarded release experiments |
+| [frame-drawing-p99-release-path.md](research/frame-drawing-p99-release-path.md) | Early release verified; the next stream-initialization call reacquires the same lock and retains long ownership |
+| [2026-11-14-frame-p99-release-old-a.md](prototype-log/2026-11-14-frame-p99-release-old-a.md) | Original-view baseline with matched scope and interval traces |
+| [2026-11-14-frame-p99-release-old-b.md](prototype-log/2026-11-14-frame-p99-release-old-b.md) | Original-view prototype: 1,268 actual early releases and the subsequent long holds |
+| [2026-11-14-frame-p99-release-map-b.md](prototype-log/2026-11-14-frame-p99-release-map-b.md) | Beijing-view prototype confirms the mechanism, with external-game load disclosed |
+| [2026-11-14-frame-p99-release-map-a.md](prototype-log/2026-11-14-frame-p99-release-map-a.md) | Beijing-view baseline closes the diagnostic comparison; no stable gain established |
+| [2026-11-14-frame-p99-optimization-a2.md](prototype-log/2026-11-14-frame-p99-optimization-a2.md) | Final baseline closes the comparison without demonstrating a repeatable P99 gain |
+| [2026-11-14-frame-p99-optimization-b2.md](prototype-log/2026-11-14-frame-p99-optimization-b2.md) | Second prototype comparison, including a disturbed paused control |
+| [2026-11-14-frame-p99-optimization-b1.md](prototype-log/2026-11-14-frame-p99-optimization-b1.md) | First prototype comparison: complete windows and normal release |
+| [2026-11-14-frame-p99-optimization-a1.md](prototype-log/2026-11-14-frame-p99-optimization-a1.md) | First baseline in the bounded lock-order scope comparison |
+| [frame-drawing-p99.md](research/frame-drawing-p99.md) | Individual submission-gap attribution: long lock-order ownership, invalidated frames, map names due, and a measured short internal lock scope |
+| [2026-11-14-frame-p99-probe-smoke.md](prototype-log/2026-11-14-frame-p99-probe-smoke.md) | Paused raw trace exported; driver stopped on a wrong capability name and released its game |
+| [2026-11-14-frame-p99-attribution.md](prototype-log/2026-11-14-frame-p99-attribution.md) | Two five-speed windows partitioned around P99, including a popup returning long before the next preparation |
+| [2026-11-14-frame-p99-lock-sources.md](prototype-log/2026-11-14-frame-p99-lock-sources.md) | Entry stacks identify the AI stream-related lock-order trigger; explicit map-name skip transitions explain another gate |
+| [2026-11-14-frame-p99-lock-scope.md](prototype-log/2026-11-14-frame-p99-lock-scope.md) | Internal scope ends in microseconds while presentation-lock ownership persists for milliseconds; all runtime probes removed |
+| [2026-11-14-frame-p95-baseline.md](prototype-log/2026-11-14-frame-p95-baseline.md) | Submission intervals, Present durations and drawing-log clues, with concurrent analysis load disclosed |
+| [2026-11-14-frame-p95-camera.md](prototype-log/2026-11-14-frame-p95-camera.md) | Paused fixed/moving camera comparison under changing system load; repeated separately after analysis stopped |
+| [2026-11-14-frame-p95-repeat.md](prototype-log/2026-11-14-frame-p95-repeat.md) | Five paused camera windows and a speed-5 repeat after analysis stopped, with another game's load and Present disturbances disclosed |
 | [2026-11-14-performance-overhead-1-on.md](prototype-log/2026-11-14-performance-overhead-1-on.md) | First collection-on repeat: complete paused and running windows, with external rate and CPU |
 | [2026-11-14-performance-overhead-1-off.md](prototype-log/2026-11-14-performance-overhead-1-off.md) | First collection-off repeat in the same build, with absent in-process metrics |
 | [2026-11-14-performance-overhead-2-off.md](prototype-log/2026-11-14-performance-overhead-2-off.md) | Second collection-off repeat, beginning the reversed-order pair |
@@ -46,6 +75,7 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 | [2026-11-14-performance-smoke.md](prototype-log/2026-11-14-performance-smoke.md) | Complete short paused and speed-5 windows with attributed submissions, interface ages, save markers and unfinished intervals |
 | [2026-11-14-performance-startup-refused.md](prototype-log/2026-11-14-performance-startup-refused.md) | First performance-collection startup refused overlapping local-save observers; no performance window ran |
 | [performance-boundaries.md](research/performance-boundaries.md) | Existing daily-update, interface-readiness and Present boundaries used by bounded performance collection, with their limits |
+| [frame-drawing-p95.md](research/frame-drawing-p95.md) | Submission-interval P95: current measurements, preparation and drawing candidates, and the evidence needed to choose a change |
 | [adr/](adr/) | Decisions that are hard to reverse, one file each, and why they were made |
 | [research/](research/) | The research into the game's code that the pages of [game/](game/) rest on, with addresses as RVAs into the 1.37.5 baseline; [addresses.toml](research/addresses.toml) indexes every address they name |
 | [prototype-log/](prototype-log/) | What was tested in the running game and what came out, one file per run |
@@ -103,6 +133,9 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 
 | | |
 | --- | --- |
+| [frame-p99-safe-boundary-validation.md](plans/frame-p99-safe-boundary-validation.md) | Four verified release boundaries repeat about 70% lower P99; broader safety remains open, disposable runtime removed |
+| [frame-p99-release-path-validation.md](plans/frame-p99-release-path-validation.md) | Four diagnostic games completed; early release followed by another long acquisition, with temporary code removed |
+| [frame-p99-lock-scope-validation.md](plans/frame-p99-lock-scope-validation.md) | A/B/B/A validation completed; no repeatable P99 improvement, prototype removed and evidence retained |
 | [automated-releases.md](plans/automated-releases.md) | First GitHub Release with separate framework and CLI packages; manual tag creation superseded by version PR automation |
 | [large-mod-startup.md](plans/large-mod-startup.md) | Localisation loaded once with indexed replacements, the triggers' optimization profile interned, non-ASCII folder entries tolerated, and the drawing thread asleep while idle |
 | [fifth-deepening.md](plans/fifth-deepening.md) | Mod descriptors, bounded journal reading, process handoff, resolved UI views, native entry bindings, save-data authority and drawing coordination |

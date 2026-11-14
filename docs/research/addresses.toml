@@ -27,12 +27,92 @@
 "0x8ee90" = { kind = "function", name = "localisation value destructor", notes = ["research/power-spending.md"] }
 "0x8f440" = { kind = "leaf", name = "a leader is one", notes = ["research/advisors.md", "research/armies.md", "research/main-menu.md", "research/message-pop-up-actions.md", "research/names.md", "research/province-view.md", "research/religion.md", "research/scripts.md", "research/trade.md", "research/window-activation.md", "research/window-input-refresh.md", "research/window-visibility.md"] }
 "0x8f450" = { kind = "leaf", name = "answers no", notes = ["research/advisors.md", "research/armies.md", "research/commands.md", "research/extension-windows.md", "research/main-menu.md", "research/names.md", "research/recruiting.md", "research/scripts.md"] }
-"0x8f480" = { kind = "leaf", name = "no task kind", notes = ["research/gui-drawing.md", "research/units.md", "research/window-input-refresh.md"] }
+"0x8f480" = { kind = "leaf", name = "no task kind", notes = ["research/frame-drawing-p99-safe-boundary.md", "research/gui-drawing.md", "research/units.md", "research/window-input-refresh.md"] }
 "0x8f670" = { kind = "leaf", name = "localisation value constructor", notes = ["research/power-spending.md"] }
-"0x91670" = { kind = "function", notes = ["research/loading.md"] }
-"0x923f0" = { kind = "function", notes = ["research/loading.md"] }
+"0x8fa80" = { kind = "function", name = "string insertion into a stream", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x8fd40" = { kind = "function", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x8fee0" = { kind = "function", name = "conditional unit-buffer flush", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x914f0" = { kind = "function", name = "cold construction of the later stream facet", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91634" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91656" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91664" = { kind = "leaf", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91670" = { kind = "function", name = "later stream facet lookup with its own cold fallback", notes = ["research/frame-drawing-p99-safe-boundary.md", "research/loading.md"] }
+"0x91686" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x9168b" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x916ab" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x916d0" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x916d5" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91724" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x9172c" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x9174f" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91759" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x9175e" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91772" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91773" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91779" = { kind = "leaf", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x918b0" = { kind = "leaf", name = "built-in character conversion returns the input byte", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x918e0" = { kind = "function", name = "cold construction of the stream character facet", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91a3c" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91a70" = { kind = "function", name = "stream locale facet lookup with a guarded cold fallback", notes = ["research/frame-drawing-p99-release-path.md", "research/frame-drawing-p99-safe-boundary.md"] }
+"0x91a86" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91a8b" = { kind = "code", name = "return after the later helper's stream-lock guard call", notes = ["research/frame-drawing-p99-release-path.md"] }
+"0x91ad0" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91ad5" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91b24" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91b2c" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91b4f" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91b59" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91b5e" = { kind = "code", name = "facet lookup releases its outer guard before normal return", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91b72" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91b73" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91b79" = { kind = "leaf", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91b80" = { kind = "function", name = "temporary string construction for character formatting", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x91c50" = { kind = "function", name = "built-in character facet copies a range", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x92090" = { kind = "function", name = "cold construction of the numeric punctuation facet", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x92293" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x922ab" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x922c5" = { kind = "leaf", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x923b0" = { kind = "function", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x923f0" = { kind = "function", name = "numeric punctuation facet lookup with a guarded cold fallback", notes = ["research/frame-drawing-p99-safe-boundary.md", "research/loading.md"] }
+"0x92406" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x9240b" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x9242b" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x92450" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x92455" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x924a4" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x924ac" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x924c4" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x924cf" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x924d2" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x924d9" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x924de" = { kind = "code", name = "numeric facet lookup releases its outer guard before normal return", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x924f2" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x924f3" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x924f9" = { kind = "leaf", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x92500" = { kind = "leaf", name = "atomic retain of a built-in locale object", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x92510" = { kind = "leaf", name = "atomic release returning the locale object at zero references", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x92580" = { kind = "function", name = "numeric punctuation facet copies its grouping string", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x925d0" = { kind = "leaf", name = "numeric punctuation facet reads the thousands separator", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x927c0" = { kind = "leaf", name = "stream buffer available capacity", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x927d2" = { kind = "leaf", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x927e0" = { kind = "function", name = "stream padding output", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x92890" = { kind = "function", name = "integer grouping and padding output", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x92930" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x92987" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x929a4" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x929a9" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x929db" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x92a01" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x92fb0" = { kind = "function", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x93010" = { kind = "function", name = "integer formatting through the stream facets", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x9310a" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x9310f" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x932f0" = { kind = "function", name = "string append", notes = ["research/dates.md", "research/interface-bindings.md", "research/sieges.md"] }
 "0x933a0" = { kind = "code", notes = ["research/main-menu.md"] }
+"0x93af0" = { kind = "function", name = "integer insertion with a stream sentry", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x93b9f" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x93c0d" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x93c10" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x94398" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x943bd" = { kind = "code", name = "modifier set's list freed", notes = ["research/main-menu.md"] }
 "0x943e0" = { kind = "function", name = "vector of u32 destructor", notes = ["research/font-textures.md", "research/triggers.md"] }
@@ -43,9 +123,11 @@
 "0x94f20" = { kind = "leaf", notes = ["research/units.md"] }
 "0x950b0" = { kind = "function", notes = ["research/font-textures.md", "research/window-activation.md", "research/window-input-refresh.md"] }
 "0x950ce" = { kind = "code", notes = ["research/font-textures.md", "research/main-menu.md"] }
-"0x95110" = { kind = "function", notes = ["research/army-checks-in-searches.md", "research/extension-windows.md", "research/notice-window.md", "research/parameterized-script.md", "research/tolerance-in-a-province.md"] }
+"0x95110" = { kind = "function", name = "string copy with allocation when needed", notes = ["research/army-checks-in-searches.md", "research/extension-windows.md", "research/frame-drawing-p99-safe-boundary.md", "research/notice-window.md", "research/parameterized-script.md", "research/tolerance-in-a-province.md"] }
 "0x951a1" = { kind = "code", notes = ["research/main-menu.md"] }
-"0x955a0" = { kind = "leaf", name = "power spending destructor", notes = ["research/gui-drawing.md", "research/interface-bindings.md", "research/window-elements.md"] }
+"0x9521c" = { kind = "leaf", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x955a0" = { kind = "leaf", name = "power spending destructor", notes = ["research/frame-drawing-p99-safe-boundary.md", "research/gui-drawing.md", "research/interface-bindings.md", "research/window-elements.md"] }
+"0x95620" = { kind = "function", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x95660" = { kind = "function", name = "string destructor", notes = ["research/drawing-beside-the-day.md", "research/game-console.md", "research/names.md", "research/triggers.md"] }
 "0x9569f" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x956f0" = { kind = "leaf", notes = ["research/countries.md"] }
@@ -91,15 +173,17 @@
 "0x9bc20" = { kind = "function", notes = ["research/ai.md"] }
 "0x9c0a0" = { kind = "function", notes = ["research/monthly-update.md"] }
 "0xa00e0" = { kind = "function", notes = ["research/ai.md"] }
-"0xa3620" = { kind = "function", notes = ["research/ai.md"] }
+"0xa3620" = { kind = "function", notes = ["research/ai.md", "research/frame-drawing-p99.md"] }
+"0xa3829" = { kind = "code", notes = ["research/frame-drawing-p99.md"] }
 "0xa392b" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0xa44f0" = { kind = "function", notes = ["research/ai.md"] }
 "0xab428" = { kind = "code", notes = ["research/countries.md"] }
 "0xab44a" = { kind = "code", notes = ["research/countries.md"] }
 "0xacddf" = { kind = "code", name = "papacy's actions' count", notes = ["research/religion.md"] }
-"0xb0fa0" = { kind = "function", name = "AI country's task", notes = ["research/ai-stage-wait.md", "research/ai.md", "research/architecture.md", "research/army-checks-in-searches.md", "research/countries.md", "research/late-game.md", "research/random.md"] }
+"0xb0fa0" = { kind = "function", name = "AI country's task", notes = ["research/ai-stage-wait.md", "research/ai.md", "research/architecture.md", "research/army-checks-in-searches.md", "research/countries.md", "research/frame-drawing-p99.md", "research/late-game.md", "research/random.md"] }
 "0xb1028" = { kind = "code", name = "AI country's task reads its tag", notes = ["research/random.md"] }
 "0xb120e" = { kind = "code", notes = ["research/ai.md"] }
+"0xb21f4" = { kind = "code", notes = ["research/frame-drawing-p99.md"] }
 "0xb239c" = { kind = "code", name = "country by tag", notes = ["research/countries.md"] }
 "0xb252e" = { kind = "code", name = "country wars", notes = ["research/armies.md"] }
 "0xb26ca" = { kind = "code", notes = ["research/countries.md"] }
@@ -164,6 +248,7 @@
 "0xc9cb0" = { kind = "leaf", notes = ["research/countries.md"] }
 "0xc9d60" = { kind = "function", notes = ["research/window-input-refresh.md"] }
 "0xc9e70" = { kind = "function", notes = ["research/world-interface-seams.md"] }
+"0xca250" = { kind = "leaf", notes = ["research/frame-drawing-p95.md"] }
 "0xcbff0" = { kind = "function", notes = ["research/empires.md", "research/envoys.md", "research/government.md"] }
 "0xcc220" = { kind = "function", notes = ["research/map-drawing-reads.md", "research/window-activation.md", "research/window-input-refresh.md"] }
 "0xcc2a3" = { kind = "code", notes = ["research/main-menu.md"] }
@@ -371,7 +456,22 @@
 "0x199ef0" = { kind = "function", notes = ["research/country-daily-update.md"] }
 "0x1a0000" = { kind = "code", notes = ["research/army-checks-in-searches.md"] }
 "0x1a0f80" = { kind = "function", notes = ["research/army-checks-in-searches.md"] }
-"0x1a14f0" = { kind = "function", notes = ["research/army-checks-in-searches.md"] }
+"0x1a1320" = { kind = "function", name = "extract the string stream buffer", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a1460" = { kind = "function", name = "string stream buffer construction", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a1486" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a14f0" = { kind = "function", name = "initialize stream state and locale", notes = ["research/army-checks-in-searches.md", "research/frame-drawing-p99-release-path.md", "research/frame-drawing-p99-safe-boundary.md", "research/frame-drawing-p99.md"] }
+"0x1a1553" = { kind = "code", notes = ["research/frame-drawing-p99-release-path.md", "research/frame-drawing-p99.md"] }
+"0x1a1558" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md", "research/frame-drawing-p99.md"] }
+"0x1a1580" = { kind = "code", notes = ["research/frame-drawing-p99-release-path.md"] }
+"0x1a1585" = { kind = "code", notes = ["research/frame-drawing-p99-release-path.md", "research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a1591" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a1648" = { kind = "leaf", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a1840" = { kind = "function", name = "string stream buffer overflow and growth", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a19d9" = { kind = "leaf", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a1e90" = { kind = "function", name = "string stream buffer bulk write", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a1f40" = { kind = "leaf", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a1f60" = { kind = "function", name = "string stream buffer storage release", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a2010" = { kind = "function", name = "string stream buffer cleanup", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x1a20a0" = { kind = "function", notes = ["research/armies.md"] }
 "0x1a20ae" = { kind = "code", name = "army class", notes = ["research/armies.md"] }
 "0x1a21a0" = { kind = "function", notes = ["research/armies.md"] }
@@ -1207,7 +1307,7 @@
 "0x4128b0" = { kind = "function", name = "crown land interaction check", notes = ["research/government.md"] }
 "0x415b00" = { kind = "function", notes = ["research/ai.md", "research/late-game.md"] }
 "0x416b30" = { kind = "function", notes = ["research/main-menu.md"] }
-"0x416ef0" = { kind = "function", notes = ["research/save-transfer-copy.md", "research/ui-injection.md"] }
+"0x416ef0" = { kind = "function", notes = ["research/frame-drawing-p95.md", "research/save-transfer-copy.md", "research/ui-injection.md"] }
 "0x4183f0" = { kind = "function", name = "factors freed", notes = ["research/peace.md"] }
 "0x4187b0" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x418880" = { kind = "leaf", name = "estate entry size", notes = ["research/countries.md"] }
@@ -1743,6 +1843,7 @@
 "0x7584a2" = { kind = "code", notes = ["research/drawing-beside-the-day.md", "research/time.md"] }
 "0x7584f9" = { kind = "code", notes = ["research/time.md"] }
 "0x758aef" = { kind = "code", notes = ["research/time.md"] }
+"0x758af4" = { kind = "code", notes = ["research/frame-drawing-p99.md"] }
 "0x758c2f" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x758cf2" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x758eee" = { kind = "code", notes = ["research/drawing-beside-the-day.md", "research/time.md"] }
@@ -1755,14 +1856,16 @@
 "0x75b22f" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x75b2d0" = { kind = "function", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/late-game.md", "research/main-thread.md", "research/map-drawing-reads.md", "research/random.md"] }
 "0x75b321" = { kind = "code", notes = ["research/random.md"] }
-"0x75b4b0" = { kind = "function", name = "AI's phase of the day", notes = ["game/ai.md", "research/ai.md", "research/architecture.md", "research/drawing-beside-the-day.md", "research/late-game.md", "research/main-thread.md", "research/random.md"] }
+"0x75b4b0" = { kind = "function", name = "AI's phase of the day", notes = ["game/ai.md", "research/ai.md", "research/architecture.md", "research/drawing-beside-the-day.md", "research/frame-drawing-p99.md", "research/late-game.md", "research/main-thread.md", "research/random.md"] }
 "0x75b891" = { kind = "code", notes = ["research/late-game.md"] }
 "0x75b990" = { kind = "code", notes = ["research/late-game.md"] }
 "0x75b9f8" = { kind = "code", notes = ["research/ai.md"] }
 "0x75ba10" = { kind = "code", notes = ["research/ai.md"] }
+"0x75ba18" = { kind = "code", notes = ["research/frame-drawing-p99.md"] }
 "0x75ba1f" = { kind = "code", notes = ["research/ai.md"] }
 "0x75bbe0" = { kind = "function", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/late-game.md", "research/random.md", "research/time.md"] }
 "0x75c0ca" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x75c313" = { kind = "code", notes = ["research/frame-drawing-p99.md"] }
 "0x75c5d2" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x75c5f6" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x75c5fc" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
@@ -1957,8 +2060,8 @@
 "0x800300" = { kind = "function", name = "reform name", notes = ["research/empires.md"] }
 "0x801440" = { kind = "function", notes = ["research/empires.md"] }
 "0x801b60" = { kind = "function", notes = ["research/world-interface-seams.md"] }
-"0x8023b0" = { kind = "leaf", notes = ["research/main-thread.md", "research/map-drawing-reads.md"] }
-"0x8023d0" = { kind = "leaf", notes = ["research/map-drawing-reads.md"] }
+"0x8023b0" = { kind = "leaf", notes = ["research/frame-drawing-p95.md", "research/main-thread.md", "research/map-drawing-reads.md"] }
+"0x8023d0" = { kind = "leaf", notes = ["research/frame-drawing-p95.md", "research/map-drawing-reads.md"] }
 "0x8024d0" = { kind = "leaf", notes = ["research/time.md"] }
 "0x803270" = { kind = "function", notes = ["research/architecture.md", "research/loading.md", "research/main-menu.md", "research/notice-window.md"] }
 "0x804000" = { kind = "code", notes = ["research/world-interface-seams.md"] }
@@ -2099,7 +2202,7 @@
 "0x81de20" = { kind = "function", name = "let the map modes' panel go", notes = ["research/main-menu.md"] }
 "0x81dfb3" = { kind = "code", notes = ["research/headless.md"] }
 "0x81e0c0" = { kind = "code", notes = ["research/headless.md"] }
-"0x81e280" = { kind = "function", name = "the interface's monthly refresh", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
+"0x81e280" = { kind = "function", name = "the interface's monthly refresh", notes = ["research/drawing-beside-the-day.md", "research/frame-drawing-p95.md", "research/map-drawing-reads.md"] }
 "0x81e8f0" = { kind = "function", notes = ["research/extension-windows.md", "research/main-menu.md", "research/notice-window.md"] }
 "0x81ec3e" = { kind = "code", name = "map manager's message icon holder destroyed", notes = ["research/main-menu.md"] }
 "0x81ecf0" = { kind = "function", notes = ["research/architecture.md", "research/notice-window.md"] }
@@ -2133,7 +2236,7 @@
 "0x827c0c" = { kind = "code", name = "province discovery", notes = ["research/fog-of-war.md"] }
 "0x828083" = { kind = "code", notes = ["research/fog-of-war.md"] }
 "0x828140" = { kind = "function", notes = ["research/leaders.md"] }
-"0x828c00" = { kind = "function", name = "map manager shows one of the game's events", notes = ["research/drawing-beside-the-day.md", "research/questions-and-offers.md", "research/time.md"] }
+"0x828c00" = { kind = "function", name = "map manager shows one of the game's events", notes = ["research/drawing-beside-the-day.md", "research/frame-drawing-p95.md", "research/questions-and-offers.md", "research/time.md"] }
 "0x828cd0" = { kind = "function", notes = ["research/questions-and-offers.md"] }
 "0x828d20" = { kind = "function", notes = ["research/questions-and-offers.md"] }
 "0x828e71" = { kind = "code", notes = ["research/questions-and-offers.md"] }
@@ -2200,6 +2303,9 @@
 "0x8525e0" = { kind = "function", notes = ["research/triggers.md"] }
 "0x855ad0" = { kind = "function", name = "institutions database", notes = ["research/institutions-ages-monuments.md", "research/provinces.md"] }
 "0x8571f0" = { kind = "leaf", name = "institution by index", notes = ["research/provinces.md"] }
+"0x85afc0" = { kind = "function", name = "stack string stream construction", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x85b080" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x860350" = { kind = "function", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x860ed0" = { kind = "function", notes = ["research/leaders.md"] }
 "0x860fe0" = { kind = "function", notes = ["research/leaders.md"] }
 "0x8610d0" = { kind = "function", notes = ["research/main-menu.md"] }
@@ -2325,7 +2431,10 @@
 "0x8bf000" = { kind = "code", notes = ["research/world-interface-seams.md"] }
 "0x8bf160" = { kind = "function", name = "load context", notes = ["research/main-menu.md"] }
 "0x8c07b0" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/loading.md", "research/message-pop-up-actions.md", "research/time.md"] }
-"0x8c1430" = { kind = "function", name = "a message's popup", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md", "research/message-pop-up-actions.md"] }
+"0x8c1430" = { kind = "function", name = "a message's popup", notes = ["research/drawing-beside-the-day.md", "research/frame-drawing-p95.md", "research/map-drawing-reads.md", "research/message-pop-up-actions.md"] }
+"0x8c1953" = { kind = "code", notes = ["research/frame-drawing-p95.md"] }
+"0x8c1ac2" = { kind = "code", notes = ["research/frame-drawing-p95.md"] }
+"0x8c1ad5" = { kind = "code", notes = ["research/frame-drawing-p95.md"] }
 "0x8c1f80" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/message-pop-up-actions.md"] }
 "0x8c4370" = { kind = "function", notes = ["research/message-pop-up-actions.md"] }
 "0x8c5a0f" = { kind = "code", notes = ["research/message-pop-up-actions.md"] }
@@ -3973,11 +4082,11 @@
 "0x10a2e40" = { kind = "function", notes = ["research/loading.md", "research/localisation-loading.md", "research/main-menu.md"] }
 "0x10a3dd0" = { kind = "function", notes = ["research/army-orders.md"] }
 "0x10a3e50" = { kind = "function", notes = ["research/architecture.md"] }
-"0x10a51e0" = { kind = "function", name = "the off-screen passes", notes = ["research/drawing-beside-the-day.md", "research/main-thread.md", "research/map-drawing-reads.md"] }
+"0x10a51e0" = { kind = "function", name = "the off-screen passes", notes = ["research/drawing-beside-the-day.md", "research/frame-drawing-p95.md", "research/main-thread.md", "research/map-drawing-reads.md"] }
 "0x10a521a" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x10a52ac" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
 "0x10a52dd" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
-"0x10a55c0" = { kind = "function", notes = ["research/main-thread.md", "research/map-drawing-reads.md"] }
+"0x10a55c0" = { kind = "function", notes = ["research/frame-drawing-p95.md", "research/main-thread.md", "research/map-drawing-reads.md"] }
 "0x10a57ad" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
 "0x10a59a0" = { kind = "function", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/main-thread.md", "research/map-drawing-reads.md"] }
 "0x10a5b55" = { kind = "code", name = "the map's names due", notes = ["research/drawing-beside-the-day.md"] }
@@ -4233,10 +4342,15 @@
 "0x12d9b70" = { kind = "function", notes = ["research/loading.md"] }
 "0x12da000" = { kind = "code", notes = ["research/architecture.md"] }
 "0x12daa60" = { kind = "function", notes = ["research/loading.md"] }
-"0x12dab90" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/main-thread.md", "research/map-drawing-reads.md"] }
-"0x12dac90" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
-"0x12db0c0" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
+"0x12dab90" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/frame-drawing-p95.md", "research/main-thread.md", "research/map-drawing-reads.md"] }
+"0x12dac1d" = { kind = "code", notes = ["research/frame-drawing-p95.md"] }
+"0x12dac7a" = { kind = "code", notes = ["research/frame-drawing-p95.md"] }
+"0x12dac90" = { kind = "function", name = "camera-dependent off-screen map pass", notes = ["research/frame-drawing-p95.md", "research/map-drawing-reads.md"] }
+"0x12daf9e" = { kind = "code", notes = ["research/frame-drawing-p95.md"] }
+"0x12db0c0" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/frame-drawing-p95.md", "research/map-drawing-reads.md"] }
 "0x12db1e4" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x12db2c7" = { kind = "code", notes = ["research/frame-drawing-p95.md"] }
+"0x12db2f6" = { kind = "code", notes = ["research/frame-drawing-p95.md"] }
 "0x12db4d0" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
 "0x12db850" = { kind = "function", notes = ["research/loading.md", "research/main-menu.md", "research/map-drawing-reads.md"] }
 "0x12dbfc0" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
@@ -4248,7 +4362,7 @@
 "0x12dd3b0" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
 "0x12dd5f1" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
 "0x12dd5f6" = { kind = "code", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
-"0x12dd610" = { kind = "function", name = "visible province borders classified", notes = ["research/map-drawing-reads.md"] }
+"0x12dd610" = { kind = "function", name = "visible province borders classified", notes = ["research/frame-drawing-p95.md", "research/map-drawing-reads.md"] }
 "0x12dd7c0" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
 "0x12dd9c2" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x12dda90" = { kind = "code", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
@@ -4266,12 +4380,17 @@
 "0x12deeb0" = { kind = "function", notes = ["research/world-interface-seams.md"] }
 "0x12e0e40" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
 "0x12e4470" = { kind = "function", notes = ["research/localisation-loading.md"] }
-"0x12e5d30" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
-"0x12e6d70" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x12e5d30" = { kind = "function", name = "terrain camera grid preparation", notes = ["research/frame-drawing-p95.md", "research/map-drawing-reads.md"] }
+"0x12e6890" = { kind = "function", name = "terrain drawing from the prepared grid", notes = ["research/frame-drawing-p95.md"] }
+"0x12e6d70" = { kind = "code", notes = ["research/drawing-beside-the-day.md", "research/frame-drawing-p95.md"] }
+"0x12e6da4" = { kind = "code", notes = ["research/frame-drawing-p95.md"] }
 "0x12e78a1" = { kind = "code", notes = ["research/headless.md"] }
 "0x12e7ea0" = { kind = "code", notes = ["research/headless.md"] }
-"0x12e8c00" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
-"0x12e9130" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
+"0x12e7f10" = { kind = "function", notes = ["research/frame-drawing-p95.md"] }
+"0x12e8c00" = { kind = "function", name = "tree camera cell preparation", notes = ["research/frame-drawing-p95.md", "research/map-drawing-reads.md"] }
+"0x12e9130" = { kind = "function", name = "tree drawing from the prepared cells", notes = ["research/drawing-beside-the-day.md", "research/frame-drawing-p95.md"] }
+"0x12e92ad" = { kind = "code", notes = ["research/frame-drawing-p95.md"] }
+"0x12e92c9" = { kind = "code", notes = ["research/frame-drawing-p95.md"] }
 "0x12e99b9" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x12e9b00" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
 "0x12ef5d0" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
@@ -4742,7 +4861,7 @@
 "0x14dc390" = { kind = "function", notes = ["research/loading.md"] }
 "0x14dc5d0" = { kind = "function", name = "meshes and particles", notes = ["research/loading.md", "research/localisation-loading.md"] }
 "0x14dcd30" = { kind = "function", notes = ["research/loading.md", "research/main-thread.md", "research/map-drawing-reads.md"] }
-"0x14dcde0" = { kind = "function", notes = ["research/main-thread.md", "research/map-drawing-reads.md"] }
+"0x14dcde0" = { kind = "function", notes = ["research/frame-drawing-p95.md", "research/main-thread.md", "research/map-drawing-reads.md"] }
 "0x14dcf90" = { kind = "function", name = "set up native GUI drawing state", notes = ["research/gui-drawing.md", "research/panel-entry-text.md"] }
 "0x14dd010" = { kind = "function", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/late-game.md", "research/main-thread.md", "research/map-drawing-reads.md", "research/window-input-refresh.md", "research/window-ordering.md"] }
 "0x14dd23f" = { kind = "code", notes = ["research/window-input-refresh.md"] }
@@ -4951,8 +5070,8 @@
 "0x153e560" = { kind = "function", name = "a mesh object's destructor", notes = ["research/drawing-beside-the-day.md"] }
 "0x1540000" = { kind = "code", notes = ["research/drawing-beside-the-day.md", "research/world-interface-seams.md"] }
 "0x15400a0" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
-"0x1540610" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
-"0x1540c70" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/main-thread.md", "research/map-drawing-reads.md"] }
+"0x1540610" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/frame-drawing-p95.md", "research/map-drawing-reads.md"] }
+"0x1540c70" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/frame-drawing-p95.md", "research/main-thread.md", "research/map-drawing-reads.md"] }
 "0x1540f20" = { kind = "code", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
 "0x15411a0" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
 "0x1541630" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
@@ -5070,6 +5189,8 @@
 "0x15625a0" = { kind = "leaf", name = "activate a text renderer", notes = ["research/panel-entry-text.md", "research/window-ordering.md", "research/window-visibility.md"] }
 "0x15630c0" = { kind = "function", notes = ["research/localisation-loading.md"] }
 "0x15632d0" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/localisation-loading.md"] }
+"0x1563650" = { kind = "function", name = "log message formatting through a local string stream", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1563967" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x1563dac" = { kind = "code", notes = ["research/localisation-loading.md"] }
 "0x1563f20" = { kind = "function", notes = ["research/localisation-loading.md"] }
 "0x1564470" = { kind = "function", notes = ["research/localisation-loading.md"] }
@@ -5624,6 +5745,22 @@
 "0x1a08470" = { kind = "function", notes = ["research/loading.md"] }
 "0x1a0b420" = { kind = "function", name = "PhysFS reads a zip's entry", notes = ["research/loading.md"] }
 "0x1a0bda0" = { kind = "function", notes = ["research/architecture.md"] }
+"0x1a0c214" = { kind = "function", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a0c2e4" = { kind = "function", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a0c3c8" = { kind = "function", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a0c400" = { kind = "leaf", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a0c408" = { kind = "function", name = "stream shared-state getter", notes = ["research/frame-drawing-p99-release-path.md", "research/frame-drawing-p99-safe-boundary.md", "research/frame-drawing-p99.md"] }
+"0x1a0c42a" = { kind = "code", notes = ["research/frame-drawing-p99.md"] }
+"0x1a0c57c" = { kind = "function", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a0c5e8" = { kind = "function", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a0c750" = { kind = "function", name = "numbered lock guard constructor", notes = ["research/frame-drawing-p99-safe-boundary.md", "research/frame-drawing-p99.md"] }
+"0x1a0c764" = { kind = "code", notes = ["research/frame-drawing-p99-release-path.md", "research/frame-drawing-p99.md"] }
+"0x1a0c7c8" = { kind = "function", name = "numbered lock guard destructor", notes = ["research/frame-drawing-p99-safe-boundary.md", "research/frame-drawing-p99.md"] }
+"0x1a0c910" = { kind = "function", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a0cc40" = { kind = "leaf", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a0cc48" = { kind = "function", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a0ccc0" = { kind = "function", name = "stream state cleanup", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a0cd38" = { kind = "function", name = "stream state list cleanup", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x1a137cc" = { kind = "function", notes = ["research/loading.md"] }
 "0x1a139cc" = { kind = "leaf", notes = ["research/late-game.md", "research/loading.md"] }
 "0x1a139f0" = { kind = "function", notes = ["research/late-game.md", "research/loading.md"] }
@@ -5635,10 +5772,14 @@
 "0x1a334c0" = { kind = "leaf", notes = ["research/armies.md", "research/tolerance-in-a-province.md"] }
 "0x1a33654" = { kind = "function", notes = ["research/architecture.md", "research/ui-injection.md"] }
 "0x1a337c8" = { kind = "function", notes = ["research/architecture.md", "research/ui-injection.md"] }
+"0x1a34e3c" = { kind = "function", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x1a35124" = { kind = "function", notes = ["research/diplomacy.md", "research/gui-drawing.md", "research/main-menu.md"] }
 "0x1a35140" = { kind = "leaf", notes = ["research/crash-handling.md"] }
+"0x1a35750" = { kind = "function", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x1a35e00" = { kind = "function", notes = ["research/localisation-loading.md", "research/map-drawing-reads.md"] }
 "0x1a35fa0" = { kind = "function", notes = ["research/parameterized-script.md"] }
+"0x1a36038" = { kind = "function", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1a365ac" = { kind = "function", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x1a42041" = { kind = "code", notes = ["research/saves.md"] }
 "0x1a43386" = { kind = "code", notes = ["research/saves.md"] }
 "0x1a48020" = { kind = "function", notes = ["research/game-console.md"] }
@@ -5651,6 +5792,8 @@
 "0x1a53df0" = { kind = "function", notes = ["research/gui-drawing.md"] }
 "0x1a564e0" = { kind = "function", notes = ["research/gui-drawing.md"] }
 "0x1a5ed40" = { kind = "function", notes = ["research/saves.md"] }
+"0x1a5f504" = { kind = "function", name = "enter stream shared-state critical section", notes = ["research/frame-drawing-p99-safe-boundary.md", "research/frame-drawing-p99.md"] }
+"0x1a5f520" = { kind = "leaf", name = "leave stream shared-state critical section", notes = ["research/frame-drawing-p99-safe-boundary.md", "research/frame-drawing-p99.md"] }
 "0x1a635a3" = { kind = "code", notes = ["research/saves.md"] }
 "0x1a6833c" = { kind = "function", name = "census free", notes = ["research/world-in-a-second-process.md"] }
 "0x1a6837c" = { kind = "function", name = "census malloc", notes = ["research/world-in-a-second-process.md"] }
@@ -5666,15 +5809,21 @@
 "0x1b65000" = { kind = "code", notes = ["research/architecture.md"] }
 "0x1b65d78" = { kind = "data", notes = ["research/architecture.md"] }
 "0x1b66538" = { kind = "data", name = "the game takes a slim lock", notes = ["research/drawing-beside-the-day.md"] }
-"0x1b66750" = { kind = "data", name = "the game enters a critical section", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md"] }
+"0x1b66750" = { kind = "data", name = "the game enters a critical section", notes = ["research/drawing-beside-the-day.md", "research/frame-drawing-p99.md", "research/gui-drawing.md"] }
+"0x1b66758" = { kind = "data", name = "LeaveCriticalSection import", notes = ["research/frame-drawing-p99.md"] }
 "0x1b66850" = { kind = "data", notes = ["research/headless.md"] }
 "0x1b66868" = { kind = "data", notes = ["research/several-games.md"] }
+"0x1b66890" = { kind = "data", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x1b66c38" = { kind = "data", notes = ["research/headless.md"] }
 "0x1b66d70" = { kind = "data", notes = ["research/several-games.md"] }
 "0x1b66d78" = { kind = "data", notes = ["research/several-games.md"] }
 "0x1b66dc8" = { kind = "data", notes = ["research/several-games.md"] }
 "0x1c1d7a0" = { kind = "data", notes = ["research/loading.md"] }
 "0x1c1d890" = { kind = "data", notes = ["research/loading.md"] }
+"0x1c1f070" = { kind = "data", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1c1f1d8" = { kind = "data", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1c1f678" = { kind = "data", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x1c1f6d8" = { kind = "data", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x1c32bb0" = { kind = "data", notes = ["research/diplomacy.md"] }
 "0x1c32ff0" = { kind = "data", notes = ["research/ai.md"] }
 "0x1c3380c" = { kind = "data", notes = ["research/countries.md"] }
@@ -5739,6 +5888,7 @@
 "0x1c40870" = { kind = "data", notes = ["research/ai.md"] }
 "0x1c40cf8" = { kind = "data", notes = ["research/ai.md"] }
 "0x1c40d68" = { kind = "data", notes = ["research/ai.md"] }
+"0x1c41c28" = { kind = "data", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x1c41d98" = { kind = "data", notes = ["research/armies.md"] }
 "0x1c424f0" = { kind = "data", notes = ["research/armies.md"] }
 "0x1c42540" = { kind = "data", notes = ["research/armies.md", "research/army-orders.md", "research/country-daily-update.md", "research/defeat.md", "research/fog-of-war.md", "research/routes.md", "research/time.md", "research/units.md"] }
@@ -6177,6 +6327,7 @@
 "0x1dc27b0" = { kind = "data", name = "war exhaustion's spending", notes = ["research/power-spending.md"] }
 "0x1dc27c0" = { kind = "data", notes = ["research/power-spending.md"] }
 "0x1dc27e0" = { kind = "data", name = "strengthening's spending", notes = ["research/power-spending.md"] }
+"0x1dca2c0" = { kind = "data", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x1fb0000" = { kind = "data", notes = ["research/architecture.md"] }
 "0x1fc1d80" = { kind = "data", notes = ["research/saves.md"] }
 "0x1fc2328" = { kind = "data", notes = ["research/architecture.md", "research/time.md"] }
@@ -6268,9 +6419,16 @@
 "0x23391f8" = { kind = "data", notes = ["research/loading.md"] }
 "0x2339230" = { kind = "data", notes = ["research/loading.md"] }
 "0x2339238" = { kind = "data", notes = ["research/loading.md"] }
+"0x233b288" = { kind = "data", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x233b2a0" = { kind = "data", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x233b2e0" = { kind = "data", name = "cached stream shared state", notes = ["research/frame-drawing-p99-safe-boundary.md", "research/frame-drawing-p99.md"] }
 "0x233c4e8" = { kind = "data", notes = ["research/saves.md"] }
+"0x233cdd0" = { kind = "data", name = "stream shared-state critical section", notes = ["research/frame-drawing-p99-release-path.md", "research/frame-drawing-p99-safe-boundary.md", "research/frame-drawing-p99.md"] }
 "0x233cdd8" = { kind = "data", notes = ["research/saves.md"] }
 "0x233d850" = { kind = "data", notes = ["research/monthly-update.md", "research/world-in-a-second-process.md"] }
+"0x233d870" = { kind = "data", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x233d878" = { kind = "data", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x233d880" = { kind = "data", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x233d890" = { kind = "data", notes = ["research/achievements.md", "research/architecture.md", "research/main-menu.md", "research/saves.md"] }
 "0x233d8a4" = { kind = "data", notes = ["research/armies.md", "research/army-checks-in-searches.md", "research/diplomacy.md"] }
 "0x233d8d0" = { kind = "data", notes = ["research/architecture.md", "research/countries.md", "research/drawing-beside-the-day.md", "research/map-drawing-reads.md", "research/message-pop-up-actions.md", "research/scripts.md", "research/window-elements.md"] }
@@ -6567,6 +6725,8 @@
 "0x2458f8c" = { kind = "data", notes = ["research/map-drawing-reads.md"] }
 "0x2458fc8" = { kind = "data", notes = ["research/map-drawing-reads.md"] }
 "0x2458fe0" = { kind = "data", notes = ["research/map-drawing-reads.md"] }
+"0x2459ac0" = { kind = "data", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x2459ac8" = { kind = "data", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x245ad00" = { kind = "data", notes = ["research/saves.md"] }
 "0x245adc0" = { kind = "data", notes = ["research/main-menu.md", "research/saves.md"] }
 "0x245b070" = { kind = "data", notes = ["research/architecture.md", "research/main-thread.md"] }

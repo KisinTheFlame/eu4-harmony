@@ -4,7 +4,9 @@
 //! The main thread holds it through each application frame, but lets it go
 //! while the daily update runs, taking it again for a frame inside the day,
 //! at the day's end, and at each crossing the day reaches, which keeps it
-//! until the next of the game's checks for a frame inside a day. Where the
+//! until the next of the game's checks for a frame inside a day. Checked
+//! stream helpers may instead release lock-order-only ownership at their
+//! outermost normal return; a cold path, fault or crossing retains it. Where the
 //! drawing thread may be in a frame of its own, at an idler's switch and as
 //! the game quits, the main thread lets the lock go until that frame has
 //! ended. The drawing thread holds it for each frame it draws, but for
@@ -49,11 +51,14 @@ pub(super) struct MainSide {
     in_day: bool,
     /// A crossing took the lock, kept until the next check for a frame.
     crossing: bool,
+    /// Number of nested, checked native lock-order scopes.
+    order_scopes: u32,
+    order_only: bool,
 }
 
 impl MainSide {
     pub(super) const fn new() -> Self {
-        Self { holds: false, frames: Vec::new(), day_gave: false, in_day: false, crossing: false }
+        Self { holds: false, frames: Vec::new(), day_gave: false, in_day: false, crossing: false, order_scopes: 0, order_only: false }
     }
 
     /// Whether the main thread holds the lock.
@@ -76,6 +81,7 @@ impl MainSide {
     }
 
     fn give(&mut self, lock: &impl Lock) {
+        self.order_only = false;
         if self.holds {
             self.holds = false;
             lock.give();
@@ -85,6 +91,7 @@ impl MainSide {
     /// An application frame begins: it holds the lock, taking it unless a
     /// frame it is inside of holds it already.
     pub(super) fn frame_begins(&mut self, lock: &impl Lock) {
+        self.retain_order();
         let took = !self.holds;
         self.take(lock, At::Frame);
         self.frames.push(took);
@@ -113,6 +120,7 @@ impl MainSide {
             return;
         }
         self.in_day = false;
+        self.order_only = false;
         self.crossing = false;
         if self.day_gave {
             self.take(lock, At::DayEnd);
@@ -120,9 +128,55 @@ impl MainSide {
         }
     }
 
+    // a known native scope owns only the lock-order acquisition
+    // it caused. Existing frame/crossing ownership is never borrowed for release.
+    pub(super) fn order_scope_begins(&mut self) {
+        self.order_scopes += 1;
+    }
+
+    pub(super) fn order_only(&self) -> bool {
+        self.order_only
+    }
+
+    /// the facet cold path is outside the proven release scope.
+    pub(super) fn order_scope_cold(&mut self) {
+        self.retain_order();
+    }
+
+    fn retain_order(&mut self) {
+        if self.order_only {
+            self.order_only = false;
+            self.crossing = true;
+        }
+    }
+
+    pub(super) fn order_scope_ends(&mut self, lock: &impl Lock, faulted: bool) {
+        if faulted {
+            self.retain_order();
+        }
+        self.order_scopes -= 1;
+        if self.order_scopes == 0 && self.order_only {
+            self.give(lock);
+        }
+    }
+
+    pub(super) fn lock_order(&mut self, lock: &impl Lock) -> bool {
+        if self.in_day && !self.holds {
+            self.take(lock, At::Crossing);
+            if self.order_scopes != 0 {
+                self.order_only = true;
+            } else {
+                self.crossing = true;
+            }
+            return true;
+        }
+        false
+    }
+
     /// The day reaches a crossing: the lock first, kept until the next check
     /// for a frame. Whether it was taken here.
     pub(super) fn crossing(&mut self, lock: &impl Lock) -> bool {
+        self.retain_order();
         if self.in_day && !self.holds {
             self.take(lock, At::Crossing);
             self.crossing = true;
@@ -133,7 +187,7 @@ impl MainSide {
 
     /// The game checks for a frame inside the day: a crossing's lock goes.
     pub(super) fn frame_check(&mut self, lock: &impl Lock) {
-        if self.crossing {
+        if self.crossing && self.order_scopes == 0 {
             self.crossing = false;
             self.give(lock);
         }
@@ -144,6 +198,7 @@ impl MainSide {
     /// lets the lock go until `in_frame` says it has ended, then takes it
     /// again. As an idler is switched.
     pub(super) fn drawing_frame_ends(&mut self, lock: &impl Lock, in_frame: impl Fn() -> bool) {
+        self.retain_order();
         if in_frame() {
             self.give(lock);
             while in_frame() {
@@ -156,6 +211,7 @@ impl MainSide {
     /// The game quits: the main thread holds the lock to the end, once the
     /// drawing thread's frame, if it is in one, has ended.
     pub(super) fn quits(&mut self, lock: &impl Lock, in_frame: impl Fn() -> bool) {
+        self.order_only = false;
         self.take(lock, At::Frame);
         self.drawing_frame_ends(lock, in_frame);
     }
@@ -242,6 +298,151 @@ mod tests {
         fn done(&self) -> Vec<Done> {
             std::mem::take(&mut self.0.borrow_mut())
         }
+    }
+
+    #[test]
+    fn order_scope_releases_only_its_own_acquisition() {
+        let (lock, mut main) = (Recorder::default(), MainSide::new());
+        main.day_begins(&lock);
+        main.order_scope_begins();
+        assert!(main.lock_order(&lock));
+        assert!(main.order_only());
+        main.order_scope_ends(&lock, false);
+        assert!(!main.holds());
+        assert_eq!(lock.done(), [Took(At::Crossing), Gave]);
+        assert!(main.lock_order(&lock));
+        main.frame_check(&lock);
+        assert_eq!(lock.done(), [Took(At::Crossing), Gave], "unscoped locks keep the old lifetime");
+    }
+
+    #[test]
+    fn successive_scopes_do_not_restore_the_old_long_hold() {
+        let (lock, mut main) = (Recorder::default(), MainSide::new());
+        main.day_begins(&lock);
+        for _ in 0..2 {
+            main.order_scope_begins();
+            assert!(main.lock_order(&lock));
+            main.order_scope_ends(&lock, false);
+            assert!(!main.holds());
+        }
+        assert_eq!(lock.done(), [Took(At::Crossing), Gave, Took(At::Crossing), Gave]);
+    }
+
+    #[test]
+    fn cold_path_cancels_release_even_after_nested_normal_returns() {
+        let (lock, mut main) = (Recorder::default(), MainSide::new());
+        main.day_begins(&lock);
+        main.order_scope_begins();
+        main.lock_order(&lock);
+        main.order_scope_cold();
+        main.order_scope_begins();
+        main.order_scope_ends(&lock, false);
+        main.frame_check(&lock);
+        main.order_scope_ends(&lock, false);
+        assert!(main.holds() && !main.order_only());
+        assert_eq!(lock.done(), [Took(At::Crossing)]);
+        main.frame_check(&lock);
+        assert_eq!(lock.done(), [Gave]);
+    }
+
+    #[test]
+    fn nested_scope_keeps_the_outer_game_lock_protected() {
+        let (lock, mut main) = (Recorder::default(), MainSide::new());
+        main.day_begins(&lock);
+        main.order_scope_begins();
+        main.lock_order(&lock);
+        main.order_scope_begins();
+        assert!(!main.lock_order(&lock));
+        main.order_scope_ends(&lock, false);
+        main.frame_check(&lock);
+        assert!(main.holds() && main.order_only());
+        assert_eq!(lock.done(), [Took(At::Crossing)]);
+        main.order_scope_ends(&lock, false);
+        assert_eq!(lock.done(), [Gave]);
+    }
+
+    #[test]
+    fn scope_does_not_release_existing_frame_or_crossing_ownership() {
+        for crossing in [false, true] {
+            let (lock, mut main) = (Recorder::default(), MainSide::new());
+            main.frame_begins(&lock);
+            if crossing {
+                main.day_begins(&lock);
+                main.crossing(&lock);
+            }
+            lock.done();
+            main.order_scope_begins();
+            assert!(!main.lock_order(&lock));
+            main.order_scope_ends(&lock, false);
+            assert!(main.holds() && !main.order_only());
+            assert_eq!(lock.done(), []);
+        }
+    }
+
+    #[test]
+    fn real_crossing_promotes_ownership_and_cannot_release_inside_scope() {
+        let (lock, mut main) = (Recorder::default(), MainSide::new());
+        main.day_begins(&lock);
+        main.order_scope_begins();
+        main.lock_order(&lock);
+        assert!(!main.crossing(&lock));
+        assert!(!main.order_only());
+        main.frame_check(&lock);
+        main.order_scope_begins();
+        main.order_scope_ends(&lock, false);
+        main.order_scope_ends(&lock, false);
+        assert!(main.holds());
+        assert_eq!(lock.done(), [Took(At::Crossing)]);
+        main.frame_check(&lock);
+        assert_eq!(lock.done(), [Gave]);
+    }
+
+    #[test]
+    fn faulted_scope_retains_the_old_frame_check_lifetime() {
+        let (lock, mut main) = (Recorder::default(), MainSide::new());
+        main.day_begins(&lock);
+        main.order_scope_begins();
+        main.lock_order(&lock);
+        main.order_scope_begins();
+        main.order_scope_ends(&lock, true);
+        main.order_scope_ends(&lock, false);
+        assert!(main.holds() && !main.order_only());
+        assert_eq!(lock.done(), [Took(At::Crossing)]);
+        main.frame_check(&lock);
+        assert_eq!(lock.done(), [Gave]);
+    }
+
+    #[test]
+    fn reentry_into_a_frame_cancels_early_release() {
+        let (lock, mut main) = (Recorder::default(), MainSide::new());
+        main.frame_begins(&lock);
+        main.day_begins(&lock);
+        lock.done();
+        main.order_scope_begins();
+        main.lock_order(&lock);
+        main.frame_begins(&lock);
+        main.frame_ends(&lock);
+        main.order_scope_ends(&lock, false);
+        assert!(main.holds() && !main.order_only());
+        assert_eq!(lock.done(), [Took(At::Crossing)]);
+        main.frame_check(&lock);
+        assert_eq!(lock.done(), [Gave]);
+    }
+
+    #[test]
+    fn day_end_transfers_ownership_back_to_the_application_frame() {
+        let (lock, mut main) = (Recorder::default(), MainSide::new());
+        main.frame_begins(&lock);
+        main.day_begins(&lock);
+        lock.done();
+        main.order_scope_begins();
+        main.lock_order(&lock);
+        main.day_ends(&lock);
+        main.order_scope_ends(&lock, false);
+        assert!(main.holds() && !main.order_only());
+        assert_eq!(lock.done(), [Took(At::Crossing)]);
+        main.frame_ends(&lock);
+        assert_eq!(lock.done(), [Gave]);
     }
 
     #[test]
