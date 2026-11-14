@@ -16,6 +16,7 @@
 //! the framework cannot answer for certain (another folder, the framework's
 //! own folder, a name Windows would read otherwise), goes to the game's stat
 //! as before.
+use super::folder::{list, read_as_written, Kind};
 use crate::called_by_game;
 use crate::points::{Function, GameFunction, Point};
 use crate::speed::{self, SpeedUp};
@@ -61,16 +62,9 @@ static ROOTS: OnceLock<(Vec<String>, String)> = OnceLock::new();
 /// Each folder's listing, by its path in lower case: its names in lower
 /// case, each a file, a folder, or something else (a link); None where it
 /// could not be listed.
-type Listing = Option<Arc<HashMap<String, Kind>>>;
+type Listing = Option<Arc<HashMap<Box<str>, Kind>>>;
 static LISTINGS: RwLock<Option<HashMap<String, Listing>>> = RwLock::new(None);
 static ANSWERED: AtomicU64 = AtomicU64::new(0);
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Kind {
-    File,
-    Folder,
-    Other,
-}
 
 /// The game folder and, beside its library's `common`, the workshop's folder
 /// for the game.
@@ -117,11 +111,8 @@ fn missing(path: &[u8]) -> Option<bool> {
     let rest = &lower[root.len()..];
     // Names Windows reads otherwise than as they are written, below the
     // folder answered for (whose own path may be a short one, `RUNNER~1`).
-    if !rest.is_ascii() || rest.contains(['<', '>', '"', '|', '?', '*', '~']) || rest.chars().any(|c| c.is_ascii_control()) {
-        return None;
-    }
     let parts: Vec<&str> = rest.split('\\').collect();
-    if parts.iter().any(|p| p.is_empty() || *p == "." || *p == ".." || p.ends_with(['.', ' ']) || p.contains(':')) {
+    if !parts.iter().all(|p| read_as_written(p)) {
         return None;
     }
     let mut folder = root.trim_end_matches('\\').to_string();
@@ -146,25 +137,6 @@ fn listing(folder: &str) -> Listing {
     let made = list(folder).map(Arc::new);
     LISTINGS.write().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).insert(folder.to_string(), made.clone());
     made
-}
-
-fn list(folder: &str) -> Option<HashMap<String, Kind>> {
-    let mut names = HashMap::new();
-    for entry in std::fs::read_dir(folder).ok()? {
-        let entry = entry.ok()?;
-        let kind = match entry.file_type().ok()? {
-            t if t.is_symlink() => Kind::Other,
-            t if t.is_dir() => Kind::Folder,
-            t if t.is_file() => Kind::File,
-            _ => Kind::Other,
-        };
-        if let Ok(name) = entry.file_name().into_string() {
-            if name.is_ascii() {
-                names.insert(name.to_ascii_lowercase(), kind);
-            }
-        }
-    }
-    Some(names)
 }
 
 #[cfg(test)]

@@ -22,6 +22,7 @@
 //! changed are let go of; when Windows cannot tell what changed, all the
 //! folder's are. A file or folder the game makes or removes through PhysFS
 //! lets go of its folder's listing before the call returns.
+use super::folder::{list, read_as_written, Kind};
 use crate::called_by_game;
 use crate::hooks::Call;
 use crate::points::{Function, Point};
@@ -106,13 +107,6 @@ crate::resume!(FIND_RESUME: FIND_ASKED_AT = FIND_ASKED);
 /// Not the listings' to answer: the game's stat answers.
 const LEFT: i32 = -1;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Kind {
-    File,
-    Folder,
-    Other,
-}
-
 type Listing = HashMap<Box<str>, Kind>;
 
 /// What the listings say of a folder.
@@ -180,16 +174,14 @@ fn lowered<'a>(path: &[u8], out: &'a mut [u8; 512]) -> Option<&'a str> {
         return None;
     }
     for (o, &c) in out.iter_mut().zip(path) {
-        if !c.is_ascii() || c.is_ascii_control() || b"\\<>\":|?*~".contains(&c) {
+        if !c.is_ascii() {
             return None;
         }
         *o = c.to_ascii_lowercase();
     }
     let lower = std::str::from_utf8(&out[..path.len()]).ok()?;
-    if lower.split('/').any(|n| n.is_empty() || n == "." || n == ".." || n.ends_with(['.', ' '])) {
-        return None;
-    }
-    Some(lower)
+    // `/` is the separator here; every name is read as it is written.
+    lower.split('/').all(read_as_written).then_some(lower)
 }
 
 impl Root {
@@ -243,27 +235,6 @@ impl Root {
         self.changes.fetch_add(1, Ordering::AcqRel);
         listings.clear();
     }
-}
-
-fn list(folder: &str) -> Option<Listing> {
-    let mut names = HashMap::new();
-    for entry in std::fs::read_dir(folder).ok()? {
-        let entry = entry.ok()?;
-        let kind = match entry.file_type().ok()? {
-            t if t.is_symlink() => Kind::Other,
-            t if t.is_dir() => Kind::Folder,
-            t if t.is_file() => Kind::File,
-            _ => Kind::Other,
-        };
-        // Only ASCII paths without `~` reach the listings, and Windows's
-        // ordinal case folding maps no non-ASCII code unit to ASCII.
-        if let Ok(name) = entry.file_name().into_string() {
-            if name.is_ascii() {
-                names.insert(name.to_ascii_lowercase().into(), kind);
-            }
-        }
-    }
-    Some(names)
 }
 
 /// Watches `root` for names made, removed or renamed below it, from before
