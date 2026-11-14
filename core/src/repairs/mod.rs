@@ -22,6 +22,7 @@ mod names;
 mod new_start;
 mod pages;
 mod panels;
+mod reformation_centers;
 mod reset_leaks;
 mod save_checksum;
 mod session_interface;
@@ -154,6 +155,7 @@ const REPAIRS: &[Repair] = &[
     ai_draws::REPAIR,
     names::REPAIR,
     supporters::REPAIR,
+    reformation_centers::REPAIR,
     reset_leaks::REPAIR,
     modifiers::REPAIR,
     histories::REPAIR,
