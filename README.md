@@ -105,6 +105,8 @@ my-mod/
 
 `province.area` reads an owned area's members and governing costs, including the capacity added by making it a state without completing cores. `country.governing_capacity` separately recomputes the live national total in integer thousandths; [the province page](docs/game/provinces.md) explains the distinction.
 
+Button areas and fixed extension windows keep their blue backgrounds and gold borders on hover and press, adapting to their size; empty background takes clicks and the wheel without acting on the map, while lists scroll normally. The [window guide](cli/skills/ui/windows.md) describes window layouts.
+
 Visible text and tooltips share text descriptions: `{ text = "Ready" }` or `{ key = "MYMOD_DETAILS", values = { N = 3 } }`. The same descriptions work in declarations and supported runtime text setters; tooltips are also readable. Assignment replaces the content, and `nil` clears it, including across window rebuilding. Panel entries can use a checked mod-relative DDS or TGA image, change visibility and enabled state, and show an independently formatted number below the icon; the [window guide](cli/skills/ui/windows.md) covers layouts and properties.
 
 Where to learn more:

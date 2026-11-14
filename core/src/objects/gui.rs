@@ -608,6 +608,16 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x1547cefusize, "48 8b 8b 20 05 00 00 c6 83 f5 00 00 00 01", "window background").uses(&[window::BACKGROUND, window::OPEN]),
         Point::method(classes::WINDOW_GUI, window_gui::SHOW, WINDOW_SHOW, "window show method"),
         Point::method(classes::WINDOW_GUI, window_gui::HIDE, WINDOW_HIDE, "window hide method"),
+        // A native window takes wheel input even when its background is
+        // disabled; lists consume it first (extension-windows.md).
+        Point::method(classes::WINDOW_GUI, element::INPUT, 0x1546a50, "window mouse input method"),
+        Point::keep(0x1544060usize, "66 41 c7 86 38 01 00 00 01 01", "window wheel input enabled"),
+        Point::keep(
+            0x1546a5ausize,
+            "83 7a 50 00 48 8b fa 48 8b d9 75 2b 83 7a 18 04 75 25 80 b9 08 01 00 00 00 74 1c 66 0f 6e 4a 1c 48 83 c1 d0 0f 5b c9 e8 8a db 05 00 0f b7 83 a8 00 00 00 66 09 47 54",
+            "window consumes wheel input",
+        ),
+        Point::method(list_box::ELEMENT_CLASS, element::INPUT, 0x1531e00, "list mouse input method"),
         // Their elements: frames, icons shown and hidden, flags.
         Point::keep(BUTTON_FRAME, "89 91 70 02 00 00 48 8b 89 90 02 00 00 0f bf d2 48 8b 01 48 ff a0 a8 00", "button frame"),
         Point::keep(ICON_FRAMES[0], "48 8b 89 68 01 00 00 48 8b 01 48 ff a0 a8 00 00 00", "icon frame"),

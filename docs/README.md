@@ -52,6 +52,8 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 | [2026-11-14-frame-p95-baseline.md](prototype-log/2026-11-14-frame-p95-baseline.md) | Submission intervals, Present durations and drawing-log clues, with concurrent analysis load disclosed |
 | [2026-11-14-frame-p95-camera.md](prototype-log/2026-11-14-frame-p95-camera.md) | Paused fixed/moving camera comparison under changing system load; repeated separately after analysis stopped |
 | [2026-11-14-frame-p95-repeat.md](prototype-log/2026-11-14-frame-p95-repeat.md) | Five paused camera windows and a speed-5 repeat after analysis stopped, with another game's load and Present disturbances disclosed |
+| [2026-11-15-fixed-window-backgrounds.md](prototype-log/2026-11-15-fixed-window-backgrounds.md) | Static blue-and-gold backgrounds verified at two window sizes and two button-area widths, with native click/wheel shielding, list scrolling and real controls |
+| [2026-11-14-button-area-gray.md](prototype-log/2026-11-14-button-area-gray.md) | Army button-area desaturation reproduced and isolated to the background's disabled button state; diagnostic change reverted |
 | [2026-11-14-performance-overhead-1-on.md](prototype-log/2026-11-14-performance-overhead-1-on.md) | First collection-on repeat: complete paused and running windows, with external rate and CPU |
 | [2026-11-14-performance-overhead-1-off.md](prototype-log/2026-11-14-performance-overhead-1-off.md) | First collection-off repeat in the same build, with absent in-process metrics |
 | [2026-11-14-performance-overhead-2-off.md](prototype-log/2026-11-14-performance-overhead-2-off.md) | Second collection-off repeat, beginning the reversed-order pair |
@@ -120,6 +122,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 
 | | |
 | --- | --- |
+| [fixed-window-backgrounds.md](plans/fixed-window-backgrounds.md) | Fixed blue-and-gold backgrounds with static presentation, adaptive borders and native input blocking |
 | [sixth-deepening.md](plans/sixth-deepening.md) | The parallel save's, the army searches' and the background compression's courses, the collection's clock and the folder-listing rules each gathered into one module |
 | [frame-p99-safe-boundary-validation.md](plans/frame-p99-safe-boundary-validation.md) | Four verified release boundaries repeat about 70% lower P99; broader safety remains open, disposable runtime removed |
 | [frame-p99-release-path-validation.md](plans/frame-p99-release-path-validation.md) | Four diagnostic games completed; early release followed by another long acquisition, with temporary code removed |
