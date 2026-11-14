@@ -12,6 +12,7 @@ English | [简体中文](README.zh-CN.md)
 | Back to the main menu in seconds, without restarting the game | ✗ | ✓ |
 | Load another save from an ironman game | ✗ | ✓ |
 | The map scrolls and zooms smoothly, even at top speed, with core hover highlights preserved | ✗ | ✓ |
+| Fewer long gaps between frames during daily AI work ([measurements](docs/performance.md#why-submission-interval-p99-is-long)) | ✗ | ✓ |
 | Saving pauses the game a third as long | ✗ | ✓ |
 | The game starts and loads saves sooner | ✗ | ✓ |
 | A faster late game | ✗ | ✓ |
