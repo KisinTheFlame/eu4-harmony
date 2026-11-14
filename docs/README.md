@@ -74,6 +74,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 
 | | |
 | --- | --- |
+| [sixth-deepening.md](plans/sixth-deepening.md) | The parallel save's, the army searches' and the background compression's courses, the collection's clock and the folder-listing rules each gathered into one module |
 | [performance-metrics.md](plans/performance-metrics.md) | Completed-day, submission and interface collection built and checked; action response, pure interface-work timing and the full save comparison matrix remain deferred |
 | [releases-after-version-prs.md](plans/releases-after-version-prs.md) | Merged version PRs automatically create tags and publish, retaining separate packages and local Workshop upload |
 | [panel-entries-and-tooltips.md](plans/panel-entries-and-tooltips.md) | Shared tooltip content and lifetime, checked entry images and independent formatted numbers |
