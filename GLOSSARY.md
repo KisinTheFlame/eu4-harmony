@@ -137,7 +137,7 @@ The two `crash:` lines the framework writes into `core.log` as the game's crash 
 _Avoid_: crash log, crash report (the game's crash reporter is its own program)
 
 **Troubleshooting files**:
-The one zip file the About page of the settings window saves on the player's desktop: the framework's logs, the game's logs, the last three crash folders, the settings and the playset, and a summary of where they came from; no saves.
+The one zip file the About page of the settings window saves on the player's desktop: complete framework and game logs, all existing crash folders including their dumps, the settings and the playset, and a summary of where they came from; no saves. Collection has no file-size, total-size or file-count limit.
 _Avoid_: diagnostics, dump (a dump is the game's `minidump.dmp`)
 
 **Baseline**:
