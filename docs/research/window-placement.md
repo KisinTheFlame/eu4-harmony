@@ -57,10 +57,22 @@ The complete parent-setter bodies establish the following for the bound classes 
 | Ordinary window, `0x154a440` | Pointer at GUI `+0xa00` = root `+0xa30` | None outside the scene links |
 | Button `0x1d58218`, `0x15ae9c0` | Required pointer at `+0x290`, then optional pointer at `+0x188` | Writes GUI `+0x228` |
 | Special background `0x1d954b0`, `0x15714f0` | Pointer at `+0x168` | Writes GUI `+0x1a8` |
-| Icon `0x1d96d00`, `0x1586190` | Pointer at `+0x168` | Writes GUI `+0x170` |
+| Game icon `0x1d585c8` or base icon `0x1d96d00`, `0x1586190` | Pointer at `+0x168` | Writes GUI `+0x170` |
 | Text box `0x1d8fd10`, `0x152b0a0` | Renderer pointer at `+0x118`, then the embedded container at `scrollbar+0x528` when the scrollbar pointer at `+0x1a0` is nonzero | Writes GUI `+0xd8` |
 
 The button setter's two nodes are siblings under the supplied parent. Moving only the node whose owner equals the button pointer can split its visuals if the other node has no owner or a different one. Names and node-owner pointers alone are insufficient to discover a complete arbitrary control group.
+
+### Game icons have a derived class
+
+Follow-up, 2026-11-14: investigation of the failed [actual-playset run](../prototype-log/2026-11-14-window-ordering-user-game.md) exposed a class restriction missing from the adapter contract. The following complete function bodies and selected method tables were read from the same installed baseline; no additional game was started.
+
+- The game's definition factory `0x10b3fe0` handles token `0xb6` (subtract `0x7f`, then `0x37`). It calls the base icon-definition constructor `0x1592000`, then installs definition vtable `0x1d58938` at `0x10b40a1`. That table's slot `+0x70` is `0x10b5fb0`.
+- Both branches of `0x10b5fb0` allocate `0x1f0` bytes and call `0x10b5780`. That constructor calls base icon constructor `0x15857d0`, then installs live vtable `0x1d585c8` at `0x10b5823`, with associated interface tables at `+0xc8` and `+0xf8`. Its extra storage begins at `+0x1e8`; it constructs no additional scene node. This differs from base definition factory `0x1592580`, which allocates `0x1e8` bytes and returns the base constructor's class `0x1d96d00` unchanged.
+- Game icon vtable `0x1d585c8` retains show/hide `0x1585e80` / `0x1585eb0`, placement `0x1585c80`, and parent setter `0x1586190`. The complete parent setter detaches and appends only `*(icon+0x168)`, then stores the parent at `+0x170`. Its scene-node group is therefore the same single node as the base icon's. Earlier [panel-strip research](extension-windows.md#moving-an-element-there-every-frame) also recorded this derived vtable on a spliced icon in the running game.
+
+The actual fragment declares a button `toggle` and an `iconType` `glow`. Its run logged two mod elements and one button slot, then `ui: unrecognized attached visual node group` at 20:35:21.818. `ui::bind_one` already checks the button's exact class; the remaining icon reaches `window_ordering::attach`, which accepts only base icon class `0x1d96d00`. It rejects the game's derived class before `Registry::attached` is called. `ui::bind` then removes the whole binding and unlinks its button subscriptions. The native spliced elements remain present, but receive no attached ordering registration. This explains the unchanged overlap and also means the failure affects the mod's binding, beyond drawing order alone.
+
+The prior pointer fixture declares only one button, so it never exercised this icon path. A correction must recognize the checked game icon class and its inherited parent setter, register the constructor/field dependencies, and retain complete sibling validation. It must not accept arbitrary unknown classes as one-node controls. Regression coverage needs a button and icon together, followed by acceptance with the actual playset. No code correction or successful actual-playset acceptance is claimed here. The failed run did not record the glow object's address or vtable directly; its type is established by the declaration and static game factory path, rather than by a new runtime object read.
 
 ### A text box with a scrollbar contributes two sibling subtrees
 

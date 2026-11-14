@@ -93,8 +93,13 @@ pub(crate) fn attach(m: &Memory, host: crate::hosts::Host, root: usize, frame: O
                     nodes.push(container);
                 }
             }
-            Look::Icon if class == m.at(0x1d96d00usize) => nodes.push(m.ptr(object + 0x168)?),
-            _ => return Err("unrecognized attached visual node group".into()),
+            Look::Icon if [m.at(0x1d585c8usize), m.at(0x1d96d00usize)].contains(&class) => {
+                if m.vslot(object, 0xe8)? != m.at(0x1586190usize) {
+                    return Err("unrecognized attached icon parent method".into());
+                }
+                nodes.push(m.ptr(object + 0x168)?);
+            }
+            _ => return Err(format!("unrecognized attached visual node group: {look:?}, class RVA {:#x}", class.wrapping_sub(m.at(0usize)))),
         }
     }
     let background = m.ptr(root + window::BACKGROUND)?;
@@ -282,7 +287,10 @@ pub(crate) fn points() -> Vec<Point> {
         Point::keep(0x15ae9fausize, "48 8b 8b 88 01 00 00", "attached button secondary node").uses(&[0x188]),
         Point::keep(0x1571500usize, "48 8b 89 68 01 00 00", "host background node").uses(&[0x168]),
         Point::keep(0x15861a0usize, "48 8b 89 68 01 00 00", "attached icon node").uses(&[0x168]),
-        Point::keep(0x15857fcusize, "48 8d 05 fd 14 81 00", "attached icon class").uses(&[0x1d96d00]),
+        Point::keep(0x15857fcusize, "48 8d 05 fd 14 81 00", "attached base icon class").uses(&[0x1d96d00]),
+        Point::keep(0x10b5823usize, "48 8d 05 9e 2d ca 00", "attached game icon class").uses(&[0x1d585c8]),
+        Point::method(0x1d96d00, 0xe8, 0x1586190, "attached base icon parent method"),
+        Point::method(0x1d585c8, 0xe8, 0x1586190, "attached game icon parent method"),
         Point::keep(0x1552872usize, "66 83 7e 54 00", "native input handled mask").uses(&[0x54]),
         Point::keep(0x1552bfcusize, "48 8d 05 45 0b 84 00 48 89 01", "attached scrollbar class").uses(&[0x1d93748]),
         Point::keep(0x15531f1usize, "49 8d b6 28 05 00 00", "attached scrollbar embedded container").uses(&[0x528]),

@@ -4117,7 +4117,8 @@
 "0x10b3b40" = { kind = "leaf", notes = ["research/window-activation.md"] }
 "0x10b3bd0" = { kind = "function", notes = ["research/ui-injection.md"] }
 "0x10b3c31" = { kind = "code", notes = ["research/message-pop-up-actions.md"] }
-"0x10b3fe0" = { kind = "function", notes = ["research/world-interface-seams.md"] }
+"0x10b3fe0" = { kind = "function", notes = ["research/window-placement.md", "research/world-interface-seams.md"] }
+"0x10b40a1" = { kind = "code", notes = ["research/window-placement.md"] }
 "0x10b4100" = { kind = "function", notes = ["research/message-pop-up-actions.md"] }
 "0x10b44b0" = { kind = "function", notes = ["research/message-pop-up-actions.md"] }
 "0x10b4720" = { kind = "function", notes = ["research/message-pop-up-actions.md"] }
@@ -4130,8 +4131,10 @@
 "0x10b55fc" = { kind = "code", name = "button and signal classes", notes = ["research/interface-bindings.md", "research/window-elements.md"] }
 "0x10b5670" = { kind = "function", name = "button destructor", notes = ["research/interface-bindings.md", "research/notice-window.md"] }
 "0x10b56b0" = { kind = "function", name = "flag country", notes = ["research/message-pop-up-actions.md", "research/window-elements.md"] }
+"0x10b5780" = { kind = "function", notes = ["research/window-elements.md", "research/window-placement.md"] }
+"0x10b5823" = { kind = "code", notes = ["research/window-elements.md", "research/window-placement.md"] }
 "0x10b59c0" = { kind = "function", notes = ["research/world-interface-seams.md"] }
-"0x10b5fb0" = { kind = "function", notes = ["research/world-interface-seams.md"] }
+"0x10b5fb0" = { kind = "function", notes = ["research/window-placement.md", "research/world-interface-seams.md"] }
 "0x10b6c50" = { kind = "function", name = "the minimap drawn again", notes = ["research/drawing-beside-the-day.md", "research/loading.md"] }
 "0x10b9a20" = { kind = "leaf", notes = ["research/questions-and-offers.md"] }
 "0x10b9a50" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/questions-and-offers.md", "research/time.md"] }
@@ -5248,11 +5251,11 @@
 "0x1583000" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x1583c30" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x1584340" = { kind = "function", notes = ["research/window-elements.md"] }
-"0x15857d0" = { kind = "function", notes = ["research/window-elements.md"] }
+"0x15857d0" = { kind = "function", notes = ["research/window-elements.md", "research/window-placement.md"] }
 "0x15857fc" = { kind = "code", notes = ["research/window-elements.md"] }
-"0x1585c80" = { kind = "function", name = "icon place", notes = ["research/extension-windows.md"] }
-"0x1585e80" = { kind = "leaf", name = "icon show", notes = ["research/window-elements.md"] }
-"0x1585eb0" = { kind = "leaf", name = "icon hide", notes = ["research/window-elements.md"] }
+"0x1585c80" = { kind = "function", name = "icon place", notes = ["research/extension-windows.md", "research/window-placement.md"] }
+"0x1585e80" = { kind = "leaf", name = "icon show", notes = ["research/window-elements.md", "research/window-placement.md"] }
+"0x1585eb0" = { kind = "leaf", name = "icon hide", notes = ["research/window-elements.md", "research/window-placement.md"] }
 "0x1585ed0" = { kind = "leaf", name = "icon frame", notes = ["research/window-elements.md"] }
 "0x1586190" = { kind = "function", notes = ["research/window-placement.md"] }
 "0x15861a0" = { kind = "code", notes = ["research/window-placement.md"] }
@@ -5267,6 +5270,8 @@
 "0x158f270" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x1590770" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x15907ef" = { kind = "code", notes = ["research/window-elements.md"] }
+"0x1592000" = { kind = "function", notes = ["research/window-placement.md"] }
+"0x1592580" = { kind = "function", notes = ["research/window-placement.md"] }
 "0x1592840" = { kind = "function", notes = ["research/interface-bindings.md"] }
 "0x1592bd0" = { kind = "function", name = "base button input and shortcut handling", notes = ["research/extension-windows.md", "research/interface-bindings.md", "research/window-activation.md"] }
 "0x1592d2b" = { kind = "code", name = "button double click", notes = ["research/interface-bindings.md"] }
@@ -6198,7 +6203,8 @@
 "0x1d58108" = { kind = "data", notes = ["research/architecture.md", "research/notice-window.md", "research/window-activation.md"] }
 "0x1d581f8" = { kind = "data", notes = ["research/interface-bindings.md"] }
 "0x1d58218" = { kind = "data", notes = ["research/interface-bindings.md", "research/message-pop-up-actions.md", "research/window-activation.md", "research/window-elements.md", "research/window-placement.md"] }
-"0x1d585c8" = { kind = "data", notes = ["research/extension-windows.md"] }
+"0x1d585c8" = { kind = "data", notes = ["research/extension-windows.md", "research/window-elements.md", "research/window-placement.md"] }
+"0x1d58938" = { kind = "data", notes = ["research/window-placement.md"] }
 "0x1d590e0" = { kind = "data", notes = ["research/time.md"] }
 "0x1d590f8" = { kind = "data", notes = ["research/questions-and-offers.md", "research/time.md"] }
 "0x1d5a880" = { kind = "data", notes = ["research/notice-window.md"] }
