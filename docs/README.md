@@ -36,6 +36,7 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 | [2026-11-14-window-ordering-traversal.md](prototype-log/2026-11-14-window-ordering-traversal.md) | Fifty-three exact native traversal comparisons with the drawing thread enabled; setup refusals and unverified input behavior |
 | [2026-11-14-window-ordering-native-traversal.md](prototype-log/2026-11-14-window-ordering-native-traversal.md) | Forty-four exact traversal comparisons with native main-thread drawing; input behavior remains unverified |
 | [window-ordering.md](research/window-ordering.md) | Native definition and scene order, reorder methods, input qualifications, and the army attach picker's overlap with the button area |
+| [2026-11-14-sixth-deepening.md](prototype-log/2026-11-14-sixth-deepening.md) | Sixth deepening checked in the running game: parallel saves byte-for-byte, army searches and folder listings checked, complete collection windows; the late-game scenario blocked by a mod name |
 | [2026-11-14-frame-p99-user-game.md](prototype-log/2026-11-14-frame-p99-user-game.md) | Current implementation launched visibly at the main menu for the user; gameplay not measured |
 | [2026-11-14-frame-p99-boundary-a1r.md](prototype-log/2026-11-14-frame-p99-boundary-a1r.md) | Replacement timing baseline: P99 44.338 ms, 576.5 completed days/min |
 | [2026-11-14-frame-p99-boundary-b1.md](prototype-log/2026-11-14-frame-p99-boundary-b1.md) | First four-scope timing prototype: P99 13.166 ms, with slower daily progress and higher machine load |
@@ -134,6 +135,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 
 | | |
 | --- | --- |
+| [sixth-deepening.md](plans/sixth-deepening.md) | The parallel save's, the army searches' and the background compression's courses, the collection's clock and the folder-listing rules each gathered into one module |
 | [frame-p99-safe-boundary-validation.md](plans/frame-p99-safe-boundary-validation.md) | Four verified release boundaries repeat about 70% lower P99; broader safety remains open, disposable runtime removed |
 | [frame-p99-release-path-validation.md](plans/frame-p99-release-path-validation.md) | Four diagnostic games completed; early release followed by another long acquisition, with temporary code removed |
 | [frame-p99-lock-scope-validation.md](plans/frame-p99-lock-scope-validation.md) | A/B/B/A validation completed; no repeatable P99 improvement, prototype removed and evidence retained |
@@ -141,7 +143,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 | [large-mod-startup.md](plans/large-mod-startup.md) | Localisation loaded once with indexed replacements, the triggers' optimization profile interned, non-ASCII folder entries tolerated, and the drawing thread asleep while idle |
 | [fifth-deepening.md](plans/fifth-deepening.md) | Mod descriptors, bounded journal reading, process handoff, resolved UI views, native entry bindings, save-data authority and drawing coordination |
 | [fourth-deepening.md](plans/fourth-deepening.md) | Native window lifetimes and the tooltip's frame handoff tested through their complete processes |
-| [bounded-logs.md](plans/bounded-logs.md) | Bounded owned logs, useful event context, safe cleanup and bounded troubleshooting files |
+| [bounded-logs.md](plans/bounded-logs.md) | Bounded owned logs, useful event context and safe cleanup; troubleshooting collection limits superseded by complete collection |
 | [v1.md](plans/v1.md) | The design of the first version |
 | [area-governing-cost.md](plans/area-governing-cost.md) | General area grouping and checked governing capacity for state commands |
 | [unicode-module.md](plans/unicode-module.md) | The Unicode module and the framework UI |

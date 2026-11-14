@@ -40,6 +40,32 @@ pub mod list {
     pub const REMOVED: usize = 0x18;
 }
 
+/// The game's memory stream (vtables `0x1d92200` and `0x1dc0358`, whose write
+/// is `0x171f290`): a line, a mode, whether it writes, a name, and the bytes
+/// it holds. With no growing part it writes into the buffer at [`BUFFER`] of
+/// [`CAPACITY`] bytes, up to [`AT`], keeping [`KEPT`], and sets [`FULL`]
+/// instead of writing past its end; past the buffer the bytes go into the
+/// growing part at [`GROWING`], a byte vector (begin, end, capacity).
+/// [`OWNS_BUFFER`] and [`OWNS_GROWING`] say whether it lets its buffers go.
+/// The save's loops write through it (`saving::parallel`, `saving::sum`), and
+/// the local handler's post makes one over a vector of its own
+/// (`game::commands`).
+pub mod stream {
+    pub const SIZE: usize = 0x58;
+    pub const LINE: usize = 0x08;
+    pub const MODE: usize = 0x10;
+    pub const WRITING: usize = 0x14;
+    pub const NAME: usize = 0x18;
+    pub const GROWING: usize = 0x38;
+    pub const BUFFER: usize = 0x40;
+    pub const KEPT: usize = 0x48;
+    pub const AT: usize = 0x4c;
+    pub const CAPACITY: usize = 0x50;
+    pub const FULL: usize = 0x54;
+    pub const OWNS_BUFFER: usize = 0x55;
+    pub const OWNS_GROWING: usize = 0x56;
+}
+
 /// A `std::map`'s node: its children and parent, whether it is the head (no
 /// value), and the value from `+0x20`. The map keeps a pointer to its head,
 /// whose parent is the root.
