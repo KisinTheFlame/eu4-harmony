@@ -90,7 +90,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 | [large-mod-startup.md](plans/large-mod-startup.md) | Localisation loaded once with indexed replacements, the triggers' optimization profile interned, non-ASCII folder entries tolerated, and the drawing thread asleep while idle |
 | [fifth-deepening.md](plans/fifth-deepening.md) | Mod descriptors, bounded journal reading, process handoff, resolved UI views, native entry bindings, save-data authority and drawing coordination |
 | [fourth-deepening.md](plans/fourth-deepening.md) | Native window lifetimes and the tooltip's frame handoff tested through their complete processes |
-| [bounded-logs.md](plans/bounded-logs.md) | Bounded owned logs, useful event context, safe cleanup and bounded troubleshooting files |
+| [bounded-logs.md](plans/bounded-logs.md) | Bounded owned logs, useful event context and safe cleanup; troubleshooting collection limits superseded by complete collection |
 | [v1.md](plans/v1.md) | The design of the first version |
 | [area-governing-cost.md](plans/area-governing-cost.md) | General area grouping and checked governing capacity for state commands |
 | [unicode-module.md](plans/unicode-module.md) | The Unicode module and the framework UI |

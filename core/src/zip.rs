@@ -58,6 +58,9 @@ impl Entry {
 pub const LOCAL: &[u8; 4] = b"PK\x03\x04";
 const DIRECTORY: &[u8; 4] = b"PK\x01\x02";
 const END: &[u8; 4] = b"PK\x05\x06";
+const ZIP64_END: &[u8; 4] = b"PK\x06\x06";
+const ZIP64_LOCATOR: &[u8; 4] = b"PK\x06\x07";
+const DESCRIPTOR: &[u8; 4] = b"PK\x07\x08";
 /// The flag of an entry whose CRC and sizes follow its data.
 const DATA_DESCRIPTOR: u16 = 1 << 3;
 /// The end record, 22 bytes and a comment of at most 65535: the most of the
@@ -70,6 +73,11 @@ fn u16_at(data: &[u8], at: usize) -> Result<u16> {
 
 fn u32_at(data: &[u8], at: usize) -> Result<u32> {
     data.get(at..at + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).ok_or_else(|| "zip record cut short".to_string())
+}
+
+fn u64_at(data: &[u8], at: usize) -> Result<u64> {
+    let bytes = data.get(at..at + 8).ok_or("zip record cut short")?;
+    Ok(u64::from_le_bytes(bytes.try_into().unwrap()))
 }
 
 fn read_at(file: &mut (impl Read + Seek), at: u64, len: usize) -> Result<Vec<u8>> {
@@ -88,12 +96,32 @@ pub fn directory(file: &mut (impl Read + Seek), most: usize) -> Result<Vec<Entry
     let end = tail.windows(4).rposition(|w| w == END).ok_or("no zip directory")?;
     // The end record is 22 bytes, its comment's length last.
     u16_at(&tail, end + 20)?;
-    let (entries, directory_len, directory_at) = (u16_at(&tail, end + 10)? as usize, u32_at(&tail, end + 12)? as usize, u32_at(&tail, end + 16)?);
-    if directory_len > most || u64::from(directory_at) + directory_len as u64 > size {
+    let (mut entries, mut directory_len, mut directory_at) =
+        (u64::from(u16_at(&tail, end + 10)?), u64::from(u32_at(&tail, end + 12)?), u64::from(u32_at(&tail, end + 16)?));
+    if entries == u64::from(u16::MAX) || directory_len == u64::from(u32::MAX) || directory_at == u64::from(u32::MAX) {
+        let end_at = size - tail_len as u64 + end as u64;
+        let locator_at = end_at.checked_sub(20).ok_or("no ZIP64 locator")?;
+        let locator = read_at(file, locator_at, 20)?;
+        if locator.get(..4) != Some(ZIP64_LOCATOR) || u32_at(&locator, 4)? != 0 || u32_at(&locator, 16)? != 1 {
+            return Err("bad ZIP64 locator".into());
+        }
+        let record_at = u64_at(&locator, 8)?;
+        if record_at.checked_add(56).is_none_or(|end| end > locator_at) {
+            return Err("ZIP64 end record out of bounds".into());
+        }
+        let record = read_at(file, record_at, 56)?;
+        if record.get(..4) != Some(ZIP64_END) || u64_at(&record, 4)? < 44 || u32_at(&record, 16)? != 0 || u32_at(&record, 20)? != 0 {
+            return Err("bad ZIP64 end record".into());
+        }
+        entries = u64_at(&record, 32)?;
+        directory_len = u64_at(&record, 40)?;
+        directory_at = u64_at(&record, 48)?;
+    }
+    if directory_len > most as u64 || directory_at.checked_add(directory_len).is_none_or(|end| end > size) || entries > directory_len / 46 {
         return Err("zip directory out of bounds".into());
     }
-    let directory = read_at(file, u64::from(directory_at), directory_len)?;
-    let mut out = Vec::with_capacity(entries);
+    let directory = read_at(file, directory_at, directory_len as usize)?;
+    let mut out = Vec::with_capacity(entries as usize);
     let mut at = 0;
     for _ in 0..entries {
         if directory.get(at..at + 4) != Some(DIRECTORY) {
@@ -101,19 +129,46 @@ pub fn directory(file: &mut (impl Read + Seek), most: usize) -> Result<Vec<Entry
         }
         let (name_len, extra_len, comment_len) =
             (u16_at(&directory, at + 28)? as usize, u16_at(&directory, at + 30)? as usize, u16_at(&directory, at + 32)? as usize);
+        let extra_at = at + 46 + name_len;
+        let extra = directory.get(extra_at..extra_at + extra_len).ok_or("zip record cut short")?;
+        let mut packed = u64::from(u32_at(&directory, at + 20)?);
+        let mut unpacked = u64::from(u32_at(&directory, at + 24)?);
+        let mut local = u64::from(u32_at(&directory, at + 42)?);
+        if [packed, unpacked, local].contains(&u64::from(u32::MAX)) {
+            let mut field = 0;
+            let values = loop {
+                let id = u16_at(extra, field)?;
+                let len = usize::from(u16_at(extra, field + 2)?);
+                let value = extra.get(field + 4..field + 4 + len).ok_or("zip extra field cut short")?;
+                if id == 1 {
+                    break value;
+                }
+                field += 4 + len;
+            };
+            let mut value = 0;
+            for size in [&mut unpacked, &mut packed, &mut local] {
+                if *size == u64::from(u32::MAX) {
+                    *size = u64_at(values, value)?;
+                    value += 8;
+                }
+            }
+        }
         out.push(Entry {
-            name: directory.get(at + 46..at + 46 + name_len).ok_or("zip record cut short")?.to_vec(),
+            name: directory.get(at + 46..extra_at).ok_or("zip record cut short")?.to_vec(),
             flags: u16_at(&directory, at + 8)?,
             method: u16_at(&directory, at + 10)?,
             time: u16_at(&directory, at + 12)?,
             date: u16_at(&directory, at + 14)?,
             crc: u32_at(&directory, at + 16)?,
-            packed: u32_at(&directory, at + 20)? as usize,
-            unpacked: u32_at(&directory, at + 24)? as usize,
+            packed: usize::try_from(packed).map_err(|_| "zip entry too large for this platform")?,
+            unpacked: usize::try_from(unpacked).map_err(|_| "zip entry too large for this platform")?,
             attributes: u32_at(&directory, at + 38)?,
-            local: u64::from(u32_at(&directory, at + 42)?),
+            local,
         });
-        at += 46 + name_len + extra_len + comment_len;
+        at = extra_at + extra_len + comment_len;
+        if at > directory.len() {
+            return Err("zip record cut short".into());
+        }
     }
     Ok(out)
 }
@@ -221,78 +276,8 @@ pub fn write<'a>(entries: impl IntoIterator<Item = (&'a Entry, &'a [u8])>) -> Ve
     out
 }
 
-/// Writes one bounded entry at a time, retaining only central-directory
-/// metadata. Used when troubleshooting files must not all be held in memory.
-/// Entries are already stored or compressed by the caller, like [`write`].
-pub struct Stream<W> {
-    output: W,
-    directory: Vec<u8>,
-    position: u64,
-    count: u16,
-}
-
-impl<W: std::io::Write> Stream<W> {
-    pub fn new(output: W) -> Self {
-        Self { output, directory: Vec::new(), position: 0, count: 0 }
-    }
-
-    pub fn entry(&mut self, entry: &Entry, data: &[u8]) -> std::io::Result<()> {
-        use std::io::{Error, ErrorKind};
-        if self.count == u16::MAX
-            || entry.name.len() > u16::MAX as usize
-            || entry.unpacked > u32::MAX as usize
-            || data.len() > u32::MAX as usize
-            || self.position > u64::from(u32::MAX)
-        {
-            return Err(Error::new(ErrorKind::InvalidInput, "zip entry exceeds the non-ZIP64 limits"));
-        }
-        let local = self.position as u32;
-        let common = |out: &mut Vec<u8>| {
-            for v in [20u16, entry.flags & !DATA_DESCRIPTOR, entry.method, entry.time, entry.date] {
-                out.extend_from_slice(&v.to_le_bytes());
-            }
-            for v in [entry.crc, data.len() as u32, entry.unpacked as u32] {
-                out.extend_from_slice(&v.to_le_bytes());
-            }
-            out.extend_from_slice(&(entry.name.len() as u16).to_le_bytes());
-            out.extend_from_slice(&0u16.to_le_bytes());
-        };
-        let mut header = LOCAL.to_vec();
-        common(&mut header);
-        header.extend_from_slice(&entry.name);
-        self.output.write_all(&header)?;
-        self.output.write_all(data)?;
-        self.position += (header.len() + data.len()) as u64;
-        self.directory.extend_from_slice(DIRECTORY);
-        self.directory.extend_from_slice(&20u16.to_le_bytes());
-        common(&mut self.directory);
-        for v in [0u16, 0, 0] {
-            self.directory.extend_from_slice(&v.to_le_bytes());
-        }
-        self.directory.extend_from_slice(&entry.attributes.to_le_bytes());
-        self.directory.extend_from_slice(&local.to_le_bytes());
-        self.directory.extend_from_slice(&entry.name);
-        self.count += 1;
-        Ok(())
-    }
-
-    pub fn finish(mut self) -> std::io::Result<W> {
-        if self.position > u64::from(u32::MAX) || self.directory.len() > u32::MAX as usize {
-            return Err(std::io::Error::other("zip directory exceeds the non-ZIP64 limits"));
-        }
-        self.output.write_all(&self.directory)?;
-        let mut end = END.to_vec();
-        for v in [0u16, 0, self.count, self.count] {
-            end.extend_from_slice(&v.to_le_bytes());
-        }
-        end.extend_from_slice(&(self.directory.len() as u32).to_le_bytes());
-        end.extend_from_slice(&(self.position as u32).to_le_bytes());
-        end.extend_from_slice(&0u16.to_le_bytes());
-        self.output.write_all(&end)?;
-        self.output.flush()?;
-        Ok(self.output)
-    }
-}
+mod stream;
+pub use stream::Stream;
 
 /// The data a raw deflate stream holds, at most `most` bytes.
 ///
