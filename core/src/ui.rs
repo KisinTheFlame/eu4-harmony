@@ -340,6 +340,7 @@ fn detach(m: &Memory, ui: &mut Ui, which: impl Fn(&Binding) -> bool) -> Result<(
     ui.bindings = kept;
     let mut result = Ok(());
     for mut binding in gone {
+        crate::window_ordering::detach_host(binding.root);
         let unlinked = binding.bound.iter_mut().try_for_each(|b| b.element.unlink(m));
         ui.retired.extend(binding.bound.into_iter().filter_map(|b| b.element.retire()));
         result = result.and(unlinked);
@@ -392,10 +393,24 @@ fn bind(m: &Memory, ui: &mut Ui, host: Host, holder: usize, root: usize) -> Resu
         for b in &mut binding.bound {
             b.element.link(m)?;
         }
-        Ok(())
+        let controls = binding
+            .bound
+            .iter()
+            .map(|bound| {
+                let look = match ui.elements.declared[bound.index].element.kind {
+                    ElementKind::Button => Look::Button,
+                    ElementKind::Text => Look::Text,
+                    ElementKind::Icon => Look::Icon,
+                    ElementKind::Other => Look::Plain,
+                };
+                (bound.element.object, look)
+            })
+            .collect::<Vec<_>>();
+        crate::window_ordering::attach(m, host, binding.root, binding.frame, &controls)
     })();
     if let Err(e) = link_result {
         if let Some(failed) = ui.bindings.pop() {
+            crate::window_ordering::detach_host(failed.root);
             for mut b in failed.bound {
                 let _ = b.element.unlink(m);
                 ui.retired.extend(b.element.retire());
@@ -549,12 +564,14 @@ fn button_destroy(call: &mut Call) {
 /// Every teardown path of a root window passes here first (notice-window.md §3).
 fn window_kill(call: &mut Call) {
     let window = call.arg(0);
+    crate::window_ordering::retire(window);
     retire(call.memory(), |b| b.root == window);
     crate::windows::killed(&call.memory(), window);
 }
 /// Backstop for a root freed without passing the kill hook.
 fn window_delete(call: &mut Call) {
     let window = call.arg(0);
+    crate::window_ordering::retire(window);
     retire(call.memory(), |b| b.root == window);
     crate::windows::killed(&call.memory(), window);
 }

@@ -372,6 +372,10 @@ _Avoid_: event (that is the game's and the mods' scripts'), notification, messag
 A unit of the game's interface defined by a `windowType` in a `.gui` file, holding elements such as buttons and text boxes; the single army panel and the top bar are examples. The game builds an instance from the definition when it needs to show one, and may later destroy and rebuild it.
 _Avoid_: meaning the Windows window (the whole game has only one), dialog
 
+**Window scope**:
+The set of independently opened windows whose front-to-back order is considered together, within one containing window or at the top level. An independently opened child belongs to its containing window's scope, separate from the scope containing that window itself.
+_Avoid_: layer, z-index
+
 **Host window**:
 A vanilla window that a mod or the framework adds its own elements to.
 _Avoid_: target window, injection target, parent window

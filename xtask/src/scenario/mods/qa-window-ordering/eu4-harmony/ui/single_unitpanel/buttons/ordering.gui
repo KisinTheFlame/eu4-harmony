@@ -1,0 +1,6 @@
+# Exercises the host button area's complete frame and button node group.
+# The original attach picker must cover this slot while open.
+guiButtonType = {
+    name = "ordering_probe"
+    quadTextureSprite = "GFX_unitpanel_button_hunt_rebels"
+}

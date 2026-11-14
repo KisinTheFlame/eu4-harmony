@@ -1,7 +1,25 @@
 use super::*;
 use eu4_harmony_lua::windows::Wanted;
 use serde_json::json;
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
+
+#[derive(Default)]
+struct OrderingCalls {
+    held: usize,
+    requested: Vec<BTreeSet<Identity>>,
+    bound: Vec<Vec<(Identity, usize, u64)>>,
+    phases: Vec<&'static str>,
+}
+
+struct OrderingGuard(Rc<RefCell<OrderingCalls>>);
+impl Drop for OrderingGuard {
+    fn drop(&mut self) {
+        let mut ordering = self.0.borrow_mut();
+        assert_eq!(ordering.held, 1);
+        ordering.held -= 1;
+        ordering.phases.push("release");
+    }
+}
 
 #[derive(Default)]
 struct Recording {
@@ -21,6 +39,7 @@ struct Recording {
     available: bool,
     rows: HashSet<usize>,
     fail_row_apply: bool,
+    ordering: Rc<RefCell<OrderingCalls>>,
 }
 impl Recording {
     fn new() -> Self {
@@ -66,6 +85,35 @@ impl Recording {
     }
 }
 impl Native for Recording {
+    type Reconciliation = OrderingGuard;
+    fn begin_ordering(&mut self, wanted: &BTreeSet<Identity>) -> Self::Reconciliation {
+        let mut ordering = self.ordering.borrow_mut();
+        assert_eq!(ordering.held, 0);
+        ordering.held += 1;
+        ordering.requested.push(wanted.clone());
+        ordering.phases.push("begin");
+        OrderingGuard(self.ordering.clone())
+    }
+    fn bind_ordering(&mut self, seen: &[Owned]) -> Result<()> {
+        {
+            let mut ordering = self.ordering.borrow_mut();
+            assert_eq!(ordering.held, 1);
+            for owned in seen {
+                assert!(self.alive.contains(&owned.root));
+            }
+            ordering.bound.push(seen.iter().map(|owned| (owned.identity.clone(), owned.root, owned.appearance)).collect());
+            ordering.phases.push("bind");
+        }
+        self.call("bind order", 0)
+    }
+    fn flush_ordering(&mut self) -> Result<()> {
+        {
+            let mut ordering = self.ordering.borrow_mut();
+            assert_eq!(ordering.held, 0);
+            ordering.phases.push("flush");
+        }
+        self.call("flush order", 0)
+    }
     fn available(&mut self) -> Result<bool> {
         self.call("available", 0)?;
         Ok(self.available)
@@ -206,6 +254,7 @@ fn wants() -> Wants {
             wanted,
         }],
         popups: vec![],
+        appearances: BTreeMap::new(),
     }
 }
 fn popup() -> Popup {
@@ -341,6 +390,7 @@ fn popup_definitions_commit_only_after_reading_and_every_build_stage_rolls_back(
     let (mut native, mut live, mut wants) = (Recording::new(), Live::default(), wants());
     wants.windows.clear();
     wants.popups.push((1, popup()));
+    wants.appearances.insert(1, 1);
     native.fail_named = Some("popup definitions");
     assert!(reconcile(&mut native, &mut live, &wants).is_err());
     assert!(!live.popups_read.contains(&1));
@@ -399,6 +449,79 @@ fn an_entered_kill_is_never_retried_even_if_its_failure_already_freed_the_root()
     reconcile(&mut native, &mut live, &wants).unwrap();
     assert_ne!(live.built[0].root, old_root);
     assert!(native.calls[after_fault..].iter().all(|(_, object)| *object != old_root));
+    end_session(&mut native, &mut live).unwrap();
+}
+
+#[test]
+fn ordering_keeps_identity_and_appearance_through_technical_reconstruction() {
+    let (mut native, mut live, mut wants) = (Recording::new(), Live::default(), wants());
+    wants.windows[0].wanted.appearance = 17;
+    reconcile(&mut native, &mut live, &wants).unwrap();
+    let first = live.built[0].root;
+    wants.generation += 1;
+    wants.windows[0].type_name = "tools_2".into();
+    reconcile(&mut native, &mut live, &wants).unwrap();
+    let second = live.built[0].root;
+    assert_ne!(first, second);
+    {
+        let ordering = native.ordering.borrow();
+        let identity = Identity::Window(4, "tools".into());
+        assert_eq!(ordering.requested, vec![BTreeSet::from([identity.clone()]); 2]);
+        assert_eq!(ordering.bound, vec![vec![(identity.clone(), first, 17)], vec![(identity, second, 17)]]);
+        assert_eq!(ordering.phases, ["begin", "bind", "release", "flush", "begin", "bind", "release", "flush"]);
+    }
+    end_session(&mut native, &mut live).unwrap();
+}
+
+#[test]
+fn ordering_binds_surviving_roots_and_releases_reconstruction_on_error() {
+    for failure in ["apply", "bind order", "flush order"] {
+        let (mut native, mut live, wants) = (Recording::new(), Live::default(), wants());
+        native.fail_named = Some(failure);
+        assert!(reconcile(&mut native, &mut live, &wants).unwrap_err().contains(failure));
+        assert_eq!(live.built.len(), 1);
+        {
+            let ordering = native.ordering.borrow();
+            assert_eq!(ordering.bound[0][0].1, live.built[0].root);
+            assert_eq!(ordering.held, 0);
+            assert_eq!(ordering.phases, ["begin", "bind", "release", "flush"]);
+        }
+        end_session(&mut native, &mut live).unwrap();
+    }
+}
+
+#[test]
+fn closing_identity_is_removed_even_when_native_cleanup_must_be_retried() {
+    let (mut native, mut live, mut wants) = (Recording::new(), Live::default(), wants());
+    reconcile(&mut native, &mut live, &wants).unwrap();
+    wants.windows[0].wanted.open = false;
+    native.fail_named = Some("kill check");
+    assert!(reconcile(&mut native, &mut live, &wants).is_err());
+    assert_eq!(live.closing.len(), 1);
+    {
+        let ordering = native.ordering.borrow();
+        assert!(ordering.requested.last().unwrap().is_empty());
+        assert!(ordering.bound.last().unwrap().is_empty(), "closing roots must not be registered again");
+        assert_eq!(ordering.held, 0);
+    }
+    reconcile(&mut native, &mut live, &wants).unwrap();
+    assert!(live.closing.is_empty());
+    assert!(native.alive.is_empty());
+}
+
+#[test]
+fn windows_and_popups_pass_their_shared_appearance_order_to_native_binding() {
+    let (mut native, mut live, mut wants) = (Recording::new(), Live::default(), wants());
+    wants.windows[0].wanted.appearance = 20;
+    wants.popups.push((7, popup()));
+    wants.appearances.insert(7, 10);
+    reconcile(&mut native, &mut live, &wants).unwrap();
+    {
+        let ordering = native.ordering.borrow();
+        let appearances: BTreeMap<_, _> = ordering.bound[0].iter().map(|(identity, _, appearance)| (identity.clone(), *appearance)).collect();
+        assert_eq!(appearances, BTreeMap::from([(Identity::Window(4, "tools".into()), 20), (Identity::Popup(7), 10)]));
+        assert_eq!(ordering.requested[0], appearances.keys().cloned().collect());
+    }
     end_session(&mut native, &mut live).unwrap();
 }
 

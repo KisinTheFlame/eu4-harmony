@@ -107,6 +107,8 @@ my-mod/
 
 Visible text and tooltips share text descriptions: `{ text = "Ready" }` or `{ key = "MYMOD_DETAILS", values = { N = 3 } }`. The same descriptions work in declarations and supported runtime text setters; tooltips are also readable. Assignment replaces the content, and `nil` clears it, including across window rebuilding. Panel entries can use a checked mod-relative DDS or TGA image, change visibility and enabled state, and show an independently formatted number below the icon; the [window guide](cli/skills/ui/windows.md) covers layouts and properties.
 
+The framework orders native extension windows, pop-ups and attached button areas within their existing window scopes, preserving original windows' relative order and native input priorities. No new Lua fields or calls are required. The [ordering plan](docs/plans/window-ordering.md) records the accepted behavior and the remaining in-game acceptance checks.
+
 Where to learn more:
 
 - `eu4-harmony wiki`: every capability with its arguments and results, the handlers and globals (`wiki lua`), the manifest (`wiki manifest`). It needs no game.

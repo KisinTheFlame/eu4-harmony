@@ -7,6 +7,8 @@
 pub mod globals {
     /// The GUI manager.
     pub const MANAGER: usize = 0x23494f0;
+    /// A different camera suppresses the ordinary scene's input preparation.
+    pub const OTHER_CAMERA: usize = 0x233ff4f;
     /// The object whose floats at [`super::scale::ACROSS`] and
     /// [`super::scale::DOWN`] scale GUI units to window pixels.
     pub const SCALE: usize = 0x23494b8;
@@ -594,8 +596,7 @@ pub fn points() -> Vec<Point> {
         Point::keep(CREATE_WINDOW, "48 89 5c 24 10 57 48 83 ec 40 48 8b f9 48 8b da 48 81 c1 c8 00 00 00", "building a window"),
         Point::keep(0x14e9099usize, "48 8b 97 c0 00 00 00", "window scene").uses(&[manager::SCENE]),
         Point::keep(0x14e90b2usize, "4c 8b 8a 90 04 00 00", "scene size").uses(&[scene::SIZE]),
-        Point::keep(WINDOW_SHOW, "40 53 48 83 ec 30 80 b9 c5 00 00 00 00 48 8b d9", "window show"),
-        Point::keep(WINDOW_HIDE, "48 89 5c 24 10 57 48 83 ec 30 48 8b f9 48 8b 89 00 0a 00 00", "window hide"),
+        // Show/hide entry bytes are owned by window_ordering's observers.
         Point::keep(SET_POSITION, "48 83 ec 28 4c 8b 99 30 0a 00 00 4c 8b c2 48 89 91 98 05 00 00", "window position").uses(&[window::POSITION]),
         Point::keep(FIND_LIST_BOX, "48 83 ec 28 48 83 7a 18 10 48 8b 01", "window list box by name"),
         Point::keep(FIND_WINDOW, "48 89 5c 24 10 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8d 6c 24 d0", "window subwindow by name"),
