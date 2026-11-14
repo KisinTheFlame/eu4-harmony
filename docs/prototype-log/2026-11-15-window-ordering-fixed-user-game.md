@@ -14,4 +14,8 @@ This run hands the user a visible isolated game with the corrected derived-icon 
 
 `game start --visible` completed successfully at the main menu, with process 51704. Only after that success was `menu.start --country FRA` issued; it also completed successfully. France is paused on 1444.11.11. `army.split --army 545460846646` created army `5205500362806`, leaving two armies in Paris for the user to select and try the native attach picker. `question.answer --question 2 --option 0` dismissed the opening event, and one Escape dismissed the separate startup screen. A screenshot confirmed the paused map and three land armies in the outliner, including the two 7,000-strong Paris armies.
 
-The game remains visible, silent and held for the user. No army was selected or picker action performed on their behalf, and this handoff does not claim a new acceptance result for the merged build. The completed acceptance of the ordering correction is linked above. Release this owner when the user finishes; do not stop another session's game.
+The game was left visible, silent and held for the user. No army was selected or picker action performed on their behalf, and this handoff does not claim a new acceptance result for the merged build. The completed acceptance of the ordering correction is linked above.
+
+## Cleanup
+
+After the user reported finishing, `cargo xtask game release --owner ordering-user-fixed-1de2b155` released this claim. Process 51704 had already ended by 04:55:00 with exit code `0x0`; release reported no crash. The claim's framework logs, game logs and crash records were retained under its `kept` folder for the normal seven-day retention period, and the remaining isolated game files were removed. `cargo xtask game status` confirmed that this owner was no longer held. Other sessions' games were left alone.
