@@ -19,6 +19,7 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 
 | | |
 | --- | --- |
+| [2026-11-15-window-ordering-fixed-user-game.md](prototype-log/2026-11-15-window-ordering-fixed-user-game.md) | Corrected ordering in a visible isolated game with the actual playset for the user |
 | [2026-11-15-window-ordering-icon-fixture.md](prototype-log/2026-11-15-window-ordering-icon-fixture.md) | Button and derived glow bind together; the native picker covers both, excludes covered input, executes its target and restores the button |
 | [2026-11-15-window-ordering-actual-playset.md](prototype-log/2026-11-15-window-ordering-actual-playset.md) | Unchanged actual playset passes picker coverage, covered-toggle exclusion, native follow action and button restoration |
 | [2026-11-14-window-ordering-user-game.md](prototype-log/2026-11-14-window-ordering-user-game.md) | Actual-playset handoff exposed the unresolved button-area overlap; startup readiness was bypassed, and the normally exited game was released |
