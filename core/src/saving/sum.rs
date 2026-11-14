@@ -17,6 +17,7 @@
 use super::parallel;
 use crate::called_by_game;
 use crate::memory::Memory;
+use crate::objects::stream;
 use crate::points::{Function, Point};
 use crate::speed::SpeedUp;
 use crate::Result;
@@ -28,12 +29,6 @@ use std::ops::Range;
 const SUM: usize = 0x171f3f0;
 /// The stream's method that moves to its start, which the sum calls first.
 const TO_START: usize = 0x70;
-/// A memory stream's growing part, buffer, bytes kept in the buffer and
-/// where it stands (`super::parallel`).
-const GROWING: usize = 0x38;
-const BUFFER: usize = 0x40;
-const KEPT: usize = 0x48;
-const AT: usize = 0x4c;
 
 /// Below this many bytes the game's own sum is as fast.
 const FEWEST: usize = 4 << 20;
@@ -62,7 +57,7 @@ fn points() -> Vec<Point> {
              4c 48 8b 6c 24 38 48 8b 74 24 40 c1 e3 10 0b df 48 8b 7c 24 48 8b c3 48 8b 5c 24 30 48 83 c4 20 41 5e c3",
             "memory stream's sum, its steps",
         )
-        .uses(&[TO_START, GROWING, BUFFER, KEPT, AT]),
+        .uses(&[TO_START, stream::GROWING, stream::BUFFER, stream::KEPT, stream::AT]),
     ]
 }
 
@@ -92,13 +87,13 @@ fn counted(m: Memory, stream: usize, count: i32) -> Result<i32> {
     if count != -1 {
         return Ok(count);
     }
-    Ok(m.i32(stream + KEPT)?.wrapping_add(growing_len(m, stream)?))
+    Ok(m.i32(stream + stream::KEPT)?.wrapping_add(growing_len(m, stream)?))
 }
 
 /// The growing part's length, as the game takes it: the low halves of its
 /// end and start.
 fn growing_len(m: Memory, stream: usize) -> Result<i32> {
-    match m.ptr(stream + GROWING)? {
+    match m.ptr(stream + stream::GROWING)? {
         0 => Ok(0),
         growing => Ok(m.i32(growing + 8)?.wrapping_sub(m.i32(growing)?)),
     }
@@ -109,16 +104,16 @@ fn take(m: Memory, stream: usize, mut count: i32) -> Result<SaveSum> {
     let to_start = m.vslot(stream, TO_START)?;
     m.call(to_start, &[stream])?;
     let mut sums = SaveSum { a: 0, b: 0 };
-    let kept = m.i32(stream + KEPT)?;
+    let kept = m.i32(stream + stream::KEPT)?;
     if kept > 0 {
         let len = kept.min(count);
         if len > 0 {
-            sums = summed_by_pool(sums, unsafe { std::slice::from_raw_parts(m.ptr(stream + BUFFER)? as *const u8, len as usize) });
+            sums = summed_by_pool(sums, unsafe { std::slice::from_raw_parts(m.ptr(stream + stream::BUFFER)? as *const u8, len as usize) });
             add_at(stream, len);
         }
         count -= len;
     }
-    let growing = m.ptr(stream + GROWING)?;
+    let growing = m.ptr(stream + stream::GROWING)?;
     if growing != 0 {
         let len = growing_len(m, stream)?.min(count);
         if len > 0 {
@@ -131,7 +126,7 @@ fn take(m: Memory, stream: usize, mut count: i32) -> Result<SaveSum> {
 
 fn add_at(stream: usize, len: i32) {
     unsafe {
-        let at = (stream + AT) as *mut i32;
+        let at = (stream + stream::AT) as *mut i32;
         *at = (*at).wrapping_add(len);
     }
 }

@@ -35,6 +35,11 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+/// The save's course: what the hooks' moments make of the entries copied, the
+/// files moved and the hand-over to the worker.
+mod course;
+pub use course::set_folder;
+
 /// `(request)`: the local save and the local ironman save.
 const LOCAL_SAVE: usize = 0x5c6500;
 const IRONMAN_SAVE: usize = 0x5c7ac0;
@@ -62,8 +67,6 @@ const HEADER: &[u8] = b"EU4";
 /// What the thread adds to a save's name for the file it writes before
 /// moving it into the save's place.
 const TMP_SUFFIX: &str = ".eu4harmony-tmp";
-// Where the game keeps its saves, in the user folder.
-use eu4_harmony_folders::SAVE_GAMES;
 
 /// Left to the game, a local save's entries are deflated at the game's level
 /// on the main thread, as before.
@@ -94,26 +97,6 @@ fn points() -> Vec<Point> {
     points
 }
 
-/// A local save is under way on the main thread.
-static SAVING: AtomicBool = AtomicBool::new(false);
-/// When the local save under way began.
-static BEGAN: Mutex<Option<Instant>> = Mutex::new(None);
-/// The files the save under way moved into place, by their paths in the
-/// folder the game writes to.
-static MOVED: Mutex<Vec<String>> = Mutex::new(Vec::new());
-/// The folder the game writes to: the user folder.
-static FOLDER: OnceLock<PathBuf> = OnceLock::new();
-
-/// Where the game writes its files, once the user folder is known; at
-/// startup, before any save.
-pub fn set_folder(user_dir: &Path) {
-    let _ = FOLDER.set(user_dir.to_path_buf());
-    let removed = remove_leftovers(&user_dir.join(SAVE_GAMES));
-    if removed > 0 {
-        log!("saves: removed {removed} temporary file(s) left by a compression the process's end cut short");
-    }
-}
-
 /// Removes the temporary files in `dir` the thread was writing when the
 /// process ended (the save beside each stays as the game wrote it); how many.
 fn remove_leftovers(dir: &Path) -> usize {
@@ -131,10 +114,7 @@ fn save_before(call: &mut Call) {
     }
     #[cfg(not(feature = "dev-performance"))]
     let _ = call;
-    wait();
-    MOVED.lock().unwrap_or_else(|e| e.into_inner()).clear();
-    SAVING.store(crate::thread_id() == crate::main_thread(), Ordering::SeqCst);
-    *BEGAN.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+    course::save_begins(crate::thread_id() == crate::main_thread());
 }
 
 fn save_after(call: &mut Call) {
@@ -147,38 +127,21 @@ fn save_after(call: &mut Call) {
     }
     #[cfg(not(feature = "dev-performance"))]
     let _ = call;
-    if !SAVING.swap(false, Ordering::SeqCst) {
-        return;
-    }
-    if let Some(began) = BEGAN.lock().unwrap_or_else(|e| e.into_inner()).take() {
-        log!("saves: a local save stopped the game for {:.0} ms", began.elapsed().as_secs_f64() * 1000.0);
-    }
-    let moved = std::mem::take(&mut *MOVED.lock().unwrap_or_else(|e| e.into_inner()));
-    let Some(folder) = FOLDER.get() else { return };
-    for path in moved {
-        hand_over(folder.join(path));
-    }
+    course::save_ends();
 }
 
 fn entry_before(call: &mut Call) {
-    if SAVING.load(Ordering::SeqCst)
-        && call.arg(3) as u32 == DEFLATED as u32
-        && call.arg(4) as u32 == GAME_LEVEL as u32
-        && crate::thread_id() == crate::main_thread()
-    {
-        call.set_arg(4, COPY_LEVEL);
+    if let Some(level) = course::copy_level(crate::thread_id() == crate::main_thread(), call.arg(3) as u32, call.arg(4) as u32) {
+        call.set_arg(4, level);
     }
 }
 
 fn moved(call: &mut Call) {
-    if !SAVING.load(Ordering::SeqCst) || call.result_as::<u8>().unwrap_or(0) == 0 || call.arg(1) == 0 {
+    if call.result_as::<u8>().unwrap_or(0) == 0 || call.arg(1) == 0 {
         return;
     }
     let to = unsafe { std::ffi::CStr::from_ptr(call.arg(1) as *const std::ffi::c_char) };
-    match to.to_str() {
-        Ok(to) => MOVED.lock().unwrap_or_else(|e| e.into_inner()).push(to.to_string()),
-        Err(_) => log!("saves: a file moved to a path that is not UTF-8 stays uncompressed"),
-    }
+    course::file_moved(to.to_str().ok().map(str::to_string));
 }
 
 /// The game waits for the thread: a file another program holds is not tried

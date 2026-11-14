@@ -24,9 +24,13 @@
 //! - `trigger_profile`: the triggers' optimization profile matched through a
 //!   compact interned index instead of allocating a temporary hash table at
 //!   every tree node.
+//!
+//! `folder` is shared by `lookups` and `listed`: a folder's listing and the
+//! names Windows reads as they are written, written once.
 use std::path::Path;
 
 pub mod children;
+mod folder;
 pub mod listed;
 pub mod localisation;
 pub mod lookups;

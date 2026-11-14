@@ -46,11 +46,11 @@
 //! checks the searches (`crate::speed`).
 use crate::called_by_game;
 use crate::points::{Function, Point};
-use crate::speed::{self, SpeedUp};
-use std::cell::{Cell, RefCell};
-use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock};
+use crate::speed::SpeedUp;
+
+/// The searches' course: what the hooks' moments make of the searches worked
+/// out ahead, taken, called off and waited for.
+mod course;
 
 /// The search: `(callback, depth, unit, think argument, &score, &a, &b, &c,
 /// &d, flag, flag, &out) -> province id`.
@@ -196,7 +196,7 @@ struct Call {
 }
 
 /// What the search gives back.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 struct Outcome {
     province: i32,
     score: f32,
@@ -228,179 +228,6 @@ impl Outcome {
         .filter(|(_, same)| !same)
         .map(|(what, _)| what)
         .collect()
-    }
-}
-
-const PENDING: u8 = 0;
-const RUNNING: u8 = 1;
-const DONE: u8 = 2;
-const CALLED_OFF: u8 = 3;
-
-/// One army's search, worked out ahead.
-struct Job {
-    agent: usize,
-    date: u32,
-    call: Call,
-    /// The agent's and its army's state when the search was prepared.
-    state: u64,
-    /// Held to read while the search runs; held to write while a unit is
-    /// handed between the country's agents.
-    gate: Arc<RwLock<()>>,
-    progress: AtomicU8,
-    /// The agent's think has begun.
-    thought: AtomicBool,
-    outcome: Mutex<Option<Outcome>>,
-    finished: Condvar,
-}
-
-impl Job {
-    /// Works the search out unless the King's thread has called it off.
-    fn work(&self) {
-        if self.progress.compare_exchange(PENDING, RUNNING, Ordering::AcqRel, Ordering::Acquire).is_err() {
-            return;
-        }
-        let outcome = {
-            let _reading = self.gate.read().unwrap_or_else(|e| e.into_inner());
-            unsafe { search_as_the_game(self.agent, &self.call, 0) }
-        };
-        *self.outcome.lock().unwrap_or_else(|e| e.into_inner()) = Some(outcome);
-        self.progress.store(DONE, Ordering::Release);
-        self.finished.notify_all();
-    }
-
-    /// Calls it off if not begun, else waits until it is worked out; its
-    /// outcome, if it was.
-    fn settle(&self) -> Option<Outcome> {
-        if self.progress.compare_exchange(PENDING, CALLED_OFF, Ordering::AcqRel, Ordering::Acquire).is_ok() {
-            return None;
-        }
-        let mut outcome = self.outcome.lock().unwrap_or_else(|e| e.into_inner());
-        while outcome.is_none() && self.progress.load(Ordering::Acquire) == RUNNING {
-            outcome = self.finished.wait(outcome).unwrap_or_else(|e| e.into_inner());
-        }
-        *outcome
-    }
-}
-
-/// The searches of the country whose day this thread is in.
-struct Batch {
-    jobs: Vec<Arc<Job>>,
-    gate: Arc<RwLock<()>>,
-}
-
-thread_local! {
-    static BATCH: RefCell<Option<Batch>> = const { RefCell::new(None) };
-    /// This thread holds its batch's gate to write.
-    static HANDING: Cell<bool> = const { Cell::new(false) };
-}
-
-struct Pool {
-    queue: Mutex<VecDeque<Arc<Job>>>,
-    ready: Condvar,
-}
-
-static POOL: OnceLock<Option<&'static Pool>> = OnceLock::new();
-const MOST_THREADS: usize = 8;
-/// The search lays out arrays as long as the provinces on its stack.
-const STACK: usize = 16 << 20;
-
-fn pool() -> Option<&'static Pool> {
-    *POOL.get_or_init(|| {
-        let wanted = std::thread::available_parallelism().map_or(1, |n| n.get()).saturating_sub(2).min(MOST_THREADS);
-        if wanted == 0 {
-            return None;
-        }
-        let pool: &'static Pool = Box::leak(Box::new(Pool { queue: Mutex::new(VecDeque::new()), ready: Condvar::new() }));
-        let started = (0..wanted)
-            .filter(|i| {
-                std::thread::Builder::new()
-                    .name(format!("eu4-harmony army search {i}"))
-                    .stack_size(STACK)
-                    .spawn(move || crate::guarded("army search", || worker(pool)))
-                    .is_ok()
-            })
-            .count();
-        log!("army searches: {started} threads to search with");
-        (started > 0).then_some(pool)
-    })
-}
-
-fn worker(pool: &'static Pool) -> ! {
-    loop {
-        let job = {
-            let mut queue = pool.queue.lock().unwrap_or_else(|e| e.into_inner());
-            loop {
-                if let Some(job) = queue.pop_front() {
-                    break job;
-                }
-                queue = pool.ready.wait(queue).unwrap_or_else(|e| e.into_inner());
-            }
-        };
-        job.work();
-    }
-}
-
-/// What came of the searches, for the log.
-#[derive(Clone, Copy)]
-enum Count {
-    /// Searches handed to the pool, and the time it took to prepare them on
-    /// the King's thread, in microseconds.
-    Prepared,
-    PreparingMicros,
-    /// At the agent's think: its search worked out, under way (and the
-    /// time the think waited for it, in microseconds), or not begun and so
-    /// called off.
-    Ready,
-    UnderWay,
-    WaitedMicros,
-    NotBegun,
-    /// At the search: the one worked out taken, or not, the think giving
-    /// other arguments, or the agent or its army changed.
-    Taken,
-    OtherArguments,
-    OtherState,
-    /// Searches the think made that none was prepared for.
-    Unprepared,
-    /// After the armies' day: prepared for an agent that did not think, or
-    /// thought without searching.
-    NotThought,
-    NotSearched,
-}
-
-static COUNTS: [AtomicU64; 12] = [const { AtomicU64::new(0) }; 12];
-static LOGGED: AtomicUsize = AtomicUsize::new(0);
-const LOG_EVERY: u64 = 20_000;
-const MOST_LOGGED: usize = 200;
-
-fn add(count: Count, n: u64) -> u64 {
-    COUNTS[count as usize].fetch_add(n, Ordering::Relaxed)
-}
-
-fn get(count: Count) -> u64 {
-    COUNTS[count as usize].load(Ordering::Relaxed)
-}
-
-/// Logs what came of the searches, every so many prepared.
-fn note_prepared(count: u64) {
-    let before = add(Count::Prepared, count);
-    if (before + count) / LOG_EVERY != before / LOG_EVERY && LOGGED.fetch_add(1, Ordering::Relaxed) < MOST_LOGGED {
-        use Count::*;
-        log!(
-            "army searches: {} prepared in {} ms; at the think {} ready, {} under way (waited {} ms), {} not begun; {} taken, {} with other arguments, {} with another state; {} not thought, {} thought without a search; {} searched unprepared{}",
-            before + count,
-            get(PreparingMicros) / 1000,
-            get(Ready),
-            get(UnderWay),
-            get(WaitedMicros) / 1000,
-            get(NotBegun),
-            get(Taken),
-            get(OtherArguments),
-            get(OtherState),
-            get(NotThought),
-            get(NotSearched),
-            get(Unprepared),
-            if speed::checked(&SPEED_UP) { format!(", {} differing from the game's", speed::differences(&SPEED_UP).1) } else { String::new() }
-        );
     }
 }
 
@@ -586,110 +413,28 @@ unsafe fn search_as_the_game(agent: usize, call: &Call, cache: usize) -> Outcome
 /// walk.
 #[called_by_game]
 pub(crate) extern "C" fn children_begin(king: usize, argument: usize) {
-    if let Some(old) = BATCH.with(|b| b.borrow_mut().take()) {
-        settle(old);
-    }
-    // The `agents-order` walks call this whether the searches are left to
-    // the game or not.
-    if speed::game_path(&SPEED_UP) {
-        return;
-    }
-    let Some(pool) = pool() else { return };
-    let began = std::time::Instant::now();
-    let base = base();
-    let date = today();
-    let gate = Arc::new(RwLock::new(()));
-    let mut jobs = Vec::new();
-    let mut node = unsafe { read::<usize>(king + ARMIES) };
-    while node != 0 {
-        let agent = unsafe { read::<usize>(node) };
-        node = unsafe { read::<usize>(node + NEXT) };
-        let table = unsafe { read::<usize>(agent) };
-        // Army agents only, which think today.
-        if unsafe { read::<usize>(table + THINK) } != base + ARMY_THINK || unsafe { read::<i32>(agent + COUNTDOWN) } != 1 {
-            continue;
-        }
-        let thinks_today: unsafe extern "C" fn(usize) -> u8 = unsafe { std::mem::transmute(read::<usize>(table + THINKS_TODAY)) };
-        if unsafe { thinks_today(agent) } == 0 {
-            continue;
-        }
-        let Some(call) = (unsafe { prepare(agent, argument) }) else { continue };
-        let state = unsafe { state(agent, call.unit) };
-        jobs.push(Arc::new(Job {
-            agent,
-            date,
-            call,
-            state,
-            gate: gate.clone(),
-            progress: AtomicU8::new(PENDING),
-            thought: AtomicBool::new(false),
-            outcome: Mutex::new(None),
-            finished: Condvar::new(),
-        }));
-    }
-    add(Count::PreparingMicros, began.elapsed().as_micros() as u64);
-    if jobs.is_empty() {
-        return;
-    }
-    note_prepared(jobs.len() as u64);
-    pool.queue.lock().unwrap_or_else(|e| e.into_inner()).extend(jobs.iter().cloned());
-    pool.ready.notify_all();
-    BATCH.with(|b| *b.borrow_mut() = Some(Batch { jobs, gate }));
+    course::begin(king, argument);
 }
 
 /// After the King's army agents' day: the searches not taken called off,
 /// those under way waited for.
 #[called_by_game]
 extern "C" fn armies_end() {
-    if let Some(batch) = BATCH.with(|b| b.borrow_mut().take()) {
-        settle(batch);
-    }
-}
-
-fn settle(batch: Batch) {
-    for job in &batch.jobs {
-        let thought = job.thought.load(Ordering::Relaxed);
-        add(if thought { Count::NotSearched } else { Count::NotThought }, 1);
-        job.settle();
-    }
-}
-
-/// The army's search worked out ahead, if any.
-fn job_of(agent: usize) -> Option<Arc<Job>> {
-    BATCH.with(|b| b.borrow().as_ref()?.jobs.iter().find(|j| j.agent == agent).cloned())
+    course::end();
 }
 
 /// The army agent's think: its own search settled first, so that its think
 /// and its search never use its region scores at once.
 #[called_by_game]
 unsafe extern "C" fn think(agent: usize, argument: usize) -> usize {
-    if let Some(job) = job_of(agent) {
-        job.thought.store(true, Ordering::Relaxed);
-        match job.progress.load(Ordering::Acquire) {
-            DONE => add(Count::Ready, 1),
-            PENDING => add(Count::NotBegun, 1),
-            _ => {
-                let began = std::time::Instant::now();
-                job.settle();
-                add(Count::WaitedMicros, began.elapsed().as_micros() as u64);
-                add(Count::UnderWay, 1)
-            }
-        };
-        job.settle();
-    }
+    course::think(agent);
     unsafe { ORIGINAL_THINK.get()(agent, argument) }
 }
 
 /// A unit handed to an agent: no search of the country runs meanwhile.
 #[called_by_game]
 unsafe extern "C" fn unit_to_agent(agent: usize, unit: usize) -> usize {
-    let gate = if HANDING.with(Cell::get) { None } else { BATCH.with(|b| b.borrow().as_ref().map(|b| b.gate.clone())) };
-    let Some(gate) = gate else { return unsafe { ORIGINAL_UNIT_TO_AGENT.get()(agent, unit) } };
-    let _writing = gate.write().unwrap_or_else(|e| e.into_inner());
-    HANDING.with(|h| h.set(true));
-    let result = unsafe { ORIGINAL_UNIT_TO_AGENT.get()(agent, unit) };
-    HANDING.with(|h| h.set(false));
-    result
+    course::unit_to_agent(|| unsafe { ORIGINAL_UNIT_TO_AGENT.get()(agent, unit) })
 }
 
 /// The framework's search: the one worked out ahead when it matches.
@@ -708,49 +453,15 @@ unsafe extern "C" fn search(
     other: u8,
     out: *mut u8,
 ) -> i32 {
-    let original = || unsafe { ORIGINAL_SEARCH.get()(callback, depth, unit, argument, score, a, b, c, d, flag, other, out) };
     let agent = unsafe { read::<usize>(callback + 8) };
-    let job = BATCH.with(|batch| {
-        let mut batch = batch.borrow_mut();
-        let jobs = &mut batch.as_mut()?.jobs;
-        let at = jobs.iter().position(|j| j.agent == agent)?;
-        Some(jobs.swap_remove(at))
-    });
-    let Some(job) = job else {
-        if BATCH.with(|b| b.borrow().is_some()) {
-            add(Count::Unprepared, 1);
-        }
-        return original();
-    };
     let given = unsafe {
         let mut given = Call { depth, unit, argument, score: *score, a: *a, b: *b, c: *c, d: *d, flag, other, out: [0; 0x15] };
         std::ptr::copy_nonoverlapping(out, given.out.as_mut_ptr(), given.out.len());
         given
     };
-    let outcome = job.settle();
-    if outcome.is_some() && (job.date != today() || given != job.call) {
-        add(Count::OtherArguments, 1);
-        return original();
-    }
-    if outcome.is_some() && unsafe { state(agent, unit) } != job.state {
-        add(Count::OtherState, 1);
-        return original();
-    }
-    // Called off at the think, not begun, and counted there.
-    let Some(outcome) = outcome else { return original() };
-    if speed::checked(&SPEED_UP) {
-        let game = unsafe { search_as_the_game(agent, &given, argument) };
-        speed::compared(&SPEED_UP, game.same(&outcome), || {
-            format!(
-                "an army's search worked out ahead differs in {}: province {} at {}, the game's {} at {}",
-                outcome.differences(&game).join(", "),
-                outcome.province,
-                outcome.score,
-                game.province,
-                game.score
-            )
-        });
-    }
+    let Some(outcome) = course::search(agent, given, argument) else {
+        return unsafe { ORIGINAL_SEARCH.get()(callback, depth, unit, argument, score, a, b, c, d, flag, other, out) };
+    };
     unsafe {
         *score = outcome.score;
         *a = outcome.a;
@@ -759,7 +470,6 @@ unsafe extern "C" fn search(
         *d = outcome.d;
         std::ptr::copy_nonoverlapping(outcome.out.as_ptr(), out, outcome.out.len());
     }
-    add(Count::Taken, 1);
     outcome.province
 }
 

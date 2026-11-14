@@ -1,6 +1,10 @@
 //! Bounded event collection on the game's clock, with deterministic replay.
 //! Hot calls keep timestamps and associations only; report calculation happens
 //! after taking the collection out of the lock. No game memory is read here.
+//!
+//! The clock is read at the collection's edge ([`Clock`]): the game's
+//! monotonic instant in [`RealClock`], a controlled instant in the tests, so
+//! the lifecycle is driven through its interface without touching the state.
 use crate::game::{fail, GResult, Status};
 use eu4_harmony_remote::performance::{Observed, Report};
 use std::{
@@ -16,8 +20,20 @@ mod account;
 /// At 144 submissions/s this holds ten minutes plus updates and day events.
 /// An unlimited drawing rate may exceed it; overflow is explicit in the report.
 const MAX_EVENTS: usize = 262_144;
-static ACTIVE: AtomicBool = AtomicBool::new(false);
-static STATE: Mutex<State> = Mutex::new(State::new());
+
+/// The clock the collection reads at its edge.
+trait Clock {
+    fn now(&self) -> Instant;
+}
+
+/// The game's monotonic clock.
+struct RealClock;
+
+impl Clock for RealClock {
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Context {
@@ -123,149 +139,153 @@ struct Started {
     update: Option<u64>,
 }
 
-/// A cheap gate before a caller reads game memory for a measurement.
-pub fn active() -> bool {
-    ACTIVE.load(Ordering::Relaxed)
+/// The collection: its state behind a lock, the gate callers read before
+/// measuring, and the clock it reads at its edge.
+struct Collector<C: Clock> {
+    state: Mutex<State>,
+    active: AtomicBool,
+    clock: C,
 }
 
-/// Updates the initial context even while collection is off. Changes within
-/// the window split its timeline rather than mixing unrelated intervals.
-pub fn context(session: u64, speed: u32, paused: bool, target_interval: Option<Duration>) {
-    let now = Instant::now();
-    let context = Context { session, speed, paused, target_us: target_interval.map(micros).filter(|&us| us != 0) };
-    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
-    state.context = Some(context);
-    if let Some(window) = state.window.as_mut() {
-        let at = window.elapsed(now);
-        if at >= window.deadline() {
-            ACTIVE.store(false, Ordering::Relaxed);
-        } else if context != window.current {
-            window.push(at, Kind::Context(context));
-            if context.session != window.current.session {
-                window.prepared = None;
+/// The game's collection, on the game's clock.
+static COLLECTOR: Collector<RealClock> = Collector::new(RealClock);
+
+impl<C: Clock> Collector<C> {
+    const fn new(clock: C) -> Self {
+        Self { state: Mutex::new(State::new()), active: AtomicBool::new(false), clock }
+    }
+
+    /// A cheap gate before a caller reads game memory for a measurement.
+    fn active(&self) -> bool {
+        self.active.load(Ordering::Relaxed)
+    }
+
+    /// Updates the initial context even while collection is off. Changes within
+    /// the window split its timeline rather than mixing unrelated intervals.
+    fn context(&self, session: u64, speed: u32, paused: bool, target_interval: Option<Duration>) {
+        let now = self.clock.now();
+        let context = Context { session, speed, paused, target_us: target_interval.map(micros).filter(|&us| us != 0) };
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.context = Some(context);
+        if let Some(window) = state.window.as_mut() {
+            let at = window.elapsed(now);
+            if at >= window.deadline() {
+                self.active.store(false, Ordering::Relaxed);
+            } else if context != window.current {
+                window.push(at, Kind::Context(context));
+                if context.session != window.current.session {
+                    window.prepared = None;
+                }
+                window.current = context;
             }
-            window.current = context;
         }
     }
-}
 
-/// Starts one window; even an expired window must be collected before a new
-/// one can replace it, so a second client cannot silently discard its report.
-pub fn begin(seconds: u32) -> GResult<()> {
-    if !(1..=600).contains(&seconds) {
-        return fail(Status::InvalidArgument, "performance collection lasts from 1 to 600 seconds");
-    }
-    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
-    if state.window.is_some() {
-        return fail(Status::Rejected, "collect the previous performance window with performance.end first");
-    }
-    let Some(context) = state.context.filter(|c| c.session != 0 && (1..=5).contains(&c.speed)) else {
-        return fail(Status::NotReady, "performance collection needs the current game's context");
-    };
-    state.generation = state.generation.wrapping_add(1);
-    // Reserve the bounded storage before the timestamp: its allocation must
-    // not be charged to the measured window.
-    let mut window = Window::new(state.generation, Instant::now(), seconds, context, MAX_EVENTS);
-    window.began = Instant::now();
-    state.window = Some(window);
-    ACTIVE.store(true, Ordering::Relaxed);
-    Ok(())
-}
-
-/// Takes the timeline out of the lock before sorting and computing statistics.
-/// The deadline, not this request's queueing delay, bounds a finished window.
-pub fn end() -> GResult<Report> {
-    let (window, now) = {
-        let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
-        let now = Instant::now();
-        let Some(window) = state.window.take() else {
-            return fail(Status::Rejected, "no performance window to collect");
+    /// Starts one window; even an expired window must be collected before a new
+    /// one can replace it, so a second client cannot silently discard its report.
+    fn begin(&self, seconds: u32) -> GResult<()> {
+        if !(1..=600).contains(&seconds) {
+            return fail(Status::InvalidArgument, "performance collection lasts from 1 to 600 seconds");
+        }
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.window.is_some() {
+            return fail(Status::Rejected, "collect the previous performance window with performance.end first");
+        }
+        let Some(context) = state.context.filter(|c| c.session != 0 && (1..=5).contains(&c.speed)) else {
+            return fail(Status::NotReady, "performance collection needs the current game's context");
         };
-        ACTIVE.store(false, Ordering::Relaxed);
-        (window, now)
-    };
-    let elapsed = window.elapsed(now).min(window.deadline());
-    Ok(account::report(window, elapsed))
-}
-
-fn with_window(now: Instant, f: impl FnOnce(&mut Window, u64)) {
-    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
-    let Some(window) = state.window.as_mut() else { return };
-    // A caller may have observed ACTIVE before the previous window ended,
-    // then waited until a new window was installed. Do not backdate it into
-    // that new collection.
-    if now < window.began {
-        return;
+        state.generation = state.generation.wrapping_add(1);
+        // Reserve the bounded storage before the timestamp: its allocation must
+        // not be charged to the measured window.
+        let mut window = Window::new(state.generation, self.clock.now(), seconds, context, MAX_EVENTS);
+        window.began = self.clock.now();
+        state.window = Some(window);
+        self.active.store(true, Ordering::Relaxed);
+        Ok(())
     }
-    let at = window.elapsed(now);
-    if at >= window.deadline() {
-        ACTIVE.store(false, Ordering::Relaxed);
-        return;
+
+    /// Takes the timeline out of the lock before sorting and computing statistics.
+    /// The deadline, not this request's queueing delay, bounds a finished window.
+    fn end(&self) -> GResult<Report> {
+        let (window, now) = {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let now = self.clock.now();
+            let Some(window) = state.window.take() else {
+                return fail(Status::Rejected, "no performance window to collect");
+            };
+            self.active.store(false, Ordering::Relaxed);
+            (window, now)
+        };
+        let elapsed = window.elapsed(now).min(window.deadline());
+        Ok(account::report(window, elapsed))
     }
-    f(window, at);
-}
 
-fn record(kind: Kind) {
-    if active() {
-        let now = Instant::now();
-        with_window(now, |w, at| w.push(at, kind));
+    fn with_window(&self, now: Instant, f: impl FnOnce(&mut Window, u64)) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(window) = state.window.as_mut() else { return };
+        // A caller may have observed ACTIVE before the previous window ended,
+        // then waited until a new window was installed. Do not backdate it into
+        // that new collection.
+        if now < window.began {
+            return;
+        }
+        let at = window.elapsed(now);
+        if at >= window.deadline() {
+            self.active.store(false, Ordering::Relaxed);
+            return;
+        }
+        f(window, at);
     }
-}
 
-pub fn day_begins(date: i32) {
-    record(Kind::DayBegins { date });
-}
+    fn record(&self, kind: Kind) {
+        if self.active() {
+            let now = self.clock.now();
+            self.with_window(now, |w, at| w.push(at, kind));
+        }
+    }
 
-pub fn day_ends(date: i32, faulted: bool) {
-    record(Kind::DayEnds { date, faulted });
-}
+    fn prepared(&self) {
+        if self.active() {
+            let now = self.clock.now();
+            self.with_window(now, |w, at| {
+                w.next_update += 1;
+                let id = w.next_update;
+                w.prepared = Some(id);
+                w.push(at, Kind::Prepared { id });
+            });
+        }
+    }
 
-/// Publishes an update for both drawing-thread and main-thread drawing paths.
-pub fn prepared() {
-    if active() {
-        let now = Instant::now();
-        with_window(now, |w, at| {
-            w.next_update += 1;
-            let id = w.next_update;
-            w.prepared = Some(id);
-            w.push(at, Kind::Prepared { id });
+    fn invalidated(&self) {
+        if self.active() {
+            let now = self.clock.now();
+            self.with_window(now, |w, at| {
+                if let Some(id) = w.prepared.take() {
+                    w.push(at, Kind::Invalidated { id });
+                }
+            });
+        }
+    }
+
+    fn submission_begins(&self) -> Submission {
+        if !self.active() {
+            return Submission(None);
+        }
+        let now = self.clock.now();
+        let mut started = None;
+        self.with_window(now, |w, _| {
+            started = Some(Started { generation: w.generation, at: now, update: w.prepared });
         });
+        Submission(started)
     }
-}
 
-/// The prepared data is no longer eligible for new submissions. A frame
-/// already in flight keeps its token and can still submit that earlier update.
-pub fn invalidated() {
-    if active() {
-        let now = Instant::now();
-        with_window(now, |w, at| {
-            if let Some(id) = w.prepared.take() {
-                w.push(at, Kind::Invalidated { id });
-            }
-        });
+    fn submission_ends(&self, submission: Submission, success: bool, main_thread: bool) {
+        if !self.active() {
+            return;
+        }
+        let now = self.clock.now();
+        self.with_window(now, |w, at| w.submission_ends(at, submission, success, main_thread));
     }
-}
-
-pub fn submission_begins() -> Submission {
-    if !active() {
-        return Submission(None);
-    }
-    let now = Instant::now();
-    let mut started = None;
-    with_window(now, |w, _| {
-        started = Some(Started { generation: w.generation, at: now, update: w.prepared });
-    });
-    Submission(started)
-}
-
-/// Call immediately after the actual submission returns and before reacquiring
-/// the presentation lock. Waiting for this module's lock is excluded as well.
-pub fn submission_ends(submission: Submission, success: bool, main_thread: bool) {
-    if !active() {
-        return;
-    }
-    let now = Instant::now();
-    with_window(now, |w, at| w.submission_ends(at, submission, success, main_thread));
 }
 
 impl Window {
@@ -281,10 +301,62 @@ impl Window {
     }
 }
 
+/// A cheap gate before a caller reads game memory for a measurement.
+pub fn active() -> bool {
+    COLLECTOR.active()
+}
+
+/// Updates the initial context even while collection is off. Changes within
+/// the window split its timeline rather than mixing unrelated intervals.
+pub fn context(session: u64, speed: u32, paused: bool, target_interval: Option<Duration>) {
+    COLLECTOR.context(session, speed, paused, target_interval);
+}
+
+/// Starts one window; even an expired window must be collected before a new
+/// one can replace it, so a second client cannot silently discard its report.
+pub fn begin(seconds: u32) -> GResult<()> {
+    COLLECTOR.begin(seconds)
+}
+
+/// Takes the timeline out of the lock before sorting and computing statistics.
+/// The deadline, not this request's queueing delay, bounds a finished window.
+pub fn end() -> GResult<Report> {
+    COLLECTOR.end()
+}
+
+pub fn day_begins(date: i32) {
+    COLLECTOR.record(Kind::DayBegins { date });
+}
+
+pub fn day_ends(date: i32, faulted: bool) {
+    COLLECTOR.record(Kind::DayEnds { date, faulted });
+}
+
+/// Publishes an update for both drawing-thread and main-thread drawing paths.
+pub fn prepared() {
+    COLLECTOR.prepared();
+}
+
+/// The prepared data is no longer eligible for new submissions. A frame
+/// already in flight keeps its token and can still submit that earlier update.
+pub fn invalidated() {
+    COLLECTOR.invalidated();
+}
+
+pub fn submission_begins() -> Submission {
+    COLLECTOR.submission_begins()
+}
+
+/// Call immediately after the actual submission returns and before reacquiring
+/// the presentation lock. Waiting for this module's lock is excluded as well.
+pub fn submission_ends(submission: Submission, success: bool, main_thread: bool) {
+    COLLECTOR.submission_ends(submission, success, main_thread);
+}
+
 /// Explicit point markers; paired labels such as save_begin/save_end retain
 /// their timings and remain in the inclusive performance measurements.
 pub fn interruption(kind: &'static str) {
-    record(Kind::Interruption(kind));
+    COLLECTOR.record(Kind::Interruption(kind));
 }
 
 fn micros(duration: Duration) -> u64 {
@@ -294,6 +366,7 @@ fn micros(duration: Duration) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn returns_from_before_the_window_count_without_old_entry_or_update() {
@@ -323,44 +396,93 @@ mod tests {
         assert_eq!(s.interface.age.unknown_ms, 4.0);
     }
 
+    /// A clock the test advances, so the lifecycle is driven through its
+    /// interface without touching the state or the wall clock.
+    #[derive(Clone)]
+    struct FakeClock(Arc<Mutex<Instant>>);
+
+    impl FakeClock {
+        fn new() -> Self {
+            Self(Arc::new(Mutex::new(Instant::now())))
+        }
+
+        fn advance(&self, by: Duration) {
+            *self.0.lock().unwrap() += by;
+        }
+    }
+
+    impl Clock for FakeClock {
+        fn now(&self) -> Instant {
+            *self.0.lock().unwrap()
+        }
+    }
+
     #[test]
     fn lifecycle_rejects_replacement_caps_the_deadline_and_discards_old_token_associations() {
-        assert_eq!(begin(0).unwrap_err().status, Status::InvalidArgument);
-        assert_eq!(begin(601).unwrap_err().status, Status::InvalidArgument);
-        assert_eq!(begin(1).unwrap_err().status, Status::NotReady);
-        context(1, 5, true, Some(Duration::from_millis(10)));
-        begin(1).unwrap();
-        assert!(active());
-        assert_eq!(begin(1).unwrap_err().status, Status::Rejected);
-        prepared();
-        context(1, 4, false, None);
-        assert_eq!(STATE.lock().unwrap().window.as_ref().unwrap().prepared, Some(1));
-        let old_token = submission_begins();
-        context(2, 4, false, None);
-        assert_eq!(STATE.lock().unwrap().window.as_ref().unwrap().prepared, None);
-        {
-            let mut state = STATE.lock().unwrap();
-            state.window.as_mut().unwrap().began = Instant::now() - Duration::from_secs(2);
-        }
-        prepared();
-        assert!(!active());
-        assert_eq!(begin(1).unwrap_err().status, Status::Rejected);
-        let report = end().unwrap();
+        let clock = FakeClock::new();
+        let c = Collector::new(clock.clone());
+        assert_eq!(c.begin(0).unwrap_err().status, Status::InvalidArgument);
+        assert_eq!(c.begin(601).unwrap_err().status, Status::InvalidArgument);
+        assert_eq!(c.begin(1).unwrap_err().status, Status::NotReady);
+        c.context(1, 5, true, Some(Duration::from_millis(10)));
+        c.begin(1).unwrap();
+        assert!(c.active());
+        assert_eq!(c.begin(1).unwrap_err().status, Status::Rejected);
+        c.prepared();
+        clock.advance(Duration::from_millis(100));
+        // A change within the session splits the timeline; the prepared update
+        // stays eligible.
+        c.context(1, 4, false, None);
+        let old_token = c.submission_begins();
+        clock.advance(Duration::from_millis(200));
+        // A new session clears the prepared update and splits again.
+        c.context(2, 4, false, None);
+        // The deadline passes: the next recorder deactivates the collection.
+        clock.advance(Duration::from_secs(2));
+        c.prepared();
+        assert!(!c.active());
+        assert_eq!(c.begin(1).unwrap_err().status, Status::Rejected);
+        let report = c.end().unwrap();
         assert_eq!(report.elapsed_ms, 1000.0);
         assert!(report.reached_deadline);
         assert_eq!(report.recorded_events, 3);
-        assert_eq!(end().unwrap_err().status, Status::Rejected);
-        begin(1).unwrap();
-        submission_ends(old_token, true, false);
-        // Keep the observed return strictly before the half-open window's
-        // end without depending on the clock advancing between these calls.
-        STATE.lock().unwrap().window.as_mut().unwrap().began -= Duration::from_millis(1);
-        let report = end().unwrap();
+        assert_eq!(report.segments.len(), 3);
+        assert_eq!(c.end().unwrap_err().status, Status::Rejected);
+        c.begin(1).unwrap();
+        c.submission_ends(old_token, true, false);
+        // Keep the return strictly before the half-open window's end without
+        // depending on the clock advancing between these calls.
+        clock.advance(Duration::from_millis(1));
+        let report = c.end().unwrap();
         assert_eq!(report.observed.successful_submissions, 1);
         assert_eq!(report.segments[0].drawing.unattributed_submissions, 1);
         assert_eq!(report.segments[0].drawing.call_duration.samples, 0);
         assert!(!report.reached_deadline);
-        assert!(!active());
-        *STATE.lock().unwrap() = State::new();
+        assert!(!c.active());
+    }
+
+    #[test]
+    fn a_session_change_clears_the_prepared_update_for_new_submissions() {
+        let clock = FakeClock::new();
+        let c = Collector::new(clock.clone());
+        c.context(1, 5, true, None);
+        c.begin(10).unwrap();
+        c.prepared();
+        // A submission while the update is prepared carries it.
+        let with_update = c.submission_begins();
+        c.submission_ends(with_update, true, false);
+        clock.advance(Duration::from_millis(100));
+        c.context(2, 5, true, None);
+        // After the session change the prepared update is gone: a new
+        // submission carries none.
+        let without_update = c.submission_begins();
+        c.submission_ends(without_update, true, false);
+        clock.advance(Duration::from_millis(100));
+        let report = c.end().unwrap();
+        assert_eq!(report.observed.successful_submissions, 2);
+        // The first segment's submission was attributed to an update; the
+        // second session's was not.
+        assert_eq!(report.segments[0].interface.submitted_updates, 1);
+        assert_eq!(report.segments[1].interface.submitted_updates, 0);
     }
 }
