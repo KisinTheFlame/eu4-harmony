@@ -1,6 +1,6 @@
 # Sixth deepening plan
 
-Status: decided on 2026-11-14 from an architecture review of the codebase after the [fifth deepening](fifth-deepening.md), all five parts authorized together; building. No glossary terms or new ADRs are needed.
+Status: decided on 2026-11-14 from an architecture review of the codebase after the [fifth deepening](fifth-deepening.md), all five parts authorized together; built and checked in the running game on 2026-11-14 ([the run](../prototype-log/2026-11-14-sixth-deepening.md)). No glossary terms or new ADRs are needed.
 
 ## Goal and scope
 
