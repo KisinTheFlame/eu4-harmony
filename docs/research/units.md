@@ -105,7 +105,7 @@ The patrol and evade buttons are not toolbar actions but handlers of the single 
    - **Check** `0xd6cc40`: every army and fleet found by its ID. Execute `0xd6c540` hands them to the transport planner `0x1d0e20`, which splits (`split_unit`) and connects (`connect_to_ship_command`) as needed.
    - A fleet's "Enable Automatic Transportation" toggle is a different command, `toggle_auto_transfer` (`0x14864d0`).
 5. **`connect_to_ship_command`** (vtable `0x1d1db30`, token `0x2e22`): `unit` (an army in port), `do_connect_to_ship` (bool, `+0x60`) = the army's byte `+0x20d` inverted (constructor `0xd5e590`; `0xd5e60f`: `48 8d 88 fd 01 00 00`, `+0x1fd` from the registered `+0x10`): "Attach to Transport", the army boards when the fleet leaves. Can do with reasons `0xd55e70`(army, std::string*): `CONNECT_TO_SHIP_(PENDING_)CONDOTTIERI`, `NO_FRIENDLY_TRANSPORT_SHIPS_IN_PORT`, `CONNECT_TO_SHIP_LOW_MORALE`, `UNIT_MOVEMENT_RETREATING`, `CONNECT_TO_SHIP_LOCKED`, `UNIT_IN_BATTLE`.
-6. **`attach_unit`** (`unit`, `target`): the toolbar's attach (`0x1487490`) posts `detach_unit` for an attached army, otherwise gathers the targets (`0xd56750`) and posts `attach_unit` when there is one, or opens `attach_unit_window` to pick.
+6. **`attach_unit`** (`unit`, `target`): the toolbar's attach (`0x1487490`) posts `detach_unit` for an attached army. Otherwise, with Shift, it gathers targets (`0xd56750`) and posts `attach_unit` for the first if any; an ordinary click toggles the existing `attach_unit_window`. The ordinary-click branch does not bypass the picker for a single candidate (corrected by the 2026-11-14 static reading, [window-ordering.md](window-ordering.md), "The army attach picker").
 
 ## E. Unit fields
 

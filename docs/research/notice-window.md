@@ -287,11 +287,11 @@ Notes:
 
 - The three lookup methods **only search the root's own direct child elements**; they do not descend into subwindows. When splicing, put the elements in the `topbar` `windowType` block, not in a nested window. If they go in a nested window, fetch the subwindow with `+0x1c0` first.
 - When nothing is found, all three go on to `0x14154e930` with the type name `Button`, `InstantTextBox` or `Icon`, and may return a stand-in object. So the "check the element's name" check in `ui.rs` must stay.
-- Mouse input (`0x14ea150`, `0x14ea630`) skips objects whose `+0xc4` is non-zero or whose `+0xc5` is 0. After Kill, elements receive no more clicks.
+- Ordinary mouse dispatch (`0x14ea3d0`) obtains candidates through `0x14deaf0`, which excludes objects whose `+0xc4` is nonzero or whose `+0xc5` is zero. `0x14ea150` handles keyboard events; `0x14ea630` handles source 3. The [activation study](window-activation.md) corrects their earlier classification here. Kill marks the object dead before eventual deletion.
 
 ## 5. Child elements outside the window's bounds
 
-- **Hit testing** (verified): `0x14ea630` walks a flat table of scene nodes (`scene+0x298`) through `0x14dda50`. Each node is tested against **its own** rectangle, the shorts at `node+0x128..+0x12e`; the parent window's bounds are not checked along the way.
+- **Hit testing** (verified): `0x14dda50` walks the prepared scene-node vector (`scene+0x298`). It checks node clipping at `node+0x128..+0x12e` when enabled, then the node's own geometric hit method at slot `+0x88`; it does not walk parent windows' bounds. Ordinary mouse dispatch is `0x14ea3d0`, not `0x14ea630`. [Window input refresh](window-input-refresh.md) describes the draw-list and cursor-hit preparation.
 - **The bounds check only logs** (verified): when a child element goes past the size of the background element (`root+0x520`), `0x1546e70` logs `Illegal object boundaries`. It neither clips nor moves the element. `topbar` has `backGround=""`, so it is inferred to have no background element and not to trigger this.
 - **Rendering** (not fully verified): no vanilla `.gui` has a `clipping` field anywhere. The D3D9 renderer has a clipping implementation (`0x173f830`), but which GUI elements turn it on was not traced.
 - **Conclusion**: no code was found that clips to the parent window's `size`. This matches what is seen at run time, where child elements of the army panel that go past its bounds still show. Clipping remains inferred.

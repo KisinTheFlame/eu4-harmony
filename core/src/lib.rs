@@ -105,6 +105,7 @@ mod trace;
 mod troubleshooting;
 pub mod ui;
 pub mod unicode;
+mod window_ordering;
 pub mod windows;
 pub mod wording;
 #[cfg(feature = "dev-write-watch")]

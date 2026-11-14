@@ -25,9 +25,9 @@
 "0x8ecd0" = { kind = "function", notes = ["research/power-spending.md"] }
 "0x8edc0" = { kind = "function", name = "localisation of two values", notes = ["research/power-spending.md", "research/province-view.md"] }
 "0x8ee90" = { kind = "function", name = "localisation value destructor", notes = ["research/power-spending.md"] }
-"0x8f440" = { kind = "leaf", name = "a leader is one", notes = ["research/advisors.md", "research/armies.md", "research/main-menu.md", "research/message-pop-up-actions.md", "research/names.md", "research/province-view.md", "research/religion.md", "research/scripts.md", "research/trade.md"] }
+"0x8f440" = { kind = "leaf", name = "a leader is one", notes = ["research/advisors.md", "research/armies.md", "research/main-menu.md", "research/message-pop-up-actions.md", "research/names.md", "research/province-view.md", "research/religion.md", "research/scripts.md", "research/trade.md", "research/window-activation.md", "research/window-input-refresh.md", "research/window-visibility.md"] }
 "0x8f450" = { kind = "leaf", name = "answers no", notes = ["research/advisors.md", "research/armies.md", "research/commands.md", "research/extension-windows.md", "research/main-menu.md", "research/names.md", "research/recruiting.md", "research/scripts.md"] }
-"0x8f480" = { kind = "leaf", name = "no task kind", notes = ["research/gui-drawing.md", "research/units.md"] }
+"0x8f480" = { kind = "leaf", name = "no task kind", notes = ["research/gui-drawing.md", "research/units.md", "research/window-input-refresh.md"] }
 "0x8f670" = { kind = "leaf", name = "localisation value constructor", notes = ["research/power-spending.md"] }
 "0x91670" = { kind = "function", notes = ["research/loading.md"] }
 "0x923f0" = { kind = "function", notes = ["research/loading.md"] }
@@ -41,7 +41,7 @@
 "0x947f0" = { kind = "function", name = "scope destructor", notes = ["research/triggers.md"] }
 "0x94890" = { kind = "function", notes = ["research/triggers.md"] }
 "0x94f20" = { kind = "leaf", notes = ["research/units.md"] }
-"0x950b0" = { kind = "function", notes = ["research/font-textures.md"] }
+"0x950b0" = { kind = "function", notes = ["research/font-textures.md", "research/window-activation.md", "research/window-input-refresh.md"] }
 "0x950ce" = { kind = "code", notes = ["research/font-textures.md", "research/main-menu.md"] }
 "0x95110" = { kind = "function", notes = ["research/army-checks-in-searches.md", "research/extension-windows.md", "research/notice-window.md", "research/parameterized-script.md", "research/tolerance-in-a-province.md"] }
 "0x951a1" = { kind = "code", notes = ["research/main-menu.md"] }
@@ -74,6 +74,7 @@
 "0x977ae" = { kind = "code", name = "game checksum answer kept", notes = ["research/achievements.md"] }
 "0x977cc" = { kind = "code", name = "game checksum answer kept without the platform", notes = ["research/achievements.md"] }
 "0x979d0" = { kind = "function", name = "map achievements to platform", notes = ["research/achievements.md"] }
+"0x98090" = { kind = "function", notes = ["research/window-ordering.md"] }
 "0x985c0" = { kind = "leaf", notes = ["research/countries.md"] }
 "0x98840" = { kind = "leaf", notes = ["research/power-spending.md", "research/recruiting.md"] }
 "0x98a30" = { kind = "function", notes = ["research/power-spending.md"] }
@@ -161,9 +162,10 @@
 "0xc8ce0" = { kind = "function", notes = ["research/religion.md"] }
 "0xc8f10" = { kind = "function", notes = ["research/religion.md"] }
 "0xc9cb0" = { kind = "leaf", notes = ["research/countries.md"] }
+"0xc9d60" = { kind = "function", notes = ["research/window-input-refresh.md"] }
 "0xc9e70" = { kind = "function", notes = ["research/world-interface-seams.md"] }
 "0xcbff0" = { kind = "function", notes = ["research/empires.md", "research/envoys.md", "research/government.md"] }
-"0xcc220" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
+"0xcc220" = { kind = "function", notes = ["research/map-drawing-reads.md", "research/window-activation.md", "research/window-input-refresh.md"] }
 "0xcc2a3" = { kind = "code", notes = ["research/main-menu.md"] }
 "0xcd8f0" = { kind = "function", notes = ["research/armies.md", "research/sieges.md"] }
 "0xcd990" = { kind = "function", notes = ["research/leaders.md"] }
@@ -187,7 +189,7 @@
 "0xdb950" = { kind = "function", notes = ["research/ai.md"] }
 "0xdc8a0" = { kind = "function", notes = ["research/ai-stage-wait.md", "research/ai.md"] }
 "0xdd8f0" = { kind = "function", notes = ["research/army-checks-in-searches.md"] }
-"0xdf120" = { kind = "function", notes = ["research/dependency-teardown.md"] }
+"0xdf120" = { kind = "function", notes = ["research/dependency-teardown.md", "research/window-placement.md"] }
 "0xdf320" = { kind = "function", name = "thread's factors", notes = ["research/diplomacy.md"] }
 "0xdfde0" = { kind = "function", name = "tags grown", notes = ["research/diplomacy.md"] }
 "0xe4050" = { kind = "function", notes = ["research/ai.md", "research/late-game.md", "research/random.md"] }
@@ -1991,7 +1993,7 @@
 "0x811aa0" = { kind = "leaf", name = "map manager session", notes = ["research/recruiting.md", "research/time.md"] }
 "0x811b20" = { kind = "leaf", name = "player country", notes = ["research/armies.md", "research/fog-of-war.md"] }
 "0x812e20" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
-"0x8137c0" = { kind = "function", name = "map manager frame", notes = ["research/architecture.md", "research/army-orders.md", "research/drawing-beside-the-day.md", "research/extension-windows.md", "research/main-menu.md", "research/main-thread.md", "research/map-drawing-reads.md", "research/notice-window.md", "research/recruiting.md", "research/safe-points.md", "research/time.md"] }
+"0x8137c0" = { kind = "function", name = "map manager frame", notes = ["research/architecture.md", "research/army-orders.md", "research/drawing-beside-the-day.md", "research/extension-windows.md", "research/main-menu.md", "research/main-thread.md", "research/map-drawing-reads.md", "research/notice-window.md", "research/recruiting.md", "research/safe-points.md", "research/time.md", "research/window-activation.md"] }
 "0x813ac5" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x813c56" = { kind = "code", notes = ["research/recruiting.md"] }
 "0x813f8e" = { kind = "code", notes = ["research/recruiting.md"] }
@@ -2009,7 +2011,7 @@
 "0x814f0a" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
 "0x814f17" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
 "0x814f2f" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
-"0x815028" = { kind = "code", notes = ["research/army-orders.md"] }
+"0x815028" = { kind = "code", notes = ["research/army-orders.md", "research/window-activation.md"] }
 "0x81502d" = { kind = "code", notes = ["research/army-orders.md"] }
 "0x815312" = { kind = "code", notes = ["research/architecture.md"] }
 "0x8156ba" = { kind = "code", notes = ["research/main-menu.md"] }
@@ -2145,7 +2147,9 @@
 "0x830150" = { kind = "function", notes = ["research/message-pop-up-actions.md"] }
 "0x83065d" = { kind = "code", notes = ["research/message-pop-up-actions.md"] }
 "0x830700" = { kind = "function", name = "arrange the panel button strip", notes = ["research/drawing-beside-the-day.md", "research/extension-windows.md", "research/panel-entry-text.md", "research/window-elements.md"] }
-"0x830fd0" = { kind = "function", notes = ["research/architecture.md", "research/army-orders.md", "research/drawing-beside-the-day.md", "research/main-thread.md"] }
+"0x830fd0" = { kind = "function", notes = ["research/architecture.md", "research/army-orders.md", "research/drawing-beside-the-day.md", "research/main-thread.md", "research/window-activation.md"] }
+"0x8310a2" = { kind = "code", notes = ["research/window-activation.md"] }
+"0x8310ba" = { kind = "code", notes = ["research/window-activation.md"] }
 "0x831132" = { kind = "code", notes = ["research/army-orders.md"] }
 "0x831137" = { kind = "code", name = "what holds the camera, first", notes = ["research/army-orders.md"] }
 "0x83117b" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
@@ -3434,7 +3438,7 @@
 "0xd55c20" = { kind = "function", notes = ["research/army-checks-in-searches.md"] }
 "0xd55e70" = { kind = "function", name = "may attach to transport", notes = ["research/armies.md", "research/units.md"] }
 "0xd565b0" = { kind = "function", name = "may attach a unit", notes = ["research/units.md"] }
-"0xd56750" = { kind = "function", notes = ["research/units.md"] }
+"0xd56750" = { kind = "function", notes = ["research/units.md", "research/window-ordering.md"] }
 "0xd59fa0" = { kind = "function", notes = ["research/units.md"] }
 "0xd59fd0" = { kind = "function", notes = ["research/units.md"] }
 "0xd5a986" = { kind = "code", notes = ["research/sieges.md"] }
@@ -3783,6 +3787,7 @@
 "0xfaab30" = { kind = "leaf", name = "window background enable method", notes = ["research/extension-windows.md", "research/interface-bindings.md"] }
 "0xfaab80" = { kind = "leaf", notes = ["research/message-pop-up-actions.md"] }
 "0xfaab90" = { kind = "leaf", name = "flag index", notes = ["research/message-pop-up-actions.md", "research/window-elements.md"] }
+"0xfaabd0" = { kind = "leaf", notes = ["research/window-activation.md"] }
 "0xfaacf2" = { kind = "code", notes = ["research/sieges.md"] }
 "0xfab020" = { kind = "function", notes = ["research/leaders.md"] }
 "0xfab520" = { kind = "function", notes = ["research/leaders.md"] }
@@ -3987,6 +3992,7 @@
 "0x10a7a90" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
 "0x10a7e62" = { kind = "code", notes = ["research/map-drawing-reads.md"] }
 "0x10a7f87" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x10a87c0" = { kind = "function", notes = ["research/window-activation.md"] }
 "0x10a8930" = { kind = "function", notes = ["research/localisation-loading.md", "research/main-menu.md", "research/world-interface-seams.md"] }
 "0x10a8c30" = { kind = "function", name = "map renderer", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/map-drawing-reads.md", "research/map-modes.md"] }
 "0x10a9be0" = { kind = "function", name = "the map's names made", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md", "research/map-modes.md"] }
@@ -3999,6 +4005,7 @@
 "0x10b2b70" = { kind = "function", name = "flags and loading screens", notes = ["research/loading.md", "research/localisation-loading.md"] }
 "0x10b2ee0" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x10b3600" = { kind = "function", notes = ["research/loading.md", "research/main-menu.md"] }
+"0x10b3b40" = { kind = "leaf", notes = ["research/window-activation.md"] }
 "0x10b3bd0" = { kind = "function", notes = ["research/ui-injection.md"] }
 "0x10b3c31" = { kind = "code", notes = ["research/message-pop-up-actions.md"] }
 "0x10b3fe0" = { kind = "function", notes = ["research/world-interface-seams.md"] }
@@ -4006,6 +4013,8 @@
 "0x10b44b0" = { kind = "function", notes = ["research/message-pop-up-actions.md"] }
 "0x10b4720" = { kind = "function", notes = ["research/message-pop-up-actions.md"] }
 "0x10b4970" = { kind = "function", notes = ["research/message-pop-up-actions.md"] }
+"0x10b4f00" = { kind = "function", notes = ["research/window-activation.md"] }
+"0x10b4f09" = { kind = "code", notes = ["research/window-activation.md"] }
 "0x10b4f40" = { kind = "leaf", notes = ["research/extension-windows.md"] }
 "0x10b4f50" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x10b53e0" = { kind = "function", notes = ["research/interface-bindings.md"] }
@@ -4105,8 +4114,9 @@
 "0x11376b0" = { kind = "function", notes = ["research/save-transfer-copy.md"] }
 "0x114133c" = { kind = "leaf", notes = ["research/save-transfer-copy.md"] }
 "0x1142e70" = { kind = "function", name = "goto box deleting destructor", notes = ["research/main-menu.md"] }
-"0x1148230" = { kind = "leaf", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md"] }
-"0x1148250" = { kind = "leaf", notes = ["research/extension-windows.md"] }
+"0x1148230" = { kind = "leaf", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/window-input-refresh.md", "research/window-visibility.md"] }
+"0x1148250" = { kind = "leaf", notes = ["research/extension-windows.md", "research/window-activation.md"] }
+"0x11483a0" = { kind = "leaf", notes = ["research/window-activation.md", "research/window-input-refresh.md", "research/window-visibility.md"] }
 "0x114a7a0" = { kind = "function", notes = ["research/loading.md"] }
 "0x114aa10" = { kind = "function", notes = ["research/loading.md"] }
 "0x114b160" = { kind = "function", notes = ["research/loading.md"] }
@@ -4493,7 +4503,7 @@
 "0x144dfce" = { kind = "code", name = "army panel class", notes = ["research/interface-bindings.md"] }
 "0x144f523" = { kind = "code", notes = ["research/interface-bindings.md"] }
 "0x144f560" = { kind = "function", name = "army panel destructor", notes = ["research/interface-bindings.md", "research/notice-window.md"] }
-"0x144fb00" = { kind = "function", notes = ["research/extension-windows.md", "research/interface-bindings.md", "research/notice-window.md", "research/ui-injection.md"] }
+"0x144fb00" = { kind = "function", notes = ["research/extension-windows.md", "research/interface-bindings.md", "research/notice-window.md", "research/ui-injection.md", "research/window-ordering.md"] }
 "0x144fbb5" = { kind = "code", name = "army panel buttons", notes = ["research/interface-bindings.md"] }
 "0x144ffc4" = { kind = "code", notes = ["research/interface-bindings.md"] }
 "0x1450580" = { kind = "function", name = "army panel rebuild", notes = ["research/interface-bindings.md", "research/ui-injection.md"] }
@@ -4519,6 +4529,8 @@
 "0x1465e20" = { kind = "function", notes = ["research/units.md"] }
 "0x1465f60" = { kind = "function", notes = ["research/units.md"] }
 "0x146c7aa" = { kind = "code", notes = ["research/units.md"] }
+"0x1470d60" = { kind = "function", notes = ["research/window-ordering.md"] }
+"0x14710c0" = { kind = "function", notes = ["research/window-ordering.md"] }
 "0x14714d0" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x1471530" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x1471780" = { kind = "function", notes = ["research/main-menu.md"] }
@@ -4528,7 +4540,9 @@
 "0x1474740" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x14748f0" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x1474a60" = { kind = "code", notes = ["research/main-menu.md"] }
-"0x1474f80" = { kind = "function", notes = ["research/units.md"] }
+"0x1474f80" = { kind = "function", name = "show and refill the army attach picker", notes = ["research/units.md", "research/window-ordering.md"] }
+"0x1475021" = { kind = "code", name = "show the existing army attach subwindow", notes = ["research/window-ordering.md"] }
+"0x1475280" = { kind = "function", name = "hide the army attach picker", notes = ["research/window-ordering.md"] }
 "0x1475440" = { kind = "function", notes = ["research/units.md"] }
 "0x14756e0" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x1475f70" = { kind = "function", notes = ["research/units.md"] }
@@ -4581,7 +4595,7 @@
 "0x1487170" = { kind = "function", notes = ["research/units.md"] }
 "0x1487300" = { kind = "function", notes = ["research/units.md"] }
 "0x1487390" = { kind = "function", notes = ["research/units.md"] }
-"0x1487490" = { kind = "function", notes = ["research/units.md"] }
+"0x1487490" = { kind = "function", name = "execute the army attach or detach action", notes = ["research/units.md", "research/window-ordering.md"] }
 "0x148a6d0" = { kind = "function", notes = ["research/names.md"] }
 "0x148b710" = { kind = "function", notes = ["research/diplomacy.md"] }
 "0x149aca0" = { kind = "function", notes = ["research/extension-windows.md", "research/main-menu.md", "research/notice-window.md"] }
@@ -4631,12 +4645,13 @@
 "0x14c02d6" = { kind = "code", notes = ["research/headless.md"] }
 "0x14c2500" = { kind = "leaf", name = "restart", notes = ["research/architecture.md", "research/main-menu.md"] }
 "0x14c2530" = { kind = "function", name = "idler switch", notes = ["research/main-menu.md", "research/notice-window.md"] }
-"0x14c25a0" = { kind = "function", name = "the application's frame", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/headless.md", "research/main-menu.md", "research/main-thread.md", "research/notice-window.md", "research/time.md"] }
+"0x14c25a0" = { kind = "function", name = "the application's frame", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/headless.md", "research/main-menu.md", "research/main-thread.md", "research/notice-window.md", "research/time.md", "research/window-activation.md"] }
 "0x14c267c" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x14c2692" = { kind = "code", notes = ["research/headless.md"] }
 "0x14c26b3" = { kind = "code", notes = ["research/headless.md"] }
 "0x14c26e7" = { kind = "code", notes = ["research/headless.md"] }
 "0x14c2730" = { kind = "code", notes = ["research/architecture.md"] }
+"0x14c2815" = { kind = "code", notes = ["research/window-activation.md"] }
 "0x14c2818" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x14c282f" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x14c2839" = { kind = "code", name = "the application switches its idler", notes = ["research/drawing-beside-the-day.md"] }
@@ -4717,7 +4732,7 @@
 "0x14d9000" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x14d9a20" = { kind = "function", notes = ["research/architecture.md"] }
 "0x14db3c0" = { kind = "function", notes = ["research/gui-drawing.md"] }
-"0x14db6a0" = { kind = "function", notes = ["research/extension-windows.md", "research/window-elements.md"] }
+"0x14db6a0" = { kind = "function", notes = ["research/extension-windows.md", "research/window-elements.md", "research/window-visibility.md"] }
 "0x14db870" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/loading.md"] }
 "0x14db940" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x14dbb0b" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
@@ -4729,24 +4744,34 @@
 "0x14dcd30" = { kind = "function", notes = ["research/loading.md", "research/main-thread.md", "research/map-drawing-reads.md"] }
 "0x14dcde0" = { kind = "function", notes = ["research/main-thread.md", "research/map-drawing-reads.md"] }
 "0x14dcf90" = { kind = "function", name = "set up native GUI drawing state", notes = ["research/gui-drawing.md", "research/panel-entry-text.md"] }
-"0x14dd010" = { kind = "function", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/late-game.md", "research/main-thread.md", "research/map-drawing-reads.md"] }
+"0x14dd010" = { kind = "function", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/late-game.md", "research/main-thread.md", "research/map-drawing-reads.md", "research/window-input-refresh.md", "research/window-ordering.md"] }
+"0x14dd23f" = { kind = "code", notes = ["research/window-input-refresh.md"] }
 "0x14dd2bd" = { kind = "code", name = "first ordinary GUI draw-list return", notes = ["research/panel-entry-text.md"] }
-"0x14dd350" = { kind = "function", name = "draw a prepared GUI node list", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/late-game.md", "research/main-thread.md", "research/panel-entry-text.md"] }
+"0x14dd350" = { kind = "function", name = "draw a prepared GUI node list", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/late-game.md", "research/main-thread.md", "research/panel-entry-text.md", "research/window-input-refresh.md", "research/window-ordering.md"] }
 "0x14dd4ee" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
-"0x14dd540" = { kind = "function", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/map-drawing-reads.md"] }
+"0x14dd540" = { kind = "function", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/map-drawing-reads.md", "research/window-ordering.md"] }
 "0x14dd742" = { kind = "code", name = "second ordinary GUI draw-list return", notes = ["research/panel-entry-text.md"] }
-"0x14dd7a0" = { kind = "function", name = "walk GUI nodes into the draw list", notes = ["research/gui-drawing.md", "research/panel-entry-text.md"] }
-"0x14dda50" = { kind = "function", notes = ["research/extension-windows.md", "research/gui-drawing.md", "research/notice-window.md"] }
+"0x14dd7a0" = { kind = "function", name = "walk GUI nodes into the draw list", notes = ["research/gui-drawing.md", "research/panel-entry-text.md", "research/window-input-refresh.md", "research/window-ordering.md", "research/window-visibility.md"] }
+"0x14dda40" = { kind = "code", notes = ["research/window-input-refresh.md"] }
+"0x14dda50" = { kind = "function", name = "collect GUI node hits in draw order", notes = ["research/extension-windows.md", "research/gui-drawing.md", "research/notice-window.md", "research/window-activation.md", "research/window-input-refresh.md", "research/window-ordering.md"] }
 "0x14ddc10" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
 "0x14ddc40" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/headless.md", "research/main-thread.md"] }
 "0x14ddc70" = { kind = "function", notes = ["research/architecture.md", "research/loading.md"] }
 "0x14ddd50" = { kind = "function", notes = ["research/architecture.md", "research/loading.md"] }
-"0x14de440" = { kind = "function", notes = ["research/extension-windows.md"] }
+"0x14dde00" = { kind = "function", name = "append a distinct GUI input candidate", notes = ["research/window-ordering.md"] }
+"0x14ddec0" = { kind = "function", name = "merge GUI input candidates from sampled points", notes = ["research/window-ordering.md"] }
+"0x14de440" = { kind = "function", name = "collect reverse-order GUI hits at sampled points", notes = ["research/window-ordering.md"] }
+"0x14deaf0" = { kind = "function", notes = ["research/notice-window.md", "research/window-activation.md"] }
 "0x14debe0" = { kind = "function", name = "select the visible element under the cursor", notes = ["research/panel-entry-text.md"] }
+"0x14defd0" = { kind = "function", notes = ["research/window-activation.md", "research/window-input-refresh.md"] }
 "0x14df050" = { kind = "function", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/headless.md", "research/loading.md", "research/map-drawing-reads.md"] }
 "0x14df580" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x14df7b0" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
 "0x14dfb30" = { kind = "leaf", notes = ["research/loading.md"] }
+"0x14dff50" = { kind = "function", notes = ["research/window-activation.md"] }
+"0x14e06e0" = { kind = "function", notes = ["research/window-activation.md"] }
+"0x14e0900" = { kind = "function", notes = ["research/window-activation.md"] }
+"0x14e0d10" = { kind = "function", notes = ["research/window-activation.md"] }
 "0x14e0d90" = { kind = "function", notes = ["research/notice-window.md", "research/ui-injection.md"] }
 "0x14e1140" = { kind = "function", notes = ["research/extension-windows.md", "research/notice-window.md", "research/ui-injection.md"] }
 "0x14e13b8" = { kind = "code", notes = ["research/extension-windows.md"] }
@@ -4773,22 +4798,41 @@
 "0x14e8640" = { kind = "function", notes = ["research/ui-injection.md"] }
 "0x14e8cf0" = { kind = "function", name = "create a named native text box", notes = ["research/panel-entry-text.md"] }
 "0x14e8fb0" = { kind = "function", notes = ["research/ui-injection.md"] }
-"0x14e9030" = { kind = "function", name = "building a window", notes = ["research/extension-windows.md", "research/notice-window.md", "research/ui-injection.md"] }
+"0x14e9030" = { kind = "function", name = "building a window", notes = ["research/extension-windows.md", "research/notice-window.md", "research/ui-injection.md", "research/window-placement.md"] }
 "0x14e9078" = { kind = "code", notes = ["research/notice-window.md"] }
 "0x14e90a0" = { kind = "code", notes = ["research/notice-window.md"] }
 "0x14e90b2" = { kind = "code", name = "scene size", notes = ["research/notice-window.md"] }
 "0x14e9160" = { kind = "function", notes = ["research/ui-injection.md"] }
 "0x14e93b0" = { kind = "function", notes = ["research/ui-injection.md"] }
-"0x14e9a70" = { kind = "function", notes = ["research/architecture.md", "research/main-menu.md", "research/text-input.md"] }
+"0x14e9a70" = { kind = "function", notes = ["research/architecture.md", "research/main-menu.md", "research/text-input.md", "research/window-activation.md"] }
+"0x14e9a9d" = { kind = "code", notes = ["research/window-activation.md"] }
+"0x14e9c72" = { kind = "code", notes = ["research/window-activation.md"] }
+"0x14e9c80" = { kind = "code", notes = ["research/window-activation.md"] }
+"0x14e9c94" = { kind = "code", notes = ["research/window-activation.md"] }
 "0x14e9c9b" = { kind = "code", notes = ["research/text-input.md"] }
+"0x14e9ce5" = { kind = "code", notes = ["research/window-activation.md"] }
+"0x14e9e87" = { kind = "code", notes = ["research/window-activation.md"] }
 "0x14e9fa0" = { kind = "function", notes = ["research/extension-windows.md", "research/notice-window.md"] }
 "0x14ea0b5" = { kind = "code", notes = ["research/main-menu.md"] }
-"0x14ea150" = { kind = "function", notes = ["research/extension-windows.md", "research/notice-window.md"] }
-"0x14ea630" = { kind = "function", notes = ["research/extension-windows.md", "research/notice-window.md"] }
+"0x14ea150" = { kind = "function", name = "dispatch one native keyboard event", notes = ["research/extension-windows.md", "research/notice-window.md", "research/window-activation.md", "research/window-ordering.md"] }
+"0x14ea198" = { kind = "code", notes = ["research/window-activation.md"] }
+"0x14ea1e0" = { kind = "code", notes = ["research/window-activation.md"] }
+"0x14ea236" = { kind = "code", notes = ["research/window-activation.md"] }
+"0x14ea284" = { kind = "code", notes = ["research/window-activation.md"] }
+"0x14ea2a0" = { kind = "code", notes = ["research/window-activation.md"] }
+"0x14ea335" = { kind = "code", notes = ["research/window-activation.md"] }
+"0x14ea366" = { kind = "code", notes = ["research/window-activation.md"] }
+"0x14ea3d0" = { kind = "function", name = "dispatch one native mouse event", notes = ["research/extension-windows.md", "research/notice-window.md", "research/window-activation.md", "research/window-ordering.md"] }
+"0x14ea538" = { kind = "code", notes = ["research/window-activation.md"] }
+"0x14ea56d" = { kind = "code", notes = ["research/window-activation.md"] }
+"0x14ea57d" = { kind = "code", notes = ["research/window-activation.md"] }
+"0x14ea630" = { kind = "function", notes = ["research/extension-windows.md", "research/notice-window.md", "research/window-activation.md", "research/window-ordering.md"] }
 "0x14ea9f0" = { kind = "function", notes = ["research/extension-windows.md", "research/ui-injection.md"] }
 "0x14eaaa0" = { kind = "function", notes = ["research/extension-windows.md"] }
 "0x14eac80" = { kind = "function", notes = ["research/architecture.md", "research/ui-injection.md"] }
-"0x14eb360" = { kind = "function", notes = ["research/extension-windows.md", "research/notice-window.md", "research/ui-injection.md"] }
+"0x14eb360" = { kind = "function", notes = ["research/extension-windows.md", "research/notice-window.md", "research/ui-injection.md", "research/window-placement.md"] }
+"0x14eb4b0" = { kind = "function", notes = ["research/window-activation.md"] }
+"0x14eb740" = { kind = "function", notes = ["research/window-activation.md"] }
 "0x14eb7d0" = { kind = "function", name = "reading an interface file", notes = ["research/extension-windows.md", "research/ui-injection.md"] }
 "0x14ec630" = { kind = "leaf", notes = ["research/ui-injection.md"] }
 "0x14ec717" = { kind = "code", notes = ["research/main-menu.md"] }
@@ -4797,6 +4841,8 @@
 "0x14ece90" = { kind = "function", notes = ["research/ui-injection.md"] }
 "0x14ed760" = { kind = "function", notes = ["research/world-interface-seams.md"] }
 "0x14ee2b8" = { kind = "leaf", notes = ["research/extension-windows.md"] }
+"0x14ee2d0" = { kind = "function", notes = ["research/window-activation.md"] }
+"0x14ef4a0" = { kind = "function", notes = ["research/window-activation.md"] }
 "0x14f0c90" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
 "0x14f135b" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x14f8630" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/world-interface-seams.md"] }
@@ -4807,20 +4853,25 @@
 "0x1505dc0" = { kind = "function", notes = ["research/architecture.md"] }
 "0x1506d30" = { kind = "function", notes = ["research/architecture.md"] }
 "0x1528950" = { kind = "function", notes = ["research/save-transfer-copy.md"] }
-"0x1529d20" = { kind = "function", name = "construct a text box", notes = ["research/interface-bindings.md", "research/panel-entry-text.md"] }
+"0x1529d20" = { kind = "function", name = "construct a text box", notes = ["research/interface-bindings.md", "research/panel-entry-text.md", "research/window-placement.md"] }
 "0x1529f85" = { kind = "code", notes = ["research/interface-bindings.md", "research/main-menu.md"] }
 "0x152a00a" = { kind = "code", notes = ["research/interface-bindings.md"] }
 "0x152a106" = { kind = "code", notes = ["research/interface-bindings.md"] }
+"0x152a26a" = { kind = "code", notes = ["research/window-placement.md"] }
+"0x152a292" = { kind = "code", notes = ["research/window-placement.md"] }
 "0x152aab0" = { kind = "function", notes = ["research/interface-bindings.md"] }
 "0x152aad6" = { kind = "code", notes = ["research/interface-bindings.md"] }
 "0x152aaf0" = { kind = "function", name = "text box destructor", notes = ["research/interface-bindings.md"] }
-"0x152ab70" = { kind = "function", name = "handle text-box input", notes = ["research/panel-entry-text.md"] }
+"0x152ab70" = { kind = "function", name = "handle text-box input", notes = ["research/panel-entry-text.md", "research/window-activation.md"] }
 "0x152ac90" = { kind = "function", name = "show a text box", notes = ["research/panel-entry-text.md", "research/window-elements.md"] }
 "0x152ad10" = { kind = "function", name = "hide a text box", notes = ["research/interface-bindings.md", "research/panel-entry-text.md", "research/window-elements.md"] }
 "0x152ae10" = { kind = "function", name = "text box setter", notes = ["research/extension-windows.md", "research/interface-bindings.md", "research/panel-entry-text.md"] }
 "0x152af90" = { kind = "function", name = "place a text box in oriented coordinates", notes = ["research/panel-entry-text.md"] }
 "0x152b060" = { kind = "function", name = "read the text-box position", notes = ["research/panel-entry-text.md"] }
-"0x152b0a0" = { kind = "function", notes = ["research/panel-entry-text.md"] }
+"0x152b0a0" = { kind = "function", notes = ["research/panel-entry-text.md", "research/window-placement.md"] }
+"0x152b0b0" = { kind = "code", notes = ["research/window-placement.md"] }
+"0x152b0d3" = { kind = "code", notes = ["research/window-placement.md"] }
+"0x152b0ef" = { kind = "code", notes = ["research/window-placement.md"] }
 "0x152b120" = { kind = "function", notes = ["research/panel-entry-text.md"] }
 "0x152b220" = { kind = "function", notes = ["research/panel-entry-text.md"] }
 "0x152b2c0" = { kind = "function", notes = ["research/panel-entry-text.md"] }
@@ -4838,29 +4889,34 @@
 "0x152dfbd" = { kind = "code", notes = ["research/window-elements.md"] }
 "0x152dfc7" = { kind = "code", notes = ["research/window-elements.md"] }
 "0x152e030" = { kind = "function", name = "window holder destructor", notes = ["research/main-menu.md", "research/window-elements.md"] }
+"0x152e090" = { kind = "leaf", notes = ["research/window-ordering.md"] }
 "0x152e0f0" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x152e220" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x152e2bc" = { kind = "code", notes = ["research/window-elements.md"] }
-"0x152e910" = { kind = "function", name = "list add", notes = ["research/window-elements.md"] }
+"0x152e910" = { kind = "function", name = "list add", notes = ["research/window-elements.md", "research/window-ordering.md"] }
 "0x1530150" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x1530640" = { kind = "function", name = "list box detaches its entries", notes = ["research/main-menu.md"] }
 "0x15315e0" = { kind = "function", name = "show the list root and its rows", notes = ["research/panel-entry-text.md"] }
 "0x1531710" = { kind = "function", name = "hide the list root", notes = ["research/panel-entry-text.md"] }
 "0x1531750" = { kind = "function", notes = ["research/main-menu.md"] }
+"0x1531850" = { kind = "function", notes = ["research/window-ordering.md"] }
+"0x1531e00" = { kind = "function", notes = ["research/window-activation.md"] }
 "0x15320f0" = { kind = "function", name = "list clear", notes = ["research/window-elements.md"] }
 "0x1532310" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x1532c60" = { kind = "function", name = "deactivate list graphics and rows", notes = ["research/panel-entry-text.md"] }
 "0x153320c" = { kind = "leaf", name = "hide a list through its visual interface", notes = ["research/panel-entry-text.md"] }
 "0x1533224" = { kind = "leaf", name = "show a list through its visual interface", notes = ["research/panel-entry-text.md"] }
 "0x1533360" = { kind = "function", notes = ["research/text-input.md"] }
+"0x1534190" = { kind = "function", notes = ["research/window-activation.md"] }
 "0x15343bc" = { kind = "code", name = "edit box caret position", notes = ["research/text-input.md"] }
-"0x1535250" = { kind = "function", notes = ["research/text-input.md"] }
+"0x1534bb0" = { kind = "function", notes = ["research/window-activation.md"] }
+"0x1535250" = { kind = "function", notes = ["research/text-input.md", "research/window-activation.md"] }
 "0x153539b" = { kind = "code", notes = ["research/text-input.md"] }
 "0x15354e0" = { kind = "function", notes = ["research/text-input.md"] }
 "0x15355f7" = { kind = "code", name = "edit box character", notes = ["research/text-input.md"] }
 "0x153560a" = { kind = "code", name = "edit box inserts the character", notes = ["research/text-input.md"] }
 "0x153646f" = { kind = "code", name = "editor click", notes = ["research/text-input.md"] }
-"0x15366c0" = { kind = "function", notes = ["research/text-input.md"] }
+"0x15366c0" = { kind = "function", notes = ["research/text-input.md", "research/window-activation.md"] }
 "0x1536a31" = { kind = "code", name = "editor Shift with Left or Right", notes = ["research/text-input.md"] }
 "0x1536b80" = { kind = "function", notes = ["research/text-input.md"] }
 "0x1536c32" = { kind = "code", notes = ["research/text-input.md"] }
@@ -4902,30 +4958,50 @@
 "0x1541630" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
 "0x1541d30" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
 "0x15422f0" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
-"0x1543f80" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/extension-windows.md", "research/gui-drawing.md", "research/notice-window.md", "research/ui-injection.md", "research/window-elements.md"] }
+"0x1543f80" = { kind = "function", name = "construct a window and restore definition order", notes = ["research/drawing-beside-the-day.md", "research/extension-windows.md", "research/gui-drawing.md", "research/notice-window.md", "research/ui-injection.md", "research/window-elements.md", "research/window-ordering.md", "research/window-placement.md"] }
+"0x154406a" = { kind = "code", notes = ["research/window-placement.md"] }
 "0x1544149" = { kind = "code", notes = ["research/extension-windows.md"] }
 "0x1544d02" = { kind = "code", notes = ["research/extension-windows.md"] }
-"0x1546510" = { kind = "function", name = "window destructor", notes = ["research/main-menu.md", "research/notice-window.md"] }
-"0x1546730" = { kind = "function", notes = ["research/extension-windows.md", "research/main-menu.md", "research/notice-window.md"] }
+"0x15460b3" = { kind = "code", notes = ["research/window-placement.md"] }
+"0x15460c9" = { kind = "code", name = "attach the constructed window to its supplied parent", notes = ["research/window-ordering.md"] }
+"0x1546106" = { kind = "code", notes = ["research/window-placement.md"] }
+"0x1546122" = { kind = "code", name = "begin attaching window elements in definition order", notes = ["research/window-ordering.md"] }
+"0x15462d0" = { kind = "code", notes = ["research/window-placement.md"] }
+"0x1546310" = { kind = "code", notes = ["research/window-placement.md"] }
+"0x15463f1" = { kind = "code", notes = ["research/window-placement.md"] }
+"0x1546454" = { kind = "code", notes = ["research/window-placement.md"] }
+"0x15464b0" = { kind = "code", notes = ["research/window-placement.md"] }
+"0x1546510" = { kind = "function", name = "window destructor", notes = ["research/main-menu.md", "research/notice-window.md", "research/window-visibility.md"] }
+"0x15465a0" = { kind = "function", name = "move a window container to its parent's end", notes = ["research/extension-windows.md", "research/window-ordering.md", "research/window-placement.md"] }
+"0x15465f0" = { kind = "function", name = "move a window container to its parent's beginning", notes = ["research/extension-windows.md", "research/window-ordering.md", "research/window-placement.md"] }
+"0x1546660" = { kind = "function", notes = ["research/window-placement.md"] }
+"0x1546730" = { kind = "function", notes = ["research/extension-windows.md", "research/main-menu.md", "research/notice-window.md", "research/window-visibility.md"] }
 "0x1546a30" = { kind = "leaf", notes = ["research/extension-windows.md"] }
-"0x1546a50" = { kind = "function", notes = ["research/extension-windows.md"] }
+"0x1546a50" = { kind = "function", name = "window wheel and input-catching handler", notes = ["research/extension-windows.md", "research/window-activation.md"] }
 "0x1546ac0" = { kind = "function", notes = ["research/extension-windows.md", "research/notice-window.md"] }
 "0x1546d50" = { kind = "function", notes = ["research/extension-windows.md"] }
 "0x1546e70" = { kind = "function", notes = ["research/notice-window.md", "research/ui-injection.md"] }
 "0x1547170" = { kind = "function", notes = ["research/extension-windows.md"] }
 "0x15472e0" = { kind = "function", name = "window position", notes = ["research/extension-windows.md"] }
 "0x1547370" = { kind = "function", notes = ["research/extension-windows.md"] }
-"0x1547520" = { kind = "function", name = "window kill", notes = ["research/extension-windows.md", "research/main-menu.md", "research/notice-window.md", "research/window-elements.md"] }
-"0x1547910" = { kind = "leaf", notes = ["research/notice-window.md"] }
-"0x1547a50" = { kind = "function", notes = ["research/extension-windows.md"] }
-"0x1547b00" = { kind = "function", name = "window hide", notes = ["research/extension-windows.md", "research/interface-bindings.md", "research/notice-window.md"] }
+"0x1547520" = { kind = "function", name = "window kill", notes = ["research/extension-windows.md", "research/main-menu.md", "research/notice-window.md", "research/window-elements.md", "research/window-visibility.md"] }
+"0x1547910" = { kind = "leaf", notes = ["research/notice-window.md", "research/window-visibility.md"] }
+"0x1547a50" = { kind = "function", notes = ["research/extension-windows.md", "research/window-visibility.md"] }
+"0x1547a75" = { kind = "code", notes = ["research/window-visibility.md"] }
+"0x1547b00" = { kind = "function", name = "window hide", notes = ["research/extension-windows.md", "research/interface-bindings.md", "research/notice-window.md", "research/window-visibility.md"] }
+"0x1547b1a" = { kind = "code", notes = ["research/window-visibility.md"] }
 "0x1547c60" = { kind = "function", notes = ["research/notice-window.md"] }
-"0x1547cc0" = { kind = "function", notes = ["research/extension-windows.md"] }
+"0x1547cc0" = { kind = "function", notes = ["research/extension-windows.md", "research/window-visibility.md"] }
 "0x1547cef" = { kind = "code", name = "window background", notes = ["research/extension-windows.md"] }
-"0x1547d90" = { kind = "function", name = "window show", notes = ["research/extension-windows.md", "research/notice-window.md"] }
+"0x1547d0b" = { kind = "code", notes = ["research/window-visibility.md"] }
+"0x1547d90" = { kind = "function", name = "window show", notes = ["research/extension-windows.md", "research/notice-window.md", "research/window-ordering.md", "research/window-visibility.md"] }
+"0x1547de9" = { kind = "code", notes = ["research/window-visibility.md"] }
 "0x1547ec0" = { kind = "function", notes = ["research/notice-window.md"] }
-"0x1548190" = { kind = "leaf", notes = ["research/extension-windows.md", "research/interface-bindings.md", "research/notice-window.md"] }
-"0x15481a0" = { kind = "function", name = "window subwindow by name", notes = ["research/extension-windows.md", "research/notice-window.md"] }
+"0x1547f10" = { kind = "function", name = "move a named window child to the end", notes = ["research/extension-windows.md", "research/window-ordering.md", "research/window-placement.md"] }
+"0x1547f53" = { kind = "code", notes = ["research/window-placement.md"] }
+"0x1548040" = { kind = "function", name = "find a window child GUI interface by name", notes = ["research/window-ordering.md", "research/window-placement.md"] }
+"0x1548190" = { kind = "leaf", notes = ["research/extension-windows.md", "research/interface-bindings.md", "research/notice-window.md", "research/window-ordering.md"] }
+"0x15481a0" = { kind = "function", name = "window subwindow by name", notes = ["research/extension-windows.md", "research/notice-window.md", "research/window-ordering.md"] }
 "0x1548420" = { kind = "function", name = "window list box by name", notes = ["research/window-elements.md"] }
 "0x1548450" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x1548480" = { kind = "leaf", notes = ["research/window-elements.md"] }
@@ -4933,39 +5009,65 @@
 "0x1548700" = { kind = "leaf", name = "window button by name", notes = ["research/interface-bindings.md", "research/notice-window.md"] }
 "0x1548d30" = { kind = "function", name = "window text box by name", notes = ["research/interface-bindings.md", "research/notice-window.md"] }
 "0x15492e0" = { kind = "function", name = "window icon by name", notes = ["research/interface-bindings.md", "research/notice-window.md", "research/window-elements.md"] }
+"0x154a440" = { kind = "function", name = "set the parent of a window scene node", notes = ["research/window-ordering.md", "research/window-placement.md"] }
+"0x154a480" = { kind = "leaf", name = "get the parent of a window scene node", notes = ["research/window-ordering.md"] }
 "0x154a7b0" = { kind = "leaf", notes = ["research/extension-windows.md"] }
 "0x154ac90" = { kind = "function", notes = ["research/window-elements.md"] }
+"0x154ad60" = { kind = "leaf", name = "read an ordinary window's instance or definition name", notes = ["research/window-activation.md"] }
 "0x154b2f0" = { kind = "function", notes = ["research/window-elements.md"] }
-"0x154e500" = { kind = "function", notes = ["research/extension-windows.md"] }
+"0x154bcb0" = { kind = "function", notes = ["research/window-placement.md"] }
+"0x154bd50" = { kind = "function", notes = ["research/window-placement.md"] }
+"0x154dd30" = { kind = "function", notes = ["research/window-visibility.md"] }
+"0x154e4a0" = { kind = "function", name = "move a window to the second scene tree", notes = ["research/window-ordering.md"] }
+"0x154e500" = { kind = "function", notes = ["research/extension-windows.md", "research/window-ordering.md", "research/window-visibility.md"] }
+"0x154ed50" = { kind = "function", name = "access a subwindow table entry by name", notes = ["research/window-ordering.md"] }
+"0x154f650" = { kind = "function", name = "find an element in parallel name and pointer arrays", notes = ["research/window-ordering.md"] }
 "0x154f697" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x15503cc" = { kind = "leaf", notes = ["research/notice-window.md"] }
 "0x15506e0" = { kind = "function", name = "construct a text-texture drawing node", notes = ["research/panel-entry-text.md"] }
 "0x155072c" = { kind = "code", name = "install the text-texture drawing-node class", notes = ["research/panel-entry-text.md"] }
-"0x1550950" = { kind = "function", name = "a text element drawn", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/panel-entry-text.md"] }
+"0x1550950" = { kind = "function", name = "a text element drawn", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/panel-entry-text.md", "research/window-ordering.md"] }
 "0x15509ee" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x15509fb" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x1550b20" = { kind = "leaf", name = "get a drawing node visual state", notes = ["research/window-ordering.md"] }
 "0x1550b30" = { kind = "function", name = "a text element activated", notes = ["research/drawing-beside-the-day.md"] }
 "0x1550c33" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x1550c90" = { kind = "function", name = "a text element deactivated", notes = ["research/drawing-beside-the-day.md"] }
 "0x1550d10" = { kind = "function", name = "a text element given its text", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md"] }
 "0x1550e90" = { kind = "function", name = "a text element laid out into its texture", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md"] }
-"0x1551840" = { kind = "function", name = "draw the prepared text mesh", notes = ["research/panel-entry-text.md"] }
+"0x1551840" = { kind = "function", name = "draw the prepared text mesh", notes = ["research/panel-entry-text.md", "research/window-ordering.md"] }
 "0x1552680" = { kind = "function", notes = ["research/interface-bindings.md"] }
-"0x1552800" = { kind = "function", name = "dispatch native element input", notes = ["research/panel-entry-text.md"] }
+"0x1552800" = { kind = "function", name = "dispatch native element input", notes = ["research/panel-entry-text.md", "research/window-activation.md", "research/window-ordering.md"] }
+"0x15528d0" = { kind = "function", notes = ["research/window-activation.md"] }
+"0x15529a0" = { kind = "leaf", notes = ["research/window-activation.md"] }
 "0x15529e0" = { kind = "function", name = "own an animation", notes = ["research/interface-bindings.md"] }
 "0x1552aa0" = { kind = "function", notes = ["research/interface-bindings.md"] }
-"0x1558b80" = { kind = "leaf", name = "deactivate a text renderer", notes = ["research/panel-entry-text.md"] }
-"0x1558b90" = { kind = "function", notes = ["research/gui-drawing.md"] }
+"0x1552b80" = { kind = "function", notes = ["research/window-placement.md"] }
+"0x1552bfc" = { kind = "code", notes = ["research/window-placement.md"] }
+"0x15531f1" = { kind = "code", notes = ["research/window-placement.md"] }
+"0x155321f" = { kind = "code", notes = ["research/window-placement.md"] }
+"0x1553f0f" = { kind = "code", notes = ["research/window-placement.md"] }
+"0x1554660" = { kind = "function", name = "attach a scrollbar container to its parent", notes = ["research/window-placement.md"] }
+"0x1554674" = { kind = "code", notes = ["research/window-placement.md"] }
+"0x1554693" = { kind = "code", notes = ["research/window-placement.md"] }
+"0x1558b80" = { kind = "leaf", name = "deactivate a text renderer", notes = ["research/panel-entry-text.md", "research/window-visibility.md"] }
+"0x1558b90" = { kind = "function", notes = ["research/gui-drawing.md", "research/window-ordering.md"] }
 "0x155a6a0" = { kind = "function", notes = ["research/architecture.md"] }
 "0x155b8e0" = { kind = "function", notes = ["research/ui-injection.md"] }
-"0x155c260" = { kind = "function", notes = ["research/extension-windows.md", "research/main-menu.md", "research/notice-window.md", "research/ui-injection.md"] }
+"0x155c260" = { kind = "function", name = "build a window from its prototype", notes = ["research/extension-windows.md", "research/main-menu.md", "research/notice-window.md", "research/ui-injection.md", "research/window-ordering.md", "research/window-placement.md"] }
 "0x155c294" = { kind = "code", notes = ["research/main-menu.md"] }
-"0x155cb60" = { kind = "function", notes = ["research/ui-injection.md", "research/world-interface-seams.md"] }
-"0x155e3d0" = { kind = "function", notes = ["research/ui-injection.md"] }
+"0x155cb60" = { kind = "function", name = "read a window prototype token", notes = ["research/ui-injection.md", "research/window-ordering.md", "research/world-interface-seams.md"] }
+"0x155ce74" = { kind = "code", name = "read a nested window into the prototype order", notes = ["research/window-ordering.md"] }
+"0x155e3d0" = { kind = "function", name = "read and register a window prototype child", notes = ["research/ui-injection.md", "research/window-ordering.md"] }
 "0x156044b" = { kind = "code", notes = ["research/unicode-text.md"] }
-"0x1561fd0" = { kind = "function", notes = ["research/gui-drawing.md"] }
+"0x1560b60" = { kind = "function", notes = ["research/window-activation.md"] }
+"0x1561fd0" = { kind = "function", name = "construct a GUI scene node", notes = ["research/gui-drawing.md", "research/window-ordering.md"] }
 "0x15621f0" = { kind = "function", notes = ["research/window-elements.md"] }
-"0x15625a0" = { kind = "leaf", name = "activate a text renderer", notes = ["research/panel-entry-text.md"] }
+"0x1562390" = { kind = "leaf", name = "detach a GUI scene node", notes = ["research/window-ordering.md", "research/window-placement.md"] }
+"0x1562420" = { kind = "function", name = "append a GUI scene node to a parent", notes = ["research/window-ordering.md", "research/window-placement.md"] }
+"0x1562480" = { kind = "function", name = "prepend a GUI scene node to a parent", notes = ["research/window-ordering.md", "research/window-placement.md"] }
+"0x15624e0" = { kind = "leaf", name = "insert a GUI scene node after a sibling", notes = ["research/window-ordering.md", "research/window-placement.md"] }
+"0x15625a0" = { kind = "leaf", name = "activate a text renderer", notes = ["research/panel-entry-text.md", "research/window-ordering.md", "research/window-visibility.md"] }
 "0x15630c0" = { kind = "function", notes = ["research/localisation-loading.md"] }
 "0x15632d0" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/localisation-loading.md"] }
 "0x1563dac" = { kind = "code", notes = ["research/localisation-loading.md"] }
@@ -4995,9 +5097,13 @@
 "0x156e0a0" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/loading.md", "research/main-menu.md"] }
 "0x156e119" = { kind = "code", notes = ["research/font-textures.md"] }
 "0x156e800" = { kind = "function", notes = ["research/main-menu.md"] }
+"0x1570e60" = { kind = "leaf", notes = ["research/window-activation.md"] }
 "0x1570eaa" = { kind = "code", name = "window background constructor's vtable", notes = ["research/extension-windows.md"] }
 "0x1571140" = { kind = "code", notes = ["research/extension-windows.md"] }
-"0x1571570" = { kind = "function", notes = ["research/extension-windows.md"] }
+"0x15714f0" = { kind = "function", notes = ["research/window-placement.md"] }
+"0x1571500" = { kind = "code", notes = ["research/window-placement.md"] }
+"0x1571570" = { kind = "function", notes = ["research/extension-windows.md", "research/window-activation.md"] }
+"0x15717be" = { kind = "code", notes = ["research/window-activation.md"] }
 "0x1571cf0" = { kind = "function", name = "icon box place", notes = ["research/extension-windows.md"] }
 "0x1571dc0" = { kind = "leaf", name = "element place", notes = ["research/extension-windows.md"] }
 "0x15722d0" = { kind = "leaf", notes = ["research/window-elements.md"] }
@@ -5027,6 +5133,8 @@
 "0x1585e80" = { kind = "leaf", name = "icon show", notes = ["research/window-elements.md"] }
 "0x1585eb0" = { kind = "leaf", name = "icon hide", notes = ["research/window-elements.md"] }
 "0x1585ed0" = { kind = "leaf", name = "icon frame", notes = ["research/window-elements.md"] }
+"0x1586190" = { kind = "function", notes = ["research/window-placement.md"] }
+"0x15861a0" = { kind = "code", notes = ["research/window-placement.md"] }
 "0x15864b0" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x158675a" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x1587e10" = { kind = "function", notes = ["research/gui-drawing.md"] }
@@ -5039,13 +5147,17 @@
 "0x1590770" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x15907ef" = { kind = "code", notes = ["research/window-elements.md"] }
 "0x1592840" = { kind = "function", notes = ["research/interface-bindings.md"] }
-"0x1592bd0" = { kind = "function", notes = ["research/extension-windows.md", "research/interface-bindings.md"] }
+"0x1592bd0" = { kind = "function", name = "base button input and shortcut handling", notes = ["research/extension-windows.md", "research/interface-bindings.md", "research/window-activation.md"] }
 "0x1592d2b" = { kind = "code", name = "button double click", notes = ["research/interface-bindings.md"] }
 "0x1592da5" = { kind = "code", name = "element input's right press", notes = ["research/interface-bindings.md"] }
 "0x1592eb6" = { kind = "code", notes = ["research/interface-bindings.md"] }
+"0x1592f02" = { kind = "code", notes = ["research/window-activation.md"] }
+"0x1592f3f" = { kind = "code", notes = ["research/window-activation.md"] }
 "0x1592f7f" = { kind = "code", notes = ["research/interface-bindings.md"] }
-"0x1592fb1" = { kind = "code", notes = ["research/extension-windows.md", "research/interface-bindings.md"] }
-"0x1593260" = { kind = "function", notes = ["research/interface-bindings.md"] }
+"0x1592fa3" = { kind = "code", notes = ["research/window-activation.md"] }
+"0x1592fb1" = { kind = "code", notes = ["research/extension-windows.md", "research/interface-bindings.md", "research/window-activation.md"] }
+"0x1592fdf" = { kind = "code", notes = ["research/window-activation.md"] }
+"0x1593260" = { kind = "function", name = "dispatch a button click record to listeners", notes = ["research/interface-bindings.md", "research/window-activation.md"] }
 "0x1593500" = { kind = "function", notes = ["research/interface-bindings.md"] }
 "0x1593550" = { kind = "function", notes = ["research/interface-bindings.md"] }
 "0x15935b0" = { kind = "function", notes = ["research/interface-bindings.md"] }
@@ -5055,7 +5167,11 @@
 "0x1593ba0" = { kind = "function", notes = ["research/extension-windows.md"] }
 "0x1593c80" = { kind = "function", notes = ["research/interface-bindings.md"] }
 "0x1593f80" = { kind = "function", notes = ["research/interface-bindings.md"] }
+"0x15940e0" = { kind = "function", notes = ["research/window-activation.md"] }
+"0x15941f0" = { kind = "function", notes = ["research/window-activation.md"] }
+"0x1594240" = { kind = "function", notes = ["research/window-activation.md"] }
 "0x1594244" = { kind = "code", name = "signal click listener", notes = ["research/interface-bindings.md"] }
+"0x1594290" = { kind = "function", notes = ["research/window-activation.md"] }
 "0x1594360" = { kind = "function", name = "font table destructor", notes = ["research/unicode-text.md"] }
 "0x15943d0" = { kind = "leaf", notes = ["research/unicode-text.md"] }
 "0x15953c0" = { kind = "function", name = "font load", notes = ["research/font-textures.md", "research/unicode-text.md"] }
@@ -5102,7 +5218,7 @@
 "0x15a2658" = { kind = "code", notes = ["research/interface-bindings.md"] }
 "0x15a26c0" = { kind = "function", notes = ["research/interface-bindings.md"] }
 "0x15a3720" = { kind = "function", notes = ["research/interface-bindings.md"] }
-"0x15a4610" = { kind = "function", notes = ["research/extension-windows.md"] }
+"0x15a4610" = { kind = "function", notes = ["research/extension-windows.md", "research/window-activation.md"] }
 "0x15a4fc0" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
 "0x15a6bd0" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
 "0x15a7020" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
@@ -5113,13 +5229,16 @@
 "0x15ae089" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x15ae44c" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x15ae930" = { kind = "function", name = "button place", notes = ["research/extension-windows.md"] }
+"0x15ae9c0" = { kind = "function", notes = ["research/window-placement.md"] }
+"0x15ae9d4" = { kind = "code", notes = ["research/window-placement.md"] }
+"0x15ae9fa" = { kind = "code", notes = ["research/window-placement.md"] }
 "0x15aea30" = { kind = "function", notes = ["research/notice-window.md"] }
 "0x15aead0" = { kind = "function", name = "element hide", notes = ["research/interface-bindings.md"] }
 "0x15aeb30" = { kind = "function", name = "element show", notes = ["research/interface-bindings.md"] }
 "0x15aed40" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x15aeda0" = { kind = "leaf", name = "button frame", notes = ["research/extension-windows.md", "research/window-elements.md"] }
 "0x15aedc0" = { kind = "leaf", notes = ["research/window-elements.md"] }
-"0x15aefc0" = { kind = "function", name = "button input", notes = ["research/interface-bindings.md"] }
+"0x15aefc0" = { kind = "function", name = "button input", notes = ["research/interface-bindings.md", "research/window-activation.md"] }
 "0x15afbec" = { kind = "code", notes = ["research/extension-windows.md"] }
 "0x15b17e0" = { kind = "function", notes = ["research/ui-injection.md"] }
 "0x15b1ea0" = { kind = "leaf", notes = ["research/gui-drawing.md"] }
@@ -5149,12 +5268,17 @@
 "0x15d90d0" = { kind = "leaf", notes = ["research/window-elements.md"] }
 "0x15d9f80" = { kind = "function", notes = ["research/gui-drawing.md"] }
 "0x15da800" = { kind = "function", name = "allocate a text-texture drawing node", notes = ["research/panel-entry-text.md"] }
+"0x15e4c20" = { kind = "function", notes = ["research/window-activation.md"] }
 "0x15e4c80" = { kind = "function", notes = ["research/loading.md"] }
 "0x15e4f00" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
+"0x15e68d0" = { kind = "function", notes = ["research/window-activation.md"] }
 "0x15e6d60" = { kind = "function", name = "allocate a native text holder", notes = ["research/panel-entry-text.md"] }
 "0x15e7600" = { kind = "function", notes = ["research/interface-bindings.md"] }
+"0x15e8c30" = { kind = "function", notes = ["research/window-placement.md"] }
 "0x15ebbf0" = { kind = "function", notes = ["research/window-elements.md"] }
 "0x15ebd10" = { kind = "function", notes = ["research/window-elements.md"] }
+"0x15f19e0" = { kind = "function", notes = ["research/window-activation.md"] }
+"0x15f2850" = { kind = "leaf", notes = ["research/window-activation.md"] }
 "0x15f2d20" = { kind = "function", notes = ["research/interface-bindings.md"] }
 "0x15f3b40" = { kind = "function", name = "construct the text-box renderer", notes = ["research/panel-entry-text.md"] }
 "0x15f3ea0" = { kind = "function", name = "read the text renderer size", notes = ["research/panel-entry-text.md"] }
@@ -5164,6 +5288,8 @@
 "0x15f42c0" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/extension-windows.md", "research/interface-bindings.md"] }
 "0x15f440f" = { kind = "code", notes = ["research/unicode-text.md"] }
 "0x15f45d0" = { kind = "leaf", name = "store the text renderer position", notes = ["research/panel-entry-text.md"] }
+"0x15f5e50" = { kind = "leaf", notes = ["research/window-visibility.md"] }
+"0x15f5e60" = { kind = "leaf", notes = ["research/window-visibility.md"] }
 "0x162ddb0" = { kind = "function", notes = ["research/input.md"] }
 "0x162e2d0" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/input.md"] }
 "0x162e480" = { kind = "leaf", notes = ["research/headless.md"] }
@@ -5519,6 +5645,8 @@
 "0x1a48fd8" = { kind = "function", notes = ["research/saves.md"] }
 "0x1a4963c" = { kind = "leaf", notes = ["research/world-in-a-second-process.md"] }
 "0x1a49a5c" = { kind = "function", notes = ["research/late-game.md"] }
+"0x1a4abc4" = { kind = "function", notes = ["research/window-activation.md"] }
+"0x1a4ae3c" = { kind = "function", notes = ["research/window-activation.md"] }
 "0x1a4b36c" = { kind = "function", notes = ["research/crash-handling.md"] }
 "0x1a53df0" = { kind = "function", notes = ["research/gui-drawing.md"] }
 "0x1a564e0" = { kind = "function", notes = ["research/gui-drawing.md"] }
@@ -5915,10 +6043,11 @@
 "0x1d54d58" = { kind = "data", notes = ["research/questions-and-offers.md"] }
 "0x1d57170" = { kind = "data", notes = ["research/gui-drawing.md"] }
 "0x1d57348" = { kind = "data", notes = ["research/camera.md"] }
+"0x1d57768" = { kind = "data", notes = ["research/window-placement.md"] }
 "0x1d580d0" = { kind = "data", notes = ["research/map-drawing-reads.md"] }
-"0x1d58108" = { kind = "data", notes = ["research/architecture.md", "research/notice-window.md"] }
+"0x1d58108" = { kind = "data", notes = ["research/architecture.md", "research/notice-window.md", "research/window-activation.md"] }
 "0x1d581f8" = { kind = "data", notes = ["research/interface-bindings.md"] }
-"0x1d58218" = { kind = "data", notes = ["research/interface-bindings.md", "research/message-pop-up-actions.md", "research/window-elements.md"] }
+"0x1d58218" = { kind = "data", notes = ["research/interface-bindings.md", "research/message-pop-up-actions.md", "research/window-activation.md", "research/window-elements.md", "research/window-placement.md"] }
 "0x1d585c8" = { kind = "data", notes = ["research/extension-windows.md"] }
 "0x1d590e0" = { kind = "data", notes = ["research/time.md"] }
 "0x1d590f8" = { kind = "data", notes = ["research/questions-and-offers.md", "research/time.md"] }
@@ -5928,8 +6057,8 @@
 "0x1d5e300" = { kind = "data", notes = ["research/save-transfer-copy.md"] }
 "0x1d5e320" = { kind = "data", notes = ["research/main-menu.md"] }
 "0x1d5e408" = { kind = "data", notes = ["research/main-menu.md"] }
-"0x1d5ff68" = { kind = "data", notes = ["research/gui-drawing.md"] }
-"0x1d60238" = { kind = "data", notes = ["research/gui-drawing.md"] }
+"0x1d5ff68" = { kind = "data", notes = ["research/gui-drawing.md", "research/window-input-refresh.md"] }
+"0x1d60238" = { kind = "data", notes = ["research/gui-drawing.md", "research/window-activation.md", "research/window-input-refresh.md", "research/window-ordering.md", "research/window-placement.md"] }
 "0x1d621f0" = { kind = "data", notes = ["research/empires.md"] }
 "0x1d62618" = { kind = "data", notes = ["research/window-elements.md"] }
 "0x1d62628" = { kind = "data", notes = ["research/window-elements.md"] }
@@ -5947,7 +6076,7 @@
 "0x1d71a40" = { kind = "data", notes = ["research/main-menu.md"] }
 "0x1d72020" = { kind = "data", notes = ["research/main-menu.md"] }
 "0x1d749d8" = { kind = "data", notes = ["research/map-drawing-reads.md"] }
-"0x1d7e848" = { kind = "data", notes = ["research/gui-drawing.md"] }
+"0x1d7e848" = { kind = "data", notes = ["research/gui-drawing.md", "research/window-input-refresh.md"] }
 "0x1d824c8" = { kind = "data", notes = ["research/map-drawing-reads.md"] }
 "0x1d83788" = { kind = "data", name = "tooltip owner class", notes = ["research/panel-entry-text.md"] }
 "0x1d84238" = { kind = "data", notes = ["research/notice-window.md"] }
@@ -5972,49 +6101,55 @@
 "0x1d8c248" = { kind = "data", notes = ["research/architecture.md"] }
 "0x1d8c8b0" = { kind = "data", notes = ["research/commands.md"] }
 "0x1d8c900" = { kind = "data", notes = ["research/recruiting.md"] }
+"0x1d8cff8" = { kind = "data", notes = ["research/window-activation.md"] }
 "0x1d8dc00" = { kind = "data", notes = ["research/ui-injection.md"] }
 "0x1d8dc40" = { kind = "data", notes = ["research/notice-window.md"] }
-"0x1d8fd10" = { kind = "data", name = "text-box class", notes = ["research/interface-bindings.md", "research/panel-entry-text.md"] }
+"0x1d8fd10" = { kind = "data", name = "text-box class", notes = ["research/interface-bindings.md", "research/panel-entry-text.md", "research/window-activation.md", "research/window-placement.md"] }
 "0x1d90748" = { kind = "data", notes = ["research/main-menu.md"] }
 "0x1d90ea0" = { kind = "data", name = "list root class", notes = ["research/panel-entry-text.md", "research/window-elements.md"] }
-"0x1d90fd8" = { kind = "data", name = "list visual interface class", notes = ["research/panel-entry-text.md", "research/window-elements.md"] }
+"0x1d90fd8" = { kind = "data", name = "list visual interface class", notes = ["research/panel-entry-text.md", "research/window-activation.md", "research/window-elements.md"] }
+"0x1d91358" = { kind = "data", notes = ["research/window-activation.md"] }
 "0x1d917d8" = { kind = "data", notes = ["research/text-input.md"] }
 "0x1d91810" = { kind = "data", notes = ["research/interface-bindings.md"] }
 "0x1d91cd0" = { kind = "data", notes = ["research/saves.md"] }
 "0x1d92200" = { kind = "data", notes = ["research/saves.md"] }
 "0x1d92408" = { kind = "data", notes = ["research/drawing-beside-the-day.md", "research/map-drawing-reads.md"] }
 "0x1d924a8" = { kind = "data", notes = ["research/architecture.md"] }
-"0x1d926b0" = { kind = "data", notes = ["research/interface-bindings.md", "research/notice-window.md", "research/window-elements.md"] }
-"0x1d929d0" = { kind = "data", notes = ["research/main-menu.md", "research/notice-window.md"] }
-"0x1d930d8" = { kind = "data", notes = ["research/gui-drawing.md"] }
-"0x1d933b0" = { kind = "data", name = "text-texture drawing-node class", notes = ["research/gui-drawing.md", "research/panel-entry-text.md"] }
-"0x1d93c08" = { kind = "data", notes = ["research/gui-drawing.md"] }
+"0x1d926b0" = { kind = "data", notes = ["research/interface-bindings.md", "research/notice-window.md", "research/window-elements.md", "research/window-placement.md", "research/window-visibility.md"] }
+"0x1d929d0" = { kind = "data", notes = ["research/main-menu.md", "research/notice-window.md", "research/window-activation.md", "research/window-ordering.md", "research/window-placement.md", "research/window-visibility.md"] }
+"0x1d92c28" = { kind = "data", notes = ["research/window-visibility.md"] }
+"0x1d92c30" = { kind = "data", notes = ["research/window-visibility.md"] }
+"0x1d930d8" = { kind = "data", notes = ["research/gui-drawing.md", "research/window-input-refresh.md"] }
+"0x1d933b0" = { kind = "data", name = "text-texture drawing-node class", notes = ["research/gui-drawing.md", "research/panel-entry-text.md", "research/window-input-refresh.md"] }
+"0x1d93748" = { kind = "data", name = "scrollbar GUI class", notes = ["research/window-placement.md"] }
+"0x1d93c08" = { kind = "data", notes = ["research/gui-drawing.md", "research/window-input-refresh.md"] }
 "0x1d94478" = { kind = "data", notes = ["research/ui-injection.md"] }
-"0x1d94728" = { kind = "data", notes = ["research/gui-drawing.md"] }
+"0x1d94728" = { kind = "data", notes = ["research/gui-drawing.md", "research/window-input-refresh.md", "research/window-ordering.md"] }
 "0x1d952c0" = { kind = "data", notes = ["research/loading.md"] }
-"0x1d954b0" = { kind = "data", notes = ["research/extension-windows.md"] }
+"0x1d954b0" = { kind = "data", notes = ["research/extension-windows.md", "research/window-activation.md", "research/window-placement.md"] }
 "0x1d96088" = { kind = "data", notes = ["research/architecture.md"] }
 "0x1d96178" = { kind = "data", notes = ["research/architecture.md", "research/commands.md"] }
 "0x1d96268" = { kind = "data", notes = ["research/architecture.md"] }
 "0x1d967d0" = { kind = "data", notes = ["research/window-elements.md"] }
-"0x1d96d00" = { kind = "data", notes = ["research/window-elements.md"] }
-"0x1d97630" = { kind = "data", notes = ["research/gui-drawing.md"] }
-"0x1d979c0" = { kind = "data", notes = ["research/gui-drawing.md"] }
+"0x1d96d00" = { kind = "data", notes = ["research/window-elements.md", "research/window-placement.md"] }
+"0x1d97630" = { kind = "data", notes = ["research/gui-drawing.md", "research/window-input-refresh.md"] }
+"0x1d979c0" = { kind = "data", notes = ["research/gui-drawing.md", "research/window-input-refresh.md"] }
 "0x1d97ef0" = { kind = "data", notes = ["research/window-elements.md"] }
 "0x1d99108" = { kind = "data", notes = ["research/gui-drawing.md"] }
 "0x1d99120" = { kind = "data", notes = ["research/unicode-text.md"] }
 "0x1d99230" = { kind = "data", name = "tooltip text-holder class", notes = ["research/panel-entry-text.md"] }
 "0x1d997c0" = { kind = "data", notes = ["research/interface-bindings.md"] }
 "0x1d99d94" = { kind = "data", notes = ["research/trade-range-and-naval-supply.md"] }
-"0x1d9a830" = { kind = "data", notes = ["research/gui-drawing.md"] }
-"0x1d9b568" = { kind = "data", notes = ["research/gui-drawing.md"] }
-"0x1d9b848" = { kind = "data", notes = ["research/gui-drawing.md", "research/main-menu.md"] }
+"0x1d9a830" = { kind = "data", notes = ["research/gui-drawing.md", "research/window-input-refresh.md"] }
+"0x1d9b568" = { kind = "data", notes = ["research/gui-drawing.md", "research/window-input-refresh.md"] }
+"0x1d9b848" = { kind = "data", notes = ["research/gui-drawing.md", "research/main-menu.md", "research/window-input-refresh.md"] }
 "0x1d9cf40" = { kind = "data", notes = ["research/main-menu.md"] }
-"0x1d9d3c8" = { kind = "data", notes = ["research/gui-drawing.md", "research/window-elements.md"] }
-"0x1da1d40" = { kind = "data", name = "text-box renderer class", notes = ["research/gui-drawing.md", "research/panel-entry-text.md"] }
+"0x1d9d3c8" = { kind = "data", notes = ["research/gui-drawing.md", "research/window-elements.md", "research/window-input-refresh.md"] }
+"0x1d9f0b8" = { kind = "data", notes = ["research/window-activation.md"] }
+"0x1da1d40" = { kind = "data", name = "text-box renderer class", notes = ["research/gui-drawing.md", "research/panel-entry-text.md", "research/window-input-refresh.md"] }
 "0x1da3530" = { kind = "data", notes = ["research/headless.md"] }
-"0x1da3630" = { kind = "data", notes = ["research/gui-drawing.md"] }
-"0x1da3960" = { kind = "data", notes = ["research/gui-drawing.md"] }
+"0x1da3630" = { kind = "data", notes = ["research/gui-drawing.md", "research/window-input-refresh.md"] }
+"0x1da3960" = { kind = "data", notes = ["research/gui-drawing.md", "research/window-input-refresh.md"] }
 "0x1da4910" = { kind = "data", notes = ["research/main-menu.md"] }
 "0x1dbf598" = { kind = "data", notes = ["research/game-console.md", "research/user-folder.md"] }
 "0x1dbf7d0" = { kind = "data", notes = ["research/architecture.md", "research/saves.md"] }
@@ -6030,7 +6165,11 @@
 "0x1dc1938" = { kind = "data", name = "army strength's scale", notes = ["research/trade-range-and-naval-supply.md"] }
 "0x1dc1a10" = { kind = "data", notes = ["research/window-elements.md"] }
 "0x1dc1b00" = { kind = "data", name = "char event constant", notes = ["research/text-input.md"] }
+"0x1dc1b40" = { kind = "data", notes = ["research/window-input-refresh.md"] }
+"0x1dc1be0" = { kind = "data", notes = ["research/window-input-refresh.md"] }
+"0x1dc1fd0" = { kind = "data", notes = ["research/window-input-refresh.md"] }
 "0x1dc2380" = { kind = "data", name = "unit kind tokens", notes = ["research/provinces.md"] }
+"0x1dc23f0" = { kind = "data", notes = ["research/window-input-refresh.md"] }
 "0x1dc2740" = { kind = "data", notes = ["research/power-spending.md"] }
 "0x1dc2750" = { kind = "data", notes = ["research/power-spending.md"] }
 "0x1dc2760" = { kind = "data", notes = ["research/power-spending.md"] }
@@ -6251,7 +6390,8 @@
 "0x233ff3c" = { kind = "data", notes = ["research/armies.md", "research/units.md"] }
 "0x233ff46" = { kind = "data", notes = ["research/gui-drawing.md"] }
 "0x233ff48" = { kind = "data", notes = ["research/peace.md", "research/provinces.md"] }
-"0x233ff4f" = { kind = "data", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/headless.md", "research/input.md"] }
+"0x233ff4e" = { kind = "data", notes = ["research/window-activation.md"] }
+"0x233ff4f" = { kind = "data", notes = ["research/drawing-beside-the-day.md", "research/gui-drawing.md", "research/headless.md", "research/input.md", "research/window-input-refresh.md"] }
 "0x233ff59" = { kind = "data", notes = ["research/monthly-update.md"] }
 "0x233ff94" = { kind = "data", notes = ["research/units.md"] }
 "0x233ff98" = { kind = "data", notes = ["research/interface-bindings.md", "research/map-modes.md"] }
@@ -6279,10 +6419,10 @@
 "0x23494b0" = { kind = "data", notes = ["research/architecture.md", "research/main-thread.md", "research/random.md"] }
 "0x23494b4" = { kind = "data", notes = ["research/architecture.md", "research/main-thread.md"] }
 "0x23494b8" = { kind = "data", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/extension-windows.md", "research/gui-drawing.md", "research/interface-bindings.md", "research/loading.md", "research/map-drawing-reads.md", "research/text-input.md"] }
-"0x23494d0" = { kind = "data", notes = ["research/gui-drawing.md"] }
+"0x23494d0" = { kind = "data", notes = ["research/gui-drawing.md", "research/window-input-refresh.md"] }
 "0x23494d8" = { kind = "data", notes = ["research/architecture.md"] }
-"0x23494e8" = { kind = "data", notes = ["research/architecture.md", "research/interface-bindings.md"] }
-"0x23494f0" = { kind = "data", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/main-menu.md", "research/notice-window.md", "research/text-input.md", "research/ui-injection.md"] }
+"0x23494e8" = { kind = "data", notes = ["research/architecture.md", "research/interface-bindings.md", "research/window-activation.md"] }
+"0x23494f0" = { kind = "data", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/main-menu.md", "research/notice-window.md", "research/text-input.md", "research/ui-injection.md", "research/window-activation.md"] }
 "0x2349528" = { kind = "data", notes = ["research/main-menu.md"] }
 "0x2349538" = { kind = "data", notes = ["research/loading.md"] }
 "0x2349570" = { kind = "data", notes = ["research/architecture.md"] }
@@ -6298,6 +6438,7 @@
 "0x2349690" = { kind = "data", notes = ["research/gui-drawing.md"] }
 "0x2349698" = { kind = "data", notes = ["research/gui-drawing.md"] }
 "0x23496a0" = { kind = "data", notes = ["research/loading.md"] }
+"0x23496b0" = { kind = "data", notes = ["research/window-activation.md"] }
 "0x23496b8" = { kind = "data", notes = ["research/crash-handling.md"] }
 "0x234db20" = { kind = "data", notes = ["research/unicode-text.md"] }
 "0x234fb20" = { kind = "data", notes = ["research/unicode-text.md"] }
