@@ -22,7 +22,9 @@ pub const TEXT: &str = "eu4h_text";
 /// The background that stretches to a window's size: the framework's own
 /// sprite ([`SPRITES`]) of the game's blue panel, the religion view's, its
 /// gold edge kept at every size.
-pub const BACKGROUND_SPRITE: &str = "GFX_eu4harmony_window_background";
+const BACKGROUND_SPRITE: &str = "GFX_eu4harmony_window_background";
+/// The same panel for fixed windows: all button states keep its colors.
+pub const FIXED_BACKGROUND_SPRITE: &str = "GFX_eu4harmony_fixed_window_background";
 
 /// The framework's sprites the definitions use, a `.gfx` the game reads
 /// at startup among the framework files.
@@ -32,6 +34,13 @@ pub const SPRITES: &str = "spriteTypes = {
 		size = { x = 531 y = 310 }
 		textureFile = \"gfx/interface/country_religion_view_allreligion_bg_large.dds\"
 		borderSize = { x = 12 y = 12 }
+	}
+	corneredTileSpriteType = {
+		name = \"GFX_eu4harmony_fixed_window_background\"
+		size = { x = 531 y = 310 }
+		textureFile = \"gfx/interface/country_religion_view_allreligion_bg_large.dds\"
+		borderSize = { x = 12 y = 12 }
+		effectFile = \"gfx/FX/static_button.lua\"
 	}
 	corneredTileSpriteType = {
 		name = \"GFX_eu4harmony_ribbon_red\"
@@ -131,7 +140,8 @@ fn quoted(words: &str) -> String {
 pub fn window(type_name: &str, window: &Window, words: &dyn Fn(&Option<eu4_harmony_lua::Text>) -> String) -> String {
     let mut out = String::new();
     let (w, h) = window.size;
-    open_window(&mut out, type_name, (w, h), window.moveable, Some(BACKGROUND_SPRITE));
+    let background = if window.moveable { BACKGROUND_SPRITE } else { FIXED_BACKGROUND_SPRITE };
+    open_window(&mut out, type_name, (w, h), window.moveable, Some(background));
     let close_top = h - layout::CLOSE_ABOVE - layout::BUTTON_HEIGHT;
     // The title on its ribbon, a window of its own the ribbon stretches to.
     if window.title.is_some() {
@@ -376,6 +386,11 @@ mod tests {
         assert!(text.contains("listboxType = { name = \"w_rows\""));
         assert!(text.contains("\twindowType = {\n\t\tname = \"eu4harmony_m_reforms_rows\"\n\t\tbackGround = \"\"\n"), "its row's type beside it");
         assert_eq!(text.matches('{').count(), text.matches('}').count());
+        let mut fixed = window.clone();
+        fixed.moveable = false;
+        let fixed_text = window_text(&fixed);
+        assert!(fixed_text.contains(&format!("quadTextureSprite = \"{FIXED_BACKGROUND_SPRITE}\"")), "{fixed_text}");
+        assert!(!fixed_text.contains(&format!("quadTextureSprite = \"{BACKGROUND_SPRITE}\"")), "fixed windows use their own presentation");
     }
 
     fn window_text(window: &Window) -> String {

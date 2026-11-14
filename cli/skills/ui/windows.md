@@ -39,6 +39,10 @@ steps:
    with no title has none), anchor ("center", "top_left", ..., "right",
    "bottom_right") with offset = { x, y }, entry (a button on the panel
    button strip left of the minimap, beside the papacy's and the Empire's).
+   Fixed windows (moveable = false) keep their blue-and-gold background
+   unchanged on hover and press, as button areas do. Empty background takes
+   clicks and the wheel without selecting, ordering or zooming the map;
+   lists scroll first. Real buttons retain their own state presentation.
 2. Game widgets: text (size, text = description, font "body" or "heading", align),
    icon (sprite, frame, size), button (text = description for the game's text
    button, which comes 79, 109, 149, 189 or 224 wide and 31 high; or
