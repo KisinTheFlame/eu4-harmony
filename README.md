@@ -12,6 +12,7 @@ English | [简体中文](README.zh-CN.md)
 | Back to the main menu in seconds, without restarting the game | ✗ | ✓ |
 | Load another save from an ironman game | ✗ | ✓ |
 | The map scrolls and zooms smoothly, even at top speed, with core hover highlights preserved | ✗ | ✓ |
+| Fewer long gaps between frames during daily AI work ([measurements](docs/performance.md#why-submission-interval-p99-is-long)) | ✗ | ✓ |
 | Saving pauses the game a third as long | ✗ | ✓ |
 | The game starts and loads saves sooner | ✗ | ✓ |
 | A faster late game | ✗ | ✓ |
@@ -49,9 +50,9 @@ Good to know:
 
 ## When something goes wrong
 
-In the main menu, open Harmony's settings, go to **About** and press **Save troubleshooting files to the desktop**: it packs Harmony's logs, the game's logs, its last crash folders and your settings and playset (no saves) into one zip file on your desktop. Report a problem on [GitHub Issues](https://github.com/KisinTheFlame/eu4-harmony/issues), with that file attached.
+In the main menu, open Harmony's settings, go to **About** and press **Save troubleshooting files to the desktop**: it packs Harmony's logs, the game's logs, its existing crash folders and your settings and playset (no saves) into one zip file on your desktop. Report a problem on [GitHub Issues](https://github.com/KisinTheFlame/eu4-harmony/issues), with that file attached.
 
-The logs are in `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`: `report.txt` says what Harmony found and did as the game started, `core.log` records its work and crashes that reach the game's crash handling, and `proxy.log`, there only when something went wrong, says why Harmony did not start at all. Framework logs rotate in bounded segments, count repeated errors and keep a small recent-event snapshot; inactive owned logs expire automatically. Game logs, saves, crash dumps and your saved troubleshooting files are left alone. Large text logs contribute a marked tail to troubleshooting files. [Log limits and diagnostic coverage](docs/logs.md) describe what is kept and what an unexplained exit may still leave unknown.
+The logs are in `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`: `report.txt` says what Harmony found and did as the game started, `core.log` records its work and crashes that reach the game's crash handling, and `proxy.log`, there only when something went wrong, says why Harmony did not start at all. Framework logs rotate in bounded segments, count repeated errors and keep a small recent-event snapshot; inactive owned logs expire automatically. Game logs, saves, crash dumps and your saved troubleshooting files are left alone. Troubleshooting files include complete logs and crash dumps without file-size, total-size or file-count limits; named credentials in text are redacted. [Log limits and diagnostic coverage](docs/logs.md) describe what is kept and what an unexplained exit may still leave unknown.
 
 ## Writing a mod
 

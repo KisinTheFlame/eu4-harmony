@@ -38,6 +38,7 @@ mod course;
 mod crossings;
 mod deferred;
 mod icons;
+mod lock_order;
 mod marks;
 mod prepare;
 mod tooltip;
@@ -181,6 +182,7 @@ fn points() -> Vec<Point> {
     .chain(prepare::points())
     .chain(marks::points())
     .chain(crossings::points())
+    .chain(lock_order::points())
     .chain(deferred::points())
     .chain(tooltip::points())
     .chain(icons::points())

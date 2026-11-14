@@ -1,6 +1,6 @@
 # Bounded framework logs
 
-Status: decided and built (2026-11-12, the owner), L1 to L4; review fixes completed 2026-11-13. Final validation: 1,045 workspace tests (six ignored), both Clippy builds and release build. Ten player/developer offline checks passed before the review fixes, which change no game dependency points. No player game was started or changed; running-game frame cost was not measured.
+Status: decided and built (2026-11-12, the owner), L1 to L4; review fixes completed 2026-11-13. Final validation: 1,045 workspace tests (six ignored), both Clippy builds and release build. Ten player/developer offline checks passed before the review fixes, which change no game dependency points. No player game was started or changed; running-game frame cost was not measured. L3's collection limits were superseded on 2026-11-14: troubleshooting files now collect complete sources and all existing crash folders without size or count caps (docs/logs.md).
 
 ## Goal and scope
 
