@@ -424,8 +424,9 @@ fn bind_frame(m: &Memory, root: usize) -> Result<usize> {
 
 /// Disables the background of the window at `window`, the button `name`,
 /// which a window's background has to be: it still takes the clicks on it,
-/// so that they do not reach the map, but no press darkens it, as nothing
-/// there is to be pressed or dragged (docs/research/extension-windows.md,
+/// so that they do not reach the map, but it cannot be pressed or dragged.
+/// The fixed background sprite keeps the disabled state's original colors
+/// (docs/research/extension-windows.md,
 /// "A press on a window's background").
 pub(crate) fn keep_still(m: &Memory, window: usize, name: &str) -> Result<()> {
     let background = m.ptr(window + window::BACKGROUND)?;

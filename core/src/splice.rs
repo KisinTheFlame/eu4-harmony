@@ -216,7 +216,7 @@ fn frame(area: &hosts::ButtonArea, count: i32) -> String {
         "\n\t\twindowType = {{ name = \"{FRAME}\" backGround = \"{FRAME_BACKGROUND}\" position = {{ x = {x} y = {y} }} size = {{ x = {w} y = {h} }} \
          moveable = 0 dontRender = \"\" horizontalBorder = \"\" verticalBorder = \"\" fullScreen = no Orientation = \"UPPER_LEFT\"\n\
          \t\t\tguiButtonType = {{ name = \"{FRAME_BACKGROUND}\" quadTextureSprite = \"{}\" }}\n\t\t}}\n",
-        crate::windows::BACKGROUND_SPRITE
+        crate::windows::FIXED_BACKGROUND_SPRITE
     )
 }
 
