@@ -19,6 +19,7 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 
 | | |
 | --- | --- |
+| [2026-11-14-frame-p99-user-game.md](prototype-log/2026-11-14-frame-p99-user-game.md) | Current implementation launched visibly at the main menu for the user; gameplay not measured |
 | [2026-11-14-frame-p99-boundary-a1r.md](prototype-log/2026-11-14-frame-p99-boundary-a1r.md) | Replacement timing baseline: P99 44.338 ms, 576.5 completed days/min |
 | [2026-11-14-frame-p99-boundary-b1.md](prototype-log/2026-11-14-frame-p99-boundary-b1.md) | First four-scope timing prototype: P99 13.166 ms, with slower daily progress and higher machine load |
 | [2026-11-14-frame-p99-boundary-b2.md](prototype-log/2026-11-14-frame-p99-boundary-b2.md) | Second timing prototype repeats P99 13.248 ms at 579.5 completed days/min |
