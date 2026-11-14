@@ -347,7 +347,7 @@
 "0x10f2b0" = { kind = "function", notes = ["research/ai.md"] }
 "0x1128d0" = { kind = "function", notes = ["research/late-game.md"] }
 "0x114b80" = { kind = "function", name = "war goal list destructor", notes = ["research/diplomacy.md"] }
-"0x116050" = { kind = "function", notes = ["research/diplomacy.md"] }
+"0x116050" = { kind = "function", notes = ["research/diplomacy.md", "research/reformation-center-crash.md"] }
 "0x11ad2e" = { kind = "code", name = "country advisors", notes = ["research/advisors.md"] }
 "0x11ad56" = { kind = "code", name = "advisor type and power", notes = ["research/advisors.md"] }
 "0x11b2e0" = { kind = "function", notes = ["research/advisors.md"] }
@@ -436,6 +436,10 @@
 "0x179e90" = { kind = "function", notes = ["research/ai-stage-wait.md", "research/army-checks-in-searches.md", "research/drawing-beside-the-day.md", "research/late-game.md", "research/main-thread.md", "research/monthly-update.md"] }
 "0x179eb3" = { kind = "code", notes = ["research/late-game.md"] }
 "0x17a3d0" = { kind = "leaf", notes = ["research/ai.md"] }
+"0x17b460" = { kind = "function", notes = ["research/reformation-center-crash.md"] }
+"0x17ca00" = { kind = "function", notes = ["research/reformation-center-crash.md"] }
+"0x17e8e0" = { kind = "function", name = "update the parent's building_prov list", notes = ["research/reformation-center-crash.md"] }
+"0x17f900" = { kind = "function", name = "update a building_prov record by id and key", notes = ["research/reformation-center-crash.md"] }
 "0x182580" = { kind = "function", notes = ["research/ai.md", "research/country-daily-update.md"] }
 "0x184180" = { kind = "function", notes = ["research/ai.md"] }
 "0x184360" = { kind = "function", notes = ["research/ai.md"] }
@@ -444,6 +448,8 @@
 "0x18f040" = { kind = "function", notes = ["research/late-game.md", "research/monthly-update.md"] }
 "0x18fa00" = { kind = "function", notes = ["research/ai.md"] }
 "0x191900" = { kind = "function", notes = ["research/countries.md"] }
+"0x194d60" = { kind = "function", name = "building_prov record deleting destructor", notes = ["research/reformation-center-crash.md"] }
+"0x194da0" = { kind = "function", name = "building_prov record constructor", notes = ["research/reformation-center-crash.md"] }
 "0x1950e0" = { kind = "function", notes = ["research/ai.md", "research/country-daily-update.md"] }
 "0x195750" = { kind = "function", notes = ["research/army-checks-in-searches.md", "research/country-daily-update.md"] }
 "0x195b40" = { kind = "function", notes = ["research/army-checks-in-searches.md"] }
@@ -942,6 +948,7 @@
 "0x2d2d2d" = { kind = "code", notes = ["research/armies.md", "research/questions-and-offers.md", "research/routes.md"] }
 "0x2d2fc0" = { kind = "function", notes = ["research/world-interface-seams.md"] }
 "0x2d6ce3" = { kind = "code", notes = ["research/dependency-teardown.md"] }
+"0x2dc670" = { kind = "function", name = "reformation center deleting destructor", notes = ["research/reformation-center-crash.md"] }
 "0x2dc6b0" = { kind = "function", notes = ["research/countries.md", "research/country-knowledge.md", "research/main-thread.md", "research/names.md"] }
 "0x2dc864" = { kind = "code", notes = ["research/countries.md"] }
 "0x2dc95a" = { kind = "code", notes = ["research/countries.md"] }
@@ -1337,6 +1344,12 @@
 "0x446ee0" = { kind = "function", notes = ["research/power-spending.md"] }
 "0x447160" = { kind = "function", notes = ["research/envoys.md", "research/power-spending.md"] }
 "0x447f60" = { kind = "function", notes = ["research/world-interface-seams.md"] }
+"0x448000" = { kind = "function", name = "update conversion by a reformation center", notes = ["research/reformation-center-crash.md"] }
+"0x449990" = { kind = "function", name = "choose the next target of a reformation center", notes = ["research/reformation-center-crash.md"] }
+"0x449f10" = { kind = "function", name = "detach a reformation center before removal", notes = ["research/reformation-center-crash.md"] }
+"0x44a7b0" = { kind = "function", name = "reformation center field reader", notes = ["research/reformation-center-crash.md"] }
+"0x44aae0" = { kind = "function", name = "reformation center field writer", notes = ["research/reformation-center-crash.md"] }
+"0x44ac30" = { kind = "function", name = "restore province references after reading a reformation center", notes = ["research/reformation-center-crash.md"] }
 "0x4517c8" = { kind = "code", notes = ["research/saves.md"] }
 "0x45186e" = { kind = "code", notes = ["research/saves.md"] }
 "0x451b43" = { kind = "code", notes = ["research/saves.md"] }
@@ -1585,6 +1598,7 @@
 "0x5ed880" = { kind = "function", notes = ["research/scripts.md"] }
 "0x5edad0" = { kind = "function", notes = ["research/scripts.md"] }
 "0x5f0000" = { kind = "code", notes = ["research/architecture.md"] }
+"0x5ff320" = { kind = "function", name = "effect implementation that creates a reformation center", notes = ["research/reformation-center-crash.md"] }
 "0x611680" = { kind = "function", notes = ["research/scripts.md"] }
 "0x611870" = { kind = "function", notes = ["research/scripts.md"] }
 "0x611bd7" = { kind = "code", name = "a country's flags", notes = ["research/scripts.md"] }
@@ -1849,6 +1863,7 @@
 "0x758eee" = { kind = "code", notes = ["research/drawing-beside-the-day.md", "research/time.md"] }
 "0x759640" = { kind = "function", notes = ["research/architecture.md"] }
 "0x75ab30" = { kind = "function", notes = ["research/architecture.md"] }
+"0x75ae70" = { kind = "function", name = "update and remove reformation centers each day", notes = ["research/reformation-center-crash.md"] }
 "0x75b0d0" = { kind = "function", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/late-game.md"] }
 "0x75b20b" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x75b210" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
@@ -1898,8 +1913,9 @@
 "0x768e20" = { kind = "function", notes = ["research/defeat.md", "research/main-menu.md"] }
 "0x7697f8" = { kind = "code", notes = ["research/leaders.md"] }
 "0x769bd0" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
-"0x769ea0" = { kind = "function", name = "the check for a frame inside a day", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/main-thread.md", "research/monthly-update.md"] }
+"0x769ea0" = { kind = "function", name = "the check for a frame inside a day", notes = ["research/architecture.md", "research/drawing-beside-the-day.md", "research/main-thread.md", "research/monthly-update.md", "research/reformation-center-crash.md"] }
 "0x769f24" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
+"0x769fb7" = { kind = "code", notes = ["research/reformation-center-crash.md"] }
 "0x76a1b0" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x76a20a" = { kind = "code", notes = ["research/main-thread.md"] }
 "0x76c1a0" = { kind = "function", notes = ["research/monthly-update.md"] }
@@ -2805,6 +2821,7 @@
 "0x9d9950" = { kind = "code", notes = ["research/provinces.md"] }
 "0x9d9977" = { kind = "code", name = "military construction's unit type", notes = ["research/provinces.md"] }
 "0x9dc2d9" = { kind = "code", notes = ["research/provinces.md"] }
+"0x9dcc10" = { kind = "function", name = "reset a province's state", notes = ["research/reformation-center-crash.md"] }
 "0x9dd6a0" = { kind = "function", notes = ["research/armies.md", "research/routes.md", "research/units.md"] }
 "0x9e292b" = { kind = "code", notes = ["research/provinces.md"] }
 "0x9e3210" = { kind = "function", notes = ["research/leaders.md", "research/main-menu.md", "research/tolerance-in-a-province.md", "research/trade-range-and-naval-supply.md"] }
@@ -2873,6 +2890,9 @@
 "0xa12460" = { kind = "function", notes = ["research/monthly-update.md"] }
 "0xa12ab0" = { kind = "function", notes = ["research/monthly-update.md"] }
 "0xa14e60" = { kind = "function", name = "culture price", notes = ["research/province-view.md", "research/provinces.md"] }
+"0xa15ff0" = { kind = "function", name = "change a province's religion", notes = ["research/reformation-center-crash.md"] }
+"0xa16720" = { kind = "function", notes = ["research/reformation-center-crash.md"] }
+"0xa16a50" = { kind = "leaf", name = "set the converting center and progress of a province", notes = ["research/reformation-center-crash.md"] }
 "0xa1994a" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0xa1a010" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
 "0xa1a18f" = { kind = "code", name = "a moved capital's map mode set", notes = ["research/map-drawing-reads.md"] }
@@ -2915,6 +2935,7 @@
 "0xa2e7d3" = { kind = "code", name = "local governing cost increase modifier", notes = ["research/area-governing-cost.md"] }
 "0xa2ec80" = { kind = "function", name = "country highlight bitset resized", notes = ["research/map-drawing-reads.md"] }
 "0xa368eb" = { kind = "code", notes = ["research/loading.md"] }
+"0xa3bef0" = { kind = "function", notes = ["research/reformation-center-crash.md"] }
 "0xa40700" = { kind = "function", notes = ["research/provinces.md"] }
 "0xa407ac" = { kind = "code", notes = ["research/provinces.md"] }
 "0xa42e20" = { kind = "function", notes = ["research/provinces.md"] }
@@ -2987,6 +3008,7 @@
 "0xa806d6" = { kind = "code", name = "papal action allow", notes = ["research/religion.md"] }
 "0xa80960" = { kind = "function", name = "papal action cost", notes = ["research/religion.md"] }
 "0xa80a50" = { kind = "function", name = "papal action curia cost", notes = ["research/religion.md"] }
+"0xa81770" = { kind = "function", name = "filter and rank religious conversion targets", notes = ["research/reformation-center-crash.md"] }
 "0xa82ee0" = { kind = "function", notes = ["research/religion.md"] }
 "0xa855b0" = { kind = "function", notes = ["research/country-daily-update.md"] }
 "0xa929f0" = { kind = "function", notes = ["research/countries.md"] }
@@ -3436,6 +3458,8 @@
 "0xd30000" = { kind = "code", notes = ["research/army-checks-in-searches.md"] }
 "0xd330a0" = { kind = "function", notes = ["research/architecture.md"] }
 "0xd36b80" = { kind = "function", notes = ["research/envoys.md"] }
+"0xd37940" = { kind = "function", name = "create a center for propagate religion policy", notes = ["research/reformation-center-crash.md"] }
+"0xd37b17" = { kind = "code", name = "policy center creation forgets the source's old converting center", notes = ["research/reformation-center-crash.md"] }
 "0xd37c7f" = { kind = "code", name = "trading policy key", notes = ["research/envoys.md"] }
 "0xd38b60" = { kind = "function", name = "trading policies", notes = ["research/envoys.md"] }
 "0xd39730" = { kind = "function", notes = ["research/envoys.md"] }
@@ -3668,6 +3692,8 @@
 "0xd7ac6c" = { kind = "code", name = "file transfer's add deflates with compress", notes = ["research/save-transfer-copy.md"] }
 "0xd7b2a0" = { kind = "function", notes = ["research/save-transfer-copy.md"] }
 "0xd7b36f" = { kind = "code", notes = ["research/save-transfer-copy.md"] }
+"0xd7c080" = { kind = "function", name = "building_prov record field reader", notes = ["research/reformation-center-crash.md"] }
+"0xd7c100" = { kind = "function", name = "building_prov record field writer", notes = ["research/reformation-center-crash.md"] }
 "0xd7c3b0" = { kind = "function", notes = ["research/scripts.md"] }
 "0xd7c450" = { kind = "function", name = "set variable", notes = ["research/scripts.md"] }
 "0xd7c9a0" = { kind = "function", notes = ["research/scripts.md"] }
@@ -3702,6 +3728,13 @@
 "0xda9981" = { kind = "code", name = "name pick's draw in fixed point", notes = ["research/names.md"] }
 "0xdaace0" = { kind = "function", name = "may invite scholar", notes = ["research/religion.md"] }
 "0xdacf90" = { kind = "function", notes = ["research/religion.md"] }
+"0xdad6e0" = { kind = "function", name = "per-religion manager record destructor", notes = ["research/reformation-center-crash.md"] }
+"0xdad740" = { kind = "function", name = "per-religion manager field reader", notes = ["research/reformation-center-crash.md"] }
+"0xdadad0" = { kind = "function", name = "per-religion manager field writer", notes = ["research/reformation-center-crash.md"] }
+"0xdae300" = { kind = "function", name = "create a reformation center in a province", notes = ["research/reformation-center-crash.md"] }
+"0xdae38f" = { kind = "code", name = "center creation forgets the source's old converting center", notes = ["research/reformation-center-crash.md"] }
+"0xdae450" = { kind = "function", name = "remove a reformation center by source province", notes = ["research/reformation-center-crash.md"] }
+"0xdae5a0" = { kind = "function", name = "remove a reformation center by array index", notes = ["research/reformation-center-crash.md"] }
 "0xdb04d0" = { kind = "function", notes = ["research/parameterized-script.md"] }
 "0xdb0860" = { kind = "function", notes = ["research/localisation-loading.md", "research/parameterized-script.md"] }
 "0xdb08c0" = { kind = "code", notes = ["research/parameterized-script.md"] }
@@ -3802,6 +3835,7 @@
 "0xe5a5c0" = { kind = "function", notes = ["research/localisation-loading.md"] }
 "0xe5bb30" = { kind = "function", notes = ["research/questions-and-offers.md"] }
 "0xe5db50" = { kind = "function", notes = ["research/time.md"] }
+"0xe5fbf0" = { kind = "function", name = "console handler that creates a reformation center", notes = ["research/reformation-center-crash.md"] }
 "0xe64f60" = { kind = "function", notes = ["research/game-console.md"] }
 "0xe7a990" = { kind = "function", notes = ["research/fog-of-war.md"] }
 "0xe84320" = { kind = "function", notes = ["research/architecture.md"] }
@@ -4442,15 +4476,18 @@
 "0x1327c6a" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x13284c0" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
 "0x1329e40" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
+"0x132b1b0" = { kind = "function", name = "show and update the province's reformation-center icon", notes = ["research/reformation-center-crash.md"] }
+"0x132b23e" = { kind = "code", notes = ["research/reformation-center-crash.md"] }
 "0x132c050" = { kind = "function", notes = ["research/map-modes.md"] }
-"0x132e210" = { kind = "function", name = "a map icon's projection", notes = ["research/drawing-beside-the-day.md"] }
-"0x132e300" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
+"0x132e210" = { kind = "function", name = "a map icon's projection", notes = ["research/drawing-beside-the-day.md", "research/reformation-center-crash.md"] }
+"0x132e300" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/reformation-center-crash.md"] }
 "0x132e4d5" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x132e553" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x132e5c4" = { kind = "code", name = "a map icon's window put at its place", notes = ["research/drawing-beside-the-day.md"] }
 "0x132e5cc" = { kind = "code", notes = ["research/drawing-beside-the-day.md"] }
 "0x132e860" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
-"0x132f1c0" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
+"0x132f1c0" = { kind = "function", name = "update the reformation-center conversion map icon", notes = ["research/drawing-beside-the-day.md", "research/reformation-center-crash.md"] }
+"0x132f43b" = { kind = "code", name = "reformation-center icon string-capacity read at the reported fault", notes = ["research/reformation-center-crash.md"] }
 "0x13320a0" = { kind = "function", notes = ["research/drawing-beside-the-day.md", "research/world-interface-seams.md"] }
 "0x1337c90" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
 "0x133a503" = { kind = "code", notes = ["research/dates.md"] }
@@ -5893,6 +5930,7 @@
 "0x1c40870" = { kind = "data", notes = ["research/ai.md"] }
 "0x1c40cf8" = { kind = "data", notes = ["research/ai.md"] }
 "0x1c40d68" = { kind = "data", notes = ["research/ai.md"] }
+"0x1c415a0" = { kind = "data", name = "building_prov record vtable", notes = ["research/reformation-center-crash.md"] }
 "0x1c41c28" = { kind = "data", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x1c41d98" = { kind = "data", notes = ["research/armies.md"] }
 "0x1c424f0" = { kind = "data", notes = ["research/armies.md"] }
@@ -5979,6 +6017,7 @@
 "0x1c640a8" = { kind = "data", notes = ["research/power-spending.md"] }
 "0x1c64150" = { kind = "data", notes = ["research/envoys.md"] }
 "0x1c641f8" = { kind = "data", notes = ["research/envoys.md"] }
+"0x1c645c0" = { kind = "data", name = "reformation center vtable", notes = ["research/reformation-center-crash.md"] }
 "0x1c65fe0" = { kind = "data", notes = ["research/religion.md"] }
 "0x1c66920" = { kind = "data", notes = ["research/triggers.md"] }
 "0x1c66ac8" = { kind = "data", notes = ["research/government.md"] }
@@ -6090,6 +6129,7 @@
 "0x1ccfd40" = { kind = "data", notes = ["research/triggers.md"] }
 "0x1cd0430" = { kind = "data", notes = ["research/tolerance-in-a-province.md"] }
 "0x1cd2440" = { kind = "data", notes = ["research/peace.md"] }
+"0x1cd6640" = { kind = "data", notes = ["research/reformation-center-crash.md"] }
 "0x1cd9270" = { kind = "data", notes = ["research/fog-of-war.md"] }
 "0x1cdcd40" = { kind = "data", notes = ["research/names.md", "research/scripts.md"] }
 "0x1cdcdd8" = { kind = "data", notes = ["research/main-menu.md", "research/names.md", "research/scripts.md"] }
@@ -6401,7 +6441,7 @@
 "0x1fd5c00" = { kind = "data", notes = ["research/localisation-loading.md"] }
 "0x1fd5fa8" = { kind = "data", notes = ["research/scripts.md"] }
 "0x1fd8428" = { kind = "data", notes = ["research/localisation-loading.md"] }
-"0x1fd8660" = { kind = "data", notes = ["research/architecture.md", "research/commands.md", "research/diplomacy.md", "research/peace.md", "research/religion.md", "research/units.md"] }
+"0x1fd8660" = { kind = "data", notes = ["research/architecture.md", "research/commands.md", "research/diplomacy.md", "research/peace.md", "research/reformation-center-crash.md", "research/religion.md", "research/units.md"] }
 "0x1fe67dc" = { kind = "data", notes = ["research/window-elements.md"] }
 "0x20744c0" = { kind = "data", notes = ["research/provinces.md"] }
 "0x20746c8" = { kind = "data", notes = ["research/provinces.md"] }

@@ -17,7 +17,7 @@ English | [简体中文](README.zh-CN.md)
 | The game starts and loads saves sooner | ✗ | ✓ |
 | A faster late game | ✗ | ✓ |
 | Heirs no longer get the same name half the time | ✗ | ✓ |
-| Fewer crashes | ✗ | ✓ |
+| Fewer crashes, including [stale reformation-center references](docs/research/reformation-center-crash.md) | ✗ | ✓ |
 | Loading a save no longer costs you achievements | ✗ | ✓ |
 | A long game no longer eats ever more memory | ✗ | ✓ |
 | Optionally, achievements outside ironman or with mods | ✗ | ✓ |
