@@ -17,6 +17,7 @@ use crate::{
     hooks::Call,
     memory::Memory,
     objects::session::{self, fields as session_fields},
+    objects::stream,
     points::{GameFunction, Point},
     unicode::game_text,
 };
@@ -112,16 +113,6 @@ const LAMBDA_SELF: usize = 0x38;
 const LAMBDA_SIZE: usize = 0x40;
 const RUN_LAMBDA: GameFunction<1> = GameFunction::at(0x14d4e70);
 
-/// The memory stream, as the local handler's post makes it: a line, a mode,
-/// whether it writes, a name, and the byte vector it writes to or reads from.
-mod stream {
-    pub const SIZE: usize = 0x58;
-    pub const LINE: usize = 0x08;
-    pub const MODE: usize = 0x10;
-    pub const WRITING: usize = 0x14;
-    pub const NAME: usize = 0x18;
-    pub const BYTES: usize = 0x38;
-}
 /// The writer: its depth, its stream, and whether it writes binary.
 mod writer {
     pub const SIZE: usize = 0x20;
@@ -590,7 +581,7 @@ fn memory_stream(m: &Memory, bytes: &mut [usize; 3], writing: bool) -> Object<{ 
     s.set(stream::WRITING, &(writing as u32).to_le_bytes());
     // An empty name, its text held inline.
     s.set(stream::NAME + game_string::CAPACITY, &(game_string::INLINE as u64).to_le_bytes());
-    s.set(stream::BYTES, &(bytes.as_mut_ptr() as usize).to_le_bytes());
+    s.set(stream::GROWING, &(bytes.as_mut_ptr() as usize).to_le_bytes());
     s
 }
 
