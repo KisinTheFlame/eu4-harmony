@@ -19,7 +19,7 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 
 | | |
 | --- | --- |
-| [2026-11-14-window-ordering-user-game.md](prototype-log/2026-11-14-window-ordering-user-game.md) | Current ordering implementation handed to the user in a visible paused France game, with two Paris armies ready for the attach picker |
+| [2026-11-14-window-ordering-user-game.md](prototype-log/2026-11-14-window-ordering-user-game.md) | Actual-playset handoff exposed the unresolved button-area overlap; startup readiness was bypassed, and the normally exited game was released |
 | [2026-11-14-window-ordering-pointer-acceptance.md](prototype-log/2026-11-14-window-ordering-pointer-acceptance.md) | Pointer activation runs its action once; the army attach picker covers the button area, receives input, and restores the area after closing |
 | [window-placement.md](research/window-placement.md) | Same-parent scene placement, fixed anchors, complete control node groups, and why named-child promotion is not a general reorder operation |
 | [window-visibility.md](research/window-visibility.md) | Four native show/hide paths, ancestor traversal gates, and window lifetime observations |
