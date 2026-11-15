@@ -1,0 +1,9 @@
+guiButtonType = {
+ name = "ordering_probe"
+ quadTextureSprite = "GFX_unitpanel_button_hunt_rebels"
+}
+iconType = {
+ name = "ordering_glow"
+ spriteType = "GFX_unitpanel_button_large_glow"
+ Orientation = "UPPER_LEFT"
+}

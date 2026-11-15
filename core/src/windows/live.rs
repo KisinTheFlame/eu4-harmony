@@ -306,6 +306,8 @@ struct Wants {
     windows: Vec<WantWindow>,
     definitions: Vec<String>,
     popups: Vec<(u32, Popup)>,
+    /// Real pop-up appearance order, shared with Wanted::appearance.
+    appearances: BTreeMap<u32, u64>,
 }
 
 fn wants() -> Wants {
@@ -334,7 +336,8 @@ fn wants() -> Wants {
             }
         }
         let popups = all.wanted.popups().iter().map(|p| (p.number, p.popup.clone())).collect();
-        Wants { generation: all.generation, windows, definitions, popups }
+        let appearances = all.wanted.popups().iter().map(|p| (p.number, p.appearance)).collect();
+        Wants { generation: all.generation, windows, definitions, popups, appearances }
     })
 }
 
@@ -474,6 +477,7 @@ pub(crate) fn session_ended() {
         all.wanted.end_session();
         all.clicks.clear();
     });
+    crate::window_ordering::clear();
 }
 
 // ---------- the game's big panels and tooltips ----------

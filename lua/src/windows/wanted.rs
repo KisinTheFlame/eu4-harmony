@@ -23,6 +23,9 @@ pub const POPUPS: usize = 32;
 #[derive(Clone, Default, Debug, PartialEq)]
 pub struct Wanted {
     pub open: bool,
+    /// Order of the most recent real open request, shared with pop-ups.
+    /// Native reconstruction and repeated open requests retain this value.
+    pub appearance: u64,
     /// What it set on each game widget, by name, and on its entry button
     /// as [`crate::layout::ENTRY`].
     pub set: BTreeMap<String, BTreeMap<&'static str, Property>>,
@@ -95,6 +98,8 @@ pub struct ResolvedWindow {
 #[derive(Clone, Debug, PartialEq)]
 pub struct OpenPopup {
     pub number: u32,
+    /// Order of this opening among windows and pop-ups.
+    pub appearance: u64,
     pub extension: usize,
     pub popup: Popup,
 }
@@ -106,6 +111,7 @@ pub struct Windows {
     wanted: BTreeMap<(usize, String), Wanted>,
     popups: Vec<OpenPopup>,
     last_popup: u32,
+    last_appearance: u64,
     /// What extensions hear at the next frame.
     seen: Vec<WindowSeen>,
     /// The pop-ups' buttons pressed, whose actions run at the next frame.
@@ -399,6 +405,10 @@ impl Windows {
         let wanted = self.wanted.entry((extension, name.to_string())).or_default();
         if wanted.open != open {
             wanted.open = open;
+            if open {
+                self.last_appearance = self.last_appearance.checked_add(1).expect("window appearance order exhausted");
+                wanted.appearance = self.last_appearance;
+            }
             changed.push(WindowSeen { extension, window: name.to_string(), open });
         }
         changed
@@ -467,7 +477,8 @@ impl Windows {
         self.last_popup += 1;
         let number = self.last_popup;
         self.shown.push((number, extension));
-        self.popups.push(OpenPopup { number, extension, popup });
+        self.last_appearance = self.last_appearance.checked_add(1).expect("window appearance order exhausted");
+        self.popups.push(OpenPopup { number, appearance: self.last_appearance, extension, popup });
         Ok(number)
     }
 
@@ -579,6 +590,26 @@ mod tests {
 
     fn open(all: &mut Windows, e: usize, w: &str) {
         all.change(e, WindowChange::Open(w.into()), true).unwrap();
+    }
+
+    #[test]
+    fn appearance_tracks_real_opens_across_windows_and_popups() {
+        let mut all = declared();
+        open(&mut all, 1, "tracker");
+        let first = all.wanted(1, "tracker").unwrap().appearance;
+        let number = all.popup(0, popup(vec![]), true).unwrap();
+        let middle = all.open_popup(number).unwrap().appearance;
+        open(&mut all, 0, "tracker");
+        let last = all.wanted(0, "tracker").unwrap().appearance;
+        assert!(first < middle && middle < last);
+        open(&mut all, 1, "tracker");
+        assert_eq!(all.wanted(1, "tracker").unwrap().appearance, first);
+        all.show(1, "tracker", false);
+        open(&mut all, 1, "tracker");
+        assert!(all.wanted(1, "tracker").unwrap().appearance > last);
+        let retained = all.wanted(1, "tracker").unwrap().appearance;
+        all.declare(2, "other", &[]);
+        assert_eq!(all.wanted(1, "tracker").unwrap().appearance, retained);
     }
 
     #[test]
