@@ -320,6 +320,11 @@ impl Registry {
         if self.scopes.is_empty() {
             return Ok(());
         }
+        // Derived windows also enter the shared display methods. Only an
+        // ordinary GUI interface permits adopting its container into a scope.
+        if m.ptr(root + crate::objects::gui::window::GUI)? != m.at(crate::objects::gui::classes::WINDOW_GUI) {
+            return Ok(());
+        }
         let node = native::window_node(m, root)?;
         let parent = m.ptr(node + native::PARENT)?;
         if self.scopes.contains_key(&parent) && !self.nodes.contains_key(&node) {
