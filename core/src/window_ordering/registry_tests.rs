@@ -134,6 +134,52 @@ fn rebuilding_a_host_keeps_its_relation_to_an_independent_window() {
 }
 
 #[test]
+fn shared_visibility_methods_ignore_a_derived_window_outside_the_related_scope() {
+    let tree = Tree::new(2);
+    tree.link(tree.parent(), &[tree.nodes[0].at()]);
+    tree.link(tree.nodes[0].at(), &[tree.nodes[1].at()]);
+    let mut registry = Registry::default();
+    registry.attached(tree.memory(), tree.roots[0].at(), None, &[tree.nodes[1].at()]).unwrap();
+    tree.commit(&mut registry);
+    let entries = registry.entries.len();
+    // The observed derived class shares root show/hide with ordinary windows.
+    // Classification must not read the ordinary node field at root+0xa30.
+    let derived = Object::new(0x38).u64(0, (tree.memory().base + 0x1d57768) as u64).u64(0x30, (tree.memory().base + 0x1d57510) as u64);
+    registry.before_visibility(tree.memory(), derived.at()).unwrap();
+    registry.visibility(tree.memory()).unwrap();
+    assert_eq!(registry.entries.len(), entries);
+    assert!(!registry.dirty);
+}
+
+#[test]
+fn shared_visibility_methods_still_adopt_a_hidden_ordinary_window() {
+    let tree = Tree::new(2);
+    tree.link(tree.parent(), &[tree.nodes[0].at()]);
+    let mut registry = Registry::default();
+    registry.owned(tree.memory(), &[tree.owned(0, 1)]).unwrap();
+    tree.commit(&mut registry);
+    tree.roots[1].set(0xf5, &[0]);
+    tree.link(tree.parent(), &[tree.nodes[0].at(), tree.nodes[1].at()]);
+    registry.before_visibility(tree.memory(), tree.roots[1].at()).unwrap();
+    let key = registry.nodes[&tree.nodes[1].at()];
+    assert_eq!(registry.entries[&key].root, Some(tree.roots[1].at()));
+    assert_eq!(registry.entries[&key].role, Role::Original);
+    tree.roots[1].set(0xf5, &[1]);
+    registry.visibility(tree.memory()).unwrap();
+    assert_eq!(tree.commit(&mut registry), [tree.nodes[0].at(), tree.nodes[1].at()]);
+}
+
+#[test]
+fn shared_visibility_methods_reject_broken_ordinary_window_ownership() {
+    let tree = Tree::new(2);
+    let mut registry = Registry::default();
+    registry.owned(tree.memory(), &[tree.owned(0, 1)]).unwrap();
+    tree.nodes[1].set(0x118, &0usize.to_le_bytes());
+    let error = registry.before_visibility(tree.memory(), tree.roots[1].at()).unwrap_err();
+    assert!(error.to_string().contains("window container ownership changed"));
+}
+
+#[test]
 fn ancestor_gate_visibility_changes_without_changing_the_child_open_byte() {
     let tree = Tree::new(2);
     let gate = Object::new(0x278).u64(0x270, tree.memory().at(0x11483a0usize) as u64);

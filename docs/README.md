@@ -28,7 +28,9 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 | [2026-11-14-window-ordering-user-game.md](prototype-log/2026-11-14-window-ordering-user-game.md) | Actual-playset handoff exposed the unresolved button-area overlap; startup readiness was bypassed, and the normally exited game was released |
 | [2026-11-14-window-ordering-pointer-acceptance.md](prototype-log/2026-11-14-window-ordering-pointer-acceptance.md) | Pointer activation runs its action once; the army attach picker covers the button area, receives input, and restores the area after closing |
 | [window-placement.md](research/window-placement.md) | Same-parent scene placement, fixed anchors, complete control node groups, and why named-child promotion is not a general reorder operation |
-| [window-visibility.md](research/window-visibility.md) | Four native show/hide paths, ancestor traversal gates, and window lifetime observations |
+| [2026-11-15-army-panel-derived-window-before.md](prototype-log/2026-11-15-army-panel-derived-window-before.md) | Army selection plus a day advance reproduces the exit and identifies a derived receiver in the shared hide method |
+| [2026-11-15-army-panel-derived-window-after.md](prototype-log/2026-11-15-army-panel-derived-window-after.md) | Corrected shared-method classification tested with army selection, time advancement and the actual playset |
+| [window-visibility.md](research/window-visibility.md) | Four native show/hide paths, shared derived-window receivers, ancestor traversal gates, and window lifetime observations |
 | [window-activation.md](research/window-activation.md) | Accepted mouse targets, per-event dispatch, hit-state invalidation and presentation-lock evidence |
 | [window-input-refresh.md](research/window-input-refresh.md) | Independent native traversal and the prepared input lists it must refresh |
 | [2026-11-14-window-ordering-startup-screen.md](prototype-log/2026-11-14-window-ordering-startup-screen.md) | Initial Escape attributed to the original startup screen; the prepared native-drawing course then passed with exactly three keys |

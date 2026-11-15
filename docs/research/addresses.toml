@@ -4116,8 +4116,11 @@
 "0x10a0f40" = { kind = "leaf", name = "dialog buttons", notes = ["research/questions-and-offers.md"] }
 "0x10a0f48" = { kind = "leaf", notes = ["research/questions-and-offers.md"] }
 "0x10a1180" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
-"0x10a1cb0" = { kind = "function", notes = ["research/notice-window.md"] }
-"0x10a1dd0" = { kind = "function", notes = ["research/notice-window.md"] }
+"0x10a14d0" = { kind = "function", name = "construct a derived window with shared root display methods", notes = ["research/window-visibility.md"] }
+"0x10a186f" = { kind = "code", notes = ["research/window-visibility.md"] }
+"0x10a1879" = { kind = "code", notes = ["research/window-visibility.md"] }
+"0x10a1cb0" = { kind = "function", notes = ["research/notice-window.md", "research/window-visibility.md"] }
+"0x10a1dd0" = { kind = "function", notes = ["research/notice-window.md", "research/window-visibility.md"] }
 "0x10a21e0" = { kind = "function", notes = ["research/message-pop-up-actions.md"] }
 "0x10a2361" = { kind = "code", notes = ["research/message-pop-up-actions.md"] }
 "0x10a24d0" = { kind = "function", notes = ["research/message-pop-up-actions.md"] }
@@ -4354,8 +4357,10 @@
 "0x1234090" = { kind = "function", notes = ["research/gui-drawing.md"] }
 "0x1235060" = { kind = "function", notes = ["research/leaders.md"] }
 "0x1235e50" = { kind = "function", notes = ["research/leaders.md"] }
-"0x123f800" = { kind = "function", name = "an item of the message list", notes = ["research/drawing-beside-the-day.md", "research/main-menu.md", "research/map-drawing-reads.md"] }
+"0x123f800" = { kind = "function", name = "an item of the message list", notes = ["research/drawing-beside-the-day.md", "research/main-menu.md", "research/map-drawing-reads.md", "research/window-visibility.md"] }
 "0x123f9e1" = { kind = "code", name = "message window keeps its popup", notes = ["research/main-menu.md"] }
+"0x123fed9" = { kind = "code", notes = ["research/window-visibility.md"] }
+"0x123fedc" = { kind = "code", notes = ["research/window-visibility.md"] }
 "0x123ff50" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x1243500" = { kind = "function", notes = ["research/message-pop-up-actions.md"] }
 "0x1244500" = { kind = "function", notes = ["research/main-menu.md"] }
@@ -5129,7 +5134,7 @@
 "0x1541630" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
 "0x1541d30" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
 "0x15422f0" = { kind = "function", notes = ["research/map-drawing-reads.md"] }
-"0x1543f80" = { kind = "function", name = "construct a window and restore definition order", notes = ["research/drawing-beside-the-day.md", "research/extension-windows.md", "research/gui-drawing.md", "research/notice-window.md", "research/ui-injection.md", "research/window-elements.md", "research/window-ordering.md", "research/window-placement.md"] }
+"0x1543f80" = { kind = "function", name = "construct a window and restore definition order", notes = ["research/drawing-beside-the-day.md", "research/extension-windows.md", "research/gui-drawing.md", "research/notice-window.md", "research/ui-injection.md", "research/window-elements.md", "research/window-ordering.md", "research/window-placement.md", "research/window-visibility.md"] }
 "0x1544060" = { kind = "code", notes = ["research/extension-windows.md"] }
 "0x154406a" = { kind = "code", notes = ["research/window-placement.md"] }
 "0x1544149" = { kind = "code", notes = ["research/extension-windows.md"] }
@@ -6262,7 +6267,8 @@
 "0x1d54d58" = { kind = "data", notes = ["research/questions-and-offers.md"] }
 "0x1d57170" = { kind = "data", notes = ["research/gui-drawing.md"] }
 "0x1d57348" = { kind = "data", notes = ["research/camera.md"] }
-"0x1d57768" = { kind = "data", notes = ["research/window-placement.md"] }
+"0x1d57510" = { kind = "data", notes = ["research/window-visibility.md"] }
+"0x1d57768" = { kind = "data", notes = ["research/window-placement.md", "research/window-visibility.md"] }
 "0x1d580d0" = { kind = "data", notes = ["research/map-drawing-reads.md"] }
 "0x1d58108" = { kind = "data", notes = ["research/architecture.md", "research/notice-window.md", "research/window-activation.md"] }
 "0x1d581f8" = { kind = "data", notes = ["research/interface-bindings.md"] }

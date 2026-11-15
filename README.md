@@ -109,7 +109,7 @@ Button areas and fixed extension windows keep their blue backgrounds and gold bo
 
 Visible text and tooltips share text descriptions: `{ text = "Ready" }` or `{ key = "MYMOD_DETAILS", values = { N = 3 } }`. The same descriptions work in declarations and supported runtime text setters; tooltips are also readable. Assignment replaces the content, and `nil` clears it, including across window rebuilding. Panel entries can use a checked mod-relative DDS or TGA image, change visibility and enabled state, and show an independently formatted number below the icon; the [window guide](cli/skills/ui/windows.md) covers layouts and properties.
 
-The framework orders native extension windows, pop-ups and attached button areas within their existing window scopes, preserving original windows' relative order and native input priorities. No new Lua fields or calls are required. The [ordering plan](docs/plans/window-ordering.md) records the accepted behavior and the remaining in-game acceptance checks.
+The framework orders native extension windows, pop-ups and attached button areas within their existing window scopes, preserving original windows' relative order and native input priorities. Shared show/hide methods classify derived windows before applying ordinary-window ordering checks, preventing an exit after opening an army panel and advancing time. No new Lua fields or calls are required. The [ordering plan](docs/plans/window-ordering.md) records the accepted behavior and the remaining in-game acceptance checks.
 
 Where to learn more:
 
