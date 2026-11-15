@@ -1,15 +1,15 @@
-//! Saves compressed in the background (docs/plans/game-speed.md, S3).
+//! Saves compressed in the background .
 //!
 //! The game compresses a save's entries into its zip on the main thread, at
 //! zlib's level 3: about 40% of an ironman autosave's time late in a game
-//! (docs/research/main-thread.md). While one of the local saves runs (the
+//! (docs/game/day/frame-scheduling.md). While one of the local saves runs (the
 //! save `0x5c6500` and the ironman save `0x5c7ac0`), the framework has the
 //! game deflate them at level 0, which copies the data into stored blocks
 //! without compressing it, so the game writes, checks and moves its file as it
 //! always does, only sooner. (Not the zip's method 0, "stored": the game's
 //! code for it reads its data from where the stream stands, after the end,
 //! and wrote a save of zeros when it was tried;
-//! docs/prototype-log/2026-11-04-game-speed-s1-s4.md.)
+//! docs/research/performance-evidence.md.)
 //! Each file the save moved into place is then handed to a thread of the
 //! framework's, which deflates its uncompressed entries again at a real level,
 //! reads the result back, and puts it in the file's place, unless the file

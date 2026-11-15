@@ -1,6 +1,6 @@
 //! The main menu, for remote control (ADR remote-control-uses-capabilities):
 //! where the game is, the saves, loading one, starting a new game and returning
-//! to the main menu (docs/research/main-menu.md).
+//! to the main menu (docs/game/interface/main-menu.md).
 //!
 //! Each does what the game's own flows do, on the main thread:
 //!
@@ -337,7 +337,7 @@ fn header(path: &std::path::Path, bytes: u64, modified: u64) -> save_file::Heade
 /// with, lacks: their names, or their descriptors when they have none.
 ///
 /// A save made with a gameplay mod the playset lacked crashed the game as it
-/// loaded (docs/research/main-menu.md), and which mods change the game
+/// loaded (docs/game/interface/main-menu.md), and which mods change the game
 /// cannot be told from their names, so every one missing counts. A mod the
 /// playset has and the save lacks does not: the saves of the runs loaded
 /// with mods added to the playset since.
@@ -620,7 +620,7 @@ fn observe_now(m: &Memory, frontend: usize) -> Result<()> {
 /// into the main menu's world at a later frame, where the main menu shows
 /// its first page again. That starts no game, and a later load or start
 /// replaces it, as the runs saw of a load and a start at separate frames
-/// (docs/research/main-menu.md); the failure says so.
+/// (docs/game/interface/main-menu.md); the failure says so.
 fn load_now(m: &Memory, frontend: usize, path: &str, player: Tag) -> Result<()> {
     let world = world_now(m)?;
     m.write(world + world::MULTIPLAYER, &0i32.to_le_bytes())?;

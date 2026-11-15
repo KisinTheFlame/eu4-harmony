@@ -1,6 +1,6 @@
 //! End lock-order-only presentation ownership at checked stream-helper returns.
 //! Cold construction, abnormal completion and genuine crossings retain the
-//! ordinary frame-check lifetime. See docs/research/frame-drawing-p99-safe-boundary.md.
+//! ordinary frame-check lifetime. See docs/game/interface/stream-formatting.md.
 use super::{main_side, on_main, MainLock};
 use crate::{hooks::Call, points::Point};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -35,7 +35,7 @@ pub(super) fn points() -> Vec<Point> {
     // Each lookup's normal return follows its outer guard destructor.
     // Cold construction and its subsequent virtual call are excluded at the
     // cold entry, not guessed from an unlocked global-cache snapshot.
-    // Evidence: docs/research/frame-drawing-p99-safe-boundary.md.
+    // Evidence: docs/game/interface/stream-formatting.md.
     vec![
         Point::keep(0x91b59, "48 8d 4c 24 48 e8 65 ac 97 01 48 8b c3 48 8b 5c 24 58 48 83 c4 20 5f 5e 5d c3", "facet normal exit releases its guard"),
         Point::keep(0x91b24, "48 8b d5 48 8d 4c 24 50 e8 af fd ff ff", "facet cold construction call"),

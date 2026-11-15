@@ -1,7 +1,7 @@
 //! The religion view: following a personal deity or a cult, a church's
 //! aspects and the rest of the view's buttons, inviting an Islamic school's
 //! scholar, and the province view's holy orders, through the game's own
-//! commands, with the view's own checks (docs/research/religion.md).
+//! commands, with the view's own checks (docs/game/provinces/religion.md).
 use super::commands::{write, Block};
 use super::{action, conditions, content, power, GResult, Session, Tag};
 use crate::objects::campaign::country;

@@ -1,12 +1,12 @@
 //! Whether a file is in a folder of the game's, answered from the folder's
-//! listing (docs/plans/loading.md).
+//! listing (docs/game/program/loading.md).
 //!
 //! Every lookup of a file asks each folder of PhysFS's search path in turn,
 //! and for a folder PhysFS asks Windows (`0x1a061d0`, its platform's stat:
 //! `GetFileAttributesExW`, then the file's times through the time zone): the
 //! game folder, the workshop's mods and the user folder, for each picture,
 //! texture and script the game looks for, most of them in none of those
-//! folders (docs/research/loading.md).
+//! folders (docs/game/program/loading.md).
 //!
 //! Inside the game folder and the workshop's folder for the game, which
 //! nothing changes while the game runs, the framework lists each folder once,

@@ -1,6 +1,6 @@
 //! Islamic piety's two actions, enforcing faithful adherence and calling on
 //! religious followers, as the religion view's buttons post them, with the
-//! view's own lines (docs/research/religion.md, "Piety").
+//! view's own lines (docs/game/provinces/religion.md, "Piety").
 use super::commands::{write, Block};
 use super::{action, content, Ctx, GResult, Session, Tag};
 use crate::{

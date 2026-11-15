@@ -1,4 +1,4 @@
-//! The drawing thread (GLOSSARY; docs/plans/drawing-thread.md, T1): the
+//! The drawing thread (GLOSSARY): the
 //! in-game frame's drawing done by a thread of the framework's, at a pace of
 //! its own, while the main thread goes on with the day.
 //!
@@ -91,7 +91,7 @@ const APP_QUITS: usize = 0x83;
 const APP_PUMP_QUITS: usize = 0x2f8;
 /// The game's check for a frame inside a day, between the day's phases.
 const FRAME_CHECK: usize = 0x769ea0;
-/// The camera's update in the in-game frame's input (docs/plans/drawing-thread.md,
+/// The camera's update in the in-game frame's input (docs/plans/README.md#drawing,
 /// T2): `movss xmm0, [r14 + 0x1658]`, the frame's length it is given, and
 /// where it is stored as the update's fifth argument.
 const CAMERA_LENGTH: usize = 0x831192;
@@ -189,7 +189,7 @@ fn points() -> Vec<Point> {
     .collect()
 }
 
-/// The application's frame switching its idler (docs/research/main-menu.md,
+/// The application's frame switching its idler (docs/game/interface/main-menu.md,
 /// "The application's idler switch"), which lets the current one go: and
 /// where it goes on.
 const IDLER_SWITCH: usize = 0x14c2839;

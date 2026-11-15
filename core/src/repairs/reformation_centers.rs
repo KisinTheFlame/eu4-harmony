@@ -1,7 +1,7 @@
 //! A province becoming a conversion center stops being another center's
 //! target. Both creation paths forget the old center's target but leave the
 //! province referring to it: normal later removal cannot find that province
-//! and leaves a dangling pointer (docs/research/reformation-center-crash.md).
+//! and leaves a dangling pointer (docs/game/provinces/reformation-centers.md).
 //! Complete that detach at the two writes, before the new center is installed,
 //! using the game's setter so conversion progress and map colors follow it.
 use crate::{

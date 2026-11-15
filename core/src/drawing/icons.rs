@@ -1,8 +1,8 @@
-//! The map icons follow the drawing's camera (docs/plans/drawing-thread.md,
+//! The map icons follow the drawing's camera (docs/plans/README.md#drawing,
 //! T3a). The interface places each map icon's window (a unit's flag and
 //! number, a trade node's, a siege's and the rest) where its point on the
 //! map shows with the camera of its update (`0x132e300`,
-//! docs/research/drawing-beside-the-day.md, "Where the map icons are
+//! docs/game/interface/frame-lifecycle.md, "Where the map icons are
 //! placed"); the drawing thread moves the camera between updates, and the
 //! icons stayed behind the map. Each placing is kept as the game makes it,
 //! and handed on with the frame prepared; before it draws, the drawing

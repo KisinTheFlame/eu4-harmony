@@ -53,7 +53,7 @@ pub fn install(args: &Args) -> Result<()> {
     }
     // The player's game, which loads every file installed here, is closed
     // while installing: the user sees to that. The test games load only
-    // version.dll from here (docs/plans/test-games.md), which is replaced
+    // version.dll from here (docs/dev-tools.md#test-games), which is replaced
     // only when it differs and moved aside while loaded.
     remove_old_proxies(&root);
 

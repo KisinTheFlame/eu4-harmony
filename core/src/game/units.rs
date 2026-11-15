@@ -1,7 +1,7 @@
 //! The army and fleet panels' buttons: splitting, merging, disbanding,
 //! consolidating, drilling, and a fleet's missions, through the game's own
 //! commands as the panels post them, with the game's own answers of whether
-//! the player can and why not (docs/research/units.md).
+//! the player can and why not (docs/game/military/units.md).
 use super::commands::{write, Block};
 use super::{action, army, commands, Ctx, GResult, Session};
 use crate::{
@@ -544,7 +544,7 @@ pub fn stop_mission(Session { m, ctx, commands, .. }: Session, args::StopMission
 
 /// The refusals the framework words itself in the military panels'
 /// actions, of armies and fleets, leaders, mercenaries, sieges and forts
-/// (docs/plans/player-actions.md, A4); those the game gives reasons for are
+/// (docs/adding-a-capability.md, A4); those the game gives reasons for are
 /// [`super::action`]'s.
 pub mod checks {
     use crate::game::{Fail, Status};

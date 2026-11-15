@@ -13,7 +13,7 @@
 //!
 //! The game reads where the cursor is once a frame (`CURSOR_AT`): from
 //! Windows' own cursor while its window has the focus, from SDL otherwise
-//! (docs/research/input.md). The framework answers it with the cursor input
+//! (docs/game/interface/input.md). The framework answers it with the cursor input
 //! left, the virtual cursor, until the player's own mouse moves over the
 //! game; while the virtual cursor holds, the messages Windows sends for a
 //! cursor that did not move, and for leaving the window, do not reach the
@@ -42,7 +42,7 @@ static ORIGINAL_CURSOR_AT: Function<CursorAt> = Function::new();
 
 /// Whether the game reads Windows' cursor rather than SDL's: set by the
 /// event pump as the window is shown or gains the focus, and as a button is
-/// pressed (docs/research/input.md).
+/// pressed (docs/game/interface/input.md).
 const WINDOWS_CURSOR: usize = 0x1fd10c5;
 
 pub fn points() -> Vec<Point> {
@@ -79,7 +79,7 @@ unsafe extern "C" fn cursor_at(out: *mut [i32; 2], full_screen: u8, borderless: 
 /// lie wherever an unset rectangle puts it, and the camera would scroll
 /// toward that edge. On the drawing thread Windows' cursor is read against
 /// the game's window itself; SDL's, which the game reads otherwise, needs no
-/// window (docs/research/drawing-beside-the-day.md).
+/// window (docs/game/interface/frame-lifecycle.md).
 fn drawing_thread_cursor() -> Option<[i32; 2]> {
     if !crate::drawing::is_drawing_thread() {
         return None;

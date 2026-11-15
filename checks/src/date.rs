@@ -3,7 +3,7 @@ use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
 /// A game date, as the game keeps it: hours since 1 January 5000 BC in a
-/// calendar of 365-day years (docs/research/dates.md). In JSON
+/// calendar of 365-day years (docs/game/day/dates.md). In JSON
 /// `"year.month.day"`, such as `"1444.11.11"`.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Date(pub i32);
@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn dates_as_the_game_keeps_them() {
-        // docs/research/dates.md: 1444.11.11 is 0x035D7710.
+        // docs/game/day/dates.md: 1444.11.11 is 0x035D7710.
         let start = Date(0x035D_7710);
         assert_eq!(start.ymd(), (1444, 11, 11));
         assert_eq!(start.to_string(), "1444.11.11");

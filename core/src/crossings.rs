@@ -1,6 +1,6 @@
 //! Where the day goes into the interface's or the graphics' code (the
 //! `dev-crossings` feature: a player's build has none of this), for the
-//! drawing thread (docs/plans/drawing-thread.md, C1): each crossing (GLOSSARY)
+//! drawing thread : each crossing (GLOSSARY)
 //! a day reaches, by its call stack and how often.
 //!
 //! While the daily update runs on the main thread, between two of the game's

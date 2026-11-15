@@ -7,7 +7,7 @@
 /// Globals, by RVA.
 pub mod globals {
     /// The world, the campaign's state. It is not null in the main menu
-    /// either, so it is no sign of a game (docs/research/safe-points.md).
+    /// either, so it is no sign of a game (docs/game/day/safe-points.md).
     pub const WORLD: usize = 0x233fe78;
     /// The country manager.
     pub const COUNTRY_MANAGER: usize = 0x233d8d0;
@@ -20,7 +20,7 @@ pub mod globals {
     pub const IDLE_TASK: usize = 0x2340020;
     /// The normal movement policy route queries take (its vtable).
     pub const ROUTE_POLICY: usize = 0x1c3af98;
-    /// The game's end date, i32 (docs/research/time.md): past it, time
+    /// The game's end date, i32 (docs/game/day/time.md): past it, time
     /// stands still unless the player plays on ([`super::world::PLAY_ON`]).
     pub const END_DATE: usize = 0x1fc2328;
     /// The campaign's achievements ([`super::achievements`]), made on first
@@ -84,15 +84,15 @@ pub mod tag {
 
 /// The world, at [`globals::WORLD`].
 pub mod world {
-    /// The date, i32 (docs/research/dates.md).
+    /// The date, i32 (docs/game/day/dates.md).
     pub const DATE: usize = 0x1dd0;
     /// Nonzero once the player chose to play on past the end date
     /// ([`super::globals::END_DATE`]), u8: set as the end-of-game summary
-    /// the end date shows is closed (docs/research/time.md).
+    /// the end date shows is closed (docs/game/day/time.md).
     pub const PLAY_ON: usize = 0x1dd8;
     /// Nonzero when the game lets the player run time with a tag whose last
     /// byte is clear, u8: the pause key resumes such a game only then
-    /// (docs/research/time.md).
+    /// (docs/game/day/time.md).
     pub const OBSERVER_RUNS_TIME: usize = 0x74dc;
     /// The map manager.
     pub const MAP_MANAGER: usize = 0x1e00;
@@ -140,13 +140,13 @@ pub mod world {
     /// 0 in single player, i32.
     pub const MULTIPLAYER: usize = 0x747c;
     /// Set to 1 (i32) before the single player setup is entered to continue
-    /// a save (docs/research/main-menu.md).
+    /// a save (docs/game/interface/main-menu.md).
     pub const SETUP: usize = 0x23b4;
     /// The session is ironman, u8, as its save says.
     pub const IRONMAN: usize = 0x24d0;
     /// The Empire's religious status, u32, which saves call
     /// `hre_religion_status`: 0 at a new start. The world's own reset leaves
-    /// it (docs/research/main-menu.md).
+    /// it (docs/game/interface/main-menu.md).
     pub const HRE_RELIGION_STATUS: usize = 0x2418;
     /// Nonzero while the world's own reset clears it (`0x74a260`), u8: a
     /// rebel faction's destructor then leaves its provinces be.
@@ -154,7 +154,7 @@ pub mod world {
     /// What the world keeps of each religion, a pointer to an object whose
     /// [`RELIGION_STATES_DATA`] is an array of [`RELIGION_STATE_SIZE`]-byte
     /// records by the religion's [`super::religion::INDEX`] less one
-    /// (docs/research/religion.md, "The defender of the faith").
+    /// (docs/game/provinces/religion.md, "The defender of the faith").
     pub const RELIGION_STATES: usize = 0x25a8;
     pub const RELIGION_STATES_DATA: usize = 0x30;
     pub const RELIGION_STATE_SIZE: usize = 0x50;
@@ -198,7 +198,7 @@ pub mod achievements {
 
 /// What the game's in-game load (`game::menu::leave`) is asked to load, a
 /// struct of [`SIZE`] bytes the load question builds on its stack
-/// (docs/research/main-menu.md).
+/// (docs/game/interface/main-menu.md).
 pub mod load_request {
     /// The save's name without `.eu4`, a `std::string`.
     pub const NAME: usize = 0;
@@ -240,13 +240,13 @@ pub mod country {
     /// A byte for each idea group of the game's database (`[0x242bce0]`),
     /// set when the country has taken it: an array the country tags' setup
     /// (`0x283d20`) gives each country that has none, and that the
-    /// country's destructor never frees (docs/research/main-menu.md).
+    /// country's destructor never frees (docs/game/interface/main-menu.md).
     pub const ENTRY_BYTES: usize = 0x10a0;
     /// The countries it shares a support of independence with, either way,
     /// while it has an overlord (`support_independence` in saves): a list of
     /// 0x20-byte nodes (a tag, the previous node, the next) that its refresh
     /// of its diplomatic caches (`0x93fe30`) clears and builds again
-    /// (docs/research/dependency-teardown.md).
+    /// (docs/game/diplomacy/dependency-teardown.md).
     pub const SUPPORT_INDEPENDENCE: usize = 0x19a0;
     /// The countries in a coalition against it: a list of 0x20-byte nodes
     /// (a member's tag, the previous node, the next, a byte marking it to
@@ -254,10 +254,10 @@ pub mod country {
     pub const COALITION: usize = 0x1928;
     /// The rebel factions in it, which it owns: a vector (begin, end) of
     /// pointers. The country's clear (`0x2e1a30`) lets the vector go
-    /// without destroying them (docs/research/main-menu.md).
+    /// without destroying them (docs/game/interface/main-menu.md).
     pub const REBEL_FACTIONS: usize = 0xe68;
     /// A native country's tribe, its `native` object; null for a country
-    /// that is not a native one (docs/research/power-spending.md, "The
+    /// that is not a native one (docs/game/countries/power-spending.md, "The
     /// province view's and the army panel's spendings").
     pub const NATIVE: usize = 0x9a78;
     /// Its armies and fleets, a [`super::list`].
@@ -337,41 +337,41 @@ pub mod country {
     pub const STATE_RELIGION: usize = 0xf30;
     /// The personal deity it follows, a pointer to one of the game's
     /// deities, null for none; and its cult, a pointer to a cult or the
-    /// game's no-cult object (docs/research/religion.md).
+    /// game's no-cult object (docs/game/provinces/religion.md).
     pub const PERSONAL_DEITY: usize = 0xfa0;
     pub const CULT: usize = 0xfa8;
     /// Its church, a pointer to the object that keeps its church power and
     /// the aspects its church has chosen; and the blessings it has taken, a
-    /// `std::vector` of pointers to aspects (docs/research/religion.md).
+    /// `std::vector` of pointers to aspects (docs/game/provinces/religion.md).
     pub const CHURCH: usize = 0xf68;
     pub const BLESSINGS: usize = 0xf70;
     /// Its religious reforms, a `std::vector` of entries, one for each reform
     /// group of its religion: the group and which of its reforms are passed
-    /// (docs/research/religion.md).
+    /// (docs/game/provinces/religion.md).
     pub const RELIGIOUS_REFORMS: usize = 0x1450;
     /// Its fervor, a pointer to the object that keeps it and the fervor
-    /// effects active (docs/research/religion.md).
+    /// effects active (docs/game/provinces/religion.md).
     pub const FERVOR: usize = 0xf60;
     /// The religion it is harmonizing with now and the religion group, each a
-    /// pointer, null while it harmonizes with none (docs/research/religion.md).
+    /// pointer, null while it harmonizes with none (docs/game/provinces/religion.md).
     pub const HARMONIZING: usize = 0x1040;
     pub const HARMONIZING_GROUP: usize = 0x1048;
     /// Its patriarch authority, i32 thousandths of the whole, and the icon it
-    /// has commissioned, a pointer, null for none (docs/research/religion.md).
+    /// has commissioned, a pointer, null for none (docs/game/provinces/religion.md).
     pub const PATRIARCH_AUTHORITY: usize = 0xf88;
     pub const ICON: usize = 0xf90;
     /// Its papal influence, i32 thousandths, which the papacy's actions
-    /// spend (docs/research/religion.md).
+    /// spend (docs/game/provinces/religion.md).
     pub const PAPAL_INFLUENCE: usize = 0xf50;
     /// The Islamic school it follows, a pointer, null for none: a country
     /// follows one, and invites a scholar of another from a country that
-    /// follows it (docs/research/religion.md).
+    /// follows it (docs/game/provinces/religion.md).
     pub const SCHOOL: usize = 0x28b8;
     /// Its secondary religion (Tengri's syncretic faith), a pointer to the
-    /// game's no-religion while it has none (docs/research/religion.md).
+    /// game's no-religion while it has none (docs/game/provinces/religion.md).
     pub const SECONDARY_RELIGION: usize = 0xf38;
     /// The gurus' teachings it has taken (Sikhism), the game's own array of
-    /// pointers (docs/research/religion.md).
+    /// pointers (docs/game/provinces/religion.md).
     pub const TEACHINGS: usize = 0x9aa8;
     /// The named modifiers its scripts put on it, a [`super::super::list`]
     /// of [`super::named_modifier`]s.
@@ -386,7 +386,7 @@ pub mod country {
     /// Its legitimacy of each kind, i32 thousandths from 0 to 100: a
     /// monarchy's legitimacy, which is a horde's horde unity as well,
     /// republican tradition, devotion and meritocracy. Which one its
-    /// government has, the government says (docs/research/government.md).
+    /// government has, the government says (docs/game/countries/government.md).
     pub const LEGITIMACY: usize = 0x1090;
     pub const REPUBLICAN_TRADITION: usize = 0x1094;
     pub const DEVOTION: usize = 0x1430;
@@ -597,12 +597,12 @@ pub mod province {
     /// A province with [`UNDISCOVERED_BIT`] of the byte at [`FOGGED`] set is
     /// terra incognita to a country whose index is not set in the bits at
     /// [`DISCOVERED_BY`], a pointer to u32 words, as the fog of war refresh
-    /// reads them for the player (docs/research/fog-of-war.md).
+    /// reads them for the player (docs/game/provinces/fog-of-war.md).
     pub const UNDISCOVERED_BIT: u8 = 0x10;
     pub const DISCOVERED_BY: usize = 0x5e0;
     /// Its base tax, production and manpower, i32 in thousandths. The game's
     /// own getters add a native country's tribal development to its capital
-    /// (docs/research/provinces.md).
+    /// (docs/game/provinces/provinces.md).
     pub const BASE_MANPOWER: usize = 0x3e0;
     pub const BASE_TAX: usize = 0x3e4;
     pub const BASE_PRODUCTION: usize = 0x3e8;
@@ -829,7 +829,7 @@ pub mod map {
 /// An army or a fleet.
 pub mod unit {
     /// What the game's ID lookup answers for it: the unit is registered
-    /// under its ID from here (docs/research/armies.md, "Identity").
+    /// under its ID from here (docs/game/military/armies.md, "Identity").
     pub const ID_HOLDER: usize = 0x10;
     /// Its ID, u64, kept in saves.
     pub const ID: usize = 0x20;
@@ -947,7 +947,7 @@ pub mod map_manager {
     /// What holds the diplomatic message icons, `gui::message_icon_holder`.
     pub const MESSAGE_ICON_HOLDER: usize = 0x1400;
     /// The panel button strip, the `floating_buttons` window of the
-    /// menubar (docs/research/extension-windows.md §5).
+    /// menubar (docs/game/interface/extension-windows.md §5).
     pub const PANEL_BUTTONS: usize = 0x1198;
     /// The menubar's message windows, a [`super::list`] of the
     /// [`super::message_window`]s its message list shows, which go with
@@ -956,14 +956,14 @@ pub mod map_manager {
     /// The dialogs open from those icons, a [`super::list`].
     pub const OPEN_DIALOGS: usize = 0x370;
     /// Return to the main menu at its next frame, u8: the game starts
-    /// `eu4.exe` again (docs/research/main-menu.md).
+    /// `eu4.exe` again (docs/game/interface/main-menu.md).
     pub const RETURN: usize = 0x12e9;
     /// Its minimap, a window it makes and never lets go: its destructor lets
     /// the others go, not this one.
     pub const MINIMAP: usize = 0x10e0;
     /// More of the session's interface it makes, in its rebuild (`0x81af10`),
     /// and its destructor never lets go, in the order the rebuild makes them
-    /// but for the end-of-game summary, last (docs/research/main-menu.md).
+    /// but for the end-of-game summary, last (docs/game/interface/main-menu.md).
     /// Each has its deleting destructor in its vtable's first slot.
     pub const SESSION_WINDOWS: [usize; 19] =
         [0x12e0, 0x558, 0x1450, 0x11b8, 0x11b0, 0x1b80, 0x5ba0, 0x1280, 0x1288, 0x1290, 0x1270, 0x1278, 0x12c0, 0x12a8, 0x12b0, 0x1228, 0x1230, 0x1408, 0x1458];
@@ -1300,7 +1300,7 @@ pub fn points() -> Vec<Point> {
         .uses(&[countries::COUNT - countries::ARRAY, countries::LIST - countries::ARRAY, country::TAG]),
         Point::keep(0xb252eusize, "49 8b 89 48 15 00 00 4d 63 81 54 15 00 00 49 c1 e0 04 4c 03 c1", "country wars")
             .uses(&[country::HOSTILE, country::HOSTILE_COUNT, 4]),
-        // The country snapshot (docs/research/countries.md). The country
+        // The country snapshot (docs/game/countries/countries.md). The country
         // writer in saves: each field, then its key's token.
         Point::keep(
             0x2df116usize,
@@ -1574,7 +1574,7 @@ pub fn points() -> Vec<Point> {
             .uses(&[map_manager::RETURN]),
         Point::keep(0x815c9fusize, "41 80 bd e9 12 00 00 00", "return to main menu").uses(&[map_manager::RETURN]),
         // The player's pause key, resuming: refused past the end date
-        // unless the player plays on (docs/research/time.md).
+        // unless the player plays on (docs/game/day/time.md).
         Point::keep(0x8105bbusize, "8b 05 67 1d 7b 01 39 87 d0 1d 00 00 7e 0d 80 bf d8 1d 00 00 00 0f 84 25 02 00 00", "resume past the end date")
             .uses(&[END_DATE, world::DATE, world::PLAY_ON]),
         // The same, with no country to play: refused unless the game lets
@@ -1585,7 +1585,7 @@ pub fn points() -> Vec<Point> {
             "resume with no country",
         )
         .uses(&[world::PLAYER_KIND, world::OBSERVE as usize, world::IN_VIEW_VALID, world::PLAYER + 7, world::OBSERVER_RUNS_TIME]),
-        // A province's snapshot (docs/research/provinces.md). The province
+        // A province's snapshot (docs/game/provinces/provinces.md). The province
         // writer in saves: its name.
         Point::keep(0x9d6fb0usize, "49 8b 5f 28 48 83 c3 10", "province name").uses(&[province::GEOMETRY, geometry::NAME]),
         // The has_terrain trigger compares the province's terrain; the
@@ -1626,7 +1626,7 @@ pub fn points() -> Vec<Point> {
             "unit kind tokens",
         ),
         Point::keep(0xad8c5eusize, "48 8d 05 cb ab 20 01 48 89 01", "unit type class").uses(&[classes::UNIT_TYPE]),
-        // Questions and offers (docs/research/questions-and-offers.md).
+        // Questions and offers (docs/game/diplomacy/questions-and-offers.md).
         // Removing a pending event: the world's array, each record's id.
         Point::keep(
             0x7570b8usize,

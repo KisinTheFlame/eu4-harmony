@@ -1,5 +1,5 @@
 //! Policies: those the policies view offers, enabling and disabling them,
-//! through the game's own commands (docs/research/government.md,
+//! through the game's own commands (docs/game/countries/government.md,
 //! "Policies").
 use super::commands::{write, Block};
 use super::content::checks;

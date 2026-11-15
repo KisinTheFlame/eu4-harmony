@@ -1,5 +1,5 @@
 //! The game's color removal, used when naming a hired mercenary army and
-//! elsewhere (docs/research/mercenary-company-names.md). A color marker must
+//! elsewhere (docs/game/interface/text-formatting.md). A color marker must
 //! be a character of its own: a UTF-8 continuation byte can also be 0xA7.
 //! Other formatting, and every surviving byte, stay as they were.
 use super::game_text;

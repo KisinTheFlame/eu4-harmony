@@ -9,15 +9,14 @@ These rules hold for everyone who changes this repository, people and coding age
 - Use the terms in [GLOSSARY.md](GLOSSARY.md), and none of the words it lists under _Avoid_.
 - Spelling is American (color, neighbor, initialize), as in the code, except "localisation", which follows the game.
 
-## Where things are written down
+## Documentation
 
-- [README.md](README.md): the front page, for someone who has not met the project: what it is, what it does, how to install it, a mod's first steps, where to read further. A change that players or mod authors notice gets a line there, or a row of its tables; the details, the full list of capabilities and the reasons go into the documents below and `eu4-harmony wiki`, and the README links to them.
-- [docs/README.md](docs/README.md): every document in `docs/`, each with a line on what it holds.
-- [docs/plans/](docs/plans/): a plan for each larger piece of work, with a row in docs/README.md. A plan whose parts are all built or set aside is a record, changed afterwards only in its status line; [its README](docs/plans/README.md) says what a plan holds.
-- [docs/game/](docs/game/): what is known of the game, one page for each of its systems, in the game's terms; [its README](docs/game/README.md) says how a page is written.
-- [docs/research/](docs/research/): the research the game's pages rest on, with addresses as RVAs into the 1.37.5 baseline. A note's first paragraph says what it looks into and what in the framework uses it.
-- [docs/adr/](docs/adr/): decisions that are hard to reverse, one file each, named by the day it was written and a short slug of the decision (`2026-11-03-commands-run-at-once.md`), without a number, so that branches written side by side do not take the same one. An ADR is referred to by its slug alone, as `ADR commands-run-at-once`, and keeps its name once merged. A changed decision gets a new ADR that supersedes the old one, which stays.
-- [docs/prototype-log/](docs/prototype-log/): what was tested in the running game and what came out, one file per run, named by the run's day and a short slug of its title (`2026-11-04-extension-reload.md`) and without a number, as ADRs are, so that branches written side by side each add a file of their own; its [README](docs/prototype-log/README.md) says what a run's file holds. Say what was not verified as plainly as what was.
+- [README.md](README.md) and its Chinese counterpart introduce the project, installation and first steps. Update them when that guidance changes, not for every visible change. Capability reference comes from `eu4-harmony wiki`; procedures live in the shipped [skills](cli/skills/); implementation belongs in code comments.
+- [docs/README.md](docs/README.md) links useful entry pages, not every document. [docs/game/](docs/game/) holds the game's known logic, organized by system and topic, with RVAs, callers, state, ownership and explicit unknowns. System entries navigate rather than repeat their topics.
+- [docs/research/](docs/research/) keeps independently useful investigation and measurement evidence. Extract established game logic into its topic; do not leave it buried in an incident narrative or duplicate it in both places.
+- [docs/plans/](docs/plans/) keeps open work and constraints. A larger change may need a short plan; completed plans can be consolidated after useful conclusions, decisions, evidence and remaining work have been retained and references repaired.
+- [docs/adr/](docs/adr/) records costly, non-obvious decisions with real alternatives. Use `YYYY-MM-DD-<decision>.md`, without numbering; cite `ADR <decision>`. Preserve merged ADR names; a changed decision gets a superseding ADR.
+- Ordinary builds, unit tests and routine regressions are reported in the PR description. Do not add permanent run transcripts or screenshots for them. Keep only durable findings the code/tests do not already preserve, summarized by topic with setup, results, significant failures and limits. Keep an image only if it supplies irreplaceable evidence. No per-run document or central run list is required.
 
 ## Building and checking
 
@@ -52,16 +51,16 @@ The Rust version is the one [rust-toolchain.toml](rust-toolchain.toml) names, wh
 - Design capabilities for any mod. The regional combat port lives in its own repository and must not shape the framework's interface ([ADR ports-live-outside-framework-repo](docs/adr/2026-10-27-ports-live-outside-framework-repo.md), [ADR extensions-use-capabilities-only](docs/adr/2026-10-27-extensions-use-capabilities-only.md)).
 - Every place in the game the framework relies on is a dependency point, with the bytes expected there: a game function, a hook site, a field offset (checked against an instruction that uses it). A different game build then fails at startup instead of misbehaving, and startup succeeds or fails as a whole ([ADR framework-succeeds-or-fails-as-a-whole](docs/adr/2026-10-27-framework-succeeds-or-fails-as-a-whole.md)).
 - Work things out from the game itself. Do not copy code from other EU4 patches or plugins, and do not name them in this repository.
-- Understand the game's code before reasoning about changing it: what a function works out in the game's terms and why, what it reads and writes, who calls it and how often; read it to its end and through its callees, and write that into [docs/research/](docs/research/), and what it changes of what is known into the page of [docs/game/](docs/game/) it touches, in the same change. Whether two stretches of the game can run side by side is argued from what each reads, writes and shares, not from runtime tricks. Where the tools at hand cannot answer a question, say so and why.
-- Look a game address up before reading it (`cargo xtask what <rva>`): what is known of it is in the notes the index of the game's addresses (`docs/research/addresses.toml`) points to. A name learned for an address goes into the index, with the note that says it; `cargo xtask addresses` adds the addresses a note newly names.
+- Understand the game's code before reasoning about changing it: what it works out, why, what it reads/writes, who calls it and how often. Read it to its end and through relevant callees. Update the corresponding [game topic](docs/game/) with established logic and explicit limits. Whether stretches can run side by side is argued from their reads, writes and shared state, not runtime tricks. Retain a separate research note only when its evidence has independent value.
+- Look a game address up before reading it (`cargo xtask what <rva>`). [docs/game/addresses.toml](docs/game/addresses.toml) links only game topics, including nested ones. Record learned names and update the index with `cargo xtask addresses`; consolidation must preserve existing addresses and names, including partial leads.
 - A setting in the interface says what it does in its label, with no explanation beneath it: explanations go unread and go stale. Where a label cannot say it, change the label. What the player must know of a change (that it takes effect at the next start) shows where and while it applies.
 
 ## Testing in the game
 
-- Try things in a test game of your own ([docs/plans/test-games.md](docs/plans/test-games.md)): claim it before you use it, start it only through the claim and hidden unless the user asks to see it, and release it as soon as you are done. [.claude/skills/game-test](.claude/skills/game-test/SKILL.md) says how.
+- Try things in a test game of your own ([docs/dev-tools.md#test-games](docs/dev-tools.md#test-games)): claim it before you use it, start it only through the claim and hidden unless the user asks to see it, and release it as soon as you are done. [.claude/skills/game-test](.claude/skills/game-test/SKILL.md) says how.
 - A test game is started from the game folder with a user folder, a core and a pipe of its own: it never touches the player's files or the framework installed in the game folder, and never ends a game that is not its own. Never install into the game folder while the player or a test game runs, and only when the user asks.
 - Leave nothing behind: scratch files, and test games still held.
-- Record the result in a file of its own in [docs/prototype-log/](docs/prototype-log/), one per run.
+- Report routine validation in the PR; retain durable evidence only under the documentation rules above.
 
 ## Commits
 

@@ -1,6 +1,6 @@
 //! `cargo xtask scenario`: plays scenarios (GLOSSARY), courses of play in
 //! the real game driven through remote control, and writes one report of
-//! them (docs/plans/scenarios.md).
+//! them (docs/dev-tools.md#scenarios).
 //!
 //! The runner does everything but the playing: it finds Steam ready, builds
 //! each build the scenarios named need, with the test games' pipes, claims
@@ -8,7 +8,7 @@
 //! and digits>` so that no other run's is it, starts it hidden, hands the
 //! scenario the game at its main menu, tells how it ended, and releases the
 //! claim, whatever ends the run: an error, a panic or Ctrl-C
-//! (docs/plans/test-games.md). Only cargo, for the builds, and the game run as
+//! (docs/dev-tools.md#test-games). Only cargo, for the builds, and the game run as
 //! programs of their own.
 mod achievements;
 mod extensions;
@@ -172,7 +172,7 @@ pub trait Scenario: Sync {
         Vec::new()
     }
     /// The test mods it puts in its test game's playset: folders of Harmony
-    /// mods (docs/plans/whole-game.md).
+    /// mods .
     fn mods(&self, _parameters: &Parameters) -> Vec<PathBuf> {
         Vec::new()
     }
@@ -215,7 +215,7 @@ pub struct Set {
 const SETS: &[Set] = &[
     Set {
         name: "whole",
-        about: "the framework through the real game from end to end, the long game in stretches side by side (docs/plans/whole-game.md)",
+        about: "the framework through the real game from end to end, the long game in stretches side by side",
         scenarios: &[
             "sweep",
             "sessions",
@@ -236,12 +236,7 @@ const SETS: &[Set] = &[
         ],
         jobs: claim::AT_ONCE,
     },
-    Set {
-        name: "release",
-        about: "whole, and the long game played through in one, before a release (docs/plans/whole-game.md)",
-        scenarios: &["whole", "long"],
-        jobs: claim::AT_ONCE,
-    },
+    Set { name: "release", about: "whole, and the long game played through in one, before a release", scenarios: &["whole", "long"], jobs: claim::AT_ONCE },
 ];
 
 /// The names asked for, each set's in its place by the scenarios it names,

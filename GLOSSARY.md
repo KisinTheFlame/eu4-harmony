@@ -27,7 +27,7 @@ The Lua interpreter the framework gives one extension. Extensions share nothing.
 _Avoid_: VM, interpreter on its own, sandbox
 
 **Sandbox**:
-What an extension's Lua state can reach: Lua's own libraries for strings, tables, numbers, UTF-8 and coroutines, `os.clock`, `require` for the mod's own modules, the framework's globals and capabilities, and of the process and the system only the sensitive capabilities its manifest declares.
+What an extension's Lua state can reach: its permitted Lua facilities, its own modules, framework capabilities and the sensitive capabilities declared by its manifest.
 _Avoid_: jail, safe mode
 
 **Handler**:
@@ -39,7 +39,7 @@ One run of a handler, or of a function an extension starts on its own, that may 
 _Avoid_: coroutine (that is how it is built), promise, job, thread
 
 **Time limit**:
-The longest a task may run without waiting before the framework stops it. An extension whose calls are stopped several times in a row is stopped for the rest of the game.
+The longest a task may run without waiting before the framework stops it. Repeated violations stop the extension for the rest of the game.
 _Avoid_: budget (remote control's budget is how many requests it answers in one frame), watchdog
 
 **Fake game**:
@@ -47,7 +47,7 @@ What `eu4-harmony test` runs a mod's tests against, without the game: the same L
 _Avoid_: mock, emulator, test game
 
 **User folder**:
-The game's folder of the player's own files, `Documents\Paradox Interactive\Europa Universalis IV`: saves, settings, the playset, and the framework's `eu4-harmony\` with its logs and the startup report. Command line options name it `--user-dir`.
+The folder of the player's saves, settings, playset and Harmony files, normally `Documents\Paradox Interactive\Europa Universalis IV`.
 _Avoid_: user directory, profile, documents folder
 
 **Data folder**:
@@ -55,7 +55,7 @@ An extension's own folder in the user folder, where it keeps files it writes whi
 _Avoid_: data directory, storage, sandbox folder
 
 **Manifest**:
-The file `eu4-harmony/manifest.toml` that makes a mod a Harmony mod: its id, api_version and description, and the permissions its extension declares.
+The file that identifies a Harmony mod, declares its capability version and describes the sensitive permissions its extension needs.
 _Avoid_: descriptor (that is Paradox's `descriptor.mod`)
 
 **Playset**:
@@ -63,35 +63,35 @@ The mods enabled in the Paradox launcher for the next time the game starts.
 _Avoid_: load list, mod list
 
 **Framework (Harmony)**:
-The program that runs inside the game process, finds and loads extensions, and gives them capabilities. Harmony is the name players and mod authors read: on the Workshop, in README, in the game's windows and notices. Paths, folders, commands and keys keep `eu4-harmony` (the mods' `eu4-harmony\` folder, `eu4-harmony.exe`, the `EU4HARMONY_` keys, the user folder's `eu4-harmony\`), as does the repository.
+The program running inside the game process that loads extensions and gives them capabilities. Harmony is its player-facing name; paths and commands use `eu4-harmony`.
 _Avoid_: EU4 Harmony where players read it (the name it had before the Workshop release), loader, engine
 
 **Framework files**:
-Files of the framework's own that the game reads as it reads its own and the mods', such as the framework fonts' files. The framework makes them in memory and mounts them into the game's file system; they are never on disk (ADR framework-files-in-the-game-file-system).
+Framework-owned files presented to the game's file system without being written to disk.
 _Avoid_: virtual files, framework mod, assets
 
 **Installation**:
-The one-off step that makes the game load the framework: a player subscribes to Harmony on the Steam Workshop and copies its `version.dll` into the game folder, from where the proxy loads the core in Harmony's Workshop item (ADR the-framework-ships-on-the-workshop); a developer copies the built proxy and core into the game folder (`cargo xtask install`). Uninstalling is unsubscribing and deleting `version.dll`, or deleting what was copied.
+The step that makes the game load Harmony: subscribing and copying its proxy, or copying a manual build into the game folder.
 _Avoid_: using it for the hooking done at startup
 
 **Developer build**:
-A build of the framework with development tools built in, such as the call trace or the command log, for trying things in the game; it says so at the top of its startup report. Players get only the player build, which has none of them and no hidden switches.
+A framework build with development tools included, identified as such in its startup report. A player build has none of those tools.
 _Avoid_: trace build (an older name, kept in notes written then), debug build (a build without optimizations), test build
 
 **Test game**:
-A game a claim starts for its holder from the game folder, with a user folder, a core and a remote control pipe of its own, so that it touches neither the player's files nor the framework installed in the game folder; several run side by side (docs/plans/test-games.md). Not a mod's test, which runs against the fake game.
+A game started through its holder's claim with a user folder, core and pipe of its own, isolated from player files and the installed framework. It is separate from a mod's tests against the fake game.
 _Avoid_: instance (a window's), game copy, slot, sandbox
 
 **Claim**:
-The hold a holder has on one test game, from claiming it to releasing it, which keeps the test game's logs and removes the rest of it; any number of holders at a time, none waiting for another's claim, though at most four of their test games run at once and a start waits for a place. Until 2026-11-08 a claim held the whole game of the computer and put back the player's files it backed up.
+A holder's ownership of one test game until release, which keeps its logs and removes its private runtime files.
 _Avoid_: lock (it survives only in the name of the mutex that guards the claims' record), reservation
 
 **Memory account**:
-A development tool, the `dev-memory` feature, that splits what the game process holds by where it lies, from what Windows keeps of the process and its heaps, so that it costs the game nothing between two asks (docs/plans/leak-finding.md).
+A development tool that groups the game process's memory by where it lies, using the operating system's process and heap information.
 _Avoid_: memory profiler, heap census (that counts the heap's blocks)
 
 **Heap census**:
-A development tool that counts every live block of the game's heap by its site, the code that allocated it, and its generation, so that what the game keeps of its sessions can be found (docs/plans/leak-finding.md).
+A development tool that counts live game-heap blocks by allocation site and generation.
 _Avoid_: memory profiler, allocation tracker
 
 **Generation**:
@@ -102,11 +102,11 @@ A block of the game's heap still live two generations after its own: it outlived
 _Avoid_: leak (for one block; a leak is what a site's leftovers add up to, session after session)
 
 **Scenario**:
-A course of play in the real game on one build, driven through remote control from the main menu, with the checks that decide whether it passed and the figures it measures; several are played in turn, in one claim's test game.
+A defined course of play in a real test game, with checks for success and measurements of its result.
 _Avoid_: integration test, game test (a test is a mod's, against the fake game)
 
 **Scenario set**:
-A name for several scenarios played together in one run, as if named one by one, each with its own outcome in the report: `whole` plays the framework through the real game from end to end, and `release` adds the long game played through in one (docs/plans/whole-game.md). A set may name another set.
+A named collection of scenarios, each retaining its own outcome. A set may include another set.
 _Avoid_: suite, test plan
 
 **Sweep**:
@@ -121,7 +121,7 @@ _Avoid_: fixture mod, dummy mod
 The scenario that plays rounds of sessions on a developer build with the heap census, and the report it writes of what the game's memory kept. The growth scenario plays the same rounds with the memory account only, to measure how much the game grows a round without the census slowing it.
 
 **Quarantine**:
-A developer build's keeping of what the framework's repairs let go, filled with a pattern instead of freed, so that the game writing to it or reading it shows the repair let go memory still in use (docs/plans/leak-finding.md).
+A developer build's keeping of what the framework's repairs let go, filled with a pattern instead of freed, so that the game writing to it or reading it shows the repair let go memory still in use (docs/dev-tools.md).
 _Avoid_: guard, sandbox
 
 **Startup**:
@@ -187,7 +187,7 @@ A whole frame the game runs while a day is still being worked out, once the day 
 _Avoid_: inserted frame, nested frame
 
 **Drawing thread**:
-A thread of the framework's that draws the frames at a pace of its own, the display's refresh rate unless the player chooses no limit, while the main thread goes on with the day: the map with a camera that the drawing thread keeps and moves from the mouse and the keys, and the interface's windows as their last update left them (docs/plans/drawing-thread.md). The interface's update stays on the main thread.
+A thread of the framework's that draws the frames at a pace of its own, the display's refresh rate unless the player chooses no limit, while the main thread goes on with the day: the map with a camera that the drawing thread keeps and moves from the mouse and the keys, and the interface's windows as their last update left them (docs/plans/README.md#drawing). The interface's update stays on the main thread.
 _Avoid_: render thread, graphics thread
 
 **Crossing**:
@@ -359,11 +359,11 @@ Mouse and keyboard input a remote client gives the game as the player's own: cli
 _Avoid_: simulated, synthetic or fake input; SendInput (that is how a program outside the game sends input to whatever is in front)
 
 **Hidden start**:
-Starting the game for remote clients with its window never shown and, unless asked for, no sound, so that the player goes on using other programs undisturbed. The game draws and plays as when it is shown; remote control can show it and hide it again.
-_Avoid_: headless (that also means not drawing, or no graphics card; docs/research/headless.md keeps the word to tell those meanings apart), background mode, invisible mode
+Starting the game without showing its window or, unless requested, playing sound. The game still draws and can later be shown.
+_Avoid_: headless (that also means not drawing, or no graphics card; docs/game/program/headless.md keeps the word to tell those meanings apart), background mode, invisible mode
 
 **Signal**:
-Something that happened in the game which extensions hear about at a safe point, each kind with a handler of its own (`on_day`), such as a new day or the player giving an army an order. Remote control keeps the latest ones, numbered, for remote clients to read. Documents written before 2026-11-11 call it an event.
+Something that happened in the game which extensions hear at a safe point through its handler, such as a new day or a player's army order. Remote control keeps recent signals in numbered order.
 _Avoid_: event (that is the game's and the mods' scripts'), notification, message
 
 ### Interface
@@ -437,19 +437,19 @@ A list down a window's left side in the framework UI, one item of which is chose
 _Avoid_: sidebar, tabs, master-detail
 
 **Notice window**:
-The window in the framework UI that shows notices to the player. To the player it is a window, but it is not a window in the game's sense. When the framework fails to start, or the framework UI cannot be drawn, a Windows message box is used instead; while the game is hidden, notices go only to the log.
+The framework UI window that displays notices to the player.
 _Avoid_: dialog; message box (that is the Windows message box used when the notice window cannot be)
 
 **Settings window**:
-The window in the framework UI where the player changes framework settings, opened from the Harmony settings button in the main menu's corner. Its settings are on pages, one for each thing they concern (language and fonts, loading and returning, achievements, game speed, remote control, sound), chosen in a side list; one Save keeps what was changed on every page. Like the notice window, it is not a window in the game's sense.
+The framework UI window where the player edits and saves Harmony preferences, organized into pages chosen from a side list.
 _Avoid_: options menu (that is the game's own settings)
 
 **Mods window**:
-The window in the framework UI, opened from the Harmony mods button in the main menu's corner, that lists the Harmony mods of this start, each with its name, version, description and the sensitive capabilities it declares.
+The framework UI window listing this start's Harmony mods, their descriptions and their declared sensitive permissions.
 _Avoid_: mod list (that is a playset), mod manager (it manages nothing)
 
 **Framework settings**:
-The player's preferences for the framework, such as the player language and which fonts the Unicode module uses. Some take effect when they are saved, others, such as the language and the fonts, at the next start.
+The player's saved preferences for Harmony, such as language, fonts and achievements. Some apply immediately and others at the next start.
 _Avoid_: configuration; game settings (the game's own `settings.txt`)
 
 ### Sound
@@ -469,7 +469,7 @@ _Avoid_: compression (which also names how saves are written)
 ### Localisation
 
 **Player language**:
-The language the framework's and every mod's texts use in this session: one of twelve, chosen in the framework settings, the first time from the language Windows displays.
+The language used by Harmony and its mods' texts, chosen in the framework settings and initially taken from Windows.
 _Avoid_: game language (the language in the game's settings, which for players of a language the game lacks is usually English)
 
 **Localisation file**:
@@ -499,15 +499,15 @@ How heavy a system font's strokes are, such as Light, Regular or Bold, numbered 
 _Avoid_: boldness, thickness, style (that is upright or italic)
 
 **Body text**:
-The game's interface text in its smaller fonts, named in its `.gfx` files `vic_18`, `Main_14`, `ToolTip_Font` and the like, whose lines are at most 18 GUI units tall in vanilla: what windows hold, tooltips, lists and numbers, but not the game console's window. Body text is drawn in one system font and weight, which the framework UI uses too.
+The smaller interface text used for window contents, tooltips, lists and numbers, as distinct from headings. It uses one system font and weight.
 _Avoid_: text font, normal text, small text
 
 **Headings**:
-The game's interface text in its larger fonts, named `vic_22`, `vic_29`, `vic_36`, `Main_24` and the like, whose lines are 20 to 36 GUI units tall in vanilla: window titles, section headings, the large titles of dialogs. Headings are drawn in a system font and weight of their own. A Chinese language mod that gives these fonts other files keeps their names, so the names, not the lines, say which text is which.
+The larger interface text used for window titles and headings, with its own system font and weight.
 _Avoid_: titles (a ruler's title is a game concept), large text
 
 **Framework font**:
-A font the framework defines among its framework files, for text of the game's that draws in a system font of its own, such as the game console's window. The game's windows that draw in it are given it as their files are read.
+A font Harmony supplies for game text that uses a font of its own, such as the game console.
 _Avoid_: custom font, own font, console font on its own
 
 **Distance field**:

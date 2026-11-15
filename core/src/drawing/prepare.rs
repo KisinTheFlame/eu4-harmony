@@ -7,9 +7,9 @@
 //! - [`tooltips`], at every frame, before the drawing: the tooltips' update,
 //!   which the frame does after its drawing ([`super::tooltip`]).
 //! - [`frame`], for a frame the drawing thread draws, in the drawing's
-//!   order: its two first steps (docs/research/drawing-beside-the-day.md,
+//!   order: its two first steps (docs/game/interface/frame-lifecycle.md,
 //!   "The drawing's first steps"), the off-screen passes' rebuilds, and the
-//!   map's names when they are due (docs/research/map-drawing-reads.md). The
+//!   map's names when they are due (docs/game/interface/map-drawing-reads.md). The
 //!   drawing thread skips the first steps, makes no names, as they are not
 //!   due, and runs the off-screen passes with no rebuild asked for.
 use super::{direct1, direct3, is_drawing_thread, APP, APP_MAP, IDLER_CAMERA, IDLER_MAP, SETTINGS};
@@ -87,7 +87,7 @@ const IDLER_MAP_MODE_ARG: usize = 0x40;
 /// camera, whatever the bytes. The day asks for the rebuild (`0x9f5ee7`) and
 /// appends to that list (`0x9f7a12`), with no crossing: run by the drawing
 /// thread, the rebuild emptied a vector the day was appending to, and read
-/// the provinces as the day changed them (docs/research/map-drawing-reads.md).
+/// the provinces as the day changed them (docs/game/interface/map-drawing-reads.md).
 /// The main thread runs the passes at the frame's preparation instead, and the
 /// drawing thread's call (`0x81887c`–`0x8188b5`) is given five bytes of the
 /// framework's, never set, so that it asks for no rebuild.

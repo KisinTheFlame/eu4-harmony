@@ -2,7 +2,7 @@
 //! begins to write a crash's files (`0x1654250`), the log gets what it is,
 //! where it happened, on which thread, the game's date, and the calls it was
 //! in, so that a player's logs say where the game crashed when its crash
-//! folder is not sent with them (docs/research/crash-handling.md).
+//! folder is not sent with them (docs/game/program/crash-handling.md).
 //!
 //! The crash handling comes there from the game's unhandled exception filter
 //! (`0x1654730`, a stack overflow's from a thread of its own), from a pure

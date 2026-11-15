@@ -4,7 +4,7 @@
 //! for the whole snapshot-and-place operation. Instances must remain live here;
 //! this module owns neither their logical identity nor their lifetime.
 //! Internal GUI child lists and manager registration vectors are left unchanged.
-//! Evidence: docs/research/window-placement.md.
+//! Evidence: docs/game/interface/window-placement.md.
 use crate::{
     memory::Memory,
     points::{GameFunction, Point},

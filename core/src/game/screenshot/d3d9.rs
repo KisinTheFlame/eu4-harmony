@@ -3,7 +3,7 @@
 //! GPU is still drawing it, and reading a render target into memory waits
 //! until the GPU has done everything it was given before: in the game,
 //! locking a surface read back at a present took the main thread 12 to 68
-//! ms (docs/research/screenshots.md). So each step is queued on the GPU with
+//! ms (docs/game/interface/screenshots.md). So each step is queued on the GPU with
 //! an event query after it, and the next one waits for the query. The
 //! queries are only looked at, never flushed: the game's own Present hands
 //! the GPU what was queued, while it waits for the display anyway, where a

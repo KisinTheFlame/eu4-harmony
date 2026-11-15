@@ -1,6 +1,6 @@
 //! The game's GUI objects: elements, windows, the army panel, the main menu,
 //! edit boxes and their editors, the GUI manager, and the diplomatic message
-//! icons and the dialogs they open (docs/research/interface-bindings.md,
+//! icons and the dialogs they open (docs/game/interface/interface-bindings.md,
 //! text-input.md, questions-and-offers.md).
 
 /// Globals, by RVA.
@@ -153,7 +153,7 @@ pub mod callback {
 
 /// The game's input: an object that records SDL's events and one that the
 /// characters typed are posted to, by vtable offset of their methods
-/// (docs/research/text-input.md §1).
+/// (docs/game/interface/text-input.md §1).
 pub mod events {
     pub const RECORD: usize = 0x20;
     pub const POST: usize = 0x18;
@@ -405,7 +405,7 @@ pub mod functions {
     pub const ADD_MONTHS: GameFunction<2> = GameFunction::at(0x14c8030);
     /// Takes a listener off a signal: `(signal, wrapper)`.
     pub const UNSUBSCRIBE: GameFunction<2> = GameFunction::at(0xfbe370);
-    /// Extension windows (docs/research/extension-windows.md,
+    /// Extension windows (docs/game/interface/extension-windows.md,
     /// window-elements.md): reading an interface file again
     /// `(manager, std::string* path)`, which replaces the definitions of the
     /// same names; building a window from its definition
@@ -544,7 +544,7 @@ pub fn points() -> Vec<Point> {
         Point::method(classes::EDITOR, editor::SELECT_LEFT, EDITOR_SELECT_LEFT, "editor select left method"),
         Point::method(classes::EDITOR, editor::SELECT_RIGHT, EDITOR_SELECT_RIGHT, "editor select right method"),
         Point::method(classes::EDITOR, editor::CARET_MOVED, EDITOR_CARET_MOVED, "editor caret moved method"),
-        // Offers (docs/research/questions-and-offers.md). Switching map modes
+        // Offers (docs/game/diplomacy/questions-and-offers.md). Switching map modes
         // hides every message icon.
         Point::keep(0x8221aausize, "48 8b 9e 00 14 00 00 48 8b 9b 78 4c 00 00", "message icons")
             .uses(&[campaign::map_manager::MESSAGE_ICON_HOLDER, message_icon_holder::ICONS]),
@@ -570,13 +570,13 @@ pub fn points() -> Vec<Point> {
             "action dialog accept",
         )
         .uses(&[diplomacy_dialog::ACTION, super::diplomacy::action::STATE]),
-        // Adding months (docs/research/dates.md), which the offers do as it
+        // Adding months (docs/game/day/dates.md), which the offers do as it
         // does: a year for each twelve, then the rest through the months.
         Point::keep(ADD_MONTHS, "85 d2 0f 84 e4 00 00 00 48 89 74 24 20 57 48 83 ec 20 8b fa 48 89 5c 24 30 b8 ab aa aa 2a", "adding months"),
         // A dialog's description: its text box, by name, and the text.
         Point::keep(0x10a286fusize, "48 8b 01 48 8b da 48 8d 15 84 31 bc 00 ff 90 98 00 00 00 48 8b f0 48 8d b8 70 01 00 00", "dialog description")
             .uses(&[window::FIND_TEXT, text_box::TEXT]),
-        // The main menu (docs/research/main-menu.md). The continue box: single
+        // The main menu (docs/game/interface/main-menu.md). The continue box: single
         // player, then the setup shown and found among the pages.
         Point::keep(0x10ef62eusize, "c6 80 10 09 00 00 01 48 8b 05 3c 08 25 01 44 89 b0 7c 74 00 00 c7 80 b4 23 00 00 01 00 00 00", "continue box mode")
             .uses(&[main_menu::CONTINUING, campaign::globals::WORLD, campaign::world::MULTIPLAYER, campaign::world::SETUP]),
@@ -589,7 +589,7 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x10dc29eusize, "c6 83 14 07 00 00 01", "main menu start accepted").uses(&[main_menu::LAUNCH_ACCEPTED]),
         Point::keep(0x10da695usize, "80 bf 15 07 00 00 00", "main menu start").uses(&[main_menu::LAUNCH]),
         Point::keep(0x10daed7usize, "48 8b 8f 30 03 00 00 e8 4d 76 3e 00", "main menu switches idler").uses(&[main_menu::APPLICATION]),
-        // Extension windows (docs/research/extension-windows.md,
+        // Extension windows (docs/game/interface/extension-windows.md,
         // window-elements.md): their definitions read, a window built in the
         // scene, shown, hidden and placed.
         Point::keep(READ_DEFINITIONS, "48 89 5c 24 10 48 89 74 24 18 48 89 7c 24 20 55 48 8d ac 24 f0 f7 ff ff", "reading an interface file"),

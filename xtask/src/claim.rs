@@ -1,6 +1,6 @@
 //! `cargo xtask game`: claims of test games (GLOSSARY), each holder with a
 //! test game of its own until it releases it, and starting and stopping it
-//! within the claim (docs/plans/test-games.md).
+//! within the claim (docs/dev-tools.md#test-games).
 //!
 //! The claim's course is `course.rs`, over the computer as `machine.rs`
 //! reaches it; its record and the decisions over it are `record.rs`. This

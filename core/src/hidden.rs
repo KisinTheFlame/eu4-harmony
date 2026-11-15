@@ -1,6 +1,6 @@
 //! The hidden start (GLOSSARY): the game started with `-harmony_hidden` on
 //! its command line runs with nothing of it on the player's desktop, and with
-//! no sound unless `-harmony_sound` is there too (docs/plans/hidden-start.md). The
+//! no sound unless `-harmony_sound` is there too (docs/game/program/headless.md). The
 //! switches are read once, as the framework starts; this module answers
 //! whether the game is hidden now, and its points keep the game from showing
 //! itself:
@@ -11,7 +11,7 @@
 //!   it, a tool window has no taskbar button and is not in Alt+Tab, and for
 //!   the rest of Windows it is shown. A window not shown at all makes
 //!   NVIDIA's Direct3D 9 driver keep 3 KB of the game's heap at most of its
-//!   frames, 20 MB a minute and more (docs/research/headless.md); hiding it
+//!   frames, 20 MB a minute and more (docs/game/program/headless.md); hiding it
 //!   again conceals it so, and showing it ends that;
 //! - the game's own error messages are left out, as `-suppresserrormessages`
 //!   leaves them out;
@@ -22,13 +22,13 @@
 //!
 //! Sound needs no point: before SDL's audio starts, the `dummy` driver is
 //! chosen through the environment, which SDL reads then
-//! (docs/research/headless.md).
+//! (docs/game/program/headless.md).
 //!
 //! Windows throttles a process whose windows the player cannot see
 //! (EcoQoS): its threads run seldom and slowly, and its timer resolution
 //! requests are ignored, so a sleep of a millisecond takes a tick of 15.6 ms.
 //! A hidden game got 5% of a core where it needed a whole one
-//! (docs/prototype-log/2026-11-10-hidden-start-at-full-speed.md). So a hidden
+//! (docs/research/performance-evidence.md). So a hidden
 //! start opts the process out of both, once as the framework starts. A game
 //! shown later stays opted out: it is a game started for remote control or
 //! a test, which is to run as fast when its window is behind others, and a

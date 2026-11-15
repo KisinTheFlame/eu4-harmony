@@ -1,8 +1,8 @@
 //! Binds spliced elements in the vanilla windows that host them, applies the
 //! state extensions ask for, and turns button clicks into signals. Ported from
 //! eu4-regional-combat's native UI; the ABI evidence is in
-//! docs/research/interface-bindings.md (tooltips included). Window teardown
-//! and the main menu's windows are in docs/research/notice-window.md.
+//! docs/game/interface/interface-bindings.md (tooltips included). Window teardown
+//! and the main menu's windows are in docs/game/interface/window-construction.md.
 //!
 //! Extensions state what they want (visible, enabled, text, tooltip) and each
 //! host's update hook applies it, so state survives the game rebuilding the
@@ -441,7 +441,7 @@ fn bind_frame(m: &Memory, root: usize) -> Result<usize> {
 /// which a window's background has to be: it still takes the clicks on it,
 /// so that they do not reach the map, but it cannot be pressed or dragged.
 /// The fixed background sprite keeps the disabled state's original colors
-/// (docs/research/extension-windows.md,
+/// (docs/game/interface/extension-windows.md,
 /// "A press on a window's background").
 pub(crate) fn keep_still(m: &Memory, window: usize, name: &str) -> Result<()> {
     let background = m.ptr(window + window::BACKGROUND)?;
@@ -613,7 +613,7 @@ fn hear_clicks(ui: &mut Ui) {
 /// Before one of the framework's buttons takes the mouse's input: the game
 /// takes a right press that soon follows another as a double click, and on
 /// every button drops it, so that the second of two quick right clicks does
-/// nothing (docs/research/interface-bindings.md, "From input to a click").
+/// nothing (docs/game/interface/interface-bindings.md, "From input to a click").
 /// On the framework's buttons it is made a press, whose release is then a
 /// right click as the first's was.
 fn button_input(call: &mut Call) {

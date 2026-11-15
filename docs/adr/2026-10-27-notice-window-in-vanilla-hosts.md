@@ -4,7 +4,7 @@ status: superseded by framework-draws-its-own-ui
 
 # The notice window lives in always-present vanilla host windows
 
-The framework's notice window (background, title, body text, close button) is spliced, the same way as mods' interface, into two vanilla windows that always exist: `country_selection_panel` in the main menu and `topbar` in the game. Every frame the framework finds the current root window and binds to it; when the window is destroyed, it unbinds at the entry of the root window's Kill (`0x1547520`). The look uses the framework's own textures and is deliberately different from vanilla dialogs. The evidence is in [research/notice-window.md](../research/notice-window.md).
+The framework's notice window (background, title, body text, close button) is spliced, the same way as mods' interface, into two vanilla windows that always exist: `country_selection_panel` in the main menu and `topbar` in the game. Every frame the framework finds the current root window and binds to it; when the window is destroyed, it unbinds at the entry of the root window's Kill (`0x1547520`). The look uses the framework's own textures and is deliberately different from vanilla dialogs. The evidence is in [research/notice-window.md](../game/interface/window-construction.md).
 
 ## Considered Options
 

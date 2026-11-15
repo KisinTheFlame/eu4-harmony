@@ -1,5 +1,5 @@
 //! What the AI's countries draw at once on several threads, in vanilla too:
-//! the world's random generator (docs/research/random.md, ADR
+//! the world's random generator (docs/game/day/random.md, ADR
 //! random-draws-may-change-hands).
 //!
 //! In the AI stage every AI country's task (`0xb0fa0`) runs on one of the

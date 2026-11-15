@@ -1,5 +1,5 @@
 //! A parameterized scripted trigger's or effect's use given its arguments in
-//! one pass (docs/research/parameterized-script.md, docs/plans/game-speed.md,
+//! one pass (docs/game/scripts/parameterized-script.md, docs/plans/README.md#performance,
 //! S12).
 //!
 //! `0xdb0860` makes the text of one use of a definition with parameters:

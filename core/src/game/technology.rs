@@ -1,6 +1,6 @@
 //! Technology: the player's three technologies as the technology view shows
 //! them, and researching the next level with its research button
-//! (docs/research/power-spending.md, "Technology").
+//! (docs/game/countries/power-spending.md, "Technology").
 use super::{
     action,
     power::{self, ADVANCE_TECH},

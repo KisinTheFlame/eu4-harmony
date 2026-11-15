@@ -1,5 +1,5 @@
 //! Loans: the player's loans, as the economy view's loan window lists them,
-//! and repaying one with its repay button (docs/research/power-spending.md,
+//! and repaying one with its repay button (docs/game/countries/power-spending.md,
 //! "Loans").
 use super::commands::{write, Block};
 use super::{action, power, thousandths, Fail, GResult, Session, Status, Tag};

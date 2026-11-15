@@ -1,6 +1,6 @@
 //! The religion view: the personal deity and the fetishist cult the
 //! player's religion lets it follow, and choosing them as the view's
-//! buttons do (docs/research/religion.md).
+//! buttons do (docs/game/provinces/religion.md).
 use crate::choices::Choice;
 use crate::ProvinceId;
 use serde::{Deserialize, Serialize};

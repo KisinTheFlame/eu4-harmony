@@ -108,7 +108,7 @@ fn map_manager_going(call: &mut Call) {
 /// GUI, was tried (2026-11-06) and taken out: one of the GUI's objects keeps
 /// windows of them in its lists, and its destructor, at a later return, called
 /// into one the GUI's sweep had freed (a pure call), about once in ten rounds
-/// (docs/prototype-log/2026-11-07-windows-killed-at-return-taken-out.md).
+/// (docs/research/interface-evidence.md).
 fn map_manager_gone(_: &mut Call) {
     if GONE.swap(false, Ordering::Relaxed) {
         super::waiting::Moment::Return.passed();

@@ -46,7 +46,7 @@ pub const PIPE: &str = r"\\.\pipe\eu4-harmony";
 
 /// The pipe a test game serves remote control on, the game started with
 /// `-harmony_test_game=<name>` by a developer build that has the test games'
-/// pipes (docs/plans/test-games.md): [`PIPE`] and `-<name>`; [`PIPE`] itself
+/// pipes (docs/dev-tools.md#test-games): [`PIPE`] and `-<name>`; [`PIPE`] itself
 /// without a name. A name is letters, digits, `.`, `_` and `-`, 64 at most.
 pub fn pipe_of(test_game: Option<&str>) -> Result<String, String> {
     match test_game {
@@ -502,7 +502,7 @@ groups! {
     Extension(extensions::ExtensionRequest, ExtensionAnswer),
     #[cfg(feature = "dev-memory")]
     /// What the game holds in memory, and what the heap census found: a
-    /// developer build's (docs/plans/leak-finding.md).
+    /// developer build's (docs/dev-tools.md).
     Memory(memory::MemoryRequest, MemoryAnswer),
     #[cfg(feature = "dev-performance")]
     /// Bounded in-process performance measurements in a developer build.

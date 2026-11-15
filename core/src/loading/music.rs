@@ -1,4 +1,4 @@
-//! Music the game knows at startup without reading it (docs/plans/loading.md).
+//! Music the game knows at startup without reading it (docs/game/program/loading.md).
 //!
 //! For each music asset, `0x16a4930` adds the music and calls `0x16a9a40`
 //! with its sound: that opens the file, reads all of it into memory, opens it
@@ -7,7 +7,7 @@
 //! `+0xd0`), and the caller lets the rest go: of the four, the songs' list
 //! reads the duration for the music player, and a song's play takes all four
 //! again. The DLC's music is 3 GB deflated in zips, which every
-//! start inflated whole for those four numbers (docs/research/loading.md).
+//! start inflated whole for those four numbers (docs/game/program/loading.md).
 //!
 //! The framework keeps the four numbers of each file in the user folder, by
 //! the place the game reads the file from (PhysFS's real directory, a zip or a

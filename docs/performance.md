@@ -1,10 +1,10 @@
 # Performance
 
-`scenario perf` now collects completed days, frame submission intervals and interface updates in bounded in-process windows on a dedicated performance developer build. [Performance windows](dev-tools.md#performance-windows) explains its output and collection-off comparisons; the [metric plan](plans/performance-metrics.md) also defines action response, which remains unmeasured. The historical results below retain their original methods: their date-based rates and frame counts are not retrospectively redefined as the new measurements.
+`scenario perf` now collects completed days, frame submission intervals and interface updates in bounded in-process windows on a dedicated performance developer build. [Performance windows](dev-tools.md#performance-windows) explains its output and collection-off comparisons; the [metric plan](plans/README.md#measurement) also defines action response, which remains unmeasured. The historical results below retain their original methods: their date-based rates and frame counts are not retrospectively redefined as the new measurements.
 
 ## Completed days, submissions and updates (2026-11-14)
 
-The [first complete run](prototype-log/2026-11-14-performance-baseline.md) used the performance developer build, a hidden new Ming campaign with the player's playset (including Regional Combat and Convenience Tools), 3840x2160, and drawing on its own thread with no framework frame limit. After paused warmup, it collected 30 s paused and 120 s at speed 5. Both windows were complete, with no lost events; neither is an uninstrumented player-build measurement.
+The [first complete run](research/performance-evidence.md) used the performance developer build, a hidden new Ming campaign with the player's playset (including Regional Combat and Convenience Tools), 3840x2160, and drawing on its own thread with no framework frame limit. After paused warmup, it collected 30 s paused and 120 s at speed 5. Both windows were complete, with no lost events; neither is an uninstrumented player-build measurement.
 
 | Measure | Paused | Speed 5 |
 | --- | --- | --- |
@@ -20,11 +20,11 @@ The [first complete run](prototype-log/2026-11-14-performance-baseline.md) used 
 
 The running window contained 15,459 submissions and 2,943 prepared updates, 749 of them inside daily calls. Drawing could therefore remain frequent while reusing the same update. Eleven marked local saves remain included. There were only six year starts, too few to treat their P95 as stable. The run record gives counts, update outcomes, missing age coverage and unfinished intervals; the JSON and Markdown reports are in `target/scenarios/perf-baseline/`.
 
-[The main-thread check](prototype-log/2026-11-14-performance-native.md) also collected complete windows with `drawing-thread` and `background-compression` disabled, all successful submissions attributed to the main thread, and both local saves marked. It establishes path coverage, not a controlled speed comparison. Physical display latency, GPU time, pure interface-work duration and action response remain unmeasured.
+[The main-thread check](research/performance-evidence.md) also collected complete windows with `drawing-thread` and `background-compression` disabled, all successful submissions attributed to the main thread, and both local saves marked. It establishes path coverage, not a controlled speed comparison. Physical display latency, GPU time, pure interface-work duration and action response remain unmeasured.
 
 ### Investigating submission-interval P95
 
-The [2026-11-14 investigation](research/frame-drawing-p95.md) made another [default run](prototype-log/2026-11-14-frame-p95-baseline.md), a [paused camera comparison](prototype-log/2026-11-14-frame-p95-camera.md), and a [repeat after concurrent analysis stopped](prototype-log/2026-11-14-frame-p95-repeat.md). The first two overlapped Ghidra analysis; another game was present during the last. All collected windows were complete with no dropped events or failed submissions, but none establishes an isolated optimization effect. No runtime code was changed.
+The [2026-11-14 investigation](game/interface/drawing-boundaries.md) made another [default run](research/mechanics-evidence.md), a [paused camera comparison](research/interface-evidence.md), and a [repeat after concurrent analysis stopped](research/mechanics-evidence.md). The first two overlapped Ghidra analysis; another game was present during the last. All collected windows were complete with no dropped events or failed submissions, but none establishes an isolated optimization effect. No runtime code was changed.
 
 The two new speed-5 windows had submission-interval P95 of 9.911 and 10.028 ms, P99 of 31.249 and 35.510 ms, and maxima of 168.426 and 182.359 ms. Their maximum Present-call durations were only 29.390 and 40.450 ms, so the longest intervals include substantial time outside the ending Present call. Drawing logs point toward invalidated frames and presentation-lock waits, especially around message popups, but use a different endpoint and a roughly 13.89 ms threshold; they do not attribute the 8–10 ms region determining P95.
 
@@ -32,7 +32,7 @@ In the final paused comparison, fixed-camera P95 was 7.333 and 7.533 ms and movi
 
 ### Why submission-interval P99 is long
 
-The [individual-interval investigation](research/frame-drawing-p99.md) recorded four complete speed-5 windows, with temporary stage probes and then lock-entry stacks and an internal-scope return marker. P99 was 39.605, 55.457, 38.583 and 30.872 ms; these are different windows and world progress, with differing external load, not an optimization comparison. The first three lasted 120 seconds each; the final scope check lasted 60 seconds.
+The [individual-interval investigation](game/interface/stream-locks.md) recorded four complete speed-5 windows, with temporary stage probes and then lock-entry stacks and an internal-scope return marker. P99 was 39.605, 55.457, 38.583 and 30.872 ms; these are different windows and world progress, with differing external load, not an optimization comparison. The first three lasted 120 seconds each; the final scope check lasted 60 seconds.
 
 In the third window's P99 neighborhood (147 intervals, ranks 98.5–99.5%), presentation-lock waits occupied 61.82% of elapsed time, invalidation outside those waits 26.32%, and map names due 5.40%. Pre-Present drawing work was 4.86% and Present 1.58%. The first two windows independently assigned 86.76% and 88.37% to lock waits plus invalidation. No marked save overlapped these neighborhoods, although saves remain in the extreme tail.
 
@@ -40,15 +40,15 @@ The dominant lock-order trigger was a stream-related internal lock entered durin
 
 The first optimization target is therefore the lifetime of ownership acquired only for lock ordering, while preserving genuine crossing protection and avoiding deadlock. All attribution-window counts and P99 values match the formal reports; all event/probe buffers were complete. The diagnostic probes were removed and the core rebuilt.
 
-The subsequent [bounded ownership experiment](research/frame-drawing-p99.md#bounded-ownership-experiment) tested one native scope in A/B/B/A order. Baseline submission P99 was 38.402 and 39.277 ms; prototype P99 was 37.767 and 39.379 ms. Paired changes were -1.65% and +0.26%, with completed-day rates +0.63% and +1.79%. P95, submission rate and interface age did not improve consistently. All eight paused/running windows were complete without lost events or failed submissions, and all four games released without a crash. This does not demonstrate a useful optimization; the prototype was removed and its patch retained.
+The subsequent [bounded ownership experiment](research/performance-evidence.md#frame-pacing-and-lock-ownership) tested one native scope in A/B/B/A order. Baseline submission P99 was 38.402 and 39.277 ms; prototype P99 was 37.767 and 39.379 ms. Paired changes were -1.65% and +0.26%, with completed-day rates +0.63% and +1.79%. P95, submission rate and interface age did not improve consistently. All eight paused/running windows were complete without lost events or failed submissions, and all four games released without a crash. This does not demonstrate a useful optimization; the prototype was removed and its patch retained.
 
 The view retained an open introduction window over mostly unexplored map, and the second prototype's paused control had a Present disturbance (submission P99 20.870 ms versus 7.646–7.904 ms in the other controls). This is not validation of normal map play or late-game behavior. The ordinary reports do not count eligible early releases or attribute the prototype's remaining long intervals, so the experiment cannot explain why shortening this scope failed to produce a repeatable gain. The research note and four separate comparison run records retain the results and those limits.
 
-The [release-path follow-up](research/frame-drawing-p99-release-path.md) directly observed 1,268 and 1,060 early releases in the original and Beijing views. The scoped hold fell to median 15 and 16 microseconds, but a subsequent helper in the same stream initialization took the same game lock and restored long presentation-lock ownership. Consecutive acquisitions on the dominant AI chain had a median one-microsecond gap; the second hold lasted median 12.541 and 16.483 ms. Lock waits still occupied 68.42% and 71.27% of the prototype P99 neighborhoods. The narrow prototype releases correctly but leaves the next acquisition's lifetime unchanged.
+The [release-path follow-up](game/interface/stream-initialization.md) directly observed 1,268 and 1,060 early releases in the original and Beijing views. The scoped hold fell to median 15 and 16 microseconds, but a subsequent helper in the same stream initialization took the same game lock and restored long presentation-lock ownership. Consecutive acquisitions on the dominant AI chain had a median one-microsecond gap; the second hold lasted median 12.541 and 16.483 ms. Lock waits still occupied 68.42% and 71.27% of the prototype P99 neighborhoods. The narrow prototype releases correctly but leaves the next acquisition's lifetime unchanged.
 
 Diagnostic P99 was 31.259 ms baseline versus 37.543 ms prototype in the original view, and 44.727 versus 40.216 ms in Beijing. These are not isolated optimization gains: the normal-view pair has another session's game in surrounding status records, acquisition counts change probe cost, and campaign progress differs. All eight windows were complete, and the four owned games released without a crash. The temporary source and artifacts were removed; only research evidence remains.
 
-The [safe-boundary investigation](research/frame-drawing-p99-safe-boundary.md) read the successive stream helpers and the complete captured formatting path. Four independently checked normal-return scopes, with cold paths and abnormal completion retaining protection, removed the dominant chain's long ownership. A complete diagnostic repeat recorded 41,197 eligible early releases; the fourth helper's hold P99 was 4 microseconds. An earlier four-scope trace overflowed and remains explicitly incomplete.
+The [safe-boundary investigation](game/interface/stream-formatting.md) read the successive stream helpers and the complete captured formatting path. Four independently checked normal-return scopes, with cold paths and abnormal completion retaining protection, removed the dominant chain's long ownership. A complete diagnostic repeat recorded 41,197 eligible early releases; the fourth helper's hold P99 was 4 microseconds. An earlier four-scope trace overflowed and remains explicitly incomplete.
 
 Final A/B/B/A timing without temporary stage probes measured baseline P99 of 44.338 and 43.929 ms versus prototype 13.166 and 13.248 ms: paired reductions of 70.31% and 69.84%. P95 fell from 14.350/15.206 to 8.137/7.805 ms. Completed-day rates changed by -17.87% and -0.34%; the first prototype also had higher system CPU load, so the daily-rate cost is not isolated. Interface age and maximum submission intervals did not improve consistently. All eight formal windows completed with no lost events or failed submissions, and all four games released without a crash. Other games were permitted; none appeared in these collection windows' five-second process samples. The result supports a substantial P99 improvement in this early-game Beijing scene, not universal cost or all-path safety. The runtime prototype was removed after retaining its source and evidence; no production change was installed.
 
@@ -60,12 +60,12 @@ Six further runs used that same compiled core (all retained startup reports agre
 
 | Run, in execution order | Collection | External date-days/min | Paused CPU, cores | Speed-5 CPU, cores |
 | --- | --- | --- | --- | --- |
-| [Pair 1 on](prototype-log/2026-11-14-performance-overhead-1-on.md) | On | 975.7 | 0.672 | 3.404 |
-| [Pair 1 off](prototype-log/2026-11-14-performance-overhead-1-off.md) | Off | 1,116.9 | 0.725 | 3.598 |
-| [Pair 2 off](prototype-log/2026-11-14-performance-overhead-2-off.md) | Off | 1,014.8 | 0.731 | 3.378 |
-| [Pair 2 on](prototype-log/2026-11-14-performance-overhead-2-on.md) | On | 1,056.8 | 0.742 | 3.629 |
-| [Pair 3 on](prototype-log/2026-11-14-performance-overhead-3-on.md) | On | 1,061.2 | 0.735 | 3.625 |
-| [Pair 3 off](prototype-log/2026-11-14-performance-overhead-3-off.md) | Off | 1,071.0 | 0.644 | 3.249 |
+| [Pair 1 on](research/performance-evidence.md) | On | 975.7 | 0.672 | 3.404 |
+| [Pair 1 off](research/performance-evidence.md) | Off | 1,116.9 | 0.725 | 3.598 |
+| [Pair 2 off](research/performance-evidence.md) | Off | 1,014.8 | 0.731 | 3.378 |
+| [Pair 2 on](research/performance-evidence.md) | On | 1,056.8 | 0.742 | 3.629 |
+| [Pair 3 on](research/performance-evidence.md) | On | 1,061.2 | 0.735 | 3.625 |
+| [Pair 3 off](research/performance-evidence.md) | Off | 1,071.0 | 0.644 | 3.249 |
 
 | Measure | Collection on: median (range) | Collection off: median (range) |
 | --- | --- | --- |
@@ -107,12 +107,12 @@ Measured from the framework's log, Chinese playset, to the main menu:
 - **Starting the game**: system fonts no longer take longer than bitmap fonts. Their 3,143 glyphs were drawn in 28 ms instead of 3.5 s; the time had been the locks.
 - **System fonts at an interface scale above 1** (2026-10-30): glyphs are drawn that many times larger, on pages that many times wider and taller, so a page holds as many. At 1.5 the five pages of Microsoft YaHei are 1536 pixels square instead of 1024, and creating each added 9 MB of private bytes instead of 4, about 25 MB in all, as the framework's log counts it; the process at the main menu was not measured again.
 - **Bitmap fonts are gone** (2026-11-02, [ADR game-text-in-system-fonts](adr/2026-11-02-game-text-in-system-fonts.md)): every font is drawn from system fonts, which the measurements above put level with bitmap fonts in memory and in the time to start.
-- **Pages that start small and grow** (2026-11-08, [ADR font-pages-grow](adr/2026-11-08-font-pages-grow.md)): with the player's Chinese playset at 1.5, six pages of body text, headings and the console start 768 pixels square instead of 1536 and the map font's 2560 instead of 4864. At the main menu two had grown, one body text page to 768x1536 and the map font's to 2560x5120, and starting a game as Ming grew a heading page to 768x1536: about 71 MB of page textures in all, against about 150 MB at the sizes before, as worked out from the sizes. The framework's log counted 2.2 to 3.7 MB of private bytes for creating each of the first pages and 50 MB for the map font's growing, against 9 MB for each 1536 page before; the process at the main menu was not measured against a build from before. Two pages growing took 0.4 to 13 ms together, and building the names on the map again 9 to 22 ms ([the run](prototype-log/2026-11-08-font-pages-grow.md)).
+- **Pages that start small and grow** (2026-11-08, [ADR font-pages-grow](adr/2026-11-08-font-pages-grow.md)): with the player's Chinese playset at 1.5, six pages of body text, headings and the console start 768 pixels square instead of 1536 and the map font's 2560 instead of 4864. At the main menu two had grown, one body text page to 768x1536 and the map font's to 2560x5120, and starting a game as Ming grew a heading page to 768x1536: about 71 MB of page textures in all, against about 150 MB at the sizes before, as worked out from the sizes. The framework's log counted 2.2 to 3.7 MB of private bytes for creating each of the first pages and 50 MB for the map font's growing, against 9 MB for each 1536 page before; the process at the main menu was not measured against a build from before. Two pages growing took 0.4 to 13 ms together, and building the names on the map again 9 to 22 ms ([the run](research/interface-evidence.md)).
 - The tables below are from before the changes. Game speed was not measured again.
 
 ## The game speed plan (2026-11-04)
 
-[game-speed.md](plans/game-speed.md)'s S1 to S4, built on the branch of that date: Austria-1 (an ironman save of 1618.9.2, the player's playset), 3840x2160, vsync at 144 Hz; frames counted at the application's frame count and days at the date, 30 to 32 s each, no sampler. Before is the same save the same morning with the framework of that time ([Game speed S1 to S4](prototype-log/2026-11-04-game-speed-s1-s4.md)).
+[game-speed.md](plans/README.md#performance)'s S1 to S4, built on the branch of that date: Austria-1 (an ironman save of 1618.9.2, the player's playset), 3840x2160, vsync at 144 Hz; frames counted at the application's frame count and days at the date, 30 to 32 s each, no sampler. Before is the same save the same morning with the framework of that time ([Game speed S1 to S4](research/performance-evidence.md)).
 
 | | Before | After |
 | --- | --- | --- |
@@ -126,7 +126,7 @@ Measured from the framework's log, Chinese playset, to the main menu:
 - Two more pairs of the paces, later the same run, came out at 11.0 and 6.4 days a second, both paces alike; the machine was busy with other work then (a sample took 2.2 ms against 1.4), and they are left out.
 - The autosave's main thread time, from the shares: about a sixth less. The thread then compressed 61 MB in 1.6 to 2.0 s, to 7.1 to 7.2 MB, smaller than the game's 8.8 MB.
 
-Later in a game (the same day, the build of master at `c6bda5f`): Austria-37_4-1, an ironman save of 1724, the same machine and playset, the game resumed within 0.3 s whenever a message paused it ([Game speed late in a game](prototype-log/2026-11-04-game-speed-late-game.md)):
+Later in a game (the same day, the build of master at `c6bda5f`): Austria-37_4-1, an ironman save of 1724, the same machine and playset, the game resumed within 0.3 s whenever a message paused it ([Game speed late in a game](research/performance-evidence.md)):
 
 | | The game's pace | "Faster time" |
 | --- | --- | --- |
@@ -138,7 +138,7 @@ Later in a game (the same day, the build of master at `c6bda5f`): Austria-37_4-1
 
 ## A save's stop (2026-11-05)
 
-[game-speed.md](plans/game-speed.md)'s S8 on its branch: Austria-37_4-1 (an ironman save of 1724, the player's playset), the same machine, loaded three times with `menu.load`, which saves it as it is loaded and as it is left; the stop is the framework's log line from the start of the local save to its end, five saves each way, in one developer build with the test switches, `game-writes-saves` on for "before" ([A save's countries and provinces on threads](prototype-log/2026-11-05-save-countries-provinces-threads.md)).
+[game-speed.md](plans/README.md#performance)'s S8 on its branch: Austria-37_4-1 (an ironman save of 1724, the player's playset), the same machine, loaded three times with `menu.load`, which saves it as it is loaded and as it is left; the stop is the framework's log line from the start of the local save to its end, five saves each way, in one developer build with the test switches, `game-writes-saves` on for "before" ([A save's countries and provinces on threads](research/performance-evidence.md)).
 
 | | The game's code | The framework's |
 | --- | --- | --- |
@@ -146,7 +146,7 @@ Later in a game (the same day, the build of master at `c6bda5f`): Austria-37_4-1
 | Of that, the provinces and the countries (eight threads), ms | | 80 to 125 |
 | Of that, the zip's three entries, ms | about 250 | 45 |
 
-- What was left of the 310 ms save: the game state's other sections 66 ms, its save checksum 44, the zip 45, its bytes into the file 25, and 41 that was the wait for the game's update thread ([research/saves.md](research/saves.md), "Where a save's zip goes").
+- What was left of the 310 ms save: the game state's other sections 66 ms, its save checksum 44, the zip 45, its bytes into the file 25, and 41 that was the wait for the game's update thread ([research/saves.md](game/program/saves.md), "Where a save's zip goes").
 - The pool of seven threads waits from startup and costs nothing between saves; while a save is written, the runs' buffers hold the two loops' bytes once more, about 60 MB in that save.
 
 Then the game state's other sections written while the pool writes the loops, the save checksum's sum and the zip's CRC on the pool, and the update thread woken (S8, the same branch). The same save and way, measured both ways back to back while other builds on the machine held its processor at 100% the whole time, so the numbers are of that machine and not comparable with the ones above. The update thread was woken in both columns, `game-writes-saves` not yet turning it off; the wait for it with the game's code is from traced saves of the same runs before it was built:
@@ -162,7 +162,7 @@ Then the game state's other sections written while the pool writes the loops, th
 
 ## The startup and a load (2026-11-05)
 
-[loading.md](plans/loading.md)'s L1 to L3, one developer build with the test switches, `game-loads` on for the game's own startup and loads; the player's playset, every DLC, the files in the system's cache; other builds held the machine's processor at 67 to 94% ([The startup and a load sampled](prototype-log/2026-11-05-startup-load-sampled.md)).
+[loading.md](game/program/loading.md)'s L1 to L3, one developer build with the test switches, `game-loads` on for the game's own startup and loads; the player's playset, every DLC, the files in the system's cache; other builds held the machine's processor at 67 to 94% ([The startup and a load sampled](research/performance-evidence.md)).
 
 | | The game's | The framework's |
 | --- | --- | --- |
@@ -171,11 +171,11 @@ Then the game state's other sections written while the pool writes the loops, th
 | The same load with what follows it (`0xd84b80`), s | 8.1, 8.7 | 6.7, 6.2 |
 
 - The first start after the framework is installed reads the music as the game does; the numbers above are of starts after it.
-- What is left is mostly the databases read on the LoadingThread, about 30 s of the startup on this machine ([research/loading.md](research/loading.md)).
+- What is left is mostly the databases read on the LoadingThread, about 30 s of the startup on this machine ([research/loading.md](game/program/loading.md)).
 
 ## Parameterized script in one pass (2026-11-11)
 
-[game-speed.md](plans/game-speed.md)'s S12, one developer build with the test switches, `game-paths = ["script-parameters"]` for the game's own code; every DLC, the files in the system's cache, no other test game running ([the run](prototype-log/2026-11-11-script-parameters-in-one-pass.md)). The uses' making is `0xdb0860`'s calls summed, timed by the call trace; the main menu is `cargo xtask game start`'s whole seconds.
+[game-speed.md](plans/README.md#performance)'s S12, one developer build with the test switches, `game-paths = ["script-parameters"]` for the game's own code; every DLC, the files in the system's cache, no other test game running ([the run](research/mechanics-evidence.md)). The uses' making is `0xdb0860`'s calls summed, timed by the call trace; the main menu is `cargo xtask game start`'s whole seconds.
 
 | | The game's | The framework's |
 | --- | --- | --- |
@@ -186,7 +186,7 @@ Then the game state's other sections written while the pool writes the loops, th
 
 ## Localisation and the triggers' optimization profile (2026-11-14)
 
-[large-mod-startup.md](plans/large-mod-startup.md)'s M1 to M4, one developer build with the test switches, `game-paths = ["localisation", "trigger-profile"]` for the game's own code; every DLC, music cached, the files in the system's cache, no other game running ([the run](prototype-log/2026-11-14-large-mod-startup.md)). Seconds from the framework's log (`core.log`):
+[large-mod-startup.md](plans/README.md)'s M1 to M4, one developer build with the test switches, `game-paths = ["localisation", "trigger-profile"]` for the game's own code; every DLC, music cached, the files in the system's cache, no other game running ([the run](research/performance-evidence.md)). Seconds from the framework's log (`core.log`):
 
 | | The game's | The framework's |
 | --- | --- | --- |
@@ -200,7 +200,7 @@ Then the game state's other sections written while the pool writes the loops, th
 
 ## The events (2026-11-05)
 
-What the events of [player-actions.md](plans/player-actions.md) cost the game: `building_finished`, `battle`, `war_declared`, `peace_made`, `province_owner_changed`, `month` and `year`. `cargo xtask scenario perf` on the player build of `claude/player-actions-fu-cost-view-4c4534`: a new game as Ming, 120 s at speed 5 from 1444.11.11, about 5.4 years; with `--perf.events` naming the seven kinds, a remote client reads events of those kinds before the game runs, so they are worked out from then on, and counts what was heard at the end. The framework counts the time each piece of that work takes and logs it when the session ends (`event costs:`, since `signal costs:` in [`core/src/game/signal_costs.rs`](../core/src/game/signal_costs.rs), the events now being signals). The machine was the one under [Machine](#machine), busy with other sessions' builds.
+What the events of [player-actions.md](adding-a-capability.md) cost the game: `building_finished`, `battle`, `war_declared`, `peace_made`, `province_owner_changed`, `month` and `year`. `cargo xtask scenario perf` on the player build of `claude/player-actions-fu-cost-view-4c4534`: a new game as Ming, 120 s at speed 5 from 1444.11.11, about 5.4 years; with `--perf.events` naming the seven kinds, a remote client reads events of those kinds before the game runs, so they are worked out from then on, and counts what was heard at the end. The framework counts the time each piece of that work takes and logs it when the session ends (`event costs:`, since `signal costs:` in [`core/src/game/signal_costs.rs`](../core/src/game/signal_costs.rs), the events now being signals). The machine was the one under [Machine](#machine), busy with other sessions' builds.
 
 | Run | Listening | Game days a minute | CPU at speed 5 (cores) |
 | --- | --- | --- | --- |
@@ -259,9 +259,9 @@ The runs below were made with `tools/perf-run.ps1`, which measured vanilla too a
 
 CPU is given in cores: the process's CPU seconds per second of wall time (the machine has 16 hardware threads). Memory is what Windows reports for the process; graphics memory was not measured. Each setup was measured two or three times, going through the setups and then back again, with menu-only runs for idle CPU at the main menu (Chinese playset). Game days are counted in the game's calendar, which has no leap years.
 
-The scenario `perf` ([xtask/src/scenario/perf.rs](../xtask/src/scenario/perf.rs), `cargo xtask scenario perf`, [scenarios.md](plans/scenarios.md)) measures the framework's game only, on the player build (with the test games' pipes, which name the pipe and nothing else): in its test game ([test-games.md](plans/test-games.md)) it starts the game hidden and times the start to the main menu, reads memory 20 s later, starts a new game as Ming with `menu.start` and times it, measures CPU over 30 s paused, then 120 s at speed 5 through `time.set_speed`, `time.resume` and `time.pause`, and reads the dates with `time.get`, from which come the game days a minute. Its start is timed from the start command, not from a menu logo on screen, so its menu seconds are not those of the runs below. With `signals` a remote client listens to those kinds of signals while the game runs, with `reads` it times `country.get`, `country.budget` and `province.get` afterwards, and it ends at the main menu, where the framework logs what working out the signals cost ([The events](#the-events-2026-11-05)).
+The scenario `perf` ([xtask/src/scenario/perf.rs](../xtask/src/scenario/perf.rs), `cargo xtask scenario perf`, [scenarios.md](dev-tools.md#scenarios)) measures the framework's game only, on the player build (with the test games' pipes, which name the pipe and nothing else): in its test game ([test-games.md](dev-tools.md#test-games)) it starts the game hidden and times the start to the main menu, reads memory 20 s later, starts a new game as Ming with `menu.start` and times it, measures CPU over 30 s paused, then 120 s at speed 5 through `time.set_speed`, `time.resume` and `time.pause`, and reads the dates with `time.get`, from which come the game days a minute. Its start is timed from the start command, not from a menu logo on screen, so its menu seconds are not those of the runs below. With `signals` a remote client listens to those kinds of signals while the game runs, with `reads` it times `country.get`, `country.budget` and `province.get` afterwards, and it ends at the main menu, where the framework logs what working out the signals cost ([The events](#the-events-2026-11-05)).
 
-The figures on this page come from `tools/perf-run.ps1` (since removed), from the framework's log and from `cargo xtask profile`; none yet from the scenario. Its first runs, on 2026-11-05 ([Scenarios](prototype-log/2026-11-05-scenarios.md)), checked that it plays to its end: 47.2 s to the main menu, 9.7 s for `menu.start MNG`, 0.81 cores paused and 1.75 at speed 5, and 487 game days a minute, with 305.6 and 453.3 in two later runs, a spread larger than the framework's setups are likely to differ by. The next measurement of what the framework costs is taken with `cargo xtask scenario perf` and recorded here.
+The figures on this page come from `tools/perf-run.ps1` (since removed), from the framework's log and from `cargo xtask profile`; none yet from the scenario. Its first runs, on 2026-11-05 ([Scenarios](research/mechanics-evidence.md)), checked that it plays to its end: 47.2 s to the main menu, 9.7 s for `menu.start MNG`, 0.81 cores paused and 1.75 at speed 5, and 487 game days a minute, with 305.6 and 453.3 in two later runs, a spread larger than the framework's setups are likely to differ by. The next measurement of what the framework costs is taken with `cargo xtask scenario perf` and recorded here.
 
 ## Results
 
@@ -333,7 +333,7 @@ That is about 105 MB of pages, and the 1024 rows reserved below the mod's glyphs
 | Loading the five body font pages | +213 MB | +58 MB | +155 MB |
 | The framework's heap at the menu | 66 MB | 3 MB | +63 MB |
 
-- **The pages**: creating each grown page as a dynamic texture commits about its own size, but writing it, 256 rows at a time with a lock each, commits several times its size and keeps it: 425 MB for the 56 MB map page alone (details in [research/font-textures.md](research/font-textures.md)). Writing a page with fewer locks, or keeping it in video memory and copying glyphs in from a small system-memory texture, should remove most of it.
+- **The pages**: creating each grown page as a dynamic texture commits about its own size, but writing it, 256 rows at a time with a lock each, commits several times its size and keeps it: 425 MB for the 56 MB map page alone (details in [research/font-textures.md](game/interface/font-textures.md)). Writing a page with fewer locks, or keeping it in video memory and copying glyphs in from a small system-memory texture, should remove most of it.
 - **The heap**: 46 font objects load, most of them from the same few `.fnt` files, and each keeps its own copy of the 21,443 glyphs above 0xFF: 994,216 records, each allocated on its own. System fonts drop them. Sharing one table per file, with the records stored inline, would leave a few MB.
 
 It is the default setting, so it is the first thing to reduce.
@@ -353,7 +353,7 @@ The regional combat mod's extension was called once by the time of the report, f
 
 ## Not covered
 
-- Where the 2.5% at speed 5 goes. Since measured in part: the framework's line breaking was 1.8% of the main thread at speed 5 early in a game and 6% late ([research/main-thread.md](research/main-thread.md)), what the game itself spends its time on is there too, and making the game faster is planned in [game-speed.md](plans/game-speed.md).
+- Where the 2.5% at speed 5 goes. Since measured in part: the framework's line breaking was 1.8% of the main thread at speed 5 early in a game and 6% late ([research/main-thread.md](game/day/frame-scheduling.md)), what the game itself spends its time on is there too, and making the game faster is planned in [game-speed.md](plans/README.md#performance).
 - Frame rate and frame times: no tool for them was at hand.
 - Graphics memory.
 - Interface-heavy play (the ledger, long tooltips, many open windows), late game, and games longer than the six years each run covered.

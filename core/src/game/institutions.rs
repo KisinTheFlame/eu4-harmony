@@ -1,6 +1,6 @@
 //! Institutions: those that have appeared in the world, as the institutions
 //! view lists them, and embracing one through the game's own command
-//! (docs/research/institutions-ages-monuments.md, "Institutions").
+//! (docs/game/provinces/institutions-ages-monuments.md, "Institutions").
 use super::commands::{write, Block};
 use super::content::{self, checks};
 use super::provinces::{i32s, INSTITUTIONS};

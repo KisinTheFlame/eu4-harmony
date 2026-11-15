@@ -1,6 +1,6 @@
 //! The drawing thread's watch (dev.toml's `[write-watch]` `drawing`): which
 //! writes land in what the drawing thread reads, and whose
-//! (docs/plans/drawing-thread.md; docs/dev-tools.md, "Write watch").
+//! (docs/plans/README.md#drawing; docs/dev-tools.md, "Write watch").
 //!
 //! 1. **What the drawing reads.** Once `after-days` game days have passed, the
 //!    drawing thread's next `drawing-frames` frames are watched as a function

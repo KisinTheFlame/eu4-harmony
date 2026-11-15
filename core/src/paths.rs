@@ -37,7 +37,7 @@ pub fn command_line() -> &'static str {
 }
 
 /// The actual loaded core's DLL, including a test game's file named by
-/// `-harmony_core` (docs/plans/test-games.md).
+/// `-harmony_core` (docs/dev-tools.md#test-games).
 pub fn core_file() -> Result<PathBuf> {
     use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleExW, GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT};
     let mut module = std::ptr::null_mut();

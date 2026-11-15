@@ -8,7 +8,7 @@
 //! mutex the claims of the whole game used, which keeps its name so that
 //! checkouts a little behind share it still, guards every read and write of
 //! it. Each claim has a folder under `claims\`
-//! (docs/plans/test-games.md): `user\`, the test game's user folder, made from the
+//! (docs/dev-tools.md#test-games): `user\`, the test game's user folder, made from the
 //! player's with a private `mod` folder of relocated descriptors; `core\`, the
 //! core and `dev.toml` its start copied; `follow.exe`, which follows its games
 //! to their ends into `game-ends.tsv`; and `kept\` after the release.
@@ -511,7 +511,7 @@ fn is_junction(path: &Path) -> bool {
 }
 
 /// The developers' own saves, made for testing and kept apart from the
-/// player's, in the folder of the claims' record (docs/plans/whole-game.md).
+/// player's, in the folder of the claims' record .
 const SAVES: &str = "saves";
 
 /// Copies each save of `saves`, by its name as `menu.saves` gives it or its

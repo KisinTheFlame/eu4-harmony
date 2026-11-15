@@ -1,6 +1,6 @@
 //! A country's share of an area and its governing costs. State projections
 //! preserve territorial cores, use the loaded static modifiers, and cross-check
-//! the arithmetic against the game's getters (docs/research/area-governing-cost.md).
+//! the arithmetic against the game's getters (docs/game/provinces/area-governing-cost.md).
 use super::{countries, modifiers, provinces, with_state, GResult, Session, Status, Tag};
 use crate::{
     containers, game_string,

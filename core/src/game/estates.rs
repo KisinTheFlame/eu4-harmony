@@ -1,7 +1,7 @@
 //! Estates: the player's estates, their privileges, the estates view's
 //! interactions over crown land and the agenda an estate pursues, granting
 //! and revoking privileges and the interactions, through the game's own
-//! commands (docs/research/government.md, "Estates").
+//! commands (docs/game/countries/government.md, "Estates").
 use super::commands::{write, Block};
 use super::content::checks;
 use super::{action, conditions, content, modifiers, thousandths, GResult, Session, Tag};

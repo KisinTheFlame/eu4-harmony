@@ -1,5 +1,5 @@
 //! The windows the session's panels and the main menu's pages keep and never
-//! kill as they go (docs/research/main-menu.md, "Which windows stay").
+//! kill as they go (docs/game/interface/main-menu.md, "Which windows stay").
 //!
 //! Each of these owners makes its window, kills the one it had when it makes
 //! it again, and leaves it as it goes: its destructor forgets it, or the
@@ -12,7 +12,7 @@
 //! again: as the owner's destructor begins, or, for those never deleted, as
 //! the map manager an in-process return lets go is going. Killing the
 //! windows the session's builds made without knowing their owners crashed
-//! the game (docs/prototype-log/2026-11-07-holders-of-windows-killed.md); here
+//! the game (docs/research/interface-evidence.md); here
 //! only what owns a window kills it.
 use super::{interface_parts::TAKE_WINDOW_OFF, LettingGo};
 use crate::{

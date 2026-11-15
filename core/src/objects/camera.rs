@@ -1,6 +1,6 @@
 //! The map camera, and what the camera capabilities read beside it: where
 //! the map manager keeps the camera and the map's grid of province IDs
-//! (docs/research/camera.md).
+//! (docs/game/interface/camera.md).
 //!
 //! The camera works in the map's world: x across the map from its left edge,
 //! z up the map from its bottom edge, both in pixels of the province map, and

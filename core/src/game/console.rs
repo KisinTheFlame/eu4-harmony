@@ -8,7 +8,7 @@
 //! the same function, so a command meets the game's own checks: a command
 //! only developers may run, or any command but two in an ironman or
 //! multiplayer game, is refused with the game's own words
-//! (docs/research/game-console.md).
+//! (docs/game/scripts/game-console.md).
 use super::{fail, GResult, Status, WorldSession};
 use crate::{
     game_string,

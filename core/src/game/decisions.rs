@@ -1,7 +1,7 @@
 //! Decisions: what the decisions view lists for the player, and whether the
 //! player can take each, with the conditions that do not hold as its tooltip
-//! lists them (docs/research/triggers.md, "Decisions"); and taking one,
-//! through the game's own command (docs/research/government.md,
+//! lists them (docs/game/scripts/triggers.md, "Decisions"); and taking one,
+//! through the game's own command (docs/game/countries/government.md,
 //! "Decisions").
 use super::commands::{write, Block};
 use super::{action, conditions, content, GResult, Session};

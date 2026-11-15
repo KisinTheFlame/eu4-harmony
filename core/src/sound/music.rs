@@ -8,7 +8,7 @@
 use super::loudness::{amplitude, Meter, RATE};
 
 /// The loudness every track is brought to: the median of the vanilla tracks'
-/// integrated loudness (docs/prototype-log/2026-11-05-music-volume-to-sdl.md),
+/// integrated loudness (docs/research/mechanics-evidence.md),
 /// so that music as a whole is about as loud as in vanilla.
 pub const TARGET: f64 = -12.8;
 /// The most a track is raised or lowered, by normalization and by leveling each.

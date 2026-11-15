@@ -1,6 +1,6 @@
 //! Forts: the player's forts, and mothballing and reopening them with the
 //! game's command that the province view's fort maintenance box posts
-//! (docs/research/sieges.md, "Mothballing and reopening a fort").
+//! (docs/game/military/sieges.md, "Mothballing and reopening a fort").
 use super::commands::{write, Block};
 use super::units::checks;
 use super::{action, with_state, Ctx, GResult, Session};

@@ -1,7 +1,7 @@
 //! The Celestial Empire's view: its reforms and its emperor's decrees, each
 //! with whether the player can pass or enact it as the game's own check
 //! says, and passing and enacting them through the game's own commands
-//! (docs/research/empires.md).
+//! (docs/game/countries/empires.md).
 use super::commands::{write, Block};
 use super::empire::{self, CELESTIAL, CELESTIAL_TOKEN};
 use super::{action, conditions, content, thousandths, GResult, Session};

@@ -1,6 +1,6 @@
 //! The game's session (Clausewitz's `CSession`, `session.cpp`), which takes
 //! the commands the player gives and carries them out at its next update
-//! (docs/research/recruiting.md, docs/research/commands.md).
+//! (docs/game/military/recruiting.md, docs/game/scripts/commands.md).
 
 /// The session's class, by vtable RVA.
 pub const CLASS: usize = 0x1d8c900;

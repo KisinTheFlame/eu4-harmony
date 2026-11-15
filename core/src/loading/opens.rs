@@ -1,4 +1,4 @@
-//! Files opened and looked up side by side (docs/plans/loading.md, L4).
+//! Files opened and looked up side by side (docs/game/program/loading.md, L4).
 //!
 //! Two global locks let one thread at a time open or look up a file: the
 //! game's own spin lock around every PhysFS open (`0x1718300`) and every
@@ -6,7 +6,7 @@
 //! lookup's walk of the search path, which asks every folder and zip in turn.
 //! While the databases load, the LoadingThread waited about half its time on
 //! them, for the data checksum's thread, the picture checks and the pool
-//! threads that read the history (docs/research/loading.md, "The databases").
+//! threads that read the history (docs/game/program/loading.md, "The databases").
 //!
 //! - An open to read no longer takes the game's lock; an open to write or
 //!   append, and every close, take it as before.

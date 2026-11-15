@@ -1,6 +1,6 @@
 //! The claims of test games, as data, and what a claim finds when it looks at
 //! them: the decisions, without the files, the mutex or the clock
-//! (docs/plans/test-games.md).
+//! (docs/dev-tools.md#test-games).
 //!
 //! The record is `claims.json`: each claim, with its test game's folder. A
 //! claim holds its test game until it is released, and any number are held

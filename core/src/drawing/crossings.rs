@@ -44,7 +44,7 @@ pub(super) fn points() -> Vec<Point> {
     .collect()
 }
 
-/// The crossings the day reaches, at their entries (docs/research/drawing-beside-the-day.md,
+/// The crossings the day reaches, at their entries (docs/game/interface/frame-lifecycle.md,
 /// "Where the day reaches the interface and the graphics", "The crossings a
 /// late day reaches", "An event's window, met half made"): the RVA, its first
 /// bytes, what it is, the arguments it reads.
@@ -99,11 +99,11 @@ fn scene_begins(call: &mut Call) {
 }
 
 /// The graphics back end's table of functions (`0x1fd10f8`, 81 of them;
-/// docs/research/architecture.md, "The graphics back end"): the one way the
+/// docs/game/program/architecture.md, "The graphics back end"): the one way the
 /// game reaches Direct3D, through the one renderer both threads draw with. No
 /// code outside the back end calls Direct3D or D3DX, and the functions it
 /// holds are called directly only where they do nothing (those that answer
-/// a constant) (docs/research/drawing-beside-the-day.md,
+/// a constant) (docs/game/interface/frame-lifecycle.md,
 /// "The graphics back end, the one way in"). So the main thread in a day
 /// reaching any of them is a crossing, whatever path led there: a text drawn
 /// into a texture of its own read and set the render target before its
@@ -138,7 +138,7 @@ const RENDERER_ENTRY_LEN: usize = 16;
 /// update has to finish, and the frame prepared is not held back for it. The
 /// in-game frame, after its drawing, draws the war overview's buttons into
 /// their textures again at every frame while the player is at war
-/// (docs/research/drawing-beside-the-day.md, "The war overview after the
+/// (docs/game/interface/frame-lifecycle.md, "The war overview after the
 /// drawing"): held back each time, the frame was never drawn.
 #[called_by_game]
 extern "C" fn renderer_called(slot: usize) {
@@ -193,7 +193,7 @@ extern "C" fn renderer_entries() {
 /// up (`0x13f968f`). The main thread takes the same lock and calls the
 /// renderer's table inside it, a crossing: waiting there for the presentation
 /// lock, it held what the drawing thread waited for, and the game hung
-/// (docs/research/drawing-beside-the-day.md, "The game's locks, in one
+/// (docs/game/interface/frame-lifecycle.md, "The game's locks, in one
 /// order"). So the locks are taken in one order, the presentation lock
 /// first: the drawing thread learns each lock it takes, and the main thread,
 /// in a day, takes the presentation lock before one of those. Only the lock:
@@ -240,7 +240,7 @@ fn lock_taken(lock: usize, by: usize) {
 static OTHER_SCENE_LOGGED: AtomicBool = AtomicBool::new(false);
 
 /// A mesh object let go where it cannot wait for the frame's preparation
-/// (docs/research/drawing-beside-the-day.md, "The day's crossings read
+/// (docs/game/interface/frame-lifecycle.md, "The day's crossings read
 /// again"; [`super::deferred`] keeps the rest): one let go on another thread,
 /// or destroyed without being freed. `into` is the destructor's address.
 pub(super) fn mesh_let_go(into: usize) {

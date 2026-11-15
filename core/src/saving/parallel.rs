@@ -1,11 +1,11 @@
 //! The countries and the provinces of a save written on several threads at
-//! once (docs/plans/game-speed.md, S8).
+//! once .
 //!
 //! Writing the game state into memory is most of a save's stop, and the
 //! countries' loop and the provinces' loop are most of that
-//! (docs/research/main-thread.md). The world does not change while it is
+//! (docs/game/day/frame-scheduling.md). The world does not change while it is
 //! written, and what the loops write to memory that was there before was
-//! watched (docs/research/saves.md, "What writing the game state writes"):
+//! watched (docs/game/program/saves.md, "What writing the game state writes"):
 //! besides the output, only two static objects that hold the value being
 //! written, `0x15bf70`'s (with five copies of its code inline) and
 //! `0x2c59b0`'s, are written by every item.

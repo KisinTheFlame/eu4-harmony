@@ -1,5 +1,5 @@
 //! What a country's first history lists alone, which its clear drops
-//! (docs/research/main-menu.md, "A country's two histories").
+//! (docs/game/interface/main-menu.md, "A country's two histories").
 //!
 //! A country keeps two histories of one class, the first at `+0x11a8` and
 //! the second at `+0x11e8`, each a list of what it holds: records, and the

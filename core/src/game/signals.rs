@@ -68,7 +68,7 @@ pub enum Change {
 
 /// A land or naval battle, as it was decided: read at the entry of its
 /// results, its losses taken and none of its units removed yet
-/// (docs/research/battles.md).
+/// (docs/game/military/battles.md).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Battle {
     pub province: u32,
@@ -270,7 +270,7 @@ fn route_before(call: &mut Call) {
 /// An order is heard when the call left the army on another route, not when
 /// the game takes it: the player's order is carried out here, a frame after
 /// the game took it, and one the game takes but cannot carry out (a move onto
-/// the sea with no fleet there) changes nothing (docs/research/army-orders.md).
+/// the sea with no fleet there) changes nothing (docs/game/military/army-orders.md).
 fn route_after(call: &mut Call) {
     let observed = call.observed();
     let entry = ROUTES.with(|r| {
@@ -291,7 +291,7 @@ fn route_after(call: &mut Call) {
 /// Which kinds of signal someone listens to: those an extension has a
 /// handler for, and those a remote client has read in this process (every
 /// kind once one read them all). A kind nobody listens to is not worked out
-/// (docs/plans/player-actions.md, "Signals").
+/// (docs/adding-a-capability.md, "Signals").
 #[derive(Default)]
 struct Listening {
     extensions: BTreeSet<Kind>,

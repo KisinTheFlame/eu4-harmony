@@ -1,11 +1,11 @@
 //! A save's dated nodes added to their parent without walking its list
-//! (docs/plans/loading.md).
+//! (docs/game/program/loading.md).
 //!
 //! A node of the game's (the method `+0x98` at `0x7e7cd0`, which many classes
 //! share) adds a child to its list (`+0x20`) after walking the whole list for
 //! the child already there; reading a save, `0xda66a0` makes each child of
 //! such a node, reads it, and adds it so, which walks the parent's list once
-//! for every child: 24% of a large save's load (docs/research/loading.md).
+//! for every child: 24% of a large save's load (docs/game/program/loading.md).
 //!
 //! The child `0xda66a0` adds is one it has just made, in no list yet, so the
 //! walk cannot find it. Where `0xda66a0` calls the add, the framework marks

@@ -1,6 +1,6 @@
 //! The mods' extensions, remote control only
 //! (ADR remote-control-uses-capabilities): reloading one in the running game
-//! (docs/plans/extension-reload.md).
+//! (cli/skills/mod.md).
 use serde::{Deserialize, Serialize};
 
 group! {

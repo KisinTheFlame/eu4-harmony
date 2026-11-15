@@ -1,6 +1,6 @@
 //! What the player's missionaries, colonists and merchants have in common:
 //! the country's pools of envoys, each kind's count and how many are free
-//! (docs/research/envoys.md).
+//! (docs/game/diplomacy/envoys.md).
 use super::GResult;
 use crate::containers;
 use crate::{memory::Memory, points::Point, unicode::game_text};
@@ -97,7 +97,7 @@ pub fn localized(m: &Memory, key: &str) -> GResult<String> {
 
 /// The refusals the framework words itself in the actions of missionaries,
 /// colonists, merchants, trade companies and centers of trade (part A8 of
-/// docs/plans/player-actions.md); those the game gives reasons for are
+/// docs/adding-a-capability.md); those the game gives reasons for are
 /// [`super::action`]'s.
 pub mod checks {
     use crate::game::{Fail, Status};

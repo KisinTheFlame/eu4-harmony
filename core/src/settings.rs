@@ -51,11 +51,11 @@ pub struct Settings {
     /// Whether achievements can be earned with a game checksum (GLOSSARY)
     /// that is not vanilla's (ADR achievement-rules-can-be-relaxed).
     pub achievements_with_changed_checksum: bool,
-    /// Whether the drawing thread (GLOSSARY; docs/plans/drawing-thread.md)
+    /// Whether the drawing thread (GLOSSARY)
     /// draws with no limit, rather than at the display's refresh rate.
     pub drawing_unlimited: bool,
     /// Whether every track is brought to the same loudness (GLOSSARY:
-    /// Loudness normalization; docs/plans/music-volume.md).
+    /// Loudness normalization; docs/game/program/loading.md).
     pub music_loudness: bool,
     /// Whether quiet and loud passages of the music are brought closer
     /// (GLOSSARY: Music leveling).

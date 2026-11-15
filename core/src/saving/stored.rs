@@ -1,10 +1,10 @@
 //! A local save's entries copied into its zip's stored blocks
-//! (docs/plans/game-speed.md, S8).
+//! .
 //!
 //! During a local save the game deflates its entries at level 0
 //! (`super::background`), which still passes the data through zlib and takes
 //! its CRC a byte at a time, a quarter of an autosave's stop
-//! (docs/research/saves.md, "Where a save's zip goes"). So at level 0 the
+//! (docs/game/program/saves.md, "Where a save's zip goes"). So at level 0 the
 //! framework copies an entry's data into the zip's stored blocks itself: the
 //! same entry, framed in blocks of its own, its CRC taken in parts by the
 //! threads that write the game state (`super::parallel`) and combined.

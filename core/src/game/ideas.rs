@@ -1,6 +1,6 @@
 //! Ideas: the idea groups of the ideas view, taking one, buying its ideas
 //! and abandoning it, through the game's own commands
-//! (docs/research/government.md, "Ideas").
+//! (docs/game/countries/government.md, "Ideas").
 use super::commands::{write, Block};
 use super::content::checks;
 use super::{action, conditions, content, power, GResult, Session, Tag};

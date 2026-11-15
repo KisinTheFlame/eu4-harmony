@@ -39,7 +39,7 @@
 //! Numbers are hex, with or without `0x`. Addresses are RVAs, branch targets
 //! too; a RIP-relative operand gets its target and, when text is there, the
 //! text. A target the index of the game's addresses names
-//! (`docs/research/addresses.toml`) gets its name, in parentheses.
+//! (`docs/game/addresses.toml`) gets its name, in parentheses.
 use eu4_harmony_analysis as analysis;
 use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, IntelFormatter, Mnemonic, OpKind};
 use std::collections::HashSet;
@@ -60,7 +60,7 @@ fn text_at(image: &[u8], rva: usize) -> Option<String> {
 fn names() -> &'static std::collections::HashMap<usize, String> {
     static NAMES: std::sync::OnceLock<std::collections::HashMap<usize, String>> = std::sync::OnceLock::new();
     NAMES.get_or_init(|| {
-        let path = crate::repo().join("docs/research/addresses.toml");
+        let path = crate::repo().join("docs/game/addresses.toml");
         let Ok(table) = std::fs::read_to_string(path).unwrap_or_default().parse::<toml::Table>() else { return Default::default() };
         table
             .get("addresses")

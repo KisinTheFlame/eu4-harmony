@@ -1,7 +1,7 @@
 //! Starting the game from its folder, for `eu4-harmony start` and the claim
 //! of `cargo xtask game`: hidden or shown (the framework's switch
-//! `-harmony_hidden`, docs/plans/hidden-start.md), the player's game or a test game
-//! with a user folder, a core and a pipe of its own (docs/plans/test-games.md),
+//! `-harmony_hidden`, docs/game/program/headless.md), the player's game or a test game
+//! with a user folder, a core and a pipe of its own (docs/dev-tools.md#test-games),
 //! returning once remote control says the main menu is up. Steam must be
 //! running, as for any start of the game.
 use crate::Result;
@@ -54,7 +54,7 @@ pub struct Start {
     /// Sound in a hidden start.
     pub sound: bool,
     /// The game's own `-seed`, which seeds its random generator and gives
-    /// each AI agent a generator of its own (docs/research/late-game.md).
+    /// each AI agent a generator of its own (docs/game/ai/work-scheduling.md).
     pub seed: Option<u32>,
     /// A test game, not the player's.
     pub test_game: Option<TestGame>,

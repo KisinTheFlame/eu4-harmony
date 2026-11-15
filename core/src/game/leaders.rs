@@ -1,7 +1,7 @@
 //! Leaders: what the military view offers the player to recruit, the
 //! player's leaders, and giving one to an army or a fleet, through the
 //! game's own commands, as the military view and the unit panels post them
-//! (docs/research/leaders.md).
+//! (docs/game/military/leaders.md).
 use super::commands::{write, Block};
 use super::units::checks;
 use super::{action, army, modifiers, Caller, Ctx, GResult, Session};
@@ -174,7 +174,7 @@ fn given(text: &str, name: &str, value: &str) -> String {
 
 /// Whether the player may recruit a kind, and the tooltip's reasons why not:
 /// the game's check answers yes or no, and the reasons are its tooltip's
-/// for the conditions that check tests (docs/research/leaders.md).
+/// for the conditions that check tests (docs/game/military/leaders.md).
 fn option(m: &Memory, ctx: &Ctx, kind: LeaderKind) -> GResult<LeaderOption> {
     let amount = cost(m, ctx, kind)?;
     let cost = vec![amount];

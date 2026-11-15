@@ -2,7 +2,7 @@
 //! answer, read from the event windows the game shows the player, and
 //! answered as the player does, by choosing an option in the window.
 //! [`count`] says how many wait, for advancing time too. The evidence is in
-//! docs/research/questions-and-offers.md.
+//! docs/game/diplomacy/questions-and-offers.md.
 use super::{map_manager, Ctx, GResult, Session};
 use crate::containers;
 use crate::{

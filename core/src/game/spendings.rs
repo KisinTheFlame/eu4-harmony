@@ -3,7 +3,7 @@
 //! and the barrages: moving the capital and the trade port, a Siberian
 //! frontier, tribal land and razing a province; scorched earth, seizing and
 //! burning a colony and attacking natives; sorties; harsh treatment
-//! (docs/research/power-spending.md, "The province view's and the army
+//! (docs/game/countries/power-spending.md, "The province view's and the army
 //! panel's spendings"). Each asks the game's own check, which writes the
 //! button's tooltip reasons and checks its cost, and posts the command the
 //! button posts.

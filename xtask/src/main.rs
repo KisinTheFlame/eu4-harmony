@@ -36,7 +36,7 @@ usage:
   cargo xtask game status
       Claims of test games: games started from the game folder with a user
       folder, a core and a pipe of their own, any number at once
-      (docs/plans/test-games.md). claim makes the claim's folder, with a user
+      (docs/dev-tools.md#test-games). claim makes the claim's folder, with a user
       folder made from the player's, and prints it. start copies this
       checkout's built core, which needs --features
       eu4-harmony-core/dev-test-games, and dev.toml into the test game, and
@@ -85,11 +85,11 @@ usage:
       docs/dev-tools.md describes), without building the core or changing its
       build artifacts. Finds the game through EU4_GAME_DIR or Steam.
   cargo xtask addresses
-      Writes docs/research/addresses.toml again from the research notes and
+      Writes docs/game/addresses.toml again from the research notes and
       the game's pages: every address of eu4.exe they name, with the notes
       that name it, each name kept, and its kind (a function begins there,
       code inside one, data) from the game's eu4.exe when it is found
-      (docs/plans/address-index.md).
+      (docs/game/README.md).
   cargo xtask what <rva>
       The index's entry of an address, and of the function it is in, and each
       line of the notes, the game's pages and the code that names either.
@@ -105,7 +105,7 @@ usage:
   cargo xtask scenario --from-report <dir>
       Plays scenarios in the game, driven through remote control, and
       writes report.json and report.md into <dir> (target\\scenarios\\<time>
-      by default): how each ended and what it found (docs/plans/scenarios.md).
+      by default): how each ended and what it found (docs/dev-tools.md#scenarios).
       With no name it lists them, with their builds and parameters. It
       needs Steam running, builds each build the scenarios need with the
       test games' pipes, set aside in the report's folder, and plays each

@@ -1,26 +1,21 @@
 # The game
 
-What is known of Europa Universalis IV as a program, one page for each of its systems, as it is now understood: what the system is, how it works, how it touches the others, and what is not known yet. The pages are written in the game's terms; the evidence for each claim is in a note of [research/](../research/), which the claim links. All of it is of the 1.37.5 baseline (`9ad3efe1…`).
+The known logic of EU4 1.37.5 for Windows (`9ad3efe1…`), organized by system. System pages lead to topic pages: normal flows, callers and callees, state read and written, object ownership and RVAs. A reference to an address does not mean its complete function is understood; partial readings, inferences and unverified behavior are explicit.
 
-| | |
-| --- | --- |
-| [day.md](day.md) | The day and its time: how the game runs a day and a month, the main thread and the threads beside it, dates, speed, and random draws |
-| [countries.md](countries.md) | Countries: their state, government, knowledge of each other, monarch power, subjects, defeat, achievements and names |
-| [provinces.md](provinces.md) | Provinces and the map: provinces, map modes, the province view, the fog of war, trade and sieges |
-| [military.md](military.md) | Armies and fleets: units, orders, routes, battles, leaders and recruiting |
-| [diplomacy.md](diplomacy.md) | Diplomacy: relations, envoys, questions and offers between countries, and peace |
-| [ai.md](ai.md) | The AI: how a country the AI plays decides, and its agents |
-| [scripts.md](scripts.md) | Scripts: triggers and effects, the console, and the commands a session executes |
-| [interface.md](interface.md) | The interface, text and input: windows and their bindings, the main menu, text and fonts, the camera, mouse and keyboard, screenshots |
-| [program.md](program.md) | The program: its architecture, startup and loading, the files and folders it uses, saves, and how it runs unseen or several at once |
+- [The day and its time](day.md): Dates, speed, daily and monthly work, admitted frames and the state shared between them.
+- [Countries](countries.md): Country identity and knowledge, rulers, government, modifiers and shared national values.
+- [Provinces and the map](provinces.md): Province state, areas, construction, religion, trade and what the map reveals.
+- [Armies and fleets](military.md): Unit state, orders, paths, recruitment, leaders and the complete known battle-loss paths.
+- [Diplomacy](diplomacy.md): Relations, envoys, questions, offers, peace and subject-reference lifetime.
+- [The AI](ai.md): Country tasks, agent order, support checks and the limits of execution independence.
+- [Scripts and commands](scripts.md): Script scope and evaluation, triggers, parameterized text, command construction and execution.
+- [The interface, text and input](interface.md): Window lifetime and scene traversal, accepted input, text, fonts, the camera and rendering state.
+- [The program](program.md): Program layers, startup, files, saves, process boundaries and persistent object ownership.
 
-## How a page is written
+[addresses.toml](addresses.toml) indexes only these pages, including nested topics. `cargo xtask what <rva>` presents their explanation before code references. Investigation and measurement evidence is linked from the relevant topic and kept in [research](../research).
 
-- **The system as the game has it.** The first paragraph says what the system is, in words a player knows; the rest how it works, in the order things happen, with the names the game's own scripts and files use. A page holds the whole system at a glance; the detail stays in research.
-- **Each claim links its evidence**: the research note, and its section where it has one, as [research/time.md](../research/time.md). A claim no note holds is not written here until one does.
-- **Addresses only to find the code.** A stretch of the game's code is named by what it does, with its function's RVA in brackets at most once, as the day's update (`0x758430`); offsets, bytes and measurements stay in research. A number is written when it is the game's own (a year is 365 days, with no leap day) or when its size matters to the system (late in a game the AI's stage is a quarter of the main thread), with its note linked.
-- **How the systems meet.** Where a system reads or changes another's state, the page says so and links the other page.
-- **What the framework relies on**, in a line each: the capabilities and dependency points that use the system, linking their plan or ADR.
-- **What is not known yet**, as plainly as what is: questions no note answers, and where notes disagree.
+## Updating a topic
 
-When research changes what is known of the game, the page it changes is changed in the same change (AGENTS.md).
+Write the game's normal logic in one topic, in the order it runs. Keep field meaning, callers, side effects and the limits of the reading together. Put RVAs beside their explanation; offsets belong with their object. Link shared operations instead of explaining them again. Distinguish vanilla behavior from Harmony's use or replacement of it. Experimental proposals and successful samples do not establish concurrency safety.
+
+Update this account when evidence changes a conclusion, then run `cargo xtask addresses`. Preserve existing address names and partial leads when consolidating topics. The system entry pages are navigation, not another copy of the topic's facts.

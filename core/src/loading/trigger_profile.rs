@@ -1,5 +1,5 @@
 //! Trigger optimization profile lookup without per-node hash-table allocations
-//! (docs/research/localisation-loading.md, docs/plans/large-mod-startup.md, M2).
+//! (docs/game/program/localisation-loading.md, docs/plans/README.md, M2).
 //!
 //! At the start of `0x208620`, `0xb9b5a0` loads `trigger_profile.txt` (~6,593
 //! trigger trees with historical costs) into `[0x242be60] + 0x48`. At the end

@@ -17,14 +17,14 @@
 | 启动和读档更快 | ✗ | ✓ |
 | 游戏后期跑得更快 | ✗ | ✓ |
 | 继承人不再一半概率重名 | ✗ | ✓ |
-| 降低崩溃风险，包括[宗教改革中心的悬空引用](docs/research/reformation-center-crash.md) | ✗ | ✓ |
+| 降低崩溃风险，包括[宗教改革中心的悬空引用](docs/game/provinces/reformation-centers.md) | ✗ | ✓ |
 | 读档不再让你丢掉成就 | ✗ | ✓ |
 | 长局不再越玩越占内存 | ✗ | ✓ |
 | 可选：非铁人或开着 Mod 也能拿成就 | ✗ | ✓ |
 | Mod 能做的事多得多：加按钮、加窗口、替你操作 | ✗ | ✓ |
 | **游戏的规则和数据不变** | ✓ | ✓ |
 
-游戏的中文文本仍然来自汉化 Mod，照常订阅即可；为双字节补丁制作的汉化 Mod 和用它们玩的存档都能直接使用。移除颜色码时保留完整字符，包括[新雇佣军队的名称](docs/research/mercenary-company-names.md)；存档中已经损坏的名称不会自动恢复。Harmony 运行于 Windows 上的 EU4 1.37.5，仅支持单人游戏。
+游戏的中文文本仍然来自汉化 Mod，照常订阅即可；为双字节补丁制作的汉化 Mod 和用它们玩的存档都能直接使用。Harmony 运行于 Windows 上的 EU4 1.37.5，仅支持单人游戏。
 
 ## 安装
 
@@ -39,20 +39,20 @@ Steam 会让 Harmony 保持最新。偶尔有更新需要换新的 `version.dll`
 
 **卸载：** 取消订阅 Harmony，游戏就回到原样。想不留痕迹，再删掉游戏目录里的 `version.dll`；之前挪走过别的 `version.dll` 的话，把它放回去。
 
-手动安装可从 [GitHub Releases](https://github.com/KisinTheFlame/eu4-harmony/releases) 下载 `eu4-harmony-<version>-windows-x64.zip`，关闭游戏后解压到游戏目录，和 `eu4.exe` 放在一起；原本有其他补丁的 `version.dll` 时，先把它挪走。这个包同时安装代理和核心。每次更新都需要自己下载并解压：本地核心优先于工坊核心，Steam 不会更新这份本地副本。要恢复工坊更新，删掉本地的 `eu4-harmony\eu4_harmony_core.dll`；要卸载手动安装的框架，删掉这个 DLL 和 `version.dll`。CLI 另有 `eu4-harmony-cli-<version>-windows-x64.zip`，可以放在游戏目录之外运行，玩家不需要安装它。合并版本 PR 后会自动创建标签并发布下载包；[发布说明](docs/releases.md)介绍检查和重跑方式。
+手动安装可从 [GitHub Releases](https://github.com/KisinTheFlame/eu4-harmony/releases) 下载 `eu4-harmony-<version>-windows-x64.zip`，关闭游戏后解压到游戏目录，和 `eu4.exe` 放在一起；原本有其他补丁的 `version.dll` 时，先把它挪走。这个包同时安装代理和核心。每次更新都需要自己下载并解压：本地核心优先于工坊核心，Steam 不会更新这份本地副本。要恢复工坊更新，删掉本地的 `eu4-harmony\eu4_harmony_core.dll`；要卸载手动安装的框架，删掉这个 DLL 和 `version.dll`。CLI 另有 `eu4-harmony-cli-<version>-windows-x64.zip`，可以放在游戏目录之外运行，玩家不需要安装它。
 
 需要知道的几件事：
 
 - 用 Harmony 玩的游戏里，你输入的名字以 UTF-8 保存，没有 Harmony 时会显示成乱码。
 - 会保存自己数据的 Mod 把数据写进存档；这样的存档不保证在没有 Harmony 时还能读取。
-- 非铁人成就要在新开局前启用。没有保存待达成成就列表的存档（包括受此前非铁人成就追踪缺陷影响的存档）需要重新开局；打开选项无法重建当初的开局条件。[成就追踪](docs/research/achievements.md#each-achievements-script-conditions)说明了原因。
+- 非铁人成就要在新开局前启用。没有保存待达成成就列表的存档（包括受此前非铁人成就追踪缺陷影响的存档）需要重新开局；打开选项无法重建当初的开局条件。[成就追踪](docs/game/countries/achievements.md#each-achievements-script-conditions)说明了原因。
 - 装上 Harmony 后，游戏自己的音量滑块按位置的平方变化，每一格听起来变化差不多大。原来低于 100 的音量会比以前轻，重新调一次即可。
 
 ## 出问题时
 
 在主菜单打开 Harmony 的设置，进入**关于**，点**把排查问题用的文件存到桌面**：它把 Harmony 的日志、游戏的日志、现存的崩溃文件夹、你的设置和模组列表（不含存档）打成一个 zip 文件放到桌面上。到 [GitHub Issues](https://github.com/KisinTheFlame/eu4-harmony/issues) 反馈问题，附上这个文件。
 
-日志在 `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`：`report.txt` 记着游戏启动时 Harmony 发现了什么、做了什么，`core.log` 记录框架工作及经过游戏异常处理的崩溃；只有出了问题才会有 `proxy.log`，它说明 Harmony 为什么根本没启动。框架日志分段限长、汇总重复错误，并保留小型近期事件快照；自动清理不再使用的过期自有日志，不动游戏日志、存档、崩溃转储和你保存的排障包。排障包完整收录日志和崩溃转储，不设单文件大小、总大小或文件数量上限；文本里按已知字段识别的凭据仍会脱敏。[日志限制与诊断范围](docs/logs.md)说明了保留内容，以及异常退出后仍可能无法确定的事情。
+日志在 `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`：`report.txt` 是启动报告，`core.log` 记录框架工作，`proxy.log` 说明加载失败。[日志说明](docs/logs.md)介绍保留与收集范围。
 
 ## 写一个 Mod
 
@@ -72,7 +72,7 @@ return {
 }
 ```
 
-命令行工具 `eu4-harmony.exe` 目前要从源码构建（见[从源码构建](#从源码构建)）：
+命令行工具 `eu4-harmony.exe` 可从 [GitHub Releases](https://github.com/KisinTheFlame/eu4-harmony/releases) 单独下载。
 
 ```powershell
 eu4-harmony new my-mod --name "My Mod"   # 一个能直接用的 Mod：带一个按钮、英文和你的语言的文字，以及编辑器类型定义
@@ -85,38 +85,13 @@ eu4-harmony types                         # 工具更新后，重新写出编辑
 eu4-harmony package                       # 生成一个可以直接上传的干净文件夹
 ```
 
-Mod 就是一个普通的 Paradox Mod，多一个 `eu4-harmony\` 文件夹，文件放在哪里就说明它是什么：
-
-```text
-my-mod/
-├── descriptor.mod
-├── .eu4-harmony/types/        # 编辑器类型定义，由 eu4-harmony new 和 eu4-harmony types 写出
-├── .luarc.json                # 让编辑器找到它们
-└── eu4-harmony/
-    ├── manifest.toml          # id、api_version、description、permissions
-    ├── lua/main.lua           # 扩展：一张处理函数表
-    ├── ui/<窗口名>/buttons/   # 拼进原版窗口的界面片段
-    ├── localisation/          # 文字，每种语言一个 UTF-8 文件
-    ├── data/                  # 扩展要读的文件
-    └── tests/                 # eu4-harmony test 运行的测试
-```
-
-`main.lua` 返回处理函数，比如过了一天时的 `on_day`、按钮被点击时的 `on_button`。每个都拿到 `game`，所有能力都从它调用；被拒绝时返回 `nil, err`，带着游戏给的理由。处理函数可以等一个答复，比如别国对提议的答复，或者等游戏里过去若干天，也可以把几件事作为任务同时进行、再等它们完成。需要现实时间、文件或网络的扩展，要在清单的 `permissions` 里声明，玩家在 Harmony Mod 窗口里能看到。
-
-`province.area` 读取一个州内的自有省份与行政容量占用，包括只设立直辖州、不补完整核心时的新增占用。`country.governing_capacity` 单独实时重算全国占用，以整数千分值返回；两者的区别见[省份机制](docs/game/provinces.md)。
-
-额外按钮区和固定扩展窗口的蓝底金边会随尺寸适配，悬停和按住时保持原色；背景空白处拦截点击与滚轮，不操作后方地图，内部列表照常滚动。[窗口指南](cli/skills/ui/windows.md)介绍了窗口布局。
-
-可视文字与悬浮提示共用文字描述：`{ text = "Ready" }` 或 `{ key = "MYMOD_DETAILS", values = { N = 3 } }`。声明与受支持的运行时文字赋值都接受同一描述，悬浮提示还可读回。赋值替换内容，`nil` 清空内容，窗口重建后也保留这一状态。面板入口可以使用经过校验的模组相对路径 DDS 或 TGA 图片、动态改变可见与启用状态，并在图标下方显示独立格式化的数值；布局与属性见[窗口指南](cli/skills/ui/windows.md)。
-
-框架在既有窗口范围内统一管理原生扩展窗口、弹窗和附着按钮区的顺序，保留原版窗口的相对顺序与原生输入优先规则。共享显示与隐藏方法会先识别派生窗口，再应用普通窗口的排序检查，避免打开军队面板后推进时间导致退出，不增加 Lua 字段或调用。[排序计划](docs/plans/window-ordering.md)记录了已确认的行为和仍待完成的游戏内验收。
+Mod 就是一个普通的 Paradox Mod，多一个 `eu4-harmony/` 文件夹。处理函数通过 `game` 使用能力；敏感权限在清单中声明，玩家可以在 Harmony Mod 窗口里查看。布局、任务和存档数据的步骤见下方指南。
 
 进一步了解：
 
 - `eu4-harmony wiki`：每项能力的参数和结果、处理函数和全局函数（`wiki lua`）、清单（`wiki manifest`）。不需要游戏运行。
 - `eu4-harmony skills`：每类工作的分步指南（`skills mod` 讲做一个 Mod，还有 `skills ui`、`skills testing` 等），写给 coding agent，人也能读。
-- [docs/plans/mod-capabilities.md](docs/plans/mod-capabilities.md)：框架向 Mod 开放了什么，按领域列出。
-- [docs/plans/lua-extensions.md](docs/plans/lua-extensions.md)：扩展如何工作，包括出错、时间与内存限制和存档数据。
+- [cli/skills/mod.md](cli/skills/mod.md)：扩展如何工作，包括出错、时间与内存限制和存档数据。
 
 ## 远程控制：让程序来玩
 
@@ -132,24 +107,13 @@ eu4-harmony game screenshot --out shot.png
 eu4-harmony game menu return               # 回到主菜单
 ```
 
-观察模式下 AI 操控所有国家：`menu start` 不带国家就开这样一局，`session view FRA` 把法兰西设为所看国家，`session leave_view` 退出视角；这时以国家身份行事的能力作用于所看国家，AI 照常操控它，没有所看国家时返回 `no_country`（[docs/plans/observe-mode.md](docs/plans/observe-mode.md)）。
+观察模式下 AI 操控所有国家：`menu start` 不带国家就开这样一局，`session view FRA` 把法兰西设为所看国家，`session leave_view` 退出视角；这时以国家身份行事的能力作用于所看国家，AI 照常操控它，没有所看国家时返回 `no_country`（[docs/game/countries/countries.md](docs/game/countries/countries.md)）。
 
-远程控制只对正在玩的 Windows 用户开放、只限本机。请求默认以玩家身份进行：只读玩家看得到的，只做玩家能做的。加上 `--as-game` 就以游戏身份进行：能读游戏保存的一切，还能像 Mod 的脚本那样改动游戏，做玩家做不到的事（[ADR requests-act-as-the-player-or-as-the-game](docs/adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md)）。没有能力覆盖的地方，它可以用玩家的鼠标和键盘。`eu4-harmony wiki remote` 讲一局怎么进行、每个退出码的含义；设计见 [docs/plans/remote-control.md](docs/plans/remote-control.md) 和 [docs/plans/hidden-start.md](docs/plans/hidden-start.md)。
+远程控制只对正在玩的 Windows 用户开放、只限本机。请求默认以玩家身份进行：只读玩家看得到的，只做玩家能做的。加上 `--as-game` 就以游戏身份进行：能读游戏保存的一切，还能像 Mod 的脚本那样改动游戏，做玩家做不到的事（[ADR requests-act-as-the-player-or-as-the-game](docs/adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md)）。没有能力覆盖的地方，它可以用玩家的鼠标和键盘。`eu4-harmony wiki remote` 讲一局怎么进行、每个退出码的含义。
 
 ## 文档
 
-| | |
-| --- | --- |
-| [docs/plans/v1.md](docs/plans/v1.md) | 第一版的设计 |
-| [GLOSSARY.md](GLOSSARY.md) | 项目用的术语 |
-| [docs/adr/](docs/adr/) | 难以撤回的决定，以及做出它们的理由 |
-| [docs/game/](docs/game/) | 对游戏的认识，每个系统一页 |
-| [docs/research/](docs/research/) | 这些页面所依据的、对游戏代码的调研 |
-| [docs/performance.md](docs/performance.md) | 框架给游戏带来的开销，实测 |
-| [docs/prototype-log/](docs/prototype-log/) | 在运行中的游戏里试过什么、结果如何，每次一个文件 |
-| [docs/dev-tools.md](docs/dev-tools.md) | 开发工具 |
-
-每项较大的工作在 [docs/plans/](docs/plans/) 里有自己的方案，和其他文档一起列在 [docs/README.md](docs/README.md) 里。
+[文档入口](docs/README.md)按用途指向能力参考、操作指南、游戏逻辑、开发工具和关键验证证据。[术语表](GLOSSARY.md)定义项目用语；[开放工作](docs/plans/README.md)只保留尚未完成的事项。
 
 ## 从源码构建
 
@@ -161,44 +125,11 @@ cargo test
 cargo xtask release        # 打出玩家包和创意工坊条目的文件夹
 ```
 
-`cargo xtask release` 构建优化后的玩家配置，在 `target\dist\` 下分别生成框架和 CLI 的 ZIP，以及 `framework\` 和 `cli\` 暂存文件夹。把框架包里的 `version.dll` 和 `eu4-harmony\` 文件夹复制到游戏目录，和 `eu4.exe` 放在一起；CLI 放在你运行它的位置即可。`cargo xtask install` 安装代理和核心，`--uninstall` 把它们删掉。本地核心优先于工坊核心。`cargo xtask release --no-workshop` 跳过工坊文件和对比图渲染，GitHub 发布就采用这个方式。[发布说明](docs/releases.md)介绍检查、标签和重跑。
-
-游戏通过 `EU4_GAME_DIR` 或 Steam 找到。要在游戏里试构建，就认领一局测试游戏：它从游戏目录启动，有自己的用户文件夹、核心和远程控制管道，既不碰玩家的文件，也不碰游戏目录里装好的框架，几局可以同时跑（[docs/plans/test-games.md](docs/plans/test-games.md)）。游戏目录里要先装一次支持测试游戏的框架，装时玩家自己的游戏要关着（`cargo xtask install`）。
-
-```powershell
-cargo build --release --features eu4-harmony-core/dev-test-games
-cargo xtask game claim --owner mine --purpose "try my change"
-cargo xtask game start --owner mine     # 用这个构建隐藏启动测试游戏
-eu4-harmony game --test-game mine session get
-cargo xtask game release --owner mine   # 留下日志，删掉其余
-```
-
-`cargo xtask scenario windows --owner mine` 在扩展重载和会话切换中验证原生扩展窗口与列表替换，保留截图供人工检查；它也在 `scenario whole` 中运行。[开发工具](docs/dev-tools.md)说明了检查内容和验证范围。
-
-`cargo xtask scenario perf --owner mine` 在暂停和五速窗口中测量完成的游戏日、画面提交间隔和界面更新，同时记录启动、CPU 和内存。它使用专门的性能开发构建，输出 JSON 与 Markdown 报告；[开发工具](docs/dev-tools.md)说明了测量内容和局限。
-
-框架和游戏一样，按游戏自己的 `-userdir` 找用户文件夹。
-
-`cargo xtask --help` 列出其他开发命令。
+构建、发布和隔离测试游戏的步骤见[开发工具](docs/dev-tools.md)。测试游戏有自己的用户文件夹、核心和管道；只通过认领启动，不改动玩家的游戏。
 
 ## 参与开发
 
 先读 [AGENTS.md](AGENTS.md)：代码、提交、检查和在游戏里测试的规则都在那里，对人和 coding agent 都适用。改动通过 pull request 进入 master。
-
-| 目录 | 内容 |
-| --- | --- |
-| `proxy/` | 把核心加载进 `eu4.exe` 的 `version.dll` |
-| `core/` | 框架本身：依赖点与启动、能力、运行在真实游戏上的 Lua 宿主、远程控制、框架界面和 Unicode 模块 |
-| `analysis/` | `cargo xtask disasm` 与核心的开发工具、测试共用的 PE 映像读取和指令分析；反汇编不会重新构建核心 |
-| `lua/` | 游戏和假游戏共用的 Lua 宿主：沙箱、处理函数、任务、时间限制、扩展按什么顺序收到什么，以及扩展要它的窗口和弹窗是什么样 |
-| `remote/` | 能力目录：每项能力的参数、结果和说明 |
-| `checks/` | 能力调用要经过的检查，以及游戏的历法 |
-| `client/` | 从游戏进程外接触运行中的游戏：远程控制的管道；游戏进程的启动、跟踪到退出码和结束；备份和还原玩家的文件，命令行工具和 `cargo xtask` 共用 |
-| `folders/` | 各个程序以同一方式找到的游戏文件夹和用户文件夹，以及用户文件夹里各项的名字 |
-| `logging/` | 有界框架日志、重复错误汇总、事件快照及认证字段脱敏 |
-| `loc/`、`manifest/` | 本地化文件和 Mod 清单，核心和命令行工具共用 |
-| `cli/` | `eu4-harmony.exe`，以及 `new` 生成的模板 Mod |
-| `xtask/` | 仓库自己的开发命令（`cargo xtask`） |
 
 ## 许可证
 

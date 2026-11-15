@@ -1,5 +1,5 @@
 //! The game console (GLOSSARY) and what running one of its commands answers
-//! (docs/research/game-console.md).
+//! (docs/game/scripts/game-console.md).
 
 /// The game console, a pointer in this global: its commands, then whether
 /// the commands only developers may run are locked and whether the game is
