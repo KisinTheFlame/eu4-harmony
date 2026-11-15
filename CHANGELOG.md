@@ -2,6 +2,12 @@
 
 What changed in each version of Harmony that players and mod authors notice. Merging a version PR automatically publishes its section as the GitHub Release notes; a local Steam Workshop upload uses the same section as its change note (`cargo xtask workshop-upload`).
 
+## 0.2.3
+
+- Fixed: opening an army panel with attached mod elements and advancing time could end the game when a derived window used a shared native hide method. Window ordering now classifies the receiver before applying ordinary-window checks, while preserving native picker coverage and input priorities.
+
+The core updates through Steam Workshop as usual. No Lua interface changes or proxy replacement are required for this fix; restart the game after the update.
+
 ## 0.2.2
 
 - Fixed: creating a reformation center in a province being converted by another center now clears the old conversion references and progress, preventing stale references when the old center is removed.
