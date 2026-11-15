@@ -16,14 +16,14 @@
 //!
 //! A traced function is observed, and an observer forwards exactly the
 //! arguments its point declares: a function that reads more finds garbage.
-//! The count comes from the function's code ([`crate::analysis::arguments`]);
+//! The count comes from the function's code ([`eu4_harmony_analysis::arguments`]);
 //! `RVA:N` gives it for a function the exception directory has no entry for
 //! (a leaf), or overrides it.
-use crate::analysis;
 use crate::hooks::Call;
 use crate::memory::Memory;
 use crate::points::Point;
 use crate::unicode::game_text;
+use eu4_harmony_analysis as analysis;
 use std::cell::RefCell;
 use std::io::Write as _;
 use std::sync::atomic::{AtomicUsize, Ordering};

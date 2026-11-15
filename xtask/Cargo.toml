@@ -7,6 +7,7 @@ license.workspace = true
 description = "The repository's development commands, run as cargo xtask: installing and packing builds, measuring runs of the game, reading crash dumps"
 
 [dependencies]
+eu4-harmony-analysis = { path = "../analysis" }
 eu4-harmony-client = { path = "../client" }
 eu4-harmony-folders = { path = "../folders" }
 eu4-harmony-logging = { path = "../logging" }
@@ -16,6 +17,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 # The index of the game's addresses.
 toml = { workspace = true }
+# Formatting the disassembler's instructions; decoding is shared by analysis/.
+iced-x86 = { workspace = true, features = ["intel"] }
 windows = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_System_Com",

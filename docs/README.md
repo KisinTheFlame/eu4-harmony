@@ -151,6 +151,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 
 | | |
 | --- | --- |
+| [disassembly-in-xtask.md](plans/disassembly-in-xtask.md) | Disassembly runs in xtask with shared analysis; offline checks pass and prepared core artifacts stay unchanged |
 | [fixed-window-backgrounds.md](plans/fixed-window-backgrounds.md) | Fixed blue-and-gold backgrounds with static presentation, adaptive borders and native input blocking |
 | [sixth-deepening.md](plans/sixth-deepening.md) | The parallel save's, the army searches' and the background compression's courses, the collection's clock and the folder-listing rules each gathered into one module |
 | [frame-p99-safe-boundary-validation.md](plans/frame-p99-safe-boundary-validation.md) | Four verified release boundaries repeat about 70% lower P99; broader safety remains open, disposable runtime removed |

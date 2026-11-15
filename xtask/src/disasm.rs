@@ -1,7 +1,7 @@
 //! Reads the installed game's code, for finding dependency points:
 //!
 //! ```text
-//! EU4_GAME_DIR=<install dir> cargo run --release -p eu4-harmony-core --features analysis --example disasm -- ARG...
+//! cargo xtask disasm ARG...
 //! ```
 //!
 //! Each ARG is one of
@@ -40,7 +40,7 @@
 //! too; a RIP-relative operand gets its target and, when text is there, the
 //! text. A target the index of the game's addresses names
 //! (`docs/research/addresses.toml`) gets its name, in parentheses.
-use eu4_harmony_core::analysis;
+use eu4_harmony_analysis as analysis;
 use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, IntelFormatter, Mnemonic, OpKind};
 use std::collections::HashSet;
 
@@ -60,7 +60,7 @@ fn text_at(image: &[u8], rva: usize) -> Option<String> {
 fn names() -> &'static std::collections::HashMap<usize, String> {
     static NAMES: std::sync::OnceLock<std::collections::HashMap<usize, String>> = std::sync::OnceLock::new();
     NAMES.get_or_init(|| {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/research/addresses.toml");
+        let path = crate::repo().join("docs/research/addresses.toml");
         let Ok(table) = std::fs::read_to_string(path).unwrap_or_default().parse::<toml::Table>() else { return Default::default() };
         table
             .get("addresses")
@@ -269,11 +269,11 @@ fn disassemble(image: &[u8], rva: usize, count: Option<usize>) {
     }
 }
 
-fn main() {
-    let dir = std::env::var("EU4_GAME_DIR").expect("set EU4_GAME_DIR to the game's install folder");
-    let file = std::fs::read(std::path::Path::new(&dir).join("eu4.exe")).expect("read eu4.exe");
+pub fn run(args: &[String]) -> crate::Result<()> {
+    let path = crate::game::dir()?.join("eu4.exe");
+    let file = std::fs::read(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     let image = analysis::map_file(&file);
-    for arg in std::env::args().skip(1) {
+    for arg in args {
         if let Some(text) = arg.strip_prefix("str:") {
             strings(&image, text);
             continue;
@@ -374,4 +374,5 @@ fn main() {
             _ => panic!("unknown argument {arg:?}"),
         }
     }
+    Ok(())
 }

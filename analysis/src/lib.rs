@@ -3,8 +3,9 @@
 //! check that every observe point forwards at least that many (an observer
 //! forwards exactly the count its point declares, so a function that reads
 //! more finds garbage there, and one that writes through an argument writes
-//! somewhere it should not). Built for tests and with the `analysis` feature
-//! (the `disasm` example, call tracing).
+//! somewhere it should not). Shared by `cargo xtask disasm`, the core's
+//! offline checks, call tracing and write watching. This crate does not
+//! depend on the core or on a running game.
 //!
 //! [`values`] lists the numbers an instruction carries, so that a dependency
 //! point can be checked to use the field or global it is said to.

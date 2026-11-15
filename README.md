@@ -189,6 +189,7 @@ Read [AGENTS.md](AGENTS.md) first: it has the rules for code, commits, checks an
 | --- | --- |
 | `proxy/` | The `version.dll` that loads the core into `eu4.exe` |
 | `core/` | The framework: dependency points and startup, the capabilities, the Lua host on the live game, remote control, the framework UI and the Unicode module |
+| `analysis/` | PE image reading and instruction analysis shared by `cargo xtask disasm` and the core's development tools and tests; disassembly does not rebuild the core |
 | `lua/` | The Lua host shared by the game and the fake game: sandbox, handlers, tasks, time limit, what extensions hear in which order, and what they want of their windows and pop-ups |
 | `remote/` | The capability catalogue: every capability's arguments, results and description |
 | `checks/` | The checks a capability's call goes through, and the game's calendar |

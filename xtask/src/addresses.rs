@@ -211,7 +211,7 @@ pub fn what(repo: &Path, rva: &str) -> Result<()> {
     }
     let needles: Vec<String> = asked.iter().map(|a| format!("{a:#x}")).collect();
     let mut files = Vec::new();
-    for folder in ["docs", "core/src", "xtask/src"] {
+    for folder in ["docs", "analysis/src", "core/src", "xtask/src"] {
         collect(&repo.join(folder), &mut files);
     }
     for file in files {
