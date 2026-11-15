@@ -28,12 +28,14 @@ What would change the plan: nothing in its shape. Three things need care.
 | `.gui` keyword | Token | Live class (vtable) | Size | Where the constructor sets the class | Found in a window by |
 | --- | --- | --- | --- | --- | --- |
 | `guiButtonType` | `0x7f` | `0x1d58218` (the game's button; [interface-bindings.md](interface-bindings.md)) | | `0x10b55fc` | `vtbl+0x68`, a C string |
-| `iconType` | `0xb6` | `0x1d96d00` | `0x1e8` | `0x15857fc` (`48 8d 05 fd 14 81 00`), constructor `0x15857d0` | `vtbl+0xc8` (`0x15492e0`), a C string |
+| `iconType` | `0xb6` | Game class `0x1d585c8`; base class `0x1d96d00` | Game `0x1f0`; base `0x1e8` | Game constructor `0x10b5780` replaces the base vtable at `0x10b5823`; base constructor `0x15857d0` sets it at `0x15857fc` (`48 8d 05 fd 14 81 00`) | `vtbl+0xc8` (`0x15492e0`), a C string |
 | `listBoxType` | `0xa9` | `0x1d90ea0`, its element interface at `+8` (`0x1d90fd8`) | `0x2c0` | `0x152e2bc` (`48 8d 05 dd 2b 86 00`), constructor `0x152e220`, made by `0x15ebbf0` | `vtbl+0x1a8` (`0x1548420`), a `std::string*` |
 | `gridboxtype` | `0x275` | `0x1d97ef0` | `0x1a8` | `0x15907ef` (`48 8d 05 fa 76 80 00`), made by `0x1590770` | `vtbl+0x1b8` (`0x1548480`, `48 81 c1 98 08 00 00 48 8b 01 48 ff 60 08`), a `std::string*` |
 | `smoothListboxType` | `0x1fb` | `0x1d967d0` | `0x298` | constructor `0x1583000`, made by `0x15ebd10` | `vtbl+0x1a0` (`0x1548490`, `48 81 c1 d8 08 00 00 48 8b 01 48 ff 60 08`) |
 | `progressbartype` (`.gfx`) | `0x112` | a sprite, `0x1d9d3c8` | `0x218` | `0x15d8b1b` (`48 8d 05 a6 48 7c 00`), made by its type's `vtbl+0xa8` (`0x15d8ab0`) | it is an icon's sprite |
 | `maskedShieldType` (`.gfx`) | `0x10f` | a sprite, told apart by its type's id at type `+8` | | | it is a button's sprite |
+
+Correction, 2026-11-14: the original icon row identified the base constructor's class as the final live class. The game's definition factory replaces the definition's factory method, and its live constructor replaces that base vtable. The complete path and its consequence for attached button areas are in [window-placement.md](window-placement.md#game-icons-have-a-derived-class).
 
 The token numbers come from the keyword table (`{i32 token, char name[]}`, for example `guiButtonType` at `0x1fe67dc` with `0x7f` before it). The window's constructor `0x1543f80` builds a window's children from linked lists of their definitions. It reads them at `this+0x9d0`, `+0x9e8` and `+0xa00`, whose origin was not traced:
 

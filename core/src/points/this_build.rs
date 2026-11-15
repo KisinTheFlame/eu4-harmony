@@ -19,6 +19,7 @@ fn framework() -> Vec<Point> {
     all.extend(crate::game::points());
     all.extend(crate::ui::points());
     all.extend(crate::windows::points());
+    all.extend(crate::window_ordering::points());
     all.extend(crate::tooltips::points());
     all.extend(crate::map::points());
     all.extend(crate::saves::points());

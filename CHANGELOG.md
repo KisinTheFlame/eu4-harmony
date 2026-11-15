@@ -2,6 +2,22 @@
 
 What changed in each version of Harmony that players and mod authors notice. Merging a version PR automatically publishes its section as the GitHub Release notes; a local Steam Workshop upload uses the same section as its change note (`cargo xtask workshop-upload`).
 
+## 0.2.3
+
+- Fixed: opening an army panel with attached mod elements and advancing time could end the game when a derived window used a shared native hide method. Window ordering now classifies the receiver before applying ordinary-window checks, while preserving native picker coverage and input priorities.
+
+The core updates through Steam Workshop as usual. No Lua interface changes or proxy replacement are required for this fix; restart the game after the update.
+
+## 0.2.2
+
+- Fixed: creating a reformation center in a province being converted by another center now clears the old conversion references and progress, preventing stale references when the old center is removed.
+- Fixed: removing color codes preserves complete UTF-8 characters, including Chinese mercenary company names when hiring armies. Names already damaged in existing saves are not restored automatically.
+- Native extension windows, pop-ups and attached button areas now follow their existing window scopes and input priorities. The army attach picker can cover added button areas without covered controls intercepting its input; closing it restores access to those areas. No Lua interface changes are required.
+- Fixed extension windows and button areas keep their blue backgrounds and gold borders on hover and press.
+- Shorter drawing-lock holds during daily AI work reduce long gaps between submitted frames in the tested early-game view. Results vary with the game and computer; simulation throughput and interface freshness did not improve consistently.
+- Troubleshooting files now include complete logs and crash dumps from all existing crash folders, with no file-size, total-size or file-count limits. Text credential redaction remains in place; collecting large archives can take more time and disk space.
+- Development performance reports distinguish completed days, successful frame submissions and interface updates. Player builds contain no performance collection code.
+
 ## 0.2.1
 
 - Merging a version PR now automatically checks the source, builds the framework and CLI packages, creates the version tag and publishes the GitHub Release. A separate manual tag push is no longer needed.

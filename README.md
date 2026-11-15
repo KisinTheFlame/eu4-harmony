@@ -24,7 +24,7 @@ English | [简体中文](README.zh-CN.md)
 | Mods that do far more: buttons, windows, acting for you | ✗ | ✓ |
 | **The game's rules and data unchanged** | ✓ | ✓ |
 
-Your translation mod is still what translates the game; translation mods made for the old double-byte patch, and the saves played with them, work as they are. Harmony runs on EU4 1.37.5 for Windows, in single player.
+Your translation mod is still what translates the game; translation mods made for the old double-byte patch, and the saves played with them, work as they are. Removing color codes preserves complete characters, including [newly hired mercenary armies' names](docs/research/mercenary-company-names.md); names already damaged in a save are not restored automatically. Harmony runs on EU4 1.37.5 for Windows, in single player.
 
 ## Installing
 
@@ -108,6 +108,8 @@ my-mod/
 Button areas and fixed extension windows keep their blue backgrounds and gold borders on hover and press, adapting to their size; empty background takes clicks and the wheel without acting on the map, while lists scroll normally. The [window guide](cli/skills/ui/windows.md) describes window layouts.
 
 Visible text and tooltips share text descriptions: `{ text = "Ready" }` or `{ key = "MYMOD_DETAILS", values = { N = 3 } }`. The same descriptions work in declarations and supported runtime text setters; tooltips are also readable. Assignment replaces the content, and `nil` clears it, including across window rebuilding. Panel entries can use a checked mod-relative DDS or TGA image, change visibility and enabled state, and show an independently formatted number below the icon; the [window guide](cli/skills/ui/windows.md) covers layouts and properties.
+
+The framework orders native extension windows, pop-ups and attached button areas within their existing window scopes, preserving original windows' relative order and native input priorities. Shared show/hide methods classify derived windows before applying ordinary-window ordering checks, preventing an exit after opening an army panel and advancing time. No new Lua fields or calls are required. The [ordering plan](docs/plans/window-ordering.md) records the accepted behavior and the remaining in-game acceptance checks.
 
 Where to learn more:
 

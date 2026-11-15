@@ -116,7 +116,7 @@ const IDLER_CAMERA_B: usize = 0x60;
 /// application's focus (`+0xb8`).
 const IDLER_HOLDS_CAMERA: usize = 0x1b80;
 const IDLER_HOLDS_CAMERA_2: usize = 0x3b0;
-const OTHER_CAMERA: usize = 0x233ff4f;
+use crate::objects::gui::globals::OTHER_CAMERA;
 const APP_FOCUS: usize = 0xb8;
 
 #[cfg(feature = "dev-performance")]
@@ -468,6 +468,12 @@ pub const fn drawing_rva() -> usize {
 /// Whether the main thread holds the presentation lock now.
 pub fn main_holds() -> bool {
     MAIN_HOLDS.load(Ordering::Acquire)
+}
+
+/// Whether the current main-thread operation excludes concurrent drawing.
+/// The game's drawing path needs no presentation lock; threaded drawing does.
+pub(crate) fn main_owns_presentation() -> bool {
+    on_main() && (!drawing_on() || main_holds())
 }
 
 /// The game quits, and the drawing thread draws no more ([`stop`]).
