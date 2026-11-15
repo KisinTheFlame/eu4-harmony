@@ -79,13 +79,15 @@ Arguments (numbers are hex, with or without `0x`; addresses are all RVAs):
 - `RVA:N`: N instructions from RVA, which need not be the start of a function;
 - `bytes:RVA:N`: N bytes in hex, in the same format as dependency points;
 - `args:RVA`: how many arguments the function reads, which is how many an observe point on it must forward at least;
-- `uses:`, `refs:`, `slots:` and `chain:` find the instructions that use a field, a global or a vtable, as `core/examples/disasm.rs` describes. They read operands: a direct `call` or `jmp` to a function is not among what `refs:` finds; `callers:` finds those;
+- `uses:`, `refs:`, `slots:` and `chain:` find the instructions that use a field, a global or a vtable, as `xtask/src/disasm.rs` describes. They read operands: a direct `call` or `jmp` to a function is not among what `refs:` finds; `callers:` finds those;
 - `callers:RVA[:N]`: who calls the function: each `call` or `jmp` to it and each instruction that takes its address, then each vtable (or other table of code pointers) that holds it, at which offset, with the instructions that use the table, the first N (50) of each. The game has almost no RTTI, so vtables lie back to back; a table is taken to begin at the nearest place before the pointer that code uses;
 - `str:TEXT`: the strings in the game's data that hold TEXT, everything after `str:` (colons too), each with the instructions that use it and the pointers to it, the way into the code from a log line, an assert's path or a script word.
 
 `refs:`, `callers:` and `str:` read the functions in the exception directory; a leaf function has no entry there, so a jump at its end to another function is not found.
 
-It runs `core/examples/disasm.rs` with the core's `analysis` feature. The same analysis runs the offline check, `cargo xtask offline-check`: the core's ignored tests, with `EU4_GAME_DIR` set to the game found, run once in a player's build and once with `--features eu4-harmony-core/dev`.
+The command runs directly in `xtask/src/disasm.rs`, without building the core or changing its DLL, library or symbols in `target\\`. PE image reading and instruction analysis live in the independent `eu4-harmony-analysis` crate (`analysis/`), shared with the core's offline checks, call tracing and write watching. Instruction formatting belongs to xtask.
+
+`cargo xtask offline-check` still builds and runs the core's ignored tests, with `EU4_GAME_DIR` set to the game found, once in a player's build and once with `--features eu4-harmony-core/dev`. Unlike disassembly, those checks change the core's build artifacts.
 
 ## Developer builds
 

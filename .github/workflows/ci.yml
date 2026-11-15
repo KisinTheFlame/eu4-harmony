@@ -86,8 +86,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/master' }}
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      # With the development tools and the disasm example, which a player's
-      # build never has.
+      # With the core's development tools, which a player's build never has.
       - name: Clippy on the developer build
         run: cargo clippy --locked --workspace --all-targets --features eu4-harmony-core/dev -- -D warnings
 

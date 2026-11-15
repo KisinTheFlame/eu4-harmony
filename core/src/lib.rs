@@ -35,8 +35,6 @@ pub mod stub;
 pub mod achievements;
 #[cfg(feature = "dev-test-switches")]
 mod agents_order;
-#[cfg(any(test, feature = "analysis"))]
-pub mod analysis;
 mod army_search;
 pub mod baseline;
 mod bound_element;

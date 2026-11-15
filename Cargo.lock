@@ -147,6 +147,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "eu4-harmony-analysis"
+version = "0.2.3"
+dependencies = [
+ "iced-x86",
+]
+
+[[package]]
 name = "eu4-harmony-checks"
 version = "0.2.3"
 dependencies = [
@@ -188,6 +195,7 @@ name = "eu4-harmony-core"
 version = "0.2.3"
 dependencies = [
  "cc",
+ "eu4-harmony-analysis",
  "eu4-harmony-checks",
  "eu4-harmony-core-macros",
  "eu4-harmony-folders",
@@ -196,7 +204,6 @@ dependencies = [
  "eu4-harmony-lua",
  "eu4-harmony-manifest",
  "eu4-harmony-remote",
- "iced-x86",
  "lewton",
  "miniz_oxide",
  "reqwest",
@@ -1633,11 +1640,13 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 name = "xtask"
 version = "0.2.3"
 dependencies = [
+ "eu4-harmony-analysis",
  "eu4-harmony-client",
  "eu4-harmony-folders",
  "eu4-harmony-logging",
  "eu4-harmony-manifest",
  "eu4-harmony-remote",
+ "iced-x86",
  "serde",
  "serde_json",
  "toml",

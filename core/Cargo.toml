@@ -72,9 +72,9 @@ windows = { workspace = true, features = [
     "Win32_System_Com_StructuredStorage",
 ] }
 
-# Reading the game's code (src/analysis.rs, the disasm example). Tests use it
+# Reading the game's code for call tracing and write watching. Tests use it
 # too, through the dev-dependency below.
-iced-x86 = { workspace = true, features = ["decoder", "std", "instr_info", "intel"], optional = true }
+eu4-harmony-analysis = { path = "../analysis", optional = true }
 # A developer build's options, in dev.toml (src/dev.rs).
 toml = { workspace = true, optional = true }
 
@@ -82,11 +82,11 @@ toml = { workspace = true, optional = true }
 cc = { workspace = true }
 
 [dev-dependencies]
-iced-x86 = { workspace = true, features = ["decoder", "std", "instr_info"] }
+eu4-harmony-analysis = { path = "../analysis" }
 toml = { workspace = true }
 
 [features]
-analysis = ["dep:iced-x86"]
+analysis = ["dep:eu4-harmony-analysis"]
 # The development tools, for finding things out in the game; each is on when
 # built in, with its options in dev.toml (src/dev.rs). A player's build has
 # none of them, and `dev` has them all.
@@ -115,10 +115,6 @@ dev-crossings = ["dep:toml"]
 # -harmony_test_game names, so that test games run side by side
 # (src/pipe.rs, docs/dev-tools.md#test-games).
 dev-test-games = ["dep:toml"]
-
-[[example]]
-name = "disasm"
-required-features = ["analysis"]
 
 [lints]
 workspace = true

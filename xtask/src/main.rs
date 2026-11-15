@@ -6,6 +6,7 @@
 mod addresses;
 mod claim;
 mod crash_dump;
+mod disasm;
 mod files;
 mod game;
 mod profile;
@@ -80,9 +81,9 @@ usage:
       workshop\\item.toml; commit that, release and upload again, so that the
       proxy is built with it (docs/dev-tools.md).
   cargo xtask disasm <arg>...
-      Reads the installed game's code (core/examples/disasm.rs, whose
-      arguments docs/dev-tools.md describes), with EU4_GAME_DIR set to the
-      game folder.
+      Reads the installed game's code (xtask/src/disasm.rs, whose arguments
+      docs/dev-tools.md describes), without building the core or changing its
+      build artifacts. Finds the game through EU4_GAME_DIR or Steam.
   cargo xtask addresses
       Writes docs/game/addresses.toml again from the research notes and
       the game's pages: every address of eu4.exe they name, with the notes
@@ -243,8 +244,7 @@ fn run(mut command: std::process::Command, what: &str) -> Result<()> {
     status.success().then_some(()).ok_or_else(|| format!("{what} failed"))
 }
 
-/// `cargo xtask disasm` and `offline-check`: the core's example and ignored
-/// tests, with the game found.
+/// `cargo xtask offline-check`: the core's ignored tests, with the game found.
 fn with_game(arguments: &[&str], rest: &[String], what: &str) -> Result<()> {
     let mut cargo = cargo();
     cargo.args(arguments).args(rest).env("EU4_GAME_DIR", game::dir()?);
@@ -261,11 +261,7 @@ fn main() {
         Some("release") => Args::parse(rest, &["no-workshop"], &["out"]).and_then(|a| files::release(&a)),
         Some("release-check") => Args::parse(rest, &[], &["tag", "out"]).and_then(|a| release::run(&a)),
         Some("workshop-upload") => Args::parse(rest, &["create"], &["user"]).and_then(|a| workshop::upload(&a)),
-        Some("disasm") => with_game(
-            &["run", "--release", "--quiet", "-p", "eu4-harmony-core", "--features", "analysis", "--example", "disasm", "--"],
-            rest,
-            "the disassembler",
-        ),
+        Some("disasm") => disasm::run(rest),
         // A player's build's points, then a developer build's with every
         // tool, whose points the player's build does not declare.
         Some("offline-check") => with_game(&["test", "--release", "-p", "eu4-harmony-core", "--", "--ignored"], rest, "the offline checks").and_then(|()| {

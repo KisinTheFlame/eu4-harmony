@@ -1,0 +1,13 @@
+[package]
+name = "eu4-harmony-analysis"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "PE images and x64 instruction analysis shared by development commands and the core's development tools and tests"
+
+[dependencies]
+iced-x86 = { workspace = true, features = ["decoder", "std", "instr_info"] }
+
+[lints]
+workspace = true

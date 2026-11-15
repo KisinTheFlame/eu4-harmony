@@ -225,7 +225,7 @@ pub fn what(repo: &Path, rva: &str) -> Result<()> {
         }
     }
     let mut files = Vec::new();
-    for folder in ["core/src", "xtask/src"] {
+    for folder in ["analysis/src", "core/src", "xtask/src"] {
         collect(&repo.join(folder), &mut files);
     }
     for file in files {

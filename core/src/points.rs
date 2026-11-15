@@ -893,8 +893,8 @@ mod tests {
         let mut wrong = Vec::new();
         for point in this_build::declared().iter().filter(|p| !p.uses.is_empty()) {
             let Place::Rva(rva) = point.place else { continue };
-            let code = crate::analysis::instructions(&hex(point.bytes).unwrap(), rva);
-            let carried: Vec<u64> = code.iter().flat_map(crate::analysis::values).collect();
+            let code = eu4_harmony_analysis::instructions(&hex(point.bytes).unwrap(), rva);
+            let carried: Vec<u64> = code.iter().flat_map(eu4_harmony_analysis::values).collect();
             for &value in point.uses {
                 if !carried.contains(&(value as u64)) {
                     wrong.push(format!("{} does not use {value:#x}", describe(point)));
@@ -1121,8 +1121,8 @@ mod tests {
     /// Maps a module from disk the way the loader lays it out, without running
     /// it, and returns where.
     fn map_module(path: &std::path::Path) -> usize {
-        let image = crate::analysis::map_file(&std::fs::read(path).unwrap()).leak();
-        crate::analysis::relocate(image, image.as_ptr() as u64);
+        let image = eu4_harmony_analysis::map_file(&std::fs::read(path).unwrap()).leak();
+        eu4_harmony_analysis::relocate(image, image.as_ptr() as u64);
         image.as_ptr() as usize
     }
 
@@ -1142,8 +1142,8 @@ mod tests {
     /// Maps `eu4.exe` from disk the way the loader lays it out, without running
     /// it, and returns it with its exports.
     fn map_game(path: &std::path::Path) -> (Memory, std::collections::HashMap<String, usize>) {
-        let image = crate::analysis::map_file(&std::fs::read(path).unwrap()).leak();
-        crate::analysis::relocate(image, image.as_ptr() as u64);
+        let image = eu4_harmony_analysis::map_file(&std::fs::read(path).unwrap()).leak();
+        eu4_harmony_analysis::relocate(image, image.as_ptr() as u64);
         let rd = |rva: usize| u32::from_le_bytes(image[rva..rva + 4].try_into().unwrap()) as usize;
         let export_dir = rd(rd(0x3c) + 24 + 112);
         let (names, ordinals, functions) = (rd(export_dir + 32), rd(export_dir + 36), rd(export_dir + 28));
@@ -1180,7 +1180,7 @@ mod tests {
         with_game(|m, lookup| found = Some((m, check(m, &this_build::declared(), lookup).unwrap())));
         let (m, addresses) = found.unwrap();
         let points = this_build::declared();
-        let image = unsafe { crate::analysis::loaded(m.base) };
+        let image = unsafe { eu4_harmony_analysis::loaded(m.base) };
         let mut short = Vec::new();
         for (point, &at) in points.iter().zip(&addresses) {
             let (Place::Rva(_) | Place::Export(_), Action::Observe { argc, .. }) = (point.place, &point.action) else { continue };
@@ -1188,8 +1188,8 @@ mod tests {
             let rva = at - m.base;
             // Exports (PhysFS) live outside the game's code; their arity is
             // the library's documented one.
-            let Some(range) = crate::analysis::bounds(image, rva) else { continue };
-            let needed = crate::analysis::arguments(&image[range.clone()], rva);
+            let Some(range) = eu4_harmony_analysis::bounds(image, rva) else { continue };
+            let needed = eu4_harmony_analysis::arguments(&image[range.clone()], rva);
             if needed > argc {
                 short.push(format!("{} at {rva:#x}: forwards {argc}, reads {needed}", point.what));
             }
@@ -1200,8 +1200,8 @@ mod tests {
         // The map's markers' update reads its first argument only in the
         // body the compiler split from its prologue.
         for (rva, count) in [(0x15988e0, 11), (0x1596660, 15), (0x10a6d00, 4)] {
-            let range = crate::analysis::bounds(image, rva).unwrap();
-            assert_eq!(crate::analysis::arguments(&image[range], rva), count, "{rva:#x}");
+            let range = eu4_harmony_analysis::bounds(image, rva).unwrap();
+            assert_eq!(eu4_harmony_analysis::arguments(&image[range], rva), count, "{rva:#x}");
         }
     }
 

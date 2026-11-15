@@ -38,12 +38,12 @@
 //! is for finding out, not for play.
 pub mod drawing;
 
-use crate::analysis;
 use crate::called_by_game;
 use crate::hooks::Call;
 use crate::memory::Memory;
 use crate::objects::campaign;
 use crate::points::Point;
+use eu4_harmony_analysis as analysis;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::OnceLock;
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
