@@ -19,6 +19,9 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 
 | | |
 | --- | --- |
+| [mercenary-company-names.md](research/mercenary-company-names.md) | Native color removal damages multibyte army names; the Unicode module now removes colors at character boundaries |
+| [2026-11-15-mercenary-company-names.md](prototype-log/2026-11-15-mercenary-company-names.md) | Grand company name corruption reproduced in army memory, with the free company's intact name as a control |
+| [2026-11-15-mercenary-company-names-after.md](prototype-log/2026-11-15-mercenary-company-names-after.md) | Repaired grand company name stays intact; a colored, longer free company name loses only colors and uses game-owned heap storage |
 | [reformation-center-crash.md](research/reformation-center-crash.md) | Supplied dump identifies a building_prov record read as a center; native events reproduce a missing detach, repaired in both center-creation paths; the reported run's history remains unknown |
 | [2026-11-15-reformation-center-reference-before.md](prototype-log/2026-11-15-reformation-center-reference-before.md) | Native creation/removal leaves province 51 referring to a removed center; the captured-state checker fails |
 | [2026-11-15-reformation-center-reference-after.md](prototype-log/2026-11-15-reformation-center-reference-after.md) | The repaired native sequence clears both references and progress, preserves the new center, and runs seven more days |

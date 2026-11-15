@@ -5,6 +5,7 @@
 pub mod atlas;
 pub mod breaks;
 pub mod buttons;
+pub mod colors;
 pub mod costs;
 pub mod distance;
 pub mod dxt;
@@ -49,6 +50,7 @@ pub fn points() -> Vec<Point> {
     points.extend(floating_text::points());
     points.extend(text_height::points());
     points.extend(search::points());
+    points.extend(colors::points());
     points.extend(map_names::points());
     points.extend(map_field::points());
     points.extend(text_width::points());

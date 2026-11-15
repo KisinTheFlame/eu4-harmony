@@ -24,7 +24,7 @@ English | [简体中文](README.zh-CN.md)
 | Mods that do far more: buttons, windows, acting for you | ✗ | ✓ |
 | **The game's rules and data unchanged** | ✓ | ✓ |
 
-Your translation mod is still what translates the game; translation mods made for the old double-byte patch, and the saves played with them, work as they are. Harmony runs on EU4 1.37.5 for Windows, in single player.
+Your translation mod is still what translates the game; translation mods made for the old double-byte patch, and the saves played with them, work as they are. Removing color codes preserves complete characters, including [newly hired mercenary armies' names](docs/research/mercenary-company-names.md); names already damaged in a save are not restored automatically. Harmony runs on EU4 1.37.5 for Windows, in single player.
 
 ## Installing
 
