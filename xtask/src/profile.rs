@@ -12,7 +12,7 @@
 //!   root first, `frame;frame;... count`, which flame graph tools read;
 //! - `<out>.txt`: how many days passed; the share of samples inside a day,
 //!   inside a frame that runs inside a day, and between days, and of the
-//!   parts of each (as docs/research/main-thread.md counts them); the
+//!   parts of each (as docs/game/day/frame-scheduling.md counts them); the
 //!   functions with the most samples inside them and with the most of their
 //!   own; each thread's CPU; with `--threads`, the whole game's functions by
 //!   the cores they ran on;
@@ -98,16 +98,16 @@ use windows_sys::Win32::{
 };
 
 /// The world, and in it the date (hours) and the flags a day runs and a
-/// frame runs inside it (docs/research/main-thread.md).
+/// frame runs inside it (docs/game/day/frame-scheduling.md).
 const WORLD: usize = 0x233fe78;
 const WORLD_DATE: usize = 0x1dd0;
 const WORLD_DAY: usize = 0x1e10;
-/// The application, and in it the frame count (docs/research/architecture.md).
+/// The application, and in it the frame count (docs/game/program/architecture.md).
 const APPLICATION: usize = 0x242bf50;
 const APPLICATION_FRAMES: usize = 0x320;
 
-/// The parts of the day and of a frame (docs/research/architecture.md), as
-/// docs/research/main-thread.md counts them: the first that is on the stack.
+/// The parts of the day and of a frame (docs/game/program/architecture.md), as
+/// docs/game/day/frame-scheduling.md counts them: the first that is on the stack.
 const DAY: [(&str, &str); 5] = [
     ("each country's daily update", "0x2ee280"),
     ("the monthly update", "0x75d690"),

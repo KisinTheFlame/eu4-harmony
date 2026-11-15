@@ -1,4 +1,4 @@
-//! The deferred calls (docs/plans/drawing-thread.md, C2): what the main
+//! The deferred calls : what the main
 //! thread asks of the interface and the graphics and waits for nothing of,
 //! kept and done by it as the next frame is prepared ([`done`]), while it
 //! holds the lock and the frame's update has finished: a text floating on the
@@ -110,14 +110,14 @@ crate::resume!(MINIMAP_RESUME: MINIMAP_GOES_ON_AT = MINIMAP_GOES_ON);
 /// objects of the units and the ports they draw on lists of theirs, which the
 /// next update takes them off; the drawing reads them there until then. Freed
 /// as the frame is prepared instead, the object outlives every frame that
-/// draws it (docs/research/drawing-beside-the-day.md, "Frames late at speed
+/// draws it (docs/game/interface/frame-lifecycle.md, "Frames late at speed
 /// 5").
 const MESH_LET_GO: usize = 0x153e560;
 type MeshLetGo = unsafe extern "C" fn(usize, u32) -> usize;
 static ORIGINAL_MESH_LET_GO: Function<MeshLetGo> = Function::new();
 
 /// What the day asked of the interface and waits for nothing of: done at the
-/// next application frame, before its update (docs/plans/drawing-thread.md,
+/// next application frame, before its update (docs/plans/README.md#drawing,
 /// C2). Until then the drawing thread draws on, as nothing changed.
 enum Deferred {
     MapText { idler: usize, province: u32, kind: Vec<u8>, text: Vec<u8>, number: usize, last: usize },

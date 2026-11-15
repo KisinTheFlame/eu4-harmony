@@ -8,7 +8,7 @@
 //! province flags with the prepared temporary bit and keeps the prepared
 //! country bitset. No pointer in a game object is changed; the game's other
 //! readers and writers continue to use its arrays, including during Present.
-//! See docs/research/map-drawing-reads.md, "The frame's temporary highlights".
+//! See docs/game/interface/map-drawing-reads.md, "The frame's temporary highlights".
 use super::{is_drawing_thread, on_main};
 use crate::called_by_game;
 use crate::memory::Memory;

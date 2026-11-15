@@ -1,6 +1,6 @@
 //! A government's factions: their influence, as the government view's
 //! factions panel shows them, and boosting one, the spending its button
-//! makes (docs/research/power-spending.md, "The country's other
+//! makes (docs/game/countries/power-spending.md, "The country's other
 //! spendings").
 use super::content::{self, checks};
 use super::{power, thousandths, Ctx, GResult, Session};

@@ -1,6 +1,6 @@
 //! Parliament: the issues the parliament view offers, starting a debate,
 //! giving provinces seats, the seats of a debate and the bribes they ask,
-//! through the game's own commands (docs/research/government.md,
+//! through the game's own commands (docs/game/countries/government.md,
 //! "Parliament").
 use super::commands::{write, Block};
 use super::content::checks;

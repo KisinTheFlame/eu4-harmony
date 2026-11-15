@@ -1,7 +1,7 @@
 //! Mercenary companies: what the mercenary view lists for the player, and
 //! hiring one with the game's recruit command, as the view and the map post
 //! it once the player has picked a company and a province
-//! (docs/research/leaders.md, "Hiring a mercenary company").
+//! (docs/game/military/leaders.md, "Hiring a mercenary company").
 use super::commands::{write, Block};
 use super::units::checks;
 use super::{action, with_state, Ctx, GResult, Session};

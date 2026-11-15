@@ -1,4 +1,4 @@
-//! Leaving a session (docs/plans/sessions.md): for the main menu, for a save, or
+//! Leaving a session (docs/game/program/saves.md): for the main menu, for a save, or
 //! for a new game. `super::course::plan` lays out the steps from where the
 //! session goes, whether it is ironman and the framework settings; the
 //! player's ways out and remote control's take the same steps.
@@ -10,7 +10,7 @@
 //! only once it was does the session end, extensions hearing it, and the
 //! load go on. The world reset inside the game's load never writes one of
 //! its own, which the game would write whatever came of it
-//! (ADR in-game-load-in-ironman, docs/research/main-menu.md).
+//! (ADR in-game-load-in-ironman, docs/game/interface/main-menu.md).
 //!
 //! In ironman the game's load button is turned on, and its tooltip no
 //! longer says that ironman cannot load; when the ironman exit save comes
@@ -104,7 +104,7 @@ const MAIN_MENU_SIZE: usize = 0xb48;
 const SWITCH_IDLER: GameFunction<3> = GameFunction::at(0x14c2530);
 /// `(main menu)`: the main menu taking over at the idler switch, its method
 /// at `+0x30`. As at startup, it presents a frame of the loading screen, a
-/// painting over the whole screen (docs/research/main-menu.md).
+/// painting over the whole screen (docs/game/interface/main-menu.md).
 const TAKE_OVER: usize = 0x10d5bc0;
 /// `(task)`: waits for a task of the game's to be done.
 const WAIT_TASK: GameFunction<1> = GameFunction::at(0x17139c0);
@@ -380,7 +380,7 @@ fn in_process_return(m: &Memory, app: usize) -> crate::Result<()> {
 /// Takes down what of the session's interface the in-game load takes down
 /// before its world reset: among it the diplomatic message icons, whose
 /// windows stay shown otherwise, drawing a sprite whose texture the other
-/// message icons let go (docs/research/main-menu.md). The game's in-game load
+/// message icons let go (docs/game/interface/main-menu.md). The game's in-game load
 /// does that before it looks at its save's name, and given none stops there
 /// and answers 1 (`0x5d06c4`): so it is called with no name.
 fn take_the_interface_down(m: &Memory, manager: usize) -> crate::Result<()> {

@@ -1,5 +1,5 @@
 //! People's names family name first where their culture writes them so (East
-//! Asian), when the player language asks for it (docs/research/names.md).
+//! Asian), when the player language asks for it (docs/game/countries/names.md).
 //! The game always joins a person's given name, a space and their dynasty:
 //! "Qizhen Zhu", "祁镇 朱". It does so for rulers, heirs and consorts in
 //! 0xa4b2c0, which the court view, their tooltips and most messages use, and

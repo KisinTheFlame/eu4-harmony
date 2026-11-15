@@ -1,5 +1,5 @@
 //! The searches of an AI country's armies, run on idle threads
-//! (docs/research/ai.md, "The army and fleet agents"; ADR
+//! (docs/game/ai/ai.md, "The army and fleet agents"; ADR
 //! the-game-may-be-made-faster-with-reasoned-differences).
 //!
 //! Late in a game the AI stage lasts as long as its longest country's task,
@@ -285,7 +285,7 @@ unsafe fn prepare(agent: usize, argument: usize) -> Option<Call> {
         // over the sea (`0xea250` sails it, `0xf1390`), or for an army
         // retreating or with `+0x218` (`0xeb2f8`..`0xeb31e`) or in a battle
         // (`0xeb63d`): of 140,000 searches prepared, none of these searched
-        // (docs/prototype-log/2026-11-08-armies-searches-idle-threads.md).
+        // (docs/research/mechanics-evidence.md).
         if read::<i32>(agent + SEA_TARGET_PROVINCE) > 0
             || read::<usize>(unit + UNIT_IN_BATTLE) != 0
             || read::<u8>(unit + UNIT_RETREATING) != 0

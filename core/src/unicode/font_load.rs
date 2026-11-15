@@ -12,7 +12,7 @@
 //! skips large ids. What happens to the glyphs as the font loads and goes is
 //! `fonts`'s.
 //!
-//! A font's page is a texture like any other (docs/research/font-textures.md).
+//! A font's page is a texture like any other (docs/game/interface/font-textures.md).
 //! The game's texture loader (0x16c2980) silently skips a file of 16 MiB or
 //! more (`cmp r14d, 0x1000000` at 0x16c2cb7), leaving the texture empty. A
 //! font with every Chinese character needs a large page: the Chinese language

@@ -1,5 +1,5 @@
 //! Dates the game writes in English order whatever the language
-//! (docs/research/dates.md). The long date ("11 November 1444", in some 226
+//! (docs/game/day/dates.md). The long date ("11 November 1444", in some 226
 //! places) comes from the localisation key `LONG_EU3_DATE_STRING`, which a
 //! language mod words as it likes, and is left alone. The rest are made in
 //! code, in a fixed order: the top bar's date and the timeline's, through a

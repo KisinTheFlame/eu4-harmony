@@ -1,5 +1,5 @@
 //! The scripts' flags, variables and events, read, set and fired as the
-//! scripts' own effects do (docs/research/scripts.md).
+//! scripts' own effects do (docs/game/scripts/scripts.md).
 //!
 //! A flag is kept in a flag set of its scope's: a country's, a province's,
 //! the world's, or a monarch's (a ruler's, an heir's or a consort's). The set
@@ -44,7 +44,7 @@ const SET_VARIABLE: GameFunction<3> = GameFunction::at(0xd7c450);
 /// `() -> manager`: the event manager.
 const EVENT_MANAGER: GameFunction<0> = GameFunction::at(0x6f2fa0);
 /// `(manager, event, scope)`: fires an event in a scope (eventmanager.cpp
-/// "TriggerEvent"; docs/research/questions-and-offers.md).
+/// "TriggerEvent"; docs/game/diplomacy/questions-and-offers.md).
 const TRIGGER_EVENT: GameFunction<3> = GameFunction::at(0x6f4f40);
 
 /// The day every `set_*_flag` effect hands [`SET_FLAG`]: 1.1.1, before the

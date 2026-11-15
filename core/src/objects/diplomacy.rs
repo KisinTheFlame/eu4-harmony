@@ -1,8 +1,8 @@
 //! Diplomacy's objects: a diplomatic action, the player's or one made to the
 //! player (an offer, C7's), the command that carries one to the game's
 //! session, the war goals a declaration of war chooses from, and the peace
-//! treaty a peace offer holds (docs/research/diplomacy.md,
-//! docs/research/questions-and-offers.md).
+//! treaty a peace offer holds (docs/game/diplomacy/diplomacy.md,
+//! docs/game/diplomacy/questions-and-offers.md).
 
 /// Globals, by RVA.
 pub mod globals {

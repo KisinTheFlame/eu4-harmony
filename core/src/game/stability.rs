@@ -1,6 +1,6 @@
 //! Stability: raising it with administrative points and reducing war
 //! exhaustion with diplomatic points, as the stability and expansion view's
-//! buttons do (docs/research/power-spending.md, "Stability" and "The
+//! buttons do (docs/game/countries/power-spending.md, "Stability" and "The
 //! country's other spendings"), and treating a rebel faction harshly with
 //! military points, as its rebels' buttons do ([`super::spendings`]).
 use super::commands::{write, Block};

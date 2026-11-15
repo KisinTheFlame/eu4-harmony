@@ -1,6 +1,6 @@
 //! Advisors: the player's advisors and the pool the court view offers to
 //! hire from, and hiring, firing and promoting them through the game's own
-//! commands, as the court view posts them (docs/research/advisors.md).
+//! commands, as the court view posts them (docs/game/countries/advisors.md).
 use super::commands::{write, Block};
 use super::army::FIND_ID;
 use super::{action, commands, content, thousandths, Ctx, GResult, Session, Tag};

@@ -1,6 +1,6 @@
 //! Missions: the player's missions as the missions view shows them, and
 //! completing one, through the game's own command
-//! (docs/research/government.md, "Missions").
+//! (docs/game/countries/government.md, "Missions").
 use super::commands::{write, Block};
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};

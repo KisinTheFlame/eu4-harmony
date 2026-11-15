@@ -1,6 +1,6 @@
 //! What the groups over the game's script content share: reading a content
 //! key and its name, the game's arrays its databases keep, and a check's
-//! reasons (docs/plans/player-actions.md).
+//! reasons (docs/adding-a-capability.md).
 use super::GResult;
 use crate::{game_string, memory::Memory, unicode::game_text};
 

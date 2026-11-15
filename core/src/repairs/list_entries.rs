@@ -1,4 +1,4 @@
-//! The entries a list's kill leaves (docs/research/main-menu.md, "The
+//! The entries a list's kill leaves (docs/game/interface/main-menu.md, "The
 //! entries a list's kill leaves").
 //!
 //! A list of the session's panels keeps its entries, window holders, as the

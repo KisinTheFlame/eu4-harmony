@@ -4,7 +4,7 @@ When the framework runs the game's work on several threads, a random number the 
 
 The framework does not support multiplayer: a speed-up that changes the order of draws, or any other part of a day, is made for a game one machine computes, and nothing keeps several machines in step. The decision was the owner's (2026-11-08): "random numbers going to others, with the distribution the same, is fully acceptable", and "we do not support multiplayer".
 
-The game draws in order from one generator ([research/monthly-update.md](../research/monthly-update.md)): a country's or a province's month takes the numbers after those before it, so that no loop that draws could run on several threads and give the same days. A game loaded twice already goes two ways, since a load takes a new seed and the AI's countries draw on several threads from the world's generator by their timing ([research/late-game.md](../research/late-game.md), "Whether a game repeats its days"): which number goes to whom is not something the player plays by.
+The game draws in order from one generator ([research/monthly-update.md](../game/day/monthly-update.md)): a country's or a province's month takes the numbers after those before it, so that no loop that draws could run on several threads and give the same days. A game loaded twice already goes two ways, since a load takes a new seed and the AI's countries draw on several threads from the world's generator by their timing ([research/late-game.md](../game/ai/work-scheduling.md), "Whether a game repeats its days"): which number goes to whom is not something the player plays by.
 
 ## Considered Options
 

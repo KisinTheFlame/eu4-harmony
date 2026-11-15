@@ -1,5 +1,5 @@
 //! Peace: the peace view, where the player demands terms of a country they
-//! are at war with or offers terms to it (docs/research/peace.md).
+//! are at war with or offers terms to it (docs/game/diplomacy/peace.md).
 //!
 //! The framework makes a peace treaty as the peace view does, which holds
 //! every term the view offers, none chosen; it reads them as the view lists

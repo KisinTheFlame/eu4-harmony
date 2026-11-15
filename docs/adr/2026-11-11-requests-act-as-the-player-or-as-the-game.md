@@ -7,7 +7,7 @@ This supersedes in part ADR remote-control-reads-the-players-view (the setting, 
 ## Considered Options
 
 - **Keep the setting, in the player's hands, and add one for changing the game as the game**: what ADR remote-control-reads-the-players-view chose, so that an AI judged on its play could not give itself the full view. Remote control is open only to the Windows user playing, on this computer, who can already change the saves, the game's files and its memory: a setting guards nothing that user could not do, and costs every remote client that needs more a trip to the settings window.
-- **Run the game console's commands for changes beyond the player**: the console refuses almost every command in ironman and the developers' commands always, and crashes the game on purpose when its ironman check is bypassed ([research/game-console.md](../research/game-console.md)).
+- **Run the game console's commands for changes beyond the player**: the console refuses almost every command in ironman and the developers' commands always, and crashes the game on purpose when its ironman check is bypassed ([research/game-console.md](../game/scripts/game-console.md)).
 - **Changes beyond the player for extensions only**: a remote client, such as a scenario setting up a test, would have no way to put the game in the state it needs.
 
 ## Consequences

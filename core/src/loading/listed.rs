@@ -1,10 +1,10 @@
 //! Every folder of PhysFS's search path answered from its listing, kept up to
-//! date (docs/plans/loading.md, L5).
+//! date (docs/game/program/loading.md, L5).
 //!
 //! A lookup of a file checks the search path's entries in turn, and for a
 //! folder PhysFS asks Windows about the path and about each folder on its
 //! way, about 20 times a lookup at 29 µs each: 77% of a lookup's time
-//! (docs/research/loading.md, "The databases with L4"). L2 answers only a path
+//! (docs/game/program/loading.md, "The databases with L4"). L2 answers only a path
 //! missing from the game folder or the workshop's.
 //!
 //! Where PhysFS asks a folder and reads no more of the answer than whether

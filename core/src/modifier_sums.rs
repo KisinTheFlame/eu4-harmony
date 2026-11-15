@@ -1,5 +1,5 @@
 //! Adding one set of modifiers to another, its lookups made through an
-//! index (docs/research/late-game.md, "Adding sets of modifiers").
+//! index (docs/game/ai/work-scheduling.md, "Adding sets of modifiers").
 //!
 //! `0x8ea420(set, added)` adds each (modifier, value) of `added` to `set`,
 //! and `0x8ea730` takes them away. A set that keeps its values by modifier

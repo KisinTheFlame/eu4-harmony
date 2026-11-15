@@ -378,7 +378,7 @@ pub fn points() -> Vec<Point> {
 
 /// A tooltip's reasons, as the game wrote them into a string: plain lines,
 /// without color codes, the bullet a line may start with, or empty lines
-/// (docs/plans/player-actions.md, "Choices, reasons, costs").
+/// (docs/adding-a-capability.md, "Choices, reasons, costs").
 pub fn reasons(text: &[u8]) -> Vec<String> {
     crate::unicode::game_text::plain(text).lines().map(|l| unbulleted(l).trim_end()).filter(|l| !l.is_empty()).map(str::to_string).collect()
 }
@@ -390,7 +390,7 @@ pub fn unbulleted(line: &str) -> &str {
 }
 
 /// How many window pixels a GUI unit takes, (across, down); None before the
-/// GUI exists (docs/research/text-input.md §3).
+/// GUI exists (docs/game/interface/text-input.md §3).
 pub fn gui_scale(m: &Memory) -> Option<(f32, f32)> {
     use crate::objects::gui::{globals, scale};
     let gui = m.ptr(m.at(globals::SCALE)).ok().filter(|&g| g != 0)?;

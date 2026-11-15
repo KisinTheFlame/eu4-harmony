@@ -1,6 +1,6 @@
-//! The index of the game's addresses (docs/plans/address-index.md): every
-//! address of `eu4.exe` the research notes and the game's pages name, by its
-//! RVA, with what it is, a short name where one is known, and the notes that
+//! The index of the game's addresses: every address of `eu4.exe` the game's
+//! system pages name, by its RVA, with what it is, a short name where one is
+//! known, and the pages that
 //! name it. `cargo xtask addresses` writes it again from the notes, keeping
 //! each name; `cargo xtask what <rva>` looks an address up.
 use crate::Result;
@@ -8,9 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 /// The index, from the repository's root.
-const INDEX: &str = "docs/research/addresses.toml";
-/// The folders of notes the index covers, from the repository's root.
-const NOTES: [&str; 2] = ["docs/research", "docs/game"];
+const INDEX: &str = "docs/game/addresses.toml";
 /// The size of the 1.37.5 `eu4.exe`'s image: an address is below it.
 const IMAGE_SIZE: u64 = 0x25e_0000;
 /// Numbers the notes write in backticks as an address would be written,
@@ -69,19 +67,16 @@ pub fn named_in(text: &str) -> BTreeSet<u64> {
 /// Every note the index covers, by its path from `docs/`, with its text.
 fn notes(repo: &Path) -> Result<Vec<(String, String)>> {
     let mut out = Vec::new();
-    for folder in NOTES {
-        let dir = repo.join(folder);
-        let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
-            .map_err(|e| format!("cannot read {}: {e}", dir.display()))?
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.extension().is_some_and(|x| x == "md"))
-            .collect();
-        files.sort();
-        for path in files {
-            let text = std::fs::read_to_string(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-            let name = format!("{}/{}", folder.trim_start_matches("docs/"), path.file_name().unwrap().to_string_lossy());
-            out.push((name, text));
-        }
+    let dir = repo.join("docs/game");
+    if !dir.is_dir() {
+        return Err(format!("cannot read {}", dir.display()));
+    }
+    let mut files = Vec::new();
+    collect(&dir, &mut files);
+    for path in files.into_iter().filter(|p| p.extension().is_some_and(|x| x == "md")) {
+        let text = std::fs::read_to_string(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+        let name = path.strip_prefix(repo.join("docs")).unwrap().to_string_lossy().replace('\\', "/");
+        out.push((name, text));
     }
     Ok(out)
 }
@@ -106,20 +101,31 @@ pub fn read(text: &str) -> Result<Index> {
         let rva = key.strip_prefix("0x").and_then(|h| u64::from_str_radix(h, 16).ok()).ok_or_else(|| format!("{INDEX}: {key:?} is not an address"))?;
         let field = |name: &str| value.get(name).and_then(|v| v.as_str()).unwrap_or_default().to_string();
         let notes = value.get("notes").and_then(|v| v.as_array()).into_iter().flatten().filter_map(|n| n.as_str().map(String::from)).collect();
+        if !valid_notes(&notes) {
+            return Err(format!("{INDEX}: {key} must link only to Markdown pages under game/"));
+        }
         index.insert(rva, Entry { kind: field("kind"), name: field("name"), notes });
     }
     Ok(index)
+}
+
+fn valid_notes(notes: &BTreeSet<String>) -> bool {
+    !notes.is_empty()
+        && notes.iter().all(|note| {
+            note.starts_with("game/") && note.ends_with(".md") && !note.contains('\\') && !note.split('/').any(|part| part == ".." || part.is_empty())
+        })
 }
 
 /// Writes the index, one address to a line, in the order of their RVAs.
 pub fn write(index: &Index) -> String {
     let quote = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""));
     let mut out = String::from(
-        "# The index of the game's addresses (docs/plans/address-index.md): every address of eu4.exe\n\
-         # the research notes and the game's pages name, by its RVA. kind is function (one begins there),\n\
+        "# The index of the game's addresses: every address of eu4.exe named in docs/game/,\n\
+         # by its RVA. kind is function (one begins there),\n\
          # code (inside one), leaf (code the exception directory has no entry for: a leaf function or\n\
          # inside one) or data; name is what it is, in the game's terms, once a note has named it;\n\
-         # notes are the notes that name it. `cargo xtask addresses` writes it again from the notes,\n\
+         # notes link only to the game's system pages, including their topic pages.\n\
+         # `cargo xtask addresses` writes it again from those pages,\n\
          # keeping each name and kind; a name is written here by hand.\n\n[addresses]\n",
     );
     for (rva, e) in index {
@@ -184,8 +190,8 @@ pub fn update(repo: &Path) -> Result<()> {
 }
 
 /// `cargo xtask what <rva>`: the index's entry of the address, or of the
-/// function it is in, and each line of the notes, the game's pages and the
-/// code that names either.
+/// function it is in, its explanations in the game's system pages, then
+/// code references. Investigations are reached through the system pages.
 pub fn what(repo: &Path, rva: &str) -> Result<()> {
     let rva = u64::from_str_radix(rva.trim_start_matches("0x"), 16).map_err(|_| format!("{rva:?} is not an address"))?;
     let index = read(&std::fs::read_to_string(repo.join(INDEX)).map_err(|e| format!("cannot read {INDEX}: {e}"))?)?;
@@ -210,8 +216,16 @@ pub fn what(repo: &Path, rva: &str) -> Result<()> {
         }
     }
     let needles: Vec<String> = asked.iter().map(|a| format!("{a:#x}")).collect();
+    let pages: BTreeSet<&String> = asked.iter().filter_map(|a| index.get(a)).flat_map(|e| &e.notes).collect();
+    for page in pages {
+        let path = repo.join("docs").join(page);
+        let text = std::fs::read_to_string(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+        for (line, explanation) in explanations(&text, &needles) {
+            println!("\ndocs/{page}:{line}\n{explanation}");
+        }
+    }
     let mut files = Vec::new();
-    for folder in ["docs", "core/src", "xtask/src"] {
+    for folder in ["core/src", "xtask/src"] {
         collect(&repo.join(folder), &mut files);
     }
     for file in files {
@@ -227,6 +241,34 @@ pub fn what(repo: &Path, rva: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Matching paragraphs with their section, so lookup preserves the game's
+/// explanation rather than presenting isolated hits from incident records.
+fn explanations(text: &str, needles: &[String]) -> Vec<(usize, String)> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut found = Vec::new();
+    let mut heading = "";
+    let mut at = 0;
+    while at < lines.len() {
+        if lines[at].starts_with('#') {
+            heading = lines[at];
+        }
+        if lines[at].is_empty() {
+            at += 1;
+            continue;
+        }
+        let start = at;
+        while at < lines.len() && !lines[at].is_empty() {
+            at += 1;
+        }
+        let paragraph = lines[start..at].join("\n");
+        if let Some(position) = needles.iter().find_map(|needle| mentions(&paragraph, needle)) {
+            let context = excerpt(&paragraph, position, 2400);
+            found.push((start + 1, if paragraph.starts_with(heading) { context } else { format!("{heading}\n\n{context}") }));
+        }
+    }
+    found
 }
 
 /// Where `line` names the address `needle` as a whole number.
@@ -368,10 +410,30 @@ mod tests {
         let mut index = Index::new();
         index.insert(
             0x12fd9b0,
-            Entry { kind: "function".into(), name: "the map's \"color\" fill".into(), notes: BTreeSet::from(["research/map-modes.md".into()]) },
+            Entry { kind: "function".into(), name: "the map's \"color\" fill".into(), notes: BTreeSet::from(["game/provinces/map-modes.md".into()]) },
         );
-        index.insert(0x1fd1310, Entry { kind: String::new(), name: String::new(), notes: BTreeSet::from(["research/a.md".into(), "game/b.md".into()]) });
+        index.insert(
+            0x1fd1310,
+            Entry { kind: String::new(), name: String::new(), notes: BTreeSet::from(["game/interface/a.md".into(), "game/program/b.md".into()]) },
+        );
         assert_eq!(read(&write(&index)).unwrap(), index);
+    }
+
+    #[test]
+    fn the_index_rejects_evidence_pages_and_paths_outside_game() {
+        for note in ["research/crash.md", "game/../research/crash.md", "game/a.rs", "game//a.md", "game\\a.md"] {
+            let text = format!("[addresses]\n\"0x12345\" = {{ notes = [{note:?}] }}");
+            assert!(read(&text).is_err(), "accepted {note}");
+        }
+    }
+
+    #[test]
+    fn lookup_keeps_the_system_explanation_and_its_section() {
+        let text = "# Text\n\n## Removing colors\n\n`0x17046a0` walks the source.\nIt removes a marker and its selector.\n\nUnrelated text.\n";
+        assert_eq!(
+            explanations(text, &["0x17046a0".into()]),
+            vec![(5, "## Removing colors\n\n`0x17046a0` walks the source.\nIt removes a marker and its selector.".into())]
+        );
     }
 
     /// Every address the notes name is in the index with each note that

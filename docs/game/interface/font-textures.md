@@ -1,0 +1,130 @@
+# Font page textures
+
+## The texture manager
+
+- **The texture manager** = `[[font+0x48]+0x480]` (`font+0x48` is the graphics context) [V]. Its table is guarded by the `CRITICAL_SECTION*` at `[0x242b818]`.
+  - `+0x08`: an array of 0x48-byte entries; a font's `+0x970` holds an index into this array.
+  - `+0x38`: a map from name to index.
+- **An entry (0x48 bytes)**[V]:
+  - `+0x00` pointer to the texture wrapper;
+  - `+0x08` name (std::string);
+  - `+0x28` / `+0x2c` width, height;
+  - `+0x34` reference count;
+  - `+0x38` the "loaded" flag.
+- **The texture wrapper (0x28 bytes, allocated with the game's allocator)**[V]: `+0x00` is the `IDirect3DTexture9*`, `+0x08` the sRGB sampling flag, `+0x0c` the usage (0 or 0x200 = DYNAMIC).
+- **The renderer's function table**: 0x1fd10f8–0x1fd1378, 81 slots in all. The static values in `.data` are the DX9 functions; 0x16c1480 writes every slot again, the same DX9 values but for `-opengl`, only when the command line names a renderer [V] ([architecture.md](../program/architecture.md)).
+
+## Transparency masks
+
+- **The masks**: the texture manager's `+0x48` is an array of 0x20-byte `std::vector<bool>`s, by texture ID (data `+0x50`, capacity `+0x58`, count `+0x5c`): each a vector of u32 words (begin, end, capacity) and its length in bits at `+0x18`. When 0x16c2980 loads a texture that is checked for transparency, it grows the array to the ID the renderer gave (`[0x1fd1320]`, the ID at its frame's `+0x170`), resizes that ID's mask to the texture's width × height (`0x6e05c0`, the vector's resize, at 0x16c3028), and writes every bit, set where the pixel's alpha is not 0, cleared where it is (0x16c3079).
+- **What they keep** (2026-11-03, counted at each world reset, [Textures' transparency masks](../../research/interface-evidence.md)): the resize keeps its buffer when it shrinks, and the renderer lends an ID to texture after texture as interfaces load and unload: in rounds of a load, an in-game load, a return, a new game and a return, the array held 4,947 to 4,991 IDs, 620 to 670 of them with a mask, whose buffers held 6.2 MB after the first session and 11.6 MB after ten world resets, while their textures needed 1.5 to 2.1 MB. The buffers came from the vectors' generic allocation (`0x950b0`, census site `0x950ce`).
+- **The repair**: as the texture loader resizes a mask whose buffer holds more than its texture needs, the buffer is let go first (`0x943e0`, the u32 vector's destructor, then 0 bits), and the resize makes one of the texture's size.
+- **What still stays** (read 2026-11-08, not repaired): the mask's index is the texture manager's slot (entries of 0x48 bytes at `[manager+8]`, the free slots a vector of ints at `+0x20`, taken last in first out by `0x16c2330`), and the sprite type's load (`0x156e119`) asks for a mask of every texture. Freeing a slot (`0x16c3e10`, and the loop in `0x16c3a40` for every slot no one refers to) never touches its mask, so a freed slot keeps its last texture's buffer until a masked texture takes the slot again; the only reader (`0x16c4f20`) asks of live sprites only. A leak run counts these buffers among each generation's leftovers (`0x42d8bb < 0x6e0b00`, about 40 KB a generation, held by the masks' array, `0x16c2f12`), but there are no more of them than slots, which do not grow from round to round, so they do not add to a round's growth.
+
+## How a font page loads
+
+- `0x15953c0` loads the page texture first, then calls the `.fnt` parser 0x1595570 [V].
+- **The font's name** (read 2026-10-31): the base constructor 0x1594490 makes an empty `std::string` at `font+0x18` (capacity 0xf at `+0x30`) and the path at `+0xe0` [V]. The lookup by name 0x14db3c0, which logs "No font with name " when it finds none, hashes the name asked for, then compares it with the string at `+0x18` of each font in the bucket (0x14db453: `lea rcx, [rsi+0x18]`, its size at `+0x10` and capacity at `+0x18` of the string, then `memcmp`) [V], so `+0x18` holds the `bitmapfont`'s `name` from the `.gfx` files. The map renderer asks it for `tahoma_60` and `vic_36_black` (0x10a36ab, 0x10a372d) [V]. The game's own `bitmapfont` (`eu3bitmapfont.cpp`, 0x3d88 bytes, made at 0x10b2a66) calls the same base constructor. The name is already there when the font's page loads, which the framework's `fill` relies on (tested 2026-10-31, [Body text and headings in fonts of their own](../../research/interface-evidence.md): each of the Chinese language mod's six pages logged its first font's name).
+- **Page file name**: the path at `font+0xe0` plus `.tga`; when the interface scale (the float at `[font+0x48]+0x32600`, 0x15953f9) is at least 1.1 (the float at 0x1dc161c, `cd cc 8c 3f`) and the string at `font+0x100` is not empty (its length, `font+0x110`), that path is used instead [V]; the `.fnt` parser 0x1595570 chooses its file the same way (0x15955d5). Before 2026-10-30 this note said 1.6, which was wrong. No `bitmapfont` in vanilla's `.gfx` files or in the mods of the Chinese playset gives a second path (they give only `name`, `path`, `color`, `border_color` and `effect`), so every font loads its one page at any scale. Which `.gfx` key fills `font+0x100` was not looked for. The glyph scale stays 1.0 either way. The resolving function 0x16c24d0 looks for `.dds` first and uses `.tga` if there is none.
+- **`+0x970`**: the texture manager index, -1 at construction; returned by `0x16c35b0` (Load) and written at 0x15954b0 [V].
+- **`+0x978` / `+0x97c`**: the page's width and height, taken from the values that the texture's `GetLevelDesc(0)` put in the entry at `+0x28` [V].
+- **Creation chain**[V]:
+  1. 0x16c2980 reads the file and hands it to 0x16cc6e0 to decode (DDS through 0x16dd990, TGA through 0x16dd5f0);
+  2. through the renderer slot `[0x1fd1320]` = 0x16d7de0 it reaches 0x16d7aa0;
+  3. 0x16d7aa0 calls `D3DXCreateTexture`, then `D3DXLoadSurfaceFromMemory` for each mip level, with a NULL destination rectangle, that is, the whole surface.
+- **Format**[V]: a 32-bit TGA becomes `A8R8G8B8` with 1 mip level; a `.dds` keeps the format and mips it has in the file. DDS decoding already rounds a DXT width and height up to multiples of 4 (0x16ddb01).
+- **Memory pool**: on a 9Ex device it is `D3DPOOL_DEFAULT`, which cannot be locked [V].
+
+## The 16 MiB limit (tested)
+
+- After 0x16c2980 reads the file, it runs `cmp r14d, 0x1000000` at 0x16c2cb7: a file of 16 MiB or more is not decoded, no error is reported, the texture stays empty, and the font's `+0x978` / `+0x97c` are both 0.
+- The Chinese language mod's map font page `zh-hans-map.dds` is 49 MB (DXT5, 6400×7663), so the country, province and sea names on the map are all invisible. Vanilla without the framework behaves the same.
+- The framework raises the limit to 256 MiB (`font_load`). Tested after the change: map names all show as correct Chinese.
+
+## How drawing gets the texture
+
+- **Fetched again at every bind**[V]: `0x16c3f10`(texture manager, index) returns the wrapper and has about 80 callers. The bind sites for text:
+  - main text: 0x159a15d, 0x159a3a0, 0x159a4e4, 0x159a62d, 0x159a741, 0x159b322;
+  - buttons: 0x1597c0c, 0x1597e77;
+  - floating text on the map: 0x159cc9c;
+  - map names: 0xfd7d86 (binds 3 textures, the first being the font page).
+- They then call slot `[0x1fd11f0]` = 0x16d8560, which reads `wrapper+0` every time and then calls `SetTexture`. So **replacing the texture at +0 in the wrapper makes every text path use the new texture**, without hooking any drawing code.
+
+## A font's color
+
+Read 2026-11-01.
+
+- **`font+0x58`** (u32, 0xAARRGGBB) holds the `color` its `.gfx` block gives [V]. The block's keys are tokens with numbers, kept in a table in `.data` (`color` is 0x56, `border_color` 0x1cd), and the font's key method 0x1594a40 switches on them: `name` (0x1b) to `+0x18`, `effect` (0x59) to `+0x10`, `path` (0x174) to `+0xe0`, `color` to `+0x58` (0x1594b46: `lea r8, [rcx+0x58]`), `border_color` to `+0x60`. Colors are read with the format `%x` (0x125b470, the format at 0x1dbf9b8). The base constructor zeroes `+0x58` and `+0x60` (0x15944e6), so a font whose block gives no `color` has 0; every `bitmapfont` in vanilla's and the Chinese language mod's `.gfx` files gives one.
+- **Drawn with**: main text (0x1598997), buttons (0x1597bd7) and floating text (0x159cb03, which keeps its red, green and blue and takes the alpha from its fading) split it into channels for the vertex color [V]. `gfx/FX/text.shader` multiplies the page's pixel by that color (`TexColor * v.vFillColor`), so a white page shows in the font's color; an edge pixel whose alpha is below the border color's draws in the border color instead, which was not looked into further. Color codes (`§Y` and the like, from the font's `textcolors`) replace the color for a run of text.
+- **Light and dark fonts on one page**: the game keeps one texture per page file, and fonts of different colors load the same files. In vanilla `vic_18` (white) and `vic_18_black` both load `gfx/fonts/vic_18`, and `garamond_14` serves `Main_14` in white, `Main_14_plain` and `ledger` in black, and `Main_14_grey`; the Chinese language mod gives `zh-hans-14` to 22 fonts, 5 of them black. An event window's description is `vic_18_black` (`interface/eventwindow.gui`), black on parchment (tested 2026-11-01).
+- **Coverage on the Chinese language mod's pages** (measured 2026-11-01 from the pages and from GDI drawing the faces their `.fnt` files name at the sizes they give, 10, 12 and 14 pixels to the em for `zh-hans-12`, `-14` and `-16`): the body text pages' glyphs have the outlines' shapes and places, but their partial pixels raised. Coverage of 25% is about 67% on the page, 50% about 88%, and 65% or more is 255. Ten common characters take 40 to 44% of their em squares in ink, against the outlines' 26.8%. The heading pages are raised less (`zh-hans-18`, 41.3% against 37.2%) or not at all (`zh-hans-24`, 35.5% against 34.6%). How the pages were made was not found.
+
+## UV
+
+- The four text paths use the same formula [V]: `u = x / W`, `v = y / H`, where `W = font+0x978` and `H = font+0x97c`, with no half-pixel offset.
+- A glyph's x, y, width and height are read as signed 16-bit values, so coordinates on the page must be below 32768.
+- Where `+0x978` / `+0x97c` are read: main text 0x159a957 / 0x159a983, buttons 0x159852c / 0x1598557, floating text 0x159cfd8 / 0x159d007, map names 0x159e09b / 0x159e0d0.
+- When a page grows taller but keeps its width, only `font+0x97c` and the entry's `+0x2c` need changing; the existing glyphs' pixel coordinates stay the same.
+
+## The glyph scale
+
+- **`font+0x968`** (f32) is set to 1.0 when the font is made (0x1594663, through the glyph table: `[rdi+0x848]`) and written nowhere else in the font's code [V]: a scan of the code section for stores at `+0x968`, and at `+0x848` from the glyph table, finds none in the font's functions or the `.gfx` parser.
+- **Every text path multiplies by it** [V]: main text, buttons, floating text, height and width measuring, fitted and wrapped text, and map names read it (26 `mulss` from `[font+0x968]` between 0x1596802 and 0x159f5d5, three loads of it into a register, and two more through the glyph table, at 0x159ef48 and 0x159f87d). In main text's drawing (0x159a79b on) the glyph's x offset, width, height and y offset and the advance of an empty glyph are each multiplied by it, and so is the line height: `(line height * scale) as i32`, with the line height at `font+0x960` (i32) and the result in GUI units. The UV is not: `x / W` and `(x + width) / W` with `W = font+0x978` (and the same for y), so the page's pixels and the quad's size part ways by the scale.
+- **The `.fnt`'s base** (`font+0x964`, i32) is handed unscaled to a virtual call (`[vtbl+0xc8]`, which draws what formatting codes put in a line) at 0x159a355, 0x1598047 and two more places [V]; it is in GUI units.
+- **The interface scale stretches the quads** [V]: text is laid out in GUI units and the window shows a GUI unit as the interface scale's pixels. A page's pixels therefore reach the window stretched by it, with the text effect's sampler (`gfx/FX/text.shader`: `MagFilter = "Linear"`, `MinFilter = "Point"`), which blurs them. Tested at 1.5, 3840x2160, 2026-10-30: system glyphs drawn at the page's 1.0 were soft and uneven.
+- **What the framework does with it** (`unicode/fill.rs`): an interface font's glyphs are drawn `s` times larger, `s` being the interface scale at `[font+0x48]+0x32600` when it is above 1; the glyph records are in the page's pixels; the font's scale becomes `1/s` and its line height the least value whose product with the scale truncates to the old line height. Fonts with lines over 48 pixels (the map's) keep 1.0. Tested at 1.5: the same text at the same size and place, a texel to a pixel. The advances are now rounded to page pixels rather than GUI units, so a line can hold a character or two more or fewer than before.
+
+## Button text's texture
+
+- **Buttons and instant text boxes** (the font method 0x1596660) draw their text into a texture of its own, which the window then shows as the button's [V]. Its size is the laid-out text's in GUI units (`xmm15` and `xmm14`, the width times the number of frames, `[rbp+0x2200]`), rounded up to powers of two when the byte at 0x2453ec9 is set (0x1597890; 0 in the file), kept at `[rbp-0x68]` and `[rbp-0x64]`.
+- **Kept or made** [V]: when the button already has a texture (`[rbp+0x21b0]`), the renderer slot `[0x1fd1328]` (0x16d7f30, `GetLevelDesc`) gives its size at `rsp+0x48`, which 0x15978bf compares with the size wanted; a texture of another size is released (`[0x1fd1330]`, 0x15978d4) and a new one made by `[0x1fd1370]` (0x16d82b0; width `edx`, height `r8d`, format 0xb) at 0x1597909.
+- **Drawn into it** [V]: binding it (`[0x1fd1360]`, 0x16d8ca0, `SetRenderTarget` and `SetDepthStencilSurface`) leaves Direct3D's viewport as the whole texture, and the projection (0x11726b0) is made from the size in GUI units, as are the layout (from 0x1597c7f) and what 0x159bc20 draws first.
+- **The window shows it** through 0x1551840 (see [Where glyphs land on pixels](#where-glyphs-land-on-pixels)). Tested 2026-10-30: a texture with 1.5 times the pixels, for glyphs of 1.5 pixels a GUI unit, showed the main menu's buttons, the continue box, the introduction's tabs and Close button at their size and place, so whatever shows it does not take the texture's own size.
+- **What the framework does** (`unicode/buttons.rs`): for a font whose scale is below 1, the texture is made with `1/scale` times the pixels across and down (and still powers of two when the game wants them), and the size check compares with those; the rest keeps the GUI units. Drawn into a texture of the GUI units' size, such glyphs would be shrunk with the point filter.
+
+## Where glyphs land on pixels
+
+Read 2026-11-02, from the code and from the device in the running game (the projection in vertex shader constants c0 to c3, the viewport and the render target, logged by a probe build), at interface scales 1.5 and 1.6, 3840x2160.
+
+- **Main text's origin** [V]: main text adds an origin, kept at `[rbp-0x20]`, to every vertex: (-0.5, 0.5, 0) when the renderer slot `[0x1fd1220]` returns 0 (0x159a1b0 to 0x159a1d7), as it does here. In GUI units, so it is Direct3D 9's half pixel only at an interface scale of 1: 0.75 pixels at 1.5, 0.8 at 1.6.
+- **Main text draws straight to the screen** [V]: into the back buffer, the viewport all of it, with a plain 2D projection: x scaled by 2 / (width / interface scale), `2/2560` at 1.5 and `2/2400` at 1.6, y likewise and growing upward, the window's place in the translation. A glyph's corners are floats (GUI position plus the glyph's offsets times the font's scale), so its left edge falls between pixel edges: with whole GUI positions at 1.5, 0.25 or 0.75 pixels off.
+- **Button text into its texture** [V]: the projection maps the text's size in GUI units onto the whole texture, which `unicode/buttons.rs` makes `ceil(size / scale)` pixels: 149 by 31 units onto 239 by 50 pixels at 1.6, 1.604 and 1.613 pixels a unit. The origin is (-0.5, 0.5) again. Each glyph's corners are cut to whole GUI units: left at 0x15984a9 (`r10d`), right at 0x15984c8 (`r11d`), top at 0x1598501 (`[rbp+0x2c]`, its only other use at 0x15985fc), bottom at 0x159858c; turned back into floats at 0x1598594, 0x159859c, 0x1598601 and 0x1598643, and written into the glyph's six vertices (0x15985b2 to 0x15986d9); no jump enters 0x159858c to 0x15986f6. With glyphs denser than a GUI unit, the cut stretches or shrinks a glyph by up to a unit: x 46.5 to 60.25 became 46 to 60, a 22-texel glyph over 22.46 pixels; shrunk, the point filter drops a column.
+- **Tooltips are button text** [V]: all 123 calls of 0x1596660 a trace saw, the treasury tooltip's among them, returned to 0x15515a0 in 0x1550e90, which keeps the texture at the element's `+0x278`, its size in GUI units at `+0x280` and `+0x284` (the method's out parameters `[rbp-0x30]` and `[rbp-0x40]`), and has 0x1552040 build a mesh from that size at `+0x298`. The treasury tooltip at 1.5: 358 by 292 GUI units, a texture of 537 by 438.
+- **The texture shown on screen** [V]: 0x1551840 multiplies a matrix from the element's place (0x1234430) with the interface's projection (`[rbx+0x270]+0x498`, 0x12343b0), sets the constants from `[rbp-0x40]` (0x1551a83), the texture from `+0x278` (0x1551ad0) and draws the mesh (0x15bd180). The mesh spans the element's size in GUI units, its UVs all of the texture unless powers of two are on (then the size over `+0x288` and `+0x28c`), cut by the four words at `+0x1e0` (positions and UVs alike) and turned by the angle at `+0x140`, with a half pixel from `[0x1fd1220]` as main text's: that slot holds 0x8f480, `xor eax, eax; ret`, so the half pixel is always (-0.5, 0.5), the constants at 0x1dc19fc and 0x1d99d94. The builder keeps the first vertex, the texture's bottom left, at `+0x2c8` and `+0x2cc`, and the last vertex less the first at `+0x2d0` and `+0x2d4` (0x1552309 to 0x15524c7): the size again when the mesh is neither cut nor turned. Its v is 1 at the bottom, and GUI y grows upward here too (tested: the projection is a plain 2D one with y upward). The slot `[0x1fd11d0]` (0x16d22e0) copies the constants into the parameter's storage (`[rdx+8]`, through memcpy at 0x1a35750), from which the renderer sets them on the device later (0x16d71d6 calls `SetVertexShaderConstantF` from such a storage [I]): the matrix counts as it is when that slot is called. Places are whole GUI units (one element's left edge at 1489.6 pixels at 1.6), so the texture is drawn between pixels too, and a fraction of a pixel smaller than it is.
+- **What the framework does** (`unicode/pixels.rs`): a glyph drawn a texel to a pixel is moved so its edges fall on pixel edges (`k - 0.5` in Direct3D 9) and it is whole texels wide and tall: in main text once its corners are known (0x159a954), with the device's projection read once a call (0x159a1ea); in button text at 0x159858c, from the exact corners, with the four conversions back to floats written out. Glyphs a font draws at another size (a bitmap font stretched by the interface scale) are left as they are. A text texture made a texel to a pixel, not a power of two, whose mesh is neither cut nor turned, is shown at its own size with its edges on pixel edges: its matrix is changed before it goes to the constants (0x1551a73). Tested 2026-11-02 at 1.5 and 1.6: a tooltip's characters land on whole pixels.
+
+## Lifetime
+
+- **A device reset leaves font textures alone** [V]. It calls 0x16d4bb0 / 0x16d4b20 before and after, then tells each font to release and rebuild its text vertex buffers (0x15949a0 / 0x15948e0). On 9Ex, textures in the DEFAULT pool stay valid after Reset [I].
+- **Font destruction** [V]: the destructor 0x15947e0 releases the font's entry in the texture manager through 0x16c3ca0 (once the reference count reaches zero, the entry goes into a ring of entries waiting to be reclaimed rather than being destroyed at once), and frees the glyph table (0x1594360).
+- **Actually destroying a texture** always goes through slot `[0x1fd1330]` = 0x16d80f0 [V].
+- **Reloading in place**: the console command `reloadtexture` goes through 0x16c4220, which rebuilds the texture in the same wrapper but does not update the entry's width and height [V].
+- Fonts are created only while `.gfx` files are parsed (0x17068b0 calls Load at 0x170741a); `reload` / `reloadinterface` do not rebuild fonts [I].
+
+## Threads
+
+- Fonts are created by the loading thread while `.gfx` files are parsed [V]. Text in the main menu and in the game is drawn by the main thread [I]; the loading screen is drawn and presented by another thread (tested, see `framework_ui/hook.rs`).
+- The device is created with `D3DCREATE_MULTITHREADED` (0x44) (tested; set at 0x16d911f).
+
+## Constraints from batches and caches
+
+- **One texture per batch**: all of a font's glyphs must be on the same page [V].
+- **UVs are cached** [V]:
+  - each font has 40 cached vertex buffers at `font+0x3c08`;
+  - buttons draw their text into cached render targets;
+  - map name meshes are cached too.
+- So a new glyph must be put in the page before its first use, and existing glyphs cannot move. A page used once may still get a new size, when everything laid out from its old one is laid out again (below; [ADR font-pages-grow](../../adr/2026-11-08-font-pages-grow.md)); before 2026-11-08 this note said the size had to be settled when the font loads.
+- **Main text's cache** [V]: 40 slots per font: triangle counts at `+0x3988` (i32 each), keys at `+0x3a28` (i32 each), last-used times at `+0x3ac8` (f64 each) and the vertex buffers at `+0x3c08`. A key is a hash of the text's bytes, its rectangle, the font's color and the other arguments of the draw (built 0x1598d3e to 0x1598ddb), not of the page's size. A text found (0x1598df6) is drawn from its buffer, with its old UVs; a text not found takes the first slot whose key is 0 (0x1598e02) and is laid out into that slot's buffer, which 0x1594930 makes only when there is none. A slot unused for more than 2.0 (0x1dc1730, compared from 0x1598e24) is let go, so text that stays on screen is never laid out again by itself. The key is written after the vertices (0x159b154). Zeroing the 40 keys has every text laid out again at its next draw; the device reset's 0x15949a0 does it too, but also releases the buffers and the shared vertex buffer `[0x23495d8]`.
+- **Button text keeps pixels, not UVs** [V]: the texture 0x1596660 draws a button's or tooltip's text into holds the finished glyphs, and each draw reads `+0x978`/`+0x97c` again (0x159852d, 0x1598558). A new size leaves those textures right.
+- **Map names keep UVs** [V]: 0x159da60 bakes each name's UVs into its mesh from `+0x978`/`+0x97c` (0x159e09d, 0x159e0d2), called only from 0xfd6c85 (names along a curve) and 0xfd74a7 (straight names). 0x10af270(map) walks every country (`world+0x1cd8`), empties the name set at `map+0x4e8` and builds every country's name again with the font at `map+0x4d0`; a second set at `map+0x590` is built again by the map mode's refresh 0x10a9be0 (0x10ac968, also with `map+0x4d0`), which the 3D map's draw runs when the byte `map+0x25a0` is set (0x10a5b55) and clears. 0x10a4680(map) calls 0x10af270 when `map+0x4d0` is set and sets `+0x25a0`: every name on the map is built again. The game calls 0x10af270 from its own main-thread frame and about 20 other places, with no lock. The map is `[[[world+0x1e00]+0x330]+0x360]`: the map manager, the application it keeps as every idler does, and the application's map (0x8152aa, in the map manager's frame). What the second set shows, and whether the map's second font `map+0x4d8` (`vic_36_black`) is read anywhere, were not found.
+- **Map names are built before a game** (tested 2026-11-08, [the run](../../research/interface-evidence.md)): a map font's page that grew at the main menu, with no names built again then, left a new game's country names out, while province names, which the map mode's refresh builds, showed. The map's setup (0x10a2e40) builds both sets; a game started from the main menu keeps them.
+- Main text submits its vertices every 0x48c of them (0x159afa0); the shared vertex buffer holds 1200 vertices.
+
+
+## Native texture formats and map-page appearance
+
+The engine format converter `0x16f9850` maps formats 1/2 to DXT1, 3/4 to DXT3, 5/6 to DXT5 and `0xb`/`0xc` to A8R8G8B8. These are format identifiers, not image addresses.
+
+The base `Mapfont.dds` is 1024×1024 A8R8G8B8 with 11 mip levels. Its black ink has alpha 191; the RGB `#919191` outline fades with sampled alpha 131, 103, 77, 48 and 21 one to five pixels out. The Chinese mod's page has RGB `#100c10` ink at alpha 255 and an RGB `#838283` band fading approximately 190, 141, 94, 50, 21 and 7. These measurements describe those assets, not arbitrary replacement fonts. Normal interface pages are white with antialiased edges; the game's `s` variants use a dark shadow below and right.
+
+The [map shader](map-name-shader.md) consumes page color/alpha. Harmony's later distance-field page and generated mip levels are replacements, not vanilla page contents; historical page-growth observations are in [interface evidence](../../research/interface-evidence.md#text-fonts-and-input).

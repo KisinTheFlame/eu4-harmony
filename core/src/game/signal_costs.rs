@@ -1,5 +1,5 @@
 //! What working out the signals of the game costs while someone listens to
-//! them (docs/plans/player-actions.md, "Signals"; docs/performance.md): the wars and
+//! them (docs/adding-a-capability.md, "Signals"; docs/performance.md): the wars and
 //! the provinces' owners watched at each new day, the buildings finished and
 //! the battles heard, and turning what was heard into the signals extensions
 //! and remote control hear. Logged when a session ends, then counted afresh.

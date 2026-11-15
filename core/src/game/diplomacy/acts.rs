@@ -1,6 +1,6 @@
 //! The actions the diplomacy panel offers the player, each by the game's type
 //! of diplomatic action and whether it starts or ends something
-//! (docs/research/diplomacy.md, "The diplomacy panel").
+//! (docs/game/diplomacy/diplomacy.md, "The diplomacy panel").
 //!
 //! A type is a token of the game's, the number its key has in saves; the
 //! game's table of tokens holds each with its key, and each act's entry there

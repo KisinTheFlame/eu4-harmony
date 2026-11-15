@@ -1,7 +1,7 @@
 //! Buildings: what the province view's building panel offers the player in a
 //! province, building, cancelling and destroying a building there through the
 //! game's own commands, and the signal of a building finished
-//! (docs/research/province-view.md).
+//! (docs/game/provinces/province-view.md).
 use super::administration::checks as refuse;
 use super::commands::{write, Block};
 use super::{action, administration::MOST_CONSTRUCTIONS, context_any, signals, game, thousandths, with_state, Ctx, GResult, Session, Tag};

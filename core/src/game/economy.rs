@@ -1,7 +1,7 @@
 //! The economy: taking a bank loan, reducing inflation, raising and
 //! lowering war taxes and declaring bankruptcy, as the economy view's
 //! buttons do, and raising mercantilism, as the trade view's button does
-//! (docs/research/power-spending.md, "The economy" and "The country's other
+//! (docs/game/countries/power-spending.md, "The economy" and "The country's other
 //! spendings").
 use super::commands::{write, Block};
 use super::{

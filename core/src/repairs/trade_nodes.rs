@@ -1,4 +1,4 @@
-//! The trade nodes each world clear leaves (docs/research/main-menu.md,
+//! The trade nodes each world clear leaves (docs/game/interface/main-menu.md,
 //! "The trade nodes").
 //!
 //! The world's clear reads the trade nodes again (`0x891a80`, `0x8be0f0`):

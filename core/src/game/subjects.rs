@@ -1,5 +1,5 @@
 //! Subjects: the interactions the subjects view offers the player toward one
-//! of the player's subjects, and carrying one out (docs/research/subjects.md).
+//! of the player's subjects, and carrying one out (docs/game/countries/subjects.md).
 //!
 //! The game has a fixed set of interactions, each a static object of a class
 //! of its own, whose number is the token of its key. One is carried out by the

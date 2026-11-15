@@ -1,6 +1,6 @@
 //! Monarch points spent as the game's panels spend them: the power spending
 //! the game builds for a button, its cost as the panel shows it, and the
-//! command the button posts (docs/research/power-spending.md). Every group
+//! command the button posts (docs/game/countries/power-spending.md). Every group
 //! whose buttons spend points builds its spendings here: technology,
 //! stability, the economy, ideas, sieges, developing and coring.
 //! Also what the panels' tooltips are written with: the game's localisation

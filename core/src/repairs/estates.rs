@@ -1,4 +1,4 @@
-//! The modifiers the estates leave (docs/research/main-menu.md, "The
+//! The modifiers the estates leave (docs/game/interface/main-menu.md, "The
 //! estates' modifiers").
 //!
 //! A country keeps its estates by value in a vector, each with its modifiers

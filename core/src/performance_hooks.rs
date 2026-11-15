@@ -1,5 +1,5 @@
 //! Game boundaries for on-demand performance collection. Existing research in
-//! docs/research/drawing-beside-the-day.md, headless.md and time.md establishes
+//! docs/game/interface/frame-lifecycle.md, headless.md and time.md establishes
 //! these boundaries; no sampling reads live world state on the drawing thread.
 use crate::{game, hooks::Call, performance, points::Point};
 use eu4_harmony_remote::performance::{PerformanceAnswer, PerformanceRequest};

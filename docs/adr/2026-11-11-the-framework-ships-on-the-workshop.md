@@ -1,6 +1,6 @@
 # The framework ships on the Steam Workshop, its core loaded from its own item
 
-The framework is a Steam Workshop item of its own, Harmony. It holds `version.dll` and the core. The player copies `version.dll` into the game's root folder once; the proxy then loads the core from Harmony's own Workshop item, which Steam keeps up to date, after the core a command line names and the one beside `version.dll`. The proxy knows Harmony's item by its published file id, built into it, and looks into no other mod's folder. The item holds no executable: the command line tool is not part of a player's install. This supersedes the line of [plans/v1.md](../plans/v1.md) that the framework itself is not distributed or updated through the Steam Workshop.
+The framework is a Steam Workshop item of its own, Harmony. It holds `version.dll` and the core. The player copies `version.dll` into the game's root folder once; the proxy then loads the core from Harmony's own Workshop item, which Steam keeps up to date, after the core a command line names and the one beside `version.dll`. The proxy knows Harmony's item by its published file id, built into it, and looks into no other mod's folder. The item holds no executable: the command line tool is not part of a player's install. This supersedes the line of [plans/v1.md](../plans/README.md) that the framework itself is not distributed or updated through the Steam Workshop.
 
 ## Considered Options
 

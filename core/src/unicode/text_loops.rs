@@ -4,7 +4,7 @@
 //! take a whole character instead: it looks the character up here and moves
 //! its index over all of the character's bytes. A loop that is missed shows
 //! as wrong glyphs, split characters or Chinese that never wraps, so a new
-//! one goes into this list (docs/research/unicode-text.md has the details).
+//! one goes into this list (docs/game/interface/unicode-text.md has the details).
 //!
 //! | Loop | Function | Module |
 //! |---|---|---|

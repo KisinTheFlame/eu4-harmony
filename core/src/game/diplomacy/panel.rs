@@ -2,7 +2,7 @@
 //! country, made by the game's own list maker as the panel makes them, each
 //! with whether the player can send it, why not, and, where the panel shows
 //! it, whether the other country would accept; and sending one of them as
-//! the default diplomacy window sends it (docs/research/diplomacy.md, "The
+//! the default diplomacy window sends it (docs/game/diplomacy/diplomacy.md, "The
 //! diplomacy panel").
 use super::{
     acts::{Act, NO_ACCEPTANCE, SCRIPTED},
@@ -214,7 +214,7 @@ pub(super) fn sent(Session { m, ctx, commands, .. }: Session, country: Tag, what
 /// The window an act opens writes what the player chooses into the action's
 /// own fields, from `+0x40`, before it sends it; this writes `details` there
 /// as that window does, refusing what the window would not let the player
-/// choose (docs/research/diplomacy.md, "The windows the panel opens"). Money
+/// choose (docs/game/diplomacy/diplomacy.md, "The windows the panel opens"). Money
 /// is in thousandths of a ducat, but where a window keeps whole ducats; a
 /// province is its number, or where a window keeps it its object; a country
 /// its tag; a rebel faction its object.

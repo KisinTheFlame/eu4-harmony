@@ -1,7 +1,7 @@
 //! A developer build's test switch `agents-order`: the order in which an AI
 //! country's top agent has its agents do their day, so that whether one
 //! agent's day depends on what another's did before it can be tried
-//! (docs/research/late-game.md, "Whether the AI's agents depend on each
+//! (docs/game/ai/work-scheduling.md, "Whether the AI's agents depend on each
 //! other").
 //!
 //! Each day, a country's task in the AI's parallel stage steps its top agent

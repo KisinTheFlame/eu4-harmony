@@ -1,7 +1,7 @@
 //! Cultures: the player's primary culture and the cultures it accepts, as
 //! the government view's cultures window lists them, and its select,
 //! promote and demote buttons, each a use of diplomatic power the spend_power
-//! command carries (docs/research/power-spending.md, "Cultures").
+//! command carries (docs/game/countries/power-spending.md, "Cultures").
 use super::{action, commands, content::checks, power, thousandths, world, Ctx, GResult, Session, Tag};
 use crate::{
     containers, game_string,

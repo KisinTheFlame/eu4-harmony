@@ -327,7 +327,7 @@ impl BoundElement {
 
 /// Builds a game string holding `bytes` with the game's allocator and moves
 /// it into the text box `object`. The setter takes the string's contents and
-/// leaves it empty (docs/research/interface-bindings.md, "The setter"); it is
+/// leaves it empty (docs/game/interface/interface-bindings.md, "The setter"); it is
 /// still the framework's, and destroyed as every `std::string` is, which
 /// holds whatever the setter leaves in it.
 pub(crate) fn write_text(m: &Memory, object: usize, bytes: &[u8]) -> Result<()> {

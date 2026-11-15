@@ -1,5 +1,5 @@
 //! The game's side of extension windows and pop-ups: what makes the game's
-//! windows show what extensions want (docs/research/extension-windows.md,
+//! windows show what extensions want (docs/game/interface/extension-windows.md,
 //! window-elements.md).
 //!
 //! The definitions [`super::gui`] writes are served as framework files
@@ -62,11 +62,11 @@ const CLOSE_PANELS: GameFunction<1> = GameFunction::at(0x80c6e0);
 /// The idler's opening of one of its views by number `(idler, view)`, which
 /// closes the others in a loop of its own, not through [`CLOSE_PANELS`]: the
 /// diplomacy view from a country's shield or the map
-/// (docs/research/message-pop-up-actions.md §3).
+/// (docs/game/interface/message-pop-up-actions.md §3).
 const OPEN_VIEW: usize = 0x820990;
 /// The idler's opening of the diplomacy view on a country `(idler, tag)`,
 /// as a click on one of the game's shields does
-/// (docs/research/message-pop-up-actions.md §3).
+/// (docs/game/interface/message-pop-up-actions.md §3).
 const OPEN_DIPLOMACY: GameFunction<2> = GameFunction::at(0x821420);
 /// The idler's tooltip of an element under the pointer `(idler, out, element)`.
 const TOOLTIP: usize = 0xb81870;
@@ -81,7 +81,7 @@ const LIST_ELEMENT: usize = list_box::ELEMENT;
 
 /// The strip's own slots, their names' stem, and the first one's place;
 /// the slots are this far apart, and an entry button's background lies so
-/// from it (docs/research/extension-windows.md §5).
+/// from it (docs/game/interface/extension-windows.md §5).
 const STRIP_SLOTS: usize = 8;
 const STRIP_FIRST: (i32, i32) = (-360, -58);
 const STRIP_STEP: i32 = 45;

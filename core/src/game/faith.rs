@@ -1,6 +1,6 @@
 //! The defender of the faith: the country that defends the player's
 //! religion, and claiming it as the religion view's button does, through
-//! the game's own command (docs/research/religion.md, "The defender of the
+//! the game's own command (docs/game/provinces/religion.md, "The defender of the
 //! faith").
 use super::commands::{write, Block};
 use super::{action, country as country_at, Ctx, GResult, Session, Tag};
