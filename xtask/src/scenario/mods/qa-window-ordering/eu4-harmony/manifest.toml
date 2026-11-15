@@ -1,0 +1,3 @@
+# Native ordering acceptance fixture; run in an isolated test game.
+id = "qa-window-ordering"
+api_version = "0.3"

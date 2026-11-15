@@ -22,6 +22,26 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 | [mercenary-company-names.md](research/mercenary-company-names.md) | Native color removal damages multibyte army names; the Unicode module now removes colors at character boundaries |
 | [2026-11-15-mercenary-company-names.md](prototype-log/2026-11-15-mercenary-company-names.md) | Grand company name corruption reproduced in army memory, with the free company's intact name as a control |
 | [2026-11-15-mercenary-company-names-after.md](prototype-log/2026-11-15-mercenary-company-names-after.md) | Repaired grand company name stays intact; a colored, longer free company name loses only colors and uses game-owned heap storage |
+| [2026-11-15-window-ordering-fixed-user-game.md](prototype-log/2026-11-15-window-ordering-fixed-user-game.md) | Corrected ordering in a visible isolated game with the actual playset for the user |
+| [2026-11-15-window-ordering-icon-fixture.md](prototype-log/2026-11-15-window-ordering-icon-fixture.md) | Button and derived glow bind together; the native picker covers both, excludes covered input, executes its target and restores the button |
+| [2026-11-15-window-ordering-actual-playset.md](prototype-log/2026-11-15-window-ordering-actual-playset.md) | Unchanged actual playset passes picker coverage, covered-toggle exclusion, native follow action and button restoration |
+| [2026-11-14-window-ordering-user-game.md](prototype-log/2026-11-14-window-ordering-user-game.md) | Actual-playset handoff exposed the unresolved button-area overlap; startup readiness was bypassed, and the normally exited game was released |
+| [2026-11-14-window-ordering-pointer-acceptance.md](prototype-log/2026-11-14-window-ordering-pointer-acceptance.md) | Pointer activation runs its action once; the army attach picker covers the button area, receives input, and restores the area after closing |
+| [window-placement.md](research/window-placement.md) | Same-parent scene placement, fixed anchors, complete control node groups, and why named-child promotion is not a general reorder operation |
+| [window-visibility.md](research/window-visibility.md) | Four native show/hide paths, ancestor traversal gates, and window lifetime observations |
+| [window-activation.md](research/window-activation.md) | Accepted mouse targets, per-event dispatch, hit-state invalidation and presentation-lock evidence |
+| [window-input-refresh.md](research/window-input-refresh.md) | Independent native traversal and the prepared input lists it must refresh |
+| [2026-11-14-window-ordering-startup-screen.md](prototype-log/2026-11-14-window-ordering-startup-screen.md) | Initial Escape attributed to the original startup screen; the prepared native-drawing course then passed with exactly three keys |
+| [2026-11-14-window-ordering-keyboard-recipient.md](prototype-log/2026-11-14-window-ordering-keyboard-recipient.md) | Initial Escape accepted by an original close button; later fixture keys passed, and Page Up did not open the army panel |
+| [2026-11-14-window-ordering-keyboard-entry.md](prototype-log/2026-11-14-window-ordering-keyboard-entry.md) | Initial Escape reaches native dispatch and returns handled without a fixture close; the exact recipient remains unknown |
+| [2026-11-14-window-ordering-native-keyboard-staged.md](prototype-log/2026-11-14-window-ordering-native-keyboard-staged.md) | Observed close/reopen stages reached the success marker, but an ineffective first Escape remains unexplained |
+| [2026-11-14-window-ordering-native-keyboard-fast.md](prototype-log/2026-11-14-window-ordering-native-keyboard-fast.md) | Rapid native-drawing key requests failed the close-count assertion; earlier recipients and downstream readiness remain unresolved |
+| [2026-11-14-window-ordering-keyboard.md](prototype-log/2026-11-14-window-ordering-keyboard.md) | Native placement with reversed construction order, repeated-open stability, reopening, and three single keyboard actions |
+| [2026-11-14-window-ordering-integration.md](prototype-log/2026-11-14-window-ordering-integration.md) | Initial lifecycle integration with seven window-course steps; nontrivial placement and pointer behavior remain unverified |
+| [2026-11-14-window-ordering-input-refresh.md](prototype-log/2026-11-14-window-ordering-input-refresh.md) | Thirty-nine stable live input refresh comparisons after input batches, with threaded drawing |
+| [2026-11-14-window-ordering-traversal.md](prototype-log/2026-11-14-window-ordering-traversal.md) | Fifty-three exact native traversal comparisons with the drawing thread enabled; setup refusals and unverified input behavior |
+| [2026-11-14-window-ordering-native-traversal.md](prototype-log/2026-11-14-window-ordering-native-traversal.md) | Forty-four exact traversal comparisons with native main-thread drawing; input behavior remains unverified |
+| [window-ordering.md](research/window-ordering.md) | Native definition and scene order, reorder methods, input qualifications, and the army attach picker's overlap with the button area |
 | [reformation-center-crash.md](research/reformation-center-crash.md) | Supplied dump identifies a building_prov record read as a center; native events reproduce a missing detach, repaired in both center-creation paths; the reported run's history remains unknown |
 | [2026-11-15-reformation-center-reference-before.md](prototype-log/2026-11-15-reformation-center-reference-before.md) | Native creation/removal leaves province 51 referring to a removed center; the captured-state checker fails |
 | [2026-11-15-reformation-center-reference-after.md](prototype-log/2026-11-15-reformation-center-reference-after.md) | The repaired native sequence clears both references and progress, preserves the new center, and runs seven more days |
@@ -113,6 +133,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 
 | | |
 | --- | --- |
+| [window-ordering.md](plans/window-ordering.md) | Native interface ordering implemented; critical pointer and army-picker acceptance passed; same-batch input and live scrollbar movement remain unverified |
 | [performance-metrics.md](plans/performance-metrics.md) | Completed-day, submission and interface collection built and checked; action response, pure interface-work timing and the full save comparison matrix remain deferred |
 | [releases-after-version-prs.md](plans/releases-after-version-prs.md) | Merged version PRs automatically create tags and publish, retaining separate packages and local Workshop upload |
 | [panel-entries-and-tooltips.md](plans/panel-entries-and-tooltips.md) | Shared tooltip content and lifetime, checked entry images and independent formatted numbers |

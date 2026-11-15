@@ -11,13 +11,15 @@ use crate::{
     game_heap,
     memory::Memory,
     objects::gui::{functions, globals, list_box, list_entry, window},
-    ui, Result,
+    ui,
+    window_ordering::{self, Identity, Owned},
+    Result,
 };
 use eu4_harmony_lua::{
     layout::{self, Kind, Placed},
     Popup, Property,
 };
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 /// Whether native Kill was entered matters more than whether it returned:
 /// an entered call may mark the root dead before it faults. No pointer from
@@ -30,6 +32,10 @@ enum Kill {
 /// Native operations behind the lifetime protocol; neither the extension
 /// state nor a caller decides when these operations happen.
 trait Native {
+    type Reconciliation;
+    fn begin_ordering(&mut self, wanted: &BTreeSet<Identity>) -> Self::Reconciliation;
+    fn bind_ordering(&mut self, seen: &[Owned]) -> Result<()>;
+    fn flush_ordering(&mut self) -> Result<()>;
     fn available(&mut self) -> Result<bool>;
     fn screen(&mut self) -> Result<(i32, i32)>;
     fn read(&mut self, path: &str, text: String) -> Result<()>;
@@ -60,6 +66,16 @@ struct Game<'a> {
 }
 
 impl Native for Game<'_> {
+    type Reconciliation = window_ordering::Reconciliation;
+    fn begin_ordering(&mut self, wanted: &BTreeSet<Identity>) -> Self::Reconciliation {
+        window_ordering::begin_owned(wanted)
+    }
+    fn bind_ordering(&mut self, seen: &[Owned]) -> Result<()> {
+        window_ordering::bind_owned(self.m, seen)
+    }
+    fn flush_ordering(&mut self) -> Result<()> {
+        window_ordering::flush(self.m)
+    }
     fn available(&mut self) -> Result<bool> {
         self.manager = self.m.ptr(self.m.at(globals::MANAGER))?;
         Ok(self.manager != 0)
@@ -118,7 +134,12 @@ impl Native for Game<'_> {
             );
         match checked {
             Err(e) => Kill::NotCalled(e),
-            Ok(kill) => Kill::Attempted(self.m.call(kill, &[root]).map(|_| ())),
+            Ok(kill) => {
+                // LIVE is held here, so the observer's try_lock may skip us.
+                // Retire before entering Kill, including calls that fault.
+                window_ordering::retire(root);
+                Kill::Attempted(self.m.call(kill, &[root]).map(|_| ()))
+            }
         }
     }
     fn clear_rows(&mut self, list: usize) -> Result<()> {
@@ -182,6 +203,43 @@ pub(super) fn frame(m: &Memory, live: &mut Live, wants: &Wants) -> Result<()> {
 }
 
 fn reconcile(native: &mut impl Native, live: &mut Live, wants: &Wants) -> Result<()> {
+    let mut appearances: BTreeMap<Identity, u64> = wants
+        .windows
+        .iter()
+        .filter(|want| want.wanted.open)
+        .map(|want| (Identity::Window(want.extension, want.layout.name.clone()), want.wanted.appearance))
+        .collect();
+    for (number, _) in &wants.popups {
+        let appearance = wants.appearances.get(number).copied().ok_or_else(|| format!("pop-up {number} has no appearance order"))?;
+        appearances.insert(Identity::Popup(*number), appearance);
+    }
+    let guard = native.begin_ordering(&appearances.keys().cloned().collect());
+    let result = reconcile_windows(native, live, wants);
+    // Reconciliation can fail after retaining a successfully shown root. Bind
+    // those survivors even on that exit; closing roots must never be rebound.
+    let seen: Vec<Owned> = live
+        .built
+        .iter()
+        .filter_map(|built| {
+            let identity = match &built.key {
+                Key::Window(extension, name) => Identity::Window(*extension, name.clone()),
+                Key::Popup(number) => Identity::Popup(*number),
+            };
+            appearances.get(&identity).map(|&appearance| Owned { identity, root: built.root, appearance })
+        })
+        .collect();
+    let bound = native.bind_ordering(&seen);
+    drop(guard);
+    let flushed = native.flush_ordering();
+    let errors: Vec<String> = [result, bound, flushed].into_iter().filter_map(Result::err).collect();
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
+}
+
+fn reconcile_windows(native: &mut impl Native, live: &mut Live, wants: &Wants) -> Result<()> {
     if !native.available()? {
         return Ok(());
     }
