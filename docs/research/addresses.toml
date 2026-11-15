@@ -32,6 +32,7 @@
 "0x8fa80" = { kind = "function", name = "string insertion into a stream", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x8fd40" = { kind = "function", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x8fee0" = { kind = "function", name = "conditional unit-buffer flush", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
+"0x90320" = { kind = "function", name = "append repeated bytes to a string", notes = ["research/mercenary-company-names.md"] }
 "0x914f0" = { kind = "function", name = "cold construction of the later stream facet", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x91634" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x91656" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
@@ -107,7 +108,7 @@
 "0x93010" = { kind = "function", name = "integer formatting through the stream facets", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x9310a" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x9310f" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
-"0x932f0" = { kind = "function", name = "string append", notes = ["research/dates.md", "research/interface-bindings.md", "research/sieges.md"] }
+"0x932f0" = { kind = "function", name = "string append", notes = ["research/dates.md", "research/interface-bindings.md", "research/mercenary-company-names.md", "research/sieges.md"] }
 "0x933a0" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x93af0" = { kind = "function", name = "integer insertion with a stream sentry", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x93b9f" = { kind = "code", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
@@ -123,7 +124,7 @@
 "0x94f20" = { kind = "leaf", notes = ["research/units.md"] }
 "0x950b0" = { kind = "function", notes = ["research/font-textures.md", "research/window-activation.md", "research/window-input-refresh.md"] }
 "0x950ce" = { kind = "code", notes = ["research/font-textures.md", "research/main-menu.md"] }
-"0x95110" = { kind = "function", name = "string copy with allocation when needed", notes = ["research/army-checks-in-searches.md", "research/extension-windows.md", "research/frame-drawing-p99-safe-boundary.md", "research/notice-window.md", "research/parameterized-script.md", "research/tolerance-in-a-province.md"] }
+"0x95110" = { kind = "function", name = "string copy with allocation when needed", notes = ["research/army-checks-in-searches.md", "research/extension-windows.md", "research/frame-drawing-p99-safe-boundary.md", "research/mercenary-company-names.md", "research/notice-window.md", "research/parameterized-script.md", "research/tolerance-in-a-province.md"] }
 "0x951a1" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x9521c" = { kind = "leaf", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
 "0x955a0" = { kind = "leaf", name = "power spending destructor", notes = ["research/extension-windows.md", "research/frame-drawing-p99-safe-boundary.md", "research/gui-drawing.md", "research/interface-bindings.md", "research/window-elements.md"] }
@@ -1206,6 +1207,7 @@
 "0x38d5a0" = { kind = "function", name = "may reduce inflation", notes = ["research/power-spending.md"] }
 "0x39d260" = { kind = "function", notes = ["research/diplomacy.md"] }
 "0x3a37a7" = { kind = "code", name = "country allies", notes = ["research/countries.md"] }
+"0x3a8b39" = { kind = "code", notes = ["research/mercenary-company-names.md"] }
 "0x3b0220" = { kind = "function", name = "AI leaving a coalition", notes = ["research/countries.md"] }
 "0x3b0bac" = { kind = "code", notes = ["research/countries.md"] }
 "0x3b0c77" = { kind = "code", notes = ["research/countries.md"] }
@@ -1311,6 +1313,10 @@
 "0x411270" = { kind = "function", notes = ["research/leaders.md"] }
 "0x4112ef" = { kind = "code", name = "country mercenary companies", notes = ["research/leaders.md"] }
 "0x41135e" = { kind = "code", notes = ["research/leaders.md"] }
+"0x411c60" = { kind = "function", name = "create the army for a hired mercenary company", notes = ["research/mercenary-company-names.md"] }
+"0x411cfc" = { kind = "code", notes = ["research/mercenary-company-names.md"] }
+"0x411d0c" = { kind = "code", notes = ["research/mercenary-company-names.md"] }
+"0x411d37" = { kind = "code", notes = ["research/mercenary-company-names.md"] }
 "0x4128b0" = { kind = "function", name = "crown land interaction check", notes = ["research/government.md"] }
 "0x415b00" = { kind = "function", notes = ["research/ai.md", "research/late-game.md"] }
 "0x416b30" = { kind = "function", notes = ["research/main-menu.md"] }
@@ -2300,6 +2306,7 @@
 "0x83a2c0" = { kind = "function", name = "in-game lobby deleting destructor", notes = ["research/main-menu.md"] }
 "0x840a60" = { kind = "function", notes = ["research/saves.md"] }
 "0x84379b" = { kind = "code", notes = ["research/time.md"] }
+"0x844ce0" = { kind = "code", notes = ["research/mercenary-company-names.md"] }
 "0x848970" = { kind = "function", notes = ["research/time.md"] }
 "0x84c5e7" = { kind = "code", notes = ["research/saves.md"] }
 "0x84c7f5" = { kind = "code", notes = ["research/saves.md"] }
@@ -2317,6 +2324,8 @@
 "0x851580" = { kind = "code", name = "idea group can buy", notes = ["research/government.md"] }
 "0x851cdf" = { kind = "code", name = "idea group category", notes = ["research/government.md"] }
 "0x8525e0" = { kind = "function", notes = ["research/triggers.md"] }
+"0x852f9c" = { kind = "code", notes = ["research/mercenary-company-names.md"] }
+"0x853482" = { kind = "code", notes = ["research/mercenary-company-names.md"] }
 "0x855ad0" = { kind = "function", name = "institutions database", notes = ["research/institutions-ages-monuments.md", "research/provinces.md"] }
 "0x8571f0" = { kind = "leaf", name = "institution by index", notes = ["research/provinces.md"] }
 "0x85afc0" = { kind = "function", name = "stack string stream construction", notes = ["research/frame-drawing-p99-safe-boundary.md"] }
@@ -2546,7 +2555,7 @@
 "0x8ff0f0" = { kind = "function", name = "may hire a mercenary company", notes = ["research/leaders.md"] }
 "0x8ff7b0" = { kind = "function", name = "may hire a mercenary company there", notes = ["research/leaders.md", "research/provinces.md"] }
 "0x8ffad0" = { kind = "function", notes = ["research/leaders.md"] }
-"0x8ffcb0" = { kind = "function", name = "mercenary company name", notes = ["research/leaders.md"] }
+"0x8ffcb0" = { kind = "function", name = "mercenary company name", notes = ["research/leaders.md", "research/mercenary-company-names.md"] }
 "0x8fff70" = { kind = "function", notes = ["research/main-menu.md"] }
 "0x900070" = { kind = "function", notes = ["research/army-checks-in-searches.md", "research/mercenary-drill.md"] }
 "0x900100" = { kind = "function", name = "mercenary company regiments", notes = ["research/leaders.md"] }
@@ -3838,6 +3847,8 @@
 "0xe5fbf0" = { kind = "function", name = "console handler that creates a reformation center", notes = ["research/reformation-center-crash.md"] }
 "0xe64f60" = { kind = "function", notes = ["research/game-console.md"] }
 "0xe7a990" = { kind = "function", notes = ["research/fog-of-war.md"] }
+"0xe7c8eb" = { kind = "code", notes = ["research/mercenary-company-names.md"] }
+"0xe7d3d0" = { kind = "code", notes = ["research/mercenary-company-names.md"] }
 "0xe84320" = { kind = "function", notes = ["research/architecture.md"] }
 "0xe85a90" = { kind = "function", notes = ["research/camera.md"] }
 "0xe85d70" = { kind = "function", notes = ["research/drawing-beside-the-day.md"] }
@@ -4768,7 +4779,7 @@
 "0x14ab0a0" = { kind = "function", notes = ["research/architecture.md"] }
 "0x14ada90" = { kind = "function", notes = ["research/architecture.md", "research/main-thread.md"] }
 "0x14b3000" = { kind = "code", notes = ["research/localisation-loading.md"] }
-"0x14b34a0" = { kind = "function", name = "localisation lookup", notes = ["research/architecture.md", "research/diplomacy.md", "research/leaders.md", "research/localisation-loading.md", "research/main-menu.md", "research/names.md", "research/power-spending.md", "research/provinces.md", "research/sieges.md", "research/trade.md", "research/triggers.md", "research/units.md"] }
+"0x14b34a0" = { kind = "function", name = "localisation lookup", notes = ["research/architecture.md", "research/diplomacy.md", "research/leaders.md", "research/localisation-loading.md", "research/main-menu.md", "research/mercenary-company-names.md", "research/names.md", "research/power-spending.md", "research/provinces.md", "research/sieges.md", "research/trade.md", "research/triggers.md", "research/units.md"] }
 "0x14b36a4" = { kind = "code", notes = ["research/main-menu.md"] }
 "0x14b36c0" = { kind = "function", notes = ["research/localisation-loading.md"] }
 "0x14b3940" = { kind = "function", notes = ["research/localisation-loading.md"] }
@@ -5011,6 +5022,7 @@
 "0x1500000" = { kind = "code", notes = ["research/drawing-beside-the-day.md", "research/world-interface-seams.md"] }
 "0x1505dc0" = { kind = "function", notes = ["research/architecture.md"] }
 "0x1506d30" = { kind = "function", notes = ["research/architecture.md"] }
+"0x151c624" = { kind = "code", notes = ["research/mercenary-company-names.md"] }
 "0x1528950" = { kind = "function", notes = ["research/save-transfer-copy.md"] }
 "0x1529d20" = { kind = "function", name = "construct a text box", notes = ["research/interface-bindings.md", "research/panel-entry-text.md", "research/window-placement.md"] }
 "0x1529f85" = { kind = "code", notes = ["research/interface-bindings.md", "research/main-menu.md"] }
@@ -5633,6 +5645,8 @@
 "0x1702000" = { kind = "code", notes = ["research/localisation-loading.md"] }
 "0x17039a0" = { kind = "function", notes = ["research/extension-windows.md"] }
 "0x17043c0" = { kind = "function", notes = ["research/game-console.md", "research/user-folder.md"] }
+"0x17046a0" = { kind = "function", name = "remove color codes from a string", notes = ["research/mercenary-company-names.md"] }
+"0x1704704" = { kind = "code", notes = ["research/mercenary-company-names.md"] }
 "0x17047c0" = { kind = "function", notes = ["research/game-console.md"] }
 "0x1705180" = { kind = "leaf", name = "save name to ASCII", notes = ["research/text-input.md"] }
 "0x17055d0" = { kind = "leaf", notes = ["research/diplomacy.md", "research/units.md"] }

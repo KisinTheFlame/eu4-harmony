@@ -19,6 +19,9 @@ What the capabilities are is `eu4-harmony wiki`'s; how the framework is built, i
 
 | | |
 | --- | --- |
+| [mercenary-company-names.md](research/mercenary-company-names.md) | Native color removal damages multibyte army names; the Unicode module now removes colors at character boundaries |
+| [2026-11-15-mercenary-company-names.md](prototype-log/2026-11-15-mercenary-company-names.md) | Grand company name corruption reproduced in army memory, with the free company's intact name as a control |
+| [2026-11-15-mercenary-company-names-after.md](prototype-log/2026-11-15-mercenary-company-names-after.md) | Repaired grand company name stays intact; a colored, longer free company name loses only colors and uses game-owned heap storage |
 | [2026-11-15-window-ordering-fixed-user-game.md](prototype-log/2026-11-15-window-ordering-fixed-user-game.md) | Corrected ordering in a visible isolated game with the actual playset for the user |
 | [2026-11-15-window-ordering-icon-fixture.md](prototype-log/2026-11-15-window-ordering-icon-fixture.md) | Button and derived glow bind together; the native picker covers both, excludes covered input, executes its target and restores the button |
 | [2026-11-15-window-ordering-actual-playset.md](prototype-log/2026-11-15-window-ordering-actual-playset.md) | Unchanged actual playset passes picker coverage, covered-toggle exclusion, native follow action and button restoration |
