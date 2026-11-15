@@ -1,7 +1,7 @@
 //! Colonists: what the province view offers the player for colonizing a
 //! province, expelling a minority into a new colony and promoting settlement
 //! growth, and carrying each out through the game's own commands
-//! (docs/research/envoys.md, "Colonists").
+//! (docs/game/diplomacy/envoys.md, "Colonists").
 use super::commands::{write, Block};
 use super::{
     action,

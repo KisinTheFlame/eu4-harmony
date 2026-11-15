@@ -1,7 +1,7 @@
 //! Steps handed to the game as the messages Windows sends its window for a
 //! real mouse and keyboard, through the framework's window procedure
 //! (`framework_ui::input`), so that the framework UI has them first and SDL,
-//! which the game reads, after it (docs/research/input.md). A position in
+//! which the game reads, after it (docs/game/interface/input.md). A position in
 //! the frame is one in the window's client area, scaled when the two differ.
 use super::{plan::Held, plan::Step, Button, Direction, Position};
 use crate::framework_ui::input::{inject, window};

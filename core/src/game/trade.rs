@@ -1,5 +1,5 @@
 //! Trade: the trade nodes, and one node as the trade node view shows it
-//! (docs/research/trade.md). The view shows every country's trade power and
+//! (docs/game/provinces/trade.md). The view shows every country's trade power and
 //! merchants in any node the player has discovered, so the player's view
 //! leaves out only the nodes none of whose provinces the player has
 //! discovered, which the trade map leaves out.

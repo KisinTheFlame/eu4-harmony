@@ -1,6 +1,6 @@
 //! The ages: the age the world is in, the player's splendor, and the age's
 //! abilities, taking one through the game's own command
-//! (docs/research/institutions-ages-monuments.md, "Ages").
+//! (docs/game/provinces/institutions-ages-monuments.md, "Ages").
 use super::commands::{write, Block};
 use super::content::{self, checks};
 use super::{action, thousandths, Ctx, GResult, Session, Tag};

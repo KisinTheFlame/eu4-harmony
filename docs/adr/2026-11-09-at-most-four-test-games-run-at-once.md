@@ -2,7 +2,7 @@
 
 At most four test games run at once on this computer, counting those being started. A start while four others run waits, saying which, until one of them ends, and then starts; nothing is taken from a test game that runs. Any number of claims are still held, and a claim is still held until it is released: the limit is on games that run, not on claims. This supersedes the part of ADR test-games-have-no-limit-or-lease that let any number of test games run at once.
 
-Sessions playing scenarios several at a time, each in a test game of its own, together start more games than the computer holds: a game in 1820 takes 4.2 GB of memory and 1.3 GB of the graphics card's ([Test games](../prototype-log/2026-11-08-test-games.md)). Each scenario played at once is a test game of its own, so each takes one of the four.
+Sessions playing scenarios several at a time, each in a test game of its own, together start more games than the computer holds: a game in 1820 takes 4.2 GB of memory and 1.3 GB of the graphics card's ([Test games](../research/mechanics-evidence.md)). Each scenario played at once is a test game of its own, so each takes one of the four.
 
 ## Considered Options
 

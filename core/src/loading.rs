@@ -1,5 +1,5 @@
-//! A shorter startup and load, the game's data the same (docs/plans/loading.md,
-//! docs/research/loading.md). Each part is a speed-up of its own
+//! A shorter startup and load, the game's data the same (docs/game/program/loading.md,
+//! docs/game/program/loading.md). Each part is a speed-up of its own
 //! (`crate::speed`).
 //!
 //! - `music`: what the game reads each music file whole for at startup, its

@@ -1,6 +1,6 @@
 # Releases
 
-Merging a version PR into master requests a GitHub Release. GitHub checks the merged source, builds the packages, creates its `vX.Y.Z` tag and publishes the completed release. No manual tag command or second approval is needed. Ordinary code PRs do not publish. The design records are [releases-after-version-prs.md](plans/releases-after-version-prs.md) and the original [automated-releases.md](plans/automated-releases.md).
+Merging a version PR into master requests a GitHub Release. GitHub checks the merged source, builds the packages, creates its `vX.Y.Z` tag and publishes the completed release. No manual tag command or second approval is needed. Ordinary code PRs do not publish. The design records are [releases-after-version-prs.md](releases.md) and the original [automated-releases.md](releases.md).
 
 ## Downloads
 

@@ -5,7 +5,7 @@
 //! every character is drawn from the system font and the font's own glyphs are
 //! replaced. A glyph is drawn into it before its first use: the font's
 //! Windows-1252 characters as it loads, the rest the first time they are
-//! needed (docs/research/font-textures.md). The font's own page is read only
+//! needed (docs/game/interface/font-textures.md). The font's own page is read only
 //! for how its `H` looks: the color of its ink and its outline.
 //!
 //! A page starts small and grows as it fills (ADR font-pages-grow): a page

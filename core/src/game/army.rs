@@ -25,7 +25,7 @@ const REGISTER_UNIT: usize = 0xd3b0f8;
 const NO_KIND: usize = 0x8f480;
 const IDLE_ANSWERS: [usize; 3] = [NO_KIND, functions::NO, functions::NO];
 /// `(fleet, army)`: puts the army aboard the fleet, its fleet set and the
-/// army added to the fleet's list (docs/research/units.md).
+/// army added to the fleet's list (docs/game/military/units.md).
 const LOAD: usize = 0x90ada0;
 /// A unit's morale as its panel shows it, its regiments' weighted by their
 /// strength: (unit, out, weighted), and the most it can have: (unit, out,

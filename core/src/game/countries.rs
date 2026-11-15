@@ -1,5 +1,5 @@
 //! Countries: finding one by its tag, its tag, whether two are hostile, one
-//! read of a country and its budget (docs/research/countries.md).
+//! read of a country and its budget (docs/game/countries/countries.md).
 use super::{commands, country, modifiers, player::Eyes, thousandths, world, GResult, InWorld, Tag, View, World, WorldSession};
 use crate::containers;
 use crate::{
@@ -392,7 +392,7 @@ fn legitimacy_of(m: &Memory, c: usize, effects: bool) -> GResult<Option<Legitima
 }
 
 /// What the country's legitimacy of `kind` at `value` adds to its
-/// modifiers, as they were last made again (docs/research/modifiers.md): the
+/// modifiers, as they were last made again (docs/game/countries/modifiers.md): the
 /// set made for it, and a republic's second; nothing for a legitimacy, horde
 /// unity or devotion at its middle, which adds none.
 fn legitimacy_effects(m: &Memory, c: usize, kind: LegitimacyKind, value: i32) -> GResult<Vec<ModifierValue>> {

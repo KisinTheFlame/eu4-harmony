@@ -1,6 +1,6 @@
 //! The single player setup, the main menu's page 3 (`gamesetup.cpp`), and
 //! the text the `-start_tag` launch option leaves for it
-//! (docs/research/main-menu.md).
+//! (docs/game/interface/main-menu.md).
 
 /// The setup page's class, by vtable RVA.
 pub const CLASS: usize = 0x1d5e278;

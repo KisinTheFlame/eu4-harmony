@@ -2,7 +2,7 @@
 
 Extensions declare, through a capability, the elements they want added to the vanilla interface, and the framework injects them into vanilla windows at run time; mods do not override any vanilla `.gui` file. Paradox mods usually add interface by overriding vanilla `.gui` files, but when two mods override the same file only one takes effect; once there are more native extensions, adding things to the same vanilla panel will be common.
 
-Injection splices text into `.gui` files as the game reads them: the framework hooks the PhysFS functions eu4.exe exports by name (`PHYSFS_openRead`, `readBytes` and others), inserts element definitions into the host window's definition, and hands the result to the game's own parser. Creating the elements, their lifetime and reloading all follow the vanilla flow. The splice applies to the copy of the file that actually takes effect, so it also coexists with ordinary mods that override the same file. The evidence is in [research/ui-injection.md](../research/ui-injection.md).
+Injection splices text into `.gui` files as the game reads them: the framework hooks the PhysFS functions eu4.exe exports by name (`PHYSFS_openRead`, `readBytes` and others), inserts element definitions into the host window's definition, and hands the result to the game's own parser. Creating the elements, their lifetime and reloading all follow the vanilla flow. The splice applies to the copy of the file that actually takes effect, so it also coexists with ordinary mods that override the same file. The evidence is in [research/ui-injection.md](../game/interface/gui-loading.md).
 
 ## Considered Options
 

@@ -1,9 +1,9 @@
 //! Script conditions: whether one holds for a country, and its lines that do
-//! not, as the game's tooltips write them (docs/research/triggers.md). What
+//! not, as the game's tooltips write them (docs/game/scripts/triggers.md). What
 //! the player can take or choose in a panel, such as a decision, a reform, a
 //! policy or a privilege, is allowed by conditions in script; the panel's
 //! tooltip lists them, and a capability refusing one gives those lines as
-//! the game's reasons (docs/plans/player-actions.md).
+//! the game's reasons (docs/adding-a-capability.md).
 use super::{GResult, Tag};
 use crate::{
     game_string,

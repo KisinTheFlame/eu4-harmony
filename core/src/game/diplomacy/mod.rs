@@ -1,5 +1,5 @@
 //! Diplomacy: the player's diplomatic actions, each sent as the player's
-//! click in the diplomacy panel sends it (docs/research/diplomacy.md).
+//! click in the diplomacy panel sends it (docs/game/diplomacy/diplomacy.md).
 //!
 //! The framework makes the game's own diplomatic action, from the player to
 //! the other country, and asks it the checks the diplomacy panel and the

@@ -1,6 +1,6 @@
 //! Centers of trade: what the province view's center of trade button offers,
 //! and upgrading and downgrading one through the game's own command
-//! (docs/research/envoys.md, "Centers of trade").
+//! (docs/game/diplomacy/envoys.md, "Centers of trade").
 use super::commands::{write, Block};
 use super::{action, envoys, with_state, Ctx, GResult, Session, Tag};
 use crate::{

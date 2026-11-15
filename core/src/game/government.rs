@@ -1,7 +1,7 @@
 //! Government: the player's government reforms and rank, adopting reforms
 //! and raising the rank, through the game's own commands
-//! (docs/research/government.md, "Reforms" and "Rank"), and strengthening
-//! the government with military points (docs/research/power-spending.md,
+//! (docs/game/countries/government.md, "Reforms" and "Rank"), and strengthening
+//! the government with military points (docs/game/countries/power-spending.md,
 //! "The country's other spendings").
 use super::commands::{write, Block};
 use super::content::checks;

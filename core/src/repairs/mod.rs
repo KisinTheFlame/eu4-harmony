@@ -1,6 +1,6 @@
 //! Repairs (GLOSSARY): the game's own defects the framework puts right, each
 //! where the game goes wrong, so that they hold in vanilla's paths too
-//! (docs/research/main-menu.md). One file each, which says what it puts
+//! (docs/game/interface/main-menu.md). One file each, which says what it puts
 //! right and declares the repair as its `REPAIR`; [`REPAIRS`] holds them all.
 //!
 //! Here is what they share: letting the game's memory go ([`LettingGo`]),
@@ -38,7 +38,7 @@ use crate::{memory::Memory, points::Point};
 
 /// While it lives, `repair` lets the game's memory go on this thread: a
 /// developer build's quarantine keeps what is freed then, while it is on
-/// (docs/plans/leak-finding.md, M4). What the game frees later, as the GUI's sweep
+/// (docs/dev-tools.md, M4). What the game frees later, as the GUI's sweep
 /// frees a window a repair killed, is not kept.
 struct LettingGo;
 

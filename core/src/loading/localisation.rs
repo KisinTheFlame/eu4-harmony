@@ -1,6 +1,6 @@
 //! Localisation loaded once at startup, and its `localisation/replace` pass
-//! and duplicate check made linear (docs/research/localisation-loading.md,
-//! docs/plans/large-mod-startup.md, M1).
+//! and duplicate check made linear (docs/game/program/localisation-loading.md,
+//! docs/plans/README.md, M1).
 //!
 //! At startup `main` loads the whole localisation (`0x873fc0`), sets the text
 //! editor's strings, and at `0x877a79` immediately calls `0x14b4a20`, which

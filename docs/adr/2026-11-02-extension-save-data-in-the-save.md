@@ -27,4 +27,4 @@ Inside the entry is a format version, then the data: one JSON object of extensio
 - Data a save holds for an extension that is not loaded is gone after the next save. An extension that fails to load loses its data in the saves written meanwhile.
 - The data is written whenever the game writes its world, including the saves it makes for multiplayer hot-join and for debugging. The framework does not support multiplayer, and a client without the framework would skip the entry as vanilla does.
 - When the data cannot be read, or carries a newer format version, every extension gets none for that save, and the framework log says why.
-- Where the data is written and read are dependency points (ADR framework-succeeds-or-fails-as-a-whole), described in [research/saves.md](../research/saves.md).
+- Where the data is written and read are dependency points (ADR framework-succeeds-or-fails-as-a-whole), described in [research/saves.md](../game/program/saves.md).

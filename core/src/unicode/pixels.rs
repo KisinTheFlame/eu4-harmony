@@ -3,7 +3,7 @@
 //! corners fall between pixels, and the text effect's linear filter spreads
 //! each texel over two. Its own correction, an origin of (-0.5, 0.5) GUI
 //! units, is Direct3D 9's half pixel only at a scale of 1
-//! (docs/research/font-textures.md). A glyph drawn a texel to a pixel, as
+//! (docs/game/interface/font-textures.md). A glyph drawn a texel to a pixel, as
 //! `fill` draws system glyphs, is moved here so that its edges fall on pixel
 //! edges and it is whole texels wide and tall:
 //!

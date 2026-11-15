@@ -21,7 +21,7 @@ times = false
 fields = {}
 
 # Answers remote control's memory: what the process holds, by where it lies,
-# at no cost between two asks (docs/plans/leak-finding.md). No options.
+# at no cost between two asks (docs/dev-tools.md). No options.
 [memory-account]
 
 # Bounded on-demand windows at performance.begin/end. No persistent options.
@@ -30,7 +30,7 @@ fields = {}
 # Counts the game's live heap blocks by site and generation, logs at every
 # world reset those the earlier sessions left, and answers remote control's
 # memory.leftovers, memory.watch, memory.generation, memory.quarantine and
-# memory.pages (docs/plans/leak-finding.md). Builds the memory account in too. No
+# memory.pages (docs/dev-tools.md). Builds the memory account in too. No
 # options.
 [heap-census]
 
@@ -106,7 +106,7 @@ let-run = []
 give-up-after = 30
 
 # Counts where the day goes into the interface's or the graphics' code, by
-# call stack (docs/plans/drawing-thread.md, C1).
+# call stack (docs/game/interface/frame-lifecycle.md).
 [crossings]
 # How many game days pass between two reports in the framework log.
 report-every = 30

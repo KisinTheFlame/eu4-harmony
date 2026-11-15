@@ -1,7 +1,7 @@
 //! The Holy Roman Empire's view: its reforms, each with whether the player
 //! can pass it as the game's own check says, and passing and revoking them
 //! through the game's own commands; and what the Celestial Empire's view
-//! shares with it, an empire's reforms (docs/research/empires.md).
+//! shares with it, an empire's reforms (docs/game/countries/empires.md).
 use super::commands::{write, Block};
 use super::{action, conditions, content, envoys, questions, script, thousandths, Ctx, GResult, Session, Tag};
 use crate::{

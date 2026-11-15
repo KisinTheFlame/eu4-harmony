@@ -1,7 +1,7 @@
 //! Offers (GLOSSARY): what other countries proposed to the player that waits
 //! for an answer, read from the diplomacy dialogs the game holds for the
 //! player, and answered as the player does, with the dialog's accept or
-//! decline button. The evidence is in docs/research/questions-and-offers.md.
+//! decline button. The evidence is in docs/game/diplomacy/questions-and-offers.md.
 use super::{map_manager, Ctx, GResult, Session, Status, Tag};
 use crate::containers;
 use crate::{

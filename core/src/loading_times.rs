@@ -1,6 +1,6 @@
 //! When each stretch of the game's startup and of a save's load begins and
 //! ends, in the framework log, so that a player's logs say where a slow
-//! start spent its time (docs/research/loading.md, "The startup after L5,
+//! start spent its time (docs/game/program/loading.md, "The startup after L5,
 //! broken down"). The game's own `setup.log` and `game.log` carry no times.
 //!
 //! Each stretch is one function of the game's, observed at its start: its

@@ -6,7 +6,7 @@
 //! A map position is a pixel of the province map (`map/provinces.bmp`): x
 //! from its left edge, y from its bottom edge, as `map/positions.txt` writes
 //! them. The camera's height is in the same unit, above the map's base plane
-//! (docs/research/camera.md).
+//! (docs/game/interface/camera.md).
 use super::{map_manager, with_state, GResult, World, WorldSession};
 use crate::{
     memory::Memory,

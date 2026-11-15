@@ -1,0 +1,3 @@
+# Address lookup leads to the game's logic
+
+An address's explanation belongs to `docs/game/`, organized by system and topic: its role, callers and callees, state read and written, and known limits. The address index links only to these pages, including nested topics; investigation and measurement evidence is reached through them. `research/` retains evidence with independent value rather than a second account of the game's logic. The cleanup extracts existing knowledge without extending reverse engineering: an address mentioned during an investigation is not thereby a fully understood function.

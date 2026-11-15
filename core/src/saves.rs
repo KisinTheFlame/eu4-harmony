@@ -3,7 +3,7 @@
 //! state, `eu4_harmony`, after the world's own entries, before the AI a plain
 //! save holds and before the checksum, and when a save is loaded the framework
 //! reads that entry before the world's handler of top-level entries sees it.
-//! How the game writes and reads saves is in docs/research/saves.md.
+//! How the game writes and reads saves is in docs/game/program/saves.md.
 //!
 //! The save loader is observed as well, which tells the sessions
 //! (`crate::sessions`) when a save is being read and whether it was.

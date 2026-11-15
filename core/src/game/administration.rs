@@ -1,5 +1,5 @@
 //! Province administration: what the province view's buttons do in a
-//! province (docs/research/province-view.md). Each action checks as its button
+//! province (docs/game/provinces/province-view.md). Each action checks as its button
 //! does, with the reasons its tooltip gives, and posts the game's own command
 //! in its written form through the session's commands ([`super::action`]);
 //! the command's own check is asked again there.

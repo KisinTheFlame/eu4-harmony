@@ -1,6 +1,6 @@
 //! A save chosen in single player added to the file transfer without its
-//! deflated copy (docs/plans/game-speed.md, S11;
-//! docs/research/save-transfer-copy.md).
+//! deflated copy (docs/plans/README.md#performance, S11;
+//! docs/game/program/save-transfer-copy.md).
 //!
 //! When the single player setup reads the save the player chose
 //! (`0x1132ca0`), it hands the file to the game's file transfer manager,

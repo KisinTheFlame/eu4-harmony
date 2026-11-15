@@ -6,7 +6,7 @@
 //! prepared instead ([`update`]), so that its scene comes before the frame is
 //! handed on; and between updates, which at speed 5 come once a day, the
 //! drawing thread keeps the tooltip at the cursor ([`follow_cursor`]), as it
-//! does the map icons at the camera (docs/research/drawing-beside-the-day.md,
+//! does the map icons at the camera (docs/game/interface/frame-lifecycle.md,
 //! "Frames late at speed 5").
 use super::{drawing_on, on_main, IDLER_MAP, OTHER_CAMERA};
 use crate::called_by_game;

@@ -1,7 +1,7 @@
-//! The save checksum's sum taken on several threads (docs/plans/game-speed.md, S8).
+//! The save checksum's sum taken on several threads .
 //!
 //! The save checksum is an MD5 of a sum of the entry's bytes
-//! (docs/research/saves.md, "The checksum"). The sum, a memory stream's method
+//! (docs/game/program/saves.md, "The checksum"). The sum, a memory stream's method
 //! `0x171f3f0`, takes a byte at a time: `a = a + byte`, then `b = b + a`, each
 //! kept as it is up to 0xffff and made 1 above it; each step waits for the
 //! one before it, 44 ms for a game state of 55 MB.

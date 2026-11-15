@@ -1,7 +1,7 @@
 //! Missionaries: what the province view's missionary button offers the
 //! player in a province, sending and recalling one through the game's own
 //! command, and the number of missionaries the game sends by itself
-//! (docs/research/envoys.md, "Missionaries").
+//! (docs/game/diplomacy/envoys.md, "Missionaries").
 use super::commands::{write, Block};
 use super::{
     action,

@@ -1,7 +1,7 @@
 //! Monuments: the great projects in the player's provinces, monuments and
 //! canals, and what the monuments window's buttons do through the game's
 //! own commands: upgrading, building, moving, cancelling and boosting
-//! (docs/research/institutions-ages-monuments.md, "Monuments" and "Great
+//! (docs/game/provinces/institutions-ages-monuments.md, "Monuments" and "Great
 //! projects' other commands").
 use super::commands::{write, Block};
 use super::content::{self, checks};

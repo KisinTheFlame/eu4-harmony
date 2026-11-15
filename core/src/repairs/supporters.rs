@@ -1,6 +1,6 @@
 //! What a subject relation's end walks, in vanilla too: the subject's list
 //! of the countries it shares a support of independence with, which the walk
-//! frees under itself (docs/research/dependency-teardown.md).
+//! frees under itself (docs/game/diplomacy/dependency-teardown.md).
 //!
 //! As the relation ends (`0xa61900`), the game walks the subject's
 //! `support_independence` list and ends each of those supports, and after

@@ -1,6 +1,6 @@
 //! Naval doctrines: the doctrines of the game's database as the military
 //! view's list offers them, and choosing one through the game's own command
-//! (docs/research/power-spending.md, "The country's other spendings").
+//! (docs/game/countries/power-spending.md, "The country's other spendings").
 use super::commands::{write, Block};
 use super::content::{self, checks};
 use super::{action, power, thousandths, Ctx, GResult, Session, Tag};

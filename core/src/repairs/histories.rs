@@ -1,5 +1,5 @@
 //! What the records of the histories leave as they go: the monarchs, heirs
-//! and queens a country's history holds (docs/research/main-menu.md, "The
+//! and queens a country's history holds (docs/game/interface/main-menu.md, "The
 //! monarchs a history keeps"), and the battles a war's history holds.
 //!
 //! A person is let go by the characters' manager, which deletes every one on

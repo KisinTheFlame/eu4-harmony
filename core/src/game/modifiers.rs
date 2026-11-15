@@ -1,7 +1,7 @@
 //! A country's modifiers as the game's own getters read them: the values
 //! its getters of one modifier take, and its yes-or-no modifiers; and a set
 //! of modifiers read pair by pair, each modifier named by its key
-//! (docs/research/modifiers.md). Every group that asks a country's
+//! (docs/game/countries/modifiers.md). Every group that asks a country's
 //! modifiers asks them here.
 use super::{thousandths, GResult};
 use crate::{

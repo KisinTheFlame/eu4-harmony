@@ -30,4 +30,4 @@ Nothing takes your test game from you, and nothing limits how many are held: it 
 - **Status**: `cargo xtask game status` prints each test game's holder, purpose and process, the `eu4.exe` that are no test game's (the player's, or an older checkout's), and folders no claim refers to.
 - **The player** plays from Steam as always, beside the test games: their game is no claim's, and no command ends it.
 - **Installing into the game folder** (`cargo xtask install`) changes the player's own framework, and the player's game must be closed meanwhile, which the command does not check; test games may run, since they load only `version.dll` from the game folder. Do it only when the user asks.
-- The record is `%LOCALAPPDATA%\eu4-harmony-dev\claims.json`, the claims' folders under `claims\`. The design is [docs/plans/test-games.md](../../../docs/plans/test-games.md).
+- The record is `%LOCALAPPDATA%\eu4-harmony-dev\claims.json`, the claims' folders under `claims\`. The procedure is [development tools](../../../docs/dev-tools.md#test-games).

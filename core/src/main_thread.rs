@@ -2,7 +2,7 @@
 //! game's run pins it to one, the one in the middle of those it may run on,
 //! the same in every game on a computer, so several games side by side share
 //! one processor for their main threads. Nothing in the game says why it pins
-//! the thread (docs/research/headless.md, "One game per machine"); the call
+//! the thread (docs/game/program/headless.md, "One game per machine"); the call
 //! is left out, in every game.
 use crate::points::Point;
 

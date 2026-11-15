@@ -1,5 +1,5 @@
 //! What the game draws text with: fonts, their pages in the texture manager,
-//! and the renderer that makes textures (docs/research/unicode-text.md,
+//! and the renderer that makes textures (docs/game/interface/unicode-text.md,
 //! font-textures.md).
 
 /// A font (vtable 0x1d99120).

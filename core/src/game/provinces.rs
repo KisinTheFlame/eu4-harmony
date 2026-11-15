@@ -2,7 +2,7 @@
 //! province's snapshot: its name, development, terrain, fort, buildings,
 //! autonomy, culture, religion, unrest, trade, state, cores and claims, what
 //! is being built or done there, and what the player can recruit there
-//! (docs/research/provinces.md).
+//! (docs/game/provinces/provinces.md).
 use super::{commands, modifiers, player::Eyes, signals, thousandths, with_state, Ctx, GResult, InWorld, Tag, World, WorldSession};
 use crate::containers;
 use crate::{

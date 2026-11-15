@@ -22,7 +22,7 @@ static ORIGINAL_SPRITE_TYPE_UNLOAD: Function<SpriteTypeUnload> = Function::new()
 /// once, at startup, when no sprite of the game shows; after an in-process
 /// return, sprites the session left still count, and a sprite of the type
 /// shown later, finding the count above 0, does not load the texture, and is
-/// drawn from one let go (docs/research/main-menu.md).
+/// drawn from one let go (docs/game/interface/main-menu.md).
 #[called_by_game]
 unsafe extern "C" fn sprite_type_unloading(kind: usize) {
     let stays = crate::guarded("sprite type unload", || {

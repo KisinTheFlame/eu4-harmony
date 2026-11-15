@@ -1,7 +1,7 @@
 //! The papacy view: the papal actions, calling the ecumenical council,
 //! buying indulgence, investing papal influence in the curia, and the curia
 //! controller's golden bulls, through the game's own commands, with the
-//! game's own checks (docs/research/religion.md, "The papacy and the
+//! game's own checks (docs/game/provinces/religion.md, "The papacy and the
 //! curia").
 use super::commands::{write, Block};
 use super::{action, conditions, content, Ctx, GResult, Session, Tag};

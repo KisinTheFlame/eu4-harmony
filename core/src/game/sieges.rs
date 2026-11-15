@@ -1,7 +1,7 @@
 //! Sieges: the siege view's buttons, the artillery barrage, the naval
 //! barrage and the assault, each the game's spending of military points,
 //! posted as the view posts it, with the game's own answer of whether the
-//! player can and why not (docs/research/sieges.md).
+//! player can and why not (docs/game/military/sieges.md).
 use super::units::checks;
 use super::{power, with_state, Ctx, GResult, Session, View};
 use crate::{

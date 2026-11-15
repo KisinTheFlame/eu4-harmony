@@ -1,4 +1,4 @@
-//! Harmony's item on the Steam Workshop (docs/plans/workshop-release.md): the
+//! Harmony's item on the Steam Workshop (docs/releases.md): the
 //! folder `cargo xtask release` packs for it, the comparison images rendered
 //! for its page, and `cargo xtask workshop-upload`, which uploads the folder
 //! with SteamCMD.

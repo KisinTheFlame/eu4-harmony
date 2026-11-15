@@ -1,6 +1,6 @@
 //! The national focus: which kind of monarch power the player's country
 //! favors, as the court view's focus buttons set it
-//! (docs/research/power-spending.md, "National focus").
+//! (docs/game/countries/power-spending.md, "National focus").
 use super::commands::{write, Block};
 use super::{action, power, technology::key, GResult, Session};
 use crate::{

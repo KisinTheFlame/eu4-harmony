@@ -1,6 +1,6 @@
 //! What a save says about itself: its player, its date and the mods it was
 //! made with, from its header (`meta` in a compressed save), as the continue
-//! box knows them before the save is loaded (docs/research/main-menu.md).
+//! box knows them before the save is loaded (docs/game/interface/main-menu.md).
 //!
 //! A save is plain text (`EU4txt`) or a zip file whose `meta` entry is
 //! deflated text or the game's binary form (`EU4bin`, ironman saves).
@@ -18,7 +18,7 @@ pub struct Header {
     /// It is a save of observe mode: its player is the observer's tag,
     /// [`OBSERVER`].
     pub observing: bool,
-    /// The game date (docs/research/dates.md).
+    /// The game date (docs/game/day/dates.md).
     pub date: Option<i32>,
     /// The mods the game was played with when it was saved, in the
     /// playset's order (`mods_enabled_names`).

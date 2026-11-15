@@ -126,7 +126,7 @@ struct OrderState {
 /// game to run, as regional-combat's always have; remote control's are the
 /// player's, which the player gives while the game is paused too (a paused
 /// right-click on the map queries the route and submits it as these do,
-/// docs/research/army-orders.md).
+/// docs/game/military/army-orders.md).
 fn preflight(m: &Memory, ctx: &Ctx, army: usize, caller: Caller) -> GResult<OrderState> {
     let kind = army::kind(m, army)?;
     if kind == army::Kind::Other {
@@ -377,7 +377,7 @@ impl Orders {
 /// `(fleet, army, regiments)`: whether the fleet may take the army aboard,
 /// with room for `regiments` (all the army's when negative) beside those
 /// aboard already: the route query's test of a step onto the sea, made for
-/// each fleet there (docs/research/units.md).
+/// each fleet there (docs/game/military/units.md).
 const MAY_CARRY: GameFunction<3> = GameFunction::at(0x90acf0);
 /// `(ship) → i32`: the regiments a ship carries.
 const SHIP_ROOM: GameFunction<1> = GameFunction::at(0xae1a40);
@@ -464,7 +464,7 @@ fn transport_text(army: u64, fleets: &[u64], goal: u32) -> String {
 /// The game's move command for the army with the ID `id`, in `origin`, to
 /// `goal`, as the player's right click on another province makes it: the
 /// army's route replaced, and its fleet's own orders cancelled
-/// (docs/research/army-orders.md).
+/// (docs/game/military/army-orders.md).
 fn move_text(id: u64, origin: u32, goal: u32) -> String {
     let order = Block::new().id("unit", id).block("province", Block::new().value(goal)).word("location", origin);
     write("move_order", order.word("clear", "yes").word("cancel_autofleet", "yes"))

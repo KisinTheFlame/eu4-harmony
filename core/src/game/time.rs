@@ -3,7 +3,7 @@
 //! game's speed commands, as the player's speed keys do; stopping time
 //! as a date is reached, for remote control's advancing; and whether a
 //! question waits for the player's answer. All of it also in observe mode
-//! with no country in view, as the game lets the player run time then too. The evidence is in docs/research/time.md.
+//! with no country in view, as the game lets the player run time then too. The evidence is in docs/game/day/time.md.
 use super::{action, context, context_any, fail, map_manager, paused, questions, world_context_any, Caller, GResult, Status, World, WorldSession};
 use crate::{
     hooks::Call,
@@ -48,7 +48,7 @@ pub enum Pause {
 pub struct Time {
     /// The session, as [`super::session::Session`] has it.
     pub session: u64,
-    /// The date (docs/research/dates.md), 24 a day.
+    /// The date (docs/game/day/dates.md), 24 a day.
     pub date: i32,
     /// 1 (slowest) to 5 (fastest).
     pub speed: u32,

@@ -1,6 +1,6 @@
 //! The application, which runs the game's main loop and switches between the
-//! main menu and a game by its idler switch (docs/research/main-menu.md,
-//! docs/research/notice-window.md). Every idler keeps it at
+//! main menu and a game by its idler switch (docs/game/interface/main-menu.md,
+//! docs/game/interface/window-construction.md). Every idler keeps it at
 //! [`idler::APPLICATION`].
 
 /// An idler, what the application's frame runs: the main menu, or a game's

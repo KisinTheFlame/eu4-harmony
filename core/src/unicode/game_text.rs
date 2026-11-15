@@ -198,7 +198,7 @@ pub fn to_utf8(text: &[u8]) -> String {
 /// ("Not enough £icon_manpower£."). An icon's name is what the game reads
 /// as one: letters, digits, `_` and `|`. The game's other codes stay as
 /// they are: `¤` (money), `$` and `@` with the characters they take
-/// (docs/research/unicode-text.md).
+/// (docs/game/interface/unicode-text.md).
 pub fn plain(text: &[u8]) -> String {
     let mut out = String::new();
     let mut chars = chars(text).map(|(c, _)| c).peekable();

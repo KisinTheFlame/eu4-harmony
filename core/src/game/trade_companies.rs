@@ -1,7 +1,7 @@
 //! Trade companies: what the province view offers for a province's trade
 //! company, adding the province to it and removing it, and the trade
 //! company investments of its area, through the game's own commands
-//! (docs/research/envoys.md, "Trade companies").
+//! (docs/game/diplomacy/envoys.md, "Trade companies").
 use super::commands::{write, Block};
 use super::{action, envoys, with_state, Ctx, GResult, Session, Tag};
 use crate::{

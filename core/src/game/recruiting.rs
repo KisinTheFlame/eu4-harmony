@@ -1,7 +1,7 @@
 //! Recruiting: one regiment or ship of a kind in a province, ordered for the
 //! player through the game's own recruit command, as the recruit button in
 //! the province view orders it, so that the game's checks and costs apply
-//! (docs/research/recruiting.md). The command goes in its written form
+//! (docs/game/military/recruiting.md). The command goes in its written form
 //! through the session's commands ([`super::action`]).
 use super::commands::{write, Block};
 use super::{

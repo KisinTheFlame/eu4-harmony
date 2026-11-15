@@ -1,5 +1,5 @@
 //! Battle names in the player language's word order
-//! (docs/research/names.md). 0x23a900 names a battle, a siege or an
+//! (docs/game/countries/names.md). 0x23a900 names a battle, a siege or an
 //! occupation as the localisation's word for it (`BATTLE_OF`, `SIEGE_OF`,
 //! `OCCUPATION_OF`), a space and the province: "Battle of Athens", but also
 //! "战役 雅典" where Chinese says "雅典战役". Battle results, the combat and

@@ -7,7 +7,7 @@
 //! game's text code.
 //!
 //! The core is the one `-harmony_core=<path>` on the game's command line
-//! names, as a test game runs a core of its own (docs/plans/test-games.md); a
+//! names, as a test game runs a core of its own (docs/dev-tools.md#test-games); a
 //! core named there that does not load ends the game, which would otherwise
 //! run without the core it was started for. Else it is the first there is of
 //! `eu4-harmony\eu4_harmony_core.dll` beside this DLL, where a developer

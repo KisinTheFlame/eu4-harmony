@@ -1,6 +1,6 @@
 //! Occupation: handing a province the player occupies over to an ally, as
 //! the province view's transfer occupation button and window do
-//! (docs/research/peace.md, "Handing over occupied provinces").
+//! (docs/game/diplomacy/peace.md, "Handing over occupied provinces").
 //!
 //! The button asks the game's check for the player and the province, which
 //! says why not, or lists the allies that may take it; the window lists

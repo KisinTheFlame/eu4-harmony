@@ -1,6 +1,6 @@
 //! Merchants: what the trade view offers the player in a trade node, and
 //! sending, recalling and steering merchants and choosing the node's trading
-//! policy through the game's own commands (docs/research/envoys.md,
+//! policy through the game's own commands (docs/game/diplomacy/envoys.md,
 //! "Merchants").
 use super::commands::{write, Block};
 use super::{
@@ -66,7 +66,7 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x13fce42usize, "48 6b c8 78", "trade node link size").uses(&[LINK_SIZE]),
         Point::keep(0xb5bdf6usize, "48 8b 44 11 30", "link's node").uses(&[LINK_TO]),
         // The trade node's writer in saves writes its definition's key, and
-        // the province tooltip its name (docs/research/provinces.md).
+        // the province tooltip its name (docs/game/provinces/provinces.md).
         Point::keep(0x9d7595usize, "48 8b 98 a8 00 00 00 48 83 c3 10", "trade node key").uses(&[KEY]),
         Point::keep(0x9f0e20usize, "4c 8b 88 a8 00 00 00 49 83 c1 30", "trade node name").uses(&[NAME]),
         Point::keep(MAY_SEND, "48 89 5c 24 10 48 89 74 24 18 48 89 7c 24 20 55", "may send a merchant"),
