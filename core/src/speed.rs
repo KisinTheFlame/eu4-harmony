@@ -32,7 +32,7 @@ pub struct SpeedUp {
 }
 
 /// Every speed-up, in the order the report names them.
-pub static ALL: [&SpeedUp; 19] = [
+pub static ALL: [&SpeedUp; 20] = [
     &pops::SPEED_UP,
     &crate::drawing::SPEED_UP,
     &crate::loading::music::SPEED_UP,
@@ -42,6 +42,7 @@ pub static ALL: [&SpeedUp; 19] = [
     &crate::loading::listed::SPEED_UP,
     &crate::loading::transfer::SPEED_UP,
     &crate::loading::save_input::SPEED_UP,
+    &crate::loading::distance_scratch::SPEED_UP,
     &crate::loading::parameters::SPEED_UP,
     &crate::loading::localisation::SPEED_UP,
     &crate::loading::trigger_profile::SPEED_UP,

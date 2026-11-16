@@ -942,9 +942,17 @@
 "0x2cb718" = { kind = "code", notes = ["game/countries/countries.md"] }
 "0x2cbf20" = { kind = "function", name = "country destructor", notes = ["game/countries/countries.md", "game/interface/main-menu.md"] }
 "0x2cd570" = { kind = "function", notes = ["game/diplomacy/diplomacy.md"] }
+"0x2d0a00" = { kind = "function", notes = ["game/program/saves.md"] }
 "0x2d0a3f" = { kind = "code", notes = ["game/countries/country-knowledge.md"] }
 "0x2d0ae3" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
-"0x2d0b30" = { kind = "function", notes = ["game/provinces/trade-range-and-naval-supply.md"] }
+"0x2d0b30" = { kind = "function", name = "rebuild country distance tables", notes = ["game/program/saves.md", "game/provinces/trade-range-and-naval-supply.md"] }
+"0x2d0b5d" = { kind = "code", notes = ["game/program/saves.md"] }
+"0x2d1220" = { kind = "code", notes = ["game/program/saves.md"] }
+"0x2d1251" = { kind = "code", notes = ["game/program/saves.md"] }
+"0x2d2043" = { kind = "code", notes = ["game/program/saves.md"] }
+"0x2d2052" = { kind = "code", notes = ["game/program/saves.md"] }
+"0x2d20c8" = { kind = "code", notes = ["game/program/saves.md"] }
+"0x2d2120" = { kind = "function", name = "store both country distance minima", notes = ["game/program/saves.md"] }
 "0x2d2520" = { kind = "function", notes = ["game/provinces/institutions-ages-monuments.md", "game/provinces/trade-range-and-naval-supply.md"] }
 "0x2d2d2d" = { kind = "code", notes = ["game/diplomacy/questions-and-offers.md", "game/military/armies.md", "game/military/routes.md"] }
 "0x2d2fc0" = { kind = "function", notes = ["game/program/world-interface-coupling.md"] }
@@ -1030,7 +1038,7 @@
 "0x300b40" = { kind = "function", name = "may claim defender of the faith", notes = ["game/provinces/religion.md"] }
 "0x3012c1" = { kind = "code", name = "religion's defender", notes = ["game/provinces/religion.md"] }
 "0x30132d" = { kind = "code", notes = ["game/provinces/religion.md"] }
-"0x302ee0" = { kind = "function", notes = ["game/day/monthly-update.md"] }
+"0x302ee0" = { kind = "function", notes = ["game/day/monthly-update.md", "game/program/saves.md"] }
 "0x3041b0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
 "0x3050d7" = { kind = "code", notes = ["game/scripts/triggers.md"] }
 "0x3050e6" = { kind = "code", notes = ["game/scripts/triggers.md"] }
@@ -1065,7 +1073,7 @@
 "0x3191fa" = { kind = "code", name = "heir for the death lines", notes = ["game/countries/names.md"] }
 "0x319257" = { kind = "code", name = "heir name and dynasty for succession", notes = ["game/countries/names.md"] }
 "0x319324" = { kind = "code", name = "heir name and dynasty for regency", notes = ["game/countries/names.md"] }
-"0x327dc0" = { kind = "function", notes = ["game/countries/country-knowledge.md", "game/day/country-daily-update.md", "game/day/monthly-update.md", "game/interface/main-menu.md", "game/military/army-checks-in-searches.md", "game/provinces/tolerance-in-a-province.md", "game/provinces/trade-range-and-naval-supply.md"] }
+"0x327dc0" = { kind = "function", notes = ["game/countries/country-knowledge.md", "game/day/country-daily-update.md", "game/day/monthly-update.md", "game/interface/main-menu.md", "game/military/army-checks-in-searches.md", "game/program/saves.md", "game/provinces/tolerance-in-a-province.md", "game/provinces/trade-range-and-naval-supply.md"] }
 "0x329140" = { kind = "function", notes = ["game/day/monthly-update.md", "game/provinces/trade-range-and-naval-supply.md"] }
 "0x329230" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x329310" = { kind = "function", notes = ["game/interface/main-menu.md"] }
@@ -1124,7 +1132,7 @@
 "0x34e890" = { kind = "function", name = "why no colonist", notes = ["game/diplomacy/envoys.md"] }
 "0x3503d0" = { kind = "function", notes = ["game/provinces/trade-range-and-naval-supply.md"] }
 "0x350a20" = { kind = "function", notes = ["game/provinces/trade-range-and-naval-supply.md"] }
-"0x350b80" = { kind = "function", notes = ["game/provinces/trade-range-and-naval-supply.md"] }
+"0x350b80" = { kind = "function", notes = ["game/program/saves.md", "game/provinces/trade-range-and-naval-supply.md"] }
 "0x3520d0" = { kind = "function", notes = ["game/provinces/trade-range-and-naval-supply.md"] }
 "0x352180" = { kind = "function", notes = ["game/provinces/trade-range-and-naval-supply.md"] }
 "0x3526b0" = { kind = "function", notes = ["game/provinces/trade-range-and-naval-supply.md"] }
@@ -1899,6 +1907,7 @@
 "0x75c5f6" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x75c5fc" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x75c6f8" = { kind = "code", notes = ["game/countries/achievements.md"] }
+"0x75cb40" = { kind = "function", notes = ["game/program/saves.md"] }
 "0x75cf93" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x75d4c0" = { kind = "function", notes = ["game/ai/ai.md"] }
 "0x75d690" = { kind = "function", notes = ["game/day/monthly-update.md", "game/day/random.md", "game/day/time-architecture.md", "game/interface/frame-lifecycle.md"] }
@@ -1943,7 +1952,7 @@
 "0x776606" = { kind = "code", notes = ["game/provinces/trade-range-and-naval-supply.md"] }
 "0x776b90" = { kind = "function", name = "recalculate cached world data with an update thread", notes = ["game/day/threads.md", "game/program/saves.md"] }
 "0x777130" = { kind = "function", notes = ["game/interface/main-menu.md"] }
-"0x777b80" = { kind = "function", notes = ["game/program/saves.md", "game/provinces/tolerance-in-a-province.md"] }
+"0x777b80" = { kind = "function", name = "apply savegame fixes", notes = ["game/program/saves.md", "game/provinces/tolerance-in-a-province.md"] }
 "0x779330" = { kind = "function", notes = ["game/day/time.md"] }
 "0x77a1c0" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x77d8a0" = { kind = "function", notes = ["game/ai/ai.md", "game/interface/frame-lifecycle.md"] }
@@ -2452,6 +2461,7 @@
 "0x887448" = { kind = "code", notes = ["game/provinces/provinces.md"] }
 "0x88a0f0" = { kind = "function", notes = ["game/provinces/provinces.md"] }
 "0x88a139" = { kind = "code", name = "terrain name", notes = ["game/provinces/provinces.md"] }
+"0x88a1a0" = { kind = "function", notes = ["game/program/saves.md"] }
 "0x88a1fb" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x88a390" = { kind = "function", notes = ["game/ai/support-checks.md", "game/provinces/trade-range-and-naval-supply.md"] }
 "0x88bb80" = { kind = "function", notes = ["game/program/world-interface-coupling.md"] }
@@ -2621,7 +2631,7 @@
 "0x93e630" = { kind = "function", notes = ["game/diplomacy/dependency-teardown.md"] }
 "0x93e760" = { kind = "function", notes = ["game/day/monthly-update.md"] }
 "0x93fb80" = { kind = "function", notes = ["game/countries/country-knowledge.md", "game/provinces/tolerance-in-a-province.md"] }
-"0x93fe30" = { kind = "function", name = "country's diplomatic caches refreshed", notes = ["game/countries/country-knowledge.md", "game/countries/power-spending.md", "game/day/country-daily-update.md", "game/diplomacy/dependency-teardown.md", "game/interface/main-menu.md", "game/provinces/tolerance-in-a-province.md"] }
+"0x93fe30" = { kind = "function", name = "country's diplomatic caches refreshed", notes = ["game/countries/country-knowledge.md", "game/countries/power-spending.md", "game/day/country-daily-update.md", "game/diplomacy/dependency-teardown.md", "game/interface/main-menu.md", "game/program/saves.md", "game/provinces/tolerance-in-a-province.md"] }
 "0x93ff8e" = { kind = "code", notes = ["game/countries/country-knowledge.md"] }
 "0x9400a3" = { kind = "code", notes = ["game/diplomacy/dependency-teardown.md"] }
 "0x9406e6" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
@@ -2874,7 +2884,7 @@
 "0x9f9de0" = { kind = "function", notes = ["game/provinces/provinces.md"] }
 "0x9fa090" = { kind = "function", notes = ["game/provinces/provinces.md"] }
 "0x9fa230" = { kind = "function", notes = ["game/day/monthly-update.md"] }
-"0x9fabe0" = { kind = "function", notes = ["game/countries/country-knowledge.md"] }
+"0x9fabe0" = { kind = "function", notes = ["game/countries/country-knowledge.md", "game/program/saves.md"] }
 "0x9fbce0" = { kind = "function", name = "province supply limit getter", notes = ["game/provinces/provinces.md"] }
 "0x9fcf90" = { kind = "function", name = "may raze", notes = ["game/countries/power-spending.md"] }
 "0x9fd630" = { kind = "function", notes = ["game/countries/power-spending.md"] }

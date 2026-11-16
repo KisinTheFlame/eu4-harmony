@@ -83,6 +83,25 @@ After reading, `0x5d0580` calls `0x776b90(world)` at `0x5d0d26`, rebuilds the in
 
 The repeated calls are a candidate for further investigation, not an established redundant operation. The interface rebuild and `0x777b80` lie between them. What those operations read from the first calculation and change before the second must be established before combining or omitting either calculation. The same reads and writes also prevent concluding that the country and province loops can run side by side. No reset or cache calculation was skipped in the measurements.
 
+### What lies between the two calculations
+
+`0x777b80(world)` logs "Applying savegame fixes". Its loaded-world work is not confined to old-version conversion: the country loop refreshes country knowledge (`0x93fe30`), removes lost cores (`0x302ee0` with its second argument set), rebuilds modifiers (`0x327dc0`), updates governments and other country state, and visits province and diplomatic objects. Version-specific government conversion is only one branch. `0x75cb40(world, 1)`, called before rebuilding the interface during an in-game load, starts the AI and attaches country AI objects. Thus the interval contains writes to inputs of the second calculation. No complete input-dependency proof for omitting either calculation has been established.
+
+Tracing the paused 1449.7.1 Austria load found, in **each** `0x7760b0`, 1,380 country distance rebuilds (`0x2d0b30`), 1,379 naval supply table builds (`0x350b80`) and approximately 2,759 modifier rebuilds (`0x327dc0`; nested calls included). The same algorithms run twice; that does not establish that their inputs or answers stay unchanged. The fixes add another 1,380 modifier rebuilds. The session-thread wrapper also waits after each calculation: attribution calls measured 25–44 ms beyond the calculation itself, separate from duplicate computation.
+
+### Country distance scratch space
+
+`0x2d0b30(country, byte)` rebuilds two country-distance tables, vectors of u16 at `country+0x2398` and `+0x23b0`. It clears `country+0x2888` and, outside a full cache calculation, can first call `0x2d0a00`. Its stored second argument is overwritten before use in the distance loop. The source province list combines `country+0x2338`, an optional list under `+0x9a78`, and qualifying subjects' provinces. It then walks the world's country vector, beginning at index 1, skips itself, and initializes both minima to `0xfa00`. Targets with owned provinces or tag type 7 enter the province calculation. Every pair is written in both directions through `0x2d2120`; computing the reversed pair later can overwrite it, so removing one direction is not justified by symmetric output storage alone.
+
+The target list at native `rsp+0x38` has a vtable, buffer at `+0x40`, capacity at `+0x48` and length at `+0x4c`. `0x2d1220` constructs it afresh for every qualifying target from the current target's primary province list and optional extra list. The native code allocates even for the first nonempty list (`0x2d1251`), appends its elements, and then appends the extra list. A separate loop visits eligible target subjects' provinces. The province-pair work checks adjacency, the geographic separation predicate `0x9fabe0(province, capital, 1)`, and map distance `0x88a1a0(map, out, source id, target id)`. It reduces minima and releases the target buffer at `0x2d2043` before storing both directions. The instruction body through every normal return, the output writer and the scratch-vector release were read; the complete semantics of every geographic callee are not claimed here.
+
+Two local changes remove discarded scratch work without reusing any distance answer (`loading::distance_scratch`, developer switch `distance-scratch`):
+
+- With an empty **assembled source list**, the native province-pair loop cannot run. Target-list construction only allocates and copies integers; its contents are never read. The framework goes from `0x2d1220` directly to the unchanged default-minimum writes at `0x2d2052`. An empty country's own primary list alone is not enough, since subjects or the extra list can supply source provinces.
+- Otherwise, the target scratch buffer and capacity survive until the next target. Its length is cleared; its current input lists are copied again, with native growth when needed. The initial reserve checks retained capacity, and the buffer is released once at `0x2d20c8`, after the country loop. Initialization at `0x2d0b5d` also covers a call with no qualifying targets; the initial world-state early return owns no allocation.
+
+The allocation is local to the native stack frame, so threads and recursive calls do not share it. Peak retained scratch is the largest target list encountered in that call. No province, country, modifier, table write, pair ordering, or calculation between the two world passes is omitted. This same-answer change also applies when the game calls the distance rebuild outside loading. It does not establish that the complete cache passes can be combined.
+
 ## Other recorded addresses
 
 Recorded sites and partially understood addresses; a listing is not a complete function account.
