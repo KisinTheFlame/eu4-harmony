@@ -16,6 +16,14 @@ Music-cache state, file cache, playset, tracing and background work affected sta
 
 Mesh/database overlap is a negative safety result. Eleven initial starts completed, images looked alike and corresponding saves differed only in ordinary metadata. Later busy-machine starts produced two map-logic access violations in approximately twelve starts, then a third two starts later. One dump placed the mesh thread in a file read while the LoadingThread used an invalid map-grid value. The missing shared dependency was not identified; the prototype was removed. Successful starts and identical saves did not establish safety, and neither PhysFS nor machine load was established as the cause. [Loading](../game/program/loading.md) keeps the native read/write constraints.
 
+### Normal-mode load investigation
+
+The 2026-11-16 investigation separated complete remote requests, the native in-game loader, reset, persistent-object reads and final setup. [Performance](../performance.md#normal-mode-loads-and-file-streams-2026-11-16) retains the format controls, measurement endpoints and scope; [save reading](../game/program/saves.md#file-position-queries-while-parsing-text) retains the native input and cached-data logic. The file-format comparison supplied a candidate for local plain-text input, not an implementation or a proof that the two cached-data calculations are interchangeable.
+
+An initial trace configuration tried to observe the already replaced in-game loader at `0x5d0580`. Dependency-point validation refused startup (exit 3, overlapping modifications); removing that trace resolved it. The claim's release therefore reported a crash for that refused start. The three games that reached the main menu ended through the owner's stop or release (exit 1); no runtime crash occurred during the completed comparisons. The final timing interval ran without stack sampling or background decompilation. Another holder started a test game after the final comparisons; this investigation did not use or stop it.
+
+REA identified the baseline's SHA-256 as `9ad3efe1af169f40ee577f9dae5debbc87af6fb8b5450fb345ebf110dc4d771a`. Its requested decompilation exceeded the client's 450-second deadline without returning pseudocode. No decompilation conclusion is attributed to it. The native accounts instead use the repository's PE exception-directory disassembler, after `xtask what` lookups, and the in-game samples and timed calls. REA was closed before the final comparison. Temporary configuration, private saves and the claim were removed after retaining these findings; ordinary logs remained in the claim's seven-day kept folder.
+
 ## Saving
 
 Parallel province/country writing matched native output byte-for-byte on binary ironman saves from 1496, 1548 and 1724 and a plain-text England autosave. End-to-end comparisons found identical AI data and state differences limited to ordinary metadata. Optimized saves subsequently loaded and played.

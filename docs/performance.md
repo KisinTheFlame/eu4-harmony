@@ -173,6 +173,39 @@ Then the game state's other sections written while the pool writes the loops, th
 - The first start after the framework is installed reads the music as the game does; the numbers above are of starts after it.
 - What is left is mostly the databases read on the LoadingThread, about 30 s of the startup on this machine ([research/loading.md](game/program/loading.md)).
 
+## Normal-mode loads and file streams (2026-11-16)
+
+Windows EU4 1.37.5, source `d16d5b2c`, Ryzen 7 9700X, 64 GB RAM, all DLC and the inherited eight-mod playset (Workshop IDs 253263609, 2830362508, 2976470733, 1999055990, 3253723536, 3837775887, 3837793510 and 3838535796). A hidden, isolated test game used a release build with only `dev-test-games`, `dev-call-trace` and `dev-test-switches`; no speed-up was disabled. These measurements describe Harmony's existing behavior, not vanilla or a new implementation.
+
+The source was the player's paused, non-ironman Austria save of 1449.7.1, copied into the claim (39,948,416 bytes). A second copy was kept as the plain control. With `compress_autosave=yes` in the test game's own settings, the game's `autosave` console command wrote the loaded game at the same date, then background compression completed: a 4,013,823-byte ZIP with 39,799,113 bytes of game state, 2,399 bytes of metadata and 139,595 bytes of AI data. The two versions represent the same loaded game, not identical serialized bytes; the rewritten game state and ordinary metadata can differ.
+
+Each request used `eu4-harmony game --test-game <owner> menu load <save> --compact`, checked its returned country and date, and paused the game. The final in-game comparison alternated plain/compressed/compressed/plain twice in one process, with no stack sampling, build or decompiler running and no other EU4 observed. Four loads of each format:
+
+| Endpoint, seconds | Plain text | Compressed text entries |
+| --- | --- | --- |
+| Complete remote request, individual times | 5.233, 5.132, 5.068, 5.135 | 4.372, 4.415, 4.348, 4.359 |
+| Complete remote request, median | 5.134 | 4.365 |
+| Native in-game load, median (`leave: the in-game load answered`) | 4.695 | 3.930 |
+| Reset, median (`0x826c20`) | 1.469 | 1.471 |
+| Of the reset, country setup (`0x207310`) | 0.914 | 0.914 |
+| Persistent-object reads, summed per load (`0x14e4240`), median | 1.515 | 0.700 |
+| Final setup (`0x81ab20`), median | 0.850 | 0.848 |
+| Of final setup, `0x777b80` | 0.349 | 0.340 |
+
+The two `0x776b90` cached-data calculations were normally about 0.50 s each; the second is **inside** final setup and must not be added to that row. The rows are nested, not an additive decomposition of the entire request. The native interval excludes request dispatch and readiness frames. The format difference was 0.768 s (15.0%) at the complete-request endpoint; it is not a measured gain from a new speed-up.
+
+Two main-menu loads of each version, after an in-process return, took 2.869/2.855 s plain and 2.940/2.923 s compressed, excluding the return. The main menu already reads the file into memory; compression gave no advantage there in this small comparison. Cold process startup and cold disk-cache behavior were not measured.
+
+As a control for the compressed file's smaller size, its three entries were repacked with Python `zipfile.ZIP_STORED`. Every entry's SHA-256 matched before and after repacking; only the ZIP container changed. The resulting 39,941,387-byte archive loaded in 4.351 and 4.564 s; alternating compressed loads took 4.475 and 4.409 s. Both returned HAB at 1449.7.1. These two observations support an input-path explanation rather than file size alone, but do not establish equal performance for every ZIP method. A later plain-control load advanced three days successfully; the stored-entry archive was not separately played forward.
+
+The 1495.11.19 France text ZIP (6,617,226 bytes; 50,820,630-byte game state) also loaded successfully three times: 4.707, 4.549 and 4.498 s with stack sampling. Its sample had no `0x1710c10` file-position calls inside the native in-game load. The profiler's reported days per second is invalid across loading a different date and is not a simulation measurement.
+
+Low-frequency timing traced only `0x826c20:2`, `0x81ab20:1`, `0x776b90:1`, `0x777b80:1`, `0x207310:1` and `0x14e4240:2`, with `calls=0` and `times=true`. Separate 100 Hz stack samples held the main thread for 0.3–0.4% of elapsed time. An exploratory plain-only sample attributed 10.9% of samples inside the native load to the file stream's position method; it overlapped background decompiler work and is attribution evidence, not a timing baseline. [Save reading](game/program/saves.md#file-position-queries-while-parsing-text) records the native buffered-input and cached-data paths.
+
+The highest-priority candidate is to give local plain-text parsing a memory stream, or maintain its position without repeated Windows calls, with checksums, seeks and ownership preserved. The observed 0.77 s format gap is a useful target to test, not a promised implementation gain. Country setup and the two cached-data calculations are further candidates only after their dependency and lifetime constraints are established; the in-game reset already skips history. Parallel loading was not attempted.
+
+Late-game saves from 1733 and 1820 required mods absent from the current playset and were not loaded; their checks were not bypassed. Ironman, cloud, random new world, other machines and long-run equivalence remain outside this comparison. No production code or player setting was changed. [Investigation limits](research/performance-evidence.md#normal-mode-load-investigation) retain the failed instrumentation and tool boundary.
+
 ## Parameterized script in one pass (2026-11-11)
 
 [game-speed.md](plans/README.md#performance)'s S12, one developer build with the test switches, `game-paths = ["script-parameters"]` for the game's own code; every DLC, the files in the system's cache, no other test game running ([the run](research/mechanics-evidence.md)). The uses' making is `0xdb0860`'s calls summed, timed by the call trace; the main menu is `cargo xtask game start`'s whole seconds.

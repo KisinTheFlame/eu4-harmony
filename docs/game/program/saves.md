@@ -59,6 +59,26 @@ For writing the countries and the provinces on several threads (docs/plans/READM
 - **Strings**: the binary tokenizer returns an empty string for one of 512 bytes or more; the text tokenizer, for a quoted string longer than 511 bytes, logs "Quoted string longer than max length (512)" and returns it empty; words are cut at 511 bytes.
 
 
+### File position queries while parsing text
+
+The local in-game load and the main menu do not give the text reader the same kind of stream. The menu reads the file into memory first; the local in-game load constructs the file stream at `0x1710440`, called at `0x5d09a3`. Its vtable is `0x1dbfa98`, its file holder is at `+0x38`, and its open requests a `0x20000`-byte PhysFS buffer (`0x1710489` to `0x1710491`). This is already buffered file input, not one Windows disk read per character.
+
+The file stream's character method, `0x1710680`, handles its previous character and put-back flag at `+0xc` and `+0xd`, then asks `0x19f8150` for one byte. Its position method at vtable slot `+0x80`, `0x1710c10`, follows the holder to `0x19f8c20`. That function asks the underlying file for its position and adjusts it for PhysFS's buffer counters. For a Windows disk file the observed path reaches `0x1a06400`, which calls the `SetFilePointer` import (`0x1b666e0`) with distance zero and `FILE_CURRENT` (1). Thus a position query can enter Windows even while all characters being parsed remain in the input buffer.
+
+The quoted-string reader `0x170df00`, called from the text tokenizer `0x170e700`, asks for the stream's position on entry (`0x170df2e`). Sampling normal-mode text loads found the file position path and `NtQueryInformationFile` on these stacks; the corresponding compressed-save sample, whose entries are read into memory, had none of the file stream's position method. [The measurements](../../performance.md#normal-mode-loads-and-file-streams-2026-11-16) distinguish the native load from the complete remote request and compare compressed and stored ZIP entries.
+
+Reading a local text save into memory before parsing, or maintaining its logical position without asking Windows, is a candidate speed-up. No such change was implemented in this investigation. It must preserve seeks, put-back behavior, end-of-file and error handling, the save checksum, stream ownership and the file's lifetime. Increasing the existing buffer alone would not remove the position calls. Cloud, binary and random-new-world loads were not measured here.
+
+### Cached data rebuilt after reading
+
+An in-game load's reset is `0x826c20(map manager, 1)` followed by `0x210000(application, 1)`: **the history-file read is already skipped**. The reset still rebuilds the country tags and database through `0x207310`, including flags. Its lifetime constraints are in [the main menu](../interface/main-menu.md#loading-a-save-in-a-game); its cost is separate from parsing the save.
+
+After reading, `0x5d0580` calls `0x776b90(world)` at `0x5d0d26`, rebuilds the interface through `0x81af10`, then calls `0x81ab20` at `0x5d0d7c`. The latter calls `0x777b80` on the loaded-world branch (`0x81ac3a`, conditional on the setup flags), then calls `0x776b90` again at `0x81ace3`, and refreshes fog of war through `0x8275e0`. Timed calls in a paused non-ironman game confirmed two calls of `0x776b90` per in-game load, approximately half a second each.
+
+`0x776b90` starts a `SaveSessionUpdateThread`, calls `0x7760b0` and joins the thread before returning. `0x7760b0` logs "Recalculating cached data", temporarily sets `world+0x2521`, then walks countries, provinces and other world collections. Among its writes are modifier and national-value caches, province fields `+0x2df0`/`+0x2df4`, country values at `+0x9a84` through `+0x9a9c`, and the derived arrays at `world+0x2620` and `+0x2638`. It restores `world+0x2521` on return. Its complete instruction body was read; the effects of all callees and virtual calls were not established.
+
+The repeated calls are a candidate for further investigation, not an established redundant operation. The interface rebuild and `0x777b80` lie between them. What those operations read from the first calculation and change before the second must be established before combining or omitting either calculation. The same reads and writes also prevent concluding that the country and province loops can run side by side. No reset or cache calculation was skipped in the measurements.
+
 ## Other recorded addresses
 
 Recorded sites and partially understood addresses; a listing is not a complete function account.
