@@ -226,6 +226,26 @@ After four loads, the complete native autosaves from all four processes matched 
 
 An earlier pair overlapped another holder's test game and is excluded from the table. The final native process was repeated after the measurement script encountered the native autosave's brief absence during file rotation; its earlier completed request times were 4.982, 5.388, 5.289 and 6.175 s. That retry was for completing the save comparison, not for selecting faster samples. No new parallel world work, history skipping, player installation or player-setting change is part of this implementation. Late-game, cloud, multiplayer and random-new-world measurements remain open.
 
+### Cache rebuild overhead
+
+The follow-up retained both world-cache calculations and their intervening savegame fixes. It removes target-list construction when a country-distance rebuild has no assembled source provinces, otherwise reuses the list's allocation between targets, and wakes the session update thread when each world calculation finishes. [Save reading](game/program/saves.md#country-distance-scratch-space) records the native dependencies and lifetime; [the evidence](research/performance-evidence.md#normal-mode-load-investigation) records the format controls and limits. Neither full recalculation is known to be redundant.
+
+The final comparison used the same 39.9 MB plain 1449.7.1 Austria input, inherited playset and settings, hidden fresh processes and seed 123456. Each process loaded the immutable input from the main menu, then four times in-game while paused. The release build enabled `dev-test-games,dev-test-switches,dev-call-trace`; only `0x776b90` and `0x7760b0` were timed. Native selected `game-paths = ["distance-scratch", "update-thread"]`; optimized selected neither. Other speed-ups, including buffered text input, stayed enabled. Builds and detailed tracing were finished before timing; every pre-load and state-capture process inventory found only the owned game. Unrelated background work was not comprehensively measured.
+
+| Run | Complete request times, seconds | Both cache wrappers together, seconds |
+| --- | --- | --- |
+| Native, first | 3.973, 4.195, 4.204, 4.286 | 0.953, 0.905, 0.954, 1.005 |
+| Optimized, first | 3.830, 4.161, 4.125, 4.135 | 0.847, 0.840, 0.844, 0.835 |
+| Optimized, second | 3.908, 4.190, 4.240, 4.154 | 0.862, 0.854, 0.881, 0.854 |
+| Native, second | 4.128, 4.347, 4.312, 4.278 | 1.005, 1.005, 1.004, 1.003 |
+| Median of eight loads each | 4.241 native; 4.144 optimized | 1.003 native; 0.850 optimized |
+
+The cache-wrapper median fell 0.153 s (15.3%); complete requests fell 0.096 s (2.3%). The calculation bodies alone, summed per load, fell from a median 0.907 to 0.850 s (6.3%). Wrapper time beyond those bodies fell from a median 67.6 to 0.55 ms per load, approximately 0.3 ms per wrapper when optimized. These are separate medians, which need not add. The total improvement is small relative to the remaining load and run-to-run variation; it is an incremental result on top of buffered input, not another 15% off the whole load or a percentage to add to the earlier comparison.
+
+Earlier detailed tracing, with the distance, modifier and naval supply functions timed too, attributed a median 0.429 s per load to country-distance rebuilds on the native path and 0.359 s with scratch changes alone. The first optimized process included a slower first load; it was retained. That instrumentation has more observer overhead than the final two-root comparison and supplies attribution rather than interchangeable timings. An attempted reverse run was stopped when another holder started a game, before collecting its four-load series; it is excluded. Format controls overlapped that holder's game and are used only for correctness.
+
+All four final processes' two distance tables for all 1,380 countries matched byte-for-byte after loading and after three days (7,639,680 bytes including country identities and vector lengths, SHA-256 `38749462c84f69811808f56143f853421adfaaaf1a43f12945ebd2b6f9039408`). Their complete autosaves matched the loaded and three-day hashes reported under buffered input, without filtering metadata or checksums. Compressed-text and binary-ironman controls, including month crossings, also matched as recorded in the evidence. Cloud, multiplayer, random new world, recovered native exceptions and universal mod behavior remain unestablished. No player installation was changed.
+
 ## Parameterized script in one pass (2026-11-11)
 
 [game-speed.md](plans/README.md#performance)'s S12, one developer build with the test switches, `game-paths = ["script-parameters"]` for the game's own code; every DLC, the files in the system's cache, no other test game running ([the run](research/mechanics-evidence.md)). The uses' making is `0xdb0860`'s calls summed, timed by the call trace; the main menu is `cargo xtask game start`'s whole seconds.

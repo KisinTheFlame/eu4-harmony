@@ -102,6 +102,10 @@ Two local changes remove discarded scratch work without reusing any distance ans
 
 The allocation is local to the native stack frame, so threads and recursive calls do not share it. Peak retained scratch is the largest target list encountered in that call. No province, country, modifier, table write, pair ordering, or calculation between the two world passes is omitted. This same-answer change also applies when the game calls the distance rebuild outside loading. It does not establish that the complete cache passes can be combined.
 
+### Finishing the cache wrapper's update thread
+
+The wrapper sets its update closure's stop byte at `0x776c93` and joins the thread. The update is the same `0x5c4460` as saving uses: a session update followed by a 50 ms wait. The existing `update-thread` speed-up already replaces that sleep with an interruptible wait, but originally notified it only at the saving stop site. The cache stop now notifies it too, **after** the native stop byte is set. Its original null check and join remain. An update in progress finishes; one about to wait sees the stop generation change; a thread not yet in its loop sees the native stop byte. This removes the tail of a wait without suppressing an update during cache calculation. Both full cache passes still run.
+
 ## Other recorded addresses
 
 Recorded sites and partially understood addresses; a listing is not a complete function account.

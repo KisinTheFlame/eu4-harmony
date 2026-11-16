@@ -1,5 +1,5 @@
-//! The thread the game keeps updating while it writes a save, woken when the
-//! save is written .
+//! The thread the game keeps updating while it writes a save or rebuilds
+//! loaded-world caches, woken when that work finishes.
 //!
 //! While a save is written (`0x5cde60`), a thread of the game's,
 //! "SaveSessionUpdateThread", calls `0x5c4460` over and over until it is told
@@ -9,6 +9,8 @@
 //! save's stop. The framework's `0x5c4460` makes the same update, then waits
 //! up to the same 50 ms for the main thread's word to stop, which it is given
 //! where the main thread tells the game's thread.
+//! The cache wrapper (`0x776b90`) uses the same loop and update; it also
+//! wakes the thread after setting its closure's stop byte.
 use crate::called_by_game;
 use crate::points::{Function, Point};
 use crate::speed::SpeedUp;
@@ -29,6 +31,9 @@ const SLEEP: Duration = Duration::from_millis(50);
 /// the closure's byte to stop, before the thread is waited for.
 const STOP: usize = 0x5ce531;
 const STOP_NEXT: usize = 0x5ce536;
+/// In the cached-world-data wrapper, after `0x7760b0` returns.
+const CACHE_STOP: usize = 0x776c93;
+const CACHE_STOP_NEXT: usize = 0x776c9b;
 
 /// Counts the words to stop; a thread's sleep ends at the next one.
 static STOPS: AtomicU64 = AtomicU64::new(0);
@@ -57,6 +62,14 @@ fn points() -> Vec<Point> {
         Point::jump(STOP, "c6 44 24 30 01", "save's update thread told to stop", stop_stub as *const () as usize, &STOP_RESUME),
         // Where it is waited for: the thread's join.
         Point::keep(STOP_NEXT, "48 83 39 00 74 0b ff 15 de 92 59 01", "save's update thread waited for"),
+        Point::jump(
+            CACHE_STOP,
+            "c6 45 d0 01 48 83 3b 00",
+            "cache rebuild's update thread told to stop",
+            cache_stop_stub as *const () as usize,
+            &CACHE_STOP_RESUME,
+        ),
+        Point::keep(CACHE_STOP_NEXT, "74 1d 48 8b cb ff 15 7a 0b 3f 01", "cache rebuild's update thread waited for"),
     ]
 }
 
@@ -91,6 +104,7 @@ extern "C" fn stopped() {
 }
 
 crate::resume!(STOP_RESUME: STOP_AT = STOP_NEXT);
+crate::resume!(CACHE_STOP_RESUME: CACHE_STOP_AT = CACHE_STOP_NEXT);
 
 /// Replaces `mov byte ptr [rsp + 0x30], 1`: the thread is woken once it is
 /// told to stop, so that its loop sees the byte.
@@ -102,5 +116,19 @@ extern "C" fn stop_stub() {
         "jmp qword ptr [rip + {next}]",
         stopped = sym stopped,
         next = sym STOP_AT,
+    );
+}
+
+#[unsafe(naked)]
+extern "C" fn cache_stop_stub() {
+    std::arch::naked_asm!(
+        "mov byte ptr [rbp - 0x30], 1",
+        crate::call_rust!(call stopped),
+        // Replay the compare after Rust has changed the flags: the native
+        // conditional jump at the resume site still chooses whether to join.
+        "cmp qword ptr [rbx], 0",
+        "jmp qword ptr [rip + {next}]",
+        stopped = sym stopped,
+        next = sym CACHE_STOP_AT,
     );
 }
