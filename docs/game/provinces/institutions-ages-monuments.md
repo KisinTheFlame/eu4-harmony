@@ -35,7 +35,7 @@ Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` on 2026-11-11 with 
 
 The province modifier rebuild `0x9f9500` reaches `0x960330`, which invokes 36 callbacks through `0x1cd0430`. One is `0x95dff0`: it walks the great-project manager and refreshes a project for its own province, provinces matching its geographic group and owner, or provinces matching its enclosing group and owner (`0x95e072`, `0x95e0cc`, `0x95e13f`). Each refresh calls `0x7d0f80(project)` before the current province consumes the project's modifier set.
 
-The complete refresh clears the project's string lists with `0x215610`, resets modifier collections at `+0x18/+0x188/+0x2f8/+0x468` through `0x8e6190`, and rebuilds them through `0x7d0b40`. Thus different provinces can change and read the **same project instance** during their modifier rebuilds. Calling the native province functions concurrently is not justified by their different province arguments; warming the project first does not prevent these explicit refreshes. Not all other callbacks have been audited. [The parallelism investigation](../../research/load-parallelism.md) retains the scope and possible preparation boundary.
+The complete refresh clears the project's string lists with `0x215610`, resets modifier collections at `+0x18/+0x188/+0x2f8/+0x468` through `0x8e6190`, and rebuilds them through `0x7d0b40`. Thus different provinces can change and read the **same project instance** during their modifier rebuilds; the refresh is explicit even if the project was refreshed previously. Not all other callbacks have been audited.
 
 ## Great projects' other commands
 
