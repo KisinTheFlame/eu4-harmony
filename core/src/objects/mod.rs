@@ -51,6 +51,8 @@ pub mod list {
 /// the local handler's post makes one over a vector of its own
 /// (`game::commands`).
 pub mod stream {
+    pub const FILE_VTABLE: usize = 0x1dbfa98;
+    pub const VTABLE: usize = 0x1dc0358;
     pub const SIZE: usize = 0x58;
     pub const LINE: usize = 0x08;
     pub const MODE: usize = 0x10;
@@ -64,6 +66,15 @@ pub mod stream {
     pub const FULL: usize = 0x54;
     pub const OWNS_BUFFER: usize = 0x55;
     pub const OWNS_GROWING: usize = 0x56;
+
+    pub(super) fn points() -> Vec<crate::points::Point> {
+        use crate::points::Point;
+        vec![Point::keep(
+            0x171ec8fusize,
+            "48 8d 05 c2 16 6a 00 48 89 03 48 89 73 38 48 89 6b 40 4c 89 73 48 89 7b 50 c6 43 54 00 0f b6 84 24 80 00 00 00 88 43 55 0f b6 84 24 88 00 00 00 88 43 56",
+            "memory stream made",
+        ).uses(&[VTABLE, GROWING, BUFFER, KEPT, CAPACITY, FULL, OWNS_BUFFER, OWNS_GROWING])]
+    }
 }
 
 /// A `std::map`'s node: its children and parent, whether it is the head (no
@@ -82,6 +93,7 @@ use crate::points::Point;
 
 pub fn points() -> Vec<Point> {
     let mut all = campaign::points();
+    all.extend(stream::points());
     all.extend(gui::points());
     all.extend(text::points());
     all.extend(camera::points());

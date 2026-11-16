@@ -198,6 +198,70 @@ pub(crate) fn read_from_start(handle: usize, count: Option<u64>, mut chunk: impl
     Ok(())
 }
 
+/// A snapshot of a text save through the already open file, leaving its
+/// position unchanged even after a failed read. The file stays open.
+pub(crate) fn text_snapshot(handle: usize) -> Result<Option<Vec<u8>>> {
+    snapshot(&mut Input(handle as File)).map_err(|e| format!("the text save could not be buffered: {e}"))
+}
+
+struct Input(File);
+
+impl std::io::Read for Input {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        let read = unsafe { read_bytes_detour(self.0, out.as_mut_ptr().cast(), out.len() as u64) };
+        usize::try_from(read).map_err(|_| std::io::Error::other("PhysFS read failed"))
+    }
+}
+
+impl std::io::Seek for Input {
+    fn seek(&mut self, from: std::io::SeekFrom) -> std::io::Result<u64> {
+        use std::io::{Error, SeekFrom};
+        let position = match from {
+            SeekFrom::Start(at) => Some(at),
+            SeekFrom::Current(by) => u64::try_from(unsafe { tell_detour(self.0) }).ok().and_then(|at| at.checked_add_signed(by)),
+            SeekFrom::End(by) => u64::try_from(unsafe { file_length_detour(self.0) }).ok().and_then(|at| at.checked_add_signed(by)),
+        }
+        .ok_or_else(|| Error::other("PhysFS position unavailable"))?;
+        if unsafe { seek_detour(self.0, position) } == 0 {
+            return Err(Error::other("PhysFS seek failed"));
+        }
+        Ok(position)
+    }
+
+    fn stream_position(&mut self) -> std::io::Result<u64> {
+        u64::try_from(unsafe { tell_detour(self.0) }).map_err(|_| std::io::Error::other("PhysFS position unavailable"))
+    }
+}
+
+/// Probe before allocating: ZIP and binary saves keep their native paths.
+/// The native memory stream's positions and lengths are signed 32-bit.
+fn snapshot(input: &mut (impl std::io::Read + std::io::Seek)) -> std::io::Result<Option<Vec<u8>>> {
+    use std::io::{Error, ErrorKind, SeekFrom};
+    let position = input.stream_position()?;
+    let result = (|| {
+        input.seek(SeekFrom::Start(0))?;
+        let mut header = [0; 6];
+        match input.read_exact(&mut header) {
+            Err(e) if e.kind() == ErrorKind::UnexpectedEof => return Ok(None),
+            other => other?,
+        }
+        if &header != b"EU4txt" {
+            return Ok(None);
+        }
+        let length = input.seek(SeekFrom::End(0))?;
+        let length = i32::try_from(length).map_err(|_| Error::other("save exceeds the memory stream's length range"))? as usize;
+        input.seek(SeekFrom::Start(0))?;
+        let mut data = Vec::new();
+        data.try_reserve_exact(length).map_err(Error::other)?;
+        data.resize(length, 0);
+        input.read_exact(&mut data)?;
+        Ok(Some(data))
+    })();
+    // Restoration is required on success, refusal and read failure alike.
+    input.seek(SeekFrom::Start(position))?;
+    result
+}
+
 /// Reads the whole of a file in the game's file system, as the game sees it
 /// (a mod's file over the game's, a DLC's archive among them), without the
 /// framework's splicing. Any thread may call it.
@@ -310,5 +374,45 @@ mod tests {
         assert_eq!(normalize("Interface\\UnitPanel_Main.GUI"), "interface/unitpanel_main.gui");
         assert_eq!(normalize("./interface/x.gui"), "interface/x.gui");
         assert_eq!(normalize("/interface/x.gui"), "interface/x.gui");
+    }
+
+    #[test]
+    fn a_text_snapshot_preserves_bytes_and_the_original_position() {
+        use std::io::Cursor;
+        let bytes = b"EU4txt\nquoted=\"a\\\"b\"\r\nchecksum=\"unchanged\"";
+        let mut input = Cursor::new(bytes);
+        input.set_position(17);
+        assert_eq!(super::snapshot(&mut input).unwrap().unwrap(), bytes);
+        assert_eq!(input.position(), 17);
+        for bytes in [b"PK\x03\x04zip".as_slice(), b"EU4bin", b"EU4"] {
+            let mut input = Cursor::new(bytes);
+            input.set_position(2);
+            assert!(super::snapshot(&mut input).unwrap().is_none());
+            assert_eq!(input.position(), 2);
+        }
+    }
+
+    #[test]
+    fn a_failed_snapshot_restores_the_position() {
+        use std::io::{Cursor, Read, Seek, SeekFrom};
+        struct Interrupted(Cursor<&'static [u8]>, usize);
+        impl Read for Interrupted {
+            fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+                self.1 += 1;
+                if self.1 > 1 {
+                    return Err(std::io::Error::other("read failure after the header"));
+                }
+                self.0.read(out)
+            }
+        }
+        impl Seek for Interrupted {
+            fn seek(&mut self, at: SeekFrom) -> std::io::Result<u64> {
+                self.0.seek(at)
+            }
+        }
+        let mut input = Interrupted(Cursor::new(b"EU4txt\ndata"), 0);
+        input.0.set_position(4);
+        assert!(super::snapshot(&mut input).is_err());
+        assert_eq!(input.0.position(), 4);
     }
 }

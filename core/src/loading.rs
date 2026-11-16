@@ -15,6 +15,10 @@
 //!   which a watch of the folder keeps up to date.
 //! - `transfer`: a save chosen in single player added to the file transfer
 //!   without the deflated copy that only a multiplayer peer would read.
+//! - `save_input`: a local text save buffered once for the in-game load,
+//!   using the game's memory stream while its original file stays open.
+//! - `distance_scratch`: country distance rebuilds omit target lists when
+//!   there are no source provinces, and otherwise reuse their allocation.
 //! - `parameters`: a parameterized scripted trigger's or effect's use given
 //!   its arguments in one pass, instead of the whole text made again for
 //!   each parameter.
@@ -30,6 +34,7 @@
 use std::path::Path;
 
 pub mod children;
+pub mod distance_scratch;
 mod folder;
 pub mod listed;
 pub mod localisation;
@@ -37,6 +42,7 @@ pub mod lookups;
 pub mod music;
 pub mod opens;
 pub mod parameters;
+pub mod save_input;
 pub mod transfer;
 pub mod trigger_profile;
 

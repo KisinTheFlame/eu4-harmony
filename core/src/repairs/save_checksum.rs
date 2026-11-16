@@ -15,7 +15,7 @@ const SAVE_CHECKSUM_SUM: usize = 0x14e33f9;
 const SAVE_CHECKSUM_SUM_DONE: usize = 0x14e3403;
 /// A file's stream (vtable [`FILE_STREAM`]): its sum of its bytes, its
 /// method at `+0x98`, and where it keeps the file.
-const FILE_STREAM: usize = 0x1dbfa98;
+use crate::objects::stream::FILE_VTABLE as FILE_STREAM;
 const FILE_STREAM_SUM: usize = 0x1710c00;
 const FILE_STREAM_SUM_METHOD: usize = 0x98;
 const FILE_STREAM_FILE: usize = 0x38;

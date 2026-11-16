@@ -32,7 +32,7 @@ pub struct SpeedUp {
 }
 
 /// Every speed-up, in the order the report names them.
-pub static ALL: [&SpeedUp; 18] = [
+pub static ALL: [&SpeedUp; 20] = [
     &pops::SPEED_UP,
     &crate::drawing::SPEED_UP,
     &crate::loading::music::SPEED_UP,
@@ -41,6 +41,8 @@ pub static ALL: [&SpeedUp; 18] = [
     &crate::loading::opens::SPEED_UP,
     &crate::loading::listed::SPEED_UP,
     &crate::loading::transfer::SPEED_UP,
+    &crate::loading::save_input::SPEED_UP,
+    &crate::loading::distance_scratch::SPEED_UP,
     &crate::loading::parameters::SPEED_UP,
     &crate::loading::localisation::SPEED_UP,
     &crate::loading::trigger_profile::SPEED_UP,
@@ -148,7 +150,7 @@ pub fn checked(speed_up: &SpeedUp) -> bool {
 }
 
 /// Answers checked and answers that differed, for each speed-up.
-static COUNTS: [[AtomicU64; 2]; 18] = [const { [AtomicU64::new(0), AtomicU64::new(0)] }; 18];
+static COUNTS: [[AtomicU64; 2]; ALL.len()] = [const { [AtomicU64::new(0), AtomicU64::new(0)] }; ALL.len()];
 /// A speed-up's first differences are each logged; after these, only when
 /// their count reaches a power of two.
 const LOGGED: u64 = 20;

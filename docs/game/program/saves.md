@@ -59,6 +59,61 @@ For writing the countries and the provinces on several threads (docs/plans/READM
 - **Strings**: the binary tokenizer returns an empty string for one of 512 bytes or more; the text tokenizer, for a quoted string longer than 511 bytes, logs "Quoted string longer than max length (512)" and returns it empty; words are cut at 511 bytes.
 
 
+### File position queries while parsing text
+
+The local in-game load and the main menu do not give the text reader the same kind of stream. The menu reads the file into memory first; the local in-game load constructs the file stream at `0x1710440`, called at `0x5d09a3`. Its vtable is `0x1dbfa98`, its file holder is at `+0x38`, and its open requests a `0x20000`-byte PhysFS buffer (`0x1710489` to `0x1710491`). This is already buffered file input, not one Windows disk read per character.
+
+The file stream's character method, `0x1710680`, handles its previous character and put-back flag at `+0xc` and `+0xd`, then asks `0x19f8150` for one byte. Its position method at vtable slot `+0x80`, `0x1710c10`, follows the holder to `0x19f8c20`. That function asks the underlying file for its position and adjusts it for PhysFS's buffer counters. For a Windows disk file the observed path reaches `0x1a06400`, which calls the `SetFilePointer` import (`0x1b666e0`) with distance zero and `FILE_CURRENT` (1). Thus a position query can enter Windows even while all characters being parsed remain in the input buffer.
+
+The quoted-string reader `0x170df00`, called from the text tokenizer `0x170e700`, asks for the stream's position on entry (`0x170df2e`). ZIP entries are extracted into memory streams instead of being parsed through the original file stream.
+
+Harmony's `save-input` speed-up now buffers local plain-text input at the in-game load's call of `0x74b8a0`, `0x5d0c78`. The save description made by `0x5ccfe0` borrows its source at `+0` and marks a ZIP at `+0x28`; the plain getters `0x5cdb80` and `0x5cd550` return that source directly. The framework snapshots an already open file stream through its PhysFS handle, restores the handle's original position, and temporarily substitutes a native memory stream in that description. ZIP descriptions, other stream classes, non-text headers, lengths outside the native signed-32-bit range, allocation failures and failed reads use the original path.
+
+The native constructor `0x171ebc0(object, buffer, length, growing, mode, writing, owns buffer, owns growing)` makes a `0x58`-byte memory stream over the snapshot, with no growing buffer and both ownership flags clear. Its common base (line, previous character, put-back flag, mode and borrowed name) and initial position match the original stream. The native reader still handles seeks, tokenization, end-of-file, validation and checksums. Increasing PhysFS's existing buffer alone would not remove the position calls.
+
+The substitution lasts only through `0x74b8a0`: that function retains the description at `world+0x74c8` during loading and clears it at `0x74ba03`; its loader `0x5cdc60` joins its update thread before returning. The original description pointer is restored before the caller releases entry streams at `0x5d0c7d` and destroys the original file stream at `0x5d0f58`. The original stream owns the borrowed name and keeps its file open throughout; the temporary stream is not destroyed through a native destructor, and Rust releases the snapshot after the native call. The framework retains no temporary stream or snapshot afterwards. Cloud, multiplayer and random-new-world behavior is outside this account's established scope.
+
+### Cached data rebuilt after reading
+
+An in-game load's reset is `0x826c20(map manager, 1)` followed by `0x210000(application, 1)`: **the history-file read is already skipped**. The reset still rebuilds the country tags and database through `0x207310`, including flags. Its lifetime constraints are in [the main menu](../interface/main-menu.md#loading-a-save-in-a-game).
+
+After reading, `0x5d0580` calls `0x776b90(world)` at `0x5d0d26`, rebuilds the interface through `0x81af10`, then calls `0x81ab20` at `0x5d0d7c`. The latter calls `0x777b80` on the loaded-world branch (`0x81ac3a`, conditional on the setup flags), then calls `0x776b90` again at `0x81ace3`, and refreshes fog of war through `0x8275e0`.
+
+`0x776b90` starts a `SaveSessionUpdateThread`, calls `0x7760b0` and joins the thread before returning. `0x7760b0` logs "Recalculating cached data", temporarily sets `world+0x2521`, then walks countries, provinces and other world collections. Among its writes are modifier and national-value caches, province fields `+0x2df0`/`+0x2df4`, country values at `+0x9a84` through `+0x9a9c`, and the derived arrays at `world+0x2620` and `+0x2638`. It restores `world+0x2521` on return. Its complete instruction body was read; the effects of all callees and virtual calls were not established.
+
+The interface rebuild and `0x777b80` lie between the two calculations. Their complete reads from the first calculation and changes to inputs of the second have not been established; the repeated calls are not known to be redundant. Independence of the country and province loops has not been established either.
+
+### What lies between the two calculations
+
+`0x777b80(world)` logs "Applying savegame fixes". Its loaded-world work is not confined to old-version conversion: the country loop refreshes country knowledge (`0x93fe30`), removes lost cores (`0x302ee0` with its second argument set), rebuilds modifiers (`0x327dc0`), updates governments and other country state, and visits province and diplomatic objects. Version-specific government conversion is only one branch. `0x75cb40(world, 1)`, called before rebuilding the interface during an in-game load, starts the AI and attaches country AI objects. Thus the interval contains writes to inputs of the second calculation. No complete input-dependency proof for omitting either calculation has been established.
+
+Each `0x7760b0` includes country distance rebuilds (`0x2d0b30`), naval supply table builds (`0x350b80`) and modifier rebuilds (`0x327dc0`, also called by savegame fixes). Repeated execution of these algorithms does not establish unchanged inputs or answers.
+
+### Country distance scratch space
+
+`0x2d0b30(country, byte)` rebuilds two country-distance tables, vectors of u16 at `country+0x2398` and `+0x23b0`. It clears `country+0x2888` and, outside a full cache calculation, can first call `0x2d0a00`. Its stored second argument is overwritten before use in the distance loop. The source province list combines `country+0x2338`, an optional list under `+0x9a78`, and qualifying subjects' provinces. It then walks the world's country vector, beginning at index 1, skips itself, and initializes both minima to `0xfa00`. Targets with owned provinces or tag type 7 enter the province calculation. Every pair is written in both directions through `0x2d2120`; computing the reversed pair later can overwrite it, so removing one direction is not justified by symmetric output storage alone.
+
+The target list at native `rsp+0x38` has a vtable, buffer at `+0x40`, capacity at `+0x48` and length at `+0x4c`. `0x2d1220` constructs it afresh for every qualifying target from the current target's primary province list and optional extra list. The native code allocates even for the first nonempty list (`0x2d1251`), appends its elements, and then appends the extra list. A separate loop visits eligible target subjects' provinces. The province-pair work checks adjacency, the geographic separation predicate `0x9fabe0(province, capital, 1)`, and map distance `0x88a1a0(map, out, source id, target id)`. It reduces minima and releases the target buffer at `0x2d2043` before storing both directions. The instruction body through every normal return, the output writer and the scratch-vector release were read; the complete semantics of every geographic callee are not claimed here.
+
+Two local changes remove discarded scratch work without reusing any distance answer (`loading::distance_scratch`, developer switch `distance-scratch`):
+
+- With an empty **assembled source list**, the native province-pair loop cannot run. Target-list construction only allocates and copies integers; its contents are never read. The framework goes from `0x2d1220` directly to the unchanged default-minimum writes at `0x2d2052`. An empty country's own primary list alone is not enough, since subjects or the extra list can supply source provinces.
+- Otherwise, the target scratch buffer and capacity survive until the next target. Its length is cleared; its current input lists are copied again, with native growth when needed. The initial reserve checks retained capacity, and the buffer is released once at `0x2d20c8`, after the country loop. Initialization at `0x2d0b5d` also covers a call with no qualifying targets; the initial world-state early return owns no allocation.
+
+The allocation is local to the native stack frame, so threads and recursive calls do not share it. Peak retained scratch is the largest target list encountered in that call. No province, country, modifier, table write, pair ordering, or calculation between the two world passes is omitted. This same-answer change also applies when the game calls the distance rebuild outside loading. It does not establish that the complete cache passes can be combined.
+
+### Finishing the cache wrapper's update thread
+
+The wrapper sets its update closure's stop byte at `0x776c93` and joins the thread. The update is the same `0x5c4460` as saving uses: a session update followed by a 50 ms wait. The existing `update-thread` speed-up already replaces that sleep with an interruptible wait, but originally notified it only at the saving stop site. The cache stop now notifies it too, **after** the native stop byte is set. Its original null check and join remain. An update in progress finishes; one about to wait sees the stop generation change; a thread not yet in its loop sees the native stop byte. This removes the tail of a wait without suppressing an update during cache calculation. Both full cache passes still run.
+
+### Distance inputs, arithmetic and shared writes
+
+The valid province-pair work in `0x2d0b30` does not consume the distance tables it writes. Its geometry comes from province IDs/adjacency, current capitals, regional links, map coordinates and constants. `0x9fabe0` calls `0xa14870`; their established valid paths only read those inputs and write caller output/stack. A source's classification relative to its capital is repeated for each target, and a target province's classification is repeated for each source province.
+
+`0x88a390` mode 0 uses wrapped planar squared distance. The normal nonnegative path in `0x88a230` takes a double square root, converts to single precision, multiplies by 1000 and adds 0.5 in single precision, then truncates to i32. The outer distance loop divides by 1000 and narrows to u16 for unsigned minima. Floating-point environment, integer widths and overflow paths are part of this numerical behavior. Mode 1 invokes spherical math; exceptional CRT paths have not been fully established here.
+
+Different countries' calls write overlapping table slots in both directions and can reallocate destination vectors. Invalid-ID diagnostics also write the lazily initialized global at `0x2456bc0`. [Load preparation](load-preparation.md) records input/reset ordering and shared registration state in native save-object readers.
+
 ## Other recorded addresses
 
 Recorded sites and partially understood addresses; a listing is not a complete function account.
