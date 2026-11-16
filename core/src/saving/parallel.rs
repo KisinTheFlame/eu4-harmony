@@ -96,7 +96,6 @@ const WRITER_DEPTH: usize = crate::saves::WRITER_DEPTH;
 const MEMORY_STREAM: [usize; 2] = [0x1d92200, STREAM_VTABLE];
 const STREAM_WRITE_SLOT: usize = 0x50;
 const STREAM_WRITE: usize = 0x171f290;
-const STREAM_MADE: usize = 0x171ec8f;
 
 /// The two functions that hold the value being written in a static object
 /// and return it (`(value) -> object`; the object's methods write the value):
@@ -1058,26 +1057,29 @@ fn points() -> Vec<Point> {
             "save writer made",
         )
         .uses(&[WRITER_VTABLE, WRITER_STREAM]),
-        Point::keep(STREAM_WRITE, "40 57 41 54 41 56 41 57 48 83 ec 38 48 83 79 38 00 4d 8b f8 4c 63 71 50 4c 8b e2 48 8b f9 75 1c 48 63 51 4c 49 03 d0 49 3b d6 7e 10 c6 41 54 01", "memory stream writes")
-            .uses(&[stream::GROWING, stream::CAPACITY, stream::AT, stream::FULL]),
         Point::keep(
-            STREAM_MADE,
-            "48 8d 05 c2 16 6a 00 48 89 03 48 89 73 38 48 89 6b 40 4c 89 73 48 89 7b 50 c6 43 54 00 0f b6 84 24 80 00 00 00 88 43 55 0f b6 84 24 88 00 00 00 88 43 56",
-            "memory stream made",
+            STREAM_WRITE,
+            "40 57 41 54 41 56 41 57 48 83 ec 38 48 83 79 38 00 4d 8b f8 4c 63 71 50 4c 8b e2 48 8b f9 75 1c 48 63 51 4c 49 03 d0 49 3b d6 7e 10 c6 41 54 01",
+            "memory stream writes",
         )
-        .uses(&[MEMORY_STREAM[1], stream::GROWING, stream::BUFFER, stream::KEPT, stream::CAPACITY, stream::FULL, stream::OWNS_BUFFER, stream::OWNS_GROWING]),
+        .uses(&[stream::GROWING, stream::CAPACITY, stream::AT, stream::FULL]),
         Point::method(MEMORY_STREAM[0], STREAM_WRITE_SLOT, STREAM_WRITE, "memory stream's write"),
         Point::method(MEMORY_STREAM[1], STREAM_WRITE_SLOT, STREAM_WRITE, "other memory stream's write"),
         Point::replace(VALUE_HOLDER, "40 53 48 83 ec 20 65 48 8b 04 25 58 00 00 00 48", "save value holder", value_holder as Holder, &ORIGINAL_VALUE_HOLDER),
-        Point::keep(
-            VALUE_HOLDER_STORES,
-            "39 05 7d cc 2f 02 7f 1b 48 89 1d 64 cc 2f 02 48 8d 05 4d cc 2f 02 c6 05 5e cc 2f 02 00",
-            "save value holder stores",
-        )
-        .uses(&[VALUE_OBJECT_GUARD, VALUE_OBJECT_VALUE, VALUE_OBJECT, VALUE_OBJECT_BYTE]),
-        Point::replace(OTHER_HOLDER, "40 53 48 83 ec 20 65 48 8b 04 25 58 00 00 00 48", "other save value holder", other_holder as Holder, &ORIGINAL_OTHER_HOLDER),
-        Point::keep(OTHER_HOLDER_STORES, "39 05 c5 34 19 02 7f 14 48 89 1d b4 34 19 02 48 8d 05 9d 34 19 02", "other save value holder stores")
-            .uses(&[OTHER_OBJECT_GUARD, OTHER_OBJECT_VALUE, OTHER_OBJECT]),
+        Point::keep(VALUE_HOLDER_STORES, "39 05 7d cc 2f 02 7f 1b 48 89 1d 64 cc 2f 02 48 8d 05 4d cc 2f 02 c6 05 5e cc 2f 02 00", "save value holder stores")
+            .uses(&[VALUE_OBJECT_GUARD, VALUE_OBJECT_VALUE, VALUE_OBJECT, VALUE_OBJECT_BYTE]),
+        Point::replace(
+            OTHER_HOLDER,
+            "40 53 48 83 ec 20 65 48 8b 04 25 58 00 00 00 48",
+            "other save value holder",
+            other_holder as Holder,
+            &ORIGINAL_OTHER_HOLDER,
+        ),
+        Point::keep(OTHER_HOLDER_STORES, "39 05 c5 34 19 02 7f 14 48 89 1d b4 34 19 02 48 8d 05 9d 34 19 02", "other save value holder stores").uses(&[
+            OTHER_OBJECT_GUARD,
+            OTHER_OBJECT_VALUE,
+            OTHER_OBJECT,
+        ]),
         Point::jump(
             INLINE_1_STORES,
             "44 88 25 44 74 00 02 49 8d 04 2e 48 89 05 31 74 00 02",
@@ -1110,8 +1112,14 @@ fn points() -> Vec<Point> {
             &INLINE_3_STORES_RESUME,
         )
         .uses(&[VALUE_OBJECT_VALUE, VALUE_OBJECT_BYTE]),
-        Point::jump(INLINE_3_OBJECT, "48 8d 0d 49 bf c8 01", "save value holder inline (3)", inline_3_object_stub as *const () as usize, &INLINE_3_OBJECT_RESUME)
-            .uses(&[VALUE_OBJECT]),
+        Point::jump(
+            INLINE_3_OBJECT,
+            "48 8d 0d 49 bf c8 01",
+            "save value holder inline (3)",
+            inline_3_object_stub as *const () as usize,
+            &INLINE_3_OBJECT_RESUME,
+        )
+        .uses(&[VALUE_OBJECT]),
         Point::jump(
             INLINE_4,
             "48 8d 84 24 98 04 00 00 44 88 3d 21 c6 c0 01 48 89 05 12 c6 c0 01 48 8d 0d fb c5 c0 01 48 8b 05 f4 c5 c0 01",
@@ -1128,8 +1136,14 @@ fn points() -> Vec<Point> {
             &INLINE_5_STORES_RESUME,
         )
         .uses(&[VALUE_OBJECT_VALUE, VALUE_OBJECT_BYTE]),
-        Point::jump(INLINE_5_OBJECT, "48 8d 0d 11 c0 c0 01", "save value holder inline (5)", inline_5_object_stub as *const () as usize, &INLINE_5_OBJECT_RESUME)
-            .uses(&[VALUE_OBJECT]),
+        Point::jump(
+            INLINE_5_OBJECT,
+            "48 8d 0d 11 c0 c0 01",
+            "save value holder inline (5)",
+            inline_5_object_stub as *const () as usize,
+            &INLINE_5_OBJECT_RESUME,
+        )
+        .uses(&[VALUE_OBJECT]),
     ];
     #[cfg(feature = "dev-test-switches")]
     {

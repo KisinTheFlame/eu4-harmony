@@ -206,6 +206,26 @@ The highest-priority candidate is to give local plain-text parsing a memory stre
 
 Late-game saves from 1733 and 1820 required mods absent from the current playset and were not loaded; their checks were not bypassed. Ironman, cloud, random new world, other machines and long-run equivalence remain outside this comparison. No production code or player setting was changed. [Investigation limits](research/performance-evidence.md#normal-mode-load-investigation) retain the failed instrumentation and tool boundary.
 
+### Buffered local text input
+
+The `save-input` implementation keeps the native file open and uses a borrowed native memory stream only during the local in-game world's load ([ownership](game/program/saves.md#file-position-queries-while-parsing-text)). This is the same-answer kind of speed-up under ADR the-game-may-be-made-faster-with-reasoned-differences. It adds one temporary byte buffer, approximately the plain file's size; it changes neither the file format nor the game's parser. A developer build can leave it to the game with `game-paths = ["save-input"]`.
+
+The implementation comparison used the same 1449.7.1 Austria input, hardware and playset as above, four fresh hidden games with seed 123456, and one release DLL containing only `dev-test-games,dev-test-switches` (SHA-256 `b1f537f3f9232a8afe4230c455d19d67e55e33eddc2f4d57f218a7c7cdd8a827`). Native/buffered/buffered/native were selected through the switch in that same DLL. Each process first loaded the immutable input from the main menu, then loaded it four times in-game while paused. Compilation and stack sampling were finished before measurement; each pre-load process inventory found only that run's EU4. Other background activity was not comprehensively measured.
+
+| Run | Complete request times, seconds | Save read and world setup (`0x5cf740`), seconds |
+| --- | --- | --- |
+| Native, first | 4.921, 5.213, 5.276, 5.442 | 1.75, 1.74, 1.77, 1.76 |
+| Buffered, first | 4.706, 6.323, 5.497, 6.166 | 0.97, 1.50, 1.01, 1.45 |
+| Buffered, second | 4.120, 4.373, 4.415, 4.457 | 0.91, 0.89, 0.91, 0.90 |
+| Native, second | 4.674, 5.090, 5.027, 5.097 | 1.69, 1.70, 1.70, 1.73 |
+| Median of eight loads each | 5.093 native; 4.581 buffered | 1.735 native; 0.940 buffered |
+
+The pooled request median fell 0.512 s (10.1%), and the save-read/world-setup median fell 0.795 s (45.8%). **The total gain was not consistent across both pairs**: the first buffered process was slower overall despite faster save reading. Its startup was already 22 s, before the input hook ran, against 14–15 s in the other three processes; this suggests broader load variation but does not identify its cause. These observations support faster text input, not a guaranteed 10% reduction in every complete load.
+
+After four loads, the complete native autosaves from all four processes matched byte-for-byte: 39,920,872 bytes, SHA-256 `b444b3ecfebf6dacfcc02cda7c15316101bb7135686690cc64c6dae23fffeb33`. After three game days, all four autosaves also matched without filtering any metadata or checksums: 39,913,940 bytes, SHA-256 `6aa66d76e8e3ea74dec91702da4fdeed386c2c1d34154cbc429cc8cae3e161ba`. This includes the input's legacy game-text bytes and extension save data. Each process then loaded the compressed 1444 England control twice and advanced three days. This establishes bounded equivalence for these paused loads and short seeded continuations, not every possible save.
+
+An earlier pair overlapped another holder's test game and is excluded from the table. The final native process was repeated after the measurement script encountered the native autosave's brief absence during file rotation; its earlier completed request times were 4.982, 5.388, 5.289 and 6.175 s. That retry was for completing the save comparison, not for selecting faster samples. No new parallel world work, history skipping, player installation or player-setting change is part of this implementation. Late-game, cloud, multiplayer and random-new-world measurements remain open.
+
 ## Parameterized script in one pass (2026-11-11)
 
 [game-speed.md](plans/README.md#performance)'s S12, one developer build with the test switches, `game-paths = ["script-parameters"]` for the game's own code; every DLC, the files in the system's cache, no other test game running ([the run](research/mechanics-evidence.md)). The uses' making is `0xdb0860`'s calls summed, timed by the call trace; the main menu is `cargo xtask game start`'s whole seconds.

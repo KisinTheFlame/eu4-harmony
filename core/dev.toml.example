@@ -54,7 +54,7 @@ panic = false
 # The speed-ups left to the game, so that its own code can be measured against
 # them: their points are not installed. Each is named by its name, its group or
 # "all": pops-polling, drawing-thread and modifier-sums (group "frames"); music,
-# lookups, children, opens, listed-folders, transfer-copy, script-parameters,
+# lookups, children, opens, listed-folders, transfer-copy, save-input, script-parameters,
 # localisation and trigger-profile ("loading"); background-compression,
 # stored-copy, parallel-saves, save-sum and update-thread ("saving");
 # army-searches ("ai").
