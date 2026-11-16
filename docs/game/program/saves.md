@@ -106,6 +106,14 @@ The allocation is local to the native stack frame, so threads and recursive call
 
 The wrapper sets its update closure's stop byte at `0x776c93` and joins the thread. The update is the same `0x5c4460` as saving uses: a session update followed by a 50 ms wait. The existing `update-thread` speed-up already replaces that sleep with an interruptible wait, but originally notified it only at the saving stop site. The cache stop now notifies it too, **after** the native stop byte is set. Its original null check and join remain. An update in progress finishes; one about to wait sees the stop generation change; a thread not yet in its loop sees the native stop byte. This removes the tail of a wait without suppressing an update during cache calculation. Both full cache passes still run.
 
+### Distance computation and concurrent readers
+
+The valid province-pair work in `0x2d0b30` does not consume the distance tables it writes. Its geometry comes from province IDs/adjacency, current capitals, regional links, map coordinates and constants. `0x9fabe0` calls `0xa14870`; their established valid paths only read those inputs and write caller output/stack. A source's classification relative to its capital is repeated for each target, and a target province's classification is repeated for each source province. Reusing those classifications within one invocation is a separate candidate from changing thread scheduling.
+
+`0x88a390` mode 0 uses wrapped planar squared distance. The normal nonnegative path in `0x88a230` takes a double square root, converts to single precision, multiplies by 1000 and adds 0.5 in single precision, then truncates to i32. The outer distance loop divides by 1000 and narrows to u16 for unsigned minima. Floating-point environment, integer widths and overflow paths matter; an ordinary f64 rounding expression is not an established replacement. Mode 1 invokes spherical math; exceptional CRT paths have not been certified as worker code.
+
+Whole-country parallel calls would race on both directions' table slots and possible vector reallocations. A narrower proposed boundary is private target-group computation within **one** native invocation, followed by its original ordered double writes. This leaves the caller's interleaved country work in order; moving publication until the end of the whole world pass needs additional dependency proof. Invalid-ID diagnostics also write the lazily initialized global at `0x2456bc0`, so they are not private worker work. [Load preparation](load-preparation.md) records input/reset ordering and concrete global-registration conflicts in native save-object readers; [the investigation](../../research/load-parallelism.md) ranks possible implementations without claiming a parallel path has been tested.
+
 ## Other recorded addresses
 
 Recorded sites and partially understood addresses; a listing is not a complete function account.

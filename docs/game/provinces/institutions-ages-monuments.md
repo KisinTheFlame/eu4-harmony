@@ -31,6 +31,12 @@ Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` on 2026-11-11 with 
 - **The cost**, its vtable's `+0x70`, `0x7d17a0(project, out, country, explanation or null)`: i32 thousandths of a ducat into `out`, through the definition's `0x7d7430` for the next tier.
 - **The command** `upgrade_great_project` (token `0x3b64`, vtable `0x1c4e148`; write `0x267df0` through `0x26a7a0`, read `0x26b420`, check `0x26b690`, execute `0x267e20`), as the monuments window's button makes it (`0x139777c`): `great_projects` the definition's key, `province` the province's ID, `builder` the country's tag, written when its last byte is set: `upgrade_great_project={ great_projects="<key>" province=<id> builder="FRA" }`. `constructgreatproject` (vtable `0x1c4e1f0`) shares its writer and reader; it and the other commands are the next section's.
 
+## Shared modifier refresh during province-cache rebuilding
+
+The province modifier rebuild `0x9f9500` reaches `0x960330`, which invokes 36 callbacks through `0x1cd0430`. One is `0x95dff0`: it walks the great-project manager and refreshes a project for its own province, provinces matching its geographic group and owner, or provinces matching its enclosing group and owner (`0x95e072`, `0x95e0cc`, `0x95e13f`). Each refresh calls `0x7d0f80(project)` before the current province consumes the project's modifier set.
+
+The complete refresh clears the project's string lists with `0x215610`, resets modifier collections at `+0x18/+0x188/+0x2f8/+0x468` through `0x8e6190`, and rebuilds them through `0x7d0b40`. Thus different provinces can change and read the **same project instance** during their modifier rebuilds. Calling the native province functions concurrently is not justified by their different province arguments; warming the project first does not prevent these explicit refreshes. Not all other callbacks have been audited. [The parallelism investigation](../../research/load-parallelism.md) retains the scope and possible preparation boundary.
+
 ## Great projects' other commands
 
 Found on 2026-11-11 from the command vtables (writer `+0x10`, reader `+0x20`, check `+0x40`, execute `+0x48`), the tokens their writers write, the monuments window's buttons that make them and the checks their tooltips ask; offered as `monument.buildable`, `monument.build`, `monument.evaluate_move`, `monument.move`, `monument.constructions`, `monument.cancel` and `monument.boost` (part M20 of [mod-capabilities.md](../../plans/README.md#capabilities); [the run](../../research/mechanics-evidence.md)).
