@@ -225,6 +225,10 @@ impl World {
         }
     }
 
+    fn current_date(&self, calendar: crate::fake::Calendar) -> Value {
+        calendar.today.map(crate::fake::lua_form).unwrap_or_else(|| self.date())
+    }
+
     fn province(&self, id: u32) -> Result<&Place, Error> {
         self.provinces.iter().find(|p| p.id == id).ok_or_else(|| province_checks::not_found(id).into())
     }
@@ -397,12 +401,12 @@ impl World {
 
     /// The answer to `capability` asked with `request`'s arguments, if the
     /// world answers it.
-    pub fn answer(&mut self, capability: &str, request: &Value) -> Option<Result<Value, Error>> {
+    pub fn answer(&mut self, capability: &str, request: &Value, calendar: crate::fake::Calendar) -> Option<Result<Value, Error>> {
         let int = |name: &str| request.get(name).and_then(Value::as_u64).unwrap_or_default();
         let text = |name: &str| request.get(name).and_then(Value::as_str).unwrap_or_default().to_string();
         let province = |name: &str| int(name) as u32;
         Some(match capability {
-            "session.get" => Ok(json!({"number": 1, "player": self.player(), "observing": false, "date": self.date()})),
+            "session.get" => Ok(json!({"number": calendar.session.max(1), "player": self.player(), "observing": false, "date": self.current_date(calendar)})),
             "country.get" => {
                 let tag = text("country");
                 if !self.country_known(&tag) {
@@ -529,16 +533,20 @@ impl World {
                     Value::Null
                 })
             }
-            "script.flag" | "script.set_flag" | "script.clear_flag" | "script.variable" | "script.set_variable" => self.script(capability, request),
+            "script.flag" | "script.set_flag" | "script.clear_flag" | "script.variable" | "script.set_variable" => {
+                let date = self.current_date(calendar);
+                self.script(capability, request, date)
+            }
             _ => return None,
         })
     }
 
     /// A flag or a variable read or set, kept by its scope and name: a flag
-    /// set on the world's date, a variable in thousandths, as the game keeps
-    /// them. The scope's country or province must be the world's; a monarch
-    /// is taken to be there.
-    fn script(&mut self, capability: &str, request: &Value) -> Result<Value, Error> {
+    /// set on the current session date (or the world's date before days
+    /// advance), a variable in thousandths, as the game keeps them. The
+    /// scope's country or province must be the world's; a monarch is taken to
+    /// be there.
+    fn script(&mut self, capability: &str, request: &Value, date: Value) -> Result<Value, Error> {
         let scope: Scope =
             serde_json::from_value(request.get("scope").cloned().unwrap_or(Value::Null)).map_err(|e| Error::new(Code::InvalidArgument, e.to_string()))?;
         let name = request.get("name").and_then(Value::as_str).unwrap_or_default();
@@ -561,7 +569,7 @@ impl World {
                 None => json!({"set": false, "day": null}),
             },
             "script.set_flag" => {
-                self.flags.insert(key, self.date());
+                self.flags.insert(key, date);
                 Value::Null
             }
             "script.clear_flag" => {
@@ -618,7 +626,7 @@ mod tests {
     }
 
     fn ask(world: &mut World, capability: &str, request: Value) -> Result<Value, Error> {
-        let answer = world.answer(capability, &request).unwrap();
+        let answer = world.answer(capability, &request, crate::fake::Calendar::default()).unwrap();
         if let Ok(value) = &answer {
             crate::fake::check(capability, value).unwrap();
         }

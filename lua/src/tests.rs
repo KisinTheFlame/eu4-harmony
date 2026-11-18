@@ -1201,3 +1201,22 @@ fn an_extension_sets_its_windows_and_a_popup_s_buttons_run_their_actions() {
     let wrong = load_texts("windows-wrong", "return { windows = { w = { size = { 100, 100 }, title = \"NONE\" } } }", &texts).err().unwrap();
     assert!(wrong.contains("main.lua's windows.w: title: the mod has no text \"NONE\""), "{wrong}");
 }
+
+#[test]
+fn reload_handoff_skips_save_data_when_old_was_stopped() {
+    let main = r#"
+        return {
+          save_data = function()
+            log("save_data should not run")
+            return { n = 1 }
+          end,
+        }
+    "#;
+    let (old, host) = load_with("handoff-stopped", main, &[]).unwrap();
+    let (new, _) = load_with("handoff-new", "return {}", &[]).unwrap();
+    old.stop("timed out");
+    let outcome = reload_handoff(&old, &new, host.as_ref(), true);
+    assert!(outcome.saved.is_none());
+    assert!(outcome.lost.as_deref().is_some_and(|l| l.contains("timed out")), "{:?}", outcome.lost);
+    assert!(!host.log.lock().unwrap().iter().any(|l| l.contains("save_data should not run")));
+}

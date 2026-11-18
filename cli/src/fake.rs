@@ -47,20 +47,27 @@ impl<T: Send> Pending<T> for Taken<T> {
     }
 }
 
-/// The fake game's day: the last a test raised in the session, none before
-/// the first.
-pub type Today = Arc<Mutex<Option<Date>>>;
+/// Where the fake game's time and session stand.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Calendar {
+    /// Active session number; `0` before the first `mod:session()`.
+    pub session: u64,
+    /// Whether a session is open (`mod:session()` to `mod:session_ended()`).
+    pub going_on: bool,
+    /// Last day raised in the session, or `None` before the first day.
+    pub today: Option<Date>,
+}
 
 /// A `time.wait` for the day `until`, answered once a day the test raises
 /// reaches it.
 struct Until {
-    today: Today,
+    calendar: Arc<Mutex<Calendar>>,
     until: Date,
 }
 
 impl Pending<Answered> for Until {
     fn poll(&mut self) -> Option<Answered> {
-        let today = (*self.today.lock().unwrap_or_else(|e| e.into_inner()))?;
+        let today = self.calendar.lock().unwrap_or_else(|e| e.into_inner()).today?;
         (today >= self.until).then(|| Ok(lua_form(today)))
     }
 }
@@ -106,8 +113,6 @@ pub struct Store {
     /// The mod's windows and pop-ups, kept by the rules the game keeps
     /// them by: what it opened or closed itself it hears at the next frame.
     pub windows: Windows,
-    /// A session goes on: from `mod:session()` to `mod:session_ended()`.
-    pub going_on: bool,
 }
 
 /// One of the mod's windows as a test reads it back.
@@ -203,9 +208,9 @@ pub fn check(capability: &str, answer: &Value) -> Result<(), String> {
 /// The fake game, for one mod.
 pub struct Fake {
     pub store: Mutex<Store>,
-    texts: Catalog,
+    texts: Mutex<Catalog>,
     pub language: Mutex<Language>,
-    pub today: Today,
+    pub calendar: Arc<Mutex<Calendar>>,
     /// The test's Lua state, for answers that are functions; weak, as the
     /// state holds the fake game in turn.
     tests: WeakLua,
@@ -213,7 +218,38 @@ pub struct Fake {
 
 impl Fake {
     pub fn new(texts: Catalog, tests: &Lua) -> Self {
-        Self { store: Mutex::new(Store::default()), texts, language: Mutex::new(Language::English), today: Today::default(), tests: tests.weak() }
+        Self {
+            store: Mutex::new(Store::default()),
+            texts: Mutex::new(texts),
+            language: Mutex::new(Language::English),
+            calendar: Arc::default(),
+            tests: tests.weak(),
+        }
+    }
+
+    pub fn calendar(&self) -> Calendar {
+        *self.calendar.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn start_session(&self) -> u64 {
+        let mut cal = self.calendar.lock().unwrap_or_else(|e| e.into_inner());
+        cal.session += 1;
+        cal.going_on = true;
+        cal.today = None;
+        cal.session
+    }
+
+    pub fn end_session(&self) {
+        self.calendar.lock().unwrap_or_else(|e| e.into_inner()).going_on = false;
+    }
+
+    pub fn advance_day(&self, date: Date) -> (bool, bool) {
+        let mut cal = self.calendar.lock().unwrap_or_else(|e| e.into_inner());
+        date.turned(cal.today.replace(date))
+    }
+
+    pub fn replace_texts(&self, texts: Catalog) -> Catalog {
+        std::mem::replace(&mut *self.texts.lock().unwrap_or_else(|e| e.into_inner()), texts)
     }
 
     /// `time.wait`, as the game answers it: once the days the test raises
@@ -221,10 +257,10 @@ impl Fake {
     /// date, or else 1444.11.11.
     fn wait(&self, request: &Value, store: &Store) -> Called {
         let days = request.get("days").and_then(Value::as_u64).and_then(|d| u32::try_from(d).ok()).unwrap_or(0);
-        let today = *self.today.lock().unwrap_or_else(|e| e.into_inner());
+        let today = self.calendar().today;
         let from = today.or_else(|| store.world.as_ref().and_then(|w| lua_date(&w.date()))).or_else(|| Date::from_ymd(1444, 11, 11));
         match from.map(|from| eu4_harmony_checks::time::days_after(from, days)) {
-            Some(Ok(until)) => Called::Later(Box::new(Until { today: self.today.clone(), until })),
+            Some(Ok(until)) => Called::Later(Box::new(Until { calendar: self.calendar.clone(), until })),
             Some(Err(refusal)) => Called::Done(Err(refusal.into())),
             None => Called::Done(Err(Error::new(Code::Internal, "the fake game has no date"))),
         }
@@ -270,7 +306,8 @@ impl Host for Fake {
         let answered = match store.answers.get(&name) {
             None if name == "time.wait" => return self.wait(&json, &store),
             None if store.world.is_some() && crate::world::ANSWERS.contains(&name.as_str()) => {
-                store.world.as_mut().and_then(|w| w.answer(&name, &json)).unwrap_or(Ok(Value::Null))
+                let calendar = self.calendar();
+                store.world.as_mut().and_then(|w| w.answer(&name, &json, calendar)).unwrap_or(Ok(Value::Null))
             }
             None => {
                 store.unanswered.push(name.clone());
@@ -302,9 +339,8 @@ impl Host for Fake {
     }
 
     fn window(&self, extension: usize, change: WindowChange) -> Result<(), String> {
-        let mut store = self.store();
-        let in_game = store.going_on;
-        store.windows.change(extension, change, in_game)
+        let in_game = self.calendar().going_on;
+        self.store().windows.change(extension, change, in_game)
     }
 
     fn tooltip(&self, extension: usize, window: Option<&str>, widget: &str) -> Result<eu4_harmony_lua::Text, String> {
@@ -316,9 +352,8 @@ impl Host for Fake {
     }
 
     fn popup(&self, extension: usize, popup: Popup) -> Result<u32, String> {
-        let mut store = self.store();
-        let in_game = store.going_on;
-        store.windows.popup(extension, popup, in_game)
+        let in_game = self.calendar().going_on;
+        self.store().windows.popup(extension, popup, in_game)
     }
 
     fn close_popup(&self, extension: usize, popup: u32) -> Result<(), String> {
@@ -338,7 +373,7 @@ impl Host for Fake {
 
     fn text(&self, _: &str, key: &str) -> Option<String> {
         // As the core gives it: escapes such as \n written out.
-        self.texts.text(*self.language.lock().unwrap_or_else(|e| e.into_inner()), key)
+        self.texts.lock().unwrap_or_else(|e| e.into_inner()).text(*self.language.lock().unwrap_or_else(|e| e.into_inner()), key)
     }
 
     fn language(&self) -> String {
@@ -356,7 +391,7 @@ impl Host for Fake {
     }
 
     fn session(&self) -> u64 {
-        1
+        self.calendar().session
     }
 
     fn first_error(&self, _: &Extension, from: &str, message: &str) {
@@ -369,5 +404,12 @@ impl Host for Fake {
         store.windows.forget(extension.index());
         store.map = None;
         store.told.push(format!("stopped: {reason}"));
+    }
+
+    fn reload_reset(&self, extension: usize, new: &Extension) {
+        let mut store = self.store();
+        store.hosted.forget(extension);
+        store.map = None;
+        store.windows.declare(extension, new.id(), new.windows());
     }
 }

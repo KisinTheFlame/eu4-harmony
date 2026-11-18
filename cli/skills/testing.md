@@ -86,6 +86,7 @@ signals, as the game raises them, through the dispatch the game uses:
   mod:army_ordered(army)   mod:army_defeated(army)   mod:map_lost()
   mod:poll()           takes up waiting tasks whose answer came; frame does it too
   mod:save()           calls save_data: its data, or nil and why it failed
+  mod:reload()         reloads main.lua and localisation in place: { session, saved_kept, lost }
 
 the mod's windows and pop-ups, as the player uses them (eu4-harmony skills ui
 windows):

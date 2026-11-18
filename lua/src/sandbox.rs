@@ -157,25 +157,7 @@ pub fn open(at: &Opening) -> mlua::Result<Opened> {
     globals.set("text", text)?;
 
     // require: the mod's own modules, by dotted name.
-    lua.set_named_registry_value(LOADED, lua.create_table()?)?;
-    let modules = harmony.join("lua");
-    globals.set(
-        "require",
-        lua.create_function(move |lua, name: String| {
-            let loaded: Table = lua.named_registry_value(LOADED)?;
-            if let Ok(module) = loaded.get::<LuaValue>(name.as_str()) {
-                if !module.is_nil() {
-                    return Ok(module);
-                }
-            }
-            let file = module_file(&modules, &name).map_err(|e| mlua::Error::runtime(format!("require {name:?}: {e}")))?;
-            let source = std::fs::read_to_string(&file).map_err(|e| mlua::Error::runtime(format!("require {name:?}: {e}")))?;
-            let module = chunk(lua, source, &format!("{}.lua", name.replace('.', "/"))).call::<LuaValue>(name.as_str())?;
-            let module = if module.is_nil() { LuaValue::Boolean(true) } else { module };
-            loaded.set(name.as_str(), module.clone())?;
-            Ok(module)
-        })?,
-    )?;
+    install_require(&lua, vec![harmony.join("lua")])?;
 
     // spawn, async, await_all and await_any, which the prelude builds on
     // these: a task of its own and its handle, cancelling it, and waiting for
@@ -347,19 +329,67 @@ fn file_name(name: &str) -> bool {
         && !DEVICES.contains(&stem.as_str())
 }
 
+/// Installs `require(name)` reading `.lua` modules under `roots` in order.
+/// Each module loads as text, receives its dotted `name` as `...`, and caches
+/// any non-nil return value (or `true` when `nil`).
+pub fn install_require(lua: &Lua, roots: Vec<PathBuf>) -> mlua::Result<()> {
+    lua.set_named_registry_value(LOADED, lua.create_table()?)?;
+    lua.globals().set(
+        "require",
+        lua.create_function(move |lua, name: String| {
+            let loaded: Table = lua.named_registry_value(LOADED)?;
+            if let Ok(module) = loaded.get::<LuaValue>(name.as_str()) {
+                if !module.is_nil() {
+                    return Ok(module);
+                }
+            }
+            let relative = check_module_name(&name).map_err(|e| mlua::Error::runtime(format!("require {name:?}: {e}")))?;
+            let mut found = None;
+            let mut last_not_found = None;
+            for root in &roots {
+                let file = within(root, &relative).map_err(|e| mlua::Error::runtime(format!("require {name:?}: {e}")))?;
+                match std::fs::read_to_string(&file) {
+                    Ok(source) => {
+                        found = Some(source);
+                        break;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                        last_not_found = Some(e);
+                    }
+                    Err(e) => {
+                        return Err(mlua::Error::runtime(format!("require {name:?}: {}: {e}", file.display())));
+                    }
+                }
+            }
+            let Some(source) = found else {
+                let detail = last_not_found.map_or_else(|| format!("no {relative}"), |e| e.to_string());
+                return Err(mlua::Error::runtime(format!("require {name:?}: {detail}")));
+            };
+            let module = chunk(lua, source, &relative).call::<LuaValue>(name.as_str())?;
+            let module = if module.is_nil() { LuaValue::Boolean(true) } else { module };
+            loaded.set(name.as_str(), module.clone())?;
+            Ok(module)
+        })?,
+    )
+}
+
 /// The Lua file `file` of the mod's `lua/` (`range/bfs.lua`), as the host
 /// loads it: as text, never bytecode, named by that path.
 pub(crate) fn chunk<'a>(lua: &'a Lua, source: impl mlua::AsChunk + 'a, file: &str) -> mlua::Chunk<'a> {
     lua.load(source).set_name(format!("@{file}")).set_mode(mlua::ChunkMode::Text)
 }
 
-/// The file of the module `name` (`range.bfs` is `range/bfs.lua`) under the
-/// mod's `lua/`.
-fn module_file(modules: &Path, name: &str) -> Result<PathBuf, String> {
+fn check_module_name(name: &str) -> Result<String, String> {
     if name.is_empty() || !name.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')) {
         return Err("a module is named by words of letters, digits and _ between dots".into());
     }
-    within(modules, &format!("{}.lua", name.replace('.', "/")))
+    Ok(format!("{}.lua", name.replace('.', "/")))
+}
+
+/// The file of the module `name` (`range.bfs` is `range/bfs.lua`) under `modules`.
+#[cfg(test)]
+fn module_file(modules: &Path, name: &str) -> Result<PathBuf, String> {
+    within(modules, &check_module_name(name)?)
 }
 
 /// `game.ui.<element>.<property> = value`.

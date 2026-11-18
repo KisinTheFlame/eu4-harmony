@@ -44,6 +44,7 @@ use std::{
 };
 
 pub use eu4_harmony_manifest::Permissions;
+pub use sandbox::install_require;
 pub use times::{Times, SLOW};
 pub use watch::LIMIT;
 pub use windows::{Popup, Property, WindowChange};
@@ -106,6 +107,35 @@ pub trait Host: Send + Sync {
     fn first_error(&self, extension: &Extension, from: &str, message: &str);
     /// The extension was stopped for `reason`, for the rest of the game.
     fn stopped(&self, extension: &Extension, reason: &str);
+    /// Clears host-owned UI and map state before a reloaded extension takes over.
+    fn reload_reset(&self, _extension: usize, _new: &Extension) {}
+}
+
+/// What the old extension gave up and the host reset during an in-place reload.
+#[derive(Debug)]
+pub struct ReloadOutcome {
+    pub saved: Option<Value>,
+    pub lost: Option<String>,
+}
+
+/// Transfers a running session's `save_data` from `old` to `new`, retires
+/// `old`'s waiting tasks, and resets `host` state for `new`. The caller
+/// replaces `old` with `new` and, when `in_session`, dispatches `on_session`
+/// with `saved`.
+pub fn reload_handoff(old: &Extension, new: &Extension, host: &dyn Host, in_session: bool) -> ReloadOutcome {
+    // A stopped extension's code is not run again, save_data included.
+    let (saved, lost) = match (in_session, old.stopped()) {
+        (false, _) => (None, None),
+        (true, Some(reason)) => (None, Some(format!("the old code was stopped ({reason}), so its save_data was not asked"))),
+        (true, None) => match old.save_data() {
+            Some(Ok(saved)) => (saved, None),
+            Some(Err(e)) => (None, Some(format!("save_data failed: {e}"))),
+            None => (None, None),
+        },
+    };
+    old.session_over();
+    host.reload_reset(new.index(), new);
+    ReloadOutcome { saved, lost }
 }
 
 /// What running a capability came to.
