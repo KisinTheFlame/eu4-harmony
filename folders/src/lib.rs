@@ -8,7 +8,17 @@ use std::{
     time::SystemTime,
 };
 
+mod item_id;
 pub mod windows_crash_callback;
+
+pub use item_id::parse_published_file_id;
+
+/// The game's Steam app id, under which the Workshop keeps its items.
+pub const APP_ID: &str = "236850";
+
+/// Harmony's published file id on the Steam Workshop, from `workshop/item.toml`;
+/// `0` before the item is created.
+pub const PUBLISHED_FILE_ID: u64 = include!(concat!(env!("OUT_DIR"), "/published_file_id.rs"));
 
 pub type Result<T> = std::result::Result<T, String>;
 
@@ -39,9 +49,14 @@ pub fn game_dir(given: Option<&Path>) -> Result<PathBuf> {
         .ok_or_else(|| "cannot find the game: pass --game-dir, or set EU4_GAME_DIR".into())
 }
 
-/// The game folder holding the program at `exe`, when it is installed there.
+/// The game folder holding the program at `exe`, when it is installed in
+/// `<game>\eu4-harmony.exe` or `<game>\eu4-harmony\eu4-harmony.exe`.
 fn installed_in(exe: &Path) -> Option<PathBuf> {
-    let game = exe.parent()?.parent()?;
+    let parent = exe.parent()?;
+    if parent.join("eu4.exe").is_file() {
+        return Some(parent.to_path_buf());
+    }
+    let game = parent.parent()?;
     game.join("eu4.exe").is_file().then(|| game.to_path_buf())
 }
 
@@ -56,20 +71,62 @@ pub fn user_dir(game_dir: Option<&Path>) -> Result<PathBuf> {
     }
 }
 
+/// Resolves the user directory from a command line, `userdir.txt`, and an
+/// explicit `documents` path when supplied; shared by the proxy (under the
+/// loader lock) and the rest of the workspace.
+pub fn user_dir_with_documents(command_line: &str, game_dir: Option<&Path>, documents: Option<&Path>) -> Option<PathBuf> {
+    let relative = |path: PathBuf| match game_dir {
+        Some(game) if !path.is_absolute() => game.join(path),
+        _ => path,
+    };
+    if let Some(named) = switch_value(command_line, "-userdir").filter(|v| !v.is_empty()) {
+        return Some(relative(PathBuf::from(named)));
+    }
+    if let Some(named) = game_dir.and_then(named_user_dir) {
+        return Some(named);
+    }
+    Some(documents?.join("Paradox Interactive").join("Europa Universalis IV"))
+}
+
 /// The user directory of the game started with `command_line`: the folder
 /// its `-userdir=` names, as the game takes it before `userdir.txt`, relative
 /// to the game folder when it is not absolute; else [`user_dir`].
 pub fn user_dir_of(command_line: &str, game_dir: Option<&Path>) -> Result<PathBuf> {
-    match switch_value(command_line, "-userdir").filter(|v| !v.is_empty()) {
-        Some(named) => {
-            let path = PathBuf::from(named);
-            Ok(match game_dir {
-                Some(game) if !path.is_absolute() => game.join(path),
-                _ => path,
-            })
-        }
-        None => user_dir(game_dir),
+    if let Some(dir) = user_dir_with_documents(command_line, game_dir, None) {
+        return Ok(dir);
     }
+    user_dir(game_dir)
+}
+
+/// The folder Steam keeps the Workshop item `published_file_id` in, for the
+/// game in `game_dir`: `<library>\steamapps\workshop\content\236850\<id>`
+/// when the game is `<library>\steamapps\common\<game>`; none while the id is
+/// `0` (item not yet created).
+pub fn workshop_item(game_dir: &Path, published_file_id: u64) -> Option<PathBuf> {
+    if published_file_id == 0 {
+        return None;
+    }
+    let common = game_dir.parent()?;
+    let steamapps = common.parent()?;
+    let named = |p: &Path, name: &str| p.file_name().is_some_and(|f| f.eq_ignore_ascii_case(name));
+    (named(common, "common") && named(steamapps, "steamapps"))
+        .then(|| steamapps.join("workshop").join("content").join(APP_ID).join(published_file_id.to_string()))
+}
+
+/// Where the framework looks for `eu4_harmony_core.dll` when no explicit
+/// `-harmony_core` is given: `<game>\eu4-harmony\` first, then Harmony's own
+/// Workshop item in the same Steam library.
+pub fn core_places(game_dir: &Path, published_file_id: u64) -> Vec<PathBuf> {
+    let mut places = vec![game_dir.join(HARMONY).join("eu4_harmony_core.dll")];
+    if let Some(item) = workshop_item(game_dir, published_file_id) {
+        places.push(item.join(HARMONY).join("eu4_harmony_core.dll"));
+    }
+    places
+}
+
+/// The first existing core DLL in [`core_places`] for [`PUBLISHED_FILE_ID`].
+pub fn active_core(game_dir: &Path) -> Option<PathBuf> {
+    core_places(game_dir, PUBLISHED_FILE_ID).into_iter().find(|p| p.is_file())
 }
 
 /// The words of a Windows command line, split at spaces and tabs outside
@@ -268,21 +325,34 @@ fn steam_path() -> Option<PathBuf> {
     Some(PathBuf::from(String::from_utf16_lossy(&buffer[..len])))
 }
 
-/// The Windows user's Documents folder.
+/// The Windows user's Documents folder, read from `HKCU\...\User Shell Folders`
+/// (with `USERPROFILE\Documents` fallback) so calling from `DllMain` under
+/// the loader lock never loads `shell32.dll` or `ole32.dll`.
 fn documents() -> Result<PathBuf> {
-    use windows_sys::Win32::{
-        System::Com::CoTaskMemFree,
-        UI::Shell::{FOLDERID_Documents, SHGetKnownFolderPath, KF_FLAG_DEFAULT},
-    };
-    let mut out: *mut u16 = std::ptr::null_mut();
-    let hr = unsafe { SHGetKnownFolderPath(&FOLDERID_Documents, KF_FLAG_DEFAULT as u32, std::ptr::null_mut(), &mut out) };
-    if hr < 0 || out.is_null() {
-        return Err(format!("cannot find the Documents folder: {hr:#x}"));
+    use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_SZ};
+    let key: Vec<u16> = "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders\0".encode_utf16().collect();
+    let value: Vec<u16> = "Personal\0".encode_utf16().collect();
+    let mut buf = vec![0u16; 32768];
+    let mut size = (buf.len() * 2) as u32;
+    // A REG_EXPAND_SZ value comes back expanded, as a REG_SZ.
+    let status =
+        unsafe { RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), value.as_ptr(), RRF_RT_REG_SZ, std::ptr::null_mut(), buf.as_mut_ptr().cast(), &mut size) };
+    if status == 0 {
+        let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+        let path = String::from_utf16_lossy(&buf[..len]);
+        if !path.is_empty() {
+            return Ok(PathBuf::from(path));
+        }
     }
-    let len = (0..).take_while(|&i| unsafe { *out.add(i) } != 0).count();
-    let path = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(out, len) });
-    unsafe { CoTaskMemFree(out as _) };
-    Ok(PathBuf::from(path))
+    std::env::var_os("USERPROFILE")
+        .filter(|home| !home.is_empty())
+        .map(|home| PathBuf::from(home).join("Documents"))
+        .ok_or_else(|| format!("cannot find the Documents folder: registry status {status}"))
+}
+
+/// The Windows user's Documents folder when available, without failing.
+pub fn documents_dir() -> Option<PathBuf> {
+    documents().ok()
 }
 
 #[cfg(test)]
@@ -321,11 +391,60 @@ mod tests {
     fn a_program_is_installed_in_the_game_folder_that_holds_it_and_the_game() {
         let game = scratch("installed");
         fs::create_dir_all(game.join("eu4-harmony")).unwrap();
-        let tool = game.join("eu4-harmony").join("eu4-harmony.exe");
-        assert_eq!(installed_in(&tool), None, "no eu4.exe beside it");
+        let nested = game.join("eu4-harmony").join("eu4-harmony.exe");
+        let top = game.join("eu4-harmony.exe");
+        assert_eq!(installed_in(&nested), None, "no eu4.exe beside it");
+        assert_eq!(installed_in(&top), None, "no eu4.exe beside it");
         fs::write(game.join("eu4.exe"), "").unwrap();
-        assert_eq!(installed_in(&tool), Some(game.clone()));
+        assert_eq!(installed_in(&nested), Some(game.clone()));
+        assert_eq!(installed_in(&top), Some(game.clone()));
         let _ = fs::remove_dir_all(game);
+    }
+
+    #[test]
+    fn workshop_item_core_places_and_active_core_follow_steam_library_layout() {
+        let root = scratch("workshop-core");
+        let game = root.join("SteamLibrary").join("steamapps").join("common").join("Europa Universalis IV");
+        fs::create_dir_all(&game).unwrap();
+        assert_eq!(
+            core_places(&game, 3_123_456_789),
+            [
+                game.join("eu4-harmony").join("eu4_harmony_core.dll"),
+                root.join("SteamLibrary")
+                    .join("steamapps")
+                    .join("workshop")
+                    .join("content")
+                    .join("236850")
+                    .join("3123456789")
+                    .join("eu4-harmony")
+                    .join("eu4_harmony_core.dll"),
+            ]
+        );
+        assert_eq!(workshop_item(&game, 0), None);
+        assert_eq!(core_places(&game, 0).len(), 1);
+        assert_eq!(workshop_item(Path::new(r"D:\Games\eu4"), 7), None);
+
+        let workshop_core = workshop_item(&game, PUBLISHED_FILE_ID).unwrap().join("eu4-harmony").join("eu4_harmony_core.dll");
+        if PUBLISHED_FILE_ID != 0 {
+            assert_eq!(active_core(&game), None);
+            fs::create_dir_all(workshop_core.parent().unwrap()).unwrap();
+            fs::write(&workshop_core, b"").unwrap();
+            assert_eq!(active_core(&game).as_deref(), Some(workshop_core.as_path()));
+            let local_core = game.join("eu4-harmony").join("eu4_harmony_core.dll");
+            fs::create_dir_all(local_core.parent().unwrap()).unwrap();
+            fs::write(&local_core, b"").unwrap();
+            assert_eq!(active_core(&game).as_deref(), Some(local_core.as_path()));
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn published_file_id_parser_skips_comments_and_rejects_non_numbers() {
+        assert_eq!(parse_published_file_id("published_file_id = 0\n"), Some(0));
+        assert_eq!(parse_published_file_id("published_file_id = 42 # inline\n"), Some(42));
+        assert_eq!(parse_published_file_id("# a note\npublished_file_id=3141592653\n"), Some(3141592653));
+        assert_eq!(parse_published_file_id("# published_file_id = 9\n"), None);
+        assert_eq!(parse_published_file_id("published_file_id = soon\n"), None);
     }
 
     #[test]

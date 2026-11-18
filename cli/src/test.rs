@@ -135,29 +135,8 @@ fn harness(opened: &Arc<Opened>) -> Result<Lua, String> {
         globals.set("open", lua.create_function(move |lua, ()| open(lua, &at).map_err(mlua::Error::runtime))?)?;
         // A helper of the tests', or else one of the mod's own modules, such as
         // a decision core to test on its own.
-        let folders = [opened.root.join("eu4-harmony").join(TESTS), opened.root.join("eu4-harmony").join("lua")];
-        globals.set("__modules", lua.create_table()?)?;
-        globals.set(
-            "require",
-            lua.create_function(move |lua, name: String| {
-                let modules: Table = lua.globals().get("__modules")?;
-                if let Ok(module @ (LuaValue::Table(_) | LuaValue::Function(_) | LuaValue::Boolean(_))) = modules.get::<LuaValue>(name.as_str()) {
-                    return Ok(module);
-                }
-                if name.is_empty() || !name.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')) {
-                    return Err(mlua::Error::runtime(format!("require {name:?}: a module is named by words between dots")));
-                }
-                let relative = format!("{}.lua", name.replace('.', "/"));
-                let Some(file) = folders.iter().map(|f| f.join(&relative)).find(|f| f.is_file()) else {
-                    return Err(mlua::Error::runtime(format!("require {name:?}: no {relative} in eu4-harmony/{TESTS}/ or eu4-harmony/lua/")));
-                };
-                let source = std::fs::read_to_string(&file).map_err(|e| mlua::Error::runtime(format!("require {name:?}: {}: {e}", file.display())))?;
-                let module = lua.load(source).set_name(format!("@{}.lua", name.replace('.', "/"))).set_mode(mlua::ChunkMode::Text).call::<LuaValue>(())?;
-                let module = if module.is_nil() { LuaValue::Boolean(true) } else { module };
-                modules.set(name.as_str(), module.clone())?;
-                Ok(module)
-            })?,
-        )?;
+        let folders = vec![opened.root.join("eu4-harmony").join(TESTS), opened.root.join("eu4-harmony").join("lua")];
+        eu4_harmony_lua::install_require(&lua, folders)?;
         globals.set(
             "print",
             lua.create_function(|lua, args: Variadic<LuaValue>| {
@@ -195,37 +174,36 @@ static OPENED: AtomicUsize = AtomicUsize::new(0);
 
 /// The mod opened afresh on a fake game of its own, as the handle tests
 /// drive it with.
-fn open(lua: &Lua, at: &Opened) -> Result<TestMod, String> {
+fn open(lua: &Lua, at: &Arc<Opened>) -> Result<TestMod, String> {
     let harmony = at.root.join("eu4-harmony");
+    let layout = eu4_harmony_manifest::layout(&harmony);
+    let mut slots = std::collections::HashMap::new();
+    let report = eu4_harmony_manifest::ui::read_fragments(&at.root, &at.manifest.id, &layout.ui, &mut slots);
+    if !report.problems.is_empty() {
+        return Err(report.problems.join("\n"));
+    }
     let (texts, _) = eu4_harmony_loc::load_dir(&harmony.join("localisation"));
     let fake = Arc::new(Fake::new(texts, lua));
     let n = OPENED.fetch_add(1, Ordering::Relaxed);
-    let m = Mod {
-        id: &at.manifest.id,
-        name: &at.name,
-        harmony,
-        permissions: &at.manifest.permissions,
-        data: Some(at.scratch.join(n.to_string()).join(&at.manifest.id)),
-    };
+    let data = at.scratch.join(n.to_string()).join(&at.manifest.id);
+    let m = Mod { id: &at.manifest.id, name: &at.name, harmony, permissions: &at.manifest.permissions, data: Some(data.clone()) };
     let extension = eu4_harmony_lua::open(0, &m, fake.clone())?;
-    fake.store().windows.declare(extension.index(), &at.manifest.id, extension.windows());
-    Ok(TestMod { extension, fake, calendar: Mutex::default() })
+    {
+        let mut store = fake.store();
+        store.windows.declare(extension.index(), &at.manifest.id, extension.windows());
+        if !layout.ui.is_empty() {
+            store.hosted.declare(extension.index(), report.elements.into_iter().map(|e| (e.name, e.kind.is_button())));
+        }
+    }
+    Ok(TestMod { opened: at.clone(), data, extension: Mutex::new(extension), fake })
 }
 
 /// A mod a test opened, and its fake game.
 struct TestMod {
-    extension: Arc<Extension>,
+    opened: Arc<Opened>,
+    data: PathBuf,
+    extension: Mutex<Arc<Extension>>,
     fake: Arc<Fake>,
-    calendar: Mutex<Calendar>,
-}
-
-/// Where the fake game's time is, as the signals raised have it.
-#[derive(Default)]
-struct Calendar {
-    /// The number of the session going on; 0 before the first.
-    session: u64,
-    /// The last day heard in the session.
-    day: Option<Date>,
 }
 
 /// What the fake game gives a dispatch: the save data a test starts a
@@ -258,13 +236,14 @@ impl dispatch::Feed for Fed {
 }
 
 impl TestMod {
-    fn calendar(&self) -> std::sync::MutexGuard<'_, Calendar> {
-        self.calendar.lock().unwrap_or_else(|e| e.into_inner())
+    fn ext(&self) -> Arc<Extension> {
+        self.extension.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// The mod hears `heard`, a session's start with `saved`.
     fn hear(&self, lua: &Lua, heard: &Heard, saved: Option<Value>) {
-        dispatch::hear(std::slice::from_ref(&self.extension), heard, &mut Fed(saved, Vec::new()));
+        let ext = self.ext();
+        dispatch::hear(std::slice::from_ref(&ext), heard, &mut Fed(saved, Vec::new()));
         self.note(lua);
     }
 
@@ -272,12 +251,8 @@ impl TestMod {
     /// the first heard in them, as the game raises them; first, as at the
     /// game's frame, its tasks waiting for the day are taken up.
     fn day(&self, lua: &Lua, date: Date) {
-        let (month, year) = {
-            let mut calendar = self.calendar();
-            date.turned(calendar.day.replace(date))
-        };
-        *self.fake.today.lock().unwrap_or_else(|e| e.into_inner()) = Some(date);
-        self.extension.poll();
+        let (month, year) = self.fake.advance_day(date);
+        self.ext().poll();
         self.hear(lua, &Heard::of(&Signal::Day { date }), None);
         if month {
             self.hear(lua, &Heard::of(&Signal::Month { date }), None);
@@ -388,14 +363,7 @@ impl UserData for TestMod {
         // Signals, as the game raises them (`eu4_harmony_lua::dispatch`).
         methods.add_method("session", |lua, this, saved: LuaValue| {
             let saved = json(&saved)?;
-            let session = {
-                let mut calendar = this.calendar();
-                calendar.session += 1;
-                calendar.day = None;
-                calendar.session
-            };
-            this.fake.store().going_on = true;
-            *this.fake.today.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            let session = this.fake.start_session();
             this.hear(lua, &Heard::of(&Signal::Session { session }), Some(saved));
             Ok(())
         });
@@ -405,7 +373,7 @@ impl UserData for TestMod {
                 .map_err(|_| mlua::Error::runtime(format!("{}a session ends for return, load, new_game or country, not {reason}", here(lua))))?;
             // As in the game: the session is over as the mod hears it end,
             // and its windows and pop-ups close after.
-            this.fake.store().going_on = false;
+            this.fake.end_session();
             this.hear(lua, &Heard::of(&Signal::SessionEnded { reason }), None);
             this.fake.store().windows.end_session();
             Ok(())
@@ -435,71 +403,65 @@ impl UserData for TestMod {
             Ok(())
         });
         methods.add_method("poll", |lua, this, ()| {
-            this.extension.poll();
+            this.ext().poll();
             this.note(lua);
             Ok(())
         });
         methods.add_method("frame", |lua, this, ()| {
+            let ext = this.ext();
             let seen = this.fake.store().windows.take_seen();
-            dispatch::frame(std::slice::from_ref(&this.extension), &[], &mut Fed(None, seen));
+            dispatch::frame(std::slice::from_ref(&ext), &[], &mut Fed(None, seen));
             this.note(lua);
             Ok(())
         });
         methods.add_method("button", |lua, this, (name, click): (String, Option<Table>)| {
-            this.fake.store().hosted.check_press(this.extension.index(), &name).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?;
+            let ext = this.ext();
+            this.fake.store().hosted.check_press(ext.index(), &name).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?;
             let flag = |key: &str| -> mlua::Result<bool> { Ok(click.as_ref().map(|t| t.get::<Option<bool>>(key)).transpose()?.flatten().unwrap_or(false)) };
-            let click = dispatch::Click {
-                extension: this.extension.index(),
-                button: name,
-                right: flag("right")?,
-                shift: flag("shift")?,
-                ctrl: flag("ctrl")?,
-                row: None,
-            };
-            dispatch::click(std::slice::from_ref(&this.extension), &click);
+            let click = dispatch::Click { extension: ext.index(), button: name, right: flag("right")?, shift: flag("shift")?, ctrl: flag("ctrl")?, row: None };
+            dispatch::click(std::slice::from_ref(&ext), &click);
             this.note(lua);
             Ok(())
         });
 
         // The mod's windows and pop-ups, as the player uses them.
         methods.add_method("press", |lua, this, (window, widget, click): (String, String, Option<Table>)| {
+            let ext = this.ext();
             let flag = |key: &str| -> mlua::Result<bool> { Ok(click.as_ref().map(|t| t.get::<Option<bool>>(key)).transpose()?.flatten().unwrap_or(false)) };
             let row = click.as_ref().map(|t| t.get::<Option<u32>>("row")).transpose()?.flatten();
-            this.fake
-                .store()
-                .windows
-                .check_press(this.extension.index(), &window, &widget, row)
-                .map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?;
+            this.fake.store().windows.check_press(ext.index(), &window, &widget, row).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?;
             let click = dispatch::Click {
-                extension: this.extension.index(),
+                extension: ext.index(),
                 button: format!("{window}.{widget}"),
                 right: flag("right")?,
                 shift: flag("shift")?,
                 ctrl: flag("ctrl")?,
                 row,
             };
-            dispatch::click(std::slice::from_ref(&this.extension), &click);
+            dispatch::click(std::slice::from_ref(&ext), &click);
             this.note(lua);
             Ok(())
         });
         methods.add_method("entry", |lua, this, window: String| {
+            let ext = this.ext();
             let seen = {
                 let mut store = this.fake.store();
-                store.windows.press_entry(this.extension.index(), &window).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?
+                store.windows.press_entry(ext.index(), &window).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?
             };
             for seen in seen {
-                dispatch::window(std::slice::from_ref(&this.extension), &seen);
+                dispatch::window(std::slice::from_ref(&ext), &seen);
             }
             this.note(lua);
             Ok(())
         });
         methods.add_method("close", |lua, this, window: String| {
-            if !this.fake.store().windows.is_open(this.extension.index(), &window) {
+            let ext = this.ext();
+            if !this.fake.store().windows.is_open(ext.index(), &window) {
                 return Err(mlua::Error::runtime(format!("{}the mod's window {window:?} is not open", here(lua))));
             }
-            let seen = this.fake.store().windows.show(this.extension.index(), &window, false);
+            let seen = this.fake.store().windows.show(ext.index(), &window, false);
             for seen in seen {
-                dispatch::window(std::slice::from_ref(&this.extension), &seen);
+                dispatch::window(std::slice::from_ref(&ext), &seen);
             }
             this.note(lua);
             Ok(())
@@ -520,13 +482,14 @@ impl UserData for TestMod {
         methods.add_method("answer_popup", |lua, this, (number, button): (u32, u32)| {
             // The button's action runs, as at the game's next frame, and
             // closes the pop-up unless it says not to.
+            let ext = this.ext();
             let pressed = {
                 let mut store = this.fake.store();
                 store.windows.press(number, button).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?;
                 store.windows.take_pressed()
             };
             for pressed in pressed {
-                dispatch::popup_pressed(std::slice::from_ref(&this.extension), &pressed);
+                dispatch::popup_pressed(std::slice::from_ref(&ext), &pressed);
             }
             this.note(lua);
             Ok(())
@@ -540,14 +503,64 @@ impl UserData for TestMod {
             Ok(())
         });
         methods.add_method("map_lost", |lua, this, ()| {
-            dispatch::map_lost(std::slice::from_ref(&this.extension), this.extension.index());
+            let ext = this.ext();
+            dispatch::map_lost(std::slice::from_ref(&ext), ext.index());
             this.note(lua);
             Ok(())
         });
-        methods.add_method("save", |lua, this, ()| match this.extension.save_data() {
+        methods.add_method("save", |lua, this, ()| match this.ext().save_data() {
             None | Some(Ok(None)) => Ok((LuaValue::Nil, LuaValue::Nil)),
             Some(Ok(Some(data))) => Ok((values::to_lua(lua, &data)?, LuaValue::Nil)),
             Some(Err(message)) => Ok((LuaValue::Nil, LuaValue::String(lua.create_string(message)?))),
+        });
+        methods.add_method("reload", |lua, this, ()| {
+            let old = this.ext();
+            let harmony = this.opened.root.join("eu4-harmony");
+            if harmony.join("manifest.toml").is_file() {
+                let manifest =
+                    eu4_harmony_manifest::HarmonyMod::read(&this.opened.root).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?.manifest;
+                if manifest.id != this.opened.manifest.id {
+                    return Err(mlua::Error::runtime(format!("{}manifest id changed to {:?}", here(lua), manifest.id)));
+                }
+                if manifest.permissions != this.opened.manifest.permissions {
+                    return Err(mlua::Error::runtime(format!("{}manifest permissions changed", here(lua))));
+                }
+                if let Some(why) = manifest.unsupported(eu4_harmony_remote::API_VERSION) {
+                    return Err(mlua::Error::runtime(format!("{}{why}", here(lua))));
+                }
+            }
+            let (texts, _) = eu4_harmony_loc::load_dir(&harmony.join("localisation"));
+            let prev_texts = this.fake.replace_texts(texts);
+            let m = Mod {
+                id: &this.opened.manifest.id,
+                name: &this.opened.name,
+                harmony,
+                permissions: &this.opened.manifest.permissions,
+                data: Some(this.data.clone()),
+            };
+            let new = match eu4_harmony_lua::open(old.index(), &m, this.fake.clone()) {
+                Ok(new) => new,
+                Err(e) => {
+                    this.fake.replace_texts(prev_texts);
+                    return Err(mlua::Error::runtime(format!("{}the new code did not load: {e}", here(lua))));
+                }
+            };
+            if new.images() != old.images() {
+                this.fake.replace_texts(prev_texts);
+                return Err(mlua::Error::runtime(format!("{}entry images changed", here(lua))));
+            }
+            let cal = this.fake.calendar();
+            let outcome = eu4_harmony_lua::reload_handoff(&old, &new, this.fake.as_ref(), cal.going_on);
+            let saved_kept = outcome.saved.is_some();
+            *this.extension.lock().unwrap_or_else(|e| e.into_inner()) = new;
+            if cal.going_on {
+                this.hear(lua, &Heard::of(&Signal::Session { session: cal.session }), outcome.saved);
+            }
+            let result = lua.create_table()?;
+            result.set("session", cal.going_on)?;
+            result.set("saved_kept", saved_kept)?;
+            result.set("lost", outcome.lost)?;
+            Ok(result)
         });
 
         // What the mod did.
@@ -566,20 +579,20 @@ impl UserData for TestMod {
             Ok(calls)
         });
         methods.add_method("element", |lua, this, name: String| {
+            let ext = this.ext();
             let element = lua.create_table()?;
-            let properties =
-                this.fake.store().element(this.extension.index(), &name, |key| eu4_harmony_lua::Host::text(this.fake.as_ref(), this.extension.id(), key));
+            let properties = this.fake.store().element(ext.index(), &name, |key| eu4_harmony_lua::Host::text(this.fake.as_ref(), ext.id(), key));
             for (property, value) in properties {
                 element.set(property, values::to_lua(lua, &value)?)?;
             }
             Ok(element)
         });
         methods.add_method("window", |lua, this, name: String| {
-            if !this.extension.windows().iter().any(|w| w.name == name) {
+            let ext = this.ext();
+            if !ext.windows().iter().any(|w| w.name == name) {
                 return Err(mlua::Error::runtime(format!("{}the mod has no window {name:?}", here(lua))));
             }
-            let window =
-                this.fake.store().window(this.extension.index(), &name, |key| eu4_harmony_lua::Host::text(this.fake.as_ref(), this.extension.id(), key));
+            let window = this.fake.store().window(ext.index(), &name, |key| eu4_harmony_lua::Host::text(this.fake.as_ref(), ext.id(), key));
             let t = lua.create_table()?;
             let Some(window) = window else {
                 t.set("open", false)?;
@@ -646,9 +659,9 @@ impl UserData for TestMod {
             }
             Ok(list)
         });
-        methods.add_method("waiting", |_, this, ()| Ok(this.extension.waiting()));
+        methods.add_method("waiting", |_, this, ()| Ok(this.ext().waiting()));
         methods.add_method("told", |lua, this, ()| lua.create_sequence_from(this.fake.store().told.clone()));
-        methods.add_method("stopped", |_, this, ()| Ok(this.extension.stopped()));
+        methods.add_method("stopped", |_, this, ()| Ok(this.ext().stopped()));
     }
 }
 
@@ -819,6 +832,7 @@ mod tests {
         };
         write("localisation/u_l_english.yml", "\u{feff}l_english:\n U_STATUS:0 \"Count $N$\"\n U_BTN:0 \"Act\"\n U_TIP:0 \"Ready\"\n");
         write("localisation/u_l_simp_chinese.yml", "\u{feff}l_simp_chinese:\n U_STATUS:0 \"计数 $N$\"\n U_BTN:0 \"执行\"\n U_TIP:0 \"就绪\"\n");
+        write("ui/single_unitpanel/buttons/toggle.gui", "guiButtonType = { name = \"toggle\" }\ninstantTextBoxType = { name = \"note\" }\n");
         write(
             "lua/main.lua",
             r#"
@@ -841,6 +855,8 @@ mod tests {
                 game.ui.toggle.text = { key = "U_STATUS", values = { N = 7 } }
                 game.ui.toggle.tooltip = { key = "U_TIP" }
                 game.ui.toggle.enabled = false
+                local bad_ok, bad_err = pcall(function() game.ui.missing.visible = false end)
+                assert(not bad_ok and tostring(bad_err):find("no element \"missing\" declared"), tostring(bad_err))
                 game.window.tools.items.rows = { { pick = false }, {} }
               end,
               on_button = function(game, name, click)
@@ -867,6 +883,10 @@ mod tests {
               assert(mod:element("toggle").text == "Count 7" and mod:element("toggle").tooltip == "Ready")
               local ok, why = pcall(mod.button, mod, "toggle")
               assert(not ok and tostring(why):find("disabled"), tostring(why))
+              ok, why = pcall(mod.button, mod, "note")
+              assert(not ok and tostring(why):find("not a button"), tostring(why))
+              ok, why = pcall(mod.button, mod, "missing")
+              assert(not ok and tostring(why):find("no element \"missing\" declared"), tostring(why))
 
               mod:language("simp_chinese")
               assert(mod:element("toggle").text == "计数 7" and mod:element("toggle").tooltip == "就绪")
@@ -1020,6 +1040,140 @@ mod tests {
             let kind: String = lua.load(format!("return type(open().{method})")).eval().unwrap();
             assert_eq!(kind, "function", "the testing guide names mod:{method}");
         }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn session_calendar_tracks_first_error_world_dates_and_module_cache() {
+        let dir = std::env::temp_dir().join(format!("eu4h-test-cal-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let write = |file: &str, text: &str| {
+            let path = dir.join("eu4-harmony").join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        write("lua/cached.lua", "local name = ...\n_G.loads = (_G.loads or 0) + 1\nreturn false\n");
+        write("tests/helpers/echo.lua", "local name = ...\nreturn name .. \":\" .. tostring(_G.loads)\n");
+        write(
+            "lua/main.lua",
+            r#"
+            return {
+              on_button = function(game, name)
+                if name == "boom" then error("kaboom") end
+                local s = game.session.get()
+                local me = { country = "CAS" }
+                game.script.set_flag(me, "seen")
+                local f = game.script.flag(me, "seen")
+                log("ok:" .. s.number .. " " .. s.date.year .. "." .. s.date.month .. "." .. s.date.day .. " " .. f.day.year .. "." .. f.day.month .. "." .. f.day.day)
+              end,
+            }
+            "#,
+        );
+        write(
+            "tests/cal_test.lua",
+            r#"
+            test("require caches scalars and passes module name", function()
+              assert(require("cached") == false)
+              assert(require("cached") == false)
+              assert(_G.loads == 1)
+              assert(require("helpers.echo") == "helpers.echo:1")
+            end)
+
+            test("first_error repeats across sessions and world dates advance", function()
+              local mod = open()
+              mod:world{ player = "CAS", date = "1444.11.11", provinces = { { id = 1, owner = "CAS" } } }
+              mod:button("boom")
+              mod:button("boom")
+              mod:session()
+              mod:button("boom")
+              mod:button("ok")
+              mod:day("1445.3.15")
+              mod:button("ok")
+              mod:session_ended()
+              mod:session()
+              mod:button("boom")
+              mod:button("ok")
+              assert(#mod:told() == 3, "pre-session, session 1, session 2: " .. #mod:told())
+              assert(#mod:errors() == 4, #mod:errors())
+              local ok_lines = {}
+              for _, line in ipairs(mod:log()) do
+                if line:sub(1, 3) == "ok:" then ok_lines[#ok_lines + 1] = line:sub(4) end
+              end
+              local log = table.concat(ok_lines, "|")
+              assert(log == "1 1444.11.11 1444.11.11|1 1445.3.15 1445.3.15|2 1444.11.11 1444.11.11", log)
+            end)
+            "#,
+        );
+        let manifest = Manifest::parse(&format!("id = \"cal\"\napi_version = \"{}\"", eu4_harmony_remote::API_VERSION)).unwrap();
+        let outcome = run(&dir, manifest, "Cal".into()).unwrap();
+        assert_eq!((outcome.passed, outcome.failed), (2, 0), "{}", outcome.report);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn reload_carries_save_data_skips_stopped_and_keeps_old_extension_on_error() {
+        let dir = std::env::temp_dir().join(format!("eu4h-test-reload-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let write = |file: &str, text: &str| {
+            let path = dir.join("eu4-harmony").join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        write("manifest.toml", &format!("id = \"rel\"\napi_version = \"{}\"\n", eu4_harmony_remote::API_VERSION));
+        write("localisation/rel_l_english.yml", "l_english:\n REL_LABEL:0 \"Old\"\n");
+        write(
+            "lua/main.lua",
+            r#"
+            local state = 0
+            return {
+              on_session = function(game, saved)
+                state = saved and saved.n or 1
+                game.ui.go.text = text.get("REL_LABEL") .. ":" .. state
+              end,
+              on_button = function(game, name)
+                if name == "inc" then state = state + 1 end
+              end,
+              save_data = function() return { n = state } end,
+            }
+            "#,
+        );
+        let manifest = Manifest::parse(&format!("id = \"rel\"\napi_version = \"{}\"", eu4_harmony_remote::API_VERSION)).unwrap();
+        let opened = Arc::new(Opened { root: dir.clone(), manifest, name: "Rel".into(), scratch: dir.join("scratch") });
+        let lua = harness(&opened).unwrap();
+        lua.load(
+            r#"
+            mod = open()
+            mod:session()
+            mod:button("inc")
+            "#,
+        )
+        .exec()
+        .unwrap();
+
+        // Update localisation + code cleanly, reload preserves save_data and new text.
+        write("localisation/rel_l_english.yml", "l_english:\n REL_LABEL:0 \"New\"\n");
+        lua.load(
+            r#"
+            local r = mod:reload()
+            assert(r.session == true and r.saved_kept == true and r.lost == nil)
+            assert(mod:element("go").text == "New:2", mod:element("go").text)
+            "#,
+        )
+        .exec()
+        .unwrap();
+
+        // Broken main.lua fails reload while leaving the running extension intact.
+        write("lua/main.lua", "return { on_button = ");
+        lua.load(
+            r#"
+            local ok = pcall(function() mod:reload() end)
+            assert(not ok)
+            assert(mod:element("go").text == "New:2")
+            "#,
+        )
+        .exec()
+        .unwrap();
+
         let _ = std::fs::remove_dir_all(dir);
     }
 }

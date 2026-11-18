@@ -218,6 +218,7 @@ crate::resume!(CLOSE_RELEASES_AFTER_RESUME: CLOSE_RELEASED_AFTER_AT = CLOSE_RELE
 /// An SRW lock in a static.
 struct Lock(UnsafeCell<SRWLOCK>);
 // The lock is the SRW lock's own.
+unsafe impl Send for Lock {}
 unsafe impl Sync for Lock {}
 
 impl Lock {
@@ -238,24 +239,220 @@ impl Lock {
     }
 }
 
-/// PhysFS's lock as readers and the one that changes share it; the list of
-/// open files; a zip's entries as they are first read.
-static STATE: Lock = Lock::new();
-static OPEN_FILES_LOCK: Lock = Lock::new();
-static ENTRIES: Lock = Lock::new();
-/// The thread reading an entry, which may read another inside (a link's
-/// target), by its id; 0 for none.
-static ENTRIES_HOLDER: AtomicU32 = AtomicU32::new(0);
-static CHANGED_INSIDE_READ: AtomicBool = AtomicBool::new(false);
+trait PhysFsLocks {
+    fn state_alone(&self);
+    fn state_alone_done(&self);
+    fn state_shared(&self);
+    fn state_shared_done(&self);
+    fn open_files_alone(&self);
+    fn open_files_alone_done(&self);
+    fn entries_alone(&self);
+    fn entries_alone_done(&self);
+    fn enter_cs(&self, mutex: usize);
+    fn leave_cs(&self, mutex: usize);
+    fn warn_changed_inside_read(&self);
+}
+
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+struct ThreadLocks {
+    /// How many times this thread holds PhysFS's lock alone, and shared.
+    alone: u32,
+    shared: u32,
+    /// Grabs of the lock to change PhysFS's state made while this thread held it
+    /// shared: none in the game's code.
+    inside_shared: u32,
+    entries_depth: u32,
+}
+
+struct OpensCourse<L: PhysFsLocks> {
+    locks: L,
+    /// The thread reading an entry, which may read another inside (a link's
+    /// target), by its id; `0` for none.
+    entries_holder: AtomicU32,
+    changed_inside_read: AtomicBool,
+}
+
+struct EntryGuard<'a, L: PhysFsLocks> {
+    course: &'a OpensCourse<L>,
+    thread: &'a Cell<ThreadLocks>,
+}
+
+impl<L: PhysFsLocks> Drop for EntryGuard<'_, L> {
+    fn drop(&mut self) {
+        let mut t = self.thread.get();
+        t.entries_depth -= 1;
+        let release = t.entries_depth == 0;
+        self.thread.set(t);
+        if release {
+            self.course.entries_holder.store(0, Ordering::Release);
+            self.course.locks.entries_alone_done();
+        }
+    }
+}
+
+impl<L: PhysFsLocks> OpensCourse<L> {
+    const fn new(locks: L) -> Self {
+        Self { locks, entries_holder: AtomicU32::new(0), changed_inside_read: AtomicBool::new(false) }
+    }
+
+    fn hold_alone(&self, thread: &Cell<ThreadLocks>) {
+        let mut t = thread.get();
+        if t.shared > 0 {
+            t.inside_shared += 1;
+            thread.set(t);
+            if !self.changed_inside_read.swap(true, Ordering::Relaxed) {
+                self.locks.warn_changed_inside_read();
+            }
+            return;
+        }
+        if t.alone == 0 {
+            self.locks.state_alone();
+        }
+        t.alone += 1;
+        thread.set(t);
+    }
+
+    fn give_back_alone(&self, thread: &Cell<ThreadLocks>) {
+        let mut t = thread.get();
+        if t.inside_shared > 0 {
+            t.inside_shared -= 1;
+            thread.set(t);
+            return;
+        }
+        // None held: a grab made before the part was installed.
+        match t.alone {
+            0 => {}
+            1 => {
+                t.alone = 0;
+                thread.set(t);
+                self.locks.state_alone_done();
+            }
+            n => {
+                t.alone = n - 1;
+                thread.set(t);
+            }
+        }
+    }
+
+    fn grab(&self, thread: &Cell<ThreadLocks>, mutex: usize, state_lock: usize) -> i32 {
+        if mutex == state_lock {
+            self.hold_alone(thread);
+        }
+        self.locks.enter_cs(mutex);
+        1
+    }
+
+    fn release(&self, thread: &Cell<ThreadLocks>, mutex: usize, state_lock: usize) {
+        let state = mutex == state_lock;
+        self.locks.leave_cs(mutex);
+        if state {
+            self.give_back_alone(thread);
+        }
+    }
+
+    fn hold_to_read(&self, thread: &Cell<ThreadLocks>, state_lock: usize) {
+        if thread.get().alone > 0 {
+            self.grab(thread, state_lock, state_lock);
+            return;
+        }
+        let mut t = thread.get();
+        if t.shared == 0 {
+            self.locks.state_shared();
+        }
+        t.shared += 1;
+        thread.set(t);
+    }
+
+    fn give_back_read(&self, thread: &Cell<ThreadLocks>, state_lock: usize) {
+        let mut t = thread.get();
+        if t.shared == 0 {
+            self.release(thread, state_lock, state_lock);
+            return;
+        }
+        t.shared -= 1;
+        let done = t.shared == 0;
+        thread.set(t);
+        if done {
+            self.locks.state_shared_done();
+        }
+    }
+
+    fn hold_to_close(&self, thread: &Cell<ThreadLocks>, state_lock: usize) {
+        self.hold_to_read(thread, state_lock);
+        self.locks.open_files_alone();
+    }
+
+    fn give_back_close(&self, thread: &Cell<ThreadLocks>, state_lock: usize) {
+        self.locks.open_files_alone_done();
+        self.give_back_read(thread, state_lock);
+    }
+
+    fn enter_entry<'a>(&'a self, thread: &'a Cell<ThreadLocks>, thread_id: u32) -> EntryGuard<'a, L> {
+        if self.entries_holder.load(Ordering::Acquire) != thread_id {
+            self.locks.entries_alone();
+            self.entries_holder.store(thread_id, Ordering::Release);
+        }
+        let mut t = thread.get();
+        t.entries_depth += 1;
+        thread.set(t);
+        EntryGuard { course: self, thread }
+    }
+}
+
+struct Win32Locks {
+    /// PhysFS's lock as readers and the one that changes share it; the list of
+    /// open files; a zip's entries as they are first read.
+    state: Lock,
+    open_files: Lock,
+    entries: Lock,
+}
+
+impl Win32Locks {
+    const fn new() -> Self {
+        Self { state: Lock::new(), open_files: Lock::new(), entries: Lock::new() }
+    }
+}
+
+impl PhysFsLocks for Win32Locks {
+    fn state_alone(&self) {
+        self.state.alone();
+    }
+    fn state_alone_done(&self) {
+        self.state.alone_done();
+    }
+    fn state_shared(&self) {
+        self.state.shared();
+    }
+    fn state_shared_done(&self) {
+        self.state.shared_done();
+    }
+    fn open_files_alone(&self) {
+        self.open_files.alone();
+    }
+    fn open_files_alone_done(&self) {
+        self.open_files.alone_done();
+    }
+    fn entries_alone(&self) {
+        self.entries.alone();
+    }
+    fn entries_alone_done(&self) {
+        self.entries.alone_done();
+    }
+    fn enter_cs(&self, mutex: usize) {
+        unsafe { EnterCriticalSection(mutex as *mut CRITICAL_SECTION) };
+    }
+    fn leave_cs(&self, mutex: usize) {
+        unsafe { LeaveCriticalSection(mutex as *mut CRITICAL_SECTION) };
+    }
+    fn warn_changed_inside_read(&self) {
+        log!("opens: PhysFS's lock grabbed to change its state inside a read");
+    }
+}
+
+static COURSE: OpensCourse<Win32Locks> = OpensCourse::new(Win32Locks::new());
 
 thread_local! {
-    /// How many times this thread holds PhysFS's lock alone, and shared.
-    static ALONE: Cell<u32> = const { Cell::new(0) };
-    static SHARED: Cell<u32> = const { Cell::new(0) };
-    /// Grabs of the lock to change PhysFS's state made while this thread
-    /// held it shared: none in the game's code.
-    static INSIDE_SHARED: Cell<u32> = const { Cell::new(0) };
-    static ENTRIES_DEPTH: Cell<u32> = const { Cell::new(0) };
+    static THREAD: Cell<ThreadLocks> = const { Cell::new(ThreadLocks { alone: 0, shared: 0, inside_shared: 0, entries_depth: 0 }) };
 }
 
 fn base() -> usize {
@@ -267,110 +464,52 @@ fn state_lock() -> usize {
     unsafe { ((base() + STATE_LOCK) as *const usize).read() }
 }
 
-fn hold_alone() {
-    if SHARED.get() > 0 {
-        INSIDE_SHARED.set(INSIDE_SHARED.get() + 1);
-        if !CHANGED_INSIDE_READ.swap(true, Ordering::Relaxed) {
-            log!("opens: PhysFS's lock grabbed to change its state inside a read");
-        }
-        return;
-    }
-    let alone = ALONE.get();
-    if alone == 0 {
-        STATE.alone();
-    }
-    ALONE.set(alone + 1);
-}
-
-fn give_back_alone() {
-    let inside = INSIDE_SHARED.get();
-    if inside > 0 {
-        INSIDE_SHARED.set(inside - 1);
-        return;
-    }
-    // None held: a grab made before the part was installed.
-    match ALONE.get() {
-        0 => {}
-        1 => {
-            ALONE.set(0);
-            STATE.alone_done();
-        }
-        n => ALONE.set(n - 1),
-    }
-}
-
 /// Replaces PhysFS's grab of a mutex: PhysFS's lock held alone as well.
 #[called_by_game]
 extern "C" fn grab(mutex: *mut CRITICAL_SECTION) -> i32 {
-    if mutex as usize == state_lock() {
-        hold_alone();
-    }
-    unsafe { EnterCriticalSection(mutex) };
-    1
+    THREAD.with(|t| COURSE.grab(t, mutex as usize, state_lock()))
 }
 
 /// Replaces PhysFS's release of a mutex.
 #[called_by_game]
 extern "C" fn release(mutex: *mut CRITICAL_SECTION) {
-    let state = mutex as usize == state_lock();
-    unsafe { LeaveCriticalSection(mutex) };
-    if state {
-        give_back_alone();
-    }
+    THREAD.with(|t| COURSE.release(t, mutex as usize, state_lock()));
 }
 
 /// PhysFS's lock held to read: shared, or alone again by a thread that holds
 /// it alone.
 #[called_by_game]
 extern "C" fn hold_to_read() {
-    if ALONE.get() > 0 {
-        grab(state_lock() as *mut CRITICAL_SECTION);
-        return;
-    }
-    let shared = SHARED.get();
-    if shared == 0 {
-        STATE.shared();
-    }
-    SHARED.set(shared + 1);
+    THREAD.with(|t| COURSE.hold_to_read(t, state_lock()));
 }
 
 #[called_by_game]
 extern "C" fn give_back_read() {
-    let shared = SHARED.get();
-    if shared == 0 {
-        release(state_lock() as *mut CRITICAL_SECTION);
-        return;
-    }
-    SHARED.set(shared - 1);
-    if shared == 1 {
-        STATE.shared_done();
-    }
+    THREAD.with(|t| COURSE.give_back_read(t, state_lock()));
 }
 
 /// A close holds the lock to read and the list of open files, which it walks
 /// and takes its file out of.
 #[called_by_game]
 extern "C" fn hold_to_close() {
-    hold_to_read();
-    OPEN_FILES_LOCK.alone();
+    THREAD.with(|t| COURSE.hold_to_close(t, state_lock()));
 }
 
 #[called_by_game]
 extern "C" fn give_back_close() {
-    OPEN_FILES_LOCK.alone_done();
-    give_back_read();
+    THREAD.with(|t| COURSE.give_back_close(t, state_lock()));
 }
 
 /// What the open's link did: the new file first in the list of open files.
 #[called_by_game]
 extern "C" fn link_open_file(file: usize) {
-    OPEN_FILES_LOCK.alone();
+    COURSE.locks.open_files_alone();
     let head = (base() + OPEN_FILES) as *mut usize;
     unsafe {
         ((file + NEXT_OPEN) as *mut usize).write(head.read());
         head.write(file);
     }
-    OPEN_FILES_LOCK.alone_done();
+    COURSE.locks.open_files_alone_done();
 }
 
 /// The game's open takes its lock, for a mode other than reading.
@@ -401,19 +540,10 @@ extern "C" fn entry_read(io: usize, zip: usize, entry: usize) -> i32 {
         return 1;
     }
     let me = crate::thread_id();
-    if ENTRIES_HOLDER.load(Ordering::Acquire) != me {
-        ENTRIES.alone();
-        ENTRIES_HOLDER.store(me, Ordering::Release);
-    }
-    ENTRIES_DEPTH.set(ENTRIES_DEPTH.get() + 1);
-    let found = ORIGINAL_ENTRY_READ.get()(io, zip, entry);
-    let depth = ENTRIES_DEPTH.get() - 1;
-    ENTRIES_DEPTH.set(depth);
-    if depth == 0 {
-        ENTRIES_HOLDER.store(0, Ordering::Release);
-        ENTRIES.alone_done();
-    }
-    found
+    THREAD.with(|t| {
+        let _guard = COURSE.enter_entry(t, me);
+        ORIGINAL_ENTRY_READ.get()(io, zip, entry)
+    })
 }
 
 /// Replaces the game's open taking its lock: taken for a mode other than
@@ -527,4 +657,268 @@ extern "C" fn close_releases_after_stub() {
         give_back_close = sym give_back_close,
         released = sym CLOSE_RELEASED_AFTER_AT,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    const STATE_PTR: usize = 1;
+    const OTHER_PTR: usize = 2;
+
+    #[derive(Default)]
+    struct TraceLocks {
+        events: Mutex<Vec<&'static str>>,
+        warnings: AtomicU32,
+        state_readers: AtomicU32,
+        state_exclusive: AtomicBool,
+        open_files_held: AtomicBool,
+        entries_held: AtomicBool,
+        cs_depths: Mutex<HashMap<usize, u32>>,
+    }
+
+    impl PhysFsLocks for TraceLocks {
+        fn state_alone(&self) {
+            self.events.lock().unwrap().push("state_alone");
+            assert!(!self.state_exclusive.swap(true, Ordering::SeqCst));
+            assert_eq!(self.state_readers.load(Ordering::SeqCst), 0);
+        }
+        fn state_alone_done(&self) {
+            self.events.lock().unwrap().push("state_alone_done");
+            assert!(self.state_exclusive.swap(false, Ordering::SeqCst));
+        }
+        fn state_shared(&self) {
+            self.events.lock().unwrap().push("state_shared");
+            assert!(!self.state_exclusive.load(Ordering::SeqCst));
+            self.state_readers.fetch_add(1, Ordering::SeqCst);
+        }
+        fn state_shared_done(&self) {
+            self.events.lock().unwrap().push("state_shared_done");
+            assert_ne!(self.state_readers.fetch_sub(1, Ordering::SeqCst), 0);
+        }
+        fn open_files_alone(&self) {
+            self.events.lock().unwrap().push("open_files_alone");
+            assert!(!self.open_files_held.swap(true, Ordering::SeqCst));
+        }
+        fn open_files_alone_done(&self) {
+            self.events.lock().unwrap().push("open_files_alone_done");
+            assert!(self.open_files_held.swap(false, Ordering::SeqCst));
+        }
+        fn entries_alone(&self) {
+            self.events.lock().unwrap().push("entries_alone");
+            assert!(!self.entries_held.swap(true, Ordering::SeqCst));
+        }
+        fn entries_alone_done(&self) {
+            self.events.lock().unwrap().push("entries_alone_done");
+            assert!(self.entries_held.swap(false, Ordering::SeqCst));
+        }
+        fn enter_cs(&self, mutex: usize) {
+            self.events.lock().unwrap().push(if mutex == STATE_PTR { "enter_state_cs" } else { "enter_other_cs" });
+            *self.cs_depths.lock().unwrap().entry(mutex).or_default() += 1;
+        }
+        fn leave_cs(&self, mutex: usize) {
+            self.events.lock().unwrap().push(if mutex == STATE_PTR { "leave_state_cs" } else { "leave_other_cs" });
+            let mut depths = self.cs_depths.lock().unwrap();
+            let depth = depths.get_mut(&mutex).unwrap();
+            *depth -= 1;
+        }
+        fn warn_changed_inside_read(&self) {
+            self.warnings.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    #[test]
+    fn reentrant_read_in_alone_and_grab_in_read_and_close_order_and_pre_hook_release() {
+        let course = OpensCourse::new(TraceLocks::default());
+        let thread = Cell::new(ThreadLocks::default());
+
+        // Pre-hook release (alone == 0) leaves the pre-hook CS without touching STATE lock.
+        course.locks.cs_depths.lock().unwrap().insert(STATE_PTR, 1);
+        course.release(&thread, STATE_PTR, STATE_PTR);
+        assert_eq!(thread.get(), ThreadLocks::default());
+        assert_eq!(course.locks.cs_depths.lock().unwrap()[&STATE_PTR], 0);
+        assert_eq!(*course.locks.events.lock().unwrap(), ["leave_state_cs"]);
+        assert!(!course.locks.state_exclusive.load(Ordering::SeqCst));
+
+        // Grab + reentrant hold_to_read stays exclusive, then balanced give_back_read + release drops exclusive.
+        course.locks.events.lock().unwrap().clear();
+        course.grab(&thread, STATE_PTR, STATE_PTR);
+        course.hold_to_read(&thread, STATE_PTR);
+        assert_eq!(thread.get().alone, 2);
+        assert_eq!(thread.get().shared, 0);
+        course.give_back_read(&thread, STATE_PTR);
+        assert_eq!(thread.get().alone, 1);
+        assert!(course.locks.state_exclusive.load(Ordering::SeqCst));
+        course.release(&thread, STATE_PTR, STATE_PTR);
+        assert_eq!(thread.get().alone, 0);
+        assert!(!course.locks.state_exclusive.load(Ordering::SeqCst));
+        assert_eq!(
+            *course.locks.events.lock().unwrap(),
+            ["state_alone", "enter_state_cs", "enter_state_cs", "leave_state_cs", "leave_state_cs", "state_alone_done"]
+        );
+
+        // Grab inside hold_to_read warns only once and balances via inside_shared without upgrading to exclusive.
+        course.locks.events.lock().unwrap().clear();
+        course.hold_to_read(&thread, STATE_PTR);
+        course.grab(&thread, STATE_PTR, STATE_PTR);
+        course.grab(&thread, STATE_PTR, STATE_PTR);
+        assert_eq!(thread.get().shared, 1);
+        assert_eq!(thread.get().inside_shared, 2);
+        assert_eq!(course.locks.warnings.load(Ordering::Relaxed), 1);
+        course.release(&thread, STATE_PTR, STATE_PTR);
+        course.release(&thread, STATE_PTR, STATE_PTR);
+        course.give_back_read(&thread, STATE_PTR);
+        assert_eq!(thread.get(), ThreadLocks::default());
+        assert_eq!(course.locks.state_readers.load(Ordering::SeqCst), 0);
+
+        // Non-state mutex only enters/leaves CS without acquiring state lock.
+        course.locks.events.lock().unwrap().clear();
+        course.grab(&thread, OTHER_PTR, STATE_PTR);
+        course.release(&thread, OTHER_PTR, STATE_PTR);
+        assert_eq!(*course.locks.events.lock().unwrap(), ["enter_other_cs", "leave_other_cs"]);
+
+        // Close acquires STATE shared before OPEN_FILES exclusive and releases in reverse order.
+        course.locks.events.lock().unwrap().clear();
+        course.hold_to_close(&thread, STATE_PTR);
+        course.give_back_close(&thread, STATE_PTR);
+        assert_eq!(*course.locks.events.lock().unwrap(), ["state_shared", "open_files_alone", "open_files_alone_done", "state_shared_done"]);
+        assert_eq!(thread.get(), ThreadLocks::default());
+    }
+
+    #[test]
+    fn nested_entry_guard_releases_entries_and_holder_even_on_unwind() {
+        let course = OpensCourse::new(TraceLocks::default());
+        let thread = Cell::new(ThreadLocks::default());
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _outer = course.enter_entry(&thread, 7);
+            assert_eq!(course.entries_holder.load(Ordering::Acquire), 7);
+            assert_eq!(thread.get().entries_depth, 1);
+            {
+                let _inner = course.enter_entry(&thread, 7);
+                assert_eq!(thread.get().entries_depth, 2);
+                assert_eq!(course.locks.events.lock().unwrap().len(), 1, "reentrant entry_read reuses holder");
+            }
+            assert!(course.locks.entries_held.load(Ordering::SeqCst));
+            assert_eq!(course.entries_holder.load(Ordering::Acquire), 7);
+            panic!("simulated zip read fault");
+        }));
+        assert!(result.is_err());
+        assert_eq!(thread.get().entries_depth, 0);
+        assert_eq!(course.entries_holder.load(Ordering::Acquire), 0);
+        assert!(!course.locks.entries_held.load(Ordering::SeqCst));
+
+        // Another thread can enter cleanly after unwind released ENTRIES.
+        let other = Cell::new(ThreadLocks::default());
+        {
+            let _guard = course.enter_entry(&other, 9);
+            assert_eq!(course.entries_holder.load(Ordering::Acquire), 9);
+            assert!(course.locks.entries_held.load(Ordering::SeqCst));
+        }
+        assert_eq!(course.entries_holder.load(Ordering::Acquire), 0);
+        assert!(!course.locks.entries_held.load(Ordering::SeqCst));
+    }
+
+    struct ConcurrentLocks {
+        state: Lock,
+        open_files: Lock,
+        entries: Lock,
+        active_writers: AtomicU32,
+        active_readers: AtomicU32,
+        entries_held: AtomicBool,
+    }
+
+    impl Default for ConcurrentLocks {
+        fn default() -> Self {
+            Self {
+                state: Lock::new(),
+                open_files: Lock::new(),
+                entries: Lock::new(),
+                active_writers: AtomicU32::new(0),
+                active_readers: AtomicU32::new(0),
+                entries_held: AtomicBool::new(false),
+            }
+        }
+    }
+
+    impl PhysFsLocks for ConcurrentLocks {
+        fn state_alone(&self) {
+            self.state.alone();
+            assert_eq!(self.active_readers.load(Ordering::Acquire), 0);
+            assert_eq!(self.active_writers.fetch_add(1, Ordering::AcqRel), 0);
+        }
+        fn state_alone_done(&self) {
+            assert_eq!(self.active_writers.fetch_sub(1, Ordering::AcqRel), 1);
+            self.state.alone_done();
+        }
+        fn state_shared(&self) {
+            self.state.shared();
+            assert_eq!(self.active_writers.load(Ordering::Acquire), 0);
+            self.active_readers.fetch_add(1, Ordering::AcqRel);
+        }
+        fn state_shared_done(&self) {
+            self.active_readers.fetch_sub(1, Ordering::AcqRel);
+            self.state.shared_done();
+        }
+        fn open_files_alone(&self) {
+            self.open_files.alone();
+        }
+        fn open_files_alone_done(&self) {
+            self.open_files.alone_done();
+        }
+        fn entries_alone(&self) {
+            self.entries.alone();
+            assert!(!self.entries_held.swap(true, Ordering::AcqRel));
+        }
+        fn entries_alone_done(&self) {
+            assert!(self.entries_held.swap(false, Ordering::AcqRel));
+            self.entries.alone_done();
+        }
+        fn enter_cs(&self, _: usize) {}
+        fn leave_cs(&self, _: usize) {}
+        fn warn_changed_inside_read(&self) {}
+    }
+
+    #[test]
+    fn concurrent_readers_writers_closers_and_recursive_entries_never_deadlock_or_overlap() {
+        let course = OpensCourse::new(ConcurrentLocks::default());
+        std::thread::scope(|scope| {
+            for worker in 1..=8u32 {
+                let course = &course;
+                scope.spawn(move || {
+                    let thread = Cell::new(ThreadLocks::default());
+                    for step in 0..40u32 {
+                        match (worker + step) % 4 {
+                            0 => {
+                                course.hold_to_read(&thread, STATE_PTR);
+                                course.hold_to_read(&thread, STATE_PTR);
+                                let _e = course.enter_entry(&thread, worker);
+                                let _nested = course.enter_entry(&thread, worker);
+                                course.give_back_read(&thread, STATE_PTR);
+                                course.give_back_read(&thread, STATE_PTR);
+                            }
+                            1 => {
+                                course.grab(&thread, STATE_PTR, STATE_PTR);
+                                course.hold_to_read(&thread, STATE_PTR);
+                                course.give_back_read(&thread, STATE_PTR);
+                                course.release(&thread, STATE_PTR, STATE_PTR);
+                            }
+                            2 => {
+                                course.hold_to_close(&thread, STATE_PTR);
+                                course.give_back_close(&thread, STATE_PTR);
+                            }
+                            _ => {
+                                let _e = course.enter_entry(&thread, worker);
+                            }
+                        }
+                    }
+                    assert_eq!(thread.get(), ThreadLocks::default());
+                });
+            }
+        });
+        assert_eq!(course.entries_holder.load(Ordering::Acquire), 0);
+        assert!(!course.locks.entries_held.load(Ordering::Acquire));
+    }
 }

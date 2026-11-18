@@ -14,7 +14,7 @@ mod http;
 
 use crate::{
     catalogue::{self, Catalogue, Place, Wait},
-    game::{self, interface, map_coloring, Caller},
+    game::{self, map_coloring, Caller},
     map,
     mods::DiscoveredMod,
     notice::{Message, Repeat},
@@ -160,14 +160,7 @@ impl Host for Live {
     }
 
     fn set_element(&self, extension: usize, element: &str, value: Element) -> Result<(), String> {
-        let caller = Caller::Extension(extension);
-        let result = match value {
-            Element::Visible(on) => interface::set_visible(caller, element, on),
-            Element::Enabled(on) => interface::set_enabled(caller, element, on),
-            Element::Text(text) => ui::set_text(extension, element, text),
-            Element::Tooltip(text) => ui::set_tooltip(extension, element, text),
-        };
-        result.map_err(|e| e.message)
+        ui::set_element(extension, element, value)
     }
 
     fn window(&self, extension: usize, change: WindowChange) -> Result<(), String> {
@@ -259,6 +252,14 @@ impl Host for Live {
                 Repeat::Run,
                 Message::new("EU4HARMONY_STOPPED").arg("MOD", extension.name()).arg("DETAIL", reason),
             );
+        }
+    }
+
+    fn reload_reset(&self, extension: usize, new: &Extension) {
+        ui::forget_extension(extension);
+        declare_windows(new);
+        if let Some(m) = crate::memory() {
+            map::release(m, extension);
         }
     }
 }
@@ -400,7 +401,7 @@ fn reload_now(id: &str) -> game::GResult<Reloaded> {
     // The new texts first: the new code's windows are checked against them.
     let (problems, earlier) = crate::loc::reload_mod(id, &harmony);
     let opening = Mod { id, name: &name, harmony: harmony.clone(), permissions: &permissions, data: Some(data) };
-    let new = match eu4_harmony_lua::open(index, &opening, host) {
+    let new = match eu4_harmony_lua::open(index, &opening, host.clone()) {
         Ok(new) => new,
         Err(e) => {
             crate::loc::restore_mod(id, earlier);
@@ -413,33 +414,18 @@ fn reload_now(id: &str) -> game::GResult<Reloaded> {
         return Err(rejected("entry images changed; their native resources take effect at the next start, and the old extension goes on".into()));
     }
     let session = crate::sessions::going_on();
-    // A stopped extension's code is not run again, save_data included.
-    let (saved, lost) = match (session, old.stopped()) {
-        (false, _) => (None, None),
-        (true, Some(reason)) => (None, Some(format!("the old code was stopped ({reason}), so its save_data was not asked"))),
-        (true, None) => match old.save_data() {
-            Some(Ok(saved)) => (saved, None),
-            Some(Err(e)) => (None, Some(format!("save_data failed: {e}"))),
-            None => (None, None),
-        },
-    };
-    old.session_over();
-    ui::forget_extension(index);
-    declare_windows(&new);
-    if let Some(m) = crate::memory() {
-        map::release(m, index);
-    }
+    let outcome = eu4_harmony_lua::reload_handoff(&old, &new, host.as_ref(), session);
     EXTENSIONS.write().unwrap_or_else(|e| e.into_inner())[index] = new.clone();
     for problem in problems {
         log!("extension {id:?} reloaded: localisation/{problem}");
     }
-    log!("extension {id:?} reloaded{}", lost.as_ref().map(|l| format!("; its state was not carried: {l}")).unwrap_or_default());
-    saves::reloaded(id, saved.clone());
+    log!("extension {id:?} reloaded{}", outcome.lost.as_ref().map(|l| format!("; its state was not carried: {l}")).unwrap_or_default());
+    saves::reloaded(id, outcome.saved.clone());
     if session {
-        new.handle("on_session", &[Arg::Json(saved.unwrap_or(serde_json::Value::Null))]);
+        new.handle("on_session", &[Arg::Json(outcome.saved.unwrap_or(serde_json::Value::Null))]);
     }
     refresh_report(true);
-    Ok(Reloaded { session, lost })
+    Ok(Reloaded { session, lost: outcome.lost })
 }
 
 /// What the player is told about an extension that was not loaded. A

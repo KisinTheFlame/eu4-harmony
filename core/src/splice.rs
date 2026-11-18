@@ -1,27 +1,8 @@
 //! Turns the discovered mods' UI declarations into per-file splice text and
 //! the list of elements the UI layer binds at runtime.
 use crate::{hosts, mods::DiscoveredMod, pdx, Result};
+pub use eu4_harmony_manifest::ui::{prefix, ElementKind};
 use std::collections::HashMap;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ElementKind {
-    Button,
-    Text,
-    Icon,
-    /// Spliced but not bound (windows, backgrounds of other types).
-    Other,
-}
-
-impl ElementKind {
-    fn from_key(key: &str) -> Self {
-        match key.to_ascii_lowercase().as_str() {
-            "guibuttontype" => Self::Button,
-            "instanttextboxtype" => Self::Text,
-            "icontype" => Self::Icon,
-            _ => Self::Other,
-        }
-    }
-}
 
 /// A spliced element as the runtime knows it.
 #[derive(Clone, Debug)]
@@ -130,69 +111,25 @@ pub fn apply(text: &str, additions: &[Addition]) -> Result<String> {
     Ok(text)
 }
 
-/// Element-name prefix for a mod: `eu4harmony_<id>_` with non-identifier characters replaced.
-pub fn prefix(id: &str) -> String {
-    let safe: String = id.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' }).collect();
-    format!("eu4harmony_{safe}_")
-}
-
 /// `include(i)` decides whether mod `i` takes part (its extension loaded, or it has none).
 pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool, plan: &mut Plan) -> Vec<String> {
     let mut notes = Vec::new();
     // Button-area slots taken, by window.
-    let mut slots: HashMap<&str, i32> = HashMap::new();
+    let mut slots: HashMap<&'static str, i32> = HashMap::new();
     for (index, m) in mods.iter().enumerate() {
         if !include(index) {
             continue;
         }
-        let prefix = prefix(&m.manifest.id);
-        for ui in &m.layout.ui {
-            let Some(window) = hosts::window(&ui.into) else {
-                notes.push(format!("{}: window {:?} is not supported", m.manifest.id, ui.into));
-                continue;
-            };
-            let path = m.dir.join("eu4-harmony").join(&ui.file);
-            let fragment = match std::fs::read_to_string(&path) {
-                Ok(t) => t,
-                Err(e) => {
-                    notes.push(format!("{}: cannot read {}: {e}", m.manifest.id, path.display()));
-                    continue;
-                }
-            };
-            let rendered: Result<pdx::Rendered> = match ui.area.as_deref() {
-                Some("buttons") => match window.buttons {
-                    Some(area) => pdx::render_fragment(&fragment, &prefix, Some(area.slot(slots.get(window.name).copied().unwrap_or(0)))),
-                    None => Err(format!("window {:?} has no button area", window.name)),
-                },
-                None => pdx::render_fragment(&fragment, &prefix, None),
-                Some(other) => Err(format!("unknown area {other:?}")),
-            };
-            let rendered = match rendered {
-                Ok(r) => r,
-                Err(e) => {
-                    notes.push(format!("{}: {}: {e}", m.manifest.id, ui.file));
-                    continue;
-                }
-            };
-            if let Some(clash) = rendered.elements.iter().find(|e| plan.elements.iter().any(|p| p.owner == index && p.name == e.name)) {
-                notes.push(format!("{}: {}: element {:?} already declared", m.manifest.id, ui.file, clash.name));
-                continue;
-            }
-            if ui.area.is_some() {
-                *slots.entry(window.name).or_default() += 1;
-            }
-            for e in rendered.elements {
-                plan.elements.push(Element {
-                    owner: index,
-                    window: ui.into.clone(),
-                    host: window.host,
-                    prefixed: format!("{prefix}{}", e.name),
-                    name: e.name,
-                    kind: ElementKind::from_key(&e.key),
-                    in_area: ui.area.is_some(),
-                });
-            }
-            plan.add(window.file, Addition::Window { window: ui.into.clone(), text: rendered.text });
+        let report = eu4_harmony_manifest::ui::read_fragments(&m.dir, &m.manifest.id, &m.layout.ui, &mut slots);
+        for problem in report.problems {
+            let detail = problem.strip_prefix("eu4-harmony/").unwrap_or(&problem);
+            notes.push(format!("{}: {detail}", m.manifest.id));
+        }
+        for e in report.elements {
+            plan.elements.push(Element { owner: index, window: e.window, host: e.host, name: e.name, prefixed: e.prefixed, kind: e.kind, in_area: e.in_area });
+        }
+        for fragment in report.fragments {
+            plan.add(fragment.window_file, Addition::Window { window: fragment.window_name, text: fragment.text });
         }
     }
     // Each button area's frame, first in its window so that it is drawn

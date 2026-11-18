@@ -53,11 +53,45 @@ pub(super) struct Registry {
     nodes: BTreeMap<usize, Key>,
     hosts: BTreeMap<usize, Key>,
     host_roots: BTreeMap<usize, usize>,
-    pub dirty: bool,
-    pub held: usize,
+    dirty: bool,
+    held: usize,
 }
 
 impl Registry {
+    pub fn needs_flush(&self) -> bool {
+        self.dirty && self.held == 0
+    }
+
+    pub fn release_hold(&mut self) {
+        self.held -= 1;
+    }
+
+    pub fn mark_clean(&mut self) {
+        self.dirty = false;
+    }
+
+    #[cfg(test)]
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
+    #[cfg(test)]
+    pub fn scope_count(&self) -> usize {
+        self.scopes.len()
+    }
+
+    #[cfg(test)]
+    pub fn entry_count(&self) -> usize {
+        self.entries.len()
+    }
+
+    #[cfg(test)]
+    pub fn node_entry(&self, node: usize) -> Option<(Option<usize>, Role)> {
+        let key = self.nodes.get(&node)?;
+        let entry = self.entries.get(key)?;
+        Some((entry.root, entry.role))
+    }
+
     fn key(&mut self) -> Key {
         self.next = self.next.checked_add(1).expect("window identity exhausted");
         self.next
@@ -131,7 +165,7 @@ impl Registry {
         for item in ordered {
             let node = native::window_node(m, item.root)?;
             let parent = m.ptr(node + native::PARENT)?;
-            if parent != scene + 0x110 {
+            if parent != scene + native::ROOT {
                 return Err("an independent window changed its native scope".into());
             }
             self.scopes.entry(parent).or_insert(Scope { floor: None, host: None });
@@ -164,7 +198,7 @@ impl Registry {
                 entry.token = Some(token);
                 self.nodes.insert(node, key);
             }
-            let shown = native::visible(m, item.root, scene + 0x110)?;
+            let shown = native::visible(m, item.root, scene + native::ROOT)?;
             if self.entries[&key].appearance != item.appearance {
                 self.course.visible(key, false)?;
                 self.entries.get_mut(&key).expect("owned entry").appearance = item.appearance;
@@ -210,7 +244,7 @@ impl Registry {
         } else {
             let key = match self.nodes.get(&node).copied() {
                 Some(key) => key,
-                None => self.add(parent, Role::Original, Some(root), vec![node], native::visible(m, root, scene + 0x110)?)?,
+                None => self.add(parent, Role::Original, Some(root), vec![node], native::visible(m, root, scene + native::ROOT)?)?,
             };
             self.hosts.insert(identity, key);
         }
@@ -331,7 +365,7 @@ impl Registry {
             let Some((_, scene)) = native::scene(m)? else {
                 return Ok(());
             };
-            self.adopt(m, parent, scene + 0x110)?;
+            self.adopt(m, parent, scene + native::ROOT)?;
         }
         Ok(())
     }
@@ -350,7 +384,7 @@ impl Registry {
                 continue;
             }
             if let Some(root) = entry.root {
-                self.dirty |= self.course.visible(key, native::visible(m, root, scene + 0x110)?)?;
+                self.dirty |= self.course.visible(key, native::visible(m, root, scene + native::ROOT)?)?;
             }
         }
         Ok(())
@@ -373,7 +407,7 @@ impl Registry {
                     return Ok(entry.token);
                 }
             }
-            if node == scene + 0x110 {
+            if node == scene + native::ROOT {
                 return Ok(None);
             }
             node = m.ptr(node + native::PARENT)?;
@@ -398,7 +432,7 @@ impl Registry {
         };
         let mut changes = Vec::new();
         for parent in self.scopes.keys().copied().collect::<Vec<_>>() {
-            let full = self.adopt(m, parent, scene + 0x110)?;
+            let full = self.adopt(m, parent, scene + native::ROOT)?;
             let mut keys = BTreeSet::new();
             let tokens = full
                 .iter()
@@ -448,7 +482,3 @@ impl Registry {
         self.dirty = false;
     }
 }
-
-#[cfg(test)]
-#[path = "registry_tests.rs"]
-mod tests;

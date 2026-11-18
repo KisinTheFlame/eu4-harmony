@@ -223,7 +223,7 @@ fn start_in_place<M: Machine>(m: &M, owner: &str, claim: &Claim, game_dir: &Path
     let user = user_dir(claim);
     let log = user.join("eu4-harmony").join("logs").join("core.log");
     let test_game = TestGame { name: owner.to_string(), user_dir: user, core };
-    let start = Start { hidden: true, sound: starting.sound, seed: starting.seed, test_game: Some(test_game) };
+    let start = Start { hidden: true, sound: starting.sound, seed: starting.seed, user_dir: None, test_game: Some(test_game) };
     // A game that ends before its main menu is followed by no `follow.exe`,
     // so the start records its end, for the release to tell of.
     let (started, seconds) = m.start_game(game_dir, &log, &start, wait).map_err(|failed| {

@@ -96,7 +96,7 @@ usage:
 ";
 
 use eu4_harmony_loc::Language;
-use eu4_harmony_manifest::{Descriptor, HarmonyMod};
+use eu4_harmony_manifest::{valid_id, Descriptor, HarmonyMod};
 
 /// Positional arguments and `--key value` / `--flag` options.
 #[derive(Debug)]
@@ -179,14 +179,6 @@ fn cmd_reload(args: &Args) -> Result<()> {
 }
 
 // ---------- shared ----------
-
-/// A mod id names the manifest entry, log file and element prefix.
-fn valid_id(id: &str) -> bool {
-    id.len() <= 64
-        && id.chars().next().is_some_and(|c| c.is_ascii_lowercase())
-        && !id.ends_with('-')
-        && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-}
 
 /// Absolute path without the `\\?\` prefix `canonicalize` adds on Windows.
 fn plain(path: &Path) -> Result<PathBuf> {
@@ -396,8 +388,9 @@ fn cmd_start(args: &Args) -> Result<()> {
         Some(text) => std::time::Duration::from_secs(text.parse().map_err(|_| format!("--timeout {text}: not a number of seconds"))?),
         None => start::WAIT,
     };
+    let explicit_user = args.value("user-dir").map(PathBuf::from);
     let log = eu4_harmony_folders::UserFolder::new(user_dir(args)?).core_log();
-    start::start(&game, &log, &start::Start { hidden, sound, ..Default::default() }, wait).map(drop).map_err(String::from)
+    start::start(&game, &log, &start::Start { hidden, sound, user_dir: explicit_user, ..Default::default() }, wait).map(drop).map_err(String::from)
 }
 
 // ---------- package ----------

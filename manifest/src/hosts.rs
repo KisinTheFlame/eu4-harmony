@@ -1,11 +1,11 @@
 //! The vanilla windows spliced elements may go in (ADR inject-ui-at-runtime),
-//! one row each. A mod's fragment names its window by `into`: [`crate::splice`]
-//! finds the file to splice from the row, and [`crate::ui`] binds the elements
+//! one row each. A mod's fragment names its window by `into`: `core::splice`
+//! finds the file to splice from the row, and `core::ui` binds the elements
 //! through the row's [`Host`].
 //!
 //! Supporting another window takes, besides its row:
 //!
-//! - in [`crate::ui`], the hooks that find the window's root as the game
+//! - in `core::ui`, the hooks that find the window's root as the game
 //!   builds it and drop it as the game rebuilds or destroys it (for the army
 //!   panel: its update, rebuild and destructor), with the vtables that
 //!   confirm each object is of the expected class before anything is read

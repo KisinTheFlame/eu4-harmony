@@ -6,11 +6,23 @@
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
+pub mod hosts;
+pub mod pdx;
+pub mod ui;
+
 /// The manifest's file, in a mod's `eu4-harmony/` folder.
 pub const FILE: &str = "manifest.toml";
 
 /// The extension's entry, relative to `eu4-harmony/`.
 pub const EXTENSION: &str = "lua/main.lua";
+
+/// A mod id names the manifest entry, log file, data folder and element prefix.
+pub fn valid_id(id: &str) -> bool {
+    id.len() <= 64
+        && id.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+        && !id.ends_with('-')
+        && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
 
 /// `eu4-harmony/manifest.toml`: what cannot be told from where a mod's files
 /// are.
@@ -47,6 +59,9 @@ pub struct Permissions {
 impl Manifest {
     pub fn parse(text: &str) -> Result<Self, String> {
         let manifest: Self = toml::from_str(text).map_err(|e| e.to_string())?;
+        if !valid_id(&manifest.id) {
+            return Err(format!("id {:?} must be 1..=64 lowercase ASCII letters, digits or `-`, starting with a letter and not ending with `-`", manifest.id));
+        }
         for entry in &manifest.permissions.network {
             host(entry).map_err(|e| format!("permissions.network: {e}"))?;
         }
@@ -202,6 +217,15 @@ impl HarmonyMod {
         let version = self.manifest.unsupported(provided).map(|why| format!("eu4-harmony/{FILE}: {why}"));
         let misplaced = self.layout.misplaced.iter().map(|f| format!("eu4-harmony/{f}: not where the layout puts anything, so the game never reads it"));
         version.into_iter().chain(misplaced).collect()
+    }
+
+    /// All problems found in the manifest, layout, and interface fragments
+    /// under `root`.
+    pub fn all_problems(&self, root: &Path, provided: &str) -> Vec<String> {
+        let mut all = self.problems(provided);
+        let mut slots = std::collections::HashMap::new();
+        all.extend(ui::read_fragments(root, &self.manifest.id, &self.layout.ui, &mut slots).problems);
+        all
     }
 }
 
@@ -429,6 +453,9 @@ mod tests {
         assert!(Manifest::parse("id = \"m\"\napi_version = \"0.2\"\nextension = \"x.dll\"").is_err());
         assert!(Manifest::parse("id = \"m\"\napi_version = \"0.2\"\npermissions = { clocks = true }").is_err());
         assert!(Manifest::parse("id = \"m\"").is_err());
+        for bad in ["", "Bad", "1a", "a-", "a_b", "../../save games"] {
+            assert!(Manifest::parse(&format!("id = {bad:?}\napi_version = \"0.2\"")).is_err(), "{bad}");
+        }
         assert!(Manifest::parse(
             "id = \"m\"
 api_version = \"0.2\"

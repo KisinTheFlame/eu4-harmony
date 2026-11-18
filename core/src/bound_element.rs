@@ -176,6 +176,23 @@ impl BoundElement {
         Ok(Self { subscription: Some(listener(m, object, hears)?), ..Self::new(object, look) })
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_listening(object: usize, look: Look) -> Self {
+        Self { subscription: Some(Subscription::for_test(object)), ..Self::new(object, look) }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_linked_for_test(&mut self, linked: bool) {
+        if let Some(sub) = &mut self.subscription {
+            sub.set_linked_for_test(linked);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn context_for_test(&self) -> Option<usize> {
+        self.subscription.as_ref().map(Subscription::context)
+    }
+
     /// Subscribes its listener, if it has one.
     pub(crate) fn link(&mut self, m: &Memory) -> Result<()> {
         self.subscription.as_mut().map_or(Ok(()), |s| s.link(m))

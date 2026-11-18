@@ -53,7 +53,13 @@ impl FrameCoordinator {
     /// invalidated the prepared frame, or the main thread cannot pace).
     pub(super) fn pace_target(&self, drawing_on: bool, holding_back: bool, may_pace: bool) -> Option<u64> {
         let wanted = self.prepared_seq.load(Ordering::Acquire);
-        if !drawing_on || holding_back || !may_pace || self.invalidated_by_main.load(Ordering::Acquire) || self.drawn_caught_up(wanted) {
+        if !drawing_on
+            || holding_back
+            || !may_pace
+            || self.prepared_idler.load(Ordering::Acquire) == 0
+            || self.invalidated_by_main.load(Ordering::Acquire)
+            || self.drawn_caught_up(wanted)
+        {
             return None;
         }
         Some(wanted)
@@ -92,6 +98,68 @@ impl FrameCoordinator {
     pub(super) fn note_drawn(&self, seq: u64) {
         self.drawn_seq.store(seq, Ordering::Release);
     }
+
+    /// Coordinates one main-thread frame's preparation and publication for
+    /// `idler`: runs deferred calls, prepares tooltips, falls back cleanly to
+    /// main-thread drawing when required or when frame preparation fails, and
+    /// clears stale staged artifacts on prepare failure before drawing inline.
+    pub(super) fn stage_frame(&self, idler: usize, ops: &mut impl StageOps) {
+        ops.run_deferred();
+        ops.prepare_tooltips(idler);
+        if ops.draw_on_main_only() {
+            self.main_draws_frame();
+            ops.discard_placing();
+            ops.draw_here(idler);
+            return;
+        }
+        if let Err(e) = ops.prepare_frame(idler) {
+            ops.discard_placing();
+            self.clear_idler();
+            self.main_draws_frame();
+            ops.clear_staged_artifacts();
+            ops.log(&format!("drawing: the frame could not be prepared: {e}"));
+            ops.draw_here(idler);
+            return;
+        }
+        if let Err(e) = ops.keep_marks(idler) {
+            ops.log(&format!("drawing: the frame's temporary map highlights could not be kept: {e}"));
+        }
+        ops.frame_prepared();
+        ops.icons_prepared();
+        let was_idle = self.prepared_idler() == 0;
+        self.publish_prepared(idler);
+        ops.note_prepared(was_idle);
+        ops.after_prepared();
+    }
+
+    /// Clears staged state before yielding to the drawing thread, runs deferred
+    /// calls once the drawing thread finishes or stops, and clears staged
+    /// artifacts again so deferred callbacks leave nothing for the old idler.
+    pub(super) fn clear_across_deferred<S: StageOps>(&self, ops: &mut S, wait_drawing_end: impl FnOnce(&mut S)) {
+        self.clear_idler();
+        ops.clear_staged_artifacts();
+        wait_drawing_end(ops);
+        ops.run_deferred();
+        self.clear_idler();
+        ops.clear_staged_artifacts();
+    }
+}
+
+/// Host staging and fallback operations driven by [`FrameCoordinator`].
+pub(super) trait StageOps {
+    fn run_deferred(&mut self);
+    fn prepare_tooltips(&mut self, idler: usize);
+    fn draw_on_main_only(&self) -> bool;
+    fn prepare_frame(&mut self, idler: usize) -> Result<(), String>;
+    fn keep_marks(&mut self, idler: usize) -> Result<(), String>;
+    fn discard_placing(&mut self);
+    fn clear_staged_artifacts(&mut self);
+    fn frame_prepared(&mut self);
+    fn icons_prepared(&mut self);
+    fn note_prepared(&mut self, was_idle: bool);
+    fn draw_here(&mut self, idler: usize);
+    fn after_prepared(&mut self);
+    fn log(&mut self, line: &str);
 }
 
 /// Tracks crossings that invalidate the prepared frame until the next update
@@ -431,5 +499,109 @@ mod tests {
         let line = gaps.told(0x1400_0000);
         assert!(line.starts_with("2 late (held back 1 by 0x500 1,"), "{line}");
         assert!(line.contains("Present 1"), "{line}");
+    }
+
+    #[derive(Default)]
+    struct RecordingStage {
+        main_only: bool,
+        fail_prepare: bool,
+        dirty_on_deferred: bool,
+        staged_dirty: bool,
+        steps: Vec<&'static str>,
+        logs: Vec<String>,
+        drawn_idlers: Vec<usize>,
+        was_idle_notes: Vec<bool>,
+    }
+
+    impl StageOps for RecordingStage {
+        fn run_deferred(&mut self) {
+            self.steps.push("deferred");
+            if self.dirty_on_deferred {
+                self.staged_dirty = true;
+            }
+        }
+        fn prepare_tooltips(&mut self, _: usize) {
+            self.steps.push("tooltips");
+        }
+        fn draw_on_main_only(&self) -> bool {
+            self.main_only
+        }
+        fn prepare_frame(&mut self, _: usize) -> Result<(), String> {
+            self.steps.push("prepare");
+            self.staged_dirty = true;
+            if self.fail_prepare {
+                Err("missing idler pointer".into())
+            } else {
+                Ok(())
+            }
+        }
+        fn keep_marks(&mut self, _: usize) -> Result<(), String> {
+            self.steps.push("marks");
+            Ok(())
+        }
+        fn discard_placing(&mut self) {
+            self.steps.push("discard_placing");
+        }
+        fn clear_staged_artifacts(&mut self) {
+            self.staged_dirty = false;
+            self.steps.push("clear_artifacts");
+        }
+        fn frame_prepared(&mut self) {
+            self.steps.push("frame_prepared");
+        }
+        fn icons_prepared(&mut self) {
+            self.steps.push("icons_prepared");
+        }
+        fn note_prepared(&mut self, was_idle: bool) {
+            self.was_idle_notes.push(was_idle);
+        }
+        fn draw_here(&mut self, idler: usize) {
+            self.steps.push("draw_here");
+            self.drawn_idlers.push(idler);
+        }
+        fn after_prepared(&mut self) {
+            self.steps.push("after_prepared");
+        }
+        fn log(&mut self, line: &str) {
+            self.logs.push(line.to_string());
+        }
+    }
+
+    #[test]
+    fn stage_frame_clears_prepared_state_and_falls_back_when_prepare_fails() {
+        let frames = FrameCoordinator::new();
+        let mut stage = RecordingStage::default();
+
+        // First frame prepares cleanly.
+        frames.stage_frame(0x100, &mut stage);
+        assert_eq!(frames.prepared_idler(), 0x100);
+        assert_eq!(stage.was_idle_notes, [true]);
+        assert!(stage.staged_dirty);
+
+        // Failing prepare on the next frame clears staged artifacts, invalidates the old prepared frame, and draws inline.
+        stage.steps.clear();
+        stage.fail_prepare = true;
+        frames.stage_frame(0x100, &mut stage);
+        assert_eq!(frames.prepared_idler(), 0);
+        assert_eq!(frames.drawable(0x100, None, false), None);
+        assert_eq!(frames.pace_target(true, false, true), None);
+        assert!(!stage.staged_dirty);
+        assert_eq!(stage.drawn_idlers, [0x100]);
+        assert_eq!(stage.logs.len(), 1);
+        assert!(stage.logs[0].contains("missing idler pointer"));
+        assert_eq!(stage.steps, ["deferred", "tooltips", "prepare", "discard_placing", "clear_artifacts", "draw_here"]);
+    }
+
+    #[test]
+    fn clear_across_deferred_reclears_artifacts_dirtied_during_deferred_work() {
+        let frames = FrameCoordinator::new();
+        let mut stage = RecordingStage { dirty_on_deferred: true, ..Default::default() };
+        frames.stage_frame(0x200, &mut stage);
+        stage.steps.clear();
+
+        frames.clear_across_deferred(&mut stage, |s| s.steps.push("wait_end"));
+        assert_eq!(frames.prepared_idler(), 0);
+        assert!(!stage.staged_dirty);
+        assert_eq!(stage.steps, ["clear_artifacts", "wait_end", "deferred", "clear_artifacts"]);
     }
 }

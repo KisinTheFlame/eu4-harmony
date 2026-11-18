@@ -321,9 +321,7 @@ impl Windows {
         }
     }
 
-    /// Presses `window`'s entry button from a test, refusing when the window
-    /// has no entry button or when the entry button is hidden or disabled.
-    pub fn press_entry(&mut self, extension: usize, name: &str) -> Result<Vec<WindowSeen>, String> {
+    fn check_entry_press(&self, extension: usize, name: &str) -> Result<(), String> {
         let Some(layout) = self.window(extension, name) else {
             return Err(format!("the mod has no window {name:?}"));
         };
@@ -345,6 +343,13 @@ impl Windows {
         if !enabled {
             return Err(format!("the entry button of {name:?} is disabled"));
         }
+        Ok(())
+    }
+
+    /// Presses `window`'s entry button from a test, refusing when the window
+    /// has no entry button or when the entry button is hidden or disabled.
+    pub fn press_entry(&mut self, extension: usize, name: &str) -> Result<Vec<WindowSeen>, String> {
+        self.check_entry_press(extension, name)?;
         Ok(self.show(extension, name, !self.is_open(extension, name)))
     }
 
@@ -375,8 +380,7 @@ impl Windows {
     /// A native entry click, also used by the fake game. Recheck current
     /// desired state so a queued click cannot outlive disabling or hiding it.
     pub fn entry(&mut self, extension: usize, name: &str) -> Vec<WindowSeen> {
-        let Some(properties) = self.wanted(extension, name).and_then(|w| w.set.get(crate::layout::ENTRY)) else { return Vec::new() };
-        if properties.get("visible") == Some(&Property::Visible(false)) || properties.get("enabled") == Some(&Property::Enabled(false)) {
+        if self.wanted(extension, name).is_none() || self.check_entry_press(extension, name).is_err() {
             return Vec::new();
         }
         self.show(extension, name, !self.is_open(extension, name))

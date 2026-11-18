@@ -58,7 +58,7 @@ pub mod game_string;
 pub mod heap;
 pub mod hidden;
 pub mod hooks;
-pub mod hosts;
+pub use eu4_harmony_manifest::{hosts, pdx};
 pub mod icu;
 pub mod lang;
 pub mod loading;
@@ -75,7 +75,6 @@ pub mod mods;
 pub mod notice;
 pub mod objects;
 pub mod paths;
-pub mod pdx;
 #[cfg(feature = "dev-performance")]
 mod performance;
 #[cfg(feature = "dev-performance")]

@@ -22,9 +22,24 @@ const PREPARED_CURSOR: usize = 0x50;
 const OWNER: usize = 0x118;
 const HIT_STATE: usize = 0x8f;
 const CURRENT_HIT: usize = 0x130;
-const ROOT: usize = 0x110;
+pub(super) const ROOT: usize = 0x110;
 const WINDOW_NODE: usize = 0xa30;
 const CHILDREN_SHOWN: usize = 0x178;
+const RETIRED: usize = 0xf4;
+pub(super) const PARENT_SLOT: usize = 0xe8;
+pub(super) const SCROLLBAR_CLASS: usize = 0x1d93748;
+pub(super) const SCROLLBAR_PARENT: usize = 0x1554660;
+pub(super) const SCROLLBAR_CONTAINER_CLASS: usize = 0x1d60238;
+pub(super) const BASE_ICON_CLASS: usize = 0x1d96d00;
+pub(super) const GAME_ICON_CLASS: usize = 0x1d585c8;
+pub(super) const ICON_PARENT: usize = 0x1586190;
+pub(super) const HANDLED: usize = 0x54;
+pub(super) const BUTTON_NODE: usize = 0x290;
+pub(super) const BUTTON_EXTRA: usize = 0x188;
+pub(super) const TEXT_NODE: usize = 0x118;
+pub(super) const TEXT_SCROLLBAR: usize = 0x1a0;
+pub(super) const SCROLLBAR_CONTAINER: usize = 0x528;
+pub(super) const ATTACHED_NODE: usize = 0x168;
 pub(super) use super::placement::PARENT;
 
 pub(super) fn scene(m: &Memory) -> Result<Option<(usize, usize)>> {
@@ -58,7 +73,7 @@ pub(super) fn window_of(m: &Memory, node: usize) -> Result<Option<usize>> {
 }
 
 pub(super) fn visible(m: &Memory, root: usize, first_root: usize) -> Result<bool> {
-    if m.u8(root + 0xf4)? != 0 || m.u8(root + 0xf5)? == 0 {
+    if m.u8(root + RETIRED)? != 0 || m.u8(root + crate::objects::gui::window::OPEN)? == 0 {
         return Ok(false);
     }
     let node = window_node(m, root)?;
@@ -94,9 +109,80 @@ pub(super) fn target_node(m: &Memory, scene: usize, gui: usize) -> Result<Option
     Ok(None)
 }
 
+pub(super) fn press_unhandled(m: &Memory, event: usize) -> Result<bool> {
+    use crate::objects::gui::mouse_input as fields;
+    Ok(m.u32(event + fields::DEVICE)? == fields::MOUSE
+        && [fields::PRESSED, fields::DOUBLE].contains(&m.u32(event + fields::KIND)?)
+        && [1, fields::RIGHT].contains(&m.u32(event + fields::BUTTON)?)
+        && m.u16(event + HANDLED)? == 0)
+}
+
+pub(super) fn event_handled(m: &Memory, event: usize) -> bool {
+    m.u16(event + HANDLED).is_ok_and(|mask| mask != 0)
+}
+
+pub(super) fn host_nodes(
+    m: &Memory,
+    root: usize,
+    frame: Option<usize>,
+    controls: &[(usize, crate::bound_element::Look)],
+) -> Result<(Option<usize>, Vec<usize>)> {
+    use crate::{
+        bound_element::Look,
+        objects::gui::{classes, window},
+    };
+    let mut nodes = Vec::new();
+    if let Some(frame) = frame {
+        nodes.push(window_node(m, frame)?);
+    }
+    for &(object, look) in controls {
+        let class = m.ptr(object)?;
+        match look {
+            Look::Button if class == m.at(classes::BUTTON) => {
+                nodes.push(m.ptr(object + BUTTON_NODE)?);
+                let extra = m.ptr(object + BUTTON_EXTRA)?;
+                if extra != 0 {
+                    nodes.push(extra);
+                }
+            }
+            Look::Text if class == m.at(classes::TEXT_BOX) => {
+                nodes.push(m.ptr(object + TEXT_NODE)?);
+                let scrollbar = m.ptr(object + TEXT_SCROLLBAR)?;
+                if scrollbar != 0 {
+                    let container = scrollbar + SCROLLBAR_CONTAINER;
+                    if m.ptr(scrollbar)? != m.at(SCROLLBAR_CLASS)
+                        || m.vslot(scrollbar, PARENT_SLOT)? != m.at(SCROLLBAR_PARENT)
+                        || m.ptr(container)? != m.at(SCROLLBAR_CONTAINER_CLASS)
+                    {
+                        return Err("unrecognized attached text scrollbar container".into());
+                    }
+                    nodes.push(container);
+                }
+            }
+            Look::Icon if [m.at(GAME_ICON_CLASS), m.at(BASE_ICON_CLASS)].contains(&class) => {
+                if m.vslot(object, PARENT_SLOT)? != m.at(ICON_PARENT) {
+                    return Err("unrecognized attached icon parent method".into());
+                }
+                nodes.push(m.ptr(object + ATTACHED_NODE)?);
+            }
+            _ => return Err(format!("unrecognized attached visual node group: {look:?}, class RVA {:#x}", class.wrapping_sub(m.at(0usize)))),
+        }
+    }
+    let background = m.ptr(root + window::BACKGROUND)?;
+    let floor = if background == 0 {
+        None
+    } else {
+        if m.ptr(background)? != m.at(classes::BACKGROUND) {
+            return Err("unrecognized host background".into());
+        }
+        Some(m.ptr(background + ATTACHED_NODE)?)
+    };
+    Ok((floor, nodes))
+}
+
 pub(super) fn points() -> Vec<Point> {
     vec![
-        Point::keep(0x1547534usize, "c6 81 f4 00 00 00 01", "window retirement flag").uses(&[0xf4]),
+        Point::keep(0x1547534usize, "c6 81 f4 00 00 00 01", "window retirement flag").uses(&[RETIRED]),
         Point::keep(0x15464b0usize, "49 8b 86 30 0a 00 00 49 8d 4e 30 48 89 88 18 01 00 00", "window container GUI owner").uses(&[WINDOW_NODE, OWNER]),
         Point::keep(0x1547d0busize, "48 8b 83 30 0a 00 00 c6 80 78 01 00 00 01", "window child traversal gate").uses(&[CHILDREN_SHOWN]),
         Point::keep(0x14dd80dusize, "ff 92 70 02 00 00", "scene child traversal method slot").uses(&[0x270]),
@@ -116,6 +202,21 @@ pub(super) fn points() -> Vec<Point> {
         Point::keep(0x14e9e87usize, "c6 83 8f 00 00 00 00", "GUI hit state reset").uses(&[HIT_STATE]),
         Point::keep(0x14dd098usize, "49 8d 9e 10 01 00 00", "first GUI scene root").uses(&[ROOT]),
         Point::keep(0x14dd236usize, "40 38 35 12 2d e6 00", "other camera skips ordinary GUI input lists").uses(&[OTHER_CAMERA]),
+        Point::keep(0x15ae9d4usize, "48 8b 89 90 02 00 00", "attached button node").uses(&[BUTTON_NODE]),
+        Point::keep(0x15ae9fausize, "48 8b 8b 88 01 00 00", "attached button secondary node").uses(&[BUTTON_EXTRA]),
+        Point::keep(0x1571500usize, "48 8b 89 68 01 00 00", "host background node").uses(&[ATTACHED_NODE]),
+        Point::keep(0x15861a0usize, "48 8b 89 68 01 00 00", "attached icon node").uses(&[ATTACHED_NODE]),
+        Point::keep(0x15857fcusize, "48 8d 05 fd 14 81 00", "attached base icon class").uses(&[BASE_ICON_CLASS]),
+        Point::keep(0x10b5823usize, "48 8d 05 9e 2d ca 00", "attached game icon class").uses(&[GAME_ICON_CLASS]),
+        Point::method(BASE_ICON_CLASS, PARENT_SLOT, ICON_PARENT, "attached base icon parent method"),
+        Point::method(GAME_ICON_CLASS, PARENT_SLOT, ICON_PARENT, "attached game icon parent method"),
+        Point::keep(0x1552872usize, "66 83 7e 54 00", "native input handled mask").uses(&[HANDLED]),
+        Point::keep(0x1552bfcusize, "48 8d 05 45 0b 84 00 48 89 01", "attached scrollbar class").uses(&[SCROLLBAR_CLASS]),
+        Point::keep(0x15531f1usize, "49 8d b6 28 05 00 00", "attached scrollbar embedded container").uses(&[SCROLLBAR_CONTAINER]),
+        Point::keep(0x155321fusize, "48 8d 05 12 d0 80 00 48 89 06", "attached scrollbar container class").uses(&[SCROLLBAR_CONTAINER_CLASS]),
+        Point::method(SCROLLBAR_CLASS, PARENT_SLOT, SCROLLBAR_PARENT, "attached scrollbar parent method"),
+        Point::keep(0x152b0b0usize, "48 8b 89 18 01 00 00", "attached text node").uses(&[TEXT_NODE]),
+        Point::keep(0x152b0d3usize, "48 8b 8b a0 01 00 00 48 85 c9 74 23 48 81 c1 28 05 00 00", "attached text scrollbar group").uses(&[TEXT_SCROLLBAR]),
     ]
 }
 

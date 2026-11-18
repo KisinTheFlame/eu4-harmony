@@ -2,7 +2,8 @@
 //! a `windowType` block: a tokenizer that honours quoted strings and `#`
 //! comments, a block finder, the rewrite of a fragment's element names and
 //! positions, and one value for a key throughout a window.
-use crate::Result;
+
+type Result<T> = std::result::Result<T, String>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
