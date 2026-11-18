@@ -388,8 +388,9 @@ fn cmd_start(args: &Args) -> Result<()> {
         Some(text) => std::time::Duration::from_secs(text.parse().map_err(|_| format!("--timeout {text}: not a number of seconds"))?),
         None => start::WAIT,
     };
+    let explicit_user = args.value("user-dir").map(PathBuf::from);
     let log = eu4_harmony_folders::UserFolder::new(user_dir(args)?).core_log();
-    start::start(&game, &log, &start::Start { hidden, sound, ..Default::default() }, wait).map(drop).map_err(String::from)
+    start::start(&game, &log, &start::Start { hidden, sound, user_dir: explicit_user, ..Default::default() }, wait).map(drop).map_err(String::from)
 }
 
 // ---------- package ----------

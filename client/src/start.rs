@@ -56,6 +56,8 @@ pub struct Start {
     /// The game's own `-seed`, which seeds its random generator and gives
     /// each AI agent a generator of its own (docs/game/ai/work-scheduling.md).
     pub seed: Option<u32>,
+    /// Explicit `-userdir` override for non-test-game starts.
+    pub user_dir: Option<PathBuf>,
     /// A test game, not the player's.
     pub test_game: Option<TestGame>,
 }
@@ -91,10 +93,17 @@ impl Start {
             }
         }
         words.extend(self.seed.map(|seed| format!("-seed={seed}")));
-        if let Some(game) = &self.test_game {
-            words.push(path("-userdir", &game.user_dir));
-            words.push(path("-harmony_core", &game.core));
-            words.push(format!("-harmony_test_game={}", game.name));
+        match &self.test_game {
+            Some(game) => {
+                words.push(path("-userdir", &game.user_dir));
+                words.push(path("-harmony_core", &game.core));
+                words.push(format!("-harmony_test_game={}", game.name));
+            }
+            None => {
+                if let Some(dir) = &self.user_dir {
+                    words.push(path("-userdir", dir));
+                }
+            }
         }
         words
     }
@@ -113,26 +122,38 @@ pub fn knows(path: &Path, text: &str) -> bool {
 }
 
 /// What a start needs of the framework in `game_dir` and of a test game's
-/// core: a proxy that knows `-harmony_core`, the only one that loads a test
-/// game's core; a test game's core with the test games' pipes, without which
-/// it would serve the player's pipe; and for a hidden start a core that
-/// knows the switch, without which nothing would keep the game hidden.
+/// core: an installed `version.dll` proxy and an active core DLL (either
+/// beside the proxy or in Harmony's own Steam Workshop item); a proxy that
+/// knows `-harmony_core` and a core with the test games' pipes when starting a
+/// test game; and for a hidden start a core that knows `-harmony_hidden`.
 fn framework_has(game_dir: &Path, start: &Start) -> Result<()> {
     let proxy = game_dir.join("version.dll");
-    let core = start.test_game.as_ref().map_or_else(|| game_dir.join("eu4-harmony").join("eu4_harmony_core.dll"), |g| g.core.clone());
-    if let Some(game) = &start.test_game {
-        if !knows(&proxy, "-harmony_core") {
-            return Err(format!(
-                "the framework's proxy in {} cannot load a test game's core: install a build from this one on (cargo xtask install, with no game running)",
-                game_dir.display()
-            ));
+    let core = match &start.test_game {
+        Some(game) => {
+            if !knows(&proxy, "-harmony_core") {
+                return Err(format!(
+                    "the framework's proxy in {} cannot load a test game's core: install a build from this one on (cargo xtask install, with no game running)",
+                    game_dir.display()
+                ));
+            }
+            // Only a core with the test games' pipes has this line of its log.
+            if !knows(&game.core, "serving the test game's own pipe") {
+                return Err(format!("{} has no test games' pipes: build it with --features eu4-harmony-core/dev-test-games", game.core.display()));
+            }
+            game.core.clone()
         }
-        // Only a core with the test games' pipes has this line of its log.
-        if !knows(&game.core, "serving the test game's own pipe") {
-            return Err(format!("{} has no test games' pipes: build it with --features eu4-harmony-core/dev-test-games", game.core.display()));
+        None => {
+            if !proxy.is_file() {
+                return Err(format!("Harmony is not installed in {}: {} is missing", game_dir.display(), proxy.display()));
+            }
+            eu4_harmony_folders::active_core(game_dir).ok_or_else(|| {
+                let places = eu4_harmony_folders::core_places(game_dir, eu4_harmony_folders::PUBLISHED_FILE_ID);
+                let looked: Vec<String> = places.iter().map(|p| p.display().to_string()).collect();
+                format!("Harmony's core DLL was not found; looked at {}", looked.join(", "))
+            })?
         }
-    }
-    if start.hidden && !(proxy.is_file() && knows(&core, "-harmony_hidden")) {
+    };
+    if start.hidden && !knows(&core, "-harmony_hidden") {
         return Err(format!(
             "the framework in {} has no hidden start: install a build that has it (cargo xtask install), or start the game shown",
             game_dir.display()
@@ -156,6 +177,7 @@ pub fn start(game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> std:
         Some(_) => {}
     }
     framework_has(game_dir, start)?;
+    crate::game::steam_ready()?;
     let exe = game_dir.join(crate::game::EXE);
     let started = Instant::now();
     let since = std::time::SystemTime::now();
@@ -213,7 +235,7 @@ mod tests {
     use super::*;
 
     fn switches(hidden: bool, sound: bool, seed: Option<u32>) -> Vec<String> {
-        Start { hidden, sound, seed, test_game: None }.switches()
+        Start { hidden, sound, seed, ..Default::default() }.switches()
     }
 
     /// A test game names its user folder, its core and its pipe, a word
@@ -221,11 +243,45 @@ mod tests {
     #[test]
     fn a_test_game_names_its_user_folder_core_and_pipe() {
         let game = TestGame { name: "b".into(), user_dir: PathBuf::from(r"C:\claims\b\user"), core: PathBuf::from(r"C:\a b\core.dll") };
-        let start = Start { hidden: true, sound: false, seed: None, test_game: Some(game) };
+        let start = Start { hidden: true, sound: false, seed: None, user_dir: None, test_game: Some(game) };
         let words = start.switches();
         assert_eq!(words, ["-harmony_hidden", r"-userdir=C:\claims\b\user", r#""-harmony_core=C:\a b\core.dll""#, "-harmony_test_game=b"]);
         assert_eq!(start.pipe().unwrap(), r"\\.\pipe\eu4-harmony-b");
         assert_eq!(Start::default().pipe().unwrap(), eu4_harmony_remote::PIPE);
+    }
+
+    #[test]
+    fn explicit_user_dir_adds_switch_and_framework_has_checks_workshop_and_shown_starts() {
+        let with_user = Start { user_dir: Some(PathBuf::from(r"C:\my user\dir")), ..Default::default() };
+        assert_eq!(with_user.switches(), [r#""-userdir=C:\my user\dir""#]);
+
+        let root = std::env::temp_dir().join(format!("eu4h-client-framework-has-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let game = root.join("SteamLibrary").join("steamapps").join("common").join("Europa Universalis IV");
+        std::fs::create_dir_all(&game).unwrap();
+
+        // Missing proxy fails even for shown start.
+        let shown = Start::default();
+        assert!(framework_has(&game, &shown).unwrap_err().contains("version.dll is missing"));
+
+        // Proxy present but no core anywhere fails.
+        std::fs::write(game.join("version.dll"), b"").unwrap();
+        assert!(framework_has(&game, &shown).unwrap_err().contains("core DLL was not found"));
+
+        // Workshop core satisfies shown start, and satisfies hidden start once it carries `-harmony_hidden`.
+        if let Some(workshop_dir) = eu4_harmony_folders::workshop_item(&game, eu4_harmony_folders::PUBLISHED_FILE_ID) {
+            let core = workshop_dir.join("eu4-harmony").join("eu4_harmony_core.dll");
+            std::fs::create_dir_all(core.parent().unwrap()).unwrap();
+            std::fs::write(&core, b"plain core").unwrap();
+            assert!(framework_has(&game, &shown).is_ok());
+
+            let hidden = Start { hidden: true, ..Default::default() };
+            assert!(framework_has(&game, &hidden).unwrap_err().contains("has no hidden start"));
+
+            std::fs::write(&core, b"core supporting -harmony_hidden").unwrap();
+            assert!(framework_has(&game, &hidden).is_ok());
+        }
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

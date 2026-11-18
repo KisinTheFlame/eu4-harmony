@@ -3,14 +3,13 @@
 //! for its page, and `cargo xtask workshop-upload`, which uploads the folder
 //! with SteamCMD.
 use crate::{repo, run, Args, Result};
+use eu4_harmony_folders::APP_ID;
 use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
 };
 
-/// The game's app id on Steam.
-const APP_ID: &str = "236850";
 /// The languages the item's page is written in, by Steam's names, which
 /// name the description and comparison files in `workshop/`.
 const LANGUAGES: [&str; 2] = ["english", "schinese"];
@@ -78,27 +77,19 @@ fn version() -> &'static str {
 fn published_file_id() -> Result<u64> {
     let path = sources().join("item.toml");
     let text = fs::read_to_string(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-    parse_id(&text).ok_or_else(|| format!("{} has no `published_file_id = <number>`", path.display()))
-}
-
-/// `published_file_id = <number>` in `item.toml`'s text.
-fn parse_id(text: &str) -> Option<u64> {
-    text.lines().find_map(|line| {
-        let (key, value) = line.split_once('=')?;
-        (key.trim() == "published_file_id").then(|| value.trim().parse().ok())?
-    })
+    eu4_harmony_folders::parse_published_file_id(&text).ok_or_else(|| format!("{} has no `published_file_id = <number>`", path.display()))
 }
 
 /// `item.toml`'s text with `id` recorded.
 fn with_id(text: &str, id: u64) -> String {
     let mut out: Vec<String> = text
         .lines()
-        .map(|line| match line.split_once('=') {
+        .map(|line| match line.split('#').next().and_then(|s| s.split_once('=')) {
             Some((key, _)) if key.trim() == "published_file_id" => format!("published_file_id = {id}"),
             _ => line.to_string(),
         })
         .collect();
-    if parse_id(text).is_none() {
+    if eu4_harmony_folders::parse_published_file_id(text).is_none() {
         out.push(format!("published_file_id = {id}"));
     }
     out.join("\n") + "\n"
@@ -496,10 +487,10 @@ mod tests {
 
     #[test]
     fn reads_and_records_the_published_file_id() {
-        assert_eq!(parse_id("published_file_id = 0\n"), Some(0));
-        assert_eq!(parse_id("# a note\npublished_file_id=3141592653\n"), Some(3141592653));
-        assert_eq!(parse_id("published_file_id = soon\n"), None);
-        assert_eq!(parse_id(""), None);
+        assert_eq!(eu4_harmony_folders::parse_published_file_id("published_file_id = 0\n"), Some(0));
+        assert_eq!(eu4_harmony_folders::parse_published_file_id("# a note\npublished_file_id=3141592653\n"), Some(3141592653));
+        assert_eq!(eu4_harmony_folders::parse_published_file_id("published_file_id = soon\n"), None);
+        assert_eq!(eu4_harmony_folders::parse_published_file_id(""), None);
         assert_eq!(with_id("published_file_id = 0\n", 42), "published_file_id = 42\n");
         assert_eq!(with_id("# kept\npublished_file_id = 0", 42), "# kept\npublished_file_id = 42\n");
         assert_eq!(with_id("", 7), "published_file_id = 7\n");
@@ -518,7 +509,7 @@ mod tests {
         let text = descriptor(&template, "1.2.3", 0);
         assert!(text.contains("version=\"1.2.3\"") && text.contains("name=\"Harmony\"") && text.contains("supported_version=\"v1.37.5\""));
         assert!(!text.contains("{version}") && !text.contains("remote_file_id"));
-        assert!(parse_id(&fs::read_to_string(sources().join("item.toml")).unwrap()).is_some());
+        assert!(eu4_harmony_folders::parse_published_file_id(&fs::read_to_string(sources().join("item.toml")).unwrap()).is_some());
     }
 
     #[test]
