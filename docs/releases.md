@@ -6,12 +6,12 @@ Merging a version PR into master requests a GitHub Release. GitHub checks the me
 
 | Package | Contents | Use |
 | --- | --- | --- |
-| `eu4-harmony-<version>-windows-x64.zip` | `version.dll`, `eu4-harmony/eu4_harmony_core.dll` | Extract into the game folder beside `eu4.exe` with the game closed |
+| `eu4-harmony-<version>-windows-x64.zip` | `version.dll`, `eu4-harmony/eu4_harmony_core.dll`, `eu4-harmony/eu4_harmony_crash_dumps.dll`, `eu4-harmony/eu4-harmony-dump-writer.exe` | Extract into the game folder beside `eu4.exe` with the game closed |
 | `eu4-harmony-cli-<version>-windows-x64.zip` | `eu4-harmony.exe` | Extract wherever the command line tool is run; it finds the game through Steam or `EU4_GAME_DIR` |
 
 The packages contain no development settings, debug symbols or checksum file. Both come from the same optimized player build. The CLI is optional for players. GitHub also provides its usual source archives.
 
-A framework installed from the ZIP is updated by downloading and extracting a newer ZIP. The local core takes precedence over the Workshop core; Steam does not update that local copy. Remove `eu4-harmony/eu4_harmony_core.dll` from the game folder to use the subscribed Workshop core again. See the [installation instructions](../README.md#installing).
+A framework installed from the ZIP is updated by downloading and extracting a newer ZIP. The local core takes precedence over the Workshop core; Steam does not update that local copy. Remove `eu4_harmony_core.dll`, `eu4_harmony_crash_dumps.dll` and `eu4-harmony-dump-writer.exe` from the game folder's `eu4-harmony/` directory to use the subscribed Workshop core again. See the [installation instructions](../README.md#installing).
 
 ## Publishing a version
 

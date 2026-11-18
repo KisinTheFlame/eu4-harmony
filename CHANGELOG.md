@@ -2,6 +2,15 @@
 
 What changed in each version of Harmony that players and mod authors notice. Merging a version PR automatically publishes its section as the GitHub Release notes; a local Steam Workshop upload uses the same section as its change note (`cargo xtask workshop-upload`).
 
+## 0.3.0
+
+- Harmony now saves minidumps automatically when the game crashes: before the game writes its own crash files, preserving the original exception registers, and through Windows Error Reporting when a fatal exception bypasses the game's crash handling.
+- The **About** page in Harmony's settings window adds **Enable Windows crash dumps for EU4 (admin)** to set a Windows `LocalDumps` folder for `eu4.exe` after a one-time administrator prompt, without running the game as administrator.
+- Troubleshooting files now include completed Harmony minidumps, recent Windows Application Error events for `eu4.exe`, and Windows minidumps matched to a logged run by process ID and creation time. Minidumps can contain process memory; nothing is uploaded automatically.
+- Faster save loading: in-game loads of local plain-text saves read from memory while keeping the file open, country-distance rebuilds reuse scratch space and skip countries without source provinces, and cache completion wakes the session update wait immediately.
+
+The core and crash-dump components update together through Steam Workshop with no proxy replacement required; restart the game after the update. Manual framework downloads now include `eu4_harmony_crash_dumps.dll` and `eu4-harmony-dump-writer.exe` in `eu4-harmony\` alongside `eu4_harmony_core.dll`; remove all three files there to return from a manual install to Workshop updates.
+
 ## 0.2.3
 
 - Fixed: opening an army panel with attached mod elements and advancing time could end the game when a derived window used a shared native hide method. Window ordering now classifies the receiver before applying ordinary-window checks, while preserving native picker coverage and input priorities.
