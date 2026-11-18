@@ -493,7 +493,7 @@ fn suffix() -> String {
 fn set_aside(build: Build, out: &Path) -> Result<PathBuf> {
     let to = out.join("builds").join(build.name().replace(' ', "-"));
     std::fs::create_dir_all(&to).map_err(|e| format!("cannot make {}: {e}", to.display()))?;
-    for file in ["eu4_harmony_core.dll", "eu4_harmony_core.pdb"] {
+    for file in ["eu4_harmony_core.dll", "eu4_harmony_core.pdb", "eu4_harmony_crash_dumps.dll", "eu4-harmony-dump-writer.exe"] {
         let from = crate::built().join(file);
         std::fs::copy(&from, to.join(file)).map_err(|e| format!("cannot copy {} to {}: {e}", from.display(), to.display()))?;
     }

@@ -1,5 +1,5 @@
-//! The troubleshooting files: complete logs, crash folders and settings,
-//! packed into one zip file on the player's desktop from the About page.
+//! The troubleshooting files: complete logs, crash folders, selected
+//! Windows crash evidence and settings, packed from the About page.
 //! No saves, file-size limits, payload budget or file-count limit.
 //!
 //! Packing runs on its own thread. Binary dumps are compressed in chunks;
@@ -10,6 +10,10 @@ use std::fs::{File, OpenOptions};
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+
+pub(crate) mod local_dumps;
+mod windows_crashes;
+mod windows_dumps;
 
 /// Where the packing is.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,11 +61,14 @@ pub fn start() {
 struct Source {
     name: String,
     path: PathBuf,
+    /// Windows dumps are checked on the handle that will be packed, in case
+    /// Windows rotates them between enumeration and collection.
+    opened: Option<File>,
 }
 
 impl Source {
     fn new(name: String, path: PathBuf) -> Self {
-        Self { name, path }
+        Self { name, path, opened: None }
     }
 }
 
@@ -81,10 +88,29 @@ fn files_in(dir: &Path, under: &str, out: &mut Vec<Source>) -> std::io::Result<(
     Ok(())
 }
 
+fn harmony_dumps(user: &UserFolder, out: &mut Vec<Source>) -> crate::Result<()> {
+    let entries = match std::fs::read_dir(user.harmony_dumps()) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(format!("cannot list Harmony minidumps: {e}")),
+    };
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if let Some((pid, created)) = entry.file_name().to_str().and_then(eu4_harmony_folders::captured_dump_id) {
+            if entry.file_type().map_err(|e| e.to_string())?.is_file() {
+                let run = eu4_harmony_logging::process_run_id(pid, created);
+                out.push(Source::new(format!("harmony-dumps/{run}/minidump.dmp"), entry.path()));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Every existing crash folder is included; saves are never enumerated.
 fn sources(user: &UserFolder) -> crate::Result<Vec<Source>> {
     let mut out = Vec::new();
     files_in(&user.logs(), "harmony-logs", &mut out).map_err(|e| format!("cannot list framework logs: {e}"))?;
+    harmony_dumps(user, &mut out)?;
     files_in(&user.game_logs(), "game-logs", &mut out).map_err(|e| format!("cannot list game logs: {e}"))?;
     for name in user.crash_folders()? {
         files_in(&user.crashes().join(&name), &format!("crashes/{name}"), &mut out).map_err(|e| format!("cannot list crash folder {name}: {e}"))?;
@@ -140,12 +166,18 @@ fn desktop() -> crate::Result<PathBuf> {
     Ok(PathBuf::from(dir))
 }
 
-fn collect<W: std::io::Write>(output: W, sources: Vec<Source>, mut summary: Vec<String>, when: (u16, u16)) -> std::io::Result<W> {
+fn collect<W: std::io::Write>(
+    output: W,
+    sources: Vec<Source>,
+    mut summary: Vec<String>,
+    windows_crashes: Option<&str>,
+    when: (u16, u16),
+) -> std::io::Result<W> {
     summary.push("files:".into());
     let mut stream = zip::Stream::new(output);
     let mut payload = 0u64;
     for source in sources {
-        let file = match File::open(&source.path) {
+        let file = match source.opened.map_or_else(|| File::open(&source.path), Ok) {
             Ok(file) => file,
             Err(e) => {
                 summary.push(format!("  {}: not read, {e}", source.name));
@@ -171,6 +203,15 @@ fn collect<W: std::io::Write>(output: W, sources: Vec<Source>, mut summary: Vec<
         summary.push(format!("  {}: original_bytes={original} collected_bytes={} credential_redaction={}", source.name, entry.unpacked, !binary));
         payload += entry.unpacked as u64;
     }
+    if let Some(text) = windows_crashes {
+        let text = eu4_harmony_logging::redact(text);
+        let entry = stream.deflate(b"windows-crashes.txt", text.as_bytes(), when)?;
+        summary.push(format!(
+            "  windows-crashes.txt: generated from Windows Application Error events; collected_bytes={} credential_redaction=true",
+            entry.unpacked
+        ));
+        payload += entry.unpacked as u64;
+    }
     summary.push(format!("payload_bytes={payload}; about.txt is additional metadata"));
     stream.deflate(b"about.txt", (summary.join("\r\n") + "\r\n").as_bytes(), when)?;
     stream.finish()
@@ -187,8 +228,20 @@ fn pack() -> crate::Result<PathBuf> {
     };
     let now = format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
     crate::log::checkpoint();
-    let summary = about(&user, &now);
-    let sources = sources(&user)?;
+    let mut summary = about(&user, &now);
+    let mut sources = sources(&user)?;
+    if let Some(root) = eu4_harmony_folders::windows_dump_root() {
+        let configured = local_dumps::dump_folder().unwrap_or_else(|e| {
+            summary.push(format!("Windows minidumps: cannot read the configured dump folder: {e}"));
+            None
+        });
+        let (dumps, skipped) = windows_dumps::find(&root, configured.as_deref(), &sources);
+        summary.push(format!("Windows minidumps: {} matched to retained Harmony runs in this user folder, {skipped} unavailable or unmatched", dumps.len()));
+        sources.extend(dumps);
+    } else {
+        summary.push("Windows minidumps: cannot find LOCALAPPDATA".into());
+    }
+    let windows_crashes = windows_crashes::report(game);
     let name = format!("eu4-harmony-troubleshooting-{:04}{:02}{:02}-{:02}{:02}{:02}", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
     let desktop = desktop()?;
     // Never overwrite a troubleshooting file the player has already kept.
@@ -205,7 +258,7 @@ fn pack() -> crate::Result<PathBuf> {
         }
     }
     let (path, file) = chosen.ok_or("no unused troubleshooting filename")?;
-    if let Err(e) = collect(file, sources, summary, dos_time(&t)) {
+    if let Err(e) = collect(file, sources, summary, Some(&windows_crashes), dos_time(&t)) {
         let _ = std::fs::remove_file(&path);
         return Err(format!("cannot write {}: {e}", path.display()));
     }
@@ -236,6 +289,9 @@ mod tests {
         put(&user.core_log(), "core");
         put(&user.report(), "report");
         put(&user.logs().join("core.snapshot-run-1.new"), "in progress");
+        put(&user.harmony_dumps().join("harmony-42-000000000000abcd.dmp"), "complete");
+        put(&user.harmony_dumps().join("harmony-43-000000000000abcd.partial"), "in progress");
+        put(&user.harmony_dumps().join("unrelated.dmp"), "unrelated");
         put(&user.game_logs().join("error.log"), "error");
         for name in ["eu4_2026_11_08", "eu4_2026_11_09", "eu4_2026_11_10", "eu4_2026_11_11"] {
             put(&user.crashes().join(name).join("exception.txt"), name);
@@ -253,6 +309,7 @@ mod tests {
                 "crashes/eu4_2026_11_10/exception.txt",
                 "crashes/eu4_2026_11_11/exception.txt",
                 "game-logs/error.log",
+                "harmony-dumps/42-abcd/minidump.dmp",
                 "harmony-logs/core.log",
                 "harmony-logs/report.txt",
                 "settings/dlc_load.json",
@@ -278,7 +335,7 @@ mod tests {
             candidates.push(Source::new(format!("crashes/eu4_20261114_19072{n}/minidump.dmp"), path));
         }
         let output = File::create(dir.join("collected.zip")).unwrap();
-        drop(collect(output, candidates, Vec::new(), (0, 0x21)).unwrap());
+        drop(collect(output, candidates, Vec::new(), None, (0, 0x21)).unwrap());
         let mut archive = File::open(dir.join("collected.zip")).unwrap();
         let entries = zip::directory(&mut archive, 1 << 20).unwrap();
         for n in 0..2 {
@@ -309,7 +366,7 @@ mod tests {
         drop(file);
         // Both kinds of text exceeded their former per-file limits.
         let candidates = ["game-logs/error.log", "harmony-logs/core.log"].into_iter().map(|name| Source::new(name.into(), path.clone())).collect();
-        let mut archive = std::io::Cursor::new(collect(Vec::new(), candidates, Vec::new(), (0, 0x21)).unwrap());
+        let mut archive = std::io::Cursor::new(collect(Vec::new(), candidates, Vec::new(), None, (0, 0x21)).unwrap());
         for name in [b"game-logs/error.log".as_slice(), b"harmony-logs/core.log"] {
             let bytes = zip::find(&mut archive, name, 10 << 20).unwrap();
             let text = String::from_utf8(bytes).unwrap();
@@ -333,7 +390,7 @@ mod tests {
         let mut candidates = Vec::new();
         files_in(&dir, "harmony-logs", &mut candidates).unwrap();
         assert_eq!(candidates.len(), 1031);
-        let mut archive = std::io::Cursor::new(collect(Vec::new(), candidates, Vec::new(), (0, 0x21)).unwrap());
+        let mut archive = std::io::Cursor::new(collect(Vec::new(), candidates, Vec::new(), None, (0, 0x21)).unwrap());
         let entries = zip::directory(&mut archive, 1 << 20).unwrap();
         assert_eq!(entries.len(), 1032);
         for n in 0..1031 {
@@ -348,10 +405,73 @@ mod tests {
     fn unreadable_sources_are_named_in_the_summary() {
         let dir = scratch("missing-source");
         let candidates = vec![Source::new("crashes/missing/minidump.dmp".into(), dir.join("missing.dmp"))];
-        let mut archive = std::io::Cursor::new(collect(Vec::new(), candidates, Vec::new(), (0, 0x21)).unwrap());
+        let mut archive = std::io::Cursor::new(collect(Vec::new(), candidates, Vec::new(), None, (0, 0x21)).unwrap());
         let summary = String::from_utf8(zip::find(&mut archive, b"about.txt", 4096).unwrap()).unwrap();
         assert!(summary.contains("crashes/missing/minidump.dmp: not read,"));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn windows_evidence_or_a_query_failure_is_included_in_the_archive() {
+        for report in ["run=902-1dd76a22ea180f6 exception_code=0xc0000374\n", "Collection incomplete: Access is denied.\n"] {
+            let mut archive = std::io::Cursor::new(collect(Vec::new(), Vec::new(), Vec::new(), Some(report), (0, 0x21)).unwrap());
+            assert_eq!(zip::find(&mut archive, b"windows-crashes.txt", 4096).unwrap(), report.as_bytes());
+            let summary = String::from_utf8(zip::find(&mut archive, b"about.txt", 4096).unwrap()).unwrap();
+            assert!(summary.contains(&format!("collected_bytes={} credential_redaction=true", report.len())));
+            assert!(summary.contains(&format!("payload_bytes={};", report.len())));
+        }
+    }
+
+    #[test]
+    fn windows_dumps_are_packed_only_for_a_matching_process_in_this_user_folder() {
+        fn dump(pid: u32, created: u32) -> Vec<u8> {
+            let mut bytes = vec![0u8; 264];
+            let mut put = |at: usize, words: &[u32]| {
+                for (index, word) in words.iter().enumerate() {
+                    let offset = at + index * 4;
+                    bytes[offset..offset + 4].copy_from_slice(&word.to_le_bytes());
+                }
+            };
+            put(0, &[u32::from_le_bytes(*b"MDMP"), 0xA793, 2, 32]);
+            put(32, &[15, 24, 56, 6, 168, 84]);
+            put(56, &[24, 3, pid, created, 0, 0]);
+            put(244, &[12, 252]);
+            bytes
+        }
+
+        let dir = scratch("windows-dumps");
+        let user = UserFolder::new(dir.join("user"));
+        let root = dir.join("CrashDumps");
+        let local = root.join("eu4-harmony");
+        std::fs::create_dir_all(&local).unwrap();
+        let created = 1_794_926_671u32;
+        let run = eu4_harmony_logging::process_run_id(902, u64::from(created) * 10_000_000 + 116_444_736_000_012_345);
+        put(&user.core_log(), &format!("# Harmony owned log v1 source=core run={run} segment=1-1\n"));
+        let payload = dump(902, created);
+        let custom = dir.join("administrator-selected-folder");
+        std::fs::create_dir(&custom).unwrap();
+        std::fs::write(custom.join("eu4.exe.902.dmp"), &payload).unwrap();
+        let candidates = sources(&user).unwrap();
+        let (dumps, _) = windows_dumps::find(&root, Some(&custom), &candidates);
+        assert_eq!(dumps.len(), 1);
+        assert_eq!(dumps[0].path, custom.join("eu4.exe.902.dmp"));
+        drop(dumps);
+        std::fs::write(local.join("eu4.exe.902.dmp"), &payload).unwrap();
+        let exact = u64::from(created) * 10_000_000 + 116_444_736_000_012_345;
+        std::fs::write(local.join(format!("harmony-902-{exact:016x}.dmp")), &payload).unwrap();
+        std::fs::write(local.join(format!("harmony-902-{:016x}.dmp", exact + 1)), &payload).unwrap();
+        std::fs::write(root.join("eu4.exe.902.dmp"), dump(902, created - 1)).unwrap();
+        std::fs::write(root.join("eu4.exe.903.dmp"), dump(903, created)).unwrap();
+        std::fs::write(root.join("other.exe.902.dmp"), &payload).unwrap();
+        std::fs::write(root.join("eu4.exe.904.dmp"), &payload[..252]).unwrap();
+        let mut candidates = sources(&user).unwrap();
+        let (dumps, skipped) = windows_dumps::find(&root, Some(&local), &candidates);
+        assert_eq!((dumps.len(), skipped), (1, 4));
+        candidates.extend(dumps);
+        let mut archive = std::io::Cursor::new(collect(Vec::new(), candidates, Vec::new(), None, (0, 0x21)).unwrap());
+        let path = format!("windows-dumps/{run}/minidump.dmp");
+        assert_eq!(zip::find(&mut archive, path.as_bytes(), 4096).unwrap(), payload);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

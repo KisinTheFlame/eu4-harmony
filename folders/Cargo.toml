@@ -10,7 +10,7 @@ description = "The game folder and the user folder, as every program of EU4 Harm
 name = "eu4_harmony_folders"
 
 [dependencies]
-windows-sys = { workspace = true, features = ["Win32_System_Com", "Win32_System_Registry", "Win32_UI_Shell"] }
+windows-sys = { workspace = true, features = ["Win32_System_Com", "Win32_System_ErrorReporting", "Win32_System_Registry", "Win32_UI_Shell"] }
 
 [lints]
 workspace = true

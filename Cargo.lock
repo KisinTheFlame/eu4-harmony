@@ -225,6 +225,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "eu4-harmony-crash-dumps"
+version = "0.2.3"
+dependencies = [
+ "eu4-harmony-folders",
+ "windows-sys",
+]
+
+[[package]]
 name = "eu4-harmony-folders"
 version = "0.2.3"
 dependencies = [
