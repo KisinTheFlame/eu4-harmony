@@ -197,6 +197,12 @@ static OPENED: AtomicUsize = AtomicUsize::new(0);
 /// drive it with.
 fn open(lua: &Lua, at: &Opened) -> Result<TestMod, String> {
     let harmony = at.root.join("eu4-harmony");
+    let layout = eu4_harmony_manifest::layout(&harmony);
+    let mut slots = std::collections::HashMap::new();
+    let report = eu4_harmony_manifest::ui::read_fragments(&at.root, &at.manifest.id, &layout.ui, &mut slots);
+    if !report.problems.is_empty() {
+        return Err(report.problems.join("\n"));
+    }
     let (texts, _) = eu4_harmony_loc::load_dir(&harmony.join("localisation"));
     let fake = Arc::new(Fake::new(texts, lua));
     let n = OPENED.fetch_add(1, Ordering::Relaxed);
@@ -208,7 +214,13 @@ fn open(lua: &Lua, at: &Opened) -> Result<TestMod, String> {
         data: Some(at.scratch.join(n.to_string()).join(&at.manifest.id)),
     };
     let extension = eu4_harmony_lua::open(0, &m, fake.clone())?;
-    fake.store().windows.declare(extension.index(), &at.manifest.id, extension.windows());
+    {
+        let mut store = fake.store();
+        store.windows.declare(extension.index(), &at.manifest.id, extension.windows());
+        if !layout.ui.is_empty() {
+            store.hosted.declare(extension.index(), report.elements.into_iter().map(|e| (e.name, e.kind.is_button())));
+        }
+    }
     Ok(TestMod { extension, fake, calendar: Mutex::default() })
 }
 
@@ -819,6 +831,7 @@ mod tests {
         };
         write("localisation/u_l_english.yml", "\u{feff}l_english:\n U_STATUS:0 \"Count $N$\"\n U_BTN:0 \"Act\"\n U_TIP:0 \"Ready\"\n");
         write("localisation/u_l_simp_chinese.yml", "\u{feff}l_simp_chinese:\n U_STATUS:0 \"计数 $N$\"\n U_BTN:0 \"执行\"\n U_TIP:0 \"就绪\"\n");
+        write("ui/single_unitpanel/buttons/toggle.gui", "guiButtonType = { name = \"toggle\" }\ninstantTextBoxType = { name = \"note\" }\n");
         write(
             "lua/main.lua",
             r#"
@@ -841,6 +854,8 @@ mod tests {
                 game.ui.toggle.text = { key = "U_STATUS", values = { N = 7 } }
                 game.ui.toggle.tooltip = { key = "U_TIP" }
                 game.ui.toggle.enabled = false
+                local bad_ok, bad_err = pcall(function() game.ui.missing.visible = false end)
+                assert(not bad_ok and tostring(bad_err):find("no element \"missing\" declared"), tostring(bad_err))
                 game.window.tools.items.rows = { { pick = false }, {} }
               end,
               on_button = function(game, name, click)
@@ -867,6 +882,10 @@ mod tests {
               assert(mod:element("toggle").text == "Count 7" and mod:element("toggle").tooltip == "Ready")
               local ok, why = pcall(mod.button, mod, "toggle")
               assert(not ok and tostring(why):find("disabled"), tostring(why))
+              ok, why = pcall(mod.button, mod, "note")
+              assert(not ok and tostring(why):find("not a button"), tostring(why))
+              ok, why = pcall(mod.button, mod, "missing")
+              assert(not ok and tostring(why):find("no element \"missing\" declared"), tostring(why))
 
               mod:language("simp_chinese")
               assert(mod:element("toggle").text == "计数 7" and mod:element("toggle").tooltip == "就绪")

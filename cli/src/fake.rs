@@ -298,8 +298,7 @@ impl Host for Fake {
     }
 
     fn set_element(&self, extension: usize, element: &str, value: Element) -> Result<(), String> {
-        self.store().hosted.set(extension, element, value);
-        Ok(())
+        self.store().hosted.set(extension, element, value)
     }
 
     fn window(&self, extension: usize, change: WindowChange) -> Result<(), String> {
@@ -312,7 +311,7 @@ impl Host for Fake {
         let store = self.store();
         match window {
             Some(window) => store.windows.tooltip(extension, window, widget).ok_or_else(|| format!("no tooltip target {window}.{widget}")),
-            None => Ok(store.hosted.tooltip(extension, widget)),
+            None => store.hosted.tooltip(extension, widget),
         }
     }
 

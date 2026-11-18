@@ -28,7 +28,7 @@ pub fn check(root: &Path) -> Checked {
     let mut problems = Vec::new();
     let (manifest, layout) = match HarmonyMod::read(root) {
         Ok(read) => {
-            problems.extend(read.problems(eu4_harmony_remote::API_VERSION));
+            problems.extend(read.all_problems(root, eu4_harmony_remote::API_VERSION));
             (Some(read.manifest), read.layout)
         }
         Err(e) => {
@@ -93,6 +93,12 @@ mod tests {
         write("localisation/m_l_english.yml", "l_english:\n M_X:0 \"x\"\n");
         fs::remove_file(root.join("eu4-harmony/ui/stray.gui")).unwrap();
         assert_eq!(check(&root).problems, Vec::<String>::new());
+
+        write("ui/topbar/x.gui", "guiButtonType = { name = \"top\" }\n");
+        write("ui/single_unitpanel/bad.gui", "guiButtonType = { name = \"bad-id\" }\n");
+        let ui_problems = check(&root).problems.join("\n");
+        assert!(ui_problems.contains("topbar/x.gui: window \"topbar\" is not supported"), "{ui_problems}");
+        assert!(ui_problems.contains("bad.gui: element name \"bad-id\""), "{ui_problems}");
         let _ = fs::remove_dir_all(&root);
     }
 }

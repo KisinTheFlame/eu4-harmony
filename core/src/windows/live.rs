@@ -403,7 +403,7 @@ fn clicks(m: &Memory) {
     for was in found {
         match was {
             Was::Widget(extension, window, widget, row, right, modifiers) => with(|all| {
-                if all.clicks.len() < 64 {
+                if all.wanted.check_press(extension, &window, &widget, row).is_ok() && all.clicks.len() < 64 {
                     let (shift, ctrl) = (modifiers & ui::MODIFIER_SHIFT != 0, modifiers & ui::MODIFIER_CTRL != 0);
                     all.clicks.push(Click { extension, button: format!("{window}.{widget}"), right, shift, ctrl, row });
                 }

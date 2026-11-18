@@ -14,7 +14,7 @@ mod http;
 
 use crate::{
     catalogue::{self, Catalogue, Place, Wait},
-    game::{self, interface, map_coloring, Caller},
+    game::{self, map_coloring, Caller},
     map,
     mods::DiscoveredMod,
     notice::{Message, Repeat},
@@ -160,14 +160,7 @@ impl Host for Live {
     }
 
     fn set_element(&self, extension: usize, element: &str, value: Element) -> Result<(), String> {
-        let caller = Caller::Extension(extension);
-        let result = match value {
-            Element::Visible(on) => interface::set_visible(caller, element, on),
-            Element::Enabled(on) => interface::set_enabled(caller, element, on),
-            Element::Text(text) => ui::set_text(extension, element, text),
-            Element::Tooltip(text) => ui::set_tooltip(extension, element, text),
-        };
-        result.map_err(|e| e.message)
+        ui::set_element(extension, element, value)
     }
 
     fn window(&self, extension: usize, change: WindowChange) -> Result<(), String> {

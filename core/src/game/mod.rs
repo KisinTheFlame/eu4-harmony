@@ -6,7 +6,7 @@
 //! own types; the capability catalogue (`crate::catalogue`), which remote
 //! control and the Lua host both run their requests through, only converts to
 //! and from them (ADR one-capability-catalogue). One file per group: [`session`],
-//! [`countries`], [`provinces`], [`armies`], [`interface`], [`map_coloring`],
+//! [`countries`], [`provinces`], [`armies`], [`map_coloring`],
 //! [`texts`], [`camera`], [`screenshot`], [`console`], [`time`],
 //! [`recruiting`], [`menu`] and [`diplomacy`]; the game's questions and offers waiting for the player's
 //! answer, [`questions`] and [`offers`].
@@ -31,7 +31,6 @@ pub mod envoys;
 pub mod factions;
 pub mod faith;
 pub mod frame;
-pub mod interface;
 pub mod map_coloring;
 pub mod mechanics;
 pub mod modifiers;

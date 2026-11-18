@@ -96,7 +96,7 @@ usage:
 ";
 
 use eu4_harmony_loc::Language;
-use eu4_harmony_manifest::{Descriptor, HarmonyMod};
+use eu4_harmony_manifest::{valid_id, Descriptor, HarmonyMod};
 
 /// Positional arguments and `--key value` / `--flag` options.
 #[derive(Debug)]
@@ -179,14 +179,6 @@ fn cmd_reload(args: &Args) -> Result<()> {
 }
 
 // ---------- shared ----------
-
-/// A mod id names the manifest entry, log file and element prefix.
-fn valid_id(id: &str) -> bool {
-    id.len() <= 64
-        && id.chars().next().is_some_and(|c| c.is_ascii_lowercase())
-        && !id.ends_with('-')
-        && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-}
 
 /// Absolute path without the `\\?\` prefix `canonicalize` adds on Windows.
 fn plain(path: &Path) -> Result<PathBuf> {
