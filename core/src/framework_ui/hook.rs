@@ -30,6 +30,44 @@ type Present = unsafe extern "C" fn(usize) -> u8;
 
 static ORIGINAL_PRESENT: Function<Present> = Function::new();
 
+struct PresentingGuard<F: FnOnce()>(Option<F>);
+
+impl<F: FnOnce()> PresentingGuard<F> {
+    fn begin(begin: impl FnOnce(), end: F) -> Self {
+        begin();
+        Self(Some(end))
+    }
+}
+
+impl<F: FnOnce()> Drop for PresentingGuard<F> {
+    fn drop(&mut self) {
+        if let Some(end) = self.0.take() {
+            end();
+        }
+    }
+}
+
+/// Runs the framework's guarded pre-Present work (font pages, framework UI,
+/// native tooltips over it, and screenshot capture) and returns the Direct3D 9
+/// device pointer when available.
+unsafe fn before_present(renderer: usize) -> Option<*mut c_void> {
+    let device = crate::guarded("frame present", || crate::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()).map(|device| device as *mut c_void));
+    crate::guarded("font pages", crate::unicode::fill::grow_pages);
+    crate::guarded("framework UI frame", || {
+        if let Some(device) = device {
+            unsafe { super::frame(device) }
+        }
+    });
+    crate::guarded("native tooltip over framework UI", || crate::tooltips::draw_late(renderer));
+    // The frame as the player sees it, the framework UI included.
+    crate::guarded("screenshot", || {
+        if let Some(device) = device {
+            crate::game::screenshot::presenting(device)
+        }
+    });
+    device
+}
+
 #[called_by_game]
 unsafe extern "C" fn present(renderer: usize) -> u8 {
     if crate::thread_id() == crate::main_thread() {
@@ -40,21 +78,7 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
         }
         // Inside a guard, as all framework code here: a panic must not
         // unwind into the game.
-        let device = crate::guarded("frame present", || crate::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()).map(|device| device as *mut c_void));
-        // Between the game's frames, outside any scene.
-        crate::guarded("font pages", crate::unicode::fill::grow_pages);
-        crate::guarded("framework UI frame", || {
-            if let Some(device) = device {
-                super::frame(device)
-            }
-        });
-        crate::guarded("native tooltip over framework UI", || crate::tooltips::draw_late(renderer));
-        // The frame as the player sees it, the framework UI included.
-        crate::guarded("screenshot", || {
-            if let Some(device) = device {
-                crate::game::screenshot::presenting(device)
-            }
-        });
+        let device = before_present(renderer);
         crate::guarded("safe point", crate::safe_point::presented);
         // Input taken at this safe point or before reaches the game at its
         // next frame.
@@ -70,32 +94,19 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
         // main thread does at a present but its safe point and its input,
         // which it does where the frame was prepared (`crate::drawing`).
         // Present itself goes without the lock.
-        let device = crate::guarded("frame present", || crate::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()).map(|device| device as *mut c_void));
-        crate::guarded("font pages", crate::unicode::fill::grow_pages);
-        crate::guarded("framework UI frame", || {
-            if let Some(device) = device {
-                super::frame(device)
-            }
-        });
-        crate::guarded("native tooltip over framework UI", || crate::tooltips::draw_late(renderer));
-        crate::guarded("screenshot", || {
-            if let Some(device) = device {
-                crate::game::screenshot::presenting(device)
-            }
-        });
+        let device = before_present(renderer);
         crate::guarded("screen size", || {
             if let Some(device) = device {
                 let (width, height) = unsafe { super::d3d9::Backend::screen(device) };
                 crate::drawing::presented(width as u32, height as u32);
             }
         });
+        let _presenting = PresentingGuard::begin(crate::drawing::present_begins, crate::drawing::present_ends);
         #[cfg(feature = "dev-performance")]
         let submission = crate::performance::submission_begins();
-        crate::drawing::present_begins();
         let presented = ORIGINAL_PRESENT.get()(renderer);
         #[cfg(feature = "dev-performance")]
         crate::performance::submission_ends(submission, presented != 0, false);
-        crate::drawing::present_ends();
         return presented;
     }
     #[cfg(feature = "dev-performance")]
@@ -121,4 +132,28 @@ pub fn points() -> Vec<Point> {
         Point::replace(PRESENT, "40 53 48 83 ec 30 48 8b d9 48 c7 44 24 20 00 00", "frame present", present as Present, &ORIGINAL_PRESENT),
         Point::observe(BEFORE_RESET, "40 53 48 83 ec 20 48 8b d9 48 8b 49 10 48 85 c9", "before device reset", 1, Some(before_reset), None),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PresentingGuard;
+    use std::cell::Cell;
+
+    #[test]
+    fn presenting_guard_pairs_begins_and_ends_including_on_unwind() {
+        let log = Cell::new((0u32, 0u32));
+        {
+            let _guard = PresentingGuard::begin(|| log.set((log.get().0 + 1, log.get().1)), || log.set((log.get().0, log.get().1 + 1)));
+            assert_eq!(log.get(), (1, 0));
+        }
+        assert_eq!(log.get(), (1, 1));
+
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = PresentingGuard::begin(|| log.set((log.get().0 + 1, log.get().1)), || log.set((log.get().0, log.get().1 + 1)));
+            assert_eq!(log.get(), (2, 1));
+            panic!("simulated Present fault");
+        }));
+        assert!(panicked.is_err());
+        assert_eq!(log.get(), (2, 2));
+    }
 }
