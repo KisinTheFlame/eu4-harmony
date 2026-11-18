@@ -9,11 +9,13 @@ use std::{
 /// The files the release build makes that the game loads: each one's name in
 /// the build output, and its path in the game folder. `install` puts these
 /// into the game folder.
-const GAME_FILES: [(&str, &str); 2] = [
+pub(super) const GAME_FILES: [(&str, &str); 4] = [
     // The proxy, which loads the core into eu4.exe
     // (ADR version-proxy-injection).
     ("version.dll", "version.dll"),
     ("eu4_harmony_core.dll", "eu4-harmony\\eu4_harmony_core.dll"),
+    ("eu4_harmony_crash_dumps.dll", "eu4-harmony\\eu4_harmony_crash_dumps.dll"),
+    ("eu4-harmony-dump-writer.exe", "eu4-harmony\\eu4-harmony-dump-writer.exe"),
 ];
 
 /// Distributed separately from the framework installation. `install`
@@ -30,7 +32,7 @@ const KEPT_PROXY: &str = "eu4-harmony\\backup\\version.dll";
 const OLD_PROXY: &str = "version.dll.old-";
 
 /// The packages that build them.
-const PLAYER_PACKAGES: [&str; 3] = ["eu4-harmony-proxy", "eu4-harmony-core", "eu4-harmony-cli"];
+const PLAYER_PACKAGES: [&str; 4] = ["eu4-harmony-proxy", "eu4-harmony-core", "eu4-harmony-crash-dumps", "eu4-harmony-cli"];
 
 /// The Cargo profile the player package is built in: the release build in
 /// one unit, which the release build is not (Cargo.toml).
@@ -58,6 +60,7 @@ pub fn install(args: &Args) -> Result<()> {
     remove_old_proxies(&root);
 
     if args.flag("uninstall") {
+        eu4_harmony_folders::windows_crash_callback::forget(&harmony)?;
         if ours(&proxy) {
             retire(&proxy, &root)?;
             println!("removed {}", proxy.display());
@@ -315,6 +318,8 @@ mod tests {
         fs::create_dir_all(dir).unwrap();
         fs::write(dir.join("version.dll"), proxy).unwrap();
         fs::write(dir.join("eu4_harmony_core.dll"), extra).unwrap();
+        fs::write(dir.join("eu4_harmony_crash_dumps.dll"), extra).unwrap();
+        fs::write(dir.join("eu4-harmony-dump-writer.exe"), extra).unwrap();
         fs::write(dir.join("eu4-harmony.exe"), extra).unwrap();
     }
 

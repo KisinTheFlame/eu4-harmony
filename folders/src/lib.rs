@@ -8,7 +8,23 @@ use std::{
     time::SystemTime,
 };
 
+pub mod windows_crash_callback;
+
 pub type Result<T> = std::result::Result<T, String>;
+
+/// File names written by the out-of-process Windows crash callback.
+pub fn captured_dump_id(name: &str) -> Option<(u32, u64)> {
+    let (pid, created) = name.strip_prefix("harmony-")?.strip_suffix(".dmp")?.split_once('-')?;
+    if created.len() != 16 || !created.bytes().all(|b| b.is_ascii_hexdigit()) || !pid.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    Some((pid.parse().ok()?, u64::from_str_radix(created, 16).ok()?))
+}
+
+/// Windows Error Reporting's default folder for the current Windows account.
+pub fn windows_dump_root() -> Option<PathBuf> {
+    std::env::var_os("LOCALAPPDATA").filter(|path| !path.is_empty()).map(PathBuf::from).filter(|path| path.is_absolute()).map(|path| path.join("CrashDumps"))
+}
 
 /// The game folder: `given`, a command's `--game-dir`; else `EU4_GAME_DIR`,
 /// unless it is empty, as a variable set to nothing is meant to be unset;
@@ -146,6 +162,11 @@ impl UserFolder {
     /// The framework's own folder.
     pub fn harmony(&self) -> PathBuf {
         self.0.join(HARMONY)
+    }
+
+    /// Minidumps saved before the game writes its own crash files.
+    pub fn harmony_dumps(&self) -> PathBuf {
+        self.harmony().join("crash-dumps")
     }
 
     /// The framework's logs: the log, the startup report and what the

@@ -15,6 +15,7 @@ pub mod text;
 pub mod widgets;
 
 use crate::settings::{self, Page, Role, Settings, Shows};
+use crate::troubleshooting::local_dumps;
 use crate::unicode::system_font::SystemFonts;
 use crate::{lang, loc};
 use fonts_page::{FontSystem, FontsPage};
@@ -41,6 +42,7 @@ struct FrameworkUi {
     /// The notice on screen, by its number.
     notice: Option<(u64, Window)>,
     settings: Option<Window>,
+    dump_request: Option<std::thread::JoinHandle<std::io::Result<()>>>,
     /// The settings window's language and fonts page, while it is open.
     fonts_page: Option<FontsPage<Option<SystemFonts>>>,
     mods: Option<Window>,
@@ -127,17 +129,51 @@ const ISSUES: &str = "https://github.com/KisinTheFlame/eu4-harmony/issues";
 /// The button on the About page that packs the troubleshooting files.
 const TROUBLESHOOTING: &str = "troubleshooting";
 
+const ENABLE_DUMPS: &str = "enable_windows_dumps";
+
+enum DumpStatus {
+    Available,
+    Pending,
+    Configured,
+    Cancelled,
+    Failed(std::io::Error),
+}
+
+impl DumpStatus {
+    fn from_check(result: std::io::Result<bool>) -> Self {
+        match result {
+            Ok(true) => Self::Configured,
+            Ok(false) => Self::Available,
+            Err(e) if e.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_CANCELLED as i32) => Self::Cancelled,
+            Err(e) => Self::Failed(e),
+        }
+    }
+}
+
 /// The About page: the framework's version, where to report a problem, and
 /// the button that packs the troubleshooting files, with the line after it
 /// that says what it did.
-fn about_page(words: &dyn Fn(&str) -> String, words_with: mods_window::Words) -> Vec<Widget> {
-    vec![
+fn about_page(dumps: &DumpStatus, words: &dyn Fn(&str) -> String, words_with: mods_window::Words) -> Vec<Widget> {
+    let mut page = vec![
         Widget::Heading(words_with("EU4HARMONY_ABOUT_VERSION", &[("VERSION", env!("CARGO_PKG_VERSION"))])),
         Widget::Label(words_with("EU4HARMONY_ABOUT_ISSUES", &[("ISSUES", ISSUES)])),
         Widget::Gap,
         Widget::Button { id: TROUBLESHOOTING, label: words("EU4HARMONY_ABOUT_TROUBLESHOOTING") },
         Widget::Label(troubleshooting_line(&crate::troubleshooting::state(), words_with)),
-    ]
+    ];
+    match dumps {
+        DumpStatus::Configured => page.push(Widget::Label(words("EU4HARMONY_DUMPS_CONFIGURED"))),
+        DumpStatus::Pending => page.push(Widget::Label(words("EU4HARMONY_DUMPS_PENDING"))),
+        state => {
+            page.push(Widget::Button { id: ENABLE_DUMPS, label: words("EU4HARMONY_DUMPS_ENABLE") });
+            match state {
+                DumpStatus::Cancelled => page.push(Widget::Label(words("EU4HARMONY_DUMPS_CANCELLED"))),
+                DumpStatus::Failed(e) => page.push(Widget::Label(words_with("EU4HARMONY_DUMPS_FAILED", &[("ERROR", &e.to_string())]))),
+                _ => {}
+            }
+        }
+    }
+    page
 }
 
 /// What the troubleshooting files' packing has come to, as the line under
@@ -186,6 +222,7 @@ fn settings_window(
     current: &Settings,
     next: &Settings,
     fonts: &FontsPage<impl FontSystem>,
+    dumps: DumpStatus,
     words: &dyn Fn(&str) -> String,
     words_with: mods_window::Words,
 ) -> Window {
@@ -193,7 +230,7 @@ fn settings_window(
         .into_iter()
         .map(|page| match page {
             Page::LanguageFonts => fonts.widgets(next, words),
-            Page::About => about_page(words, words_with),
+            Page::About => about_page(&dumps, words, words_with),
             _ => settings_page(page, next, words),
         })
         .collect();
@@ -231,6 +268,7 @@ impl FrameworkUi {
             scale: 1.0,
             notice: None,
             settings: None,
+            dump_request: None,
             fonts_page: None,
             mods: None,
         })
@@ -239,11 +277,18 @@ impl FrameworkUi {
     fn open_settings(&mut self) {
         let next = settings::next();
         let fonts = FontsPage::new(SystemFonts::new().ok(), &next);
-        let mut window = settings_window(&settings::current(), &next, &fonts, &words, &words_with);
+        let dumps = if self.dump_request.is_some() { DumpStatus::Pending } else { DumpStatus::from_check(local_dumps::configured()) };
+        let mut window = settings_window(&settings::current(), &next, &fonts, dumps, &words, &words_with);
         window.center(&self.font, self.screen.0, self.screen.1);
         self.settings = Some(window);
         self.fonts_page = Some(fonts);
         MODAL.store(true, Ordering::Relaxed);
+    }
+
+    fn show_dump_status(window: &mut Window, status: DumpStatus) {
+        let index = Page::ALL.iter().position(|&p| p == Page::About).expect("About page");
+        let page = if window.side.as_ref().is_some_and(|side| side.selected == index) { &mut window.body } else { &mut window.pages[index] };
+        *page = about_page(&status, &words, &words_with);
     }
 
     /// The player chose the option at `index` in the settings window's
@@ -337,6 +382,18 @@ impl FrameworkUi {
                 }
                 Some(Action::Switched(..)) => self.settings_changed(),
                 Some(Action::Pressed("save")) => self.close_settings(true),
+                Some(Action::Pressed(ENABLE_DUMPS)) => {
+                    if self.dump_request.is_none() {
+                        let status = match std::thread::Builder::new().name("harmony Windows dump setup".into()).spawn(local_dumps::enable) {
+                            Ok(request) => {
+                                self.dump_request = Some(request);
+                                DumpStatus::Pending
+                            }
+                            Err(e) => DumpStatus::Failed(e),
+                        };
+                        Self::show_dump_status(w, status);
+                    }
+                }
                 Some(Action::Pressed(TROUBLESHOOTING)) => {
                     crate::troubleshooting::start();
                     w.set_label_after(TROUBLESHOOTING, troubleshooting_line(&crate::troubleshooting::state(), &words_with));
@@ -547,6 +604,14 @@ pub unsafe fn frame(device: *mut c_void) {
     ui.screen = (pixels.0 / scale, pixels.1 / scale);
     ui.update_notice();
     if let Some(w) = ui.settings.as_mut() {
+        if ui.dump_request.as_ref().is_some_and(|request| request.is_finished()) {
+            let request = ui.dump_request.take().expect("finished request");
+            let result = request.join().unwrap_or_else(|_| Err(std::io::Error::other("dump setup thread stopped")));
+            if let Err(ref e) = result {
+                log!("Windows dump setup: {e}");
+            }
+            FrameworkUi::show_dump_status(w, DumpStatus::from_check(result.map(|()| true)));
+        }
         w.set_label_after(TROUBLESHOOTING, troubleshooting_line(&crate::troubleshooting::state(), &words_with));
     }
     let commands = ui.commands();
@@ -646,7 +711,7 @@ mod tests {
             for next in [following, chosen] {
                 for fonts in [Some(fonts_page::tests::installed()), None] {
                     let page = FontsPage::new(fonts, &next);
-                    let window = settings_window(&next, &next, &page, &keys, &keys_with);
+                    let window = settings_window(&next, &next, &page, DumpStatus::Available, &keys, &keys_with);
                     assert_eq!(chosen_settings(&window, &next, &page), next, "{language:?}");
                 }
             }
@@ -657,7 +722,7 @@ mod tests {
     fn the_settings_window_saves_the_language_chosen() {
         let next = Settings { language: Some(Language::English), ..Settings::default() };
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &next);
-        let mut window = settings_window(&next, &next, &page, &keys, &keys_with);
+        let mut window = settings_window(&next, &next, &page, DumpStatus::Available, &keys, &keys_with);
         let languages = Language::ALL.iter().map(|l| l.native_name().to_string()).collect();
         let korean = Language::ALL.iter().position(|&l| l == Language::Korean).unwrap();
         window.set_options("language", languages, korean);
@@ -677,20 +742,21 @@ mod tests {
         let current = Settings { language: Some(Language::English), ..Settings::default() };
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &current);
         // Nothing changed: no line, but its room, so the buttons stay put.
-        let mut window = settings_window(&current, &current, &page, &keys, &keys_with);
+        let mut window = settings_window(&current, &current, &page, DumpStatus::Available, &keys, &keys_with);
         assert_eq!(restart_shown(&mut window), "");
         // A change that takes effect when saved needs no restart.
         let mut sound = current.clone();
         sound.music_loudness = !sound.music_loudness;
-        let mut window = settings_window(&current, &sound, &page, &keys, &keys_with);
+        let mut window = settings_window(&current, &sound, &page, DumpStatus::Available, &keys, &keys_with);
         assert_eq!(restart_shown(&mut window), "");
         // One that takes effect at the next start, saved before or chosen
         // now, does.
         let mut outline = current.clone();
         outline.map_outline = !outline.map_outline;
-        let mut window = settings_window(&current, &outline, &FontsPage::new(Some(fonts_page::tests::installed()), &outline), &keys, &keys_with);
+        let mut window =
+            settings_window(&current, &outline, &FontsPage::new(Some(fonts_page::tests::installed()), &outline), DumpStatus::Available, &keys, &keys_with);
         assert_eq!(restart_shown(&mut window), "EU4HARMONY_SETTINGS_RESTART");
-        let mut window = settings_window(&current, &current, &page, &keys, &keys_with);
+        let mut window = settings_window(&current, &current, &page, DumpStatus::Available, &keys, &keys_with);
         let languages = Language::ALL.iter().map(|l| l.native_name().to_string()).collect();
         let korean = Language::ALL.iter().position(|&l| l == Language::Korean).unwrap();
         window.set_options("language", languages, korean);
@@ -699,10 +765,28 @@ mod tests {
     }
 
     #[test]
+    fn the_dump_button_allows_retry_after_cancellation_or_failure() {
+        let cancelled = std::io::Error::from_raw_os_error(windows_sys::Win32::Foundation::ERROR_CANCELLED as i32);
+        for (state, clickable, feedback) in [
+            (DumpStatus::from_check(Ok(false)), true, None),
+            (DumpStatus::Pending, false, Some("EU4HARMONY_DUMPS_PENDING")),
+            (DumpStatus::from_check(Ok(true)), false, Some("EU4HARMONY_DUMPS_CONFIGURED")),
+            (DumpStatus::from_check(Err(cancelled)), true, Some("EU4HARMONY_DUMPS_CANCELLED")),
+            (DumpStatus::from_check(Err(std::io::Error::other("denied"))), true, Some("EU4HARMONY_DUMPS_FAILED ERROR=denied")),
+        ] {
+            let page = about_page(&state, &keys, &keys_with);
+            assert_eq!(page.iter().any(|w| matches!(w, Widget::Button { id: ENABLE_DUMPS, .. })), clickable);
+            if let Some(expected) = feedback {
+                assert!(matches!(page.last(), Some(Widget::Label(label)) if label == expected));
+            }
+        }
+    }
+
+    #[test]
     fn the_about_page_shows_the_version_and_what_the_troubleshooting_button_did() {
         let current = Settings::default();
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &current);
-        let mut window = settings_window(&current, &current, &page, &keys, &keys_with);
+        let mut window = settings_window(&current, &current, &page, DumpStatus::Available, &keys, &keys_with);
         let about = Page::ALL.iter().position(|&p| p == Page::About).unwrap();
         let version = format!("EU4HARMONY_ABOUT_VERSION VERSION={}", env!("CARGO_PKG_VERSION"));
         assert!(matches!(&window.pages[about][0], Widget::Heading(text) if *text == version));

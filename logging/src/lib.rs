@@ -88,8 +88,13 @@ pub fn run_id() -> &'static str {
         let (mut created, mut exited, mut kernel, mut user) = (zero(), zero(), zero(), zero());
         let ok = unsafe { GetProcessTimes(GetCurrentProcess(), &mut created, &mut exited, &mut kernel, &mut user) };
         let created = if ok != 0 { (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime) } else { unix_ms() };
-        format!("{}-{created:x}", std::process::id())
+        process_run_id(std::process::id(), created)
     })
+}
+
+/// The journal identity for a process ID and its creation time.
+pub fn process_run_id(pid: u32, created: u64) -> String {
+    format!("{pid}-{created:x}")
 }
 
 /// Local wall clock, including its date. `up_ms` on each record is the

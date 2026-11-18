@@ -253,7 +253,15 @@ impl Machine for ThisComputer {
         let core = folder.join("core");
         fs::create_dir_all(&core).map_err(|e| format!("cannot make {}: {e}", core.display()))?;
         let dll = core.join("eu4_harmony_core.dll");
-        copy(&starting.build.clone().unwrap_or_else(built).join("eu4_harmony_core.dll"), &dll)?;
+        let build = starting.build.clone().unwrap_or_else(built);
+        copy(&build.join("eu4_harmony_core.dll"), &dll)?;
+        for helper in ["eu4_harmony_crash_dumps.dll", "eu4-harmony-dump-writer.exe"] {
+            if build.join(helper).is_file() {
+                copy(&build.join(helper), &core.join(helper))?;
+            } else {
+                remove_file(&core.join(helper))?;
+            }
+        }
         let options = repo().join("dev.toml");
         if let Some(text) = &starting.options {
             fs::write(core.join("dev.toml"), text).map_err(|e| format!("cannot write {}: {e}", core.join("dev.toml").display()))?;
@@ -334,6 +342,7 @@ impl Machine for ThisComputer {
         if !folder.exists() {
             return Ok(());
         }
+        eu4_harmony_folders::windows_crash_callback::forget(&folder.join("core"))?;
         unlink_mods(&folder.join("user"))?;
         fs::remove_dir_all(folder).map_err(|e| format!("cannot remove {}: {e}", folder.display()))
     }
@@ -361,6 +370,7 @@ impl ThisComputer {
     /// Removes what the release does not keep of the claim's folder.
     fn remove_rest(&self, folder: &Path) -> Result<()> {
         let user = folder.join("user");
+        eu4_harmony_folders::windows_crash_callback::forget(&folder.join("core"))?;
         unlink_mods(&user)?;
         for dir in [user, folder.join("core")] {
             if dir.exists() {
@@ -621,6 +631,7 @@ fn keep(folder: &Path) -> bool {
     let (user, kept) = (UserFolder::new(folder.join("user")), folder.join("kept"));
     let _ = copy_tree(&user.logs(), &kept.join("eu4-harmony-logs"));
     let _ = copy_tree(&user.game_logs(), &kept.join("game-logs"));
+    let _ = copy_tree(&user.harmony_dumps(), &kept.join("harmony-dumps"));
     let _ = copy_tree(&user.crashes(), &kept.join("crashes"));
     if folder.join(ENDS).is_file() {
         let _ = fs::create_dir_all(&kept).and_then(|()| fs::copy(folder.join(ENDS), kept.join(ENDS)));

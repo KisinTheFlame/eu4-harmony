@@ -57,11 +57,6 @@ $kept.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
 $kept.Dispose()
 Write-Output $height
 "#;
-/// The files the release build makes that the item holds: each one's name in
-/// the build output, and its path in the item. No executable: the item is a
-/// player's install, which needs none.
-const ITEM_FILES: [(&str, &str); 2] = [("version.dll", "version.dll"), ("eu4_harmony_core.dll", "eu4-harmony\\eu4_harmony_core.dll")];
-
 /// The repository's `workshop/`: the sources of what the Workshop shows.
 fn sources() -> PathBuf {
     repo().join("workshop")
@@ -132,7 +127,7 @@ pub fn pack(built: &Path) -> Result<()> {
         fs::remove_dir_all(&item).map_err(|e| format!("cannot remove {}: {e}", item.display()))?;
     }
     fs::create_dir_all(item.join("eu4-harmony")).map_err(|e| format!("cannot make {}: {e}", item.display()))?;
-    for (name, to) in ITEM_FILES {
+    for (name, to) in crate::files::GAME_FILES {
         copy(&built.join(name), &item.join(to))?;
     }
     let template = sources().join("descriptor.mod");
