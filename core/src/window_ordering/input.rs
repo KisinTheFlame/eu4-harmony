@@ -9,7 +9,7 @@ struct Dispatch {
     accepted: bool,
 }
 
-pub(super) struct Capture {
+struct Capture {
     serial: u64,
     target: Option<Token>,
 }
@@ -17,6 +17,7 @@ pub(super) struct Capture {
 #[derive(Default)]
 pub(super) struct Input {
     frames: Vec<Dispatch>,
+    captures: Vec<Option<Capture>>,
     pending: Vec<Token>,
     serial: u64,
 }
@@ -37,18 +38,36 @@ impl Input {
         self.frames.push(Dispatch { serial: self.serial, event, accepts_activation, accepted: false });
     }
 
-    /// Call before the handler, only for a mouse press/double press whose
-    /// handled mask is zero. An unknown target still prevents promoting an
-    /// outer, known ancestor if this innermost handler accepts the event.
-    pub fn capture(&self, event: usize, target: Option<Token>) -> Option<Capture> {
-        let frame = self.frames.iter().rev().find(|frame| frame.event == event)?;
-        (frame.accepts_activation && !frame.accepted).then_some(Capture { serial: frame.serial, target })
+    /// Whether the innermost matching dispatch may still capture an activation.
+    pub fn accepts(&self, event: usize) -> bool {
+        self.frames.iter().rev().find(|frame| frame.event == event).is_some_and(|frame| frame.accepts_activation && !frame.accepted)
+    }
+
+    /// Record whether the handler entering now captured `target`.
+    /// Call once per handler entry so every entry pairs with `pop_capture`.
+    pub fn push_capture(&mut self, event: usize, eligible: bool, target: Option<Token>) {
+        let capture = if eligible {
+            self.frames
+                .iter()
+                .rev()
+                .find(|frame| frame.event == event)
+                .filter(|frame| frame.accepts_activation && !frame.accepted)
+                .map(|frame| Capture { serial: frame.serial, target })
+        } else {
+            None
+        };
+        self.captures.push(capture);
+    }
+
+    /// Whether the matching `pop_capture` needs the event's handled mask.
+    pub fn top_captured(&self) -> bool {
+        self.captures.last().is_some_and(Option::is_some)
     }
 
     /// The event remains valid until the dispatcher returns. Its target may
     /// already be gone: the caller reads only the event's handled mask here.
-    pub fn returned(&mut self, capture: Option<Capture>, handled: bool) {
-        let Some(capture) = capture.filter(|_| handled) else { return };
+    pub fn pop_capture(&mut self, handled: bool) {
+        let Some(capture) = self.captures.pop().expect("native GUI dispatch nesting").filter(|_| handled) else { return };
         let Some(frame) = self.frames.iter_mut().find(|frame| frame.serial == capture.serial) else { return };
         if frame.accepted {
             return;
@@ -84,14 +103,22 @@ mod tests {
         Token { key, generation: 1 }
     }
 
+    fn dispatch(input: &mut Input, event: usize, target: Option<Token>, handled: bool) {
+        let eligible = input.accepts(event);
+        input.push_capture(event, eligible, target);
+        let check = input.top_captured();
+        input.pop_capture(check && handled);
+    }
+
     #[test]
     fn the_innermost_accepting_handler_wins_without_promoting_an_ancestor() {
         let mut input = Input::default();
         input.begin(100);
-        let outer = input.capture(100, Some(token(1)));
-        let inner = input.capture(100, Some(token(2)));
-        input.returned(inner, true);
-        input.returned(outer, true);
+        let outer = input.accepts(100);
+        input.push_capture(100, outer, Some(token(1)));
+        dispatch(&mut input, 100, Some(token(2)), true);
+        let check = input.top_captured();
+        input.pop_capture(check);
         assert_eq!(input.end(false), Some(vec![token(2)]));
         assert!(input.idle());
     }
@@ -100,10 +127,11 @@ mod tests {
     fn an_unsupported_inner_target_does_not_activate_a_known_ancestor() {
         let mut input = Input::default();
         input.begin(100);
-        let outer = input.capture(100, Some(token(1)));
-        let inner = input.capture(100, None);
-        input.returned(inner, true);
-        input.returned(outer, true);
+        let outer = input.accepts(100);
+        input.push_capture(100, outer, Some(token(1)));
+        dispatch(&mut input, 100, None, true);
+        let check = input.top_captured();
+        input.pop_capture(check);
         assert_eq!(input.end(false), Some(vec![]));
     }
 
@@ -111,13 +139,14 @@ mod tests {
     fn a_nested_event_cannot_commit_inside_the_outer_candidate_walk() {
         let mut input = Input::default();
         input.begin(100);
-        let outer = input.capture(100, Some(token(1)));
+        let outer = input.accepts(100);
+        input.push_capture(100, outer, Some(token(1)));
         input.begin(200);
-        let inner = input.capture(200, Some(token(2)));
-        input.returned(inner, true);
+        dispatch(&mut input, 200, Some(token(2)), true);
         assert_eq!(input.end(false), None);
         assert!(!input.idle());
-        input.returned(outer, true);
+        let check = input.top_captured();
+        input.pop_capture(check);
         assert_eq!(input.end(false), Some(vec![token(2), token(1)]));
     }
 
@@ -125,24 +154,25 @@ mod tests {
     fn reentering_mouse_dispatch_with_the_same_event_keeps_one_target() {
         let mut input = Input::default();
         input.begin(100);
-        let outer = input.capture(100, Some(token(1)));
+        let outer = input.accepts(100);
+        input.push_capture(100, outer, Some(token(1)));
         input.begin(100);
-        let inner = input.capture(100, Some(token(2)));
-        input.returned(inner, true);
+        dispatch(&mut input, 100, Some(token(2)), true);
         assert_eq!(input.end(false), None);
-        input.returned(outer, true);
+        let check = input.top_captured();
+        input.pop_capture(check);
         assert_eq!(input.end(false), Some(vec![token(2)]));
     }
 
     #[test]
     fn falling_through_does_not_select_a_target() {
         let mut input = Input::default();
-        assert!(input.capture(100, Some(token(1))).is_none());
+        assert!(!input.accepts(100));
+        input.push_capture(100, false, Some(token(1)));
+        input.pop_capture(false);
         input.begin(100);
-        let first = input.capture(100, Some(token(1)));
-        input.returned(first, false);
-        let second = input.capture(100, Some(token(2)));
-        input.returned(second, true);
+        dispatch(&mut input, 100, Some(token(1)), false);
+        dispatch(&mut input, 100, Some(token(2)), true);
         assert_eq!(input.end(false), Some(vec![token(2)]));
     }
 
@@ -150,10 +180,11 @@ mod tests {
     fn a_mouse_nested_in_keyboard_dispatch_waits_for_the_keyboard_walk() {
         let mut input = Input::default();
         input.begin_passive(200);
-        assert!(input.capture(200, Some(token(1))).is_none());
+        assert!(!input.accepts(200));
+        input.push_capture(200, false, Some(token(1)));
+        input.pop_capture(false);
         input.begin(100);
-        let captured = input.capture(100, Some(token(2)));
-        input.returned(captured, true);
+        dispatch(&mut input, 100, Some(token(2)), true);
         assert_eq!(input.end(false), None);
         assert!(!input.idle());
         assert_eq!(input.end(false), Some(vec![token(2)]));
@@ -164,10 +195,11 @@ mod tests {
         let mut input = Input::default();
         input.begin(100);
         input.begin_passive(100);
-        assert!(input.capture(100, Some(token(1))).is_none());
+        assert!(!input.accepts(100));
+        input.push_capture(100, false, Some(token(1)));
+        input.pop_capture(false);
         assert_eq!(input.end(false), None);
-        let captured = input.capture(100, Some(token(2)));
-        input.returned(captured, true);
+        dispatch(&mut input, 100, Some(token(2)), true);
         assert_eq!(input.end(false), Some(vec![token(2)]));
     }
 
@@ -175,8 +207,7 @@ mod tests {
     fn faulted_dispatch_does_not_commit_queued_activation() {
         let mut input = Input::default();
         input.begin(100);
-        let capture = input.capture(100, Some(token(1)));
-        input.returned(capture, true);
+        dispatch(&mut input, 100, Some(token(1)), true);
         assert_eq!(input.end(true), Some(vec![]));
         input.begin(200);
         assert_eq!(input.end(false), Some(vec![]));

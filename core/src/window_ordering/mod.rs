@@ -7,7 +7,7 @@ mod placement;
 mod registry;
 
 use crate::{hooks::Call, memory::Memory, points::Point, Result};
-use input::{Capture, Input};
+use input::Input;
 use registry::Registry;
 pub(crate) use registry::{Identity, Owned};
 use std::{
@@ -23,7 +23,6 @@ fn with<T>(f: impl FnOnce(&mut Registry) -> T) -> T {
 
 thread_local! {
     static INPUT: RefCell<Input> = RefCell::new(Input::default());
-    static CAPTURES: RefCell<Vec<Option<Capture>>> = const { RefCell::new(Vec::new()) };
 }
 
 fn checked(result: Result<()>) {
@@ -32,185 +31,249 @@ fn checked(result: Result<()>) {
     }
 }
 
-pub(crate) struct Reconciliation;
+enum Hold {
+    Live,
+    #[cfg(test)]
+    Local(std::rc::Rc<RefCell<Registry>>),
+}
+
+pub(crate) struct Reconciliation(Hold);
 impl Drop for Reconciliation {
     fn drop(&mut self) {
-        with(|state| state.held -= 1);
+        match &self.0 {
+            Hold::Live => with(Registry::release_hold),
+            #[cfg(test)]
+            Hold::Local(state) => state.borrow_mut().release_hold(),
+        }
     }
 }
 
+trait OrderAccess {
+    fn with_registry<T>(&self, f: impl FnOnce(&mut Registry) -> T) -> T;
+    fn with_input<T>(&self, f: impl FnOnce(&mut Input) -> T) -> T;
+    fn hold(&self) -> Hold;
+}
+
+trait SceneOps {
+    fn owns_presentation(&self) -> bool;
+    fn snapshot(&self, m: &Memory, parent: usize) -> Result<Vec<usize>>;
+    fn apply(&mut self, m: &Memory, parent: usize, after: &[usize], movable: &BTreeSet<usize>) -> Result<()>;
+    fn refresh(&mut self, m: &Memory, manager: usize, scene: usize) -> Result<()>;
+}
+
+struct LiveAccess;
+impl OrderAccess for LiveAccess {
+    fn with_registry<T>(&self, f: impl FnOnce(&mut Registry) -> T) -> T {
+        with(f)
+    }
+
+    fn with_input<T>(&self, f: impl FnOnce(&mut Input) -> T) -> T {
+        INPUT.with_borrow_mut(f)
+    }
+
+    fn hold(&self) -> Hold {
+        Hold::Live
+    }
+}
+
+struct LiveScene;
+impl SceneOps for LiveScene {
+    fn owns_presentation(&self) -> bool {
+        crate::drawing::main_owns_presentation()
+    }
+
+    fn snapshot(&self, m: &Memory, parent: usize) -> Result<Vec<usize>> {
+        placement::snapshot(m, parent)
+    }
+
+    fn apply(&mut self, m: &Memory, parent: usize, after: &[usize], movable: &BTreeSet<usize>) -> Result<()> {
+        placement::apply(m, parent, after, movable)
+    }
+
+    fn refresh(&mut self, m: &Memory, manager: usize, scene: usize) -> Result<()> {
+        native::refresh(m, manager, scene)
+    }
+}
+
+struct Orderer<A>(A);
+
+impl<A: OrderAccess> Orderer<A> {
+    fn begin_owned(&self, wanted: &BTreeSet<Identity>) -> Reconciliation {
+        self.0.with_registry(|state| state.prepare_owned(wanted));
+        Reconciliation(self.0.hold())
+    }
+
+    fn bind_owned(&self, m: &Memory, seen: &[Owned]) -> Result<()> {
+        self.0.with_registry(|state| state.owned(m, seen))
+    }
+
+    fn retire(&self, root: usize) {
+        self.0.with_registry(|state| state.retire(root));
+    }
+
+    fn detach_host(&self, root: usize) {
+        self.0.with_registry(|state| state.detach_host(root));
+    }
+
+    fn clear(&self) {
+        self.0.with_registry(Registry::clear);
+    }
+
+    fn attach(&self, m: &Memory, host: crate::hosts::Host, root: usize, frame: Option<usize>, controls: &[(usize, crate::bound_element::Look)]) -> Result<()> {
+        let (floor, nodes) = native::host_nodes(m, root, frame, controls)?;
+        self.0.with_registry(|state| {
+            state.host(m, host as usize, root)?;
+            state.attached(m, root, floor, &nodes)
+        })
+    }
+
+    fn flush(&self, m: &Memory, ops: &mut impl SceneOps) -> Result<()> {
+        if !ops.owns_presentation() || !self.0.with_input(|input| input.idle()) || !self.0.with_registry(|state| state.needs_flush()) {
+            return Ok(());
+        }
+        let Some((manager, scene)) = native::scene(m)? else {
+            return Ok(());
+        };
+        let changes = self.0.with_registry(|state| state.changes(m))?;
+        if changes.is_empty() {
+            self.0.with_registry(Registry::mark_clean);
+            return Ok(());
+        }
+        for change in changes {
+            if !self.0.with_registry(|state| state.current(&change)) || ops.snapshot(m, change.parent)? != change.before {
+                return Err("native order changed before placement".into());
+            }
+            ops.apply(m, change.parent, &change.after, &change.movable)?;
+        }
+        ops.refresh(m, manager, scene)?;
+        self.0.with_registry(Registry::mark_clean);
+        Ok(())
+    }
+
+    fn mouse_before(&self, m: &Memory, event: usize, ops: &mut impl SceneOps) -> Result<()> {
+        self.flush(m, ops)?;
+        self.0.with_input(|input| input.begin(event));
+        Ok(())
+    }
+
+    fn passive_before(&self, m: &Memory, event: usize, ops: &mut impl SceneOps) -> Result<()> {
+        self.flush(m, ops)?;
+        self.0.with_input(|input| input.begin_passive(event));
+        Ok(())
+    }
+
+    fn event_after(&self, m: &Memory, faulted: bool, ops: &mut impl SceneOps) -> Result<()> {
+        if let Some(tokens) = self.0.with_input(|input| input.end(faulted)) {
+            self.0.with_registry(|state| {
+                for token in tokens {
+                    state.activate(token);
+                }
+            });
+            if !faulted {
+                self.flush(m, ops)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn handler_before(&self, m: &Memory, gui: usize, event: usize) -> Result<()> {
+        let eligible = native::press_unhandled(m, event)? && self.0.with_input(|input| input.accepts(event));
+        let target = if eligible { self.0.with_registry(|state| state.target(m, gui))? } else { None };
+        self.0.with_input(|input| input.push_capture(event, eligible, target));
+        Ok(())
+    }
+
+    fn handler_after(&self, m: &Memory, event: usize, faulted: bool) {
+        let handled = !faulted && self.0.with_input(|input| input.top_captured()) && native::event_handled(m, event);
+        self.0.with_input(|input| input.pop_capture(handled));
+    }
+
+    fn before_visibility(&self, m: &Memory, root: usize) -> Result<()> {
+        self.0.with_registry(|state| state.before_visibility(m, root))
+    }
+
+    fn visibility_after(&self, m: &Memory) -> Result<()> {
+        self.0.with_registry(|state| state.visibility(m))
+    }
+
+    fn batch_after(&self, m: &Memory, faulted: bool, ops: &mut impl SceneOps) -> Result<()> {
+        if !faulted {
+            self.flush(m, ops)?;
+        }
+        Ok(())
+    }
+}
+
+const LIVE: Orderer<LiveAccess> = Orderer(LiveAccess);
+
 /// Retains logical placement through technical native teardown/reconstruction.
 pub(crate) fn begin_owned(wanted: &BTreeSet<Identity>) -> Reconciliation {
-    with(|state| state.prepare_owned(wanted));
-    Reconciliation
+    LIVE.begin_owned(wanted)
 }
 
 pub(crate) fn bind_owned(m: &Memory, seen: &[Owned]) -> Result<()> {
-    with(|state| state.owned(m, seen))
+    LIVE.bind_owned(m, seen)
 }
 
 pub(crate) fn retire(root: usize) {
-    with(|state| state.retire(root));
+    LIVE.retire(root);
 }
 pub(crate) fn detach_host(root: usize) {
-    with(|state| state.detach_host(root));
+    LIVE.detach_host(root);
 }
 pub(crate) fn clear() {
-    with(Registry::clear);
+    LIVE.clear();
 }
 
 /// Complete attached node groups, from the existing host binding.
 pub(crate) fn attach(m: &Memory, host: crate::hosts::Host, root: usize, frame: Option<usize>, controls: &[(usize, crate::bound_element::Look)]) -> Result<()> {
-    use crate::{
-        bound_element::Look,
-        objects::gui::{classes, window},
-    };
-    let mut nodes = Vec::new();
-    if let Some(frame) = frame {
-        nodes.push(native::window_node(m, frame)?);
-    }
-    for &(object, look) in controls {
-        let class = m.ptr(object)?;
-        match look {
-            Look::Button if class == m.at(classes::BUTTON) => {
-                nodes.push(m.ptr(object + 0x290)?);
-                let extra = m.ptr(object + 0x188)?;
-                if extra != 0 {
-                    nodes.push(extra);
-                }
-            }
-            Look::Text if class == m.at(classes::TEXT_BOX) => {
-                nodes.push(m.ptr(object + 0x118)?);
-                let scrollbar = m.ptr(object + 0x1a0)?;
-                if scrollbar != 0 {
-                    let container = scrollbar + 0x528;
-                    if m.ptr(scrollbar)? != m.at(0x1d93748usize)
-                        || m.vslot(scrollbar, 0xe8)? != m.at(0x1554660usize)
-                        || m.ptr(container)? != m.at(0x1d60238usize)
-                    {
-                        return Err("unrecognized attached text scrollbar container".into());
-                    }
-                    nodes.push(container);
-                }
-            }
-            Look::Icon if [m.at(0x1d585c8usize), m.at(0x1d96d00usize)].contains(&class) => {
-                if m.vslot(object, 0xe8)? != m.at(0x1586190usize) {
-                    return Err("unrecognized attached icon parent method".into());
-                }
-                nodes.push(m.ptr(object + 0x168)?);
-            }
-            _ => return Err(format!("unrecognized attached visual node group: {look:?}, class RVA {:#x}", class.wrapping_sub(m.at(0usize)))),
-        }
-    }
-    let background = m.ptr(root + window::BACKGROUND)?;
-    let floor = if background == 0 {
-        None
-    } else {
-        if m.ptr(background)? != m.at(classes::BACKGROUND) {
-            return Err("unrecognized host background".into());
-        }
-        Some(m.ptr(background + 0x168)?)
-    };
-    with(|state| {
-        state.host(m, host as usize, root)?;
-        state.attached(m, root, floor, &nodes)
-    })
+    LIVE.attach(m, host, root, frame, controls)
 }
 
 /// Called at a frame seam and before/after individual native input walks.
 /// Never call from inside a show visitor, a GUI handler, or scene traversal.
 pub(crate) fn flush(m: &Memory) -> Result<()> {
-    if !crate::drawing::main_owns_presentation() || !INPUT.with_borrow(Input::idle) {
-        return Ok(());
-    }
-    let dirty = with(|state| state.dirty && state.held == 0);
-    if !dirty {
-        return Ok(());
-    }
-    let Some((manager, scene)) = native::scene(m)? else {
-        return Ok(());
-    };
-    let changes = with(|state| state.changes(m))?;
-    for change in changes {
-        if !with(|state| state.current(&change)) || placement::snapshot(m, change.parent)? != change.before {
-            return Err("native order changed before placement".into());
-        }
-        placement::apply(m, change.parent, &change.after, &change.movable)?;
-    }
-    native::refresh(m, manager, scene)?;
-    with(|state| state.dirty = false);
-    Ok(())
+    LIVE.flush(m, &mut LiveScene)
 }
 
 fn mouse_before(call: &mut Call) {
-    checked(flush(&call.memory()));
-    INPUT.with_borrow_mut(|input| input.begin(call.arg(1)));
+    checked(LIVE.mouse_before(&call.memory(), call.arg(1), &mut LiveScene));
 }
 fn passive_before(call: &mut Call) {
-    checked(flush(&call.memory()));
-    INPUT.with_borrow_mut(|input| input.begin_passive(call.arg(1)));
+    checked(LIVE.passive_before(&call.memory(), call.arg(1), &mut LiveScene));
 }
 fn event_after(call: &mut Call) {
-    if let Some(tokens) = INPUT.with_borrow_mut(|input| input.end(call.faulted())) {
-        with(|state| {
-            for token in tokens {
-                state.activate(token);
-            }
-        });
-        if !call.faulted() {
-            checked(flush(&call.memory()));
-        }
-    }
+    checked(LIVE.event_after(&call.memory(), call.faulted(), &mut LiveScene));
 }
 fn handler_before(call: &mut Call) {
-    let m = call.memory();
-    let event = call.arg(1);
-    let capture = (|| -> Result<Option<Capture>> {
-        use crate::objects::gui::mouse_input as fields;
-        if m.u32(event + fields::DEVICE)? != fields::MOUSE
-            || ![fields::PRESSED, fields::DOUBLE].contains(&m.u32(event + fields::KIND)?)
-            || ![1, fields::RIGHT].contains(&m.u32(event + fields::BUTTON)?)
-            || m.u16(event + 0x54)? != 0
-        {
-            return Ok(None);
-        }
-        if INPUT.with_borrow(|input| input.capture(event, None).is_none()) {
-            return Ok(None);
-        }
-        let target = with(|state| state.target(&m, call.arg(0)))?;
-        Ok(INPUT.with_borrow(|input| input.capture(event, target)))
-    })()
-    .unwrap_or_else(|error| panic!("native window activation: {error}"));
-    CAPTURES.with_borrow_mut(|captures| captures.push(capture));
+    if let Err(error) = LIVE.handler_before(&call.memory(), call.arg(0), call.arg(1)) {
+        panic!("native window activation: {error}");
+    }
 }
 fn handler_after(call: &mut Call) {
-    let capture = CAPTURES.with_borrow_mut(|captures| captures.pop().expect("native GUI dispatch nesting"));
-    let handled = !call.faulted() && capture.is_some() && call.memory().u16(call.arg(1) + 0x54).is_ok_and(|mask| mask != 0);
-    INPUT.with_borrow_mut(|input| input.returned(capture, handled));
+    LIVE.handler_after(&call.memory(), call.arg(1), call.faulted());
 }
 
 fn gui_visibility_before(call: &mut Call) {
     if crate::thread_id() == crate::main_thread() {
-        checked(with(|state| state.before_visibility(&call.memory(), call.arg(0) - crate::objects::gui::window::GUI)));
+        checked(LIVE.before_visibility(&call.memory(), call.arg(0) - crate::objects::gui::window::GUI));
     }
 }
 fn root_visibility_before(call: &mut Call) {
     if crate::thread_id() == crate::main_thread() {
-        checked(with(|state| state.before_visibility(&call.memory(), call.arg(0))));
+        checked(LIVE.before_visibility(&call.memory(), call.arg(0)));
     }
 }
 fn visibility_after(call: &mut Call) {
     if !call.faulted() && crate::thread_id() == crate::main_thread() {
-        checked(with(|state| state.visibility(&call.memory())));
+        checked(LIVE.visibility_after(&call.memory()));
     }
 }
 fn destroyed(call: &mut Call) {
     retire(call.arg(0));
 }
 fn batch_after(call: &mut Call) {
-    if !call.faulted() {
-        checked(flush(&call.memory()));
-    }
+    checked(LIVE.batch_after(&call.memory(), call.faulted(), &mut LiveScene));
 }
 
 pub(crate) fn points() -> Vec<Point> {
@@ -283,21 +346,10 @@ pub(crate) fn points() -> Vec<Point> {
             Some(visibility_after),
         ),
         Point::observe(0x1546730usize, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57", "window base destruction retires order", 1, Some(destroyed), None),
-        Point::keep(0x15ae9d4usize, "48 8b 89 90 02 00 00", "attached button node").uses(&[0x290]),
-        Point::keep(0x15ae9fausize, "48 8b 8b 88 01 00 00", "attached button secondary node").uses(&[0x188]),
-        Point::keep(0x1571500usize, "48 8b 89 68 01 00 00", "host background node").uses(&[0x168]),
-        Point::keep(0x15861a0usize, "48 8b 89 68 01 00 00", "attached icon node").uses(&[0x168]),
-        Point::keep(0x15857fcusize, "48 8d 05 fd 14 81 00", "attached base icon class").uses(&[0x1d96d00]),
-        Point::keep(0x10b5823usize, "48 8d 05 9e 2d ca 00", "attached game icon class").uses(&[0x1d585c8]),
-        Point::method(0x1d96d00, 0xe8, 0x1586190, "attached base icon parent method"),
-        Point::method(0x1d585c8, 0xe8, 0x1586190, "attached game icon parent method"),
-        Point::keep(0x1552872usize, "66 83 7e 54 00", "native input handled mask").uses(&[0x54]),
-        Point::keep(0x1552bfcusize, "48 8d 05 45 0b 84 00 48 89 01", "attached scrollbar class").uses(&[0x1d93748]),
-        Point::keep(0x15531f1usize, "49 8d b6 28 05 00 00", "attached scrollbar embedded container").uses(&[0x528]),
-        Point::keep(0x155321fusize, "48 8d 05 12 d0 80 00 48 89 06", "attached scrollbar container class").uses(&[0x1d60238]),
-        Point::method(0x1d93748, 0xe8, 0x1554660, "attached scrollbar parent method"),
-        Point::keep(0x152b0b0usize, "48 8b 89 18 01 00 00", "attached text node").uses(&[0x118]),
-        Point::keep(0x152b0d3usize, "48 8b 8b a0 01 00 00 48 85 c9 74 23 48 81 c1 28 05 00 00", "attached text scrollbar group").uses(&[0x1a0]),
     ]);
     points
 }
+
+#[cfg(test)]
+#[path = "registry_tests.rs"]
+mod tests;
