@@ -2,6 +2,16 @@
 
 What changed in each version of Harmony that players and mod authors notice. Merging a version PR automatically publishes its section as the GitHub Release notes; a local Steam Workshop upload uses the same section as its change note (`cargo xtask workshop-upload`).
 
+## 0.3.1
+
+- Fixed: hovering interface elements while the drawing thread was held back during a day could crash when freed embedded controls such as scrollbars remained in stale scene lists. Scene lists are now refreshed before tooltip updates.
+- Fixed: crashes occurring inside Harmony's native hooks now unwind cleanly back to the game's crash handling, so Harmony writes its crash record and minidump and the game creates its crash folder instead of exiting silently.
+- Fixed: troubleshooting files now include Windows Application Error events for `eu4.exe` on Windows 10 as well as Windows 11.
+- The settings window's **Game speed** page is now **Display**, replacing the unlimited-frame-rate toggle with a **Frame rate limit** choice bar (`30`–`240`, your monitor's refresh rate, or `∞`). By default it follows the refresh rate of the monitor showing the game window; previous `drawing_unlimited` entries are ignored until you choose a limit again. Choosing `∞` also avoids busy-waiting while a crossing holds the drawing thread back.
+- For mod authors: `eu4-harmony check` now enforces the same manifest identifier and interface fragment rules as the core at startup, `eu4-harmony test` shares the core's Lua `require` resolution and extension reload handoff, and `eu4-harmony start` checks the proxy, core and user folder consistently.
+
+The core updates through Steam Workshop with no proxy replacement required; restart the game after the update. Manual framework downloads include the updated core and proxy in the same layout as 0.3.0.
+
 ## 0.3.0
 
 - Harmony now saves minidumps automatically when the game crashes: before the game writes its own crash files, preserving the original exception registers, and through Windows Error Reporting when a fatal exception bypasses the game's crash handling.
