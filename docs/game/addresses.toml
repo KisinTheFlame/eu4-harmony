@@ -2160,7 +2160,7 @@
 "0x811aa0" = { kind = "leaf", name = "map manager session", notes = ["game/day/time.md", "game/military/recruiting.md"] }
 "0x811b20" = { kind = "leaf", name = "player country", notes = ["game/military/armies.md", "game/provinces/fog-of-war.md"] }
 "0x812e20" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
-"0x8137c0" = { kind = "function", name = "map manager frame", notes = ["game/day/frame-and-idlers.md", "game/day/frame-scheduling.md", "game/day/safe-points.md", "game/day/time-architecture.md", "game/day/time.md", "game/interface/extension-windows.md", "game/interface/frame-lifecycle.md", "game/interface/main-menu.md", "game/interface/map-drawing-reads.md", "game/interface/rendering-architecture.md", "game/interface/window-activation.md", "game/interface/window-construction.md", "game/military/army-orders.md", "game/military/recruiting.md", "game/program/architecture.md"] }
+"0x8137c0" = { kind = "function", name = "map manager frame", notes = ["game/day/frame-and-idlers.md", "game/day/frame-scheduling.md", "game/day/safe-points.md", "game/day/time-architecture.md", "game/day/time.md", "game/interface/extension-windows.md", "game/interface/frame-lifecycle.md", "game/interface/main-menu.md", "game/interface/map-drawing-reads.md", "game/interface/rendering-architecture.md", "game/interface/window-activation.md", "game/interface/window-construction.md", "game/interface/window-input-refresh.md", "game/military/army-orders.md", "game/military/recruiting.md", "game/program/architecture.md"] }
 "0x813ac5" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x813c56" = { kind = "code", notes = ["game/military/recruiting.md"] }
 "0x813f8e" = { kind = "code", notes = ["game/military/recruiting.md"] }
@@ -2186,10 +2186,10 @@
 "0x81575d" = { kind = "code", notes = ["game/countries/achievements.md"] }
 "0x815816" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x815914" = { kind = "code", notes = ["game/interface/window-construction.md"] }
-"0x81591c" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
+"0x81591c" = { kind = "code", notes = ["game/interface/frame-lifecycle.md", "game/interface/window-input-refresh.md"] }
 "0x815921" = { kind = "code", name = "the in-game frame after its drawing", notes = ["game/interface/frame-lifecycle.md"] }
 "0x815928" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
-"0x815949" = { kind = "code", name = "the tooltips updated after the drawing", notes = ["game/interface/frame-lifecycle.md"] }
+"0x815949" = { kind = "code", name = "the tooltips updated after the drawing", notes = ["game/interface/frame-lifecycle.md", "game/interface/window-input-refresh.md"] }
 "0x815bce" = { kind = "code", notes = ["game/interface/extension-windows.md"] }
 "0x815c9f" = { kind = "code", name = "return to main menu", notes = ["game/interface/main-menu.md"] }
 "0x815cf3" = { kind = "code", notes = ["game/interface/main-menu.md"] }
@@ -2210,7 +2210,7 @@
 "0x817254" = { kind = "code", notes = ["game/military/army-orders.md"] }
 "0x818080" = { kind = "function", name = "closing the views over the map", notes = ["game/interface/extension-windows.md", "game/interface/message-pop-up-actions.md"] }
 "0x8181d0" = { kind = "function", notes = ["game/interface/message-pop-up-actions.md"] }
-"0x8183b0" = { kind = "function", name = "the in-game frame's drawing", notes = ["game/interface/frame-lifecycle.md", "game/interface/gui-drawing.md", "game/interface/map-drawing-reads.md", "game/interface/rendering-architecture.md"] }
+"0x8183b0" = { kind = "function", name = "the in-game frame's drawing", notes = ["game/interface/frame-lifecycle.md", "game/interface/gui-drawing.md", "game/interface/map-drawing-reads.md", "game/interface/rendering-architecture.md", "game/interface/window-input-refresh.md"] }
 "0x818614" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x818619" = { kind = "code", name = "the map mode's colors' flags", notes = ["game/interface/frame-lifecycle.md"] }
 "0x818652" = { kind = "code", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md"] }
@@ -4348,7 +4348,7 @@
 "0x11376b0" = { kind = "function", notes = ["game/program/save-transfer-copy.md"] }
 "0x114133c" = { kind = "leaf", notes = ["game/program/save-transfer-copy.md"] }
 "0x1142e70" = { kind = "function", name = "goto box deleting destructor", notes = ["game/interface/main-menu.md"] }
-"0x1148180" = { kind = "function", notes = ["game/interface/message-button-drawing.md"] }
+"0x1148180" = { kind = "function", notes = ["game/interface/message-button-drawing.md", "game/interface/window-input-refresh.md"] }
 "0x1148230" = { kind = "leaf", name = "read graphics node active state", notes = ["game/interface/gui-drawing.md", "game/interface/message-button-drawing.md", "game/interface/window-input-refresh.md", "game/interface/window-visibility.md"] }
 "0x1148250" = { kind = "leaf", notes = ["game/interface/extension-windows.md", "game/interface/window-activation.md"] }
 "0x11483a0" = { kind = "leaf", notes = ["game/interface/window-activation.md", "game/interface/window-input-refresh.md", "game/interface/window-visibility.md"] }
@@ -4927,7 +4927,7 @@
 "0x14c4470" = { kind = "function", notes = ["game/program/headless.md", "game/program/several-games.md", "game/program/startup.md"] }
 "0x14c4496" = { kind = "code", notes = ["game/program/headless.md", "game/program/several-games.md"] }
 "0x14c462d" = { kind = "code", notes = ["game/program/headless.md"] }
-"0x14c5810" = { kind = "function", notes = ["game/day/frame-scheduling.md", "game/interface/extension-windows.md", "game/interface/frame-lifecycle.md", "game/interface/main-menu.md", "game/interface/rendering-architecture.md", "game/interface/window-construction.md"] }
+"0x14c5810" = { kind = "function", notes = ["game/day/frame-scheduling.md", "game/interface/extension-windows.md", "game/interface/frame-lifecycle.md", "game/interface/main-menu.md", "game/interface/rendering-architecture.md", "game/interface/window-construction.md", "game/interface/window-input-refresh.md"] }
 "0x14c6290" = { kind = "function", notes = ["game/scripts/commands.md"] }
 "0x14c64d0" = { kind = "leaf", notes = ["game/scripts/commands.md"] }
 "0x14c64e0" = { kind = "leaf", notes = ["game/scripts/commands.md"] }
@@ -4987,7 +4987,7 @@
 "0x14d9000" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x14d9a20" = { kind = "function", notes = ["game/interface/rendering-architecture.md"] }
 "0x14db3c0" = { kind = "function", notes = ["game/interface/gui-drawing.md"] }
-"0x14db6a0" = { kind = "function", notes = ["game/interface/extension-windows.md", "game/interface/window-elements.md", "game/interface/window-visibility.md"] }
+"0x14db6a0" = { kind = "function", name = "retire a standalone GUI scene node", notes = ["game/interface/extension-windows.md", "game/interface/window-elements.md", "game/interface/window-input-refresh.md", "game/interface/window-visibility.md"] }
 "0x14db870" = { kind = "function", notes = ["game/program/loading.md"] }
 "0x14db940" = { kind = "function", notes = ["game/interface/window-elements.md"] }
 "0x14dbb0b" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
@@ -5026,6 +5026,7 @@
 "0x14de440" = { kind = "function", name = "collect reverse-order GUI hits at sampled points", notes = ["game/interface/window-ordering.md"] }
 "0x14deaf0" = { kind = "function", notes = ["game/interface/window-activation.md", "game/interface/window-construction.md"] }
 "0x14debe0" = { kind = "function", name = "select the visible element under the cursor", notes = ["game/interface/panel-entry-text.md"] }
+"0x14dee60" = { kind = "function", name = "flush retired GUI scene nodes", notes = ["game/interface/window-input-refresh.md"] }
 "0x14defd0" = { kind = "function", notes = ["game/interface/window-activation.md"] }
 "0x14df050" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md", "game/interface/rendering-architecture.md", "game/program/headless.md", "game/program/loading.md"] }
 "0x14df580" = { kind = "function", notes = ["game/interface/window-elements.md"] }
@@ -5076,7 +5077,7 @@
 "0x14e9c9b" = { kind = "code", notes = ["game/interface/text-input.md"] }
 "0x14e9ce5" = { kind = "code", notes = ["game/interface/window-activation.md"] }
 "0x14e9e87" = { kind = "code", notes = ["game/interface/window-activation.md"] }
-"0x14e9fa0" = { kind = "function", notes = ["game/interface/extension-windows.md", "game/interface/window-construction.md"] }
+"0x14e9fa0" = { kind = "function", notes = ["game/interface/extension-windows.md", "game/interface/window-construction.md", "game/interface/window-input-refresh.md"] }
 "0x14ea0b5" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x14ea150" = { kind = "function", name = "dispatch one native keyboard event", notes = ["game/interface/extension-windows.md", "game/interface/window-activation.md", "game/interface/window-construction.md", "game/interface/window-ordering.md"] }
 "0x14ea198" = { kind = "code", notes = ["game/interface/window-activation.md"] }
@@ -5248,7 +5249,7 @@
 "0x15465f0" = { kind = "function", name = "move a window container to its parent's beginning", notes = ["game/interface/extension-windows.md", "game/interface/window-ordering.md", "game/interface/window-placement.md"] }
 "0x1546660" = { kind = "function", notes = ["game/interface/window-placement.md"] }
 "0x15466d0" = { kind = "function", name = "prepend a window graphics node to the first gui root", notes = ["game/interface/message-pop-up-actions.md"] }
-"0x1546730" = { kind = "function", notes = ["game/interface/extension-windows.md", "game/interface/main-menu.md", "game/interface/window-construction.md", "game/interface/window-visibility.md"] }
+"0x1546730" = { kind = "function", notes = ["game/interface/extension-windows.md", "game/interface/main-menu.md", "game/interface/window-construction.md", "game/interface/window-input-refresh.md", "game/interface/window-visibility.md"] }
 "0x1546a30" = { kind = "leaf", notes = ["game/interface/extension-windows.md"] }
 "0x1546a50" = { kind = "function", name = "window wheel and input-catching handler", notes = ["game/interface/extension-windows.md", "game/interface/window-activation.md"] }
 "0x1546a5a" = { kind = "code", notes = ["game/interface/extension-windows.md"] }
@@ -5327,9 +5328,10 @@
 "0x1552aa0" = { kind = "function", notes = ["game/interface/interface-bindings.md"] }
 "0x1552b80" = { kind = "function", notes = ["game/interface/window-placement.md"] }
 "0x1552bfc" = { kind = "code", notes = ["game/interface/window-placement.md"] }
-"0x15531f1" = { kind = "code", notes = ["game/interface/window-placement.md"] }
+"0x15531f1" = { kind = "code", notes = ["game/interface/window-input-refresh.md", "game/interface/window-placement.md"] }
 "0x155321f" = { kind = "code", notes = ["game/interface/window-placement.md"] }
 "0x1553f0f" = { kind = "code", notes = ["game/interface/window-placement.md"] }
+"0x1553f10" = { kind = "function", name = "scrollbar deleting destructor", notes = ["game/interface/window-input-refresh.md"] }
 "0x1554660" = { kind = "function", name = "attach a scrollbar container to its parent", notes = ["game/interface/window-placement.md"] }
 "0x1554674" = { kind = "code", notes = ["game/interface/window-placement.md"] }
 "0x1554693" = { kind = "code", notes = ["game/interface/window-placement.md"] }
@@ -5349,6 +5351,7 @@
 "0x1560b60" = { kind = "function", notes = ["game/interface/window-activation.md"] }
 "0x1561fd0" = { kind = "function", name = "construct a GUI scene node", notes = ["game/interface/gui-drawing.md", "game/interface/message-button-drawing.md", "game/interface/window-ordering.md"] }
 "0x1562094" = { kind = "code", notes = ["game/interface/message-button-drawing.md"] }
+"0x1562120" = { kind = "leaf", name = "GUI scene node base destructor", notes = ["game/interface/window-input-refresh.md"] }
 "0x15621f0" = { kind = "function", notes = ["game/interface/window-elements.md"] }
 "0x1562390" = { kind = "leaf", name = "detach a GUI scene node", notes = ["game/interface/message-button-drawing.md", "game/interface/window-ordering.md", "game/interface/window-placement.md"] }
 "0x1562420" = { kind = "function", name = "append a GUI scene node to a parent", notes = ["game/interface/message-button-drawing.md", "game/interface/window-ordering.md", "game/interface/window-placement.md"] }

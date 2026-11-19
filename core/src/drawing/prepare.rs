@@ -1,11 +1,19 @@
 //! What the main thread does of the drawing as it prepares a frame: the
 //! parts of the game's drawing, and of what the in-game frame does after it,
-//! that read the world or draw into a texture of the interface's. Done by the
-//! main thread before the frame is handed on, they leave the drawing thread
-//! nothing to read that the main thread changes after.
+//! that read the world, draw into a texture of the interface's, or prepare
+//! the live GUI lists before the drawing thread draws. Done by the main thread
+//! before the frame is handed on, they leave the drawing thread nothing to read
+//! that the main thread changes after, and leave tooltip hit-testing with a
+//! live `DRAW_LIST`.
 //!
-//! - [`tooltips`], at every frame, before the drawing: the tooltips' update,
-//!   which the frame does after its drawing ([`super::tooltip`]).
+//! - [`scene`], before tooltips when staging for the drawing thread: rebuilds
+//!   the first GUI scene's prepared draw, cursor-hit, and owner lists from the
+//!   live scene tree (`0x14dd010`'s CPU pass), after `0x14e9fa0` and deferred
+//!   calls may have freed GUI elements whose embedded scene nodes (such as
+//!   `CScrollbar+0x528`) bypass `0x14db6a0`.
+//! - [`tooltips`], after the scene lists are fresh (or after `draw_here` on
+//!   the main-thread path): the tooltips' update, which the frame does after
+//!   its drawing ([`super::tooltip`]).
 //! - [`frame`], for a frame the drawing thread draws, in the drawing's
 //!   order: its two first steps (docs/game/interface/frame-lifecycle.md,
 //!   "The drawing's first steps"), the off-screen passes' rebuilds, and the
@@ -131,7 +139,15 @@ extern "C" fn drawing_thread_passes() -> bool {
     is_drawing_thread()
 }
 
-/// At every in-game frame, as it calls its drawing: the tooltips updated.
+/// Rebuilds the first GUI scene's prepared draw, cursor-hit, and owner lists
+/// from the live scene tree (`0x14dd010`'s CPU pass), after `0x14e9fa0` and
+/// deferred calls may have freed GUI elements with embedded scene nodes, before
+/// tooltip hit-testing or the next frame's input reads them.
+pub(super) fn scene(m: &Memory) -> crate::Result<()> {
+    crate::window_ordering::prepare_scene(m)
+}
+
+/// After the first GUI scene's prepared lists are fresh: the tooltips updated.
 pub(super) fn tooltips(m: &Memory, idler: usize) {
     if let Err(e) = super::tooltip::update(m, idler) {
         log!("drawing: the tooltips could not be updated: {e}");

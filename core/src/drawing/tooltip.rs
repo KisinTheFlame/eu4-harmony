@@ -70,9 +70,11 @@ pub(super) fn points() -> Vec<Point> {
 /// `+0x530` is set (`0x81592d`–`0x815949`), so a tooltip built again began a
 /// scene after the frame was prepared, and held the drawing thread back to
 /// the next update; at speed 5 the text under the cursor changes every day.
-/// It is called before the frame is prepared instead, and the call after the
-/// drawing is taken out: nothing the drawing does is read by it (the drawing
-/// reads `+0x310`, never writes it), and its only caller is that one.
+/// That call after the drawing is taken out: when staging for the drawing
+/// thread, `prepare::scene` first rebuilds `scene+0x298` (`DRAW_LIST`), which
+/// tooltip hit-testing (`0x14debe0` / `0x14de440` → `0x14dda50`) reads; when
+/// falling back to main-thread drawing, `draw_here` (`0x14dd010`) rebuilds it
+/// before `update` runs. Its only caller in the game is `0x815949`.
 const UPDATE: usize = 0x6eb6e0;
 /// The idler's tooltips, which the update reads first (`0x6eb6e0`).
 const IDLER_TOOLTIPS: usize = 0x3b0;

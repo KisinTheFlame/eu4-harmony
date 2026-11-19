@@ -100,18 +100,33 @@ impl FrameCoordinator {
     }
 
     /// Coordinates one main-thread frame's preparation and publication for
-    /// `idler`: runs deferred calls, prepares tooltips, falls back cleanly to
-    /// main-thread drawing when required or when frame preparation fails, and
-    /// clears stale staged artifacts on prepare failure before drawing inline.
+    /// `idler`: runs deferred calls, rebuilds the GUI scene's prepared lists
+    /// before preparing tooltips (or updates tooltips after `draw_here` on
+    /// main-thread fallback), falls back cleanly when scene or frame
+    /// preparation fails, and clears stale staged artifacts on failure before
+    /// drawing inline.
     pub(super) fn stage_frame(&self, idler: usize, ops: &mut impl StageOps) {
         ops.run_deferred();
-        ops.prepare_tooltips(idler);
         if ops.draw_on_main_only() {
             self.main_draws_frame();
             ops.discard_placing();
             ops.draw_here(idler);
+            ops.prepare_tooltips(idler);
+            ops.clear_tooltips();
             return;
         }
+        if let Err(e) = ops.prepare_scene() {
+            ops.discard_placing();
+            self.clear_idler();
+            self.main_draws_frame();
+            ops.clear_staged_artifacts();
+            ops.log(&format!("drawing: the GUI scene could not be prepared: {e}"));
+            ops.draw_here(idler);
+            ops.prepare_tooltips(idler);
+            ops.clear_tooltips();
+            return;
+        }
+        ops.prepare_tooltips(idler);
         if let Err(e) = ops.prepare_frame(idler) {
             ops.discard_placing();
             self.clear_idler();
@@ -148,7 +163,9 @@ impl FrameCoordinator {
 /// Host staging and fallback operations driven by [`FrameCoordinator`].
 pub(super) trait StageOps {
     fn run_deferred(&mut self);
+    fn prepare_scene(&mut self) -> Result<(), String>;
     fn prepare_tooltips(&mut self, idler: usize);
+    fn clear_tooltips(&mut self);
     fn draw_on_main_only(&self) -> bool;
     fn prepare_frame(&mut self, idler: usize) -> Result<(), String>;
     fn keep_marks(&mut self, idler: usize) -> Result<(), String>;
@@ -504,6 +521,7 @@ mod tests {
     #[derive(Default)]
     struct RecordingStage {
         main_only: bool,
+        fail_scene: bool,
         fail_prepare: bool,
         dirty_on_deferred: bool,
         staged_dirty: bool,
@@ -520,8 +538,19 @@ mod tests {
                 self.staged_dirty = true;
             }
         }
+        fn prepare_scene(&mut self) -> Result<(), String> {
+            self.steps.push("scene");
+            if self.fail_scene {
+                Err("missing GUI scene".into())
+            } else {
+                Ok(())
+            }
+        }
         fn prepare_tooltips(&mut self, _: usize) {
             self.steps.push("tooltips");
+        }
+        fn clear_tooltips(&mut self) {
+            self.steps.push("clear_tooltips");
         }
         fn draw_on_main_only(&self) -> bool {
             self.main_only
@@ -572,11 +601,12 @@ mod tests {
         let frames = FrameCoordinator::new();
         let mut stage = RecordingStage::default();
 
-        // First frame prepares cleanly.
+        // First frame prepares cleanly: scene rebuild runs before tooltips.
         frames.stage_frame(0x100, &mut stage);
         assert_eq!(frames.prepared_idler(), 0x100);
         assert_eq!(stage.was_idle_notes, [true]);
         assert!(stage.staged_dirty);
+        assert_eq!(stage.steps, ["deferred", "scene", "tooltips", "prepare", "marks", "frame_prepared", "icons_prepared", "after_prepared"]);
 
         // Failing prepare on the next frame clears staged artifacts, invalidates the old prepared frame, and draws inline.
         stage.steps.clear();
@@ -589,7 +619,36 @@ mod tests {
         assert_eq!(stage.drawn_idlers, [0x100]);
         assert_eq!(stage.logs.len(), 1);
         assert!(stage.logs[0].contains("missing idler pointer"));
-        assert_eq!(stage.steps, ["deferred", "tooltips", "prepare", "discard_placing", "clear_artifacts", "draw_here"]);
+        assert_eq!(stage.steps, ["deferred", "scene", "tooltips", "prepare", "discard_placing", "clear_artifacts", "draw_here"]);
+    }
+
+    #[test]
+    fn stage_frame_draws_before_tooltips_on_main_only_and_clears_placing() {
+        let frames = FrameCoordinator::new();
+        let mut stage = RecordingStage { main_only: true, ..Default::default() };
+
+        frames.stage_frame(0x100, &mut stage);
+        assert_eq!(frames.prepared_idler(), 0);
+        assert_eq!(stage.drawn_idlers, [0x100]);
+        assert_eq!(stage.steps, ["deferred", "discard_placing", "draw_here", "tooltips", "clear_tooltips"]);
+    }
+
+    #[test]
+    fn stage_frame_draws_before_tooltips_when_scene_prepare_fails() {
+        let frames = FrameCoordinator::new();
+        let mut stage = RecordingStage::default();
+        frames.stage_frame(0x100, &mut stage);
+        stage.steps.clear();
+
+        stage.fail_scene = true;
+        frames.stage_frame(0x100, &mut stage);
+        assert_eq!(frames.prepared_idler(), 0);
+        assert_eq!(frames.drawable(0x100, None, false), None);
+        assert!(!stage.staged_dirty);
+        assert_eq!(stage.drawn_idlers, [0x100]);
+        assert_eq!(stage.logs.len(), 1);
+        assert!(stage.logs[0].contains("missing GUI scene"));
+        assert_eq!(stage.steps, ["deferred", "scene", "discard_placing", "clear_artifacts", "draw_here", "tooltips", "clear_tooltips"]);
     }
 
     #[test]

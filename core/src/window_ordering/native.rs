@@ -243,6 +243,18 @@ fn append(m: &Memory, vector: usize, value: usize) -> Result<()> {
 /// later mouse and keyboard dispatch. Hidden GUI bytes need not be revisited:
 /// showing them again puts them in this live traversal and clears their state.
 pub(super) fn refresh(m: &Memory, manager: usize, scene: usize) -> Result<()> {
+    rebuild_lists(m, scene, Some(manager))
+}
+
+/// Rebuild the first scene's prepared draw, cursor-hit, and GUI-owner lists
+/// from live tree nodes, matching `0x14dd010`'s CPU pass without resetting
+/// native hover state or hit ranks.
+pub(super) fn prepare_lists(m: &Memory) -> Result<()> {
+    let (_, scene) = scene(m)?.ok_or("missing GUI scene")?;
+    rebuild_lists(m, scene, None)
+}
+
+fn rebuild_lists(m: &Memory, scene: usize, manager_for_input_reset: Option<usize>) -> Result<()> {
     let saved_count = m.bytes(m.at(COUNT), 4)?;
     let result = (|| {
         for offset in [DRAW_LIST, HIT_LIST, OWNER_LIST] {
@@ -250,15 +262,18 @@ pub(super) fn refresh(m: &Memory, manager: usize, scene: usize) -> Result<()> {
         }
         let identity: [f32; 16] = [1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.];
         WALK.call(m, [scene, identity.as_ptr() as usize, scene + ROOT, 0, scene + DRAW_LIST])?;
-        m.write(manager + CURRENT_HIT, &0usize.to_le_bytes())?;
-        let nodes = containers::pointers(m, scene + DRAW_LIST, 100_000)?;
-        for &node in &nodes {
-            let owner = m.ptr(node + OWNER)?;
-            if owner != 0 {
-                m.write(owner + HIT_STATE, &[0])?;
+        let other_camera = m.u8(m.at(OTHER_CAMERA))? != 0;
+        let nodes = if manager_for_input_reset.is_some() || !other_camera { containers::pointers(m, scene + DRAW_LIST, 100_000)? } else { Vec::new() };
+        if let Some(manager) = manager_for_input_reset {
+            m.write(manager + CURRENT_HIT, &0usize.to_le_bytes())?;
+            for &node in &nodes {
+                let owner = m.ptr(node + OWNER)?;
+                if owner != 0 {
+                    m.write(owner + HIT_STATE, &[0])?;
+                }
             }
         }
-        if m.u8(m.at(OTHER_CAMERA))? == 0 {
+        if !other_camera {
             m.write(scene + PREPARED_CURSOR, &m.bytes(scene + CURSOR, 8)?)?;
             HITS.call(m, [scene, scene + DRAW_LIST, scene + CURSOR, scene + HIT_LIST])?;
             for node in nodes {
@@ -267,9 +282,11 @@ pub(super) fn refresh(m: &Memory, manager: usize, scene: usize) -> Result<()> {
                 }
             }
         }
-        // This destroys candidate wrappers, not their GUI targets. It assigns
-        // fresh hit ranks without dispatching another mouse or hover event.
-        QUALIFY.call(m, [scene])?;
+        if manager_for_input_reset.is_some() {
+            // This destroys candidate wrappers, not their GUI targets. It assigns
+            // fresh hit ranks without dispatching another mouse or hover event.
+            QUALIFY.call(m, [scene])?;
+        }
         Ok(())
     })();
     let restored = m.write(m.at(COUNT), &saved_count);
