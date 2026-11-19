@@ -170,7 +170,7 @@ impl<F: FontSystem> FontsPage<F> {
             out.extend(self.role_widgets(role, words));
         }
         // The page's own settings, the map outline, follow the map's font.
-        out.extend(setting_widgets(Page::LanguageFonts, next, words));
+        out.extend(setting_widgets(Page::LanguageFonts, next, 60, words));
         out.extend(self.role_widgets(Role::Console, words));
         out
     }

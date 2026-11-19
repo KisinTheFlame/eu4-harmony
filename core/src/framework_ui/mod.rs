@@ -14,7 +14,7 @@ pub mod mods_window;
 pub mod text;
 pub mod widgets;
 
-use crate::settings::{self, Page, Role, Settings, Shows};
+use crate::settings::{self, FrameRateLimit, Page, Role, Settings, Shows};
 use crate::troubleshooting::local_dumps;
 use crate::unicode::system_font::SystemFonts;
 use crate::{lang, loc};
@@ -42,6 +42,7 @@ struct FrameworkUi {
     /// The notice on screen, by its number.
     notice: Option<(u64, Window)>,
     settings: Option<Window>,
+    settings_display_hz: u32,
     dump_request: Option<std::thread::JoinHandle<std::io::Result<()>>>,
     /// The settings window's language and fonts page, while it is open.
     fonts_page: Option<FontsPage<Option<SystemFonts>>>,
@@ -105,21 +106,41 @@ const SETTINGS_WIDTH: f32 = 600.0;
 const SETTINGS_LIST: f32 = 168.0;
 
 /// The widgets of the settings in [`settings::SETTINGS`] that `page` shows,
-/// in their order there, showing the values `shown` has; each widget's id is
-/// its setting's key.
-fn setting_widgets(page: Page, shown: &Settings, words: &dyn Fn(&str) -> String) -> Vec<Widget> {
+/// in their order there, showing the values `shown` has on a `display_hz`
+/// display; each interactive widget's id is its setting's key.
+fn setting_widgets(page: Page, shown: &Settings, display_hz: u32, words: &dyn Fn(&str) -> String) -> Vec<Widget> {
     let mut out = Vec::new();
     for setting in settings::SETTINGS.iter().filter(|s| s.page == page) {
         match setting.shows {
             Shows::Toggle { label, field } => out.push(Widget::Toggle { id: setting.key, label: words(label), on: (field.get)(shown) }),
+            Shows::FrameRate { label, unlimited_tooltip, field } => {
+                let (choices, selected) = settings::frame_rate_choices((field.get)(shown), display_hz);
+                let options = choices
+                    .iter()
+                    .map(|choice| match choice {
+                        FrameRateLimit::Display => display_hz.to_string(),
+                        FrameRateLimit::Hz(r) => r.to_string(),
+                        FrameRateLimit::Unlimited => "∞".to_string(),
+                    })
+                    .collect();
+                let tooltips = choices
+                    .iter()
+                    .map(|choice| match choice {
+                        FrameRateLimit::Unlimited => eu4_harmony_lua::Text::key(unlimited_tooltip.into()),
+                        FrameRateLimit::Display | FrameRateLimit::Hz(_) => Default::default(),
+                    })
+                    .collect();
+                out.push(Widget::Label(words(label)));
+                out.push(Widget::Choice { id: setting.key, options, tooltips, selected });
+            }
         }
     }
     out
 }
 
 /// A page with nothing but settings from [`settings::SETTINGS`].
-fn settings_page(page: Page, shown: &Settings, words: &dyn Fn(&str) -> String) -> Vec<Widget> {
-    setting_widgets(page, shown, words)
+fn settings_page(page: Page, shown: &Settings, display_hz: u32, words: &dyn Fn(&str) -> String) -> Vec<Widget> {
+    setting_widgets(page, shown, display_hz, words)
 }
 
 /// Where problems with the framework are reported, as the About page names
@@ -196,19 +217,37 @@ const RESTART_LINE: usize = 1;
 /// The line at [`RESTART_LINE`]: the words that say so while the settings
 /// `w` shows, saved, would change what takes effect only at the next start
 /// from what this session, running with `current`, has; nothing otherwise.
-fn restart_line(w: &Window, current: &Settings, next: &Settings, fonts: &FontsPage<impl FontSystem>, words: &dyn Fn(&str) -> String) -> Widget {
-    let waits = current.waits_for_restart(&chosen_settings(w, next, fonts));
+fn restart_line(
+    w: &Window,
+    current: &Settings,
+    next: &Settings,
+    fonts: &FontsPage<impl FontSystem>,
+    display_hz: u32,
+    words: &dyn Fn(&str) -> String,
+) -> Widget {
+    let waits = current.waits_for_restart(&chosen_settings(w, next, fonts, display_hz));
     Widget::Label(if waits { words("EU4HARMONY_SETTINGS_RESTART") } else { String::new() })
 }
 
 /// Takes into `chosen` what the settings window `w` shows of the settings
 /// in [`settings::SETTINGS`]; one it does not show keeps its value.
-fn read_back(w: &Window, chosen: &mut Settings) {
+fn read_back(w: &Window, next: &Settings, display_hz: u32, chosen: &mut Settings) {
     for setting in &settings::SETTINGS {
         match setting.shows {
             Shows::Toggle { field, .. } => {
                 if let Some(on) = w.is_on(setting.key) {
                     (field.set)(chosen, on);
+                }
+            }
+            Shows::FrameRate { field, .. } => {
+                if let Some(index) = w.selected(setting.key) {
+                    let before = (field.get)(next);
+                    let (choices, initial) = settings::frame_rate_choices(before, display_hz);
+                    if index == initial {
+                        (field.set)(chosen, before);
+                    } else if let Some(&choice) = choices.get(index) {
+                        (field.set)(chosen, choice);
+                    }
                 }
             }
         }
@@ -222,6 +261,7 @@ fn settings_window(
     current: &Settings,
     next: &Settings,
     fonts: &FontsPage<impl FontSystem>,
+    display_hz: u32,
     dumps: DumpStatus,
     words: &dyn Fn(&str) -> String,
     words_with: mods_window::Words,
@@ -231,7 +271,7 @@ fn settings_window(
         .map(|page| match page {
             Page::LanguageFonts => fonts.widgets(next, words),
             Page::About => about_page(&dumps, words, words_with),
-            _ => settings_page(page, next, words),
+            _ => settings_page(page, next, display_hz, words),
         })
         .collect();
     let footer = vec![
@@ -243,16 +283,16 @@ fn settings_window(
     ];
     let side = Side::new("pages", Page::ALL.iter().map(|page| words(page.title())).collect(), SETTINGS_LIST);
     let mut window = Window::new(words("EU4HARMONY_SETTINGS_TITLE"), Vec::new(), SETTINGS_WIDTH).with_side(side).with_pages(pages).with_footer(footer);
-    window.footer_mut()[RESTART_LINE] = restart_line(&window, current, next, fonts, words);
+    window.footer_mut()[RESTART_LINE] = restart_line(&window, current, next, fonts, display_hz, words);
     window
 }
 
 /// The settings the settings window `w` saves: `next`, which it was opened
 /// with, as `w` changed it.
-fn chosen_settings(w: &Window, next: &Settings, fonts: &FontsPage<impl FontSystem>) -> Settings {
+fn chosen_settings(w: &Window, next: &Settings, fonts: &FontsPage<impl FontSystem>, display_hz: u32) -> Settings {
     let mut chosen = next.clone();
     fonts.read_back(w, &mut chosen);
-    read_back(w, &mut chosen);
+    read_back(w, next, display_hz, &mut chosen);
     chosen
 }
 
@@ -268,6 +308,7 @@ impl FrameworkUi {
             scale: 1.0,
             notice: None,
             settings: None,
+            settings_display_hz: 60,
             dump_request: None,
             fonts_page: None,
             mods: None,
@@ -277,10 +318,12 @@ impl FrameworkUi {
     fn open_settings(&mut self) {
         let next = settings::next();
         let fonts = FontsPage::new(SystemFonts::new().ok(), &next);
+        let display_hz = crate::drawing::display_refresh_rate();
         let dumps = if self.dump_request.is_some() { DumpStatus::Pending } else { DumpStatus::from_check(local_dumps::configured()) };
-        let mut window = settings_window(&settings::current(), &next, &fonts, dumps, &words, &words_with);
+        let mut window = settings_window(&settings::current(), &next, &fonts, display_hz, dumps, &words, &words_with);
         window.center(&self.font, self.screen.0, self.screen.1);
         self.settings = Some(window);
+        self.settings_display_hz = display_hz;
         self.fonts_page = Some(fonts);
         MODAL.store(true, Ordering::Relaxed);
     }
@@ -303,13 +346,13 @@ impl FrameworkUi {
     /// start, once the player changed something in the settings window.
     fn settings_changed(&mut self) {
         if let (Some(window), Some(fonts)) = (self.settings.as_mut(), self.fonts_page.as_ref()) {
-            window.footer_mut()[RESTART_LINE] = restart_line(window, &settings::current(), &settings::next(), fonts, &words);
+            window.footer_mut()[RESTART_LINE] = restart_line(window, &settings::current(), &settings::next(), fonts, self.settings_display_hz, &words);
         }
     }
 
     fn close_settings(&mut self, save: bool) {
         if let (true, Some(w), Some(fonts)) = (save, &self.settings, &self.fonts_page) {
-            let chosen = chosen_settings(w, &settings::next(), fonts);
+            let chosen = chosen_settings(w, &settings::next(), fonts, self.settings_display_hz);
             match settings::save(chosen.clone()) {
                 Ok(()) => log!("settings saved: {chosen:?}"),
                 Err(e) => log!("settings not saved: {e}"),
@@ -655,8 +698,8 @@ mod tests {
 
     /// The settings window's pages as far as [`settings::SETTINGS`] builds
     /// them: the language and fonts page without its fonts.
-    fn pages(shown: &Settings) -> Vec<Vec<Widget>> {
-        Page::ALL.into_iter().map(|page| settings_page(page, shown, &keys)).collect()
+    fn pages(shown: &Settings, display_hz: u32) -> Vec<Vec<Widget>> {
+        Page::ALL.into_iter().map(|page| settings_page(page, shown, display_hz, &keys)).collect()
     }
 
     fn every_setting_changed() -> Settings {
@@ -669,28 +712,34 @@ mod tests {
 
     #[test]
     fn every_setting_shows_on_exactly_one_page() {
-        let pages = pages(&Settings::default());
+        let pages = pages(&Settings::default(), 60);
         for setting in &settings::SETTINGS {
             let on: Vec<Page> = Page::ALL.into_iter().zip(&pages).filter(|(_, widgets)| ids(widgets).contains(&setting.key)).map(|(page, _)| page).collect();
             assert_eq!(on, [setting.page], "{}", setting.key);
             assert_eq!(pages.iter().flat_map(|w| ids(w)).filter(|id| *id == setting.key).count(), 1, "{}", setting.key);
         }
-        // A page holds its settings and nothing else: no words explain them.
-        assert!(pages.iter().flatten().all(|w| matches!(w, Widget::Toggle { .. })));
+        // Each page holds only its toggles or a setting's own label and choice bar.
+        for (page, widgets) in Page::ALL.into_iter().zip(&pages) {
+            if page == Page::Display {
+                assert!(matches!(widgets.as_slice(), [Widget::Label(_), Widget::Choice { id: "frame_rate_limit", .. }]));
+            } else {
+                assert!(widgets.iter().all(|w| matches!(w, Widget::Toggle { .. })), "{page:?}");
+            }
+        }
     }
 
     #[test]
     fn the_settings_window_reads_back_what_it_shows() {
         for (shown, before) in [(Settings::default(), every_setting_changed()), (every_setting_changed(), Settings::default())] {
             let side = Side::new("pages", Page::ALL.iter().map(|p| keys(p.title())).collect(), SETTINGS_LIST);
-            let window = Window::new("", Vec::new(), SETTINGS_WIDTH).with_side(side).with_pages(pages(&shown));
+            let window = Window::new("", Vec::new(), SETTINGS_WIDTH).with_side(side).with_pages(pages(&shown, 60));
             let mut read = before;
-            read_back(&window, &mut read);
+            read_back(&window, &shown, 60, &mut read);
             assert_eq!(read, shown);
         }
         // A setting the window does not show keeps its value.
         let mut kept = every_setting_changed();
-        read_back(&Window::new("", Vec::new(), SETTINGS_WIDTH), &mut kept);
+        read_back(&Window::new("", Vec::new(), SETTINGS_WIDTH), &Settings::default(), 60, &mut kept);
         assert_eq!(kept, every_setting_changed());
     }
 
@@ -711,8 +760,8 @@ mod tests {
             for next in [following, chosen] {
                 for fonts in [Some(fonts_page::tests::installed()), None] {
                     let page = FontsPage::new(fonts, &next);
-                    let window = settings_window(&next, &next, &page, DumpStatus::Available, &keys, &keys_with);
-                    assert_eq!(chosen_settings(&window, &next, &page), next, "{language:?}");
+                    let window = settings_window(&next, &next, &page, 180, DumpStatus::Available, &keys, &keys_with);
+                    assert_eq!(chosen_settings(&window, &next, &page, 180), next, "{language:?}");
                 }
             }
         }
@@ -722,12 +771,12 @@ mod tests {
     fn the_settings_window_saves_the_language_chosen() {
         let next = Settings { language: Some(Language::English), ..Settings::default() };
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &next);
-        let mut window = settings_window(&next, &next, &page, DumpStatus::Available, &keys, &keys_with);
+        let mut window = settings_window(&next, &next, &page, 60, DumpStatus::Available, &keys, &keys_with);
         let languages = Language::ALL.iter().map(|l| l.native_name().to_string()).collect();
         let korean = Language::ALL.iter().position(|&l| l == Language::Korean).unwrap();
         window.set_options("language", languages, korean);
         // Its fonts follow it at the next start.
-        assert_eq!(chosen_settings(&window, &next, &page), Settings { language: Some(Language::Korean), ..next });
+        assert_eq!(chosen_settings(&window, &next, &page, 60), Settings { language: Some(Language::Korean), ..next });
     }
 
     fn restart_shown(w: &mut Window) -> String {
@@ -742,26 +791,84 @@ mod tests {
         let current = Settings { language: Some(Language::English), ..Settings::default() };
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &current);
         // Nothing changed: no line, but its room, so the buttons stay put.
-        let mut window = settings_window(&current, &current, &page, DumpStatus::Available, &keys, &keys_with);
+        let mut window = settings_window(&current, &current, &page, 60, DumpStatus::Available, &keys, &keys_with);
         assert_eq!(restart_shown(&mut window), "");
         // A change that takes effect when saved needs no restart.
         let mut sound = current.clone();
         sound.music_loudness = !sound.music_loudness;
-        let mut window = settings_window(&current, &sound, &page, DumpStatus::Available, &keys, &keys_with);
+        let mut window = settings_window(&current, &sound, &page, 60, DumpStatus::Available, &keys, &keys_with);
         assert_eq!(restart_shown(&mut window), "");
         // One that takes effect at the next start, saved before or chosen
         // now, does.
         let mut outline = current.clone();
         outline.map_outline = !outline.map_outline;
         let mut window =
-            settings_window(&current, &outline, &FontsPage::new(Some(fonts_page::tests::installed()), &outline), DumpStatus::Available, &keys, &keys_with);
+            settings_window(&current, &outline, &FontsPage::new(Some(fonts_page::tests::installed()), &outline), 60, DumpStatus::Available, &keys, &keys_with);
         assert_eq!(restart_shown(&mut window), "EU4HARMONY_SETTINGS_RESTART");
-        let mut window = settings_window(&current, &current, &page, DumpStatus::Available, &keys, &keys_with);
+        let mut window = settings_window(&current, &current, &page, 60, DumpStatus::Available, &keys, &keys_with);
         let languages = Language::ALL.iter().map(|l| l.native_name().to_string()).collect();
         let korean = Language::ALL.iter().position(|&l| l == Language::Korean).unwrap();
         window.set_options("language", languages, korean);
-        window.footer_mut()[RESTART_LINE] = restart_line(&window, &current, &current, &page, &keys);
+        window.footer_mut()[RESTART_LINE] = restart_line(&window, &current, &current, &page, 60, &keys);
         assert_eq!(restart_shown(&mut window), "EU4HARMONY_SETTINGS_RESTART");
+    }
+
+    #[test]
+    fn the_display_page_follows_the_refresh_rate_until_another_is_chosen() {
+        struct Mono;
+        impl Measure for Mono {
+            fn width(&self, text: &str, size: f32) -> f32 {
+                text.chars().count() as f32 * size / 2.0
+            }
+            fn wrap(&self, text: &str, size: f32, width: f32) -> Vec<String> {
+                let per_line = (width / (size / 2.0)) as usize;
+                text.chars().collect::<Vec<_>>().chunks(per_line.max(1)).map(|c| c.iter().collect()).collect()
+            }
+        }
+        let text_pos = |w: &Window, needle: &str| {
+            w.draw(&Mono)
+                .into_iter()
+                .find_map(|c| match c {
+                    Command::Text { x, y, text, .. } if text == needle => Some((x + 2.0, y + 8.0)),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("missing text {needle:?}"))
+        };
+
+        let short_words = |key: &str| match key {
+            "EU4HARMONY_SETTINGS_PAGE_DISPLAY" => "Display".to_string(),
+            "EU4HARMONY_SETTINGS_FRAME_RATE_LIMIT" => "Frame rate limit".to_string(),
+            _ => key.to_string(),
+        };
+
+        let current = Settings { language: Some(Language::English), ..Settings::default() };
+        let page = FontsPage::new(Some(fonts_page::tests::installed()), &current);
+        let mut window = settings_window(&current, &current, &page, 180, DumpStatus::Available, &short_words, &keys_with);
+        window.center(&Mono, 1200.0, 900.0);
+        assert_eq!(chosen_settings(&window, &current, &page, 180).frame_rate_limit, FrameRateLimit::Display);
+
+        let (dx, dy) = text_pos(&window, "Display");
+        assert_eq!(window.mouse_down(&Mono, dx, dy), Some(Action::Chose("pages", 3)));
+        let _ = text_pos(&window, "Frame rate limit");
+        let (hx, hy) = text_pos(&window, "180");
+        let (fx, fy) = text_pos(&window, "60");
+        let (ux, uy) = text_pos(&window, "∞");
+        assert_eq!(window.tooltip_at(&Mono, fx, fy), Some(Default::default()));
+        assert_eq!(window.tooltip_at(&Mono, ux, uy), Some(eu4_harmony_lua::Text::key("EU4HARMONY_SETTINGS_FRAME_RATE_UNLIMITED_TOOLTIP".into())));
+
+        assert_eq!(window.mouse_down(&Mono, fx, fy), Some(Action::Chose("frame_rate_limit", 1)));
+        window.footer_mut()[RESTART_LINE] = restart_line(&window, &current, &current, &page, 180, &short_words);
+        assert_eq!(restart_shown(&mut window), "");
+        assert_eq!(chosen_settings(&window, &current, &page, 180).frame_rate_limit, FrameRateLimit::Hz(60));
+
+        assert_eq!(window.mouse_down(&Mono, ux, uy), Some(Action::Chose("frame_rate_limit", 8)));
+        window.footer_mut()[RESTART_LINE] = restart_line(&window, &current, &current, &page, 180, &short_words);
+        assert_eq!(restart_shown(&mut window), "");
+        assert_eq!(chosen_settings(&window, &current, &page, 180).frame_rate_limit, FrameRateLimit::Unlimited);
+
+        // Choosing the display's own rate again keeps it following the display.
+        assert_eq!(window.mouse_down(&Mono, hx, hy), Some(Action::Chose("frame_rate_limit", 6)));
+        assert_eq!(chosen_settings(&window, &current, &page, 180).frame_rate_limit, FrameRateLimit::Display);
     }
 
     #[test]
@@ -786,7 +893,7 @@ mod tests {
     fn the_about_page_shows_the_version_and_what_the_troubleshooting_button_did() {
         let current = Settings::default();
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &current);
-        let mut window = settings_window(&current, &current, &page, DumpStatus::Available, &keys, &keys_with);
+        let mut window = settings_window(&current, &current, &page, 60, DumpStatus::Available, &keys, &keys_with);
         let about = Page::ALL.iter().position(|&p| p == Page::About).unwrap();
         let version = format!("EU4HARMONY_ABOUT_VERSION VERSION={}", env!("CARGO_PKG_VERSION"));
         assert!(matches!(&window.pages[about][0], Widget::Heading(text) if *text == version));
