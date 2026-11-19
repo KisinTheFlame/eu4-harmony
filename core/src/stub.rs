@@ -3,20 +3,22 @@
 //! may sit anywhere. Every stub calls Rust through [`call_rust!`], which:
 //!
 //! - keeps `rbp` and makes it a frame pointer: the game's `rbp` is at
-//!   `[rbp]` and the game's `rsp` is `rbp + 8`;
+//!   `[rbp]` and the entry `rsp` is `rbp + 8`;
 //! - aligns `rsp` to 16 bytes, so the Rust it calls may use aligned SSE
 //!   instructions (a misaligned call crashed the game only on the code paths
 //!   that happened to use one);
 //! - saves `rax`, `rcx`, `rdx`, `r8`–`r11` and `xmm0`–`xmm5`, the registers a
-//!   call may change, and restores all of them afterwards.
+//!   call may change, and restores all of them afterwards;
+//! - invokes the target via `eu4h_call_rust`, which emits x64 `.pdata` unwind
+//!   information (`UWOP_PUSH_MACHFRAME`) pointing back to the jump point or
+//!   caller so SEH exceptions and stack walks unwind cleanly across the stub.
 //!
 //! A stub gives the instructions that set up the arguments, the function to
 //! call, and the instructions that use the result. Inside the frame:
 //!
-//! - `[rsp + 0x20]`..`[rsp + 0x38]` hold stack arguments 5 to 8;
-//! - `[rsp + 0x40]` is a slot an argument may point at, for a value the
-//!   function writes back (a length, say), all 8 bytes of it, so the stub
-//!   may read it as a qword or a dword;
+//! - `[rsp + 0x20]`..`[rsp + 0x40]` hold stack arguments 5 to 9;
+//! - `[rsp + 0x40]` may also serve as an 8-byte slot an argument points at when
+//!   fewer than 9 arguments are passed;
 //! - after the call, `[rsp + 0x48]` holds the result.
 //!
 //! The "then" instructions run after every register is restored, so they
@@ -25,6 +27,22 @@
 //!
 //! Calls into game code from a stub (`call qword ptr [...]`) do not go through
 //! here: they run where the game's own code would, on the game's stack.
+
+use crate::called_by_game;
+
+unsafe extern "C" {
+    fn eu4h_clear_stub_cache();
+}
+
+pub(crate) fn clear_unwind_cache() {
+    unsafe { eu4h_clear_stub_cache() };
+}
+
+#[called_by_game]
+#[unsafe(no_mangle)]
+pub extern "C" fn eu4h_resolve_stub(return_address: usize) -> u32 {
+    crate::points::jump_stub_index(return_address).unwrap_or(u32::MAX)
+}
 
 #[macro_export]
 macro_rules! call_rust {
@@ -48,7 +66,8 @@ macro_rules! call_rust {
             "movdqa [rsp + 0xd0], xmm4\n",
             "movdqa [rsp + 0xe0], xmm5\n",
             $($arg, "\n",)*
-            "call {", stringify!($f), "}\n",
+            "lea rax, [rip + {", stringify!($f), "}]\n",
+            "call eu4h_call_rust\n",
             "mov [rsp + 0x48], rax\n",
             "mov rax, [rsp + 0x50]\n",
             "mov rcx, [rsp + 0x58]\n",
@@ -137,7 +156,89 @@ mod tests {
 
     #[test]
     fn the_frame_passes_arguments_and_keeps_registers() {
-        // 1+2+3+4+5, plus the slot's 7, plus rbx 11 and r10 13.
+        // 1+2+3+4+5, plus the slot's 7, plus rbx 11 and r10 13, then 9-arg
+        // stack passing and xmm0/xmm1 float arguments.
         assert_eq!(probe(), 15 + 7 + 11 + 13);
+        assert_eq!(nine_probe(), (1..=9).sum::<usize>() + 0x4120_0000usize);
+    }
+
+    extern "C" fn nine_sum(a: usize, b: usize, c: usize, d: usize, e: usize, f: usize, g: usize, h: usize, i: usize) -> usize {
+        a + b + c + d + e + f + g + h + i
+    }
+
+    extern "C" fn float_bits(a: f32, b: f32) -> u32 {
+        (a + b).to_bits()
+    }
+
+    #[unsafe(naked)]
+    extern "C" fn nine_probe() -> usize {
+        std::arch::naked_asm!(
+            call_rust!(
+                "mov rcx, 1",
+                "mov rdx, 2",
+                "mov r8, 3",
+                "mov r9, 4",
+                "mov qword ptr [rsp + 0x20], 5",
+                "mov qword ptr [rsp + 0x28], 6",
+                "mov qword ptr [rsp + 0x30], 7",
+                "mov qword ptr [rsp + 0x38], 8",
+                "mov qword ptr [rsp + 0x40], 9",
+                call nine_sum,
+                "mov r10, [rsp + 0x48]",
+            ),
+            call_rust!(
+                "mov eax, 0x40a00000",
+                "movd xmm0, eax",
+                "movd xmm1, eax",
+                call float_bits,
+                "mov eax, dword ptr [rsp + 0x48]",
+            ),
+            "add rax, r10",
+            "ret",
+            nine_sum = sym nine_sum,
+            float_bits = sym float_bits,
+        );
+    }
+
+    static SEH_FRAMES: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
+
+    extern "C" fn seh_probe(trigger: usize) -> usize {
+        unsafe extern "C" {
+            fn eu4h_test_access_violation() -> usize;
+        }
+        let ctx = crate::stack::Context::capture();
+        let mut frames = [0u64; 16];
+        crate::stack::walk(&ctx.0, &mut frames);
+        *SEH_FRAMES.lock().unwrap_or_else(|e| e.into_inner()) = frames.into_iter().take_while(|&f| f != 0).collect();
+        if trigger != 0 {
+            unsafe { eu4h_test_access_violation() };
+        }
+        123
+    }
+
+    #[unsafe(naked)]
+    extern "C" fn seh_called_stub(_trigger: usize) -> usize {
+        std::arch::naked_asm!(
+            call_rust!("mov rcx, rcx", call seh_probe, "mov rax, [rsp + 0x48]"),
+            "ret",
+            seh_probe = sym seh_probe,
+        );
+    }
+
+    #[inline(never)]
+    extern "C" fn call_seh_stub(trigger: usize) -> usize {
+        std::hint::black_box(seh_called_stub(trigger))
+    }
+
+    #[test]
+    fn called_stub_unwinds_stack_and_hardware_exceptions() {
+        let m = crate::memory::Memory { base: 0 };
+        assert_eq!(m.call(call_seh_stub as *const () as usize, &[0]).unwrap(), 123);
+        let frames = SEH_FRAMES.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let caller_start = call_seh_stub as *const () as u64;
+        assert!(frames.iter().any(|&ip| (caller_start..caller_start + 0x80).contains(&ip)), "expected caller frame near {caller_start:#x}: {frames:x?}");
+
+        let err = m.call(call_seh_stub as *const () as usize, &[1]).unwrap_err();
+        assert!(err.contains("c0000005"), "{err}");
     }
 }

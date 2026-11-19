@@ -589,19 +589,37 @@ pub struct JumpStubs {
 pub static JUMP_STUBS: JumpStubs = JumpStubs { count: AtomicUsize::new(0), stubs: [const { [const { AtomicUsize::new(0) }; 2] }; JUMP_STUBS_KEPT] };
 
 /// Names the jump stubs of `points`, installed at `addresses`, in
-/// [`JUMP_STUBS`], as many as it keeps.
+/// [`JUMP_STUBS`], sorted by stub address so [`jump_stub_index`] and the
+/// sampler can binary-search them.
 fn name_jump_stubs(points: &[Point], addresses: &[usize]) {
-    for (point, &at) in points.iter().zip(addresses) {
-        if let Action::Jump { stub, .. } = point.action {
-            let i = JUMP_STUBS.count.load(Ordering::Relaxed);
-            if i == JUMP_STUBS_KEPT {
-                return;
-            }
-            JUMP_STUBS.stubs[i][0].store(stub, Ordering::Relaxed);
-            JUMP_STUBS.stubs[i][1].store(at, Ordering::Relaxed);
-            JUMP_STUBS.count.store(i + 1, Ordering::Release);
-        }
+    let mut pairs: Vec<(usize, usize)> = points
+        .iter()
+        .zip(addresses)
+        .filter_map(|(point, &at)| match point.action {
+            Action::Jump { stub, .. } => Some((stub, at)),
+            _ => None,
+        })
+        .collect();
+    pairs.sort_unstable_by_key(|&(stub, _)| stub);
+    pairs.truncate(JUMP_STUBS_KEPT);
+    JUMP_STUBS.count.store(0, Ordering::Release);
+    for (i, &(stub, at)) in pairs.iter().enumerate() {
+        JUMP_STUBS.stubs[i][0].store(stub, Ordering::Relaxed);
+        JUMP_STUBS.stubs[i][1].store(at, Ordering::Relaxed);
     }
+    JUMP_STUBS.count.store(pairs.len(), Ordering::Release);
+    crate::stub::clear_unwind_cache();
+}
+
+/// Returns the 1-based entry index in [`JUMP_STUBS`] whose stub contains
+/// `return_address`, for `eu4h_call_rust`'s machine-frame unwind lookup.
+pub(crate) fn jump_stub_index(return_address: usize) -> Option<u32> {
+    const STUB_SIZE: usize = 0x400;
+    let count = JUMP_STUBS.count.load(Ordering::Acquire).min(JUMP_STUBS_KEPT);
+    let i = (0..count).collect::<Vec<_>>();
+    let pos = i.partition_point(|&idx| JUMP_STUBS.stubs[idx][0].load(Ordering::Relaxed) <= return_address).checked_sub(1)?;
+    let stub = JUMP_STUBS.stubs[pos][0].load(Ordering::Relaxed);
+    (return_address.saturating_sub(stub) < STUB_SIZE).then_some((pos + 1) as u32)
 }
 
 /// Checks every point, then hooks and writes all of them and enables the
@@ -1240,5 +1258,50 @@ mod tests {
         assert_eq!(err, "injected failure");
         assert_eq!(call(written, 0), 1);
         assert_eq!(hooked.bytes(hooked.base, 16).unwrap(), hex(ADDER).unwrap());
+    }
+
+    resume!(SEH_JUMP_RESUME: SEH_JUMP_NEXT = 15);
+    static JUMP_SEH_FRAMES: Mutex<Vec<u64>> = Mutex::new(Vec::new());
+
+    extern "C" fn jump_seh_probe(trigger: usize) {
+        unsafe extern "C" {
+            fn eu4h_test_access_violation() -> usize;
+        }
+        let ctx = crate::stack::Context::capture();
+        let mut frames = [0u64; 16];
+        crate::stack::walk(&ctx.0, &mut frames);
+        *JUMP_SEH_FRAMES.lock().unwrap_or_else(|e| e.into_inner()) = frames.into_iter().take_while(|&f| f != 0).collect();
+        if trigger > 1 {
+            unsafe { eu4h_test_access_violation() };
+        }
+    }
+
+    #[unsafe(naked)]
+    extern "C" fn jump_seh_stub() {
+        std::arch::naked_asm!(
+            crate::call_rust!("mov rcx, rax", call probe),
+            "jmp qword ptr [rip + {resume}]",
+            probe = sym jump_seh_probe,
+            resume = sym SEH_JUMP_NEXT,
+        );
+    }
+
+    #[test]
+    fn jump_stub_unwinds_stack_and_seh_to_jump_site() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let m = code(ADDER, PAGE_EXECUTE_READWRITE);
+        let point = Point::jump(7usize, "48 83 c0 02 48 83 c0 04", "seh jump test", jump_seh_stub as *const () as usize, &SEH_JUMP_RESUME);
+        install(m, &[point]).unwrap();
+
+        let wrapped = Memory { base: 0 };
+        // ADDER adds 1 before jumping at +7, then skips +2 and +4 to ret at +15.
+        assert_eq!(wrapped.call(m.base, &[0]).unwrap(), 1);
+        let frames = JUMP_SEH_FRAMES.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        assert!(frames.contains(&(m.base as u64 + 7)), "expected jump site {:#x} in unwound frames: {frames:x?}", m.base + 7);
+        let test_fn = jump_stub_unwinds_stack_and_seh_to_jump_site as *const () as u64;
+        assert!(frames.iter().any(|&ip| (test_fn..test_fn + 0x400).contains(&ip)), "expected caller unwind past jump site: {frames:x?}");
+
+        let err = wrapped.call(m.base, &[1]).unwrap_err();
+        assert!(err.contains("c0000005"), "{err}");
     }
 }
