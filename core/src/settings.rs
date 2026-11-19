@@ -18,6 +18,52 @@ use eu4_harmony_loc::Language;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
+/// The valid range of a frame rate limit, in frames a second.
+pub const FRAME_RATE_BOUNDS: std::ops::RangeInclusive<u32> = 24..=1000;
+
+/// The preset frame rates offered on the Display page's choice bar.
+pub const FRAME_RATE_PRESETS: [u32; 7] = [30, 60, 90, 120, 144, 165, 240];
+
+/// What caps the drawing thread's pace (GLOSSARY).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FrameRateLimit {
+    /// The refresh rate of the display showing the game's window.
+    #[default]
+    Display,
+    /// At most this many frames a second, within [`FRAME_RATE_BOUNDS`].
+    Hz(u32),
+    /// No limit beyond Direct3D's Present.
+    Unlimited,
+}
+
+/// The frame rate choices offered in the settings window, in ascending
+/// order followed by [`FrameRateLimit::Unlimited`], and which index shows
+/// `chosen` (`Display` selects `display_hz`): [`FRAME_RATE_PRESETS`] plus
+/// `display_hz` and `chosen` when `Hz` is in [`FRAME_RATE_BOUNDS`] and not
+/// already among them.
+pub fn frame_rate_choices(chosen: FrameRateLimit, display_hz: u32) -> (Vec<FrameRateLimit>, usize) {
+    let display = if FRAME_RATE_BOUNDS.contains(&display_hz) { display_hz } else { 60 };
+    let mut rates = FRAME_RATE_PRESETS.to_vec();
+    if !rates.contains(&display) {
+        rates.push(display);
+    }
+    if let FrameRateLimit::Hz(rate) = chosen {
+        if FRAME_RATE_BOUNDS.contains(&rate) && !rates.contains(&rate) {
+            rates.push(rate);
+        }
+    }
+    rates.sort_unstable();
+    rates.dedup();
+    let mut choices: Vec<FrameRateLimit> = rates.into_iter().map(FrameRateLimit::Hz).collect();
+    choices.push(FrameRateLimit::Unlimited);
+    let selected = match chosen {
+        FrameRateLimit::Unlimited => choices.len() - 1,
+        FrameRateLimit::Hz(rate) if FRAME_RATE_BOUNDS.contains(&rate) => choices.iter().position(|&c| c == FrameRateLimit::Hz(rate)).unwrap_or(0),
+        _ => choices.iter().position(|&c| c == FrameRateLimit::Hz(display)).unwrap_or(0),
+    };
+    (choices, selected)
+}
+
 /// The framework settings. Each field after the fonts is kept by a row of
 /// [`SETTINGS`], which the file, the settings window and what is applied
 /// follow; its default is [`Settings::default`]'s.
@@ -51,9 +97,9 @@ pub struct Settings {
     /// Whether achievements can be earned with a game checksum (GLOSSARY)
     /// that is not vanilla's (ADR achievement-rules-can-be-relaxed).
     pub achievements_with_changed_checksum: bool,
-    /// Whether the drawing thread (GLOSSARY)
-    /// draws with no limit, rather than at the display's refresh rate.
-    pub drawing_unlimited: bool,
+    /// The frame rate limit for the drawing thread (GLOSSARY): the display's
+    /// refresh rate, a chosen cap in frames a second, or unlimited.
+    pub frame_rate_limit: FrameRateLimit,
     /// Whether every track is brought to the same loudness (GLOSSARY:
     /// Loudness normalization; docs/game/program/loading.md).
     pub music_loudness: bool,
@@ -96,6 +142,11 @@ pub enum Shows {
     /// A toggle (GLOSSARY) with the words of `label`; `yes` or `no` in the
     /// file.
     Toggle { label: &'static str, field: Field<bool> },
+    /// The frame rate limit's choice bar (GLOSSARY), with the words of
+    /// `label` above it and `unlimited_tooltip` on its final choice; its
+    /// number or `unlimited` in the file when chosen, omitted when following
+    /// the display's refresh rate.
+    FrameRate { label: &'static str, unlimited_tooltip: &'static str, field: Field<FrameRateLimit> },
 }
 
 /// When a change to a [`Setting`] made in the settings window takes effect.
@@ -126,7 +177,7 @@ impl Listener {
         match self {
             Listener::Achievements => crate::achievements::follow(settings),
             Listener::Sound => crate::sound::choose(settings),
-            Listener::Drawing => crate::drawing::set(settings.drawing_unlimited),
+            Listener::Drawing => crate::drawing::set(settings.frame_rate_limit),
         }
     }
 }
@@ -137,7 +188,7 @@ pub enum Page {
     LanguageFonts,
     Sessions,
     Achievements,
-    GameSpeed,
+    Display,
     Sound,
     /// The framework's version, where to report a problem, and the
     /// troubleshooting files; no settings.
@@ -145,7 +196,7 @@ pub enum Page {
 }
 
 impl Page {
-    pub const ALL: [Page; 6] = [Page::LanguageFonts, Page::Sessions, Page::Achievements, Page::GameSpeed, Page::Sound, Page::About];
+    pub const ALL: [Page; 6] = [Page::LanguageFonts, Page::Sessions, Page::Achievements, Page::Display, Page::Sound, Page::About];
 
     /// The key of its name in the side list.
     pub fn title(self) -> &'static str {
@@ -153,7 +204,7 @@ impl Page {
             Page::LanguageFonts => "EU4HARMONY_SETTINGS_PAGE_LANGUAGE_FONTS",
             Page::Sessions => "EU4HARMONY_SETTINGS_PAGE_SESSIONS",
             Page::Achievements => "EU4HARMONY_SETTINGS_PAGE_ACHIEVEMENTS",
-            Page::GameSpeed => "EU4HARMONY_SETTINGS_PAGE_GAME_SPEED",
+            Page::Display => "EU4HARMONY_SETTINGS_PAGE_DISPLAY",
             Page::Sound => "EU4HARMONY_SETTINGS_PAGE_SOUND",
             Page::About => "EU4HARMONY_SETTINGS_PAGE_ABOUT",
         }
@@ -195,9 +246,13 @@ pub static SETTINGS: [Setting; 8] = [
         effect: Effect::WhenSaved { tells: Some(Listener::Achievements) },
     },
     Setting {
-        key: "drawing_unlimited",
-        page: Page::GameSpeed,
-        shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_DRAWING_UNLIMITED", field: field!(drawing_unlimited) },
+        key: "frame_rate_limit",
+        page: Page::Display,
+        shows: Shows::FrameRate {
+            label: "EU4HARMONY_SETTINGS_FRAME_RATE_LIMIT",
+            unlimited_tooltip: "EU4HARMONY_SETTINGS_FRAME_RATE_UNLIMITED_TOOLTIP",
+            field: field!(frame_rate_limit),
+        },
         effect: Effect::WhenSaved { tells: Some(Listener::Drawing) },
     },
     Setting {
@@ -215,10 +270,16 @@ pub static SETTINGS: [Setting; 8] = [
 ];
 
 impl Setting {
-    /// Its value in `settings` as the file keeps it.
-    fn render(&self, settings: &Settings) -> String {
+    /// Its value in `settings` as the file keeps it, when present.
+    fn render(&self, settings: &Settings) -> Option<String> {
         match self.shows {
-            Shows::Toggle { field, .. } => if (field.get)(settings) { "yes" } else { "no" }.to_string(),
+            Shows::Toggle { field, .. } => Some(if (field.get)(settings) { "yes" } else { "no" }.to_string()),
+            Shows::FrameRate { field, .. } => match (field.get)(settings) {
+                FrameRateLimit::Display => None,
+                FrameRateLimit::Hz(r) if FRAME_RATE_BOUNDS.contains(&r) => Some(r.to_string()),
+                FrameRateLimit::Hz(_) => None,
+                FrameRateLimit::Unlimited => Some("unlimited".to_string()),
+            },
         }
     }
 
@@ -231,6 +292,11 @@ impl Setting {
                     (field.set)(settings, on);
                 }
             }
+            Shows::FrameRate { field, .. } => {
+                if let Some(limit) = frame_rate(value) {
+                    (field.set)(settings, limit);
+                }
+            }
         }
     }
 
@@ -238,6 +304,7 @@ impl Setting {
     fn copy(&self, from: &Settings, to: &mut Settings) {
         match self.shows {
             Shows::Toggle { field, .. } => (field.set)(to, (field.get)(from)),
+            Shows::FrameRate { field, .. } => (field.set)(to, (field.get)(from)),
         }
     }
 
@@ -247,6 +314,13 @@ impl Setting {
     pub fn change(&self, settings: &mut Settings) {
         match self.shows {
             Shows::Toggle { field, .. } => (field.set)(settings, !(field.get)(settings)),
+            Shows::FrameRate { field, .. } => (field.set)(
+                settings,
+                match (field.get)(settings) {
+                    FrameRateLimit::Hz(60) => FrameRateLimit::Hz(120),
+                    _ => FrameRateLimit::Hz(60),
+                },
+            ),
         }
     }
 }
@@ -346,7 +420,7 @@ impl Default for Settings {
             save_ironman_before_load: true,
             achievements_outside_ironman: false,
             achievements_with_changed_checksum: false,
-            drawing_unlimited: false,
+            frame_rate_limit: FrameRateLimit::Display,
             music_loudness: true,
             music_leveling: false,
         }
@@ -449,7 +523,9 @@ impl Settings {
             }
         }
         for setting in &SETTINGS {
-            out.push_str(&format!("{}={}\n", setting.key, setting.render(self)));
+            if let Some(value) = setting.render(self) {
+                out.push_str(&format!("{}={value}\n", setting.key));
+            }
         }
         out
     }
@@ -484,6 +560,15 @@ fn yes(value: &str) -> Option<bool> {
 /// A weight as the file keeps it: its number, from 1 to 999.
 fn weight(value: &str) -> Option<u16> {
     value.parse().ok().filter(|w| (1..=999).contains(w))
+}
+
+/// A frame rate limit as the file keeps it: its number within
+/// [`FRAME_RATE_BOUNDS`], or `unlimited`.
+fn frame_rate(value: &str) -> Option<FrameRateLimit> {
+    match value {
+        "unlimited" => Some(FrameRateLimit::Unlimited),
+        other => other.parse().ok().filter(|r| FRAME_RATE_BOUNDS.contains(r)).map(FrameRateLimit::Hz),
+    }
 }
 
 struct Store {
@@ -682,25 +767,34 @@ mod tests {
             save_ironman_before_load: false,
             achievements_outside_ironman: true,
             achievements_with_changed_checksum: true,
-            drawing_unlimited: true,
+            frame_rate_limit: FrameRateLimit::Hz(120),
             music_loudness: false,
             music_leveling: true,
         };
         assert_eq!(Settings::parse(&custom.render()), custom);
         assert!(custom.render().starts_with("language=\"braz_por\"\nbody_font=\"SimSun\"\nbody_weight=700\n"));
-        assert!(custom.render().ends_with("\nachievements_with_changed_checksum=yes\ndrawing_unlimited=yes\nmusic_loudness=no\nmusic_leveling=yes\n"));
+        assert!(custom.render().ends_with("\nachievements_with_changed_checksum=yes\nframe_rate_limit=120\nmusic_loudness=no\nmusic_leveling=yes\n"));
         assert!(custom.render().contains("\nheading_font=\"Microsoft YaHei\"\nheading_weight=700\n"));
         assert!(custom.render().contains("\nconsole_font=\"Cascadia Mono\"\nconsole_weight=600\nmap_outline=no\nreturn_without_restart=no\n"));
-        // Fonts not chosen are not written.
+        let unlimited = Settings { frame_rate_limit: FrameRateLimit::Unlimited, ..Settings::default() };
+        assert!(unlimited.render().contains("frame_rate_limit=unlimited\n"));
+        assert_eq!(Settings::parse(&unlimited.render()), unlimited);
+        assert_eq!(Settings::parse("frame_rate_limit=\"unlimited\"\n").frame_rate_limit, FrameRateLimit::Unlimited);
+        // Fonts and frame rate limit not chosen are not written.
         let following = Settings { language: Some(Language::English), ..Settings::default() };
         assert_eq!(following.render().lines().next(), Some("language=\"english\""));
-        // As every file written before has it.
         assert_eq!(
             following.render(),
-            "language=\"english\"\nmap_outline=yes\nreturn_without_restart=yes\nsave_ironman_before_load=yes\nachievements_outside_ironman=no\nachievements_with_changed_checksum=no\ndrawing_unlimited=no\nmusic_loudness=yes\nmusic_leveling=no\n"
+            "language=\"english\"\nmap_outline=yes\nreturn_without_restart=yes\nsave_ironman_before_load=yes\nachievements_outside_ironman=no\nachievements_with_changed_checksum=no\nmusic_loudness=yes\nmusic_leveling=no\n"
         );
         assert!(!following.render().contains("_font"));
+        assert!(!following.render().contains("frame_rate_limit"));
         assert_eq!(Settings::parse(&following.render()), following);
+        // A removed drawing_unlimited line is ignored and falls back to following the display's refresh rate.
+        assert_eq!(Settings::parse("drawing_unlimited=yes\n"), Settings::default());
+        assert_eq!(Settings::parse("frame_rate_limit=23\n").frame_rate_limit, FrameRateLimit::Display);
+        assert_eq!(Settings::parse("frame_rate_limit=1001\n").frame_rate_limit, FrameRateLimit::Display);
+        assert_eq!(Settings::parse("frame_rate_limit=\"144\"\n").frame_rate_limit, FrameRateLimit::Hz(144));
         // A weight without its font follows the language with the font.
         assert_eq!(Settings::parse("language=english\nconsole_weight=700\n").console_font, None);
         assert_eq!(Settings::parse("language=\"klingon\"").language, None);
@@ -861,6 +955,24 @@ mod tests {
             assert_eq!(Settings::parse(&format!("{}{}=maybe\n", changed.render(), setting.key)), changed, "{}", setting.key);
         }
         assert_eq!(Settings::parse("unknown=yes\nmap_outlines=no\n"), Settings::default());
+    }
+
+    #[test]
+    fn frame_rate_choices_include_display_and_chosen_rates_in_order() {
+        use FrameRateLimit::*;
+        let presets = vec![Hz(30), Hz(60), Hz(90), Hz(120), Hz(144), Hz(165), Hz(240), Unlimited];
+        assert_eq!(frame_rate_choices(Display, 60), (presets.clone(), 1));
+        assert_eq!(frame_rate_choices(Display, 144), (presets.clone(), 4));
+        assert_eq!(frame_rate_choices(Unlimited, 60), (presets.clone(), 7));
+        // A non-preset display refresh rate merges in order and starts selected.
+        let with_180 = vec![Hz(30), Hz(60), Hz(90), Hz(120), Hz(144), Hz(165), Hz(180), Hz(240), Unlimited];
+        assert_eq!(frame_rate_choices(Display, 180), (with_180.clone(), 6));
+        assert_eq!(frame_rate_choices(Unlimited, 180), (with_180, 8));
+        // Both a non-preset display rate and a non-preset configured limit stay visible.
+        assert_eq!(frame_rate_choices(Hz(75), 180), (vec![Hz(30), Hz(60), Hz(75), Hz(90), Hz(120), Hz(144), Hz(165), Hz(180), Hz(240), Unlimited], 2));
+        // Invalid or out-of-bounds display rates fall back to 60 Hz.
+        assert_eq!(frame_rate_choices(Display, 0), (presets.clone(), 1));
+        assert_eq!(frame_rate_choices(Hz(120), 0), (presets, 3));
     }
 
     #[test]

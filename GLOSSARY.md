@@ -187,7 +187,7 @@ A whole frame the game runs while a day is still being worked out, once the day 
 _Avoid_: inserted frame, nested frame
 
 **Drawing thread**:
-A thread of the framework's that draws the frames at a pace of its own, the display's refresh rate unless the player chooses no limit, while the main thread goes on with the day: the map with a camera that the drawing thread keeps and moves from the mouse and the keys, and the interface's windows as their last update left them (docs/plans/README.md#drawing). The interface's update stays on the main thread.
+A thread of the framework's that draws the frames at a pace of its own — the display's refresh rate, the frame rate limit chosen in the framework settings, or with no limit — while the main thread goes on with the day: the map with a camera that the drawing thread keeps and moves from the mouse and the keys, and the interface's windows as their last update left them (docs/plans/README.md#drawing). The interface's update stays on the main thread.
 _Avoid_: render thread, graphics thread
 
 **Crossing**:

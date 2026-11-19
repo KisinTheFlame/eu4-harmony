@@ -18,7 +18,7 @@ use std::{
 mod account;
 
 /// At 144 submissions/s this holds ten minutes plus updates and day events.
-/// An unlimited drawing rate may exceed it; overflow is explicit in the report.
+/// A higher frame rate limit or unlimited drawing may exceed it; overflow is explicit in the report.
 const MAX_EVENTS: usize = 262_144;
 
 /// The clock the collection reads at its edge.

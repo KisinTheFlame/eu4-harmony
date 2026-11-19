@@ -7,8 +7,9 @@
 //! what of the drawing reads the world or draws into the interface's textures
 //! ([`prepare`]); then it notes the frame as prepared, and goes on. The
 //! drawing thread draws the prepared frame again and again, at the display's
-//! refresh rate or with no limit, through the game's own drawing, whose first
-//! steps it skips, with the map icons moved to its camera ([`icons`]).
+//! refresh rate, the frame rate limit chosen in the settings, or with no
+//! limit, through the game's own drawing, whose first steps it skips, with the
+//! map icons moved to its camera ([`icons`]).
 //!
 //! The two take turns through the presentation lock (GLOSSARY), a lock that
 //! serves whoever asked first. The drawing thread holds it for each frame it
@@ -413,7 +414,12 @@ const PACE_AT_MOST: Duration = Duration::from_millis(50);
 /// Whether the drawing thread draws the frames: its speed-up not left to the
 /// game.
 static ON: AtomicBool = AtomicBool::new(false);
-static UNLIMITED: AtomicBool = AtomicBool::new(false);
+/// Sentinel in [`FRAME_RATE_LIMIT`] for unlimited drawing (no wait after a
+/// frame drawn).
+const UNLIMITED: u32 = u32::MAX;
+/// The frame rate limit chosen in the settings: 0 to follow the display's
+/// refresh rate, a rate within `FRAME_RATE_BOUNDS`, or [`UNLIMITED`].
+static FRAME_RATE_LIMIT: AtomicU32 = AtomicU32::new(0);
 /// The frames the drawing thread drew, and the main thread's waits for the
 /// lock in microseconds, for the log.
 static DRAWN: AtomicU64 = AtomicU64::new(0);
@@ -484,9 +490,28 @@ fn on_main() -> bool {
 /// Tells the drawing thread the setting it runs with: at startup, and when
 /// settings are saved. Starts the thread the first time, unless the speed-up
 /// is left to the game, whose points are then not installed.
-pub fn set(unlimited: bool) {
+pub fn set(frame_rate_limit: crate::settings::FrameRateLimit) {
+    use crate::settings::FrameRateLimit;
     let on = !crate::speed::game_path(&SPEED_UP);
-    UNLIMITED.store(unlimited, Ordering::Relaxed);
+    let limit = match frame_rate_limit {
+        FrameRateLimit::Hz(r) if !crate::settings::FRAME_RATE_BOUNDS.contains(&r) => FrameRateLimit::Display,
+        other => other,
+    };
+    let encoded = match limit {
+        FrameRateLimit::Display => 0,
+        FrameRateLimit::Hz(r) => r,
+        FrameRateLimit::Unlimited => UNLIMITED,
+    };
+    FRAME_RATE_LIMIT.store(encoded, Ordering::Relaxed);
+    #[cfg(feature = "dev-performance")]
+    PERFORMANCE_RATE.store(
+        match limit {
+            FrameRateLimit::Display => display_refresh_rate(),
+            FrameRateLimit::Hz(r) => r,
+            FrameRateLimit::Unlimited => 0,
+        },
+        Ordering::Relaxed,
+    );
     ON.store(on, Ordering::Relaxed);
     if on && DRAWING_THREAD.load(Ordering::Relaxed) == 0 {
         let spawned = std::thread::Builder::new().name("eu4-harmony drawing".into()).stack_size(32 << 20).spawn(|| crate::guarded("drawing thread", run));
@@ -495,11 +520,12 @@ pub fn set(unlimited: bool) {
             ON.store(false, Ordering::Relaxed);
         }
     }
-    log!(
-        "drawing: {}, {}",
-        if on { "on a thread of its own" } else { "on the main thread" },
-        if unlimited { "no limit" } else { "at the display's refresh rate" }
-    );
+    let where_drawn = if on { "on a thread of its own" } else { "on the main thread" };
+    match limit {
+        FrameRateLimit::Display => log!("drawing: {where_drawn}, at the display's refresh rate"),
+        FrameRateLimit::Hz(rate) => log!("drawing: {where_drawn}, up to {rate} frames a second"),
+        FrameRateLimit::Unlimited => log!("drawing: {where_drawn}, no limit"),
+    }
 }
 
 fn app_frame_before(_: &mut Call) {
@@ -769,25 +795,40 @@ fn direct3(m: &Memory, function: GameFunction<3>) -> unsafe extern "C" fn(usize,
 #[cfg(feature = "dev-performance")]
 static PERFORMANCE_RATE: AtomicU32 = AtomicU32::new(0);
 
-/// The actual target used by the drawing thread; the native main-thread
-/// path and unlimited drawing have no declared target for threshold counts.
+/// The actual target interval used by the drawing thread; the native
+/// main-thread path and unlimited drawing have no declared target for
+/// threshold counts.
 #[cfg(feature = "dev-performance")]
 pub fn performance_interval() -> Option<Duration> {
     let rate = PERFORMANCE_RATE.load(Ordering::Relaxed);
-    (drawing_on() && !UNLIMITED.load(Ordering::Relaxed) && rate != 0).then(|| Duration::from_secs_f64(1.0 / rate as f64))
+    (drawing_on() && rate != 0).then(|| Duration::from_secs_f64(1.0 / rate as f64))
 }
 
-/// The display's refresh rate, 60 when Windows does not say.
-fn refresh_rate() -> u32 {
-    use windows_sys::Win32::Graphics::Gdi::{EnumDisplaySettingsW, DEVMODEW, ENUM_CURRENT_SETTINGS};
-    let mut mode: DEVMODEW = unsafe { std::mem::zeroed() };
-    mode.dmSize = std::mem::size_of::<DEVMODEW>() as u16;
-    let ok = unsafe { EnumDisplaySettingsW(std::ptr::null(), ENUM_CURRENT_SETTINGS, &mut mode) } != 0;
-    if ok && (24..=1000).contains(&mode.dmDisplayFrequency) {
-        mode.dmDisplayFrequency
-    } else {
-        60
+/// The refresh rate of the display showing the game's window, or the primary
+/// display's before the window exists; 60 when Windows does not say.
+pub(crate) fn display_refresh_rate() -> u32 {
+    use windows_sys::Win32::Graphics::Gdi::{
+        EnumDisplaySettingsW, GetMonitorInfoW, MonitorFromWindow, DEVMODEW, ENUM_CURRENT_SETTINGS, MONITORINFOEXW, MONITOR_DEFAULTTONEAREST,
+    };
+    let rate_of = |device: *const u16| -> Option<u32> {
+        let mut mode: DEVMODEW = unsafe { std::mem::zeroed() };
+        mode.dmSize = std::mem::size_of::<DEVMODEW>() as u16;
+        let ok = unsafe { EnumDisplaySettingsW(device, ENUM_CURRENT_SETTINGS, &mut mode) } != 0;
+        (ok && crate::settings::FRAME_RATE_BOUNDS.contains(&mode.dmDisplayFrequency)).then_some(mode.dmDisplayFrequency)
+    };
+    if let Some(window) = crate::framework_ui::input::window() {
+        let monitor = unsafe { MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST) };
+        if !monitor.is_null() {
+            let mut info = MONITORINFOEXW::default();
+            info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+            if unsafe { GetMonitorInfoW(monitor, &mut info.monitorInfo) } != 0 {
+                if let Some(rate) = rate_of(info.szDevice.as_ptr()) {
+                    return rate;
+                }
+            }
+        }
     }
+    rate_of(std::ptr::null()).unwrap_or(60)
 }
 
 /// Waits until `until`, to the tenth of a millisecond.
@@ -845,11 +886,16 @@ fn maybe_log_pace(base: usize, gaps: &mut course::Gaps, last_drawn: &mut u64, lo
 fn run() {
     DRAWING_THREAD.store(crate::thread_id(), Ordering::Relaxed);
     let m = crate::hooked_memory();
-    let rate = refresh_rate();
+    let mut display_rate = display_refresh_rate();
+    let mut display_checked = Instant::now();
+    let mut current_perf_rate = match FRAME_RATE_LIMIT.load(Ordering::Relaxed) {
+        0 => display_rate,
+        UNLIMITED => 0,
+        r => r,
+    };
     #[cfg(feature = "dev-performance")]
-    PERFORMANCE_RATE.store(rate, Ordering::Relaxed);
-    let interval = Duration::from_secs_f64(1.0 / rate as f64);
-    log!("drawing: the drawing thread runs, at {rate} frames a second unless no limit");
+    PERFORMANCE_RATE.store(current_perf_rate, Ordering::Relaxed);
+    log!("drawing: the drawing thread runs ({display_rate} Hz display)");
     let mut next = Instant::now();
     let mut logged = Instant::now();
     let mut last_drawn = 0u64;
@@ -869,11 +915,34 @@ fn run() {
             if FRAMES.prepared_idler() == 0 && drawing_on() {
                 let _ = PREPARED_WAKE.1.wait_timeout(guard, Duration::from_millis(200));
             }
+            display_rate = display_refresh_rate();
+            display_checked = Instant::now();
             next = Instant::now();
             last_frame = next;
             continue;
         }
-        if !UNLIMITED.load(Ordering::Relaxed) {
+        let chosen = FRAME_RATE_LIMIT.load(Ordering::Relaxed);
+        if (chosen == 0 || chosen == UNLIMITED) && display_checked.elapsed() >= Duration::from_secs(1) {
+            display_rate = display_refresh_rate();
+            display_checked = Instant::now();
+        }
+        let perf_rate = match chosen {
+            0 => display_rate,
+            UNLIMITED => 0,
+            r => r,
+        };
+        let pace_rate = match chosen {
+            0 | UNLIMITED => display_rate,
+            r => r,
+        };
+        let interval = Duration::from_secs_f64(1.0 / pace_rate as f64);
+        if perf_rate != current_perf_rate {
+            current_perf_rate = perf_rate;
+            #[cfg(feature = "dev-performance")]
+            PERFORMANCE_RATE.store(perf_rate, Ordering::Relaxed);
+            next = Instant::now();
+        }
+        if chosen != UNLIMITED {
             wait_until(next);
             next += interval;
             let now = Instant::now();
@@ -899,6 +968,7 @@ fn run() {
         if let Some(into) = held {
             gaps.held_by(into);
         }
+        let mut drew = false;
         if let Some((idler, seq)) = FRAMES.drawable(current, held, must_draw_here(&m)) {
             DRAWING_LENGTH.store(length.to_bits(), Ordering::Relaxed);
             if let Err(e) = icons::follow_camera(&m) {
@@ -924,8 +994,12 @@ fn run() {
             DRAWN.fetch_add(1, Ordering::Relaxed);
             FRAMES.note_drawn(seq);
             gaps.drawn(Instant::now(), interval, drawing, present, lock_after);
+            drew = true;
         }
         drawing_side(|d| d.turn_ends(&DrawingLock));
+        if chosen == UNLIMITED && !drew {
+            wait_until(Instant::now() + interval);
+        }
         maybe_log_pace(m.at(0usize), &mut gaps, &mut last_drawn, &mut logged);
     }
 }

@@ -83,10 +83,12 @@ pub enum Widget {
     },
     /// A choice bar (GLOSSARY): its options side by side in one bar, the
     /// chosen one under a highlight that slides to another when it is
-    /// clicked.
+    /// clicked. Any non-empty entry of `tooltips` overrides the bar's own
+    /// tooltip while the pointer is on that option.
     Choice {
         id: &'static str,
         options: Vec<String>,
+        tooltips: Vec<eu4_harmony_lua::Text>,
         selected: usize,
     },
     /// A label followed by an info mark (GLOSSARY): while the pointer is on
@@ -627,7 +629,7 @@ impl Window {
                         *on = !*on;
                         return Some(Action::Switched(id, *on));
                     }
-                    if let Widget::Choice { id, options, selected } = self.widget_mut(i) {
+                    if let Widget::Choice { id, options, selected, .. } = self.widget_mut(i) {
                         let index = Self::segments(r, options.len()).iter().position(|s| s.contains(x, y))?;
                         if index == *selected {
                             return None;
@@ -683,6 +685,13 @@ impl Window {
                 }
             };
             if rect.contains(x, y) {
+                if let Widget::Choice { options, tooltips, .. } = self.widget(i) {
+                    if let Some(index) = Self::segments(rect, options.len()).iter().position(|s| s.contains(x, y)) {
+                        if let Some(tip) = tooltips.get(index).filter(|t| **t != eu4_harmony_lua::Text::default()) {
+                            return Some(tip.clone());
+                        }
+                    }
+                }
                 return Some(self.raw_widget(i).tooltip());
             }
         }
@@ -906,7 +915,7 @@ mod tests {
             "Settings",
             vec![
                 Widget::Explained { label: "At the fastest speed".into(), info: "Faster time: days pass sooner".into() },
-                Widget::Choice { id: "pace", options: vec!["Smooth".into(), "Faster".into()], selected: 0 },
+                Widget::Choice { id: "pace", options: vec!["Smooth".into(), "Faster".into()], tooltips: Vec::new(), selected: 0 },
             ],
             300.0,
         );
@@ -959,6 +968,25 @@ mod tests {
         w.mouse_move(0.0, 0.0);
         assert!(!shows(&w, "Faster time"));
         assert_eq!(w.tooltip_at(&Mono, 0.0, 0.0), None);
+    }
+
+    #[test]
+    fn a_choice_bar_shows_an_option_tooltip_only_over_that_option() {
+        let mut w = Window::new(
+            "Display",
+            vec![Widget::Choice {
+                id: "fps",
+                options: vec!["60".into(), "∞".into()],
+                tooltips: vec![Default::default(), "No limit warning".into()],
+                selected: 0,
+            }],
+            300.0,
+        );
+        w.center(&Mono, 1000.0, 800.0);
+        let (fx, fy) = spot(&w, "60");
+        let (ux, uy) = spot(&w, "∞");
+        assert_eq!(w.tooltip_at(&Mono, fx, fy), Some(Default::default()));
+        assert_eq!(w.tooltip_at(&Mono, ux, uy), Some("No limit warning".into()));
     }
 
     #[test]
