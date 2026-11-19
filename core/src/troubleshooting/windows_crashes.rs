@@ -7,15 +7,17 @@ use windows_sys::core::{w, PCWSTR};
 use windows_sys::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_NO_MORE_ITEMS, FILETIME, SYSTEMTIME};
 use windows_sys::Win32::Globalization::{CompareStringOrdinal, CSTR_EQUAL};
 use windows_sys::Win32::System::EventLog::{
-    EvtClose, EvtCreateRenderContext, EvtNext, EvtQuery, EvtQueryChannelPath, EvtQueryReverseDirection, EvtRender, EvtRenderContextValues,
-    EvtRenderEventValues, EvtVarTypeFileTime, EvtVarTypeHexInt32 as EVT_HEX32, EvtVarTypeHexInt64 as EVT_HEX64, EvtVarTypeString,
+    EvtClose, EvtCreateRenderContext, EvtNext, EvtQuery, EvtQueryChannelPath, EvtQueryReverseDirection, EvtRender, EvtRenderContextUser,
+    EvtRenderContextValues, EvtRenderEventValues, EvtVarTypeFileTime, EvtVarTypeHexInt32 as EVT_HEX32, EvtVarTypeHexInt64 as EVT_HEX64, EvtVarTypeString,
     EvtVarTypeUInt32 as EVT_UINT32, EvtVarTypeUInt64 as EVT_UINT64, EVT_HANDLE, EVT_VARIANT,
 };
 use windows_sys::Win32::System::Time::FileTimeToSystemTime;
 
-// Filter in Windows before reading any event. AppName is the executable's
-// name, while AppPath identifies which installation the event belongs to.
-const RECENT: PCWSTR = w!("*[System[Provider[@Name='Application Error'] and EventID=1000 and TimeCreated[timediff(@SystemTime) <= 2592000000]] and EventData[Data[@Name='AppName']='eu4.exe']]");
+// Filter in Windows before reading any event. Data[1] is the executable name
+// (Win10 omits @Name attributes, whereas both Win10 and Win11 use identical
+// positional EventData indices); Data[11] (index 10) is AppPath.
+const RECENT: PCWSTR =
+    w!("*[System[Provider[@Name='Application Error'] and EventID=1000 and TimeCreated[timediff(@SystemTime) <= 2592000000]] and EventData[Data[1]='eu4.exe']]");
 const MAX_EVENTS: usize = 128;
 const NEXT_TIMEOUT_MS: u32 = 1000;
 const MAX_EVENT_BYTES: u32 = 128 * 1024;
@@ -54,21 +56,9 @@ pub(super) fn report(game: &Path) -> String {
 
 fn collect(game: &Path, text: &mut String) -> io::Result<()> {
     let found = EventHandle::checked(unsafe { EvtQuery(0, w!("Application"), RECENT, EvtQueryChannelPath | EvtQueryReverseDirection) })?;
-    let paths = [
-        w!("Event/System/TimeCreated/@SystemTime"),
-        w!("Event/System/EventRecordID"),
-        w!("Event/EventData/Data[@Name='AppPath']"),
-        w!("Event/EventData/Data[@Name='AppVersion']"),
-        w!("Event/EventData/Data[@Name='AppTimeStamp']"),
-        w!("Event/EventData/Data[@Name='ModuleName']"),
-        w!("Event/EventData/Data[@Name='ModuleVersion']"),
-        w!("Event/EventData/Data[@Name='ModuleTimeStamp']"),
-        w!("Event/EventData/Data[@Name='ExceptionCode']"),
-        w!("Event/EventData/Data[@Name='FaultingOffset']"),
-        w!("Event/EventData/Data[@Name='ProcessId']"),
-        w!("Event/EventData/Data[@Name='ProcessCreationTime']"),
-    ];
-    let context = EventHandle::checked(unsafe { EvtCreateRenderContext(paths.len() as u32, paths.as_ptr(), EvtRenderContextValues) })?;
+    let system_paths = [w!("Event/System/TimeCreated/@SystemTime"), w!("Event/System/EventRecordID")];
+    let system_context = EventHandle::checked(unsafe { EvtCreateRenderContext(system_paths.len() as u32, system_paths.as_ptr(), EvtRenderContextValues) })?;
+    let user_context = EventHandle::checked(unsafe { EvtCreateRenderContext(0, std::ptr::null(), EvtRenderContextUser) })?;
     let exe = game.join("eu4.exe");
     let exe = exe.to_string_lossy();
     let mut exported = 0;
@@ -88,7 +78,10 @@ fn collect(game: &Path, text: &mut String) -> io::Result<()> {
             break;
         }
         let event = EventHandle(handle);
-        match render(&context, &event, paths.len()).and_then(|values| summarize(&values, &exe)) {
+        match render(&system_context, &event, system_paths.len())
+            .and_then(|system| render(&user_context, &event, 11).map(|user| (system, user)))
+            .and_then(|(system, user)| summarize(&system, &user, &exe))
+        {
             Ok(Some(record)) => {
                 text.push_str(&record);
                 exported += 1;
@@ -107,7 +100,7 @@ fn collect(game: &Path, text: &mut String) -> io::Result<()> {
     Ok(())
 }
 
-fn render(context: &EventHandle, event: &EventHandle, count: usize) -> io::Result<Vec<EVT_VARIANT>> {
+fn render(context: &EventHandle, event: &EventHandle, min_count: usize) -> io::Result<Vec<EVT_VARIANT>> {
     let mut bytes = 0;
     let mut properties = 0;
     let ok = unsafe { EvtRender(context.0, event.0, EvtRenderEventValues, 0, null_mut(), &mut bytes, &mut properties) };
@@ -120,14 +113,17 @@ fn render(context: &EventHandle, event: &EventHandle, count: usize) -> io::Resul
     if unsafe { EvtRender(context.0, event.0, EvtRenderEventValues, bytes, buffer.as_mut_ptr().cast(), &mut bytes, &mut properties) } == 0 {
         return Err(io::Error::last_os_error());
     }
-    if properties as usize != count || buffer.len() < count {
+    if (properties as usize) < min_count || buffer.len() < min_count {
         return Err(io::Error::other("unexpected Application Error fields"));
     }
     Ok(buffer)
 }
 
-fn summarize(values: &[EVT_VARIANT], exe: &str) -> io::Result<Option<String>> {
-    let [time, record, path, app_version, app_timestamp, module, version, timestamp, code, offset, pid, created, ..] = values else {
+fn summarize(system: &[EVT_VARIANT], user: &[EVT_VARIANT], exe: &str) -> io::Result<Option<String>> {
+    let [time, record, ..] = system else {
+        return Err(io::Error::other("missing Application Error fields"));
+    };
+    let [_, app_version, app_timestamp, module, version, timestamp, code, offset, pid, created, path, ..] = user else {
         return Err(io::Error::other("missing Application Error fields"));
     };
     let path = string(path).ok_or_else(|| io::Error::other("missing Application Error executable path"))?;
@@ -202,25 +198,55 @@ mod tests {
     use super::*;
     use windows_sys::Win32::System::EventLog::EVT_VARIANT_0;
 
+    fn str_var(value: PCWSTR) -> EVT_VARIANT {
+        EVT_VARIANT { Anonymous: EVT_VARIANT_0 { StringVal: value }, Count: 0, Type: EvtVarTypeString as u32 }
+    }
+
     #[test]
     fn the_typed_windows_process_identity_matches_the_harmony_run_id() {
-        let text = |value| EVT_VARIANT { Anonymous: EVT_VARIANT_0 { StringVal: value }, Count: 0, Type: EvtVarTypeString as u32 };
-        let mut values = [EVT_VARIANT::default(); 12];
-        values[2] = text(w!(r"C:\Games\Europa Universalis IV\eu4.exe"));
-        values[5] = text(w!("ntdll.dll"));
-        values[8] = text(w!("c0000374"));
-        values[9] = text(w!("0000000000002bb3"));
-        values[10] = EVT_VARIANT { Anonymous: EVT_VARIANT_0 { UInt32Val: 0x386 }, Count: 0, Type: EVT_HEX32 as u32 };
-        values[11] = EVT_VARIANT { Anonymous: EVT_VARIANT_0 { UInt64Val: 0x1dd76a22ea180f6 }, Count: 0, Type: EVT_HEX64 as u32 };
+        let system = [EVT_VARIANT::default(); 2];
+        let mut user = [EVT_VARIANT::default(); 11];
+        user[3] = str_var(w!("ntdll.dll"));
+        user[6] = str_var(w!("c0000374"));
+        user[7] = str_var(w!("0000000000002bb3"));
+        user[8] = EVT_VARIANT { Anonymous: EVT_VARIANT_0 { UInt32Val: 0x386 }, Count: 0, Type: EVT_HEX32 as u32 };
+        user[9] = EVT_VARIANT { Anonymous: EVT_VARIANT_0 { UInt64Val: 0x1dd76a22ea180f6 }, Count: 0, Type: EVT_HEX64 as u32 };
+        user[10] = str_var(w!(r"C:\Games\Europa Universalis IV\eu4.exe"));
 
         let exe = r"\\?\c:\games\europa universalis iv\eu4.exe";
-        let line = summarize(&values, exe).unwrap().unwrap();
+        let line = summarize(&system, &user, exe).unwrap().unwrap();
         assert!(line.contains("run=902-1dd76a22ea180f6 "));
         assert!(line.contains("module=\"ntdll.dll\""));
         assert!(line.contains("exception_code=0xc0000374 fault_offset=0x2bb3"));
-        assert!(summarize(&values, r"D:\Other\eu4.exe").unwrap().is_none());
+        assert!(summarize(&system, &user, r"D:\Other\eu4.exe").unwrap().is_none());
 
-        values[11] = EVT_VARIANT::default();
-        assert!(summarize(&values, exe).unwrap().unwrap().contains("run=unknown process_id=902 "));
+        user[9] = EVT_VARIANT::default();
+        assert!(summarize(&system, &user, exe).unwrap().unwrap().contains("run=unknown process_id=902 "));
+    }
+
+    #[test]
+    fn unnamed_string_event_data_fields_match_windows_10_layout() {
+        let system = [EVT_VARIANT::default(); 2];
+        let mut user = [EVT_VARIANT::default(); 11];
+        user[0] = str_var(w!("eu4.exe"));
+        user[3] = str_var(w!("eu4.exe"));
+        user[6] = str_var(w!("c0000005"));
+        user[7] = str_var(w!("00000000014ddab7"));
+        user[8] = str_var(w!("0xc2c"));
+        user[9] = str_var(w!("0x01dd7829cb8e99a4"));
+        user[10] = str_var(w!(r"E:\SteamLibrary\steamapps\common\Europa Universalis IV\eu4.exe"));
+
+        let exe = r"E:\SteamLibrary\steamapps\common\Europa Universalis IV\eu4.exe";
+        let line = summarize(&system, &user, exe).unwrap().unwrap();
+        assert!(line.contains("run=3116-1dd7829cb8e99a4 "));
+        assert!(line.contains("module=\"eu4.exe\""));
+        assert!(line.contains("exception_code=0xc0000005 fault_offset=0x14ddab7"));
+    }
+
+    #[test]
+    fn live_windows_application_query_runs_without_collection_error() {
+        let out = report(Path::new(r"C:\NonExistent\Europa Universalis IV"));
+        assert!(!out.contains("Collection incomplete:"), "{out}");
+        assert!(out.contains("Exported "), "{out}");
     }
 }
