@@ -599,8 +599,16 @@ impl course::StageOps for LiveStage<'_> {
         deferred::done(self.0);
     }
 
+    fn prepare_scene(&mut self) -> std::result::Result<(), String> {
+        prepare::scene(self.0).map_err(|e| e.to_string())
+    }
+
     fn prepare_tooltips(&mut self, idler: usize) {
         prepare::tooltips(self.0, idler);
+    }
+
+    fn clear_tooltips(&mut self) {
+        tooltip::clear();
     }
 
     fn draw_on_main_only(&self) -> bool {

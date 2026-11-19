@@ -236,6 +236,13 @@ pub(crate) fn flush(m: &Memory) -> Result<()> {
     LIVE.flush(m, &mut LiveScene)
 }
 
+/// Rebuilds the first scene's prepared `DRAW_LIST`, `HIT_LIST`, and `OWNER_LIST`
+/// from live tree nodes under presentation ownership without resetting
+/// hover/input ranks.
+pub(crate) fn prepare_scene(m: &Memory) -> Result<()> {
+    native::prepare_lists(m)
+}
+
 fn mouse_before(call: &mut Call) {
     checked(LIVE.mouse_before(&call.memory(), call.arg(1), &mut LiveScene));
 }
