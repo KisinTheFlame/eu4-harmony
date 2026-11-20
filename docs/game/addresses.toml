@@ -1562,7 +1562,7 @@
 "0x5cf7a1" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x5d01b0" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x5d053b" = { kind = "code", notes = ["game/countries/achievements.md"] }
-"0x5d0580" = { kind = "function", name = "in-game load", notes = ["game/day/time.md", "game/interface/main-menu.md", "game/interface/window-construction.md", "game/program/load-preparation.md", "game/program/save-transfer-copy.md", "game/program/saves.md"] }
+"0x5d0580" = { kind = "function", name = "in-game load", notes = ["game/day/safe-points.md", "game/day/time.md", "game/interface/main-menu.md", "game/interface/window-construction.md", "game/program/load-preparation.md", "game/program/save-transfer-copy.md", "game/program/saves.md"] }
 "0x5d05ac" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x5d0653" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x5d06c4" = { kind = "code", name = "in-game load without a name", notes = ["game/interface/main-menu.md"] }
@@ -1896,7 +1896,7 @@
 "0x7579f0" = { kind = "function", name = "set speed", notes = ["game/day/time.md", "game/scripts/commands.md"] }
 "0x757ad0" = { kind = "function", notes = ["game/day/time-architecture.md", "game/day/time.md", "game/interface/frame-lifecycle.md"] }
 "0x757ad6" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
-"0x758430" = { kind = "function", name = "daily update", notes = ["game/day/frame-and-idlers.md", "game/day/time-architecture.md", "game/day/time.md", "game/day/update-and-presentation-boundaries.md", "game/interface/frame-lifecycle.md", "game/interface/main-menu.md", "game/program/architecture.md"] }
+"0x758430" = { kind = "function", name = "daily update", notes = ["game/day/frame-and-idlers.md", "game/day/safe-points.md", "game/day/time-architecture.md", "game/day/time.md", "game/day/update-and-presentation-boundaries.md", "game/interface/frame-lifecycle.md", "game/interface/main-menu.md", "game/program/architecture.md"] }
 "0x7584a2" = { kind = "code", notes = ["game/day/time.md"] }
 "0x7584f9" = { kind = "code", notes = ["game/day/time.md"] }
 "0x758aef" = { kind = "code", notes = ["game/day/time.md"] }
@@ -1957,10 +1957,13 @@
 "0x768e20" = { kind = "function", notes = ["game/countries/defeat.md", "game/interface/main-menu.md"] }
 "0x7697f8" = { kind = "code", notes = ["game/military/leaders.md"] }
 "0x769bd0" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
-"0x769ea0" = { kind = "function", name = "the check for a frame inside a day", notes = ["game/day/frame-and-idlers.md", "game/day/frame-scheduling.md", "game/day/monthly-update.md", "game/interface/frame-lifecycle.md"] }
+"0x769ea0" = { kind = "function", name = "the check for a frame inside a day", notes = ["game/day/frame-and-idlers.md", "game/day/frame-scheduling.md", "game/day/monthly-update.md", "game/day/safe-points.md", "game/interface/frame-lifecycle.md"] }
 "0x769f24" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
+"0x769fad" = { kind = "code", notes = ["game/day/safe-points.md"] }
 "0x769fb7" = { kind = "code", notes = ["game/provinces/reformation-centers.md"] }
-"0x76a1b0" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
+"0x769fd7" = { kind = "code", notes = ["game/day/safe-points.md"] }
+"0x76a1b0" = { kind = "code", notes = ["game/day/safe-points.md", "game/interface/frame-lifecycle.md"] }
+"0x76a1b7" = { kind = "code", notes = ["game/day/safe-points.md"] }
 "0x76a20a" = { kind = "code", notes = ["game/day/frame-scheduling.md"] }
 "0x76c1a0" = { kind = "function", notes = ["game/day/monthly-update.md"] }
 "0x76d260" = { kind = "function", notes = ["game/interface/main-menu.md"] }
@@ -2164,11 +2167,13 @@
 "0x813ac5" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x813c56" = { kind = "code", notes = ["game/military/recruiting.md"] }
 "0x813f8e" = { kind = "code", notes = ["game/military/recruiting.md"] }
+"0x813f95" = { kind = "code", notes = ["game/day/safe-points.md"] }
 "0x813fb5" = { kind = "code", notes = ["game/day/time-architecture.md", "game/interface/frame-lifecycle.md"] }
 "0x813fba" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x814012" = { kind = "code", notes = ["game/military/recruiting.md"] }
 "0x8141d0" = { kind = "code", notes = ["game/diplomacy/questions-and-offers.md"] }
 "0x814364" = { kind = "code", notes = ["game/diplomacy/questions-and-offers.md"] }
+"0x814374" = { kind = "code", notes = ["game/day/safe-points.md"] }
 "0x8143b5" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x8143eb" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x8147f5" = { kind = "code", name = "message window popup", notes = ["game/interface/main-menu.md"] }
@@ -2192,7 +2197,9 @@
 "0x815949" = { kind = "code", name = "the tooltips updated after the drawing", notes = ["game/interface/frame-lifecycle.md", "game/interface/window-input-refresh.md"] }
 "0x815bce" = { kind = "code", notes = ["game/interface/extension-windows.md"] }
 "0x815c9f" = { kind = "code", name = "return to main menu", notes = ["game/interface/main-menu.md"] }
+"0x815ca9" = { kind = "code", notes = ["game/day/safe-points.md"] }
 "0x815cf3" = { kind = "code", notes = ["game/interface/main-menu.md"] }
+"0x815d23" = { kind = "code", notes = ["game/day/safe-points.md"] }
 "0x815d5c" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x815d72" = { kind = "code", notes = ["game/interface/extension-windows.md"] }
 "0x816357" = { kind = "code", name = "war enthusiasm icon set, high", notes = ["game/interface/frame-lifecycle.md"] }
@@ -4895,12 +4902,13 @@
 "0x14c02d6" = { kind = "code", notes = ["game/program/headless.md"] }
 "0x14c2500" = { kind = "leaf", name = "restart", notes = ["game/day/frame-and-idlers.md", "game/interface/main-menu.md"] }
 "0x14c2530" = { kind = "function", name = "idler switch", notes = ["game/interface/main-menu.md", "game/interface/window-construction.md"] }
-"0x14c25a0" = { kind = "function", name = "the application's frame", notes = ["game/day/frame-and-idlers.md", "game/day/frame-scheduling.md", "game/day/time.md", "game/interface/frame-lifecycle.md", "game/interface/main-menu.md", "game/interface/window-activation.md", "game/interface/window-construction.md", "game/program/headless.md"] }
+"0x14c25a0" = { kind = "function", name = "the application's frame", notes = ["game/day/frame-and-idlers.md", "game/day/frame-scheduling.md", "game/day/safe-points.md", "game/day/time.md", "game/interface/frame-lifecycle.md", "game/interface/main-menu.md", "game/interface/window-activation.md", "game/interface/window-construction.md", "game/program/headless.md"] }
 "0x14c267c" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x14c2692" = { kind = "code", notes = ["game/program/headless.md"] }
 "0x14c26b3" = { kind = "code", notes = ["game/program/headless.md"] }
 "0x14c26e7" = { kind = "code", notes = ["game/program/headless.md"] }
 "0x14c2730" = { kind = "code", notes = ["game/interface/rendering-architecture.md"] }
+"0x14c2811" = { kind = "code", notes = ["game/day/safe-points.md"] }
 "0x14c2815" = { kind = "code", notes = ["game/interface/window-activation.md"] }
 "0x14c2818" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x14c282f" = { kind = "code", notes = ["game/interface/main-menu.md"] }

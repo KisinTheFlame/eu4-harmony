@@ -444,6 +444,13 @@ pub(crate) fn game_frame(m: &Memory) -> bool {
     COURSE.game_frame(&mut InGame::new(m))
 }
 
+/// A daily update just finished (`game::signals`): resets the stillness count
+/// so leaving the session waits for the day's queued commands to run even if
+/// the day's end paused the game.
+pub(super) fn day_ran() {
+    COURSE.day_ran();
+}
+
 /// Starts a new game as the country `letters` from the main menu, at the
 /// main menu's next frame; [`launch`] says what came of it. Refused for a
 /// country with no land at the start date, which the single player setup

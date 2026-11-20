@@ -27,7 +27,21 @@ use crate::{
 use eu4_harmony_remote::signals::Kind;
 use std::cell::RefCell;
 use std::collections::BTreeSet;
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicU32, Ordering},
+    Mutex,
+};
+
+/// Nesting depth of `CWorld::DailyUpdate` (`0x758430`) on the main thread.
+/// While nonzero, `0x769ea0` may call `APP_FRAME(app, 0)` -> `MANAGER_FRAME(idler, 0)`
+/// as a nested frame inside the day while the old `CWorld` is still live on the
+/// stack (docs/game/day/safe-points.md).
+static DAILY_DEPTH: AtomicU32 = AtomicU32::new(0);
+
+/// Whether the game's daily update (`0x758430`) is currently on the call stack.
+pub fn in_day() -> bool {
+    DAILY_DEPTH.load(Ordering::Acquire) != 0
+}
 
 const MANAGER_FRAME: usize = 0x8137c0;
 const FOW_REFRESH: usize = 0x8275e0;
@@ -194,6 +208,7 @@ fn visibility_before(_: &mut Call) {
 }
 
 fn daily_before(call: &mut Call) {
+    DAILY_DEPTH.fetch_add(1, Ordering::AcqRel);
     boundary(Boundary::invalidate);
     crate::drawing::day_begins();
     crate::dev::day_begins(call);
@@ -202,8 +217,10 @@ fn daily_before(call: &mut Call) {
 /// The day is over: time stops here when remote control advances it to this
 /// date (`time`).
 fn daily_after(call: &mut Call) {
+    DAILY_DEPTH.fetch_update(Ordering::AcqRel, Ordering::Acquire, |d| Some(d.saturating_sub(1))).ok();
     crate::dev::day_ends(call);
     crate::drawing::day_ends();
+    super::menu::day_ran();
     if !call.faulted() {
         super::time::day_passed(&call.memory());
     }
@@ -407,8 +424,17 @@ fn battle(m: &Memory, combat: usize, attacker_won: bool) -> Result<Option<Battle
     }))
 }
 
+/// Whether a returning `MANAGER_FRAME(idler, is_normal)` call is a safe point.
+/// Nested frames rendered inside a daily update (`0x769ea0` -> `0x14c25a0(app, 0)`
+/// -> `0x8137c0(idler, 0)`) pass `is_normal = false` while `CWorld::DailyUpdate`
+/// is still on the stack, and must not run extensions, remote control or loads
+/// (docs/game/day/safe-points.md).
+fn should_run_game_frame(faulted: bool, normal: bool, in_day: bool) -> bool {
+    !faulted && normal && !in_day
+}
+
 fn manager_after(call: &mut Call) {
-    if !call.faulted() {
+    if should_run_game_frame(call.faulted(), call.arg_as::<bool>(1), in_day()) {
         crate::safe_point::game_frame();
     }
 }
@@ -438,6 +464,12 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x403246usize, "4d 8b 50 10 49 c1 ea 20", "battle side country tag").uses(&[ENTRY_TAG]),
         Point::keep(0x22b82ausize, "41 01 5f 1c", "battle side losses").uses(&[SIDE_LOSSES]),
         Point::observe(MANAGER_FRAME, "48 8b c4 88 50 10 55 53 56 57 41 54 41 55 41 56", "map manager frame", 2, None, Some(manager_after)),
+        // Nested frame inside a daily update: `0x769ea0` passes `is_normal = 0`
+        // to `APP_FRAME` (`0x14c25a0`), which forwards it to `MANAGER_FRAME`,
+        // where the game itself skips session updates and leaving the session.
+        Point::keep(0x769fadusize, "33 d2 48 8b cf e8 e9 85 d5 00", "nested frame inside a day calls application frame with is_normal=0"),
+        Point::keep(0x14c2811usize, "41 0f b6 d6 ff 50 20", "application frame forwards is_normal to idler frame"),
+        Point::keep(0x815ca9usize, "45 84 e4 74 6b", "map manager skips return to main menu when is_normal is 0"),
     ]
 }
 
@@ -504,5 +536,17 @@ mod tests {
         // A route that could not be read counts as changed.
         assert!(route_changed(None, Some(&route)));
         assert!(route_changed(Some(&route), None));
+    }
+
+    #[test]
+    fn only_a_normal_frame_outside_a_daily_update_is_a_safe_point() {
+        assert!(should_run_game_frame(false, true, false));
+        // Nested frame inside a day (`is_normal = 0`): never a safe point.
+        assert!(!should_run_game_frame(false, false, false));
+        assert!(!should_run_game_frame(false, false, true));
+        // Defense in depth: even with `is_normal = true`, never while a day runs.
+        assert!(!should_run_game_frame(false, true, true));
+        // Faulted frame: never a safe point.
+        assert!(!should_run_game_frame(true, true, false));
     }
 }
