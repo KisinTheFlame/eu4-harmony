@@ -1,0 +1,65 @@
+release = "v1"
+url = "https://github.com/KisinTheFlame/eu4-harmony-test-saves/releases/download/v1"
+
+[[save]]
+name = "test-regular-1444"
+file = "test-regular-1444.eu4"
+asset = "test-regular-1444.eu4"
+kind = "short"
+sha256 = "1239d9e13234171551499b52ebd9d8990f0e9d07e47efc10e30eeaf228a934f3"
+
+[[save]]
+name = "test-中文-1444"
+file = "test-中文-1444.eu4"
+asset = "test-utf8-1444.eu4"
+kind = "short"
+sha256 = "70d03aece11fee267415a2b8c5e6ad5c9c08f68d7630845d9b74e4dd2e20e302"
+
+[[save]]
+name = "test-ironman-1444"
+file = "test-ironman-1444.eu4"
+asset = "test-ironman-1444.eu4"
+kind = "short"
+sha256 = "f36584dbdc209c57d8b9513eb6abe616c9c8efd9ecda2bc1e93fdf7e18e7bbb1"
+
+[[save]]
+name = "observer-1600.1.1"
+file = "observer-1600.1.1.eu4"
+asset = "observer-1600.1.1.eu4"
+kind = "late"
+sha256 = "6984844afcf9eea605fb6d8e3b343ba2da1c1f7f8f09e7cc13b492832ada2d56"
+
+[[save]]
+name = "observer-1700.1.1"
+file = "observer-1700.1.1.eu4"
+asset = "observer-1700.1.1.eu4"
+kind = "late"
+sha256 = "973e577670bcd3f4b784b7354326ba5e39562931890f207a6cb5f422964555ff"
+
+[[save]]
+name = "observer-1760.7.1"
+file = "observer-1760.7.1.eu4"
+asset = "observer-1760.7.1.eu4"
+kind = "late"
+sha256 = "ae5f38bcd08ac3da74f8681e0db7969bb3906a82e0255e97dd9730899c6e6765"
+
+[[save]]
+name = "observer-1780.7.1"
+file = "observer-1780.7.1.eu4"
+asset = "observer-1780.7.1.eu4"
+kind = "late"
+sha256 = "b1734b612c26de3f6ed047eb68c95df1f5ae5167f05db5032a507b397056a928"
+
+[[save]]
+name = "observer-1800.7.1"
+file = "observer-1800.7.1.eu4"
+asset = "observer-1800.7.1.eu4"
+kind = "late"
+sha256 = "e12c17078e9889a06f77d29ade1584f4f191e34ca101c795dbe56a39499ab8d4"
+
+[[save]]
+name = "observer-1820.7.1"
+file = "observer-1820.7.1.eu4"
+asset = "observer-1820.7.1.eu4"
+kind = "late"
+sha256 = "c591aeee735b4f23f416b3d28781002408b6e776da106d084b74107f699b2b8e"

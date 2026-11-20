@@ -451,10 +451,7 @@ fn steamcmd() -> Result<PathBuf> {
         let path = PathBuf::from(path);
         return path.is_file().then_some(path.clone()).ok_or_else(|| format!("STEAMCMD names {}, which does not exist", path.display()));
     }
-    let dev = std::env::var_os("EU4_HARMONY_DEV_DIR")
-        .filter(|d| !d.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("eu4-harmony-dev")));
+    let dev = crate::dev_dir_path().ok();
     std::env::var_os("PATH")
         .into_iter()
         .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())

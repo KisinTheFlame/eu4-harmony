@@ -2,7 +2,7 @@
 //! did to it, in order, with a clock that moves only when the claim waits.
 //! The claim's course and the scenario runner's game are tested over it.
 use super::course::Starting;
-use super::machine::Machine;
+use super::machine::{Machine, ProxyStatus};
 use super::record::{Claim, GameEnd, Process, State};
 use crate::Result;
 use eu4_harmony_client::start::{Ended, Failed, Start};
@@ -41,7 +41,7 @@ pub(crate) struct Recorded {
     pub(crate) did: Mutex<Vec<Did>>,
     pub(crate) now: Mutex<u64>,
     pub(crate) serving: Mutex<Vec<(String, u32)>>,
-    pub(crate) proxy: bool,
+    pub(crate) proxy: ProxyStatus,
     pub(crate) fail_folder: bool,
     pub(crate) said: Mutex<Vec<String>>,
     /// How the claim's games ended, as its record has it.
@@ -59,7 +59,7 @@ impl Recorded {
             did: Mutex::new(Vec::new()),
             now: Mutex::new(1000),
             serving: Mutex::new(Vec::new()),
-            proxy: true,
+            proxy: ProxyStatus::Ready,
             fail_folder: false,
             said: Mutex::new(Vec::new()),
             ended: Mutex::new(Vec::new()),
@@ -130,17 +130,17 @@ impl Machine for Recorded {
         self.push(Did::End(id));
         Ok(())
     }
-    fn proxy_loads_cores(&self, _: &Path) -> bool {
+    fn proxy_status(&self, _: &Path) -> ProxyStatus {
         self.proxy
     }
-    fn make_folder(&self, folder: &Path, _: &Path) -> Result<()> {
+    fn make_folder(&self, folder: &Path) -> Result<()> {
         self.push(Did::MakeFolder(folder.display().to_string()));
         if self.fail_folder {
             return Err("the disk is full".into());
         }
         Ok(())
     }
-    fn prepare_start(&self, folder: &Path, _: &Path, _: &Starting) -> Result<PathBuf> {
+    fn prepare_start(&self, folder: &Path, _: &Starting) -> Result<PathBuf> {
         self.push(Did::Prepare);
         Ok(folder.join("core").join("eu4_harmony_core.dll"))
     }

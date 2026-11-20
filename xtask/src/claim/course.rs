@@ -6,7 +6,7 @@
 //! giving it back (docs/dev-tools.md#test-games). It reaches the computer only through
 //! [`Machine`], so that the order of its writes of the record against what
 //! it does to the games and the folders is what the tests below follow.
-use super::machine::{Machine, StartedGame};
+use super::machine::{Machine, ProxyStatus, StartedGame};
 use super::record::{self, Claim, Found, GameEnd, Process, Seen, State, AT_ONCE};
 use crate::Result;
 use eu4_harmony_client::start::{Start, TestGame};
@@ -30,7 +30,7 @@ pub enum Claimed {
 pub struct Starting {
     pub sound: bool,
     pub seed: Option<u32>,
-    /// The saves to copy from the player's into the test game's user folder.
+    /// The saves to copy (explicit paths or names from `%LOCALAPPDATA%\eu4-harmony-dev\saves\`) into the test game's user folder.
     pub saves: Vec<String>,
     /// The developer tools' options to start the core with, in place of this
     /// checkout's `dev.toml`.
@@ -89,11 +89,20 @@ pub fn ends_of<M: Machine>(m: &M, owner: &str) -> Vec<GameEnd> {
 /// the process making it, then the folder is made, and only then is the
 /// claim ready. It holds the test game until it is released.
 pub fn claim<M: Machine>(m: &M, owner: &str, purpose: &str, game_dir: &Path) -> Result<Claimed> {
-    if !m.proxy_loads_cores(game_dir) {
-        return Err(format!(
-            "the framework's proxy in {} cannot load a test game's core: install a build from test games on (cargo xtask install, with no game running)",
-            game_dir.display()
-        ));
+    match m.proxy_status(game_dir) {
+        ProxyStatus::Ready => {}
+        ProxyStatus::Missing => {
+            return Err(format!(
+                "Harmony's proxy version.dll is not installed in {}: run `cargo build --release` and `cargo xtask install` with the game closed first",
+                game_dir.display()
+            ));
+        }
+        ProxyStatus::Outdated => {
+            return Err(format!(
+                "the framework's proxy in {} cannot load a test game's core: run `cargo xtask install` with the game closed to update it",
+                game_dir.display()
+            ));
+        }
     }
     let claims = m.claims()?;
     let seen = seen(m);
@@ -127,14 +136,14 @@ pub fn claim<M: Machine>(m: &M, owner: &str, purpose: &str, game_dir: &Path) -> 
             Ok(Claimed::Already)
         }
         Found::BeingMade(why) => Err(why),
-        Found::Free => make(m, owner, &folder, game_dir),
+        Found::Free => make(m, owner, &folder),
     }
 }
 
 /// Makes the claim's folder and marks the claim ready; a folder that cannot
 /// be made gives the test game back.
-fn make<M: Machine>(m: &M, owner: &str, folder: &Path, game_dir: &Path) -> Result<Claimed> {
-    if let Err(e) = m.make_folder(folder, game_dir) {
+fn make<M: Machine>(m: &M, owner: &str, folder: &Path) -> Result<Claimed> {
+    if let Err(e) = m.make_folder(folder) {
         let _ = m.remove_folder(folder);
         m.locked(|s| s.claims.retain(|c| c.owner != owner))?;
         return Err(format!("the test game's folder could not be made, so it is not claimed: {e}"));
@@ -219,7 +228,7 @@ pub fn start_game<M: Machine>(m: &M, owner: &str, game_dir: &Path, starting: &St
 /// Starts the claim's test game, which has a place to run in.
 fn start_in_place<M: Machine>(m: &M, owner: &str, claim: &Claim, game_dir: &Path, starting: &Starting, wait: Duration) -> Result<f64> {
     let folder = Path::new(&claim.folder);
-    let core = m.prepare_start(folder, game_dir, starting)?;
+    let core = m.prepare_start(folder, starting)?;
     let user = user_dir(claim);
     let log = user.join("eu4-harmony").join("logs").join("core.log");
     let test_game = TestGame { name: owner.to_string(), user_dir: user, core };
@@ -419,13 +428,17 @@ mod tests {
         assert!(m.did().contains(&Did::RemoveFolder("C:\\claims\\a-1000".into())));
     }
 
-    /// No claim while the game folder's proxy cannot load a test game's
-    /// core.
+    /// No claim while the game folder's proxy is missing or cannot load a test
+    /// game's core.
     #[test]
-    fn a_proxy_from_before_test_games_is_refused() {
+    fn a_missing_or_outdated_proxy_is_refused() {
         let mut m = Recorded::new(State::default());
-        m.proxy = false;
-        assert!(claim(&m, "a", "", game_dir()).unwrap_err().contains("cargo xtask install"));
+        m.proxy = ProxyStatus::Missing;
+        let err = claim(&m, "a", "", game_dir()).unwrap_err();
+        assert!(err.contains("version.dll is not installed") && err.contains("cargo xtask install"), "{err}");
+        m.proxy = ProxyStatus::Outdated;
+        let err = claim(&m, "a", "", game_dir()).unwrap_err();
+        assert!(err.contains("cannot load a test game's core") && err.contains("cargo xtask install"), "{err}");
         assert_eq!(m.did(), []);
     }
 

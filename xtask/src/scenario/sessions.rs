@@ -51,9 +51,9 @@ impl Scenario for Sessions {
         &[
             Parameter { name: "rounds", default: "10", about: "rounds of every way in and out" },
             Parameter { name: "country", default: "FRA", about: "the country of each round's new game, and the one put in view in observe mode" },
-            Parameter { name: "first_save", default: "England-1", about: "the save each round loads first" },
-            Parameter { name: "second_save", default: "英格兰1444_11_11", about: "the save each round loads from the first one's game" },
-            Parameter { name: "ironman_save", default: "Castilla-5", about: "an ironman save, loaded each round" },
+            Parameter { name: "first_save", default: "test-regular-1444", about: "the save each round loads first" },
+            Parameter { name: "second_save", default: "test-中文-1444", about: "the save each round loads from the first one's game" },
+            Parameter { name: "ironman_save", default: "test-ironman-1444", about: "an ironman save, loaded each round" },
         ]
     }
 
@@ -65,7 +65,7 @@ impl Scenario for Sessions {
         let rounds = parameters.number("rounds")?;
         let country = parameters.text("country");
         let tag = CountryTag::parse(&country).ok_or_else(|| Stop::Failed(format!("no country tag {country:?}")))?;
-        let [first, second, ironman] = ["first_save", "second_save", "ironman_save"].map(|p| parameters.text(p));
+        let [first, second, ironman] = ["first_save", "second_save", "ironman_save"].map(|p| crate::saves::save_name(&parameters.text(p)));
         let there: Vec<Save> = game.ask(&MenuRequest::Saves {})?;
         for save in [&first, &second, &ironman] {
             game.check(there.iter().any(|s| &s.name == save), format!("no save {save} on this computer"))?;

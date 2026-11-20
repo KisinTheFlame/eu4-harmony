@@ -11,6 +11,7 @@ mod files;
 mod game;
 mod profile;
 mod release;
+mod saves;
 mod scenario;
 mod workshop;
 
@@ -34,17 +35,20 @@ usage:
   cargo xtask game start --owner <name> [--save <name>]... [--visible] [--sound] [--seed <n>] [--timeout <seconds>]
   cargo xtask game stop | release --owner <name>
   cargo xtask game status
-      Claims of test games: games started from the game folder with a user
-      folder, a core and a pipe of their own, any number at once
-      (docs/dev-tools.md#test-games). claim makes the claim's folder, with a user
-      folder made from the player's, and prints it. start copies this
-      checkout's built core, which needs --features
+      Claims of test games: games started from the game folder with a pure,
+      isolated user folder, a core and a pipe of their own, any number at once
+      (docs/dev-tools.md#test-games). claim makes the claim's folder with a
+      clean synthetic user folder (1920x1080 borderless English settings,
+      empty playset, clean framework defaults), and prints it. start copies
+      this checkout's built core, which needs --features
       eu4-harmony-core/dev-test-games, and dev.toml into the test game, and
-      each --save from the player's saves, then starts it hidden
+      each --save (an explicit .eu4 file path, or a save name in
+      %LOCALAPPDATA%\\eu4-harmony-dev\\saves\\), then starts it hidden
       and without sound and waits for its main menu, ending a start that
       does not get there; --visible shows its window there, --sound keeps
-      its sound, --seed passes the game its own -seed=<n>. Its pipe is the
-      owner's: eu4-harmony game --test-game <owner>, or
+      its sound, --seed passes the game its own -seed=<n>, and each --mod
+      <folder> enables a test mod. Its pipe is the owner's:
+      eu4-harmony game --test-game <owner>, or
       EU4_HARMONY_TEST_GAME. stop ends it. release ends it, keeps its logs
       and crash folders in the claim's kept\\ and removes the rest; a claim
       holds its test game until then. status lists the test games and the
@@ -138,12 +142,20 @@ usage:
       --wait waits for eu4.exe to start: for the game's startup or a load.
       --tree prints a .folded file's stacks as a call tree, or the tree
       below one frame, such as a stretch's.
+  cargo xtask saves fetch [--force] [--only short|late]
+  cargo xtask saves verify [--print-hashes]
+  cargo xtask saves generate (--short | --late | --all) --owner <name> [--out <dir>] [--game-dir <dir>]
+      Manages the shared full-DLC test saves in
+      %LOCALAPPDATA%\\eu4-harmony-dev\\saves\\ (docs/dev-tools.md). fetch downloads
+      and SHA-256 checks them from EU4_HARMONY_SAVES_URL or the release in
+      xtask/saves.toml. verify checks local saves against xtask/saves.toml.
+      generate produces clean, unmodded compressed saves in a test game.
   cargo xtask crash-dump <dump> <log> [--symbols <dir>] <command>...
       Runs debugger commands on a crash dump with Windows' own dbgeng.dll,
       writing their output to <log>, such as !analyze -v, .ecxr, kn 30, r,
       u @rip-0x20 L20 and lmvm eu4_harmony_core. Symbols come from this
       checkout's release build and Microsoft's symbol server, cached in
-      --symbols (C:\\symbols by default).
+      --symbols (%LOCALAPPDATA%\\eu4-harmony-dev\\symbols by default).
 ";
 
 /// Positional arguments and `--key value` / `--flag` options.
@@ -231,6 +243,30 @@ fn built_package() -> PathBuf {
     built().with_file_name(files::PACKAGE_PROFILE)
 }
 
+/// The development folder path: `EU4_HARMONY_DEV_DIR` when non-empty, else
+/// `%LOCALAPPDATA%\eu4-harmony-dev`. Does not create the directory.
+pub(crate) fn dev_dir_path() -> Result<PathBuf> {
+    match std::env::var_os("EU4_HARMONY_DEV_DIR").filter(|d| !d.is_empty()) {
+        Some(dir) => Ok(PathBuf::from(dir.to_string_lossy().replace('/', "\\"))),
+        None => Ok(PathBuf::from(std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA is not set")?).join("eu4-harmony-dev")),
+    }
+}
+
+/// The development folder, created when missing.
+pub(crate) fn dev_dir() -> Result<PathBuf> {
+    let base = dev_dir_path()?;
+    std::fs::create_dir_all(&base).map_err(|e| format!("cannot make {}: {e}", base.display()))?;
+    Ok(base)
+}
+
+/// Default symbol cache directory under the development folder, created when
+/// missing.
+pub(crate) fn symbols_dir() -> Result<PathBuf> {
+    let dir = dev_dir()?.join("symbols");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot make {}: {e}", dir.display()))?;
+    Ok(dir)
+}
+
 /// Cargo, run from the repository: the one running this command.
 fn cargo() -> std::process::Command {
     let mut cargo = std::process::Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
@@ -280,6 +316,7 @@ fn main() {
 {USAGE}"
             )),
         }),
+        Some("saves") => saves::run(rest),
         Some("scenario") => scenario::run(rest),
         Some("profile") => Args::parse(rest, &["tree", "wait", "threads"], &["seconds", "hz", "slice", "root", "depth", "min", "waiting-in", "test-game"])
             .and_then(|a| profile::run(&a)),

@@ -66,8 +66,8 @@ const ROUNDS: [Parameter; 5] = [
     Parameter { name: "rounds", default: "10", about: "rounds of sessions" },
     Parameter { name: "days", default: "30", about: "days a round's first game runs; its other two a third of them" },
     Parameter { name: "country", default: "FRA", about: "the country of each round's new game" },
-    Parameter { name: "first_save", default: "England-1", about: "the save each round loads first, as menu.saves names it" },
-    Parameter { name: "second_save", default: "英格兰1444_11_11", about: "the save each round loads from the first one's game" },
+    Parameter { name: "first_save", default: "test-regular-1444", about: "the save each round loads first, as menu.saves names it" },
+    Parameter { name: "second_save", default: "test-中文-1444", about: "the save each round loads from the first one's game" },
 ];
 
 impl Scenario for Leak {
@@ -132,7 +132,7 @@ impl Scenario for Leak {
         let days = parameters.number("days")?;
         let country = parameters.text("country");
         let tag = CountryTag::parse(&country).ok_or_else(|| super::Stop::Failed(format!("no country tag {country:?}")))?;
-        let saves = [parameters.text("first_save"), parameters.text("second_save")];
+        let saves = [crate::saves::save_name(&parameters.text("first_save")), crate::saves::save_name(&parameters.text("second_save"))];
         let (sites, watch, watch_sites, watch_after, quarantine) = if self.census {
             (
                 Some(parameters.number("sites")?),

@@ -175,8 +175,9 @@ pub fn start_game_as(owner: &str, game_dir: &Path, starting: &Starting, wait: Du
 /// for its main menu; with `--visible` shows it there, as `desktop.show`
 /// shows it. The start is a hidden start either way, so that `--sound`
 /// chooses the sound and the game can be hidden again. `--seed` starts it
-/// with the game's own `-seed`; each `--save` copies a save of the player's
-/// into the test game's user folder first, and each `--mod` puts a mod's
+/// with the game's own `-seed`; each `--save` copies a save (explicit path
+/// or name in `%LOCALAPPDATA%\eu4-harmony-dev\saves\`) into the test game's
+/// user folder first, and each `--mod` puts a mod's
 /// folder in its playset, as a scenario's test mods are.
 fn start(args: &Args) -> Result<f64> {
     let wait = args
