@@ -207,6 +207,13 @@ pub fn game_frame() {
 /// Just before the main thread presents a frame.
 pub fn presented() {
     crate::log::poll();
+    // Nested frames rendered inside a daily update (`0x769ea0` ->
+    // `0x14c25a0(app, 0)`) leave `CWorld::DailyUpdate` live on the stack:
+    // wait for the enclosing normal frame instead of running remote requests
+    // or flipping `sessions::at` mid-day.
+    if game::signals::in_day() {
+        return;
+    }
     let frontend = MAIN_MENU.swap(0, Ordering::Relaxed);
     let Some(m) = crate::memory() else { return };
     if GAME_FRAME.swap(false, Ordering::Relaxed) {

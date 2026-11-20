@@ -261,6 +261,10 @@ pub(super) fn save_failed() {
 unsafe extern "C" fn in_game_load(request: usize) -> u32 {
     let Some(m) = crate::memory().copied() else { return ORIGINAL.get()(request) };
     crate::guarded("in-game load", || {
+        if crate::game::signals::in_day() {
+            log!("leave: refused an in-game load while a daily update is on the stack");
+            return 1;
+        }
         crate::framework_ui::still("EU4HARMONY_STILL_LOAD");
         COURSE.in_game_load(&mut InGame { request, ..InGame::new(&m) })
     })

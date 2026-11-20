@@ -316,6 +316,8 @@ struct State {
     load_held: bool,
     /// The game frames in a row the game was still at.
     still: u32,
+    /// A daily update ran since the last game frame.
+    day_ran: bool,
 }
 
 /// The game frames in a row a session must be still at, paused with no day
@@ -385,8 +387,19 @@ impl Course {
             stopped: None,
             return_held: false,
             load_held: false,
-            still: 0,
+            still: STILL_FRAMES,
+            day_ran: false,
         }))
+    }
+
+    /// A daily update just finished: its queued commands (the AI's among them)
+    /// execute at the next frame's session update, so the session is not still
+    /// yet even if the day's end paused the game (as an advance does).
+    pub fn day_ran(&self) {
+        self.with(|s| {
+            s.still = 0;
+            s.day_ran = true;
+        });
     }
 
     fn with<T>(&self, f: impl FnOnce(&mut State) -> T) -> T {
@@ -418,13 +431,17 @@ impl Course {
         Ok(self.ask(Action::Start(letters)))
     }
 
-    /// Asks the map manager for a return now when time does not run, or
-    /// pauses the game and asks for it once it was still for
-    /// [`STILL_FRAMES`] game frames ([`Course::game_frame`]).
+    /// Asks the map manager for a return now when the session has been still
+    /// for [`STILL_FRAMES`] frames, or pauses the game and asks for it once it
+    /// has ([`Course::game_frame`]).
     fn leave_when_still(&self, game: &mut impl Game) -> GResult<()> {
         if game.pause()? {
             log!("menu: time ran: paused, the session is left once it is still");
             self.with(|s| (s.return_held, s.still) = (true, 0));
+            Ok(())
+        } else if self.with(|s| s.still < STILL_FRAMES || s.day_ran) {
+            log!("menu: a day just ran: the session is left once it is still");
+            self.with(|s| s.return_held = true);
             Ok(())
         } else {
             game.ask_return()
@@ -523,7 +540,8 @@ impl Course {
     pub fn game_frame(&self, game: &mut impl Game) -> bool {
         let still = game.still();
         let (held, still) = self.with(|s| {
-            s.still = if still { s.still + 1 } else { 0 };
+            let day_ran = std::mem::take(&mut s.day_ran);
+            s.still = if still && !day_ran { s.still.saturating_add(1) } else { 0 };
             (s.return_held, s.still >= STILL_FRAMES)
         });
         if held && still {
@@ -532,8 +550,8 @@ impl Course {
                 log!("menu: the return held until the session was still could not be asked for: {}", why.message);
             }
         }
-        // An in-game load asked while time ran waits for the session to be
-        // still too.
+        // An in-game load asked while time ran, or right after a day paused
+        // the session, waits for the session to be still too.
         if self.loading_in_game() {
             match game.pause() {
                 Ok(true) => {
@@ -541,7 +559,12 @@ impl Course {
                     self.with(|s| (s.load_held, s.still) = (true, 0));
                     return false;
                 }
-                Ok(false) if self.with(|s| s.load_held) && !still => return false,
+                Ok(false) if !still => {
+                    if !self.with(|s| std::mem::replace(&mut s.load_held, true)) {
+                        log!("menu: a day just ran: the save is loaded once the session is still");
+                    }
+                    return false;
+                }
                 Ok(false) => self.with(|s| s.load_held = false),
                 Err(why) => log!("menu: the in-game load could not pause the session: {}", why.message),
             }
@@ -1353,6 +1376,40 @@ mod tests {
         }
         assert!(course.game_frame(&mut game));
         assert_eq!(game.did[0], Did::LoadInGame("Aragon".into()));
+    }
+
+    #[test]
+    fn leaving_right_after_a_day_paused_the_game_still_waits_for_still_frames() {
+        // A day's end paused the game (as `time.advance` does): the session is
+        // already paused when `menu.load` or `menu.return` arrives, yet the
+        // day's queued commands still need STILL_FRAMES clean frames to drain.
+        let course = Course::new();
+        let mut game = Recorded::in_game(&course);
+        course.day_ran();
+        // The frame the day ran in resets stillness even though the game is now paused.
+        assert!(!course.game_frame(&mut game));
+        course.ask(Action::LoadInGame("Aragon".into()));
+        for _ in 1..STILL_FRAMES {
+            assert!(!course.game_frame(&mut game));
+            assert!(game.did.is_empty());
+        }
+        assert!(course.game_frame(&mut game));
+        assert_eq!(game.did[0], Did::LoadInGame("Aragon".into()));
+
+        // Same for a return requested right after a day paused the game.
+        let course = Course::new();
+        let mut game = Recorded::in_game(&course);
+        course.day_ran();
+        let _number = course.return_to_main_menu(&mut game).unwrap().unwrap();
+        assert!(game.did.is_empty(), "held until the day's frame and STILL_FRAMES pass");
+        // The frame the day ran in does not count as still.
+        assert!(!course.game_frame(&mut game));
+        for _ in 1..STILL_FRAMES {
+            assert!(!course.game_frame(&mut game));
+            assert!(game.did.is_empty());
+        }
+        course.game_frame(&mut game);
+        assert_eq!(game.did, [Did::AskReturn]);
     }
 
     #[test]
