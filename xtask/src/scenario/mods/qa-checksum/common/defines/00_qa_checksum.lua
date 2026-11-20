@@ -1,0 +1,1 @@
+-- QA test mod: changes the game checksum without altering rules.

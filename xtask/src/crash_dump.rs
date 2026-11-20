@@ -16,15 +16,15 @@ pub fn run(raw: &[String]) -> Result<()> {
     let usage = "usage: cargo xtask crash-dump <dump> <log> [--symbols <dir>] <command>...";
     let [dump, log, rest @ ..] = raw else { return Err(usage.into()) };
     let (symbols, commands) = match rest {
-        [flag, dir, commands @ ..] if flag == "--symbols" => (dir.as_str(), commands),
-        commands => ("C:\\symbols", commands),
+        [flag, dir, commands @ ..] if flag == "--symbols" => (dir.to_string(), commands),
+        commands => (crate::symbols_dir()?.display().to_string(), commands),
     };
     if commands.is_empty() {
         return Err(usage.into());
     }
     // The release build's symbols, or the player package's, whichever the
     // dump's core was built as: the debugger takes the ones that match it.
-    read(dump, log, &[built(), built_package()], symbols, commands)
+    read(dump, log, &[built(), built_package()], &symbols, commands)
 }
 
 /// Runs `commands` on the crash dump `dump`, writing their output to `log`,

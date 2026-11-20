@@ -21,7 +21,7 @@ mod sessions;
 mod sweep;
 mod windows;
 
-pub use game::{Game, Played, Stop};
+pub use game::{days_between, Game, Played, Stop};
 
 use crate::{
     claim::{self, GameEnd},
@@ -251,6 +251,18 @@ fn expanded(names: &[String]) -> Vec<String> {
         .collect()
 }
 
+fn missing_saves(playing: &[(&dyn Scenario, Parameters)], saves_dir: &Path) -> Vec<String> {
+    let mut missing = Vec::new();
+    for (scenario, parameters) in playing {
+        for save in scenario.saves(parameters) {
+            if let Err(err) = crate::saves::resolve_save(&save, saves_dir) {
+                missing.push(format!("{}: {err}", scenario.name()));
+            }
+        }
+    }
+    missing
+}
+
 /// How long a scenario that plays alone waits for other sessions' games to
 /// end before it plays beside them.
 const ALONE_WAIT: Duration = Duration::from_secs(20 * 60);
@@ -331,6 +343,13 @@ pub fn run(raw: &[String]) -> Result<()> {
     if let Some((name, parameter, _)) = asked.parameters.iter().find(|(name, _, _)| !names.contains(name)) {
         return Err(format!("--{name}.{parameter} is for a scenario this run does not play"));
     }
+    let missing = missing_saves(&playing, &crate::saves::saves_dir()?);
+    if !missing.is_empty() {
+        return Err(format!(
+            "missing required test saves:\n  {}\nrun `cargo xtask saves fetch` or override the save parameters with explicit file paths",
+            missing.join("\n  ")
+        ));
+    }
     let game_dir = match &asked.game_dir {
         Some(dir) => dir.clone(),
         None => crate::game::dir()?,
@@ -367,10 +386,11 @@ pub fn interrupted() -> bool {
 /// Catches Ctrl-C and Ctrl-Break while it lives: the first sets
 /// [`INTERRUPTED`]; another ends the runner at once, as without it, leaving
 /// the claim to run out.
-struct Interrupts;
+pub(crate) struct Interrupts;
 
 impl Interrupts {
-    fn catch() -> Self {
+    pub(crate) fn catch() -> Self {
+        INTERRUPTED.store(false, Ordering::SeqCst);
         unsafe { windows_sys::Win32::System::Console::SetConsoleCtrlHandler(Some(on_ctrl), 1) };
         Self
     }
@@ -661,7 +681,8 @@ fn crash(owner: &str, known: &[String], ended: Option<GameEnd>, build: &Path, lo
     if dump.is_file() {
         let (dump_text, log_text) = (dump.display().to_string(), log.display().to_string());
         let build = build.to_path_buf();
-        let reading = std::thread::spawn(move || crate::crash_dump::read(&dump_text, &log_text, &[build], "C:\\symbols", &[".ecxr".into(), "kn 20".into()]));
+        let symbols = crate::symbols_dir().unwrap_or_else(|_| PathBuf::from("symbols")).display().to_string();
+        let reading = std::thread::spawn(move || crate::crash_dump::read(&dump_text, &log_text, &[build], &symbols, &[".ecxr".into(), "kn 20".into()]));
         let deadline = Instant::now() + READING_A_DUMP;
         while !reading.is_finished() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(500));
@@ -871,5 +892,30 @@ mod tests {
             "{md}"
         );
         assert!(md.contains("Its dump was not read in time."), "{md}");
+    }
+
+    #[test]
+    fn upfront_save_check_flags_missing_saves_and_accepts_resolved_ones() {
+        let dir = std::env::temp_dir().join(format!("eu4h-scenario-saves-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let no_saves = [(find("sweep").unwrap(), Parameters::of(find("sweep").unwrap(), &[]).unwrap())];
+        assert!(missing_saves(&no_saves, &dir).is_empty());
+
+        let sess = find("sessions").unwrap();
+        let sess_params = Parameters::of(sess, &[]).unwrap();
+        let missing = missing_saves(&[(sess, sess_params)], &dir);
+        assert_eq!(missing.len(), 3);
+        assert!(missing.iter().all(|m| m.starts_with("sessions:") && m.contains("cargo xtask saves fetch")));
+
+        let custom = dir.join("custom.eu4");
+        std::fs::write(&custom, b"custom").unwrap();
+        std::fs::write(dir.join("test-中文-1444.eu4"), b"utf8").unwrap();
+        std::fs::write(dir.join("test-ironman-1444.eu4"), b"ironman").unwrap();
+        let overridden = Parameters::of(sess, &[("sessions".into(), "first_save".into(), custom.display().to_string())]).unwrap();
+        assert!(missing_saves(&[(sess, overridden)], &dir).is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

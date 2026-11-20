@@ -13,8 +13,10 @@ eu4-harmony-folders = { path = "../folders" }
 eu4-harmony-logging = { path = "../logging" }
 eu4-harmony-manifest = { path = "../manifest" }
 eu4-harmony-remote = { path = "../remote" }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tokio = { workspace = true }
 # The index of the game's addresses.
 toml = { workspace = true }
 # Formatting the disassembler's instructions; decoding is shared by analysis/.

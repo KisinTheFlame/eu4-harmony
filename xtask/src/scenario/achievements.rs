@@ -1,12 +1,14 @@
-//! `achievements`: an eligible non-ironman game must track achievements,
-//! including after an in-game load. The game's date never advances, so the
-//! scenario does not deliberately unlock an achievement on the platform.
+//! `achievements`: an eligible non-ironman modded game must track
+//! achievements, including after an in-game load, and refuse eligibility when
+//! either `achievements_with_changed_checksum` or `achievements_outside_ironman`
+//! is off. The game's date never advances, so the scenario does not
+//! deliberately unlock an achievement on the platform.
 use super::{Build, Game, Parameter, Parameters, Played, Scenario, Stop};
 use eu4_harmony_remote::{menu::MenuRequest, session::Session, time::TimeRequest, CountryTag};
 use serde_json::{json, Value};
 use std::{
     fs,
-    path::Path,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
@@ -18,7 +20,7 @@ impl Scenario for Achievements {
     }
 
     fn about(&self) -> &'static str {
-        "non-ironman achievement tracking, an in-game load and the setting off"
+        "non-ironman achievement tracking with a checksum-changing mod, an in-game load and both settings off"
     }
 
     fn build(&self, _: &Parameters) -> Build {
@@ -26,11 +28,15 @@ impl Scenario for Achievements {
     }
 
     fn minutes(&self) -> u32 {
-        5
+        6
     }
 
     fn parameters(&self) -> &'static [Parameter] {
         &[]
+    }
+
+    fn mods(&self, _: &Parameters) -> Vec<PathBuf> {
+        vec![crate::repo().join("xtask/src/scenario/mods/qa-checksum")]
     }
 
     fn play(&self, game: &mut Game, _: &Parameters, record: &mut Value) -> Played<()> {
@@ -47,33 +53,53 @@ impl Scenario for Achievements {
         let () = game.ask(&TimeRequest::Pause {})?;
         let before = save(game)?;
         *record = json!({ "before_load": before.json() });
-        game.check(!before.ironman && before.eligible, "the new game is not eligible outside ironman")?;
-        game.check(!before.tracked.is_empty(), "eligible non-ironman game has no tracked achievements")?;
+        game.check(!before.ironman && before.eligible, "the new game is not eligible outside ironman with changed checksum")?;
+        game.check(!before.tracked.is_empty(), "eligible non-ironman modded game has no tracked achievements")?;
 
         let loaded: Session = game.ask(&MenuRequest::Load { save: "autosave".into() })?;
         let () = game.ask(&TimeRequest::Pause {})?;
         game.check(loaded.date == began.date && loaded.player == began.player, "the in-game load changed the game date or player")?;
         let after = save(game)?;
         record["after_load"] = after.json();
-        game.check(!after.ironman && after.eligible, "the in-game load lost non-ironman achievement eligibility")?;
+        game.check(!after.ironman && after.eligible, "the in-game load lost non-ironman modded achievement eligibility")?;
         game.check(after.tracked == before.tracked, "the in-game load changed the tracked achievement list while paused")?;
 
         game.end();
+        setting(&settings, "achievements_with_changed_checksum", "no")?;
+        game.restart()?;
+        let _: Session = game.ask(&MenuRequest::Start { country: Some(country) })?;
+        let () = game.ask(&TimeRequest::Pause {})?;
+        let checksum_off = save(game)?;
+        record["changed_checksum_off"] = checksum_off.json();
+        game.check(
+            !checksum_off.ironman && !checksum_off.eligible,
+            "a modded game earned achievement eligibility with achievements_with_changed_checksum off",
+        )?;
+        game.check(checksum_off.tracked.is_empty(), "a modded game tracked achievements with achievements_with_changed_checksum off")?;
+
+        game.end();
+        setting(&settings, "achievements_with_changed_checksum", "yes")?;
         setting(&settings, "achievements_outside_ironman", "no")?;
         game.restart()?;
         let _: Session = game.ask(&MenuRequest::Start { country: Some(country) })?;
         let () = game.ask(&TimeRequest::Pause {})?;
         let off = save(game)?;
-        record["setting_off"] = off.json();
-        game.check(!off.ironman && !off.eligible, "a non-ironman game earned achievement eligibility with the setting off")?;
-        game.check(off.tracked.is_empty(), "a non-ironman game tracked achievements with the setting off")?;
+        record["outside_ironman_off"] = off.json();
+        game.check(!off.ironman && !off.eligible, "a non-ironman game earned achievement eligibility with achievements_outside_ironman off")?;
+        game.check(off.tracked.is_empty(), "a non-ironman game tracked achievements with achievements_outside_ironman off")?;
         game.return_to_menu()
     }
 
     fn report(&self, record: &Value) -> Vec<String> {
         let mut lines =
             vec!["### Achievement tracking".into(), String::new(), "| Step | Ironman | Eligible | Tracked |".into(), "| --- | --- | --- | --- |".into()];
-        for (key, label) in [("before_load", "New game"), ("after_load", "In-game load"), ("setting_off", "Setting off")] {
+        for (key, label) in [
+            ("before_load", "New game"),
+            ("after_load", "In-game load"),
+            ("changed_checksum_off", "Changed checksum off"),
+            ("outside_ironman_off", "Outside ironman off"),
+            ("setting_off", "Setting off"),
+        ] {
             if let Some(step) = record.get(key) {
                 lines.push(format!("| {label} | {} | {} | {} |", step["ironman"], step["eligible"], step["tracked_count"]));
             }
@@ -82,9 +108,17 @@ impl Scenario for Achievements {
     }
 }
 
-/// Changes one top-level setting while keeping the rest of the claim's file.
+/// Changes one top-level setting while keeping the rest of the claim's file,
+/// creating the file when missing.
 fn setting(path: &Path, key: &str, value: &str) -> Played<()> {
-    let text = fs::read_to_string(path).map_err(|e| Stop::Failed(format!("cannot read {}: {e}", path.display())))?;
+    let text = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(Stop::Failed(format!("cannot read {}: {e}", path.display()))),
+    };
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| Stop::Failed(format!("cannot make {}: {e}", parent.display())))?;
+    }
     fs::write(path, with_setting(&text, key, value)).map_err(|e| Stop::Failed(format!("cannot write {}: {e}", path.display())))
 }
 
@@ -258,5 +292,15 @@ mod tests {
             "body_font=\"Example\"\nachievements_outside_ironman=yes\n"
         );
         assert_eq!(with_setting("compress_saves=yes\n", "compress_autosave", "no"), "compress_saves=yes\ncompress_autosave=no\n");
+    }
+
+    #[test]
+    fn missing_settings_file_is_created_with_requested_setting() {
+        let dir = std::env::temp_dir().join(format!("eu4h-ach-setting-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let path = dir.join("eu4-harmony").join("settings.txt");
+        setting(&path, "achievements_outside_ironman", "yes").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "achievements_outside_ironman=yes\n");
+        let _ = fs::remove_dir_all(&dir);
     }
 }

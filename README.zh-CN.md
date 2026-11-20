@@ -117,15 +117,24 @@ eu4-harmony game menu return               # 回到主菜单
 
 ## 从源码构建
 
-需要 Windows、[rustup](https://rustup.rs/)（它会按 [rust-toolchain.toml](rust-toolchain.toml) 选 Rust 版本）和 Visual Studio C++ 生成工具。只有运行框架和离线检查需要游戏。
+需要 Windows 10 (1903+) x64、[rustup](https://rustup.rs/)（它会按 [rust-toolchain.toml](rust-toolchain.toml) 选 Rust 版本）和 Visual Studio C++ 生成工具。只有运行框架、离线检查和测试游戏需要游戏本体。
 
 ```powershell
 cargo build --release
 cargo test
-cargo xtask release        # 打出玩家包和创意工坊条目的文件夹
+cargo xtask offline-check          # 需要 EU4 1.37.5（通过 Steam 或 EU4_GAME_DIR 查找）
+cargo xtask release --no-workshop  # 打出 GitHub 发布 ZIP，不依赖 Edge 或 SteamCMD
 ```
 
-构建、发布和隔离测试游戏的步骤见[开发工具](docs/dev-tools.md)。测试游戏有自己的用户文件夹、核心和管道；只通过认领启动，不改动玩家的游戏。
+要在本地运行隔离测试游戏和场景测试，需保持 Steam 登录运行且拥有 EU4 1.37.5（标准场景默认按全 DLC 基线运行）：
+
+```powershell
+cargo xtask install                # 首次在关闭游戏后执行一次，安装可加载测试核心的 version.dll
+cargo xtask saves fetch            # 首次执行一次，下载并校验共享测试存档
+cargo xtask scenario sweep --owner <name>
+```
+
+构建、发布、仅限维护者的创意工坊上传以及隔离测试游戏的步骤见[开发工具](docs/dev-tools.md)。测试游戏使用完全纯净、现成合成的独立用户文件夹、核心和管道；只通过认领启动，不读取也不改动玩家的个人文件。
 
 ## 参与开发
 

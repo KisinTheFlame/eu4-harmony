@@ -280,13 +280,18 @@ mod tests {
         assert!(counts_as_running(&Err("no snapshot".into())));
     }
 
+    fn system_root() -> std::path::PathBuf {
+        std::env::var_os("SystemRoot").map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"))
+    }
+
     /// A process found by its id, as `watch` finds the games that run, is
     /// held so that its exit code is read once it ends.
     #[test]
     fn a_process_found_by_its_id_is_followed_to_its_exit_code() {
-        let cmd = Path::new(r"C:\Windows\System32\cmd.exe");
+        let root = system_root();
+        let cmd = root.join(r"System32\cmd.exe");
         let line = ["/c", "ping", "-n", "2", "127.0.0.1", ">nul", "&", "exit", "9"].map(String::from);
-        let started = Game::spawn(cmd, &line, Path::new(r"C:\Windows")).unwrap();
+        let started = Game::spawn(&cmd, &line, &root).unwrap();
         let found = Game::open(started.id()).expect("it runs");
         drop(started);
         assert_ne!(found.started(), 0);
@@ -305,8 +310,9 @@ mod tests {
     /// code is there however soon it ends.
     #[test]
     fn a_started_process_keeps_its_exit_code_however_soon_it_ends() {
-        let cmd = Path::new(r"C:\Windows\System32\cmd.exe");
-        let game = Game::spawn(cmd, &["/c".into(), "exit".into(), "7".into()], Path::new(r"C:\Windows")).unwrap();
+        let root = system_root();
+        let cmd = root.join(r"System32\cmd.exe");
+        let game = Game::spawn(&cmd, &["/c".into(), "exit".into(), "7".into()], &root).unwrap();
         assert_ne!(game.started(), 0);
         // However long a busy computer takes to run it, its code is kept.
         let mut code = None;

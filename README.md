@@ -117,15 +117,24 @@ The [documentation entry](docs/README.md) leads to capability reference, procedu
 
 ## Building from source
 
-You need Windows, [rustup](https://rustup.rs/) (it picks up the Rust version [rust-toolchain.toml](rust-toolchain.toml) names) and the Visual Studio C++ build tools. The game is needed only to run it and for the offline checks.
+You need Windows 10 (1903+) x64, [rustup](https://rustup.rs/) (it picks up the Rust version [rust-toolchain.toml](rust-toolchain.toml) names) and the Visual Studio C++ build tools. The game is needed only to run it, for offline dependency checks, and for test games.
 
 ```powershell
 cargo build --release
 cargo test
-cargo xtask release        # pack the player package and the Workshop item's folder
+cargo xtask offline-check          # requires EU4 1.37.5 (Steam or EU4_GAME_DIR)
+cargo xtask release --no-workshop  # pack GitHub release ZIPs without Edge or SteamCMD
 ```
 
-Build, release and isolated test-game procedures are in [development tools](docs/dev-tools.md). A test game has its own user folder, core and pipe; start it through a claim without changing the player's game.
+To run isolated test games and scenarios locally, Steam must be running with EU4 1.37.5 (standard scenarios expect full DLCs):
+
+```powershell
+cargo xtask install                # once, with the game closed, so version.dll loads test cores
+cargo xtask saves fetch            # once, to download and verify shared test saves
+cargo xtask scenario sweep --owner <name>
+```
+
+Build, release, maintainer-only Workshop publication and isolated test-game procedures are in [development tools](docs/dev-tools.md). A test game has a pure synthetic user folder, core and pipe of its own; start it through a claim without changing the player's files.
 
 ## Contributing
 

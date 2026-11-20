@@ -113,7 +113,7 @@ impl Scenario for Late {
     fn play(&self, game: &mut Game, parameters: &Parameters, record: &mut Value) -> Played<()> {
         let days = parameters.number("days")?;
         let there: Vec<Save> = game.ask(&MenuRequest::Saves {})?;
-        let saves = listed(&parameters.text("saves"));
+        let saves: Vec<String> = listed(&parameters.text("saves")).into_iter().map(|s| crate::saves::save_name(&s)).collect();
         for save in &saves {
             game.check(there.iter().any(|s| &s.name == save), format!("no save {save} on this computer"))?;
         }
@@ -223,7 +223,7 @@ impl Scenario for Long {
         let mark = Mark::of(&user);
         let session = match self.segment.as_ref().and_then(|s| s.from) {
             Some(save) => {
-                game.ask::<Session>(&MenuRequest::Load { save: save.into() })?;
+                game.ask::<Session>(&MenuRequest::Load { save: crate::saves::save_name(save) })?;
                 game.observe_with_no_country()?
             }
             None => game.ask(&MenuRequest::Start { country: None })?,
