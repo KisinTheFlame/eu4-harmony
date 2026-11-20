@@ -1,6 +1,7 @@
 //! Counts the game's live heap blocks by where they were allocated and when,
-//! for finding what keeps the game's memory growing (the `dev-heap-census`
-//! feature: a player's build has none of this; docs/dev-tools.md). The C
+//! for finding what keeps the game's memory growing (a developer build with
+//! `[heap-census] enabled = true`; a player build has none of this;
+//! docs/dev-tools.md). The C
 //! runtime's allocation functions in `eu4.exe` are observed, and each live
 //! block is kept with its site, the code that allocated it, and its
 //! generation, the number of generations ended before it was allocated. A
@@ -211,7 +212,7 @@ fn free_before(call: &mut Call) {
 
 /// Frees a block of the game's heap, as `free` does, past the census.
 fn free_now(block: usize) {
-    unsafe { windows_sys::Win32::System::Memory::HeapFree(crate::memory_account::game_heap() as _, 0, block as _) };
+    unsafe { windows_sys::Win32::System::Memory::HeapFree(super::memory_account::game_heap() as _, 0, block as _) };
 }
 
 fn new_after(call: &mut Call) {
@@ -526,7 +527,7 @@ pub fn generations() -> (u32, Vec<Generation>) {
 pub fn answer(request: MemoryRequest) -> Result<MemoryAnswer, Error> {
     Ok(match request {
         MemoryRequest::Get {} => {
-            let mut memory = crate::memory_account::memory();
+            let mut memory = super::memory_account::memory();
             (memory.generation, memory.generations) = generations();
             MemoryAnswer::Get(memory)
         }
@@ -606,7 +607,7 @@ pub fn answer(request: MemoryRequest) -> Result<MemoryAnswer, Error> {
 
 /// What keeps the game's heap's pages committed now, by site.
 fn pages_now(sites: usize) -> Result<Pages, Error> {
-    let heap = crate::memory_account::game_heap();
+    let heap = super::memory_account::game_heap();
     if heap == 0 {
         return Err(Error::new(Code::Unavailable, "the game has not made its heap yet"));
     }
@@ -653,7 +654,7 @@ fn pages_now(sites: usize) -> Result<Pages, Error> {
 /// The game's heap's blocks the census does not count, against the last
 /// ask.
 fn uncounted_now(sizes: usize, samples: usize) -> Result<Uncounted, Error> {
-    let heap = crate::memory_account::game_heap();
+    let heap = super::memory_account::game_heap();
     if heap == 0 {
         return Err(Error::new(Code::Unavailable, "the game has not made its heap yet"));
     }

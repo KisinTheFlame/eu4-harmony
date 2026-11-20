@@ -201,7 +201,7 @@ fn discover(user_dir: &Path) -> Option<(Vec<mods::DiscoveredMod>, Vec<mods::Skip
         }
     }
     // Lets the notice window be tried without a broken mod.
-    if test_switch!(test_notice) {
+    if crate::dev::test_notice() {
         for number in ["1", "2"] {
             notice::post(&format!("test:{number}"), notice::Repeat::Run, notice::Message::new("EU4HARMONY_TEST_NOTICE").arg("NUMBER", number));
         }

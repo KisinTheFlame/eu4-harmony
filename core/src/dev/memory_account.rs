@@ -1,5 +1,5 @@
 //! What the process holds in memory, split by where it lies, for remote
-//! control's `memory` (the `dev-memory` feature: a player's build has none
+//! control's `memory` (a developer build: a player build has none
 //! of this; docs/dev-tools.md). It reads only what Windows keeps of the
 //! process and its heaps, so it costs the game nothing between two asks:
 //! a run can measure without the heap census, which slows the game and holds
@@ -63,20 +63,20 @@ pub fn memory() -> Memory {
             .map(|(h, a, c)| Heap { handle: format!("{h:#x}"), game: *h == game, process: *h == process, allocated: *a as u64, committed: *c as u64 })
             .collect(),
         handles,
-        census: cfg!(feature = "dev-heap-census"),
+        census: super::options::options().heap_census.enabled,
         generation: 0,
         generations: Vec::new(),
     }
 }
 
 /// Answers remote control's memory group: the census's own capabilities
-/// when it is built in, and without it only `memory`.
+/// when `[heap-census] enabled = true`, and otherwise only `memory`.
 pub fn answer(request: MemoryRequest) -> Result<MemoryAnswer, Error> {
-    #[cfg(feature = "dev-heap-census")]
-    return crate::census::answer(request);
-    #[cfg(not(feature = "dev-heap-census"))]
+    if super::options::options().heap_census.enabled {
+        return super::census::answer(request);
+    }
     match request {
         MemoryRequest::Get {} => Ok(MemoryAnswer::Get(memory())),
-        _ => Err(Error::new(eu4_harmony_remote::Code::Unavailable, "the heap census is not built in: build with the dev-heap-census feature")),
+        _ => Err(Error::new(eu4_harmony_remote::Code::Unavailable, "the heap census is off: set [heap-census] enabled = true in dev.toml")),
     }
 }

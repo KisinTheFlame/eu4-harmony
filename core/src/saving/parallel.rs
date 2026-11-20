@@ -949,8 +949,7 @@ impl<T: Send> Task for Each<T> {
 /// Checked, the game's own loops write into the save as always, beside the
 /// pool, and where the world has written its game state the pool's bytes are
 /// compared with what each loop wrote. Where the game's loops end is observed
-/// in a build with the test switches only.
-#[cfg(feature = "dev-test-switches")]
+/// only when `checked` includes `parallel-saves` in a developer build.
 mod compare {
     use super::*;
 
@@ -1005,9 +1004,15 @@ mod compare {
 /// are compared with what each loop wrote.
 pub const SPEED_UP: SpeedUp = SpeedUp { name: "parallel-saves", group: "saving", points, checkable: true };
 
+/// Replaces the read-only `PROVINCES_END` and `COUNTRIES_END` points with
+/// jump stubs that record where the game's own loops end for comparison.
+pub fn replace_compare_points(points: &mut Vec<Point>) {
+    points.retain(|p| !matches!(p.place, crate::points::Place::Rva(PROVINCES_END | COUNTRIES_END)));
+    points.extend(compare::points());
+}
+
 fn points() -> Vec<Point> {
-    #[cfg_attr(not(feature = "dev-test-switches"), expect(unused_mut, reason = "only a build with the test switches, which checks the loops, changes them"))]
-    let mut points = vec![
+    vec![
         Point::jump(PROVINCES, "41 8b fd 49 8b 86 98 1c 00 00", "provinces' loop", provinces_stub as *const () as usize, &PROVINCES_RESUME)
             .uses(&[PROVINCE_LAST]),
         // The loop the framework writes as the game does: each province with
@@ -1144,13 +1149,7 @@ fn points() -> Vec<Point> {
             &INLINE_5_OBJECT_RESUME,
         )
         .uses(&[VALUE_OBJECT]),
-    ];
-    #[cfg(feature = "dev-test-switches")]
-    {
-        points.retain(|p| !matches!(p.place, crate::points::Place::Rva(PROVINCES_END | COUNTRIES_END)));
-        points.extend(compare::points());
-    }
-    points
+    ]
 }
 
 #[cfg(test)]

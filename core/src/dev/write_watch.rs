@@ -1,5 +1,5 @@
-//! What a game function writes (the `dev-write-watch` feature: a player's
-//! build has none of this). dev.toml's `[write-watch]` names a function by
+//! What a game function writes (a developer build: a player build has none
+//! of this). dev.toml's `[write-watch]` names a function by
 //! its RVA; during its first `calls` calls on the main thread, the process's
 //! other threads are suspended, but for the threads that write a save's
 //! countries and provinces with the main thread (`saving::parallel`), whose
@@ -1113,7 +1113,7 @@ pub struct Chosen(Option<(Watched, Vec<Function>)>);
 
 /// The functions dev.toml names, when they can be watched.
 pub fn chosen(m: &Memory) -> Chosen {
-    let options = &crate::dev::options().write_watch;
+    let options = &super::options::options().write_watch;
     if options.function.is_empty() {
         return Chosen(None);
     }
@@ -1160,7 +1160,7 @@ impl Chosen {
     /// Watches them, or the drawing thread ([`drawing`]), with the watchdog
     /// `give-up-after` asks for.
     pub fn start(self) {
-        let options = &crate::dev::options().write_watch;
+        let options = &super::options::options().write_watch;
         match self.0 {
             Some((watched, _)) if !options.drawing => {
                 if WATCHED.set(watched).is_err() {

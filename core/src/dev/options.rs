@@ -1,31 +1,18 @@
-//! A developer build: which development tools are built in, each a feature of
-//! its own (`dev-call-trace`, `dev-memory`, `dev-heap-census`,
-//! `dev-command-log`, `dev-test-switches`, `dev-write-watch`,
-//! `dev-test-games`, `dev-crossings`, `dev-performance`), and their options. A tool built in is on; its options
-//! are in `dev.toml` beside the core, `eu4-harmony\dev.toml` in the game
-//! folder or a test game's own, one section a tool, and a section left out
-//! takes its defaults (`core/dev.toml.example` shows them all). A player's
-//! build has none of this.
+//! A developer build's options, read from `dev.toml` beside the core
+//! (`eu4-harmony\dev.toml` in the game folder or a test game's own folder).
+//! Every development tool is compiled into a `dev` build; tools with runtime
+//! hooks or listeners (`heap-census`, `crossings`, `command-log`,
+//! `performance`) are off unless their section sets `enabled = true`, while
+//! `memory-account`, `test-switches`, `call-trace` and `write-watch` act only
+//! when configured or requested (`core/dev.toml.example` shows every option).
 use serde::Deserialize;
 use std::collections::BTreeMap;
+#[cfg(feature = "dev")]
 use std::path::Path;
+#[cfg(feature = "dev")]
 use std::sync::OnceLock;
 
-/// The tools: each one's name, its section in dev.toml, and whether it is
-/// built in.
-const TOOLS: [(&str, &str, bool); 9] = [
-    ("call trace", "call-trace", cfg!(feature = "dev-call-trace")),
-    ("memory account", "memory-account", cfg!(feature = "dev-memory")),
-    ("heap census", "heap-census", cfg!(feature = "dev-heap-census")),
-    ("command log", "command-log", cfg!(feature = "dev-command-log")),
-    ("test switches", "test-switches", cfg!(feature = "dev-test-switches")),
-    ("write watch", "write-watch", cfg!(feature = "dev-write-watch")),
-    ("test games' pipes", "test-games", cfg!(feature = "dev-test-games")),
-    ("crossings", "crossings", cfg!(feature = "dev-crossings")),
-    ("performance", "performance", cfg!(feature = "dev-performance")),
-];
-
-/// What dev.toml says.
+/// What `dev.toml` says.
 #[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Options {
@@ -38,9 +25,6 @@ pub struct Options {
     pub write_watch: WriteWatch,
     pub test_games: TestGames,
     pub crossings: Crossings,
-    /// The sections dev.toml has, to tell those of tools not built in.
-    #[serde(skip)]
-    sections: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -73,16 +57,23 @@ impl Default for CallTrace {
 #[serde(deny_unknown_fields)]
 pub struct MemoryAccount {}
 
-/// Performance has no persistent options: each request bounds its window.
+/// Bounded on-demand performance windows (`performance.begin` / `performance.end`).
 #[derive(Debug, Default, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct Performance {}
+#[serde(default, deny_unknown_fields)]
+pub struct Performance {
+    /// Installs the performance hooks and allows `performance.begin`/`end`.
+    pub enabled: bool,
+}
 
-/// The census has no options: a generation ends at every world reset and
-/// when remote control asks.
+/// The heap census counts live game-heap blocks by site and generation.
 #[derive(Debug, Default, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct HeapCensus {}
+#[serde(default, deny_unknown_fields)]
+pub struct HeapCensus {
+    /// Hooks the game's C runtime allocator and enables `memory.leftovers`,
+    /// `memory.watch`, `memory.generation`, `memory.quarantine`,
+    /// `memory.pages` and `memory.uncounted`.
+    pub enabled: bool,
+}
 
 /// The test games' pipes have no options: the pipe is the one
 /// `-harmony_test_game` names (src/pipe.rs).
@@ -93,6 +84,8 @@ pub struct TestGames {}
 #[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct CommandLog {
+    /// Logs commands the game executes through the command layer.
+    pub enabled: bool,
     /// The command types to log, by the game's names; every type when empty.
     pub types: Vec<String>,
 }
@@ -133,7 +126,7 @@ pub struct TestSwitches {
     /// day: `game` leaves the game's walks, `forward` and
     /// `reversed` are the framework's, in the game's order or the opposite
     /// one, so that whether an agent's day depends on another's can be tried
-    /// in a game started with `-seed` (`core/src/agents_order.rs`).
+    /// in a game started with `-seed` (`core/src/dev/agents_order.rs`).
     pub agents_order: AgentsOrder,
     /// Commands in their written form, posted through the command layer at
     /// the first frame of every game, so that the game's commands can be
@@ -191,6 +184,14 @@ pub struct WriteWatch {
     pub drawing_days: usize,
 }
 
+impl WriteWatch {
+    /// Whether the write watch is configured to watch a function or the
+    /// drawing thread.
+    pub fn active(&self) -> bool {
+        !self.function.is_empty() || self.drawing
+    }
+}
+
 impl Default for WriteWatch {
     fn default() -> Self {
         Self {
@@ -211,139 +212,132 @@ impl Default for WriteWatch {
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Crossings {
+    /// Installs the exception handler that counts crossings during each day.
+    pub enabled: bool,
     /// How many game days pass between two reports in the framework log.
     pub report_every: usize,
 }
 
 impl Default for Crossings {
     fn default() -> Self {
-        Self { report_every: 30 }
+        Self { enabled: false, report_every: 30 }
     }
 }
 
 impl Options {
     pub fn parse(text: &str) -> crate::Result<Self> {
-        let mut options: Options = toml::from_str(text).map_err(|e| e.to_string())?;
-        let table: toml::Table = toml::from_str(text).map_err(|e| e.to_string())?;
-        options.sections = table.keys().cloned().collect();
+        let options: Options = toml::from_str(text).map_err(|e| e.to_string())?;
+        options.validate()?;
         Ok(options)
     }
 
-    /// The options as they took effect, for the startup report, and the
-    /// sections of tools that are not built in, which are not used.
+    /// Refuses tool combinations that cannot run together.
+    fn validate(&self) -> crate::Result<()> {
+        if self.heap_census.enabled && self.write_watch.active() {
+            return Err("[heap-census] and [write-watch] cannot both be enabled: suspended threads may hold a census lock".into());
+        }
+        Ok(())
+    }
+
+    /// The options as they took effect, for the startup report.
     pub fn described(&self) -> Vec<String> {
-        let built = |section: &str| TOOLS.iter().any(|t| t.1 == section && t.2);
+        let on = |on: bool| if on { "on" } else { "off" };
+        let list = |names: &[String]| if names.is_empty() { "none".to_string() } else { names.join(", ") };
         let mut lines = Vec::new();
-        if built("call-trace") {
-            let (functions, calls) = (&self.call_trace.functions, self.call_trace.calls);
-            lines.push(match functions.is_empty() {
-                true => "call trace: no functions".to_string(),
-                false => format!(
-                    "call trace: {}; the first {calls} calls of each{}",
-                    functions.join(", "),
-                    if self.call_trace.times { ", every call timed into call-times.tsv" } else { "" }
-                ),
-            });
-        }
-        if built("memory-account") {
-            lines.push("memory account: at memory, from remote control".to_string());
-        }
-        if built("performance") {
-            lines.push("performance: bounded windows at performance.begin and performance.end".to_string());
-        }
-        if built("heap-census") {
-            lines.push("heap census: a generation ends at every world reset and at memory.generation".to_string());
-        }
-        if built("command-log") {
-            let types = &self.command_log.types;
-            lines.push(format!("command log: {}", if types.is_empty() { "every type".to_string() } else { types.join(", ") }));
-        }
-        if built("test-switches") {
-            let on = |on: bool| if on { "on" } else { "off" };
-            let list = |names: &[String]| if names.is_empty() { "none".to_string() } else { names.join(", ") };
-            let switches = &self.test_switches;
-            lines.push(format!(
-                "test switches: fail-startup {}, test-notice {}, crash {}, panic {}, game-paths {}, checked {}, game-ends-dependencies {}, game-shares-ai-draws {}, agents-order {}, {} command(s) to post, grow-pages {}",
-                on(switches.fail_startup),
-                on(switches.test_notice),
-                on(switches.crash),
-                on(switches.panic),
-                list(&switches.game_paths),
-                list(&switches.checked),
-                on(switches.game_ends_dependencies),
-                on(switches.game_shares_ai_draws),
-                format!("{:?}", switches.agents_order).to_lowercase(),
-                switches.post.len(),
-                on(switches.grow_pages)
-            ));
-        }
-        if built("crossings") {
-            lines
-                .push(format!("crossings: the day's calls into the interface's and the graphics' code, a report every {} day(s)", self.crossings.report_every));
-        }
-        if built("write-watch") {
-            let watch = &self.write_watch;
-            lines.push(match watch.function.is_empty() {
-                true if watch.drawing => format!(
-                    "write watch: the drawing thread's reads in {} frame(s){}, then their writes for {} day(s)",
-                    watch.drawing_frames,
-                    match watch.after_days {
-                        0 => String::new(),
-                        n => format!(" after {n} game days"),
-                    },
-                    watch.drawing_days
-                ),
-                true => "write watch: no function".to_string(),
-                false => format!(
-                    "write watch: {}, its first {} call(s) on the main thread{}{}{}{}",
-                    watch.function,
-                    watch.calls,
-                    match watch.after_days {
-                        0 => String::new(),
-                        n => format!(" after {n} game days"),
-                    },
-                    match watch.reads_before.is_empty() {
-                        true => String::new(),
-                        false => format!(", each after what {} read(s)", watch.reads_before.join(", ")),
-                    },
-                    match watch.let_run.is_empty() {
-                        true => String::new(),
-                        false => format!(", the threads of {} not held", watch.let_run.join(", ")),
-                    },
-                    match watch.give_up_after {
-                        0 => String::new(),
-                        n => format!(", given up after {n} s with nothing watched"),
-                    }
-                ),
-            });
-        }
-        if built("test-games") {
-            lines.push("test games' pipes: the pipe is the test game's own when -harmony_test_game names it".to_string());
-        }
-        for (name, section, built) in TOOLS {
-            if !built && self.sections.iter().any(|s| s == section) {
-                lines.push(format!("{name}: not built in, so [{section}] is not used"));
+        let (functions, calls) = (&self.call_trace.functions, self.call_trace.calls);
+        lines.push(match functions.is_empty() {
+            true => "call trace: off (no functions)".to_string(),
+            false => format!(
+                "call trace: {}; the first {calls} calls of each{}",
+                functions.join(", "),
+                if self.call_trace.times { ", every call timed into call-times.tsv" } else { "" }
+            ),
+        });
+        lines.push("memory account: at memory, from remote control".to_string());
+        lines.push(match self.performance.enabled {
+            true => "performance: on (bounded windows at performance.begin and performance.end)".to_string(),
+            false => "performance: off".to_string(),
+        });
+        lines.push(match self.heap_census.enabled {
+            true => "heap census: on (a generation ends at every world reset and at memory.generation)".to_string(),
+            false => "heap census: off".to_string(),
+        });
+        lines.push(match self.command_log.enabled {
+            true => {
+                let types = &self.command_log.types;
+                format!("command log: on ({})", if types.is_empty() { "every type".to_string() } else { types.join(", ") })
             }
-        }
+            false => "command log: off".to_string(),
+        });
+        let switches = &self.test_switches;
+        lines.push(format!(
+            "test switches: fail-startup {}, test-notice {}, crash {}, panic {}, game-paths {}, checked {}, game-ends-dependencies {}, game-shares-ai-draws {}, agents-order {}, {} command(s) to post, grow-pages {}",
+            on(switches.fail_startup),
+            on(switches.test_notice),
+            on(switches.crash),
+            on(switches.panic),
+            list(&switches.game_paths),
+            list(&switches.checked),
+            on(switches.game_ends_dependencies),
+            on(switches.game_shares_ai_draws),
+            format!("{:?}", switches.agents_order).to_lowercase(),
+            switches.post.len(),
+            on(switches.grow_pages)
+        ));
+        lines.push(match self.crossings.enabled {
+            true => format!("crossings: on (a report every {} day(s))", self.crossings.report_every),
+            false => "crossings: off".to_string(),
+        });
+        let watch = &self.write_watch;
+        lines.push(match watch.function.is_empty() {
+            true if watch.drawing => format!(
+                "write watch: the drawing thread's reads in {} frame(s){}, then their writes for {} day(s)",
+                watch.drawing_frames,
+                match watch.after_days {
+                    0 => String::new(),
+                    n => format!(" after {n} game days"),
+                },
+                watch.drawing_days
+            ),
+            true => "write watch: off (no function)".to_string(),
+            false => format!(
+                "write watch: {}, its first {} call(s) on the main thread{}{}{}{}",
+                watch.function,
+                watch.calls,
+                match watch.after_days {
+                    0 => String::new(),
+                    n => format!(" after {n} game days"),
+                },
+                match watch.reads_before.is_empty() {
+                    true => String::new(),
+                    false => format!(", each after what {} read(s)", watch.reads_before.join(", ")),
+                },
+                match watch.let_run.is_empty() {
+                    true => String::new(),
+                    false => format!(", the threads of {} not held", watch.let_run.join(", ")),
+                },
+                match watch.give_up_after {
+                    0 => String::new(),
+                    n => format!(", given up after {n} s with nothing watched"),
+                }
+            ),
+        });
+        lines.push("test games' pipes: the pipe is the test game's own when -harmony_test_game names it".to_string());
         lines
     }
 }
 
+#[cfg(feature = "dev")]
 static OPTIONS: OnceLock<Options> = OnceLock::new();
 /// Where the options came from, for the report.
+#[cfg(feature = "dev")]
 static SOURCE: OnceLock<String> = OnceLock::new();
-
-/// "developer build with the call trace, …": what this build is, for the
-/// first lines of the log and the startup report.
-pub fn build() -> String {
-    let built: Vec<String> = TOOLS.iter().filter(|t| t.2).map(|t| format!("the {}", t.0)).collect();
-    format!("developer build with {}", built.join(", "))
-}
 
 /// Reads `dev.toml` beside the core, in `eu4-harmony\` in the game folder or
 /// in a test game's own folder; with no such file every tool takes its
-/// defaults. A file that cannot be read fails startup.
-pub fn load(core_dir: &Path) -> crate::Result<()> {
+/// defaults. A file that cannot be read or validated fails startup.
+#[cfg(feature = "dev")]
+pub(super) fn load(core_dir: &Path) -> crate::Result<()> {
     let path = core_dir.join("dev.toml");
     let (options, source) = match std::fs::read_to_string(&path) {
         Ok(text) => (Options::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?, path.display().to_string()),
@@ -356,13 +350,15 @@ pub fn load(core_dir: &Path) -> crate::Result<()> {
 }
 
 /// The options; the defaults until [`load`].
-pub fn options() -> &'static Options {
+#[cfg(feature = "dev")]
+pub(super) fn options() -> &'static Options {
     OPTIONS.get_or_init(Options::default)
 }
 
-/// The report's lines on the tools' options, which are none when dev.toml
+/// The report's lines on the tools' options, which are none when `dev.toml`
 /// could not be read.
-pub fn report_lines() -> Vec<String> {
+#[cfg(feature = "dev")]
+pub(super) fn report_lines() -> Vec<String> {
     let (Some(options), Some(source)) = (OPTIONS.get(), SOURCE.get()) else {
         return vec!["developer tools' options: dev.toml was not read".to_string()];
     };
@@ -377,24 +373,33 @@ mod tests {
 
     #[test]
     fn a_section_left_out_takes_its_defaults() {
-        let options = Options::parse("[command-log]\ntypes = [\"buildunit\"]\n").unwrap();
+        let options = Options::parse("[command-log]\nenabled = true\ntypes = [\"buildunit\"]\n").unwrap();
+        assert!(options.command_log.enabled);
         assert_eq!(options.command_log.types, ["buildunit"]);
         assert_eq!(options.call_trace, CallTrace::default());
         assert_eq!(options.call_trace.calls, 20);
         assert_eq!(options.test_switches, TestSwitches::default());
         assert_eq!(options.write_watch, WriteWatch::default());
         assert_eq!(options.write_watch.calls, 1);
+        assert!(!options.heap_census.enabled);
+        assert!(!options.performance.enabled);
+        assert!(!options.crossings.enabled);
         assert_eq!(Options::parse("").unwrap(), Options::default());
     }
 
     #[test]
     fn every_option_is_read() {
-        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\ntimes = true\nfields = { \"0x15988e0\" = \"0x20\" }\n\n[heap-census]\n\n[test-switches]\nfail-startup = true\ntest-notice = true\ngame-paths = [\"saving\"]\nchecked = [\"music\", \"lookups\"]\ngame-shares-ai-draws = true\nagents-order = \"reversed\"\npost = [\"a={ }\"]\n\n[write-watch]\nfunction = \"0x74ff30\"\ncalls = 3\nafter-days = 30\nreads-before = [\"0x10a59a0\"]\nlet-run = [\"nvd3dumx.dll\"]\ngive-up-after = 10\ndrawing = true\ndrawing-frames = 2\ndrawing-days = 5\n";
+        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\ntimes = true\nfields = { \"0x15988e0\" = \"0x20\" }\n\n[performance]\nenabled = true\n\n[command-log]\nenabled = true\ntypes = [\"buildunit\"]\n\n[crossings]\nenabled = true\nreport-every = 15\n\n[test-switches]\nfail-startup = true\ntest-notice = true\ngame-paths = [\"saving\"]\nchecked = [\"music\", \"lookups\"]\ngame-shares-ai-draws = true\nagents-order = \"reversed\"\npost = [\"a={ }\"]\n\n[write-watch]\nfunction = \"0x74ff30\"\ncalls = 3\nafter-days = 30\nreads-before = [\"0x10a59a0\"]\nlet-run = [\"nvd3dumx.dll\"]\ngive-up-after = 10\ndrawing = true\ndrawing-frames = 2\ndrawing-days = 5\n";
         let options = Options::parse(text).unwrap();
         assert_eq!(options.call_trace.functions, ["0x15988e0", "0x159c600:3"]);
         assert_eq!(options.call_trace.calls, 5);
         assert!(options.call_trace.times);
         assert_eq!(options.call_trace.fields, BTreeMap::from([("0x15988e0".to_string(), "0x20".to_string())]));
+        assert!(options.performance.enabled);
+        assert!(options.command_log.enabled);
+        assert_eq!(options.command_log.types, ["buildunit"]);
+        assert!(options.crossings.enabled);
+        assert_eq!(options.crossings.report_every, 15);
         assert!(options.test_switches.fail_startup && options.test_switches.test_notice);
         assert_eq!(options.test_switches.game_paths, ["saving"]);
         assert_eq!(options.test_switches.checked, ["music", "lookups"]);
@@ -418,6 +423,13 @@ mod tests {
     }
 
     #[test]
+    fn heap_census_and_write_watch_are_mutually_exclusive() {
+        assert!(Options::parse("[heap-census]\nenabled = true\n[write-watch]\nfunction = \"0x74ff30\"\n").is_err());
+        assert!(Options::parse("[heap-census]\nenabled = true\n[write-watch]\ndrawing = true\n").is_err());
+        assert!(Options::parse("[heap-census]\nenabled = true\n[write-watch]\n").unwrap().heap_census.enabled);
+    }
+
+    #[test]
     fn what_is_not_an_option_is_refused() {
         assert!(Options::parse("[command-log]\ntype = [\"buildunit\"]\n").is_err());
         assert!(Options::parse("[commands]\n").is_err());
@@ -427,6 +439,6 @@ mod tests {
 
     #[test]
     fn the_example_is_read() {
-        Options::parse(include_str!("../dev.toml.example")).unwrap();
+        Options::parse(include_str!("../../dev.toml.example")).unwrap();
     }
 }

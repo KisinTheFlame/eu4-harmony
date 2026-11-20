@@ -76,23 +76,16 @@ struct Chosen {
 
 static CHOSEN: OnceLock<Chosen> = OnceLock::new();
 
-/// What dev.toml's `[test-switches]` chose, once read; nothing in a build
-/// without the test switches, or when a name is not a speed-up's, which
-/// [`check_switches`] fails startup for.
+/// What dev.toml's `[test-switches]` chose, once read; nothing in a player
+/// build, or when a name is not a speed-up's, which [`check_switches`] fails
+/// startup for.
 fn chosen() -> Chosen {
     *CHOSEN.get_or_init(|| {
-        #[cfg(feature = "dev-test-switches")]
-        let chosen = {
-            let switches = &crate::dev::options().test_switches;
-            Chosen::of(&switches.game_paths, &switches.checked).unwrap_or_default()
-        };
-        #[cfg(not(feature = "dev-test-switches"))]
-        let chosen = Chosen::default();
-        chosen
+        let (game_paths, checked) = crate::dev::speed_switches();
+        Chosen::of(game_paths, checked).unwrap_or_default()
     })
 }
 
-#[cfg(any(test, feature = "dev-test-switches"))]
 impl Chosen {
     /// From dev.toml's lists: a speed-up's name, its group or `all`; a
     /// speed-up both left to the game and checked is left to the game.
@@ -105,7 +98,6 @@ impl Chosen {
 
 /// The speed-ups `names` names among those `taking` takes, as bits; a name
 /// that names none of them is refused.
-#[cfg(any(test, feature = "dev-test-switches"))]
 fn named(names: &[String], list: &str, taking: impl Fn(&SpeedUp) -> bool) -> crate::Result<u32> {
     let mut bits = 0;
     for name in names {
@@ -125,11 +117,8 @@ fn named(names: &[String], list: &str, taking: impl Fn(&SpeedUp) -> bool) -> cra
 
 /// Fails startup when dev.toml names a speed-up there is none of.
 pub fn check_switches() -> crate::Result<()> {
-    #[cfg(feature = "dev-test-switches")]
-    {
-        let switches = &crate::dev::options().test_switches;
-        Chosen::of(&switches.game_paths, &switches.checked)?;
-    }
+    let (game_paths, checked) = crate::dev::speed_switches();
+    Chosen::of(game_paths, checked)?;
     Ok(())
 }
 

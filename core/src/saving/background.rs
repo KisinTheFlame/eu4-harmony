@@ -72,14 +72,7 @@ const TMP_SUFFIX: &str = ".eu4harmony-tmp";
 /// on the main thread, as before.
 pub const SPEED_UP: SpeedUp = SpeedUp { name: "background-compression", group: "saving", points, checkable: false };
 
-#[cfg(feature = "dev-performance")]
-pub fn performance_points() -> Vec<Point> {
-    // The tool owns these shared observers in this build, including when
-    // background compression is left to the game.
-    save_points()
-}
-
-fn save_points() -> Vec<Point> {
+pub(crate) fn save_points() -> Vec<Point> {
     vec![
         Point::observe(LOCAL_SAVE, "48 89 5c 24 10 48 89 74 24 18 57 41 54 41 55", "local save", 1, Some(save_before), Some(save_after)),
         Point::observe(IRONMAN_SAVE, "48 89 5c 24 18 48 89 74 24 20 57 41 54 41 55", "local ironman save", 1, Some(save_before), Some(save_after)),
@@ -91,9 +84,7 @@ fn points() -> Vec<Point> {
         Point::observe(ADD_ENTRY, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18", "zip entry", 5, Some(entry_before), None),
         Point::observe(MOVE_FILE, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 20", "file move", 2, None, Some(moved)),
     ];
-    if !cfg!(feature = "dev-performance") {
-        points.extend(save_points());
-    }
+    points.extend(save_points());
     points
 }
 
@@ -105,28 +96,18 @@ fn remove_leftovers(dir: &Path) -> usize {
 }
 
 fn save_before(call: &mut Call) {
-    #[cfg(feature = "dev-performance")]
-    {
-        crate::performance_hooks::save_begins(call);
-        if crate::speed::game_path(&SPEED_UP) {
-            return;
-        }
+    crate::dev::save_begins(call);
+    if crate::speed::game_path(&SPEED_UP) {
+        return;
     }
-    #[cfg(not(feature = "dev-performance"))]
-    let _ = call;
     course::save_begins(crate::thread_id() == crate::main_thread());
 }
 
 fn save_after(call: &mut Call) {
-    #[cfg(feature = "dev-performance")]
-    {
-        crate::performance_hooks::save_ends(call);
-        if crate::speed::game_path(&SPEED_UP) {
-            return;
-        }
+    crate::dev::save_ends(call);
+    if crate::speed::game_path(&SPEED_UP) {
+        return;
     }
-    #[cfg(not(feature = "dev-performance"))]
-    let _ = call;
     course::save_ends();
 }
 

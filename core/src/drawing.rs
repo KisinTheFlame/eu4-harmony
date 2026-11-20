@@ -120,16 +120,8 @@ const IDLER_HOLDS_CAMERA_2: usize = 0x3b0;
 use crate::objects::gui::globals::OTHER_CAMERA;
 const APP_FOCUS: usize = 0xb8;
 
-#[cfg(feature = "dev-performance")]
-pub fn performance_points() -> Vec<Point> {
-    vec![Point::observe(
-        DRAWING,
-        "48 8b c4 48 89 58 08 55 56 57 41 54 41 55 41 56 41 57",
-        "performance: main-thread drawing",
-        1,
-        Some(crate::performance_hooks::main_draws),
-        None,
-    )]
+pub fn main_draw_point(before: fn(&mut Call)) -> Point {
+    Point::observe(DRAWING, "48 8b c4 48 89 58 08 55 56 57 41 54 41 55 41 56 41 57", "performance: main-thread drawing", 1, Some(before), None)
 }
 
 fn points() -> Vec<Point> {
@@ -503,8 +495,7 @@ pub fn set(frame_rate_limit: crate::settings::FrameRateLimit) {
         FrameRateLimit::Unlimited => UNLIMITED,
     };
     FRAME_RATE_LIMIT.store(encoded, Ordering::Relaxed);
-    #[cfg(feature = "dev-performance")]
-    PERFORMANCE_RATE.store(
+    TARGET_RATE.store(
         match limit {
             FrameRateLimit::Display => display_refresh_rate(),
             FrameRateLimit::Hz(r) => r,
@@ -589,8 +580,7 @@ pub fn day_begins() {
         return;
     }
     FRAMES.note_day_ran();
-    #[cfg(feature = "dev-write-watch")]
-    crate::write_watch::drawing::day_begins(&crate::hooked_memory());
+    crate::dev::drawing_day_begins(&crate::hooked_memory());
     main_side(|s| s.day_begins(&MainLock));
 }
 
@@ -604,18 +594,14 @@ pub fn day_ends() {
 }
 
 fn frame_check_before(call: &mut Call) {
-    #[cfg(feature = "dev-crossings")]
-    crate::crossings::check_before(call);
-    let _ = call;
+    crate::dev::frame_check_before(call);
     if on_main() {
         main_side(|s| s.frame_check(&MainLock));
     }
 }
 
 fn frame_check_after(call: &mut Call) {
-    #[cfg(feature = "dev-crossings")]
-    crate::crossings::check_after(call);
-    let _ = call;
+    crate::dev::frame_check_after(call);
 }
 
 struct LiveStage<'a>(&'a Memory);
@@ -669,8 +655,7 @@ impl course::StageOps for LiveStage<'_> {
     }
 
     fn note_prepared(&mut self, was_idle: bool) {
-        #[cfg(feature = "dev-performance")]
-        crate::performance::prepared();
+        crate::dev::frame_prepared();
         CAMERA_MOVED_THERE.store(1, Ordering::Relaxed);
         if was_idle {
             let _guard = PREPARED_WAKE.0.lock().unwrap_or_else(|e| e.into_inner());
@@ -792,15 +777,12 @@ fn direct3(m: &Memory, function: GameFunction<3>) -> unsafe extern "C" fn(usize,
     unsafe { std::mem::transmute::<usize, unsafe extern "C" fn(usize, usize, usize) -> usize>(m.at(function.rva())) }
 }
 
-#[cfg(feature = "dev-performance")]
-static PERFORMANCE_RATE: AtomicU32 = AtomicU32::new(0);
+static TARGET_RATE: AtomicU32 = AtomicU32::new(0);
 
 /// The actual target interval used by the drawing thread; the native
-/// main-thread path and unlimited drawing have no declared target for
-/// threshold counts.
-#[cfg(feature = "dev-performance")]
-pub fn performance_interval() -> Option<Duration> {
-    let rate = PERFORMANCE_RATE.load(Ordering::Relaxed);
+/// main-thread path and unlimited drawing have no declared target.
+pub fn target_interval() -> Option<Duration> {
+    let rate = TARGET_RATE.load(Ordering::Relaxed);
     (drawing_on() && rate != 0).then(|| Duration::from_secs_f64(1.0 / rate as f64))
 }
 
@@ -893,8 +875,7 @@ fn run() {
         UNLIMITED => 0,
         r => r,
     };
-    #[cfg(feature = "dev-performance")]
-    PERFORMANCE_RATE.store(current_perf_rate, Ordering::Relaxed);
+    TARGET_RATE.store(current_perf_rate, Ordering::Relaxed);
     log!("drawing: the drawing thread runs ({display_rate} Hz display)");
     let mut next = Instant::now();
     let mut logged = Instant::now();
@@ -938,8 +919,7 @@ fn run() {
         let interval = Duration::from_secs_f64(1.0 / pace_rate as f64);
         if perf_rate != current_perf_rate {
             current_perf_rate = perf_rate;
-            #[cfg(feature = "dev-performance")]
-            PERFORMANCE_RATE.store(perf_rate, Ordering::Relaxed);
+            TARGET_RATE.store(perf_rate, Ordering::Relaxed);
             next = Instant::now();
         }
         if chosen != UNLIMITED {
@@ -978,18 +958,14 @@ fn run() {
                 log!("drawing: the tooltip could not follow the cursor: {e}");
             }
             IN_FRAME.store(true, Ordering::Release);
-            #[cfg(feature = "dev-write-watch")]
-            let watched = crate::write_watch::drawing::frame_begins(&m);
-            #[cfg(not(feature = "dev-write-watch"))]
-            let watched = false;
+            let watched = crate::dev::drawing_frame_begins(&m);
             drawing_side(|d| d.frame_begins(watched));
             let began = Instant::now();
             unsafe { direct1(&m, DRAWING)(idler) };
             let drawing = began.elapsed();
             let (present, lock_after) = PRESENT.with(|p| (p.spent.take(), p.lock_after.take()));
             drawing_side(DrawingSide::frame_ends);
-            #[cfg(feature = "dev-write-watch")]
-            crate::write_watch::drawing::frame_ends(watched);
+            crate::dev::drawing_frame_ends(watched);
             IN_FRAME.store(false, Ordering::Release);
             DRAWN.fetch_add(1, Ordering::Relaxed);
             FRAMES.note_drawn(seq);

@@ -500,11 +500,11 @@ groups! {
     Diplomacy(diplomacy::DiplomacyRequest, DiplomacyAnswer),
     /// The mods' extensions: reloading one in the running game.
     Extension(extensions::ExtensionRequest, ExtensionAnswer),
-    #[cfg(feature = "dev-memory")]
+    #[cfg(feature = "dev")]
     /// What the game holds in memory, and what the heap census found: a
     /// developer build's (docs/dev-tools.md).
     Memory(memory::MemoryRequest, MemoryAnswer),
-    #[cfg(feature = "dev-performance")]
+    #[cfg(feature = "dev")]
     /// Bounded in-process performance measurements in a developer build.
     Performance(performance::PerformanceRequest, PerformanceAnswer),
     /// Mouse and keyboard input at screen positions, as the player gives it.

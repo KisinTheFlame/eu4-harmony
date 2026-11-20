@@ -102,26 +102,21 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
             }
         });
         let _presenting = PresentingGuard::begin(crate::drawing::present_begins, crate::drawing::present_ends);
-        #[cfg(feature = "dev-performance")]
-        let submission = crate::performance::submission_begins();
+        let submission = crate::dev::submission_begins();
         let presented = ORIGINAL_PRESENT.get()(renderer);
-        #[cfg(feature = "dev-performance")]
-        crate::performance::submission_ends(submission, presented != 0, false);
+        crate::dev::submission_ends(submission, presented != 0, false);
         return presented;
     }
-    #[cfg(feature = "dev-performance")]
-    let submission = (crate::thread_id() == crate::main_thread()).then(crate::performance::submission_begins);
+    let submission = (crate::thread_id() == crate::main_thread()).then(crate::dev::submission_begins);
     let presented = ORIGINAL_PRESENT.get()(renderer);
-    #[cfg(feature = "dev-performance")]
     if let Some(submission) = submission {
-        crate::performance::submission_ends(submission, presented != 0, true);
+        crate::dev::submission_ends(submission, presented != 0, true);
     }
     presented
 }
 
 fn before_reset(_: &mut Call) {
-    #[cfg(feature = "dev-performance")]
-    crate::performance::interruption("device reset");
+    crate::dev::device_reset();
     crate::tooltips::clear();
     super::device_reset();
     crate::game::screenshot::device_reset();

@@ -37,24 +37,6 @@ fn framework() -> Vec<Point> {
     all
 }
 
-/// The points of the development tools built in that check the game's
-/// bytes: on whenever the tool is built in.
-#[cfg_attr(
-    not(any(feature = "dev-memory", feature = "dev-heap-census", feature = "dev-crossings", feature = "dev-performance")),
-    expect(unused_mut, reason = "only these tools add points")
-)]
-fn tools(mut all: Vec<Point>) -> Vec<Point> {
-    #[cfg(feature = "dev-memory")]
-    all.extend(crate::memory_account::points());
-    #[cfg(feature = "dev-heap-census")]
-    all.extend(crate::census::points());
-    #[cfg(feature = "dev-crossings")]
-    all.extend(crate::crossings::points());
-    #[cfg(feature = "dev-performance")]
-    all.extend(crate::performance_hooks::points());
-    all
-}
-
 /// Every point this build declares, whether startup installs it or not:
 /// what the offline checks check, and what the framework may use. The
 /// speed-ups' are all among them, those dev.toml leaves to the game too. The
@@ -62,44 +44,20 @@ fn tools(mut all: Vec<Point>) -> Vec<Point> {
 /// searches' walk of the King's children does, in its place, and keep the
 /// bytes the searches keep, which these check.
 pub(crate) fn declared() -> Vec<Point> {
-    let mut all = tools(framework());
+    let mut all = framework();
     all.extend(crate::speed::points());
+    all.extend(crate::dev::points());
+    crate::dev::adjust_declared(&mut all);
     all
 }
 
 /// What startup installs in the game whose image is `m`: the framework's
-/// points, the tools', those of the speed-ups dev.toml does not leave to the
-/// game, the `agents-order` test switch's walks in place of the army
-/// searches' walk of the King's children, and the functions dev.toml has the
-/// write watch and the call trace observe, which take the bytes the game
-/// holds there now and check nothing. The tools that observe those functions
-/// start here, before they are hooked.
-#[cfg_attr(
-    not(any(feature = "dev-write-watch", feature = "dev-call-trace")),
-    expect(unused_variables, reason = "only the write watch and the call trace look at the game here")
-)]
+/// points, those of the speed-ups dev.toml does not leave to the game, and
+/// whichever development tools dev.toml enables for this run.
 pub(crate) fn installed(m: Memory) -> Vec<Point> {
-    let mut all = tools(framework());
+    let mut all = framework();
     all.extend(crate::speed::installed());
-    #[cfg(feature = "dev-test-switches")]
-    if crate::agents_order::chosen() {
-        all.retain(|p| !matches!(p.place, super::Place::Rva(crate::army_search::CHILDREN_WALK)));
-        all.extend(crate::agents_order::points());
-    }
-    #[cfg(feature = "dev-write-watch")]
-    {
-        let watch = crate::write_watch::chosen(&m);
-        all.extend(watch.points());
-        watch.start();
-    }
-    #[cfg(feature = "dev-call-trace")]
-    {
-        let trace = crate::trace::chosen(&m);
-        all.extend(trace.points());
-        trace.start();
-    }
-    #[cfg(feature = "dev-crossings")]
-    crate::crossings::start();
+    crate::dev::installed_points(m, &mut all);
     all
 }
 

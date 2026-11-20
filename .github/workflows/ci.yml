@@ -60,6 +60,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/master' }}
       - name: Test
         run: cargo test --release --locked
+      - name: Test the developer build
+        run: cargo test --release --locked --features eu4-harmony-core/dev
 
   # The development tools, which a player's build never has, so that they keep
   # building too.
@@ -86,6 +88,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/master' }}
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Clippy with test games' pipes
+        run: cargo clippy --locked --workspace --all-targets --features eu4-harmony-core/dev-test-games -- -D warnings
       # With the core's development tools, which a player's build never has.
       - name: Clippy on the developer build
         run: cargo clippy --locked --workspace --all-targets --features eu4-harmony-core/dev -- -D warnings

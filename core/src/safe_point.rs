@@ -136,8 +136,7 @@ static LISTENERS: Listeners<lua::Extensions, remote::Remote> = Listeners::new(lu
 
 /// The session going on ended, for `end` (`crate::sessions`).
 pub(crate) fn session_ended(end: End) {
-    #[cfg(feature = "dev-performance")]
-    crate::performance_hooks::session_ended();
+    crate::dev::session_ended();
     LISTENERS.ended(end);
 }
 
@@ -175,22 +174,8 @@ pub fn game_frame() {
     match game::begin_frame(&m) {
         Ok(frame) => {
             sessions::frame_ran();
-            #[cfg(feature = "dev-test-switches")]
             if frame.new_session() {
-                game::commands::post_test_commands();
-                if test_switch!(grow_pages) {
-                    log!("test switch grow-pages: every font page grows");
-                    crate::unicode::fill::want_room_everywhere();
-                }
-                if test_switch!(crash) {
-                    log!("test switch crash: crashing the game");
-                    // An access violation, which the game's crash handling takes.
-                    unsafe { std::ptr::read_volatile(8 as *const u8) };
-                }
-                if test_switch!(panic) {
-                    log!("test switch panic: panicking in framework code");
-                    panic!("the test switch panic is on");
-                }
+                crate::dev::new_session();
             }
             let mut heard = game::signal_costs::SIGNALS.time(|| frame.heard());
             // The pop-ups extensions showed since the last frame.
@@ -199,11 +184,9 @@ pub fn game_frame() {
                     .into_iter()
                     .map(|(popup, from)| game::Heard { signal: eu4_harmony_remote::signals::Signal::Popup { popup, from }, seen: true }),
             );
-            #[cfg(feature = "dev-performance")]
-            crate::performance_hooks::frame();
+            crate::dev::frame_tick();
             LISTENERS.frame(frame.session(), &heard);
-            #[cfg(feature = "dev-performance")]
-            crate::performance_hooks::frame();
+            crate::dev::frame_tick();
         }
         // A frame the game is not ready in comes and goes: the frame's
         // presenting decides.
