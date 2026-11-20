@@ -152,8 +152,9 @@ fn modifiers_copied(call: &mut Call) {
     let (modifiers, other) = (call.arg(0), call.arg(1));
     let lost = kept_modifier_sets(modifiers);
     if !lost.is_empty() {
-        #[cfg(feature = "dev-heap-census")]
-        check_listed(&m, modifiers, &lost);
+        if crate::dev::check_repairs() {
+            check_listed(&m, modifiers, &lost);
+        }
         MODIFIER_SETS_WAITING_COUNT.fetch_add(lost.len(), Ordering::Relaxed);
         let mut waiting = MODIFIER_SETS_WAITING.lock().unwrap_or_else(|e| e.into_inner());
         match waiting.iter_mut().find(|(k, _)| *k == modifiers) {
@@ -167,9 +168,8 @@ fn modifiers_copied(call: &mut Call) {
     }
 }
 
-/// Logs the lost sets the modifiers' own set does not list: a check, in
-/// builds with the heap census, of what the repair takes the game to do.
-#[cfg(feature = "dev-heap-census")]
+/// Logs the lost sets the modifiers' own set does not list: a check, when the
+/// heap census is enabled, of what the repair takes the game to do.
 fn check_listed(m: &Memory, modifiers: usize, lost: &[usize]) {
     let listed = (|| {
         let added = modifiers + modifiers::OWN + crate::objects::campaign::modifier_set::ADDED;

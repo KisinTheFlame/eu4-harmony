@@ -45,28 +45,16 @@ pub enum Build {
     /// The player build, with the test games' pipes only, which name the
     /// pipe and nothing else.
     Player,
-    /// A developer build with the memory account, which costs the game
-    /// nothing between two asks.
-    Memory,
-    /// A developer build with the heap census, which slows the game and holds
-    /// memory of its own.
-    Census,
-    /// A developer build with the test switches, which leave speed-ups to
-    /// the game (core/src/speed.rs).
-    Switches,
-    /// Bounded performance collection, optionally with game-path switches.
-    Performance { switches: bool },
+    /// A developer build with all development tools compiled in and configured
+    /// per scenario via `dev.toml`.
+    Dev,
 }
 
 impl Build {
     pub fn name(self) -> &'static str {
         match self {
             Self::Player => "player",
-            Self::Memory => "memory account",
-            Self::Census => "heap census",
-            Self::Switches => "test switches",
-            Self::Performance { switches: false } => "performance collection",
-            Self::Performance { switches: true } => "performance collection and test switches",
+            Self::Dev => "developer",
         }
     }
 
@@ -75,11 +63,7 @@ impl Build {
     fn features(self) -> &'static str {
         match self {
             Self::Player => "eu4-harmony-core/dev-test-games",
-            Self::Memory => "eu4-harmony-core/dev-test-games,eu4-harmony-core/dev-memory",
-            Self::Census => "eu4-harmony-core/dev-test-games,eu4-harmony-core/dev-heap-census",
-            Self::Switches => "eu4-harmony-core/dev-test-games,eu4-harmony-core/dev-test-switches",
-            Self::Performance { switches: false } => "eu4-harmony-core/dev-test-games,eu4-harmony-core/dev-performance",
-            Self::Performance { switches: true } => "eu4-harmony-core/dev-test-games,eu4-harmony-core/dev-performance,eu4-harmony-core/dev-test-switches",
+            Self::Dev => "eu4-harmony-core/dev",
         }
     }
 }
@@ -164,9 +148,10 @@ pub trait Scenario: Sync {
     /// The saves of the player's it loads, by their names as `menu.saves`
     /// gives them, copied into its test game before it starts.
     /// The developer tools' options its core starts with, in place of the
-    /// checkout's `dev.toml`; None for the checkout's.
+    /// checkout's `dev.toml`; defaults to empty so scenarios never inherit
+    /// local developer options.
     fn options(&self, _parameters: &Parameters) -> Option<String> {
-        None
+        Some(String::new())
     }
     fn saves(&self, _parameters: &Parameters) -> Vec<String> {
         Vec::new()

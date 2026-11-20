@@ -1,7 +1,8 @@
-# The options of a developer build's tools (core/src/dev.rs). Copy this file
-# to dev.toml at the top of the repository; cargo xtask install puts it in the
-# game folder's eu4-harmony\ next to the core. A section left out takes the
-# defaults shown here, and a tool not built in leaves its section unused.
+# The options of a developer build's tools (core/src/dev/options.rs). Copy this
+# file to dev.toml at the top of the repository; cargo xtask install puts it in
+# the game folder's eu4-harmony\ next to the core. A section left out takes the
+# defaults shown here. Tools with runtime hooks or listeners (performance,
+# heap-census, command-log, crossings) stay off unless enabled = true.
 
 # Logs calls of game functions: the arguments, the text they point to, the
 # call site, the return value.
@@ -24,18 +25,21 @@ fields = {}
 # at no cost between two asks (docs/dev-tools.md). No options.
 [memory-account]
 
-# Bounded on-demand windows at performance.begin/end. No persistent options.
+# Bounded on-demand windows at performance.begin/end.
 [performance]
+enabled = false
 
 # Counts the game's live heap blocks by site and generation, logs at every
 # world reset those the earlier sessions left, and answers remote control's
-# memory.leftovers, memory.watch, memory.generation, memory.quarantine and
-# memory.pages (docs/dev-tools.md). Builds the memory account in too. No
-# options.
+# memory.leftovers, memory.watch, memory.generation, memory.quarantine,
+# memory.pages and memory.uncounted (docs/dev-tools.md). Cannot run alongside
+# [write-watch].
 [heap-census]
+enabled = false
 
 # Logs every command the game executes, in its written form.
 [command-log]
+enabled = false
 # The types to log, by the game's names, such as "buildunit"; every type when
 # empty.
 types = []
@@ -79,10 +83,14 @@ game-shares-ai-draws = false
 # in the game's order or the opposite one, so that whether an agent's day
 # depends on another's can be tried in a game started with -seed.
 agents-order = "game"
-# Commands in the game's written form, posted through the command layer at the
-# first frame of every game, each with what came of it in the log, such as
+# Commands in the game's written form, posted through the command layer at
+# the first frame of every game, each with what came of it in the log, such as
 # 'buildunit={ country="FRA" province=183 unit="western_medieval_infantry" }'.
 post = []
+# Every filled font's page grows at the first frame of every game, so that
+# a page growing in a game, the names on the map built again with it, can be
+# tried.
+grow-pages = false
 
 # Logs what a game function writes to memory that was there before it was
 # called: the heap's blocks and eu4.exe's data, by the instruction and the
@@ -104,9 +112,15 @@ let-run = []
 # The seconds a watched call may go with nothing watched before the watch is
 # given up and where the main thread waits is logged; 0 waits for ever.
 give-up-after = 30
+# Watches what the drawing thread reads and who writes it instead of a single
+# function.
+drawing = false
+drawing-frames = 1
+drawing-days = 3
 
 # Counts where the day goes into the interface's or the graphics' code, by
 # call stack (docs/game/interface/frame-lifecycle.md).
 [crossings]
+enabled = false
 # How many game days pass between two reports in the framework log.
 report-every = 30

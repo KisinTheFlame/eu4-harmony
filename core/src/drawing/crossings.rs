@@ -305,8 +305,7 @@ pub(super) fn crossing(into: usize) {
     main_side(|s| {
         let took = s.crossing(&MainLock);
         TRACKER.record_crossing(into, Instant::now(), took);
-        #[cfg(feature = "dev-performance")]
-        crate::performance::invalidated();
+        crate::dev::frame_invalidated();
     });
 }
 

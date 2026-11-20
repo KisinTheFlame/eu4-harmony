@@ -193,7 +193,6 @@ impl<G: Game> Course<G> {
 
     /// Checked, where the game's own loop ended: where the stream stands, to
     /// compare the pool's bytes with what the loop wrote.
-    #[cfg(feature = "dev-test-switches")]
     fn loop_ended(&mut self, g: &mut G, writer: usize, which: usize) {
         let Some(flight) = self.in_flight.as_mut().filter(|f| f.writer == writer && f.at[which].is_some()) else { return };
         match g.at(&flight.loops[which]) {
@@ -283,7 +282,6 @@ pub(crate) fn join(writer: usize) {
 }
 
 /// Checked, where the game's own loop ended (`super::compare::end`).
-#[cfg(feature = "dev-test-switches")]
 pub(super) fn loop_ended(writer: usize, which: usize) {
     COURSE.lock().unwrap_or_else(|e| e.into_inner()).loop_ended(&mut Real, writer, which);
 }
@@ -725,7 +723,6 @@ mod tests {
         assert!(g.compared.is_empty());
     }
 
-    #[cfg(feature = "dev-test-switches")]
     #[test]
     fn checked_each_loop_is_compared_with_the_games_own() {
         let mut g = Fake { comparing: true, ..Default::default() };
@@ -746,7 +743,6 @@ mod tests {
         assert!(g.spliced.is_empty());
     }
 
-    #[cfg(feature = "dev-test-switches")]
     #[test]
     fn checked_a_loop_that_differs_is_reported() {
         let mut g = Fake { comparing: true, ..Default::default() };
@@ -768,7 +764,6 @@ mod tests {
         assert!(g.compared[1].1.contains("the countries differ at byte 2"));
     }
 
-    #[cfg(feature = "dev-test-switches")]
     #[test]
     fn checked_a_loop_whose_bytes_cannot_be_read_is_not_compared() {
         let mut g = Fake { comparing: true, written_fails: Some("the stream's buffer does not hold what was written".into()), ..Default::default() };

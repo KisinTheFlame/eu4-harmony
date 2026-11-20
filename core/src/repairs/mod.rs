@@ -44,18 +44,14 @@ struct LettingGo;
 
 impl LettingGo {
     fn new(repair: &'static str) -> Self {
-        #[cfg(feature = "dev-heap-census")]
-        crate::census::quarantine::begin(repair);
-        #[cfg(not(feature = "dev-heap-census"))]
-        let _ = repair;
+        crate::dev::quarantine_begin(repair);
         Self
     }
 }
 
 impl Drop for LettingGo {
     fn drop(&mut self) {
-        #[cfg(feature = "dev-heap-census")]
-        crate::census::quarantine::end();
+        crate::dev::quarantine_end();
     }
 }
 

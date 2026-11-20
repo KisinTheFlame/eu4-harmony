@@ -15,10 +15,10 @@
 //! with `-seed`, where each agent draws from a generator of its own, then
 //! plays the same days in either order if no agent reads what another of
 //! its country wrote that day.
+use super::options::{self, AgentsOrder};
 use crate::called_by_game;
 use crate::{
     army_search::{ARMIES_WALK, ARMIES_WALKED as WALKED, CHILDREN_WALK as WALKS},
-    dev::AgentsOrder,
     points::Point,
 };
 
@@ -35,7 +35,7 @@ use crate::objects::{
 const DAY: usize = 0x58;
 
 fn order() -> AgentsOrder {
-    crate::dev::options().test_switches.agents_order
+    options::options().test_switches.agents_order
 }
 
 /// Has the agents of the list at `list` do their day, from its first node on

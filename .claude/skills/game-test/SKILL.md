@@ -9,7 +9,7 @@ Every session on this computer tries things in a test game of its own (GLOSSARY)
 
 ## Steps
 
-1. **Build first, with the test games' pipes**: `cargo build --release --features eu4-harmony-core/dev-test-games`, with any other `dev-*` feature the run needs (`--features eu4-harmony-core/dev-test-games,eu4-harmony-core/dev-memory`). Without it `game start` refuses the core. Plan the run too: what to try, which saves or test mods it needs (`cargo xtask saves fetch` downloads standard test saves once).
+1. **Build first, with the test games' pipes**: `cargo build --release --features eu4-harmony-core/dev-test-games` for a player-equivalent test run, or `cargo build --release --features eu4-harmony-core/dev` when the run uses development tools configured in `dev.toml`. Without `dev-test-games` (which `dev` includes) `game start` refuses the core. Plan the run too: what to try, which saves or test mods it needs (`cargo xtask saves fetch` downloads standard test saves once).
 2. **Claim**: `cargo xtask game claim --owner <name> --purpose "<one line: what this run tests>"`, a name of your own, such as your worktree's; every later command of the claim takes the same `--owner`. It makes the claim's folder with a pure synthetic user folder (1920x1080 borderless English `settings.txt`, empty playset, clean `eu4-harmony\settings.txt`, and an empty marked `mod\` folder), and prints it.
    - Exit 0: the test game is yours.
    - Refused because the game folder's `version.dll` proxy is missing or from before test games: tell the user; installing (`cargo xtask install`, with the game closed) is theirs to decide (below).

@@ -167,14 +167,14 @@ impl Scenario for Long {
 
     fn build(&self, _: &Parameters) -> Build {
         if self.checked {
-            Build::Switches
+            Build::Dev
         } else {
             Build::Player
         }
     }
 
     fn options(&self, _: &Parameters) -> Option<String> {
-        self.checked.then(|| "[test-switches]\nchecked = [\"all\"]\n".to_string())
+        Some(if self.checked { "[test-switches]\nchecked = [\"all\"]\n".to_string() } else { String::new() })
     }
 
     fn minutes(&self) -> u32 {

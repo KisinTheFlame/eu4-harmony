@@ -1,10 +1,14 @@
-//! Game boundaries for on-demand performance collection. Existing research in
+//! Game hooks for on-demand performance collection. Existing research in
 //! docs/game/interface/frame-lifecycle.md, headless.md and time.md establishes
-//! these boundaries; no sampling reads live world state on the drawing thread.
-use crate::{game, hooks::Call, performance, points::Point};
+//! these sites; no sampling reads live world state on the drawing thread.
+use super::performance;
+use crate::{game, hooks::Call, points::Point};
 use eu4_harmony_remote::performance::{PerformanceAnswer, PerformanceRequest};
 
 pub fn answer(request: PerformanceRequest) -> game::GResult<PerformanceAnswer> {
+    if !super::options::options().performance.enabled {
+        return Err(game::Fail::new(game::Status::Unavailable, "performance collection is off: set [performance] enabled = true in dev.toml"));
+    }
     match request {
         PerformanceRequest::Begin { seconds } => {
             refresh_context()?;
@@ -23,7 +27,7 @@ fn refresh_context() -> game::GResult<()> {
     if !(0..=4).contains(&index) {
         return Err("invalid game speed during performance collection".to_string().into());
     }
-    performance::context(crate::sessions::number(), index as u32 + 1, game::paused(m, &world)?, crate::drawing::performance_interval());
+    performance::context(crate::sessions::number(), index as u32 + 1, game::paused(m, &world)?, crate::drawing::target_interval());
     Ok(())
 }
 
@@ -76,7 +80,5 @@ pub fn save_ends(call: &mut Call) {
 }
 
 pub fn points() -> Vec<Point> {
-    let mut points = crate::drawing::performance_points();
-    points.extend(crate::saving::background::performance_points());
-    points
+    vec![crate::drawing::main_draw_point(main_draws)]
 }

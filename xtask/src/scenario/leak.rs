@@ -88,11 +88,11 @@ impl Scenario for Leak {
     }
 
     fn build(&self, _: &Parameters) -> Build {
-        if self.census {
-            Build::Census
-        } else {
-            Build::Memory
-        }
+        Build::Dev
+    }
+
+    fn options(&self, _: &Parameters) -> Option<String> {
+        Some(if self.census { "[heap-census]\nenabled = true\n".into() } else { String::new() })
     }
 
     fn minutes(&self) -> u32 {

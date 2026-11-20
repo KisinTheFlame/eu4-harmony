@@ -14,40 +14,17 @@ pub type Result<T> = std::result::Result<T, String>;
 /// Marks a function the game's code calls, which runs under [`guarded`].
 pub(crate) use eu4_harmony_core_macros::called_by_game;
 
-/// A developer build's test switch, `test_switch!(crash)`: as dev.toml's
-/// `[test-switches]` has it, and off in a build without the test switches,
-/// which has no dev.toml to read. The speed-ups' switches are read through
-/// `speed`.
-macro_rules! test_switch {
-    ($switch:ident) => {{
-        #[cfg(feature = "dev-test-switches")]
-        let on = crate::dev::options().test_switches.$switch;
-        #[cfg(not(feature = "dev-test-switches"))]
-        let on = false;
-        on
-    }};
-}
-
 #[macro_use]
 pub mod log;
 #[macro_use]
 pub mod stub;
 pub mod achievements;
-#[cfg(feature = "dev-test-switches")]
-mod agents_order;
 mod army_search;
 pub mod baseline;
 mod bound_element;
 pub mod catalogue;
-#[cfg(feature = "dev-heap-census")]
-pub mod census;
-#[cfg(feature = "dev-command-log")]
-mod command_log;
 pub mod containers;
 mod crash;
-#[cfg(feature = "dev-crossings")]
-mod crossings;
-#[cfg(any(test, dev_build))]
 pub mod dev;
 pub mod drawing;
 pub mod files;
@@ -68,17 +45,11 @@ pub mod lua;
 mod main_thread;
 pub mod map;
 pub mod memory;
-#[cfg(feature = "dev-memory")]
-mod memory_account;
 mod modifier_sums;
 pub mod mods;
 pub mod notice;
 pub mod objects;
 pub mod paths;
-#[cfg(feature = "dev-performance")]
-mod performance;
-#[cfg(feature = "dev-performance")]
-mod performance_hooks;
 pub mod physfs;
 pub mod pipe;
 pub mod points;
@@ -97,16 +68,12 @@ pub mod splice;
 mod stack;
 mod startup;
 mod tooltips;
-#[cfg(feature = "dev-call-trace")]
-mod trace;
 mod troubleshooting;
 pub mod ui;
 pub mod unicode;
 mod window_ordering;
 pub mod windows;
 pub mod wording;
-#[cfg(feature = "dev-write-watch")]
-mod write_watch;
 pub mod zip;
 
 use std::sync::{
@@ -192,15 +159,13 @@ pub(crate) fn fatal(detail: &str) -> ! {
 fn start(m: memory::Memory) -> Result<String> {
     let baseline = baseline::recognize(&m)?;
     icu::load()?;
-    #[cfg(dev_build)]
     dev::load(&paths::core_dir()?)?;
-    if test_switch!(fail_startup) {
+    if dev::fail_startup() {
         return Err("fail-startup is on in dev.toml's [test-switches]".into());
     }
     speed::check_switches()?;
     let installed = points::install(m, &points::this_build::installed(m))?;
-    #[cfg(feature = "dev-command-log")]
-    command_log::start();
+    dev::after_install();
     Ok(format!("baseline {baseline}: {} dependency points match; {} hooks, {} writes", installed.checked, installed.hooks, installed.writes))
 }
 
@@ -283,12 +248,13 @@ fn open_logs(user_dir: &std::path::Path) -> std::path::PathBuf {
 }
 
 /// What this core is, after its version: its api, and in a developer build
-/// that it is one and its tools.
+/// or test-games build what it is.
 fn build() -> String {
     let api = format!(" (api {})", eu4_harmony_remote::API_VERSION);
-    #[cfg(dev_build)]
-    let api = format!("{api}, {}", dev::build());
-    api
+    match dev::build_label() {
+        Some(label) => format!("{api}, {label}"),
+        None => api,
+    }
 }
 
 /// The report's first lines: this core, and the game folder when it is known;
@@ -307,7 +273,6 @@ fn report_header(game_dir: Option<&std::path::Path>) {
     if let Some(dir) = game_dir {
         report::line(format!("game: {}", dir.display()));
     }
-    #[cfg(dev_build)]
     for line in dev::report_lines() {
         report::line(line);
     }

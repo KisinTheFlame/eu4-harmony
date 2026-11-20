@@ -318,8 +318,7 @@ fn tell(happened: Vec<Happening>) {
             Happening::WorldReset(world) => {
                 crate::saves::clear_session();
                 crate::repairs::world_reset(&crate::hooked_memory(), world);
-                #[cfg(feature = "dev-heap-census")]
-                crate::census::world_reset();
+                crate::dev::world_reset();
             }
             Happening::FirstFrameAfterReset => crate::repairs::first_frame_after_reset(&crate::hooked_memory()),
             Happening::ResetWithHistory => {

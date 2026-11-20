@@ -452,18 +452,6 @@ pub fn text(m: &Memory, command: usize) -> GResult<String> {
     Ok(one_line(&game_text::to_utf8(&written(m, command, token)?)))
 }
 
-/// Posts dev.toml's test commands (`[test-switches]` `post`), at the first
-/// frame of a game, and logs what came of each.
-#[cfg(feature = "dev-test-switches")]
-pub fn post_test_commands() {
-    for text in &crate::dev::options().test_switches.post {
-        match Commands::Game.post(text) {
-            Ok(()) => log!("test command carried out: {text}"),
-            Err(refused) => log!("test command not posted ({refused:?}): {text}"),
-        }
-    }
-}
-
 /// Why the command read from `given` must not be posted: a key that did not
 /// come back as given, or its check; None when it may be.
 fn refused(m: &Memory, command: usize, given: &Written) -> GResult<Option<Refused>> {

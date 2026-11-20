@@ -196,21 +196,13 @@ fn visibility_before(_: &mut Call) {
 fn daily_before(call: &mut Call) {
     boundary(Boundary::invalidate);
     crate::drawing::day_begins();
-    #[cfg(feature = "dev-crossings")]
-    crate::crossings::day_begins(&call.memory());
-    #[cfg(feature = "dev-performance")]
-    crate::performance_hooks::day_begins(call);
-    #[cfg(not(any(feature = "dev-crossings", feature = "dev-performance")))]
-    let _ = call;
+    crate::dev::day_begins(call);
 }
 
 /// The day is over: time stops here when remote control advances it to this
 /// date (`time`).
 fn daily_after(call: &mut Call) {
-    #[cfg(feature = "dev-performance")]
-    crate::performance_hooks::day_ends(call);
-    #[cfg(feature = "dev-crossings")]
-    crate::crossings::day_ends();
+    crate::dev::day_ends(call);
     crate::drawing::day_ends();
     if !call.faulted() {
         super::time::day_passed(&call.memory());

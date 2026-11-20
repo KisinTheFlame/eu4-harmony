@@ -868,7 +868,6 @@ fn rebuild_map_names(m: &Memory) -> crate::Result<bool> {
 }
 
 /// Every page asks for room (the test switch `grow-pages`).
-#[cfg(feature = "dev-test-switches")]
 pub fn want_room_everywhere() {
     PAGES.lock().want_room_everywhere();
 }

@@ -78,7 +78,7 @@ windows = { workspace = true, features = [
 # Reading the game's code for call tracing and write watching. Tests use it
 # too, through the dev-dependency below.
 eu4-harmony-analysis = { path = "../analysis", optional = true }
-# A developer build's options, in dev.toml (src/dev.rs).
+# A developer build's options, in dev.toml (src/dev/options.rs).
 toml = { workspace = true, optional = true }
 
 [build-dependencies]
@@ -89,35 +89,13 @@ eu4-harmony-analysis = { path = "../analysis" }
 toml = { workspace = true }
 
 [features]
-analysis = ["dep:eu4-harmony-analysis"]
-# The development tools, for finding things out in the game; each is on when
-# built in, with its options in dev.toml (src/dev.rs). A player's build has
-# none of them, and `dev` has them all.
-dev = ["dev-call-trace", "dev-memory", "dev-heap-census", "dev-command-log", "dev-test-switches", "dev-write-watch", "dev-test-games", "dev-crossings", "dev-performance"]
-# Bounded on-demand performance windows (src/performance.rs).
-dev-performance = ["dep:toml", "eu4-harmony-remote/dev-performance"]
-# Logs calls of the game functions dev.toml names (src/trace.rs).
-dev-call-trace = ["analysis", "dep:toml"]
-# Answers remote control's memory: what the process holds, by where it
-# lies, at no cost between two asks (src/memory_account.rs).
-dev-memory = ["dep:toml", "eu4-harmony-remote/dev-memory"]
-# Counts the game's live heap blocks by call site, and answers remote
-# control's memory.leftovers, memory.watch, memory.generation,
-# memory.quarantine and memory.pages (src/census.rs).
-dev-heap-census = ["dev-memory"]
-# Logs the commands the game executes, in their written form (src/command_log.rs).
-dev-command-log = ["dep:toml"]
-# Makes startup fail, or shows test notices, as dev.toml says.
-dev-test-switches = ["dep:toml"]
-# Logs what a game function writes to memory it did not make (src/write_watch.rs).
-dev-write-watch = ["analysis", "dep:toml"]
-# Counts where the day goes into the interface's or the graphics' code, by
-# call stack (src/crossings.rs; docs/game/interface/frame-lifecycle.md).
-dev-crossings = ["dep:toml"]
 # Serves remote control on the test game's own pipe, the one
 # -harmony_test_game names, so that test games run side by side
 # (src/pipe.rs, docs/dev-tools.md#test-games).
-dev-test-games = ["dep:toml"]
+dev-test-games = []
+# A developer build with all development tools included, configured in dev.toml
+# (src/dev/mod.rs, docs/dev-tools.md). A player build has none of them.
+dev = ["dev-test-games", "dep:eu4-harmony-analysis", "dep:toml", "eu4-harmony-remote/dev"]
 
 [lints]
 workspace = true

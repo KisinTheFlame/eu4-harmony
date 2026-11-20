@@ -1,5 +1,5 @@
 //! Logs calls of game functions, for finding out what the game passes them
-//! (the `dev-call-trace` feature: a player's build has none of this). The
+//! (a developer build: a player build has none of this). The
 //! functions are the RVAs `functions` in dev.toml's `[call-trace]` lists, say
 //! `["0x15988e0", "0x159c600"]`. Each function's first calls (`calls`, 20 by
 //! default) are logged: the arguments, the text any of them points at (a C
@@ -206,7 +206,7 @@ pub struct Chosen(Vec<(Traced, &'static str)>);
 /// The functions dev.toml names that can be traced. A function whose argument count cannot be told is left out, as
 /// is one that reads more arguments than an observer forwards.
 pub fn chosen(m: &Memory) -> Chosen {
-    let options = &crate::dev::options().call_trace;
+    let options = &super::options::options().call_trace;
     if options.functions.is_empty() {
         return Chosen(Vec::new());
     }
@@ -258,7 +258,7 @@ impl Chosen {
 
     /// Traces them, and times them when dev.toml says so.
     pub fn start(self) {
-        let options = &crate::dev::options().call_trace;
+        let options = &super::options::options().call_trace;
         LIMIT.get_or_init(|| options.calls);
         if TRACED.set(self.0.into_iter().map(|(t, _)| t).collect()).is_err() {
             log!("trace: already set up");

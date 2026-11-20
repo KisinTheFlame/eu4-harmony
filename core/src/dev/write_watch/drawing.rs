@@ -45,7 +45,7 @@ pub(super) fn on() {
 
 /// A day begins, on the main thread, holding the presentation lock.
 pub fn day_begins(m: &Memory) {
-    let options = &crate::dev::options().write_watch;
+    let options = &super::super::options::options().write_watch;
     match PHASE.load(Ordering::Acquire) {
         WAITING if DAYS_PASSED.fetch_add(1, Ordering::Relaxed) + 1 >= options.after_days => {
             PHASE.store(READING, Ordering::Release);
@@ -111,7 +111,7 @@ pub fn frame_ends(watched: bool) {
     GAME_READS_ONLY.store(false, Ordering::Release);
     let n = FRAMES_READ.fetch_add(1, Ordering::Relaxed) + 1;
     report(crate::drawing::drawing_rva(), n, true);
-    if n >= crate::dev::options().write_watch.drawing_frames {
+    if n >= super::super::options::options().write_watch.drawing_frames {
         PHASE.store(READ, Ordering::Release);
     }
 }

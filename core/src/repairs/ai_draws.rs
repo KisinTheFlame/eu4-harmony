@@ -177,12 +177,9 @@ fn phase_ended(_: &mut Call) {
         return;
     }
     let stages = STAGES.fetch_add(1, Ordering::Relaxed) + 1;
-    #[cfg(dev_build)]
-    if stages.is_multiple_of(100) {
+    if crate::dev::log_repair_stats() && stages.is_multiple_of(100) {
         log!("repair: the AI's countries' draws: {}", counted());
     }
-    #[cfg(not(dev_build))]
-    let _ = stages;
 }
 
 /// An AI country's task begins: its stream, from the stage's number and the
@@ -228,7 +225,7 @@ fn since_reset() -> String {
 /// draws from the world's one generator as the game's do, so that the repair
 /// can be measured against it.
 fn game_shares_ai_draws() -> bool {
-    test_switch!(game_shares_ai_draws)
+    crate::dev::game_shares_ai_draws()
 }
 
 /// The repair as the world reset sees it ([`super::REPAIRS`]).

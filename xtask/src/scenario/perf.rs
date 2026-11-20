@@ -51,16 +51,18 @@ impl Scenario for Perf {
         "bounded performance windows: completed days, frame submission, interface updates, startup, CPU and memory"
     }
 
-    fn build(&self, parameters: &Parameters) -> Build {
-        Build::Performance { switches: !left_to_the_game(parameters).is_empty() }
+    fn build(&self, _parameters: &Parameters) -> Build {
+        Build::Dev
     }
 
     fn options(&self, parameters: &Parameters) -> Option<String> {
+        let mut toml = String::from("[performance]\nenabled = true\n");
         let names = left_to_the_game(parameters);
-        (!names.is_empty()).then(|| {
+        if !names.is_empty() {
             let quoted: Vec<String> = names.iter().map(|n| format!("{n:?}")).collect();
-            format!("[test-switches]\ngame-paths = [{}]\n", quoted.join(", "))
-        })
+            toml.push_str(&format!("\n[test-switches]\ngame-paths = [{}]\n", quoted.join(", ")));
+        }
+        Some(toml)
     }
 
     fn minutes(&self) -> u32 {
@@ -397,10 +399,14 @@ mod tests {
     fn collection_off_keeps_the_same_build_and_switches_compose() {
         let on = Parameters::of(&Perf, &[]).unwrap();
         let off = Parameters::of(&Perf, &[("perf".into(), "collect".into(), "false".into())]).unwrap();
+        assert_eq!(Perf.build(&on), Build::Dev);
         assert_eq!(Perf.build(&on), Perf.build(&off));
+        assert!(Perf.options(&on).unwrap().contains("[performance]\nenabled = true"));
         let switched = Parameters::of(&Perf, &[("perf".into(), "game_paths".into(), "drawing-thread".into())]).unwrap();
-        assert_eq!(Perf.build(&switched), Build::Performance { switches: true });
-        assert!(Perf.options(&switched).unwrap().contains("drawing-thread"));
+        assert_eq!(Perf.build(&switched), Build::Dev);
+        let options = Perf.options(&switched).unwrap();
+        assert!(options.contains("[performance]\nenabled = true"));
+        assert!(options.contains("drawing-thread"));
         let invalid = Parameters::of(&Perf, &[("perf".into(), "running_seconds".into(), "0".into())]).unwrap();
         assert!(window_seconds(&invalid, "running_seconds").is_err());
     }
