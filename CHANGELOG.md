@@ -2,6 +2,12 @@
 
 What changed in each version of Harmony that players and mod authors notice. Merging a version PR automatically publishes its section as the GitHub Release notes; a local Steam Workshop upload uses the same section as its change note (`cargo xtask workshop-upload`).
 
+## 0.3.2
+
+- Fixed: a safe point could run during a frame inside a day while the daily update was still in progress, allowing an extension or remote request to load a save or leave the session mid-day and crash the game after the world reset. Safe points now run only on normal frames outside a daily update, in-game loads are refused while a daily update is in progress, and leaving a session right after a day ends waits for the day's queued commands to finish first.
+
+The core updates through Steam Workshop with no proxy replacement required; restart the game after the update. Manual framework downloads include the updated core and proxy in the same layout as 0.3.1.
+
 ## 0.3.1
 
 - Fixed: hovering interface elements while the drawing thread was held back during a day could crash when freed embedded controls such as scrollbars remained in stale scene lists. Scene lists are now refreshed before tooltip updates.
