@@ -6,6 +6,7 @@
 mod addresses;
 mod claim;
 mod crash_dump;
+mod decompile;
 mod disasm;
 mod files;
 mod game;
@@ -88,6 +89,15 @@ usage:
       Reads the installed game's code (xtask/src/disasm.rs, whose arguments
       docs/dev-tools.md describes), without building the core or changing its
       build artifacts. Finds the game through EU4_GAME_DIR or Steam.
+  cargo xtask decompile --init [--rebuild] [--module <file>] [--game-dir <dir>]
+  cargo xtask decompile --status | --stop [--module <file>]
+  cargo xtask decompile [--module <file>] [--game-dir <dir>] [--timeout <seconds>] [--oneshot] <rva>...
+      Decompiles functions to C pseudocode using a persistent local Ghidra
+      project under %LOCALAPPDATA%\\eu4-harmony-dev\\ghidra\\ (docs/dev-tools.md).
+      Run --init once per binary to import and auto-analyze it, then query any
+      RVA via the auto-started warm server (or --oneshot). For eu4.exe, rewrites
+      default VA symbols to RVAs and annotates addresses named in
+      docs/game/addresses.toml.
   cargo xtask addresses
       Writes docs/game/addresses.toml again from the research notes and
       the game's pages: every address of eu4.exe they name, with the notes
@@ -299,6 +309,7 @@ fn main() {
         Some("release-check") => Args::parse(rest, &[], &["tag", "out"]).and_then(|a| release::run(&a)),
         Some("workshop-upload") => Args::parse(rest, &["create"], &["user"]).and_then(|a| workshop::upload(&a)),
         Some("disasm") => disasm::run(rest),
+        Some("decompile") => decompile::run(rest),
         // A player's build's points, then a developer build's with every
         // tool, whose points the player's build does not declare.
         Some("offline-check") => with_game(&["test", "--release", "-p", "eu4-harmony-core", "--", "--ignored"], rest, "the offline checks").and_then(|()| {
