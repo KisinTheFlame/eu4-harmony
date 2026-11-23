@@ -94,9 +94,10 @@ usage:
       that name it, each name kept, and its kind (a function begins there,
       code inside one, data) from the game's eu4.exe when it is found
       (docs/game/README.md).
-  cargo xtask what <rva>
+  cargo xtask what <rva | search terms>...
       The index's entry of an address, and of the function it is in, and each
-      line of the notes, the game's pages and the code that names either.
+      line of the notes, the game's pages and the code that names either; or,
+      when given search terms, every matching entry in docs/game/addresses.toml.
   cargo xtask offline-check
       Compares every dependency point's bytes with the game's eu4.exe, and
       checks that each observer forwards at least the arguments its function
@@ -308,13 +309,12 @@ fn main() {
             )
         }),
         Some("addresses") => Args::parse(rest, &[], &[]).and_then(|_| addresses::update(&repo())),
-        Some("what") => Args::parse(rest, &[], &[]).and_then(|a| match a.positional.as_slice() {
-            [rva] => addresses::what(&repo(), rva),
-            _ => Err(format!(
-                "what takes one address
-
-{USAGE}"
-            )),
+        Some("what") => Args::parse(rest, &[], &[]).and_then(|a| {
+            if a.positional.is_empty() {
+                Err(format!("what takes an address or search terms\n\n{USAGE}"))
+            } else {
+                addresses::what(&repo(), &a.positional)
+            }
         }),
         Some("saves") => saves::run(rest),
         Some("scenario") => scenario::run(rest),
