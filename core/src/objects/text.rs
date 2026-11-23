@@ -67,6 +67,8 @@ pub mod renderer {
 pub mod map {
     /// The font its country names are drawn in.
     pub const NAMES_FONT: usize = 0x4d0;
+    /// Flag (u8) that the map's names are to be made again on the next draw.
+    pub const NAMES_DUE: usize = 0x25a0;
     /// Builds every country's name again, when the map has its font, and
     /// marks the map mode for its refresh at the next frame, which builds
     /// the other names again: `(map)`.

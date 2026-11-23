@@ -123,7 +123,7 @@
 "0x947f0" = { kind = "function", name = "scope destructor", notes = ["game/scripts/triggers.md"] }
 "0x94890" = { kind = "function", notes = ["game/scripts/triggers.md"] }
 "0x94f20" = { kind = "leaf", notes = ["game/military/units.md"] }
-"0x950b0" = { kind = "function", notes = ["game/interface/font-textures.md", "game/interface/window-activation.md", "game/interface/window-input-refresh.md"] }
+"0x950b0" = { kind = "function", notes = ["game/interface/font-textures.md", "game/interface/timeline.md", "game/interface/window-activation.md", "game/interface/window-input-refresh.md"] }
 "0x950ce" = { kind = "code", notes = ["game/interface/font-textures.md", "game/interface/main-menu.md"] }
 "0x95110" = { kind = "function", name = "string copy with allocation when needed", notes = ["game/interface/extension-windows.md", "game/interface/stream-formatting.md", "game/interface/window-construction.md", "game/military/army-checks-in-searches.md", "game/military/mercenary-names.md", "game/provinces/tolerance-in-a-province.md", "game/scripts/parameterized-script.md"] }
 "0x951a1" = { kind = "code", notes = ["game/interface/main-menu.md"] }
@@ -1191,6 +1191,7 @@
 "0x374a70" = { kind = "function", notes = ["game/provinces/provinces.md"] }
 "0x374c50" = { kind = "function", notes = ["game/ai/ai.md", "game/military/armies.md", "game/provinces/provinces.md"] }
 "0x374c91" = { kind = "code", notes = ["game/provinces/provinces.md"] }
+"0x375650" = { kind = "function", notes = ["game/interface/timeline.md"] }
 "0x3781c0" = { kind = "function", name = "may move the capital", notes = ["game/countries/power-spending.md"] }
 "0x3789bf" = { kind = "code", name = "move capital's spending", notes = ["game/countries/power-spending.md"] }
 "0x378c20" = { kind = "function", name = "may move the trade port", notes = ["game/countries/power-spending.md"] }
@@ -1423,6 +1424,7 @@
 "0x4ac368" = { kind = "code", notes = ["game/diplomacy/envoys.md"] }
 "0x4b0841" = { kind = "code", notes = ["game/diplomacy/envoys.md"] }
 "0x4b655d" = { kind = "code", notes = ["game/provinces/trade-range-and-naval-supply.md"] }
+"0x4c3b0a" = { kind = "code", notes = ["game/interface/timeline.md"] }
 "0x4d8f6c" = { kind = "code", notes = ["game/interface/camera.md"] }
 "0x4d8ff9" = { kind = "code", notes = ["game/interface/camera.md"] }
 "0x4e12f0" = { kind = "function", notes = ["game/interface/main-menu.md"] }
@@ -1712,6 +1714,10 @@
 "0x6e90f0" = { kind = "function", notes = ["game/interface/main-menu.md", "game/scripts/game-console.md"] }
 "0x6e9860" = { kind = "function", name = "a text floating on the map", notes = ["game/program/loading.md", "game/program/world-interface-coupling.md"] }
 "0x6e9f68" = { kind = "code", name = "a floating text's strings destroyed", notes = ["game/interface/frame-lifecycle.md"] }
+"0x6ea0b0" = { kind = "function", notes = ["game/interface/timeline.md"] }
+"0x6ea0b9" = { kind = "code", notes = ["game/interface/timeline.md"] }
+"0x6ea0be" = { kind = "code", notes = ["game/interface/timeline.md"] }
+"0x6ea127" = { kind = "code", notes = ["game/interface/timeline.md"] }
 "0x6ea1c0" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x6ea380" = { kind = "function", notes = ["game/day/frame-and-idlers.md", "game/day/time.md", "game/diplomacy/questions-and-offers.md", "game/interface/window-construction.md"] }
 "0x6eaa10" = { kind = "function", notes = ["game/countries/achievements.md", "game/day/time.md", "game/scripts/game-console.md"] }
@@ -1954,6 +1960,10 @@
 "0x760250" = { kind = "function", notes = ["game/day/time-architecture.md"] }
 "0x763470" = { kind = "function", notes = ["game/day/monthly-update.md"] }
 "0x763840" = { kind = "function", name = "world set player", notes = ["game/interface/main-menu.md"] }
+"0x76416c" = { kind = "code", notes = ["game/interface/timeline.md"] }
+"0x76491b" = { kind = "code", notes = ["game/interface/timeline.md"] }
+"0x76492a" = { kind = "code", notes = ["game/interface/timeline.md"] }
+"0x76625c" = { kind = "code", notes = ["game/interface/timeline.md"] }
 "0x768e20" = { kind = "function", notes = ["game/countries/defeat.md", "game/interface/main-menu.md"] }
 "0x7697f8" = { kind = "code", notes = ["game/military/leaders.md"] }
 "0x769bd0" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
@@ -2186,6 +2196,11 @@
 "0x815028" = { kind = "code", notes = ["game/interface/window-activation.md", "game/military/army-orders.md"] }
 "0x81502d" = { kind = "code", notes = ["game/military/army-orders.md"] }
 "0x815312" = { kind = "code", notes = ["game/day/time-architecture.md"] }
+"0x8153b2" = { kind = "code", notes = ["game/interface/timeline.md"] }
+"0x8153ce" = { kind = "code", notes = ["game/interface/timeline.md"] }
+"0x8153fd" = { kind = "code", notes = ["game/interface/timeline.md"] }
+"0x815405" = { kind = "code", notes = ["game/interface/timeline.md"] }
+"0x815497" = { kind = "code", notes = ["game/interface/timeline.md"] }
 "0x8156ba" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x815711" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x81575d" = { kind = "code", notes = ["game/countries/achievements.md"] }
@@ -2219,7 +2234,7 @@
 "0x8181d0" = { kind = "function", notes = ["game/interface/message-pop-up-actions.md"] }
 "0x8183b0" = { kind = "function", name = "the in-game frame's drawing", notes = ["game/interface/frame-lifecycle.md", "game/interface/gui-drawing.md", "game/interface/map-drawing-reads.md", "game/interface/rendering-architecture.md", "game/interface/window-input-refresh.md"] }
 "0x818614" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
-"0x818619" = { kind = "code", name = "the map mode's colors' flags", notes = ["game/interface/frame-lifecycle.md"] }
+"0x818619" = { kind = "code", name = "the map mode's colors' flags", notes = ["game/interface/frame-lifecycle.md", "game/interface/timeline.md"] }
 "0x818652" = { kind = "code", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md"] }
 "0x81865c" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x8186c2" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
@@ -4219,8 +4234,8 @@
 "0x10a7f87" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x10a87c0" = { kind = "function", notes = ["game/interface/window-activation.md"] }
 "0x10a8930" = { kind = "function", notes = ["game/interface/main-menu.md", "game/program/world-interface-coupling.md"] }
-"0x10a8c30" = { kind = "function", name = "map renderer", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md", "game/interface/rendering-architecture.md", "game/provinces/map-modes.md"] }
-"0x10a9be0" = { kind = "function", name = "the map's names made", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md", "game/provinces/map-modes.md"] }
+"0x10a8c30" = { kind = "function", name = "map renderer", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md", "game/interface/rendering-architecture.md", "game/interface/timeline.md", "game/provinces/map-modes.md"] }
+"0x10a9be0" = { kind = "function", name = "the map's names made", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md", "game/interface/timeline.md", "game/provinces/map-modes.md"] }
 "0x10ad9f0" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x10ae980" = { kind = "function", notes = ["game/program/loading.md"] }
 "0x10af270" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
@@ -4488,12 +4503,15 @@
 "0x12db2f6" = { kind = "code", notes = ["game/interface/drawing-boundaries.md"] }
 "0x12db4d0" = { kind = "function", notes = ["game/interface/map-drawing-reads.md"] }
 "0x12db850" = { kind = "function", notes = ["game/interface/main-menu.md", "game/interface/map-drawing-reads.md", "game/program/loading.md"] }
-"0x12dbfc0" = { kind = "function", notes = ["game/interface/map-drawing-reads.md"] }
+"0x12dbfc0" = { kind = "function", notes = ["game/interface/map-drawing-reads.md", "game/interface/timeline.md"] }
+"0x12dc261" = { kind = "code", notes = ["game/interface/timeline.md"] }
+"0x12dc4a4" = { kind = "code", notes = ["game/interface/timeline.md"] }
 "0x12dca80" = { kind = "function", notes = ["game/interface/map-drawing-reads.md"] }
 "0x12dceb0" = { kind = "function", notes = ["game/interface/map-drawing-reads.md"] }
 "0x12dcf40" = { kind = "function", notes = ["game/interface/map-drawing-reads.md"] }
 "0x12dd0a0" = { kind = "function", notes = ["game/interface/map-drawing-reads.md"] }
-"0x12dd0c0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md"] }
+"0x12dd0c0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md", "game/interface/timeline.md"] }
+"0x12dd1d9" = { kind = "code", notes = ["game/interface/timeline.md"] }
 "0x12dd3b0" = { kind = "function", notes = ["game/interface/map-drawing-reads.md"] }
 "0x12dd5f1" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
 "0x12dd5f6" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
@@ -4533,7 +4551,7 @@
 "0x12efe96" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
 "0x12efefe" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
 "0x12f0b40" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/main-menu.md", "game/interface/map-drawing-reads.md", "game/interface/rendering-architecture.md", "game/provinces/map-modes.md"] }
-"0x12fd9b0" = { kind = "function", name = "map color fill", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md", "game/interface/rendering-architecture.md", "game/provinces/map-modes.md"] }
+"0x12fd9b0" = { kind = "function", name = "map color fill", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md", "game/interface/rendering-architecture.md", "game/interface/timeline.md", "game/provinces/map-modes.md"] }
 "0x12fdcb0" = { kind = "function", name = "map secondary colors", notes = ["game/interface/rendering-architecture.md", "game/provinces/map-modes.md", "game/provinces/trade-range-and-naval-supply.md"] }
 "0x1301000" = { kind = "code", notes = ["game/program/architecture.md"] }
 "0x1306a60" = { kind = "function", notes = ["game/diplomacy/peace.md"] }
@@ -4576,7 +4594,7 @@
 "0x1329e40" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
 "0x132b1b0" = { kind = "function", name = "show and update the province's reformation-center icon", notes = ["game/provinces/reformation-centers.md"] }
 "0x132b23e" = { kind = "code", notes = ["game/provinces/reformation-centers.md"] }
-"0x132c050" = { kind = "function", notes = ["game/provinces/map-modes.md"] }
+"0x132c050" = { kind = "function", notes = ["game/interface/timeline.md", "game/provinces/map-modes.md"] }
 "0x132e210" = { kind = "function", name = "a map icon's projection", notes = ["game/interface/frame-lifecycle.md", "game/provinces/reformation-centers.md"] }
 "0x132e300" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/provinces/reformation-centers.md"] }
 "0x132e4d5" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
@@ -4678,7 +4696,25 @@
 "0x13b9567" = { kind = "code", notes = ["game/interface/text-input.md"] }
 "0x13b9e8e" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x13bd3a0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md"] }
-"0x13c36b0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
+"0x13c1f60" = { kind = "leaf", notes = ["game/interface/timeline.md"] }
+"0x13c2160" = { kind = "leaf", notes = ["game/interface/timeline.md"] }
+"0x13c21b0" = { kind = "function", notes = ["game/interface/timeline.md"] }
+"0x13c2220" = { kind = "function", notes = ["game/interface/timeline.md"] }
+"0x13c23f7" = { kind = "code", notes = ["game/interface/timeline.md"] }
+"0x13c2980" = { kind = "function", notes = ["game/interface/timeline.md"] }
+"0x13c2ff5" = { kind = "code", notes = ["game/interface/timeline.md"] }
+"0x13c3011" = { kind = "code", notes = ["game/interface/timeline.md"] }
+"0x13c3030" = { kind = "function", notes = ["game/interface/timeline.md"] }
+"0x13c30f0" = { kind = "code", notes = ["game/interface/timeline.md"] }
+"0x13c3160" = { kind = "function", notes = ["game/interface/timeline.md"] }
+"0x13c33f0" = { kind = "function", notes = ["game/interface/timeline.md"] }
+"0x13c3480" = { kind = "function", notes = ["game/interface/timeline.md"] }
+"0x13c3540" = { kind = "function", notes = ["game/interface/timeline.md"] }
+"0x13c35c0" = { kind = "function", notes = ["game/interface/timeline.md"] }
+"0x13c36a0" = { kind = "leaf", notes = ["game/interface/timeline.md"] }
+"0x13c36b0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/timeline.md"] }
+"0x13c4050" = { kind = "function", notes = ["game/interface/timeline.md"] }
+"0x13c40c0" = { kind = "function", notes = ["game/interface/timeline.md"] }
 "0x13ca7e6" = { kind = "code", notes = ["game/provinces/trade-range-and-naval-supply.md"] }
 "0x13cb560" = { kind = "function", notes = ["game/diplomacy/envoys.md"] }
 "0x13cba10" = { kind = "function", notes = ["game/diplomacy/envoys.md"] }
@@ -4734,8 +4770,16 @@
 "0x1419470" = { kind = "function", notes = ["game/military/units.md"] }
 "0x14194ca" = { kind = "code", notes = ["game/military/units.md"] }
 "0x142f982" = { kind = "code", notes = ["game/military/units.md"] }
+"0x1430120" = { kind = "function", notes = ["game/interface/timeline.md"] }
 "0x1430510" = { kind = "function", notes = ["game/interface/window-construction.md"] }
+"0x143070f" = { kind = "code", notes = ["game/interface/timeline.md"] }
 "0x1430821" = { kind = "code", notes = ["game/day/dates.md"] }
+"0x1430ac0" = { kind = "function", notes = ["game/interface/timeline.md"] }
+"0x1430df0" = { kind = "function", notes = ["game/interface/timeline.md"] }
+"0x1430e60" = { kind = "function", notes = ["game/interface/timeline.md"] }
+"0x1430ed0" = { kind = "function", notes = ["game/interface/timeline.md"] }
+"0x1430f40" = { kind = "function", notes = ["game/interface/timeline.md"] }
+"0x1430fb0" = { kind = "function", notes = ["game/interface/timeline.md"] }
 "0x1431020" = { kind = "function", notes = ["game/interface/window-construction.md"] }
 "0x14317c0" = { kind = "function", notes = ["game/interface/main-menu.md", "game/interface/window-construction.md"] }
 "0x14318c0" = { kind = "function", notes = ["game/interface/window-construction.md"] }
@@ -4951,7 +4995,7 @@
 "0x14c7750" = { kind = "function", notes = ["game/day/dates.md"] }
 "0x14c7890" = { kind = "function", name = "date in a format", notes = ["game/day/dates.md"] }
 "0x14c7fd0" = { kind = "leaf", notes = ["game/day/dates.md"] }
-"0x14c8030" = { kind = "function", name = "adding months", notes = ["game/countries/advisors.md", "game/countries/power-spending.md", "game/day/dates.md", "game/diplomacy/questions-and-offers.md", "game/provinces/institutions-ages-monuments.md"] }
+"0x14c8030" = { kind = "function", name = "adding months", notes = ["game/countries/advisors.md", "game/countries/power-spending.md", "game/day/dates.md", "game/diplomacy/questions-and-offers.md", "game/interface/timeline.md", "game/provinces/institutions-ages-monuments.md"] }
 "0x14c8120" = { kind = "function", notes = ["game/day/dates.md"] }
 "0x14c83e0" = { kind = "function", notes = ["game/military/recruiting.md", "game/scripts/command-lifecycle.md"] }
 "0x14c97e0" = { kind = "function", notes = ["game/military/recruiting.md"] }
@@ -6118,6 +6162,7 @@
 "0x1c48748" = { kind = "data", notes = ["game/countries/advisors.md"] }
 "0x1c48ba0" = { kind = "data", notes = ["game/program/architecture.md"] }
 "0x1c48bf8" = { kind = "data", notes = ["game/day/frame-and-idlers.md"] }
+"0x1c48ca0" = { kind = "data", notes = ["game/interface/timeline.md"] }
 "0x1c4a0c8" = { kind = "data", notes = ["game/military/sieges.md"] }
 "0x1c4a168" = { kind = "data", notes = ["game/military/sieges.md"] }
 "0x1c4a208" = { kind = "data", notes = ["game/military/drill.md"] }
@@ -6437,6 +6482,12 @@
 "0x1d72020" = { kind = "data", notes = ["game/interface/main-menu.md"] }
 "0x1d749d8" = { kind = "data", notes = ["game/interface/map-drawing-reads.md"] }
 "0x1d7e848" = { kind = "data", notes = ["game/interface/gui-drawing.md", "game/interface/window-input-refresh.md"] }
+"0x1d80988" = { kind = "data", notes = ["game/interface/timeline.md"] }
+"0x1d80998" = { kind = "data", notes = ["game/interface/timeline.md"] }
+"0x1d809a8" = { kind = "data", notes = ["game/interface/timeline.md"] }
+"0x1d809c8" = { kind = "data", notes = ["game/interface/timeline.md"] }
+"0x1d809d8" = { kind = "data", notes = ["game/interface/timeline.md"] }
+"0x1d809e8" = { kind = "data", notes = ["game/interface/timeline.md"] }
 "0x1d824c8" = { kind = "data", notes = ["game/interface/map-drawing-reads.md"] }
 "0x1d83788" = { kind = "data", name = "tooltip owner class", notes = ["game/interface/panel-entry-text.md"] }
 "0x1d84238" = { kind = "data", notes = ["game/interface/window-construction.md"] }
@@ -6519,9 +6570,14 @@
 "0x1dbfa98" = { kind = "data", notes = ["game/program/saves.md"] }
 "0x1dc0358" = { kind = "data", notes = ["game/interface/gui-loading.md", "game/program/saves.md", "game/scripts/commands.md"] }
 "0x1dc1580" = { kind = "data", notes = ["game/countries/countries.md"] }
-"0x1dc1604" = { kind = "data", name = "army location score's weight", notes = ["game/interface/unicode-text.md"] }
+"0x1dc1604" = { kind = "data", name = "army location score's weight", notes = ["game/interface/timeline.md", "game/interface/unicode-text.md"] }
+"0x1dc17f8" = { kind = "data", notes = ["game/interface/timeline.md"] }
+"0x1dc1820" = { kind = "data", notes = ["game/interface/timeline.md"] }
+"0x1dc1848" = { kind = "data", notes = ["game/interface/timeline.md"] }
 "0x1dc1850" = { kind = "data", notes = ["game/program/loading.md"] }
-"0x1dc18c8" = { kind = "data", notes = ["game/interface/window-elements.md"] }
+"0x1dc1860" = { kind = "data", notes = ["game/interface/timeline.md"] }
+"0x1dc18b4" = { kind = "data", notes = ["game/interface/timeline.md"] }
+"0x1dc18c8" = { kind = "data", notes = ["game/interface/timeline.md", "game/interface/window-elements.md"] }
 "0x1dc1938" = { kind = "data", name = "army strength's scale", notes = ["game/provinces/trade-range-and-naval-supply.md"] }
 "0x1dc1a10" = { kind = "data", notes = ["game/interface/window-elements.md"] }
 "0x1dc1b00" = { kind = "data", name = "char event constant", notes = ["game/interface/text-input.md"] }
@@ -6689,6 +6745,7 @@
 "0x233e770" = { kind = "data", notes = ["game/interface/camera.md"] }
 "0x233e840" = { kind = "data", notes = ["game/diplomacy/questions-and-offers.md"] }
 "0x233e844" = { kind = "data", notes = ["game/interface/camera.md"] }
+"0x233e84c" = { kind = "data", notes = ["game/interface/timeline.md"] }
 "0x233e958" = { kind = "data", notes = ["game/interface/map-drawing-reads.md"] }
 "0x233e960" = { kind = "data", notes = ["game/interface/map-drawing-reads.md"] }
 "0x233e964" = { kind = "data", notes = ["game/interface/map-drawing-reads.md"] }
@@ -6737,13 +6794,13 @@
 "0x233fe50" = { kind = "data", notes = ["game/countries/countries.md"] }
 "0x233fe58" = { kind = "data", notes = ["game/countries/countries.md"] }
 "0x233fe70" = { kind = "data", notes = ["game/countries/power-spending.md"] }
-"0x233fe78" = { kind = "data", notes = ["game/countries/achievements.md", "game/countries/countries.md", "game/countries/country-knowledge.md", "game/day/dates.md", "game/day/monthly-update.md", "game/day/safe-points.md", "game/interface/frame-lifecycle.md", "game/interface/gui-drawing.md", "game/interface/interface-bindings.md", "game/interface/map-drawing-reads.md", "game/interface/message-pop-up-actions.md", "game/interface/window-construction.md", "game/military/armies.md", "game/military/units.md", "game/program/architecture.md", "game/program/loading.md", "game/provinces/map-modes.md", "game/provinces/trade.md", "game/scripts/scripts.md"] }
+"0x233fe78" = { kind = "data", notes = ["game/countries/achievements.md", "game/countries/countries.md", "game/countries/country-knowledge.md", "game/day/dates.md", "game/day/monthly-update.md", "game/day/safe-points.md", "game/interface/frame-lifecycle.md", "game/interface/gui-drawing.md", "game/interface/interface-bindings.md", "game/interface/map-drawing-reads.md", "game/interface/message-pop-up-actions.md", "game/interface/timeline.md", "game/interface/window-construction.md", "game/military/armies.md", "game/military/units.md", "game/program/architecture.md", "game/program/loading.md", "game/provinces/map-modes.md", "game/provinces/trade.md", "game/scripts/scripts.md"] }
 "0x233fe90" = { kind = "data", notes = ["game/provinces/religion.md"] }
 "0x233fe98" = { kind = "data", notes = ["game/interface/main-menu.md"] }
 "0x233fe9c" = { kind = "data", notes = ["game/interface/main-menu.md"] }
 "0x233fe9d" = { kind = "data", notes = ["game/program/headless.md"] }
 "0x233fe9e" = { kind = "data", notes = ["game/program/headless.md"] }
-"0x233fea0" = { kind = "data", notes = ["game/countries/country-knowledge.md", "game/interface/main-menu.md", "game/program/startup.md"] }
+"0x233fea0" = { kind = "data", notes = ["game/countries/country-knowledge.md", "game/interface/main-menu.md", "game/interface/timeline.md", "game/program/startup.md"] }
 "0x233fea8" = { kind = "data", notes = ["game/countries/government.md", "game/countries/power-spending.md", "game/interface/main-menu.md", "game/military/armies.md", "game/military/leaders.md", "game/provinces/provinces.md"] }
 "0x233fec0" = { kind = "data", notes = ["game/interface/main-menu.md", "game/military/leaders.md", "game/military/sieges.md"] }
 "0x233fed6" = { kind = "data", notes = ["game/countries/power-spending.md", "game/diplomacy/peace.md", "game/interface/interface-bindings.md", "game/military/armies.md", "game/military/sieges.md", "game/military/units.md", "game/provinces/provinces.md"] }
@@ -6777,6 +6834,7 @@
 "0x2340078" = { kind = "data", notes = ["game/program/loading.md"] }
 "0x2340090" = { kind = "data", notes = ["game/interface/gui-drawing.md"] }
 "0x2340098" = { kind = "data", notes = ["game/interface/gui-drawing.md"] }
+"0x2340118" = { kind = "data", notes = ["game/interface/timeline.md"] }
 "0x2340148" = { kind = "data", notes = ["game/program/architecture.md"] }
 "0x2340154" = { kind = "data", notes = ["game/ai/ai.md", "game/interface/main-menu.md"] }
 "0x2340158" = { kind = "data", notes = ["game/interface/main-menu.md", "game/military/armies.md"] }
@@ -6942,5 +7000,6 @@
 "0x245adc0" = { kind = "data", notes = ["game/interface/main-menu.md", "game/program/saves.md"] }
 "0x245b070" = { kind = "data", notes = ["game/day/frame-and-idlers.md", "game/day/frame-scheduling.md"] }
 "0x245b190" = { kind = "data", notes = ["game/provinces/religion.md"] }
+"0x245b48c" = { kind = "data", notes = ["game/interface/timeline.md"] }
 "0x2462ab8" = { kind = "data", notes = ["game/program/saves.md"] }
 "0x2462c90" = { kind = "data", notes = ["game/interface/main-menu.md"] }

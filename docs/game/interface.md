@@ -32,5 +32,6 @@ Window lifetime and scene traversal, accepted input, text, fonts, the camera and
 - [Native window order and the army attach picker](interface/window-ordering.md)
 - [Placing native windows among siblings](interface/window-placement.md)
 - [Window visibility transitions and lifetime](interface/window-visibility.md)
+- [Timeline playback, history replay and rendering](interface/timeline.md)
 
 Related systems: [The day and its time](day.md), [Provinces and the map](provinces.md), [The program](program.md).

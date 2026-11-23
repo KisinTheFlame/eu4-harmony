@@ -58,7 +58,7 @@ pub(super) fn points() -> Vec<Point> {
 }
 
 /// The graphical map's flag that its names are to be made again.
-const MAP_NAMES_DUE: usize = 0x25a0;
+use crate::objects::text::map::NAMES_DUE as MAP_NAMES_DUE;
 /// The graphical map's names' level, which the names are made for.
 const MAP_NAMES_LEVEL: usize = 0x638;
 /// The map's names made again (rcx the graphical map, edx the level, r8b
