@@ -84,7 +84,7 @@ usage:
       commit. A detached checkout is supported; it never creates a tag. --create makes the item, private, and records its id in
       workshop\\item.toml; commit that, release and upload again, so that the
       proxy is built with it (docs/dev-tools.md).
-  cargo xtask disasm <arg>...
+  cargo xtask disasm [--module <file>] [--game-dir <dir>] <arg>...
       Reads the installed game's code (xtask/src/disasm.rs, whose arguments
       docs/dev-tools.md describes), without building the core or changing its
       build artifacts. Finds the game through EU4_GAME_DIR or Steam.
