@@ -30,6 +30,8 @@ windows-sys = { workspace = true, features = [
     "Win32_Foundation",
     # CreateMutexW, for the claim's mutex.
     "Win32_Security",
+    # BCryptGenRandom, for the decompile bridge's token.
+    "Win32_Security_Cryptography",
     # Ctrl-C, for the scenario runner to give the game back.
     "Win32_System_Console",
     # The profiler: threads' contexts and dbghelp's names of functions.

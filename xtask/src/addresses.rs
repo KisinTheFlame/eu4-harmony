@@ -189,12 +189,89 @@ pub fn update(repo: &Path) -> Result<()> {
     Ok(())
 }
 
-/// `cargo xtask what <rva>`: the index's entry of the address, or of the
-/// function it is in, its explanations in the game's system pages, then
-/// code references. Investigations are reached through the system pages.
-pub fn what(repo: &Path, rva: &str) -> Result<()> {
-    let rva = u64::from_str_radix(rva.trim_start_matches("0x"), 16).map_err(|_| format!("{rva:?} is not an address"))?;
-    let index = read(&std::fs::read_to_string(repo.join(INDEX)).map_err(|e| format!("cannot read {INDEX}: {e}"))?)?;
+/// Loads the index of the game's addresses from `docs/game/addresses.toml`.
+pub fn load(repo: &Path) -> Result<Index> {
+    read(&std::fs::read_to_string(repo.join(INDEX)).map_err(|e| format!("cannot read {INDEX}: {e}"))?)
+}
+
+/// `cargo xtask what <rva | search terms>`: looks up one address (and its
+/// containing function) or searches the index by name and documentation path.
+pub fn what(repo: &Path, query: &[String]) -> Result<()> {
+    let index = load(repo)?;
+    if let Some(rva) = is_rva_query(query) {
+        return what_rva(repo, &index, rva);
+    }
+    what_search(repo, &index, query)
+}
+
+/// Parses `query` as a single RVA (`0x...`, `0X...`, or 5–7 hex digits).
+/// Shorter bare hex words such as `cafe` or `dead` are treated as search terms.
+pub fn is_rva_query(query: &[String]) -> Option<u64> {
+    let [raw] = query else { return None };
+    let trimmed = raw.trim();
+    if let Some(hex) = trimmed.strip_prefix("0x").or_else(|| trimmed.strip_prefix("0X")) {
+        if !hex.is_empty() && hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return u64::from_str_radix(hex, 16).ok();
+        }
+        return None;
+    }
+    if (5..=7).contains(&trimmed.len()) && trimmed.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return u64::from_str_radix(trimmed, 16).ok();
+    }
+    None
+}
+
+/// Splits `query` on whitespace into ASCII-lowercased search terms.
+fn search_terms(query: &[String]) -> Result<Vec<String>> {
+    let terms: Vec<String> = query.iter().flat_map(|part| part.split_whitespace()).filter(|t| !t.is_empty()).map(str::to_ascii_lowercase).collect();
+    if terms.is_empty() {
+        return Err("what needs an address or search terms".into());
+    }
+    Ok(terms)
+}
+
+/// Entries whose `name` or `notes` match every term (case-insensitive AND).
+fn matching_entries<'a>(index: &'a Index, terms: &[String]) -> Vec<(u64, &'a Entry)> {
+    index
+        .iter()
+        .filter(|(_, entry)| {
+            let name = entry.name.to_ascii_lowercase();
+            let notes: Vec<String> = entry.notes.iter().map(|n| n.to_ascii_lowercase()).collect();
+            terms.iter().all(|term| name.contains(term) || notes.iter().any(|n| n.contains(term)))
+        })
+        .map(|(&rva, entry)| (rva, entry))
+        .collect()
+}
+
+fn what_search(repo: &Path, index: &Index, query: &[String]) -> Result<()> {
+    const LIMIT: usize = 50;
+    let terms = search_terms(query)?;
+    let joined = query.join(" ");
+    let matches = matching_entries(index, &terms);
+    match matches.as_slice() {
+        [] => println!("no address matches {joined:?}"),
+        [(rva, _)] => return what_rva(repo, index, *rva),
+        _ => {
+            println!("{} address(es) match {joined:?}:", matches.len());
+            for (rva, entry) in matches.iter().take(LIMIT) {
+                let addr = format!("{rva:#x}");
+                let kind = if entry.kind.is_empty() { "-" } else { entry.kind.as_str() };
+                let name = if entry.name.is_empty() { "-" } else { entry.name.as_str() };
+                let notes: Vec<&str> = entry.notes.iter().map(String::as_str).collect();
+                println!("{addr:<9}  {kind:<8}  {name}  [{}]", notes.join(", "));
+            }
+            if matches.len() > LIMIT {
+                println!("  ... {} more (narrow the search terms)", matches.len() - LIMIT);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Looks up one RVA in the index, its explanations in the game's system
+/// pages, and then code references. Investigations are reached through the
+/// system pages.
+fn what_rva(repo: &Path, index: &Index, rva: u64) -> Result<()> {
     let function = crate::game::dir().ok().and_then(|dir| Image::read(&dir.join("eu4.exe")).ok()).and_then(|i| i.function(rva));
     let mut asked = vec![rva];
     match function {
@@ -444,5 +521,41 @@ mod tests {
         let index = read(&std::fs::read_to_string(repo.join(INDEX)).unwrap()).unwrap();
         let problems = differences(&index, &named(&repo).unwrap());
         assert!(problems.is_empty(), "run cargo xtask addresses, then name what is new:\n{}", problems.join("\n"));
+    }
+
+    #[test]
+    fn rva_query_distinguishes_addresses_from_short_words() {
+        let s = |v: &str| vec![v.to_string()];
+        assert_eq!(is_rva_query(&s("0x8f450")), Some(0x8f450));
+        assert_eq!(is_rva_query(&s("0X1000")), Some(0x1000));
+        assert_eq!(is_rva_query(&s("8f450")), Some(0x8f450));
+        assert_eq!(is_rva_query(&s("12fd9b0")), Some(0x12fd9b0));
+        assert_eq!(is_rva_query(&s("cafe")), None);
+        assert_eq!(is_rva_query(&s("dead")), None);
+        assert_eq!(is_rva_query(&s("advisor")), None);
+        assert_eq!(is_rva_query(&s("12345678")), None);
+        assert_eq!(is_rva_query(&["0x8f450".into(), "extra".into()]), None);
+        assert_eq!(is_rva_query(&["color".into(), "fill".into()]), None);
+    }
+
+    #[test]
+    fn keyword_search_matches_name_and_notes_with_and_logic() {
+        let mut index = Index::new();
+        index.insert(
+            0x12fd9b0,
+            Entry { kind: "function".into(), name: "the map's color fill".into(), notes: BTreeSet::from(["game/provinces/map-modes.md".into()]) },
+        );
+        index.insert(0x8f450, Entry { kind: "leaf".into(), name: "answers no".into(), notes: BTreeSet::from(["game/countries/advisors.md".into()]) });
+        index.insert(0x8f440, Entry { kind: "leaf".into(), name: "a leader is one".into(), notes: BTreeSet::from(["game/countries/advisors.md".into()]) });
+
+        let hits = matching_entries(&index, &search_terms(&["COLOR".into(), "fill".into()]).unwrap());
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].0, 0x12fd9b0);
+
+        let hits = matching_entries(&index, &search_terms(&["advisor".into()]).unwrap());
+        assert_eq!(hits.iter().map(|(rva, _)| *rva).collect::<Vec<_>>(), [0x8f440, 0x8f450]);
+
+        let hits = matching_entries(&index, &search_terms(&["advisor".into(), "leader".into()]).unwrap());
+        assert_eq!(hits.iter().map(|(rva, _)| *rva).collect::<Vec<_>>(), [0x8f440]);
     }
 }
