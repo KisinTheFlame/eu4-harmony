@@ -29,6 +29,7 @@ mod session_interface;
 mod sprite_types;
 mod supporters;
 mod text_boxes;
+mod timeline;
 mod trade_nodes;
 mod waiting;
 
@@ -166,6 +167,7 @@ const REPAIRS: &[Repair] = &[
     list_entries::REPAIR,
     new_start::REPAIR,
     pages::REPAIR,
+    timeline::REPAIR,
 ];
 
 /// What every repair that counts let go since the last world reset, one
