@@ -55,40 +55,41 @@ fn notches(rest: &mut i32, delta: i32) -> i32 {
     turned / WHEEL_DELTA
 }
 
-/// The wheel's event for a turn of `delta`, if it made a whole notch. Only a
-/// modal window scrolls, so what is left of a notch is kept only while one is
-/// open.
-fn wheel(delta: i32) -> Option<Event> {
-    let mut rest = if super::modal() { WHEEL_REST.load(Ordering::Relaxed) } else { 0 };
-    let turned = notches(&mut rest, delta);
-    WHEEL_REST.store(rest, Ordering::Relaxed);
-    (turned != 0).then_some(Event::Wheel(turned))
+/// What the window procedure should do with a Windows message after the
+/// framework UI has been offered its translated event.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MessageRoute {
+    /// Consume the message and return `0` without passing it to the game.
+    Swallow,
+    /// Pass IME composition messages to `DefWindowProcW` while a modal window
+    /// is open so typed text never reaches SDL.
+    DefaultProc,
+    /// Forward the message to the game's original window procedure.
+    ForwardToGame,
 }
 
-fn position(lparam: LPARAM) -> (f32, f32) {
-    ((lparam & 0xffff) as i16 as f32, ((lparam >> 16) & 0xffff) as i16 as f32)
-}
-
-#[called_by_game]
-unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    if !INJECTING.load(Ordering::Relaxed) && crate::guarded("input from Windows", || crate::game::input::real(message)) {
-        return 0;
-    }
-    let handler = HANDLER.get().copied();
-    let event = match message {
+/// Translates a raw Windows message into a framework UI [`Event`], resetting
+/// accumulated precision-wheel fractions whenever no modal window is open.
+fn translate_message(message: u32, wparam: WPARAM, lparam: LPARAM, wheel_rest: &mut i32, modal: bool) -> Option<Event> {
+    match message {
         WM_MOUSEMOVE => Some(Event::Move(position(lparam).0, position(lparam).1)),
         WM_LBUTTONDOWN => Some(Event::Down(position(lparam).0, position(lparam).1)),
         WM_LBUTTONUP => Some(Event::Up(position(lparam).0, position(lparam).1)),
-        WM_MOUSEWHEEL => wheel((wparam >> 16) as u16 as i16 as i32),
+        WM_MOUSEWHEEL => {
+            if !modal {
+                *wheel_rest = 0;
+            }
+            let turned = notches(wheel_rest, (wparam >> 16) as u16 as i16 as i32);
+            (turned != 0).then_some(Event::Wheel(turned))
+        }
         WM_KEYDOWN if wparam == 0x1b => Some(Event::Escape),
         _ => None,
-    };
-    let taken = match (handler, event) {
-        (Some(h), Some(e)) => crate::guarded("framework UI input", || h(e)),
-        _ => false,
-    };
-    // While a modal window is open the game gets no input at all.
-    let modal = super::modal();
+    }
+}
+
+/// Decides whether `message` is swallowed, sent to `DefWindowProcW`, or
+/// forwarded to the game's window procedure.
+fn route_message(message: u32, taken: bool, modal: bool) -> MessageRoute {
     let input = matches!(
         message,
         WM_MOUSEMOVE
@@ -111,16 +112,43 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, 
             | WM_SYSKEYUP
     );
     if taken || (modal && input && message != WM_MOUSEMOVE) {
-        return 0;
+        return MessageRoute::Swallow;
     }
     // Text the input method makes would reach the game's edit box through
     // SDL: Windows' own handling turns it into characters, which the modal
     // window keeps as it keeps typed ones.
     if modal && matches!(message, WM_IME_STARTCOMPOSITION | WM_IME_COMPOSITION | WM_IME_ENDCOMPOSITION | WM_IME_CHAR) {
-        return DefWindowProcW(window, message, wparam, lparam);
+        return MessageRoute::DefaultProc;
     }
-    let original: WNDPROC = std::mem::transmute(ORIGINAL.load(Ordering::Acquire));
-    CallWindowProcW(original, window, message, wparam, lparam)
+    MessageRoute::ForwardToGame
+}
+
+fn position(lparam: LPARAM) -> (f32, f32) {
+    ((lparam & 0xffff) as i16 as f32, ((lparam >> 16) & 0xffff) as i16 as f32)
+}
+
+#[called_by_game]
+unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if !INJECTING.load(Ordering::Relaxed) && crate::guarded("input from Windows", || crate::game::input::real(message)) {
+        return 0;
+    }
+    let handler = HANDLER.get().copied();
+    let mut wheel_rest = WHEEL_REST.load(Ordering::Relaxed);
+    let event = translate_message(message, wparam, lparam, &mut wheel_rest, super::modal());
+    WHEEL_REST.store(wheel_rest, Ordering::Relaxed);
+    let taken = match (handler, event) {
+        (Some(h), Some(e)) => crate::guarded("framework UI input", || h(e)),
+        _ => false,
+    };
+    // While a modal window is open the game gets no input at all.
+    match route_message(message, taken, super::modal()) {
+        MessageRoute::Swallow => 0,
+        MessageRoute::DefaultProc => DefWindowProcW(window, message, wparam, lparam),
+        MessageRoute::ForwardToGame => {
+            let original: WNDPROC = std::mem::transmute(ORIGINAL.load(Ordering::Acquire));
+            CallWindowProcW(original, window, message, wparam, lparam)
+        }
+    }
 }
 
 /// The class of the game's window, SDL's.
@@ -213,5 +241,35 @@ mod tests {
         assert_eq!(notches(&mut rest, -360), -3);
         assert_eq!(notches(&mut rest, -130), -1);
         assert_eq!(rest, -10);
+    }
+
+    #[test]
+    fn modal_routing_swallows_input_defers_ime_and_preserves_unconsumed_mouse_move() {
+        assert_eq!(route_message(WM_LBUTTONDOWN, false, true), MessageRoute::Swallow);
+        assert_eq!(route_message(WM_KEYDOWN, false, true), MessageRoute::Swallow);
+        assert_eq!(route_message(WM_CHAR, false, true), MessageRoute::Swallow);
+        assert_eq!(route_message(WM_MOUSEMOVE, false, true), MessageRoute::ForwardToGame);
+        assert_eq!(route_message(WM_MOUSEMOVE, true, true), MessageRoute::Swallow);
+
+        for ime in [WM_IME_STARTCOMPOSITION, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_CHAR] {
+            assert_eq!(route_message(ime, false, true), MessageRoute::DefaultProc);
+            assert_eq!(route_message(ime, false, false), MessageRoute::ForwardToGame);
+        }
+
+        assert_eq!(route_message(WM_LBUTTONDOWN, true, false), MessageRoute::Swallow);
+        assert_eq!(route_message(WM_LBUTTONDOWN, false, false), MessageRoute::ForwardToGame);
+    }
+
+    #[test]
+    fn wheel_translation_keeps_fractional_remainder_only_while_modal() {
+        let mut rest = 0;
+        let step = (60u16 as WPARAM) << 16;
+        assert_eq!(translate_message(WM_MOUSEWHEEL, step, 0, &mut rest, true), None);
+        assert_eq!(rest, 60);
+        // Closing the modal clears stale remainder before accumulating again.
+        assert_eq!(translate_message(WM_MOUSEWHEEL, step, 0, &mut rest, false), None);
+        assert_eq!(rest, 60);
+        assert_eq!(translate_message(WM_MOUSEWHEEL, step, 0, &mut rest, true), Some(Event::Wheel(1)));
+        assert_eq!(rest, 0);
     }
 }
