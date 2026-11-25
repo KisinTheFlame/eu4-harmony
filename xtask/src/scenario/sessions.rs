@@ -14,7 +14,7 @@
 //! Each step must answer as asked: every session a new number, its country
 //! and date the save's or the new game's, and every return to the main menu
 //! in this process, the in-process return.
-use super::{text, Build, Game, Parameter, Parameters, Played, Scenario, Stop};
+use super::{game::set_setting, text, Build, Game, Parameter, Parameters, Played, Scenario, Stop};
 use eu4_harmony_remote::{
     menu::{Menu, MenuRequest, Save},
     questions::{Question, QuestionRequest},
@@ -66,6 +66,13 @@ impl Scenario for Sessions {
         let country = parameters.text("country");
         let tag = CountryTag::parse(&country).ok_or_else(|| Stop::Failed(format!("no country tag {country:?}")))?;
         let [first, second, ironman] = ["first_save", "second_save", "ironman_save"].map(|p| crate::saves::save_name(&parameters.text(p)));
+        // Force uncompressed autosaves in this claim so every round's in-game
+        // autosave load exercises the buffered local text save path alongside
+        // the zipped and ironman saves.
+        let user = game.user()?;
+        game.end();
+        set_setting(&user.path().join("settings.txt"), "compress_autosave", "no")?;
+        game.restart()?;
         let there: Vec<Save> = game.ask(&MenuRequest::Saves {})?;
         for save in [&first, &second, &ironman] {
             game.check(there.iter().any(|s| &s.name == save), format!("no save {save} on this computer"))?;

@@ -631,7 +631,7 @@ fn keep(folder: &Path) -> bool {
     if folder.join(ENDS).is_file() {
         let _ = fs::create_dir_all(&kept).and_then(|()| fs::copy(folder.join(ENDS), kept.join(ENDS)));
     }
-    user.crash_folders().is_ok_and(|crashes| !crashes.is_empty())
+    user.crash_folders().is_ok_and(|crashes| !crashes.is_empty()) || user.harmony_dump_files().is_ok_and(|dumps| !dumps.is_empty())
 }
 
 fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {

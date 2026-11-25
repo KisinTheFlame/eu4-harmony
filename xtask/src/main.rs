@@ -131,8 +131,9 @@ usage:
       --jobs <n> plays n scenarios at a time, at most the 4 test games that
       run at once (whole and release: 4 unless given; else 1), the longest
       first; its builds made first and set aside in the report's
-      folder; perf, which measures what the game costs the computer, plays
-      alone after the rest, once other games have ended or 20 minutes passed.
+      folder; perf (run separately, not part of whole), which measures what the
+      game costs the computer, plays alone after the rest, once other games
+      have ended or 20 minutes passed.
       --from-report writes report.md again from the report.json there.
   cargo xtask profile <out> [--seconds 60] [--hz 50] [--slice <seconds>] [--wait] [--threads] [--waiting-in <functions>] [--test-game <name>]
   cargo xtask profile <out>.folded --tree [--root <frame>] [--depth 6] [--min 1]

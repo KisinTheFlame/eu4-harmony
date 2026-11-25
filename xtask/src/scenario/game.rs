@@ -130,6 +130,11 @@ impl Game {
         self.build = Some(build);
     }
 
+    /// The folder holding the build's DLLs and PDBs, if set aside for this run.
+    pub fn build_dir(&self) -> Option<&Path> {
+        self.build.as_deref()
+    }
+
     /// The saves the next scenario loads.
     pub fn loads(&mut self, saves: Vec<String>) {
         self.saves = saves;
@@ -492,6 +497,48 @@ impl Game {
             other => Stop::Failed(format!("{name}: {other}")),
         }
     }
+}
+
+/// Changes one top-level setting while keeping the rest of the claim's file,
+/// creating the file when missing.
+pub fn set_setting(path: &Path, key: &str, value: &str) -> Played<()> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(Stop::Failed(format!("cannot read {}: {e}", path.display()))),
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| Stop::Failed(format!("cannot make {}: {e}", parent.display())))?;
+    }
+    std::fs::write(path, with_setting(&text, key, value)).map_err(|e| Stop::Failed(format!("cannot write {}: {e}", path.display())))
+}
+
+/// Replaces or appends `key=value` on a top-level `key=...` line.
+pub fn with_setting(text: &str, key: &str, value: &str) -> String {
+    let mut found = false;
+    let mut changed = String::new();
+    for line in text.lines() {
+        if line.split_once('=').is_some_and(|(name, _)| name.trim() == key) {
+            changed.push_str(&format!("{key}={value}\n"));
+            found = true;
+        } else {
+            changed.push_str(line);
+            changed.push('\n');
+        }
+    }
+    if !found {
+        changed.push_str(&format!("{key}={value}\n"));
+    }
+    changed
+}
+
+/// Reads a `key=value` setting (at any indentation) from `path`, trimmed.
+pub fn read_setting(path: &Path, key: &str) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    text.lines().find_map(|line| {
+        let (name, value) = line.split_once('=')?;
+        (name.trim() == key).then(|| value.trim().trim_matches('"').to_string())
+    })
 }
 
 /// The whole days from `from` to `to`; a date counts hours.

@@ -1,0 +1,11 @@
+﻿l_english:
+ merc__local_grand_company:0 "§Y大佣兵团§!"
+ qa_repairs.1.t:0 "QA Create Center A"
+ qa_repairs.1.d:0 "Creates Protestant center A."
+ qa_repairs.1.a:0 "OK"
+ qa_repairs.2.t:0 "QA Create Center B"
+ qa_repairs.2.d:0 "Creates Reformed center B."
+ qa_repairs.2.a:0 "OK"
+ qa_repairs.3.t:0 "QA Remove Center A"
+ qa_repairs.3.d:0 "Removes Protestant center A."
+ qa_repairs.3.a:0 "OK"

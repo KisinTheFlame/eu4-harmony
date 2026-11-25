@@ -49,7 +49,7 @@ fn swept(c: &Capability) -> bool {
     let name = c.name();
     let left_out = matches!(name.as_str(), "menu.load" | "menu.start" | "menu.return" | "desktop.show");
     let input = c.group == "input" && name != "input.get";
-    !left_out && !input && c.group != "memory"
+    !left_out && !input && !matches!(c.group, "memory" | "performance")
 }
 
 /// A place the capabilities are asked in.
