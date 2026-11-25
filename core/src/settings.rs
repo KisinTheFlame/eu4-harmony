@@ -64,6 +64,26 @@ pub fn frame_rate_choices(chosen: FrameRateLimit, display_hz: u32) -> (Vec<Frame
     (choices, selected)
 }
 
+/// The valid range of map zoom smoothing, in percent (`0` snaps in one frame,
+/// `100` is a 200 ms exponential time constant).
+pub const ZOOM_SMOOTHING_BOUNDS: std::ops::RangeInclusive<u32> = 0..=100;
+/// Default map zoom smoothing (`50%`, 100 ms exponential time constant).
+pub const DEFAULT_ZOOM_SMOOTHING: u32 = 50;
+
+/// The valid range of map zoom step in hundredths of the per-notch height
+/// ratio (`105` = `1.05×`, `200` = `2.00×`).
+pub const ZOOM_STEP_BOUNDS: std::ops::RangeInclusive<u32> = 105..=200;
+/// Default map zoom step (`130` = `1.30×` per wheel notch).
+pub const DEFAULT_ZOOM_STEP: u32 = 130;
+
+fn format_percent(value: u32) -> String {
+    format!("{value}%")
+}
+
+fn format_ratio(value: u32) -> String {
+    format!("{:.2}×", value as f32 / 100.0)
+}
+
 /// The framework settings. Each field after the fonts is kept by a row of
 /// [`SETTINGS`], which the file, the settings window and what is applied
 /// follow; its default is [`Settings::default`]'s.
@@ -100,6 +120,11 @@ pub struct Settings {
     /// The frame rate limit for the drawing thread (GLOSSARY): the display's
     /// refresh rate, a chosen cap in frames a second, or unlimited.
     pub frame_rate_limit: FrameRateLimit,
+    /// How smooth the camera glide is during mouse-wheel map zoom (`0..=100`).
+    pub zoom_smoothing: u32,
+    /// How much one mouse-wheel notch scales the camera's height above the map,
+    /// in hundredths of the ratio (`105..=200` for `1.05×..=2.00×`).
+    pub zoom_step: u32,
     /// Whether every track is brought to the same loudness (GLOSSARY:
     /// Loudness normalization; docs/game/program/loading.md).
     pub music_loudness: bool,
@@ -147,6 +172,10 @@ pub enum Shows {
     /// number or `unlimited` in the file when chosen, omitted when following
     /// the display's refresh rate.
     FrameRate { label: &'static str, unlimited_tooltip: &'static str, field: Field<FrameRateLimit> },
+    /// A slider on `min..=max` with `label` above it and `format(value)` on
+    /// its right; in the file, `scale == 1` writes the integer (`50`) and
+    /// `scale == 100` writes hundredths (`1.30`).
+    Slider { label: &'static str, min: u32, max: u32, scale: u32, format: fn(u32) -> String, field: Field<u32> },
 }
 
 /// When a change to a [`Setting`] made in the settings window takes effect.
@@ -170,6 +199,8 @@ pub enum Listener {
     Sound,
     /// The drawing thread.
     Drawing,
+    /// The map camera's wheel zoom.
+    CameraZoom,
 }
 
 impl Listener {
@@ -178,6 +209,7 @@ impl Listener {
             Listener::Achievements => crate::achievements::follow(settings),
             Listener::Sound => crate::sound::choose(settings),
             Listener::Drawing => crate::drawing::set(settings.frame_rate_limit),
+            Listener::CameraZoom => crate::camera_zoom::configure(settings.zoom_smoothing, settings.zoom_step),
         }
     }
 }
@@ -214,7 +246,7 @@ impl Page {
 /// Every [`Setting`], in the order the file writes them and each page of
 /// the settings window shows them; those on the language and fonts page show
 /// after the map's font. Their defaults are [`Settings::default`]'s.
-pub static SETTINGS: [Setting; 8] = [
+pub static SETTINGS: [Setting; 10] = [
     Setting {
         key: "map_outline",
         page: Page::LanguageFonts,
@@ -256,6 +288,32 @@ pub static SETTINGS: [Setting; 8] = [
         effect: Effect::WhenSaved { tells: Some(Listener::Drawing) },
     },
     Setting {
+        key: "zoom_smoothing",
+        page: Page::Display,
+        shows: Shows::Slider {
+            label: "EU4HARMONY_SETTINGS_ZOOM_SMOOTHING",
+            min: *ZOOM_SMOOTHING_BOUNDS.start(),
+            max: *ZOOM_SMOOTHING_BOUNDS.end(),
+            scale: 1,
+            format: format_percent,
+            field: field!(zoom_smoothing),
+        },
+        effect: Effect::WhenSaved { tells: Some(Listener::CameraZoom) },
+    },
+    Setting {
+        key: "zoom_step",
+        page: Page::Display,
+        shows: Shows::Slider {
+            label: "EU4HARMONY_SETTINGS_ZOOM_STEP",
+            min: *ZOOM_STEP_BOUNDS.start(),
+            max: *ZOOM_STEP_BOUNDS.end(),
+            scale: 100,
+            format: format_ratio,
+            field: field!(zoom_step),
+        },
+        effect: Effect::WhenSaved { tells: Some(Listener::CameraZoom) },
+    },
+    Setting {
         key: "music_loudness",
         page: Page::Sound,
         shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_MUSIC_LOUDNESS", field: field!(music_loudness) },
@@ -280,6 +338,10 @@ impl Setting {
                 FrameRateLimit::Hz(_) => None,
                 FrameRateLimit::Unlimited => Some("unlimited".to_string()),
             },
+            Shows::Slider { min, max, scale, field, .. } => {
+                let value = (field.get)(settings).clamp(min, max);
+                Some(if scale == 1 { value.to_string() } else { format!("{:.2}", value as f64 / scale as f64) })
+            }
         }
     }
 
@@ -297,6 +359,11 @@ impl Setting {
                     (field.set)(settings, limit);
                 }
             }
+            Shows::Slider { min, max, scale, field, .. } => {
+                if let Some(parsed) = slider_value(value, min, max, scale) {
+                    (field.set)(settings, parsed);
+                }
+            }
         }
     }
 
@@ -305,6 +372,7 @@ impl Setting {
         match self.shows {
             Shows::Toggle { field, .. } => (field.set)(to, (field.get)(from)),
             Shows::FrameRate { field, .. } => (field.set)(to, (field.get)(from)),
+            Shows::Slider { field, .. } => (field.set)(to, (field.get)(from)),
         }
     }
 
@@ -321,6 +389,10 @@ impl Setting {
                     _ => FrameRateLimit::Hz(60),
                 },
             ),
+            Shows::Slider { min, max, field, .. } => {
+                let next = if (field.get)(settings) == max { min } else { max };
+                (field.set)(settings, next);
+            }
         }
     }
 }
@@ -421,6 +493,8 @@ impl Default for Settings {
             achievements_outside_ironman: false,
             achievements_with_changed_checksum: false,
             frame_rate_limit: FrameRateLimit::Display,
+            zoom_smoothing: DEFAULT_ZOOM_SMOOTHING,
+            zoom_step: DEFAULT_ZOOM_STEP,
             music_loudness: true,
             music_leveling: false,
         }
@@ -568,6 +642,21 @@ fn frame_rate(value: &str) -> Option<FrameRateLimit> {
     match value {
         "unlimited" => Some(FrameRateLimit::Unlimited),
         other => other.parse().ok().filter(|r| FRAME_RATE_BOUNDS.contains(r)).map(FrameRateLimit::Hz),
+    }
+}
+
+/// A slider value as the file keeps it, within `min..=max` (scaled by `scale`).
+fn slider_value(value: &str, min: u32, max: u32, scale: u32) -> Option<u32> {
+    if scale == 1 {
+        value.parse::<u32>().ok().filter(|v| (min..=max).contains(v))
+    } else {
+        let parsed = value.parse::<f64>().ok().filter(|f| f.is_finite() && *f >= 0.0)?;
+        let low = min as f64 / scale as f64 - 1e-6;
+        let high = max as f64 / scale as f64 + 1e-6;
+        if !(low..=high).contains(&parsed) {
+            return None;
+        }
+        Some(((parsed * scale as f64).round() as u32).clamp(min, max))
     }
 }
 
@@ -768,12 +857,16 @@ mod tests {
             achievements_outside_ironman: true,
             achievements_with_changed_checksum: true,
             frame_rate_limit: FrameRateLimit::Hz(120),
+            zoom_smoothing: 75,
+            zoom_step: 145,
             music_loudness: false,
             music_leveling: true,
         };
         assert_eq!(Settings::parse(&custom.render()), custom);
         assert!(custom.render().starts_with("language=\"braz_por\"\nbody_font=\"SimSun\"\nbody_weight=700\n"));
-        assert!(custom.render().ends_with("\nachievements_with_changed_checksum=yes\nframe_rate_limit=120\nmusic_loudness=no\nmusic_leveling=yes\n"));
+        assert!(custom.render().ends_with(
+            "\nachievements_with_changed_checksum=yes\nframe_rate_limit=120\nzoom_smoothing=75\nzoom_step=1.45\nmusic_loudness=no\nmusic_leveling=yes\n"
+        ));
         assert!(custom.render().contains("\nheading_font=\"Microsoft YaHei\"\nheading_weight=700\n"));
         assert!(custom.render().contains("\nconsole_font=\"Cascadia Mono\"\nconsole_weight=600\nmap_outline=no\nreturn_without_restart=no\n"));
         let unlimited = Settings { frame_rate_limit: FrameRateLimit::Unlimited, ..Settings::default() };
@@ -785,7 +878,7 @@ mod tests {
         assert_eq!(following.render().lines().next(), Some("language=\"english\""));
         assert_eq!(
             following.render(),
-            "language=\"english\"\nmap_outline=yes\nreturn_without_restart=yes\nsave_ironman_before_load=yes\nachievements_outside_ironman=no\nachievements_with_changed_checksum=no\nmusic_loudness=yes\nmusic_leveling=no\n"
+            "language=\"english\"\nmap_outline=yes\nreturn_without_restart=yes\nsave_ironman_before_load=yes\nachievements_outside_ironman=no\nachievements_with_changed_checksum=no\nzoom_smoothing=50\nzoom_step=1.30\nmusic_loudness=yes\nmusic_leveling=no\n"
         );
         assert!(!following.render().contains("_font"));
         assert!(!following.render().contains("frame_rate_limit"));
@@ -925,7 +1018,7 @@ mod tests {
         current.take_immediate(&Settings { language: Some(Language::German), body_font: Some(Face::regular("SimSun")), ..Settings::default() });
         assert_eq!(current, Settings::default());
         // Each part is told once.
-        assert_eq!(listeners(), [Listener::Achievements, Listener::Drawing, Listener::Sound]);
+        assert_eq!(listeners(), [Listener::Achievements, Listener::Drawing, Listener::CameraZoom, Listener::Sound]);
     }
 
     #[test]
@@ -946,14 +1039,19 @@ mod tests {
     #[test]
     fn an_unknown_or_unreadable_value_keeps_the_default() {
         for setting in &SETTINGS {
-            for value in ["maybe", "\"maybe\"", "", "1", "YES"] {
+            for value in ["maybe", "\"maybe\"", "", "-1", "1001", "YES"] {
                 assert_eq!(Settings::parse(&format!("{}={value}\n", setting.key)), Settings::default(), "{}={value}", setting.key);
+            }
+            if !matches!(setting.shows, Shows::Slider { min, max, scale: 1, .. } if (min..=max).contains(&1)) {
+                assert_eq!(Settings::parse(&format!("{}=1\n", setting.key)), Settings::default(), "{}=1", setting.key);
             }
             // Away from the default, a line it cannot read keeps the one before.
             let mut changed = Settings::default();
             setting.change(&mut changed);
             assert_eq!(Settings::parse(&format!("{}{}=maybe\n", changed.render(), setting.key)), changed, "{}", setting.key);
         }
+        assert_eq!(Settings::parse("zoom_smoothing=101\nzoom_step=1.04\nzoom_step=2.01\n"), Settings::default());
+        assert_eq!(Settings::parse("zoom_step=1.2\n").zoom_step, 120);
         assert_eq!(Settings::parse("unknown=yes\nmap_outlines=no\n"), Settings::default());
     }
 

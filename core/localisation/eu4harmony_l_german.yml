@@ -44,6 +44,8 @@ l_german:
  EU4HARMONY_SETTINGS_SAVE_IRONMAN_BEFORE_LOAD:0 "Im Ironman-Modus das Spiel speichern, bevor ein anderer Spielstand geladen wird"
  EU4HARMONY_SETTINGS_FRAME_RATE_LIMIT:0 "Bildratenbegrenzung"
  EU4HARMONY_SETTINGS_FRAME_RATE_UNLIMITED_TOOLTIP:0 "Keine Bildratenbegrenzung (nicht empfohlen: ohne VSync höhere CPU-Last und möglicherweise langsamer auf Tempo 5)"
+ EU4HARMONY_SETTINGS_ZOOM_SMOOTHING:0 "Karten-Zoom-Glättung"
+ EU4HARMONY_SETTINGS_ZOOM_STEP:0 "Karten-Zoom-Schrittweite"
  EU4HARMONY_SETTINGS_PAGE_SOUND:0 "Ton"
  EU4HARMONY_SETTINGS_PAGE_ABOUT:0 "Über"
  EU4HARMONY_SETTINGS_MUSIC_LOUDNESS:0 "Alle Stücke gleich laut spielen"

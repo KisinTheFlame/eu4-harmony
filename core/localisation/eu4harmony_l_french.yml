@@ -44,6 +44,8 @@ l_french:
  EU4HARMONY_SETTINGS_SAVE_IRONMAN_BEFORE_LOAD:0 "En mode Ironman, sauvegarder la partie avant d'en charger une autre"
  EU4HARMONY_SETTINGS_FRAME_RATE_LIMIT:0 "Limite d'images par seconde"
  EU4HARMONY_SETTINGS_FRAME_RATE_UNLIMITED_TOOLTIP:0 "Aucune limite d'images par seconde (déconseillé : sans synchronisation verticale, utilise plus de processeur et peut ralentir la vitesse 5)"
+ EU4HARMONY_SETTINGS_ZOOM_SMOOTHING:0 "Lissage du zoom de la carte"
+ EU4HARMONY_SETTINGS_ZOOM_STEP:0 "Pas de zoom de la carte"
  EU4HARMONY_SETTINGS_PAGE_SOUND:0 "Son"
  EU4HARMONY_SETTINGS_PAGE_ABOUT:0 "À propos"
  EU4HARMONY_SETTINGS_MUSIC_LOUDNESS:0 "Jouer tous les morceaux au même volume"

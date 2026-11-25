@@ -44,6 +44,8 @@ l_spanish:
  EU4HARMONY_SETTINGS_SAVE_IRONMAN_BEFORE_LOAD:0 "En modo Ironman, guardar la partida antes de cargar otra"
  EU4HARMONY_SETTINGS_FRAME_RATE_LIMIT:0 "Límite de fotogramas"
  EU4HARMONY_SETTINGS_FRAME_RATE_UNLIMITED_TOOLTIP:0 "Sin límite de fotogramas (no recomendado: sin sincronización vertical usa más CPU y puede ralentizar la velocidad 5)"
+ EU4HARMONY_SETTINGS_ZOOM_SMOOTHING:0 "Suavizado del zoom del mapa"
+ EU4HARMONY_SETTINGS_ZOOM_STEP:0 "Paso de zoom del mapa"
  EU4HARMONY_SETTINGS_PAGE_SOUND:0 "Sonido"
  EU4HARMONY_SETTINGS_PAGE_ABOUT:0 "Acerca de"
  EU4HARMONY_SETTINGS_MUSIC_LOUDNESS:0 "Reproducir todas las pistas igual de fuerte"
