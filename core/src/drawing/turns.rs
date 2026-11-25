@@ -134,6 +134,7 @@ impl MainSide {
         self.order_scopes += 1;
     }
 
+    #[cfg(test)]
     pub(super) fn order_only(&self) -> bool {
         self.order_only
     }

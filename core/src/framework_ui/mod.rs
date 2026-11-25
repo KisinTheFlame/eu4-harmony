@@ -384,15 +384,15 @@ fn settings_window(
     display_hz: u32,
     dumps: &DumpStatus,
     troubleshooting: &crate::troubleshooting::State,
-    words: &dyn Fn(&str) -> String,
     words_with: mods_window::Words,
 ) -> Window {
+    let words = |key: &str| words_with(key, &[]);
     let pages = Page::ALL
         .into_iter()
         .map(|page| match page {
-            Page::LanguageFonts => fonts.widgets(next, words),
-            Page::About => about_page(dumps, troubleshooting, words, words_with),
-            _ => settings_page(page, next, display_hz, words),
+            Page::LanguageFonts => fonts.widgets(next, &words),
+            Page::About => about_page(dumps, troubleshooting, &words, words_with),
+            _ => settings_page(page, next, display_hz, &words),
         })
         .collect();
     let footer = vec![
@@ -404,7 +404,7 @@ fn settings_window(
     ];
     let side = Side::new("pages", Page::ALL.iter().map(|page| words(page.title())).collect(), SETTINGS_LIST);
     let mut window = Window::new(words("EU4HARMONY_SETTINGS_TITLE"), Vec::new(), SETTINGS_WIDTH).with_side(side).with_pages(pages).with_footer(footer);
-    window.footer_mut()[RESTART_LINE] = restart_line(&window, current, next, fonts, display_hz, words);
+    window.footer_mut()[RESTART_LINE] = restart_line(&window, current, next, fonts, display_hz, &words);
     window
 }
 
@@ -477,9 +477,8 @@ impl<H: UiHost> Shell<H> {
             DumpStatus::from_check(self.host.dumps_configured())
         };
         let troubleshooting = self.host.troubleshooting_state();
-        let w = |key: &str| self.host.words(key, &[]);
         let ww = |key: &str, args: &[(&str, &str)]| self.host.words(key, args);
-        let mut window = settings_window(&current, &next, &fonts, display_hz, &dumps, &troubleshooting, &w, &ww);
+        let mut window = settings_window(&current, &next, &fonts, display_hz, &dumps, &troubleshooting, &ww);
         window.center(measure, self.screen.0, self.screen.1);
         self.settings = Some(SettingsState { window, opened_next: next, fonts, display_hz });
     }
@@ -951,7 +950,7 @@ mod tests {
             for next in [following, chosen] {
                 for fonts in [Some(fonts_page::tests::installed()), None] {
                     let page = FontsPage::new(fonts, &next);
-                    let window = settings_window(&next, &next, &page, 180, &DumpStatus::Available, &crate::troubleshooting::State::Idle, &keys, &keys_with);
+                    let window = settings_window(&next, &next, &page, 180, &DumpStatus::Available, &crate::troubleshooting::State::Idle, &keys_with);
                     assert_eq!(chosen_settings(&window, &next, &page, 180), next, "{language:?}");
                 }
             }
@@ -962,7 +961,7 @@ mod tests {
     fn the_settings_window_saves_the_language_chosen() {
         let next = Settings { language: Some(Language::English), ..Settings::default() };
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &next);
-        let mut window = settings_window(&next, &next, &page, 60, &DumpStatus::Available, &crate::troubleshooting::State::Idle, &keys, &keys_with);
+        let mut window = settings_window(&next, &next, &page, 60, &DumpStatus::Available, &crate::troubleshooting::State::Idle, &keys_with);
         let languages = Language::ALL.iter().map(|l| l.native_name().to_string()).collect();
         let korean = Language::ALL.iter().position(|&l| l == Language::Korean).unwrap();
         window.set_options("language", languages, korean);
@@ -983,29 +982,21 @@ mod tests {
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &current);
         let idle = crate::troubleshooting::State::Idle;
         // Nothing changed: no line, but its room, so the buttons stay put.
-        let mut window = settings_window(&current, &current, &page, 60, &DumpStatus::Available, &idle, &keys, &keys_with);
+        let mut window = settings_window(&current, &current, &page, 60, &DumpStatus::Available, &idle, &keys_with);
         assert_eq!(restart_shown(&mut window), "");
         // A change that takes effect when saved needs no restart.
         let mut sound = current.clone();
         sound.music_loudness = !sound.music_loudness;
-        let mut window = settings_window(&current, &sound, &page, 60, &DumpStatus::Available, &idle, &keys, &keys_with);
+        let mut window = settings_window(&current, &sound, &page, 60, &DumpStatus::Available, &idle, &keys_with);
         assert_eq!(restart_shown(&mut window), "");
         // One that takes effect at the next start, saved before or chosen
         // now, does.
         let mut outline = current.clone();
         outline.map_outline = !outline.map_outline;
-        let mut window = settings_window(
-            &current,
-            &outline,
-            &FontsPage::new(Some(fonts_page::tests::installed()), &outline),
-            60,
-            &DumpStatus::Available,
-            &idle,
-            &keys,
-            &keys_with,
-        );
+        let mut window =
+            settings_window(&current, &outline, &FontsPage::new(Some(fonts_page::tests::installed()), &outline), 60, &DumpStatus::Available, &idle, &keys_with);
         assert_eq!(restart_shown(&mut window), "EU4HARMONY_SETTINGS_RESTART");
-        let mut window = settings_window(&current, &current, &page, 60, &DumpStatus::Available, &idle, &keys, &keys_with);
+        let mut window = settings_window(&current, &current, &page, 60, &DumpStatus::Available, &idle, &keys_with);
         let languages = Language::ALL.iter().map(|l| l.native_name().to_string()).collect();
         let korean = Language::ALL.iter().position(|&l| l == Language::Korean).unwrap();
         window.set_options("language", languages, korean);
@@ -1043,7 +1034,8 @@ mod tests {
 
         let current = Settings { language: Some(Language::English), ..Settings::default() };
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &current);
-        let mut window = settings_window(&current, &current, &page, 180, &DumpStatus::Available, &crate::troubleshooting::State::Idle, &short_words, &keys_with);
+        let short_words_with = |key: &str, args: &[(&str, &str)]| if args.is_empty() { short_words(key) } else { keys_with(key, args) };
+        let mut window = settings_window(&current, &current, &page, 180, &DumpStatus::Available, &crate::troubleshooting::State::Idle, &short_words_with);
         window.center(&Mono, 1200.0, 900.0);
         assert_eq!(chosen_settings(&window, &current, &page, 180).frame_rate_limit, FrameRateLimit::Display);
 
@@ -1094,7 +1086,7 @@ mod tests {
     fn the_about_page_shows_the_version_and_what_the_troubleshooting_button_did() {
         let current = Settings::default();
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &current);
-        let mut window = settings_window(&current, &current, &page, 60, &DumpStatus::Available, &crate::troubleshooting::State::Idle, &keys, &keys_with);
+        let mut window = settings_window(&current, &current, &page, 60, &DumpStatus::Available, &crate::troubleshooting::State::Idle, &keys_with);
         let about = Page::ALL.iter().position(|&p| p == Page::About).unwrap();
         let version = format!("EU4HARMONY_ABOUT_VERSION VERSION={}", env!("CARGO_PKG_VERSION"));
         assert!(matches!(&window.pages[about][0], Widget::Heading(text) if *text == version));
@@ -1232,8 +1224,7 @@ mod tests {
 
     #[test]
     fn shell_reaps_async_dump_setup_after_settings_closes_and_retains_notice_position() {
-        let mut host = FakeHost::default();
-        host.notice = Some(crate::notice::Showing { number: 1, title: "First".into(), text: "Body".into() });
+        let host = FakeHost { notice: Some(crate::notice::Showing { number: 1, title: "First".into(), text: "Body".into() }), ..Default::default() };
         let mut shell = Shell::new(host);
         shell.sync_frame(1, Some(1), (1280.0, 720.0), 1.0);
         shell.tick(&FixedMeasure);

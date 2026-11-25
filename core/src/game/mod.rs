@@ -239,7 +239,6 @@ impl Session {
 
     /// The same session reading through `view` (used by tests and by
     /// player-ordered checks that must hold under the player's view).
-    #[cfg_attr(not(test), expect(dead_code, reason = "used by player-view tests and view-scoped checks"))]
     pub fn with_view(self, view: View) -> Self {
         Self { view, ..self }
     }
