@@ -98,6 +98,14 @@ pub fn open(path: &Path) -> std::io::Result<()> {
 pub fn is_open() -> bool {
     SINK.lock().unwrap_or_else(|e| e.into_inner()).file.is_some()
 }
+
+/// Closes the open log journals and releases their file leases, e.g. right
+/// before spawning a replacement `eu4.exe` so the restarted process can take
+/// the primary `core.log` name directly.
+pub fn close() {
+    SINK.lock().unwrap_or_else(|e| e.into_inner()).file.take();
+    EMERGENCY.lock().unwrap_or_else(|e| e.into_inner()).take();
+}
 pub fn now() -> String {
     eu4_harmony_logging::now()
 }

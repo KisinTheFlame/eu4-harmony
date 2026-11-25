@@ -35,7 +35,7 @@ Your translation mod is still what translates the game; translation mods made fo
 
 Start the game from the Paradox launcher as usual. Harmony needs no place in your playset; mods built on it are enabled there as any mod. The main menu now has two buttons in its corner, **Harmony settings** and **Harmony mods**; the second lists each mod built on Harmony, with what it may do beyond the game.
 
-Steam keeps Harmony up to date. Once in a while an update needs a new `version.dll`; Harmony then tells you at startup to copy it again.
+Steam keeps Harmony up to date. When an update includes a new `version.dll`, Harmony updates the copy in the game's folder on startup and restarts the game automatically (only asking you to copy it if the game folder cannot be written).
 
 **Uninstalling:** unsubscribe from Harmony, and the game runs as it always did. To leave nothing behind, delete `version.dll` from the game's folder too, and put back the one you moved, if any.
 

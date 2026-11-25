@@ -206,11 +206,14 @@ struct Failure {
     reason: String,
     /// The notice, when it is not the startup failure notice with the reason.
     notice: Option<notice::Message>,
+    /// Startup failed because the game folder's `version.dll` is older than
+    /// `proxy::OLDEST`.
+    outdated_proxy: bool,
 }
 
 impl From<String> for Failure {
     fn from(reason: String) -> Self {
-        Self { reason, notice: None }
+        Self { reason, notice: None, outdated_proxy: false }
     }
 }
 
@@ -225,7 +228,7 @@ fn bootstrap() -> std::result::Result<(), Failure> {
     let found = proxy::interface(&game_dir);
     let _ = GAME_DIR.set(game_dir);
     log!("proxy interface: {}", found.map_or_else(|| "no proxy in the game folder".to_string(), |i| i.to_string()));
-    proxy::check(found).map_err(|reason| Failure { reason, notice: Some(notice::Message::new("EU4HARMONY_PROXY_OUTDATED")) })?;
+    proxy::check(found).map_err(|reason| Failure { reason, notice: Some(notice::Message::new("EU4HARMONY_PROXY_OUTDATED")), outdated_proxy: true })?;
     let m = memory::Memory { base: unsafe { GetModuleHandleW(std::ptr::null()) } as usize };
     let _ = MEMORY.set(m);
     let summary = start(m)?;
@@ -245,6 +248,20 @@ fn open_logs(user_dir: &std::path::Path) -> std::path::PathBuf {
     }
     report::open(user.report());
     user.logs()
+}
+
+/// Reopens only the framework log after [`log::close`], without rotating
+/// `report.txt` again.
+pub(crate) fn reopen_log(user_dir: Option<&std::path::Path>) {
+    match user_dir {
+        Some(dir) => {
+            let user = eu4_harmony_folders::UserFolder::new(dir);
+            if log::open(&user.core_log()).is_err() {
+                open_fallback_log();
+            }
+        }
+        None => open_fallback_log(),
+    }
 }
 
 /// What this core is, after its version: its api, and in a developer build
@@ -285,7 +302,7 @@ fn report_header(game_dir: Option<&std::path::Path>) {
 /// the player, from a thread of its own since the loader lock is held here.
 /// A hidden start ends the game instead: without the framework it could be
 /// neither used nor hidden.
-fn fail_startup(reason: String, told: Option<notice::Message>) {
+fn fail_startup(reason: String, mut told: Option<notice::Message>, outdated_proxy: bool) {
     let game_dir = GAME_DIR.get().cloned();
     std::thread::spawn(move || {
         let user_dir = game_dir.as_deref().and_then(|d| paths::user_dir(d).ok());
@@ -295,15 +312,22 @@ fn fail_startup(reason: String, told: Option<notice::Message>) {
             }
             None => open_fallback_log(),
         }
+        if let Some(dir) = &user_dir {
+            lang::decide(dir, settings::read(dir).language);
+        }
+        if outdated_proxy {
+            if let Some(dir) = game_dir.as_deref() {
+                if proxy::sync_and_restart(dir, user_dir.as_deref()) == proxy::Outcome::UpdatedRestartFailed {
+                    told = Some(notice::Message::new("EU4HARMONY_PROXY_UPDATED_RESTART"));
+                }
+            }
+        }
         report_header(game_dir.as_deref());
         report::line(format!("startup FAILED; nothing was hooked and no extension runs:\n{reason}"));
         report::write();
         if hidden::hidden_start() {
             log!("startup failed in a hidden start, ending the game: {}", reason.replace('\n', "; "));
             unsafe { TerminateProcess(GetCurrentProcess(), 3) };
-        }
-        if let Some(dir) = &user_dir {
-            lang::decide(dir, settings::read(dir).language);
         }
         // A changed game can fail every point; the report keeps the full list.
         const SHOWN: usize = 8;
@@ -327,14 +351,14 @@ pub(crate) fn deferred_init() {
 pub extern "system" fn eu4_harmony_bootstrap() -> u32 {
     match std::panic::catch_unwind(bootstrap) {
         Ok(Ok(())) => 0,
-        Ok(Err(Failure { reason, notice })) => {
+        Ok(Err(Failure { reason, notice, outdated_proxy })) => {
             log!("startup failed: {reason}");
-            fail_startup(reason, notice);
+            fail_startup(reason, notice, outdated_proxy);
             1
         }
         Err(_) => {
             log!("startup failed: panic");
-            fail_startup("panic during startup".into(), None);
+            fail_startup("panic during startup".into(), None, false);
             2
         }
     }
