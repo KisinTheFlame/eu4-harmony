@@ -141,6 +141,15 @@ mod tests {
             }
             let text = framework(language, "EU4HARMONY_NOTICE_TITLE_MORE", &[("COUNT", "2")]);
             assert!(text.contains('2') && !text.contains("$COUNT$"), "{text}");
+            if matches!(language, Language::SimpChinese | Language::TradChinese) {
+                for key in FRAMEWORK.keys_in(language) {
+                    let text = FRAMEWORK.raw_in(language, key).unwrap();
+                    assert!(
+                        !text.chars().any(|c| matches!(c, '"' | '\'' | '“' | '”' | '‘' | '’')),
+                        "{language:?} {key} uses single/double quotes instead of corner brackets 「」/『』: {text}"
+                    );
+                }
+            }
         }
         assert_eq!(framework(Language::Russian, "EU4HARMONY_SETTINGS_SAVE", &[]), "Save");
         assert!(framework(Language::English, "EU4HARMONY_NOT_LOADED", &[("MOD", "X"), ("DETAIL", "d")]).contains("\"X\" was not loaded:\nd"));
