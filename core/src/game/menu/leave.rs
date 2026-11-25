@@ -215,10 +215,13 @@ type InGameLoad = unsafe extern "C" fn(usize) -> u32;
 static ORIGINAL: Function<InGameLoad> = Function::new();
 
 /// The game's own in-game load of the `request`, inside the hook: the world
-/// reset inside it writes no ironman exit save of its own, and the save the
-/// game makes as it sets an ironman session up waits until the load let its
-/// file go. What it answered.
+/// reset inside it writes no ironman exit save of its own, the save the game
+/// makes as it sets an ironman session up waits until the load let its file
+/// go, and a successful load restores the player's map mode that `0x5d05ce`
+/// reset to terrain. What it answered.
 pub(super) fn load(m: &Memory, request: usize) -> u32 {
+    let manager = m.ptr(request + load_request::MAP_MANAGER).ok().filter(|&p| p != 0);
+    let saved_mode = manager.and_then(|manager| crate::map::mode_before_load(m, manager));
     QUIET_RESET.store(true, Ordering::Relaxed);
     LOADING_IN_GAME.store(true, Ordering::Relaxed);
     SETUP_SAVE_WAITED.store(false, Ordering::Relaxed);
@@ -231,6 +234,11 @@ pub(super) fn load(m: &Memory, request: usize) -> u32 {
         log!("leave: the save the game makes as it sets the loaded ironman session up, now that the load let its file go");
         if let Err(e) = EXIT_SAVE.call(m, []) {
             log!("leave: that save faulted: {e}");
+        }
+    }
+    if Loaded::of(code) == Loaded::Read && sessions::last_load_read() {
+        if let (Some(manager), Some(mode)) = (manager, saved_mode) {
+            crate::map::restore_after_load(m, manager, mode);
         }
     }
     code
@@ -632,9 +640,17 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x11be259usize, "41 b9 01 00 00 00 4c 8d 45 d7 48 8d 15 e6 74 ba 00 48 8d 4d 97", "load question text key"),
         Point::jump(QUESTION_TEXT, "e8 2d 52 2f 00", "load question text", question_text_stub as *const () as usize, &QUESTION_RESUME),
         Point::keep(QUESTION_TEXT_DONE, "c7 45 7f 07 00 00 00", "load question text set"),
-        // Before it looks at its save's name, the in-game load takes the
-        // session's interface down, the diplomatic message icons among it;
-        // with no name it stops there and answers 1.
+        // Before it looks at its save's name, the in-game load resets the map
+        // mode to terrain and takes the session's interface down, the
+        // diplomatic message icons among it; with no name it stops there and
+        // answers 1.
+        Point::keep(0x5d05c3usize, "45 33 c9 45 33 c0 33 d2 49 8b ce e8 1d 1a 25 00", "in-game load resets map mode to terrain"),
+        Point::keep(
+            0x81d41ausize,
+            "41 80 be 60 04 00 00 00 75 12 41 b1 01 45 33 c0 41 8b 56 2c 49 8b ce e8 ba 4b 00 00",
+            "interface build skips map mode refresh during in-game load",
+        )
+        .uses(&[0x460, manager_fields::MODE]),
         Point::keep(0x5d05d3usize, "49 8b 8e 00 14 00 00 e8 11 f7 82 00", "in-game load empties the diplomatic message icons")
             .uses(&[manager_fields::MESSAGE_ICON_HOLDER]),
         Point::keep(0x5d06c4usize, "48 83 7c 24 58 00 75 48", "in-game load without a name"),

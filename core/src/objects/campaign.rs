@@ -927,6 +927,8 @@ pub mod side {
 pub mod map_manager {
     /// The current map mode, i32.
     pub const MODE: usize = 0x2c;
+    /// The map mode before the current one, i32.
+    pub const PREVIOUS_MODE: usize = 0x30;
     /// The application, as every idler keeps it.
     pub use crate::objects::application::idler::APPLICATION;
     /// Its pause state (see [`super::pause`]).
@@ -1564,6 +1566,8 @@ pub fn points() -> Vec<Point> {
         Point::keep(0xb7f874usize, "49 8b 8e 18 04 00 00 e8 30 09 c6 ff", "map manager pause").uses(&[map_manager::PAUSE]),
         Point::keep(0x7e01cdusize, "48 8b 49 50", "pause owner").uses(&[pause::MANAGER]),
         Point::keep(0x82205cusize, "8b 5e 2c 8d 45 fe 83 f8 41 77 60", "map mode").uses(&[map_manager::MODE]),
+        Point::keep(0x6ec52eusize, "8b 47 2c 3b c6 74 0d 83 fe 49 74 08 83 f8 49 74 03 89 47 30 89 77 2c", "map mode change")
+            .uses(&[map_manager::MODE, map_manager::PREVIOUS_MODE]),
         // Classes, where their constructors set them.
         Point::keep(0x1a20aeusize, "48 8d 05 8b 04 aa 01 48 89 03", "army class").uses(&[classes::ARMY]),
         Point::keep(0x909600usize, "48 8d 05 d9 11 3c 01 48 89 03", "fleet class").uses(&[classes::FLEET]),
