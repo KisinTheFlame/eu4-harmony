@@ -35,7 +35,7 @@
 
 照常从 Paradox 启动器启动游戏。Harmony 不用放进合集；基于它的 Mod 照常在合集里启用。主菜单角落会多出两个按钮：**Harmony 设置**和 **Harmony Mod**，后者列出每个基于 Harmony 的 Mod，以及它在游戏之外能做什么。
 
-Steam 会让 Harmony 保持最新。偶尔有更新需要换新的 `version.dll`，这时 Harmony 会在启动时提示你重新复制一次。
+Steam 会让 Harmony 保持最新。更新包含新的 `version.dll` 时，Harmony 会在启动时自动更新游戏目录里的副本并为你重启游戏（只有在无法写入游戏目录时才会提示你手动复制）。
 
 **卸载：** 取消订阅 Harmony，游戏就回到原样。想不留痕迹，再删掉游戏目录里的 `version.dll`；之前挪走过别的 `version.dll` 的话，把它放回去。
 

@@ -312,11 +312,14 @@ extern "C" fn init_shows_stub() {
 }
 
 /// Stores whether the game's error messages are left out: as the command
-/// line asks, and always for a hidden start.
+/// line asks, and always for a hidden start. Also runs Harmony's early proxy
+/// sync here (step 3 of `main`, outside the loader lock and before Steam,
+/// worker pools or the game window are created).
 #[called_by_game]
 extern "C" fn suppress(asked: u8) {
     let on = asked != 0 || hidden_start();
     unsafe { *(crate::hooked_memory().at(SUPPRESS_ERROR_MESSAGES) as *mut u8) = on as u8 };
+    crate::guarded("proxy sync", crate::proxy::sync_once);
 }
 
 #[unsafe(naked)]

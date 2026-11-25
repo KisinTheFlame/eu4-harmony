@@ -26,10 +26,10 @@ const TOOL: (&str, &str) = ("eu4-harmony.exe", "eu4-harmony.exe");
 const DEV_OPTIONS: &str = "eu4-harmony\\dev.toml";
 /// Where a `version.dll` not ours, found in the game folder, is kept aside.
 const KEPT_PROXY: &str = "eu4-harmony\\backup\\version.dll";
-/// How our replaced `version.dll` is named while a test game still has it
-/// loaded: Windows lets a loaded DLL be renamed but not removed, so it waits
-/// in the game folder for a later install to remove it.
-const OLD_PROXY: &str = "version.dll.old-";
+/// How our replaced `version.dll` is named while a game still has it loaded:
+/// Windows lets a loaded DLL be renamed but not removed, so it waits in the
+/// game folder for a later startup or install to remove it.
+const OLD_PROXY: &str = eu4_harmony_folders::OLD_PROXY_PREFIX;
 
 /// The packages that build them.
 const PLAYER_PACKAGES: [&str; 4] = ["eu4-harmony-proxy", "eu4-harmony-core", "eu4-harmony-crash-dumps", "eu4-harmony-cli"];
@@ -41,8 +41,7 @@ pub const PACKAGE_PROFILE: &str = "player";
 /// Whether `path` is our proxy: it names the core's bootstrap export, which
 /// a foreign DLL does not.
 fn ours(path: &Path) -> bool {
-    const MARK: &[u8] = b"eu4_harmony_bootstrap";
-    fs::read(path).is_ok_and(|bytes| bytes.windows(MARK.len()).any(|w| w == MARK))
+    fs::read(path).is_ok_and(|bytes| eu4_harmony_folders::is_harmony_proxy(&bytes))
 }
 
 pub fn install(args: &Args) -> Result<()> {
@@ -265,12 +264,14 @@ fn retire(proxy: &Path, root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Removes the replaced `version.dll`s in the game folder `root` that no
-/// game has loaded any more.
+/// Removes retired and staged `version.dll` files in the game folder `root`
+/// that no game has loaded any more.
 fn remove_old_proxies(root: &Path) {
     let Ok(entries) = fs::read_dir(root) else { return };
     for entry in entries.flatten() {
-        if entry.file_name().to_string_lossy().starts_with(OLD_PROXY) && fs::remove_file(entry.path()).is_ok() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if (name.starts_with(OLD_PROXY) || name.starts_with(eu4_harmony_folders::NEW_PROXY_PREFIX)) && fs::remove_file(entry.path()).is_ok() {
             println!("removed {}", entry.path().display());
         }
     }

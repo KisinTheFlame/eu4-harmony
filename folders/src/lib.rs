@@ -16,6 +16,21 @@ pub use item_id::parse_published_file_id;
 /// The game's Steam app id, under which the Workshop keeps its items.
 pub const APP_ID: &str = "236850";
 
+/// Prefix for a replaced `version.dll` moved aside while loaded, waiting for a
+/// later startup or install to remove it once no process maps it.
+pub const OLD_PROXY_PREFIX: &str = "version.dll.old-";
+
+/// Prefix for a staged `version.dll` written beside the live proxy before
+/// switching it into place.
+pub const NEW_PROXY_PREFIX: &str = "version.dll.new-";
+
+/// Whether `bytes` belongs to Harmony's own `version.dll` proxy: it names the
+/// core's bootstrap export, which a foreign DLL does not.
+pub fn is_harmony_proxy(bytes: &[u8]) -> bool {
+    const MARK: &[u8] = b"eu4_harmony_bootstrap";
+    bytes.windows(MARK.len()).any(|w| w == MARK)
+}
+
 /// Harmony's published file id on the Steam Workshop, from `workshop/item.toml`;
 /// `0` before the item is created.
 pub const PUBLISHED_FILE_ID: u64 = include!(concat!(env!("OUT_DIR"), "/published_file_id.rs"));
