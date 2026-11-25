@@ -60,6 +60,103 @@ impl Windows {
         self.wanted.forget(extension);
         self.clicks.retain(|c| c.extension != extension);
     }
+
+    /// Snapshots what the next safe frame needs without holding [`WINDOWS`]
+    /// while calling the game. Definitions are rendered only when the native
+    /// side has not yet read `self.generation`.
+    fn snapshot(&self, last_read: Option<u64>, words_for: &impl Fn(&str) -> live::LookupWords) -> live::Wants {
+        let need_definitions = last_read != Some(self.generation);
+        let mut windows = Vec::new();
+        let mut definitions = Vec::new();
+        for d in self.wanted.declared() {
+            let words = words_for(&d.id);
+            for w in &d.windows {
+                let type_name = format!("{}_{}", type_name(&d.id, &w.name), self.generation);
+                if need_definitions {
+                    definitions.push(gui::window(&type_name, w, &|text| text.as_ref().map(|t| t.resolve(&*words)).unwrap_or_default()));
+                }
+                let mut wanted = self.wanted.wanted(d.extension, &w.name).cloned().unwrap_or_default();
+                let resolve = |property: &mut eu4_harmony_lua::Property| {
+                    if let eu4_harmony_lua::Property::Text(content) | eu4_harmony_lua::Property::Tooltip(content) = property {
+                        *content = content.resolve(&*words).into();
+                    }
+                };
+                for property in wanted.set.values_mut().flat_map(|p| p.values_mut()) {
+                    resolve(property);
+                }
+                for (_, property) in wanted.rows.values_mut().flatten().flatten() {
+                    resolve(property);
+                }
+                windows.push(live::WantWindow { extension: d.extension, type_name, layout: w.clone(), words: words.clone(), wanted });
+            }
+        }
+        let popups = self.wanted.popups().iter().map(|p| (p.number, p.popup.clone())).collect();
+        let appearances = self.wanted.popups().iter().map(|p| (p.number, p.appearance)).collect();
+        live::Wants { generation: self.generation, windows, definitions, popups, appearances }
+    }
+
+    /// Entry-button specifications for the panel button strip.
+    fn entry_specs(&self, words_for: &impl Fn(&str, &str) -> Option<String>) -> Vec<live::EntrySpec> {
+        let mut out = Vec::new();
+        for d in self.wanted.declared() {
+            for w in &d.windows {
+                if let Some(resolved) = self.wanted.resolved_entry(d.extension, &w.name, |key| words_for(&d.id, key)) {
+                    out.push(live::EntrySpec { extension: d.extension, id: d.id.clone(), window: w.name.clone(), resolved });
+                }
+            }
+        }
+        out
+    }
+
+    /// Applies classified native clicks to the desired state, returning any
+    /// pop-up shield clicks `(popup_number, side)` that open diplomacy after
+    /// locks are released.
+    fn apply_clicks(&mut self, routed: Vec<live::RoutedClick>) -> Vec<(u32, usize)> {
+        let mut shields = Vec::new();
+        for click in routed {
+            match click {
+                live::RoutedClick::Widget { extension, window, widget, row, right, modifiers } => {
+                    if self.wanted.check_press(extension, &window, &widget, row).is_ok() && self.clicks.len() < 64 {
+                        let (shift, ctrl) = (modifiers & crate::ui::MODIFIER_SHIFT != 0, modifiers & crate::ui::MODIFIER_CTRL != 0);
+                        self.clicks.push(Click { extension, button: format!("{window}.{widget}"), right, shift, ctrl, row });
+                    }
+                }
+                live::RoutedClick::Close { extension, window } => self.show(extension, &window, false),
+                live::RoutedClick::Popup { number, button } => {
+                    let _ = self.wanted.press(number, button);
+                }
+                live::RoutedClick::Shield { number, side } => shields.push((number, side)),
+                live::RoutedClick::Entry { extension, window } => {
+                    let seen = self.wanted.entry(extension, &window);
+                    self.wanted.hear_at_frame(seen);
+                }
+            }
+        }
+        shields
+    }
+
+    /// Records dragged window positions and unbuildable pop-ups reported by
+    /// native reconciliation.
+    fn apply_reconciled(&mut self, events: &live::ReconcileEvents) {
+        for (extension, name, at) in &events.dragged {
+            self.wanted.dragged(*extension, name, *at);
+        }
+        for &number in &events.lost_popups {
+            self.wanted.lost_popup(number);
+        }
+    }
+
+    /// Closes extension panels when the game closes its own big panels.
+    fn close_panels(&mut self) {
+        let closed = self.wanted.close_panels(None);
+        self.wanted.hear_at_frame(closed);
+    }
+
+    /// Ends the session in desired state.
+    fn end_session(&mut self) {
+        self.wanted.end_session();
+        self.clicks.clear();
+    }
 }
 
 // ---------- what the Lua host and remote control call ----------

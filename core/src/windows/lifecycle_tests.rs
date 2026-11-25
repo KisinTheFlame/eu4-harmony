@@ -30,12 +30,10 @@ struct Recording {
     linked: HashSet<usize>,
     found: HashMap<(usize, String), usize>,
     positions: HashMap<usize, (i32, i32)>,
-    applied: HashMap<usize, BTreeMap<&'static str, Property>>,
+    applied: HashMap<usize, Shown>,
     calls: Vec<(&'static str, usize)>,
     fail: Option<usize>,
     fail_named: Option<&'static str>,
-    lost: Vec<u32>,
-    dragged: Vec<(usize, String, (i32, i32))>,
     available: bool,
     rows: HashSet<usize>,
     fail_row_apply: bool,
@@ -84,6 +82,39 @@ impl Recording {
         self.calls.iter().filter(|(name, _)| *name == what).count()
     }
 }
+impl ElementOps for Recording {
+    fn listener(&mut self, object: usize, look: Look) -> Result<BoundElement> {
+        self.call("listener", object)?;
+        Ok(BoundElement::new(object, look))
+    }
+    fn subscribed(&mut self, element: &BoundElement) -> bool {
+        self.linked.contains(&element.object)
+    }
+    fn link(&mut self, element: &mut BoundElement) -> Result<()> {
+        assert!(self.alive.contains(&element.object));
+        // A native call can retain the callback and then fail.
+        self.linked.insert(element.object);
+        self.call("link", element.object)
+    }
+    fn unlink(&mut self, element: &mut BoundElement) -> Result<()> {
+        assert!(self.alive.contains(&element.object), "unsubscribed after native destruction");
+        self.call("unlink", element.object)?;
+        self.linked.remove(&element.object);
+        Ok(())
+    }
+    fn apply(&mut self, element: &mut BoundElement, want: &Shown) -> Result<()> {
+        assert!(self.alive.contains(&element.object));
+        self.call("apply", element.object)?;
+        if self.fail_row_apply && self.owners.get(&element.object).is_some_and(|parent| self.rows.contains(parent)) {
+            self.fail_row_apply = false;
+            return Err("injected row apply".into());
+        }
+        element.record_for_test(want);
+        self.applied.insert(element.object, want.clone());
+        Ok(())
+    }
+}
+
 impl Native for Recording {
     type Reconciliation = OrderingGuard;
     fn begin_ordering(&mut self, wanted: &BTreeSet<Identity>) -> Self::Reconciliation {
@@ -152,32 +183,6 @@ impl Native for Recording {
         self.found.insert(key, object);
         Ok(object)
     }
-    fn listener(&mut self, object: usize, look: Look) -> Result<BoundElement> {
-        self.call("listener", object)?;
-        Ok(BoundElement::new(object, look))
-    }
-    fn link(&mut self, element: &mut BoundElement) -> Result<()> {
-        assert!(self.alive.contains(&element.object));
-        // A native call can retain the callback and then fail.
-        self.linked.insert(element.object);
-        self.call("link", element.object)
-    }
-    fn unlink(&mut self, element: &mut BoundElement) -> Result<()> {
-        assert!(self.alive.contains(&element.object), "unsubscribed after native destruction");
-        self.call("unlink", element.object)?;
-        self.linked.remove(&element.object);
-        Ok(())
-    }
-    fn apply(&mut self, element: &mut BoundElement, want: &BTreeMap<&'static str, Property>) -> Result<()> {
-        assert!(self.alive.contains(&element.object));
-        self.call("apply", element.object)?;
-        if self.fail_row_apply && self.owners.get(&element.object).is_some_and(|parent| self.rows.contains(parent)) {
-            self.fail_row_apply = false;
-            return Err("injected row apply".into());
-        }
-        self.applied.insert(element.object, want.clone());
-        Ok(())
-    }
     fn keep_still(&mut self, root: usize) -> Result<()> {
         self.call("keep still", root)
     }
@@ -214,12 +219,6 @@ impl Native for Recording {
     }
     fn player(&mut self) -> Option<String> {
         Some("FRA".into())
-    }
-    fn dragged(&mut self, extension: usize, name: &str, at: (i32, i32)) {
-        self.dragged.push((extension, name.into(), at));
-    }
-    fn lost_popup(&mut self, number: u32) {
-        self.lost.push(number);
     }
 }
 
@@ -265,22 +264,22 @@ fn popup() -> Popup {
 fn repeated_frames_keep_objects_and_localized_rows_then_replace_them_before_destroying() {
     let (mut native, mut live, mut wants) = (Recording::new(), Live::default(), wants());
     wants.windows[0].wanted.rows.get_mut("results").unwrap().push(vec![]);
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     let root = live.built[0].root;
     let creates = native.occurrences("create");
     let clears = native.occurrences("clear rows");
     let row = live.built[0].elements.iter().find(|e| e.name == "label").unwrap();
-    assert_eq!(native.applied[&row.element.object]["text"], Property::Text("First".into()));
-    assert_eq!(native.applied[&row.element.object]["tooltip"], Property::Tooltip("Reason".into()));
+    assert_eq!(native.applied[&row.element.object].text.as_deref(), Some(b"First".as_slice()));
+    assert_eq!(native.applied[&row.element.object].tooltip.as_deref(), Some(b"Reason".as_slice()));
     let old_row = row.element.object;
     let default = live.built[0].elements.iter().find(|e| e.name == "label" && e.row.as_ref().is_some_and(|(_, number)| *number == 2)).unwrap();
-    assert_eq!(native.applied[&default.element.object]["text"], Property::Text("Default 2".into()));
-    assert_eq!(native.applied[&default.element.object]["tooltip"], Property::Tooltip("Reason".into()));
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    assert_eq!(native.applied[&default.element.object].text.as_deref(), Some(b"Default 2".as_slice()));
+    assert_eq!(native.applied[&default.element.object].tooltip.as_deref(), Some(b"Reason".as_slice()));
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     assert_eq!(native.occurrences("create"), creates);
     assert_eq!(native.occurrences("clear rows"), clears);
     wants.windows[0].wanted.rows.insert("results".into(), vec![vec![("label".into(), Property::Text("Second".into()))]]);
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     assert_eq!(live.built[0].root, root);
     assert!(!native.alive.contains(&old_row));
     assert!(live.built[0].elements.iter().all(|e| e.element.object != old_row));
@@ -294,7 +293,7 @@ fn repeated_frames_keep_objects_and_localized_rows_then_replace_them_before_dest
 fn every_fallible_window_build_step_preserves_ownership_and_can_be_cleaned() {
     let wants = wants();
     let (mut baseline, mut live) = (Recording::new(), Live::default());
-    reconcile(&mut baseline, &mut live, &wants).unwrap();
+    reconcile(&mut baseline, &mut live, &wants).1.unwrap();
     let operations = baseline.calls.clone();
     for (index, (operation, _)) in operations.iter().enumerate() {
         let (mut native, mut live) = (Recording::new(), Live::default());
@@ -310,21 +309,21 @@ fn every_fallible_window_build_step_preserves_ownership_and_can_be_cleaned() {
 #[test]
 fn a_failed_row_update_is_not_committed_and_the_earlier_contents_can_be_requested_again() {
     let (mut native, mut live, mut wants) = (Recording::new(), Live::default(), wants());
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     let original = wants.windows[0].wanted.rows.clone();
     wants.windows[0].wanted.rows.insert("results".into(), vec![vec![("label".into(), Property::Text("Changed".into()))]]);
     // Fail after the replacement row has been allocated and subscribed.
     let row_calls = native.occurrences("row");
     native.fail_row_apply = true;
-    assert!(reconcile(&mut native, &mut live, &wants).is_err());
+    assert!(reconcile(&mut native, &mut live, &wants).1.is_err());
     assert!(!native.fail_row_apply);
     assert!(!live.built[0].rows.contains_key("results"));
     assert!(live.built[0].elements.iter().all(|e| e.row.is_none()));
     wants.windows[0].wanted.rows = original;
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     assert!(native.occurrences("row") > row_calls);
     let row = live.built[0].elements.iter().find(|e| e.name == "label").unwrap();
-    assert_eq!(native.applied[&row.element.object]["text"], Property::Text("First".into()));
+    assert_eq!(native.applied[&row.element.object].text.as_deref(), Some(b"First".as_slice()));
     end_session(&mut native, &mut live).unwrap();
     assert!(native.alive.is_empty());
 }
@@ -333,13 +332,13 @@ fn a_failed_row_update_is_not_committed_and_the_earlier_contents_can_be_requeste
 fn definition_failures_are_retried_and_a_new_generation_retires_old_roots() {
     let (mut native, mut live, mut wants) = (Recording::new(), Live::default(), wants());
     native.fail_named = Some("definitions");
-    assert!(reconcile(&mut native, &mut live, &wants).is_err());
+    assert!(reconcile(&mut native, &mut live, &wants).1.is_err());
     assert_eq!(live.read, None);
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     let old = live.built[0].root;
     wants.generation = 2;
     wants.windows[0].type_name = "tools_2".into();
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     assert!(!native.alive.contains(&old));
     assert_ne!(live.built[0].root, old);
     assert_eq!(live.read, Some(2));
@@ -350,20 +349,20 @@ fn definition_failures_are_retried_and_a_new_generation_retires_old_roots() {
 fn a_failed_build_waits_for_fresh_definitions_and_session_end_forgets_failure() {
     let (mut native, mut live, mut wants) = (Recording::new(), Live::default(), wants());
     native.fail_named = Some("create");
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     assert!(live.built.is_empty());
     let attempted = native.occurrences("create");
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     assert_eq!(native.occurrences("create"), attempted);
     wants.generation += 1;
     wants.windows[0].type_name = "tools_2".into();
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     assert_eq!(live.built.len(), 1);
     end_session(&mut native, &mut live).unwrap();
     assert!(live.failed.is_empty());
     assert!(live.popups_read.is_empty());
     assert_eq!(live.read, None);
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     assert_eq!(live.built.len(), 1);
     end_session(&mut native, &mut live).unwrap();
 }
@@ -371,7 +370,7 @@ fn a_failed_build_waits_for_fresh_definitions_and_session_end_forgets_failure() 
 #[test]
 fn native_destruction_is_distinct_from_ours_and_duplicate_notifications_are_harmless() {
     let (mut native, mut live, wants) = (Recording::new(), Live::default(), wants());
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     let root = live.built[0].root;
     native_killed(&mut native, &mut live, root).unwrap();
     assert!(live.built.is_empty());
@@ -380,7 +379,7 @@ fn native_destruction_is_distinct_from_ours_and_duplicate_notifications_are_harm
     assert_eq!(native.calls.len(), calls);
     assert_eq!(native.occurrences("kill"), 0, "the game's own Kill must not be called recursively");
     native.destroy(root, true);
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     assert_ne!(live.built[0].root, root);
     end_session(&mut native, &mut live).unwrap();
 }
@@ -392,15 +391,15 @@ fn popup_definitions_commit_only_after_reading_and_every_build_stage_rolls_back(
     wants.popups.push((1, popup()));
     wants.appearances.insert(1, 1);
     native.fail_named = Some("popup definitions");
-    assert!(reconcile(&mut native, &mut live, &wants).is_err());
+    assert!(reconcile(&mut native, &mut live, &wants).1.is_err());
     assert!(!live.popups_read.contains(&1));
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     assert!(live.popups_read.contains(&1));
     assert_eq!(live.built.len(), 1);
     let calls = native.calls.clone();
     end_session(&mut native, &mut live).unwrap();
     let (mut baseline, mut baseline_live) = (Recording::new(), Live::default());
-    reconcile(&mut baseline, &mut baseline_live, &wants).unwrap();
+    reconcile(&mut baseline, &mut baseline_live, &wants).1.unwrap();
     for failure in 1..=baseline.calls.len() {
         let (mut native, mut live) = (Recording::new(), Live::default());
         native.fail = Some(failure);
@@ -416,13 +415,14 @@ fn popup_definitions_commit_only_after_reading_and_every_build_stage_rolls_back(
 fn dragged_position_errors_keep_ownership_and_only_an_uncalled_kill_may_be_retried() {
     let (mut native, mut live, mut wants) = (Recording::new(), Live::default(), wants());
     wants.windows[0].layout.moveable = true;
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     let root = live.built[0].root;
     native.positions.insert(root, (25, 35));
-    reconcile(&mut native, &mut live, &wants).unwrap();
-    assert_eq!(native.dragged, [(4, "tools".into(), (25, 35))]);
+    let (events, result) = reconcile(&mut native, &mut live, &wants);
+    result.unwrap();
+    assert_eq!(events.dragged, [(4, "tools".into(), (25, 35))]);
     native.fail_named = Some("placed");
-    assert!(reconcile(&mut native, &mut live, &wants).is_err());
+    assert!(reconcile(&mut native, &mut live, &wants).1.is_err());
     assert_eq!(live.built[0].root, root);
     native.fail_named = Some("kill check");
     assert!(end_session(&mut native, &mut live).is_err());
@@ -436,7 +436,7 @@ fn dragged_position_errors_keep_ownership_and_only_an_uncalled_kill_may_be_retri
 #[test]
 fn an_entered_kill_is_never_retried_even_if_its_failure_already_freed_the_root() {
     let (mut native, mut live, wants) = (Recording::new(), Live::default(), wants());
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     let old_root = live.built[0].root;
     native.fail_named = Some("kill");
     end_session(&mut native, &mut live).unwrap();
@@ -446,7 +446,7 @@ fn an_entered_kill_is_never_retried_even_if_its_failure_already_freed_the_root()
     assert!(live.reported.iter().any(|message| message.contains("ownership is uncertain")));
     let after_fault = native.calls.len();
     end_session(&mut native, &mut live).unwrap();
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     assert_ne!(live.built[0].root, old_root);
     assert!(native.calls[after_fault..].iter().all(|(_, object)| *object != old_root));
     end_session(&mut native, &mut live).unwrap();
@@ -456,11 +456,11 @@ fn an_entered_kill_is_never_retried_even_if_its_failure_already_freed_the_root()
 fn ordering_keeps_identity_and_appearance_through_technical_reconstruction() {
     let (mut native, mut live, mut wants) = (Recording::new(), Live::default(), wants());
     wants.windows[0].wanted.appearance = 17;
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     let first = live.built[0].root;
     wants.generation += 1;
     wants.windows[0].type_name = "tools_2".into();
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     let second = live.built[0].root;
     assert_ne!(first, second);
     {
@@ -478,7 +478,7 @@ fn ordering_binds_surviving_roots_and_releases_reconstruction_on_error() {
     for failure in ["apply", "bind order", "flush order"] {
         let (mut native, mut live, wants) = (Recording::new(), Live::default(), wants());
         native.fail_named = Some(failure);
-        assert!(reconcile(&mut native, &mut live, &wants).unwrap_err().contains(failure));
+        assert!(reconcile(&mut native, &mut live, &wants).1.unwrap_err().contains(failure));
         assert_eq!(live.built.len(), 1);
         {
             let ordering = native.ordering.borrow();
@@ -493,10 +493,10 @@ fn ordering_binds_surviving_roots_and_releases_reconstruction_on_error() {
 #[test]
 fn closing_identity_is_removed_even_when_native_cleanup_must_be_retried() {
     let (mut native, mut live, mut wants) = (Recording::new(), Live::default(), wants());
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     wants.windows[0].wanted.open = false;
     native.fail_named = Some("kill check");
-    assert!(reconcile(&mut native, &mut live, &wants).is_err());
+    assert!(reconcile(&mut native, &mut live, &wants).1.is_err());
     assert_eq!(live.closing.len(), 1);
     {
         let ordering = native.ordering.borrow();
@@ -504,7 +504,7 @@ fn closing_identity_is_removed_even_when_native_cleanup_must_be_retried() {
         assert!(ordering.bound.last().unwrap().is_empty(), "closing roots must not be registered again");
         assert_eq!(ordering.held, 0);
     }
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     assert!(live.closing.is_empty());
     assert!(native.alive.is_empty());
 }
@@ -515,7 +515,7 @@ fn windows_and_popups_pass_their_shared_appearance_order_to_native_binding() {
     wants.windows[0].wanted.appearance = 20;
     wants.popups.push((7, popup()));
     wants.appearances.insert(7, 10);
-    reconcile(&mut native, &mut live, &wants).unwrap();
+    reconcile(&mut native, &mut live, &wants).1.unwrap();
     {
         let ordering = native.ordering.borrow();
         let appearances: BTreeMap<_, _> = ordering.bound[0].iter().map(|(identity, _, appearance)| (identity.clone(), *appearance)).collect();

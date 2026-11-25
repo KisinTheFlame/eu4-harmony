@@ -5,9 +5,9 @@
 //! operation, subscriptions are retired before their objects die, and an
 //! applied generation or list is committed only after it succeeds.
 use super::gui;
-use super::{self as live, Bound, Built, Key, Live, WantWindow, Wants};
+use super::{self as live, Bound, Built, ElementOps, Key, Live, WantWindow, Wants};
 use crate::{
-    bound_element::{BoundElement, Hears, Look, Shown},
+    bound_element::{BoundElement, Look, Shown},
     game_heap,
     memory::Memory,
     objects::gui::{functions, globals, list_box, list_entry, window},
@@ -21,17 +21,25 @@ use eu4_harmony_lua::{
 };
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
+/// State changes observed during native reconciliation that belong to
+/// [`super::super::Windows`] and are applied after [`live::LIVE`] is dropped.
+#[derive(Default, Debug, PartialEq, Eq)]
+pub(crate) struct Events {
+    pub dragged: Vec<(usize, String, (i32, i32))>,
+    pub lost_popups: Vec<u32>,
+}
+
 /// Whether native Kill was entered matters more than whether it returned:
 /// an entered call may mark the root dead before it faults. No pointer from
 /// an attempted Kill may be read or retried by the framework afterwards.
-enum Kill {
+pub(super) enum Kill {
     NotCalled(String),
     Attempted(Result<()>),
 }
 
 /// Native operations behind the lifetime protocol; neither the extension
 /// state nor a caller decides when these operations happen.
-trait Native {
+pub(super) trait Native: ElementOps {
     type Reconciliation;
     fn begin_ordering(&mut self, wanted: &BTreeSet<Identity>) -> Self::Reconciliation;
     fn bind_ordering(&mut self, seen: &[Owned]) -> Result<()>;
@@ -44,10 +52,6 @@ trait Native {
     fn position(&mut self, root: usize, at: (i32, i32)) -> Result<()>;
     fn placed(&mut self, root: usize) -> Result<(i32, i32)>;
     fn find(&mut self, root: usize, kind: Option<&Kind>, name: &str) -> Result<usize>;
-    fn listener(&mut self, object: usize, look: Look) -> Result<BoundElement>;
-    fn link(&mut self, element: &mut BoundElement) -> Result<()>;
-    fn unlink(&mut self, element: &mut BoundElement) -> Result<()>;
-    fn apply(&mut self, element: &mut BoundElement, want: &BTreeMap<&'static str, Property>) -> Result<()>;
     fn keep_still(&mut self, root: usize) -> Result<()>;
     fn show(&mut self, root: usize, shown: bool) -> Result<()>;
     fn kill(&mut self, root: usize) -> Kill;
@@ -56,13 +60,29 @@ trait Native {
     fn popup_text(&mut self, root: usize, text: &str) -> Result<()>;
     fn country(&mut self, object: usize, tag: &str) -> Result<()>;
     fn player(&mut self) -> Option<String>;
-    fn dragged(&mut self, extension: usize, name: &str, at: (i32, i32));
-    fn lost_popup(&mut self, number: u32);
 }
 
 struct Game<'a> {
     m: &'a Memory,
     manager: usize,
+}
+
+impl ElementOps for Game<'_> {
+    fn listener(&mut self, object: usize, look: Look) -> Result<BoundElement> {
+        self.m.listener(object, look)
+    }
+    fn subscribed(&mut self, element: &BoundElement) -> bool {
+        self.m.subscribed(element)
+    }
+    fn link(&mut self, element: &mut BoundElement) -> Result<()> {
+        self.m.link(element)
+    }
+    fn unlink(&mut self, element: &mut BoundElement) -> Result<()> {
+        self.m.unlink(element)
+    }
+    fn apply(&mut self, element: &mut BoundElement, shown: &Shown) -> Result<()> {
+        self.m.apply(element, shown)
+    }
 }
 
 impl Native for Game<'_> {
@@ -102,18 +122,6 @@ impl Native for Game<'_> {
     }
     fn find(&mut self, root: usize, kind: Option<&Kind>, name: &str) -> Result<usize> {
         live::find(self.m, root, kind, name)
-    }
-    fn listener(&mut self, object: usize, look: Look) -> Result<BoundElement> {
-        BoundElement::listening(self.m, object, look, Hears::Windows)
-    }
-    fn link(&mut self, element: &mut BoundElement) -> Result<()> {
-        element.link(self.m)
-    }
-    fn unlink(&mut self, element: &mut BoundElement) -> Result<()> {
-        element.unlink(self.m)
-    }
-    fn apply(&mut self, element: &mut BoundElement, want: &BTreeMap<&'static str, Property>) -> Result<()> {
-        element.apply(self.m, &Shown::of(want))
     }
     fn keep_still(&mut self, root: usize) -> Result<()> {
         ui::keep_still(self.m, root, gui::BACKGROUND)
@@ -176,12 +184,6 @@ impl Native for Game<'_> {
     fn player(&mut self) -> Option<String> {
         live::player_letters(self.m)
     }
-    fn dragged(&mut self, extension: usize, name: &str, at: (i32, i32)) {
-        super::with(|all| all.wanted.dragged(extension, name, at));
-    }
-    fn lost_popup(&mut self, number: u32) {
-        super::with(|all| all.wanted.lost_popup(number));
-    }
 }
 
 /// Native closing notifications during our own opening are ignored even
@@ -198,11 +200,12 @@ impl Drop for Opening {
     }
 }
 
-pub(super) fn frame(m: &Memory, live: &mut Live, wants: &Wants) -> Result<()> {
+pub(super) fn frame(m: &Memory, live: &mut Live, wants: &Wants) -> (Events, Result<()>) {
     reconcile(&mut Game { m, manager: 0 }, live, wants)
 }
 
-fn reconcile(native: &mut impl Native, live: &mut Live, wants: &Wants) -> Result<()> {
+pub(super) fn reconcile(native: &mut impl Native, live: &mut Live, wants: &Wants) -> (Events, Result<()>) {
+    let mut events = Events::default();
     let mut appearances: BTreeMap<Identity, u64> = wants
         .windows
         .iter()
@@ -210,11 +213,13 @@ fn reconcile(native: &mut impl Native, live: &mut Live, wants: &Wants) -> Result
         .map(|want| (Identity::Window(want.extension, want.layout.name.clone()), want.wanted.appearance))
         .collect();
     for (number, _) in &wants.popups {
-        let appearance = wants.appearances.get(number).copied().ok_or_else(|| format!("pop-up {number} has no appearance order"))?;
+        let Some(&appearance) = wants.appearances.get(number) else {
+            return (events, Err(format!("pop-up {number} has no appearance order")));
+        };
         appearances.insert(Identity::Popup(*number), appearance);
     }
     let guard = native.begin_ordering(&appearances.keys().cloned().collect());
-    let result = reconcile_windows(native, live, wants);
+    let result = reconcile_windows(native, live, wants, &mut events);
     // Reconciliation can fail after retaining a successfully shown root. Bind
     // those survivors even on that exit; closing roots must never be rebound.
     let seen: Vec<Owned> = live
@@ -233,13 +238,13 @@ fn reconcile(native: &mut impl Native, live: &mut Live, wants: &Wants) -> Result
     let flushed = native.flush_ordering();
     let errors: Vec<String> = [result, bound, flushed].into_iter().filter_map(Result::err).collect();
     if errors.is_empty() {
-        Ok(())
+        (events, Ok(()))
     } else {
-        Err(errors.join("; "))
+        (events, Err(errors.join("; ")))
     }
 }
 
-fn reconcile_windows(native: &mut impl Native, live: &mut Live, wants: &Wants) -> Result<()> {
+fn reconcile_windows(native: &mut impl Native, live: &mut Live, wants: &Wants, events: &mut Events) -> Result<()> {
     if !native.available()? {
         return Ok(());
     }
@@ -277,7 +282,7 @@ fn reconcile_windows(native: &mut impl Native, live: &mut Live, wants: &Wants) -
                 let now = native.placed(built.root)?;
                 if now != built.placed {
                     built.placed = now;
-                    native.dragged(want.extension, &want.layout.name, now);
+                    events.dragged.push((want.extension, want.layout.name.clone(), now));
                 }
             }
             Ok(())
@@ -300,7 +305,7 @@ fn reconcile_windows(native: &mut impl Native, live: &mut Live, wants: &Wants) -
             Ok(built) => live.built.push(built),
             Err(e) => {
                 live.report(format!("pop-up {number} not built: {e}"));
-                native.lost_popup(*number);
+                events.lost_popups.push(*number);
             }
         }
     }
@@ -434,7 +439,7 @@ fn apply_window(native: &mut impl Native, live: &mut Live, built: &mut Built, wa
         if let Some(set) = want.wanted.set.get(&name) {
             wanted.extend(set.iter().map(|(key, value)| (*key, value.clone())));
         }
-        native.apply(&mut built.elements[at].element, &wanted)?;
+        native.apply(&mut built.elements[at].element, &Shown::of(&wanted))?;
     }
     Ok(())
 }
@@ -461,7 +466,7 @@ fn fill_rows(native: &mut impl Native, live: &mut Live, built: &mut Built, list:
                 for (_, property) in cells.iter().filter(|(name, _)| Some(name) == placed.name.as_ref()) {
                     wanted.insert(property.name(), property.clone());
                 }
-                native.apply(&mut built.elements[first + i].element, &wanted)?;
+                native.apply(&mut built.elements[first + i].element, &Shown::of(&wanted))?;
             }
         }
         Ok(())
@@ -512,7 +517,7 @@ fn build_popup(native: &mut impl Native, live: &mut Live, number: u32, popup: &P
 pub(super) fn killed(m: &Memory, live: &mut Live, root: usize) -> Result<()> {
     native_killed(&mut Game { m, manager: 0 }, live, root)
 }
-fn native_killed(native: &mut impl Native, live: &mut Live, root: usize) -> Result<()> {
+pub(super) fn native_killed(native: &mut impl Native, live: &mut Live, root: usize) -> Result<()> {
     let mut result = Ok(());
     for closing in [false, true] {
         let built = if closing { &mut live.closing } else { &mut live.built };
@@ -527,7 +532,7 @@ fn native_killed(native: &mut impl Native, live: &mut Live, root: usize) -> Resu
 pub(super) fn session_ended(m: &Memory, live: &mut Live) -> Result<()> {
     end_session(&mut Game { m, manager: 0 }, live)
 }
-fn end_session(native: &mut impl Native, live: &mut Live) -> Result<()> {
+pub(super) fn end_session(native: &mut impl Native, live: &mut Live) -> Result<()> {
     let result = remove(native, live, |_| true);
     // A new session may use the same names and pop-up numbers. Old native
     // definitions and failed builds must not stand in for the new ones.
