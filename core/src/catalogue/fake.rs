@@ -1055,10 +1055,11 @@ We have a truce with them.",
 
     /// Warning Byzantium is sent; anything else is refused with the game's
     /// reason.
-    fn act(&mut self, act: game::diplomacy::Act, country: CountryTag, _: game::diplomacy::Details<CountryTag>) -> GResult<game::diplomacy::Ticket> {
+    fn act(&mut self, country: CountryTag, order: game::diplomacy::PanelOrder<CountryTag>) -> GResult<game::diplomacy::Ticket> {
+        let act = order.act();
         self.call(format!("act {country} Act({act:?})"));
-        match act {
-            game::diplomacy::Act::Warn if found(country)? == byz() => Ok(game::diplomacy::Ticket(4)),
+        match order {
+            game::diplomacy::PanelOrder::Simple(game::diplomacy::Act::Warn) if found(country)? == byz() => Ok(game::diplomacy::Ticket(4)),
             _ => fail(Status::Rejected, "Is not the Papal Controller."),
         }
     }
