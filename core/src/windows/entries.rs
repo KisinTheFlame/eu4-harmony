@@ -1,7 +1,7 @@
 //! Native lifetime and slot layout of extension entry buttons on the panel
 //! button strip (`floating_buttons`), behind an internal seam shared by the
 //! running game and failure-injecting process tests.
-use super::{Entry, Live, STRIP_BACKGROUND, STRIP_FIRST, STRIP_SLOTS, STRIP_STEP, TEXT_HIDE, TEXT_PLACE, TEXT_PLACE_SLOT, TEXT_SHOW};
+use super::{ElementOps, Entry, Live, STRIP_BACKGROUND, STRIP_FIRST, STRIP_SLOTS, STRIP_STEP, TEXT_HIDE, TEXT_PLACE, TEXT_PLACE_SLOT, TEXT_SHOW};
 use crate::{
     bound_element::{self, BoundElement, Look, Shown},
     memory::Memory,
@@ -15,28 +15,41 @@ use crate::{
 };
 use eu4_harmony_lua::windows::ResolvedEntry;
 
-pub(super) struct EntrySpec {
+pub(crate) struct EntrySpec {
     pub extension: usize,
     pub id: String,
     pub window: String,
     pub resolved: ResolvedEntry,
 }
 
-pub(super) trait StripNative {
+pub(super) trait StripNative: ElementOps {
     fn strip(&mut self, idler: usize) -> Result<Option<usize>>;
     fn vanilla_shown(&mut self, strip: usize, index: usize) -> Result<bool>;
     fn find_entry(&mut self, strip: usize, button_name: &str, background_name: &str) -> Result<Option<(usize, usize, usize)>>;
-    fn listener(&mut self, button: usize) -> Result<BoundElement>;
-    fn subscribed(&mut self, element: &BoundElement) -> bool;
-    fn link(&mut self, element: &mut BoundElement) -> Result<()>;
-    fn unlink(&mut self, element: &mut BoundElement) -> Result<()>;
-    fn apply(&mut self, element: &mut BoundElement, shown: &Shown) -> Result<()>;
     fn show_number(&mut self, number: usize, previous: &mut Option<String>, text: String, at: (i32, i32)) -> Result<()>;
     fn place(&mut self, button: usize, background: usize, at: (i32, i32)) -> Result<()>;
 }
 
 struct GameStrip<'a> {
     m: &'a Memory,
+}
+
+impl ElementOps for GameStrip<'_> {
+    fn listener(&mut self, object: usize, look: Look) -> Result<BoundElement> {
+        self.m.listener(object, look)
+    }
+    fn subscribed(&mut self, element: &BoundElement) -> bool {
+        self.m.subscribed(element)
+    }
+    fn link(&mut self, element: &mut BoundElement) -> Result<()> {
+        self.m.link(element)
+    }
+    fn unlink(&mut self, element: &mut BoundElement) -> Result<()> {
+        self.m.unlink(element)
+    }
+    fn apply(&mut self, element: &mut BoundElement, shown: &Shown) -> Result<()> {
+        self.m.apply(element, shown)
+    }
 }
 
 impl StripNative for GameStrip<'_> {
@@ -65,26 +78,6 @@ impl StripNative for GameStrip<'_> {
             return Err(format!("the entry {button_name} has no independent number"));
         }
         Ok(Some((button, background, number)))
-    }
-
-    fn listener(&mut self, button: usize) -> Result<BoundElement> {
-        BoundElement::listening(self.m, button, Look::Button, bound_element::Hears::Windows)
-    }
-
-    fn subscribed(&mut self, element: &BoundElement) -> bool {
-        element.subscribed(self.m).unwrap_or(false)
-    }
-
-    fn link(&mut self, element: &mut BoundElement) -> Result<()> {
-        element.link(self.m)
-    }
-
-    fn unlink(&mut self, element: &mut BoundElement) -> Result<()> {
-        element.unlink(self.m)
-    }
-
-    fn apply(&mut self, element: &mut BoundElement, shown: &Shown) -> Result<()> {
-        element.apply(self.m, shown)
     }
 
     fn show_number(&mut self, number: usize, previous: &mut Option<String>, text: String, at: (i32, i32)) -> Result<()> {
@@ -184,7 +177,7 @@ fn place_one(native: &mut impl StripNative, live: &mut Live, strip: usize, spec:
             }
             live.retired.extend(old.element.retire());
         }
-        let element = native.listener(button)?;
+        let element = native.listener(button, Look::Button)?;
         // Retain the entry before native `link`, matching `windows::lifecycle`,
         // so a failure after native SUBSCRIBE never frees a live callback.
         live.entries.push(Entry {
@@ -273,33 +266,10 @@ mod tests {
         }
     }
 
-    impl StripNative for RecordingStrip {
-        fn strip(&mut self, _: usize) -> Result<Option<usize>> {
-            self.step("strip")?;
-            Ok((self.strip != 0).then_some(self.strip))
-        }
-
-        fn vanilla_shown(&mut self, _: usize, index: usize) -> Result<bool> {
-            self.step("vanilla")?;
-            Ok(index <= self.vanilla_used)
-        }
-
-        fn find_entry(&mut self, strip: usize, button_name: &str, _: &str) -> Result<Option<(usize, usize, usize)>> {
-            self.step("find")?;
-            if self.missing_number.contains(button_name) {
-                return Err(format!("the entry {button_name} has no independent number"));
-            }
-            let entry = *self.objects.entry((strip, button_name.to_string())).or_insert_with(|| {
-                let base = self.next_object;
-                self.next_object += 3;
-                (base, base + 1, base + 2)
-            });
-            Ok(Some(entry))
-        }
-
-        fn listener(&mut self, button: usize) -> Result<BoundElement> {
+    impl ElementOps for RecordingStrip {
+        fn listener(&mut self, button: usize, look: Look) -> Result<BoundElement> {
             self.step("listener")?;
-            Ok(BoundElement::new(button, Look::Button))
+            Ok(BoundElement::new(button, look))
         }
 
         fn subscribed(&mut self, element: &BoundElement) -> bool {
@@ -324,6 +294,31 @@ mod tests {
             element.record_for_test(shown);
             self.applied.insert(element.object, shown.clone());
             Ok(())
+        }
+    }
+
+    impl StripNative for RecordingStrip {
+        fn strip(&mut self, _: usize) -> Result<Option<usize>> {
+            self.step("strip")?;
+            Ok((self.strip != 0).then_some(self.strip))
+        }
+
+        fn vanilla_shown(&mut self, _: usize, index: usize) -> Result<bool> {
+            self.step("vanilla")?;
+            Ok(index <= self.vanilla_used)
+        }
+
+        fn find_entry(&mut self, strip: usize, button_name: &str, _: &str) -> Result<Option<(usize, usize, usize)>> {
+            self.step("find")?;
+            if self.missing_number.contains(button_name) {
+                return Err(format!("the entry {button_name} has no independent number"));
+            }
+            let entry = *self.objects.entry((strip, button_name.to_string())).or_insert_with(|| {
+                let base = self.next_object;
+                self.next_object += 3;
+                (base, base + 1, base + 2)
+            });
+            Ok(Some(entry))
         }
 
         fn show_number(&mut self, number: usize, previous: &mut Option<String>, text: String, at: (i32, i32)) -> Result<()> {

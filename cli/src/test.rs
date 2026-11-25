@@ -5,24 +5,17 @@
 //! drives it through the handle `open` returns (`eu4-harmony skills testing`
 //! lists what it can do). A test fails when it raises an error, an `assert`
 //! included.
-use crate::fake::{check, code_named, lua_date, Answer, Fake};
-use eu4_harmony_lua::{
-    dispatch::{self, Heard},
-    fetch, values, Extension, Mod,
-};
+use crate::fake::{ClickOptions, FakeMod, ModSource, Properties};
+use eu4_harmony_lua::{fetch, values};
 use eu4_harmony_manifest::Manifest;
-use eu4_harmony_remote::{
-    signals::{Kind, SessionEnd, Signal},
-    ArmyId, Date,
-};
+use eu4_harmony_remote::Date;
 use mlua::{Function, Lua, LuaOptions, StdLib, Table, UserData, UserDataMethods, Value as LuaValue, Variadic};
 use serde_json::Value;
 use std::{
-    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Mutex,
+        Arc,
     },
 };
 
@@ -40,9 +33,7 @@ pub struct Outcome {
 
 /// The mod the tests open.
 struct Opened {
-    root: PathBuf,
-    manifest: Manifest,
-    name: String,
+    source: Arc<ModSource>,
     /// The folder the tests' data folders are made in.
     scratch: PathBuf,
 }
@@ -61,7 +52,8 @@ pub fn run(root: &Path, manifest: Manifest, name: String) -> Result<Outcome, Str
         return Err(format!("no .lua file in {}", dir.display()));
     }
     let scratch = std::env::temp_dir().join(format!("eu4-harmony-test-{}", std::process::id()));
-    let opened = Arc::new(Opened { root: root.to_path_buf(), manifest, name, scratch: scratch.clone() });
+    let source = Arc::new(ModSource { root: root.to_path_buf(), manifest, name });
+    let opened = Arc::new(Opened { source, scratch: scratch.clone() });
     let mut outcome = Outcome::default();
     for file in files {
         run_file(&opened, &file, &mut outcome);
@@ -74,7 +66,7 @@ pub fn run(root: &Path, manifest: Manifest, name: String) -> Result<Outcome, Str
 /// Runs one test file: its top level, which registers its tests, then each
 /// test in the order it was registered.
 fn run_file(opened: &Arc<Opened>, file: &Path, outcome: &mut Outcome) {
-    let shown = file.strip_prefix(&opened.root).unwrap_or(file).to_string_lossy().replace('\\', "/");
+    let shown = file.strip_prefix(&opened.source.root).unwrap_or(file).to_string_lossy().replace('\\', "/");
     outcome.report.push_str(&format!("{shown}\n"));
     let tests = match harness(opened).and_then(|lua| load(&lua, file).map(|t| (lua, t))) {
         Ok(found) => found,
@@ -111,8 +103,7 @@ fn run_file(opened: &Arc<Opened>, file: &Path, outcome: &mut Outcome) {
 }
 
 /// Notes about the mods a test opened: capabilities it left unanswered; and
-/// answers its functions gave not of their capability's shape, which fail
-/// it.
+/// answers its functions gave not of their capability's shape, which fail it.
 #[derive(Default)]
 struct Notes(Vec<String>, Vec<String>);
 
@@ -135,7 +126,7 @@ fn harness(opened: &Arc<Opened>) -> Result<Lua, String> {
         globals.set("open", lua.create_function(move |lua, ()| open(lua, &at).map_err(mlua::Error::runtime))?)?;
         // A helper of the tests', or else one of the mod's own modules, such as
         // a decision core to test on its own.
-        let folders = vec![opened.root.join("eu4-harmony").join(TESTS), opened.root.join("eu4-harmony").join("lua")];
+        let folders = vec![opened.source.root.join("eu4-harmony").join(TESTS), opened.source.root.join("eu4-harmony").join("lua")];
         eu4_harmony_lua::install_require(&lua, folders)?;
         globals.set(
             "print",
@@ -175,112 +166,28 @@ static OPENED: AtomicUsize = AtomicUsize::new(0);
 /// The mod opened afresh on a fake game of its own, as the handle tests
 /// drive it with.
 fn open(lua: &Lua, at: &Arc<Opened>) -> Result<TestMod, String> {
-    let harmony = at.root.join("eu4-harmony");
-    let layout = eu4_harmony_manifest::layout(&harmony);
-    let mut slots = std::collections::HashMap::new();
-    let report = eu4_harmony_manifest::ui::read_fragments(&at.root, &at.manifest.id, &layout.ui, &mut slots);
-    if !report.problems.is_empty() {
-        return Err(report.problems.join("\n"));
-    }
-    let (texts, _) = eu4_harmony_loc::load_dir(&harmony.join("localisation"));
-    let fake = Arc::new(Fake::new(texts, lua));
     let n = OPENED.fetch_add(1, Ordering::Relaxed);
-    let data = at.scratch.join(n.to_string()).join(&at.manifest.id);
-    let m = Mod { id: &at.manifest.id, name: &at.name, harmony, permissions: &at.manifest.permissions, data: Some(data.clone()) };
-    let extension = eu4_harmony_lua::open(0, &m, fake.clone())?;
-    {
-        let mut store = fake.store();
-        store.windows.declare(extension.index(), &at.manifest.id, extension.windows());
-        if !layout.ui.is_empty() {
-            store.hosted.declare(extension.index(), report.elements.into_iter().map(|e| (e.name, e.kind.is_button())));
-        }
-    }
-    Ok(TestMod { opened: at.clone(), data, extension: Mutex::new(extension), fake })
+    let data = at.scratch.join(n.to_string()).join(&at.source.manifest.id);
+    Ok(TestMod(FakeMod::open(at.source.clone(), data, Some(lua))?))
 }
 
-/// A mod a test opened, and its fake game.
-struct TestMod {
-    opened: Arc<Opened>,
-    data: PathBuf,
-    extension: Mutex<Arc<Extension>>,
-    fake: Arc<Fake>,
-}
-
-/// What the fake game gives a dispatch: the save data a test starts a
-/// session with, and at a frame the windows the mod opened or closed itself.
-/// Maps and clicks are raised one at a time instead.
-struct Fed(Option<Value>, Vec<dispatch::WindowSeen>);
-
-impl dispatch::Feed for Fed {
-    fn session_begins(&mut self, _: u64) {}
-
-    fn saved(&mut self, _: &str) -> Option<Value> {
-        self.0.take()
-    }
-
-    fn map_lost(&mut self) -> Vec<usize> {
-        Vec::new()
-    }
-
-    fn clicks(&mut self) -> Vec<dispatch::Click> {
-        Vec::new()
-    }
-
-    fn windows(&mut self) -> Vec<dispatch::WindowSeen> {
-        std::mem::take(&mut self.1)
-    }
-
-    fn popups_pressed(&mut self) -> Vec<dispatch::PopupPressed> {
-        Vec::new()
-    }
-}
+/// Thin Lua `UserData` handle projecting [`FakeMod`] into `eu4-harmony test`.
+struct TestMod(FakeMod);
 
 impl TestMod {
-    fn ext(&self) -> Arc<Extension> {
-        self.extension.lock().unwrap_or_else(|e| e.into_inner()).clone()
-    }
-
-    /// The mod hears `heard`, a session's start with `saved`.
-    fn hear(&self, lua: &Lua, heard: &Heard, saved: Option<Value>) {
-        let ext = self.ext();
-        dispatch::hear(std::slice::from_ref(&ext), heard, &mut Fed(saved, Vec::new()));
-        self.note(lua);
-    }
-
-    /// The mod hears the day `date`, and its month and its year when it is
-    /// the first heard in them, as the game raises them; first, as at the
-    /// game's frame, its tasks waiting for the day are taken up.
-    fn day(&self, lua: &Lua, date: Date) {
-        let (month, year) = self.fake.advance_day(date);
-        self.ext().poll();
-        self.hear(lua, &Heard::of(&Signal::Day { date }), None);
-        if month {
-            self.hear(lua, &Heard::of(&Signal::Month { date }), None);
-        }
-        if year {
-            self.hear(lua, &Heard::of(&Signal::Year { date }), None);
-        }
-    }
-
-    /// Notes what the mod was left with, for the test's report.
-    fn note(&self, lua: &Lua) {
-        let store = self.fake.store();
-        let mut notes = Vec::new();
-        for name in &store.unanswered {
-            let note = format!("{name} had no answer");
-            if !notes.contains(&note) {
-                notes.push(note);
-            }
-        }
+    /// Moves any newly recorded fake-game notes into the active test's report.
+    fn record_notes(&self, lua: &Lua) {
+        let notes = self.0.take_notes();
         if let Some(mut kept) = lua.app_data_mut::<Notes>() {
-            for note in notes {
+            for name in notes.unanswered {
+                let note = format!("{name} had no answer");
                 if !kept.0.contains(&note) {
                     kept.0.push(note);
                 }
             }
-            for why in &store.misshapen {
-                if !kept.1.contains(why) {
-                    kept.1.push(why.clone());
+            for why in notes.misshapen {
+                if !kept.1.contains(&why) {
+                    kept.1.push(why);
                 }
             }
         }
@@ -296,40 +203,44 @@ fn here(lua: &Lua) -> String {
     lua.inspect_stack(1, |d| format!("{}:{}: ", d.source().short_src.as_deref().unwrap_or("?"), d.current_line().unwrap_or(0))).unwrap_or_default()
 }
 
-/// `answer` held to `capability`'s result, as the test gave it.
-fn shaped(lua: &Lua, capability: &str, answer: &LuaValue) -> mlua::Result<Value> {
-    let json = json(answer)?;
-    check(capability, &json).map_err(|why| mlua::Error::runtime(format!("{}{why}", here(lua))))?;
-    Ok(json)
+fn at(lua: &Lua, message: String) -> mlua::Error {
+    mlua::Error::runtime(format!("{}{message}", here(lua)))
 }
 
-fn code(name: &str) -> mlua::Result<eu4_harmony_remote::Code> {
-    code_named(name).ok_or_else(|| mlua::Error::runtime(format!("no error code {name}; eu4-harmony wiki errors lists them")))
+fn click_options(click: Option<Table>, with_row: bool) -> mlua::Result<ClickOptions> {
+    let flag = |key: &str| -> mlua::Result<bool> { Ok(click.as_ref().map(|t| t.get::<Option<bool>>(key)).transpose()?.flatten().unwrap_or(false)) };
+    let row = if with_row { click.as_ref().map(|t| t.get::<Option<u32>>("row")).transpose()?.flatten() } else { None };
+    Ok(ClickOptions { right: flag("right")?, shift: flag("shift")?, ctrl: flag("ctrl")?, row })
+}
+
+fn properties_table(lua: &Lua, properties: &Properties) -> mlua::Result<Table> {
+    let t = lua.create_table()?;
+    for (name, value) in properties {
+        t.set(*name, values::to_lua(lua, value)?)?;
+    }
+    Ok(t)
 }
 
 impl UserData for TestMod {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // What the fake game answers.
         methods.add_method("answer", |lua, this, (capability, answer): (String, LuaValue)| {
-            let answer = match answer {
-                LuaValue::Function(f) if eu4_harmony_remote::result_shape(&capability).is_some() => Answer::Function(f),
-                LuaValue::Function(_) => return Err(mlua::Error::runtime(format!("{}there is no capability {capability}", here(lua)))),
-                other => Answer::Value(shaped(lua, &capability, &other)?),
-            };
-            this.fake.store().answers.insert(capability, answer);
-            Ok(())
+            match answer {
+                LuaValue::Function(f) => this.0.answer_function(&capability, f),
+                other => this.0.answer(&capability, json(&other)?),
+            }
+            .map_err(|e| at(lua, e))
         });
         methods.add_method("refuse", |_, this, (capability, name, message): (String, String, Option<String>)| {
-            this.fake.store().answers.insert(capability, Answer::Refusal(code(&name)?, message.unwrap_or_default()));
-            Ok(())
+            this.0.refuse(&capability, &name, message).map_err(mlua::Error::runtime)
         });
         methods.add_method("later", |_, this, capability: String| {
-            this.fake.store().answers.insert(capability, Answer::Later);
+            this.0.later(&capability);
             Ok(())
         });
-        methods.add_method("reply", |lua, this, (capability, answer): (String, LuaValue)| reply(this, &capability, Ok(shaped(lua, &capability, &answer)?)));
+        methods.add_method("reply", |lua, this, (capability, answer): (String, LuaValue)| this.0.reply(&capability, json(&answer)?).map_err(|e| at(lua, e)));
         methods.add_method("reply_refusal", |_, this, (capability, name, message): (String, String, Option<String>)| {
-            reply(this, &capability, Err(eu4_harmony_remote::Error::new(code(&name)?, message.unwrap_or_default())))
+            this.0.reply_refusal(&capability, &name, message).map_err(mlua::Error::runtime)
         });
         methods.add_method("respond", |_, this, (n, response): (usize, Table)| {
             let headers: Vec<(String, String)> = match response.get::<Option<Table>>("headers")? {
@@ -338,44 +249,23 @@ impl UserData for TestMod {
             };
             let body = response.get::<Option<mlua::String>>("body")?.map(|b| b.as_bytes().to_vec()).unwrap_or_default();
             let answer = fetch::Response { status: response.get::<Option<u32>>("status")?.unwrap_or(200), headers, body };
-            respond(this, n, Ok(answer))
+            this.0.respond(n, answer).map_err(mlua::Error::runtime)
         });
         methods.add_method("fail", |_, this, (n, name, message): (usize, String, Option<String>)| {
-            let failure = match name.as_str() {
-                "timeout" => fetch::Failure::Timeout,
-                "too_large" => fetch::Failure::TooLarge,
-                "network" => fetch::Failure::Network(message.unwrap_or_else(|| "the host cannot be reached".into())),
-                other => return Err(mlua::Error::runtime(format!("a request fails with timeout, network or too_large, not {other}"))),
-            };
-            respond(this, n, Err(failure))
+            this.0.fail_request(n, &name, message).map_err(mlua::Error::runtime)
         });
-        methods.add_method("world", |lua, this, world: LuaValue| {
-            let world = crate::world::World::new(json(&world)?).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?;
-            this.fake.store().world = Some(world);
-            Ok(())
-        });
-        methods.add_method("language", |_, this, name: String| {
-            let language = eu4_harmony_loc::Language::from_id(&name).ok_or_else(|| mlua::Error::runtime(format!("no language {name}")))?;
-            *this.fake.language.lock().unwrap_or_else(|e| e.into_inner()) = language;
-            Ok(())
-        });
+        methods.add_method("world", |lua, this, world: LuaValue| this.0.set_world(json(&world)?).map_err(|e| at(lua, e)));
+        methods.add_method("language", |_, this, name: String| this.0.set_language(&name).map_err(mlua::Error::runtime));
 
         // Signals, as the game raises them (`eu4_harmony_lua::dispatch`).
         methods.add_method("session", |lua, this, saved: LuaValue| {
-            let saved = json(&saved)?;
-            let session = this.fake.start_session();
-            this.hear(lua, &Heard::of(&Signal::Session { session }), Some(saved));
+            this.0.session(Some(json(&saved)?));
+            this.record_notes(lua);
             Ok(())
         });
         methods.add_method("session_ended", |lua, this, reason: Option<String>| {
-            let reason = reason.unwrap_or_else(|| "return".into());
-            let reason: SessionEnd = serde_json::from_value(Value::String(reason.clone()))
-                .map_err(|_| mlua::Error::runtime(format!("{}a session ends for return, load, new_game or country, not {reason}", here(lua))))?;
-            // As in the game: the session is over as the mod hears it end,
-            // and its windows and pop-ups close after.
-            this.fake.end_session();
-            this.hear(lua, &Heard::of(&Signal::SessionEnded { reason }), None);
-            this.fake.store().windows.end_session();
+            this.0.session_ended(reason.as_deref()).map_err(|e| at(lua, e))?;
+            this.record_notes(lua);
             Ok(())
         });
         methods.add_method("day", |lua, this, date: LuaValue| {
@@ -385,228 +275,116 @@ impl UserData for TestMod {
                 other => return Err(mlua::Error::runtime(format!("a date is \"1444.11.12\" or {{ year, month, day }}, not a {}", other.type_name()))),
             };
             let date = Date::parse(&text).ok_or_else(|| mlua::Error::runtime(format!("{text} is not a date")))?;
-            this.day(lua, date);
+            this.0.day(date);
+            this.record_notes(lua);
             Ok(())
         });
         methods.add_method("raise", |lua, this, (kind, fields): (String, Option<LuaValue>)| {
-            let named = Kind::named(&kind)
-                .ok_or_else(|| mlua::Error::runtime(format!("{}there is no signal {kind}; eu4-harmony wiki signals lists them", here(lua))))?;
-            if named == Kind::Session {
-                return Err(mlua::Error::runtime(format!("{}mod:session(saved) starts a session, with the save data it began from", here(lua))));
-            }
             let fields = fields.map(|f| json(&f)).transpose()?.unwrap_or_else(|| Value::Object(Default::default()));
-            let heard = Heard::new(named, fields).map_err(|why| mlua::Error::runtime(format!("{}{why}", here(lua))))?;
-            match heard.field("date").filter(|_| named == Kind::Day).and_then(lua_date) {
-                Some(date) => this.day(lua, date),
-                None => this.hear(lua, &heard, None),
-            }
+            this.0.raise(&kind, fields).map_err(|e| at(lua, e))?;
+            this.record_notes(lua);
             Ok(())
         });
         methods.add_method("poll", |lua, this, ()| {
-            this.ext().poll();
-            this.note(lua);
+            this.0.poll();
+            this.record_notes(lua);
             Ok(())
         });
         methods.add_method("frame", |lua, this, ()| {
-            let ext = this.ext();
-            let seen = this.fake.store().windows.take_seen();
-            dispatch::frame(std::slice::from_ref(&ext), &[], &mut Fed(None, seen));
-            this.note(lua);
+            this.0.frame();
+            this.record_notes(lua);
             Ok(())
         });
         methods.add_method("button", |lua, this, (name, click): (String, Option<Table>)| {
-            let ext = this.ext();
-            this.fake.store().hosted.check_press(ext.index(), &name).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?;
-            let flag = |key: &str| -> mlua::Result<bool> { Ok(click.as_ref().map(|t| t.get::<Option<bool>>(key)).transpose()?.flatten().unwrap_or(false)) };
-            let click = dispatch::Click { extension: ext.index(), button: name, right: flag("right")?, shift: flag("shift")?, ctrl: flag("ctrl")?, row: None };
-            dispatch::click(std::slice::from_ref(&ext), &click);
-            this.note(lua);
+            this.0.button(&name, click_options(click, false)?).map_err(|e| at(lua, e))?;
+            this.record_notes(lua);
             Ok(())
         });
 
         // The mod's windows and pop-ups, as the player uses them.
         methods.add_method("press", |lua, this, (window, widget, click): (String, String, Option<Table>)| {
-            let ext = this.ext();
-            let flag = |key: &str| -> mlua::Result<bool> { Ok(click.as_ref().map(|t| t.get::<Option<bool>>(key)).transpose()?.flatten().unwrap_or(false)) };
-            let row = click.as_ref().map(|t| t.get::<Option<u32>>("row")).transpose()?.flatten();
-            this.fake.store().windows.check_press(ext.index(), &window, &widget, row).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?;
-            let click = dispatch::Click {
-                extension: ext.index(),
-                button: format!("{window}.{widget}"),
-                right: flag("right")?,
-                shift: flag("shift")?,
-                ctrl: flag("ctrl")?,
-                row,
-            };
-            dispatch::click(std::slice::from_ref(&ext), &click);
-            this.note(lua);
+            this.0.press(&window, &widget, click_options(click, true)?).map_err(|e| at(lua, e))?;
+            this.record_notes(lua);
             Ok(())
         });
         methods.add_method("entry", |lua, this, window: String| {
-            let ext = this.ext();
-            let seen = {
-                let mut store = this.fake.store();
-                store.windows.press_entry(ext.index(), &window).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?
-            };
-            for seen in seen {
-                dispatch::window(std::slice::from_ref(&ext), &seen);
-            }
-            this.note(lua);
+            this.0.entry(&window).map_err(|e| at(lua, e))?;
+            this.record_notes(lua);
             Ok(())
         });
         methods.add_method("close", |lua, this, window: String| {
-            let ext = this.ext();
-            if !this.fake.store().windows.is_open(ext.index(), &window) {
-                return Err(mlua::Error::runtime(format!("{}the mod's window {window:?} is not open", here(lua))));
-            }
-            let seen = this.fake.store().windows.show(ext.index(), &window, false);
-            for seen in seen {
-                dispatch::window(std::slice::from_ref(&ext), &seen);
-            }
-            this.note(lua);
+            this.0.close(&window).map_err(|e| at(lua, e))?;
+            this.record_notes(lua);
             Ok(())
         });
         methods.add_method("popups", |lua, this, ()| {
             let list = lua.create_table()?;
-            for p in this.fake.store().windows.popups() {
+            for p in this.0.popups() {
                 let t = lua.create_table()?;
                 t.set("popup", p.number)?;
-                t.set("title", p.popup.title.as_str())?;
-                t.set("text", p.popup.text.as_str())?;
-                t.set("header", p.popup.header.clone())?;
-                t.set("buttons", lua.create_sequence_from(p.popup.shown_buttons("OK"))?)?;
+                t.set("title", p.title)?;
+                t.set("text", p.text)?;
+                t.set("header", p.header)?;
+                t.set("buttons", lua.create_sequence_from(p.buttons)?)?;
                 list.push(t)?;
             }
             Ok(list)
         });
         methods.add_method("answer_popup", |lua, this, (number, button): (u32, u32)| {
-            // The button's action runs, as at the game's next frame, and
-            // closes the pop-up unless it says not to.
-            let ext = this.ext();
-            let pressed = {
-                let mut store = this.fake.store();
-                store.windows.press(number, button).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?;
-                store.windows.take_pressed()
-            };
-            for pressed in pressed {
-                dispatch::popup_pressed(std::slice::from_ref(&ext), &pressed);
-            }
-            this.note(lua);
+            this.0.answer_popup(number, button).map_err(|e| at(lua, e))?;
+            this.record_notes(lua);
             Ok(())
         });
         methods.add_method("army_ordered", |lua, this, army: u64| {
-            this.hear(lua, &Heard::of(&Signal::ArmyOrdered { army: ArmyId(army) }), None);
+            this.0.army_ordered(army);
+            this.record_notes(lua);
             Ok(())
         });
         methods.add_method("army_defeated", |lua, this, army: u64| {
-            this.hear(lua, &Heard::of(&Signal::ArmyDefeated { army: ArmyId(army) }), None);
+            this.0.army_defeated(army);
+            this.record_notes(lua);
             Ok(())
         });
         methods.add_method("map_lost", |lua, this, ()| {
-            let ext = this.ext();
-            dispatch::map_lost(std::slice::from_ref(&ext), ext.index());
-            this.note(lua);
+            this.0.map_lost();
+            this.record_notes(lua);
             Ok(())
         });
-        methods.add_method("save", |lua, this, ()| match this.ext().save_data() {
-            None | Some(Ok(None)) => Ok((LuaValue::Nil, LuaValue::Nil)),
-            Some(Ok(Some(data))) => Ok((values::to_lua(lua, &data)?, LuaValue::Nil)),
-            Some(Err(message)) => Ok((LuaValue::Nil, LuaValue::String(lua.create_string(message)?))),
+        methods.add_method("save", |lua, this, ()| {
+            let saved = this.0.save();
+            this.record_notes(lua);
+            match saved {
+                Ok(None) => Ok((LuaValue::Nil, LuaValue::Nil)),
+                Ok(Some(data)) => Ok((values::to_lua(lua, &data)?, LuaValue::Nil)),
+                Err(message) => Ok((LuaValue::Nil, LuaValue::String(lua.create_string(message)?))),
+            }
         });
         methods.add_method("reload", |lua, this, ()| {
-            let old = this.ext();
-            let harmony = this.opened.root.join("eu4-harmony");
-            if harmony.join("manifest.toml").is_file() {
-                let manifest =
-                    eu4_harmony_manifest::HarmonyMod::read(&this.opened.root).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?.manifest;
-                if manifest.id != this.opened.manifest.id {
-                    return Err(mlua::Error::runtime(format!("{}manifest id changed to {:?}", here(lua), manifest.id)));
-                }
-                if manifest.permissions != this.opened.manifest.permissions {
-                    return Err(mlua::Error::runtime(format!("{}manifest permissions changed", here(lua))));
-                }
-                if let Some(why) = manifest.unsupported(eu4_harmony_remote::API_VERSION) {
-                    return Err(mlua::Error::runtime(format!("{}{why}", here(lua))));
-                }
-            }
-            let (texts, _) = eu4_harmony_loc::load_dir(&harmony.join("localisation"));
-            let prev_texts = this.fake.replace_texts(texts);
-            let m = Mod {
-                id: &this.opened.manifest.id,
-                name: &this.opened.name,
-                harmony,
-                permissions: &this.opened.manifest.permissions,
-                data: Some(this.data.clone()),
-            };
-            let new = match eu4_harmony_lua::open(old.index(), &m, this.fake.clone()) {
-                Ok(new) => new,
-                Err(e) => {
-                    this.fake.replace_texts(prev_texts);
-                    return Err(mlua::Error::runtime(format!("{}the new code did not load: {e}", here(lua))));
-                }
-            };
-            if new.images() != old.images() {
-                this.fake.replace_texts(prev_texts);
-                return Err(mlua::Error::runtime(format!("{}entry images changed", here(lua))));
-            }
-            let cal = this.fake.calendar();
-            let outcome = eu4_harmony_lua::reload_handoff(&old, &new, this.fake.as_ref(), cal.going_on);
-            let saved_kept = outcome.saved.is_some();
-            *this.extension.lock().unwrap_or_else(|e| e.into_inner()) = new;
-            if cal.going_on {
-                this.hear(lua, &Heard::of(&Signal::Session { session: cal.session }), outcome.saved);
-            }
+            let report = this.0.reload().map_err(|e| at(lua, e))?;
+            this.record_notes(lua);
             let result = lua.create_table()?;
-            result.set("session", cal.going_on)?;
-            result.set("saved_kept", saved_kept)?;
-            result.set("lost", outcome.lost)?;
+            result.set("session", report.session)?;
+            result.set("saved_kept", report.saved_kept)?;
+            result.set("lost", report.lost)?;
             Ok(result)
         });
 
         // What the mod did.
-        methods.add_method("log", |lua, this, ()| lua.create_sequence_from(this.fake.store().log.clone()));
-        methods.add_method("errors", |lua, this, ()| {
-            let errors: Vec<String> = this.fake.store().log.iter().filter(|l| l.starts_with("error in ")).cloned().collect();
-            lua.create_sequence_from(errors)
-        });
+        methods.add_method("log", |lua, this, ()| lua.create_sequence_from(this.0.log()));
+        methods.add_method("errors", |lua, this, ()| lua.create_sequence_from(this.0.errors()));
         methods.add_method("calls", |lua, this, capability: Option<String>| {
             let calls = lua.create_table()?;
-            for call in this.fake.store().calls.iter() {
-                if capability.as_deref().is_none_or(|c| call.get("capability").and_then(Value::as_str) == Some(c)) {
-                    calls.push(values::to_lua(lua, call)?)?;
-                }
+            for call in this.0.calls(capability.as_deref()) {
+                calls.push(values::to_lua(lua, &call)?)?;
             }
             Ok(calls)
         });
-        methods.add_method("element", |lua, this, name: String| {
-            let ext = this.ext();
-            let element = lua.create_table()?;
-            let properties = this.fake.store().element(ext.index(), &name, |key| eu4_harmony_lua::Host::text(this.fake.as_ref(), ext.id(), key));
-            for (property, value) in properties {
-                element.set(property, values::to_lua(lua, &value)?)?;
-            }
-            Ok(element)
-        });
+        methods.add_method("element", |lua, this, name: String| properties_table(lua, &this.0.element(&name)));
         methods.add_method("window", |lua, this, name: String| {
-            let ext = this.ext();
-            if !ext.windows().iter().any(|w| w.name == name) {
-                return Err(mlua::Error::runtime(format!("{}the mod has no window {name:?}", here(lua))));
-            }
-            let window = this.fake.store().window(ext.index(), &name, |key| eu4_harmony_lua::Host::text(this.fake.as_ref(), ext.id(), key));
+            let window = this.0.window(&name).map_err(|e| at(lua, e))?;
             let t = lua.create_table()?;
-            let Some(window) = window else {
-                t.set("open", false)?;
-                return Ok(t);
-            };
-            let properties = |p: &BTreeMap<&'static str, Value>| -> mlua::Result<Table> {
-                let t = lua.create_table()?;
-                for (name, value) in p {
-                    t.set(*name, values::to_lua(lua, value)?)?;
-                }
-                Ok(t)
-            };
             for (widget, p) in &window.widgets {
-                t.set(widget.as_str(), properties(p)?)?;
+                t.set(widget.as_str(), properties_table(lua, p)?)?;
             }
             for (list, rows) in &window.rows {
                 let widget: Table = match t.get::<Option<Table>>(list.as_str())? {
@@ -617,7 +395,7 @@ impl UserData for TestMod {
                 for row in rows {
                     let r = lua.create_table()?;
                     for (name, p) in row {
-                        r.set(name.as_str(), properties(p)?)?;
+                        r.set(name.as_str(), properties_table(lua, p)?)?;
                     }
                     all.push(r)?;
                 }
@@ -627,63 +405,42 @@ impl UserData for TestMod {
             t.set("open", window.open)?;
             Ok(t)
         });
-        methods.add_method("map", |lua, this, ()| match &this.fake.store().map {
+        methods.add_method("map", |lua, this, ()| match this.0.map() {
             None => Ok(LuaValue::Nil),
             Some(colors) => {
                 let map = lua.create_table()?;
                 for (province, [r, g, b, a]) in colors {
                     let color = lua.create_table()?;
-                    color.set("r", *r)?;
-                    color.set("g", *g)?;
-                    color.set("b", *b)?;
-                    color.set("a", *a)?;
-                    map.set(*province, color)?;
+                    color.set("r", r)?;
+                    color.set("g", g)?;
+                    color.set("b", b)?;
+                    color.set("a", a)?;
+                    map.set(province, color)?;
                 }
                 Ok(LuaValue::Table(map))
             }
         });
         methods.add_method("requests", |lua, this, ()| {
             let list = lua.create_table()?;
-            for (request, _) in this.fake.store().requests.iter() {
+            for request in this.0.requests() {
                 let t = lua.create_table()?;
-                t.set("url", request.target.url())?;
-                t.set("method", request.method.as_str())?;
+                t.set("url", request.url)?;
+                t.set("method", request.method)?;
                 let headers = lua.create_table()?;
-                for (name, value) in &request.headers {
-                    headers.set(name.as_str(), value.as_str())?;
+                for (name, value) in request.headers {
+                    headers.set(name, value)?;
                 }
                 t.set("headers", headers)?;
                 t.set("body", lua.create_string(&request.body)?)?;
-                t.set("timeout", request.timeout.as_secs_f64())?;
+                t.set("timeout", request.timeout)?;
                 list.push(t)?;
             }
             Ok(list)
         });
-        methods.add_method("waiting", |_, this, ()| Ok(this.ext().waiting()));
-        methods.add_method("told", |lua, this, ()| lua.create_sequence_from(this.fake.store().told.clone()));
-        methods.add_method("stopped", |_, this, ()| Ok(this.ext().stopped()));
+        methods.add_method("waiting", |_, this, ()| Ok(this.0.waiting()));
+        methods.add_method("told", |lua, this, ()| lua.create_sequence_from(this.0.told()));
+        methods.add_method("stopped", |_, this, ()| Ok(this.0.stopped()));
     }
-}
-
-/// Gives the oldest answer of `capability` still to come.
-fn reply(this: &TestMod, capability: &str, answer: eu4_harmony_lua::Answered) -> mlua::Result<()> {
-    let mut store = this.fake.store();
-    let Some(at) = store.later.iter().position(|(name, _)| name == capability) else {
-        return Err(mlua::Error::runtime(format!("no answer of {capability} is still to come; mod:later(\"{capability}\") makes it come later")));
-    };
-    let (_, slot) = store.later.remove(at);
-    *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(answer);
-    Ok(())
-}
-
-/// Gives the `n`th request (from 1) its answer.
-fn respond(this: &TestMod, n: usize, answer: fetch::Answer) -> mlua::Result<()> {
-    let store = this.fake.store();
-    let Some((_, slot)) = n.checked_sub(1).and_then(|i| store.requests.get(i)) else {
-        return Err(mlua::Error::runtime(format!("there is no request {n}; the mod sent {}", store.requests.len())));
-    };
-    *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(answer);
-    Ok(())
 }
 
 #[cfg(test)]
@@ -1034,7 +791,8 @@ mod tests {
         std::fs::create_dir_all(dir.join("eu4-harmony/lua")).unwrap();
         std::fs::write(dir.join("eu4-harmony/lua/main.lua"), "return {}").unwrap();
         let manifest = Manifest::parse("id = \"g\"\napi_version = \"0.3\"").unwrap();
-        let opened = Arc::new(Opened { root: dir.clone(), manifest, name: "G".into(), scratch: dir.join("scratch") });
+        let source = Arc::new(ModSource { root: dir.clone(), manifest, name: "G".into() });
+        let opened = Arc::new(Opened { source, scratch: dir.join("scratch") });
         let lua = harness(&opened).unwrap();
         for method in named {
             let kind: String = lua.load(format!("return type(open().{method})")).eval().unwrap();
@@ -1138,7 +896,8 @@ mod tests {
             "#,
         );
         let manifest = Manifest::parse(&format!("id = \"rel\"\napi_version = \"{}\"", eu4_harmony_remote::API_VERSION)).unwrap();
-        let opened = Arc::new(Opened { root: dir.clone(), manifest, name: "Rel".into(), scratch: dir.join("scratch") });
+        let source = Arc::new(ModSource { root: dir.clone(), manifest, name: "Rel".into() });
+        let opened = Arc::new(Opened { source, scratch: dir.join("scratch") });
         let lua = harness(&opened).unwrap();
         lua.load(
             r#"

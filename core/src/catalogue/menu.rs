@@ -35,6 +35,10 @@ pub trait Layer {
     /// came of it so far, asked again at each safe point; None when the game
     /// starts again.
     fn return_to_main_menu(&mut self) -> GResult<Option<Box<dyn FnMut() -> Returned + Send>>>;
+    /// Reads the session once a load or start reaches the first game frame.
+    fn session(&mut self) -> GResult<game::session::Session>;
+    /// Leaves the country in view when starting in observe mode.
+    fn leave_view(&mut self) -> GResult<game::session::Session>;
 }
 
 impl Layer for Live {
@@ -62,6 +66,14 @@ impl Layer for Live {
     fn return_to_main_menu(&mut self) -> GResult<Option<Box<dyn FnMut() -> Returned + Send>>> {
         let caller = self.0;
         Ok(game::menu::return_to_main_menu(caller)?.map(|number| Box::new(move || game::menu::returned(caller, number)) as Box<_>))
+    }
+
+    fn session(&mut self) -> GResult<game::session::Session> {
+        game::session::session(self.0)
+    }
+
+    fn leave_view(&mut self) -> GResult<game::session::Session> {
+        game::session::leave_view(game::WorldSession::open(self.0)?)
     }
 }
 
@@ -164,8 +176,8 @@ impl Wait for Starting {
             )));
         }
         let game = at.game()?;
-        let session = match game.session(eu4_harmony_remote::session::args::Get {}) {
-            Ok(s) if self.observing && s.player.acting().is_some() => game.leave_view(eu4_harmony_remote::session::args::LeaveView {}),
+        let session = match game.session() {
+            Ok(s) if self.observing && s.player.acting().is_some() => game.leave_view(),
             session => session,
         };
         match session {
@@ -207,9 +219,9 @@ mod tests {
         fake::{answer, ok, Fake, PLENTY},
         menu, process, Place,
     };
-    use crate::game;
+    use crate::game::{self, buffers::{game_tag, tur}};
     use crate::remote::Engine;
-    use eu4_harmony_remote::{signals::SignalsRequest, menu::MenuRequest, session::SessionRequest, texts::TextRequest, Code, CountryTag, Error, Request};
+    use eu4_harmony_remote::{menu::MenuRequest, session::SessionRequest, signals::SignalsRequest, texts::TextRequest, time::TimeRequest, Code, CountryTag, Error, Request};
     use serde_json::{json, Value};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -260,8 +272,8 @@ mod tests {
         // The game puts a country in view at its start; the start takes it
         // out before it answers.
         let engine = Engine::new(remember);
-        let observer = game::Tag(super::super::fake::game_tag(b"O00", 900).0 | 7 << crate::objects::campaign::tag::KIND);
-        let in_view = Some(super::super::fake::tur());
+        let observer = game::Tag(game_tag(b"O00", 900).0 | 7 << crate::objects::campaign::tag::KIND);
+        let in_view = Some(tur());
         let mut game = Fake { player: Some(game::player::Player::Observes { own: observer, in_view }), ..Fake::default() };
         let start = engine.submit(Request::Menu(MenuRequest::Start { country: None }));
         engine.run(&mut game, &Place::Outside(Some(Error::new(Code::NotInGame, "the main menu is open"))), PLENTY);
@@ -346,7 +358,7 @@ mod tests {
             engine.submit(Request::Signals(SignalsRequest::Read { since: Some(0), wait_ms: Some(10_000), process: None, kinds: None, countries: None }));
         engine.run(&mut game, &Place::Game, PLENTY);
         let back = engine.submit(Request::Menu(MenuRequest::Return {}));
-        let after = engine.submit(Request::Session(SessionRequest::Get {}));
+        let after = engine.submit(Request::Time(TimeRequest::Get {}));
         engine.run(&mut game, &Place::Game, PLENTY);
         assert_eq!(answer(&back), ok(json!({"process": process(), "place": "ending"})));
         // Until the game starts eu4.exe again, the process answers as before.
@@ -361,7 +373,7 @@ mod tests {
             assert!(error("not_ready")(&got), "{got}");
             assert!(got["error"]["message"].as_str().unwrap().contains("returning to the main menu"), "{got}");
         }
-        assert_eq!(game.calls, ["return", "session"]);
+        assert_eq!(game.calls, ["return", "time"]);
     }
 
     #[test]

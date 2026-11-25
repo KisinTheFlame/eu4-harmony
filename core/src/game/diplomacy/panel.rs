@@ -115,79 +115,111 @@ fn listed(o: Offered) -> remote::Offered {
     remote::Offered { action: action.into(), key: o.key, name: o.name, choice: o.choice, description: o.description, acceptance: o.acceptance }
 }
 
-/// What the window an action opens has the player choose, for the acts whose
-/// window is not the default one ([`fill`]); left out for the rest. Each is
-/// named as the argument of the act's capability that chooses it, which the
-/// act's row in `acts!` lists, and its countries are `Country`: their tags
-/// as a request names them, or found in the game.
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Details<Country = Tag> {
-    pub province: Option<ProvinceId>,
-    pub ally: Option<Country>,
-    pub enemy: Option<Country>,
-    /// The country whose relations are reduced.
-    pub target: Option<Country>,
-    /// Ducats.
-    pub amount: Option<u32>,
-    /// In ducats.
-    pub price: Option<u32>,
-    /// As the subsidies window counts it.
-    pub duration: Option<u32>,
-    pub percent: Option<u32>,
-    pub favors: Option<u32>,
-    /// The trust the favors buy.
-    pub trust: Option<u32>,
-    pub army: Option<ArmyId>,
-    /// Whether the treasury pays, as the cardinal window's box.
-    pub pay: Option<bool>,
-    /// A rebel faction of the other country's, by its kind.
-    pub rebels: Option<String>,
+/// A diplomacy panel action paired with the exact typed choices its window
+/// requires, eliminating untyped option bags across the catalogue seam.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PanelOrder<Country = Tag> {
+    /// Any panel action whose window takes no extra choice beyond the recipient.
+    Simple(Act),
+    SendGift { amount: u32 },
+    SubsidizeWar { amount: u32, duration: Option<u32> },
+    SellProvince { province: ProvinceId, price: u32 },
+    CharterCompany { province: ProvinceId, price: u32 },
+    FabricateClaim { province: ProvinceId },
+    ClaimStates { province: ProvinceId },
+    TransferTradePower { percent: u32 },
+    ThreatenWar { province: ProvinceId },
+    BreakAlliance { ally: Country },
+    TradeFavorsToBreakAlliance { ally: Country },
+    TradeFavorsToReduceRelations { target: Country },
+    EnforcePeace { enemy: Country },
+    InterveneInWar { enemy: Country },
+    TradeFavorsForCore { province: ProvinceId },
+    DemandUnlawfulTerritory { province: ProvinceId },
+    OfferCondottieri { army: ArmyId, price: u32 },
+    OfferLoan { amount: u32 },
+    SupportRebels { rebels: String },
+    AppointCardinal { pay: bool },
+    TradeFavorsForTrust { favors: u32, trust: Option<u32> },
 }
 
-impl<Country> Details<Country> {
-    /// The same choices, with each country `find` finds for it.
-    pub fn countries<Found, E>(self, mut find: impl FnMut(Country) -> Result<Found, E>) -> Result<Details<Found>, E> {
-        let Details { province, ally, enemy, target, amount, price, duration, percent, favors, trust, army, pay, rebels } = self;
-        Ok(Details {
-            ally: ally.map(&mut find).transpose()?,
-            enemy: enemy.map(&mut find).transpose()?,
-            target: target.map(&mut find).transpose()?,
-            province,
-            amount,
-            price,
-            duration,
-            percent,
-            favors,
-            trust,
-            army,
-            pay,
-            rebels,
+impl<Country> PanelOrder<Country> {
+    /// The underlying panel action this order sends.
+    pub fn act(&self) -> Act {
+        match self {
+            Self::Simple(act) => *act,
+            Self::SendGift { .. } => Act::SendGift,
+            Self::SubsidizeWar { .. } => Act::SubsidizeWar,
+            Self::SellProvince { .. } => Act::SellProvince,
+            Self::CharterCompany { .. } => Act::CharterCompany,
+            Self::FabricateClaim { .. } => Act::FabricateClaim,
+            Self::ClaimStates { .. } => Act::ClaimStates,
+            Self::TransferTradePower { .. } => Act::TransferTradePower,
+            Self::ThreatenWar { .. } => Act::ThreatenWar,
+            Self::BreakAlliance { .. } => Act::BreakAlliance,
+            Self::TradeFavorsToBreakAlliance { .. } => Act::TradeFavorsToBreakAlliance,
+            Self::TradeFavorsToReduceRelations { .. } => Act::TradeFavorsToReduceRelations,
+            Self::EnforcePeace { .. } => Act::EnforcePeace,
+            Self::InterveneInWar { .. } => Act::InterveneInWar,
+            Self::TradeFavorsForCore { .. } => Act::TradeFavorsForCore,
+            Self::DemandUnlawfulTerritory { .. } => Act::DemandUnlawfulTerritory,
+            Self::OfferCondottieri { .. } => Act::OfferCondottieri,
+            Self::OfferLoan { .. } => Act::OfferLoan,
+            Self::SupportRebels { .. } => Act::SupportRebels,
+            Self::AppointCardinal { .. } => Act::AppointCardinal,
+            Self::TradeFavorsForTrust { .. } => Act::TradeFavorsForTrust,
+        }
+    }
+
+    /// Maps country tags carried in the order into resolved game tags.
+    pub fn countries<Found, E>(self, mut find: impl FnMut(Country) -> Result<Found, E>) -> Result<PanelOrder<Found>, E> {
+        Ok(match self {
+            Self::Simple(act) => PanelOrder::Simple(act),
+            Self::SendGift { amount } => PanelOrder::SendGift { amount },
+            Self::SubsidizeWar { amount, duration } => PanelOrder::SubsidizeWar { amount, duration },
+            Self::SellProvince { province, price } => PanelOrder::SellProvince { province, price },
+            Self::CharterCompany { province, price } => PanelOrder::CharterCompany { province, price },
+            Self::FabricateClaim { province } => PanelOrder::FabricateClaim { province },
+            Self::ClaimStates { province } => PanelOrder::ClaimStates { province },
+            Self::TransferTradePower { percent } => PanelOrder::TransferTradePower { percent },
+            Self::ThreatenWar { province } => PanelOrder::ThreatenWar { province },
+            Self::BreakAlliance { ally } => PanelOrder::BreakAlliance { ally: find(ally)? },
+            Self::TradeFavorsToBreakAlliance { ally } => PanelOrder::TradeFavorsToBreakAlliance { ally: find(ally)? },
+            Self::TradeFavorsToReduceRelations { target } => PanelOrder::TradeFavorsToReduceRelations { target: find(target)? },
+            Self::EnforcePeace { enemy } => PanelOrder::EnforcePeace { enemy: find(enemy)? },
+            Self::InterveneInWar { enemy } => PanelOrder::InterveneInWar { enemy: find(enemy)? },
+            Self::TradeFavorsForCore { province } => PanelOrder::TradeFavorsForCore { province },
+            Self::DemandUnlawfulTerritory { province } => PanelOrder::DemandUnlawfulTerritory { province },
+            Self::OfferCondottieri { army, price } => PanelOrder::OfferCondottieri { army, price },
+            Self::OfferLoan { amount } => PanelOrder::OfferLoan { amount },
+            Self::SupportRebels { rebels } => PanelOrder::SupportRebels { rebels },
+            Self::AppointCardinal { pay } => PanelOrder::AppointCardinal { pay },
+            Self::TradeFavorsForTrust { favors, trust } => PanelOrder::TradeFavorsForTrust { favors, trust },
         })
     }
 }
 
-/// Sends `act` to the country a request names, with what `details` chooses
-/// in its window, each country found in the game, as [`sent`].
-pub fn act(session: Session, act: Act, country: CountryTag, details: Details<CountryTag>) -> GResult<Ticket> {
+/// Sends `order` to the country a request names, each country found in the
+/// game, as [`sent`].
+pub fn act(session: Session, country: CountryTag, order: PanelOrder<CountryTag>) -> GResult<Ticket> {
     let found = |tag| countries::named(session.m, &session.ctx, tag);
-    let (country, details) = (found(country)?, details.countries(found)?);
-    sent(session, country, &What::Act(act), &details)
+    let (country, order) = (found(country)?, order.countries(found)?);
+    sent(session, country, &What::Act(order.act()), Some(&order))
 }
 
 /// Sends the scripted action of this content key to the country a request
 /// names, as [`sent`].
 pub fn scripted(session: Session, args::ScriptedAction { country, action }: args::ScriptedAction) -> GResult<Ticket> {
     let country = countries::named(session.m, &session.ctx, country)?;
-    sent(session, country, &What::Scripted(action), &Details::default())
+    sent(session, country, &What::Scripted(action), None)
 }
 
 /// Sends `what` to `country`, as the panel's button and the window it opens
-/// send it, with what `details` chooses there: [`Status::Rejected`] when the
-/// panel does not offer it toward that country now, or the game does not let
-/// the player send it, with its reasons; [`Status::InvalidArgument`] when
-/// the act's window needs a choice `details` does not make.
-pub(super) fn sent(Session { m, ctx, commands, .. }: Session, country: Tag, what: &What, details: &Details) -> GResult<Ticket> {
+/// send it, with `order`'s typed window choices: [`Status::Rejected`] when
+/// the panel does not offer it toward that country now, or the game does not
+/// let the player send it, with its reasons; [`Status::InvalidArgument`] when
+/// a value violates the act's window bounds.
+pub(super) fn sent(Session { m, ctx, commands, .. }: Session, country: Tag, what: &What, order: Option<&PanelOrder>) -> GResult<Ticket> {
     other(m, &ctx, country)?;
     let panel = Panel::list(m, &ctx, country)?;
     let mut found = None;
@@ -204,44 +236,90 @@ pub(super) fn sent(Session { m, ctx, commands, .. }: Session, country: Tag, what
         };
         return fail(Status::Rejected, format!("{NOT_OFFERED} {name} toward {}", letters(country)));
     };
-    if let What::Act(act) = what {
-        fill(m, &ctx, at, country, *act, details)?;
+    if let Some(order) = order {
+        fill(m, &ctx, at, country, order)?;
     }
     verdict(m, at)?;
     send(commands, m, &ctx, at, country, Vec::new())
 }
 
+/// Pure validation of a war-subsidy duration against the window's bounds.
+fn check_subsidy_duration(duration: Option<u32>) -> GResult<u32> {
+    let duration = duration.unwrap_or(SUBSIDIES_DURATION);
+    if !(SUBSIDIES_DURATION..=SUBSIDIES_LONGEST).contains(&duration) || !duration.is_multiple_of(SUBSIDIES_DURATION) {
+        return fail(
+            Status::InvalidArgument,
+            format!("a duration of {duration}: the subsidies window goes from {SUBSIDIES_DURATION} to {SUBSIDIES_LONGEST}, by {SUBSIDIES_DURATION}"),
+        );
+    }
+    Ok(duration)
+}
+
+/// Pure validation of a trade-power transfer percentage (1..=100).
+fn check_trade_power_percent(percent: u32) -> GResult<u32> {
+    if percent == 0 {
+        return fail(Status::InvalidArgument, "transfer_trade_power needs at least 1 percent");
+    }
+    if percent > 100 {
+        return fail(Status::InvalidArgument, format!("{percent} percent: a country has no more than all its trade power to transfer"));
+    }
+    Ok(percent)
+}
+
+/// Pure validation of favors spent for trust against step sizes, owed favors,
+/// current trust, and an optional caller-supplied trust check.
+fn check_trust_favors(recipient: &str, favors: u32, trust_requested: Option<u32>, owed: i64, trust: i64, step: i64, trust_step: i64) -> GResult<i64> {
+    if favors == 0 {
+        return fail(Status::InvalidArgument, "trade_favors_for_trust needs at least 1 favor");
+    }
+    if step <= 0 || trust_step <= 0 {
+        return Err(format!("the favors for trust's step is {step} favors for {trust_step} trust").into());
+    }
+    let favors = favors as i64;
+    if favors % step != 0 {
+        return fail(Status::InvalidArgument, format!("{favors} favors: the window spends them {step} at a time"));
+    }
+    let most = most_trust_steps(owed, trust, step, trust_step);
+    if favors / step > most {
+        return fail(
+            Status::InvalidArgument,
+            format!("{favors} favors: {recipient} owes {owed} and trusts the player {trust}, so the window lets the player spend at most {}", most * step),
+        );
+    }
+    let bought = favors / step * trust_step;
+    if let Some(expected) = trust_requested.filter(|&t| t as i64 != bought) {
+        return fail(Status::InvalidArgument, format!("{expected} trust: {favors} favors buy {bought}, {trust_step} for each {step}"));
+    }
+    Ok(bought)
+}
+
 /// The window an act opens writes what the player chooses into the action's
-/// own fields, from `+0x40`, before it sends it; this writes `details` there
+/// own fields, from `+0x40`, before it sends it; this writes `order` there
 /// as that window does, refusing what the window would not let the player
 /// choose (docs/game/diplomacy/diplomacy.md, "The windows the panel opens"). Money
 /// is in thousandths of a ducat, but where a window keeps whole ducats; a
 /// province is its number, or where a window keeps it its object; a country
 /// its tag; a rebel faction its object.
-fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &Details) -> GResult<()> {
+fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, order: &PanelOrder) -> GResult<()> {
+    let act = order.act();
     let invalid = |message: String| crate::game::Fail { status: Status::InvalidArgument, message };
-    let need = |value: Option<u32>, what: &str| value.ok_or_else(|| invalid(format!("{} needs {what}", act.name())));
     let i32_at = |offset: usize, value: i64| -> GResult<()> {
         let value = i32::try_from(value).map_err(|_| invalid(format!("{value} is too large for {}", act.name())))?;
         Ok(m.write(at + offset, &value.to_le_bytes())?)
     };
     let tag_at = |offset: usize, tag: Tag| -> GResult<()> { Ok(m.write(at + offset, &tag.0.to_le_bytes())?) };
-    let province = || -> GResult<(u32, usize)> {
-        let id = need(details.province.map(|p| p.0), "a province")?;
-        Ok((id, with_state(|s| s.geography.province_address(m, ctx, id))?))
-    };
+    let province = |id: ProvinceId| -> GResult<(u32, usize)> { Ok((id.0, with_state(|s| s.geography.province_address(m, ctx, id.0))?)) };
     let owner = |address: usize| -> GResult<Tag> { Ok(Tag(m.u64(address + province_fields::OWNER)?)) };
     let controller = |address: usize| -> GResult<Tag> { Ok(Tag(m.u64(address + province_fields::CONTROLLER)?)) };
     // The provinces these windows list are the other country's own.
-    let recipients = || -> GResult<(u32, usize)> {
-        let (id, address) = province()?;
+    let recipients = |id: ProvinceId| -> GResult<(u32, usize)> {
+        let (id, address) = province(id)?;
         if owner(address)? != recipient {
             return Err(invalid(format!("province {id} is not {}'s, and {} chooses one of theirs", letters(recipient), act.name())));
         }
         Ok((id, address))
     };
-    let country = |tag: Option<Tag>, what: &str| -> GResult<Tag> {
-        let tag = tag.ok_or_else(|| invalid(format!("{} needs {what}", act.name())))?;
+    let country = |tag: Tag| -> GResult<Tag> {
         crate::game::country(m, ctx, tag)?;
         Ok(tag)
     };
@@ -259,56 +337,45 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
         }
         Ok(())
     };
-    match act {
-        Act::SendGift => i32_at(FIELDS, at_least_one(need(details.amount, "an amount")?, "ducat")? as i64 * 1000),
-        Act::SubsidizeWar => {
-            let amount = at_least_one(need(details.amount, "an amount")?, "ducat")?;
+    match order {
+        PanelOrder::SendGift { amount } => i32_at(FIELDS, at_least_one(*amount, "ducat")? as i64 * 1000),
+        PanelOrder::SubsidizeWar { amount, duration } => {
+            let amount = at_least_one(*amount, "ducat")?;
             within_treasury(amount)?;
-            let duration = details.duration.unwrap_or(SUBSIDIES_DURATION);
-            if !(SUBSIDIES_DURATION..=SUBSIDIES_LONGEST).contains(&duration) || !duration.is_multiple_of(SUBSIDIES_DURATION) {
-                return Err(invalid(format!(
-                    "a duration of {duration}: the subsidies window goes from {SUBSIDIES_DURATION} to {SUBSIDIES_LONGEST}, by {SUBSIDIES_DURATION}"
-                )));
-            }
+            let duration = check_subsidy_duration(*duration)?;
             i32_at(FIELDS, amount as i64 * 1000)?;
             i32_at(FIELDS + 4, duration as i64)
         }
-        Act::SellProvince => {
-            let (id, address) = province()?;
+        PanelOrder::SellProvince { province: id, price } => {
+            let (id, address) = province(*id)?;
             if owner(address)? != ctx.player || controller(address)? != ctx.player {
                 return Err(invalid(format!("province {id} is not one the player owns and controls, which the sell province window lists")));
             }
             if m.ptr(ctx.country + country_fields::CAPITAL)? == address {
                 return Err(invalid(format!("province {id} is the player's capital, which the sell province window leaves out")));
             }
-            i32_at(FIELDS, need(details.price, "a price")? as i64)?;
+            i32_at(FIELDS, *price as i64)?;
             i32_at(FIELDS + 4, id as i64)
         }
-        Act::CharterCompany => {
-            let (id, _) = province()?;
-            i32_at(FIELDS, need(details.price, "a price")? as i64)?;
+        PanelOrder::CharterCompany { province: id, price } => {
+            let (id, _) = province(*id)?;
+            i32_at(FIELDS, *price as i64)?;
             i32_at(FIELDS + 4, id as i64)
         }
-        Act::FabricateClaim | Act::ClaimStates => Ok(m.write(at + FIELDS, &(recipients()?.1 as u64).to_le_bytes())?),
-        Act::TransferTradePower => {
-            let percent = at_least_one(need(details.percent, "a percent")?, "percent")?;
-            if percent > 100 {
-                return Err(invalid(format!("{percent} percent: a country has no more than all its trade power to transfer")));
-            }
-            i32_at(FIELDS, percent as i64 * 10)
-        }
-        Act::ThreatenWar => {
-            let (id, address) = province()?;
+        PanelOrder::FabricateClaim { province: id } | PanelOrder::ClaimStates { province: id } => Ok(m.write(at + FIELDS, &(recipients(*id)?.1 as u64).to_le_bytes())?),
+        PanelOrder::TransferTradePower { percent } => i32_at(FIELDS, check_trade_power_percent(*percent)? as i64 * 10),
+        PanelOrder::ThreatenWar { province: id } => {
+            let (id, address) = province(*id)?;
             i32_at(FIELDS, id as i64)?;
             tag_at(FIELDS + 4, owner(address)?)
         }
-        Act::BreakAlliance | Act::TradeFavorsToBreakAlliance => tag_at(FIELDS, country(details.ally, "an ally")?),
-        Act::TradeFavorsToReduceRelations => tag_at(FIELDS, country(details.target, "a target")?),
-        Act::EnforcePeace | Act::InterveneInWar => tag_at(FIELDS, country(details.enemy, "an enemy")?),
+        PanelOrder::BreakAlliance { ally } | PanelOrder::TradeFavorsToBreakAlliance { ally } => tag_at(FIELDS, country(*ally)?),
+        PanelOrder::TradeFavorsToReduceRelations { target } => tag_at(FIELDS, country(*target)?),
+        PanelOrder::EnforcePeace { enemy } | PanelOrder::InterveneInWar { enemy } => tag_at(FIELDS, country(*enemy)?),
         // The window lists the provinces the other country owns and controls
         // with a core of the player's, and sends the core's holder with one.
-        Act::TradeFavorsForCore => {
-            let (id, address) = recipients()?;
+        PanelOrder::TradeFavorsForCore { province: id } => {
+            let (id, address) = recipients(*id)?;
             if controller(address)? != recipient {
                 return Err(invalid(format!("province {id} is not controlled by {}, and the window lists only those it controls", letters(recipient))));
             }
@@ -324,71 +391,48 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
             i32_at(FIELDS, id as i64)?;
             tag_at(FIELDS + 4, ctx.player)
         }
-        Act::DemandUnlawfulTerritory => i32_at(FIELDS, province()?.0 as i64),
-        Act::OfferCondottieri => {
-            let id = details.army.map(|a| a.0).ok_or_else(|| invalid("offer_condottieri needs an army".into()))?;
-            let army = crate::game::army::own_land(m, ctx, id)?;
-            i32_at(FIELDS, need(details.price, "a price")? as i64 * 1000)?;
+        PanelOrder::DemandUnlawfulTerritory { province: id } => i32_at(FIELDS, province(*id)?.0 as i64),
+        PanelOrder::OfferCondottieri { army: id, price } => {
+            let army = crate::game::army::own_land(m, ctx, id.0)?;
+            i32_at(FIELDS, *price as i64 * 1000)?;
             m.write(at + CONDOTTIERI_ARMY, &(army as u64).to_le_bytes())?;
-            Ok(m.write(at + CONDOTTIERI_ARMY + 8, &id.to_le_bytes())?)
+            Ok(m.write(at + CONDOTTIERI_ARMY + 8, &id.0.to_le_bytes())?)
         }
-        Act::OfferLoan => {
-            let amount = at_least_one(need(details.amount, "an amount")?, "ducat")?;
+        PanelOrder::OfferLoan { amount } => {
+            let amount = at_least_one(*amount, "ducat")?;
             within_treasury(amount)?;
             i32_at(FIELDS, amount as i64)?;
             i32_at(FIELDS + 4, LOAN_INTEREST)
         }
-        Act::SupportRebels => {
-            let kind = details
-                .rebels
-                .as_deref()
-                .ok_or_else(|| crate::game::Fail { status: Status::InvalidArgument, message: "support_rebels needs a rebel faction".into() })?;
+        PanelOrder::SupportRebels { rebels } => {
             let at_country = crate::game::country(m, ctx, recipient)?;
-            let Some(faction) = crate::game::countries::rebel_faction(m, at_country, kind)? else {
-                return fail(Status::Rejected, format!("{} has no {kind} faction", letters(recipient)));
+            let Some(faction) = crate::game::countries::rebel_faction(m, at_country, rebels)? else {
+                return fail(Status::Rejected, format!("{} has no {rebels} faction", letters(recipient)));
             };
             Ok(m.write(at + FIELDS, &(faction as u64).to_le_bytes())?)
         }
-        Act::AppointCardinal => Ok(m.write(at + FIELDS, &[details.pay.unwrap_or(false) as u8])?),
+        PanelOrder::AppointCardinal { pay } => Ok(m.write(at + FIELDS, &[*pay as u8])?),
         // Each press of the window's button spends a step of favors for a
         // step of trust, while the other country owes the favors and its
         // trust is not yet full.
-        Act::TradeFavorsForTrust => {
-            let favors = at_least_one(need(details.favors, "the favors")?, "favor")? as i64;
+        PanelOrder::TradeFavorsForTrust { favors, trust } => {
             let (step, trust_step) = (m.i32(m.at(TRUST_STEP_FAVORS))? as i64, m.i32(m.at(TRUST_STEP_TRUST))? as i64);
-            if step <= 0 || trust_step <= 0 {
-                return Err(format!("the favors for trust's step is {step} favors for {trust_step} trust").into());
-            }
-            if favors % step != 0 {
-                return Err(invalid(format!("{favors} favors: the window spends them {step} at a time")));
-            }
             let other = crate::game::country(m, ctx, recipient)?;
             let record = m.ptr(other + country_fields::RELATIONS)? + ctx.player.index() as usize * country_fields::RELATION_SIZE;
             let owed = m.i32(record + country_fields::RELATION_FAVORS)? as i64 / 1000;
-            let trust = m.u8(record + country_fields::RELATION_TRUST)? as i64;
-            let most = most_trust_steps(owed, trust, step, trust_step);
-            if favors / step > most {
-                return Err(invalid(format!(
-                    "{favors} favors: {} owes {owed} and trusts the player {trust}, so the window lets the player spend at most {}",
-                    letters(recipient),
-                    most * step
-                )));
-            }
-            let bought = favors / step * trust_step;
-            if let Some(trust) = details.trust.filter(|&t| t as i64 != bought) {
-                return Err(invalid(format!("{trust} trust: {favors} favors buy {bought}, {trust_step} for each {step}")));
-            }
-            i32_at(FIELDS, favors * 1000)?;
+            let current_trust = m.u8(record + country_fields::RELATION_TRUST)? as i64;
+            let bought = check_trust_favors(&letters(recipient), *favors, *trust, owed, current_trust, step, trust_step)?;
+            i32_at(FIELDS, *favors as i64 * 1000)?;
             i32_at(FIELDS + 4, bought)
         }
         // Its window has the player choose the ships and their price, which
         // the framework cannot choose yet, and the game takes it up with no
         // ships.
-        Act::SellShips => fail(
+        PanelOrder::Simple(Act::SellShips) => fail(
             Status::Unavailable,
             "sell_ships is not sent: its window has the player choose the ships, which the framework cannot choose yet, and the game would take it up without",
         ),
-        _ => Ok(()),
+        PanelOrder::Simple(_) => Ok(()),
     }
 }
 
@@ -552,7 +596,7 @@ mod tests {
     use crate::game::As;
     use super::*;
     use crate::{
-        catalogue::fake::{byz, tur, wal},
+        game::buffers::{byz, tur, wal},
         game::{
             buffers::{self, Image, Object},
             Caller, Fail, Session,
@@ -669,9 +713,9 @@ mod tests {
             Self { _image: image, session, actions, _objects: vec![player, other, countries, vtable, manager] }
         }
 
-        /// Sends `act` to Byzantium with `details`, as the capability does.
-        fn act(&self, act: Act, details: Details) -> GResult<Ticket> {
-            act_toward(self, byz(), act, details)
+        /// Sends `order` to Byzantium, as the capability does.
+        fn order(&self, order: PanelOrder) -> GResult<Ticket> {
+            order_toward(self, byz(), order)
         }
 
         /// The action of `act`'s field at `offset`.
@@ -680,8 +724,8 @@ mod tests {
         }
     }
 
-    fn act_toward(panel: &Panel, country: Tag, act: Act, details: Details) -> GResult<Ticket> {
-        super::sent(panel.session, country, &What::Act(act), &details)
+    fn order_toward(panel: &Panel, country: Tag, order: PanelOrder) -> GResult<Ticket> {
+        super::sent(panel.session, country, &What::Act(order.act()), Some(&order))
     }
 
     /// The failure's status and message.
@@ -702,7 +746,7 @@ mod tests {
     #[test]
     fn an_act_the_panel_does_not_offer_is_refused_and_its_actions_destroyed() {
         let panel = Panel::offering(&[Act::SendGift]);
-        let (status, message) = failed(panel.act(Act::OfferLoan, Details::default()));
+        let (status, message) = failed(panel.order(PanelOrder::OfferLoan { amount: 10 }));
         assert_eq!((status, message.as_str()), (Status::Rejected, "the diplomacy panel does not offer offer_loan toward BYZ"));
         assert_eq!(SCRIPT.with(|s| s.borrow().destroyed.clone()), [panel.actions[0].1.at()]);
         // A call to arms says so in its own words.
@@ -712,25 +756,24 @@ mod tests {
         );
 
         // Neither the player's own country nor one that is none is another.
-        assert_eq!(failed(act_toward(&panel, tur(), Act::SendGift, Details { amount: Some(5), ..Default::default() })).0, Status::InvalidArgument);
-        assert_eq!(failed(act_toward(&panel, wal(), Act::SendGift, Details { amount: Some(5), ..Default::default() })).0, Status::NotFound);
+        assert_eq!(failed(order_toward(&panel, tur(), PanelOrder::SendGift { amount: 5 })).0, Status::InvalidArgument);
+        assert_eq!(failed(order_toward(&panel, wal(), PanelOrder::SendGift { amount: 5 })).0, Status::NotFound);
     }
 
     #[test]
     fn a_gift_is_of_a_ducat_at_least() {
         let panel = Panel::offering(&[Act::SendGift]);
-        let gift = |amount| panel.act(Act::SendGift, Details { amount, ..Default::default() });
-        assert_eq!(failed(gift(None)), invalid("send_gift needs an amount"));
-        assert_eq!(failed(gift(Some(0))), invalid("send_gift needs at least 1 ducat"));
+        let gift = |amount| panel.order(PanelOrder::SendGift { amount });
+        assert_eq!(failed(gift(0)), invalid("send_gift needs at least 1 ducat"));
         // The window writes it in thousandths, and the game's check is asked.
-        assert_eq!(failed(gift(Some(5))), no_money());
+        assert_eq!(failed(gift(5)), no_money());
         assert_eq!(panel.field(Act::SendGift, FIELDS), 5000);
     }
 
     #[test]
     fn war_subsidies_go_as_far_as_the_treasury_for_the_window_s_durations() {
         let panel = Panel::offering(&[Act::SubsidizeWar]);
-        let subsidies = |amount, duration| panel.act(Act::SubsidizeWar, Details { amount: Some(amount), duration, ..Default::default() });
+        let subsidies = |amount, duration| panel.order(PanelOrder::SubsidizeWar { amount, duration });
         assert_eq!(failed(subsidies(501, None)), invalid("501 ducats is more than the treasury's 500, as far as subsidize_war's window goes"));
         let durations = "the subsidies window goes from 10 to 400, by 10";
         assert_eq!(failed(subsidies(500, Some(15))), invalid(&format!("a duration of 15: {durations}")));
@@ -745,12 +788,12 @@ mod tests {
     #[test]
     fn a_loan_goes_as_far_as_the_treasury_and_trade_power_as_all_of_it() {
         let panel = Panel::offering(&[Act::OfferLoan, Act::TransferTradePower]);
-        let loan = |amount| panel.act(Act::OfferLoan, Details { amount: Some(amount), ..Default::default() });
+        let loan = |amount| panel.order(PanelOrder::OfferLoan { amount });
         assert_eq!(failed(loan(0)), invalid("offer_loan needs at least 1 ducat"));
         assert_eq!(failed(loan(501)), invalid("501 ducats is more than the treasury's 500, as far as offer_loan's window goes"));
         assert_eq!(failed(loan(500)), no_money());
         assert_eq!((panel.field(Act::OfferLoan, FIELDS), panel.field(Act::OfferLoan, FIELDS + 4)), (500, LOAN_INTEREST as i32));
-        let transfer = |percent| panel.act(Act::TransferTradePower, Details { percent: Some(percent), ..Default::default() });
+        let transfer = |percent| panel.order(PanelOrder::TransferTradePower { percent });
         assert_eq!(failed(transfer(101)), invalid("101 percent: a country has no more than all its trade power to transfer"));
         assert_eq!(failed(transfer(0)), invalid("transfer_trade_power needs at least 1 percent"));
         assert_eq!(failed(transfer(100)), no_money());
@@ -760,7 +803,7 @@ mod tests {
     #[test]
     fn favors_buy_trust_in_the_window_s_steps_up_to_the_favors_owed() {
         let panel = Panel::offering(&[Act::TradeFavorsForTrust]);
-        let trade = |favors, trust| panel.act(Act::TradeFavorsForTrust, Details { favors: Some(favors), trust, ..Default::default() });
+        let trade = |favors, trust| panel.order(PanelOrder::TradeFavorsForTrust { favors, trust });
         assert_eq!(failed(trade(15, None)), invalid("15 favors: the window spends them 10 at a time"));
         assert_eq!(failed(trade(60, None)), invalid("60 favors: BYZ owes 50 and trusts the player 50, so the window lets the player spend at most 50"));
         assert_eq!(failed(trade(50, Some(20))), invalid("20 trust: 50 favors buy 25, 5 for each 10"));
@@ -772,12 +815,26 @@ mod tests {
 
     #[test]
     fn what_the_window_chooses_and_the_framework_cannot_is_not_sent() {
-        let panel = Panel::offering(&[Act::SellShips, Act::SupportRebels, Act::BreakAlliance]);
-        assert_eq!(failed(panel.act(Act::SellShips, Details::default())).0, Status::Unavailable);
-        assert_eq!(failed(panel.act(Act::SupportRebels, Details::default())), invalid("support_rebels needs a rebel faction"));
-        assert_eq!(failed(panel.act(Act::BreakAlliance, Details::default())), invalid("break_alliance needs an ally"));
-        assert_eq!(failed(panel.act(Act::BreakAlliance, Details { ally: Some(wal()), ..Default::default() })).0, Status::NotFound);
-        assert_eq!(failed(panel.act(Act::BreakAlliance, Details { ally: Some(tur()), ..Default::default() })), no_money());
-        assert_eq!(panel.actions[2].1.read_u64(FIELDS), tur().0);
+        let panel = Panel::offering(&[Act::SellShips, Act::BreakAlliance]);
+        assert_eq!(failed(panel.order(PanelOrder::Simple(Act::SellShips))).0, Status::Unavailable);
+        assert_eq!(failed(panel.order(PanelOrder::BreakAlliance { ally: wal() })).0, Status::NotFound);
+        assert_eq!(failed(panel.order(PanelOrder::BreakAlliance { ally: tur() })), no_money());
+        assert_eq!(panel.actions[1].1.read_u64(FIELDS), tur().0);
+    }
+
+    #[test]
+    fn pure_window_bounds_validate_subsidies_trade_power_and_trust_steps() {
+        assert_eq!(check_subsidy_duration(None).unwrap(), 10);
+        assert_eq!(check_subsidy_duration(Some(120)).unwrap(), 120);
+        assert_eq!(check_subsidy_duration(Some(15)).unwrap_err().status, Status::InvalidArgument);
+
+        assert_eq!(check_trade_power_percent(100).unwrap(), 100);
+        assert_eq!(check_trade_power_percent(0).unwrap_err().status, Status::InvalidArgument);
+        assert_eq!(check_trade_power_percent(101).unwrap_err().status, Status::InvalidArgument);
+
+        assert_eq!(check_trust_favors("BYZ", 30, None, 50, 50, 10, 5).unwrap(), 15);
+        assert_eq!(check_trust_favors("BYZ", 30, Some(15), 50, 50, 10, 5).unwrap(), 15);
+        assert_eq!(check_trust_favors("BYZ", 30, Some(10), 50, 50, 10, 5).unwrap_err().status, Status::InvalidArgument);
+        assert_eq!(check_trust_favors("BYZ", 0, None, 50, 50, 10, 5).unwrap_err().status, Status::InvalidArgument);
     }
 }

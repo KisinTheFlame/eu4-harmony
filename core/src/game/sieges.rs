@@ -3,7 +3,7 @@
 //! posted as the view posts it, with the game's own answer of whether the
 //! player can and why not (docs/game/military/sieges.md).
 use super::units::checks;
-use super::{power, with_state, Ctx, GResult, Session, View};
+use super::{power, Ctx, GResult, Session, View};
 use crate::{
     game_string,
     memory::Memory,
@@ -46,16 +46,20 @@ pub fn points() -> Vec<Point> {
 /// and the game's answer.
 const ACTIONS: [(&str, i32, GameFunction<3>); 3] = [("bombard", 37, MAY_BOMBARD), ("naval_bombard", 40, MAY_NAVAL_BOMBARD), ("assault", 9, MAY_ASSAULT)];
 
-/// The siege in a province, or the refusal; in the player's view none in a
-/// province fog of war hides.
-fn siege(m: &Memory, ctx: &Ctx, id: u32, view: View) -> GResult<usize> {
-    let address = with_state(|s| s.geography.province_address(m, ctx, id))?;
-    if view == View::Player && super::world::hidden(m, address)? {
+/// The siege in a province, or the refusal; in the player's view an
+/// undiscovered province is refused as terra incognita, stale visibility is
+/// refused when `check_visibility` holds, and none shows under fog of war.
+fn siege(session: Session, id: u32, check_visibility: bool) -> GResult<(usize, usize)> {
+    let address = session.readable_province(id)?;
+    if check_visibility {
+        session.require_current_visibility()?;
+    }
+    if session.province_hidden(address)? {
         return Err(checks::no_siege(id));
     }
-    match m.ptr(address + SIEGE)? {
+    match session.m.ptr(address + SIEGE)? {
         0 => Err(checks::no_siege(id)),
-        siege => Ok(siege),
+        siege => Ok((address, siege)),
     }
 }
 
@@ -73,17 +77,19 @@ fn action(m: &Memory, ctx: &Ctx, siege: usize, province: u32, (name, category, m
 }
 
 /// What the siege view offers for the siege in a province.
-pub fn options(Session { m, ctx, view, .. }: Session, args::Options { province: ProvinceId(province) }: args::Options) -> GResult<Vec<SiegeAction>> {
-    let siege = siege(m, &ctx, province, view)?;
+pub fn options(session: Session, args::Options { province: ProvinceId(province) }: args::Options) -> GResult<Vec<SiegeAction>> {
+    let Session { m, ctx, .. } = session;
+    let (address, siege) = siege(session, province, true)?;
     let mut out = ACTIONS.into_iter().map(|a| action(m, &ctx, siege, province, a)).collect::<GResult<Vec<_>>>()?;
-    let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
     out.push(SiegeAction { action: "sorties".into(), choice: super::spendings::sorties(m, &ctx, address, province)? });
     Ok(out)
 }
 
-/// Presses one of the siege view's buttons.
-fn press(Session { m, ctx, commands, .. }: Session, name: &str, province: u32) -> GResult<()> {
-    let siege = siege(m, &ctx, province, View::Player)?;
+/// Presses one of the siege view's buttons (player orders never reach a siege
+/// hidden by fog of war).
+fn press(session: Session, name: &str, province: u32) -> GResult<()> {
+    let Session { m, ctx, commands, .. } = session;
+    let (_, siege) = siege(session.with_view(View::Player), province, false)?;
     let Some(entry) = ACTIONS.into_iter().find(|a| a.0 == name) else {
         return Err(format!("no siege action {name}").into());
     };
@@ -105,9 +111,9 @@ pub fn assault(session: Session, args::Assault { province: ProvinceId(province) 
 
 /// Sends the garrison of the player's besieged fort out, as the siege
 /// view's sorties button does once the player confirms.
-pub fn sorties(Session { m, ctx, commands, .. }: Session, args::Sorties { province: ProvinceId(province) }: args::Sorties) -> GResult<()> {
-    siege(m, &ctx, province, View::Player)?;
-    let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
+pub fn sorties(session: Session, args::Sorties { province: ProvinceId(province) }: args::Sorties) -> GResult<()> {
+    let Session { m, ctx, commands, .. } = session;
+    let (address, _) = siege(session.with_view(View::Player), province, false)?;
     let choice = super::spendings::sorties(m, &ctx, address, province)?;
     super::action::carry_out(commands, &choice, "sortie from this fort", || Ok(super::spendings::sorties_written(ctx.player, province)))
 }
@@ -210,5 +216,22 @@ mod tests {
         let options = options(siege.session, args::Options { province: ProvinceId(2) }).unwrap();
         assert_eq!(options.iter().map(|a| a.action.as_str()).collect::<Vec<_>>(), ["bombard", "naval_bombard", "assault", "sorties"]);
         assert!(options.iter().all(|a| !a.choice.can && a.choice.reasons == ["too early"] && a.choice.cost == [Amount::new(Resource::Mil, 50.0)]));
+    }
+
+    #[test]
+    fn options_checks_undiscovered_and_visibility_freshness_in_player_view() {
+        let s = siege(too_early as *const ());
+        // Full view reads fogged siege in province 3 without visibility proof.
+        assert!(options(s.session, args::Options { province: ProvinceId(3) }).is_ok());
+        // Player's view without current visibility proof refuses with NotReady.
+        let player_view = s.session.with_view(View::Player);
+        assert_eq!(options(player_view, args::Options { province: ProvinceId(2) }).unwrap_err().status, Status::NotReady);
+        // Undiscovered province is refused as terra incognita before visibility proof.
+        let discovered = Object::new(16);
+        s._provinces.u8(2, province::FOGGED, province::UNDISCOVERED_BIT).u64(2, province::DISCOVERED_BY, discovered.at() as u64);
+        let err = options(player_view, args::Options { province: ProvinceId(2) }).unwrap_err();
+        assert_eq!(err.status, Status::NotFound);
+        assert!(err.message.contains("discovered"), "{}", err.message);
+        drop(discovered);
     }
 }

@@ -97,7 +97,7 @@ crate::catalogue::bind! {
 mod tests {
     use crate::game::As;
     use super::*;
-    use crate::catalogue::fake::{byz, tur};
+    use crate::game::buffers::{byz, tur};
     use crate::game::{
         buffers::{self, write_reason, Image, Object, Provinces},
         commands::record,

@@ -3,17 +3,9 @@
 //! ordinary frame-check lifetime. See docs/game/interface/stream-formatting.md.
 use super::{main_side, on_main, MainLock};
 use crate::{hooks::Call, points::Point};
-use std::sync::atomic::{AtomicU32, Ordering};
-
-static DEPTH: AtomicU32 = AtomicU32::new(0);
-
-pub(super) fn active() -> bool {
-    DEPTH.load(Ordering::Relaxed) != 0
-}
 
 fn before(_: &mut Call) {
     if on_main() {
-        DEPTH.fetch_add(1, Ordering::Relaxed);
         main_side(|s| s.order_scope_begins());
     }
 }
@@ -21,12 +13,11 @@ fn before(_: &mut Call) {
 fn after(call: &mut Call) {
     if on_main() {
         main_side(|s| s.order_scope_ends(&MainLock, call.faulted()));
-        DEPTH.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
 fn cold_path(_: &mut Call) {
-    if on_main() && active() {
+    if on_main() {
         main_side(|s| s.order_scope_cold());
     }
 }

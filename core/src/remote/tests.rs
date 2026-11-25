@@ -4,9 +4,13 @@
 //! group (`crate::catalogue`).
 use super::*;
 use crate::catalogue::{
-    fake::{self, answer, ok, ARMY, FLEET, PLENTY},
+    fake::{self, answer, ok, PLENTY},
     process, signals, Outcome, Poll,
 };
+use crate::game::buffers::{byz, tur, wal};
+
+const ARMY: u64 = 4_294_967_377;
+const FLEET: u64 = 4_294_967_400;
 use eu4_harmony_remote::{
     armies::{ArmyAnswer, ArmyRequest},
     capabilities,
@@ -348,7 +352,7 @@ fn requests_from_other_threads_are_answered_on_the_one_that_runs_the_engine() {
 #[test]
 fn what_a_game_frame_tells_extensions_is_kept_as_signals() {
     let observed = |session, new_session, date, changes| game::frame::Observed {
-        world: game::World { world: 0, date, countries: 0, player: game::player::Player::Plays(fake::tur()) },
+        world: game::World { world: 0, date, countries: 0, player: game::player::Player::Plays(tur()) },
         seen: crate::sessions::Seen { session, new_session },
         visibility_current: true,
         changes,
@@ -363,8 +367,8 @@ fn what_a_game_frame_tells_extensions_is_kept_as_signals() {
         game::signals::Change::Battle(game::signals::Battle {
             province: 151,
             naval: false,
-            attackers: vec![fake::wal()],
-            defenders: vec![fake::byz()],
+            attackers: vec![wal()],
+            defenders: vec![byz()],
             attacker_won: true,
             attacker_losses: 100,
             defender_losses: 900,
@@ -373,8 +377,8 @@ fn what_a_game_frame_tells_extensions_is_kept_as_signals() {
     ];
     let wars = |_: &game::World| {
         vec![
-            game::wars::Happened::WarDeclared { war: "Ottoman-Byzantine War".into(), attacker: fake::tur(), defender: fake::byz() },
-            game::wars::Happened::OwnerChanged { province: 151, from: Some(fake::byz()), to: None },
+            game::wars::Happened::WarDeclared { war: "Ottoman-Byzantine War".into(), attacker: tur(), defender: byz() },
+            game::wars::Happened::OwnerChanged { province: 151, from: Some(byz()), to: None },
         ]
     };
     let first = recall.next(observed(3, true, day(1444, 11, 30), changes), |_| true, wars);

@@ -124,7 +124,7 @@ mod tests {
     }
 
     use super::*;
-    use crate::catalogue::fake::tur;
+    use crate::game::buffers::tur;
     use crate::game::{
         buffers::{self, Image, Object},
         commands::record,

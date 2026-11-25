@@ -8,7 +8,9 @@ use crate::containers;
 use crate::{
     game_string,
     memory::Memory,
-    objects::campaign::{building, classes, construction, country, geometry, globals, institution, map, province as field, terrain, unit_type, world as world_field},
+    objects::campaign::{
+        building, classes, construction, country, geometry, globals, institution, map, province as field, terrain, unit_type, world as world_field,
+    },
     objects::list,
     points::{GameFunction, Point},
     unicode::game_text,
@@ -177,18 +179,17 @@ pub(super) fn readable(m: &Memory, world: &impl InWorld, eyes: Eyes, id: u32) ->
 /// province. In the player's view a province another country owns leaves
 /// out its unrest, its constructions and its missionary, and one the player
 /// has not discovered is refused as terra incognita.
-pub fn province(WorldSession { m, world, view, .. }: WorldSession, args::Get { province: ProvinceId(id) }: args::Get) -> GResult<Box<ProvinceSnapshot>> {
-    let eyes = Eyes::of(view, world.player);
-    let address = readable(m, &world, eyes, id)?;
-    Ok(Box::new(snapshot(m, &world, address, eyes)?))
+pub fn province(session: WorldSession, args::Get { province: ProvinceId(id) }: args::Get) -> GResult<Box<ProvinceSnapshot>> {
+    let address = session.readable_province(id)?;
+    Ok(Box::new(snapshot(session.m, &session.world, address, session.eyes())?))
 }
 
 /// What a province has of each modifier `keys` name, as the game totals
 /// the province's own set; one the player has not discovered is refused in
 /// the player's view, as its snapshot is.
-pub fn modifiers(WorldSession { m, world, view, .. }: WorldSession, args::Modifiers { province: ProvinceId(id), keys }: args::Modifiers) -> GResult<Vec<ModifierValue>> {
-    let address = readable(m, &world, Eyes::of(view, world.player), id)?;
-    modifiers::totals(m, address + field::MODIFIERS, &keys.0)
+pub fn modifiers(session: WorldSession, args::Modifiers { province: ProvinceId(id), keys }: args::Modifiers) -> GResult<Vec<ModifierValue>> {
+    let address = session.readable_province(id)?;
+    modifiers::totals(session.m, address + field::MODIFIERS, &keys.0)
 }
 
 /// The game's getters of a province's base tax, production and manpower, as
@@ -291,7 +292,8 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x9d7962usize, "41 8b 9f f8 03 00 00", "province colony size").uses(&[field::COLONY_SIZE]),
         Point::keep(0x9d7c64usize, "41 8b 9f 94 08 00 00", "province missionary progress").uses(&[field::MISSIONARY_PROGRESS]),
         Point::keep(0x9d754eusize, "49 8d 97 90 04 00 00", "province cores").uses(&[field::CORES]),
-        Point::keep(0x9d893eusize, "49 8b 8f f0 02 00 00 49 8b 87 f8 02 00 00", "province named modifiers").uses(&[field::NAMED_MODIFIERS, field::NAMED_MODIFIERS + 8]),
+        Point::keep(0x9d893eusize, "49 8b 8f f0 02 00 00 49 8b 87 f8 02 00 00", "province named modifiers")
+            .uses(&[field::NAMED_MODIFIERS, field::NAMED_MODIFIERS + 8]),
         // A province's own modifiers, a value read from them.
         Point::keep(0xa1091cusize, "49 8d 8d 98 09 00 00 e8 a8 62 ed ff", "province modifiers").uses(&[field::MODIFIERS]),
         // Whether a claim is permanent walks the claims.
@@ -320,11 +322,7 @@ pub fn points() -> Vec<Point> {
         Point::keep(0xcd1db1usize, "48 8b 4f 40", "construction country").uses(&[construction::COUNTRY]),
         Point::keep(0x25368dusize, "48 8b 87 80 00 00 00 8b 58 14", "building construction's building").uses(&[construction::MAKES, building::INDEX]),
         Point::keep(0x9d9977usize, "48 8b 8b 80 00 00 00", "military construction's unit type").uses(&[construction::MAKES]),
-        Point::keep(
-            LOCAL_MANPOWER,
-            "48 89 5c 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8d 6c 24 d0 48 81 ec 30 01 00 00",
-            "province manpower getter",
-        ),
+        Point::keep(LOCAL_MANPOWER, "48 89 5c 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8d 6c 24 d0 48 81 ec 30 01 00 00", "province manpower getter"),
         Point::keep(
             SUPPLY_LIMIT,
             "48 89 5c 24 18 48 89 54 24 10 48 89 4c 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8d 6c 24 e0 48 81 ec 20 01 00 00",
@@ -712,4 +710,80 @@ mod tests {
         assert_eq!(UnitKind::Galley.index(), 5);
         assert_eq!(UnitKind::ALL.map(UnitKind::key)[3..], ["heavy_ship", "light_ship", "galley", "transport"]);
     }
+
+    #[test]
+    fn a_province_snapshot_serializes_its_utf8_name_and_matches_its_result_shape() {
+        use eu4_harmony_remote::{
+            provinces::{Development, Fort, InstitutionProgress, ProvinceAnswer, ProvinceSnapshot, StateKind},
+            response_json, result_shape, Answer, CountryTag, ProvinceId,
+        };
+        let snapshot = ProvinceSnapshot {
+            id: ProvinceId(151),
+            name: "君士坦丁堡".into(),
+            owner: Some(CountryTag(*b"BYZ")),
+            controller: Some(CountryTag(*b"BYZ")),
+            development: Development { tax: 10.0, production: 9.5, manpower: 6.0 },
+            terrain: Some("farmlands".into()),
+            fort: Fort { level: 2, mothballed: false },
+            buildings: vec!["fort_15th".into(), "marketplace".into()],
+            autonomy: 25.0,
+            culture: Some("greek".into()),
+            religion: Some("orthodox".into()),
+            trade_good: Some("silk".into()),
+            unrest: None,
+            trade_node: Some("constantinople".into()),
+            center_of_trade: 3,
+            trade_company: false,
+            state: Some(StateKind::State),
+            edict: None,
+            cores: vec![CountryTag(*b"BYZ")],
+            claims: vec![CountryTag(*b"TUR")],
+            constructions: None,
+            missionary: None,
+            colony_size: None,
+            named_modifiers: Vec::new(),
+            prosperity: Some(40.0),
+            devastation: 0.0,
+            local_manpower: 1.5,
+            supply_limit: 12.5,
+            separatism: 0,
+            institutions: vec![InstitutionProgress { institution: "feudalism".into(), progress: 100.0 }],
+        };
+        let answer = Answer::Province(ProvinceAnswer::Get(Box::new(snapshot)));
+        let lua = eu4_harmony_checks::form::as_lua(|| serde_json::to_value(&answer)).unwrap();
+        result_shape("province.get").unwrap().check(&lua).unwrap();
+        let line = response_json(&Ok(answer)).to_string();
+        assert!(line.contains(r#""name":"君士坦丁堡""#), "{line}");
+    }
+}
+
+crate::catalogue::bind! {
+    eu4_harmony_remote::provinces: ProvinceRequest => ProvinceAnswer;
+    List => list;
+    Neighbors => neighbors;
+    Get => province;
+    Area => super::areas::area;
+    Modifiers => modifiers;
+    Options => super::administration::options;
+    DevelopTax { province } => session super::administration::act(province, super::administration::Action::Develop(super::administration::Development::Tax));
+    DevelopProduction { province } => session super::administration::act(province, super::administration::Action::Develop(super::administration::Development::Production));
+    DevelopManpower { province } => session super::administration::act(province, super::administration::Action::Develop(super::administration::Development::Manpower));
+    ExploitTax { province } => session super::administration::act(province, super::administration::Action::Exploit(super::administration::Development::Tax));
+    ExploitProduction { province } => session super::administration::act(province, super::administration::Action::Exploit(super::administration::Development::Production));
+    ExploitManpower { province } => session super::administration::act(province, super::administration::Action::Exploit(super::administration::Development::Manpower));
+    RaiseAutonomy { province } => session super::administration::act(province, super::administration::Action::RaiseAutonomy);
+    LowerAutonomy { province } => session super::administration::act(province, super::administration::Action::LowerAutonomy);
+    MakeState { province } => session super::administration::act(province, super::administration::Action::MakeState);
+    MakeTerritory { province } => session super::administration::act(province, super::administration::Action::MakeTerritory);
+    SetEdict => super::administration::set_edict;
+    CancelEdict { province } => session super::administration::act(province, super::administration::Action::CancelEdict);
+    Core { province } => session super::administration::act(province, super::administration::Action::Core);
+    CancelCore { province } => session super::administration::act(province, super::administration::Action::CancelCore);
+    ChangeCulture { province } => session super::administration::act(province, super::administration::Action::ChangeCulture);
+    CancelCulture { province } => session super::administration::act(province, super::administration::Action::CancelCulture);
+    MoveCapital { province } => session super::spendings::press_in_province(province, super::spendings::InProvince::MoveCapital);
+    MoveTradePort { province } => session super::spendings::press_in_province(province, super::spendings::InProvince::MoveTradePort);
+    EstablishSiberianFrontier { province } => session super::spendings::press_in_province(province, super::spendings::InProvince::SiberianFrontier);
+    AddTribalLand { province } => session super::spendings::press_in_province(province, super::spendings::InProvince::TribalLand);
+    Raze { province } => session super::spendings::press_in_province(province, super::spendings::InProvince::Raze);
 }

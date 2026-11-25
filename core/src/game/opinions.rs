@@ -1,7 +1,7 @@
 //! What one country thinks of another, as the diplomacy view shows it: the
 //! opinion and its parts, the aggressive expansion it holds, its trust and
 //! the favors it owes (docs/game/diplomacy/diplomacy.md, "Opinion").
-use super::{countries, country, player::Eyes, thousandths, world, GResult, Tag, View, World, WorldSession};
+use super::{countries, country, thousandths, world, GResult, Tag, WorldSession};
 use crate::{
     game_string,
     memory::Memory,
@@ -38,13 +38,14 @@ pub fn points() -> Vec<Point> {
 
 /// What `of` thinks of `toward`. In the player's view the trust and the
 /// favors are left out unless one of the two is the country acted as.
-pub fn opinion(WorldSession { m, world: ctx, view, .. }: WorldSession, args::Opinion { of, toward }: args::Opinion) -> GResult<Opinion> {
+pub fn opinion(session: WorldSession, args::Opinion { of, toward }: args::Opinion) -> GResult<Opinion> {
+    let WorldSession { m, world: ctx, .. } = session;
     let (from, to) = (countries::named(m, &ctx, of)?, countries::named(m, &ctx, toward)?);
     if let Some(refusal) = eu4_harmony_checks::countries::of_itself(&of.to_string(), &toward.to_string()) {
         return Err(refusal.into());
     }
     let c = country(m, &ctx, from)?;
-    let stance = stance(m, &ctx, view, c, from, to)?;
+    let stance = stance(session, c, from, to)?;
     Ok(Opinion {
         of,
         toward,
@@ -57,7 +58,8 @@ pub fn opinion(WorldSession { m, world: ctx, view, .. }: WorldSession, args::Opi
 }
 
 /// What every other country that owns a province thinks of `toward`.
-pub fn opinions(WorldSession { m, world: ctx, view, .. }: WorldSession, args::Opinions { toward }: args::Opinions) -> GResult<Vec<OpinionOf>> {
+pub fn opinions(session: WorldSession, args::Opinions { toward }: args::Opinions) -> GResult<Vec<OpinionOf>> {
+    let WorldSession { m, world: ctx, .. } = session;
     let to = countries::named(m, &ctx, toward)?;
     let mut out = Vec::new();
     for from in world::countries(m, &ctx)? {
@@ -68,7 +70,7 @@ pub fn opinions(WorldSession { m, world: ctx, view, .. }: WorldSession, args::Op
         if m.i32(c + fields::OWNED_COUNT)? <= 0 {
             continue;
         }
-        let stance = stance(m, &ctx, view, c, from, to)?;
+        let stance = stance(session, c, from, to)?;
         out.push(OpinionOf {
             country: CountryTag(from.letters()),
             opinion: stance.opinion,
@@ -89,9 +91,9 @@ struct Stance {
 }
 
 /// The country at `c`, `from`'s, of `to`.
-fn stance(m: &Memory, ctx: &World, view: View, c: usize, from: Tag, to: Tag) -> GResult<Stance> {
-    let eyes = Eyes::of(view, ctx.player);
-    let shown = eyes.sees_all_of(from) || eyes.sees_all_of(to);
+fn stance(session: WorldSession, c: usize, from: Tag, to: Tag) -> GResult<Stance> {
+    let shown = session.sees_all_of(from) || session.sees_all_of(to);
+    let m = session.m;
     let record = m.ptr(c + fields::RELATIONS)? + to.index() as usize * fields::RELATION_SIZE;
     Ok(Stance {
         opinion: OPINION.call(m, [c, to.0 as usize, 0])? as u16 as i16 as i32,

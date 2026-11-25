@@ -432,9 +432,19 @@ static SCREEN: AtomicU64 = AtomicU64::new(0);
 
 /// The main thread's side of the lock ([`turns`]).
 static MAIN: Mutex<MainSide> = Mutex::new(MainSide::new());
+/// Lock-free mirror of [`MainSide::protects_changes`], updated inside
+/// [`main_side`] so hot renderer hooks never drift from `MainSide`.
+static MAIN_PROTECTS_CHANGES: AtomicBool = AtomicBool::new(false);
 
 fn main_side<T>(f: impl FnOnce(&mut MainSide) -> T) -> T {
-    f(&mut MAIN.lock().unwrap_or_else(|e| e.into_inner()))
+    let mut guard = MAIN.lock().unwrap_or_else(|e| e.into_inner());
+    let out = f(&mut guard);
+    MAIN_PROTECTS_CHANGES.store(guard.protects_changes(), Ordering::Release);
+    out
+}
+
+pub(super) fn main_protects_changes() -> bool {
+    MAIN_PROTECTS_CHANGES.load(Ordering::Acquire)
 }
 
 thread_local! {

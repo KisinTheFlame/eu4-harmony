@@ -236,6 +236,54 @@ impl Session {
     pub fn world(self) -> GResult<WorldSession> {
         Ok(WorldSession { m: self.m, world: world_context(self.m)?, view: self.view, caller: self.caller, commands: self.commands })
     }
+
+    /// The same session reading through `view` (used by tests and by
+    /// player-ordered checks that must hold under the player's view).
+    pub fn with_view(self, view: View) -> Self {
+        Self { view, ..self }
+    }
+
+    /// The sight rules that govern what this session may read.
+    pub fn eyes(self) -> player::Eyes {
+        player::Eyes::acting(self.view, self.ctx.player)
+    }
+
+    /// Whether this session sees private details of `country`.
+    pub fn sees_all_of(self, country: Tag) -> bool {
+        self.eyes().sees_all_of(country)
+    }
+
+    /// Whether this session sees internal details of a province owned by `owner`.
+    pub fn sees_inside(self, owner: Option<Tag>) -> bool {
+        self.eyes().sees_inside(owner)
+    }
+
+    /// Whether this session reads the full view (including hidden modifiers
+    /// and fogged/undiscovered state).
+    pub fn sees_full(self) -> bool {
+        self.eyes() == player::Eyes::All
+    }
+
+    /// Resolves `id` to its province address, refusing `0` as not found and,
+    /// in the player's view, refusing provinces the player has not discovered
+    /// as terra incognita.
+    pub fn readable_province(self, id: u32) -> GResult<usize> {
+        provinces::readable(self.m, &self.ctx, self.eyes(), id)
+    }
+
+    /// Refuses with [`Status::NotReady`] when reading fog-gated data in the
+    /// player's view before fog-of-war visibility is current.
+    pub fn require_current_visibility(self) -> GResult<()> {
+        if self.view == View::Player && !signals::visibility_current(self.m, &self.ctx) {
+            return Err(eu4_harmony_checks::armies::visibility_not_current().into());
+        }
+        Ok(())
+    }
+
+    /// Whether fog of war hides `province` in this session's view.
+    pub fn province_hidden(self, province: usize) -> GResult<bool> {
+        Ok(self.view == View::Player && world::hidden(self.m, province)?)
+    }
 }
 
 /// The session as a capability that acts as no country reads it: the game,
@@ -258,6 +306,28 @@ impl WorldSession {
     pub fn open(caller: Caller) -> GResult<Self> {
         let m = game()?;
         Ok(Self { m, world: world_context(m)?, view: view(caller), caller, commands: commands::Commands::Game })
+    }
+
+    /// The sight rules that govern what this world session may read.
+    pub fn eyes(self) -> player::Eyes {
+        player::Eyes::of(self.view, self.world.player)
+    }
+
+    /// Whether this session sees private details of `country`.
+    pub fn sees_all_of(self, country: Tag) -> bool {
+        self.eyes().sees_all_of(country)
+    }
+
+    /// Whether this session reads the full view (including hidden modifiers
+    /// and undiscovered provinces).
+    pub fn sees_full(self) -> bool {
+        self.eyes() == player::Eyes::All
+    }
+
+    /// Resolves `id` to its province address, refusing `0` as not found and,
+    /// in the player's view, refusing undiscovered provinces as terra incognita.
+    pub fn readable_province(self, id: u32) -> GResult<usize> {
+        provinces::readable(self.m, &self.world, self.eyes(), id)
     }
 }
 

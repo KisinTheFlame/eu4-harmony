@@ -415,7 +415,7 @@ crate::catalogue::bind! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalogue::fake::game_tag;
+    use crate::game::buffers::game_tag;
 
     #[test]
     fn releasing_a_colony_names_the_subject_then_its_overlord_by_the_tokens_names() {
@@ -441,7 +441,7 @@ mod tests {
     mod through_the_layer {
         use crate::game::As;
         use super::super::*;
-        use crate::catalogue::fake::{game_tag, tur, wal};
+        use crate::game::buffers::{game_tag, tur, wal};
         use eu4_harmony_remote::CountryTag;
 
         use crate::game::{

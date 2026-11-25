@@ -3,7 +3,7 @@
 //! merchants in any node the player has discovered, so the player's view
 //! leaves out only the nodes none of whose provinces the player has
 //! discovered, which the trade map leaves out.
-use super::{thousandths, with_state, world, Ctx, GResult, Session, Status, Tag, View};
+use super::{thousandths, with_state, world, Ctx, GResult, Session, Status, Tag};
 use crate::containers;
 use crate::{
     game_string,
@@ -143,17 +143,18 @@ fn key_of(m: &Memory, definition: usize) -> GResult<String> {
     text(m, definition + KEY)
 }
 
-/// The definitions of the nodes `view` sees: every node in the full view; in
+/// The definitions of the nodes `session` sees: every node in the full view; in
 /// the player's view those with a province the player has discovered.
-fn seen(m: &Memory, ctx: &Ctx, view: View) -> GResult<Option<BTreeSet<usize>>> {
-    if view == View::Full {
+fn seen(session: Session) -> GResult<Option<BTreeSet<usize>>> {
+    if session.sees_full() {
         return Ok(None);
     }
+    let eyes = session.eyes();
     let mut seen = BTreeSet::new();
-    for address in with_state(|s| s.geography.addresses(m, ctx))? {
-        let node = m.ptr(address + province::TRADE_NODE)?;
-        if node != 0 && !world::undiscovered(m, super::player::Eyes::acting(view, ctx.player), address)? {
-            seen.insert(m.ptr(node + DEFINITION)?);
+    for address in with_state(|s| s.geography.addresses(session.m, &session.ctx))? {
+        let node = session.m.ptr(address + province::TRADE_NODE)?;
+        if node != 0 && !world::undiscovered(session.m, eyes, address)? {
+            seen.insert(session.m.ptr(node + DEFINITION)?);
         }
     }
     Ok(Some(seen))
@@ -161,8 +162,9 @@ fn seen(m: &Memory, ctx: &Ctx, view: View) -> GResult<Option<BTreeSet<usize>>> {
 
 /// Every trade node with its value; in the player's view those with a
 /// province the player has discovered.
-pub fn list(Session { m, ctx, view, .. }: Session) -> GResult<Vec<NodeValue>> {
-    let seen = seen(m, &ctx, view)?;
+pub fn list(session: Session) -> GResult<Vec<NodeValue>> {
+    let Session { m, ctx, .. } = session;
+    let seen = seen(session)?;
     let mut out = Vec::new();
     for node in nodes(m, &ctx)? {
         let definition = m.ptr(node + DEFINITION)?;
@@ -187,7 +189,8 @@ fn incoming(m: &Memory, node: usize) -> GResult<Vec<(usize, i32)>> {
 
 /// One trade node, by its key; in the player's view one none of whose
 /// provinces the player has discovered is refused.
-pub fn node(Session { m, ctx, view, .. }: Session, args::Node { node: key }: args::Node) -> GResult<TradeNode> {
+pub fn node(session: Session, args::Node { node: key }: args::Node) -> GResult<TradeNode> {
+    let Session { m, ctx, .. } = session;
     let all = nodes(m, &ctx)?;
     let mut found = None;
     for &node in &all {
@@ -199,7 +202,7 @@ pub fn node(Session { m, ctx, view, .. }: Session, args::Node { node: key }: arg
         return super::fail(Status::NotFound, format!("no trade node {key}"));
     };
     let definition = m.ptr(node + DEFINITION)?;
-    if seen(m, &ctx, view)?.is_some_and(|s| !s.contains(&definition)) {
+    if seen(session)?.is_some_and(|s| !s.contains(&definition)) {
         return super::fail(Status::NotFound, format!("the player has not discovered trade node {key}"));
     }
     let by_definition = |d: usize| -> GResult<usize> {

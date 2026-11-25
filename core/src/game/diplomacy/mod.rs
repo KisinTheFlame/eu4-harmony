@@ -38,7 +38,7 @@ pub mod acts;
 mod panel;
 
 pub use acts::Act;
-pub use panel::{act, options, scripted, Details, What};
+pub use panel::{act, options, scripted, PanelOrder, What};
 
 /// The constructor of a declaration of war: (action, from, to, flag, date,
 /// war goal), the war goal copied; the flag 0 as the diplomacy panel's.
@@ -365,7 +365,7 @@ fn rival_command(Session { m, ctx, commands, .. }: Session, kind: &str, check: G
 /// reasons.
 pub fn call_to_arms(session: Session, args::CallToArms { country }: args::CallToArms) -> GResult<Ticket> {
     let ally = countries::named(session.m, &session.ctx, country)?;
-    panel::sent(session, ally, &What::Act(Act::CallToArms), &Details::default()).map_err(|fail| {
+    panel::sent(session, ally, &What::Act(Act::CallToArms), None).map_err(|fail| {
         if fail.status == Status::Rejected && fail.message.starts_with(panel::NOT_OFFERED) {
             checks_peace::no_call_to_arms(letters(ally))
         } else {
@@ -1297,7 +1297,7 @@ mod checks {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalogue::fake::game_tag;
+    use crate::game::buffers::game_tag;
 
     const ALLIANCE: Kind = Kind { token: ALLIANCE_KIND, offer: true };
     const WAR: Kind = Kind { token: DECLARE_WAR_KIND, offer: true };
@@ -1508,7 +1508,7 @@ mod tests {
     mod through_the_layer {
         use crate::game::As;
         use super::super::*;
-        use crate::catalogue::fake::{byz, tur};
+        use crate::game::buffers::{byz, tur};
         use crate::game::{
             buffers::{self, Image, Object},
             commands::record,

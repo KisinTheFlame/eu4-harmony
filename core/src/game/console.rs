@@ -238,7 +238,7 @@ mod tests {
     mod through_the_layer {
         use crate::game::As;
         use super::super::*;
-        use crate::catalogue::fake::tur;
+        use crate::game::buffers::tur;
         use crate::game::{
             buffers::{self, Image},
             Caller, Fail,

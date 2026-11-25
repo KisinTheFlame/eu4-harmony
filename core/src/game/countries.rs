@@ -1,21 +1,21 @@
 //! Countries: finding one by its tag, its tag, whether two are hostile, one
 //! read of a country and its budget (docs/game/countries/countries.md).
-use super::{commands, country, modifiers, player::Eyes, thousandths, world, GResult, InWorld, Tag, View, World, WorldSession};
+use super::{commands, country, modifiers, thousandths, world, GResult, InWorld, Tag, WorldSession};
 use crate::containers;
 use crate::{
     game_string,
     memory::Memory,
     objects::campaign::{
-        classes, country as fields, country_diplomacy, idea_group, loan, modifiers as modifiers_fields, person, rebel_faction, subject_relation,
-        subject_type, technology, war, world as world_fields,
+        classes, country as fields, country_diplomacy, idea_group, loan, modifiers as modifiers_fields, person, rebel_faction, subject_relation, subject_type,
+        technology, war, world as world_fields,
     },
     points::{GameFunction, Point},
     unicode::game_text,
 };
 use eu4_harmony_remote::{
     countries::{
-        args, Budget, Country, Entry, GoverningCapacity, IdeaGroup, Legitimacy, LegitimacyKind, Loan, Loans, ModifierValue, Modifiers, Person, Power, Rebels, Relation,
-        RelationKind, Technology,
+        args, Budget, Country, Entry, GoverningCapacity, IdeaGroup, Legitimacy, LegitimacyKind, Loan, Loans, ModifierValue, Modifiers, Person, Power, Rebels,
+        Relation, RelationKind, Technology,
     },
     CountryTag, Date,
 };
@@ -251,20 +251,15 @@ const EXPENSE_KEYS: [&str; fields::EXPENSE_CATEGORIES] = [
     "COLONY_CHANGES",
 ];
 
-/// Whether a caller reading `view` sees what the panels show only to the
-/// country `tag` itself: in the full view, or of the country acted as.
-fn sees_all_of(view: View, ctx: &World, tag: Tag) -> bool {
-    Eyes::of(view, ctx.player).sees_all_of(tag)
-}
-
 /// One read of a country: its treasury, manpower, stability, prestige,
 /// monarch points, wars, diplomatic relations, technology and ideas, and
 /// what only it sees of itself. In the player's view another country's
 /// treasury, monarch points and what only it sees are left out.
-pub fn get(WorldSession { m, world: ctx, view, .. }: WorldSession, args::Get { country: asked }: args::Get) -> GResult<Box<Country>> {
+pub fn get(session: WorldSession, args::Get { country: asked }: args::Get) -> GResult<Box<Country>> {
+    let WorldSession { m, world: ctx, .. } = session;
     let tag = named(m, &ctx, asked)?;
     let c = country(m, &ctx, tag)?;
-    let all = sees_all_of(view, &ctx, tag);
+    let all = session.sees_all_of(tag);
     let fixed = |at: usize| m.i32(c + at);
     let letters = |tag: Tag| CountryTag(tag.letters());
     let mut relations = Vec::new();
@@ -315,7 +310,7 @@ pub fn get(WorldSession { m, world: ctx, view, .. }: WorldSession, args::Get { c
         army_professionalism: if all { Some(professionalism(m.u64(c + fields::ARMY_PROFESSIONALISM)? as i64)) } else { None },
         army_tradition: thousandths(fixed(fields::ARMY_TRADITION)?),
         navy_tradition: thousandths(fixed(fields::NAVY_TRADITION)?),
-        named_modifiers: if all { Some(named_modifiers_of(m, c, view == View::Full)?) } else { None },
+        named_modifiers: if all { Some(named_modifiers_of(m, c, session.sees_full())?) } else { None },
     }))
 }
 
@@ -328,13 +323,11 @@ fn named_modifiers_of(m: &Memory, c: usize, hidden: bool) -> GResult<Vec<eu4_har
 /// What a country has of each modifier `keys` name, as the game totals it;
 /// in the player's view another country's are left out, the keys still
 /// checked.
-pub fn modifiers(
-    WorldSession { m, world: ctx, view, .. }: WorldSession,
-    args::Modifiers { country: asked, keys }: args::Modifiers,
-) -> GResult<Modifiers> {
+pub fn modifiers(session: WorldSession, args::Modifiers { country: asked, keys }: args::Modifiers) -> GResult<Modifiers> {
+    let WorldSession { m, world: ctx, .. } = session;
     let tag = named(m, &ctx, asked)?;
     let c = country(m, &ctx, tag)?;
-    let values = if sees_all_of(view, &ctx, tag) {
+    let values = if session.sees_all_of(tag) {
         Some(modifiers::totals(m, modifiers::values(m, c)?, &keys.0)?)
     } else {
         modifiers::indices(m, &keys.0)?;
@@ -577,11 +570,12 @@ fn faction_kind(m: &Memory, faction: usize) -> GResult<String> {
 /// A country's budget as the economy view shows it: this month's income and
 /// expenses by category, and its loans; in the player's view another
 /// country's are left out.
-pub fn budget(WorldSession { m, world: ctx, view, .. }: WorldSession, args::Budget { country: asked }: args::Budget) -> GResult<Budget> {
+pub fn budget(session: WorldSession, args::Budget { country: asked }: args::Budget) -> GResult<Budget> {
+    let WorldSession { m, world: ctx, .. } = session;
     let tag = named(m, &ctx, asked)?;
     let c = country(m, &ctx, tag)?;
     let letters = CountryTag(tag.letters());
-    if !sees_all_of(view, &ctx, tag) {
+    if !session.sees_all_of(tag) {
         return Ok(Budget { country: letters, income: None, expenses: None, loans: None });
     }
     let entries = |table: usize, keys: &[&str]| -> GResult<Vec<Entry>> {
@@ -707,10 +701,21 @@ pub(super) fn sides(m: &Memory, war: usize) -> Option<(Vec<Tag>, Vec<Tag>)> {
     Some((vector_tags(m, war + war::ATTACKERS).ok()?, vector_tags(m, war + war::DEFENDERS).ok()?))
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::countries: CountryRequest => CountryAnswer;
+    Hostile => hostile;
+    Get => get;
+    GoverningCapacity => super::areas::governing_capacity;
+    Modifiers => modifiers;
+    Budget => budget;
+    Opinion => super::opinions::opinion;
+    Opinions => super::opinions::opinions;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{catalogue::fake::game_tag, game::buffers::Object};
+    use crate::game::buffers::{game_tag, Object};
 
     /// A war of the game's class with these sides; its name is empty.
     fn war_object(m: &Memory, attackers: &[Tag], defenders: &[Tag]) -> Object {
@@ -757,10 +762,7 @@ mod tests {
         let consort = answering(person::PRESENT, no, 8);
         let country = Object::new(fields::CONSORT + 8).points_to(fields::RULER, ruler).points_to(fields::HEIR, heir).points_to(fields::CONSORT, consort);
         let read = |field: usize| person_at(m, country.at() + field).unwrap();
-        assert_eq!(
-            read(fields::RULER),
-            Some(Person { name: "Louis XI".into(), dynasty: Some("de Valois".into()), adm: 4, dip: 5, mil: 2, age: 30 })
-        );
+        assert_eq!(read(fields::RULER), Some(Person { name: "Louis XI".into(), dynasty: Some("de Valois".into()), adm: 4, dip: 5, mil: 2, age: 30 }));
         assert_eq!(read(fields::HEIR), Some(Person { name: "Charles".into(), dynasty: None, adm: 1, dip: 0, mil: 3, age: 0 }));
         assert_eq!(read(fields::CONSORT), None);
     }

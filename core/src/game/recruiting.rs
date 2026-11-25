@@ -6,7 +6,6 @@
 use super::commands::{write, Block};
 use super::{
     action,
-    player::Eyes,
     provinces::{self, can_recruit, unit_type, UnitKind},
     with_state, Fail, GResult, Session, Status,
 };
@@ -27,8 +26,7 @@ fn written(country: [u8; 3], province: u32, unit: &str) -> String {
 /// refused as the province's snapshot is for a number that names no
 /// province or one the player has not discovered.
 pub fn options(session: Session, args::Options { province: ProvinceId(id) }: args::Options) -> GResult<Vec<Recruit>> {
-    let world = session.world()?;
-    let address = provinces::readable(session.m, &world.world, Eyes::of(world.view, world.world.player), id)?;
+    let address = session.readable_province(id)?;
     provinces::recruit(session.m, &session.ctx, address)
 }
 
@@ -69,6 +67,12 @@ fn no_unit_type(kind: &str) -> Fail {
 /// The group's dependency points: none of its own.
 pub fn points() -> Vec<crate::points::Point> {
     Vec::new()
+}
+
+crate::catalogue::bind! {
+    eu4_harmony_remote::recruiting: RecruitRequest => RecruitAnswer;
+    Options => options;
+    Order => recruit;
 }
 
 #[cfg(test)]
@@ -143,5 +147,25 @@ mod tests {
         assert_eq!(refused(recruit(france.session, order(0, Kind::Infantry))).0, Status::NotFound);
         assert_eq!(refused(recruit(france.session, order(3, Kind::Infantry))).0, Status::NotFound);
         assert!(record::posted().is_empty());
+    }
+
+    #[test]
+    fn a_recruit_order_from_json_parses_every_unit_kind_and_refuses_unknown() {
+        use eu4_harmony_remote::{recruiting::RecruitRequest, Code, Request};
+        let names = ["infantry", "cavalry", "artillery", "heavy_ship", "light_ship", "galley", "transport"];
+        let parsed: Vec<UnitKind> = names
+            .iter()
+            .map(|kind| {
+                let json = serde_json::json!({"capability": "recruit.order", "province": 149, "kind": kind}).to_string();
+                let Request::Recruit(RecruitRequest::Order { province, kind }) = eu4_harmony_remote::request_from_json(&json).unwrap() else {
+                    panic!("expected recruit.order");
+                };
+                assert_eq!(province.0, 149);
+                UnitKind::from(kind)
+            })
+            .collect();
+        assert_eq!(parsed, UnitKind::ALL);
+        let unknown = eu4_harmony_remote::request_from_json(r#"{"capability": "recruit.order", "province": 149, "kind": "marines"}"#).unwrap_err();
+        assert_eq!(unknown.code, Code::BadRequest);
     }
 }

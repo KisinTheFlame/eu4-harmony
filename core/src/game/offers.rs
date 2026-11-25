@@ -255,7 +255,7 @@ mod tests {
     }
 
     fn byzantium() -> Byzantium {
-        use crate::catalogue::fake::{byz, tur};
+        use crate::game::buffers::{byz, tur};
         let image = Image::new();
         let m = image.memory();
         image.function(gui_functions::ACTION_DIALOG_ACCEPT, accepted as *const ());

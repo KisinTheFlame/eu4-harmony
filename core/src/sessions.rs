@@ -458,12 +458,6 @@ pub fn last_load_read() -> bool {
     lifecycle(|l| l.last_read)
 }
 
-/// Sets the session going on, for a test of what depends on it.
-#[cfg(test)]
-pub(crate) fn set_going_on(session: Option<u64>) {
-    lifecycle(|l| l.going_on = session);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

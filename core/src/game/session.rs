@@ -46,3 +46,10 @@ pub fn session(_: Caller) -> GResult<Session> {
 pub fn points() -> Vec<crate::points::Point> {
     Vec::new()
 }
+
+crate::catalogue::bind! {
+    eu4_harmony_remote::session: SessionRequest => SessionAnswer;
+    Get => caller session;
+    View => view;
+    LeaveView => leave_view;
+}
