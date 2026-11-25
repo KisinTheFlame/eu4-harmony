@@ -21,7 +21,7 @@
 //! made, removed or renamed below it, and the listings of the folders that
 //! changed are let go of; when Windows cannot tell what changed, all the
 //! folder's are. A file or folder the game makes or removes through PhysFS
-//! lets go of its folder's listing before the call returns.
+//! lets go of its ancestor folders' listings before the call returns.
 use super::folder::{list, read_as_written, Kind};
 use crate::called_by_game;
 use crate::hooks::Call;
@@ -219,13 +219,21 @@ impl Root {
         }
     }
 
-    /// Windows told of a change to `path`, from the root in lower case:
-    /// the listings of its folder and of what was below it are let go of.
+    /// Windows or PhysFS told of a change to `path`, from the root in lower
+    /// case: the listings of every ancestor folder along `path`, of `path`
+    /// itself and of what was below it are let go of. `PHYSFS_mkdir` creates
+    /// missing nested folders in one call, so letting go of only the immediate
+    /// parent would leave higher cached folders stale until the watcher catches
+    /// up.
     fn changed(&self, path: &str) {
         let mut listings = self.listings.write().unwrap_or_else(|e| e.into_inner());
         self.changes.fetch_add(1, Ordering::AcqRel);
-        let folder = path.rsplit_once('/').map_or("", |(f, _)| f);
-        listings.remove(folder);
+        let mut parent = path;
+        while let Some((folder, _)) = parent.rsplit_once('/') {
+            listings.remove(folder);
+            parent = folder;
+        }
+        listings.remove("");
         let below = format!("{path}/");
         listings.retain(|k, _| **k != *path && !k.starts_with(&below));
     }
@@ -348,28 +356,34 @@ fn changes(buffer: &[u32], bytes: usize) -> Vec<String> {
     paths
 }
 
-/// After the game made or removed something through PhysFS: the listing of
-/// the folder it was in is let go of.
+fn invalidate_written<'a>(roots: impl IntoIterator<Item = &'a Root>, dir: &str, path: &str) {
+    let dir = dir.replace('/', "\\").to_ascii_lowercase();
+    let dir = if dir.ends_with('\\') { dir } else { format!("{dir}\\") };
+    let whole = format!("{dir}{}", path.replace('/', "\\").to_ascii_lowercase());
+    for root in roots {
+        if let Some(rest) = whole.strip_prefix(&*root.lower) {
+            let parts: Vec<&str> = rest.split('\\').filter(|part| !part.is_empty()).collect();
+            if parts.is_empty() || parts.iter().any(|&part| part == "." || part == "..") {
+                root.all_changed();
+            } else {
+                root.changed(&parts.join("/"));
+            }
+        }
+    }
+}
+
+/// After the game made or removed something through PhysFS: the listings of
+/// the path's ancestor folders are let go of.
 fn written(call: &mut Call) {
     let path = call.arg(0) as *const c_char;
     let dir = WRITE_DIR.get()();
     if path.is_null() || dir.is_null() {
         return;
     }
-    let dir = unsafe { CStr::from_ptr(dir) }.to_string_lossy().replace('/', "\\").to_ascii_lowercase();
-    let dir = if dir.ends_with('\\') { dir } else { format!("{dir}\\") };
-    let whole = format!("{dir}{}", unsafe { CStr::from_ptr(path) }.to_string_lossy().replace('/', "\\").to_ascii_lowercase());
+    let dir = unsafe { CStr::from_ptr(dir) }.to_string_lossy();
+    let path = unsafe { CStr::from_ptr(path) }.to_string_lossy();
     let Some(roots) = ROOTS.read().unwrap_or_else(|e| e.into_inner()).clone() else { return };
-    for root in roots.values().flatten() {
-        if let Some(rest) = whole.strip_prefix(&*root.lower) {
-            let rest = rest.trim_matches('\\').replace('\\', "/");
-            if rest.is_empty() {
-                root.all_changed();
-            } else {
-                root.changed(&rest);
-            }
-        }
-    }
+    invalidate_written(roots.values().flatten().map(Arc::as_ref), &dir, &path);
 }
 
 /// Answers PhysFS's question to an entry of the search path, if it is a
@@ -499,6 +513,33 @@ mod tests {
         root.changed("a/b");
         assert_eq!(root.kind("a/b/c.txt"), Ok(None));
         assert_eq!(root.kind("a/b"), Ok(None));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn nested_mkdir_invalidates_cached_ancestor_listings() {
+        let dir = std::env::temp_dir().join(format!("eu4-harmony-listed-mkdir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let root = root_at(&dir);
+        // Populate the root listing before the nested directory exists, as
+        // `PHYSFS_mkdir`'s own path check does on a fresh user folder.
+        assert_eq!(root.kind("shadercache/dx9/vs_3_0/test.scache"), Ok(None));
+
+        std::fs::create_dir_all(dir.join("shadercache").join("dx9").join("vs_3_0")).unwrap();
+        let write_dir = dir.to_string_lossy();
+        invalidate_written([&root], &write_dir, "shadercache/dx9/vs_3_0");
+        assert_eq!(root.kind("shadercache"), Ok(Some(Kind::Folder)));
+        assert_eq!(root.kind("shadercache/dx9"), Ok(Some(Kind::Folder)));
+        assert_eq!(root.kind("shadercache/dx9/vs_3_0"), Ok(Some(Kind::Folder)));
+
+        // Repeated separators normalize to the same ancestor chain.
+        assert_eq!(root.kind("nested/sub/leaf"), Ok(None));
+        std::fs::create_dir_all(dir.join("nested").join("sub").join("leaf")).unwrap();
+        invalidate_written([&root], &write_dir, "nested//sub/leaf");
+        assert_eq!(root.kind("nested"), Ok(Some(Kind::Folder)));
+        assert_eq!(root.kind("nested/sub/leaf"), Ok(Some(Kind::Folder)));
+
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
