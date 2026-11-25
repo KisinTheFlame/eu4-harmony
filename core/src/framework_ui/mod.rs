@@ -248,6 +248,10 @@ fn setting_widgets(page: Page, shown: &Settings, display_hz: u32, words: &dyn Fn
                 out.push(Widget::Label(words(label)));
                 out.push(Widget::Choice { id: setting.key, options, tooltips, selected });
             }
+            Shows::Slider { label, min, max, format, field, .. } => {
+                out.push(Widget::Label(words(label)));
+                out.push(Widget::Slider { id: setting.key, min, max, value: (field.get)(shown).clamp(min, max), format });
+            }
         }
     }
     out
@@ -368,6 +372,11 @@ fn read_back(w: &Window, next: &Settings, display_hz: u32, chosen: &mut Settings
                     } else if let Some(&choice) = choices.get(index) {
                         (field.set)(chosen, choice);
                     }
+                }
+            }
+            Shows::Slider { field, .. } => {
+                if let Some(value) = w.value(setting.key) {
+                    (field.set)(chosen, value);
                 }
             }
         }
@@ -604,7 +613,7 @@ impl<H: UiHost> Shell<H> {
                     self.settings_chose(id, index);
                     self.settings_changed();
                 }
-                Some(Action::Switched(..)) => self.settings_changed(),
+                Some(Action::Switched(..)) | Some(Action::Slid(..)) => self.settings_changed(),
                 Some(Action::Pressed("save")) => self.close_settings(true),
                 Some(Action::Pressed(ENABLE_DUMPS)) => {
                     if !self.host.dump_pending() {
@@ -629,7 +638,9 @@ impl<H: UiHost> Shell<H> {
         }
         if let Some((_, w)) = self.notice.as_mut() {
             match event {
-                Move(x, y) => w.mouse_move(x, y),
+                Move(x, y) => {
+                    let _ = w.mouse_move(x, y);
+                }
                 Up(..) => w.mouse_up(),
                 Down(x, y) if w.covers(measure, x, y) => {
                     if w.mouse_down(measure, x, y) == Some(Action::Closed) {
@@ -658,20 +669,14 @@ impl<H: UiHost> Shell<H> {
     fn modal_event(w: &mut Window, measure: &dyn Measure, event: input::Event) -> Option<Action> {
         use input::Event::*;
         match event {
-            Move(x, y) => {
-                w.mouse_move(x, y);
-                None
-            }
+            Move(x, y) => w.mouse_move(x, y),
             Up(..) => {
                 w.mouse_up();
                 None
             }
             Down(x, y) if w.covers(measure, x, y) => w.mouse_down(measure, x, y),
             Down(..) => None,
-            Wheel(notches) => {
-                w.wheel(measure, notches);
-                None
-            }
+            Wheel(notches) => w.wheel(measure, notches),
             Escape => Some(Action::Closed),
         }
     }
@@ -880,7 +885,7 @@ mod tests {
         widgets
             .iter()
             .filter_map(|w| match w {
-                Widget::Toggle { id, .. } | Widget::Choice { id, .. } | Widget::Dropdown { id, .. } => Some(*id),
+                Widget::Toggle { id, .. } | Widget::Choice { id, .. } | Widget::Dropdown { id, .. } | Widget::Slider { id, .. } => Some(*id),
                 _ => None,
             })
             .collect()
@@ -911,7 +916,17 @@ mod tests {
         // Each page holds only its toggles or a setting's own label and choice bar.
         for (page, widgets) in Page::ALL.into_iter().zip(&pages) {
             if page == Page::Display {
-                assert!(matches!(widgets.as_slice(), [Widget::Label(_), Widget::Choice { id: "frame_rate_limit", .. }]));
+                assert!(matches!(
+                    widgets.as_slice(),
+                    [
+                        Widget::Label(_),
+                        Widget::Choice { id: "frame_rate_limit", .. },
+                        Widget::Label(_),
+                        Widget::Slider { id: "zoom_smoothing", .. },
+                        Widget::Label(_),
+                        Widget::Slider { id: "zoom_step", .. },
+                    ]
+                ));
             } else {
                 assert!(widgets.iter().all(|w| matches!(w, Widget::Toggle { .. })), "{page:?}");
             }
@@ -1029,6 +1044,8 @@ mod tests {
         let short_words = |key: &str| match key {
             "EU4HARMONY_SETTINGS_PAGE_DISPLAY" => "Display".to_string(),
             "EU4HARMONY_SETTINGS_FRAME_RATE_LIMIT" => "Frame rate limit".to_string(),
+            "EU4HARMONY_SETTINGS_ZOOM_SMOOTHING" => "Map zoom smoothing".to_string(),
+            "EU4HARMONY_SETTINGS_ZOOM_STEP" => "Map zoom step".to_string(),
             _ => key.to_string(),
         };
 
@@ -1061,6 +1078,22 @@ mod tests {
         // Choosing the display's own rate again keeps it following the display.
         assert_eq!(window.mouse_down(&Mono, hx, hy), Some(Action::Chose("frame_rate_limit", 6)));
         assert_eq!(chosen_settings(&window, &current, &page, 180).frame_rate_limit, FrameRateLimit::Display);
+
+        // Map zoom smoothing and zoom step sliders take effect on save without a restart notice.
+        let (_, sy) = text_pos(&window, "50%");
+        let (sx, _) = text_pos(&window, "Map zoom smoothing");
+        assert_eq!(window.mouse_down(&Mono, sx + 2.0, sy), Some(Action::Slid("zoom_smoothing", 0)));
+        window.mouse_up();
+        let (_, zy) = text_pos(&window, "1.30×");
+        let (zx, _) = text_pos(&window, "Map zoom step");
+        assert_eq!(window.mouse_down(&Mono, zx + 2.0, zy), Some(Action::Slid("zoom_step", 105)));
+        let _ = window.mouse_move(zx + 500.0, zy);
+        window.mouse_up();
+        window.footer_mut()[RESTART_LINE] = restart_line(&window, &current, &current, &page, 180, &short_words);
+        assert_eq!(restart_shown(&mut window), "");
+        let saved = chosen_settings(&window, &current, &page, 180);
+        assert_eq!(saved.zoom_smoothing, 0);
+        assert_eq!(saved.zoom_step, 200);
     }
 
     #[test]

@@ -91,6 +91,15 @@ pub enum Widget {
         tooltips: Vec<eu4_harmony_lua::Text>,
         selected: usize,
     },
+    /// A slider: sets a number on `min..=max` by clicking or dragging along
+    /// its track, showing `format(value)` on the right.
+    Slider {
+        id: &'static str,
+        min: u32,
+        max: u32,
+        value: u32,
+        format: fn(u32) -> String,
+    },
     /// A label followed by an info mark (GLOSSARY): while the pointer is on
     /// the mark, `info` shows beside it.
     Explained {
@@ -171,6 +180,7 @@ pub enum Action {
     Pressed(&'static str),
     Chose(&'static str, usize),
     Switched(&'static str, bool),
+    Slid(&'static str, u32),
     Closed,
 }
 
@@ -196,6 +206,11 @@ const MARK: &str = "ⓘ";
 const MARK_GAP: f32 = 6.0;
 /// How long a choice bar's highlight takes to slide to another option.
 const SLIDE: Duration = Duration::from_millis(150);
+const SLIDER_TRACK_H: f32 = 6.0;
+const SLIDER_THUMB_W: f32 = 12.0;
+const SLIDER_THUMB_H: f32 = 18.0;
+const SLIDER_VALUE_W: f32 = 56.0;
+const SLIDER_GAP: f32 = 8.0;
 
 pub struct Window {
     pub title: String,
@@ -217,6 +232,9 @@ pub struct Window {
     /// How tall the screen is; an open list stops at its bottom.
     screen_h: f32,
     drag: Option<(f32, f32)>,
+    /// The slider being dragged: its body index, and its track's left edge
+    /// and width.
+    sliding: Option<(usize, f32, f32)>,
     mouse: (f32, f32),
     /// A choice bar's highlight on its way: the bar, by body index, the
     /// option it left, and when.
@@ -272,6 +290,7 @@ impl Window {
             scroll: 0,
             screen_h: f32::MAX,
             drag: None,
+            sliding: None,
             mouse: (-1.0, -1.0),
             slide: None,
         }
@@ -306,6 +325,7 @@ impl Window {
         std::mem::swap(&mut self.body, &mut self.pages[from]);
         std::mem::swap(&mut self.body, &mut self.pages[to]);
         self.slide = None;
+        self.sliding = None;
     }
 
     /// Every widget the window has: the body's, the other pages', the
@@ -374,6 +394,13 @@ impl Window {
         })
     }
 
+    pub fn value(&self, id: &str) -> Option<u32> {
+        self.widgets().find_map(|w| match w {
+            Widget::Slider { id: i, value, .. } if *i == id => Some(*value),
+            _ => None,
+        })
+    }
+
     /// Gives the drop-down list `id` new options, with `selected` chosen.
     pub fn set_options(&mut self, id: &str, options: Vec<String>, selected: usize) {
         for w in self.body.iter_mut().chain(self.pages.iter_mut().flatten()).chain(&mut self.footer) {
@@ -431,6 +458,24 @@ impl Window {
     fn segments(row: Rect, options: usize) -> Vec<Rect> {
         let w = row.w / options.max(1) as f32;
         (0..options).map(|n| Rect { x: (row.x + n as f32 * w).round(), y: row.y, w: w.round(), h: row.h }).collect()
+    }
+
+    /// A slider's horizontal track inside its row, leaving room on the right
+    /// for its formatted value.
+    fn slider_track(row: Rect) -> Rect {
+        let w = (row.w - SLIDER_VALUE_W - SLIDER_GAP).max(SLIDER_THUMB_W);
+        Rect { x: row.x, y: row.y + ((row.h - SLIDER_TRACK_H) / 2.0).round(), w, h: SLIDER_TRACK_H }
+    }
+
+    /// Maps a horizontal pointer coordinate onto a slider's `min..=max` range.
+    fn slider_value_at(x: f32, track_x: f32, track_w: f32, min: u32, max: u32) -> u32 {
+        if max <= min {
+            return min;
+        }
+        let span = (track_w - SLIDER_THUMB_W).max(1.0);
+        let center_min = track_x + SLIDER_THUMB_W / 2.0;
+        let t = ((x - center_min) / span).clamp(0.0, 1.0);
+        min + (t * (max - min) as f32).round() as u32
     }
 
     /// Where a choice bar's highlight is, over the option chosen or on its
@@ -498,7 +543,7 @@ impl Window {
                     slots.push(Slot::Mark(i, mark));
                     y += h + 4.0;
                 }
-                Widget::Button { .. } | Widget::Dropdown { .. } | Widget::Choice { .. } => {
+                Widget::Button { .. } | Widget::Dropdown { .. } | Widget::Choice { .. } | Widget::Slider { .. } => {
                     slots.push(Slot::Control(i, Rect { x: self.left(), y, w: self.inner(), h: ROW }));
                     y += ROW + 8.0;
                 }
@@ -541,21 +586,41 @@ impl Window {
     }
 
     /// The mouse wheel turned `notches` (up is positive) over the window: an
-    /// open list scrolls, or the side list under the mouse.
-    pub fn wheel(&mut self, measure: &dyn Measure, notches: i32) {
+    /// open list scrolls, the side list under the mouse scrolls, or a hovered
+    /// slider steps by `notches`.
+    pub fn wheel(&mut self, measure: &dyn Measure, notches: i32) -> Option<Action> {
         let Some(open) = self.open else {
             let over = self.side_area().is_some_and(|r| r.contains(self.mouse.0, self.mouse.1));
             let shown = self.side_shown();
             if let (true, Some(side)) = (over, self.side.as_mut()) {
                 let last = side.items.len().saturating_sub(shown);
                 side.scroll = (side.scroll as i64 - notches as i64).clamp(0, last as i64) as usize;
+                return None;
             }
-            return;
+            let (mx, my) = self.mouse;
+            for slot in self.layout(measure) {
+                if let Slot::Control(i, r) = slot {
+                    if r.contains(mx, my) && self.raw_widget(i).enabled() {
+                        if let Widget::Slider { id, min, max, value, .. } = self.widget_mut(i) {
+                            let next = (*value as i64 + notches as i64).clamp(*min as i64, *max as i64) as u32;
+                            if next != *value {
+                                *value = next;
+                                return Some(Action::Slid(id, next));
+                            }
+                            return None;
+                        }
+                    }
+                }
+            }
+            return None;
         };
-        let Some(Slot::Control(_, control)) = self.layout(measure).into_iter().find(|s| matches!(s, Slot::Control(i, _) if *i == open)) else { return };
-        let Widget::Dropdown { options, .. } = self.widget(open) else { return };
+        let Some(Slot::Control(_, control)) = self.layout(measure).into_iter().find(|s| matches!(s, Slot::Control(i, _) if *i == open)) else {
+            return None;
+        };
+        let Widget::Dropdown { options, .. } = self.widget(open) else { return None };
         let last = options.len().saturating_sub(self.rows(control, options.len()));
         self.scroll = (self.scroll as i64 - notches as i64).clamp(0, last as i64) as usize;
+        None
     }
 
     /// Whether the window, or an open list hanging below it, covers a point.
@@ -574,16 +639,28 @@ impl Window {
         })
     }
 
-    pub fn mouse_move(&mut self, x: f32, y: f32) {
+    pub fn mouse_move(&mut self, x: f32, y: f32) -> Option<Action> {
+        self.mouse = (x, y);
         if let Some((dx, dy)) = self.drag {
             self.x = x - dx;
             self.y = y - dy;
+            return None;
         }
-        self.mouse = (x, y);
+        if let Some((i, track_x, track_w)) = self.sliding {
+            if let Widget::Slider { id, min, max, value, .. } = self.widget_mut(i) {
+                let next = Self::slider_value_at(x, track_x, track_w, *min, *max);
+                if next != *value {
+                    *value = next;
+                    return Some(Action::Slid(id, next));
+                }
+            }
+        }
+        None
     }
 
     pub fn mouse_up(&mut self) {
         self.drag = None;
+        self.sliding = None;
     }
 
     /// A left click at a point the window covers.
@@ -638,6 +715,15 @@ impl Window {
                         self.slide = Some((i, left, Instant::now()));
                         return Some(Action::Chose(id, index));
                     }
+                    if let Widget::Slider { id, min, max, value, .. } = self.widget_mut(i) {
+                        let track = Self::slider_track(r);
+                        let next = Self::slider_value_at(x, track.x, track.w, *min, *max);
+                        let changed = next != *value;
+                        *value = next;
+                        let id = *id;
+                        self.sliding = Some((i, track.x, track.w));
+                        return changed.then_some(Action::Slid(id, next));
+                    }
                     return match self.widget(i) {
                         Widget::Button { id, .. } => Some(Action::Pressed(id)),
                         Widget::Dropdown { options, selected, .. } => {
@@ -653,6 +739,7 @@ impl Window {
                         | Widget::Gap
                         | Widget::Toggle { .. }
                         | Widget::Choice { .. }
+                        | Widget::Slider { .. }
                         | Widget::Explained { .. }
                         | Widget::Managed { .. } => None,
                     };
@@ -780,6 +867,25 @@ impl Window {
                         out.push(Command::Text { x, y: segment.y + (ROW - TEXT_SIZE) / 2.0 - 2.0, text, size: TEXT_SIZE, color: TEXT });
                     }
                 }
+                Slot::Control(i, r) if matches!(self.widget(i), Widget::Slider { .. }) => {
+                    let Widget::Slider { min, max, value, format, .. } = self.widget(i) else { continue };
+                    let track = Self::slider_track(r);
+                    let active = self.sliding.is_some_and(|(s, ..)| s == i) || hover(&r);
+                    out.push(Command::Fill { rect: track, color: if active { HOVER } else { CONTROL } });
+                    let span = (track.w - SLIDER_THUMB_W).max(0.0);
+                    let t = if max > min { (value.clamp(min, max) - min) as f32 / (max - min) as f32 } else { 0.0 };
+                    let thumb_x = (track.x + t * span).round();
+                    let fill_w = (thumb_x + SLIDER_THUMB_W / 2.0 - track.x).round().max(0.0);
+                    if fill_w > 0.0 {
+                        out.push(Command::Fill { rect: Rect { w: fill_w, ..track }, color: if active { ON_HOVER } else { ON } });
+                    }
+                    let thumb = Rect { x: thumb_x, y: r.y + ((r.h - SLIDER_THUMB_H) / 2.0).round(), w: SLIDER_THUMB_W, h: SLIDER_THUMB_H };
+                    out.push(Command::Fill { rect: thumb, color: TEXT });
+                    let text = format(*value);
+                    let tw = measure.width(&text, TEXT_SIZE);
+                    let tx = (r.x + r.w - tw).max(track.x + track.w + SLIDER_GAP);
+                    out.push(Command::Text { x: tx, y: r.y + (ROW - TEXT_SIZE) / 2.0 - 2.0, text, size: TEXT_SIZE, color: TEXT });
+                }
                 Slot::Mark(_, r) => {
                     out.push(Command::Text { x: r.x, y: r.y, text: MARK.into(), size: TEXT_SIZE, color: if hover(&r) { TEXT } else { MUTED } });
                 }
@@ -794,6 +900,7 @@ impl Window {
                         | Widget::Gap
                         | Widget::Toggle { .. }
                         | Widget::Choice { .. }
+                        | Widget::Slider { .. }
                         | Widget::Explained { .. }
                         | Widget::Managed { .. } => continue,
                     };
@@ -1217,5 +1324,31 @@ mod tests {
         let short = Window::new("T", vec![Widget::Label("x".into())], 200.0);
         let long = Window::new("T", vec![Widget::Label("x".repeat(100))], 200.0);
         assert!(long.height(&Mono) > short.height(&Mono) + 3.0 * TEXT_SIZE);
+    }
+
+    #[test]
+    fn a_slider_clicks_drags_clamps_and_steps_with_the_wheel() {
+        let mut w = Window::new("Display", vec![Widget::Slider { id: "smooth", min: 0, max: 100, value: 50, format: |v| format!("{v}%") }], 300.0);
+        w.center(&Mono, 1000.0, 800.0);
+        assert_eq!(w.value("smooth"), Some(50));
+        assert_eq!(w.value("none"), None);
+        assert!(shows(&w, "50%"));
+        let track = fills(&w, CONTROL).into_iter().find(|r| r.h == SLIDER_TRACK_H).unwrap();
+        let y = track.y + 2.0;
+        // Clicking near the right end jumps to max; dragging past the left clamps to min.
+        assert_eq!(w.mouse_down(&Mono, track.x + track.w - 1.0, y), Some(Action::Slid("smooth", 100)));
+        assert_eq!(w.value("smooth"), Some(100));
+        assert!(shows(&w, "100%"));
+        assert_eq!(w.mouse_move(track.x - 50.0, y + 40.0), Some(Action::Slid("smooth", 0)));
+        assert_eq!(w.value("smooth"), Some(0));
+        // Releasing stops dragging.
+        w.mouse_up();
+        assert_eq!(w.mouse_move(track.x + track.w / 2.0, y), None);
+        assert_eq!(w.value("smooth"), Some(0));
+        // Turning the wheel over the slider nudges it by single steps.
+        assert_eq!(w.wheel(&Mono, 3), Some(Action::Slid("smooth", 3)));
+        assert_eq!(w.value("smooth"), Some(3));
+        assert_eq!(w.wheel(&Mono, -10), Some(Action::Slid("smooth", 0)));
+        assert_eq!(w.value("smooth"), Some(0));
     }
 }

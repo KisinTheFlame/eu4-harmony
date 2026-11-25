@@ -145,6 +145,9 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, 
         MessageRoute::Swallow => 0,
         MessageRoute::DefaultProc => DefWindowProcW(window, message, wparam, lparam),
         MessageRoute::ForwardToGame => {
+            if message == WM_MOUSEWHEEL {
+                crate::guarded("wheel reversal reset", || crate::camera_zoom::before_sdl_wheel((wparam >> 16) as u16 as i16));
+            }
             let original: WNDPROC = std::mem::transmute(ORIGINAL.load(Ordering::Acquire));
             CallWindowProcW(original, window, message, wparam, lparam)
         }

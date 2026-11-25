@@ -72,7 +72,7 @@ const HEAD: usize = 0x8185e7;
 const HEAD_GOES_ON: usize = 0x8185ee;
 const HEAD_END: usize = 0x818661;
 /// The settings' global, which the head's first instruction reads.
-const SETTINGS: usize = 0x242bde8;
+pub(crate) const SETTINGS: usize = 0x242bde8;
 /// The application, and its graphical map.
 const APP: usize = 0x242bf50;
 const APP_MAP: usize = 0x360;

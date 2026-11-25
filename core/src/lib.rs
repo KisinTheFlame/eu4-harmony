@@ -22,6 +22,7 @@ pub mod achievements;
 mod army_search;
 pub mod baseline;
 mod bound_element;
+pub mod camera_zoom;
 pub mod catalogue;
 pub mod containers;
 mod crash;
