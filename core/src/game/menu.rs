@@ -506,6 +506,7 @@ pub fn launch(_: Caller, number: u64) -> Launch {
 /// At the end of the main menu's frame: runs the load or start asked for,
 /// and follows the game taking it up ([`Course::main_menu_frame`]).
 pub(crate) fn main_menu_frame(m: &Memory, frontend: usize) {
+    leave::main_menu_frame(frontend);
     COURSE.main_menu_frame(&mut InGame { frontend, ..InGame::new(m) });
 }
 
