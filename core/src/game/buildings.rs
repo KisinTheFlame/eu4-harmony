@@ -4,7 +4,7 @@
 //! (docs/game/provinces/province-view.md).
 use super::administration::checks as refuse;
 use super::commands::{write, Block};
-use super::{action, administration::MOST_CONSTRUCTIONS, context_any, signals, game, thousandths, with_state, Ctx, GResult, Session, Tag};
+use super::{action, administration::MOST_CONSTRUCTIONS, context_any, game, signals, thousandths, with_state, Ctx, GResult, Session, Tag};
 use crate::containers;
 use crate::{
     game_string,
@@ -185,13 +185,15 @@ fn can_build(m: &Memory, ctx: &Ctx, province: usize, building: usize) -> GResult
 
 /// What the building panel offers the player in a province now, and what is
 /// being built there; in the player's view not in another country's
-/// province, as the province view does not show it.
-pub fn options(Session { m, ctx, view, .. }: Session, args::Options { province: asked }: args::Options) -> GResult<BuildingOptions> {
+/// province, as the province view does not show it, and an undiscovered
+/// province is refused as terra incognita.
+pub fn options(session: Session, args::Options { province: asked }: args::Options) -> GResult<BuildingOptions> {
+    let Session { m, ctx, .. } = session;
     let ProvinceId(id) = asked;
-    let province = province_address(m, &ctx, id)?;
+    let province = session.readable_province(id)?;
     let owner = Some(Tag(m.u64(province + field::OWNER)?)).filter(|t| t.valid());
     let owned = owner == Some(ctx.player);
-    let seen = super::player::Eyes::acting(view, ctx.player).sees_inside(owner);
+    let seen = session.sees_inside(owner);
     let mut offers = Vec::new();
     let constructing = match construction(m, province)?.filter(|_| seen) {
         None => None,
@@ -289,8 +291,8 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
-    use crate::game::As;
     use super::*;
+    use crate::game::As;
 
     const CAS: Tag = Tag(0x0100_0001_0053_4143);
 
@@ -433,5 +435,30 @@ mod tests {
             (Status::Rejected, "the treasury has 50 ducats, and this costs 100".into())
         );
         assert!(record::posted().is_empty());
+    }
+
+    #[test]
+    fn options_refuses_undiscovered_provinces_in_player_view_and_hides_foreign_construction() {
+        let player = ottomans(500_000);
+        // Mark province 2 undiscovered for TUR (index 0 clear in discovery bitset).
+        let discovered = Object::new(16);
+        player._provinces.u8(2, field::FOGGED, field::UNDISCOVERED_BIT).u64(2, field::DISCOVERED_BY, discovered.at() as u64);
+
+        // Full view still reads province 2.
+        assert!(options(player.session, args::Options { province: ProvinceId(2) }).is_ok());
+
+        // Player's view refuses undiscovered province 2 as terra incognita.
+        let player_view = player.session.with_view(crate::game::View::Player);
+        let err = options(player_view, args::Options { province: ProvinceId(2) }).unwrap_err();
+        assert_eq!(err.status, Status::NotFound);
+        assert!(err.message.contains("discovered"), "{}", err.message);
+
+        // Once discovered, player's view reads province 2 but hides foreign construction.
+        let index = tur().index() as u16 as usize;
+        let discovered_tur = Object::new((index / 32 + 1) * 4).u32(index / 32 * 4, 1u32 << (index % 32));
+        player._provinces.u64(2, field::DISCOVERED_BY, discovered_tur.at() as u64);
+        assert!(options(player_view, args::Options { province: ProvinceId(2) }).unwrap().constructing.is_none());
+        drop(discovered);
+        drop(discovered_tur);
     }
 }

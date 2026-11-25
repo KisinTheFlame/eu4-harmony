@@ -6,7 +6,7 @@
 //! army back from the extension that was moving it, and extensions hear that
 //! the player gave the army an order, exactly once
 //! (ADR remote-control-uses-capabilities).
-use super::{army, orders, player::Eyes, signals, thousandths, with_state, Caller, GResult, Session, Tag, View};
+use super::{army, orders, signals, thousandths, with_state, Caller, GResult, Session, Tag, View};
 use crate::{memory::Memory, objects::campaign::unit};
 use eu4_harmony_checks::armies as checks;
 use eu4_harmony_remote::armies::{self as remote, args, ArmyKind, Blocked, RouteBy};
@@ -202,19 +202,17 @@ pub fn list(Session { m, ctx, caller, .. }: Session) -> GResult<Vec<remote::Army
 /// none under fog, and [`Status::NotReady`] while visibility is not current,
 /// and of another country's only whether it fights, besieges or retreats,
 /// which the map shows; in the full view every one, as the game keeps it.
-pub fn in_province(Session { m, ctx, view, .. }: Session, args::At { province: ProvinceId(province) }: args::At) -> GResult<Vec<remote::Army>> {
-    if view == View::Player && !signals::visibility_current(m, &ctx) {
-        return Err(checks::visibility_not_current().into());
-    }
+pub fn in_province(session: Session, args::At { province: ProvinceId(province) }: args::At) -> GResult<Vec<remote::Army>> {
+    session.require_current_visibility()?;
+    let Session { m, ctx, view, .. } = session;
     let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
-    let seen = |a: Army| match view == View::Player && a.owner.index() != ctx.player.index() {
+    let seen = |a: Army| match !session.sees_all_of(a.owner) {
         true => Army { exiled: false, movement_locked: false, attached: false, has_followers: false, busy: false, ..a },
         false => a,
     };
-    let eyes = Eyes::acting(view, ctx.player);
     army::in_province(m, &ctx, address, view)?
         .into_iter()
-        .map(|(a, unit)| Ok(shown(&seen(a), Detail::of(m, unit, eyes.sees_inside(Some(a.owner)))?, Vec::new(), RouteSource::None)))
+        .map(|(a, unit)| Ok(shown(&seen(a), Detail::of(m, unit, session.sees_inside(Some(a.owner)))?, Vec::new(), RouteSource::None)))
         .collect()
 }
 
@@ -311,9 +309,9 @@ pub fn points() -> Vec<crate::points::Point> {
 
 #[cfg(test)]
 mod tests {
-    use crate::game::As;
     use super::*;
     use crate::catalogue::fake::{byz, tur};
+    use crate::game::As;
     use crate::game::{
         buffers::{self, Image, Object, Provinces},
         commands::record,

@@ -6,7 +6,6 @@
 use super::commands::{write, Block};
 use super::{
     action,
-    player::Eyes,
     provinces::{self, can_recruit, unit_type, UnitKind},
     with_state, Fail, GResult, Session, Status,
 };
@@ -27,8 +26,7 @@ fn written(country: [u8; 3], province: u32, unit: &str) -> String {
 /// refused as the province's snapshot is for a number that names no
 /// province or one the player has not discovered.
 pub fn options(session: Session, args::Options { province: ProvinceId(id) }: args::Options) -> GResult<Vec<Recruit>> {
-    let world = session.world()?;
-    let address = provinces::readable(session.m, &world.world, Eyes::of(world.view, world.world.player), id)?;
+    let address = session.readable_province(id)?;
     provinces::recruit(session.m, &session.ctx, address)
 }
 

@@ -75,12 +75,15 @@ fn province(m: &Memory, ctx: &Ctx, id: u32) -> GResult<Province> {
 
 /// What the province view offers the player in province `id`; in the
 /// player's view another's missionary's progress in another country's
-/// province is left out, as `province.get` leaves it out.
-pub fn options(Session { m, ctx, view, .. }: Session, args::Options { province: ProvinceId(id) }: args::Options) -> GResult<MissionaryOptions> {
-    let p = province(m, &ctx, id)?;
+/// province is left out, and an undiscovered province is refused as terra
+/// incognita, as `province.get` does.
+pub fn options(session: Session, args::Options { province: ProvinceId(id) }: args::Options) -> GResult<MissionaryOptions> {
+    let Session { m, ctx, .. } = session;
+    let address = session.readable_province(id)?;
+    let p = Province { address, owner: Tag(m.u64(address + province_fields::OWNER)?) };
     let (working, progress, send, recall) = read(m, &ctx, &p)?;
     let owner = Some(p.owner).filter(|t| t.valid());
-    let progress = progress.filter(|_| working || super::player::Eyes::acting(view, ctx.player).sees_inside(owner));
+    let progress = progress.filter(|_| working || session.sees_inside(owner));
     Ok(MissionaryOptions { province: ProvinceId(id), working, progress, send, recall })
 }
 
@@ -169,8 +172,8 @@ crate::catalogue::bind! {
 
 #[cfg(test)]
 mod tests {
-    use crate::game::As;
     use super::*;
+    use crate::game::As;
 
     #[test]
     fn the_command_names_the_owner_the_sender_and_the_province() {
@@ -273,5 +276,18 @@ mod tests {
         assert_eq!(refused(set_automatic(france(2).session, true)), rejected("the game already sends all of the player's 2 missionaries by itself"));
         assert_eq!(refused(set_automatic(france(0).session, false)), rejected("the game sends none of the player's missionaries by itself"));
         assert!(record::posted().is_empty());
+    }
+
+    #[test]
+    fn options_refuses_undiscovered_provinces_in_player_view() {
+        let france = france(0);
+        let discovered = Object::new(16);
+        france._provinces.u8(1, province_fields::FOGGED, province_fields::UNDISCOVERED_BIT).u64(1, province_fields::DISCOVERED_BY, discovered.at() as u64);
+
+        assert!(options(france.session, args::Options { province: ProvinceId(1) }).is_ok());
+        let err = options(france.session.with_view(crate::game::View::Player), args::Options { province: ProvinceId(1) }).unwrap_err();
+        assert_eq!(err.status, Status::NotFound);
+        assert!(err.message.contains("discovered"), "{}", err.message);
+        drop(discovered);
     }
 }
