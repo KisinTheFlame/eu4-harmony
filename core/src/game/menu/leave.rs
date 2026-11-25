@@ -25,10 +25,14 @@
 //! taken down as the in-game load takes it down, its interface, then its world
 //! reset, here with the game's history; then a new main menu, made as startup
 //! makes it after its own reset, takes the application over by its idler
-//! switch, which lets the map manager go. The loading screen it presents as
-//! it takes over, as at startup, is held back: the still notice stays until
-//! its first frame. The single player setup's back
-//! button, which restarts the game too, goes back the same way.
+//! switch, which lets the map manager go. Both the loading screen it
+//! presents as it takes over (held back so the still notice stays until
+//! its first frame) and the new main menu's black fade-in and residual
+//! loading screen slide-out are skipped on the new main menu's first
+//! frame, so the map appears and page 0's panel slide-in and camera glide
+//! begin at once; startup and sub-page switches keep the game's
+//! transitions. The single player setup's back button, which restarts the
+//! game too, goes back the same way.
 //!
 //! What the game's world reset and the map manager's destructor leave of a
 //! session, the framework's repairs put right (`crate::repairs`).
@@ -118,6 +122,14 @@ const RESET_GAME: GameFunction<2> = GameFunction::at(0x210000);
 /// `rbx`); and what follows.
 const SETUP_BACK_RESTART: usize = 0x111dfd7;
 const SETUP_BACK_RESTART_DONE: usize = 0x111dfe0;
+/// `NFrontend.FADE_IN_DONE_TIME` and `GUI_START_MOVE_TIME` (f32 globals).
+const FADE_IN_DONE_TIME: usize = 0x233e778;
+const GUI_START_MOVE_TIME: usize = 0x233e774;
+/// `(dt: f32) -> u8`: shifts the loading screen window's elements off-screen
+/// and returns whether it is still sliding out.
+const SLIDE_LOAD_SCREEN: usize = 0x11bbd10;
+/// Main menu intro elapsed timer (f32).
+const MAIN_MENU_INTRO_ELAPSED: usize = 0x720;
 
 /// Whether the session is ironman.
 pub(super) fn ironman(m: &Memory) -> bool {
@@ -410,7 +422,7 @@ fn main_menu(m: &Memory, app: usize) -> crate::Result<()> {
     MAIN_MENU.call(m, [memory, first, second, app])?;
     let mut idler = memory;
     SWITCH_IDLER.call(m, [app, &mut idler as *mut usize as usize, 0])?;
-    RETURNED.store(true, Ordering::Relaxed);
+    RETURNED.store(memory, Ordering::Relaxed);
     // The continue box offers the save the game wrote last, as after a restart.
     let task = m.ptr(app + application::CONTINUE_TASK)?;
     if task != 0 {
@@ -420,22 +432,82 @@ fn main_menu(m: &Memory, app: usize) -> crate::Result<()> {
     Ok(())
 }
 
-/// Set from when [`main_menu`] asked for the switch to the main menu it made
-/// until that main menu took over.
-static RETURNED: AtomicBool = AtomicBool::new(false);
+/// The main menu made by [`main_menu`], from when it was asked to switch until
+/// it took over; 0 otherwise.
+static RETURNED: AtomicUsize = AtomicUsize::new(0);
+/// The returned main menu whose black fade-in and residual loading screen are
+/// being skipped on its first frame; 0 otherwise.
+static SKIP_INTRO: AtomicUsize = AtomicUsize::new(0);
+
+type SlideLoadScreen = unsafe extern "C" fn(f32) -> u8;
+static ORIGINAL_SLIDE_LOAD_SCREEN: Function<SlideLoadScreen> = Function::new();
+
+/// Elapsed intro time past both the fade-out (`fade_in_done`) and the slide-out
+/// start threshold (`gui_start_move`) so Frame 1 hides `Background` and ends the
+/// loading screen immediately.
+fn intro_elapsed(fade_in_done: f32, gui_start_move: f32) -> f32 {
+    let fade = if fade_in_done.is_finite() { fade_in_done.max(0.0) } else { 0.0 };
+    let start = if gui_start_move.is_finite() { gui_start_move.max(0.0) } else { 0.0 };
+    let target = fade.max(start);
+    (target + 1.0).max(target * 1.01)
+}
+
+/// Configures `frontend` to skip its intro fade and reach `ShowPage` on Frame 1.
+fn arm_skip_intro(m: &Memory, frontend: usize) -> crate::Result<()> {
+    if m.ptr(frontend)? != m.at(gui::classes::MAIN_MENU) {
+        return Err("unexpected main menu object".into());
+    }
+    if m.u32(frontend + gui::main_menu::PAGE)? != gui::main_menu::FIRST_PAGE {
+        return Ok(());
+    }
+    let fade = f32::from_bits(m.u32(m.at(FADE_IN_DONE_TIME))?);
+    let gui_start = f32::from_bits(m.u32(m.at(GUI_START_MOVE_TIME))?);
+    let elapsed = intro_elapsed(fade, gui_start);
+    m.write(frontend + MAIN_MENU_INTRO_ELAPSED, &elapsed.to_le_bytes())?;
+    SKIP_INTRO.store(frontend, Ordering::Relaxed);
+    Ok(())
+}
 
 /// As a main menu takes over: one an in-process return made presents the
 /// loading screen as at startup, which is held back, so the still notice
 /// stays until the main menu's first frame.
-fn taking_over(_: &mut Call) {
-    if RETURNED.load(Ordering::Relaxed) {
+fn taking_over(call: &mut Call) {
+    let frontend = call.arg(0);
+    if frontend != 0 && RETURNED.load(Ordering::Relaxed) == frontend {
         crate::framework_ui::hold();
     }
 }
 
-fn took_over(_: &mut Call) {
-    if RETURNED.swap(false, Ordering::Relaxed) {
+fn took_over(call: &mut Call) {
+    let frontend = call.arg(0);
+    if frontend != 0 && RETURNED.compare_exchange(frontend, 0, Ordering::Relaxed, Ordering::Relaxed).is_ok() {
         log!("leave: the main menu took over, {} of its presents held back", crate::framework_ui::let_go());
+        if !call.faulted() {
+            if let Err(e) = arm_skip_intro(&call.memory(), frontend) {
+                log!("leave: keeping the main menu's intro: {e}");
+            }
+        }
+    }
+}
+
+/// Reports the loading screen window finished sliding off-screen immediately
+/// on Frame 1 of an in-process return so `0x11bbbc0` destroys it and opens
+/// page 0 (with its panel slide-in) on that frame.
+#[called_by_game]
+unsafe extern "C" fn slide_load_screen(dt: f32) -> u8 {
+    if crate::thread_id() == crate::main_thread() && SKIP_INTRO.swap(0, Ordering::Relaxed) != 0 {
+        log!("leave: skipped the main menu's fade and loading screen");
+        return 0;
+    }
+    ORIGINAL_SLIDE_LOAD_SCREEN.get()(dt)
+}
+
+/// Fallback at the end of a main menu frame so a skipped intro cannot leak
+/// into a later sub-page return if Frame 1 did not reach the loading screen
+/// slide check.
+pub(super) fn main_menu_frame(frontend: usize) {
+    if frontend != 0 && SKIP_INTRO.compare_exchange(frontend, 0, Ordering::Relaxed, Ordering::Relaxed).is_ok() {
+        log!("leave: main menu intro skip was not taken on its first frame");
     }
 }
 
@@ -567,5 +639,81 @@ pub fn points() -> Vec<Point> {
             .uses(&[manager_fields::MESSAGE_ICON_HOLDER]),
         Point::keep(0x5d06c4usize, "48 83 7c 24 58 00 75 48", "in-game load without a name"),
         Point::keep(0x5d070ausize, "b8 01 00 00 00 e9 48 08 00 00", "in-game load answers 1 without a name"),
+        // Skipping the main menu's black fade-in and residual loading screen on
+        // an in-process return (docs/game/interface/main-menu.md): the fade
+        // timer, the intro threshold, and the loading screen's slide-out and
+        // teardown.
+        Point::keep(0x10d30edusize, "f3 0f 10 05 83 b6 26 01 0f 28 f0 f3 41 0f 5c b6 20 07 00 00 f3 0f 5e f0", "main menu fade timer")
+            .uses(&[FADE_IN_DONE_TIME, MAIN_MENU_INTRO_ELAPSED]),
+        Point::keep(0x10d3464usize, "f3 41 0f 10 86 20 07 00 00 0f 2f 05 00 b3 26 01 76 3a", "main menu intro start threshold")
+            .uses(&[MAIN_MENU_INTRO_ELAPSED, GUI_START_MOVE_TIME]),
+        Point::keep(0x10d34cdusize, "f3 41 0f 10 86 10 03 00 00 e8 35 88 0e 00 84 c0 0f 85 54 02 00 00", "main menu load screen slide out"),
+        Point::keep(
+            0x10d34f6usize,
+            "e8 c5 86 0e 00 84 c0 74 1d 41 b0 01 41 8b 96 00 09 00 00 49 8b ce e8 4f 7a 00 00",
+            "main menu opens page after load screen",
+        )
+        .uses(&[gui::main_menu::PAGE]),
+        Point::replace(
+            SLIDE_LOAD_SCREEN,
+            "48 89 5c 24 08 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8b ec 48 83 ec 60",
+            "slide loading screen",
+            slide_load_screen as SlideLoadScreen,
+            &ORIGINAL_SLIDE_LOAD_SCREEN,
+        ),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::buffers::{Image, Object};
+
+    #[test]
+    fn intro_elapsed_clears_fade_and_slide_thresholds() {
+        for (fade, start) in [
+            (2.2, 1.4),
+            (1.4, 3.0),
+            (0.0, 0.0),
+            (-1.0, -2.0),
+            (1e9, 1e9),
+            (f32::NAN, f32::INFINITY),
+            (2.2, f32::NEG_INFINITY),
+        ] {
+            let elapsed = intro_elapsed(fade, start);
+            assert!(elapsed.is_finite(), "non-finite elapsed for ({fade}, {start}): {elapsed}");
+            if start.is_finite() {
+                assert!(elapsed > start, "elapsed {elapsed} <= gui_start {start}");
+            }
+            if fade.is_finite() && fade > 0.0 {
+                let alpha = (fade - elapsed) / fade;
+                assert!(alpha <= 0.05, "alpha {alpha} > 0.05 for fade {fade}");
+            }
+        }
+    }
+
+    #[test]
+    fn arm_skip_intro_only_on_first_page() {
+        SKIP_INTRO.store(0, Ordering::Relaxed);
+        let image = Image::new();
+        image.i32(FADE_IN_DONE_TIME, 2.2f32.to_bits() as i32).i32(GUI_START_MOVE_TIME, 1.4f32.to_bits() as i32);
+        let m = image.memory();
+
+        let setup_page = Object::new(MAIN_MENU_INTRO_ELAPSED.max(gui::main_menu::PAGE) + 8)
+            .u64(0, m.at(gui::classes::MAIN_MENU) as u64)
+            .u32(gui::main_menu::PAGE, gui::main_menu::SETUP_PAGE);
+        assert_eq!(arm_skip_intro(m, setup_page.at()), Ok(()));
+        assert_eq!(m.u32(setup_page.at() + MAIN_MENU_INTRO_ELAPSED).unwrap(), 0.0f32.to_bits());
+        assert_eq!(SKIP_INTRO.load(Ordering::Relaxed), 0);
+
+        let first_page = Object::new(MAIN_MENU_INTRO_ELAPSED.max(gui::main_menu::PAGE) + 8)
+            .u64(0, m.at(gui::classes::MAIN_MENU) as u64)
+            .u32(gui::main_menu::PAGE, gui::main_menu::FIRST_PAGE);
+        assert_eq!(arm_skip_intro(m, first_page.at()), Ok(()));
+        assert!(f32::from_bits(m.u32(first_page.at() + MAIN_MENU_INTRO_ELAPSED).unwrap()) > 2.2);
+        assert_eq!(SKIP_INTRO.load(Ordering::Relaxed), first_page.at());
+
+        main_menu_frame(first_page.at());
+        assert_eq!(SKIP_INTRO.load(Ordering::Relaxed), 0);
+    }
 }
