@@ -1564,11 +1564,14 @@
 "0x5cf7a1" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x5d01b0" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x5d053b" = { kind = "code", notes = ["game/countries/achievements.md"] }
-"0x5d0580" = { kind = "function", name = "in-game load", notes = ["game/day/safe-points.md", "game/day/time.md", "game/interface/main-menu.md", "game/interface/window-construction.md", "game/program/load-preparation.md", "game/program/save-transfer-copy.md", "game/program/saves.md"] }
+"0x5d0580" = { kind = "function", name = "in-game load", notes = ["game/day/safe-points.md", "game/day/time.md", "game/interface/main-menu.md", "game/interface/window-construction.md", "game/program/load-preparation.md", "game/program/save-transfer-copy.md", "game/program/saves.md", "game/provinces/map-modes.md"] }
 "0x5d05ac" = { kind = "code", notes = ["game/interface/main-menu.md"] }
+"0x5d05c3" = { kind = "code", notes = ["game/provinces/map-modes.md"] }
+"0x5d05ce" = { kind = "code", notes = ["game/provinces/map-modes.md"] }
 "0x5d0653" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x5d06c4" = { kind = "code", name = "in-game load without a name", notes = ["game/interface/main-menu.md"] }
 "0x5d09a3" = { kind = "code", notes = ["game/program/load-preparation.md", "game/program/saves.md"] }
+"0x5d0a22" = { kind = "code", notes = ["game/provinces/map-modes.md"] }
 "0x5d0a29" = { kind = "code", name = "in-game load reset", notes = ["game/interface/main-menu.md", "game/program/load-preparation.md"] }
 "0x5d0a2f" = { kind = "code", notes = ["game/program/load-preparation.md"] }
 "0x5d0b9f" = { kind = "code", notes = ["game/program/load-preparation.md"] }
@@ -1579,6 +1582,7 @@
 "0x5d0d73" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x5d0d78" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x5d0d7c" = { kind = "code", notes = ["game/program/saves.md"] }
+"0x5d0d85" = { kind = "code", notes = ["game/provinces/map-modes.md"] }
 "0x5d0f58" = { kind = "code", notes = ["game/interface/main-menu.md", "game/program/load-preparation.md", "game/program/saves.md"] }
 "0x5d1050" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x5d1670" = { kind = "function", notes = ["game/interface/main-menu.md"] }
@@ -1710,7 +1714,7 @@
 "0x6e74c0" = { kind = "function", name = "game console", notes = ["game/scripts/game-console.md"] }
 "0x6e7a50" = { kind = "function", name = "the ambient sound", notes = ["game/interface/frame-lifecycle.md"] }
 "0x6e80ee" = { kind = "code", notes = ["game/interface/frame-lifecycle.md", "game/interface/rendering-architecture.md"] }
-"0x6e8a90" = { kind = "function", notes = ["game/day/frame-and-idlers.md"] }
+"0x6e8a90" = { kind = "function", notes = ["game/day/frame-and-idlers.md", "game/provinces/map-modes.md"] }
 "0x6e90f0" = { kind = "function", notes = ["game/interface/main-menu.md", "game/scripts/game-console.md"] }
 "0x6e9860" = { kind = "function", name = "a text floating on the map", notes = ["game/program/loading.md", "game/program/world-interface-coupling.md"] }
 "0x6e9f68" = { kind = "code", name = "a floating text's strings destroyed", notes = ["game/interface/frame-lifecycle.md"] }
@@ -1725,6 +1729,8 @@
 "0x6eb9f0" = { kind = "function", notes = ["game/countries/achievements.md"] }
 "0x6ebd10" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md"] }
 "0x6ec450" = { kind = "function", notes = ["game/interface/map-drawing-reads.md", "game/provinces/map-modes.md"] }
+"0x6ec57e" = { kind = "code", notes = ["game/provinces/map-modes.md"] }
+"0x6ec66c" = { kind = "code", notes = ["game/provinces/map-modes.md"] }
 "0x6ec87a" = { kind = "code", notes = ["game/day/time.md"] }
 "0x6ec9c4" = { kind = "code", notes = ["game/provinces/map-modes.md"] }
 "0x6eca44" = { kind = "code", notes = ["game/provinces/map-modes.md"] }
@@ -2140,7 +2146,7 @@
 "0x8023b0" = { kind = "leaf", notes = ["game/day/frame-scheduling.md", "game/interface/drawing-boundaries.md", "game/interface/map-drawing-reads.md"] }
 "0x8023d0" = { kind = "leaf", notes = ["game/interface/drawing-boundaries.md", "game/interface/map-drawing-reads.md"] }
 "0x8024d0" = { kind = "leaf", notes = ["game/day/time.md"] }
-"0x803270" = { kind = "function", notes = ["game/day/frame-and-idlers.md", "game/interface/main-menu.md", "game/interface/window-construction.md"] }
+"0x803270" = { kind = "function", notes = ["game/day/frame-and-idlers.md", "game/interface/main-menu.md", "game/interface/window-construction.md", "game/provinces/map-modes.md"] }
 "0x804000" = { kind = "code", notes = ["game/program/world-interface-coupling.md"] }
 "0x806000" = { kind = "code", notes = ["game/program/world-interface-coupling.md"] }
 "0x80794d" = { kind = "code", notes = ["game/interface/main-menu.md"] }
@@ -2269,17 +2275,19 @@
 "0x81ac3a" = { kind = "code", notes = ["game/program/saves.md"] }
 "0x81ace3" = { kind = "code", notes = ["game/program/saves.md"] }
 "0x81add0" = { kind = "function", notes = ["game/interface/extension-windows.md"] }
-"0x81af10" = { kind = "function", name = "map manager interface build", notes = ["game/interface/main-menu.md", "game/interface/window-construction.md", "game/program/saves.md"] }
+"0x81af10" = { kind = "function", name = "map manager interface build", notes = ["game/interface/main-menu.md", "game/interface/window-construction.md", "game/program/saves.md", "game/provinces/map-modes.md"] }
 "0x81b483" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x81b691" = { kind = "code", notes = ["game/interface/camera.md"] }
 "0x81b6dc" = { kind = "code", notes = ["game/interface/camera.md"] }
 "0x81bdf4" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x81c19b" = { kind = "code", notes = ["game/interface/extension-windows.md"] }
 "0x81c4e7" = { kind = "code", notes = ["game/interface/main-menu.md"] }
-"0x81c503" = { kind = "code", notes = ["game/interface/main-menu.md"] }
+"0x81c503" = { kind = "code", notes = ["game/interface/main-menu.md", "game/provinces/map-modes.md"] }
 "0x81cdbc" = { kind = "code", name = "unit view deleted by the rebuild", notes = ["game/interface/main-menu.md"] }
 "0x81cdd2" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x81d08b" = { kind = "code", notes = ["game/interface/main-menu.md"] }
+"0x81d41a" = { kind = "code", notes = ["game/provinces/map-modes.md"] }
+"0x81d431" = { kind = "code", notes = ["game/provinces/map-modes.md"] }
 "0x81d536" = { kind = "code", name = "map manager interface build's message icon holder", notes = ["game/interface/main-menu.md"] }
 "0x81d551" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x81d8a9" = { kind = "code", notes = ["game/countries/achievements.md"] }
@@ -2312,6 +2320,10 @@
 "0x821c64" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x821ff0" = { kind = "function", name = "map mode refresh", notes = ["game/interface/extension-windows.md", "game/interface/frame-lifecycle.md", "game/interface/main-menu.md", "game/interface/map-drawing-reads.md", "game/interface/rendering-architecture.md", "game/interface/window-construction.md", "game/provinces/map-modes.md"] }
 "0x82205c" = { kind = "code", name = "map mode", notes = ["game/provinces/map-modes.md"] }
+"0x8221e6" = { kind = "code", notes = ["game/provinces/map-modes.md"] }
+"0x8222ce" = { kind = "code", notes = ["game/provinces/map-modes.md"] }
+"0x8222d0" = { kind = "code", notes = ["game/provinces/map-modes.md"] }
+"0x8222f9" = { kind = "code", notes = ["game/provinces/map-modes.md"] }
 "0x822580" = { kind = "function", notes = ["game/provinces/map-modes.md"] }
 "0x824810" = { kind = "function", name = "after in-game load", notes = ["game/interface/main-menu.md"] }
 "0x82493f" = { kind = "code", notes = ["game/day/time.md"] }
@@ -4482,12 +4494,16 @@
 "0x123ff50" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x1243500" = { kind = "function", notes = ["game/interface/message-pop-up-actions.md"] }
 "0x1244500" = { kind = "function", notes = ["game/interface/main-menu.md"] }
-"0x12449a0" = { kind = "function", notes = ["game/interface/main-menu.md"] }
+"0x12449a0" = { kind = "function", notes = ["game/interface/main-menu.md", "game/provinces/map-modes.md"] }
 "0x1244db5" = { kind = "code", notes = ["game/interface/main-menu.md"] }
+"0x1245160" = { kind = "function", notes = ["game/provinces/map-modes.md"] }
+"0x12459c0" = { kind = "function", notes = ["game/provinces/map-modes.md"] }
+"0x1247340" = { kind = "function", notes = ["game/provinces/map-modes.md"] }
 "0x1247ed0" = { kind = "function", notes = ["game/interface/main-menu.md", "game/interface/window-construction.md"] }
 "0x1248740" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x1248850" = { kind = "function", notes = ["game/interface/main-menu.md", "game/interface/window-construction.md"] }
 "0x1248900" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
+"0x1249820" = { kind = "function", notes = ["game/provinces/map-modes.md"] }
 "0x1250d80" = { kind = "function", notes = ["game/day/frame-and-idlers.md"] }
 "0x1253d80" = { kind = "function", notes = ["game/day/frame-and-idlers.md", "game/interface/frame-lifecycle.md", "game/interface/window-construction.md"] }
 "0x1258230" = { kind = "function", notes = ["game/scripts/game-console.md"] }
@@ -6920,6 +6936,7 @@
 "0x23581c8" = { kind = "data", notes = ["game/countries/subjects.md"] }
 "0x23581d8" = { kind = "data", notes = ["game/countries/subjects.md"] }
 "0x23582b0" = { kind = "data", notes = ["game/scripts/triggers.md"] }
+"0x2358318" = { kind = "data", notes = ["game/provinces/map-modes.md"] }
 "0x2358340" = { kind = "data", notes = ["game/interface/map-drawing-reads.md"] }
 "0x2358390" = { kind = "data", notes = ["game/interface/map-drawing-reads.md"] }
 "0x2358730" = { kind = "data", notes = ["game/interface/map-drawing-reads.md"] }

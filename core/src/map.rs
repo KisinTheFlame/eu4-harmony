@@ -18,8 +18,26 @@ pub(crate) const RENDERER: usize = 0x10a8c30;
 /// The in-game idler's map mode set (`drawing::deferred` defers it from a
 /// moved capital).
 pub(crate) const REFRESH: GameFunction<4> = GameFunction::at(0x821ff0);
+const POLITICAL_MODE: i32 = 1;
 const PAINT_MODE: i32 = 12;
 const PAINT_OPTION: u32 = 26;
+
+/// Whether `mode` is one of the 54 regular in-game map modes registered for
+/// `mapmode_more_window` (`0x12459c0` -> `0x2358318`), excluding temporary
+/// panel/dialog modes (such as timeline `0x25` and macrobuilder `0x30`),
+/// frontend DLC preview modes (`0x50`..=`0x53`), and debug modes.
+fn is_restorable_mode(mode: i32) -> bool {
+    matches!(mode, 0x00..=0x0c | 0x0e..=0x24 | 0x34..=0x38 | 0x3d..=0x40 | 0x43 | 0x45..=0x46 | 0x4a..=0x4f)
+}
+
+/// Chooses the map mode to restore after an in-game load: the player's mode
+/// saved before extension coloring (when coloring is active), otherwise the
+/// current mode, otherwise the previous mode, falling back to political (`1`)
+/// when none is a regular in-game map mode.
+fn choose_restored_mode(current: i32, previous: i32, painted_saved: Option<i32>) -> i32 {
+    let candidates = [painted_saved.filter(|_| current == PAINT_MODE), Some(current), Some(previous)];
+    candidates.into_iter().flatten().find(|&mode| is_restorable_mode(mode)).unwrap_or(POLITICAL_MODE)
+}
 
 /// Proof collected by the hooks during one refresh.
 #[derive(Clone, Default)]
@@ -304,6 +322,32 @@ pub fn release(m: &Memory, extension: usize) {
     }
 }
 
+/// Captures the player's regular map mode before an in-game load resets it to
+/// terrain (`0x5d05ce`). When an extension is temporarily painting the map in
+/// unrest mode, returns the player's saved mode instead.
+pub(crate) fn mode_before_load(m: &Memory, manager: usize) -> Option<i32> {
+    if manager == 0 || m.vslot(manager, map_manager::REFRESH).ok() != Some(m.at(REFRESH)) {
+        return None;
+    }
+    let current = m.i32(manager + map_manager::MODE).ok()?;
+    let previous = m.i32(manager + map_manager::PREVIOUS_MODE).ok().unwrap_or(POLITICAL_MODE);
+    let painted_saved = with_state(|s| s.saved.filter(|&(old, _)| old == manager).map(|(_, mode)| mode));
+    Some(choose_restored_mode(current, previous, painted_saved))
+}
+
+/// Restores `mode` on `manager` after an in-game load has rebuilt the session
+/// interface (`0x81af10` skips its own refresh while `+0x460` is set). Forces
+/// a full refresh so map names, province colors, and rebuilt map mode button
+/// highlights all match.
+pub(crate) fn restore_after_load(m: &Memory, manager: usize, mode: i32) {
+    if !is_restorable_mode(mode) || manager == 0 || m.vslot(manager, map_manager::REFRESH).ok() != Some(m.at(REFRESH)) {
+        return;
+    }
+    if let Err(e) = REFRESH.call(m, [manager, mode as usize, 0, 1]) {
+        log!("map: restoring map mode {mode} after in-game load failed: {e}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,5 +371,36 @@ mod tests {
         assert!(coloring.take_lost().is_empty());
         coloring.clear();
         assert!(!coloring.shows(2) && coloring.colors.is_empty());
+    }
+
+    #[test]
+    fn restorable_modes_match_the_54_regular_in_game_map_modes() {
+        let count = (0..=0x54).filter(|&mode| is_restorable_mode(mode)).count();
+        assert_eq!(count, 54);
+        // Regular modes, including terrain (0), political (1), diplomacy (5), and parliament seats (0x4f).
+        for mode in [0, 1, 2, 3, 4, 5, 12, 0x24, 0x36, 0x45, 0x4a, 0x4f] {
+            assert!(is_restorable_mode(mode), "mode {mode:#x} should be restorable");
+        }
+        // Temporary, frontend preview, invalid, and debug modes are excluded.
+        for mode in [-1, 0x0d, 0x25, 0x26, 0x28, 0x30, 0x31, 0x32, 0x49, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55] {
+            assert!(!is_restorable_mode(mode), "mode {mode:#x} should not be restorable");
+        }
+    }
+
+    #[test]
+    fn restored_mode_keeps_regular_modes_and_falls_back_from_temporary_ones() {
+        // Keeps the player's regular mode, including terrain (0) and diplomacy (5).
+        assert_eq!(choose_restored_mode(0, 1, None), 0);
+        assert_eq!(choose_restored_mode(5, 1, None), 5);
+        // Temporary panel modes (timeline 0x25, macrobuilder 0x30) fall back to the previous regular mode.
+        assert_eq!(choose_restored_mode(0x25, 4, None), 4);
+        assert_eq!(choose_restored_mode(0x30, 5, None), 5);
+        // When both current and previous are temporary or invalid, falls back to political (1).
+        assert_eq!(choose_restored_mode(0x25, 0x30, None), POLITICAL_MODE);
+        assert_eq!(choose_restored_mode(0x49, -1, None), POLITICAL_MODE);
+        // Extension coloring in unrest mode (12) restores the player's saved mode instead.
+        assert_eq!(choose_restored_mode(PAINT_MODE, 1, Some(4)), 4);
+        // Saved mode is ignored when the player already switched away from unrest mode.
+        assert_eq!(choose_restored_mode(5, 1, Some(4)), 5);
     }
 }
