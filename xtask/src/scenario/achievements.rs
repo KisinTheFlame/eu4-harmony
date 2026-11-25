@@ -3,12 +3,12 @@
 //! either `achievements_with_changed_checksum` or `achievements_outside_ironman`
 //! is off. The game's date never advances, so the scenario does not
 //! deliberately unlock an achievement on the platform.
-use super::{Build, Game, Parameter, Parameters, Played, Scenario, Stop};
+use super::{game::set_setting, Build, Game, Parameter, Parameters, Played, Scenario, Stop};
 use eu4_harmony_remote::{menu::MenuRequest, session::Session, time::TimeRequest, CountryTag};
 use serde_json::{json, Value};
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
     time::{Duration, Instant},
 };
 
@@ -43,10 +43,10 @@ impl Scenario for Achievements {
         let user = game.user()?;
         // These files belong to this scenario's claim, never the player.
         game.end();
-        setting(&user.path().join("settings.txt"), "compress_autosave", "no")?;
+        set_setting(&user.path().join("settings.txt"), "compress_autosave", "no")?;
         let settings = user.harmony().join("settings.txt");
-        setting(&settings, "achievements_with_changed_checksum", "yes")?;
-        setting(&settings, "achievements_outside_ironman", "yes")?;
+        set_setting(&settings, "achievements_with_changed_checksum", "yes")?;
+        set_setting(&settings, "achievements_outside_ironman", "yes")?;
         game.restart()?;
         let country = CountryTag(*b"CAS");
         let began: Session = game.ask(&MenuRequest::Start { country: Some(country) })?;
@@ -65,7 +65,7 @@ impl Scenario for Achievements {
         game.check(after.tracked == before.tracked, "the in-game load changed the tracked achievement list while paused")?;
 
         game.end();
-        setting(&settings, "achievements_with_changed_checksum", "no")?;
+        set_setting(&settings, "achievements_with_changed_checksum", "no")?;
         game.restart()?;
         let _: Session = game.ask(&MenuRequest::Start { country: Some(country) })?;
         let () = game.ask(&TimeRequest::Pause {})?;
@@ -78,8 +78,8 @@ impl Scenario for Achievements {
         game.check(checksum_off.tracked.is_empty(), "a modded game tracked achievements with achievements_with_changed_checksum off")?;
 
         game.end();
-        setting(&settings, "achievements_with_changed_checksum", "yes")?;
-        setting(&settings, "achievements_outside_ironman", "no")?;
+        set_setting(&settings, "achievements_with_changed_checksum", "yes")?;
+        set_setting(&settings, "achievements_outside_ironman", "no")?;
         game.restart()?;
         let _: Session = game.ask(&MenuRequest::Start { country: Some(country) })?;
         let () = game.ask(&TimeRequest::Pause {})?;
@@ -106,38 +106,6 @@ impl Scenario for Achievements {
         }
         lines
     }
-}
-
-/// Changes one top-level setting while keeping the rest of the claim's file,
-/// creating the file when missing.
-fn setting(path: &Path, key: &str, value: &str) -> Played<()> {
-    let text = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(Stop::Failed(format!("cannot read {}: {e}", path.display()))),
-    };
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| Stop::Failed(format!("cannot make {}: {e}", parent.display())))?;
-    }
-    fs::write(path, with_setting(&text, key, value)).map_err(|e| Stop::Failed(format!("cannot write {}: {e}", path.display())))
-}
-
-fn with_setting(text: &str, key: &str, value: &str) -> String {
-    let mut found = false;
-    let mut changed = String::new();
-    for line in text.lines() {
-        if line.split_once('=').is_some_and(|(name, _)| name.trim() == key) {
-            changed.push_str(&format!("{key}={value}\n"));
-            found = true;
-        } else {
-            changed.push_str(line);
-            changed.push('\n');
-        }
-    }
-    if !found {
-        changed.push_str(&format!("{key}={value}\n"));
-    }
-    changed
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -265,6 +233,7 @@ impl<'a> Tokens<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scenario::game::with_setting;
 
     const CHECKSUM: &str = "checksum=\"0123456789abcdef0123456789abcdef\"";
 
@@ -299,7 +268,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("eu4h-ach-setting-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let path = dir.join("eu4-harmony").join("settings.txt");
-        setting(&path, "achievements_outside_ironman", "yes").unwrap();
+        set_setting(&path, "achievements_outside_ironman", "yes").unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "achievements_outside_ironman=yes\n");
         let _ = fs::remove_dir_all(&dir);
     }

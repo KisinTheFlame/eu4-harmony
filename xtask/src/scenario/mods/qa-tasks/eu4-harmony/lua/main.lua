@@ -113,8 +113,18 @@ local function checks(game, tag)
   check("reads", function()
     local country = game.country.get(tag)
     local modifiers = game.country.modifiers(tag, { "discipline" })
-    local opinion = game.country.opinion("ENG", tag)
-    local capital = game.province.get(183)
+    local other = tag == "ENG" and "FRA" or "ENG"
+    local opinion = game.country.opinion(other, tag)
+    local cap = game.country.governing_capacity()
+    local owned_id = nil
+    for _, p in ipairs(game.province.list()) do
+      if p.owner == tag and p.kind == "land" then
+        owned_id = p.id
+        break
+      end
+    end
+    local owned = owned_id and game.province.get(owned_id) or nil
+    local area = owned_id and game.province.area(owned_id) or nil
     local armies = game.army.list()
     local regiments = #armies > 0 and game.army.regiments(armies[1].id) or {}
     return country.ruler ~= nil
@@ -122,11 +132,17 @@ local function checks(game, tag)
       and type(country.corruption) == "number"
       and modifiers.values[1].modifier == "discipline"
       and type(opinion.opinion) == "number"
-      and type(capital.devastation) == "number"
+      and type(cap.used) == "number" and cap.used > 0
+      and type(cap.max) == "number" and cap.max > 0
+      and owned ~= nil and type(owned.devastation) == "number"
+      and area ~= nil and type(area.area) == "string" and area.owner == tag and #area.provinces > 0 and area.development > 0 and area.governing_cost > 0
       and #armies > 0
       and type(armies[1].strength) == "number"
       and #regiments > 0,
-      "ruler " .. tostring(country.ruler ~= nil) .. ", legitimacy " .. tostring(country.legitimacy ~= nil) .. ", armies " .. #armies .. ", regiments " .. #regiments
+      "ruler " .. tostring(country.ruler ~= nil)
+        .. ", cap " .. tostring(cap.used) .. "/" .. tostring(cap.max)
+        .. ", area " .. tostring(area and area.area or "nil")
+        .. ", armies " .. #armies .. ", regiments " .. #regiments
   end)
 end
 

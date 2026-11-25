@@ -26,7 +26,7 @@ impl Scenario for Windows {
         "windows"
     }
     fn about(&self) -> &'static str {
-        "native extension windows, replacing list rows, pop-up answers, panel closing, extension reload and session teardown; captures retained for visual inspection"
+        "native extension windows, panel entries, fixed panels, replacing list rows, pop-up answers, panel closing, extension reload and session teardown; captures retained for visual inspection"
     }
     fn build(&self, _: &Parameters) -> Build {
         Build::Player

@@ -2199,6 +2199,7 @@
 "0x814f0a" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
 "0x814f17" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
 "0x814f2f" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
+"0x81501b" = { kind = "code", notes = ["game/program/headless.md"] }
 "0x815028" = { kind = "code", notes = ["game/interface/window-activation.md", "game/military/army-orders.md"] }
 "0x81502d" = { kind = "code", notes = ["game/military/army-orders.md"] }
 "0x815312" = { kind = "code", notes = ["game/day/time-architecture.md"] }
@@ -2238,16 +2239,19 @@
 "0x817254" = { kind = "code", notes = ["game/military/army-orders.md"] }
 "0x818080" = { kind = "function", name = "closing the views over the map", notes = ["game/interface/extension-windows.md", "game/interface/message-pop-up-actions.md"] }
 "0x8181d0" = { kind = "function", notes = ["game/interface/message-pop-up-actions.md"] }
-"0x8183b0" = { kind = "function", name = "the in-game frame's drawing", notes = ["game/interface/frame-lifecycle.md", "game/interface/gui-drawing.md", "game/interface/map-drawing-reads.md", "game/interface/rendering-architecture.md", "game/interface/window-input-refresh.md"] }
+"0x8183b0" = { kind = "function", name = "the in-game frame's drawing", notes = ["game/interface/frame-lifecycle.md", "game/interface/gui-drawing.md", "game/interface/map-drawing-reads.md", "game/interface/rendering-architecture.md", "game/interface/window-input-refresh.md", "game/program/headless.md"] }
 "0x818614" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x818619" = { kind = "code", name = "the map mode's colors' flags", notes = ["game/interface/frame-lifecycle.md", "game/interface/timeline.md"] }
 "0x818652" = { kind = "code", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md"] }
 "0x81865c" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x8186c2" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
+"0x8186d1" = { kind = "code", notes = ["game/program/headless.md"] }
 "0x818719" = { kind = "code", notes = ["game/interface/camera.md"] }
+"0x818720" = { kind = "code", notes = ["game/program/headless.md"] }
 "0x818728" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x8187b6" = { kind = "code", notes = ["game/program/headless.md"] }
 "0x8187da" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
+"0x8187e7" = { kind = "code", notes = ["game/program/headless.md"] }
 "0x818804" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
 "0x818831" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
 "0x818837" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
@@ -2268,6 +2272,7 @@
 "0x819c4f" = { kind = "code", notes = ["game/interface/camera.md"] }
 "0x819cb9" = { kind = "code", notes = ["game/interface/camera.md"] }
 "0x81a66d" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
+"0x81aa86" = { kind = "code", notes = ["game/program/headless.md"] }
 "0x81aa92" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x81aaa3" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x81aab0" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
@@ -2350,7 +2355,7 @@
 "0x830150" = { kind = "function", notes = ["game/interface/message-pop-up-actions.md"] }
 "0x83065d" = { kind = "code", notes = ["game/interface/message-pop-up-actions.md"] }
 "0x830700" = { kind = "function", name = "arrange the panel button strip", notes = ["game/interface/extension-windows.md", "game/interface/panel-entry-text.md", "game/interface/window-elements.md"] }
-"0x830fd0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/rendering-architecture.md", "game/interface/window-activation.md", "game/military/army-orders.md"] }
+"0x830fd0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/rendering-architecture.md", "game/interface/window-activation.md", "game/military/army-orders.md", "game/program/headless.md"] }
 "0x8310a2" = { kind = "code", notes = ["game/interface/window-activation.md"] }
 "0x8310ba" = { kind = "code", notes = ["game/interface/window-activation.md"] }
 "0x831132" = { kind = "code", notes = ["game/military/army-orders.md"] }
@@ -5780,6 +5785,8 @@
 "0x16d4c10" = { kind = "leaf", name = "a function of the graphics back end's table", notes = ["game/interface/gui-drawing.md"] }
 "0x16d4c80" = { kind = "function", name = "a function of the graphics back end's table", notes = ["game/interface/gui-drawing.md"] }
 "0x16d4db0" = { kind = "function", name = "frame present", notes = ["game/day/safe-points.md", "game/day/update-and-presentation-boundaries.md", "game/interface/rendering-architecture.md", "game/interface/screenshots.md", "game/program/headless.md"] }
+"0x16d4ddb" = { kind = "code", notes = ["game/program/headless.md"] }
+"0x16d4df1" = { kind = "code", notes = ["game/program/headless.md"] }
 "0x16d4e00" = { kind = "function", name = "the renderer begins a scene", notes = ["game/interface/gui-drawing.md", "game/interface/panel-entry-text.md", "game/interface/rendering-architecture.md"] }
 "0x16d4e2f" = { kind = "code", name = "a scene forgets the renderer's vertex declaration", notes = ["game/interface/frame-lifecycle.md"] }
 "0x16d4e50" = { kind = "function", name = "a function of the graphics back end's table", notes = ["game/interface/gui-drawing.md", "game/interface/panel-entry-text.md", "game/interface/rendering-architecture.md"] }

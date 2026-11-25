@@ -1,5 +1,5 @@
 //! `extensions`: extensions that go wrong, in the real game, on the player
-//! build . Four test mods are in its test game's
+//! build . Five test mods are in its test game's
 //! playset (`mods/`): `qa-steady` counts the days and keeps its count as
 //! save data, `qa-failing` raises errors, `qa-looping` loops without end,
 //! `qa-hungry` runs into the memory limit and `qa-tasks` tries tasks, game
@@ -9,13 +9,16 @@
 //! From the main menu it starts a new game as the country, lets days run,
 //! writes the autosave and loads it in the game, reloads `qa-steady` again
 //! and again while the time runs, lets days run again and returns. Then it
+//! loads the ironman save, runs days, returns so the ironman save is written
+//! back, reloads that ironman save and confirms `qa-steady` kept its save
+//! data across the binary ironman save as well. Then it
 //! reads the extensions' logs: `qa-steady` counted every day and got its
-//! count back after the load and each reload; `qa-failing` logged its error
-//! and was not stopped; `qa-looping` was stopped by the time limit, then for
-//! good; `qa-hungry` was refused memory and was not stopped; `qa-tasks`
-//! passed each of its checks in both sessions, the task it left waiting at
-//! the first one's end raising cancelled in the second, and failed none. The
-//! date went on through all of it.
+//! count back after the load, each reload and the ironman round trip;
+//! `qa-failing` logged its error and was not stopped; `qa-looping` was
+//! stopped by the time limit, then for good; `qa-hungry` was refused memory
+//! and was not stopped; `qa-tasks` passed each of its checks in every
+//! session, the task left waiting at each session's end raising cancelled in
+//! the next, and failed none. The date went on through all of it.
 use super::{game::days_between, logs::Mark, text, Build, Game, Parameter, Parameters, Played, Scenario, Stop};
 use eu4_harmony_remote::{
     extensions::{ExtensionRequest, Reloaded},
@@ -41,7 +44,7 @@ impl Scenario for Extensions {
     }
 
     fn about(&self) -> &'static str {
-        "extensions that go wrong, in the real game: errors, a loop the time limit stops, the memory limit, save data through a load and reloads"
+        "extensions that go wrong, in the real game: errors, a loop the time limit stops, the memory limit, save data through a load, reloads and an ironman save"
     }
 
     fn build(&self, _: &Parameters) -> Build {
@@ -57,7 +60,16 @@ impl Scenario for Extensions {
             Parameter { name: "country", default: "FRA", about: "the country of the new game" },
             Parameter { name: "days", default: "120", about: "the days let run before the autosave, and again after the reloads" },
             Parameter { name: "reloads", default: "10", about: "how many times qa-steady is reloaded while the time runs" },
+            Parameter {
+                name: "ironman_save",
+                default: "test-ironman-1444",
+                about: "an ironman save used to check extension save data across binary ironman saves",
+            },
         ]
+    }
+
+    fn saves(&self, parameters: &Parameters) -> Vec<String> {
+        vec![parameters.text("ironman_save")]
     }
 
     fn mods(&self, _: &Parameters) -> Vec<PathBuf> {
@@ -69,6 +81,7 @@ impl Scenario for Extensions {
         let tag = CountryTag::parse(&country).ok_or_else(|| Stop::Failed(format!("no country tag {country:?}")))?;
         let days = parameters.number("days")?;
         let reloads = parameters.number("reloads")?;
+        let ironman_save = crate::saves::save_name(&parameters.text("ironman_save"));
         let user = game.user()?;
         let marks: Vec<Mark> = MODS.iter().map(|m| Mark::of_extension(&user, m)).collect();
 
@@ -87,34 +100,54 @@ impl Scenario for Extensions {
         let end = game.session()?;
         let minutes = ran.elapsed().as_secs_f64() / 60.0;
         game.return_to_menu()?;
+        let normal_steady = marks[0].extension_messages(&user, MODS[0]);
+
+        // Ironman round trip: returning to the menu writes the binary ironman
+        // save with extension save data; loading it again must restore that data.
+        // Run 40 days per session so `qa-tasks` completes its full wait chain (~25 days).
+        let ironman_mark = Mark::of_extension(&user, MODS[0]);
+        let _: Session = game.ask(&MenuRequest::Load { save: ironman_save.clone() })?;
+        game.run(40)?;
+        let ironman_mid = game.session()?.date;
+        game.return_to_menu()?;
+        let ironman_reloaded: Session = game.ask(&MenuRequest::Load { save: ironman_save.clone() })?;
+        game.check(ironman_reloaded.date == ironman_mid, format!("ironman save {ironman_save} loaded on {}, saved on {ironman_mid}", ironman_reloaded.date))?;
+        game.run(40)?;
+        game.return_to_menu()?;
+        let ironman_steady = ironman_mark.extension_messages(&user, MODS[0]);
 
         let lines: Vec<Vec<String>> = MODS.iter().zip(&marks).map(|(m, mark)| mark.extension_messages(&user, m)).collect();
-        let [steady, failing, looping, hungry, tasks] = [&lines[0], &lines[1], &lines[2], &lines[3], &lines[4]];
+        let [steady, failing, looping, hungry, tasks] = [&normal_steady, &lines[1], &lines[2], &lines[3], &lines[4]];
         let elapsed = days_between(began.date, end.date);
         // Each day qa-steady heard: its count and the date. The first day of
         // a session is heard at the session's own date, so the date of the
         // autosave is heard before it and again after its load.
-        let heard: Vec<(i32, String)> = steady
-            .iter()
-            .filter_map(|l| {
-                let mut words = l.strip_prefix("qa-steady day ")?.split(' ');
-                Some((words.next()?.parse().ok()?, words.next()?.to_string()))
-            })
-            .collect();
+        let parse_heard = |log: &[String]| -> Vec<(i32, String)> {
+            log.iter()
+                .filter_map(|l| {
+                    let mut words = l.strip_prefix("qa-steady day ")?.split(' ');
+                    Some((words.next()?.parse().ok()?, words.next()?.to_string()))
+                })
+                .collect()
+        };
+        let heard = parse_heard(steady);
         let counted_on = heard.iter().enumerate().all(|(i, (n, _))| *n == i as i32 + 1);
         let dates: std::collections::BTreeSet<&str> = heard.iter().map(|(_, d)| d.as_str()).collect();
         let last_day = heard.last().map(|(n, _)| *n);
         let saved_back = steady.iter().filter(|l| l.contains("qa-steady session: saved back")).count();
+        let ironman_heard = parse_heard(&ironman_steady);
+        let ironman_counted_on = !ironman_heard.is_empty() && ironman_heard.iter().enumerate().all(|(i, (n, _))| *n == i as i32 + 1);
+        let ironman_saved_back = ironman_steady.iter().filter(|l| l.contains("qa-steady session: saved back")).count();
         let errors = failing.iter().filter(|l| l.contains("qa-failing: on purpose")).count();
         let wrong_calls = failing.iter().filter(|l| l.contains("province.get")).count();
         let time_limit = looping.iter().filter(|l| l.contains("more than 1 s without waiting")).count();
         let stopped_for_good = looping.iter().any(|l| l.starts_with("stopped:") && l.contains("ran past the time limit"));
         let refused = hungry.iter().filter(|l| l.contains("qa-hungry: false") && l.contains("memory")).count();
-        // qa-tasks: each check passed in both sessions, the task left
-        // waiting at the first one's end raised cancelled in the second, and
-        // none failed.
+        // qa-tasks: each check passed in all four sessions (new game, autosave
+        // load, ironman load, ironman reload), the task left waiting at each
+        // session's end raised cancelled in the next, and none failed.
         let passed = |name: &str| tasks.iter().filter(|l| l.as_str() == format!("qa-tasks ok {name}")).count();
-        let short: Vec<&str> = TASK_CHECKS.iter().copied().filter(|c| passed(c) < 2).collect();
+        let short: Vec<&str> = TASK_CHECKS.iter().copied().filter(|c| passed(c) < 4).collect();
         let dropped = passed("dropped");
         let task_failures: Vec<&String> = tasks.iter().filter(|l| l.starts_with("qa-tasks FAIL")).collect();
         // Stopped for good; the time limit's own error says "stopped" too.
@@ -123,6 +156,7 @@ impl Scenario for Extensions {
             "began": began.date.to_string(), "loaded": loaded.date.to_string(), "ended": end.date.to_string(),
             "days_a_minute": (f64::from(elapsed) / minutes.max(1e-6) * 10.0).round() / 10.0,
             "steady_last_day": last_day, "steady_dates": dates.len(), "steady_counted_on": counted_on, "saved_back": saved_back, "lost": lost,
+            "ironman_saved_back": ironman_saved_back, "ironman_counted_on": ironman_counted_on,
             "failing_errors": errors, "failing_wrong_calls": wrong_calls, "failing_stopped": stopped(failing),
             "looping_time_limit": time_limit, "looping_stopped_for_good": stopped_for_good,
             "hungry_refused": refused, "hungry_stopped": stopped(hungry),
@@ -145,6 +179,10 @@ impl Scenario for Extensions {
             saved_back == 1 + reloads as usize,
             format!("qa-steady got its save data back {saved_back} times, not after the load and each of {reloads} reloads"),
         )?;
+        game.check(
+            ironman_saved_back == 1 && ironman_counted_on,
+            format!("qa-steady ironman save data restored {ironman_saved_back} times, count unbroken: {ironman_counted_on}"),
+        )?;
         game.check(lost.is_empty(), format!("a reload lost qa-steady's save data: {}", lost.join("; ")))?;
         game.check(
             errors >= 1 && !stopped(failing),
@@ -159,9 +197,9 @@ impl Scenario for Extensions {
             format!("qa-hungry was refused memory {refused} times and was {}stopped", if stopped(hungry) { "" } else { "not " }),
         )?;
         game.check(
-            short.is_empty() && dropped == 1 && task_failures.is_empty() && !stopped(tasks),
+            short.is_empty() && dropped == 3 && task_failures.is_empty() && !stopped(tasks),
             format!(
-                "qa-tasks passed every check twice but {short:?}, the left task's cancel {dropped} times, failed {task_failures:?} and was {}stopped",
+                "qa-tasks passed every check four times but {short:?}, the left task's cancel {dropped} times, failed {task_failures:?} and was {}stopped",
                 if stopped(tasks) { "" } else { "not " }
             ),
         )?;
@@ -181,14 +219,16 @@ impl Scenario for Extensions {
             row("qa-steady's dates heard", "steady_dates"),
             row("qa-steady's count unbroken through the load and reloads", "steady_counted_on"),
             row("qa-steady's save data got back", "saved_back"),
+            row("qa-steady's save data got back after ironman save", "ironman_saved_back"),
+            row("qa-steady's ironman count unbroken", "ironman_counted_on"),
             row("qa-failing's errors written in full", "failing_errors"),
             row("qa-failing's wrong calls written", "failing_wrong_calls"),
             row("qa-looping stopped by the time limit", "looping_time_limit"),
             row("qa-looping stopped for good", "looping_stopped_for_good"),
             row("qa-hungry refused memory", "hungry_refused"),
             row("qa-hungry stopped", "hungry_stopped"),
-            row("qa-tasks' checks passed, both sessions", "tasks_checks_passed"),
-            row("qa-tasks' checks not passed twice", "tasks_short"),
+            row("qa-tasks' checks passed, all sessions", "tasks_checks_passed"),
+            row("qa-tasks' checks not passed four times", "tasks_short"),
             row("qa-tasks' left task raised cancelled in the next session", "tasks_dropped"),
             row("qa-tasks' checks failed", "tasks_failed"),
             row("qa-tasks stopped", "tasks_stopped"),

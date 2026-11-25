@@ -1,0 +1,45 @@
+namespace = qa_repairs
+
+# Creates a Protestant center of reformation in the target province.
+province_event = {
+	id = qa_repairs.1
+	title = "qa_repairs.1.t"
+	desc = "qa_repairs.1.d"
+	picture = RELIGION_eventPicture
+	is_triggered_only = yes
+
+	option = {
+		name = "qa_repairs.1.a"
+		change_religion = protestant
+		add_reform_center = protestant
+	}
+}
+
+# Creates a Reformed center of reformation in a province currently targeted by another center.
+province_event = {
+	id = qa_repairs.2
+	title = "qa_repairs.2.t"
+	desc = "qa_repairs.2.d"
+	picture = RELIGION_eventPicture
+	is_triggered_only = yes
+
+	option = {
+		name = "qa_repairs.2.a"
+		change_religion = reformed
+		add_reform_center = reformed
+	}
+}
+
+# Removes the center of reformation located in the target province.
+province_event = {
+	id = qa_repairs.3
+	title = "qa_repairs.3.t"
+	desc = "qa_repairs.3.d"
+	picture = RELIGION_eventPicture
+	is_triggered_only = yes
+
+	option = {
+		name = "qa_repairs.3.a"
+		remove_reform_center = protestant
+	}
+}

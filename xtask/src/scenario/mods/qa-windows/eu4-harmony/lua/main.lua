@@ -10,6 +10,10 @@ local function apply(game)
   local probe = game.window.probe
   if step == 1 then
     game.window.open("probe")
+    probe.entry.visible = true
+    probe.entry.enabled = true
+    probe.entry.value = 12
+    probe.entry.tooltip = words("Entry tooltip: initial")
     probe.status.text = words("Native window: initial rows")
     probe.status.tooltip = words("Initial native tooltip\nSecond line")
     probe.progress.value = 0.25
@@ -19,11 +23,16 @@ local function apply(game)
       { result = words("Third native row") },
     }
   elseif step == 2 then
+    probe.entry.value = 42
+    probe.entry.enabled = false
+    probe.entry.tooltip = words("Entry tooltip: disabled")
     probe.status.text = words("Native window: replaced rows")
     probe.status.tooltip = words("Changed native tooltip")
     probe.progress.value = 0.75
     probe.results.rows = { { result = { text = words("Replacement native row"), tooltip = words("Replacement row tooltip") } } }
   elseif step == 3 then
+    probe.entry.value = nil
+    probe.entry.visible = false
     probe.results.rows = {}
     probe.status.tooltip = nil
     probe.status.visible = false
@@ -31,6 +40,9 @@ local function apply(game)
     game.window.close("probe")
   elseif step == 5 then
     game.window.open("probe")
+    probe.entry.visible = true
+    probe.entry.enabled = true
+    probe.entry.value = 0
     probe.status.visible = true
     probe.status.text = words("Native window: reopened, tooltip cleared")
     assert(probe.status.tooltip.text == "", "a cleared tooltip returned after reopening")
@@ -48,6 +60,7 @@ return {
     probe = {
       size = { 440, 500 }, title = words("Native lifetime probe"),
       anchor = "top_left", offset = { 100, 120 },
+      entry = { image = "gfx/interface/qa_entry.tga", tooltip = words("Declared entry tooltip"), format = "integer" },
       items = {
         { type = "text", name = "status", size = { 380, 50 }, text = words("Native window"), tooltip = words("Declared native tooltip") },
         { type = "button", name = "disabled", text = words("Disabled"), tooltip = words("Disabled button tooltip") },
@@ -61,6 +74,7 @@ return {
     },
     other = {
       size = { 320, 220 }, title = words("Second native panel"),
+      moveable = false,
       anchor = "top_left", offset = { 580, 120 },
       items = { { type = "text", name = "status", size = { 260, 35 }, text = words("The first panel closes") } },
     },

@@ -11,12 +11,15 @@
 //! (docs/dev-tools.md#test-games). Only cargo, for the builds, and the game run as
 //! programs of their own.
 mod achievements;
+mod crash_dumps;
 mod extensions;
 mod game;
 mod late;
 mod leak;
 mod logs;
+mod ordering;
 mod perf;
+mod repairs;
 mod sessions;
 mod sweep;
 mod windows;
@@ -141,6 +144,11 @@ pub trait Scenario: Sync {
     fn alone(&self) -> bool {
         false
     }
+    /// Whether this scenario intentionally triggers a controlled crash and
+    /// checks its own crash logs and dumps.
+    fn expects_crash(&self) -> bool {
+        false
+    }
     fn parameters(&self) -> &'static [Parameter];
     /// Plays the game, handed at its main menu, keeping in `record` what it
     /// found as it goes: a scenario that ends early keeps what it had.
@@ -175,6 +183,9 @@ fn all() -> Vec<&'static dyn Scenario> {
         &achievements::Achievements,
         &extensions::Extensions,
         &windows::Windows,
+        &ordering::Ordering,
+        &repairs::Repairs,
+        &crash_dumps::CrashDumps,
         &late::Late,
         &late::LONG,
         &late::CHECKED,
@@ -207,6 +218,9 @@ const SETS: &[Set] = &[
             "achievements",
             "extensions",
             "windows",
+            "window-ordering",
+            "repairs",
+            "crash-dumps",
             "late",
             "long-1444",
             "long-1600",
@@ -217,7 +231,6 @@ const SETS: &[Set] = &[
             "long-1820",
             "checked",
             "growth",
-            "perf",
         ],
         jobs: claim::AT_ONCE,
     },
@@ -259,10 +272,10 @@ fn alone_waits(others: usize, waited: Duration) -> bool {
 }
 
 /// How long a crash dump may take to read before the report goes without it.
-const READING_A_DUMP: Duration = Duration::from_secs(180);
+pub(crate) const READING_A_DUMP: Duration = Duration::from_secs(180);
 /// How long a test game that crashed may take to end on its own, its crash
 /// handler writing its dump, before it is ended.
-const CRASH_HANDLER: Duration = Duration::from_secs(60);
+pub(crate) const CRASH_HANDLER: Duration = Duration::from_secs(60);
 
 const USAGE: &str =
     "cargo xtask scenario [<name>... --owner <name> [--out <dir>] [--jobs <n>] [--game-dir <dir>] [--<name>.<parameter> <value>]...] | --from-report <dir>";
@@ -572,6 +585,7 @@ fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, owner
     let began = Instant::now();
     let user = claim::user_dir(owner).map(UserFolder::new);
     let crashes = user.as_ref().ok().and_then(|user| user.crash_folders().ok()).unwrap_or_default();
+    let harmony_dumps = user.as_ref().ok().and_then(|user| user.harmony_dump_files().ok()).unwrap_or_default();
     let logs_before = user.as_ref().ok().map(logs::Mark::of);
     let mut record = json!({});
     game.loads(scenario.saves(parameters));
@@ -605,16 +619,21 @@ fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, owner
             // A game in its crash handler ends on its own once its dump is
             // written, with the exit code that says how it crashed.
             game.wait_gone(CRASH_HANDLER);
-            crash_value = Some(crash(owner, &crashes, game.ended(), build, &out.join(format!("{}-crash.log", scenario.name()))));
+            crash_value = Some(crash(owner, &crashes, &harmony_dumps, game.ended(), build, &out.join(format!("{}-crash.log", scenario.name()))));
             game.end();
         }
         Err(Stop::Hung(_)) => game.end(),
         _ => {}
     }
-    let troubles = match (&user, &logs_before) {
+    let mut troubles = match (&user, &logs_before) {
         (Ok(user), Some(mark)) => mark.troubles(user),
         _ => Vec::new(),
     };
+    if scenario.expects_crash() {
+        // Expected controlled-crash scenarios validate their own `crash:` lines;
+        // unexpected panics or fatal framework errors still fail them.
+        troubles.retain(|line| !line.contains("crash:"));
+    }
     if ended.is_ok() {
         if let Some(line) = troubles.first() {
             ended = Err(Stop::Failed(format!("the framework logged: {line}")));
@@ -654,16 +673,27 @@ fn not_played(scenario: &dyn Scenario, parameters: &Parameters, why: &str) -> Va
 }
 
 /// How `owner`'s test game ended, as the claim followed it, and what its
-/// newest crash folder, of those not `known` when the scenario began, says:
-/// its exception, and the stack its dump gives, written to `log` too.
-fn crash(owner: &str, known: &[String], ended: Option<GameEnd>, build: &Path, log: &Path) -> Value {
+/// newest crash folder or Harmony minidump, of those not `known` when the
+/// scenario began, says: its exception, and the stack its dump gives, written
+/// to `log` too.
+fn crash(owner: &str, known: &[String], known_harmony: &[String], ended: Option<GameEnd>, build: &Path, log: &Path) -> Value {
     let ended = ended.map_or(Value::Null, |end| json!({ "exit_code": format!("0x{:x}", end.code), "said": end.describe() }));
-    let Ok(user) = claim::user_dir(owner) else { return json!({ "folder": null, "ended": ended }) };
-    let Some(folder) = UserFolder::new(user).new_crash_folders(known).pop() else { return json!({ "folder": null, "ended": ended }) };
-    let exception: Vec<String> = std::fs::read_to_string(folder.join("exception.txt")).unwrap_or_default().lines().take(12).map(String::from).collect();
-    let dump = folder.join("minidump.dmp");
+    let Ok(user) = claim::user_dir(owner) else { return json!({ "folder": null, "harmony_dump": null, "ended": ended }) };
+    let user = UserFolder::new(user);
+    let folder = user.new_crash_folders(known).pop();
+    let harmony_dump = user.new_harmony_dumps(known_harmony).pop();
+    if folder.is_none() && harmony_dump.is_none() {
+        return json!({ "folder": null, "harmony_dump": null, "ended": ended });
+    }
+    let exception: Vec<String> = folder
+        .as_ref()
+        .map(|f| std::fs::read_to_string(f.join("exception.txt")).unwrap_or_default().lines().take(12).map(String::from).collect())
+        .unwrap_or_default();
+    // Prefer Harmony's backup minidump (captured with original exception
+    // registers) and fall back to the game's own crash folder minidump.
+    let dump = harmony_dump.clone().filter(|p| p.is_file()).or_else(|| folder.as_ref().map(|f| f.join("minidump.dmp")).filter(|p| p.is_file()));
     let mut stack = Vec::new();
-    if dump.is_file() {
+    if let Some(dump) = dump {
         let (dump_text, log_text) = (dump.display().to_string(), log.display().to_string());
         let build = build.to_path_buf();
         let symbols = crate::symbols_dir().unwrap_or_else(|_| PathBuf::from("symbols")).display().to_string();
@@ -678,7 +708,14 @@ fn crash(owner: &str, known: &[String], ended: Option<GameEnd>, build: &Path, lo
             stack = lines[lines.len().saturating_sub(24)..].iter().map(|l| l.to_string()).collect();
         }
     }
-    json!({ "folder": folder.display().to_string(), "ended": ended, "exception": exception, "stack": stack, "log": log.display().to_string() })
+    json!({
+        "folder": folder.map(|f| f.display().to_string()),
+        "harmony_dump": harmony_dump.map(|p| p.display().to_string()),
+        "ended": ended,
+        "exception": exception,
+        "stack": stack,
+        "log": log.display().to_string()
+    })
 }
 
 /// The report: a table of the scenarios, then each one's sections.
@@ -721,10 +758,15 @@ fn markdown(report: &Value) -> String {
                 None => md.push("The claim saw no end of the game's.".into()),
             }
             md.push(String::new());
-            if crash["folder"].is_null() {
-                md.push("No crash folder of the game's came of it.".into());
+            if crash["folder"].is_null() && crash["harmony_dump"].is_null() {
+                md.push("No crash folder or Harmony minidump came of it.".into());
             } else {
-                md.push(format!("The game's crash folder: `{}`.", text(&crash["folder"])));
+                if !crash["folder"].is_null() {
+                    md.push(format!("The game's crash folder: `{}`.", text(&crash["folder"])));
+                }
+                if !crash["harmony_dump"].is_null() {
+                    md.push(format!("Harmony minidump: `{}`.", text(&crash["harmony_dump"])));
+                }
                 for (title, key) in [("Its exception", "exception"), ("The stack its dump gives", "stack")] {
                     let lines: Vec<String> = crash[key].as_array().into_iter().flatten().map(text).collect();
                     if !lines.is_empty() {
@@ -835,8 +877,11 @@ mod tests {
         assert_eq!(alone, ["perf"]);
         let whole = expanded(&words("whole"));
         assert!(whole.iter().any(|s| s == "long-1444") && !whole.iter().any(|s| s == "long"), "{whole:?}");
+        assert!(!whole.iter().any(|s| s == "perf"), "whole must not include perf: {whole:?}");
         assert!(whole.iter().all(|s| find(s).is_some()), "{whole:?}");
-        assert!(whole.iter().any(|s| s == "achievements"), "{whole:?}");
+        for required in ["achievements", "window-ordering", "repairs", "crash-dumps"] {
+            assert!(whole.iter().any(|s| s == required), "{required} missing from whole: {whole:?}");
+        }
         let release = expanded(&words("release"));
         assert_eq!(release.len(), whole.len() + 1);
         assert_eq!(release.last().map(String::as_str), Some("long"));

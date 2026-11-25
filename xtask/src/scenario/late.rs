@@ -75,6 +75,22 @@ fn loads_after(year: u32, years: u32, save_every: u32) -> bool {
     year < years && (year.is_multiple_of(save_every) || (years <= save_every && year == years.div_ceil(2)))
 }
 
+/// The checkable speed-ups that must check at least one answer during `checked`
+/// (hidden, silent, 1444 observe mode with autosaves). `music` is omitted
+/// because silent hidden runs do not necessarily stream music tracks.
+const REQUIRED_CHECKED: &[&str] =
+    &["lookups", "listed-folders", "script-parameters", "localisation", "trigger-profile", "parallel-saves", "army-searches", "modifier-sums"];
+
+/// Parses `<name>: <checked> answer(s) checked, <differed> differing from the game's`.
+fn parse_check_line(line: &str) -> Option<(String, u64, u64)> {
+    let (name, rest) = line.split_once(':')?;
+    let rest = rest.trim();
+    let checked = rest.split_whitespace().next()?.parse().ok()?;
+    let after_comma = rest.split_once(',')?.1.trim();
+    let differed = after_comma.split_whitespace().next()?.parse().ok()?;
+    Some((name.trim().to_string(), checked, differed))
+}
+
 /// The days a year is let run.
 const YEAR: u32 = 365;
 
@@ -264,19 +280,31 @@ impl Scenario for Long {
                 .take_while(|l| !l.is_empty())
                 .collect();
             // A speed-up whose differences have their reasons may differ; the
-            // others must not, in a single answer.
+            // others must not, in a single answer, and every speed-up expected
+            // to run in this campaign must check at least one answer.
             let may_differ = listed(&parameters.text("may_differ"));
             let of = |line: &str| line.split("speed-up ").nth(1).and_then(|rest| rest.split(':').next()).unwrap_or("").to_string();
             let wrong: Vec<&String> = differences.iter().filter(|l| !may_differ.contains(&of(l))).collect();
+            let parsed: Vec<(String, u64, u64)> = checks.iter().filter_map(|line| parse_check_line(line)).collect();
+            let unexercised: Vec<&str> =
+                REQUIRED_CHECKED.iter().copied().filter(|name| parsed.iter().find(|(n, _, _)| n == name).is_none_or(|(_, checked, _)| *checked == 0)).collect();
+            let reported_diffs: Vec<String> = parsed
+                .iter()
+                .filter(|(name, _, differed)| *differed > 0 && !may_differ.contains(name))
+                .map(|(name, checked, differed)| format!("{name}: {differed} of {checked} differed"))
+                .collect();
             record["checks"] = json!(checks);
             record["may_differ"] = json!(may_differ);
+            record["unexercised"] = json!(unexercised);
             record["differences"] = json!(wrong.iter().take(20).collect::<Vec<_>>());
             game.check(!checks.is_empty(), "the startup report says nothing of the speed-ups checked")?;
+            game.check(unexercised.is_empty(), format!("checkable speed-ups checked zero answers in this run: {}", unexercised.join(", ")))?;
             game.check(
-                wrong.is_empty(),
+                wrong.is_empty() && reported_diffs.is_empty(),
                 format!(
-                    "{} answers of the speed-ups that must not differ differed from the game's; the first: {}",
+                    "{} answers of the speed-ups that must not differ differed from the game's; reported: {:?}; the first: {}",
                     wrong.len(),
+                    reported_diffs,
                     wrong.first().map_or("", |l| l)
                 ),
             )?;
@@ -410,5 +438,12 @@ mod tests {
         assert_eq!(loads(100, 20), [20, 40, 60, 80]);
         assert_eq!(loads(1, 20), Vec::<u32>::new());
         assert_eq!(loads(376, 50), [50, 100, 150, 200, 250, 300, 350]);
+    }
+
+    #[test]
+    fn parses_checked_speed_up_counts_from_report_lines() {
+        assert_eq!(parse_check_line("localisation: 1234 answer(s) checked, 0 differing from the game's"), Some(("localisation".into(), 1234, 0)));
+        assert_eq!(parse_check_line("army-searches: 2520 answer(s) checked, 3 differing from the game's"), Some(("army-searches".into(), 2520, 3)));
+        assert_eq!(parse_check_line("unrelated"), None);
     }
 }
