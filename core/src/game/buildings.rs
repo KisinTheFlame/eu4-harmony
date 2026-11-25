@@ -303,7 +303,7 @@ mod tests {
         assert_eq!(destroy_text(CAS, 217, 12), r#"destroybuilding={ building=12 country="CAS" province=217 }"#);
     }
 
-    use crate::catalogue::fake::{byz, tur};
+    use crate::game::buffers::{byz, tur};
     use crate::game::{
         buffers::{self, write_reason, Image, Object, Provinces},
         commands::record,

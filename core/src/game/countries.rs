@@ -701,10 +701,21 @@ pub(super) fn sides(m: &Memory, war: usize) -> Option<(Vec<Tag>, Vec<Tag>)> {
     Some((vector_tags(m, war + war::ATTACKERS).ok()?, vector_tags(m, war + war::DEFENDERS).ok()?))
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::countries: CountryRequest => CountryAnswer;
+    Hostile => hostile;
+    Get => get;
+    GoverningCapacity => super::areas::governing_capacity;
+    Modifiers => modifiers;
+    Budget => budget;
+    Opinion => super::opinions::opinion;
+    Opinions => super::opinions::opinions;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{catalogue::fake::game_tag, game::buffers::Object};
+    use crate::game::buffers::{game_tag, Object};
 
     /// A war of the game's class with these sides; its name is empty.
     fn war_object(m: &Memory, attackers: &[Tag], defenders: &[Tag]) -> Object {

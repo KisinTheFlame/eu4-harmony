@@ -282,7 +282,7 @@ mod tests {
         assert_eq!(written(fra, 183, Work::StopGrowth), r#"cancel_colonist={ country="FRA" location=183 settlement_growth_construction=yes }"#);
     }
 
-    use crate::catalogue::fake::tur;
+    use crate::game::buffers::tur;
     use crate::game::{
         buffers::{self, write_reason, Image, Object, Provinces},
         commands::record,

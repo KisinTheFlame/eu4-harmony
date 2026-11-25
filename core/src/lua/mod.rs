@@ -678,11 +678,64 @@ mod tests {
         fn stopped(&self, _: &Extension, _: &str) {}
     }
 
-    thread_local! {
-        static GAME: std::cell::RefCell<catalogue::fake::Fake> = std::cell::RefCell::default();
+    #[derive(Default)]
+    struct ScriptedCatalogue {
+        calls: Vec<String>,
     }
 
-    /// The catalogue over the fake game, as any extension calls it.
+    impl Catalogue for ScriptedCatalogue {
+        fn run(&mut self, request: Request, _: Option<&catalogue::signals::Buffer>, _: Instant) -> catalogue::Outcome {
+            use eu4_harmony_remote::{
+                armies::{Army, ArmyAnswer, ArmyKind, ArmyRequest, Units},
+                session::{Session, SessionAnswer, SessionRequest},
+                Answer, ArmyId, CountryTag, Date, ProvinceId,
+            };
+            let response = match request {
+                Request::Army(ArmyRequest::Get { army: ArmyId(id) }) => {
+                    self.calls.push(format!("army {id}"));
+                    if id == 4_294_967_377 {
+                        Ok(Answer::Army(ArmyAnswer::Get(Army {
+                            id: ArmyId(id),
+                            owner: CountryTag(*b"TUR"),
+                            kind: ArmyKind::Army,
+                            province: Some(ProvinceId(149)),
+                            regiments: 12,
+                            blocked: Vec::new(),
+                            route: Vec::new(),
+                            route_by: None,
+                            aboard: None,
+                            carrying: 0,
+                            units: Units { infantry: 12, ..Default::default() },
+                            strength: 12.0,
+                            max_strength: 12.0,
+                            morale: 3.0,
+                            max_morale: 3.0,
+                            leader: None,
+                            maintenance: Some(6.0),
+                        })))
+                    } else {
+                        Err(Error::new(Code::NotFound, format!("no own army {id}")))
+                    }
+                }
+                Request::Session(SessionRequest::Get {}) => {
+                    self.calls.push("session".into());
+                    Ok(Answer::Session(SessionAnswer::Get(Session { number: 2, player: Some(CountryTag(*b"TUR")), observing: false, date: Date(0x035D_7710) })))
+                }
+                other => Err(Error::new(Code::Internal, format!("{} is not scripted in this test", other.name()))),
+            };
+            catalogue::Outcome::Done(response)
+        }
+
+        fn at(&mut self, signals: Option<&catalogue::signals::Buffer>, now: Instant, place: &Place, polls: &mut dyn FnMut(&mut catalogue::Poll<'_>)) {
+            polls(&mut catalogue::Poll::new(signals, now, place, None));
+        }
+    }
+
+    thread_local! {
+        static GAME: std::cell::RefCell<ScriptedCatalogue> = std::cell::RefCell::default();
+    }
+
+    /// The catalogue over the scripted test backend, as any extension calls it.
     fn fake_game(_: Caller, with: &mut dyn FnMut(&mut dyn Catalogue)) {
         GAME.with(|game| with(&mut *game.borrow_mut()));
     }

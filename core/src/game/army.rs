@@ -393,7 +393,7 @@ pub fn can_attack(m: &Memory, army: usize, target: usize) -> GResult<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalogue::fake::{byz, tur};
+    use crate::game::buffers::{byz, tur};
     use crate::game::As;
     use crate::game::{
         buffers::{self, Image, Object, Provinces},

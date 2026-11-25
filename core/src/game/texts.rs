@@ -12,3 +12,8 @@ pub fn language(_: Caller) -> GResult<&'static str> {
 pub fn points() -> Vec<crate::points::Point> {
     Vec::new()
 }
+
+crate::catalogue::bind! {
+    eu4_harmony_remote::texts: TextRequest => TextAnswer;
+    Language => caller language;
+}

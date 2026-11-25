@@ -125,7 +125,7 @@ crate::catalogue::bind! {
 mod tests {
     use crate::game::As;
     use super::*;
-    use crate::catalogue::fake::game_tag;
+    use crate::game::buffers::game_tag;
 
     #[test]
     fn the_command_names_the_ally_to_take_it_and_the_player() {
@@ -178,7 +178,7 @@ mod tests {
     }
 
     fn ottomans() -> Ottomans {
-        use crate::catalogue::fake::tur;
+        use crate::game::buffers::tur;
         let image = Image::new();
         image.function(CHECK.rva(), check as *const ()).function(DELETE.rva(), free as *const ()).function(game_string::DESTROY_AT.rva(), no as *const ());
         let provinces = Provinces::new(&image, 3);

@@ -206,7 +206,7 @@ crate::catalogue::bind! {
 mod tests {
     use crate::game::As;
     use super::*;
-    use crate::catalogue::fake::tur;
+    use crate::game::buffers::tur;
     use crate::game::{
         buffers::{self, Image, Object},
         commands::record,

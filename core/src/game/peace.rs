@@ -473,7 +473,7 @@ pub mod checks {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalogue::fake::game_tag;
+    use crate::game::buffers::game_tag;
 
     #[test]
     fn a_term_is_named_by_its_type_without_po() {
@@ -498,7 +498,7 @@ mod tests {
     mod through_the_layer {
         use crate::game::As;
         use super::super::*;
-        use crate::catalogue::fake::{byz, tur};
+        use crate::game::buffers::{byz, tur};
         use eu4_harmony_remote::CountryTag;
 
         use crate::game::{

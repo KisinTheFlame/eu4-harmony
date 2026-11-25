@@ -593,7 +593,7 @@ mod tests {
         assert_eq!(reasons(&text), ["这", "最", "有"]);
     }
 
-    use crate::catalogue::fake::{byz, tur};
+    use crate::game::buffers::{byz, tur};
     use crate::game::{
         buffers::{self, write_reason, Image, Object, Provinces},
         commands::record,

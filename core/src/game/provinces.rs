@@ -710,4 +710,80 @@ mod tests {
         assert_eq!(UnitKind::Galley.index(), 5);
         assert_eq!(UnitKind::ALL.map(UnitKind::key)[3..], ["heavy_ship", "light_ship", "galley", "transport"]);
     }
+
+    #[test]
+    fn a_province_snapshot_serializes_its_utf8_name_and_matches_its_result_shape() {
+        use eu4_harmony_remote::{
+            provinces::{Development, Fort, InstitutionProgress, ProvinceAnswer, ProvinceSnapshot, StateKind},
+            response_json, result_shape, Answer, CountryTag, ProvinceId,
+        };
+        let snapshot = ProvinceSnapshot {
+            id: ProvinceId(151),
+            name: "君士坦丁堡".into(),
+            owner: Some(CountryTag(*b"BYZ")),
+            controller: Some(CountryTag(*b"BYZ")),
+            development: Development { tax: 10.0, production: 9.5, manpower: 6.0 },
+            terrain: Some("farmlands".into()),
+            fort: Fort { level: 2, mothballed: false },
+            buildings: vec!["fort_15th".into(), "marketplace".into()],
+            autonomy: 25.0,
+            culture: Some("greek".into()),
+            religion: Some("orthodox".into()),
+            trade_good: Some("silk".into()),
+            unrest: None,
+            trade_node: Some("constantinople".into()),
+            center_of_trade: 3,
+            trade_company: false,
+            state: Some(StateKind::State),
+            edict: None,
+            cores: vec![CountryTag(*b"BYZ")],
+            claims: vec![CountryTag(*b"TUR")],
+            constructions: None,
+            missionary: None,
+            colony_size: None,
+            named_modifiers: Vec::new(),
+            prosperity: Some(40.0),
+            devastation: 0.0,
+            local_manpower: 1.5,
+            supply_limit: 12.5,
+            separatism: 0,
+            institutions: vec![InstitutionProgress { institution: "feudalism".into(), progress: 100.0 }],
+        };
+        let answer = Answer::Province(ProvinceAnswer::Get(Box::new(snapshot)));
+        let lua = eu4_harmony_checks::form::as_lua(|| serde_json::to_value(&answer)).unwrap();
+        result_shape("province.get").unwrap().check(&lua).unwrap();
+        let line = response_json(&Ok(answer)).to_string();
+        assert!(line.contains(r#""name":"君士坦丁堡""#), "{line}");
+    }
+}
+
+crate::catalogue::bind! {
+    eu4_harmony_remote::provinces: ProvinceRequest => ProvinceAnswer;
+    List => list;
+    Neighbors => neighbors;
+    Get => province;
+    Area => super::areas::area;
+    Modifiers => modifiers;
+    Options => super::administration::options;
+    DevelopTax { province } => session super::administration::act(province, super::administration::Action::Develop(super::administration::Development::Tax));
+    DevelopProduction { province } => session super::administration::act(province, super::administration::Action::Develop(super::administration::Development::Production));
+    DevelopManpower { province } => session super::administration::act(province, super::administration::Action::Develop(super::administration::Development::Manpower));
+    ExploitTax { province } => session super::administration::act(province, super::administration::Action::Exploit(super::administration::Development::Tax));
+    ExploitProduction { province } => session super::administration::act(province, super::administration::Action::Exploit(super::administration::Development::Production));
+    ExploitManpower { province } => session super::administration::act(province, super::administration::Action::Exploit(super::administration::Development::Manpower));
+    RaiseAutonomy { province } => session super::administration::act(province, super::administration::Action::RaiseAutonomy);
+    LowerAutonomy { province } => session super::administration::act(province, super::administration::Action::LowerAutonomy);
+    MakeState { province } => session super::administration::act(province, super::administration::Action::MakeState);
+    MakeTerritory { province } => session super::administration::act(province, super::administration::Action::MakeTerritory);
+    SetEdict => super::administration::set_edict;
+    CancelEdict { province } => session super::administration::act(province, super::administration::Action::CancelEdict);
+    Core { province } => session super::administration::act(province, super::administration::Action::Core);
+    CancelCore { province } => session super::administration::act(province, super::administration::Action::CancelCore);
+    ChangeCulture { province } => session super::administration::act(province, super::administration::Action::ChangeCulture);
+    CancelCulture { province } => session super::administration::act(province, super::administration::Action::CancelCulture);
+    MoveCapital { province } => session super::spendings::press_in_province(province, super::spendings::InProvince::MoveCapital);
+    MoveTradePort { province } => session super::spendings::press_in_province(province, super::spendings::InProvince::MoveTradePort);
+    EstablishSiberianFrontier { province } => session super::spendings::press_in_province(province, super::spendings::InProvince::SiberianFrontier);
+    AddTribalLand { province } => session super::spendings::press_in_province(province, super::spendings::InProvince::TribalLand);
+    Raze { province } => session super::spendings::press_in_province(province, super::spendings::InProvince::Raze);
 }

@@ -607,10 +607,27 @@ impl Image {
     }
 }
 
+/// A tag as the game keeps it: the letters, the index, kind 0, valid.
+pub fn game_tag(letters: &[u8; 3], index: u16) -> Tag {
+    let [low, high] = index.to_le_bytes();
+    Tag(u64::from_le_bytes([letters[0], letters[1], letters[2], 0, low, high, 0, 1]))
+}
+
+pub fn tur() -> Tag {
+    game_tag(b"TUR", 154)
+}
+
+pub fn byz() -> Tag {
+    game_tag(b"BYZ", 33)
+}
+
+pub fn wal() -> Tag {
+    game_tag(b"WAL", 300)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalogue::fake::{byz, tur};
     use crate::game::As;
 
     extern "C" fn twice(value: usize) -> usize {
@@ -635,7 +652,7 @@ mod tests {
         let session = session(m, 0, tur(), player.at(), list.at(), Caller::Remote(As::Player));
         assert_eq!(super::super::country(m, &session.ctx, byz()).unwrap(), other.at());
         assert_eq!(super::super::country(m, &session.ctx, tur()).unwrap(), player.at());
-        assert!(super::super::country(m, &session.ctx, crate::catalogue::fake::wal()).is_err());
+        assert!(super::super::country(m, &session.ctx, wal()).is_err());
     }
 
     #[test]

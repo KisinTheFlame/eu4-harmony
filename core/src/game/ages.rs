@@ -179,7 +179,7 @@ crate::catalogue::bind! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalogue::fake::tur;
+    use crate::game::buffers::tur;
 
     #[test]
     fn the_ability_command_names_the_country_and_the_ability_by_index() {

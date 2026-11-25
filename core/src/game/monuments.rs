@@ -416,7 +416,7 @@ crate::catalogue::bind! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalogue::fake::tur;
+    use crate::game::buffers::tur;
 
     #[test]
     fn the_upgrade_command_names_the_project_its_province_and_the_builder() {

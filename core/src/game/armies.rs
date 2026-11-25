@@ -307,10 +307,45 @@ pub fn points() -> Vec<crate::points::Point> {
     Vec::new()
 }
 
+crate::catalogue::bind! {
+    eu4_harmony_remote::armies: ArmyRequest => ArmyAnswer;
+    Get => get;
+    List => list;
+    Regiments => regiments;
+    At => in_province;
+    RouteTo => find_route;
+    CanStep => can_step;
+    CanAttack => can_attack_seen;
+    Move => move_to;
+    Stop => stop;
+    Selected => selected;
+    Options => super::units::options;
+    Split => super::units::split;
+    Merge => super::units::merge;
+    Disband => super::units::disband;
+    Consolidate => super::units::consolidate;
+    Drill => super::units::drill;
+    StopDrill => super::units::stop_drill;
+    DetachKind => super::units::detach_kind;
+    Attach => super::units::attach;
+    Detach => super::units::detach;
+    AttachToTransport => super::units::attach_to_transport;
+    DetachFromTransport => super::units::detach_from_transport;
+    DetachSpecialUnits => super::units::detach_special_units;
+    AutoTransport => super::units::auto_transport;
+    StopAutoTransport => super::units::stop_auto_transport;
+    Mission => super::units::mission;
+    StopMission => super::units::stop_mission;
+    ScorchEarth { army } => session super::spendings::press_by_army(army, super::spendings::ByArmy::ScorchEarth);
+    SeizeColony { army } => session super::spendings::press_by_army(army, super::spendings::ByArmy::SeizeColony);
+    BurnColony { army } => session super::spendings::press_by_army(army, super::spendings::ByArmy::BurnColony);
+    AttackNatives { army } => session super::spendings::press_by_army(army, super::spendings::ByArmy::AttackNatives);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalogue::fake::{byz, tur};
+    use crate::game::buffers::{byz, tur};
     use crate::game::As;
     use crate::game::{
         buffers::{self, Image, Object, Provinces},

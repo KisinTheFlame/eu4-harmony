@@ -1297,7 +1297,7 @@ mod checks {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalogue::fake::game_tag;
+    use crate::game::buffers::game_tag;
 
     const ALLIANCE: Kind = Kind { token: ALLIANCE_KIND, offer: true };
     const WAR: Kind = Kind { token: DECLARE_WAR_KIND, offer: true };
@@ -1508,7 +1508,7 @@ mod tests {
     mod through_the_layer {
         use crate::game::As;
         use super::super::*;
-        use crate::catalogue::fake::{byz, tur};
+        use crate::game::buffers::{byz, tur};
         use crate::game::{
             buffers::{self, Image, Object},
             commands::record,

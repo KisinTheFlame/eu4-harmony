@@ -128,7 +128,7 @@ mod tests {
     };
     use crate::game::input::Action;
     use crate::remote::Engine;
-    use eu4_harmony_remote::{input::Button, request_from_json, session::SessionRequest, Request};
+    use eu4_harmony_remote::{input::Button, request_from_json, time::TimeRequest, Request};
     use serde_json::{json, Value};
 
     fn request(json: Value) -> Request {
@@ -153,16 +153,16 @@ mod tests {
         let engine = Engine::new(quiet);
         let mut game = Fake::default();
         let click = engine.submit(request(json!({"capability": "input.click", "x": 1, "y": 2})));
-        let session = engine.submit(Request::Session(SessionRequest::Get {}));
+        let time = engine.submit(Request::Time(TimeRequest::Get {}));
         let typed = engine.submit(request(json!({"capability": "input.type", "text": "中"})));
         engine.run(&mut game, &Place::Game, PLENTY);
-        // The session waits for the click, and the text, sent after it, for the session.
-        assert_eq!((answer(&click), answer(&session), answer(&typed)), (ok(Value::Null), Value::Null, Value::Null));
+        // The time read waits for the click, and the text, sent after it, for the read.
+        assert_eq!((answer(&click), answer(&time), answer(&typed)), (ok(Value::Null), Value::Null, Value::Null));
         engine.run(&mut game, &Place::Game, PLENTY);
-        assert_eq!(answer(&session), Value::Null);
+        assert_eq!(answer(&time), Value::Null);
         game.inputs_handled = 1;
         engine.run(&mut game, &Place::Game, PLENTY);
-        assert_eq!(answer(&session)["ok"], json!(true));
+        assert_eq!(answer(&time)["ok"], json!(true));
         assert_eq!(answer(&typed), ok(Value::Null));
         // Inputs one after another do not wait for each other.
         let first = engine.submit(request(json!({"capability": "input.key", "keys": "f1"})));

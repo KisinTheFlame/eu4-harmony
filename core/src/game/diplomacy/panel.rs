@@ -596,7 +596,7 @@ mod tests {
     use crate::game::As;
     use super::*;
     use crate::{
-        catalogue::fake::{byz, tur, wal},
+        game::buffers::{byz, tur, wal},
         game::{
             buffers::{self, Image, Object},
             Caller, Fail, Session,

@@ -129,7 +129,7 @@ mod tests {
         assert_eq!(written(ven, 112, 3), r#"modify_center_of_trade={ members={ dummy=112 dummy=3 dummy="VEN" } }"#);
     }
 
-    use crate::catalogue::fake::tur;
+    use crate::game::buffers::tur;
     use crate::game::{
         buffers::{self, write_reason, Image, Object, Provinces},
         commands::record,
