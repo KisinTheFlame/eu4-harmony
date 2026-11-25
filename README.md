@@ -28,18 +28,18 @@ Your translation mod is still what translates the game; translation mods made fo
 
 ## Installing
 
-1. If you use a patch that makes the game display Chinese, Japanese or Korean, uninstall it first, as that patch says.
-2. Subscribe to **Harmony** on the Steam Workshop.
-3. In Steam, right-click Europa Universalis IV and choose **Manage → Browse local files**: this opens the game's folder.
-4. Open Harmony's Workshop folder: `steamapps\workshop\content\236850\<id>\` in the same Steam library, two folders up from the game's, where `<id>` is the number at the end of Harmony's Workshop page address. Copy `version.dll` from there into the game's folder, next to `eu4.exe`. If the game's folder already has a `version.dll`, move that one somewhere else first; Harmony does not load it.
+1. Subscribe to **Harmony** on the Steam Workshop.
+2. In Steam, right-click Europa Universalis IV and choose **Manage → Browse local files**: this opens the game's folder (keep it open).
+3. Open the Paradox launcher, go to **Mod library**, find **Harmony**, and click **… → Show in folder**: this opens Harmony's folder. (If Harmony does not appear there yet, restart Steam; you can also open `steamapps\workshop\content\236850\<id>\` in the same Steam library as the game, where `<id>` is the number at the end of Harmony's Workshop page address.)
+4. Copy `version.dll` from Harmony's folder into the game's folder, next to `eu4.exe`. (Windows may hide file extensions by default, showing them as `version` and `eu4`. If the game's folder already has a `version.dll` — for example from an older CJK patch — choose **Replace**; if you want to keep the old file to switch back later, rename or move it aside first.)
 
 Start the game from the Paradox launcher as usual. Harmony needs no place in your playset; mods built on it are enabled there as any mod. The main menu now has two buttons in its corner, **Harmony settings** and **Harmony mods**; the second lists each mod built on Harmony, with what it may do beyond the game.
 
 Steam keeps Harmony up to date. When an update includes a new `version.dll`, Harmony updates the copy in the game's folder on startup and restarts the game automatically (only asking you to copy it if the game folder cannot be written).
 
-**Uninstalling:** unsubscribe from Harmony, and the game runs as it always did. To leave nothing behind, delete `version.dll` from the game's folder too, and put back the one you moved, if any.
+**Uninstalling:** unsubscribe from Harmony, and the game runs as it always did. To leave nothing behind, delete `version.dll` from the game's folder too, and put back any backup of an earlier `version.dll` you kept.
 
-For a manual install, download `eu4-harmony-<version>-windows-x64.zip` from [GitHub Releases](https://github.com/KisinTheFlame/eu4-harmony/releases), close the game and extract it into the game folder beside `eu4.exe`, moving aside another patch's `version.dll` first. The package includes the proxy, core, and components that save minidumps when the game crashes. Download and extract each update yourself: the local core takes precedence over the Workshop's, so Steam does not update this copy. To return to Workshop updates, remove the local `eu4_harmony_core.dll`, `eu4_harmony_crash_dumps.dll`, and `eu4-harmony-dump-writer.exe` from the game folder's `eu4-harmony\` directory. To uninstall the manual build, also remove the proxy `version.dll`. The CLI is a separate `eu4-harmony-cli-<version>-windows-x64.zip` download and can run outside the game folder; players do not need it.
+For a manual install, download `eu4-harmony-<version>-windows-x64.zip` from [GitHub Releases](https://github.com/KisinTheFlame/eu4-harmony/releases), close the game and extract it into the game folder beside `eu4.exe` (replace any existing `version.dll` from another patch, or move it aside first if you want a backup). The package includes the proxy, core, and components that save minidumps when the game crashes. Download and extract each update yourself: the local core takes precedence over the Workshop's, so Steam does not update this copy. To return to Workshop updates, remove the local `eu4_harmony_core.dll`, `eu4_harmony_crash_dumps.dll`, and `eu4-harmony-dump-writer.exe` from the game folder's `eu4-harmony\` directory. To uninstall the manual build, also remove the proxy `version.dll`. The CLI is a separate `eu4-harmony-cli-<version>-windows-x64.zip` download and can run outside the game folder; players do not need it.
 
 Good to know:
 

@@ -28,18 +28,18 @@
 
 ## 安装
 
-1. 如果装过让游戏显示中文、日文或韩文的补丁，先按那个补丁自己的说明把它卸载。
-2. 在 Steam 创意工坊订阅 **Harmony**。
-3. 在 Steam 里右键《欧陆风云4》，选**管理 → 浏览本地文件**，打开游戏目录。
-4. 打开 Harmony 的创意工坊目录：同一个 Steam 库里的 `steamapps\workshop\content\236850\<id>\`，在游戏目录往上两级；`<id>` 是 Harmony 创意工坊页面地址末尾的那串数字。把那里的 `version.dll` 复制到游戏目录，和 `eu4.exe` 放在一起。游戏目录里原本已有 `version.dll` 的话，先把它挪到别处，Harmony 不会加载它。
+1. 在 Steam 创意工坊订阅 **Harmony**。
+2. 在 Steam 里右键《欧陆风云4》，选**管理 → 浏览本地文件**，打开游戏目录（先保持这个窗口开着）。
+3. 打开 Paradox 启动器，进入 **Mod 库**，找到 **Harmony**，点右侧 **… → 在文件夹中显示**，打开 Harmony 的目录。（如果启动器里暂时没看到 Harmony，重启一下 Steam；也可以在游戏目录所在的 Steam 库里手动打开 `steamapps\workshop\content\236850\<id>\`，其中 `<id>` 是 Harmony 创意工坊页面地址末尾的数字。）
+4. 把 Harmony 目录里的 `version.dll` 复制到游戏目录，和 `eu4.exe` 放在一起。（Windows 默认可能隐藏后缀，文件会显示为 `version` 和 `eu4`。如果提示游戏目录里已有 `version.dll`——例如之前装过双字节补丁——直接选择**替换**即可；想保留旧文件方便日后换回的话，先将它改名或移到别处。）
 
 照常从 Paradox 启动器启动游戏。Harmony 不用放进合集；基于它的 Mod 照常在合集里启用。主菜单角落会多出两个按钮：**Harmony 设置**和 **Harmony Mod**，后者列出每个基于 Harmony 的 Mod，以及它在游戏之外能做什么。
 
 Steam 会让 Harmony 保持最新。更新包含新的 `version.dll` 时，Harmony 会在启动时自动更新游戏目录里的副本并为你重启游戏（只有在无法写入游戏目录时才会提示你手动复制）。
 
-**卸载：** 取消订阅 Harmony，游戏就回到原样。想不留痕迹，再删掉游戏目录里的 `version.dll`；之前挪走过别的 `version.dll` 的话，把它放回去。
+**卸载：** 取消订阅 Harmony，游戏就回到原样。想不留痕迹，再删掉游戏目录里的 `version.dll`；如果之前留了旧 `version.dll` 的备份，把它放回去。
 
-手动安装可从 [GitHub Releases](https://github.com/KisinTheFlame/eu4-harmony/releases) 下载 `eu4-harmony-<version>-windows-x64.zip`，关闭游戏后解压到游戏目录，和 `eu4.exe` 放在一起；原本有其他补丁的 `version.dll` 时，先把它挪走。安装包包含代理、核心和崩溃时保存转储所需的组件。每次更新都需要自己下载并解压：本地核心优先于工坊核心，Steam 不会更新这份本地副本。要恢复工坊更新，删掉游戏目录下 `eu4-harmony\` 内的 `eu4_harmony_core.dll`、`eu4_harmony_crash_dumps.dll` 和 `eu4-harmony-dump-writer.exe`。要卸载手动安装的框架，再删掉代理 `version.dll`。CLI 另有 `eu4-harmony-cli-<version>-windows-x64.zip`，可以放在游戏目录之外运行，玩家不需要安装它。
+手动安装可从 [GitHub Releases](https://github.com/KisinTheFlame/eu4-harmony/releases) 下载 `eu4-harmony-<version>-windows-x64.zip`，关闭游戏后解压到游戏目录，和 `eu4.exe` 放在一起；原本有其他补丁的 `version.dll` 时直接替换即可（想保留备用可先移走）。安装包包含代理、核心和崩溃时保存转储所需的组件。每次更新都需要自己下载并解压：本地核心优先于工坊核心，Steam 不会更新这份本地副本。要恢复工坊更新，删掉游戏目录下 `eu4-harmony\` 内的 `eu4_harmony_core.dll`、`eu4_harmony_crash_dumps.dll` 和 `eu4-harmony-dump-writer.exe`。要卸载手动安装的框架，再删掉代理 `version.dll`。CLI 另有 `eu4-harmony-cli-<version>-windows-x64.zip`，可以放在游戏目录之外运行，玩家不需要安装它。
 
 需要知道的几件事：
 

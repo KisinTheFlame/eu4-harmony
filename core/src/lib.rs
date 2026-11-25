@@ -67,6 +67,7 @@ pub mod speed;
 pub mod splice;
 mod stack;
 mod startup;
+mod startup_failure;
 mod tooltips;
 mod troubleshooting;
 pub mod ui;
@@ -156,15 +157,15 @@ pub(crate) fn fatal(detail: &str) -> ! {
     panic!("fatal: {detail}")
 }
 
-fn start(m: memory::Memory) -> Result<String> {
-    let baseline = baseline::recognize(&m)?;
+fn start(m: memory::Memory) -> std::result::Result<String, Failure> {
+    let baseline = baseline::recognize(&m).map_err(|reason| Failure::mismatch(reason, startup_failure::FailureStage::Baseline))?;
     icu::load()?;
     dev::load(&paths::core_dir()?)?;
     if dev::fail_startup() {
-        return Err("fail-startup is on in dev.toml's [test-switches]".into());
+        return Err("fail-startup is on in dev.toml's [test-switches]".to_string().into());
     }
     speed::check_switches()?;
-    let installed = points::install(m, &points::this_build::installed(m))?;
+    let installed = points::install(m, &points::this_build::installed(m)).map_err(|reason| Failure::mismatch(reason, startup_failure::FailureStage::Points))?;
     dev::after_install();
     Ok(format!("baseline {baseline}: {} dependency points match; {} hooks, {} writes", installed.checked, installed.hooks, installed.writes))
 }
@@ -209,11 +210,19 @@ struct Failure {
     /// Startup failed because the game folder's `version.dll` is older than
     /// `proxy::OLDEST`.
     outdated_proxy: bool,
+    /// Which binary check failed, for cold-path triage on the failure thread.
+    triage: Option<startup_failure::FailureStage>,
+}
+
+impl Failure {
+    fn mismatch(reason: String, stage: startup_failure::FailureStage) -> Self {
+        Self { reason, notice: None, outdated_proxy: false, triage: Some(stage) }
+    }
 }
 
 impl From<String> for Failure {
     fn from(reason: String) -> Self {
-        Self { reason, notice: None, outdated_proxy: false }
+        Self { reason, notice: None, outdated_proxy: false, triage: None }
     }
 }
 
@@ -228,7 +237,12 @@ fn bootstrap() -> std::result::Result<(), Failure> {
     let found = proxy::interface(&game_dir);
     let _ = GAME_DIR.set(game_dir);
     log!("proxy interface: {}", found.map_or_else(|| "no proxy in the game folder".to_string(), |i| i.to_string()));
-    proxy::check(found).map_err(|reason| Failure { reason, notice: Some(notice::Message::new("EU4HARMONY_PROXY_OUTDATED")), outdated_proxy: true })?;
+    proxy::check(found).map_err(|reason| Failure {
+        reason,
+        notice: Some(notice::Message::new("EU4HARMONY_PROXY_OUTDATED")),
+        outdated_proxy: true,
+        triage: None,
+    })?;
     let m = memory::Memory { base: unsafe { GetModuleHandleW(std::ptr::null()) } as usize };
     let _ = MEMORY.set(m);
     let summary = start(m)?;
@@ -302,7 +316,7 @@ fn report_header(game_dir: Option<&std::path::Path>) {
 /// the player, from a thread of its own since the loader lock is held here.
 /// A hidden start ends the game instead: without the framework it could be
 /// neither used nor hidden.
-fn fail_startup(reason: String, mut told: Option<notice::Message>, outdated_proxy: bool) {
+fn fail_startup(reason: String, mut told: Option<notice::Message>, outdated_proxy: bool, triage: Option<startup_failure::FailureStage>) {
     let game_dir = GAME_DIR.get().cloned();
     std::thread::spawn(move || {
         let user_dir = game_dir.as_deref().and_then(|d| paths::user_dir(d).ok());
@@ -322,7 +336,15 @@ fn fail_startup(reason: String, mut told: Option<notice::Message>, outdated_prox
                 }
             }
         }
+        let diagnosis = if told.is_none() { triage.zip(game_dir.as_deref()).and_then(|(stage, dir)| startup_failure::diagnose(dir, stage)) } else { None };
+        if let Some(d) = &diagnosis {
+            log!("startup diagnosis: {}", d.summary());
+            told = Some(d.notice());
+        }
         report_header(game_dir.as_deref());
+        if let Some(d) = &diagnosis {
+            report::line(format!("diagnosis: {}", d.summary()));
+        }
         report::line(format!("startup FAILED; nothing was hooked and no extension runs:\n{reason}"));
         report::write();
         if hidden::hidden_start() {
@@ -351,14 +373,14 @@ pub(crate) fn deferred_init() {
 pub extern "system" fn eu4_harmony_bootstrap() -> u32 {
     match std::panic::catch_unwind(bootstrap) {
         Ok(Ok(())) => 0,
-        Ok(Err(Failure { reason, notice, outdated_proxy })) => {
+        Ok(Err(Failure { reason, notice, outdated_proxy, triage })) => {
             log!("startup failed: {reason}");
-            fail_startup(reason, notice, outdated_proxy);
+            fail_startup(reason, notice, outdated_proxy, triage);
             1
         }
         Err(_) => {
             log!("startup failed: panic");
-            fail_startup("panic during startup".into(), None, false);
+            fail_startup("panic during startup".into(), None, false, None);
             2
         }
     }
