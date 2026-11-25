@@ -203,6 +203,45 @@ impl CrossingsTracker {
         }
     }
 
+    /// Runs a main-thread crossing through [`super::turns::MainSide`],
+    /// promoting transient lock-order ownership and recording hold-back only
+    /// while threaded drawing is active.
+    pub(super) fn record_main_crossing(
+        &self,
+        drawing_on: bool,
+        on_main: bool,
+        into: usize,
+        now: Instant,
+        main: &mut super::turns::MainSide,
+        lock: &impl super::turns::Lock,
+    ) -> bool {
+        if !on_main || !drawing_on {
+            return false;
+        }
+        let took = main.crossing(lock);
+        self.record_crossing(into, now, took);
+        true
+    }
+
+    /// Runs a main-thread renderer call: skips work when `main` already
+    /// protects graphics changes beyond a transient lock-order scope, and
+    /// otherwise promotes ownership and records a crossing.
+    #[cfg(test)]
+    pub(super) fn renderer_call(
+        &self,
+        drawing_on: bool,
+        on_main: bool,
+        into: usize,
+        now: Instant,
+        main: &mut super::turns::MainSide,
+        lock: &impl super::turns::Lock,
+    ) -> bool {
+        if !on_main || !drawing_on || main.protects_changes() {
+            return false;
+        }
+        self.record_main_crossing(drawing_on, on_main, into, now, main, lock)
+    }
+
     pub(super) fn record_lock_order(&self, into: usize, took_lock: bool) {
         self.count(into, 1, 0);
         if took_lock {
@@ -306,6 +345,21 @@ impl<T> Drop for DoingGuard<'_, T> {
     }
 }
 
+/// Decision for a hookable call that may be deferred until frame preparation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DeferredAction {
+    /// Queue the call for frame preparation.
+    Defer,
+    /// Run the call inline without recording a crossing (either threaded
+    /// drawing is inactive, off-main, or replaying inside `deferred::done`
+    /// while already holding the presentation lock).
+    RunNow,
+    /// Run the call inline as a real day-time crossing (threaded drawing is
+    /// active on the main thread, not replaying, and caller is outside the
+    /// deferred call site).
+    RunWithCrossing,
+}
+
 impl<T> DeferredQueue<T> {
     pub(super) const fn new() -> Self {
         Self { items: Mutex::new(Vec::new()), count: AtomicU64::new(0), doing: AtomicBool::new(false) }
@@ -313,6 +367,23 @@ impl<T> DeferredQueue<T> {
 
     pub(super) fn is_doing(&self) -> bool {
         self.doing.load(Ordering::Acquire)
+    }
+
+    /// Unified deferral and crossing policy for deferrable main-thread hooks.
+    pub(super) fn decide(&self, on_main: bool, drawing_on: bool, caller_matches: bool, defer_while_doing: bool, fallback_crosses: bool) -> DeferredAction {
+        if !on_main || !drawing_on {
+            return DeferredAction::RunNow;
+        }
+        if self.is_doing() {
+            return if defer_while_doing { DeferredAction::Defer } else { DeferredAction::RunNow };
+        }
+        if caller_matches {
+            DeferredAction::Defer
+        } else if fallback_crosses {
+            DeferredAction::RunWithCrossing
+        } else {
+            DeferredAction::RunNow
+        }
     }
 
     pub(super) fn push(&self, item: T) {
@@ -662,5 +733,71 @@ mod tests {
         assert_eq!(frames.prepared_idler(), 0);
         assert!(!stage.staged_dirty);
         assert_eq!(stage.steps, ["clear_artifacts", "wait_end", "deferred", "clear_artifacts"]);
+    }
+
+    #[derive(Default)]
+    struct TestLock(Mutex<Vec<&'static str>>);
+    impl super::super::turns::Lock for TestLock {
+        fn take(&self, _: super::super::turns::At) -> Duration {
+            self.0.lock().unwrap().push("take");
+            Duration::ZERO
+        }
+        fn give(&self) {
+            self.0.lock().unwrap().push("give");
+        }
+    }
+
+    #[test]
+    fn renderer_call_promotes_order_only_scope_and_skips_when_drawing_is_off() {
+        let lock = TestLock::default();
+        let mut main = super::super::turns::MainSide::new();
+        let tracker = CrossingsTracker::new();
+        let now = Instant::now();
+
+        main.day_begins(&lock);
+        main.order_scope_begins();
+        assert!(main.lock_order(&lock));
+        assert!(main.order_only());
+        assert!(!main.protects_changes());
+
+        // When threaded drawing is off, a renderer call does not promote or hold back.
+        assert!(!tracker.renderer_call(false, true, 0x1000, now, &mut main, &lock));
+        assert!(main.order_only());
+        assert_eq!(tracker.holding_back(), None);
+
+        // When threaded drawing is on, the renderer call promotes order_only to a crossing.
+        assert!(tracker.renderer_call(true, true, 0x2000, now, &mut main, &lock));
+        assert!(!main.order_only());
+        assert!(main.protects_changes());
+        assert_eq!(tracker.holding_back(), Some(0x2000));
+
+        // Exiting the order scope keeps the lock until frame_check.
+        main.order_scope_ends(&lock, false);
+        assert!(main.holds());
+        // Subsequent renderer calls see main.protects_changes() and skip.
+        assert!(!tracker.renderer_call(true, true, 0x3000, now, &mut main, &lock));
+
+        main.frame_check(&lock);
+        assert!(!main.holds());
+    }
+
+    #[test]
+    fn deferred_policy_runs_inline_during_replay_without_spurious_crossings() {
+        let queue: DeferredQueue<u32> = DeferredQueue::new();
+        // Outside threaded drawing, nothing defers or records a crossing.
+        assert_eq!(queue.decide(true, false, true, false, true), DeferredAction::RunNow);
+        assert_eq!(queue.decide(true, false, false, false, true), DeferredAction::RunNow);
+
+        // During the day with threaded drawing on: matching caller defers, other caller crosses.
+        assert_eq!(queue.decide(true, true, true, false, true), DeferredAction::Defer);
+        assert_eq!(queue.decide(true, true, false, false, true), DeferredAction::RunWithCrossing);
+
+        // While replaying inside `done()`, ordinary hooks run inline without crossing,
+        // whereas mesh frees still re-defer to the next frame's preparation.
+        queue.push(1);
+        let (_items, _guard) = queue.take_for_execution().unwrap();
+        assert_eq!(queue.decide(true, true, true, false, true), DeferredAction::RunNow);
+        assert_eq!(queue.decide(true, true, false, false, true), DeferredAction::RunNow);
+        assert_eq!(queue.decide(true, true, true, true, false), DeferredAction::Defer);
     }
 }

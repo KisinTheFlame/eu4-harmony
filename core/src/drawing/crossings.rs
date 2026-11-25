@@ -90,7 +90,7 @@ const RENDERER_DECLARATION: usize = 0x108;
 
 fn scene_begins(call: &mut Call) {
     if on_main() {
-        if !main_protects_changes() {
+        if drawing_on() && !super::main_protects_changes() {
             crossing(call.observed().unwrap_or(0));
         }
     } else if drawing_on() && !is_drawing_thread() && !OTHER_SCENE_LOGGED.swap(true, Ordering::Relaxed) {
@@ -142,16 +142,10 @@ const RENDERER_ENTRY_LEN: usize = 16;
 /// drawing"): held back each time, the frame was never drawn.
 #[called_by_game]
 extern "C" fn renderer_called(slot: usize) {
-    if main_protects_changes() {
+    if !drawing_on() || super::main_protects_changes() {
         return;
     }
     crossing(crate::hooked_memory().at(RENDERER_TABLE[slot]));
-}
-
-// transient lock-order ownership alone does not protect a
-// graphics change past the scope's return. Detect and promote real crossings.
-fn main_protects_changes() -> bool {
-    super::main_holds() && (!super::lock_order::active() || main_side(|s| !s.order_only()))
 }
 
 macro_rules! renderer_entries {
@@ -299,13 +293,13 @@ static TRACKER: super::course::CrossingsTracker = super::course::CrossingsTracke
 /// `into`: the lock first, kept until the next check for a frame inside the
 /// day.
 pub(super) fn crossing(into: usize) {
-    if !on_main() {
+    if !on_main() || !drawing_on() {
         return;
     }
     main_side(|s| {
-        let took = s.crossing(&MainLock);
-        TRACKER.record_crossing(into, Instant::now(), took);
-        crate::dev::frame_invalidated();
+        if TRACKER.record_main_crossing(true, true, into, Instant::now(), s, &MainLock) {
+            crate::dev::frame_invalidated();
+        }
     });
 }
 

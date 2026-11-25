@@ -138,6 +138,12 @@ impl MainSide {
         self.order_only
     }
 
+    /// Whether the main thread holds the presentation lock for more than a
+    /// transient lock-order scope, so graphics changes need no promotion.
+    pub(super) fn protects_changes(&self) -> bool {
+        self.holds && !self.order_only
+    }
+
     /// the facet cold path is outside the proven release scope.
     pub(super) fn order_scope_cold(&mut self) {
         self.retain_order();

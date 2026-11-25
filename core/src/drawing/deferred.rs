@@ -142,7 +142,20 @@ pub(super) fn logged() -> u64 {
 
 /// Whether a call of the main thread's waits for the next frame's preparation.
 fn deferring() -> bool {
-    on_main() && drawing_on() && !DEFERRED.is_doing()
+    DEFERRED.decide(on_main(), drawing_on(), true, false, false) == super::course::DeferredAction::Defer
+}
+
+/// Decides a call that may either be deferred to frame preparation or cross
+/// immediately when called from another site while threaded drawing runs.
+fn defer_or_cross(caller_matches: bool, crossing_at: usize) -> bool {
+    match DEFERRED.decide(on_main(), drawing_on(), caller_matches, false, true) {
+        super::course::DeferredAction::Defer => true,
+        super::course::DeferredAction::RunWithCrossing => {
+            super::crossings::crossing(crate::hooked_memory().at(crossing_at));
+            false
+        }
+        super::course::DeferredAction::RunNow => false,
+    }
 }
 
 #[called_by_game]
@@ -201,8 +214,7 @@ extern "C" fn owner_told_stub() {
 /// minimap and flag in a frame.
 #[called_by_game]
 extern "C" fn minimap(minimap: usize, flag: u32) -> bool {
-    if !deferring() {
-        super::crossings::crossing(crate::hooked_memory().at(MINIMAP));
+    if !defer_or_cross(true, MINIMAP) {
         return false;
     }
     let m = crate::hooked_memory();
@@ -213,17 +225,10 @@ extern "C" fn minimap(minimap: usize, flag: u32) -> bool {
     true
 }
 
-/// Whether a call that returns to `from` waits for the next frame's
-/// preparation: from the one caller of the function's that is deferred.
-fn deferring_from(from: usize, deferred_caller: usize) -> bool {
-    deferring() && from == crate::hooked_memory().at(deferred_caller)
-}
-
 /// Whether the map mode's set waits for the next frame: from a moved capital.
 #[called_by_game]
 extern "C" fn map_mode_set(idler: usize, mode: u32, first: u32, second: u32, from: usize) -> bool {
-    if !deferring_from(from, MAP_MODE_FROM_CAPITAL) {
-        super::crossings::crossing(crate::hooked_memory().at(MAP_MODE_SET));
+    if !defer_or_cross(from == crate::hooked_memory().at(MAP_MODE_FROM_CAPITAL), MAP_MODE_SET) {
         return false;
     }
     defer(Deferred::MapMode { idler, mode, first: first & 0xff, second: second & 0xff });
@@ -249,8 +254,7 @@ extern "C" fn map_mode_stub() {
 /// trade's update.
 #[called_by_game]
 extern "C" fn port_model(entry: usize, province: usize, map: usize, flag: u32, from: usize) -> bool {
-    if !deferring_from(from, PORT_MODEL_FROM_TRADE) {
-        super::crossings::crossing(crate::hooked_memory().at(PORT_MODEL));
+    if !defer_or_cross(from == crate::hooked_memory().at(PORT_MODEL_FROM_TRADE), PORT_MODEL) {
         return false;
     }
     defer(Deferred::PortModel { entry, province, map, flag: flag & 0xff });
@@ -293,7 +297,7 @@ extern "C" fn minimap_stub() {
 /// the next update does, and the frame prepared meanwhile still draws it.
 #[called_by_game]
 unsafe extern "C" fn mesh_let_go(mesh: usize, free: u32) -> usize {
-    if free & 1 != 0 && on_main() && drawing_on() {
+    if free & 1 != 0 && DEFERRED.decide(on_main(), drawing_on(), true, true, false) == super::course::DeferredAction::Defer {
         defer(Deferred::MeshLetGo { mesh, free });
         return mesh;
     }
