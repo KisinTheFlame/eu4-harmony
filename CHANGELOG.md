@@ -2,6 +2,20 @@
 
 What changed in each version of Harmony that players and mod authors notice. Merging a version PR automatically publishes its section as the GitHub Release notes; a local Steam Workshop upload uses the same section as its change note (`cargo xtask workshop-upload`).
 
+## 0.4.0
+
+- Improved mouse-wheel map zooming: every wheel notch in a frame is accumulated, zoom steps scale multiplicatively with camera height, zooming in anchors to the cursor without drifting at minimum height, zooming out stays vertical, direction reversals take effect immediately, camera glide is frame-rate-independent, and zooming responds immediately in the single-player lobby. The settings window's **Display** page adds **Map zoom smoothing** and **Map zoom step** sliders that take effect immediately when saved.
+- Fixed: native timeline playback now reconstructs history chronologically (handling same-day tag swaps and start-date events), draws historical borders instead of live owners, and refreshes country colors, borders and names without stale frames or the 200 ms color delay.
+- Faster in-process returns to the main menu: leaving a session or returning from single-player setup now skips the black fade-in and residual loading screen so the map and menu appear immediately.
+- Preserved the active map mode across in-game loads instead of resetting to terrain mode (falling back to the previous regular mode or political mode when leaving a temporary mode).
+- Automatic proxy updates for Steam Workshop installations: when Harmony's core runs from outside the game folder and ships a newer `version.dll`, Harmony now replaces the copy in the game folder at startup and restarts the game automatically.
+- Clearer startup failure messages: unsupported platforms or game builds, modified `eu4.exe` binaries and conflicting DLLs in the game folder are now identified in plain language while keeping full technical details in `core.log` and `report.txt`.
+- Fixed: creating nested directories through the game's file system during startup (such as `shadercache`) now invalidates cached ancestor folder listings, preventing a startup crash when opening newly created files.
+- Chinese framework messages now consistently use corner brackets (`「」`).
+- For mod authors: the starter template's `AGENTS.md` now points to GitHub Releases for downloading `eu4-harmony.exe`.
+
+The core updates through Steam Workshop as usual; on startup it will also update `version.dll` in the game folder and restart once automatically. Manual framework downloads include the updated core and proxy in the same layout as 0.3.2.
+
 ## 0.3.2
 
 - Fixed: a safe point could run during a frame inside a day while the daily update was still in progress, allowing an extension or remote request to load a save or leave the session mid-day and crash the game after the world reset. Safe points now run only on normal frames outside a daily update, in-game loads are refused while a daily update is in progress, and leaving a session right after a day ends waits for the day's queued commands to finish first.
