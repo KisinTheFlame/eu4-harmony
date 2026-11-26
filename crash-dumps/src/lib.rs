@@ -4,7 +4,7 @@ use std::ffi::c_void;
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::windows::fs::OpenOptionsExt;
-use std::os::windows::io::{AsRawHandle, BorrowedHandle};
+use std::os::windows::io::AsRawHandle;
 use std::path::Path;
 use std::ptr::{null, null_mut};
 use windows_sys::Win32::{
@@ -40,13 +40,6 @@ fn write_dump(info: &WER_RUNTIME_EXCEPTION_INFORMATION) -> io::Result<()> {
     write(&dir, info.hProcess, &exception)
 }
 
-/// The game supplies a read-only handle to itself and keeps the fault's
-/// pointers live while the writer runs. DbgHelp reads them in the game.
-pub fn write_game(dir: &Path, process: BorrowedHandle<'_>, tid: u32, pointers: usize) -> io::Result<()> {
-    let exception = MINIDUMP_EXCEPTION_INFORMATION { ThreadId: tid, ExceptionPointers: pointers as *mut _, ClientPointers: 1 };
-    write(dir, process.as_raw_handle(), &exception)
-}
-
 fn write(dir: &Path, process: HANDLE, exception: &MINIDUMP_EXCEPTION_INFORMATION) -> io::Result<()> {
     let pid = unsafe { GetProcessId(process) };
     let mut times = [FILETIME::default(); 4];
@@ -64,8 +57,8 @@ fn write(dir: &Path, process: HANDLE, exception: &MINIDUMP_EXCEPTION_INFORMATION
         drop(file);
         return fs::remove_file(stage);
     }
-    // Windows drops the partial file even if the game's timeout ends the
-    // writer in DbgHelp. Publish only after all bytes have reached the file.
+    // Windows drops the partial file if writing is interrupted in DbgHelp.
+    // Publish only after all bytes have reached the file.
     let result = delete_on_close(&file, true).and_then(|()| {
         if unsafe { MiniDumpWriteDump(process, pid, file.as_raw_handle(), MiniDumpNormal, exception, null(), null()) } == 0 {
             return Err(io::Error::last_os_error());

@@ -1,11 +1,10 @@
 //! `crash-dumps`: triggers a controlled access violation through
-//! `[test-switches] crash = true` on the test-switches build and verifies the
-//! 0.3.0 crash-capture pipeline end to end:
-//! 1. The game exits with a crash code (`0xc0000005`).
-//! 2. `core.log` records the `crash:` exception line and call stack.
-//! 3. `eu4-harmony-dump-writer.exe` writes a completed `harmony-*.dmp` in
-//!    `eu4-harmony\crash-dumps\` (not a `.partial` file).
-//! 4. `dbgeng` can open that Harmony minidump and unwind a non-empty stack.
+//! `[test-switches] crash = true` on the dev build and verifies the
+//! crash-capture pipeline end to end:
+//! 1. The game exits with a non-zero crash code.
+//! 2. `core.log` records the `crash:` exception line (`0xc0000005`) and call stack.
+//! 3. The game writes a crash folder with `minidump.dmp` under `crashes\`.
+//! 4. `dbgeng` can open that minidump and unwind a non-empty stack.
 use super::{logs::Mark, text, Build, Game, Parameter, Parameters, Played, Scenario, Stop, CRASH_HANDLER, READING_A_DUMP};
 use eu4_harmony_remote::{menu::MenuRequest, session::Session, CountryTag};
 use serde_json::{json, Value};
@@ -19,7 +18,7 @@ impl Scenario for CrashDumps {
     }
 
     fn about(&self) -> &'static str {
-        "controlled crash via test-switches: verifies Harmony minidump capture, crash log line and readable dump stack"
+        "controlled crash via test-switches: verifies crash log line, game minidump capture and readable dump stack"
     }
 
     fn build(&self, _: &Parameters) -> Build {
@@ -44,7 +43,7 @@ impl Scenario for CrashDumps {
 
     fn play(&self, game: &mut Game, _: &Parameters, record: &mut Value) -> Played<()> {
         let user = game.user()?;
-        let dumps_before = user.harmony_dump_files().unwrap_or_default();
+        let crashes_before = user.crash_folders().unwrap_or_default();
         let log_mark = Mark::of(&user);
 
         // Starting a new game reaches the first in-game frame where
@@ -62,8 +61,8 @@ impl Scenario for CrashDumps {
         let ended = game.ended();
         game.end();
 
-        let new_dumps = user.new_harmony_dumps(&dumps_before);
-        let dump = new_dumps.last().cloned();
+        let crash_folder = user.new_crash_folders(&crashes_before).pop();
+        let dump = crash_folder.as_ref().map(|folder| folder.join("minidump.dmp")).filter(|path| path.is_file());
         let dump_bytes = dump.as_ref().and_then(|p| std::fs::metadata(p).ok()).map(|m| m.len()).unwrap_or(0);
         let crash_lines: Vec<String> = log_mark.since(&user.core_log()).into_iter().filter(|l| l.contains("crash:")).collect();
 
@@ -92,7 +91,8 @@ impl Scenario for CrashDumps {
         let stack_readable = stack.iter().any(|l| l.contains("eu4_harmony_core") || l.contains("eu4+"));
         *record = json!({
             "ended": ended.as_ref().map(|e| json!({ "exit_code": format!("0x{:x}", e.code), "said": e.describe() })).unwrap_or(Value::Null),
-            "harmony_dump": dump.as_ref().map(|p| p.display().to_string()),
+            "crash_folder": crash_folder.as_ref().map(|p| p.display().to_string()),
+            "minidump": dump.as_ref().map(|p| p.display().to_string()),
             "dump_bytes": dump_bytes,
             "crash_log_lines": crash_lines,
             "stack": stack,
@@ -104,8 +104,8 @@ impl Scenario for CrashDumps {
         // way, exit code 0 would mean a clean shutdown rather than a crash.
         game.check(ended.as_ref().is_some_and(|e| e.code != 0), format!("expected non-zero crash exit code, saw {ended:?}"))?;
         game.check(has_exception_log, format!("core.log missing 0xc0000005 crash record: {crash_lines:?}"))?;
-        game.check(dump.is_some() && dump_bytes > 0, "no completed Harmony minidump written in eu4-harmony\\crash-dumps")?;
-        game.check(stack_readable, format!("Harmony minidump stack was not readable: {stack:?}"))?;
+        game.check(dump.is_some() && dump_bytes > 0, "no game minidump.dmp written in crashes\\")?;
+        game.check(stack_readable, format!("minidump stack was not readable: {stack:?}"))?;
         Ok(())
     }
 
@@ -114,7 +114,7 @@ impl Scenario for CrashDumps {
             "### Controlled crash capture".into(),
             String::new(),
             format!("Process end: {}.", text(&record["ended"]["said"])),
-            format!("Harmony minidump: `{}` ({} bytes).", text(&record["harmony_dump"]), text(&record["dump_bytes"])),
+            format!("Crash minidump: `{}` ({} bytes).", text(&record["minidump"]), text(&record["dump_bytes"])),
             format!("Stack readable by dbgeng: {}.", text(&record["stack_readable"])),
         ];
         let lines: Vec<String> = record["crash_log_lines"].as_array().into_iter().flatten().map(text).collect();

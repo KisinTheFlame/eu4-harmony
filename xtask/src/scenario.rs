@@ -486,7 +486,7 @@ fn suffix() -> String {
 fn set_aside(build: Build, out: &Path) -> Result<PathBuf> {
     let to = out.join("builds").join(build.name().replace(' ', "-"));
     std::fs::create_dir_all(&to).map_err(|e| format!("cannot make {}: {e}", to.display()))?;
-    for file in ["eu4_harmony_core.dll", "eu4_harmony_core.pdb", "eu4_harmony_crash_dumps.dll", "eu4-harmony-dump-writer.exe"] {
+    for file in ["eu4_harmony_core.dll", "eu4_harmony_core.pdb", "eu4_harmony_crash_dumps.dll"] {
         let from = crate::built().join(file);
         std::fs::copy(&from, to.join(file)).map_err(|e| format!("cannot copy {} to {}: {e}", from.display(), to.display()))?;
     }
@@ -560,7 +560,6 @@ fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, owner
     let began = Instant::now();
     let user = claim::user_dir(owner).map(UserFolder::new);
     let crashes = user.as_ref().ok().and_then(|user| user.crash_folders().ok()).unwrap_or_default();
-    let harmony_dumps = user.as_ref().ok().and_then(|user| user.harmony_dump_files().ok()).unwrap_or_default();
     let logs_before = user.as_ref().ok().map(logs::Mark::of);
     let mut record = json!({});
     game.loads(scenario.saves(parameters));
@@ -594,7 +593,7 @@ fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, owner
             // A game in its crash handler ends on its own once its dump is
             // written, with the exit code that says how it crashed.
             game.wait_gone(CRASH_HANDLER);
-            crash_value = Some(crash(owner, &crashes, &harmony_dumps, game.ended(), build, &out.join(format!("{}-crash.log", scenario.name()))));
+            crash_value = Some(crash(owner, &crashes, game.ended(), build, &out.join(format!("{}-crash.log", scenario.name()))));
             game.end();
         }
         Err(Stop::Hung(_)) => game.end(),
@@ -648,27 +647,19 @@ fn not_played(scenario: &dyn Scenario, parameters: &Parameters, why: &str) -> Va
 }
 
 /// How `owner`'s test game ended, as the claim followed it, and what its
-/// newest crash folder or Harmony minidump, of those not `known` when the
-/// scenario began, says: its exception, and the stack its dump gives, written
-/// to `log` too.
-fn crash(owner: &str, known: &[String], known_harmony: &[String], ended: Option<GameEnd>, build: &Path, log: &Path) -> Value {
+/// newest crash folder, of those not `known` when the scenario began, says:
+/// its exception, and the stack its dump gives, written to `log` too.
+fn crash(owner: &str, known: &[String], ended: Option<GameEnd>, build: &Path, log: &Path) -> Value {
     let ended = ended.map_or(Value::Null, |end| json!({ "exit_code": format!("0x{:x}", end.code), "said": end.describe() }));
-    let Ok(user) = claim::user_dir(owner) else { return json!({ "folder": null, "harmony_dump": null, "ended": ended }) };
+    let Ok(user) = claim::user_dir(owner) else { return json!({ "folder": null, "ended": ended }) };
     let user = UserFolder::new(user);
-    let folder = user.new_crash_folders(known).pop();
-    let harmony_dump = user.new_harmony_dumps(known_harmony).pop();
-    if folder.is_none() && harmony_dump.is_none() {
-        return json!({ "folder": null, "harmony_dump": null, "ended": ended });
-    }
-    let exception: Vec<String> = folder
-        .as_ref()
-        .map(|f| std::fs::read_to_string(f.join("exception.txt")).unwrap_or_default().lines().take(12).map(String::from).collect())
-        .unwrap_or_default();
-    // Prefer Harmony's backup minidump (captured with original exception
-    // registers) and fall back to the game's own crash folder minidump.
-    let dump = harmony_dump.clone().filter(|p| p.is_file()).or_else(|| folder.as_ref().map(|f| f.join("minidump.dmp")).filter(|p| p.is_file()));
+    let Some(folder) = user.new_crash_folders(known).pop() else {
+        return json!({ "folder": null, "ended": ended });
+    };
+    let exception: Vec<String> = std::fs::read_to_string(folder.join("exception.txt")).unwrap_or_default().lines().take(12).map(String::from).collect();
+    let dump = folder.join("minidump.dmp");
     let mut stack = Vec::new();
-    if let Some(dump) = dump {
+    if dump.is_file() {
         let (dump_text, log_text) = (dump.display().to_string(), log.display().to_string());
         let build = build.to_path_buf();
         let symbols = crate::symbols_dir().unwrap_or_else(|_| PathBuf::from("symbols")).display().to_string();
@@ -684,8 +675,7 @@ fn crash(owner: &str, known: &[String], known_harmony: &[String], ended: Option<
         }
     }
     json!({
-        "folder": folder.map(|f| f.display().to_string()),
-        "harmony_dump": harmony_dump.map(|p| p.display().to_string()),
+        "folder": folder.display().to_string(),
         "ended": ended,
         "exception": exception,
         "stack": stack,
@@ -733,15 +723,10 @@ fn markdown(report: &Value) -> String {
                 None => md.push("The claim saw no end of the game's.".into()),
             }
             md.push(String::new());
-            if crash["folder"].is_null() && crash["harmony_dump"].is_null() {
-                md.push("No crash folder or Harmony minidump came of it.".into());
+            if crash["folder"].is_null() {
+                md.push("No crash folder came of it.".into());
             } else {
-                if !crash["folder"].is_null() {
-                    md.push(format!("The game's crash folder: `{}`.", text(&crash["folder"])));
-                }
-                if !crash["harmony_dump"].is_null() {
-                    md.push(format!("Harmony minidump: `{}`.", text(&crash["harmony_dump"])));
-                }
+                md.push(format!("The game's crash folder: `{}`.", text(&crash["folder"])));
                 for (title, key) in [("Its exception", "exception"), ("The stack its dump gives", "stack")] {
                     let lines: Vec<String> = crash[key].as_array().into_iter().flatten().map(text).collect();
                     if !lines.is_empty() {

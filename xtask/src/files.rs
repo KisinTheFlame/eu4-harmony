@@ -8,14 +8,14 @@ use std::{
 
 /// The files the release build makes that the game loads: each one's name in
 /// the build output, and its path in the game folder. `install` puts these
-/// into the game folder.
-pub(super) const GAME_FILES: [(&str, &str); 4] = [
+/// into the game folder. Never include an `.exe` here (ADR
+/// the-framework-ships-on-the-workshop).
+pub(super) const GAME_FILES: [(&str, &str); 3] = [
     // The proxy, which loads the core into eu4.exe
     // (ADR version-proxy-injection).
     ("version.dll", "version.dll"),
     ("eu4_harmony_core.dll", "eu4-harmony\\eu4_harmony_core.dll"),
     ("eu4_harmony_crash_dumps.dll", "eu4-harmony\\eu4_harmony_crash_dumps.dll"),
-    ("eu4-harmony-dump-writer.exe", "eu4-harmony\\eu4-harmony-dump-writer.exe"),
 ];
 
 /// Default Chinese fonts bundled beside the core: each one's file name in
@@ -175,6 +175,10 @@ pub fn install_from(out: &Path, fonts: &Path, options: &Path, root: &Path) -> Re
         let to = root.join(to);
         copy(&fonts.join(name), &to)?;
         installed.push(to);
+    }
+    let obsolete_writer = root.join("eu4-harmony").join("eu4-harmony-dump-writer.exe");
+    if obsolete_writer.exists() {
+        remove_file(&obsolete_writer)?;
     }
     let options_installed = root.join(DEV_OPTIONS);
     if options.is_file() {
@@ -351,7 +355,6 @@ mod tests {
         fs::write(dir.join("version.dll"), proxy).unwrap();
         fs::write(dir.join("eu4_harmony_core.dll"), extra).unwrap();
         fs::write(dir.join("eu4_harmony_crash_dumps.dll"), extra).unwrap();
-        fs::write(dir.join("eu4-harmony-dump-writer.exe"), extra).unwrap();
         fs::write(dir.join("eu4-harmony.exe"), extra).unwrap();
     }
 
@@ -394,6 +397,10 @@ mod tests {
         assert_eq!(fs::read_to_string(out.join("release.json")).unwrap(), "metadata");
         let (framework, cli) = crate::release::artifact_names("0.2.0");
         let fw_entries = framework_entries(&from, &fonts);
+        assert!(
+            fw_entries.iter().all(|(_, rel)| !rel.to_ascii_lowercase().ends_with(".exe")),
+            "the framework package and Workshop item must hold no executable"
+        );
         let cli_entries = [(from.join(TOOL.0), TOOL.1)];
         verify_archive(&out.join(&framework), &fw_entries).unwrap();
         verify_archive(&out.join(&cli), &cli_entries).unwrap();

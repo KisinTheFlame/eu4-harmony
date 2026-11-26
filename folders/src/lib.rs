@@ -223,11 +223,6 @@ impl UserFolder {
         self.0.join(HARMONY)
     }
 
-    /// Minidumps saved before the game writes its own crash files.
-    pub fn harmony_dumps(&self) -> PathBuf {
-        self.harmony().join("crash-dumps")
-    }
-
     /// The framework's logs: the log, the startup report and what the
     /// development tools write.
     pub fn logs(&self) -> PathBuf {
@@ -270,40 +265,6 @@ impl UserFolder {
         }
         names.sort();
         Ok(names)
-    }
-
-    /// Completed Harmony minidump file names in order; none when there is no
-    /// `crash-dumps\`.
-    pub fn harmony_dump_files(&self) -> Result<Vec<String>> {
-        let dir = self.harmony_dumps();
-        if !dir.is_dir() {
-            return Ok(Vec::new());
-        }
-        let mut names = Vec::new();
-        for entry in std::fs::read_dir(&dir).map_err(|e| format!("cannot read {}: {e}", dir.display()))? {
-            let entry = entry.map_err(|e| e.to_string())?;
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if entry.file_type().map_err(|e| e.to_string())?.is_file() && captured_dump_id(&name).is_some() {
-                names.push(name);
-            }
-        }
-        names.sort();
-        Ok(names)
-    }
-
-    /// Completed Harmony minidumps written since `known`, the last written
-    /// last; none when they cannot be read.
-    pub fn new_harmony_dumps(&self, known: &[String]) -> Vec<PathBuf> {
-        let mut new: Vec<(SystemTime, PathBuf)> = self
-            .harmony_dump_files()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|name| !known.contains(name))
-            .map(|name| self.harmony_dumps().join(name))
-            .map(|path| (std::fs::metadata(&path).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH), path))
-            .collect();
-        new.sort();
-        new.into_iter().map(|(_, path)| path).collect()
     }
 
     /// The crash folders that came since `known` were all there were, the
@@ -495,14 +456,6 @@ mod tests {
         fs::write(user.crashes().join("not a folder.txt"), "").unwrap();
         assert_eq!(user.crash_folders().unwrap(), ["a", "b", "old"]);
         assert_eq!(user.new_crash_folders(&["old".into()]), [user.crashes().join("b"), user.crashes().join("a")]);
-        assert_eq!(user.harmony_dump_files().unwrap(), Vec::<String>::new());
-        fs::create_dir_all(user.harmony_dumps()).unwrap();
-        for name in ["harmony-1-0000000000000001.dmp", "harmony-2-0000000000000002.dmp", "harmony-3-0000000000000003.partial", "unrelated.dmp"] {
-            fs::write(user.harmony_dumps().join(name), "x").unwrap();
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-        assert_eq!(user.harmony_dump_files().unwrap(), ["harmony-1-0000000000000001.dmp", "harmony-2-0000000000000002.dmp"]);
-        assert_eq!(user.new_harmony_dumps(&["harmony-1-0000000000000001.dmp".into()]), [user.harmony_dumps().join("harmony-2-0000000000000002.dmp")]);
         let _ = fs::remove_dir_all(user.path());
     }
 

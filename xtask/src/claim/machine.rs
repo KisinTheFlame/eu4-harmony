@@ -289,13 +289,13 @@ impl Machine for ThisComputer {
         let dll = core.join("eu4_harmony_core.dll");
         let build = starting.build.clone().unwrap_or_else(built);
         copy(&build.join("eu4_harmony_core.dll"), &dll)?;
-        for helper in ["eu4_harmony_crash_dumps.dll", "eu4-harmony-dump-writer.exe"] {
-            if build.join(helper).is_file() {
-                copy(&build.join(helper), &core.join(helper))?;
-            } else {
-                remove_file(&core.join(helper))?;
-            }
+        let helper = "eu4_harmony_crash_dumps.dll";
+        if build.join(helper).is_file() {
+            copy(&build.join(helper), &core.join(helper))?;
+        } else {
+            remove_file(&core.join(helper))?;
         }
+        remove_file(&core.join("eu4-harmony-dump-writer.exe"))?;
         let bundled_fonts = crate::files::fonts_dir();
         let core_fonts = core.join("fonts");
         fs::create_dir_all(&core_fonts).map_err(|e| format!("cannot make {}: {e}", core_fonts.display()))?;
@@ -632,12 +632,11 @@ fn keep(folder: &Path) -> bool {
     let (user, kept) = (UserFolder::new(folder.join("user")), folder.join("kept"));
     let _ = copy_tree(&user.logs(), &kept.join("eu4-harmony-logs"));
     let _ = copy_tree(&user.game_logs(), &kept.join("game-logs"));
-    let _ = copy_tree(&user.harmony_dumps(), &kept.join("harmony-dumps"));
     let _ = copy_tree(&user.crashes(), &kept.join("crashes"));
     if folder.join(ENDS).is_file() {
         let _ = fs::create_dir_all(&kept).and_then(|()| fs::copy(folder.join(ENDS), kept.join(ENDS)));
     }
-    user.crash_folders().is_ok_and(|crashes| !crashes.is_empty()) || user.harmony_dump_files().is_ok_and(|dumps| !dumps.is_empty())
+    user.crash_folders().is_ok_and(|crashes| !crashes.is_empty())
 }
 
 fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
