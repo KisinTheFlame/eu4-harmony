@@ -4,12 +4,16 @@ use crate::native::points::Point;
 use crate::native::speed_up::{self, SpeedUp};
 
 /// Every speed-up, in the order the report names them.
-pub(crate) static ALL: [&SpeedUp; 22] = [
+pub(crate) static ALL: [&SpeedUp; 26] = [
     &crate::speed::pops::SPEED_UP,
     &crate::render::drawing::SPEED_UP,
     &crate::speed::loading::music::SPEED_UP,
     &crate::speed::loading::lookups::SPEED_UP,
     &crate::speed::loading::children::SPEED_UP,
+    &crate::speed::loading::province_shapes::SPEED_UP,
+    &crate::speed::loading::country_distances::SPEED_UP,
+    &crate::speed::loading::flag_atlas::SPEED_UP,
+    &crate::speed::loading::token_lookup::SPEED_UP,
     &crate::speed::loading::opens::SPEED_UP,
     &crate::speed::loading::listed::SPEED_UP,
     &crate::speed::loading::transfer::SPEED_UP,
@@ -85,6 +89,9 @@ mod tests {
             [
                 "music",
                 "lookups",
+                "country-distances",
+                "flag-atlas",
+                "token-lookup",
                 "listed-folders",
                 "script-parameters",
                 "localisation",
@@ -102,7 +109,15 @@ mod tests {
             (both.game_paths, both.checked),
             (
                 bit("music"),
-                bit("lookups") | bit("listed-folders") | bit("script-parameters") | bit("localisation") | bit("trigger-profile") | bit("dlc-verify")
+                bit("lookups")
+                    | bit("country-distances")
+                    | bit("flag-atlas")
+                    | bit("token-lookup")
+                    | bit("listed-folders")
+                    | bit("script-parameters")
+                    | bit("localisation")
+                    | bit("trigger-profile")
+                    | bit("dlc-verify")
             )
         );
         assert!(Chosen::of_list(&ALL, &[], &strings(&["children"])).unwrap_err().contains("cannot be checked"));
