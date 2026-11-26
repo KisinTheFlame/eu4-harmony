@@ -113,7 +113,7 @@ fn promoted(m: &Memory, country: usize) -> GResult<Vec<usize>> {
     // The game walks it so too (0x2fc414): item at +0, next at
     // ACCEPTED_NEXT, no node left out.
     let nodes = containers::chain(m, m.ptr(country + ACCEPTED)?, ACCEPTED_NEXT, 10_000)?;
-    Ok(nodes.into_iter().map(|node| m.ptr(node)).collect::<crate::Result<Vec<_>>>()?)
+    Ok(nodes.into_iter().map(|node| m.ptr(node)).collect::<crate::base::Result<Vec<_>>>()?)
 }
 
 fn accepts(m: &Memory, country: usize, culture: usize) -> GResult<bool> {

@@ -9,13 +9,9 @@
 // macro, so a module's own macros, such as a test's large `json!`, expand
 // deeper with each group the list holds.
 #![recursion_limit = "256"]
-pub type Result<T> = std::result::Result<T, String>;
-
-/// Marks a function the game's code calls, which runs under [`guarded`].
-pub(crate) use eu4_harmony_core_macros::called_by_game;
 
 #[macro_use]
-pub mod log;
+pub(crate) mod base;
 #[macro_use]
 pub mod stub;
 pub mod achievements;
@@ -33,87 +29,48 @@ pub mod framework_ui;
 pub mod game;
 pub mod game_heap;
 pub mod game_string;
-pub mod heap;
 pub mod hidden;
 pub mod hooks;
-pub use eu4_harmony_manifest::{hosts, pdx};
-pub mod icu;
-pub mod lang;
 pub mod loading;
 mod loading_times;
-pub mod loc;
 pub mod lua;
 mod main_thread;
 pub mod map;
 pub mod memory;
 mod modifier_sums;
-pub mod mods;
-pub mod notice;
 pub mod objects;
-pub mod paths;
 pub mod physfs;
 pub mod pipe;
 pub mod points;
 mod proxy;
 pub mod remote;
 pub mod repairs;
-pub mod report;
 pub mod safe_point;
 pub mod saves;
 pub mod saving;
 pub mod sessions;
-pub mod settings;
 pub mod sound;
 pub mod speed;
 pub mod splice;
-mod stack;
 mod startup;
 mod startup_failure;
 mod tooltips;
-mod troubleshooting;
 pub mod ui;
 pub mod unicode;
 mod window_ordering;
 pub mod windows;
 pub mod wording;
-pub mod zip;
 
-use std::sync::{
-    atomic::{AtomicU32, Ordering},
-    OnceLock,
-};
+use base::{heap, icu, lang, log, notice, paths, report, settings};
+use std::sync::{atomic::Ordering, OnceLock};
 use windows_sys::Win32::System::{
     LibraryLoader::GetModuleHandleW,
-    Threading::{GetCurrentProcess, GetCurrentThreadId, TerminateProcess},
+    Threading::{GetCurrentProcess, TerminateProcess},
 };
 
-static GAME_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
-
-/// The game folder, once the proxy has told it.
-pub(crate) fn game_dir() -> Option<&'static std::path::Path> {
-    GAME_DIR.get().map(std::path::PathBuf::as_path)
-}
-pub(crate) static MAIN_THREAD: AtomicU32 = AtomicU32::new(0);
 static MEMORY: OnceLock<memory::Memory> = OnceLock::new();
 /// What startup installed, for the report.
 static STARTUP: OnceLock<String> = OnceLock::new();
-/// When the proxy called the bootstrap, as the game's process began.
-static BOOTSTRAP: OnceLock<std::time::Instant> = OnceLock::new();
-
-/// The time since the framework's bootstrap, which the log's times of the
-/// game's loading count from.
-pub(crate) fn since_bootstrap() -> std::time::Duration {
-    BOOTSTRAP.get_or_init(std::time::Instant::now).elapsed()
-}
-
-pub fn thread_id() -> u32 {
-    unsafe { GetCurrentThreadId() }
-}
-
-/// The thread that started the process, which runs the game's UI and updates.
-pub fn main_thread() -> u32 {
-    MAIN_THREAD.load(Ordering::Relaxed)
-}
 
 /// The game image, once startup has begun.
 pub(crate) fn memory() -> Option<&'static memory::Memory> {
@@ -126,36 +83,15 @@ pub(crate) fn hooked_memory() -> memory::Memory {
     *MEMORY.get().expect("hooks run after startup")
 }
 
-/// Runs framework code. A panic there is a framework bug, not something to
-/// carry on from: its thread and backtrace are logged as it happens
-/// ([`log_panics`]), then the player is told and the game ends ([`fatal`];
-/// ADR framework-succeeds-or-fails-as-a-whole). Every function the game
-/// calls runs under it, so no panic crosses into the game's code.
-pub fn guarded<T>(what: &str, f: impl FnOnce() -> T) -> T {
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
-        Ok(value) => value,
-        Err(payload) => {
-            let text = payload.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| payload.downcast_ref::<String>().cloned());
-            fatal(&format!("{what}: {}", text.unwrap_or_else(|| "panic".into())))
-        }
-    }
-}
-
-/// Ends the game after an unexpected error in framework code
-/// (ADR framework-succeeds-or-fails-as-a-whole).
-#[cfg(not(test))]
-pub(crate) fn fatal(detail: &str) -> ! {
-    log!("fatal error, ending the game: {detail}");
-    notice::tell_and_wait(&notice::Message::new("EU4HARMONY_FATAL").arg("DETAIL", detail));
-    unsafe { TerminateProcess(GetCurrentProcess(), 3) };
-    unreachable!("the process was terminated")
-}
-
-/// In a test, the fatal path panics with the detail instead, so a test can
-/// see that a panic reached it.
-#[cfg(test)]
-pub(crate) fn fatal(detail: &str) -> ! {
-    panic!("fatal: {detail}")
+fn wire_base() {
+    log::set_maintenance(lua::maintain_logs);
+    report::set_providers(lua::timing_lines, speed::check_lines);
+    settings::set_listener(|listener, current| match listener {
+        settings::Listener::Achievements => achievements::follow(current),
+        settings::Listener::Sound => sound::choose(current),
+        settings::Listener::Drawing => drawing::set(current.frame_rate_limit),
+        settings::Listener::CameraZoom => camera_zoom::configure(current.zoom_smoothing, current.zoom_step),
+    });
 }
 
 fn start(m: memory::Memory) -> std::result::Result<String, Failure> {
@@ -169,38 +105,6 @@ fn start(m: memory::Memory) -> std::result::Result<String, Failure> {
     let installed = points::install(m, &points::this_build::installed(m)).map_err(|reason| Failure::mismatch(reason, startup_failure::FailureStage::Points))?;
     dev::after_install();
     Ok(format!("baseline {baseline}: {} dependency points match; {} hooks, {} writes", installed.checked, installed.hooks, installed.writes))
-}
-
-/// Log file in the game folder, used only when the user directory cannot be
-/// determined, so a failure is still written down somewhere.
-fn open_fallback_log() {
-    if !log::is_open() {
-        if let Some(dir) = GAME_DIR.get() {
-            let _ = log::open(&dir.join("eu4-harmony").join("logs").join("core.log"));
-        }
-    }
-}
-
-/// Logs every panic in framework code as it happens, with its thread and
-/// backtrace, which only the panic itself still has: the first step of the
-/// one way a panic goes. [`guarded`], around every function the game calls
-/// (the observer seam and `#[called_by_game]`), then catches it, and
-/// [`fatal`] tells the player and ends the game.
-fn log_panics() {
-    let default = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        let thread = std::thread::current();
-        log::write_within(
-            format_args!(
-                "panic on thread {} ({}): {info}\n{}",
-                thread.name().unwrap_or("of the game's"),
-                thread_id(),
-                std::backtrace::Backtrace::force_capture()
-            ),
-            std::time::Duration::from_secs(1),
-        );
-        default(info);
-    }));
 }
 
 /// Why the startup failed, for the report, and what the player is told.
@@ -228,15 +132,16 @@ impl From<String> for Failure {
 }
 
 fn bootstrap() -> std::result::Result<(), Failure> {
-    let _ = BOOTSTRAP.set(std::time::Instant::now());
-    log_panics();
-    MAIN_THREAD.store(thread_id(), Ordering::Relaxed);
+    base::mark_bootstrap();
+    base::log_panics();
+    wire_base();
+    base::MAIN_THREAD.store(base::thread_id(), Ordering::Relaxed);
     let game_dir = paths::game_dir()?;
     // The log stays buffered until the user directory is known (deferred_init).
     log!("eu4-harmony core {}{} bootstrap in {}", env!("CARGO_PKG_VERSION"), build(), game_dir.display());
     hidden::read_switches();
     let found = proxy::interface(&game_dir);
-    let _ = GAME_DIR.set(game_dir);
+    base::set_game_dir(game_dir);
     log!("proxy interface: {}", found.map_or_else(|| "no proxy in the game folder".to_string(), |i| i.to_string()));
     proxy::check(found).map_err(|reason| Failure {
         reason,
@@ -251,32 +156,6 @@ fn bootstrap() -> std::result::Result<(), Failure> {
     log!("memory at startup: {}", heap::summary());
     let _ = STARTUP.set(summary);
     Ok(())
-}
-
-/// Opens the log and the report in the user directory's `eu4-harmony\logs`,
-/// or the fallback log when the folder cannot be written; returns the folder.
-fn open_logs(user_dir: &std::path::Path) -> std::path::PathBuf {
-    let user = eu4_harmony_folders::UserFolder::new(user_dir);
-    if let Err(e) = log::open(&user.core_log()) {
-        open_fallback_log();
-        log!("cannot open {}: {e}", user.core_log().display());
-    }
-    report::open(user.report());
-    user.logs()
-}
-
-/// Reopens only the framework log after [`log::close`], without rotating
-/// `report.txt` again.
-pub(crate) fn reopen_log(user_dir: Option<&std::path::Path>) {
-    match user_dir {
-        Some(dir) => {
-            let user = eu4_harmony_folders::UserFolder::new(dir);
-            if log::open(&user.core_log()).is_err() {
-                open_fallback_log();
-            }
-        }
-        None => open_fallback_log(),
-    }
 }
 
 /// What this core is, after its version: its api, and in a developer build
@@ -318,14 +197,14 @@ fn report_header(game_dir: Option<&std::path::Path>) {
 /// A hidden start ends the game instead: without the framework it could be
 /// neither used nor hidden.
 fn fail_startup(reason: String, mut told: Option<notice::Message>, outdated_proxy: bool, triage: Option<startup_failure::FailureStage>) {
-    let game_dir = GAME_DIR.get().cloned();
+    let game_dir = base::game_dir().map(std::path::Path::to_path_buf);
     std::thread::spawn(move || {
         let user_dir = game_dir.as_deref().and_then(|d| paths::user_dir(d).ok());
         match &user_dir {
             Some(dir) => {
-                open_logs(dir);
+                base::open_logs(dir);
             }
-            None => open_fallback_log(),
+            None => base::open_fallback_log(),
         }
         if let Some(dir) = &user_dir {
             lang::decide(dir, settings::read(dir).language);
@@ -366,7 +245,7 @@ fn fail_startup(reason: String, mut told: Option<notice::Message>, outdated_prox
 /// Runs once, on the game thread, from the first PhysFS call: the rest of
 /// startup (`startup`).
 pub(crate) fn deferred_init() {
-    startup::run(GAME_DIR.get().cloned().unwrap_or_default(), STARTUP.get().map_or("?", String::as_str));
+    startup::run(base::game_dir().map(std::path::Path::to_path_buf).unwrap_or_default(), STARTUP.get().map_or("?", String::as_str));
 }
 
 /// Called by the proxy from its DllMain. Returns 0 on success.

@@ -4,7 +4,7 @@
 //!
 //! A save is plain text (`EU4txt`) or a zip file whose `meta` entry is
 //! deflated text or the game's binary form (`EU4bin`, ironman saves).
-use crate::Result;
+use crate::base::Result;
 use std::{fs::File, io::Read, path::Path};
 
 /// The observer's tag, a save of observe mode's player.
@@ -49,7 +49,7 @@ pub fn read(path: &Path) -> Result<Header> {
     let mut start = [0u8; 6];
     file.read_exact(&mut start).map_err(|e| e.to_string())?;
     if start.starts_with(b"PK") {
-        return parse(&crate::zip::find(&mut file, b"meta", MOST)?);
+        return parse(&crate::base::zip::find(&mut file, b"meta", MOST)?);
     }
     let mut head = start.to_vec();
     (&mut file).take(TEXT_FIRST as u64).read_to_end(&mut head).map_err(|e| e.to_string())?;

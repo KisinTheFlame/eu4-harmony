@@ -4,7 +4,7 @@
 //! a registered baseline (extra sections appended by a binary patch are fine),
 //! and every dependency point must still hold its expected bytes; `points`
 //! checks the bytes.
-use crate::{memory::Memory, Result};
+use crate::{memory::Memory, base::Result};
 
 struct Baseline {
     name: &'static str,

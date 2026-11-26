@@ -54,9 +54,9 @@ pub struct UiFont {
 }
 
 impl UiFont {
-    pub fn new(face: &Face) -> crate::Result<Self> {
+    pub fn new(face: &Face) -> crate::base::Result<Self> {
         let fonts = SystemFonts::new()?;
-        let face = if fonts.has_family(&face.family) { face.clone() } else { Face::new(crate::settings::LAST_RESORT, face.weight) };
+        let face = if fonts.has_family(&face.family) { face.clone() } else { Face::new(crate::base::settings::LAST_RESORT, face.weight) };
         Ok(Self {
             fonts,
             face,
@@ -182,7 +182,7 @@ impl Measure for UiFont {
     fn wrap(&self, text: &str, size: f32, width: f32) -> Vec<String> {
         let mut lines = Vec::new();
         for paragraph in text.split('\n') {
-            let breaks: Vec<usize> = crate::icu::load()
+            let breaks: Vec<usize> = crate::base::icu::load()
                 .ok()
                 .and_then(|icu| icu.line_breaks(paragraph).ok())
                 .map(|b| b.into_iter().map(|b| b.offset).collect())

@@ -47,7 +47,7 @@ mod turns;
 
 pub(crate) use crossings::SCENE_BEGINS;
 
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::hooks::Call;
 use crate::memory::Memory;
 use crate::points::{GameFunction, Point};
@@ -275,7 +275,7 @@ static NO_EVENTS: [usize; 2] = [0, 0];
 
 /// The camera's update on the drawing thread, with its own frame's length
 /// and no events, as the in-game frame's input does it (`0x831137`–`0x8311b3`).
-fn move_camera(m: &Memory, idler: usize, length: f32) -> crate::Result<()> {
+fn move_camera(m: &Memory, idler: usize, length: f32) -> crate::base::Result<()> {
     let holds = m.u8(m.ptr(idler + IDLER_HOLDS_CAMERA)? + 0x18)? != 0 || m.u8(m.ptr(idler + IDLER_HOLDS_CAMERA_2)? + 0xc8)? != 0;
     let other = m.u8(m.at(OTHER_CAMERA))? != 0;
     let focus = m.u8(m.ptr(m.at(APP))? + APP_FOCUS)? != 0;
@@ -486,17 +486,17 @@ fn drawing_on() -> bool {
 }
 
 fn on_main() -> bool {
-    crate::thread_id() == crate::main_thread()
+    crate::base::thread_id() == crate::base::main_thread()
 }
 
 /// Tells the drawing thread the setting it runs with: at startup, and when
 /// settings are saved. Starts the thread the first time, unless the speed-up
 /// is left to the game, whose points are then not installed.
-pub fn set(frame_rate_limit: crate::settings::FrameRateLimit) {
-    use crate::settings::FrameRateLimit;
+pub fn set(frame_rate_limit: crate::base::settings::FrameRateLimit) {
+    use crate::base::settings::FrameRateLimit;
     let on = !crate::speed::game_path(&SPEED_UP);
     let limit = match frame_rate_limit {
-        FrameRateLimit::Hz(r) if !crate::settings::FRAME_RATE_BOUNDS.contains(&r) => FrameRateLimit::Display,
+        FrameRateLimit::Hz(r) if !crate::base::settings::FRAME_RATE_BOUNDS.contains(&r) => FrameRateLimit::Display,
         other => other,
     };
     let encoded = match limit {
@@ -515,7 +515,7 @@ pub fn set(frame_rate_limit: crate::settings::FrameRateLimit) {
     );
     ON.store(on, Ordering::Relaxed);
     if on && DRAWING_THREAD.load(Ordering::Relaxed) == 0 {
-        let spawned = std::thread::Builder::new().name("eu4-harmony drawing".into()).stack_size(32 << 20).spawn(|| crate::guarded("drawing thread", run));
+        let spawned = std::thread::Builder::new().name("eu4-harmony drawing".into()).stack_size(32 << 20).spawn(|| crate::base::guarded("drawing thread", run));
         if let Err(e) = spawned {
             log!("drawing: no drawing thread ({e}): the main thread draws");
             ON.store(false, Ordering::Relaxed);
@@ -718,7 +718,7 @@ fn must_draw_here(m: &Memory) -> bool {
 /// Whether the current thread is the drawing thread.
 pub fn is_drawing_thread() -> bool {
     let t = DRAWING_THREAD.load(Ordering::Relaxed);
-    t != 0 && t == crate::thread_id()
+    t != 0 && t == crate::base::thread_id()
 }
 
 /// The drawing thread presented a frame of `width` by `height`.
@@ -806,7 +806,7 @@ pub(crate) fn display_refresh_rate() -> u32 {
         let mut mode: DEVMODEW = unsafe { std::mem::zeroed() };
         mode.dmSize = std::mem::size_of::<DEVMODEW>() as u16;
         let ok = unsafe { EnumDisplaySettingsW(device, ENUM_CURRENT_SETTINGS, &mut mode) } != 0;
-        (ok && crate::settings::FRAME_RATE_BOUNDS.contains(&mode.dmDisplayFrequency)).then_some(mode.dmDisplayFrequency)
+        (ok && crate::base::settings::FRAME_RATE_BOUNDS.contains(&mode.dmDisplayFrequency)).then_some(mode.dmDisplayFrequency)
     };
     if let Some(window) = crate::framework_ui::input::window() {
         let monitor = unsafe { MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST) };
@@ -876,7 +876,7 @@ fn maybe_log_pace(base: usize, gaps: &mut course::Gaps, last_drawn: &mut u64, lo
 
 /// The drawing thread.
 fn run() {
-    DRAWING_THREAD.store(crate::thread_id(), Ordering::Relaxed);
+    DRAWING_THREAD.store(crate::base::thread_id(), Ordering::Relaxed);
     let m = crate::hooked_memory();
     let mut display_rate = display_refresh_rate();
     let mut display_checked = Instant::now();

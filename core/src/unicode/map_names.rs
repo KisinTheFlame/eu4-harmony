@@ -24,7 +24,7 @@
 //! another direction instead, but reads it from a vector of doubles as floats
 //! (0xfd45d4, 0xfd464b), so whatever it gives is arbitrary.
 use super::{breaks, game_text, text_loops};
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::game_string;
 use crate::objects::text::font::{OWN_GLYPHS, SCALE, SCALE_FROM_GLYPHS};
 use crate::points::Point;

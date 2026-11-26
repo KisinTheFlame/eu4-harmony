@@ -63,7 +63,7 @@ pub fn day_ends(call: &Call) {
 }
 
 pub fn main_draws(_: &mut Call) {
-    if crate::thread_id() == crate::main_thread() {
+    if crate::base::thread_id() == crate::base::main_thread() {
         // The native path has no separately published frame: its interface
         // is ready when the in-game drawing is entered. This includes the
         // main-thread fallback and the drawing-thread speed-up left off.

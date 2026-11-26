@@ -7,7 +7,7 @@
 //! continue box's save header (`crate::saves::file`), the saves compressed
 //! in the background (`crate::saving::background`), the framework files and
 //! the music cache (`crate::loading::music`).
-use crate::Result;
+use crate::base::Result;
 use std::io::{Read, Seek, SeekFrom};
 
 /// An entry's method: its data as it is.

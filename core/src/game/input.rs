@@ -22,7 +22,7 @@ pub mod plan;
 mod window;
 
 use super::{fail, Caller, GResult, Status};
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::points::{Function, Point};
 use plan::{Held, Step};
 use std::collections::VecDeque;
@@ -63,7 +63,7 @@ unsafe extern "C" fn cursor_at(out: *mut [i32; 2], full_screen: u8, borderless: 
         }
         state().cursor.or_else(drawing_thread_cursor)
     };
-    match crate::guarded("virtual cursor", held) {
+    match crate::base::guarded("virtual cursor", held) {
         Some(at) => {
             *out = at;
             out

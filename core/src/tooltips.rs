@@ -2,7 +2,7 @@
 //! times delayed text, lays out colors and line breaks, rebuilds only changed
 //! text, and places the tooltip within the screen. Only a framework-owned
 //! target replaces the final content (research/panel-entry-text.md).
-use crate::{game_string, hooks::Call, memory::Memory, points::Point, Result};
+use crate::{game_string, hooks::Call, memory::Memory, points::Point, base::Result};
 mod drawing;
 mod handoff;
 use drawing::with_handoff;
@@ -21,13 +21,13 @@ const CONTENT: usize = 0x1415bf0;
 const HIT_ELEMENT: usize = 8;
 
 fn before(_: &mut Call) {
-    if crate::thread_id() == crate::main_thread() {
+    if crate::base::thread_id() == crate::base::main_thread() {
         with_handoff(Handoff::begin);
     }
 }
 
 fn after(call: &mut Call) {
-    if crate::thread_id() == crate::main_thread() {
+    if crate::base::thread_id() == crate::base::main_thread() {
         with_handoff(|handoff| handoff.end(call.faulted()));
     }
 }
@@ -35,13 +35,13 @@ fn after(call: &mut Call) {
 /// The view callback also supplies the actual hit in the alternative camera
 /// path, whose scene lookup differs from the normal cursor lookup.
 pub(crate) fn hit(element: usize) {
-    if crate::thread_id() == crate::main_thread() {
+    if crate::base::thread_id() == crate::base::main_thread() {
         with_handoff(|handoff| handoff.hit(element));
     }
 }
 
 fn hit_after(call: &mut Call) {
-    if crate::thread_id() == crate::main_thread()
+    if crate::base::thread_id() == crate::base::main_thread()
         && with_handoff(|handoff| handoff.presenting())
         && !call.faulted()
         && call.caller() == call.memory().at(HIT_RETURN)
@@ -53,7 +53,7 @@ fn hit_after(call: &mut Call) {
 }
 
 fn content_before(call: &mut Call) {
-    if crate::thread_id() != crate::main_thread() || !with_handoff(|handoff| handoff.presenting()) {
+    if crate::base::thread_id() != crate::base::main_thread() || !with_handoff(|handoff| handoff.presenting()) {
         return;
     }
     let framework = crate::framework_ui::tooltip_at();

@@ -24,7 +24,7 @@
 //! and columns of them. Everything else keeps the size in GUI units: the
 //! projection, the layout and the size the game keeps for the texture.
 use super::{breaks, text_loops};
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::objects::text::font::{OWN_GLYPHS, SCALE};
 use crate::points::Point;
 use crate::resume;

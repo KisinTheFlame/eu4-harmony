@@ -46,7 +46,7 @@
 //!    seconds.
 
 use crate::{
-    called_by_game,
+    base::{called_by_game, Result},
     game_heap::{self, delete},
     game_string,
     hooks::Call,
@@ -57,7 +57,6 @@ use crate::{
         text,
     },
     points::{Function, GameFunction, Point},
-    Result,
 };
 use std::{
     collections::{HashMap, HashSet},

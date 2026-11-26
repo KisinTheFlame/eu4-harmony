@@ -17,13 +17,7 @@
 //! advances it to.
 use super::{army, context_any, fail, orders, world_context, world_context_any, GResult, InWorld, Status, Tag, World};
 use crate::containers;
-use crate::{
-    hooks::Call,
-    memory::Memory,
-    objects::campaign::{battle, side, unit, world},
-    points::Point,
-    Result,
-};
+use crate::{hooks::Call, memory::Memory, objects::campaign::{battle, side, unit, world}, points::Point, base::Result};
 use eu4_harmony_remote::signals::Kind;
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -166,13 +160,13 @@ fn fow_before(call: &mut Call) {
     boundary(|b| {
         b.depth += 1;
         if b.depth != 1 {
-            if b.refresh_thread != crate::thread_id() {
+            if b.refresh_thread != crate::base::thread_id() {
                 b.invalidate();
             }
             return;
         }
         b.invalidate();
-        b.refresh_thread = crate::thread_id();
+        b.refresh_thread = crate::base::thread_id();
         b.before = world_context_any(m).ok().and_then(|c| fog_mode(m, &c).ok().map(|fog| (c, fog, b.revision)));
     });
 }
@@ -201,7 +195,7 @@ fn fow_after(call: &mut Call) {
 
 fn visibility_before(_: &mut Call) {
     boundary(|b| {
-        if b.depth == 0 || b.refresh_thread != crate::thread_id() {
+        if b.depth == 0 || b.refresh_thread != crate::base::thread_id() {
             b.invalidate();
         }
     })
@@ -267,7 +261,7 @@ thread_local! {
 fn route_before(call: &mut Call) {
     let (m, army) = (&call.memory(), call.arg(0));
     let watched = (|| {
-        if orders::own_mutation_thread() == crate::thread_id() || crate::sessions::loading() {
+        if orders::own_mutation_thread() == crate::base::thread_id() || crate::sessions::loading() {
             return None;
         }
         let id = own_army_id(m, army)?;
@@ -480,7 +474,7 @@ pub fn frame_campaign(m: &Memory) -> GResult<(World, u8)> {
     if crate::sessions::loading() {
         return fail(Status::NotReady, "a save is being loaded");
     }
-    if crate::thread_id() != crate::main_thread() {
+    if crate::base::thread_id() != crate::base::main_thread() {
         return fail(Status::WrongContext, "off the game's main thread");
     }
     let world = world_context(m)?;
@@ -501,7 +495,7 @@ fn proof_valid(b: &Boundary, ctx: &World, fog: u8) -> bool {
     b.proof.is_some_and(|p| {
         b.depth == 0
             && p.revision == b.revision
-            && p.thread == crate::thread_id()
+            && p.thread == crate::base::thread_id()
             && p.world == ctx.world
             && p.date == ctx.date
             && p.player == ctx.player.seen_as().0

@@ -1,6 +1,6 @@
 //! Game and user directories, resolved the way the game itself does, the
 //! game's command line, and the folder this core was loaded from.
-use crate::Result;
+use crate::base::Result;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use windows_sys::Win32::System::LibraryLoader::GetModuleFileNameW;

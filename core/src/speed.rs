@@ -89,7 +89,7 @@ fn chosen() -> Chosen {
 impl Chosen {
     /// From dev.toml's lists: a speed-up's name, its group or `all`; a
     /// speed-up both left to the game and checked is left to the game.
-    fn of(game_paths: &[String], checked: &[String]) -> crate::Result<Self> {
+    fn of(game_paths: &[String], checked: &[String]) -> crate::base::Result<Self> {
         let game_paths = named(game_paths, "game-paths", |_| true)?;
         let checked = named(checked, "checked", |s| s.checkable)? & !game_paths;
         Ok(Self { game_paths, checked })
@@ -98,7 +98,7 @@ impl Chosen {
 
 /// The speed-ups `names` names among those `taking` takes, as bits; a name
 /// that names none of them is refused.
-fn named(names: &[String], list: &str, taking: impl Fn(&SpeedUp) -> bool) -> crate::Result<u32> {
+fn named(names: &[String], list: &str, taking: impl Fn(&SpeedUp) -> bool) -> crate::base::Result<u32> {
     let mut bits = 0;
     for name in names {
         let these: Vec<usize> = (0..ALL.len()).filter(|&i| name == "all" || ALL[i].name == name || ALL[i].group == name).collect();
@@ -116,7 +116,7 @@ fn named(names: &[String], list: &str, taking: impl Fn(&SpeedUp) -> bool) -> cra
 }
 
 /// Fails startup when dev.toml names a speed-up there is none of.
-pub fn check_switches() -> crate::Result<()> {
+pub fn check_switches() -> crate::base::Result<()> {
     let (game_paths, checked) = crate::dev::speed_switches();
     Chosen::of(game_paths, checked)?;
     Ok(())

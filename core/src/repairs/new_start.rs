@@ -51,7 +51,7 @@ fn main_menu_shown(m: &Memory) {
 /// Puts back what a world reset leaves of a session as a new start has it:
 /// the Empire's religious status and its religions; and, when `achievements`,
 /// the campaign's achievements. Answers what it found otherwise.
-pub(super) fn as_a_new_start(m: &Memory, world: usize, with_achievements: bool) -> crate::Result<String> {
+pub(super) fn as_a_new_start(m: &Memory, world: usize, with_achievements: bool) -> crate::base::Result<String> {
     let mut found = Vec::new();
     let status = m.u32(world + world::HRE_RELIGION_STATUS)?;
     if status != 0 {

@@ -23,7 +23,7 @@ pub(super) fn capture(tid: u32, pointers: usize) {
     let Some((exe, folder)) = WRITER.get() else { return };
     if pointers != 0 && tid != 0 {
         if let Err(e) = run(exe, folder, tid, pointers) {
-            crate::log::write_within(format_args!("crash: backup minidump unavailable: {e}"), std::time::Duration::ZERO);
+            crate::base::log::write_within(format_args!("crash: backup minidump unavailable: {e}"), std::time::Duration::ZERO);
         }
     }
 }

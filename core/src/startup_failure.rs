@@ -7,7 +7,7 @@
 //! non-stock DLLs loaded from the game folder so the player gets an actionable
 //! notice instead of raw hexadecimal byte mismatches. The startup report and
 //! `core.log` still keep the complete technical failure details.
-use crate::notice::Message;
+use crate::base::notice::Message;
 use serde::Deserialize;
 use std::{
     fs::File,

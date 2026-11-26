@@ -70,6 +70,6 @@ pub fn log_once() {
         let (sets, shared) = glyphs::shared_sets();
         log!("unicode: {kept} localisation entries kept ({legacy} with legacy escapes, {left} left to the game); {loaded} font glyphs above 0xFF ({duplicates} duplicates), kept as {sets} shared sets of {shared} in all; {} script and save tokens had legacy escapes", scripts::decoded());
         costs::log_now();
-        log!("memory at the main menu: {}", crate::heap::summary());
+        log!("memory at the main menu: {}", crate::base::heap::summary());
     });
 }

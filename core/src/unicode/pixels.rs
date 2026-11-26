@@ -25,7 +25,7 @@
 use super::buttons;
 use super::fill;
 use super::glyphs::Glyph;
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::objects::text::text_texture;
 use crate::points::Point;
 use crate::resume;

@@ -1,6 +1,6 @@
 //! Turns the discovered mods' UI declarations into per-file splice text and
 //! the list of elements the UI layer binds at runtime.
-use crate::{hosts, mods::DiscoveredMod, pdx, Result};
+use crate::{base::hosts, base::mods::DiscoveredMod, base::pdx, base::Result};
 pub use eu4_harmony_manifest::ui::{prefix, ElementKind};
 use std::collections::HashMap;
 
@@ -12,7 +12,7 @@ pub struct Element {
     /// The vanilla `windowType` it was spliced into.
     pub window: String,
     /// What binds it there.
-    pub host: crate::hosts::Host,
+    pub host: crate::base::hosts::Host,
     pub name: String,
     pub prefixed: String,
     pub kind: ElementKind,
@@ -179,7 +179,7 @@ mod tests {
 
     #[test]
     fn a_button_area_s_frame_comes_first_and_holds_its_slots() {
-        let area = crate::hosts::window("single_unitpanel").unwrap().buttons.unwrap();
+        let area = crate::base::hosts::window("single_unitpanel").unwrap().buttons.unwrap();
         let mut plan = Plan::default();
         plan.add("interface/unitpanel_main.gui", Addition::Window { window: "single_unitpanel".into(), text: " BUTTON ".into() });
         plan.add_first("interface/unitpanel_main.gui", Addition::Window { window: "single_unitpanel".into(), text: super::frame(&area, 10) });

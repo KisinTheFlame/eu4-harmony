@@ -18,7 +18,7 @@
 //! speed-up `modifier-sums` (`crate::speed`): checked, it searches as the
 //! game does as well and counts any answer that differs; left to the game,
 //! the game's code stays as it is.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::points::{Function, Point};
 use crate::speed::{self, SpeedUp};
 use std::cell::{Cell, RefCell};

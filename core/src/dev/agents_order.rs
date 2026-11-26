@@ -16,7 +16,7 @@
 //! plays the same days in either order if no agent reads what another of
 //! its country wrote that day.
 use super::options::{self, AgentsOrder};
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::{
     army_search::{ARMIES_WALK, ARMIES_WALKED as WALKED, CHILDREN_WALK as WALKS},
     points::Point,

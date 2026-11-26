@@ -22,7 +22,7 @@
 //!
 //! The files opened, what is read from them and what each lookup answers stay
 //! as they were.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::points::{Function, Point};
 use crate::speed::SpeedUp;
 use std::cell::{Cell, UnsafeCell};
@@ -539,7 +539,7 @@ extern "C" fn entry_read(io: usize, zip: usize, entry: usize) -> i32 {
     if state == ENTRY_READ_DONE || state == ENTRY_FOLDER {
         return 1;
     }
-    let me = crate::thread_id();
+    let me = crate::base::thread_id();
     THREAD.with(|t| {
         let _guard = COURSE.enter_entry(t, me);
         ORIGINAL_ENTRY_READ.get()(io, zip, entry)

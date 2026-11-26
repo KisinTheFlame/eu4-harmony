@@ -41,11 +41,11 @@ pub fn game_heap() -> usize {
 pub fn memory() -> Memory {
     use windows_sys::Win32::System::Memory::GetProcessHeap;
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessHandleCount};
-    let mut each = crate::heap::each_heap();
+    let mut each = crate::base::heap::each_heap();
     each.sort_by_key(|(_, allocated, _)| std::cmp::Reverse(*allocated));
     let (game, process) = (game_heap(), unsafe { GetProcessHeap() } as usize);
-    let private = crate::heap::private_bytes();
-    let framework = crate::heap::live();
+    let private = crate::base::heap::private_bytes();
+    let framework = crate::base::heap::live();
     let (allocated, committed) = each.iter().fold((0, 0), |(a, c), (_, ha, hc)| (a + ha, c + hc));
     let game_heap = each.iter().find(|(h, ..)| *h == game).map_or(0, |(_, a, _)| if game == process { a.saturating_sub(framework) } else { *a });
     let mut handles = 0u32;

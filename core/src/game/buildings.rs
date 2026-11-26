@@ -79,7 +79,7 @@ fn finished(call: &mut Call) {
     }
     let m = &call.memory();
     let construction = call.arg(0);
-    let read = || -> crate::Result<Option<signals::Change>> {
+    let read = || -> crate::base::Result<Option<signals::Change>> {
         if context_any(m).is_err() || m.ptr(construction)? != m.at(CONSTRUCTION_CLASS) {
             return Ok(None);
         }

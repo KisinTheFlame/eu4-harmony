@@ -16,7 +16,7 @@
 //! the file's description then holds the bytes as read and no copy, and the
 //! load is the same call with the same bytes. Any other game keeps the
 //! game's way.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::objects::campaign::{globals::WORLD, world::MULTIPLAYER};
 use crate::points::{Function, Point};
 use crate::speed::SpeedUp;

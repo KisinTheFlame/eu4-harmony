@@ -2,14 +2,7 @@
 //! The original stream and its file remain owned by the native in-game load;
 //! only its save description's borrowed input changes during `0x74b8a0`.
 //! See docs/game/program/saves.md, "File position queries while parsing text".
-use crate::{
-    called_by_game,
-    memory::Memory,
-    objects::stream,
-    points::{GameFunction, Point},
-    speed::SpeedUp,
-    Result,
-};
+use crate::{base::called_by_game, memory::Memory, objects::stream, points::{GameFunction, Point}, speed::SpeedUp, base::Result};
 
 const LOAD: GameFunction<2> = GameFunction::at(0x74b8a0);
 const MAKE_STREAM: GameFunction<8> = GameFunction::at(0x171ebc0);
@@ -74,7 +67,7 @@ impl Input {
 
 #[called_by_game]
 extern "C" fn load(world: usize, save: usize) -> usize {
-    crate::guarded("text save input", || {
+    crate::base::guarded("text save input", || {
         let m = crate::hooked_memory();
         let mut input = match Input::prepare(&m, save) {
             Ok(input) => input,

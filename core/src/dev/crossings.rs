@@ -20,7 +20,7 @@
 //! dev.toml's `[crossings]` says how many days pass between two reports in
 //! the framework log (`report-every`), each the stacks counted since the
 //! start, most first.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::hooks::Call;
 use crate::memory::PAGE;
 use crate::points::Point;
@@ -125,7 +125,7 @@ fn watched(address: usize) -> bool {
 /// first.
 fn frames(context: &CONTEXT) -> [u64; FRAMES] {
     let mut out = [0u64; FRAMES];
-    crate::stack::walk(context, &mut out);
+    crate::base::stack::walk(context, &mut out);
     out
 }
 
@@ -186,7 +186,7 @@ fn end() {
 
 /// The daily update begins (`game::events`).
 pub fn day_begins(m: &crate::memory::Memory) {
-    if crate::thread_id() != crate::main_thread() {
+    if crate::base::thread_id() != crate::base::main_thread() {
         return;
     }
     if let Ok(w) = crate::game::world_context_any(m) {
@@ -198,7 +198,7 @@ pub fn day_begins(m: &crate::memory::Memory) {
 
 /// The daily update has returned (`game::events`).
 pub fn day_ends() {
-    if crate::thread_id() != crate::main_thread() {
+    if crate::base::thread_id() != crate::base::main_thread() {
         return;
     }
     end();
@@ -211,21 +211,21 @@ pub fn day_ends() {
 
 /// The check for a frame inside a day begins (`drawing`, which observes it).
 pub fn check_before(_: &mut Call) {
-    if crate::thread_id() == crate::main_thread() {
+    if crate::base::thread_id() == crate::base::main_thread() {
         end();
     }
 }
 
 /// The check for a frame inside a day returns.
 pub fn check_after(_: &mut Call) {
-    if crate::thread_id() == crate::main_thread() {
+    if crate::base::thread_id() == crate::base::main_thread() {
         begin();
     }
 }
 
 fn report(days: usize) {
     let stacks = STACKS_SEEN.lock().unwrap_or_else(|e| e.into_inner());
-    let main = crate::main_thread();
+    let main = crate::base::main_thread();
     let mut order: Vec<&Stack> = stacks.iter().collect();
     order.sort_by_key(|s| std::cmp::Reverse(s.count));
     log!(
@@ -237,7 +237,7 @@ fn report(days: usize) {
     for s in order {
         let thread = if s.thread == main { "main".to_string() } else { format!("thread {}", s.thread) };
         let date = eu4_harmony_checks::Date(s.date).to_string();
-        log!("crossing: {} time(s), {thread}, first {date}: {}", s.count, crate::stack::describe(&s.frames));
+        log!("crossing: {} time(s), {thread}, first {date}: {}", s.count, crate::base::stack::describe(&s.frames));
     }
 }
 

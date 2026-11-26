@@ -5,12 +5,12 @@
 //! the list, which it frees once it is done, is left out. A fix to how one of
 //! them is read reaches every reader.
 use crate::{
+    base::Result,
     memory::Memory,
     objects::{
         campaign::{countries, globals},
         list, map,
     },
-    Result,
 };
 use std::collections::BTreeSet;
 

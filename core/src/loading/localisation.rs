@@ -34,7 +34,7 @@
 //! store before `0x14b4a20` is snapshotted, `0x14b4a20` runs, and every
 //! collection's lookup entries, provenance records and resolved strings are
 //! compared with what skipping `0x14b4a20` would have kept.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::hooks::Call;
 use crate::memory::Memory;
 use crate::points::{Function, GameFunction, Point};

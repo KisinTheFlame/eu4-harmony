@@ -25,6 +25,7 @@ pub mod leave;
 
 use super::{fail, game, As, Caller, GResult, Status, Tag};
 use crate::{
+    base::Result,
     game_string,
     memory::Memory,
     objects::{
@@ -35,7 +36,6 @@ use crate::{
     },
     points::{GameFunction, Point},
     saves::file as save_file,
-    Result,
 };
 use std::{
     path::{Path, PathBuf},
@@ -290,7 +290,7 @@ static SAVE_GAMES: OnceLock<std::result::Result<PathBuf, String>> = OnceLock::ne
 
 /// The save games folder, in the user directory.
 fn save_games() -> GResult<PathBuf> {
-    let dir = SAVE_GAMES.get_or_init(|| Ok(eu4_harmony_folders::UserFolder::new(crate::paths::user_dir(&crate::paths::game_dir()?)?).save_games()));
+    let dir = SAVE_GAMES.get_or_init(|| Ok(eu4_harmony_folders::UserFolder::new(crate::base::paths::user_dir(&crate::base::paths::game_dir()?)?).save_games()));
     dir.clone().map_err(|e| format!("the user directory: {e}").into())
 }
 
@@ -312,7 +312,7 @@ pub fn saves(_: Caller) -> GResult<Vec<Save>> {
         }
         let modified = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs());
         let header = header(&entry.path(), meta.len(), modified);
-        let missing_mods = missing_mods(&header, crate::mods::playset());
+        let missing_mods = missing_mods(&header, crate::base::mods::playset());
         saves.push(Save { name: name.to_string(), file: file.clone(), bytes: meta.len(), modified, player: header.player, date: header.date, missing_mods });
     }
     saves.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| a.name.cmp(&b.name)));
@@ -345,7 +345,7 @@ fn missing_mods(header: &save_file::Header, playset: &[String]) -> Vec<String> {
     header
         .mods
         .iter()
-        .filter(|m| !playset.iter().any(|p| crate::mods::same_descriptor(&m.file, p)))
+        .filter(|m| !playset.iter().any(|p| crate::base::mods::same_descriptor(&m.file, p)))
         .map(|m| if m.name.is_empty() { m.file.clone() } else { m.name.clone() })
         .collect()
 }
@@ -407,7 +407,7 @@ pub fn load(_: Caller, name: &str) -> GResult<ExpectedProbe> {
     let Some(letters) = player_of(&header) else {
         return fail(Status::Rejected, "the save has no player");
     };
-    let missing = missing_mods(&header, crate::mods::playset());
+    let missing = missing_mods(&header, crate::base::mods::playset());
     if !missing.is_empty() {
         return fail(
             Status::Rejected,

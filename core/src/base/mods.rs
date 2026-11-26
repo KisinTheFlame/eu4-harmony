@@ -4,13 +4,13 @@
 //! entry names a `.mod` descriptor whose `path=` points at the mod directory.
 //! A mod is a Harmony mod when it has `eu4-harmony/manifest.toml`; where its
 //! other files are says the rest (ADR manifest-in-toml-layout-by-convention).
-use crate::{notice::Message, Result};
+use crate::{base::notice::Message, base::Result};
 use std::{
     path::{Path, PathBuf},
     sync::OnceLock,
 };
 
-pub use eu4_harmony_manifest::{same_descriptor, Descriptor, HarmonyMod, Layout, Manifest, Permissions, Playset, UiFragment};
+pub use eu4_harmony_manifest::{same_descriptor, Descriptor, HarmonyMod, Layout, Manifest, Permissions, Playset};
 
 #[derive(Debug)]
 pub struct DiscoveredMod {

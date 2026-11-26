@@ -27,8 +27,8 @@
 use crate::hooks::Call;
 use crate::points::Point;
 use crate::speed::SpeedUp;
-use crate::zip::{self, DEFLATED, STORED};
-use crate::Result;
+use crate::base::zip::{self, DEFLATED, STORED};
+use crate::base::Result;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
@@ -100,7 +100,7 @@ fn save_before(call: &mut Call) {
     if crate::speed::game_path(&SPEED_UP) {
         return;
     }
-    course::save_begins(crate::thread_id() == crate::main_thread());
+    course::save_begins(crate::base::thread_id() == crate::base::main_thread());
 }
 
 fn save_after(call: &mut Call) {
@@ -112,7 +112,7 @@ fn save_after(call: &mut Call) {
 }
 
 fn entry_before(call: &mut Call) {
-    if let Some(level) = course::copy_level(crate::thread_id() == crate::main_thread(), call.arg(3) as u32, call.arg(4) as u32) {
+    if let Some(level) = course::copy_level(crate::base::thread_id() == crate::base::main_thread(), call.arg(3) as u32, call.arg(4) as u32) {
         call.set_arg(4, level);
     }
 }

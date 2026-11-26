@@ -387,7 +387,7 @@ type Owners = HashMap<(SiteKey, u32), u64>;
 /// The game's writable sections, by RVA and size, from its headers.
 fn writable_sections(m: &crate::memory::Memory) -> Vec<(u32, usize)> {
     const WRITE: u32 = 0x8000_0000;
-    let read = || -> crate::Result<Vec<(u32, usize)>> {
+    let read = || -> crate::base::Result<Vec<(u32, usize)>> {
         let nt = m.base + m.u32(m.base + 0x3c)? as usize;
         let count = m.u16(nt + 6)? as usize;
         let first = nt + 24 + m.u16(nt + 20)? as usize;
@@ -613,7 +613,7 @@ fn pages_now(sites: usize) -> Result<Pages, Error> {
     }
     let began = std::time::Instant::now();
     let census: usize = BLOCKS.iter().map(|s| s.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map_or(0, |s| s.blocks.len())).sum();
-    let walk = pages::walk(heap, (census + crate::heap::blocks()) * 5 / 4 + (1 << 20));
+    let walk = pages::walk(heap, (census + crate::base::heap::blocks()) * 5 / 4 + (1 << 20));
     let found = pages::pages(&walk);
     let totals = pages::totals(&found);
     let now = GENERATION.load(Ordering::Relaxed);
@@ -660,7 +660,7 @@ fn uncounted_now(sizes: usize, samples: usize) -> Result<Uncounted, Error> {
     }
     let began = std::time::Instant::now();
     let census: usize = BLOCKS.iter().map(|s| s.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map_or(0, |s| s.blocks.len())).sum();
-    let walk = pages::walk(heap, (census + crate::heap::blocks()) * 5 / 4 + (1 << 20));
+    let walk = pages::walk(heap, (census + crate::base::heap::blocks()) * 5 / 4 + (1 << 20));
     let counted = |start: usize| shard(start).as_ref().is_some_and(|s| s.blocks.contains_key(&start));
     let mut found = uncounted::uncounted(&walk, counted, sizes, samples);
     found.took_ms = began.elapsed().as_millis() as u64;

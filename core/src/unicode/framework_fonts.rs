@@ -15,9 +15,9 @@
 //! the game's font, which draws its own glyphs.
 use super::fill::Kind;
 use crate::files::File;
-use crate::pdx;
+use crate::base::pdx;
 use crate::splice::{Addition, Plan};
-use crate::Result;
+use crate::base::Result;
 use std::collections::HashSet;
 use std::sync::Mutex;
 
@@ -140,7 +140,7 @@ fn in_fonts(text: &str, drawn: impl Fn(&FrameworkFont) -> bool) -> Result<String
 #[cfg(test)]
 mod tests {
     use super::{files, in_fonts, mentions_a_window, FONTS};
-    use crate::pdx;
+    use crate::base::pdx;
 
     #[test]
     fn each_font_is_defined_with_its_files() {

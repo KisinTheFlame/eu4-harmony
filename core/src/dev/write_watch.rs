@@ -38,7 +38,7 @@
 //! is for finding out, not for play.
 pub mod drawing;
 
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::hooks::Call;
 use crate::memory::Memory;
 use crate::objects::campaign;
@@ -749,7 +749,7 @@ unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
 /// of what was read, emptied first at the round's first reading call; or
 /// its writes, those to what the round's reading calls read marked.
 fn start(m: &Memory, reads: bool, first_read: bool) -> Result<String, String> {
-    start_on(m, Watch { reads, first_read, thread: crate::main_thread(), hold: true, only_seen: false })
+    start_on(m, Watch { reads, first_read, thread: crate::base::main_thread(), hold: true, only_seen: false })
 }
 
 /// What a watch watches: reads or writes, the thread it is for, whether the
@@ -1044,7 +1044,7 @@ fn before(call: &mut Call) {
     // counts; the observed function is looked up in the hooks' registry, a
     // read of the heap the watch may record.
     if WATCHING.load(Ordering::SeqCst) != NONE {
-        if crate::thread_id() == crate::main_thread() && call.observed() == Some(WATCHING_ADDRESS.load(Ordering::SeqCst)) {
+        if crate::base::thread_id() == crate::base::main_thread() && call.observed() == Some(WATCHING_ADDRESS.load(Ordering::SeqCst)) {
             DEPTH.fetch_add(1, Ordering::SeqCst);
         }
         return;
@@ -1053,7 +1053,7 @@ fn before(call: &mut Call) {
     let Some(address) = call.observed() else { return };
     let Some(index) = w.index(address) else { return };
     let m = call.memory();
-    if crate::thread_id() != crate::main_thread() || !begun(w, &m) || CALLS.load(Ordering::SeqCst) >= w.calls {
+    if crate::base::thread_id() != crate::base::main_thread() || !begun(w, &m) || CALLS.load(Ordering::SeqCst) >= w.calls {
         return;
     }
     let done = READ_DONE.load(Ordering::SeqCst);
@@ -1083,7 +1083,7 @@ fn after(call: &mut Call) {
     // Before anything else, so that the framework's own work here is not
     // watched; a return from within the watched call only counts.
     let index = WATCHING.load(Ordering::SeqCst);
-    if index == NONE || crate::thread_id() != crate::main_thread() || call.observed() != Some(WATCHING_ADDRESS.load(Ordering::SeqCst)) {
+    if index == NONE || crate::base::thread_id() != crate::base::main_thread() || call.observed() != Some(WATCHING_ADDRESS.load(Ordering::SeqCst)) {
         return;
     }
     if DEPTH.load(Ordering::SeqCst) > 0 {

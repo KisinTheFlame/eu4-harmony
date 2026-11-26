@@ -3,11 +3,7 @@
 //! `eu4-harmony/localisation/` (format in `eu4_harmony_loc`), and the splice
 //! that adds the mods' keys to the game's own localisation, so that their
 //! `.gui` fragments can name them like any vanilla key.
-use crate::{
-    lang,
-    mods::DiscoveredMod,
-    splice::{Addition, Plan},
-};
+use super::{dev_options, lang, mods::DiscoveredMod};
 use eu4_harmony_loc::{self as format, Catalog, Language};
 use std::collections::BTreeMap;
 use std::sync::{LazyLock, RwLock};
@@ -15,15 +11,15 @@ use std::sync::{LazyLock, RwLock};
 static FRAMEWORK: LazyLock<Catalog> = LazyLock::new(|| {
     let mut catalog = Catalog::default();
     for source in [
-        include_str!("../localisation/eu4harmony_l_english.yml"),
-        include_str!("../localisation/eu4harmony_l_french.yml"),
-        include_str!("../localisation/eu4harmony_l_german.yml"),
-        include_str!("../localisation/eu4harmony_l_spanish.yml"),
-        include_str!("../localisation/eu4harmony_l_simp_chinese.yml"),
+        include_str!("../../localisation/eu4harmony_l_english.yml"),
+        include_str!("../../localisation/eu4harmony_l_french.yml"),
+        include_str!("../../localisation/eu4harmony_l_german.yml"),
+        include_str!("../../localisation/eu4harmony_l_spanish.yml"),
+        include_str!("../../localisation/eu4harmony_l_simp_chinese.yml"),
     ] {
         catalog.add(format::parse(source).expect("the framework's localisation parses"));
     }
-    for source in crate::dev::localisations() {
+    for source in dev_options::localisations() {
         catalog.add(format::parse(source).expect("the developer build's localisation parses"));
     }
     catalog
@@ -81,10 +77,9 @@ fn target(game: Language) -> String {
 }
 
 /// Loads the localisation of `mods` (those taking part, in playset order) and
-/// plans the splice of their keys, in the player language and into the game
-/// language's file, as `language` decided them. Returns problems for the log
-/// and the report.
-pub fn install(language: &lang::Decision, mods: &[&DiscoveredMod], plan: &mut Plan) -> Vec<String> {
+/// returns problems for the log and report together with the optional
+/// `(vanilla_file, appended_text)` entry to splice into the game's localisation.
+pub fn install(language: &lang::Decision, mods: &[&DiscoveredMod]) -> (Vec<String>, Option<(String, String)>) {
     let player = language.player;
     let mut notes = Vec::new();
     let mut catalogs = BTreeMap::new();
@@ -106,12 +101,10 @@ pub fn install(language: &lang::Decision, mods: &[&DiscoveredMod], plan: &mut Pl
         }
         catalogs.insert(id.clone(), catalog);
     }
-    if !lines.is_empty() {
-        plan.add(&target(language.game), Addition::Append(format!("# EU4 Harmony: mod texts in {}\n{lines}", player.id())));
-    }
+    let appended = (!lines.is_empty()).then(|| (target(language.game), format!("# EU4 Harmony: mod texts in {}\n{lines}", player.id())));
     log!("localisation: {} key(s) of {} mod(s) in {}", owners.len(), catalogs.len(), player.id());
     *MODS.write().unwrap_or_else(|e| e.into_inner()) = catalogs;
-    notes
+    (notes, appended)
 }
 
 #[cfg(test)]
@@ -198,24 +191,23 @@ mod tests {
         std::fs::create_dir_all(&loc).unwrap();
         std::fs::write(loc.join("t_l_english.yml"), "l_english:\n T_APPLY:0 \"Apply\"\n T_ONLY:0 \"English\"\n").unwrap();
         std::fs::write(loc.join("t_l_german.yml"), "l_german:\n T_APPLY:0 \"Übernehmen\"\n").unwrap();
-        let m = crate::mods::DiscoveredMod {
+        let m = crate::base::mods::DiscoveredMod {
             descriptor_file: dir.join("t.mod"),
-            descriptor: crate::mods::Descriptor { name: "T".into(), version: None, path: Some(dir.clone()), archive: None },
+            descriptor: crate::base::mods::Descriptor { name: "T".into(), version: None, path: Some(dir.clone()), archive: None },
             dir: dir.clone(),
-            manifest: crate::mods::Manifest::parse(
+            manifest: crate::base::mods::Manifest::parse(
                 "id = \"t\"
 api_version = \"0.3\"",
             )
             .unwrap(),
             layout: Default::default(),
         };
-        let mut plan = Plan::default();
         // A German player in a game that runs in English.
         let language = lang::Decision { player: Language::German, game: Language::English, reason: String::new() };
-        let notes = install(&language, &[&m], &mut plan);
+        let (notes, appended) = install(&language, &[&m]);
         assert!(notes.is_empty(), "{notes:?}");
-        let additions = plan.for_file("localisation/text_l_english.yml", b"");
-        let Addition::Append(text) = &additions[0] else { panic!() };
+        let (file, text) = appended.unwrap();
+        assert_eq!(file, "localisation/text_l_english.yml");
         assert!(text.contains(" T_APPLY:0 \"Übernehmen\"\n") && text.contains(" T_ONLY:0 \"English\"\n"), "{text}");
         assert_eq!(mod_text("t", "T_APPLY").as_deref(), Some("Apply"));
         std::fs::remove_dir_all(&dir).unwrap();

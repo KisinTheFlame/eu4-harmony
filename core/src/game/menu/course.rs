@@ -139,7 +139,7 @@ pub struct Rules {
 
 impl Rules {
     pub fn now() -> Self {
-        let settings = crate::settings::current();
+        let settings = crate::base::settings::current();
         Self { return_without_restart: settings.return_without_restart, save_ironman_before_load: settings.save_ironman_before_load }
     }
 }

@@ -40,7 +40,7 @@
 //! The steps are laid out and taken as a whole by `super::course`, over what
 //! each does in the game; here are the game's own steps and the hooks that
 //! hand them over (`super`'s `InGame`).
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::{
     game_string,
     hooks::Call,
@@ -229,7 +229,7 @@ pub(super) fn load(m: &Memory, request: usize) -> u32 {
     let code = unsafe { ORIGINAL.get()(request) };
     LOADING_IN_GAME.store(false, Ordering::Relaxed);
     QUIET_RESET.store(false, Ordering::Relaxed);
-    log!("leave: the in-game load answered {:?}, {}; {}", Loaded::of(code), took.end(), crate::heap::split());
+    log!("leave: the in-game load answered {:?}, {}; {}", Loaded::of(code), took.end(), crate::base::heap::split());
     if SETUP_SAVE_WAITED.swap(false, Ordering::Relaxed) {
         log!("leave: the save the game makes as it sets the loaded ironman session up, now that the load let its file go");
         if let Err(e) = EXIT_SAVE.call(m, []) {
@@ -249,7 +249,7 @@ pub(super) fn load(m: &Memory, request: usize) -> u32 {
 pub(super) fn return_in_process(m: &Memory, app: usize) -> Result<(), String> {
     match in_process_return(m, app) {
         Ok(()) => {
-            log!("leave: the main menu takes over at the application's next switch; {}", crate::heap::split());
+            log!("leave: the main menu takes over at the application's next switch; {}", crate::base::heap::split());
             Ok(())
         }
         Err(why) => {
@@ -273,14 +273,14 @@ pub(super) fn stay(m: &Memory) {
 
 /// The player hears that the ironman exit save failed.
 pub(super) fn save_failed() {
-    crate::notice::post("ironman save failed", crate::notice::Repeat::Always, Message::new("EU4HARMONY_IRONMAN_SAVE_FAILED"));
+    crate::base::notice::post("ironman save failed", crate::base::notice::Repeat::Always, Message::new("EU4HARMONY_IRONMAN_SAVE_FAILED"));
 }
 
 /// Every in-game load: its steps, around the game's own (`super::course`).
 #[called_by_game]
 unsafe extern "C" fn in_game_load(request: usize) -> u32 {
     let Some(m) = crate::memory().copied() else { return ORIGINAL.get()(request) };
-    crate::guarded("in-game load", || {
+    crate::base::guarded("in-game load", || {
         if crate::game::signals::in_day() {
             log!("leave: refused an in-game load while a daily update is on the stack");
             return 1;
@@ -306,7 +306,7 @@ extern "C" fn question_text(out: usize, key: usize, values: usize, name: usize) 
     let saved = (|| {
         let end = (0..1024).find(|&i| m.u8(name + i).is_ok_and(|b| b == 0)).ok_or("the save's name has no end")?;
         let name: String = game_text::chars(&m.bytes(name, end)?).map(|(c, _)| c).collect();
-        let words = crate::loc::framework(crate::lang::player(), "EU4HARMONY_CONFIRM_LOAD_IRONMAN", &[("NAME", &name)]);
+        let words = crate::base::loc::framework(crate::base::lang::player(), "EU4HARMONY_CONFIRM_LOAD_IRONMAN", &[("NAME", &name)]);
         game_string::read(&m, out)?;
         unsafe { game_string::truncate(out as *mut u8, 0) };
         game_string::append_checked(&m, out, &game_text::from_str(&words))
@@ -378,13 +378,13 @@ static ORIGINAL_RESTART: Function<Restart> = Function::new();
 #[called_by_game]
 unsafe extern "C" fn restart(app: usize, argument: usize) -> usize {
     let Some(m) = crate::memory().copied() else { return ORIGINAL_RESTART.get()(app, argument) };
-    crate::guarded("return to the main menu", || COURSE.restart(&mut InGame { app, argument, ..InGame::new(&m) }))
+    crate::base::guarded("return to the main menu", || COURSE.restart(&mut InGame { app, argument, ..InGame::new(&m) }))
 }
 
 /// Takes the session down as the in-game load does before it reads a save,
 /// with the game's history, then makes a main menu as startup does and
 /// switches the application to it.
-fn in_process_return(m: &Memory, app: usize) -> crate::Result<()> {
+fn in_process_return(m: &Memory, app: usize) -> crate::base::Result<()> {
     let manager = map_manager(m)?.ok_or("no game is going on")?;
     let interface = repairs::SessionInterface::before_reset(m, manager)?;
     take_the_interface_down(m, manager)?;
@@ -407,7 +407,7 @@ fn in_process_return(m: &Memory, app: usize) -> crate::Result<()> {
 /// message icons let go (docs/game/interface/main-menu.md). The game's in-game load
 /// does that before it looks at its save's name, and given none stops there
 /// and answers 1 (`0x5d06c4`): so it is called with no name.
-fn take_the_interface_down(m: &Memory, manager: usize) -> crate::Result<()> {
+fn take_the_interface_down(m: &Memory, manager: usize) -> crate::base::Result<()> {
     let mut request = [0usize; load_request::SIZE / 8];
     request[(load_request::NAME + game_string::CAPACITY) / 8] = game_string::INLINE;
     request[load_request::MAP_MANAGER / 8] = manager;
@@ -421,7 +421,7 @@ fn take_the_interface_down(m: &Memory, manager: usize) -> crate::Result<()> {
 /// Makes a main menu as startup does, switches the application to it at its
 /// next frame, which lets the idler it leaves go, and reads the continue
 /// information again.
-fn main_menu(m: &Memory, app: usize) -> crate::Result<()> {
+fn main_menu(m: &Memory, app: usize) -> crate::base::Result<()> {
     let (first, second) = (m.ptr(app + application::MAIN_MENU_ARGS.0)?, m.ptr(app + application::MAIN_MENU_ARGS.1)?);
     let memory = crate::game_heap::new(m, MAIN_MENU_SIZE)?;
     if memory == 0 {
@@ -461,7 +461,7 @@ fn intro_elapsed(fade_in_done: f32, gui_start_move: f32) -> f32 {
 }
 
 /// Configures `frontend` to skip its intro fade and reach `ShowPage` on Frame 1.
-fn arm_skip_intro(m: &Memory, frontend: usize) -> crate::Result<()> {
+fn arm_skip_intro(m: &Memory, frontend: usize) -> crate::base::Result<()> {
     if m.ptr(frontend)? != m.at(gui::classes::MAIN_MENU) {
         return Err("unexpected main menu object".into());
     }
@@ -503,7 +503,7 @@ fn took_over(call: &mut Call) {
 /// page 0 (with its panel slide-in) on that frame.
 #[called_by_game]
 unsafe extern "C" fn slide_load_screen(dt: f32) -> u8 {
-    if crate::thread_id() == crate::main_thread() && SKIP_INTRO.swap(0, Ordering::Relaxed) != 0 {
+    if crate::base::thread_id() == crate::base::main_thread() && SKIP_INTRO.swap(0, Ordering::Relaxed) != 0 {
         log!("leave: skipped the main menu's fade and loading screen");
         return 0;
     }
@@ -565,12 +565,12 @@ extern "C" fn setup_back_stub() {
 /// How long a piece of leaving took, and what it did to memory, for the log.
 struct Took {
     at: std::time::Instant,
-    memory: crate::heap::Change,
+    memory: crate::base::heap::Change,
 }
 
 impl Took {
     fn begin() -> Self {
-        Self { at: std::time::Instant::now(), memory: crate::heap::Change::begin() }
+        Self { at: std::time::Instant::now(), memory: crate::base::heap::Change::begin() }
     }
 
     fn end(&self) -> String {

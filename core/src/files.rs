@@ -44,8 +44,8 @@ pub fn mount() {
 
 /// The files packed as a zip archive, each stored as it is.
 fn zip(files: &[File]) -> Vec<u8> {
-    let entries: Vec<_> = files.iter().map(|f| crate::zip::Entry::stored(f.path.as_bytes(), &f.data)).collect();
-    crate::zip::write(entries.iter().zip(files).map(|(e, f)| (e, f.data.as_slice())))
+    let entries: Vec<_> = files.iter().map(|f| crate::base::zip::Entry::stored(f.path.as_bytes(), &f.data)).collect();
+    crate::base::zip::write(entries.iter().zip(files).map(|(e, f)| (e, f.data.as_slice())))
 }
 
 pub fn points() -> Vec<Point> {
@@ -62,7 +62,7 @@ mod tests {
         let files =
             vec![File { path: "interface/a.gfx".into(), data: b"bitmapfonts = {}".to_vec() }, File { path: "gfx/fonts/b.tga".into(), data: vec![0; 50] }];
         let archive = zip(&files);
-        let find = |path: &str| crate::zip::find(&mut Cursor::new(&archive), path.as_bytes(), archive.len());
+        let find = |path: &str| crate::base::zip::find(&mut Cursor::new(&archive), path.as_bytes(), archive.len());
         assert_eq!(find("interface/a.gfx").unwrap(), b"bitmapfonts = {}");
         assert_eq!(find("gfx/fonts/b.tga").unwrap(), [0u8; 50]);
         assert!(find("c").is_err());

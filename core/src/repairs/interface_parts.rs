@@ -71,7 +71,7 @@ fn unit_view_going(call: &mut Call) {
         m.write(view + unit_view::SELECTION_BAR, &0usize.to_le_bytes())?;
         TAKE_WINDOW_OFF.call(&m, [m.ptr(view + unit_view::MAP_MANAGER)?, bar])?;
         m.call(m.vslot(bar, gui_window::KILL)?, &[bar])?;
-        crate::Result::Ok(())
+        crate::base::Result::Ok(())
     })();
     if let Err(e) = killed {
         log!("repair: the unit view's selection bar was not killed: {e}");
@@ -105,7 +105,7 @@ fn outliner_going(call: &mut Call) {
                 node = m.ptr(node + list::NEXT)?;
             }
         }
-        crate::Result::Ok(deleted)
+        crate::base::Result::Ok(deleted)
     })();
     match deleted {
         Ok(n) => log!("repair: {n} entries of the outliner were deleted as it went"),

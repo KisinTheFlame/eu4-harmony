@@ -59,7 +59,7 @@ fn replacing(call: &mut Call) {
             return Ok(Vec::new());
         }
         let (begin, end) = (m.ptr(database + NODES)?, m.ptr(database + NODES + 8)?);
-        (begin..end).step_by(8).map(|at| m.ptr(at)).filter(|n| !matches!(n, Ok(0))).collect::<crate::Result<Vec<_>>>()
+        (begin..end).step_by(8).map(|at| m.ptr(at)).filter(|n| !matches!(n, Ok(0))).collect::<crate::base::Result<Vec<_>>>()
     })();
     match nodes {
         Ok(nodes) => {

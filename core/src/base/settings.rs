@@ -13,10 +13,36 @@
 //! A font the player has not chosen follows the player language: it is the
 //! first installed of the language's [`defaults`], and is not written to the
 //! file, so that it changes with the language.
-use crate::unicode::system_font::{Face, REGULAR};
 use eu4_harmony_loc::Language;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
+
+/// The weight a font's regular face has.
+pub const REGULAR: u16 = 400;
+
+/// A system font in one weight (GLOSSARY): what text asks to be drawn in.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Face {
+    pub family: String,
+    /// From 1 to 999; see [`REGULAR`].
+    pub weight: u16,
+}
+
+impl Face {
+    pub fn new(family: impl Into<String>, weight: u16) -> Self {
+        Self { family: family.into(), weight }
+    }
+
+    pub fn regular(family: impl Into<String>) -> Self {
+        Self::new(family, REGULAR)
+    }
+}
+
+impl std::fmt::Display for Face {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?} {}", self.family, self.weight)
+    }
+}
 
 /// The valid range of a frame rate limit, in frames a second.
 pub const FRAME_RATE_BOUNDS: std::ops::RangeInclusive<u32> = 24..=1000;
@@ -209,13 +235,16 @@ pub enum Listener {
     CameraZoom,
 }
 
+static LISTENER_HOOK: OnceLock<fn(Listener, &Settings)> = OnceLock::new();
+
+pub(crate) fn set_listener(hook: fn(Listener, &Settings)) {
+    let _ = LISTENER_HOOK.set(hook);
+}
+
 impl Listener {
     fn tell(self, settings: &Settings) {
-        match self {
-            Listener::Achievements => crate::achievements::follow(settings),
-            Listener::Sound => crate::sound::choose(settings),
-            Listener::Drawing => crate::drawing::set(settings.frame_rate_limit),
-            Listener::CameraZoom => crate::camera_zoom::configure(settings.zoom_smoothing, settings.zoom_step),
+        if let Some(hook) = LISTENER_HOOK.get() {
+            hook(self, settings);
         }
     }
 }
@@ -749,7 +778,7 @@ pub fn read(user_dir: &Path) -> Settings {
 /// chosen and written to the file. Every [`Listener`] is told them.
 pub fn load(user_dir: &Path) -> Settings {
     let path = path(user_dir);
-    let current = read_for_session(&path, crate::lang::from_windows);
+    let current = read_for_session(&path, crate::base::lang::from_windows);
     let _ = STORE.set(Mutex::new(Store { path, current: current.clone(), next: current.clone() }));
     tell_listeners(&current, false);
     current
@@ -788,7 +817,7 @@ fn read_for_session(path: &Path, windows: impl FnOnce() -> Language) -> Settings
 /// Writes the file whole or not at all: into a file beside it, which then
 /// takes its place, so that the game ending between the two leaves the
 /// player's settings as they were rather than an empty file.
-fn write(path: &Path, settings: &Settings) -> crate::Result<()> {
+fn write(path: &Path, settings: &Settings) -> crate::base::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
@@ -815,7 +844,7 @@ pub fn next() -> Settings {
 /// and every applicable [`Listener`] is told. When `in_game` is true, only
 /// settings editable in a session are merged and saved; main-menu-only and
 /// next-start choices already queued in [`next`] are preserved unchanged.
-pub fn save(settings: Settings, in_game: bool) -> crate::Result<()> {
+pub fn save(settings: Settings, in_game: bool) -> crate::base::Result<()> {
     let current = {
         let mut store = store().ok_or("settings not loaded")?;
         let to_write = merge_for_save(&store.next, &settings, in_game);

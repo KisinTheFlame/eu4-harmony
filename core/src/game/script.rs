@@ -331,7 +331,7 @@ pub(super) fn find_event(m: &Memory, id: &[u8]) -> GResult<Option<usize>> {
 
 /// Calls `call` with the address of a `std::string` of the framework's
 /// holding `text`, and destroys it as the game destroys its own.
-fn with_string<T>(m: &Memory, text: &[u8], call: impl FnOnce(usize) -> crate::Result<T>) -> GResult<T> {
+fn with_string<T>(m: &Memory, text: &[u8], call: impl FnOnce(usize) -> crate::base::Result<T>) -> GResult<T> {
     let mut string = game_string::empty();
     let at = string.as_mut_ptr() as usize;
     let result = game_string::append_checked(m, at, text).and_then(|()| call(at));

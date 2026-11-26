@@ -126,7 +126,7 @@ fn find(m: &Memory, ctx: &Ctx, id: u32) -> GResult<Window> {
 pub(super) fn options(m: &Memory, event: usize) -> GResult<Vec<usize>> {
     let begin = m.ptr(event + event::OPTIONS)?;
     let count = containers::span(begin, m.ptr(event + event::OPTIONS + 8)?, 8, MOST_OPTIONS)?;
-    (0..count).map(|i| m.ptr(begin + i * 8)).collect::<crate::Result<_>>().map_err(Into::into)
+    (0..count).map(|i| m.ptr(begin + i * 8)).collect::<crate::base::Result<_>>().map_err(Into::into)
 }
 
 fn may_choose(m: &Memory, option: usize, scope: usize) -> GResult<bool> {

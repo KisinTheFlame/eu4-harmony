@@ -12,10 +12,10 @@
 //! Qizhen". Generals' and advisors' names are made once, as one string, when
 //! they are created, and keep the game's order, as do names that localisation
 //! puts together itself (`[Root.Monarch.GetName]` is the given name only).
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::game_string;
-use crate::lang;
-use crate::loc;
+use crate::base::lang;
+use crate::base::loc;
 use crate::memory::Memory;
 use crate::points::{Function, Point};
 use crate::unicode::game_text;
@@ -43,7 +43,7 @@ fn family_first(culture: &[u8], group: &[u8]) -> bool {
 
 /// Whether the person at `person` is of such a culture.
 fn writes_family_first(m: &Memory, person: usize) -> bool {
-    let read = || -> crate::Result<bool> {
+    let read = || -> crate::base::Result<bool> {
         let culture = m.ptr(person + CULTURE)?;
         let group = m.ptr(culture + CULTURE_GROUP)?;
         Ok(family_first(&game_string::read(m, culture + CULTURE_KEY)?, &game_string::read(m, group + GROUP_KEY)?))
@@ -84,7 +84,7 @@ static ORIGINAL_FULL_NAME: Function<FullName> = Function::new();
 extern "C" fn full_name(person: usize, out: *mut u8) -> *mut u8 {
     let original = ORIGINAL_FULL_NAME.get();
     let out = unsafe { original(person, out) };
-    crate::guarded("full name", || {
+    crate::base::guarded("full name", || {
         let reorder = || -> Option<()> {
             let m = crate::memory()?;
             if !writes_family_first(m, person) {

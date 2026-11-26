@@ -65,7 +65,7 @@ fn world_clearing(m: &Memory) {
 }
 
 /// Every country's estates' modifiers, each once.
-fn modifiers(m: &Memory) -> crate::Result<Vec<usize>> {
+fn modifiers(m: &Memory) -> crate::base::Result<Vec<usize>> {
     let mut found = Vec::new();
     let mut seen = HashSet::new();
     for country in crate::containers::countries(m)? {

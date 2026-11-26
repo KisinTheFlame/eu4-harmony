@@ -186,7 +186,7 @@ fn record_going(call: &mut Call) {
                 persons.push((person, Left::Person));
             }
         }
-        crate::Result::Ok(persons)
+        crate::base::Result::Ok(persons)
     })();
     match kept {
         Ok(left) => {
@@ -237,7 +237,7 @@ fn world_clearing(m: &Memory) {
             waiting::delete_by_its_class(m, relation, "diplomatic history's relation")?;
             RELATIONS.fetch_add(1, Ordering::Relaxed);
         }
-        crate::Result::Ok(())
+        crate::base::Result::Ok(())
     })();
     if let Err(e) = deleted {
         log!("repair: the relations the diplomatic histories left were not all deleted: {e}");
@@ -273,7 +273,7 @@ fn let_go(m: &Memory) {
             waiting::delete_by_its_class(m, person, "history's person")?;
             PERSONS.fetch_add(1, Ordering::Relaxed);
         }
-        crate::Result::Ok(())
+        crate::base::Result::Ok(())
     })();
     if let Err(e) = deleted {
         log!("repair: what the histories left was not all deleted: {e}");
@@ -281,14 +281,14 @@ fn let_go(m: &Memory) {
 }
 
 /// The game's null persons.
-fn null_persons(m: &Memory) -> crate::Result<[usize; 3]> {
+fn null_persons(m: &Memory) -> crate::base::Result<[usize; 3]> {
     Ok([m.ptr(m.at(NULL_PERSONS[0]))?, m.ptr(m.at(NULL_PERSONS[1]))?, m.ptr(m.at(NULL_PERSONS[2]))?])
 }
 
 /// The persons the game still has by more than their records: those on the
 /// vector of all persons, the null ones, and every country's monarch, heir
 /// and queen.
-fn in_use(m: &Memory) -> crate::Result<HashSet<usize>> {
+fn in_use(m: &Memory) -> crate::base::Result<HashSet<usize>> {
     let mut found: HashSet<usize> = null_persons(m)?.into_iter().collect();
     let (begin, end) = (m.ptr(m.at(ALL_PERSONS))?, m.ptr(m.at(ALL_PERSONS) + 8)?);
     for at in (begin..end).step_by(8) {

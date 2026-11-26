@@ -23,7 +23,7 @@
 //! broken there skips nothing (0x159fba1).
 use super::glyphs::Glyph;
 use super::{breaks, text_loops};
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::game_string;
 use crate::objects::text::font::{OWN_GLYPHS, SCALE_FROM_GLYPHS};
 use crate::points::Point;

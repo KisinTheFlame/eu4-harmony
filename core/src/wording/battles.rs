@@ -9,10 +9,10 @@
 //! `$KIND$`, that word, and `$PLACE$`) word the name instead. The
 //! war overview's battle rows put their names together elsewhere and keep the
 //! game's order.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::game_string;
-use crate::lang;
-use crate::loc;
+use crate::base::lang;
+use crate::base::loc;
 use crate::points::{Function, Point};
 use crate::unicode::game_text;
 use eu4_harmony_loc::Language;
@@ -27,7 +27,7 @@ static WORDS: Mutex<Option<Vec<Vec<u8>>>> = Mutex::new(None);
 /// Whether the player language words battle names its own way.
 static REWORDS: OnceLock<bool> = OnceLock::new();
 
-fn localisation(key: &str) -> crate::Result<Vec<u8>> {
+fn localisation(key: &str) -> crate::base::Result<Vec<u8>> {
     let m = crate::memory().ok_or("no memory")?;
     let key = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
     game_string::localized(m, key.as_ptr() as usize)
@@ -53,7 +53,7 @@ static ORIGINAL_BATTLE_NAME: Function<BattleName> = Function::new();
 extern "C" fn battle_name(combat: usize, out: *mut u8) -> *mut u8 {
     let original = ORIGINAL_BATTLE_NAME.get();
     let out = unsafe { original(combat, out) };
-    crate::guarded("battle name", || {
+    crate::base::guarded("battle name", || {
         let language = lang::player();
         // Most languages have no templates: leave their names, unlooked.
         if !*REWORDS.get_or_init(|| KINDS.iter().any(|&(_, template)| loc::framework_own(language, template, &[]).is_some())) {
@@ -62,7 +62,7 @@ extern "C" fn battle_name(combat: usize, out: *mut u8) -> *mut u8 {
         let words = {
             let mut words = WORDS.lock().unwrap_or_else(|e| e.into_inner());
             if words.is_none() {
-                *words = KINDS.iter().map(|&(key, _)| localisation(key)).collect::<crate::Result<Vec<_>>>().ok();
+                *words = KINDS.iter().map(|&(key, _)| localisation(key)).collect::<crate::base::Result<Vec<_>>>().ok();
             }
             let Some(words) = words.clone() else { return };
             words

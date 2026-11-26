@@ -110,7 +110,7 @@ impl Drop for Scope<'_> {
     fn drop(&mut self) {
         let at = self.address();
         if let Err(e) = SCOPE_DESTROY.call(self.m, [at]) {
-            crate::log!("a condition's scope was not freed: {e}");
+            log!("a condition's scope was not freed: {e}");
         }
     }
 }

@@ -33,7 +33,7 @@
 //! shown later stays opted out: it is a game started for remote control or
 //! a test, which is to run as fast when its window is behind others, and a
 //! shown window is throttled by Windows as any other then anyway.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::points::{Function, Point};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
@@ -65,12 +65,14 @@ static HIDDEN: AtomicBool = AtomicBool::new(false);
 /// `-harmony_sound`.
 pub fn read_switches() {
     use windows_sys::Win32::System::Environment::SetEnvironmentVariableW;
-    let switches = Switches::of(crate::paths::command_line());
+    let switches = Switches::of(crate::base::paths::command_line());
     let _ = SWITCHES.set(switches);
+    crate::base::set_hidden_start(switches.hidden);
     if !switches.hidden {
         return;
     }
     HIDDEN.store(true, Ordering::Relaxed);
+    crate::base::set_hidden(true);
     full_speed();
     if switches.sound {
         log!("hidden start, with sound");
@@ -139,6 +141,7 @@ pub fn show() -> Result<(), Refused> {
     use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE};
     let window = window()?;
     if HIDDEN.swap(false, Ordering::Relaxed) {
+        crate::base::set_hidden(false);
         conceal(window, false);
         // Shown already, unless Init has not shown it yet.
         unsafe { ShowWindow(window, SW_SHOWNOACTIVATE) };
@@ -152,6 +155,7 @@ pub fn show() -> Result<(), Refused> {
 pub fn hide() -> Result<(), Refused> {
     let window = window()?;
     if !HIDDEN.swap(true, Ordering::Relaxed) {
+        crate::base::set_hidden(true);
         crate::game::input::hold(None);
         conceal(window, true);
         log!("hidden start: the window is hidden again");
@@ -269,7 +273,7 @@ extern "C" fn window_flags(flags: u32) -> u32 {
         return flags;
     }
     if flags & SDL_WINDOW_FULLSCREEN != 0 {
-        crate::fatal("a hidden start needs a windowed or borderless game, and the settings have it full screen");
+        crate::base::fatal("a hidden start needs a windowed or borderless game, and the settings have it full screen");
     }
     flags & !SDL_WINDOW_SHOWN | SDL_WINDOW_HIDDEN
 }
@@ -319,7 +323,7 @@ extern "C" fn init_shows_stub() {
 extern "C" fn suppress(asked: u8) {
     let on = asked != 0 || hidden_start();
     unsafe { *(crate::hooked_memory().at(SUPPRESS_ERROR_MESSAGES) as *mut u8) = on as u8 };
-    crate::guarded("proxy sync", crate::proxy::sync_once);
+    crate::base::guarded("proxy sync", crate::proxy::sync_once);
 }
 
 #[unsafe(naked)]
@@ -339,7 +343,7 @@ extern "C" fn suppress_stub() {
 unsafe extern "C" fn warp(device: usize, at: *const [i32; 2]) {
     if hidden() {
         let at = *at;
-        crate::guarded("warp cursor", || crate::game::input::hold(Some(at)));
+        crate::base::guarded("warp cursor", || crate::game::input::hold(Some(at)));
     } else {
         ORIGINAL_WARP.get()(device, at);
     }

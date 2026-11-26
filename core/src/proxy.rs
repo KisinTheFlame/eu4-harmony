@@ -87,7 +87,7 @@ pub(crate) enum Outcome {
 pub(crate) fn sync_once() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
-        if let Some(dir) = crate::game_dir() {
+        if let Some(dir) = crate::base::game_dir() {
             let _ = sync_and_restart(dir, None);
         }
     });
@@ -102,10 +102,10 @@ pub(crate) fn sync_and_restart(game_dir: &Path, user_dir: Option<&Path>) -> Outc
     if interface(game_dir).is_none() {
         return Outcome::Unchanged;
     }
-    let Ok(core_dir) = crate::paths::core_dir() else {
+    let Ok(core_dir) = crate::base::paths::core_dir() else {
         return Outcome::Unchanged;
     };
-    let command_line = crate::paths::command_line();
+    let command_line = crate::base::paths::command_line();
     let Some(source_dir) = source_dir_for_core(game_dir, &core_dir, command_line) else {
         return Outcome::Unchanged;
     };
@@ -151,12 +151,12 @@ impl Host for LiveHost<'_> {
     fn prepare_feedback(&mut self) {
         // Resolve the user directory only once an update actually happened:
         // normal starts never touch settings or logs before `startup::run`.
-        let user = self.user_dir.map(Path::to_path_buf).or_else(|| crate::paths::user_dir(self.game_dir).ok());
-        if !crate::log::is_open() {
-            crate::reopen_log(user.as_deref());
+        let user = self.user_dir.map(Path::to_path_buf).or_else(|| crate::base::paths::user_dir(self.game_dir).ok());
+        if !crate::base::log::is_open() {
+            crate::base::reopen_log(user.as_deref());
         }
         if let Some(dir) = user.as_deref() {
-            crate::lang::decide(dir, crate::settings::read(dir).language);
+            crate::base::lang::decide(dir, crate::base::settings::read(dir).language);
         }
         self.resolved_user = user;
     }
@@ -170,9 +170,9 @@ impl Host for LiveHost<'_> {
             let exe = current_exe()?;
             // Release log leases before spawning the replacement process so it
             // can claim the primary `core.log` name directly.
-            crate::log::close();
+            crate::base::log::close();
             if let Err(e) = spawn_restarted_game(game_dir, &exe, command_line) {
-                crate::reopen_log(resolved_user);
+                crate::base::reopen_log(resolved_user);
                 return Err(e);
             }
             Ok(())
@@ -180,7 +180,7 @@ impl Host for LiveHost<'_> {
     }
 
     fn exit_cleanly(&mut self) {
-        crate::log::close();
+        crate::base::log::close();
         use windows_sys::Win32::System::Threading::{GetCurrentProcess, TerminateProcess};
         unsafe { TerminateProcess(GetCurrentProcess(), 0) };
         unreachable!("the process was terminated");

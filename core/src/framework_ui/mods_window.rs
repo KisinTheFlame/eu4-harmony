@@ -5,7 +5,7 @@
 //! (ADR sensitive-capabilities-are-declared), each in words a player
 //! understands. It shows; it decides nothing.
 use super::widgets::{Side, Widget, Window};
-use crate::mods::Permissions;
+use crate::base::mods::Permissions;
 use std::sync::OnceLock;
 
 /// The window's width, and its list's.

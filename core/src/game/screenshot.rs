@@ -248,7 +248,7 @@ unsafe fn lock(copy: d3d9::FrameCopy, reading: d3d9::Reading, shots: Vec<Arc<Sho
             let kept: Vec<Weak<Shot>> = shots.iter().map(Arc::downgrade).collect();
             let thread = {
                 let out = out.clone();
-                std::thread::Builder::new().name("eu4-harmony screenshot".into()).spawn(move || crate::guarded("screenshot", || frame.take(shots, &out)))
+                std::thread::Builder::new().name("eu4-harmony screenshot".into()).spawn(move || crate::base::guarded("screenshot", || frame.take(shots, &out)))
             };
             match thread {
                 Ok(_) => Stage::CopyingOut { locked, memory, out, shape: copy.shape, spent: spent.add(started) },

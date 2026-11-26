@@ -8,7 +8,7 @@
 //! Remote control's input (`crate::game::input`) comes through here too, as
 //! the messages Windows would send ([`inject`]); a message Windows sends
 //! itself is first asked whether it hands the cursor back to the player.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, Ordering};
 use windows_sys::core::BOOL;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
@@ -169,7 +169,7 @@ fn dispatch_message(
 
 #[called_by_game]
 unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    if !INJECTING.load(Ordering::Relaxed) && crate::guarded("input from Windows", || crate::game::input::real(message)) {
+    if !INJECTING.load(Ordering::Relaxed) && crate::base::guarded("input from Windows", || crate::game::input::real(message)) {
         return 0;
     }
     let handler = HANDLER.get().copied();
@@ -178,7 +178,7 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, 
     let modal_before = super::modal();
     let route = dispatch_message(message, wparam, lparam, &mut wheel_rest, &mut escape_swallowed, modal_before, |e| {
         let taken = match handler {
-            Some(h) => crate::guarded("framework UI input", || h(e)),
+            Some(h) => crate::base::guarded("framework UI input", || h(e)),
             None => false,
         };
         (taken, super::modal())
@@ -191,7 +191,7 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, 
         MessageRoute::DefaultProc => DefWindowProcW(window, message, wparam, lparam),
         MessageRoute::ForwardToGame => {
             if message == WM_MOUSEWHEEL {
-                crate::guarded("wheel reversal reset", || crate::camera_zoom::before_sdl_wheel((wparam >> 16) as u16 as i16));
+                crate::base::guarded("wheel reversal reset", || crate::camera_zoom::before_sdl_wheel((wparam >> 16) as u16 as i16));
             }
             let original: WNDPROC = std::mem::transmute(ORIGINAL.load(Ordering::Acquire));
             CallWindowProcW(original, window, message, wparam, lparam)
@@ -226,8 +226,7 @@ unsafe extern "system" fn find(window: HWND, found: LPARAM) -> BOOL {
 /// The game's window, once the framework's procedure is in front of the
 /// game's.
 pub fn window() -> Option<HWND> {
-    let window = WINDOW.load(Ordering::Acquire);
-    (window != 0).then_some(window as HWND)
+    crate::base::game_window()
 }
 
 /// Hands the window procedure a message as Windows would send it, on the
@@ -265,6 +264,7 @@ pub fn attach(handler: Handler) -> bool {
     }
     ORIGINAL.store(previous, Ordering::Release);
     WINDOW.store(window as isize, Ordering::Release);
+    crate::base::set_game_window(window);
     log!("framework UI: input attached to window {window:?}");
     true
 }

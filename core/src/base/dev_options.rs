@@ -5,6 +5,154 @@
 //! `performance`) are off unless their section sets `enabled = true`, while
 //! `memory-account`, `test-switches`, `call-trace` and `write-watch` act only
 //! when configured or requested (`core/dev.toml.example` shows every option).
+use super::Result;
+use std::path::Path;
+
+/// What this build is, appended after the version and API version in logs and
+/// the startup report; `None` for a player build.
+pub(crate) fn build_label() -> Option<&'static str> {
+    #[cfg(feature = "dev")]
+    return Some("developer build");
+    #[cfg(all(feature = "dev-test-games", not(feature = "dev")))]
+    return Some("test games' pipes");
+    #[cfg(not(feature = "dev-test-games"))]
+    return None;
+}
+
+/// Developer-only localisation files embedded into the framework catalogue.
+#[cfg(feature = "dev")]
+pub(crate) fn localisations() -> &'static [&'static str] {
+    &[
+        include_str!("../../localisation/dev/eu4harmony_dev_l_english.yml"),
+        include_str!("../../localisation/dev/eu4harmony_dev_l_french.yml"),
+        include_str!("../../localisation/dev/eu4harmony_dev_l_german.yml"),
+        include_str!("../../localisation/dev/eu4harmony_dev_l_spanish.yml"),
+        include_str!("../../localisation/dev/eu4harmony_dev_l_simp_chinese.yml"),
+    ]
+}
+
+#[cfg(not(feature = "dev"))]
+#[inline(always)]
+pub(crate) fn localisations() -> &'static [&'static str] {
+    &[]
+}
+
+/// Reads and validates `dev.toml` beside the core in a developer build.
+#[cfg(feature = "dev")]
+pub(crate) fn load(core_dir: &Path) -> Result<()> {
+    parsed::load(core_dir)
+}
+
+#[cfg(not(feature = "dev"))]
+#[inline(always)]
+pub(crate) fn load(_core_dir: &Path) -> Result<()> {
+    Ok(())
+}
+
+/// Startup report lines describing active development tool options.
+#[cfg(feature = "dev")]
+pub(crate) fn report_lines() -> Vec<String> {
+    parsed::report_lines()
+}
+
+#[cfg(not(feature = "dev"))]
+#[inline(always)]
+pub(crate) fn report_lines() -> Vec<String> {
+    Vec::new()
+}
+
+#[cfg(feature = "dev")]
+pub(crate) fn fail_startup() -> bool {
+    parsed::options().test_switches.fail_startup
+}
+
+#[cfg(not(feature = "dev"))]
+#[inline(always)]
+pub(crate) const fn fail_startup() -> bool {
+    false
+}
+
+#[cfg(feature = "dev")]
+pub(crate) fn test_notice() -> bool {
+    parsed::options().test_switches.test_notice
+}
+
+#[cfg(not(feature = "dev"))]
+#[inline(always)]
+pub(crate) const fn test_notice() -> bool {
+    false
+}
+
+#[cfg(feature = "dev")]
+pub(crate) fn game_ends_dependencies() -> bool {
+    parsed::options().test_switches.game_ends_dependencies
+}
+
+#[cfg(not(feature = "dev"))]
+#[inline(always)]
+pub(crate) const fn game_ends_dependencies() -> bool {
+    false
+}
+
+#[cfg(feature = "dev")]
+pub(crate) fn game_shares_ai_draws() -> bool {
+    parsed::options().test_switches.game_shares_ai_draws
+}
+
+#[cfg(not(feature = "dev"))]
+#[inline(always)]
+pub(crate) const fn game_shares_ai_draws() -> bool {
+    false
+}
+
+/// The `game-paths` and `checked` speed-up lists from `dev.toml`.
+#[cfg(feature = "dev")]
+pub(crate) fn speed_switches() -> (&'static [String], &'static [String]) {
+    let switches = &parsed::options().test_switches;
+    (&switches.game_paths, &switches.checked)
+}
+
+#[cfg(not(feature = "dev"))]
+#[inline(always)]
+pub(crate) fn speed_switches() -> (&'static [String], &'static [String]) {
+    (&[], &[])
+}
+
+/// Whether periodic repair statistics should be logged.
+#[cfg(feature = "dev")]
+#[inline(always)]
+pub(crate) const fn log_repair_stats() -> bool {
+    true
+}
+
+#[cfg(not(feature = "dev"))]
+#[inline(always)]
+pub(crate) const fn log_repair_stats() -> bool {
+    false
+}
+
+/// Whether extra repair invariant checks should run.
+#[cfg(feature = "dev")]
+pub(crate) fn check_repairs() -> bool {
+    parsed::options().heap_census.enabled
+}
+
+#[cfg(not(feature = "dev"))]
+#[inline(always)]
+pub(crate) const fn check_repairs() -> bool {
+    false
+}
+
+#[cfg(feature = "dev")]
+pub(crate) fn options() -> &'static Options {
+    parsed::options()
+}
+
+#[cfg(feature = "dev")]
+pub(crate) use parsed::{AgentsOrder, Options};
+
+#[cfg(any(test, feature = "dev"))]
+mod parsed {
 use serde::Deserialize;
 use std::collections::BTreeMap;
 #[cfg(feature = "dev")]
@@ -225,14 +373,14 @@ impl Default for Crossings {
 }
 
 impl Options {
-    pub fn parse(text: &str) -> crate::Result<Self> {
+    pub fn parse(text: &str) -> crate::base::Result<Self> {
         let options: Options = toml::from_str(text).map_err(|e| e.to_string())?;
         options.validate()?;
         Ok(options)
     }
 
     /// Refuses tool combinations that cannot run together.
-    fn validate(&self) -> crate::Result<()> {
+    fn validate(&self) -> crate::base::Result<()> {
         if self.heap_census.enabled && self.write_watch.active() {
             return Err("[heap-census] and [write-watch] cannot both be enabled: suspended threads may hold a census lock".into());
         }
@@ -337,7 +485,7 @@ static SOURCE: OnceLock<String> = OnceLock::new();
 /// in a test game's own folder; with no such file every tool takes its
 /// defaults. A file that cannot be read or validated fails startup.
 #[cfg(feature = "dev")]
-pub(super) fn load(core_dir: &Path) -> crate::Result<()> {
+pub(super) fn load(core_dir: &Path) -> super::Result<()> {
     let path = core_dir.join("dev.toml");
     let (options, source) = match std::fs::read_to_string(&path) {
         Ok(text) => (Options::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?, path.display().to_string()),
@@ -366,10 +514,12 @@ pub(super) fn report_lines() -> Vec<String> {
     lines.extend(options.described().into_iter().map(|l| format!("  {l}")));
     lines
 }
+}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::parsed::*;
+    use std::collections::BTreeMap;
 
     #[test]
     fn a_section_left_out_takes_its_defaults() {

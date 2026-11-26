@@ -18,8 +18,8 @@ mod command_log;
 mod crossings;
 #[cfg(feature = "dev")]
 mod memory_account;
-#[cfg(any(test, feature = "dev"))]
-pub mod options;
+#[cfg(feature = "dev")]
+pub(crate) use crate::base::dev_options as options;
 #[cfg(feature = "dev")]
 mod performance;
 #[cfg(feature = "dev")]
@@ -30,7 +30,6 @@ mod trace;
 mod write_watch;
 
 use crate::{hooks::Call, memory::Memory, points::Point};
-use std::path::Path;
 
 /// A token carried across a frame's `Present` call for performance timing.
 #[cfg(feature = "dev")]
@@ -39,58 +38,9 @@ pub(crate) struct Submission(performance::Submission);
 #[cfg(not(feature = "dev"))]
 pub(crate) struct Submission;
 
-/// What this build is, appended after the version and API version in logs and
-/// the startup report; `None` for a player build.
-pub(crate) fn build_label() -> Option<&'static str> {
-    #[cfg(feature = "dev")]
-    return Some("developer build");
-    #[cfg(all(feature = "dev-test-games", not(feature = "dev")))]
-    return Some("test games' pipes");
-    #[cfg(not(feature = "dev-test-games"))]
-    return None;
-}
-
-/// Reads and validates `dev.toml` beside the core in a developer build.
-#[cfg(feature = "dev")]
-pub(crate) fn load(core_dir: &Path) -> crate::Result<()> {
-    options::load(core_dir)
-}
-
-#[cfg(not(feature = "dev"))]
-#[inline(always)]
-pub(crate) fn load(_core_dir: &Path) -> crate::Result<()> {
-    Ok(())
-}
-
-/// Startup report lines describing active development tool options.
-#[cfg(feature = "dev")]
-pub(crate) fn report_lines() -> Vec<String> {
-    options::report_lines()
-}
-
-#[cfg(not(feature = "dev"))]
-#[inline(always)]
-pub(crate) fn report_lines() -> Vec<String> {
-    Vec::new()
-}
-
-/// Developer-only localisation files embedded into the framework catalogue.
-#[cfg(feature = "dev")]
-pub(crate) fn localisations() -> &'static [&'static str] {
-    &[
-        include_str!("../../localisation/dev/eu4harmony_dev_l_english.yml"),
-        include_str!("../../localisation/dev/eu4harmony_dev_l_french.yml"),
-        include_str!("../../localisation/dev/eu4harmony_dev_l_german.yml"),
-        include_str!("../../localisation/dev/eu4harmony_dev_l_spanish.yml"),
-        include_str!("../../localisation/dev/eu4harmony_dev_l_simp_chinese.yml"),
-    ]
-}
-
-#[cfg(not(feature = "dev"))]
-#[inline(always)]
-pub(crate) fn localisations() -> &'static [&'static str] {
-    &[]
-}
+pub(crate) use crate::base::dev_options::{
+    build_label, check_repairs, fail_startup, game_ends_dependencies, game_shares_ai_draws, load, log_repair_stats, report_lines, speed_switches, test_notice,
+};
 
 /// All static dependency points declared by development tools, checked by the
 /// offline checks in a developer build regardless of `dev.toml`.
@@ -172,89 +122,6 @@ pub(crate) fn after_install() {
 #[cfg(not(feature = "dev"))]
 #[inline(always)]
 pub(crate) fn after_install() {}
-
-/// Test switches read during startup and gameplay.
-#[cfg(feature = "dev")]
-pub(crate) fn fail_startup() -> bool {
-    options::options().test_switches.fail_startup
-}
-
-#[cfg(not(feature = "dev"))]
-#[inline(always)]
-pub(crate) const fn fail_startup() -> bool {
-    false
-}
-
-#[cfg(feature = "dev")]
-pub(crate) fn test_notice() -> bool {
-    options::options().test_switches.test_notice
-}
-
-#[cfg(not(feature = "dev"))]
-#[inline(always)]
-pub(crate) const fn test_notice() -> bool {
-    false
-}
-
-#[cfg(feature = "dev")]
-pub(crate) fn game_ends_dependencies() -> bool {
-    options::options().test_switches.game_ends_dependencies
-}
-
-#[cfg(not(feature = "dev"))]
-#[inline(always)]
-pub(crate) const fn game_ends_dependencies() -> bool {
-    false
-}
-
-#[cfg(feature = "dev")]
-pub(crate) fn game_shares_ai_draws() -> bool {
-    options::options().test_switches.game_shares_ai_draws
-}
-
-#[cfg(not(feature = "dev"))]
-#[inline(always)]
-pub(crate) const fn game_shares_ai_draws() -> bool {
-    false
-}
-
-/// The `game-paths` and `checked` speed-up lists from `dev.toml`.
-#[cfg(feature = "dev")]
-pub(crate) fn speed_switches() -> (&'static [String], &'static [String]) {
-    let switches = &options::options().test_switches;
-    (&switches.game_paths, &switches.checked)
-}
-
-#[cfg(not(feature = "dev"))]
-#[inline(always)]
-pub(crate) fn speed_switches() -> (&'static [String], &'static [String]) {
-    (&[], &[])
-}
-
-/// Whether periodic repair statistics should be logged.
-#[cfg(feature = "dev")]
-#[inline(always)]
-pub(crate) const fn log_repair_stats() -> bool {
-    true
-}
-
-#[cfg(not(feature = "dev"))]
-#[inline(always)]
-pub(crate) const fn log_repair_stats() -> bool {
-    false
-}
-
-/// Whether extra repair invariant checks should run.
-#[cfg(feature = "dev")]
-pub(crate) fn check_repairs() -> bool {
-    options::options().heap_census.enabled
-}
-
-#[cfg(not(feature = "dev"))]
-#[inline(always)]
-pub(crate) const fn check_repairs() -> bool {
-    false
-}
 
 /// First-frame test-switch actions when a new game session begins.
 #[cfg(feature = "dev")]

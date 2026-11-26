@@ -13,7 +13,7 @@
 //!
 //! A notice is a framework localisation key with its values; it is put into
 //! words, in the player language, when it is shown.
-use crate::{lang, loc};
+use super::{lang, loc, runtime};
 use eu4_harmony_loc::Language;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{LazyLock, Mutex};
@@ -99,7 +99,7 @@ impl Notices {
 /// notices of one `key`, as often as `repeat` says.
 pub fn post(key: &str, repeat: Repeat, message: Message) {
     log!("notice: {}", message.words(Language::English).replace('\n', " "));
-    let session = crate::sessions::number();
+    let session = runtime::session_number();
     let mut n = notices();
     if !n.tells(key, repeat, session) {
         return;
@@ -162,7 +162,7 @@ pub(crate) fn fall_back(reason: &str) {
 
 fn show(message: &Message, style: u32) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_OK, MB_SETFOREGROUND};
-    if crate::hidden::hidden() {
+    if runtime::is_hidden() {
         return;
     }
     let text: Vec<u16> = message.words(lang::player()).encode_utf16().chain([0]).collect();

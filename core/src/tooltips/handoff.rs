@@ -1,7 +1,7 @@
 //! One tooltip's handoff from the native list to drawing after framework UI.
 //! Presentation scope, invalidation and the pending frame meet here. Native
 //! observers supply facts; both the game and the tests drive this same process.
-use crate::Result;
+use crate::base::Result;
 use std::cell::Cell;
 
 #[derive(Clone, PartialEq, Eq)]

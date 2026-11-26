@@ -15,7 +15,7 @@
 //! and the walk's end does it once: the list stays whole under the walk, and
 //! the caches end as the game's last refresh in the walk leaves them. Every
 //! other refresh, and every other thread's, is the game's.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::{
     objects::campaign::country,
     points::{Function, Point},

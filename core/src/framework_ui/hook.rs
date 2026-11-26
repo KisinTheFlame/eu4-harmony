@@ -17,7 +17,7 @@
 //! state changes with the game's; in testing it went with graphics driver
 //! hangs. So the framework draws only in frames the main thread presents: the
 //! main menu and the game.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::hooks::Call;
 use crate::objects::text::renderer::DEVICE;
 use crate::points::{Function, Point};
@@ -53,16 +53,16 @@ impl<F: FnOnce()> Drop for PresentingGuard<F> {
 /// native tooltips over it, and screenshot capture) and returns the Direct3D 9
 /// device pointer when available.
 unsafe fn before_present(renderer: usize) -> Option<*mut c_void> {
-    let device = crate::guarded("frame present", || crate::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()).map(|device| device as *mut c_void));
-    crate::guarded("font pages", crate::unicode::fill::grow_pages);
-    crate::guarded("framework UI frame", || {
+    let device = crate::base::guarded("frame present", || crate::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()).map(|device| device as *mut c_void));
+    crate::base::guarded("font pages", crate::unicode::fill::grow_pages);
+    crate::base::guarded("framework UI frame", || {
         if let Some(device) = device {
             unsafe { super::frame(device) }
         }
     });
-    crate::guarded("native tooltip over framework UI", || crate::tooltips::draw_late(renderer));
+    crate::base::guarded("native tooltip over framework UI", || crate::tooltips::draw_late(renderer));
     // The frame as the player sees it, the framework UI included.
-    crate::guarded("screenshot", || {
+    crate::base::guarded("screenshot", || {
         if let Some(device) = device {
             crate::game::screenshot::presenting(device)
         }
@@ -92,7 +92,7 @@ unsafe fn call_present(renderer: usize) -> u8 {
 
 #[called_by_game]
 unsafe extern "C" fn present(renderer: usize) -> u8 {
-    if crate::thread_id() == crate::main_thread() {
+    if crate::base::thread_id() == crate::base::main_thread() {
         if super::held() {
             crate::tooltips::discard_late();
             // Answered as a frame presented on a working device.
@@ -101,23 +101,23 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
         // Inside a guard, as all framework code here: a panic must not
         // unwind into the game.
         let device = before_present(renderer);
-        crate::guarded("safe point", crate::safe_point::presented);
+        crate::base::guarded("safe point", crate::safe_point::presented);
         // Input taken at this safe point or before reaches the game at its
         // next frame.
-        crate::guarded("input", || {
+        crate::base::guarded("input", || {
             if let Some(device) = device {
                 let (width, height) = unsafe { super::d3d9::Backend::screen(device) };
                 crate::game::input::presenting((width as u32, height as u32));
             }
         });
-        crate::guarded("text costs", crate::unicode::costs::log_when_due);
+        crate::base::guarded("text costs", crate::unicode::costs::log_when_due);
     } else if crate::drawing::is_drawing_thread() {
         // The drawing thread's frame, under the presentation lock: what the
         // main thread does at a present but its safe point and its input,
         // which it does where the frame was prepared (`crate::drawing`).
         // Present itself goes without the lock.
         let device = before_present(renderer);
-        crate::guarded("screen size", || {
+        crate::base::guarded("screen size", || {
             if let Some(device) = device {
                 let (width, height) = unsafe { super::d3d9::Backend::screen(device) };
                 crate::drawing::presented(width as u32, height as u32);
@@ -129,7 +129,7 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
         crate::dev::submission_ends(submission, presented != 0, false);
         return presented;
     }
-    let submission = (crate::thread_id() == crate::main_thread()).then(crate::dev::submission_begins);
+    let submission = (crate::base::thread_id() == crate::base::main_thread()).then(crate::dev::submission_begins);
     let presented = call_present(renderer);
     if let Some(submission) = submission {
         crate::dev::submission_ends(submission, presented != 0, true);

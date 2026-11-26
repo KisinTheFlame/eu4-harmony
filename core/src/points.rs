@@ -6,11 +6,7 @@
 //! point checks. [`this_build`] gathers every point of a build.
 pub mod this_build;
 
-use crate::{
-    hooks::{self, Observer},
-    memory::Memory,
-    Result,
-};
+use crate::{hooks::{self, Observer}, memory::Memory, base::Result};
 use std::ffi::CStr;
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1267,9 +1263,9 @@ mod tests {
         unsafe extern "C" {
             fn eu4h_test_access_violation() -> usize;
         }
-        let ctx = crate::stack::Context::capture();
+        let ctx = crate::base::stack::Context::capture();
         let mut frames = [0u64; 16];
-        crate::stack::walk(&ctx.0, &mut frames);
+        crate::base::stack::walk(&ctx.0, &mut frames);
         *JUMP_SEH_FRAMES.lock().unwrap_or_else(|e| e.into_inner()) = frames.into_iter().take_while(|&f| f != 0).collect();
         if trigger > 1 {
             unsafe { eu4h_test_access_violation() };

@@ -50,7 +50,7 @@ fn mask_resizing(call: &mut Call) {
         let _letting_go = LettingGo::new("transparency mask");
         WORDS_DESTRUCTOR.call(&m, [mask + transparency_mask::WORDS])?;
         m.write(mask + transparency_mask::BITS, &0usize.to_le_bytes())?;
-        crate::Result::Ok(capacity - begin)
+        crate::base::Result::Ok(capacity - begin)
     })();
     match let_go {
         Ok(bytes) => {

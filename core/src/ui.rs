@@ -10,13 +10,12 @@
 //! element is set and heard is `crate::bound_element`'s, which extension
 //! windows share.
 use crate::{
+    base::{hosts::Host, notice, Result},
     bound_element::{self, BoundElement, Hears, Look, Shown},
     game::{self, GResult},
     game_string,
     hooks::Call,
-    hosts::Host,
     memory::Memory,
-    notice,
     objects::{
         campaign::unit,
         gui::{army_panel, button, callback, classes, element, functions, main_menu, mouse_input, signal, window},
@@ -24,7 +23,6 @@ use crate::{
     },
     points::{GameFunction, Point},
     splice::{Element, ElementKind},
-    Result,
 };
 use eu4_harmony_lua::windows::HostedElements;
 use std::collections::{BTreeMap, HashSet};
@@ -380,7 +378,7 @@ impl HostNative for GameHost<'_> {
     }
 
     fn resolve_text(&self, owner: &str, text: &eu4_harmony_lua::Text) -> String {
-        text.resolve(|key| crate::loc::mod_text(owner, key))
+        text.resolve(|key| crate::base::loc::mod_text(owner, key))
     }
 
     fn take_clicks(&mut self) -> Vec<bound_element::Clicked> {
@@ -593,7 +591,7 @@ pub(crate) fn keep_still(m: &Memory, window: usize, name: &str) -> Result<()> {
 
 fn panel_after(call: &mut Call) {
     let m = call.memory();
-    if call.faulted() || crate::thread_id() != crate::main_thread() || game::context(&m).is_err() {
+    if call.faulted() || crate::base::thread_id() != crate::base::main_thread() || game::context(&m).is_err() {
         return;
     }
     let panel = call.arg(0);
@@ -632,7 +630,7 @@ fn main_menu_page(m: &Memory, frontend: usize) -> Result<bool> {
 
 fn menu_after(call: &mut Call) {
     let m = call.memory();
-    if call.faulted() || crate::thread_id() != crate::main_thread() {
+    if call.faulted() || crate::base::thread_id() != crate::base::main_thread() {
         return;
     }
     crate::safe_point::main_menu_frame(call.arg(0));
@@ -722,7 +720,7 @@ fn button_input(call: &mut Call) {
 
 /// The actual native hit, for the shared presentation adapter.
 fn tooltip_after(call: &mut Call) {
-    if call.result() == Some(call.arg(1)) && crate::thread_id() == crate::main_thread() {
+    if call.result() == Some(call.arg(1)) && crate::base::thread_id() == crate::base::main_thread() {
         crate::tooltips::hit(call.arg(2));
     }
 }

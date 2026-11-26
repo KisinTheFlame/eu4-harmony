@@ -33,7 +33,7 @@ static COALITION_TURNS: Turns = Turns {
 /// threads, and its list is not made for it.
 fn coalition_changing(_: &mut Call) {
     let turns = &COALITION_TURNS;
-    let me = crate::thread_id();
+    let me = crate::base::thread_id();
     if turns.holder.load(Ordering::Acquire) != me {
         unsafe { windows_sys::Win32::System::Threading::AcquireSRWLockExclusive(turns.lock.get()) };
         turns.holder.store(me, Ordering::Release);
@@ -44,7 +44,7 @@ fn coalition_changing(_: &mut Call) {
 /// The change is made, or the function faulted: the turn is over.
 fn coalition_changed(_: &mut Call) {
     let turns = &COALITION_TURNS;
-    if turns.holder.load(Ordering::Acquire) != crate::thread_id() {
+    if turns.holder.load(Ordering::Acquire) != crate::base::thread_id() {
         return;
     }
     let depth = turns.depth.get() - 1;

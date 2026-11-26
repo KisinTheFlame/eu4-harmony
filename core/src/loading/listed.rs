@@ -23,7 +23,7 @@
 //! folder's are. A file or folder the game makes or removes through PhysFS
 //! lets go of its ancestor folders' listings before the call returns.
 use super::folder::{list, read_as_written, Kind};
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::hooks::Call;
 use crate::points::{Function, Point};
 use crate::speed::{self, SpeedUp};

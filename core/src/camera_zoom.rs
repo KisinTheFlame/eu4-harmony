@@ -29,14 +29,14 @@
 //!   (`1 - exp(-k * dt)`), with a snappy convergence rate while a wheel zoom
 //!   is settling and vanilla's rate (made frame-rate-independent) for other
 //!   camera moves such as menu sweeps and province jumps.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::drawing::SETTINGS;
 use crate::memory::Memory;
 use crate::objects::camera::camera as fields;
 use crate::objects::campaign::globals::MAP;
 use crate::objects::gui::globals::SCALE as GRAPHICS;
 use crate::points::{Function, Point};
-use crate::settings::{DEFAULT_ZOOM_SMOOTHING, DEFAULT_ZOOM_STEP, ZOOM_SMOOTHING_BOUNDS, ZOOM_STEP_BOUNDS};
+use crate::base::settings::{DEFAULT_ZOOM_SMOOTHING, DEFAULT_ZOOM_STEP, ZOOM_SMOOTHING_BOUNDS, ZOOM_STEP_BOUNDS};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
@@ -351,7 +351,7 @@ fn raycast_cursor(m: &Memory, camera: usize, cursor: [i32; 2]) -> Option<[f32; 3
 
 #[called_by_game]
 unsafe extern "C" fn wheel_zoom(camera: usize, notches: f32, cursor: *const [i32; 2]) {
-    crate::guarded("camera wheel zoom", || {
+    crate::base::guarded("camera wheel zoom", || {
         if camera == 0 || cursor.is_null() || !notches.is_finite() || notches == 0.0 {
             return;
         }
@@ -442,9 +442,9 @@ fn finish_glide(camera: usize, dt: f32) {
 
 #[called_by_game]
 unsafe extern "C" fn glide(camera: usize, dt: f32) {
-    let effective_dt = crate::guarded("camera glide", || prepare_glide_dt(camera, dt));
+    let effective_dt = crate::base::guarded("camera glide", || prepare_glide_dt(camera, dt));
     unsafe { ORIGINAL_GLIDE.get()(camera, effective_dt) };
-    crate::guarded("camera glide after", || finish_glide(camera, dt));
+    crate::base::guarded("camera glide after", || finish_glide(camera, dt));
 }
 
 #[cfg(test)]

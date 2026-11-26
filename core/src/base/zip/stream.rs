@@ -199,7 +199,7 @@ impl<W: Write> Stream<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::zip::{directory, read, u16_at, u32_at, u64_at};
+    use crate::base::zip::{directory, read, u16_at, u32_at, u64_at};
     use std::io::{Cursor, Seek, SeekFrom};
 
     #[test]
@@ -233,7 +233,7 @@ mod tests {
         let mut stream = Stream::new(Vec::new());
         let entry = stream.deflate(b"minidump.dmp", Chunks { data: &data, interrupted: false }, (0x1234, 0x5678)).unwrap();
         assert_eq!(entry.unpacked, data.len());
-        assert_eq!(entry.crc, crate::zip::crc32(&data));
+        assert_eq!(entry.crc, crate::base::zip::crc32(&data));
         assert!(entry.packed > 64 << 10);
         stream.deflate(b"empty", io::empty(), (0, 0x21)).unwrap();
         let mut archive = Cursor::new(stream.finish().unwrap());

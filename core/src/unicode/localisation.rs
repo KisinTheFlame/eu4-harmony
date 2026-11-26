@@ -10,7 +10,7 @@
 //! existing one (`+4`, u8) and the collection (`+0x10`). Registration:
 //! (collection, key, value: NUL-terminated, line, version, replace).
 use super::game_text;
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::game_string;
 use crate::points::{Function, Point};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -52,7 +52,7 @@ unsafe fn converted(string: *const u8) -> Option<Vec<u8>> {
 #[called_by_game]
 unsafe extern "C" fn import(key: *const u8, value: *const u8, version: u32, unused: usize, context: *const Context) {
     // The registration copies both strings.
-    let texts = crate::guarded("localisation import", || converted(key).zip(converted(value)));
+    let texts = crate::base::guarded("localisation import", || converted(key).zip(converted(value)));
     if let Some((key, value)) = texts {
         KEPT.fetch_add(1, Ordering::Relaxed);
         let register = REGISTER_AT.get();

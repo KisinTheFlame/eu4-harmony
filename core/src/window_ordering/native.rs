@@ -1,12 +1,7 @@
 //! Native first-scene preparation, without a graphics submission.
 //! Call only outside native candidate iteration, under presentation ownership.
 //! Evidence: research/window-input-refresh.md and window-activation.md.
-use crate::{
-    containers,
-    memory::Memory,
-    points::{GameFunction, Point},
-    Result,
-};
+use crate::{containers, memory::Memory, points::{GameFunction, Point}, base::Result};
 
 const WALK: GameFunction<5> = GameFunction::at(0x14dd7a0);
 const HITS: GameFunction<4> = GameFunction::at(0x14dda50);

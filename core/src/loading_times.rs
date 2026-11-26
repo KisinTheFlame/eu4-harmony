@@ -71,13 +71,13 @@ fn index(call: &Call) -> Option<usize> {
 
 fn began(call: &mut Call) {
     let Some(i) = index(call) else { return };
-    let now = crate::since_bootstrap();
+    let now = crate::base::since_bootstrap();
     RUNNING.with(|r| r.borrow_mut().push((i, now)));
 }
 
 fn ended(call: &mut Call) {
     let Some(i) = index(call) else { return };
-    let end = crate::since_bootstrap();
+    let end = crate::base::since_bootstrap();
     // The call returning is this thread's innermost timed one.
     let Some((running, start)) = RUNNING.with(|r| r.borrow_mut().pop()) else { return };
     if running != i {
@@ -138,7 +138,7 @@ fn summary(now: Duration, first: impl Fn(usize) -> Option<(Duration, Duration)>)
 /// Logs the startup's stretches, once, from the main menu.
 pub fn log_main_menu() {
     static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| log!("{}", summary(crate::since_bootstrap(), first)));
+    ONCE.call_once(|| log!("{}", summary(crate::base::since_bootstrap(), first)));
 }
 
 #[cfg(test)]

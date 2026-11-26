@@ -5,13 +5,8 @@
 //!
 //! The detours run on whichever thread the game reads files from (GUI
 //! definitions load on the game's LoadingThread) and never call extension code.
-use crate::called_by_game;
-use crate::{
-    hooks::Call,
-    points::{Function, Point},
-    splice::{self, Plan},
-    Result,
-};
+use crate::base::called_by_game;
+use crate::{hooks::Call, points::{Function, Point}, splice::{self, Plan}, base::Result};
 use std::{
     collections::HashMap,
     ffi::{c_char, c_void, CStr},
@@ -101,16 +96,16 @@ pub fn normalize(path: &str) -> String {
 unsafe extern "C" fn init_detour(argv0: *const c_char) -> i32 {
     let result = ORIG_INIT.get()(argv0);
     if result != 0 {
-        crate::guarded("framework files", crate::files::mount);
+        crate::base::guarded("framework files", crate::files::mount);
     }
-    crate::guarded("PHYSFS_init", || INIT_ONCE.call_once(crate::deferred_init));
+    crate::base::guarded("PHYSFS_init", || INIT_ONCE.call_once(crate::deferred_init));
     result
 }
 
 #[called_by_game]
 unsafe extern "C" fn open_read_detour(path: *const c_char) -> File {
     let handle = ORIG_OPEN_READ.get()(path);
-    crate::guarded("PHYSFS_openRead", || {
+    crate::base::guarded("PHYSFS_openRead", || {
         INIT_ONCE.call_once(crate::deferred_init);
         if handle.is_null() {
             return;

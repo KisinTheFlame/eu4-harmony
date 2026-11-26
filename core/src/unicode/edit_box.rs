@@ -21,7 +21,7 @@
 //! - keys (0x15366c0): plain Home and End move instead of selecting, and
 //!   Shift with Left or Right selects a character.
 use super::{breaks, game_text};
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::game_string;
 use crate::hooks::Call;
 use crate::objects::gui::{
@@ -159,12 +159,12 @@ unsafe fn caret(inner: usize) -> (usize, usize) {
 
 /// Where a line and column are in the text, as the editor counts (it never
 /// goes past the end of the text).
-fn index_of(inner: usize, line: usize, column: usize) -> crate::Result<usize> {
+fn index_of(inner: usize, line: usize, column: usize) -> crate::base::Result<usize> {
     let m = crate::hooked_memory();
     LINE_COL_TO_INDEX.call(&m, [inner, line, column]).map(|i| i as u32 as usize)
 }
 
-fn erase(inner: usize, at: usize, count: usize) -> crate::Result<()> {
+fn erase(inner: usize, at: usize, count: usize) -> crate::base::Result<()> {
     let m = crate::hooked_memory();
     for _ in 0..count {
         ERASE_AT.call(&m, [inner, at])?;
@@ -176,7 +176,7 @@ fn erase(inner: usize, at: usize, count: usize) -> crate::Result<()> {
 #[called_by_game]
 extern "C" fn left_column(inner: usize) -> u32 {
     let (line, column) = unsafe { caret(inner) };
-    let line_start = index_of(inner, line, 0).unwrap_or_else(|e| crate::fatal(&format!("edit box left: {e}")));
+    let line_start = index_of(inner, line, 0).unwrap_or_else(|e| crate::base::fatal(&format!("edit box left: {e}")));
     left_column_in(unsafe { text(inner) }, line_start, column) as u32
 }
 
@@ -194,7 +194,7 @@ extern "C" fn backspace_prepare(inner: usize, index: u32) -> u32 {
     let (start, len) = backspace_in(unsafe { text(inner) }, index as usize);
     if len > 1 {
         if let Err(e) = erase(inner, start, len - 1) {
-            crate::fatal(&format!("edit box backspace: {e}"));
+            crate::base::fatal(&format!("edit box backspace: {e}"));
         }
         let column = unsafe { &mut *((inner + COLUMN) as *mut u16) };
         *column = column.saturating_sub(len as u16 - 1);
@@ -209,7 +209,7 @@ extern "C" fn delete_prepare(inner: usize, index: u32) -> u32 {
     let len = delete_in(unsafe { text(inner) }, index as usize);
     if len > 1 {
         if let Err(e) = erase(inner, index as usize + 1, len - 1) {
-            crate::fatal(&format!("edit box delete: {e}"));
+            crate::base::fatal(&format!("edit box delete: {e}"));
         }
     }
     index
@@ -230,7 +230,7 @@ fn snap_caret(call: &mut Call) {
         return;
     }
     let inner = call.arg(0);
-    let result = (|| -> crate::Result<()> {
+    let result = (|| -> crate::base::Result<()> {
         let (line, column) = unsafe { caret(inner) };
         let at = index_of(inner, line, column)?;
         let start = game_text::floor_boundary(unsafe { text(inner) }, at);
@@ -243,7 +243,7 @@ fn snap_caret(call: &mut Call) {
         Ok(())
     })();
     if let Err(e) = result {
-        crate::fatal(&format!("edit box caret: {e}"));
+        crate::base::fatal(&format!("edit box caret: {e}"));
     }
 }
 
@@ -264,7 +264,7 @@ type RemoveChars = unsafe extern "C" fn(*mut u8, *const u8) -> u8;
 unsafe extern "C" fn fit_prefix(inner: usize, line: usize) -> i32 {
     let original = ORIGINAL_FIT.get();
     let count = original(inner, line);
-    crate::guarded("edit box line fit", || fit_in(game_string::text(line as *const u8), count))
+    crate::base::guarded("edit box line fit", || fit_in(game_string::text(line as *const u8), count))
 }
 
 /// Removes from `text` (`std::string*`) every character found in `chars`

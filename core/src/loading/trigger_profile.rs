@@ -32,7 +32,7 @@
 //! Checked (`checked = ["trigger-profile"]`), `0xb9b4e0` computes the game's
 //! own cost as well, compares the two for every trigger, and returns the
 //! game's.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::hooks::Call;
 use crate::points::{Function, Point};
 use crate::speed::{self, SpeedUp};

@@ -22,7 +22,7 @@
 //! is. It is the speed-up `script-parameters` (`crate::speed`): checked, the
 //! game's function makes the text too and the two are compared; left to
 //! the game, nothing is installed.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::game_string;
 use crate::points::{Function, Point};
 use crate::speed::{self, SpeedUp};

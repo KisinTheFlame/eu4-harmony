@@ -386,7 +386,7 @@ fn pool() -> Option<&'static Pool> {
                 std::thread::Builder::new()
                     .name(format!("eu4-harmony army search {i}"))
                     .stack_size(STACK)
-                    .spawn(move || crate::guarded("army search", || worker(pool)))
+                    .spawn(move || crate::base::guarded("army search", || worker(pool)))
                     .is_ok()
             })
             .count();

@@ -10,7 +10,7 @@
 //! returns a token peeked before. Their "next token" methods are 0x170e700
 //! (text) and 0x170ebf0 (binary); each returns 1 for a token, 0 at the end.
 use super::legacy;
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::points::{Function, Point};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -47,7 +47,7 @@ unsafe fn next_token(lexer: usize, original: &Function<NextToken>) -> i32 {
     let next = original.get();
     let result = next(lexer);
     if result != 0 && !peeked {
-        crate::guarded("legacy escapes in a token", || decode_token(lexer));
+        crate::base::guarded("legacy escapes in a token", || decode_token(lexer));
     }
     result
 }

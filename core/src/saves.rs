@@ -9,13 +9,8 @@
 //! (`crate::sessions`) when a save is being read and whether it was.
 pub mod file;
 
-use crate::called_by_game;
-use crate::{
-    hooks::Call,
-    memory::Memory,
-    points::{GameFunction, Point},
-    Result,
-};
+use crate::base::called_by_game;
+use crate::{hooks::Call, memory::Memory, points::{GameFunction, Point}, base::Result};
 use eu4_harmony_remote::binary as base64;
 use serde_json::Value;
 use std::{
@@ -353,7 +348,7 @@ fn write_entry(m: Memory, writer: usize) -> Result<()> {
     // has delivered `on_session` (ADR save-data-is-asked-for-by-save-data).
     // Before `on_session` (an ironman setup save on load) or off the main
     // thread, the authoritative `current` map is written without polling Lua.
-    let on_main = crate::thread_id() == crate::main_thread();
+    let on_main = crate::base::thread_id() == crate::base::main_thread();
     if !on_main {
         log!("saves: the world is written off the main thread; the data from each extension's last save_data is written");
     }
@@ -391,8 +386,8 @@ fn write_entry(m: Memory, writer: usize) -> Result<()> {
 
 #[called_by_game]
 extern "C" fn game_state_written(writer: usize) {
-    crate::guarded("parallel save", || crate::saving::parallel::join(writer));
-    crate::guarded("save data writer", || {
+    crate::base::guarded("parallel save", || crate::saving::parallel::join(writer));
+    crate::base::guarded("save data writer", || {
         if let Err(e) = write_entry(crate::hooked_memory(), writer) {
             log!("saves: {e}");
         }

@@ -182,7 +182,7 @@ fn put(sink: &mut Sink, kind: Kind, mut message: String) -> bool {
     }
     // The bounded startup buffer records its original time and thread, which
     // precede the eventual file's open time. Redact before retaining text.
-    message = format!("buffered_at={} tid={} {}", now(), crate::thread_id(), eu4_harmony_logging::redact(&message));
+    message = format!("buffered_at={} tid={} {}", now(), crate::base::thread_id(), eu4_harmony_logging::redact(&message));
     if message.len() > PENDING_BYTES {
         sink.dropped += 1;
         return false;
@@ -200,6 +200,15 @@ fn put(sink: &mut Sink, kind: Kind, mut message: String) -> bool {
     true
 }
 
+/// Optional maintenance hook invoked during [`poll`] (`false`) and
+/// [`checkpoint`] (`true`) so extension logs rotate and flush alongside the
+/// framework log without coupling `base` to `lua`.
+static MAINTENANCE: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();
+
+pub(crate) fn set_maintenance(hook: fn(bool)) {
+    let _ = MAINTENANCE.set(hook);
+}
+
 /// Cheap gate at safe frames. Maintenance does not wait for the log lock and
 /// writes snapshots only at their interval, including while the game is paused.
 pub fn poll() {
@@ -213,7 +222,9 @@ pub fn poll() {
             let _ = file.maintain();
         }
     }
-    crate::lua::maintain_logs(false);
+    if let Some(maintain) = MAINTENANCE.get() {
+        maintain(false);
+    }
 }
 
 pub fn checkpoint() {
@@ -231,12 +242,13 @@ pub fn checkpoint() {
             let _ = file.checkpoint();
         }
     }
-    crate::lua::maintain_logs(true);
+    if let Some(maintain) = MAINTENANCE.get() {
+        maintain(true);
+    }
 }
 
-#[macro_export]
 macro_rules! log {
-    ($($arg:tt)*) => { $crate::log::write(format_args!($($arg)*)) };
+    ($($arg:tt)*) => { $crate::base::log::write(format_args!($($arg)*)) };
 }
 
 #[cfg(test)]

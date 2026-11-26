@@ -53,12 +53,12 @@ fn since_reset() -> String {
 }
 
 /// What a history lists, the nodes taken out left out.
-fn listed(m: &Memory, history: usize) -> crate::Result<Vec<usize>> {
+fn listed(m: &Memory, history: usize) -> crate::base::Result<Vec<usize>> {
     crate::containers::items(m, history + LIST, MOST)
 }
 
 /// Everything under `objects`, at any depth, not counting them.
-fn under(m: &Memory, objects: &[usize], found: &mut HashSet<usize>) -> crate::Result<()> {
+fn under(m: &Memory, objects: &[usize], found: &mut HashSet<usize>) -> crate::base::Result<()> {
     let mut next: Vec<usize> = Vec::new();
     for &object in objects {
         next.extend(listed(m, object)?);
@@ -87,7 +87,7 @@ fn emptying(call: &mut Call) {
     }
 }
 
-fn delete_alone(m: &Memory, first: usize) -> crate::Result<()> {
+fn delete_alone(m: &Memory, first: usize) -> crate::base::Result<()> {
     let listed_first = listed(m, first)?;
     if listed_first.is_empty() {
         return Ok(());

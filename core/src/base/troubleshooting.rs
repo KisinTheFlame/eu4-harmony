@@ -4,7 +4,7 @@
 //!
 //! Packing runs on its own thread. Binary dumps are compressed in chunks;
 //! text files are read one at a time for credential redaction.
-use crate::zip;
+use crate::base::zip;
 use eu4_harmony_folders::UserFolder;
 use std::fs::{File, OpenOptions};
 use std::io::Read as _;
@@ -88,7 +88,7 @@ fn files_in(dir: &Path, under: &str, out: &mut Vec<Source>) -> std::io::Result<(
     Ok(())
 }
 
-fn harmony_dumps(user: &UserFolder, out: &mut Vec<Source>) -> crate::Result<()> {
+fn harmony_dumps(user: &UserFolder, out: &mut Vec<Source>) -> crate::base::Result<()> {
     let entries = match std::fs::read_dir(user.harmony_dumps()) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -107,7 +107,7 @@ fn harmony_dumps(user: &UserFolder, out: &mut Vec<Source>) -> crate::Result<()> 
 }
 
 /// Every existing crash folder is included; saves are never enumerated.
-fn sources(user: &UserFolder) -> crate::Result<Vec<Source>> {
+fn sources(user: &UserFolder) -> crate::base::Result<Vec<Source>> {
     let mut out = Vec::new();
     files_in(&user.logs(), "harmony-logs", &mut out).map_err(|e| format!("cannot list framework logs: {e}"))?;
     harmony_dumps(user, &mut out)?;
@@ -133,14 +133,14 @@ fn about(user: &UserFolder, now: &str) -> Vec<String> {
     let mut lines = vec![
         format!("Harmony {} (api {})", env!("CARGO_PKG_VERSION"), eu4_harmony_remote::API_VERSION),
         format!("packed {now}"),
-        format!("game: {}", crate::game_dir().map_or("not known".into(), |d| d.display().to_string())),
+        format!("game: {}", crate::base::game_dir().map_or("not known".into(), |d| d.display().to_string())),
         format!("user folder: {}", user.path().display()),
-        format!("command line: {}", eu4_harmony_logging::redact(crate::paths::command_line())),
+        format!("command line: {}", eu4_harmony_logging::redact(crate::base::paths::command_line())),
         format!("run: {}", eu4_harmony_logging::run_id()),
         "collection: complete files at their opening length; all existing crash folders; no file-size, total-size or file-count limits; text credentials redacted; no saves".into(),
         "playset:".into(),
     ];
-    lines.extend(crate::mods::playset().iter().map(|m| format!("  {m}")));
+    lines.extend(crate::base::mods::playset().iter().map(|m| format!("  {m}")));
     lines
 }
 
@@ -152,7 +152,7 @@ fn dos_time(t: &windows_sys::Win32::Foundation::SYSTEMTIME) -> (u16, u16) {
 }
 
 /// The desktop, where the player finds the file.
-fn desktop() -> crate::Result<PathBuf> {
+fn desktop() -> crate::base::Result<PathBuf> {
     use windows_sys::Win32::System::Com::CoTaskMemFree;
     use windows_sys::Win32::UI::Shell::{FOLDERID_Desktop, SHGetKnownFolderPath};
     let mut path = std::ptr::null_mut();
@@ -218,16 +218,16 @@ fn collect<W: std::io::Write>(
 }
 
 /// Packs the troubleshooting files onto the desktop; returns the file.
-fn pack() -> crate::Result<PathBuf> {
-    let game = crate::game_dir().ok_or("the game folder is not known")?;
-    let user = UserFolder::new(crate::paths::user_dir(game)?);
+fn pack() -> crate::base::Result<PathBuf> {
+    let game = crate::base::game_dir().ok_or("the game folder is not known")?;
+    let user = UserFolder::new(crate::base::paths::user_dir(game)?);
     let t = unsafe {
         let mut t = std::mem::zeroed();
         windows_sys::Win32::System::SystemInformation::GetLocalTime(&mut t);
         t
     };
     let now = format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
-    crate::log::checkpoint();
+    crate::base::log::checkpoint();
     let mut summary = about(&user, &now);
     let mut sources = sources(&user)?;
     if let Some(root) = eu4_harmony_folders::windows_dump_root() {

@@ -7,7 +7,7 @@
 //! single bytes the same way and leaves UTF-8 sequences whole. It runs on the
 //! province finder's worker thread too.
 use super::game_text;
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::game_string;
 use crate::points::{Function, Point};
 

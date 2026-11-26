@@ -54,7 +54,7 @@ use crate::hooks::Call;
 use crate::memory::Memory;
 use crate::objects::text::{self as objects, font::OWN_GLYPHS, texture_description, texture_level, textures};
 use crate::points::Point;
-use crate::settings;
+use crate::base::settings;
 use std::cell::RefCell;
 use std::ffi::c_void;
 use std::sync::LazyLock;
@@ -114,7 +114,7 @@ unsafe impl Send for PageTexture {}
 impl Texture for PageTexture {
     /// Writes a glyph's pixels through a staging texture kept for the page
     /// and made larger when a glyph needs it.
-    fn put(&mut self, x: u32, y: u32, width: u32, height: u32, data: &[u8]) -> crate::Result<()> {
+    fn put(&mut self, x: u32, y: u32, width: u32, height: u32, data: &[u8]) -> crate::base::Result<()> {
         if !matches!(&self.staging, Some((w, h, _)) if *w >= width && *h >= height) {
             let (w, h) = (width.next_multiple_of(64), height.next_multiple_of(64));
             self.staging = Some((w, h, staging(&self.device, w, h)?));
@@ -124,7 +124,7 @@ impl Texture for PageTexture {
     }
 
     /// A new texture, the old one's pixels copied into it on the card.
-    fn grown(&self, (width, height): (u32, u32), (to_width, to_height): (u32, u32)) -> crate::Result<Self> {
+    fn grown(&self, (width, height): (u32, u32), (to_width, to_height): (u32, u32)) -> crate::base::Result<Self> {
         let texture = page_texture(&self.device, to_width, to_height, self.mips)?;
         let drawn = RECT { left: 0, top: 0, right: width as i32, bottom: height as i32 };
         unsafe { self.device.StretchRect(&surface(&self.texture)?, &drawn, &surface(&texture)?, &drawn, D3DTEXF_NONE) }
@@ -208,7 +208,7 @@ impl Loading {
 }
 
 /// The texture manager's entry for `font`'s page.
-fn page_entry(m: &Memory, font: usize) -> crate::Result<(usize, usize)> {
+fn page_entry(m: &Memory, font: usize) -> crate::base::Result<(usize, usize)> {
     let index = m.i32(font + objects::font::PAGE_INDEX)?;
     let manager = m.ptr(m.ptr(font + objects::font::CONTEXT)? + textures::MANAGER)?;
     let (begin, end) = (m.ptr(manager + textures::ENTRIES)?, m.ptr(manager + textures::ENTRIES + 8)?);
@@ -221,7 +221,7 @@ fn page_entry(m: &Memory, font: usize) -> crate::Result<(usize, usize)> {
 /// The device, through the manager's renderer: a Direct3D 9Ex one, which
 /// keeps pages in video memory across a reset, made multithreaded, since
 /// text is drawn, and so glyphs filled in, on more threads than one.
-fn device(m: &Memory, manager: usize) -> crate::Result<IDirect3DDevice9> {
+fn device(m: &Memory, manager: usize) -> crate::base::Result<IDirect3DDevice9> {
     let raw = m.ptr(m.ptr(manager + textures::RENDERER)? + objects::renderer::DEVICE)? as *mut c_void;
     let device = unsafe { IDirect3DDevice9::from_raw_borrowed(&raw) }.ok_or("no device")?.clone();
     device.cast::<IDirect3DDevice9Ex>().map_err(|_| "not a Direct3D 9Ex device".to_string())?;
@@ -243,7 +243,7 @@ fn row_bytes(compressed: bool, width: u32) -> usize {
 }
 
 /// A system-memory texture to write a page through.
-fn staging(device: &IDirect3DDevice9, width: u32, height: u32) -> crate::Result<IDirect3DTexture9> {
+fn staging(device: &IDirect3DDevice9, width: u32, height: u32) -> crate::base::Result<IDirect3DTexture9> {
     let mut texture = None;
     unsafe { device.CreateTexture(width, height, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &mut texture, std::ptr::null_mut()) }
         .map_err(|e| format!("staging texture: {e}"))?;
@@ -283,14 +283,14 @@ fn put(
 }
 
 /// A page texture's pixels.
-fn surface(texture: &IDirect3DTexture9) -> crate::Result<IDirect3DSurface9> {
+fn surface(texture: &IDirect3DTexture9) -> crate::base::Result<IDirect3DSurface9> {
     unsafe { texture.GetSurfaceLevel(0) }.map_err(|e| format!("page surface: {e}"))
 }
 
 /// An empty page texture, `width` × `height`: in video memory, and a render
 /// target, so that a page that grows can be copied into its next one there;
 /// with `mips`, mip levels the card makes from the first.
-fn page_texture(device: &IDirect3DDevice9, width: u32, height: u32, mips: bool) -> crate::Result<IDirect3DTexture9> {
+fn page_texture(device: &IDirect3DDevice9, width: u32, height: u32, mips: bool) -> crate::base::Result<IDirect3DTexture9> {
     let mut texture = None;
     let (levels, usage) = if mips { (0, D3DUSAGE_RENDERTARGET | D3DUSAGE_AUTOGENMIPMAP) } else { (1, D3DUSAGE_RENDERTARGET) };
     unsafe {
@@ -551,7 +551,7 @@ fn dense_line(line: i32, density: f32) -> Option<(i32, f32)> {
 /// Makes `font` draw from glyphs `density` times their size in GUI units.
 /// Only once: a font whose scale is no longer the 1.0 it was made with keeps
 /// it.
-fn scale_font(m: &Memory, font: usize, density: f32) -> crate::Result<()> {
+fn scale_font(m: &Memory, font: usize, density: f32) -> crate::base::Result<()> {
     if m.u32(font + objects::font::SCALE)? != 1.0f32.to_bits() {
         return Ok(());
     }
@@ -610,7 +610,7 @@ fn chosen_face(kind: Kind) -> Face {
 
 /// An empty page for `font`, which draws `kind`, in the ink and the outline
 /// of its own page (`own`, when the game decoded it).
-fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<&Own>, kind: Kind) -> crate::Result<(Made<PageTexture>, Look)> {
+fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<&Own>, kind: Kind) -> crate::base::Result<(Made<PageTexture>, Look)> {
     let fonts = SYSTEM.as_ref().ok_or("no system fonts")?;
     let line = m.i32(font + objects::font::LINE_HEIGHT)?.max(1);
     let current = settings::current();
@@ -642,7 +642,7 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<&Ow
     let max = (caps.DevCaps2 & D3DDEVCAPS2_CAN_STRETCHRECT_FROM_TEXTURES as u32 != 0).then_some(max);
     let side = if max.is_some() { first_side(side) } else { side };
     let mips = field.is_some() && makes_mips(device);
-    let creating = crate::heap::Change::begin();
+    let creating = crate::base::heap::Change::begin();
     let texture = page_texture(device, side, side, mips)?;
     log!("fill: {side}x{side} page texture: creating it {}", creating.end());
     // Without the page's pixels: black for a map font, white otherwise.
@@ -658,7 +658,7 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<&Ow
 /// The font's glyphs for Windows-1252 characters become system glyphs,
 /// written into its own records (or records allocated as the game allocates
 /// them, which it frees with the font).
-fn replace_own_glyphs(m: &Memory, font: usize, wrapper: usize, pages: &mut Pages<PageTexture, Look>, tone: Tone) -> crate::Result<()> {
+fn replace_own_glyphs(m: &Memory, font: usize, wrapper: usize, pages: &mut Pages<PageTexture, Look>, tone: Tone) -> crate::base::Result<()> {
     for byte in 0x20u8..=0xff {
         let (c, _) = game_text::char_at(&[byte]);
         if c.is_control() {
@@ -734,7 +734,7 @@ pub fn abandoned(font: usize) {
 pub fn loaded(font: usize) -> bool {
     let Some(own) = LOADING.with(|l| l.borrow_mut().finish(font)) else { return false };
     let m = crate::hooked_memory();
-    let result = (|| -> crate::Result<bool> {
+    let result = (|| -> crate::base::Result<bool> {
         let (manager, entry) = page_entry(&m, font)?;
         let wrapper = m.ptr(entry)?;
         if wrapper == 0 || m.ptr(wrapper)? == 0 {
@@ -820,7 +820,7 @@ impl Game<PageTexture> for InGame<'_> {
     /// The game's page and every font drawing from it take the grown
     /// texture; and those fonts drop the text they keep laid out, which holds
     /// glyphs' places in fractions of the page's old size.
-    fn take(&mut self, wrapper: usize, fonts: &[usize], texture: &PageTexture, (width, height): (u32, u32)) -> crate::Result<()> {
+    fn take(&mut self, wrapper: usize, fonts: &[usize], texture: &PageTexture, (width, height): (u32, u32)) -> crate::base::Result<()> {
         let m = self.m;
         let &first = fonts.first().ok_or("no font draws from the page")?;
         let (_, entry) = page_entry(m, first)?;
@@ -843,14 +843,14 @@ impl Game<PageTexture> for InGame<'_> {
         Ok(())
     }
 
-    fn build_map_names(&mut self) -> crate::Result<bool> {
+    fn build_map_names(&mut self) -> crate::base::Result<bool> {
         rebuild_map_names(self.m)
     }
 }
 
 /// The names on the map are built again from the map's fonts' pages as they
 /// are now, when a game is going on; returns whether they were.
-fn rebuild_map_names(m: &Memory) -> crate::Result<bool> {
+fn rebuild_map_names(m: &Memory) -> crate::base::Result<bool> {
     use crate::objects::{application, campaign, text::map};
     let world = m.ptr(m.at(campaign::globals::WORLD))?;
     let manager = if world == 0 { 0 } else { m.ptr(world + campaign::world::MAP_MANAGER)? };

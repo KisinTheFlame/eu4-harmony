@@ -6,7 +6,7 @@ mod native;
 mod placement;
 mod registry;
 
-use crate::{hooks::Call, memory::Memory, points::Point, Result};
+use crate::{hooks::Call, memory::Memory, points::Point, base::Result};
 use input::Input;
 use registry::Registry;
 pub(crate) use registry::{Identity, Owned};
@@ -119,7 +119,7 @@ impl<A: OrderAccess> Orderer<A> {
         self.0.with_registry(Registry::clear);
     }
 
-    fn attach(&self, m: &Memory, host: crate::hosts::Host, root: usize, frame: Option<usize>, controls: &[(usize, crate::bound_element::Look)]) -> Result<()> {
+    fn attach(&self, m: &Memory, host: crate::base::hosts::Host, root: usize, frame: Option<usize>, controls: &[(usize, crate::bound_element::Look)]) -> Result<()> {
         let (floor, nodes) = native::host_nodes(m, root, frame, controls)?;
         self.0.with_registry(|state| {
             state.host(m, host as usize, root)?;
@@ -226,7 +226,7 @@ pub(crate) fn clear() {
 }
 
 /// Complete attached node groups, from the existing host binding.
-pub(crate) fn attach(m: &Memory, host: crate::hosts::Host, root: usize, frame: Option<usize>, controls: &[(usize, crate::bound_element::Look)]) -> Result<()> {
+pub(crate) fn attach(m: &Memory, host: crate::base::hosts::Host, root: usize, frame: Option<usize>, controls: &[(usize, crate::bound_element::Look)]) -> Result<()> {
     LIVE.attach(m, host, root, frame, controls)
 }
 
@@ -262,17 +262,17 @@ fn handler_after(call: &mut Call) {
 }
 
 fn gui_visibility_before(call: &mut Call) {
-    if crate::thread_id() == crate::main_thread() {
+    if crate::base::thread_id() == crate::base::main_thread() {
         checked(LIVE.before_visibility(&call.memory(), call.arg(0) - crate::objects::gui::window::GUI));
     }
 }
 fn root_visibility_before(call: &mut Call) {
-    if crate::thread_id() == crate::main_thread() {
+    if crate::base::thread_id() == crate::base::main_thread() {
         checked(LIVE.before_visibility(&call.memory(), call.arg(0)));
     }
 }
 fn visibility_after(call: &mut Call) {
-    if !call.faulted() && crate::thread_id() == crate::main_thread() {
+    if !call.faulted() && crate::base::thread_id() == crate::base::main_thread() {
         checked(LIVE.visibility_after(&call.memory()));
     }
 }

@@ -25,7 +25,7 @@
 //! input method alone. Elsewhere they still reach the game, so its shortcuts
 //! keep working with a Chinese input method switched on.
 use super::game_text;
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::objects::{
     gui::{self, edit_box, editor, events, manager},
     text::font,
@@ -121,7 +121,7 @@ fn without_result(lparam: isize) -> isize {
 
 /// Whether an edit box has the keyboard.
 fn edit_box_focused(m: &crate::memory::Memory) -> bool {
-    let focused = || -> crate::Result<bool> {
+    let focused = || -> crate::base::Result<bool> {
         let listener = m.ptr(m.ptr(m.at(gui::globals::MANAGER))? + manager::FOCUSED_LISTENER)?;
         let class = m.ptr(listener)? == m.at(gui::classes::EDIT_BOX_LISTENER);
         Ok(listener != 0 && class && m.u8(listener - edit_box::LISTENER + edit_box::FOCUSED)? != 0)
@@ -145,7 +145,7 @@ unsafe extern "C" fn ime_message(window: HWND, message: u32, wparam: usize, lpar
     let original = ORIGINAL_IME.get();
     let sent = *lparam;
     let handled = original(window, message, wparam, lparam, video);
-    crate::guarded("input method message", || match message {
+    crate::base::guarded("input method message", || match message {
         // SDL clears the flags that let the input method show its windows.
         WM_IME_SETCONTEXT => {
             *lparam = sent;
@@ -169,7 +169,7 @@ unsafe extern "C" fn ime_message(window: HWND, message: u32, wparam: usize, lpar
 /// insets, plus a shift (see [`edit_box`]), plus the offset. The box's place
 /// on screen is what its method [`edit_box::PLACE`] gives, as its click
 /// handling (0x1534560) takes it from the mouse.
-fn caret_on_screen(m: &crate::memory::Memory, edit_box: usize, offset: u32) -> crate::Result<(i32, i32)> {
+fn caret_on_screen(m: &crate::memory::Memory, edit_box: usize, offset: u32) -> crate::base::Result<(i32, i32)> {
     let mut place = [0i32; 2];
     m.call(m.vslot(edit_box, edit_box::PLACE)?, &[edit_box, place.as_mut_ptr() as usize])?;
     let shift = m.ptr(edit_box + edit_box::SHIFT_HOLDER)? + edit_box::SHIFT;

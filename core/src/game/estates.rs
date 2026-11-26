@@ -121,7 +121,7 @@ fn entries(m: &Memory, country: usize) -> GResult<Vec<usize>> {
 
 /// The privileges a `std::map` with its head at `head` holds.
 fn granted(m: &Memory, head: usize) -> GResult<Vec<usize>> {
-    Ok(containers::map(m, head, MOST)?.into_iter().map(|node| m.ptr(node + map::VALUE)).collect::<crate::Result<_>>()?)
+    Ok(containers::map(m, head, MOST)?.into_iter().map(|node| m.ptr(node + map::VALUE)).collect::<crate::base::Result<_>>()?)
 }
 
 fn privilege_database(m: &Memory) -> GResult<(usize, usize)> {

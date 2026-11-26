@@ -46,7 +46,7 @@ fn text_box_going(call: &mut Call) {
             OWN_ANIMATION.call(&m, [boxed, animation])?;
             TEXT_BOX_ANIMATIONS.fetch_add(1, Ordering::Relaxed);
         }
-        crate::Result::Ok(())
+        crate::base::Result::Ok(())
     })();
     if let Err(e) = owned {
         log!("repair: a text box's animation was not handed to its element: {e}");

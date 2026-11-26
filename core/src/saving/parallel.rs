@@ -33,14 +33,14 @@
 //!
 //! The pool takes other work as well: the save checksum's sum
 //! (`super::sum`).
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::game::commands::{STREAM_VTABLE, TOKENS_LAST, TOKENS_READY, TOKEN_NAMES, WRITER_VTABLE};
 use crate::memory::Memory;
 use crate::objects::stream;
 use crate::points::{Function, GameFunction, Point};
 use crate::saves::{GameToken, EQUALS, NUMBER, WRITE_TOKEN};
 use crate::speed::{self, SpeedUp};
-use crate::Result;
+use crate::base::Result;
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
@@ -811,7 +811,7 @@ pub(super) fn pool() -> Option<&'static Pool> {
                     std::thread::Builder::new()
                         .name(format!("eu4-harmony save writer {i}"))
                         .spawn(move || {
-                            ids.lock().unwrap_or_else(|e| e.into_inner()).push(crate::thread_id());
+                            ids.lock().unwrap_or_else(|e| e.into_inner()).push(crate::base::thread_id());
                             worker();
                         })
                         .ok()
@@ -861,7 +861,7 @@ fn worker() {
             state.task.clone()
         };
         if let Some(task) = task {
-            crate::guarded("parallel save", || task.work(Some(holders)));
+            crate::base::guarded("parallel save", || task.work(Some(holders)));
         }
         let mut state = pool.state.lock().unwrap_or_else(|e| e.into_inner());
         state.busy -= 1;

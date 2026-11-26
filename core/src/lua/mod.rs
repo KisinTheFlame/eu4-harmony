@@ -12,14 +12,7 @@
 //! `eu4-harmony/logs/extension-<id>.log`, with bounded older segments beside it.
 mod http;
 
-use crate::{
-    catalogue::{self, Catalogue, Place, Wait},
-    game::{self, map_coloring, Caller},
-    map,
-    mods::DiscoveredMod,
-    notice::{Message, Repeat},
-    saves, ui,
-};
+use crate::{catalogue::{self, Catalogue, Place, Wait}, game::{self, map_coloring, Caller}, map, base::mods::DiscoveredMod, base::notice::{Message, Repeat}, saves, ui};
 use eu4_harmony_lua::{
     dispatch::{self, Heard},
     fetch, Answered, Arg, Called, Element, Extension, Host, Mod, Pending, Popup, WindowChange,
@@ -111,7 +104,7 @@ impl ExtensionRuntime {
             } else {
                 // The shared journal opens on the first log call, before main.lua
                 // can write; leases prevent another process rotating this run.
-                crate::log::event(format_args!(
+                crate::base::log::event(format_args!(
                     "extension loading: id={} version={} interface={}",
                     m.manifest.id,
                     m.descriptor.version.as_deref().unwrap_or("not declared"),
@@ -313,7 +306,7 @@ trait RuntimeEnv {
 struct CoreEnv;
 
 impl RuntimeEnv for CoreEnv {
-    type LocBackup = crate::loc::Earlier;
+    type LocBackup = crate::base::loc::Earlier;
 
     fn supported(&self) -> bool {
         crate::memory().is_some()
@@ -324,15 +317,15 @@ impl RuntimeEnv for CoreEnv {
     }
 
     fn post_notice(&self, key: &str, repeat: Repeat, message: Message) {
-        crate::notice::post(key, repeat, message);
+        crate::base::notice::post(key, repeat, message);
     }
 
     fn reload_loc(&self, id: &str, harmony: &Path) -> (Vec<String>, Self::LocBackup) {
-        crate::loc::reload_mod(id, harmony)
+        crate::base::loc::reload_mod(id, harmony)
     }
 
     fn restore_loc(&self, id: &str, earlier: Self::LocBackup) {
-        crate::loc::restore_mod(id, earlier);
+        crate::base::loc::restore_mod(id, earlier);
     }
 
     fn session_going_on(&self) -> bool {
@@ -390,7 +383,7 @@ impl RuntimeEnv for CoreEnv {
     }
 
     fn write_report(&self) {
-        crate::report::write();
+        crate::base::report::write();
     }
 
     fn clocks_now(&self) -> Clocks {
@@ -539,11 +532,11 @@ impl Host for Live {
     }
 
     fn text(&self, id: &str, key: &str) -> Option<String> {
-        crate::loc::mod_text(id, key)
+        crate::base::loc::mod_text(id, key)
     }
 
     fn language(&self) -> String {
-        crate::lang::player().id().to_string()
+        crate::base::lang::player().id().to_string()
     }
 
     fn fetch(&self, request: fetch::Request) -> Box<dyn Pending<fetch::Answer>> {
@@ -584,7 +577,7 @@ impl Host for Live {
         // The player is told in a game the framework runs in.
         if crate::memory().is_some() {
             log!("extension {:?}: error in {from}: {message}", extension.id());
-            crate::notice::post(&format!("errors:{}", extension.id()), Repeat::Session, Message::new("EU4HARMONY_ERRORS").arg("MOD", extension.name()));
+            crate::base::notice::post(&format!("errors:{}", extension.id()), Repeat::Session, Message::new("EU4HARMONY_ERRORS").arg("MOD", extension.name()));
         }
     }
 
@@ -594,7 +587,7 @@ impl Host for Live {
         crate::windows::forget(extension.index());
         if let Some(m) = crate::memory() {
             map::release(m, extension.index());
-            crate::notice::post(
+            crate::base::notice::post(
                 &format!("stopped:{}", extension.id()),
                 Repeat::Run,
                 Message::new("EU4HARMONY_STOPPED").arg("MOD", extension.name()).arg("DETAIL", reason),
@@ -658,7 +651,7 @@ pub struct Reloaded {
 /// it loads is the old one asked for its save data and replaced. On the
 /// main thread, between frames.
 pub fn reload(_: Caller, args::Reload { id }: args::Reload) -> game::GResult<Reloaded> {
-    if crate::thread_id() != crate::main_thread() {
+    if crate::base::thread_id() != crate::base::main_thread() {
         return Err(game::Fail { status: game::Status::WrongContext, message: "called off the game's main thread".into() });
     }
     RUNTIME.reload(&CoreEnv, &id)
@@ -1132,7 +1125,7 @@ mod tests {
         }
         let discovered = DiscoveredMod {
             descriptor_file: dir.join(format!("{id}.mod")),
-            descriptor: crate::mods::Descriptor { name: id.to_string(), version: Some("1.0".into()), path: Some(dir.clone()), archive: None },
+            descriptor: crate::base::mods::Descriptor { name: id.to_string(), version: Some("1.0".into()), path: Some(dir.clone()), archive: None },
             dir: dir.clone(),
             manifest: eu4_harmony_manifest::HarmonyMod::read(&dir).unwrap().manifest,
             layout: eu4_harmony_manifest::Layout { extension: lua.map(|_| "lua/main.lua".into()), ui: Vec::new(), misplaced: Vec::new() },

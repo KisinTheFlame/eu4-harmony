@@ -9,7 +9,7 @@
 //! the frame prepared back to the next update: from the commands' step before
 //! a day, through the whole day.
 use super::{drawing_on, on_main, APP, APP_IDLER, APP_MAP};
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::game_string;
 use crate::memory::Memory;
 use crate::objects::campaign::globals::WORLD;

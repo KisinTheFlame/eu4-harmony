@@ -36,7 +36,7 @@ fn since_reset() -> String {
 }
 
 /// Kills the window at `owner + field`, if there is one, and forgets it there.
-fn kill_field(m: &Memory, owner: usize, field: usize) -> crate::Result<()> {
+fn kill_field(m: &Memory, owner: usize, field: usize) -> crate::base::Result<()> {
     let window = m.ptr(owner + field)?;
     if window != 0 {
         m.write(owner + field, &0usize.to_le_bytes())?;
@@ -45,14 +45,14 @@ fn kill_field(m: &Memory, owner: usize, field: usize) -> crate::Result<()> {
     Ok(())
 }
 
-fn kill(m: &Memory, window: usize) -> crate::Result<()> {
+fn kill(m: &Memory, window: usize) -> crate::base::Result<()> {
     m.call(m.vslot(window, gui_window::KILL)?, &[window])?;
     KILLED.fetch_add(1, Ordering::Relaxed);
     Ok(())
 }
 
 /// Runs a repair as an owner goes, logging what failed.
-fn going(m: Memory, what: &str, f: impl FnOnce(&Memory) -> crate::Result<()>) {
+fn going(m: Memory, what: &str, f: impl FnOnce(&Memory) -> crate::base::Result<()>) {
     let _letting_go = LettingGo::new("panel's window");
     if let Err(e) = f(&m) {
         log!("repair: {what}: not let go: {e}");

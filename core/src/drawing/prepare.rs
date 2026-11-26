@@ -21,7 +21,7 @@
 //!   drawing thread skips the first steps, makes no names, as they are not
 //!   due, and runs the off-screen passes with no rebuild asked for.
 use super::{direct1, direct3, is_drawing_thread, APP, APP_MAP, IDLER_CAMERA, IDLER_MAP, SETTINGS};
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::memory::Memory;
 use crate::points::{GameFunction, Point};
 
@@ -143,7 +143,7 @@ extern "C" fn drawing_thread_passes() -> bool {
 /// from the live scene tree (`0x14dd010`'s CPU pass), after `0x14e9fa0` and
 /// deferred calls may have freed GUI elements with embedded scene nodes, before
 /// tooltip hit-testing or the next frame's input reads them.
-pub(super) fn scene(m: &Memory) -> crate::Result<()> {
+pub(super) fn scene(m: &Memory) -> crate::base::Result<()> {
     crate::window_ordering::prepare_scene(m)
 }
 
@@ -156,7 +156,7 @@ pub(super) fn tooltips(m: &Memory, idler: usize) {
 
 /// For a frame the drawing thread is to draw, in the drawing's order: the
 /// first steps, the off-screen passes' rebuilds, the map's names.
-pub(super) fn frame(m: &Memory, idler: usize) -> crate::Result<()> {
+pub(super) fn frame(m: &Memory, idler: usize) -> crate::base::Result<()> {
     first_steps(m, idler)?;
     passes(m, idler)?;
     make_names(m)
@@ -168,7 +168,7 @@ pub(super) fn names_due(m: &Memory) -> bool {
 }
 
 /// The drawing's first steps, as the drawing does them (`0x8185e7`–`0x81865c`).
-fn first_steps(m: &Memory, idler: usize) -> crate::Result<()> {
+fn first_steps(m: &Memory, idler: usize) -> crate::base::Result<()> {
     let settings = m.ptr(m.at(SETTINGS))?;
     let volume = f32::from_bits(m.u32(settings + MASTER_VOLUME)?);
     let floor = f32::from_bits(m.u32(m.at(VOLUME_FLOOR))?);
@@ -193,7 +193,7 @@ fn first_steps(m: &Memory, idler: usize) -> crate::Result<()> {
 
 /// The off-screen passes ([`PASSES`]) as the drawing calls them, with the
 /// idler's own bytes: the rebuilds they ask for, done here.
-fn passes(m: &Memory, idler: usize) -> crate::Result<()> {
+fn passes(m: &Memory, idler: usize) -> crate::base::Result<()> {
     let map = m.ptr(m.ptr(m.at(APP))? + APP_MAP)?;
     let camera = m.ptr(idler + IDLER_CAMERA)?;
     if map == 0 || camera == 0 {
@@ -208,7 +208,7 @@ fn passes(m: &Memory, idler: usize) -> crate::Result<()> {
 
 /// The map's names made again when they are due, as the 3D map's drawing
 /// makes them.
-fn make_names(m: &Memory) -> crate::Result<()> {
+fn make_names(m: &Memory) -> crate::base::Result<()> {
     let map = m.ptr(m.ptr(m.at(APP))? + APP_MAP)?;
     if map == 0 || m.u8(map + MAP_NAMES_DUE)? == 0 {
         return Ok(());

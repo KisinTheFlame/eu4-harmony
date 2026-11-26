@@ -313,7 +313,7 @@ pub mod record {
 /// [`Commands::post_with`] for the game.
 fn post_with(text: &str, around: impl FnOnce(&dyn Fn() -> GResult<()>) -> GResult<()>) -> Result<(), Refused> {
     let given = Written::parse(text).map_err(Refused::Unread)?;
-    let mut operation = crate::log::Operation::begin(&given.kind);
+    let mut operation = crate::base::log::Operation::begin(&given.kind);
     let m = game()?;
     // The game's own commands, such as the speed's, go also while the player
     // observes.
@@ -321,7 +321,7 @@ fn post_with(text: &str, around: impl FnOnce(&dyn Fn() -> GResult<()>) -> GResul
     // Once the command is made, only a call into the game can fail before it
     // is destroyed. A command a call into the game failed on is left alone.
     let session = command_session(m, &world)?;
-    if crate::thread_id() != crate::main_thread() {
+    if crate::base::thread_id() != crate::base::main_thread() {
         return Err(Refused::NotTaken);
     }
     if !executes(m, session)? {
@@ -575,7 +575,7 @@ fn memory_stream(m: &Memory, bytes: &mut [usize; 3], writing: bool) -> Object<{ 
 
 /// The command at `command`, of type token `token`, as the game writes it in
 /// text, in game text.
-fn written(m: &Memory, command: usize, token: u32) -> crate::Result<Vec<u8>> {
+fn written(m: &Memory, command: usize, token: u32) -> crate::base::Result<Vec<u8>> {
     let mut bytes = [0usize; 3];
     let mut stream = memory_stream(m, &mut bytes, true);
     let mut writer = Object::<{ writer::SIZE }>::new();
@@ -769,7 +769,7 @@ impl Display for Written {
 }
 
 impl Written {
-    fn parse(text: &str) -> crate::Result<Self> {
+    fn parse(text: &str) -> crate::base::Result<Self> {
         let tokens = tokens(text);
         let mut at = 0;
         let entries = block(&tokens, &mut at)?;
@@ -784,7 +784,7 @@ impl Written {
 
     /// Whether every key of this, the text given, came back in `again`, the
     /// command read from it written again, with the value given.
-    fn came_back(&self, again: &Written) -> crate::Result<()> {
+    fn came_back(&self, again: &Written) -> crate::base::Result<()> {
         if again.kind != self.kind {
             return Err(format!("the game read {} as {}", self.kind, again.kind));
         }
@@ -795,7 +795,7 @@ impl Written {
 /// Whether each of `given` is in `again`: the n-th entry of a key as the n-th
 /// of that key, values alone in their order, words as the same text or the
 /// same number, blocks alike. `path` names the block, for the refusal.
-fn came_back(given: &[Entry], again: &[Entry], path: &str) -> crate::Result<()> {
+fn came_back(given: &[Entry], again: &[Entry], path: &str) -> crate::base::Result<()> {
     let alone = |entries: &[Entry]| entries.iter().filter(|e| e.key.is_none()).map(|e| e.value.clone()).collect::<Vec<_>>();
     let (given_alone, again_alone) = (alone(given), alone(again));
     if given_alone.len() > again_alone.len() {
@@ -816,7 +816,7 @@ fn came_back(given: &[Entry], again: &[Entry], path: &str) -> crate::Result<()> 
     Ok(())
 }
 
-fn same(given: &Value, again: &Value, path: &str) -> crate::Result<()> {
+fn same(given: &Value, again: &Value, path: &str) -> crate::base::Result<()> {
     if let (Value::Block(g), Value::Block(a)) = (given, again) {
         return came_back(g, a, path);
     }
@@ -865,7 +865,7 @@ fn tokens(text: &str) -> Vec<Token> {
 }
 
 /// The entries from `at` to the end of their block or of the tokens.
-fn block(tokens: &[Token], at: &mut usize) -> crate::Result<Vec<Entry>> {
+fn block(tokens: &[Token], at: &mut usize) -> crate::base::Result<Vec<Entry>> {
     let mut entries = Vec::new();
     loop {
         match tokens.get(*at) {
@@ -882,7 +882,7 @@ fn block(tokens: &[Token], at: &mut usize) -> crate::Result<Vec<Entry>> {
 }
 
 /// The value at `at`: a word, a quoted text, or a block to its `}`.
-fn value(tokens: &[Token], at: &mut usize) -> crate::Result<Value> {
+fn value(tokens: &[Token], at: &mut usize) -> crate::base::Result<Value> {
     match tokens.get(*at) {
         Some(Token::Word(word)) => {
             *at += 1;

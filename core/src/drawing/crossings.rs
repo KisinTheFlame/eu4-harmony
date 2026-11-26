@@ -7,7 +7,7 @@
 //! until the next update finishes what the crossing began. Also the count,
 //! for the log, of the crossings and of how long each held the frames back.
 use super::{drawing_on, is_drawing_thread, main_side, on_main, MainLock};
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::hooks::Call;
 use crate::points::Point;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
@@ -94,7 +94,7 @@ fn scene_begins(call: &mut Call) {
             crossing(call.observed().unwrap_or(0));
         }
     } else if drawing_on() && !is_drawing_thread() && !OTHER_SCENE_LOGGED.swap(true, Ordering::Relaxed) {
-        log!("drawing: thread {} began a scene of the renderer, which the drawing thread may be drawing with", crate::thread_id());
+        log!("drawing: thread {} began a scene of the renderer, which the drawing thread may be drawing with", crate::base::thread_id());
     }
 }
 
@@ -173,7 +173,7 @@ extern "C" fn renderer_entries() {
         "4:",
         "lea r11, [rip + {originals}]",
         "jmp qword ptr [r11 + rax * 8]",
-        main = sym crate::MAIN_THREAD,
+        main = sym crate::base::MAIN_THREAD,
         renderer_called = sym renderer_called,
         originals = sym RENDERER_ORIGINALS,
     );

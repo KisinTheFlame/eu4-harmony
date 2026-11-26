@@ -10,12 +10,12 @@
 //!
 //! An observer is the seam's: a plain Rust function given a [`Call`], the
 //! observed call's arguments and result and the game's memory. The seam runs
-//! it under [`guarded`](crate::guarded), so a panic in it is logged, the
+//! it under [`guarded`](crate::base::guarded), so a panic in it is logged, the
 //! player is told and the game ends, and never crosses into the game's code
 //! (ADR framework-succeeds-or-fails-as-a-whole). Every other function the
 //! game calls is marked `#[called_by_game]`, which does the same.
-use crate::called_by_game;
-use crate::{memory::Memory, Result};
+use crate::base::called_by_game;
+use crate::{memory::Memory, base::Result};
 use std::sync::Mutex;
 
 extern "C" {
@@ -205,7 +205,7 @@ impl HookFrame {
 
 /// Runs `observer` on one call, guarded.
 pub fn run(what: &str, frame: &mut HookFrame, memory: Memory, observer: Observer) {
-    crate::guarded(what, || observer(&mut Call::new(frame, memory)));
+    crate::base::guarded(what, || observer(&mut Call::new(frame, memory)));
 }
 
 fn dispatch(frame: *mut HookFrame, which: fn(&Observers) -> Option<Observer>) {
@@ -362,7 +362,7 @@ mod tests {
     }
 
     /// "C-unwind", so that the test's fatal path, which panics, may leave it.
-    #[crate::called_by_game]
+    #[crate::base::called_by_game]
     extern "C-unwind" fn halves(value: usize) -> usize {
         assert!(value.is_multiple_of(2), "{value} is odd");
         value / 2

@@ -44,7 +44,7 @@
 //! handed between agents, other armies' targets, the strength planned to
 //! arrive in provinces) is not, and is what a developer build counts when it
 //! checks the searches (`crate::speed`).
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::points::{Function, Point};
 use crate::speed::SpeedUp;
 

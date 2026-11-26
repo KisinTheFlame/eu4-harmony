@@ -15,12 +15,8 @@
 //! The settings are followed as they are loaded and saved from the main menu;
 //! in a session those toggles are disabled so the next session is the first to
 //! see a change.
-use crate::called_by_game;
-use crate::{
-    objects::campaign::{achievements, world},
-    points::{Function, Point},
-    settings::Settings,
-};
+use crate::base::called_by_game;
+use crate::{objects::campaign::{achievements, world}, points::{Function, Point}, base::settings::Settings};
 use std::{
     cell::Cell,
     sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},

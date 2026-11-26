@@ -10,7 +10,7 @@
 //! readers and writers continue to use its arrays, including during Present.
 //! See docs/game/interface/map-drawing-reads.md, "The frame's temporary highlights".
 use super::{is_drawing_thread, on_main};
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::memory::Memory;
 use crate::points::Point;
 use std::cell::RefCell;
@@ -77,7 +77,7 @@ struct Kept {
 
 static KEPT: Mutex<Option<Kept>> = Mutex::new(None);
 
-fn array(m: &Memory, idler: usize, pointer: usize, count: usize, width: usize, bytes: &mut Vec<u8>) -> crate::Result<usize> {
+fn array(m: &Memory, idler: usize, pointer: usize, count: usize, width: usize, bytes: &mut Vec<u8>) -> crate::base::Result<usize> {
     let count = m.u32(idler + count)? as i32;
     let address = m.ptr(idler + pointer)?;
     if count < 0 || (count > 0 && address == 0) {
@@ -92,7 +92,7 @@ fn array(m: &Memory, idler: usize, pointer: usize, count: usize, width: usize, b
 
 /// Keep the frame's inputs after preparation, before publishing its idler.
 /// On an error, invalidate the previous frame without freeing its buffers.
-pub(super) fn keep(m: &Memory, idler: usize) -> crate::Result<()> {
+pub(super) fn keep(m: &Memory, idler: usize) -> crate::base::Result<()> {
     if !on_main() {
         return Ok(());
     }
@@ -107,7 +107,7 @@ pub(super) fn clear() {
     }
 }
 
-fn capture_into(m: &Memory, idler: usize, kept: &mut Kept) -> crate::Result<()> {
+fn capture_into(m: &Memory, idler: usize, kept: &mut Kept) -> crate::base::Result<()> {
     kept.valid = false;
     let provinces_at = array(m, idler, PROVINCES, PROVINCE_COUNT, 1, &mut kept.provinces)?;
     let countries_at = array(m, idler, COUNTRIES, COUNTRY_WORDS, 4, &mut kept.countries)?;
@@ -148,7 +148,7 @@ fn pointer(prefix: &mut [u8], at: usize, value: usize) {
     prefix[at..at + 8].copy_from_slice(&(value as u64).to_le_bytes());
 }
 
-fn prepared_reader(m: &Memory, idler: usize, reader: &mut Reader, kept: &Kept) -> crate::Result<bool> {
+fn prepared_reader(m: &Memory, idler: usize, reader: &mut Reader, kept: &Kept) -> crate::base::Result<bool> {
     if !kept.valid
         || kept.idler != idler
         || m.ptr(idler + PROVINCES)? != kept.provinces_at
@@ -214,7 +214,7 @@ extern "C" fn reader_stub() {
 mod tests {
     use super::*;
 
-    fn capture(m: &Memory, idler: usize) -> crate::Result<Kept> {
+    fn capture(m: &Memory, idler: usize) -> crate::base::Result<Kept> {
         let mut kept = Kept::default();
         capture_into(m, idler, &mut kept)?;
         Ok(kept)

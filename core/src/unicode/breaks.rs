@@ -19,8 +19,8 @@
 //! process's locale, which does not change), so a kept text answers what ICU
 //! would.
 use super::{costs, game_text};
-use crate::called_by_game;
-use crate::icu::{self, LineBreak, LineBreaker};
+use crate::base::called_by_game;
+use crate::base::icu::{self, LineBreak, LineBreaker};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;

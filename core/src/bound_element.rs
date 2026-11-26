@@ -12,16 +12,8 @@
 //! presentation seam. A clicked button is heard into a bounded queue of its
 //! owner's ([`Hears`]), with the keys held down with the click, and taken up
 //! at the next frame.
-use crate::called_by_game;
-use crate::{
-    game::{self, Caller, WorldSession},
-    game_string,
-    memory::Memory,
-    objects::gui::{button, element, functions, list_box},
-    ui::{self, Callback, Subscription},
-    unicode::game_text,
-    Result,
-};
+use crate::base::called_by_game;
+use crate::{game::{self, Caller, WorldSession}, game_string, memory::Memory, objects::gui::{button, element, functions, list_box}, ui::{self, Callback, Subscription}, unicode::game_text, base::Result};
 use eu4_harmony_lua::Property;
 use std::collections::BTreeMap;
 use std::sync::Mutex;

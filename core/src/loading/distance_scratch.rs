@@ -2,7 +2,7 @@
 //! rebuild. With source provinces, the native rebuild still fills the list
 //! afresh for every target. All distance writes stay in their original order.
 //! See docs/game/program/saves.md, "Country distance scratch space".
-use crate::{called_by_game, points::Point, speed::SpeedUp};
+use crate::{base::called_by_game, points::Point, speed::SpeedUp};
 
 const INITIALIZE: usize = 0x2d0b5d;
 const INITIALIZED: usize = 0x2d0b65;
@@ -66,7 +66,7 @@ crate::resume!(FINISH_RESUME: FINISH_AT = FINISHED);
 
 #[called_by_game]
 extern "C" fn release(block: usize, capacity: usize) {
-    crate::guarded("country distance scratch", || {
+    crate::base::guarded("country distance scratch", || {
         if block != 0 {
             crate::game_heap::delete(&crate::hooked_memory(), block, capacity * 4).expect("the native scratch allocation must be released");
         }

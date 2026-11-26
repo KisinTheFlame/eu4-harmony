@@ -87,7 +87,7 @@ fn time_line(t: &Time, main: u32) -> String {
 /// Writes the timed calls once a second into `call-times.tsv` in the logs
 /// folder, a new file each run.
 fn write_times() {
-    let path = match crate::paths::game_dir().and_then(|dir| crate::paths::user_dir(&dir)) {
+    let path = match crate::base::paths::game_dir().and_then(|dir| crate::base::paths::user_dir(&dir)) {
         Ok(dir) => eu4_harmony_folders::UserFolder::new(dir).logs().join("call-times.tsv"),
         Err(e) => {
             log!("trace: the times are not written: {e}");
@@ -107,7 +107,7 @@ fn write_times() {
     loop {
         std::thread::sleep(Duration::from_secs(1));
         let times = std::mem::take(&mut *TIMES.lock().unwrap_or_else(|e| e.into_inner()));
-        let main = crate::main_thread();
+        let main = crate::base::main_thread();
         for t in &times {
             let _ = file.write_all(time_line(t, main).as_bytes());
         }
@@ -151,7 +151,7 @@ fn before(call: &mut Call) {
         let argument = call.arg(0);
         Time {
             rva: traced.rva,
-            thread: crate::thread_id(),
+            thread: crate::base::thread_id(),
             start: origin.elapsed(),
             end: Duration::ZERO,
             date: crate::game::world_context_any(&m).ok().map(|w| w.date),
@@ -265,7 +265,7 @@ impl Chosen {
             return;
         }
         if options.times && TIMED.set(Instant::now()).is_ok() {
-            let writer = std::thread::Builder::new().name("eu4-harmony call times".into()).spawn(|| crate::guarded("trace", write_times));
+            let writer = std::thread::Builder::new().name("eu4-harmony call times".into()).spawn(|| crate::base::guarded("trace", write_times));
             if let Err(e) = writer {
                 log!("trace: the times are not written: {e}");
             }

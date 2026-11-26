@@ -20,7 +20,7 @@
 //! with a texture of size 0 and vanished, with or without the framework. The
 //! limit is raised to 256 MiB.
 use super::glyphs::{self, Glyph};
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::points::Point;
 use crate::resume;
 use std::sync::atomic::{AtomicU64, Ordering};

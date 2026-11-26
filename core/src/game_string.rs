@@ -5,11 +5,7 @@
 //! strings only through here, and grows them only through the game's own
 //! append, so the game frees them as usual.
 use crate::unicode::game_text;
-use crate::{
-    memory::Memory,
-    points::{Function, GameFunction, Point},
-    Result,
-};
+use crate::{memory::Memory, points::{Function, GameFunction, Point}, base::Result};
 
 pub const SIZE: usize = 0x10;
 pub const CAPACITY: usize = 0x18;

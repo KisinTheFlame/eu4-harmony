@@ -14,10 +14,10 @@
 //!
 //! Each of the functions takes the date, a `std::string` slot it constructs
 //! the text in, and, for the format language, the format.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::game_string;
-use crate::lang;
-use crate::loc;
+use crate::base::lang;
+use crate::base::loc;
 use crate::points::{Function, GameFunction, Point};
 use crate::unicode::game_text;
 use eu4_harmony_loc::Language;
@@ -80,7 +80,7 @@ static ORIGINAL_DAY: Function<DateText> = Function::new();
 /// The date at `date` written in the player language's template for the
 /// shape `choose` picks, or by the game's own function when there is none.
 unsafe fn write(original: &Function<DateText>, date: *const i32, out: *mut u8, extra: usize, choose: impl FnOnce(Date) -> Option<(Shape, Date)>) -> *mut u8 {
-    let written = crate::guarded("date text", || {
+    let written = crate::base::guarded("date text", || {
         let (shape, date) = choose(Date::from_hours(*date))?;
         let text = text(lang::player(), shape, date)?;
         game_string::construct(out, &game_text::from_str(&text));

@@ -146,7 +146,7 @@ fn decoder(shading: &Shading) -> String {
 /// The map names' shader `text` drawing from fields: the decoder put at the
 /// start of the pixel shader's code, and the page's read through it. An error
 /// when the text has not the one read it changes.
-fn decoded(text: &str, shading: &Shading) -> crate::Result<String> {
+fn decoded(text: &str, shading: &Shading) -> crate::base::Result<String> {
     let at = text.find(SAMPLE).ok_or("the pixel shader does not read the page as the game's does")?;
     if text[at + SAMPLE.len()..].contains(SAMPLE) {
         return Err("the pixel shader reads the page more than once".into());
@@ -157,14 +157,14 @@ fn decoded(text: &str, shading: &Shading) -> crate::Result<String> {
 
 /// Whether the map names' shader, as the game will read it, can draw from
 /// fields; why not otherwise.
-pub fn shader_decodes() -> crate::Result<()> {
+pub fn shader_decodes() -> crate::base::Result<()> {
     let text = String::from_utf8(physfs::read(SHADER)?).map_err(|_| format!("{SHADER} is not UTF-8"))?;
     decoded(&text, &Shading { spread: LEAST_SPREAD, ink: 0, outline: None }).map(|_| ())
 }
 
 /// The change to the shader's text: none until the map font's page holds
 /// fields.
-fn edit(text: &str) -> crate::Result<String> {
+fn edit(text: &str) -> crate::base::Result<String> {
     match &*SHADING.lock().unwrap_or_else(|e| e.into_inner()) {
         Some(shading) => decoded(text, shading),
         None => Ok(text.to_string()),

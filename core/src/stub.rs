@@ -28,7 +28,7 @@
 //! Calls into game code from a stub (`call qword ptr [...]`) do not go through
 //! here: they run where the game's own code would, on the game's stack.
 
-use crate::called_by_game;
+use crate::base::called_by_game;
 
 unsafe extern "C" {
     fn eu4h_clear_stub_cache();
@@ -206,9 +206,9 @@ mod tests {
         unsafe extern "C" {
             fn eu4h_test_access_violation() -> usize;
         }
-        let ctx = crate::stack::Context::capture();
+        let ctx = crate::base::stack::Context::capture();
         let mut frames = [0u64; 16];
-        crate::stack::walk(&ctx.0, &mut frames);
+        crate::base::stack::walk(&ctx.0, &mut frames);
         *SEH_FRAMES.lock().unwrap_or_else(|e| e.into_inner()) = frames.into_iter().take_while(|&f| f != 0).collect();
         if trigger != 0 {
             unsafe { eu4h_test_access_violation() };

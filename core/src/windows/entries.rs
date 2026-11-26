@@ -3,6 +3,7 @@
 //! running game and failure-injecting process tests.
 use super::{ElementOps, Entry, Live, STRIP_BACKGROUND, STRIP_FIRST, STRIP_SLOTS, STRIP_STEP, TEXT_HIDE, TEXT_PLACE, TEXT_PLACE_SLOT, TEXT_SHOW};
 use crate::{
+    base::Result,
     bound_element::{self, BoundElement, Look, Shown},
     memory::Memory,
     objects::{
@@ -11,7 +12,6 @@ use crate::{
     },
     ui,
     unicode::game_text,
-    Result,
 };
 use eu4_harmony_lua::windows::ResolvedEntry;
 

@@ -7,7 +7,7 @@
 //! applied after.
 use crate::framework_ui::mods_window::Card;
 use crate::splice::{Element, Plan};
-use crate::{lang, loading, loc, lua, mods, notice, physfs, pipe, report, saves, saving, settings, splice, ui, unicode};
+use crate::{base::lang, loading, base::loc, lua, base::mods, base::notice, physfs, pipe, base::report, saves, saving, base::settings, splice, ui, unicode};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -109,15 +109,15 @@ impl Setup {
 /// Runs once, from the first PhysFS call: `game_dir` the game folder,
 /// `installed` what the bootstrap installed.
 pub(crate) fn run(game_dir: PathBuf, installed: &str) {
-    let user_dir = match crate::paths::user_dir(&game_dir) {
+    let user_dir = match crate::base::paths::user_dir(&game_dir) {
         Ok(d) => d,
         Err(e) => {
             log!("user dir: {e}");
-            crate::open_fallback_log();
+            crate::base::open_fallback_log();
             return;
         }
     };
-    let logs = crate::open_logs(&user_dir);
+    let logs = crate::base::open_logs(&user_dir);
     crate::crash::register_windows_dumps(&user_dir);
     crate::report_header(Some(&game_dir));
     log!("user dir {}", user_dir.display());
@@ -138,7 +138,10 @@ pub(crate) fn run(game_dir: PathBuf, installed: &str) {
     // Texts first: an extension may read its own at the top of main.lua.
     let mut plan = Plan::default();
     let every: Vec<_> = mods.iter().collect();
-    let loc_notes = loc::install(language, &every, &mut plan);
+    let (loc_notes, loc_append) = loc::install(language, &every);
+    if let Some((path, text)) = loc_append {
+        plan.add(&path, crate::splice::Addition::Append(text));
+    }
     for note in &loc_notes {
         log!("localisation: {note}");
     }

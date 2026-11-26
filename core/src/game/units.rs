@@ -190,7 +190,7 @@ fn mission_text(mission: &str, id: u64, location: u32, target: Option<u32>) -> R
 }
 
 /// A choice from one of the game's answers that writes its reasons.
-fn answered(m: &Memory, ask: impl FnOnce(usize) -> crate::Result<usize>) -> GResult<Choice> {
+fn answered(m: &Memory, ask: impl FnOnce(usize) -> crate::base::Result<usize>) -> GResult<Choice> {
     let (yes, text) = game_string::written(m, ask)?;
     Ok(if yes as u8 != 0 { Choice::can(Vec::new()) } else { Choice::cannot(super::reasons(&text), Vec::new()) })
 }

@@ -9,7 +9,7 @@
 //! does the map icons at the camera (docs/game/interface/frame-lifecycle.md,
 //! "Frames late at speed 5").
 use super::{drawing_on, on_main, IDLER_MAP, OTHER_CAMERA};
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::memory::Memory;
 use crate::points::Point;
 use std::sync::Mutex;
@@ -129,7 +129,7 @@ pub(super) fn clear() {
 
 /// At every in-game frame, as it calls its drawing, by the main thread: the
 /// tooltips updated as the frame would after its drawing ([`UPDATE`]).
-pub(super) fn update(m: &Memory, idler: usize) -> crate::Result<()> {
+pub(super) fn update(m: &Memory, idler: usize) -> crate::base::Result<()> {
     let map = m.ptr(idler + IDLER_MAP)?;
     if map == 0 || m.u8(map + MAP_TOOLTIPS_ON)? == 0 {
         return Ok(());
@@ -161,7 +161,7 @@ extern "C" fn placed(tooltips: usize, cursor: usize, place_at: usize) {
         return;
     }
     let m = crate::hooked_memory();
-    let pair = |at: usize| -> crate::Result<[i32; 2]> { Ok([m.u32(at)? as i32, m.u32(at + 4)? as i32]) };
+    let pair = |at: usize| -> crate::base::Result<[i32; 2]> { Ok([m.u32(at)? as i32, m.u32(at + 4)? as i32]) };
     match (pair(cursor), pair(place_at)) {
         (Ok(cursor), Ok(place)) => *PLACING.lock().unwrap_or_else(|e| e.into_inner()) = Some((Placed { tooltips, cursor, place }, place)),
         _ => log!("drawing: the tooltip's place could not be read"),
@@ -171,7 +171,7 @@ extern "C" fn placed(tooltips: usize, cursor: usize, place_at: usize) {
 /// Before the drawing thread draws a frame, under the lock: the tooltip
 /// moved by what the cursor moved since the main thread placed it, kept on
 /// the screen as the game keeps it, and set as the game sets it.
-pub(super) fn follow_cursor(m: &Memory, idler: usize) -> crate::Result<()> {
+pub(super) fn follow_cursor(m: &Memory, idler: usize) -> crate::base::Result<()> {
     let mut placing = PLACING.lock().unwrap_or_else(|e| e.into_inner());
     let Some((placed, set)) = placing.as_mut() else {
         return Ok(());

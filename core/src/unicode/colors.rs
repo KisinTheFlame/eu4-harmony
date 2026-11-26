@@ -3,7 +3,7 @@
 //! be a character of its own: a UTF-8 continuation byte can also be 0xA7.
 //! Other formatting, and every surviving byte, stay as they were.
 use super::game_text;
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::game_string;
 use crate::points::{Function, Point};
 

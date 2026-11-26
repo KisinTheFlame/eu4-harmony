@@ -198,7 +198,7 @@ pub fn thousandths(value: i32) -> f64 {
 /// The game, for a capability: on the game's main thread only, once startup
 /// has found it.
 fn game() -> GResult<&'static Memory> {
-    if crate::thread_id() != crate::main_thread() {
+    if crate::base::thread_id() != crate::base::main_thread() {
         return fail(Status::WrongContext, "called off the game's main thread");
     }
     crate::memory().ok_or_else(|| Fail { status: Status::Unavailable, message: "game capabilities unavailable".into() })

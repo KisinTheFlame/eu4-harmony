@@ -11,7 +11,7 @@
 //! where the main thread tells the game's thread.
 //! The cache wrapper (`0x776b90`) uses the same loop and update; it also
 //! wakes the thread after setting its closure's stop byte.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::points::{Function, Point};
 use crate::speed::SpeedUp;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -78,7 +78,7 @@ static ORIGINAL_UPDATE: Function<Update> = Function::new();
 
 #[called_by_game]
 extern "C" fn update(arg: usize) -> bool {
-    crate::guarded("save's update thread", || {
+    crate::base::guarded("save's update thread", || {
         let stops = STOPS.load(Ordering::SeqCst);
         let m = crate::hooked_memory();
         let updated = (|| {

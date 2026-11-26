@@ -26,7 +26,7 @@
 //! has the character (control characters), as the loops expect.
 use super::glyphs::{self, Glyph};
 use super::{fill, game_text};
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::objects::text::font::OWN_GLYPHS;
 
 /// The glyph `font` draws for `c`.

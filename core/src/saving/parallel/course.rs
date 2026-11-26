@@ -11,7 +11,7 @@
 //! that says what each run wrote and what fails.
 use super::{append, comparing, pool, position, read, splice, Ahead, Loop, Task, Writing, LAST_RUN, SPEED_UP, WRITER_SIZE};
 use crate::speed;
-use crate::Result;
+use crate::base::Result;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -370,7 +370,7 @@ impl Game for Real {
     }
 
     fn end(&mut self, why: String) {
-        crate::fatal(&why);
+        crate::base::fatal(&why);
     }
 }
 

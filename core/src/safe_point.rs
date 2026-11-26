@@ -161,10 +161,10 @@ pub fn main_menu_frame(frontend: usize) {
 /// After the map manager's frame.
 pub fn game_frame() {
     let Some(m) = crate::memory().copied() else { return };
-    if crate::thread_id() != crate::main_thread() {
+    if crate::base::thread_id() != crate::base::main_thread() {
         return;
     }
-    crate::log::poll();
+    crate::base::log::poll();
     // An in-game load remote control asked for takes the frame: the next
     // one is the new session's.
     if game::menu::game_frame(&m) {
@@ -206,7 +206,7 @@ pub fn game_frame() {
 
 /// Just before the main thread presents a frame.
 pub fn presented() {
-    crate::log::poll();
+    crate::base::log::poll();
     // Nested frames rendered inside a daily update (`0x769ea0` ->
     // `0x14c25a0(app, 0)`) leave `CWorld::DailyUpdate` live on the stack:
     // wait for the enclosing normal frame instead of running remote requests

@@ -14,7 +14,7 @@
 //! game carried out, which an observer of the game's own function sees.
 use super::peace::checks as checks_peace;
 use super::{commands::Commands, context_any, countries, country, fail, game, Caller, Ctx, GResult, Session, Status, Tag, WorldSession};
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::{
     game_string,
     hooks::Call,

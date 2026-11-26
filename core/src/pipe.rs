@@ -80,7 +80,7 @@ pub fn start() {
 
 /// The test game `-harmony_test_game` names on the command line, if any.
 pub fn test_game() -> Option<String> {
-    eu4_harmony_folders::switch_value(crate::paths::command_line(), "-harmony_test_game")
+    eu4_harmony_folders::switch_value(crate::base::paths::command_line(), "-harmony_test_game")
 }
 
 /// The pipe this game serves: the test game's own in a build with the test
@@ -127,10 +127,10 @@ pub fn serve(name: &str, submit: fn(Request, As) -> Reply, log: fn(&str)) -> io:
 }
 
 /// Runs a thread's work. In the game a panic there is a framework bug, which
-/// ends the game (`crate::guarded`); a test only fails.
+/// ends the game (`crate::base::guarded`); a test only fails.
 fn guarded(what: &str, f: impl FnOnce()) {
     #[cfg(not(test))]
-    crate::guarded(what, f);
+    crate::base::guarded(what, f);
     #[cfg(test)]
     {
         let _ = what;

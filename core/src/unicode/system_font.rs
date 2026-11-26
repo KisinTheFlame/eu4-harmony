@@ -8,7 +8,7 @@
 //! families that has it, in the chosen weight when that family has it, else
 //! the weight just below ([`weight_for`]). Weights are only those a family's
 //! maker made; none is simulated.
-use crate::Result;
+use crate::base::Result;
 use eu4_harmony_loc::Language;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -42,32 +42,7 @@ fn fallback(language: Language) -> impl Iterator<Item = &'static str> {
         .copied()
 }
 
-/// The weight a font's regular face has.
-pub const REGULAR: u16 = 400;
-
-/// A system font in one weight (GLOSSARY): what text asks to be drawn in.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Face {
-    pub family: String,
-    /// From 1 to 999; see [`REGULAR`].
-    pub weight: u16,
-}
-
-impl Face {
-    pub fn new(family: impl Into<String>, weight: u16) -> Self {
-        Self { family: family.into(), weight }
-    }
-
-    pub fn regular(family: impl Into<String>) -> Self {
-        Self::new(family, REGULAR)
-    }
-}
-
-impl std::fmt::Display for Face {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?} {}", self.family, self.weight)
-    }
-}
+pub use crate::base::settings::{Face, REGULAR};
 
 /// Of a family's weights, lightest first, the index of the one that draws
 /// `wanted`: that weight, else the heaviest one lighter than it, else the
@@ -253,7 +228,7 @@ impl SystemFonts {
     /// weight.
     pub fn face_for(&self, face: &Face, scalar: u32) -> Option<Face> {
         std::iter::once(face.clone())
-            .chain(fallback(crate::lang::player()).map(|family| Face::new(family, face.weight)))
+            .chain(fallback(crate::base::lang::player()).map(|family| Face::new(family, face.weight)))
             .find(|f| self.font(f).is_some_and(|font| unsafe { font.HasCharacter(scalar).is_ok_and(|has| has.as_bool()) }))
     }
 

@@ -2,7 +2,7 @@
 //! through the C++ SEH boundary, which turns a fault into an error
 //! (ADR game-memory-is-read-in-process-under-seh); writes go through
 //! WriteProcessMemory on our own process.
-use crate::Result;
+use crate::base::Result;
 use windows_sys::Win32::System::{
     Diagnostics::Debug::WriteProcessMemory,
     Memory::{VirtualProtect, PAGE_READWRITE},

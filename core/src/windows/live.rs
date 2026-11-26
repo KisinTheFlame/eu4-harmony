@@ -27,6 +27,7 @@ mod lifecycle;
 
 use super::{gui, with};
 use crate::{
+    base::Result,
     bound_element::{self, BoundElement, Hears, Look, Shown},
     game::{self, Caller, WorldSession},
     game_string,
@@ -39,7 +40,6 @@ use crate::{
     points::{GameFunction, Point},
     ui::{self, Callback},
     unicode::game_text,
-    Result,
 };
 use eu4_harmony_lua::windows::Wanted;
 use eu4_harmony_lua::{
@@ -405,7 +405,7 @@ fn wants(last_read: Option<u64>) -> Wants {
     with(|all| {
         all.snapshot(last_read, &|id| {
             let owned = id.to_string();
-            std::sync::Arc::new(move |key| crate::loc::mod_text(&owned, key))
+            std::sync::Arc::new(move |key| crate::base::loc::mod_text(&owned, key))
         })
     })
 }
@@ -414,7 +414,7 @@ fn wants(last_read: Option<u64>) -> Wants {
 /// made to show what extensions want.
 pub(crate) fn frame() {
     let Some(m) = crate::memory() else { return };
-    if crate::thread_id() != crate::main_thread() {
+    if crate::base::thread_id() != crate::base::main_thread() {
         return;
     }
     clicks(m);
@@ -519,7 +519,7 @@ fn panels_closing(_: &mut Call) {
 
 /// Passes the actual hit to the shared native presentation adapter.
 fn tooltip_after(call: &mut Call) {
-    if !call.faulted() && crate::thread_id() == crate::main_thread() {
+    if !call.faulted() && crate::base::thread_id() == crate::base::main_thread() {
         crate::tooltips::hit(call.arg(2));
     }
 }
@@ -551,13 +551,13 @@ pub fn entry_fragment(id: &str, window: &str, entry: &layout::Entry) -> String {
 }
 
 fn entry_specs() -> Vec<entries::EntrySpec> {
-    with(|all| all.entry_specs(&crate::loc::mod_text))
+    with(|all| all.entry_specs(&crate::base::loc::mod_text))
 }
 
 /// After the game laid out its panel button strip: each entry button that
 /// shows is placed in the next slot, left of the game's own.
 fn strip_after(call: &mut Call) {
-    if call.faulted() || crate::thread_id() != crate::main_thread() {
+    if call.faulted() || crate::base::thread_id() != crate::base::main_thread() {
         return;
     }
     let m = call.memory();

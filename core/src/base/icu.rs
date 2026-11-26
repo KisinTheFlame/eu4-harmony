@@ -2,7 +2,7 @@
 //! ADR built-in-unicode-module): where user-perceived characters begin and
 //! where a line may break, over UTF-8 text. Loaded at startup; a system without
 //! it cannot run the framework.
-use crate::Result;
+use crate::base::Result;
 use std::ffi::{c_char, c_void};
 use std::sync::OnceLock;
 use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32};

@@ -20,7 +20,7 @@ mod analysis;
 pub mod loudness;
 pub mod music;
 
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::points::{Function, Point};
 use music::{Choices, Track};
 use std::collections::HashMap;
@@ -222,7 +222,7 @@ extern "C" fn theme_stub() {
 /// call, which moves it on by `bytes` after.
 #[expect(clippy::too_many_arguments, reason = "the game's call's arguments, the voice and its gain, and which of the two calls it is")]
 fn mix(device: *mut i16, source: *const i16, format: u32, bytes: u32, volume: i32, voice: usize, gain: f32, first: bool) {
-    crate::guarded("mix a voice", || {
+    crate::base::guarded("mix a voice", || {
         let memory = crate::hooked_memory();
         let sound = memory.ptr(voice + SOUND).unwrap_or(0);
         let stream = sound != 0 && memory.u32(sound + KIND).is_ok_and(|kind| kind == STREAM);
@@ -369,7 +369,7 @@ fn analyze(path: String) -> Analysis {
 }
 
 /// Takes the player's choices, at startup and when the settings are saved.
-pub fn choose(settings: &crate::settings::Settings) {
+pub fn choose(settings: &crate::base::settings::Settings) {
     NORMALIZE.store(settings.music_loudness, Ordering::Relaxed);
     LEVEL.store(settings.music_leveling, Ordering::Relaxed);
 }

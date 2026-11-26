@@ -15,12 +15,12 @@
 //! the part before it ended with, beside the guess, until the two agree,
 //! after which they are the same. The sum is the game's to the bit.
 use super::parallel;
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::memory::Memory;
 use crate::objects::stream;
 use crate::points::{Function, Point};
 use crate::speed::SpeedUp;
-use crate::Result;
+use crate::base::Result;
 use std::ops::Range;
 
 /// `(stream, count) -> sum`: from the stream's start, `count` bytes, or all
@@ -71,7 +71,7 @@ extern "C" fn sum(stream: usize, count: i32) -> u32 {
         Ok(count) if count > 0 && count as usize >= FEWEST => count,
         _ => return ORIGINAL_SUM.get()(stream, count),
     };
-    crate::guarded("save checksum sum", || match take(m, stream, count) {
+    crate::base::guarded("save checksum sum", || match take(m, stream, count) {
         Ok(sums) => sums.value(),
         // Before anything was done: the memory the stream names is not there.
         Err(e) => {
@@ -131,39 +131,7 @@ fn add_at(stream: usize, len: i32) {
     }
 }
 
-/// The sum of bytes the save checksum is taken of, as a memory stream sums
-/// them: its two halves.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub(crate) struct SaveSum {
-    a: u32,
-    b: u32,
-}
-
-impl SaveSum {
-    pub(crate) fn add(&mut self, bytes: &[u8]) {
-        *self = serial(*self, bytes);
-    }
-
-    pub(crate) fn value(&self) -> u32 {
-        self.a << 16 | self.b
-    }
-}
-
-/// One byte, as the game's sum takes it.
-fn step(s: SaveSum, byte: u8) -> SaveSum {
-    let a = s.a + byte as u32;
-    let a = if a > 0xffff { a >> 16 } else { a };
-    let b = s.b + a;
-    SaveSum { a, b: if b > 0xffff { b >> 16 } else { b } }
-}
-
-/// The bytes summed one after another, as the game sums them.
-fn serial(mut s: SaveSum, data: &[u8]) -> SaveSum {
-    for &byte in data {
-        s = step(s, byte);
-    }
-    s
-}
+pub(crate) use crate::base::save_sum::{serial, step, SaveSum};
 
 /// `a` after the bytes: eight at a step, unless they take it past 0xffff.
 fn advance_a(mut a: u32, data: &[u8]) -> u32 {

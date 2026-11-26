@@ -136,7 +136,7 @@ pub(crate) fn enable() -> io::Result<()> {
     if configured()? {
         return Ok(());
     }
-    run_reg(crate::framework_ui::input::window().unwrap_or(null_mut()), w!("runas"), &add_folder_arguments(&format!(r"HKLM\{}", game_key())))?;
+    run_reg(crate::base::game_window().unwrap_or(null_mut()), w!("runas"), &add_folder_arguments(&format!(r"HKLM\{}", game_key())))?;
     let expected = eu4_harmony_folders::windows_dump_root().map(|p| p.join("eu4-harmony-wer"));
     if expected.is_none() || dump_folder()? != expected || !configured()? {
         return Err(io::Error::other("Windows did not save the requested EU4 dump folder"));

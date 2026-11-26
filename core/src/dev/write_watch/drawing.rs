@@ -52,7 +52,7 @@ pub fn day_begins(m: &Memory) {
             log!("write watch: the drawing thread's next {} frame(s) watched for what they read", options.drawing_frames);
         }
         READ => {
-            let watch = Watch { reads: false, first_read: false, thread: crate::main_thread(), hold: false, only_seen: true };
+            let watch = Watch { reads: false, first_read: false, thread: crate::base::main_thread(), hold: false, only_seen: true };
             WHO_WROTE.store(true, Ordering::Release);
             match start_on(m, watch) {
                 Ok(what) => {
@@ -86,7 +86,7 @@ pub fn frame_begins(m: &Memory) -> bool {
     }
     let first = FRAMES_READ.load(Ordering::Relaxed) == 0;
     GAME_READS_ONLY.store(true, Ordering::Release);
-    let watch = Watch { reads: true, first_read: first, thread: crate::thread_id(), hold: true, only_seen: false };
+    let watch = Watch { reads: true, first_read: first, thread: crate::base::thread_id(), hold: true, only_seen: false };
     match start_on(m, watch) {
         Ok(what) => {
             *STARTED.lock().unwrap_or_else(|e| e.into_inner()) = what;

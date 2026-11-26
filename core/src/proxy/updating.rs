@@ -6,7 +6,7 @@
 //! so there is no game window to guard and no framework UI yet. This module
 //! hides the Win32 console handler, shutdown gate, and native topmost notice
 //! behind two scoped functions: [`guard_swap`] and [`with_restart_notice`].
-use crate::{called_by_game, lang, loc};
+use crate::{base::called_by_game, base::lang, base::loc};
 use std::{
     sync::{Condvar, LazyLock, Mutex},
     thread::JoinHandle,

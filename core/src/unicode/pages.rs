@@ -33,10 +33,10 @@ const NAMES: u8 = 2;
 pub trait Texture: Sized {
     /// Writes `width` × `height` pixels at (x, y), given as rows of A8R8G8B8
     /// pixels.
-    fn put(&mut self, x: u32, y: u32, width: u32, height: u32, data: &[u8]) -> crate::Result<()>;
+    fn put(&mut self, x: u32, y: u32, width: u32, height: u32, data: &[u8]) -> crate::base::Result<()>;
     /// A texture of `size` (width, height) holding this one's pixels of
     /// `drawn`, its top left, where they are.
-    fn grown(&self, drawn: (u32, u32), size: (u32, u32)) -> crate::Result<Self>;
+    fn grown(&self, drawn: (u32, u32), size: (u32, u32)) -> crate::base::Result<Self>;
     /// Makes its mip levels again from its first, when it has any: glyphs
     /// were written since they were last made.
     fn make_mips(&self);
@@ -46,10 +46,10 @@ pub trait Texture: Sized {
 pub trait Game<T> {
     /// The game's page at `wrapper`, and `fonts`, which draw from it, take
     /// `texture`, of `size`, and lay their text out again.
-    fn take(&mut self, wrapper: usize, fonts: &[usize], texture: &T, size: (u32, u32)) -> crate::Result<()>;
+    fn take(&mut self, wrapper: usize, fonts: &[usize], texture: &T, size: (u32, u32)) -> crate::base::Result<()>;
     /// Builds the names on the map again from the map fonts' pages as they
     /// are; false, building nothing, outside a game.
-    fn build_map_names(&mut self) -> crate::Result<bool>;
+    fn build_map_names(&mut self) -> crate::base::Result<bool>;
 }
 
 /// A glyph drawn for a page: the game's record of it, its place left to the
@@ -266,7 +266,7 @@ impl<T: Texture, L> Pages<T, L> {
     /// Gives the page at `wrapper` its next size now, when it has one: a
     /// texture with its glyphs where they were, which the game takes
     /// through `game`; and its waiting glyphs are asked for again.
-    pub fn grow(&mut self, wrapper: usize, game: &mut impl Game<T>) -> crate::Result<()> {
+    pub fn grow(&mut self, wrapper: usize, game: &mut impl Game<T>) -> crate::base::Result<()> {
         let fonts: Vec<usize> = self.owners.iter().filter(|(_, (w, _))| *w == wrapper).map(|(&font, _)| font).collect();
         let Some((page, _)) = self.pages.get_mut(&wrapper) else { return Ok(()) };
         page.wants_room = false;
@@ -275,7 +275,7 @@ impl<T: Texture, L> Pages<T, L> {
         if fonts.is_empty() {
             return Err("no font draws from the page".into());
         }
-        let growing = crate::heap::Change::begin();
+        let growing = crate::base::heap::Change::begin();
         let texture = page.texture.grown(from, size)?;
         game.take(wrapper, &fonts, &texture, size)?;
         page.texture = texture;
@@ -418,7 +418,7 @@ mod tests {
     }
 
     impl Texture for Memory {
-        fn put(&mut self, x: u32, y: u32, width: u32, height: u32, data: &[u8]) -> crate::Result<()> {
+        fn put(&mut self, x: u32, y: u32, width: u32, height: u32, data: &[u8]) -> crate::base::Result<()> {
             for row in 0..height {
                 for column in 0..width {
                     self.pixels[((y + row) * self.width + x + column) as usize] = data[((row * width + column) * 4) as usize];
@@ -427,7 +427,7 @@ mod tests {
             Ok(())
         }
 
-        fn grown(&self, (width, height): (u32, u32), size: (u32, u32)) -> crate::Result<Self> {
+        fn grown(&self, (width, height): (u32, u32), size: (u32, u32)) -> crate::base::Result<Self> {
             let mut next = Memory::new(size);
             for y in 0..height {
                 for x in 0..width {
@@ -453,7 +453,7 @@ mod tests {
     }
 
     impl Game<Memory> for World {
-        fn take(&mut self, wrapper: usize, fonts: &[usize], _: &Memory, size: (u32, u32)) -> crate::Result<()> {
+        fn take(&mut self, wrapper: usize, fonts: &[usize], _: &Memory, size: (u32, u32)) -> crate::base::Result<()> {
             if self.refuse {
                 return Err("the font's page is not in its entry".into());
             }
@@ -463,7 +463,7 @@ mod tests {
             Ok(())
         }
 
-        fn build_map_names(&mut self) -> crate::Result<bool> {
+        fn build_map_names(&mut self) -> crate::base::Result<bool> {
             if self.in_game {
                 self.names_built += 1;
             }

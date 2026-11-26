@@ -186,7 +186,7 @@ pub struct Orders {
 struct OwnGuard;
 impl OwnGuard {
     fn new() -> Self {
-        OWN_MUTATION.store(crate::thread_id(), Ordering::SeqCst);
+        OWN_MUTATION.store(crate::base::thread_id(), Ordering::SeqCst);
         OwnGuard
     }
 }

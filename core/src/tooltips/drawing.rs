@@ -3,13 +3,7 @@
 //! draw it once after the framework UI, before the presentation lock opens.
 //! See research/panel-entry-text.md and research/gui-drawing.md.
 use super::handoff::{Current, Display, Filter, Frame, Handoff, Native};
-use crate::{
-    hooks::Call,
-    memory::Memory,
-    objects::{gui::element, text::text_texture},
-    points::{GameFunction, Point},
-    Result,
-};
+use crate::{hooks::Call, memory::Memory, objects::{gui::element, text::text_texture}, points::{GameFunction, Point}, base::Result};
 use std::{
     cell::{Cell, RefCell},
     sync::Mutex,
@@ -125,7 +119,7 @@ fn filter_before(call: &mut Call) {
         return;
     }
     let m = call.memory();
-    let eligible = (crate::thread_id() == crate::main_thread() || crate::drawing::is_drawing_thread())
+    let eligible = (crate::base::thread_id() == crate::base::main_thread() || crate::drawing::is_drawing_thread())
         && [m.at(DRAW_FIRST_RETURN), m.at(DRAW_SECOND_RETURN)].contains(&call.caller());
     let filtered = FRAME.with_borrow_mut(|frame| frame.filter(|| eligible.then(current), &Game(&m), call.arg(0), call.arg(1)));
     if let Some(header) = filtered {

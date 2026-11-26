@@ -287,7 +287,7 @@ fn place(m: &Memory, ctx: &Ctx, id: u32) -> GResult<Place> {
 
 /// What a check of the game's answers and writes: whether it may, and the
 /// lines it wrote, as plain text, which are its reasons when it may not.
-fn checked(m: &Memory, call: impl FnOnce(usize) -> crate::Result<usize>) -> GResult<(bool, Vec<String>)> {
+fn checked(m: &Memory, call: impl FnOnce(usize) -> crate::base::Result<usize>) -> GResult<(bool, Vec<String>)> {
     let (may, text) = game_string::written(m, |out| call(out).map_err(super::Fail::from))?;
     Ok((may as u8 != 0, reasons(&text)))
 }

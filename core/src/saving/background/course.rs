@@ -155,7 +155,7 @@ impl Game for Real {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::zip::STORED;
+    use crate::base::zip::STORED;
 
     /// The worker and the file system as the tests tell them: what was handed
     /// over, waited for, removed and logged, in order.

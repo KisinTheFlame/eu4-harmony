@@ -2,7 +2,7 @@
 //! makes the main menu only at startup: a sprite type shown sprites still
 //! count, which the main menu, made again, would unload with the game's
 //! graphics, stays loaded.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::{
     objects::gui::{classes as gui_classes, sprite_type},
     points::{Function, Point},
@@ -25,9 +25,9 @@ static ORIGINAL_SPRITE_TYPE_UNLOAD: Function<SpriteTypeUnload> = Function::new()
 /// drawn from one let go (docs/game/interface/main-menu.md).
 #[called_by_game]
 unsafe extern "C" fn sprite_type_unloading(kind: usize) {
-    let stays = crate::guarded("sprite type unload", || {
+    let stays = crate::base::guarded("sprite type unload", || {
         let m = crate::hooked_memory();
-        let kept = (|| -> crate::Result<u32> {
+        let kept = (|| -> crate::base::Result<u32> {
             let shown = if m.u8(kind + sprite_type::LAZY)? != 0 { m.u32(kind + sprite_type::SHOWN)? } else { 0 };
             if shown != 0 {
                 m.write(kind + sprite_type::LOADED, &[1])?;

@@ -3,9 +3,9 @@
 //! stream sums its bytes otherwise than the memory stream the save was
 //! written from, so such a save never matched and turned achievements off.
 //! The file is summed as the save was.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::points::Point;
-use crate::saving::sum::SaveSum;
+use crate::base::save_sum::SaveSum;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// In the save checksum (`0x14e3390(out, stream, cut, salt, salt length)`),

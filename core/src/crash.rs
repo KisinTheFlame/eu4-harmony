@@ -12,14 +12,14 @@
 use crate::hooks::Call;
 use crate::memory::Memory;
 use crate::points::Point;
-use crate::stack::Context;
+use crate::base::stack::Context;
 use std::time::Duration;
 use windows_sys::Win32::System::Diagnostics::Debug::{GetErrorMode, CONTEXT, SEM_NOGPFAULTERRORBOX};
 
 mod backup;
 
 pub(crate) fn register_windows_dumps(user: &std::path::Path) {
-    let ready = crate::paths::core_dir().and_then(|core| {
+    let ready = crate::base::paths::core_dir().and_then(|core| {
         backup::init(&core, eu4_harmony_folders::UserFolder::new(user).harmony_dumps());
         eu4_harmony_folders::windows_crash_callback::register(&core)
     });
@@ -76,8 +76,8 @@ fn exception(code: u32, parameters: &[u64]) -> String {
 
 /// The thread a crash is recorded on.
 fn thread() -> String {
-    let id = crate::thread_id();
-    if id == crate::main_thread() {
+    let id = crate::base::thread_id();
+    if id == crate::base::main_thread() {
         format!("the main thread ({id})")
     } else if crate::drawing::is_drawing_thread() {
         format!("the drawing thread ({id})")
@@ -131,17 +131,17 @@ fn crashed(call: &mut Call) {
     let mut frames = [0u64; FRAMES];
     let line = match read_exception(&m, call.arg(1)) {
         Some((code, address, parameters, context)) => {
-            crate::stack::walk(&context.0, &mut frames);
-            format!("{what}: {} at {}", exception(code, &parameters), crate::stack::place(address))
+            crate::base::stack::walk(&context.0, &mut frames);
+            format!("{what}: {} at {}", exception(code, &parameters), crate::base::stack::place(address))
         }
         None => {
             // No exception: the calls that came to the crash handling.
-            crate::stack::walk(&Context::capture().0, &mut frames);
+            crate::base::stack::walk(&Context::capture().0, &mut frames);
             what
         }
     };
-    crate::log::write_within(format_args!("crash: {line}, on {}{date}", thread()), LOG_WAIT);
-    crate::log::write_within(format_args!("crash: in the calls {}", crate::stack::describe(&frames)), LOG_WAIT);
+    crate::base::log::write_within(format_args!("crash: {line}, on {}{date}", thread()), LOG_WAIT);
+    crate::base::log::write_within(format_args!("crash: in the calls {}", crate::base::stack::describe(&frames)), LOG_WAIT);
 }
 
 #[cfg(test)]

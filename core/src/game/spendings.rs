@@ -105,7 +105,7 @@ pub fn points() -> Vec<Point> {
 
 /// A choice from one of the game's checks, which writes its reasons into a
 /// string.
-fn answered(m: &Memory, cost: Vec<Amount>, ask: impl FnOnce(usize) -> crate::Result<usize>) -> GResult<Choice> {
+fn answered(m: &Memory, cost: Vec<Amount>, ask: impl FnOnce(usize) -> crate::base::Result<usize>) -> GResult<Choice> {
     let (yes, text) = game_string::written(m, ask)?;
     Ok(if yes as u8 != 0 { Choice::can(cost) } else { Choice::cannot(super::reasons(&text), cost) })
 }

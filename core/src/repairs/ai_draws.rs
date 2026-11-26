@@ -21,7 +21,7 @@
 //! stage, are stepped as the game steps them. With `-seed`, and in a
 //! developer build with the test switch `game-shares-ai-draws`, every draw is
 //! the game's.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::hooks::Call;
 use crate::objects::campaign::globals;
 use crate::points::{Function, Point};
@@ -127,10 +127,10 @@ fn drawn_apart() -> Option<u32> {
             Some(n)
         }
         Some(None) => None,
-        None if crate::thread_id() == crate::main_thread() => None,
+        None if crate::base::thread_id() == crate::base::main_thread() => None,
         None => OWN
             .try_with(|own| {
-                let mut stream = own.get().unwrap_or_else(|| Stream::of(STAGE_SEED.load(Ordering::Relaxed), u64::from(crate::thread_id()) | 1 << 48));
+                let mut stream = own.get().unwrap_or_else(|| Stream::of(STAGE_SEED.load(Ordering::Relaxed), u64::from(crate::base::thread_id()) | 1 << 48));
                 let n = stream.draw();
                 own.set(Some(stream));
                 OWN_DRAWS.fetch_add(1, Ordering::Relaxed);

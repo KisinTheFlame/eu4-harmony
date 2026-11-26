@@ -51,7 +51,7 @@ impl SessionInterface {
     /// the popups of the message windows that are not closed, which the
     /// in-game load marks as closed, go first, unless open, which go with
     /// the other popups.
-    pub fn before_reset(m: &Memory, manager: usize) -> crate::Result<Self> {
+    pub fn before_reset(m: &Memory, manager: usize) -> crate::base::Result<Self> {
         let popups = crate::containers::items(m, manager + manager_fields::POPUPS, crate::containers::MOST)?;
         let mut node = m.ptr(manager + manager_fields::MESSAGE_WINDOWS + list::HEAD)?;
         while node != 0 {
@@ -71,7 +71,7 @@ impl SessionInterface {
 
     /// After that reset: the interface is let go as the map manager goes
     /// ([`let_session_interface_go`]), but for the popups the reset let go.
-    pub fn let_go_with_map_manager(self, m: &Memory) -> crate::Result<()> {
+    pub fn let_go_with_map_manager(self, m: &Memory) -> crate::base::Result<()> {
         for field in manager_fields::SESSION_WINDOWS {
             if self.popups.contains(&m.ptr(self.manager + field)?) {
                 log!("repair: the reset let the popup at {field:#x} go");
@@ -120,10 +120,10 @@ fn map_manager_gone(_: &mut Call) {
 /// the main menu, its buttons calling into the map manager that went: what
 /// it never lets go is let go first, the last made first, as the game lets
 /// its windows go.
-fn let_session_interface_go(m: &Memory, manager: usize) -> crate::Result<usize> {
+fn let_session_interface_go(m: &Memory, manager: usize) -> crate::base::Result<usize> {
     let _letting_go = LettingGo::new("session's interface");
     let mut gone = 0;
-    let mut take = |field: usize| -> crate::Result<usize> {
+    let mut take = |field: usize| -> crate::base::Result<usize> {
         let object = m.ptr(manager + field)?;
         if object != 0 {
             m.write(manager + field, &0usize.to_le_bytes())?;
@@ -157,7 +157,7 @@ fn let_session_interface_go(m: &Memory, manager: usize) -> crate::Result<usize> 
 
 /// A message icon holder goes as the idler switch lets it go: emptied of its
 /// icons, then destroyed, which lets its alerts' texts go, then freed.
-fn let_message_icons_go(m: &Memory, holder: usize) -> crate::Result<()> {
+fn let_message_icons_go(m: &Memory, holder: usize) -> crate::base::Result<()> {
     EMPTY_MESSAGE_ICONS.call(m, [holder])?;
     MESSAGE_ICON_HOLDER_DESTRUCTOR.call(m, [holder])?;
     crate::game_heap::delete(m, holder, manager_fields::MESSAGE_ICON_HOLDER_SIZE)

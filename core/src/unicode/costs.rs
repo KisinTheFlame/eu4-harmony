@@ -95,7 +95,7 @@ pub fn log_when_due() {
     let summary = summary();
     if *before != summary {
         log!("unicode costs: {summary}");
-        log!("memory: {}", crate::heap::summary());
+        log!("memory: {}", crate::base::heap::summary());
         *before = summary;
     }
 }

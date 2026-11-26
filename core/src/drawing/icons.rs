@@ -8,7 +8,7 @@
 //! and handed on with the frame prepared; before it draws, the drawing
 //! thread works each point out again with the camera as it is then, and
 //! moves the window by the difference.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::memory::Memory;
 use crate::objects::gui::globals::SCALE as GRAPHICS;
 use crate::points::Point;
@@ -89,7 +89,7 @@ extern "C" fn placed(window: usize, frame: usize) {
         return;
     }
     let m = crate::hooked_memory();
-    let read = || -> crate::Result<Icon> {
+    let read = || -> crate::base::Result<Icon> {
         let put = m.u64(frame + 0xb8)?;
         let point_at = m.ptr(frame + 0xd8)?;
         Ok(Icon {
@@ -127,7 +127,7 @@ pub(super) fn clear() {
 
 /// Before the drawing thread draws a frame, under the lock: each icon of the
 /// frame prepared moved to where its point shows now.
-pub(super) fn follow_camera(m: &Memory) -> crate::Result<()> {
+pub(super) fn follow_camera(m: &Memory) -> crate::base::Result<()> {
     let icons = PREPARED.lock().unwrap_or_else(|e| e.into_inner());
     if icons.is_empty() {
         return Ok(());

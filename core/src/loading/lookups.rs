@@ -17,7 +17,7 @@
 //! own folder, a name Windows would read otherwise), goes to the game's stat
 //! as before.
 use super::folder::{list, read_as_written, Kind};
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::points::{Function, GameFunction, Point};
 use crate::speed::{self, SpeedUp};
 use std::collections::HashMap;
@@ -80,7 +80,7 @@ pub fn set_roots(game_dir: &Path) {
 
 #[called_by_game]
 extern "C" fn stat(path: *const c_char, st: usize, follow: i32) -> i32 {
-    let missing = !path.is_null() && crate::guarded("PhysFS stat", || missing(unsafe { CStr::from_ptr(path) }.to_bytes()) == Some(true));
+    let missing = !path.is_null() && crate::base::guarded("PhysFS stat", || missing(unsafe { CStr::from_ptr(path) }.to_bytes()) == Some(true));
     if !missing {
         return ORIGINAL_STAT.get()(path, st, follow);
     }
