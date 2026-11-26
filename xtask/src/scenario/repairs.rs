@@ -44,7 +44,7 @@ impl Scenario for Repairs {
     }
 
     fn minutes(&self) -> u32 {
-        4
+        1
     }
 
     fn parameters(&self) -> &'static [Parameter] {

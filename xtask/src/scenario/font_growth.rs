@@ -29,7 +29,7 @@ impl Scenario for FontGrowth {
     }
 
     fn minutes(&self) -> u32 {
-        2
+        1
     }
 
     fn parameters(&self) -> &'static [Parameter] {

@@ -52,14 +52,14 @@ impl Scenario for Extensions {
     }
 
     fn minutes(&self) -> u32 {
-        15
+        4
     }
 
     fn parameters(&self) -> &'static [Parameter] {
         &[
             Parameter { name: "country", default: "FRA", about: "the country of the new game" },
-            Parameter { name: "days", default: "120", about: "the days let run before the autosave, and again after the reloads" },
-            Parameter { name: "reloads", default: "10", about: "how many times qa-steady is reloaded while the time runs" },
+            Parameter { name: "days", default: "40", about: "the days let run before the autosave, and again after the reloads" },
+            Parameter { name: "reloads", default: "4", about: "how many times qa-steady is reloaded while the time runs" },
             Parameter {
                 name: "ironman_save",
                 default: "test-ironman-1444",

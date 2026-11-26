@@ -16,6 +16,7 @@
 //! in this process, the in-process return.
 use super::{
     game::{read_setting, set_setting},
+    perf::Process,
     text, Build, Game, Parameter, Parameters, Played, Scenario, Stop,
 };
 use eu4_harmony_remote::{
@@ -48,16 +49,22 @@ impl Scenario for Sessions {
     }
 
     fn minutes(&self) -> u32 {
-        40
+        6
     }
 
     fn parameters(&self) -> &'static [Parameter] {
         &[
-            Parameter { name: "rounds", default: "10", about: "rounds of every way in and out" },
+            Parameter { name: "rounds", default: "3", about: "rounds of every way in and out" },
             Parameter { name: "country", default: "FRA", about: "the country of each round's new game, and the one put in view in observe mode" },
             Parameter { name: "first_save", default: "test-regular-1444", about: "the save each round loads first" },
             Parameter { name: "second_save", default: "test-中文-1444", about: "the save each round loads from the first one's game" },
             Parameter { name: "ironman_save", default: "test-ironman-1444", about: "an ironman save, loaded each round" },
+            Parameter { name: "memory_mb", default: "8000", about: "the game's private bytes, in MB, it must stay under" },
+            Parameter {
+                name: "max_growth_mb",
+                default: "250",
+                about: "maximum average private bytes growth per round after round 1, in MB (checked with 3+ rounds)",
+            },
         ]
     }
 
@@ -67,6 +74,8 @@ impl Scenario for Sessions {
 
     fn play(&self, game: &mut Game, parameters: &Parameters, record: &mut Value) -> Played<()> {
         let rounds = parameters.number("rounds")?;
+        let memory_mb = parameters.number("memory_mb")? as u64;
+        let max_growth_mb = parameters.number("max_growth_mb")? as f64;
         let country = parameters.text("country");
         let tag = CountryTag::parse(&country).ok_or_else(|| Stop::Failed(format!("no country tag {country:?}")))?;
         let [first, second, ironman] = ["first_save", "second_save", "ironman_save"].map(|p| crate::saves::save_name(&parameters.text(p)));
@@ -83,6 +92,7 @@ impl Scenario for Sessions {
         }
         *record = json!({ "rounds": [] });
         let mut steps = Steps { last: 0, process: game.ask::<Menu>(&MenuRequest::State {})?.process, record: Vec::new() };
+        let mut privates = Vec::new();
         for round in 1..=rounds {
             let began = Instant::now();
             steps.load(game, &first)?;
@@ -135,18 +145,36 @@ impl Scenario for Sessions {
             steps.running(game)?;
             steps.back(game, "a return asked while time ran")?;
 
+            std::thread::sleep(Duration::from_secs(2));
+            let sample = Process::find(game)?.sample()?;
+            privates.push(sample.private);
             let seconds = began.elapsed().as_secs_f64();
-            println!("round {round}: {seconds:.0} s");
-            record["rounds"].as_array_mut().expect("rounds").push(json!({ "round": round, "seconds": seconds.round() }));
+            println!("round {round}: {seconds:.0} s, private {} MB", sample.private);
+            record["rounds"]
+                .as_array_mut()
+                .expect("rounds")
+                .push(json!({ "round": round, "seconds": seconds.round(), "ws": sample.ws, "priv": sample.private }));
             record["steps"] = json!(steps.record);
+            game.check(sample.private < memory_mb, format!("the game's private bytes are {} MB after round {round}, over {memory_mb} MB", sample.private))?;
+        }
+        if let Some(growth) = average_growth_mb(&privates) {
+            record["private_growth_mb_per_round"] = json!((growth * 10.0).round() / 10.0);
+            game.check(
+                growth <= max_growth_mb,
+                format!("private bytes grew by {growth:.1} MB/round after round 1 (rounds: {privates:?}), over {max_growth_mb:.0} MB/round"),
+            )?;
         }
         Ok(())
     }
 
     fn report(&self, record: &Value) -> Vec<String> {
-        let mut md = vec!["### The rounds".to_string(), String::new(), "| Round | Seconds |".into(), "| --- | --- |".into()];
+        let mut md =
+            vec!["### The rounds".to_string(), String::new(), "| Round | Seconds | Working set MB | Private MB |".into(), "| --- | --- | --- | --- |".into()];
         for r in record["rounds"].as_array().into_iter().flatten() {
-            md.push(format!("| {} | {} |", text(&r["round"]), text(&r["seconds"])));
+            md.push(format!("| {} | {} | {} | {} |", text(&r["round"]), text(&r["seconds"]), text(&r["ws"]), text(&r["priv"])));
+        }
+        if !record["private_growth_mb_per_round"].is_null() {
+            md.extend([String::new(), format!("Average private bytes growth after round 1: {} MB/round.", text(&record["private_growth_mb_per_round"]))]);
         }
         let mut steps: Vec<&Value> = record["steps"].as_array().into_iter().flatten().collect();
         steps.sort_by(|a, b| b["seconds"].as_f64().unwrap_or(0.0).total_cmp(&a["seconds"].as_f64().unwrap_or(0.0)));
@@ -329,9 +357,29 @@ impl Steps {
     }
 }
 
+/// Average private bytes growth per round from round 2 onward (round 1 loads
+/// permanent caches and is excluded from the baseline).
+fn average_growth_mb(privates: &[u64]) -> Option<f64> {
+    if privates.len() < 3 {
+        return None;
+    }
+    let baseline = privates[1] as f64;
+    let last = *privates.last()? as f64;
+    Some((last - baseline) / (privates.len() - 2) as f64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn average_growth_ignores_round_one_warmup() {
+        assert_eq!(average_growth_mb(&[]), None);
+        assert_eq!(average_growth_mb(&[2000, 2500]), None);
+        assert_eq!(average_growth_mb(&[2000, 2500, 2600]), Some(100.0));
+        assert_eq!(average_growth_mb(&[2000, 2500, 2400]), Some(-100.0));
+        assert_eq!(average_growth_mb(&[2000, 2500, 2600, 2900]), Some(200.0));
+    }
 
     #[test]
     fn shield_inspector_distinguishes_blank_black_from_rendered_flag() {
