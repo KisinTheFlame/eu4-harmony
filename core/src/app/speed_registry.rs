@@ -105,7 +105,7 @@ mod tests {
 
     #[test]
     fn the_example_dev_toml_names_every_speed_up_and_group() {
-        let example = include_str!("../dev.toml.example");
+        let example = include_str!("../../dev.toml.example");
         for s in ALL {
             assert!(example.contains(s.name), "{}", s.name);
             assert!(example.contains(&format!("(group \"{}\")", s.group)) || example.contains(&format!("(\"{}\")", s.group)), "{}", s.group);

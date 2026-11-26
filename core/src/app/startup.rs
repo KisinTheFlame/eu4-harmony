@@ -119,7 +119,7 @@ pub(crate) fn run(game_dir: PathBuf, installed: &str) {
     };
     let logs = crate::base::open_logs(&user_dir);
     crate::session::crash::register_windows_dumps(&user_dir);
-    crate::report_header(Some(&game_dir));
+    super::report_header(Some(&game_dir));
     log!("user dir {}", user_dir.display());
     let chosen = settings::load(&user_dir);
     let language = lang::decide(&user_dir, chosen.language);

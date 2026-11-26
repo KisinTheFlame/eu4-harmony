@@ -31,7 +31,7 @@ fn framework() -> Vec<Point> {
 
 pub(crate) fn declared() -> Vec<Point> {
     let mut all = framework();
-    all.extend(crate::speed_registry::points());
+    all.extend(super::speed_registry::points());
     all.extend(crate::dev::points());
     crate::dev::adjust_declared(&mut all);
     all
@@ -39,7 +39,7 @@ pub(crate) fn declared() -> Vec<Point> {
 
 pub(crate) fn installed(m: Memory) -> Vec<Point> {
     let mut all = framework();
-    all.extend(crate::speed_registry::installed());
+    all.extend(super::speed_registry::installed());
     crate::dev::installed_points(m, &mut all);
     all
 }
@@ -140,9 +140,9 @@ mod tests {
                 text.contains(&format!("{path}::points")) || text.contains(&format!("{path}::REPAIR")) || text.contains(&format!("{path}::SPEED_UP"))
             })
         };
-        let this = vec!["this_build".to_string()];
-        // Every speed-up, wherever its module, is collected in `speed_registry`'s list.
-        let speed_ups = vec!["speed_registry".to_string()];
+        let this = vec!["app".to_string(), "this_build".to_string()];
+        // Every speed-up, wherever its module, is collected in `app::speed_registry`'s list.
+        let speed_ups = vec!["app".to_string(), "speed_registry".to_string()];
         let mut loose = Vec::new();
         for module in &declaring {
             let mut at = module.clone();

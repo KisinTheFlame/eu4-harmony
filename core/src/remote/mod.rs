@@ -438,28 +438,18 @@ pub fn submit(request: Request, acting: As) -> Reply {
     ENGINE.submit_as(request, acting)
 }
 
-/// Remote control, as it hears the sessions' ends and the game's safe frames
-/// (`crate::safe_point`).
-pub(crate) struct Remote;
+/// Kept as a signal; the requests sent from now on belong to the next
+/// session.
+pub(crate) fn session_ended(end: crate::session::sessions::End) {
+    ENGINE.session_ended(end.reason());
+}
 
-impl crate::safe_point::Listener for Remote {
-    fn name(&self) -> &'static str {
-        "remote control"
-    }
-
-    /// Kept as a signal; the requests sent from now on belong to the next
-    /// session.
-    fn ended(&self, end: crate::session::sessions::End) {
-        ENGINE.session_ended(end.reason());
-    }
-
-    /// Keeps what extensions just heard, then runs at the game's frame.
-    fn frame(&self, session: u64, heard: &[Heard]) {
-        ENGINE.hear(heard.iter().cloned());
-        ENGINE.enter(session);
-        crate::session::sessions::set_at(crate::session::sessions::At::Game);
-        ENGINE.run(&mut Live(game::Caller::Remote(As::Player)), &Place::Game, BUDGET);
-    }
+/// Keeps what extensions just heard, then runs at the game's frame.
+pub(crate) fn safe_frame(session: u64, heard: &[Heard]) {
+    ENGINE.hear(heard.iter().cloned());
+    ENGINE.enter(session);
+    crate::session::sessions::set_at(crate::session::sessions::At::Game);
+    ENGINE.run(&mut Live(game::Caller::Remote(As::Player)), &Place::Game, BUDGET);
 }
 
 /// The campaign changes (a save begins to load): requests that need a game

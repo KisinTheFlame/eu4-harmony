@@ -41,7 +41,7 @@ pub(crate) fn clear_unwind_cache() {
 #[called_by_game]
 #[unsafe(no_mangle)]
 pub extern "C" fn eu4h_resolve_stub(return_address: usize) -> u32 {
-    crate::points::jump_stub_index(return_address).unwrap_or(u32::MAX)
+    crate::native::points::jump_stub_index(return_address).unwrap_or(u32::MAX)
 }
 
 macro_rules! call_rust {
@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn called_stub_unwinds_stack_and_hardware_exceptions() {
-        let m = crate::memory::Memory { base: 0 };
+        let m = crate::native::memory::Memory { base: 0 };
         assert_eq!(m.call(call_seh_stub as *const () as usize, &[0]).unwrap(), 123);
         let frames = SEH_FRAMES.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let caller_start = call_seh_stub as *const () as u64;

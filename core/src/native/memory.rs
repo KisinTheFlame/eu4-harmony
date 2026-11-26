@@ -50,7 +50,7 @@ impl Memory {
     /// points adds the base itself.
     pub fn at(&self, rva: impl Into<usize>) -> usize {
         let rva = rva.into();
-        assert!(crate::points::checks(rva), "the framework used {rva:#x}, which no dependency point checks");
+        assert!(crate::native::points::checks(rva), "the framework used {rva:#x}, which no dependency point checks");
         self.base + rva
     }
 

@@ -128,7 +128,43 @@ impl<E: Listener, R: Listener> Listeners<E, R> {
     }
 }
 
-static LISTENERS: Listeners<lua::Extensions, remote::Remote> = Listeners::new(lua::Extensions, remote::Remote);
+struct Extensions;
+
+impl Listener for Extensions {
+    fn name(&self) -> &'static str {
+        "extensions"
+    }
+
+    fn can_hear(&self) -> bool {
+        lua::can_hear_end()
+    }
+
+    fn ended(&self, end: End) {
+        lua::session_ended(end);
+    }
+
+    fn frame(&self, _: u64, heard: &[Heard]) {
+        lua::safe_frame(heard);
+    }
+}
+
+struct Remote;
+
+impl Listener for Remote {
+    fn name(&self) -> &'static str {
+        "remote control"
+    }
+
+    fn ended(&self, end: End) {
+        remote::session_ended(end);
+    }
+
+    fn frame(&self, session: u64, heard: &[Heard]) {
+        remote::safe_frame(session, heard);
+    }
+}
+
+static LISTENERS: Listeners<Extensions, Remote> = Listeners::new(Extensions, Remote);
 
 /// The session going on ended, for `end` (`crate::session::sessions`).
 pub(crate) fn session_ended(end: End) {

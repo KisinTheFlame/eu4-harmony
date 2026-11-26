@@ -669,34 +669,23 @@ fn not_loaded(m: &DiscoveredMod, e: &str) -> Message {
 
 // ---------- dispatch ----------
 
-/// The extensions, as they hear the sessions' ends and the game's safe frames
-/// (`crate::safe_point`).
-pub(crate) struct Extensions;
+/// Within an extension's own call, no extension is called again: one would
+/// run inside itself, its waiting tasks dropped under the task running.
+pub(crate) fn can_hear_end() -> bool {
+    !eu4_harmony_lua::calling()
+}
 
-impl crate::safe_point::Listener for Extensions {
-    fn name(&self) -> &'static str {
-        "extensions"
-    }
+/// Every extension hears it, on the main thread, before anything of the
+/// session is taken down: once leaving is certain, after the ironman exit
+/// save, when there is one, was written. Heard late, after the extension's
+/// call it ended in, the session's state is gone by then, as what ended
+/// it ran inside that call.
+pub(crate) fn session_ended(end: crate::session::sessions::End) {
+    RUNTIME.tell_ended(&CoreEnv, end);
+}
 
-    /// Within an extension's own call, no extension is called again: one
-    /// would run inside itself, its waiting tasks dropped under the task
-    /// running.
-    fn can_hear(&self) -> bool {
-        !eu4_harmony_lua::calling()
-    }
-
-    /// Every extension hears it, on the main thread, before anything of the
-    /// session is taken down: once leaving is certain, after the ironman exit
-    /// save, when there is one, was written. Heard late, after the extension's
-    /// call it ended in, the session's state is gone by then, as what ended
-    /// it ran inside that call.
-    fn ended(&self, end: crate::session::sessions::End) {
-        RUNTIME.tell_ended(&CoreEnv, end);
-    }
-
-    fn frame(&self, _: u64, heard: &[game::Heard]) {
-        RUNTIME.frame(&CoreEnv, heard);
-    }
+pub(crate) fn safe_frame(heard: &[game::Heard]) {
+    RUNTIME.frame(&CoreEnv, heard);
 }
 
 /// What the running game gives a frame: the extension save data of the save

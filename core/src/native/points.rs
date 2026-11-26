@@ -299,7 +299,7 @@ pub(crate) fn checks(rva: usize) -> bool {
     CHECKED
         .get_or_init(|| {
             #[cfg(test)]
-            let points = DECLARED_PROVIDER.get().map_or_else(crate::this_build::declared, |f| f());
+            let points = DECLARED_PROVIDER.get().map_or_else(crate::app::this_build::declared, |f| f());
             #[cfg(not(test))]
             let points = DECLARED_PROVIDER.get().map_or_else(Vec::new, |f| f());
             Checked::of(&points)
@@ -872,7 +872,7 @@ mod tests {
     /// change the same bytes.
     #[test]
     fn every_point_is_well_formed() {
-        let points = crate::this_build::declared();
+        let points = crate::app::this_build::declared();
         let problems: Vec<String> = points.iter().flat_map(malformed).collect();
         assert!(problems.is_empty(), "{problems:#?}");
         // Exports are far from the image and from each other.
@@ -893,7 +893,7 @@ mod tests {
     /// bytes, or right after them, where the jump's own bytes end.
     #[test]
     fn every_jump_resumes_at_code_a_point_checks() {
-        let points = crate::this_build::declared();
+        let points = crate::app::this_build::declared();
         let checked: Vec<(usize, usize)> = points
             .iter()
             .filter(|p| p.method.is_none())
@@ -919,7 +919,7 @@ mod tests {
     #[test]
     fn every_point_uses_what_it_names() {
         let mut wrong = Vec::new();
-        for point in crate::this_build::declared().iter().filter(|p| !p.uses.is_empty()) {
+        for point in crate::app::this_build::declared().iter().filter(|p| !p.uses.is_empty()) {
             let Place::Rva(rva) = point.place else { continue };
             let code = eu4_harmony_analysis::instructions(&hex(point.bytes).unwrap(), rva);
             let carried: Vec<u64> = code.iter().flat_map(eu4_harmony_analysis::values).collect();
@@ -1192,8 +1192,8 @@ mod tests {
     #[ignore]
     fn every_point_matches_the_installed_game() {
         with_game(|m, lookup| {
-            assert_eq!(crate::baseline::recognize(&m).unwrap(), "1.37.5");
-            let points = crate::this_build::declared();
+            assert_eq!(crate::native::baseline::recognize(&m).unwrap(), "1.37.5");
+            let points = crate::app::this_build::declared();
             let addresses = check(m, &points, lookup).unwrap();
             assert_eq!(addresses.len(), points.len());
         });
@@ -1205,9 +1205,9 @@ mod tests {
     #[ignore]
     fn observers_forward_every_argument_their_function_reads() {
         let mut found = None;
-        with_game(|m, lookup| found = Some((m, check(m, &crate::this_build::declared(), lookup).unwrap())));
+        with_game(|m, lookup| found = Some((m, check(m, &crate::app::this_build::declared(), lookup).unwrap())));
         let (m, addresses) = found.unwrap();
-        let points = crate::this_build::declared();
+        let points = crate::app::this_build::declared();
         let image = unsafe { eu4_harmony_analysis::loaded(m.base) };
         let mut short = Vec::new();
         for (point, &at) in points.iter().zip(&addresses) {

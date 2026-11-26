@@ -41,7 +41,7 @@
 //! each does in the game; here are the game's own steps and the hooks that
 //! hand them over (`super`'s `InGame`).
 use crate::base::called_by_game;
-use crate::{native::game_string, native::hooks::Call, native::memory::Memory, notice::Message, native::objects::{
+use crate::{base::notice::Message, native::game_string, native::hooks::Call, native::memory::Memory, native::objects::{
         application,
         campaign::{load_request, map_manager as manager_fields, world},
         gui,
