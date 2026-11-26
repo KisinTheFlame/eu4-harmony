@@ -22,21 +22,13 @@ mlua = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 windows-sys = { workspace = true, features = [
-    "Win32_Foundation",
     "Win32_Globalization",
-    "Win32_Security",
-    "Win32_Storage_FileSystem",
-    "Win32_System_Diagnostics_ToolHelp",
-    "Win32_System_Pipes",
     "Win32_System_SystemInformation",
-    "Win32_System_Threading",
 ] }
 
 [dev-dependencies]
 # The pipe tests' own server, standing in for the game.
 eu4-harmony-client = { path = "../client", features = ["testing"] }
-# The tests' own pipes: one closed to everybody.
-windows-sys = { workspace = true, features = ["Win32_Security_Authorization", "Win32_System_IO"] }
 
 [lints]
 workspace = true
