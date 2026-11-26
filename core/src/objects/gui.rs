@@ -163,11 +163,19 @@ pub mod events {
 pub mod window {
     /// Its interface, [`super::classes::WINDOW_GUI`].
     pub const GUI: usize = 0x30;
+    /// Whether it has been killed, u8 (set by `WINDOW_KILL`).
+    pub const DEAD: usize = 0xf4;
     /// Whether it is open, u8.
     pub const OPEN: usize = 0xf5;
     /// Its background, the element its definition names by `backGround`,
     /// which is not among its elements by name; null when it has none.
     pub const BACKGROUND: usize = 0x520;
+    /// Its subwindows vector (begin, end) of [`SUBWINDOW_ENTRY`]-byte records:
+    /// a `std::string` name at `+0`, and the subwindow pointer at [`SUBWINDOW_PTR`].
+    pub const SUBWINDOWS: usize = 0x958;
+    pub const SUBWINDOWS_END: usize = 0x960;
+    pub const SUBWINDOW_ENTRY: usize = 0x28;
+    pub const SUBWINDOW_PTR: usize = 0x20;
     /// Methods, by vtable offset: the button, text box or icon of a name (a
     /// NUL-terminated string), and the start of its teardown.
     pub const FIND_BUTTON: usize = 0x68;
@@ -600,6 +608,13 @@ pub fn points() -> Vec<Point> {
         Point::keep(SET_POSITION, "48 83 ec 28 4c 8b 99 30 0a 00 00 4c 8b c2 48 89 91 98 05 00 00", "window position").uses(&[window::POSITION]),
         Point::keep(FIND_LIST_BOX, "48 83 ec 28 48 83 7a 18 10 48 8b 01", "window list box by name"),
         Point::keep(FIND_WINDOW, "48 89 5c 24 10 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8d 6c 24 d0", "window subwindow by name"),
+        // Hiding a window's subwindows walks its subwindow vector of 0x28-byte entries.
+        Point::keep(
+            0x154857ausize,
+            "48 8b 99 58 09 00 00 48 8b f9 48 3b 9f 58 09 00 00 72 20 48 3b 9f 60 09 00 00 73 17 48 8b 4b 20 48 83 c1 30 48 8b 01 ff 90 90 00 00 00 48 83 c3 28 eb d7",
+            "window hide subwindows",
+        )
+        .uses(&[window::SUBWINDOWS, window::SUBWINDOWS_END, window::SUBWINDOW_PTR, window::GUI, window_gui::HIDE, window::SUBWINDOW_ENTRY]),
         Point::method(classes::WINDOW, window::SET_POSITION, SET_POSITION.rva(), "window position method"),
         Point::method(classes::WINDOW, window::FIND_LIST_BOX, FIND_LIST_BOX.rva(), "window list box method"),
         Point::method(classes::WINDOW, window::FIND_WINDOW, FIND_WINDOW.rva(), "window subwindow method"),

@@ -2262,6 +2262,7 @@
 "0x8188f4" = { kind = "code", name = "the frame's length the 3D map is given", notes = ["game/interface/frame-lifecycle.md"] }
 "0x81890e" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
 "0x81891a" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
+"0x81892d" = { kind = "code", name = "in-game menu open check", notes = ["game/interface/main-menu.md"] }
 "0x818968" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
 "0x8189bd" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
 "0x818a20" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
@@ -2333,10 +2334,16 @@
 "0x824810" = { kind = "function", name = "after in-game load", notes = ["game/interface/main-menu.md"] }
 "0x82493f" = { kind = "code", notes = ["game/day/time.md"] }
 "0x824acc" = { kind = "code", notes = ["game/interface/camera.md"] }
+"0x824b00" = { kind = "function", name = "close in-game menu or sub-panel", notes = ["game/interface/main-menu.md"] }
 "0x824d0e" = { kind = "code", notes = ["game/interface/main-menu.md"] }
-"0x824dd0" = { kind = "function", notes = ["game/interface/main-menu.md"] }
+"0x824dd0" = { kind = "function", name = "in-game menu load button", notes = ["game/interface/main-menu.md"] }
+"0x824e50" = { kind = "function", name = "in-game menu save button", notes = ["game/interface/main-menu.md"] }
+"0x824ee0" = { kind = "function", name = "in-game menu options button", notes = ["game/interface/main-menu.md"] }
+"0x825160" = { kind = "function", name = "in-game menu AI preferences button", notes = ["game/interface/main-menu.md"] }
+"0x8254a0" = { kind = "function", name = "in-game menu message settings button", notes = ["game/interface/main-menu.md"] }
 "0x826c20" = { kind = "function", name = "world reset", notes = ["game/interface/main-menu.md", "game/program/saves.md"] }
 "0x826f89" = { kind = "code", notes = ["game/interface/main-menu.md"] }
+"0x827400" = { kind = "function", name = "in-game menu resign button", notes = ["game/interface/main-menu.md"] }
 "0x8275e0" = { kind = "function", name = "fog of war refresh", notes = ["game/military/armies.md", "game/program/saves.md", "game/provinces/fog-of-war.md"] }
 "0x827c0c" = { kind = "code", name = "province discovery", notes = ["game/provinces/fog-of-war.md"] }
 "0x828083" = { kind = "code", notes = ["game/provinces/fog-of-war.md"] }
@@ -5384,11 +5391,12 @@
 "0x1547f53" = { kind = "code", notes = ["game/interface/window-placement.md"] }
 "0x1548040" = { kind = "function", name = "find a window child GUI interface by name", notes = ["game/interface/window-ordering.md", "game/interface/window-placement.md"] }
 "0x1548190" = { kind = "leaf", notes = ["game/interface/extension-windows.md", "game/interface/interface-bindings.md", "game/interface/window-construction.md", "game/interface/window-ordering.md"] }
-"0x15481a0" = { kind = "function", name = "window subwindow by name", notes = ["game/interface/extension-windows.md", "game/interface/window-construction.md", "game/interface/window-ordering.md"] }
+"0x15481a0" = { kind = "function", name = "window subwindow by name", notes = ["game/interface/extension-windows.md", "game/interface/main-menu.md", "game/interface/window-construction.md", "game/interface/window-ordering.md"] }
 "0x1548420" = { kind = "function", name = "window list box by name", notes = ["game/interface/window-elements.md"] }
 "0x1548450" = { kind = "function", notes = ["game/interface/window-elements.md"] }
 "0x1548480" = { kind = "leaf", notes = ["game/interface/window-elements.md"] }
 "0x1548490" = { kind = "leaf", notes = ["game/interface/window-elements.md"] }
+"0x1548570" = { kind = "function", name = "window hide subwindows", notes = ["game/interface/main-menu.md"] }
 "0x1548700" = { kind = "leaf", name = "window button by name", notes = ["game/interface/interface-bindings.md", "game/interface/window-construction.md"] }
 "0x1548d30" = { kind = "function", name = "window text box by name", notes = ["game/interface/interface-bindings.md", "game/interface/window-construction.md"] }
 "0x15492e0" = { kind = "function", name = "window icon by name", notes = ["game/interface/interface-bindings.md", "game/interface/window-construction.md", "game/interface/window-elements.md"] }

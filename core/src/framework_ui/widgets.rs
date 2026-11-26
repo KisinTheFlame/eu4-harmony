@@ -32,6 +32,11 @@ pub const LIST: Color = 0xff232a31;
 /// A toggle's track while it is on.
 pub const ON: Color = 0xff3f7fbf;
 pub const ON_HOVER: Color = 0xff5592cc;
+/// Disabled (greyed-out) palette for controls unavailable in the current context.
+pub const DISABLED_TEXT: Color = 0xff6d7680;
+pub const DISABLED_CONTROL: Color = 0xff262d35;
+pub const DISABLED_ON: Color = 0xff38516b;
+pub const DISABLED_KNOB: Color = 0xff858e98;
 
 /// What a frame draws, in order.
 #[derive(Clone, Debug, PartialEq)]
@@ -151,6 +156,22 @@ impl Widget {
 
     pub fn with_tooltip(mut self, text: eu4_harmony_lua::Text) -> Self {
         self.set_tooltip(text);
+        self
+    }
+
+    pub fn set_enabled(&mut self, enabled: bool) {
+        assert!(!matches!(self.kind(), Self::Gap), "a layout gap has no enabled state");
+        match self {
+            Self::Managed { enabled: slot, .. } => *slot = enabled,
+            _ => {
+                let element = Box::new(std::mem::replace(self, Self::Gap));
+                *self = Self::Managed { element, tooltip: Default::default(), visible: true, enabled };
+            }
+        }
+    }
+
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.set_enabled(enabled);
         self
     }
 }
@@ -326,6 +347,18 @@ impl Window {
         std::mem::swap(&mut self.body, &mut self.pages[to]);
         self.slide = None;
         self.sliding = None;
+    }
+
+    /// Selects the page at `index` in a multi-page window.
+    pub fn select_page(&mut self, index: usize) {
+        let Some(side) = self.side.as_mut() else { return };
+        if index >= side.items.len() || index == side.selected {
+            return;
+        }
+        let left = std::mem::replace(&mut side.selected, index);
+        if !self.pages.is_empty() {
+            self.turn(left, index);
+        }
     }
 
     /// Every widget the window has: the body's, the other pages', the
@@ -820,77 +853,123 @@ impl Window {
         out.push(Command::Text { x: close.x + 6.0, y: close.y + 1.0, text: "×".into(), size: TEXT_SIZE, color: TEXT });
         for slot in self.layout(measure) {
             match slot {
-                Slot::Lines(_, lines, r, style) => {
+                Slot::Lines(i, lines, r, style) => {
+                    let color = if self.raw_widget(i).enabled() { TEXT } else { DISABLED_TEXT };
                     let x = if style == Style::Item {
-                        out.push(Command::Text { x: r.x + 2.0, y: r.y, text: "•".into(), size: TEXT_SIZE, color: TEXT });
+                        out.push(Command::Text { x: r.x + 2.0, y: r.y, text: "•".into(), size: TEXT_SIZE, color });
                         r.x + INDENT
                     } else {
                         r.x
                     };
                     for (n, line) in lines.into_iter().enumerate() {
-                        out.push(Command::Text { x, y: r.y + n as f32 * style.line(), text: line, size: style.size(), color: TEXT });
+                        out.push(Command::Text { x, y: r.y + n as f32 * style.line(), text: line, size: style.size(), color });
                     }
                 }
                 Slot::Control(i, r) if matches!(self.widget(i), Widget::Toggle { .. }) => {
+                    let enabled = self.raw_widget(i).enabled();
                     let Widget::Toggle { label, on, .. } = self.widget(i) else { continue };
+                    let text_color = if enabled { TEXT } else { DISABLED_TEXT };
                     let lines = measure.wrap(label, TEXT_SIZE, self.toggle_text());
                     let top = r.y + ((r.h - lines.len().max(1) as f32 * LINE) / 2.0).round();
                     for (n, line) in lines.into_iter().enumerate() {
-                        out.push(Command::Text { x: r.x, y: top + 2.0 + n as f32 * LINE, text: line, size: TEXT_SIZE, color: TEXT });
+                        out.push(Command::Text { x: r.x, y: top + 2.0 + n as f32 * LINE, text: line, size: TEXT_SIZE, color: text_color });
                     }
                     let track = Self::switch(r);
-                    let color = match (*on, hover(&r)) {
-                        (true, false) => ON,
-                        (true, true) => ON_HOVER,
-                        (false, false) => CONTROL,
-                        (false, true) => HOVER,
+                    let color = match (enabled, *on, hover(&r)) {
+                        (false, true, _) => DISABLED_ON,
+                        (false, false, _) => DISABLED_CONTROL,
+                        (true, true, false) => ON,
+                        (true, true, true) => ON_HOVER,
+                        (true, false, false) => CONTROL,
+                        (true, false, true) => HOVER,
                     };
                     out.push(Command::Fill { rect: track, color });
                     let inset = (SWITCH_H - KNOB) / 2.0;
                     let knob_x = if *on { track.x + track.w - inset - KNOB } else { track.x + inset };
-                    out.push(Command::Fill { rect: Rect { x: knob_x, y: track.y + inset, w: KNOB, h: KNOB }, color: TEXT });
+                    let knob_color = if enabled { TEXT } else { DISABLED_KNOB };
+                    out.push(Command::Fill { rect: Rect { x: knob_x, y: track.y + inset, w: KNOB, h: KNOB }, color: knob_color });
                 }
                 Slot::Control(i, r) if matches!(self.widget(i), Widget::Choice { .. }) => {
+                    let enabled = self.raw_widget(i).enabled();
                     let Widget::Choice { options, selected, .. } = self.widget(i) else { continue };
-                    out.push(Command::Fill { rect: r, color: CONTROL });
+                    out.push(Command::Fill { rect: r, color: if enabled { CONTROL } else { DISABLED_CONTROL } });
                     let segments = Self::segments(r, options.len());
-                    for (n, segment) in segments.iter().enumerate() {
-                        if n != *selected && hover(segment) {
-                            out.push(Command::Fill { rect: *segment, color: HOVER });
+                    if enabled {
+                        for (n, segment) in segments.iter().enumerate() {
+                            if n != *selected && hover(segment) {
+                                out.push(Command::Fill { rect: *segment, color: HOVER });
+                            }
                         }
                     }
                     let highlight = self.highlight(i, &segments, *selected);
-                    out.push(Command::Fill { rect: highlight, color: if hover(&highlight) { ON_HOVER } else { ON } });
+                    let highlight_color = if !enabled {
+                        DISABLED_ON
+                    } else if hover(&highlight) {
+                        ON_HOVER
+                    } else {
+                        ON
+                    };
+                    out.push(Command::Fill { rect: highlight, color: highlight_color });
+                    let text_color = if enabled { TEXT } else { DISABLED_TEXT };
                     for (option, segment) in options.iter().zip(&segments) {
                         let text = elide(measure, option, segment.w - 12.0);
                         let x = segment.x + ((segment.w - measure.width(&text, TEXT_SIZE)) / 2.0).round();
-                        out.push(Command::Text { x, y: segment.y + (ROW - TEXT_SIZE) / 2.0 - 2.0, text, size: TEXT_SIZE, color: TEXT });
+                        out.push(Command::Text { x, y: segment.y + (ROW - TEXT_SIZE) / 2.0 - 2.0, text, size: TEXT_SIZE, color: text_color });
                     }
                 }
                 Slot::Control(i, r) if matches!(self.widget(i), Widget::Slider { .. }) => {
+                    let enabled = self.raw_widget(i).enabled();
                     let Widget::Slider { min, max, value, format, .. } = self.widget(i) else { continue };
                     let track = Self::slider_track(r);
-                    let active = self.sliding.is_some_and(|(s, ..)| s == i) || hover(&r);
-                    out.push(Command::Fill { rect: track, color: if active { HOVER } else { CONTROL } });
+                    let active = enabled && (self.sliding.is_some_and(|(s, ..)| s == i) || hover(&r));
+                    let track_color = if !enabled {
+                        DISABLED_CONTROL
+                    } else if active {
+                        HOVER
+                    } else {
+                        CONTROL
+                    };
+                    out.push(Command::Fill { rect: track, color: track_color });
                     let span = (track.w - SLIDER_THUMB_W).max(0.0);
                     let t = if max > min { (value.clamp(min, max) - min) as f32 / (max - min) as f32 } else { 0.0 };
                     let thumb_x = (track.x + t * span).round();
                     let fill_w = (thumb_x + SLIDER_THUMB_W / 2.0 - track.x).round().max(0.0);
                     if fill_w > 0.0 {
-                        out.push(Command::Fill { rect: Rect { w: fill_w, ..track }, color: if active { ON_HOVER } else { ON } });
+                        let fill_color = if !enabled {
+                            DISABLED_ON
+                        } else if active {
+                            ON_HOVER
+                        } else {
+                            ON
+                        };
+                        out.push(Command::Fill { rect: Rect { w: fill_w, ..track }, color: fill_color });
                     }
                     let thumb = Rect { x: thumb_x, y: r.y + ((r.h - SLIDER_THUMB_H) / 2.0).round(), w: SLIDER_THUMB_W, h: SLIDER_THUMB_H };
-                    out.push(Command::Fill { rect: thumb, color: TEXT });
+                    out.push(Command::Fill { rect: thumb, color: if enabled { TEXT } else { DISABLED_KNOB } });
                     let text = format(*value);
                     let tw = measure.width(&text, TEXT_SIZE);
                     let tx = (r.x + r.w - tw).max(track.x + track.w + SLIDER_GAP);
-                    out.push(Command::Text { x: tx, y: r.y + (ROW - TEXT_SIZE) / 2.0 - 2.0, text, size: TEXT_SIZE, color: TEXT });
+                    out.push(Command::Text {
+                        x: tx,
+                        y: r.y + (ROW - TEXT_SIZE) / 2.0 - 2.0,
+                        text,
+                        size: TEXT_SIZE,
+                        color: if enabled { TEXT } else { DISABLED_TEXT },
+                    });
                 }
                 Slot::Mark(_, r) => {
                     out.push(Command::Text { x: r.x, y: r.y, text: MARK.into(), size: TEXT_SIZE, color: if hover(&r) { TEXT } else { MUTED } });
                 }
                 Slot::Control(i, r) => {
-                    out.push(Command::Fill { rect: r, color: if hover(&r) { HOVER } else { CONTROL } });
+                    let enabled = self.raw_widget(i).enabled();
+                    let fill = if !enabled {
+                        DISABLED_CONTROL
+                    } else if hover(&r) {
+                        HOVER
+                    } else {
+                        CONTROL
+                    };
+                    out.push(Command::Fill { rect: r, color: fill });
                     let (label, centred) = match self.widget(i) {
                         Widget::Button { label, .. } => (label.clone(), true),
                         Widget::Dropdown { options, selected, .. } => (format!("{}  ▾", options.get(*selected).map_or("", String::as_str)), false),
@@ -905,7 +984,8 @@ impl Window {
                         | Widget::Managed { .. } => continue,
                     };
                     let x = if centred { r.x + (r.w - measure.width(&label, TEXT_SIZE)) / 2.0 } else { r.x + 8.0 };
-                    out.push(Command::Text { x, y: r.y + (ROW - TEXT_SIZE) / 2.0 - 2.0, text: label, size: TEXT_SIZE, color: TEXT });
+                    let text_color = if enabled { TEXT } else { DISABLED_TEXT };
+                    out.push(Command::Text { x, y: r.y + (ROW - TEXT_SIZE) / 2.0 - 2.0, text: label, size: TEXT_SIZE, color: text_color });
                 }
             }
         }
@@ -1350,5 +1430,36 @@ mod tests {
         assert_eq!(w.value("smooth"), Some(3));
         assert_eq!(w.wheel(&Mono, -10), Some(Action::Slid("smooth", 0)));
         assert_eq!(w.value("smooth"), Some(0));
+    }
+
+    #[test]
+    fn disabled_controls_render_muted_and_ignore_hover_and_clicks() {
+        let mut w = Window::new(
+            "Settings",
+            vec![
+                Widget::Label("Locked".into()).with_enabled(false),
+                Widget::Toggle { id: "t", label: "Opt".into(), on: true }.with_enabled(false),
+                Widget::Dropdown { id: "d", options: vec!["One".into(), "Two".into()], selected: 0 }.with_enabled(false),
+                Widget::Choice { id: "c", options: vec!["A".into(), "B".into()], tooltips: Vec::new(), selected: 0 }.with_enabled(false),
+                Widget::Slider { id: "s", min: 0, max: 100, value: 50, format: |v| format!("{v}%") }.with_enabled(false),
+            ],
+            300.0,
+        );
+        w.center(&Mono, 1000.0, 800.0);
+
+        for needle in ["Opt", "One", "B", "50%"] {
+            let (x, y) = spot(&w, needle);
+            w.mouse_move(x, y);
+            assert_eq!(w.mouse_down(&Mono, x, y), None, "{needle} must not respond when disabled");
+        }
+        assert_eq!(w.wheel(&Mono, 3), None);
+        assert_eq!(w.value("s"), Some(50));
+        let commands = w.draw(&Mono);
+        assert!(commands.iter().any(|c| matches!(c, Command::Text { text, color, .. } if text == "Locked" && *color == DISABLED_TEXT)));
+        assert!(commands.iter().any(|c| matches!(c, Command::Text { text, color, .. } if text == "50%" && *color == DISABLED_TEXT)));
+        assert!(commands.iter().any(|c| matches!(c, Command::Fill { color, .. } if *color == DISABLED_ON)));
+        assert!(commands.iter().any(|c| matches!(c, Command::Fill { color, .. } if *color == DISABLED_CONTROL)));
+        assert!(commands.iter().any(|c| matches!(c, Command::Fill { color, .. } if *color == DISABLED_KNOB)));
+        assert!(!commands.iter().any(|c| matches!(c, Command::Fill { color, .. } if *color == HOVER || *color == ON_HOVER || *color == ON)));
     }
 }

@@ -1,7 +1,7 @@
-//! The mods window (GLOSSARY): opened from the main menu's corner, it lists
-//! the Harmony mods of this start in playset order and shows the one chosen:
-//! its name and version, its description in the player language, and the
-//! sensitive capabilities its manifest declares
+//! The mods window (GLOSSARY): opened from the main menu's or in-game menu's
+//! corner, it lists the Harmony mods of this start in playset order and shows
+//! the one chosen: its name and version, its description in the player
+//! language, and the sensitive capabilities its manifest declares
 //! (ADR sensitive-capabilities-are-declared), each in words a player
 //! understands. It shows; it decides nothing.
 use super::widgets::{Side, Widget, Window};

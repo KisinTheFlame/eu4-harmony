@@ -181,11 +181,17 @@ pub enum Shows {
 /// When a change to a [`Setting`] made in the settings window takes effect.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Effect {
-    /// At the next start: this session keeps what it started with.
+    /// At the next start: this session keeps what it started with. Editable
+    /// only from the main menu.
     NextStart,
-    /// When it is saved: [`current`] has it from then on, and `tells` is
-    /// told then, and at startup. A setting no part is told of is read from
-    /// [`current`] where it is used.
+    /// For the next session started or loaded: applied when saved from the
+    /// main menu, and disabled during a session so live session state stays
+    /// consistent.
+    NextSession { tells: Option<Listener> },
+    /// Immediately when saved, both in the main menu and during a session:
+    /// [`current`] has it from then on, and `tells` is told then, and at
+    /// startup. A setting no part is told of is read from [`current`] where
+    /// it is used.
     WhenSaved { tells: Option<Listener> },
 }
 
@@ -230,6 +236,11 @@ pub enum Page {
 impl Page {
     pub const ALL: [Page; 6] = [Page::LanguageFonts, Page::Sessions, Page::Achievements, Page::Display, Page::Sound, Page::About];
 
+    /// Whether the player can use or change this page during a session.
+    pub fn editable_in_game(self) -> bool {
+        !matches!(self, Page::LanguageFonts | Page::Achievements)
+    }
+
     /// The key of its name in the side list.
     pub fn title(self) -> &'static str {
         match self {
@@ -269,13 +280,13 @@ pub static SETTINGS: [Setting; 10] = [
         key: "achievements_outside_ironman",
         page: Page::Achievements,
         shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_ACHIEVEMENTS_OUTSIDE_IRONMAN", field: field!(achievements_outside_ironman) },
-        effect: Effect::WhenSaved { tells: Some(Listener::Achievements) },
+        effect: Effect::NextSession { tells: Some(Listener::Achievements) },
     },
     Setting {
         key: "achievements_with_changed_checksum",
         page: Page::Achievements,
         shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_ACHIEVEMENTS_CHANGED_CHECKSUM", field: field!(achievements_with_changed_checksum) },
-        effect: Effect::WhenSaved { tells: Some(Listener::Achievements) },
+        effect: Effect::NextSession { tells: Some(Listener::Achievements) },
     },
     Setting {
         key: "frame_rate_limit",
@@ -328,6 +339,20 @@ pub static SETTINGS: [Setting; 10] = [
 ];
 
 impl Setting {
+    /// Whether this setting can be changed from the in-game menu.
+    pub fn editable_in_game(&self) -> bool {
+        matches!(self.effect, Effect::WhenSaved { .. })
+    }
+
+    /// Whether saving this setting updates [`current`] now.
+    pub fn applies_when_saved(&self, in_game: bool) -> bool {
+        match self.effect {
+            Effect::WhenSaved { .. } => true,
+            Effect::NextSession { .. } => !in_game,
+            Effect::NextStart => false,
+        }
+    }
+
     /// Its value in `settings` as the file keeps it, when present.
     fn render(&self, settings: &Settings) -> Option<String> {
         match self.shows {
@@ -398,11 +423,17 @@ impl Setting {
 }
 
 /// The parts told of the settings that take effect when saved, each once, in
-/// the order of [`SETTINGS`].
-fn listeners() -> Vec<Listener> {
+/// the order of [`SETTINGS`]. While `in_game`, only listeners for settings
+/// editable in a session are notified.
+fn listeners(in_game: bool) -> Vec<Listener> {
     let mut out = Vec::new();
     for setting in &SETTINGS {
-        if let Effect::WhenSaved { tells: Some(listener) } = setting.effect {
+        let tells = match setting.effect {
+            Effect::WhenSaved { tells } => tells,
+            Effect::NextSession { tells } if !in_game => tells,
+            Effect::NextSession { .. } | Effect::NextStart => None,
+        };
+        if let Some(listener) = tells {
             if !out.contains(&listener) {
                 out.push(listener);
             }
@@ -411,9 +442,9 @@ fn listeners() -> Vec<Listener> {
     out
 }
 
-/// Tells every [`Listener`] the settings this session runs with.
-fn tell_listeners(current: &Settings) {
-    for listener in listeners() {
+/// Tells every [`Listener`] that applies the settings this session runs with.
+fn tell_listeners(current: &Settings, in_game: bool) {
+    for listener in listeners(in_game) {
         listener.tell(current);
     }
 }
@@ -604,10 +635,11 @@ impl Settings {
         out
     }
 
-    /// Takes from `chosen` the settings that take effect when they are saved
-    /// ([`Effect::WhenSaved`]).
-    fn take_immediate(&mut self, chosen: &Settings) {
-        for setting in SETTINGS.iter().filter(|s| s.effect != Effect::NextStart) {
+    /// Takes from `chosen` the settings that take effect when saved
+    /// ([`Effect::WhenSaved`], plus [`Effect::NextSession`] when saved from
+    /// the main menu).
+    pub(crate) fn take_immediate(&mut self, chosen: &Settings, in_game: bool) {
+        for setting in SETTINGS.iter().filter(|s| s.applies_when_saved(in_game)) {
             setting.copy(chosen, self);
         }
     }
@@ -617,7 +649,7 @@ impl Settings {
     /// language, the fonts, and each [`Effect::NextStart`] setting.
     pub fn waits_for_restart(&self, chosen: &Settings) -> bool {
         let mut saved = self.clone();
-        saved.take_immediate(chosen);
+        saved.take_immediate(chosen, false);
         saved != *chosen
     }
 }
@@ -719,7 +751,7 @@ pub fn load(user_dir: &Path) -> Settings {
     let path = path(user_dir);
     let current = read_for_session(&path, crate::lang::from_windows);
     let _ = STORE.set(Mutex::new(Store { path, current: current.clone(), next: current.clone() }));
-    tell_listeners(&current);
+    tell_listeners(&current, false);
     current
 }
 
@@ -780,18 +812,31 @@ pub fn next() -> Settings {
 }
 
 /// Saves settings: those that take effect when saved ([`Effect`]) do now,
-/// and every [`Listener`] is told; the rest, the language and the fonts
-/// among them, take effect at the next start.
-pub fn save(settings: Settings) -> crate::Result<()> {
+/// and every applicable [`Listener`] is told. When `in_game` is true, only
+/// settings editable in a session are merged and saved; main-menu-only and
+/// next-start choices already queued in [`next`] are preserved unchanged.
+pub fn save(settings: Settings, in_game: bool) -> crate::Result<()> {
     let current = {
         let mut store = store().ok_or("settings not loaded")?;
-        write(&store.path, &settings)?;
-        store.current.take_immediate(&settings);
-        store.next = settings;
+        let to_write = merge_for_save(&store.next, &settings, in_game);
+        write(&store.path, &to_write)?;
+        store.current.take_immediate(&to_write, in_game);
+        store.next = to_write;
         store.current.clone()
     };
-    tell_listeners(&current);
+    tell_listeners(&current, in_game);
     Ok(())
+}
+
+/// The settings written to disk on save: all of `chosen` from the main menu,
+/// or `existing` updated only with in-game-modifiable settings during a game.
+fn merge_for_save(existing: &Settings, chosen: &Settings, in_game: bool) -> Settings {
+    if !in_game {
+        return chosen.clone();
+    }
+    let mut merged = existing.clone();
+    merged.take_immediate(chosen, true);
+    merged
 }
 
 #[cfg(test)]
@@ -999,26 +1044,70 @@ mod tests {
         for setting in &SETTINGS {
             let mut chosen = Settings { language: Some(Language::German), body_font: Some(Face::regular("SimSun")), ..Settings::default() };
             setting.change(&mut chosen);
-            let mut current = Settings::default();
-            current.take_immediate(&chosen);
+            let mut from_main_menu = Settings::default();
+            from_main_menu.take_immediate(&chosen, false);
+            let mut from_in_game = Settings::default();
+            from_in_game.take_immediate(&chosen, true);
             match setting.effect {
-                Effect::NextStart => assert_eq!(current, Settings::default(), "{}", setting.key),
+                Effect::NextStart => {
+                    assert_eq!(from_main_menu, Settings::default(), "{}", setting.key);
+                    assert_eq!(from_in_game, Settings::default(), "{}", setting.key);
+                    assert!(!setting.editable_in_game(), "{}", setting.key);
+                }
+                Effect::NextSession { tells } => {
+                    let mut expected = Settings::default();
+                    setting.change(&mut expected);
+                    assert_eq!(from_main_menu, expected, "{}", setting.key);
+                    assert_eq!(from_in_game, Settings::default(), "{}", setting.key);
+                    assert!(!setting.editable_in_game(), "{}", setting.key);
+                    if let Some(listener) = tells {
+                        assert!(listeners(false).contains(&listener), "{}", setting.key);
+                        assert!(!listeners(true).contains(&listener), "{}", setting.key);
+                    }
+                }
                 Effect::WhenSaved { tells } => {
                     let mut expected = Settings::default();
                     setting.change(&mut expected);
-                    assert_eq!(current, expected, "{}", setting.key);
+                    assert_eq!(from_main_menu, expected, "{}", setting.key);
+                    assert_eq!(from_in_game, expected, "{}", setting.key);
+                    assert!(setting.editable_in_game(), "{}", setting.key);
                     if let Some(listener) = tells {
-                        assert!(listeners().contains(&listener), "{}", setting.key);
+                        assert!(listeners(false).contains(&listener), "{}", setting.key);
+                        assert!(listeners(true).contains(&listener), "{}", setting.key);
                     }
                 }
             }
+            assert_eq!(setting.page.editable_in_game(), setting.editable_in_game(), "{}", setting.key);
         }
         // The language and the fonts wait for the next start.
         let mut current = Settings::default();
-        current.take_immediate(&Settings { language: Some(Language::German), body_font: Some(Face::regular("SimSun")), ..Settings::default() });
+        current.take_immediate(&Settings { language: Some(Language::German), body_font: Some(Face::regular("SimSun")), ..Settings::default() }, false);
         assert_eq!(current, Settings::default());
-        // Each part is told once.
-        assert_eq!(listeners(), [Listener::Achievements, Listener::Drawing, Listener::CameraZoom, Listener::Sound]);
+        // Each part is told once; in-game saves never re-notify Achievements.
+        assert_eq!(listeners(false), [Listener::Achievements, Listener::Drawing, Listener::CameraZoom, Listener::Sound]);
+        assert_eq!(listeners(true), [Listener::Drawing, Listener::CameraZoom, Listener::Sound]);
+
+        // Saving in-game preserves pending next-start and main-menu-only choices.
+        let existing = Settings {
+            language: Some(Language::Japanese),
+            body_font: Some(Face::regular("Yu Gothic UI")),
+            map_outline: false,
+            achievements_outside_ironman: true,
+            ..Settings::default()
+        };
+        let attempted = Settings {
+            language: Some(Language::German),
+            map_outline: true,
+            achievements_outside_ironman: false,
+            music_leveling: true,
+            frame_rate_limit: FrameRateLimit::Hz(120),
+            zoom_smoothing: 20,
+            ..Settings::default()
+        };
+        assert_eq!(
+            merge_for_save(&existing, &attempted, true),
+            Settings { music_leveling: true, frame_rate_limit: FrameRateLimit::Hz(120), zoom_smoothing: 20, ..existing }
+        );
     }
 
     #[test]

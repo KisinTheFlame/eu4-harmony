@@ -33,7 +33,7 @@
 3. 打开 Paradox 启动器，进入 **Mod 库**，找到 **Harmony**，点右侧 **… → 在文件夹中显示**，打开 Harmony 的目录。（如果启动器里暂时没看到 Harmony，重启一下 Steam；也可以在游戏目录所在的 Steam 库里手动打开 `steamapps\workshop\content\236850\<id>\`，其中 `<id>` 是 Harmony 创意工坊页面地址末尾的数字。）
 4. 把 Harmony 目录里的 `version.dll` 复制到游戏目录，和 `eu4.exe` 放在一起。（Windows 默认可能隐藏后缀，文件会显示为 `version` 和 `eu4`。如果提示游戏目录里已有 `version.dll`——例如之前装过双字节补丁——直接选择**替换**即可；想保留旧文件方便日后换回的话，先将它改名或移到别处。）
 
-照常从 Paradox 启动器启动游戏。Harmony 不用放进合集；基于它的 Mod 照常在合集里启用。主菜单角落会多出两个按钮：**Harmony 设置**和 **Harmony Mod**，后者列出每个基于 Harmony 的 Mod，以及它在游戏之外能做什么。
+照常从 Paradox 启动器启动游戏。Harmony 不用放进合集；基于它的 Mod 照常在合集里启用。主菜单和游戏内菜单的角落都会多出两个按钮：**Harmony 设置**和 **Harmony Mod**，后者列出每个基于 Harmony 的 Mod，以及它在游戏之外能做什么。
 
 Steam 会让 Harmony 保持最新。更新包含新的 `version.dll` 时，Harmony 会在启动时自动更新游戏目录里的副本并为你重启游戏（只有在无法写入游戏目录时才会提示你手动复制）。
 
@@ -50,7 +50,7 @@ Steam 会让 Harmony 保持最新。更新包含新的 `version.dll` 时，Harmo
 
 ## 出问题时
 
-在主菜单打开 Harmony 的设置，进入**关于**，点**把排查问题用的文件存到桌面**：它把 Harmony 的日志、游戏的日志、现存的崩溃文件夹、你的设置和模组列表（不含存档）打成一个 zip 文件放到桌面上。到 [GitHub Issues](https://github.com/KisinTheFlame/eu4-harmony/issues) 反馈问题，附上这个文件。
+在主菜单或游戏内菜单打开 Harmony 的设置，进入**关于**，点**把排查问题用的文件存到桌面**：它把 Harmony 的日志、游戏的日志、现存的崩溃文件夹、你的设置和模组列表（不含存档）打成一个 zip 文件放到桌面上。到 [GitHub Issues](https://github.com/KisinTheFlame/eu4-harmony/issues) 反馈问题，附上这个文件。
 
 日志在 `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`：`report.txt` 是启动报告，`core.log` 记录框架工作，`proxy.log` 说明加载失败。[日志说明](docs/logs.md)介绍保留与收集范围。
 

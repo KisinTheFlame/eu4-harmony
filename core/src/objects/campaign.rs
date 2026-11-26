@@ -960,6 +960,10 @@ pub mod map_manager {
     /// Return to the main menu at its next frame, u8: the game starts
     /// `eu4.exe` again (docs/game/interface/main-menu.md).
     pub const RETURN: usize = 0x12e9;
+    /// The in-game menu container window (`menu`, built by `0x8318f0`),
+    /// whose `menu_panel` subwindow shows while the top-level in-game menu
+    /// is open (docs/game/interface/main-menu.md).
+    pub const MENU: usize = 0x12f0;
     /// Its minimap, a window it makes and never lets go: its destructor lets
     /// the others go, not this one.
     pub const MINIMAP: usize = 0x10e0;
@@ -1677,5 +1681,8 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x10bb6a8usize, "48 8d 97 88 00 00 00 48 8d 4d b8 e8 c8 9b fd fe", "event option text").uses(&[event_option::NAME]),
         // A popup that goes leaves the open dialogs too.
         Point::keep(0x6ea5deusize, "49 8b 8c 24 70 03 00 00 48 85 c9 74 79 0f 1f 44 00 00 48 39 39 74 0e", "open dialogs").uses(&[map_manager::OPEN_DIALOGS]),
+        // In-game frame drawing checks whether the in-game menu window is open.
+        Point::keep(0x81892dusize, "49 8b 87 f0 12 00 00 80 b8 f5 00 00 00 00", "in-game menu open check")
+            .uses(&[map_manager::MENU, super::gui::window::OPEN]),
     ]
 }

@@ -33,7 +33,7 @@ Your translation mod is still what translates the game; translation mods made fo
 3. Open the Paradox launcher, go to **Mod library**, find **Harmony**, and click **… → Show in folder**: this opens Harmony's folder. (If Harmony does not appear there yet, restart Steam; you can also open `steamapps\workshop\content\236850\<id>\` in the same Steam library as the game, where `<id>` is the number at the end of Harmony's Workshop page address.)
 4. Copy `version.dll` from Harmony's folder into the game's folder, next to `eu4.exe`. (Windows may hide file extensions by default, showing them as `version` and `eu4`. If the game's folder already has a `version.dll` — for example from an older CJK patch — choose **Replace**; if you want to keep the old file to switch back later, rename or move it aside first.)
 
-Start the game from the Paradox launcher as usual. Harmony needs no place in your playset; mods built on it are enabled there as any mod. The main menu now has two buttons in its corner, **Harmony settings** and **Harmony mods**; the second lists each mod built on Harmony, with what it may do beyond the game.
+Start the game from the Paradox launcher as usual. Harmony needs no place in your playset; mods built on it are enabled there as any mod. The main menu and the in-game menu now have two buttons in the corner, **Harmony settings** and **Harmony mods**; the second lists each mod built on Harmony, with what it may do beyond the game.
 
 Steam keeps Harmony up to date. When an update includes a new `version.dll`, Harmony updates the copy in the game's folder on startup and restarts the game automatically (only asking you to copy it if the game folder cannot be written).
 
@@ -50,7 +50,7 @@ Good to know:
 
 ## When something goes wrong
 
-In the main menu, open Harmony's settings, go to **About** and press **Save troubleshooting files to the desktop**: it packs Harmony's logs, the game's logs, its existing crash folders and your settings and playset (no saves) into one zip file on your desktop. Report a problem on [GitHub Issues](https://github.com/KisinTheFlame/eu4-harmony/issues), with that file attached.
+In the main menu or the in-game menu, open Harmony's settings, go to **About** and press **Save troubleshooting files to the desktop**: it packs Harmony's logs, the game's logs, its existing crash folders and your settings and playset (no saves) into one zip file on your desktop. Report a problem on [GitHub Issues](https://github.com/KisinTheFlame/eu4-harmony/issues), with that file attached.
 
 Logs are in `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`: `report.txt` is the startup report, `core.log` records framework work, and `proxy.log` explains loading failures. [Logs](docs/logs.md) describe retention and diagnostic coverage.
 
