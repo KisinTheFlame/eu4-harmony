@@ -29,16 +29,12 @@ use crate::base::Result;
 use crate::native::hooks::Call;
 use crate::native::points::Point;
 use crate::native::speed_up::SpeedUp;
+use eu4_harmony_folders::SAVE_GAMES;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
-use std::sync::{Condvar, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
-
-/// The save's course: what the hooks' moments make of the entries copied, the
-/// files moved and the hand-over to the worker.
-mod course;
-pub use course::set_folder;
 
 /// `(request)`: the local save and the local ironman save.
 const LOCAL_SAVE: usize = 0x5c6500;
@@ -95,12 +91,21 @@ fn remove_leftovers(dir: &Path) -> usize {
     entries.flatten().filter(|e| e.file_name().to_string_lossy().ends_with(TMP_SUFFIX)).filter(|e| std::fs::remove_file(e.path()).is_ok()).count()
 }
 
+/// Where the game writes its files, once the user folder is known; removes any
+/// temporary files left by a compression cut short by the process ending.
+pub fn set_folder(user_dir: &Path) {
+    let removed = COMPACTOR.set_folder(user_dir);
+    if removed > 0 {
+        log!("saves: removed {removed} temporary file(s) left by a compression the process's end cut short");
+    }
+}
+
 fn save_before(call: &mut Call) {
     crate::native::probes::save_begins(call);
     if crate::native::speed_up::game_path(&SPEED_UP) {
         return;
     }
-    course::save_begins(crate::base::thread_id() == crate::base::main_thread());
+    COMPACTOR.save_begins(crate::base::thread_id() == crate::base::main_thread());
 }
 
 fn save_after(call: &mut Call) {
@@ -108,11 +113,11 @@ fn save_after(call: &mut Call) {
     if crate::native::speed_up::game_path(&SPEED_UP) {
         return;
     }
-    course::save_ends();
+    COMPACTOR.save_ends();
 }
 
 fn entry_before(call: &mut Call) {
-    if let Some(level) = course::copy_level(crate::base::thread_id() == crate::base::main_thread(), call.arg(3) as u32, call.arg(4) as u32) {
+    if let Some(level) = COMPACTOR.copy_level(crate::base::thread_id() == crate::base::main_thread(), call.arg(3) as u32, call.arg(4) as u32) {
         call.set_arg(4, level);
     }
 }
@@ -122,19 +127,7 @@ fn moved(call: &mut Call) {
         return;
     }
     let to = unsafe { std::ffi::CStr::from_ptr(call.arg(1) as *const std::ffi::c_char) };
-    course::file_moved(to.to_str().ok().map(str::to_string));
-}
-
-/// The game waits for the thread: a file another program holds is not tried
-/// again.
-static WAITED_FOR: AtomicBool = AtomicBool::new(false);
-
-struct Waited;
-
-impl Drop for Waited {
-    fn drop(&mut self) {
-        WAITED_FOR.store(false, Ordering::SeqCst);
-    }
+    COMPACTOR.file_moved(to.to_str().ok().map(str::to_string));
 }
 
 /// How often and how far apart the thread tries to put its file in the
@@ -143,70 +136,189 @@ impl Drop for Waited {
 const MOVE_TRIES: u32 = 10;
 const MOVE_AGAIN: Duration = Duration::from_millis(200);
 
-/// Files handed to the thread and not yet done.
-struct Pending {
-    count: Mutex<usize>,
-    done: Condvar,
+struct SaveState {
+    saving: bool,
+    began: Option<Instant>,
+    moved: Vec<String>,
+    folder: Option<PathBuf>,
 }
 
-static PENDING: Pending = Pending { count: Mutex::new(0), done: Condvar::new() };
-static WORKER: OnceLock<Mutex<Sender<PathBuf>>> = OnceLock::new();
+struct SharedWorker {
+    pending: Mutex<usize>,
+    done: Condvar,
+    /// Set while the game waits for the thread: a file another program holds is
+    /// not retried again.
+    waited_for: AtomicBool,
+}
 
-/// Hands a file to the thread, which it starts the first time.
-fn hand_over(path: PathBuf) {
-    let sender = WORKER.get_or_init(|| {
-        let (send, receive) = mpsc::channel::<PathBuf>();
-        let started = std::thread::Builder::new().name("eu4-harmony saves".into()).spawn(move || {
-            for path in receive {
-                let start = Instant::now();
-                match compact_file(&path) {
-                    Ok(Some((before, after))) => {
-                        log!("saves: {} compressed in the background, {before} to {after} bytes, in {:.1?}", path.display(), start.elapsed())
-                    }
-                    Ok(None) => {}
-                    Err(e) => log!("saves: {} stays uncompressed, as the game wrote it: {e}", path.display()),
-                }
-                let mut count = PENDING.count.lock().unwrap_or_else(|e| e.into_inner());
-                *count -= 1;
-                PENDING.done.notify_all();
-            }
-        });
-        if let Err(e) = started {
-            log!("saves: no thread to compress saves in: {e}");
+struct WorkerHandle {
+    shared: Arc<SharedWorker>,
+    sender: Option<Sender<PathBuf>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for WorkerHandle {
+    fn drop(&mut self) {
+        self.sender.take();
+        if let Some(handle) = self.thread.take() {
+            let _ = handle.join();
         }
-        Mutex::new(send)
-    });
-    *PENDING.count.lock().unwrap_or_else(|e| e.into_inner()) += 1;
-    if sender.lock().unwrap_or_else(|e| e.into_inner()).send(path).is_err() {
-        let mut count = PENDING.count.lock().unwrap_or_else(|e| e.into_inner());
-        *count -= 1;
     }
 }
+
+struct Waited<'a>(&'a AtomicBool);
+
+impl Drop for Waited<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Coordinates local-save copy mode, moved-file collection, leftover cleanup,
+/// and background zip compaction on a dedicated worker thread.
+struct BackgroundCompactor {
+    save: Mutex<SaveState>,
+    worker: Mutex<Option<WorkerHandle>>,
+    retry_delay: Duration,
+}
+
+impl BackgroundCompactor {
+    const fn new() -> Self {
+        Self::with_retry_delay(MOVE_AGAIN)
+    }
+
+    const fn with_retry_delay(retry_delay: Duration) -> Self {
+        Self { save: Mutex::new(SaveState { saving: false, began: None, moved: Vec::new(), folder: None }), worker: Mutex::new(None), retry_delay }
+    }
+
+    fn set_folder(&self, user_dir: &Path) -> usize {
+        self.save.lock().unwrap_or_else(|e| e.into_inner()).folder = Some(user_dir.to_path_buf());
+        remove_leftovers(&user_dir.join(SAVE_GAMES))
+    }
+
+    fn save_begins(&self, on_main_thread: bool) {
+        self.wait();
+        let mut save = self.save.lock().unwrap_or_else(|e| e.into_inner());
+        save.moved.clear();
+        save.saving = on_main_thread;
+        save.began = Some(Instant::now());
+    }
+
+    fn copy_level(&self, on_main_thread: bool, method: u32, level: u32) -> Option<usize> {
+        let saving = self.save.lock().unwrap_or_else(|e| e.into_inner()).saving;
+        (saving && on_main_thread && method == DEFLATED as u32 && level == GAME_LEVEL as u32).then_some(COPY_LEVEL)
+    }
+
+    fn file_moved(&self, to: Option<String>) {
+        let mut save = self.save.lock().unwrap_or_else(|e| e.into_inner());
+        if !save.saving {
+            return;
+        }
+        match to {
+            Some(to) => save.moved.push(to),
+            None => log!("saves: a file moved to a path that is not UTF-8 stays uncompressed"),
+        }
+    }
+
+    fn save_ends(&self) {
+        let (began, paths) = {
+            let mut save = self.save.lock().unwrap_or_else(|e| e.into_inner());
+            if !std::mem::take(&mut save.saving) {
+                return;
+            }
+            let began = save.began.take();
+            let moved = std::mem::take(&mut save.moved);
+            let paths = save.folder.as_ref().map(|folder| moved.into_iter().map(|p| folder.join(p)).collect::<Vec<_>>()).unwrap_or_default();
+            (began, paths)
+        };
+        if let Some(began) = began {
+            log!("saves: a local save stopped the game for {:.0} ms", began.elapsed().as_secs_f64() * 1000.0);
+        }
+        for path in paths {
+            self.hand_over(path);
+        }
+    }
+
+    fn hand_over(&self, path: PathBuf) {
+        let mut guard = self.worker.lock().unwrap_or_else(|e| e.into_inner());
+        let handle = guard.get_or_insert_with(|| {
+            let shared = Arc::new(SharedWorker { pending: Mutex::new(0), done: Condvar::new(), waited_for: AtomicBool::new(false) });
+            let (send, receive) = mpsc::channel::<PathBuf>();
+            let worker_shared = shared.clone();
+            let retry_delay = self.retry_delay;
+            let thread = match std::thread::Builder::new().name("eu4-harmony saves".into()).spawn(move || {
+                for path in receive {
+                    let start = Instant::now();
+                    match compact_file_with(&path, &worker_shared.waited_for, retry_delay) {
+                        Ok(Some((before, after))) => {
+                            log!("saves: {} compressed in the background, {before} to {after} bytes, in {:.1?}", path.display(), start.elapsed())
+                        }
+                        Ok(None) => {}
+                        Err(e) => log!("saves: {} stays uncompressed, as the game wrote it: {e}", path.display()),
+                    }
+                    let mut count = worker_shared.pending.lock().unwrap_or_else(|e| e.into_inner());
+                    *count -= 1;
+                    worker_shared.done.notify_all();
+                }
+            }) {
+                Ok(handle) => Some(handle),
+                Err(e) => {
+                    log!("saves: no thread to compress saves in: {e}");
+                    None
+                }
+            };
+            WorkerHandle { shared, sender: thread.is_some().then_some(send), thread }
+        });
+        let Some(sender) = handle.sender.as_ref() else { return };
+        *handle.shared.pending.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+        if sender.send(path).is_err() {
+            let mut count = handle.shared.pending.lock().unwrap_or_else(|e| e.into_inner());
+            *count -= 1;
+        }
+    }
+
+    fn wait(&self) {
+        let shared = {
+            let guard = self.worker.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(handle) = guard.as_ref() else { return };
+            handle.shared.clone()
+        };
+        let start = Instant::now();
+        let mut count = shared.pending.lock().unwrap_or_else(|e| e.into_inner());
+        if *count == 0 {
+            return;
+        }
+        shared.waited_for.store(true, Ordering::SeqCst);
+        let _waited = Waited(&shared.waited_for);
+        while *count > 0 {
+            let (next, timeout) = shared.done.wait_timeout(count, Duration::from_secs(60)).unwrap_or_else(|e| e.into_inner());
+            count = next;
+            if timeout.timed_out() {
+                log!("saves: still compressing after a minute; going on without it");
+                return;
+            }
+        }
+        log!("saves: waited {:.1?} for the background compression", start.elapsed());
+    }
+}
+
+static COMPACTOR: BackgroundCompactor = BackgroundCompactor::new();
 
 /// Returns once every file handed to the thread is done with: before a local
 /// save, a load and a restart.
 pub fn wait() {
-    let start = Instant::now();
-    let mut count = PENDING.count.lock().unwrap_or_else(|e| e.into_inner());
-    if *count == 0 {
-        return;
-    }
-    WAITED_FOR.store(true, Ordering::SeqCst);
-    let _waited = Waited;
-    while *count > 0 {
-        let (next, timeout) = PENDING.done.wait_timeout(count, Duration::from_secs(60)).unwrap_or_else(|e| e.into_inner());
-        count = next;
-        if timeout.timed_out() {
-            log!("saves: still compressing after a minute; going on without it");
-            return;
-        }
-    }
-    log!("saves: waited {:.1?} for the background compression", start.elapsed());
+    COMPACTOR.wait();
 }
 
 /// Compresses the uncompressed entries of the zip at `path` and puts the
 /// result in its place; None when it has none, or is no zip (a plain save).
+#[cfg(test)]
 fn compact_file(path: &Path) -> Result<Option<(usize, usize)>> {
+    let waited = AtomicBool::new(false);
+    compact_file_with(path, &waited, MOVE_AGAIN)
+}
+
+fn compact_file_with(path: &Path, waited_for: &AtomicBool, retry_delay: Duration) -> Result<Option<(usize, usize)>> {
     let error = |e: std::io::Error| e.to_string();
     let before = std::fs::metadata(path).map_err(error)?;
     let bytes = std::fs::read(path).map_err(error)?;
@@ -226,8 +338,8 @@ fn compact_file(path: &Path) -> Result<Option<(usize, usize)>> {
                 return Err("the file changed while it was compressed".to_string());
             }
             match std::fs::rename(&tmp, path) {
-                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied && tried < MOVE_TRIES && !WAITED_FOR.load(Ordering::SeqCst) => {
-                    std::thread::sleep(MOVE_AGAIN)
+                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied && tried < MOVE_TRIES && !waited_for.load(Ordering::SeqCst) => {
+                    std::thread::sleep(retry_delay)
                 }
                 done => return done.map_err(error),
             }
@@ -445,5 +557,68 @@ mod tests {
         assert_eq!(removed, 2);
         assert_eq!(left, ["Austria.eu4", "Castilla.tmp"]);
         assert_eq!(remove_leftovers(&dir), 0);
+    }
+
+    #[test]
+    fn compactor_cleans_leftovers_and_compresses_moved_saves_in_background() {
+        let dir = std::env::temp_dir().join(format!("eu4harmony-compactor-e2e-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let save_dir = dir.join(SAVE_GAMES);
+        std::fs::create_dir_all(&save_dir).unwrap();
+        std::fs::write(save_dir.join("stale.eu4.eu4harmony-tmp"), b"PK").unwrap();
+
+        let compactor = BackgroundCompactor::with_retry_delay(Duration::from_millis(5));
+        assert_eq!(compactor.set_folder(&dir), 1);
+        assert!(!save_dir.join("stale.eu4.eu4harmony-tmp").exists());
+
+        // Write two uncompressed saves (stored + level-0 deflate).
+        let raw_a = write(&texts().iter().map(|(n, d)| stored(n, d)).collect::<Vec<_>>());
+        let raw_b = write(&texts().iter().map(|(n, d)| copied(n, d)).collect::<Vec<_>>());
+        let path_a = save_dir.join("autosave.eu4");
+        let path_b = save_dir.join("Austria.eu4");
+        std::fs::write(&path_a, &raw_a).unwrap();
+        std::fs::write(&path_b, &raw_b).unwrap();
+
+        // Stray file moved before a save starts is ignored.
+        compactor.file_moved(Some("save games/autosave.eu4".into()));
+
+        compactor.save_begins(true);
+        assert_eq!(compactor.copy_level(true, DEFLATED as u32, GAME_LEVEL as u32), Some(COPY_LEVEL));
+        assert_eq!(compactor.copy_level(false, DEFLATED as u32, GAME_LEVEL as u32), None);
+        assert_eq!(compactor.copy_level(true, STORED as u32, GAME_LEVEL as u32), None);
+        assert_eq!(compactor.copy_level(true, DEFLATED as u32, 6), None);
+
+        compactor.file_moved(Some(format!("{SAVE_GAMES}/autosave.eu4")));
+        compactor.file_moved(None); // non-UTF-8 path stays uncompressed
+        compactor.file_moved(Some(format!("{SAVE_GAMES}/Austria.eu4")));
+        compactor.save_ends();
+        // Ending again without a begin is a no-op.
+        compactor.save_ends();
+
+        // Wait for background compaction and verify both files shrank and read back whole.
+        compactor.wait();
+        for (path, raw) in [(&path_a, &raw_a), (&path_b, &raw_b)] {
+            let after = std::fs::read(path).unwrap();
+            assert!(after.len() < raw.len() / 4, "{} did not shrink", path.display());
+            let read = super::entries(&after).unwrap().unwrap();
+            assert!(!read.iter().any(uncompressed));
+            for ((_, expected), entry) in texts().iter().zip(&read) {
+                assert_eq!(&contents(entry).unwrap(), expected);
+            }
+        }
+
+        // Off-main saves neither force copy level nor hand files over.
+        let path_off = save_dir.join("off_main.eu4");
+        std::fs::write(&path_off, &raw_a).unwrap();
+        compactor.save_begins(false);
+        assert_eq!(compactor.copy_level(true, DEFLATED as u32, GAME_LEVEL as u32), None);
+        compactor.file_moved(Some(format!("{SAVE_GAMES}/off_main.eu4")));
+        compactor.save_ends();
+        compactor.wait();
+        assert_eq!(std::fs::read(&path_off).unwrap().len(), raw_a.len());
+
+        // Drop shuts down the worker thread cleanly before removing temp dir.
+        drop(compactor);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

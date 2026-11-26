@@ -641,32 +641,31 @@ impl course::StageOps for LiveStage<'_> {
         deferred::done(self.0);
     }
 
-    fn prepare_scene(&mut self) -> std::result::Result<(), String> {
-        prepare::scene(self.0).map_err(|e| e.to_string())
-    }
-
-    fn prepare_tooltips(&mut self, idler: usize) {
-        prepare::tooltips(self.0, idler);
-    }
-
-    fn clear_tooltips(&mut self) {
-        tooltip::clear();
-    }
-
     fn draw_on_main_only(&self) -> bool {
         !drawing_on() || main_draws(self.0)
     }
 
-    fn prepare_frame(&mut self, idler: usize) -> std::result::Result<(), String> {
-        prepare::frame(self.0, idler).map_err(|e| e.to_string())
+    fn prepare_for_drawing(&mut self, idler: usize) -> std::result::Result<(), (course::FallbackMode, String)> {
+        if let Err(e) = prepare::scene(self.0) {
+            return Err((course::FallbackMode::BeforeTooltips, format!("the GUI scene could not be prepared: {e}")));
+        }
+        prepare::tooltips(self.0, idler);
+        if let Err(e) = prepare::frame(self.0, idler) {
+            return Err((course::FallbackMode::AfterTooltips, format!("the frame could not be prepared: {e}")));
+        }
+        if let Err(e) = marks::keep(self.0, idler) {
+            log!("drawing: the frame's temporary map highlights could not be kept: {e}");
+        }
+        Ok(())
     }
 
-    fn keep_marks(&mut self, idler: usize) -> std::result::Result<(), String> {
-        marks::keep(self.0, idler).map_err(|e| e.to_string())
-    }
-
-    fn discard_placing(&mut self) {
+    fn draw_inline(&mut self, idler: usize, mode: course::FallbackMode) {
         icons::discard_placing();
+        draw_here(self.0, idler);
+        if mode == course::FallbackMode::BeforeTooltips {
+            prepare::tooltips(self.0, idler);
+            tooltip::clear();
+        }
     }
 
     fn clear_staged_artifacts(&mut self) {
@@ -676,28 +675,15 @@ impl course::StageOps for LiveStage<'_> {
         crossings::clear();
     }
 
-    fn frame_prepared(&mut self) {
+    fn commit_prepared(&mut self, was_idle: bool) {
         crossings::frame_prepared();
-    }
-
-    fn icons_prepared(&mut self) {
         icons::prepared();
-    }
-
-    fn note_prepared(&mut self, was_idle: bool) {
         crate::native::probes::frame_prepared();
         CAMERA_MOVED_THERE.store(1, Ordering::Relaxed);
         if was_idle {
             let _guard = PREPARED_WAKE.0.lock().unwrap_or_else(|e| e.into_inner());
             PREPARED_WAKE.1.notify_all();
         }
-    }
-
-    fn draw_here(&mut self, idler: usize) {
-        draw_here(self.0, idler);
-    }
-
-    fn after_prepared(&mut self) {
         // What the main thread does as it presents a frame: the safe point of a
         // frame outside a game, and the input taken for the next.
         if let Some(h) = DRAWING_HOOKS.get() {

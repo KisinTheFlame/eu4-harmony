@@ -10,22 +10,21 @@
 //!
 //! Inside the game folder and the workshop's folder for the game, which
 //! nothing changes while the game runs, the framework lists each folder once,
-//! the first time a path in it is asked for. A path whose folders or file the
-//! listings do not have is answered as Windows answers a missing file:
-//! PhysFS's error "not found", and no stat. A path they have, and any path
-//! the framework cannot answer for certain (another folder, the framework's
-//! own folder, a name Windows would read otherwise), goes to the game's stat
-//! as before.
-use super::folder::{list, read_as_written, Kind};
+//! the first time a path in it is asked for via [`DirectoryCache`]. A path
+//! whose folders or file the listings do not have is answered as Windows
+//! answers a missing file: PhysFS's error "not found", and no stat. A path
+//! they have, and any path the framework cannot answer for certain (another
+//! folder, the framework's own folder, a name Windows would read otherwise),
+//! goes to the game's stat as before.
+use super::folder::{lowered_relative, normalize_dir, DirectoryCache, Kind};
 use crate::base::called_by_game;
 use crate::native::physfs;
 use crate::native::points::{Function, Point};
 use crate::native::speed_up::{self as speed, SpeedUp};
-use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::OnceLock;
 
 /// `(native path in UTF-8, &stat, follow links) -> found`.
 const STAT: usize = 0x1a061d0;
@@ -54,26 +53,49 @@ fn points() -> Vec<Point> {
 type Stat = extern "C" fn(*const c_char, usize, i32) -> i32;
 static ORIGINAL_STAT: Function<Stat> = Function::new();
 
-/// The folders answered from listings, lower case, each ending in `\`; and
-/// the framework's own folder, which it writes to, left out.
-static ROOTS: OnceLock<(Vec<String>, String)> = OnceLock::new();
-/// Each folder's listing, by its path in lower case: its names in lower
-/// case, each a file, a folder, or something else (a link); None where it
-/// could not be listed.
-type Listing = Option<Arc<HashMap<Box<str>, Kind>>>;
-static LISTINGS: RwLock<Option<HashMap<String, Listing>>> = RwLock::new(None);
+/// The immutable roots answered from listings, plus the framework's own folder
+/// (which it writes to and excludes from negative caching).
+struct Lookups {
+    roots: Vec<DirectoryCache>,
+    own: String,
+}
+
+impl Lookups {
+    fn new(game_dir: &Path) -> Self {
+        let mut roots = vec![DirectoryCache::new(&game_dir.to_string_lossy())];
+        if let Some(library) = game_dir.parent().and_then(Path::parent) {
+            roots.push(DirectoryCache::new(&library.join("workshop").join("content").join("236850").to_string_lossy()));
+        }
+        Self { roots, own: normalize_dir(&game_dir.join("eu4-harmony")) }
+    }
+
+    /// Whether the path is certainly missing (`Some(true)`), certainly there
+    /// (`Some(false)`), or not for the listings to say (`None`).
+    fn missing(&self, path: &[u8]) -> Option<bool> {
+        let text = std::str::from_utf8(path).ok()?;
+        let lower = text.replace('/', "\\").to_ascii_lowercase();
+        if lower.starts_with(self.own.as_str()) {
+            return None;
+        }
+        let root = self.roots.iter().find(|r| lower.starts_with(r.lower()))?;
+        let rest = &lower[root.lower().len()..];
+        let mut buffer = [0u8; 512];
+        let rel = lowered_relative(rest.as_bytes(), true, &mut buffer)?;
+        match root.kind(rel) {
+            Ok(None) => Some(true),
+            Ok(Some(Kind::Other)) | Err(()) => None,
+            Ok(Some(Kind::File | Kind::Folder)) => Some(false),
+        }
+    }
+}
+
+static ROOTS: OnceLock<Lookups> = OnceLock::new();
 static ANSWERED: AtomicU64 = AtomicU64::new(0);
 
 /// The game folder and, beside its library's `common`, the workshop's folder
 /// for the game.
 pub fn set_roots(game_dir: &Path) {
-    let folder = |p: &Path| format!("{}\\", p.to_string_lossy().trim_end_matches(['\\', '/']).replace('/', "\\").to_ascii_lowercase());
-    let mut roots = vec![folder(game_dir)];
-    if let Some(library) = game_dir.parent().and_then(Path::parent) {
-        roots.push(folder(&library.join("workshop").join("content").join("236850")));
-    }
-    let own = folder(&game_dir.join("eu4-harmony"));
-    let _ = ROOTS.set((roots, own));
+    let _ = ROOTS.set(Lookups::new(game_dir));
 }
 
 #[called_by_game]
@@ -96,45 +118,8 @@ extern "C" fn stat(path: *const c_char, st: usize, follow: i32) -> i32 {
     0
 }
 
-/// Whether the path is certainly missing (`Some(true)`), certainly there
-/// (`Some(false)`), or not for the listings to say (None).
 fn missing(path: &[u8]) -> Option<bool> {
-    let (roots, own) = ROOTS.get()?;
-    let text = std::str::from_utf8(path).ok()?;
-    let lower = text.replace('/', "\\").to_ascii_lowercase();
-    if lower.starts_with(own.as_str()) {
-        return None;
-    }
-    let root = roots.iter().find(|r| lower.starts_with(r.as_str()))?;
-    let rest = &lower[root.len()..];
-    // Names Windows reads otherwise than as they are written, below the
-    // folder answered for (whose own path may be a short one, `RUNNER~1`).
-    let parts: Vec<&str> = rest.split('\\').collect();
-    if !parts.iter().all(|p| read_as_written(p)) {
-        return None;
-    }
-    let mut folder = root.trim_end_matches('\\').to_string();
-    for (i, part) in parts.iter().enumerate() {
-        let listing = listing(&folder)?;
-        let last = i + 1 == parts.len();
-        match listing.get(*part) {
-            None => return Some(true),
-            Some(Kind::Other) => return None,
-            Some(Kind::File) if !last => return Some(true),
-            Some(_) if last => return Some(false),
-            Some(_) => folder = format!("{folder}\\{part}"),
-        }
-    }
-    None
-}
-
-fn listing(folder: &str) -> Listing {
-    if let Some(found) = LISTINGS.read().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|l| l.get(folder)) {
-        return found.clone();
-    }
-    let made = list(folder).map(Arc::new);
-    LISTINGS.write().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).insert(folder.to_string(), made.clone());
-    made
+    ROOTS.get()?.missing(path)
 }
 
 #[cfg(test)]
@@ -149,9 +134,9 @@ mod tests {
         std::fs::write(dir.join("gfx").join("Interface").join("Icon.dds"), b"x").unwrap();
         std::fs::write(dir.join("1.310\u{66f4}\u{65b0}\u{5185}\u{5bb9}.txt"), b"x").unwrap();
         std::fs::create_dir_all(dir.join("eu4-harmony")).unwrap();
-        set_roots(&dir);
+        let lookups = Lookups::new(&dir);
         let root = dir.to_string_lossy().into_owned();
-        let ask = |rest: &str| missing(format!("{root}\\{rest}").as_bytes());
+        let ask = |rest: &str| lookups.missing(format!("{root}\\{rest}").as_bytes());
         assert_eq!(ask("gfx\\interface\\icon.dds"), Some(false));
         assert_eq!(ask("GFX/Interface/ICON.DDS"), Some(false));
         assert_eq!(ask("gfx\\interface\\other.dds"), Some(true));
@@ -164,7 +149,7 @@ mod tests {
         assert_eq!(ask("eu4-harmony\\logs\\core.log"), None);
         assert_eq!(ask("gfx\\..\\gfx\\interface\\icon.dds"), None);
         assert_eq!(ask("gfx\\interface\\ICON~1.DDS"), None);
-        assert_eq!(missing(b"C:\\elsewhere\\file.txt"), None);
+        assert_eq!(lookups.missing(b"C:\\elsewhere\\file.txt"), None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

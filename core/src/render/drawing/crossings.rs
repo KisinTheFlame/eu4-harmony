@@ -90,9 +90,7 @@ const RENDERER_DECLARATION: usize = 0x108;
 
 fn scene_begins(call: &mut Call) {
     if on_main() {
-        if drawing_on() && !super::main_protects_changes() {
-            crossing(call.observed().unwrap_or(0));
-        }
+        renderer_crossing(call.observed().unwrap_or(0));
     } else if drawing_on() && !is_drawing_thread() && !OTHER_SCENE_LOGGED.swap(true, Ordering::Relaxed) {
         log!("drawing: thread {} began a scene of the renderer, which the drawing thread may be drawing with", crate::base::thread_id());
     }
@@ -145,7 +143,18 @@ extern "C" fn renderer_called(slot: usize) {
     if !drawing_on() || super::main_protects_changes() {
         return;
     }
-    crossing(crate::native::hooked_memory().at(RENDERER_TABLE[slot]));
+    renderer_crossing(crate::native::hooked_memory().at(RENDERER_TABLE[slot]));
+}
+
+fn renderer_crossing(into: usize) {
+    if !on_main() || !drawing_on() || super::main_protects_changes() {
+        return;
+    }
+    main_side(|s| {
+        if TRACKER.renderer_call(true, true, into, Instant::now(), s, &MainLock) {
+            crate::native::probes::frame_invalidated();
+        }
+    });
 }
 
 macro_rules! renderer_entries {
