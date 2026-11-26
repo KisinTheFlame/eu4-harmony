@@ -56,18 +56,28 @@ struct State {
 
 static STATE: LazyLock<Mutex<State>> = LazyLock::new(|| Mutex::new(State { plan: None, open: HashMap::new(), served: HashMap::new() }));
 static INIT_ONCE: Once = Once::new();
-static ON_FIRST_INIT: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();
+static ON_FIRST_INIT: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
+static ON_INIT: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
 
-/// Registers the callback invoked once on the first PhysFS call. The boolean
-/// argument is `true` when invoked from a successful `PHYSFS_init` (so
-/// framework files can be mounted immediately).
-pub(crate) fn set_on_first_init(hook: fn(bool)) {
-    let _ = ON_FIRST_INIT.set(hook);
+/// Registers the callbacks invoked when PhysFS initializes:
+/// - `on_first_init` runs once on the first PhysFS call (before `on_init`), to
+///   run startup discovery and load extensions;
+/// - `on_init` runs on every successful `PHYSFS_init` (the game reinitializes
+///   PhysFS during startup, dropping earlier mounts) to mount framework files.
+pub(crate) fn set_init_hooks(on_first_init: fn(), on_init: fn()) {
+    let _ = ON_FIRST_INIT.set(on_first_init);
+    let _ = ON_INIT.set(on_init);
 }
 
-fn run_first_init(mounted_ready: bool) {
+fn run_first_init() {
     if let Some(hook) = ON_FIRST_INIT.get() {
-        hook(mounted_ready);
+        hook();
+    }
+}
+
+fn run_on_init() {
+    if let Some(hook) = ON_INIT.get() {
+        hook();
     }
 }
 
@@ -112,10 +122,17 @@ pub fn normalize(path: &str) -> String {
     s
 }
 
+fn dispatch_init(once: &Once, succeeded: bool, on_first_init: impl FnOnce(), on_init: impl FnOnce()) {
+    once.call_once(on_first_init);
+    if succeeded {
+        on_init();
+    }
+}
+
 #[called_by_game]
 unsafe extern "C" fn init_detour(argv0: *const c_char) -> i32 {
     let result = ORIG_INIT.get()(argv0);
-    crate::base::guarded("PHYSFS_init", || INIT_ONCE.call_once(|| run_first_init(result != 0)));
+    crate::base::guarded("PHYSFS_init", || dispatch_init(&INIT_ONCE, result != 0, run_first_init, run_on_init));
     result
 }
 
@@ -123,7 +140,7 @@ unsafe extern "C" fn init_detour(argv0: *const c_char) -> i32 {
 unsafe extern "C" fn open_read_detour(path: *const c_char) -> File {
     let handle = ORIG_OPEN_READ.get()(path);
     crate::base::guarded("PHYSFS_openRead", || {
-        INIT_ONCE.call_once(|| run_first_init(false));
+        INIT_ONCE.call_once(run_first_init);
         if handle.is_null() {
             return;
         }
@@ -438,5 +455,16 @@ mod tests {
         input.0.set_position(4);
         assert!(super::snapshot(&mut input).is_err());
         assert_eq!(input.0.position(), 4);
+    }
+
+    #[test]
+    fn reinit_runs_first_init_once_before_mounting_and_remounts_on_each_success() {
+        use std::{cell::RefCell, sync::Once};
+        let once = Once::new();
+        let events = RefCell::new(Vec::new());
+        super::dispatch_init(&once, true, || events.borrow_mut().push("first"), || events.borrow_mut().push("mount"));
+        super::dispatch_init(&once, false, || events.borrow_mut().push("first"), || events.borrow_mut().push("mount"));
+        super::dispatch_init(&once, true, || events.borrow_mut().push("first"), || events.borrow_mut().push("mount"));
+        assert_eq!(*events.borrow(), vec!["first", "mount", "mount"]);
     }
 }
