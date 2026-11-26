@@ -1,8 +1,12 @@
-//! Glyphs from system fonts (GLOSSARY), drawn with DirectWrite into 8-bit
-//! coverage bitmaps, anti-aliased across and down: for every character the
-//! game draws (ADR game-text-in-system-fonts). Anti-aliased across only, as
-//! DirectWrite's natural mode draws, the slanting strokes of Chinese characters
-//! show steps.
+//! Glyphs from system and bundled fonts (GLOSSARY), drawn with DirectWrite
+//! into 8-bit coverage bitmaps, anti-aliased across and down: for every
+//! character the game draws (ADR game-text-in-system-fonts). Anti-aliased
+//! across only, as DirectWrite's natural mode draws, the slanting strokes of
+//! Chinese characters show steps.
+//!
+//! Font files placed in `fonts/` beside the loaded core DLL are added to a
+//! private DirectWrite font collection and checked before Windows' system
+//! fonts, so default Chinese fonts work without installing them in Windows.
 //!
 //! A character goes to the first of the chosen family and the fallback
 //! families that has it, in the chosen weight when that family has it, else
@@ -10,16 +14,17 @@
 //! maker made; none is simulated.
 use crate::base::Result;
 use eu4_harmony_loc::Language;
-use std::collections::HashMap;
-use std::sync::Mutex;
-use windows::core::HSTRING;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, Once};
+use windows::core::{Interface, HSTRING};
 use windows::Win32::Graphics::DirectWrite::*;
 
 /// Families tried after the chosen one, in groups: Latin, Greek and Cyrillic
 /// letters; Simplified Chinese; Traditional Chinese; Japanese; Korean; the
 /// rest of Unicode.
 const LETTERS: &[&str] = &["Segoe UI"];
-const SIMPLIFIED: &[&str] = &["Microsoft YaHei", "SimSun", "SimSun-ExtB", "SimSun-ExtG"];
+const SIMPLIFIED: &[&str] = &["Microsoft YaHei", "SimSun", "SimSun-ExtB", "SimSun-ExtG", "FZPingXianYaSongS-R-GB"];
 const TRADITIONAL: &[&str] = &["Microsoft JhengHei", "MingLiU", "MingLiU-ExtB"];
 const JAPANESE: &[&str] = &["Yu Gothic", "Meiryo"];
 const KOREAN: &[&str] = &["Malgun Gothic"];
@@ -104,8 +109,112 @@ struct Weight {
 pub struct SystemFonts {
     factory: IDWriteFactory2,
     collection: IDWriteFontCollection,
-    /// Each family's weights, lightest first; None when it is not installed.
+    /// Private collection built from font files in `fonts/` beside the core,
+    /// when any are present.
+    bundled: Option<IDWriteFontCollection>,
+    /// Each family's weights, lightest first; None when it is not available.
     families: Mutex<HashMap<String, Option<Vec<Weight>>>>,
+}
+
+/// Logs bundled font loading once per process instead of every time the
+/// settings window queries available fonts.
+static LOGGED_BUNDLED: Once = Once::new();
+
+/// Whether `path` has a font file extension DirectWrite's font set builder
+/// understands.
+fn is_font_file(path: &Path) -> bool {
+    path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "ttf" | "otf" | "ttc" | "otc"))
+}
+
+/// Font files directly inside `dir`, sorted by path for deterministic loading.
+fn font_files_in(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut files: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).filter(|path| path.is_file() && is_font_file(path)).collect();
+    files.sort();
+    files
+}
+
+/// Builds a private DirectWrite font collection from every readable font file
+/// in `dir`; None when `dir` has none or DirectWrite lacks `IDWriteFactory5`.
+fn load_bundled(factory: &IDWriteFactory2, dir: &Path, log_load: bool) -> Option<IDWriteFontCollection> {
+    let files = font_files_in(dir);
+    if files.is_empty() {
+        return None;
+    }
+    unsafe {
+        let factory5: IDWriteFactory5 = factory.cast().ok()?;
+        let builder = factory5.CreateFontSetBuilder().ok()?;
+        let mut added = 0usize;
+        for path in &files {
+            let wide = HSTRING::from(path.as_os_str());
+            match factory5.CreateFontFileReference(&wide, None).and_then(|file| builder.AddFontFile(&file)) {
+                Ok(()) => added += 1,
+                Err(e) if log_load => log!("fonts: skipping {}: {e}", path.display()),
+                Err(_) => {}
+            }
+        }
+        if added == 0 {
+            return None;
+        }
+        let set = builder.CreateFontSet().ok()?;
+        let collection = factory5.CreateFontCollectionFromFontSet(&set).ok()?;
+        if log_load {
+            log!("fonts: loaded {added} bundled font file(s) from {}", dir.display());
+        }
+        collection.cast().ok()
+    }
+}
+
+/// The weights of `family` in `collection`: its faces as wide and as upright
+/// as its regular one, as their maker made them.
+fn load_from(collection: &IDWriteFontCollection, family: &str) -> Option<Vec<Weight>> {
+    unsafe {
+        let (mut index, mut exists) = (0u32, false.into());
+        collection.FindFamilyName(&HSTRING::from(family), &mut index, &mut exists).ok()?;
+        if !exists.as_bool() {
+            return None;
+        }
+        let family = collection.GetFontFamily(index).ok()?;
+        let regular = family.GetFirstMatchingFont(DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL).ok()?;
+        let (stretch, style) = (regular.GetStretch(), regular.GetStyle());
+        let mut weights: Vec<Weight> = Vec::new();
+        for i in 0..family.GetFontCount() {
+            let Ok(font) = family.GetFont(i) else { continue };
+            if font.GetStretch() != stretch || font.GetStyle() != style || font.GetSimulations() != DWRITE_FONT_SIMULATIONS_NONE {
+                continue;
+            }
+            let weight = font.GetWeight().0.clamp(1, 999) as u16;
+            if weights.iter().any(|w| w.weight == weight) {
+                continue;
+            }
+            let name = font.GetFaceNames().ok().and_then(|names| localized(&names, "en-us")).unwrap_or_else(|| weight_name(weight).to_string());
+            weights.push(Weight { weight, name, font });
+        }
+        weights.sort_by_key(|w| w.weight);
+        (!weights.is_empty()).then_some(weights)
+    }
+}
+
+/// Appends families from `collection` that have every character of `text`,
+/// skipping any English family name already in `seen`.
+fn collect_families_with(collection: &IDWriteFontCollection, text: &str, language: Language, seen: &mut HashSet<String>, out: &mut Vec<(String, String)>) {
+    unsafe {
+        for i in 0..collection.GetFontFamilyCount() {
+            let Ok(family) = collection.GetFontFamily(i) else { continue };
+            let Ok(names) = family.GetFamilyNames() else { continue };
+            let Some(english) = localized(&names, "en-us") else { continue };
+            if english.starts_with('@') || seen.contains(&english) {
+                continue;
+            }
+            let Ok(font) = family.GetFirstMatchingFont(DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL) else { continue };
+            let has = text.chars().all(|c| font.HasCharacter(c as u32).is_ok_and(|h| h.as_bool()));
+            if has {
+                let shown = localized(&names, language.locale()).unwrap_or_else(|| english.clone());
+                seen.insert(english.clone());
+                out.push((english, shown));
+            }
+        }
+    }
 }
 
 /// The string of `names` in `locale`.
@@ -129,46 +238,30 @@ unsafe impl Sync for SystemFonts {}
 
 impl SystemFonts {
     pub fn new() -> Result<Self> {
+        let dir = crate::base::paths::core_dir().ok().map(|d| d.join("fonts"));
+        let mut log_load = false;
+        LOGGED_BUNDLED.call_once(|| log_load = true);
+        Self::open(dir.as_deref(), log_load)
+    }
+
+    fn open(bundled_dir: Option<&Path>, log_load: bool) -> Result<Self> {
         unsafe {
             let factory: IDWriteFactory2 = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).map_err(|e| format!("DWriteCreateFactory: {e}"))?;
             let mut collection = None;
             factory.GetSystemFontCollection(&mut collection, false).map_err(|e| format!("system font collection: {e}"))?;
             let collection = collection.ok_or("no system font collection")?;
-            Ok(Self { factory, collection, families: Mutex::new(HashMap::new()) })
+            let bundled = bundled_dir.and_then(|dir| load_bundled(&factory, dir, log_load));
+            Ok(Self { factory, collection, bundled, families: Mutex::new(HashMap::new()) })
         }
     }
 
-    /// The weights of an installed family: its faces as wide and as upright
-    /// as its regular one, as their maker made them.
+    /// The weights of a bundled or installed family: its faces as wide and as
+    /// upright as its regular one, as their maker made them.
     fn load(&self, family: &str) -> Option<Vec<Weight>> {
-        unsafe {
-            let (mut index, mut exists) = (0u32, false.into());
-            self.collection.FindFamilyName(&HSTRING::from(family), &mut index, &mut exists).ok()?;
-            if !exists.as_bool() {
-                return None;
-            }
-            let family = self.collection.GetFontFamily(index).ok()?;
-            let regular = family.GetFirstMatchingFont(DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL).ok()?;
-            let (stretch, style) = (regular.GetStretch(), regular.GetStyle());
-            let mut weights: Vec<Weight> = Vec::new();
-            for i in 0..family.GetFontCount() {
-                let Ok(font) = family.GetFont(i) else { continue };
-                if font.GetStretch() != stretch || font.GetStyle() != style || font.GetSimulations() != DWRITE_FONT_SIMULATIONS_NONE {
-                    continue;
-                }
-                let weight = font.GetWeight().0.clamp(1, 999) as u16;
-                if weights.iter().any(|w| w.weight == weight) {
-                    continue;
-                }
-                let name = font.GetFaceNames().ok().and_then(|names| localized(&names, "en-us")).unwrap_or_else(|| weight_name(weight).to_string());
-                weights.push(Weight { weight, name, font });
-            }
-            weights.sort_by_key(|w| w.weight);
-            (!weights.is_empty()).then_some(weights)
-        }
+        self.bundled.as_ref().and_then(|collection| load_from(collection, family)).or_else(|| load_from(&self.collection, family))
     }
 
-    /// What `f` makes of `family`'s weights, when it is installed.
+    /// What `f` makes of `family`'s weights, when it is available.
     fn with_weights<T>(&self, family: &str, f: impl FnOnce(&[Weight]) -> T) -> Option<T> {
         let mut families = self.families.lock().unwrap_or_else(|e| e.into_inner());
         families.entry(family.to_string()).or_insert_with(|| self.load(family)).as_deref().map(f)
@@ -183,43 +276,33 @@ impl SystemFonts {
         .flatten()
     }
 
-    /// Whether `family` is installed.
+    /// Whether `family` is available (bundled or installed in Windows).
     pub fn has_family(&self, family: &str) -> bool {
         self.with_weights(family, |_| ()).is_some()
     }
 
     /// The weights `family` comes in, lightest first, each with its English
-    /// name; none when it is not installed.
+    /// name; none when it is not available.
     pub fn weights(&self, family: &str) -> Vec<(u16, String)> {
         self.with_weights(family, |weights| weights.iter().map(|w| (w.weight, w.name.clone())).collect()).unwrap_or_default()
     }
 
     /// `face` as it is drawn: in the weight of its family that draws it (see
-    /// [`weight_for`]); None when the family is not installed.
+    /// [`weight_for`]); None when the family is not available.
     pub fn drawn(&self, face: &Face) -> Option<Face> {
         let have: Vec<u16> = self.weights(&face.family).into_iter().map(|(w, _)| w).collect();
         drawn_in(&have, face)
     }
 
-    /// Installed families that have every character of `text`, as (English
-    /// name, name in `language`), sorted by the latter.
+    /// Bundled and installed families that have every character of `text`, as
+    /// (English name, name in `language`), sorted by the latter.
     pub fn families_with(&self, text: &str, language: Language) -> Vec<(String, String)> {
         let mut out = Vec::new();
-        unsafe {
-            for i in 0..self.collection.GetFontFamilyCount() {
-                let Ok(family) = self.collection.GetFontFamily(i) else { continue };
-                let Ok(names) = family.GetFamilyNames() else { continue };
-                let Some(english) = localized(&names, "en-us") else { continue };
-                let Ok(font) = family.GetFirstMatchingFont(DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL) else { continue };
-                let has = text.chars().all(|c| font.HasCharacter(c as u32).is_ok_and(|h| h.as_bool()));
-                if has && !english.starts_with('@') {
-                    let shown = localized(&names, language.locale()).unwrap_or_else(|| english.clone());
-                    out.push((english, shown));
-                }
-            }
+        let mut seen = HashSet::new();
+        for collection in self.bundled.iter().chain(std::iter::once(&self.collection)) {
+            collect_families_with(collection, text, language, &mut seen, &mut out);
         }
         out.sort_by(|a, b| a.1.cmp(&b.1));
-        out.dedup();
         out
     }
 
@@ -413,5 +496,57 @@ mod tests {
         assert_eq!(weight_name(350), "SemiLight");
         assert_eq!(weight_name(999), "ExtraBlack");
         assert_eq!(Face::new("KaiTi", 700).to_string(), "\"KaiTi\" 700");
+    }
+
+    #[test]
+    fn loads_the_three_bundled_chinese_fonts_and_deduplicates_them() {
+        use crate::base::settings::{default_face, Role};
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("fonts");
+        let fonts = SystemFonts::open(Some(&dir), false).unwrap();
+        let bundled = fonts.bundled.as_ref().expect("bundled font collection loaded from repo fonts/");
+        let expected = [
+            (Role::Body, "FZPingXianYaSongS-R-GB", "方正屏显雅宋简体"),
+            (Role::Heading, "FZYaSongS-B-GB", "方正粗雅宋简体"),
+            (Role::Map, "FZShengShiKaiShuS-EB-GB", "方正盛世楷书简体_大"),
+        ];
+        let mut bundled_families = Vec::new();
+        let mut seen = HashSet::new();
+        collect_families_with(bundled, Language::SimpChinese.native_name(), Language::SimpChinese, &mut seen, &mut bundled_families);
+        for (role, english, chinese) in expected {
+            assert!(load_from(bundled, english).is_some(), "{english} is loaded in the bundled collection");
+            assert!(bundled_families.contains(&(english.to_string(), chinese.to_string())), "{english} ({chinese}) missing from {bundled_families:?}");
+            assert_eq!(default_face(Language::SimpChinese, role, |f| fonts.has_family(f)), Face::regular(english));
+            let glyph = fonts.rasterize(&Face::regular(english), '永' as u32, 20.0).unwrap();
+            assert!(glyph.width > 8 && glyph.height > 8 && glyph.alpha.iter().any(|&a| a > 0), "{english}: {glyph:?}");
+        }
+        // Combined family listing offers each bundled family once even when Windows also has it installed.
+        let offered = fonts.families_with(Language::SimpChinese.native_name(), Language::SimpChinese);
+        for (_, english, chinese) in expected {
+            assert_eq!(offered.iter().filter(|(e, _)| e == english).count(), 1, "{english} appears once");
+            assert!(offered.contains(&(english.to_string(), chinese.to_string())), "{english} shown as {chinese}");
+        }
+    }
+
+    #[test]
+    fn missing_empty_or_corrupt_bundled_fonts_do_not_break_system_fonts() {
+        let scratch = std::env::temp_dir().join(format!("eu4h-bundled-fonts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        // Missing directory: no bundled collection, system fonts still work.
+        let missing = SystemFonts::open(Some(&scratch), false).unwrap();
+        assert!(missing.bundled.is_none());
+        // Empty directory: no bundled collection.
+        std::fs::create_dir_all(&scratch).unwrap();
+        assert!(SystemFonts::open(Some(&scratch), false).unwrap().bundled.is_none());
+        // Corrupt file alone: skipped without failing SystemFonts::open.
+        std::fs::write(scratch.join("broken.ttf"), b"not a font").unwrap();
+        assert!(SystemFonts::open(Some(&scratch), false).unwrap().bundled.is_none());
+        // Corrupt file beside a real bundled font: the valid font still loads.
+        let real = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("fonts").join("simp_chinese_default_body.ttf");
+        std::fs::copy(&real, scratch.join("simp_chinese_default_body.ttf")).unwrap();
+        let mixed = SystemFonts::open(Some(&scratch), false).unwrap();
+        let bundled = mixed.bundled.as_ref().expect("valid font loads beside a corrupt one");
+        assert!(load_from(bundled, "FZPingXianYaSongS-R-GB").is_some());
+        drop(mixed);
+        let _ = std::fs::remove_dir_all(&scratch);
     }
 }

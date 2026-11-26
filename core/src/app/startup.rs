@@ -178,7 +178,9 @@ fn tell_missing_fonts(chosen: &settings::Settings) {
     for (font, role) in chosen.missing_fonts(installed) {
         let default = settings::default_face(chosen.language(), role, installed).family;
         log!("settings: the font {font:?} is not installed; {default} draws instead");
-        notice::post(&format!("font:{font}"), notice::Repeat::Run, notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", &default));
+        let shown =
+            if settings::is_bundled_default_family(&default) { loc::framework(chosen.language(), "EU4HARMONY_SETTINGS_FONT_DEFAULT", &[]) } else { default };
+        notice::post(&format!("font:{font}"), notice::Repeat::Run, notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", &shown));
     }
     for face in settings::Role::ALL.into_iter().filter_map(|role| chosen.chosen(role)) {
         if let Some(drawn) = fonts.drawn(face).filter(|drawn| drawn != face) {

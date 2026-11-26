@@ -18,6 +18,19 @@ pub(super) const GAME_FILES: [(&str, &str); 4] = [
     ("eu4-harmony-dump-writer.exe", "eu4-harmony\\eu4-harmony-dump-writer.exe"),
 ];
 
+/// Default Chinese fonts bundled beside the core: each one's file name in
+/// `fonts/` and its path in the game folder and packages.
+pub(super) const BUNDLED_FONTS: [(&str, &str); 3] = [
+    ("simp_chinese_default_body.ttf", "eu4-harmony\\fonts\\simp_chinese_default_body.ttf"),
+    ("simp_chinese_default_heading.ttf", "eu4-harmony\\fonts\\simp_chinese_default_heading.ttf"),
+    ("simp_chinese_default_map.ttf", "eu4-harmony\\fonts\\simp_chinese_default_map.ttf"),
+];
+
+/// The repository's `fonts/` directory, holding the bundled default fonts.
+pub(super) fn fonts_dir() -> PathBuf {
+    repo().join("fonts")
+}
+
 /// Distributed separately from the framework installation. `install`
 /// leaves it out: a developer runs the one in `target\` or the CLI ZIP.
 const TOOL: (&str, &str) = ("eu4-harmony.exe", "eu4-harmony.exe");
@@ -110,17 +123,17 @@ fn build_in(profile: &str, feature: Option<&str>) -> Result<()> {
 
 /// Copies the files as last built into the game folder `root`.
 fn install_built(root: &Path) -> Result<()> {
-    let installed = install_from(&built(), &repo().join("dev.toml"), root)?;
+    let installed = install_from(&built(), &fonts_dir(), &repo().join("dev.toml"), root)?;
     println!("installed:");
     installed.iter().for_each(|path| println!("  {}", path.display()));
     Ok(())
 }
 
-/// Copies the files the game loads from the build output `out`, and the
-/// options `options` if there are any, into the game folder `root`, keeping
-/// aside a `version.dll` not ours and leaving ours alone when it is as built;
-/// the files it installed.
-pub fn install_from(out: &Path, options: &Path, root: &Path) -> Result<Vec<PathBuf>> {
+/// Copies the files the game loads from the build output `out`, the bundled
+/// fonts from `fonts`, and the options `options` if there are any, into the
+/// game folder `root`, keeping aside a `version.dll` not ours and leaving ours
+/// alone when it is as built; the files it installed.
+pub fn install_from(out: &Path, fonts: &Path, options: &Path, root: &Path) -> Result<Vec<PathBuf>> {
     let proxy = root.join("version.dll");
     let backup = root.join(KEPT_PROXY);
     for (name, _) in GAME_FILES {
@@ -128,7 +141,12 @@ pub fn install_from(out: &Path, options: &Path, root: &Path) -> Result<Vec<PathB
             return Err(format!("missing {}; run cargo build --release", out.join(name).display()));
         }
     }
-    create_dir(&root.join("eu4-harmony"))?;
+    for (name, _) in BUNDLED_FONTS {
+        if !fonts.join(name).is_file() {
+            return Err(format!("missing bundled font {}", fonts.join(name).display()));
+        }
+    }
+    create_dir(&root.join("eu4-harmony").join("fonts"))?;
     if proxy.exists() && !ours(&proxy) {
         if backup.exists() {
             return Err(format!("both {} and {} exist and neither is ours", proxy.display(), backup.display()));
@@ -153,6 +171,11 @@ pub fn install_from(out: &Path, options: &Path, root: &Path) -> Result<Vec<PathB
         copy(&from, &to)?;
         installed.push(to);
     }
+    for (name, to) in BUNDLED_FONTS {
+        let to = root.join(to);
+        copy(&fonts.join(name), &to)?;
+        installed.push(to);
+    }
     let options_installed = root.join(DEV_OPTIONS);
     if options.is_file() {
         copy(options, &options_installed)?;
@@ -171,25 +194,33 @@ pub fn release(args: &Args) -> Result<()> {
     // unoptimized release build is never packed.
     build_in(PACKAGE_PROFILE, None)?;
     let from = built_package();
-    pack_from(&from, &out, env!("CARGO_PKG_VERSION"))?;
+    pack_from(&from, &fonts_dir(), &out, env!("CARGO_PKG_VERSION"))?;
     if !args.flag("no-workshop") {
         crate::workshop::pack(&from)?;
     }
     Ok(())
 }
 
+/// The framework package's source paths paired with their paths inside the
+/// archive: built binaries from `from` and bundled fonts from `fonts`.
+fn framework_entries(from: &Path, fonts: &Path) -> Vec<(PathBuf, &'static str)> {
+    GAME_FILES.into_iter().map(|(name, rel)| (from.join(name), rel)).chain(BUNDLED_FONTS.into_iter().map(|(name, rel)| (fonts.join(name), rel))).collect()
+}
+
 /// Packs the two independent products. Check all inputs before replacing
 /// either output, and leave release.json from release-check alone.
-fn pack_from(from: &Path, out: &Path, version: &str) -> Result<()> {
-    for (name, _) in GAME_FILES.into_iter().chain([TOOL]) {
-        if !from.join(name).metadata().is_ok_and(|m| m.is_file() && m.len() > 0) {
-            return Err(format!("missing or empty {} after cargo build --profile {PACKAGE_PROFILE}", from.join(name).display()));
+fn pack_from(from: &Path, fonts: &Path, out: &Path, version: &str) -> Result<()> {
+    let framework_files = framework_entries(from, fonts);
+    let cli_files = [(from.join(TOOL.0), TOOL.1)];
+    for (source, _) in framework_files.iter().chain(&cli_files) {
+        if !source.metadata().is_ok_and(|m| m.is_file() && m.len() > 0) {
+            return Err(format!("missing or empty {}", source.display()));
         }
     }
     create_dir(out)?;
     let (framework, cli) = crate::release::artifact_names(version);
-    pack_archive(from, &out.join("framework"), &out.join(framework), &GAME_FILES)?;
-    pack_archive(from, &out.join("cli"), &out.join(cli), &[TOOL])
+    pack_archive(&out.join("framework"), &out.join(framework), &framework_files)?;
+    pack_archive(&out.join("cli"), &out.join(cli), &cli_files)
 }
 
 fn tar() -> std::process::Command {
@@ -197,17 +228,17 @@ fn tar() -> std::process::Command {
     std::process::Command::new(system.join("tar.exe"))
 }
 
-fn pack_archive(from: &Path, folder: &Path, zip: &Path, files: &[(&str, &str)]) -> Result<()> {
+fn pack_archive(folder: &Path, zip: &Path, files: &[(PathBuf, &str)]) -> Result<()> {
     if folder.exists() {
         fs::remove_dir_all(folder).map_err(|e| format!("cannot remove {}: {e}", folder.display()))?;
     }
     if zip.exists() {
         remove_file(zip)?;
     }
-    for (name, relative) in files {
+    for (source, relative) in files {
         let to = folder.join(relative);
         create_dir(to.parent().expect("a file's folder"))?;
-        copy(&from.join(name), &to)?;
+        copy(source, &to)?;
     }
     let mut archive = tar();
     archive.arg("-a").arg("-c").arg("-f").arg(zip).arg("-C").arg(folder);
@@ -215,14 +246,14 @@ fn pack_archive(from: &Path, folder: &Path, zip: &Path, files: &[(&str, &str)]) 
     // being included through a recursively archived folder.
     archive.args(files.iter().map(|(_, relative)| *relative));
     run(archive, "tar")?;
-    verify_archive(zip, from, files)?;
+    verify_archive(zip, files)?;
     println!("packed: {}", zip.display());
     Ok(())
 }
 
 /// Check the actual archive's file set and bytes, not just the staging
 /// folder. This is local validation, not a published checksum deliverable.
-fn verify_archive(zip: &Path, from: &Path, files: &[(&str, &str)]) -> Result<()> {
+fn verify_archive(zip: &Path, files: &[(PathBuf, &str)]) -> Result<()> {
     let listing = tar().arg("-t").arg("-f").arg(zip).output().map_err(|e| format!("cannot list {}: {e}", zip.display()))?;
     if !listing.status.success() {
         return Err(format!("cannot list {}: {}", zip.display(), String::from_utf8_lossy(&listing.stderr).trim()));
@@ -234,7 +265,7 @@ fn verify_archive(zip: &Path, from: &Path, files: &[(&str, &str)]) -> Result<()>
     if actual != expected {
         return Err(format!("{} has unexpected contents: {actual:?}, expected {expected:?}", zip.display()));
     }
-    for (name, relative) in files {
+    for (source, relative) in files {
         let extracted = tar()
             .arg("-x")
             .arg("-O")
@@ -243,7 +274,7 @@ fn verify_archive(zip: &Path, from: &Path, files: &[(&str, &str)]) -> Result<()>
             .arg(relative.replace('\\', "/"))
             .output()
             .map_err(|e| format!("cannot check {relative} in {}: {e}", zip.display()))?;
-        let original = fs::read(from.join(name)).map_err(|e| format!("cannot read {name}: {e}"))?;
+        let original = fs::read(source).map_err(|e| format!("cannot read {}: {e}", source.display()))?;
         if !extracted.status.success() || extracted.stdout != original {
             return Err(format!("{relative} in {} differs from the player build", zip.display()));
         }
@@ -333,30 +364,47 @@ mod tests {
         module
     }
 
+    fn bundled_fonts(dir: &Path, tag: &[u8]) {
+        fs::create_dir_all(dir).unwrap();
+        for (name, _) in BUNDLED_FONTS {
+            let mut bytes = tag.to_vec();
+            bytes.extend_from_slice(name.as_bytes());
+            fs::write(dir.join(name), bytes).unwrap();
+        }
+    }
+
     #[test]
     fn packages_keep_framework_and_cli_separate_and_preserve_release_metadata() {
         let dir = scratch("packages");
         let from = dir.join("build");
+        let fonts = dir.join("fonts");
         let out = dir.join("dist");
         build_output(&from, b"release bytes");
+        bundled_fonts(&fonts, b"font:");
         create_dir(&out.join("framework")).unwrap();
         fs::write(out.join("framework").join("dev.toml"), "obsolete").unwrap();
         fs::write(out.join("release.json"), "metadata").unwrap();
-        pack_from(&from, &out, "0.2.0").unwrap();
+        pack_from(&from, &fonts, &out, "0.2.0").unwrap();
         assert!(!out.join("framework").join("dev.toml").exists());
         assert!(!out.join("framework").join("eu4-harmony.exe").exists());
         assert!(!out.join("framework").join("eu4-harmony").join("eu4-harmony.exe").exists());
         assert!(!out.join("cli").join("version.dll").exists());
+        assert!(!out.join("cli").join("eu4-harmony").exists());
         assert_eq!(fs::read(out.join("cli").join("eu4-harmony.exe")).unwrap(), b"release bytes");
         assert_eq!(fs::read_to_string(out.join("release.json")).unwrap(), "metadata");
         let (framework, cli) = crate::release::artifact_names("0.2.0");
-        verify_archive(&out.join(&framework), &from, &GAME_FILES).unwrap();
-        verify_archive(&out.join(&cli), &from, &[TOOL]).unwrap();
+        let fw_entries = framework_entries(&from, &fonts);
+        let cli_entries = [(from.join(TOOL.0), TOOL.1)];
+        verify_archive(&out.join(&framework), &fw_entries).unwrap();
+        verify_archive(&out.join(&cli), &cli_entries).unwrap();
         fs::write(from.join("eu4-harmony.exe"), b"changed").unwrap();
-        assert!(verify_archive(&out.join(cli), &from, &[TOOL]).unwrap_err().contains("differs from"));
+        assert!(verify_archive(&out.join(cli), &cli_entries).unwrap_err().contains("differs from"));
         fs::remove_file(from.join("eu4-harmony.exe")).unwrap();
-        assert!(pack_from(&from, &out, "0.2.0").unwrap_err().contains("missing or empty"));
-        assert!(out.join(framework).is_file(), "missing input does not delete a previous package");
+        assert!(pack_from(&from, &fonts, &out, "0.2.0").unwrap_err().contains("missing or empty"));
+        assert!(out.join(&framework).is_file(), "missing input does not delete a previous package");
+        fs::write(from.join("eu4-harmony.exe"), b"release bytes").unwrap();
+        fs::remove_file(fonts.join(BUNDLED_FONTS[0].0)).unwrap();
+        assert!(pack_from(&from, &fonts, &out, "0.2.0").unwrap_err().contains("missing or empty"));
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -366,17 +414,21 @@ mod tests {
     #[test]
     fn installs_beside_a_loaded_proxy() {
         let dir = scratch("loaded");
-        let (first, second, root) = (dir.join("first"), dir.join("second"), dir.join("game"));
+        let (first, second, fonts, root) = (dir.join("first"), dir.join("second"), dir.join("fonts"), dir.join("game"));
         build_output(&first, b"first");
         build_output(&second, b"second");
+        bundled_fonts(&fonts, b"ttf:");
         fs::create_dir_all(&root).unwrap();
         let options = dir.join("no-dev.toml");
-        install_from(&first, &options, &root).unwrap();
+        install_from(&first, &fonts, &options, &root).unwrap();
+        for (name, to) in BUNDLED_FONTS {
+            assert_eq!(fs::read(root.join(to)).unwrap(), fs::read(fonts.join(name)).unwrap());
+        }
 
         let module = load(&root.join("version.dll"));
         assert!(fs::remove_file(root.join("version.dll")).is_err(), "a loaded DLL cannot be removed");
-        install_from(&first, &options, &root).unwrap();
-        install_from(&second, &options, &root).unwrap();
+        install_from(&first, &fonts, &options, &root).unwrap();
+        install_from(&second, &fonts, &options, &root).unwrap();
         assert_eq!(fs::read(root.join("version.dll")).unwrap(), fs::read(second.join("version.dll")).unwrap());
         assert_eq!(fs::read(root.join("eu4-harmony").join("eu4_harmony_core.dll")).unwrap(), b"second");
         let old = || fs::read_dir(&root).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().starts_with(OLD_PROXY)).count();

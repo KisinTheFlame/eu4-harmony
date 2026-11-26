@@ -117,9 +117,13 @@ pub fn pack(built: &Path) -> Result<()> {
     if item.exists() {
         fs::remove_dir_all(&item).map_err(|e| format!("cannot remove {}: {e}", item.display()))?;
     }
-    fs::create_dir_all(item.join("eu4-harmony")).map_err(|e| format!("cannot make {}: {e}", item.display()))?;
+    fs::create_dir_all(item.join("eu4-harmony").join("fonts")).map_err(|e| format!("cannot make {}: {e}", item.display()))?;
     for (name, to) in crate::files::GAME_FILES {
         copy(&built.join(name), &item.join(to))?;
+    }
+    let fonts = crate::files::fonts_dir();
+    for (name, to) in crate::files::BUNDLED_FONTS {
+        copy(&fonts.join(name), &item.join(to))?;
     }
     let template = sources().join("descriptor.mod");
     let template = fs::read_to_string(&template).map_err(|e| format!("cannot read {}: {e}", template.display()))?;
