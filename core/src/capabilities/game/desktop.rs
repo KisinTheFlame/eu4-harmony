@@ -10,7 +10,8 @@ fn now() -> Desktop {
 fn refused(refused: crate::tweaks::hidden::Refused) -> Fail {
     use crate::tweaks::hidden::Refused;
     match refused {
-        Refused::NotHiddenStart => Fail { status: Status::InvalidArgument, message: "the game was not started hidden (-harmony_hidden)".into() },
+        Refused::NotControllable => Fail { status: Status::InvalidArgument, message: "the game was not started hidden (-harmony_hidden) or as a test game".into() },
+        Refused::Fullscreen => Fail { status: Status::InvalidArgument, message: "a fullscreen game window cannot be hidden".into() },
         Refused::NoWindow => Fail { status: Status::NotReady, message: "the game has no window yet".into() },
     }
 }

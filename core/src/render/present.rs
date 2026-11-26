@@ -1,7 +1,7 @@
 //! Presentation lifecycle around the game's Direct3D 9 `Present` and device
 //! reset wrappers (`0x16d4db0` and `0x16d4bb0`).
 //!
-//! Owns frame holding (`hold` / `let_go` / `holding`), hidden-start
+//! Owns frame holding (`hold` / `let_go` / `holding`), unattended-run
 //! `S_PRESENT_OCCLUDED` handling, device tracking (`super::d3d9`), and the
 //! explicit split between main-thread and drawing-thread present phases so
 //! main-thread-only work (such as font page growth, ADR font-pages-grow)
@@ -100,14 +100,14 @@ trait PresentHost {
     fn drawing_present_ends(&mut self);
     fn submission_begins(&mut self) -> Self::Token;
     fn submission_ends(&mut self, token: Self::Token, success: bool, main_thread: bool);
-    fn hidden_start(&self) -> bool;
+    fn unattended(&self) -> bool;
     fn d3d9_present(&mut self, device: *mut c_void) -> bool;
     fn write_presented_flag(&mut self, renderer: usize, ok: u8);
     fn original_present(&mut self, renderer: usize) -> u8;
 }
 
 fn call_present_with<H: PresentHost>(host: &mut H, renderer: usize) -> u8 {
-    if !host.hidden_start() {
+    if !host.unattended() {
         return host.original_present(renderer);
     }
     let Some(device) = host.device_of(renderer).filter(|p| !p.is_null()) else {
@@ -260,8 +260,8 @@ impl PresentHost for LiveHost {
         probes::submission_ends(token, success, main_thread);
     }
 
-    fn hidden_start(&self) -> bool {
-        crate::base::hidden_start()
+    fn unattended(&self) -> bool {
+        crate::base::unattended()
     }
 
     fn d3d9_present(&mut self, device: *mut c_void) -> bool {
@@ -384,7 +384,7 @@ mod tests {
         fn submission_ends(&mut self, _token: u32, success: bool, main_thread: bool) {
             self.submissions.push((success, main_thread));
         }
-        fn hidden_start(&self) -> bool {
+        fn unattended(&self) -> bool {
             self.hidden
         }
         fn d3d9_present(&mut self, _device: *mut c_void) -> bool {

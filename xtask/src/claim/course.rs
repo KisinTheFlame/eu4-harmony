@@ -28,6 +28,9 @@ pub enum Claimed {
 /// How a test game is started.
 #[derive(Clone, Debug, Default)]
 pub struct Starting {
+    /// Start with the window shown from launch (instead of `-harmony_hidden`).
+    pub visible: bool,
+    /// Keep audio enabled (instead of `-harmony_mute`).
     pub sound: bool,
     pub seed: Option<u32>,
     /// The saves to copy (explicit paths or names from `%LOCALAPPDATA%\eu4-harmony-dev\saves\`) into the test game's user folder.
@@ -232,7 +235,7 @@ fn start_in_place<M: Machine>(m: &M, owner: &str, claim: &Claim, game_dir: &Path
     let user = user_dir(claim);
     let log = user.join("eu4-harmony").join("logs").join("core.log");
     let test_game = TestGame { name: owner.to_string(), user_dir: user, core };
-    let start = Start { hidden: true, sound: starting.sound, seed: starting.seed, user_dir: None, test_game: Some(test_game) };
+    let start = Start { hidden: !starting.visible, mute: !starting.sound, seed: starting.seed, user_dir: None, test_game: Some(test_game) };
     // A game that ends before its main menu is followed by no `follow.exe`,
     // so the start records its end, for the release to tell of.
     let (started, seconds) = m.start_game(game_dir, &log, &start, wait).map_err(|failed| {
@@ -537,5 +540,20 @@ mod tests {
         let m = Recorded::new(State { claims: vec![held("a")] });
         assert!(claim_for_run(&m, "a", "scenarios", game_dir()).unwrap_err().contains("holds a test game already"));
         assert_eq!(m.state.lock().unwrap().claims.len(), 1);
+    }
+
+    /// `--visible` and `--sound` independently control `-harmony_hidden` and
+    /// `-harmony_mute` on a test game's start.
+    #[test]
+    fn visible_and_sound_independently_control_hidden_and_mute() {
+        let cases = [(false, false, true, true), (true, false, false, true), (false, true, true, false), (true, true, false, false)];
+        for (visible, sound, expected_hidden, expected_mute) in cases {
+            let m = Recorded::new(State::default());
+            claim(&m, "a", "flags", game_dir()).unwrap();
+            start_game(&m, "a", game_dir(), &Starting { visible, sound, ..Default::default() }, Duration::from_secs(300), &|| false).unwrap();
+            let recorded = m.starts.lock().unwrap();
+            assert_eq!(recorded.len(), 1);
+            assert_eq!((recorded[0].hidden, recorded[0].mute), (expected_hidden, expected_mute), "visible={visible} sound={sound}");
+        }
     }
 }

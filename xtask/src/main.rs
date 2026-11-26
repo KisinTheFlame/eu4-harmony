@@ -46,7 +46,7 @@ usage:
       each --save (an explicit .eu4 file path, or a save name in
       %LOCALAPPDATA%\\eu4-harmony-dev\\saves\\), then starts it hidden
       and without sound and waits for its main menu, ending a start that
-      does not get there; --visible shows its window there, --sound keeps
+      does not get there; --visible shows its window from startup, --sound keeps
       its sound, --seed passes the game its own -seed=<n>, and each --mod
       <folder> enables a test mod. Its pipe is the owner's:
       eu4-harmony game --test-game <owner>, or

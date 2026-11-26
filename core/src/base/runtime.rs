@@ -1,6 +1,6 @@
 //! Process-wide runtime primitives shared across the core: error type,
 //! panic guard, thread identities, bootstrap timing, folders, window handle,
-//! hidden-start flags, and session counter mirror.
+//! unattended/hidden flags, and session counter mirror.
 #[cfg(not(test))]
 use super::notice;
 use super::{log, report};
@@ -37,8 +37,8 @@ pub(crate) static DRAWING_THREAD: AtomicU32 = AtomicU32::new(0);
 static BOOTSTRAP: OnceLock<std::time::Instant> = OnceLock::new();
 /// The game's Win32 window handle, once attached.
 static GAME_WINDOW: AtomicIsize = AtomicIsize::new(0);
-/// Whether `-harmony_hidden` was passed on the game's command line.
-static HIDDEN_START: AtomicBool = AtomicBool::new(false);
+/// Whether the process runs unattended (`-harmony_hidden` or `-harmony_test_game`).
+static UNATTENDED: AtomicBool = AtomicBool::new(false);
 /// Whether the game's window is currently hidden.
 static HIDDEN_NOW: AtomicBool = AtomicBool::new(false);
 /// Mirror of the active session number for base-level services such as notices.
@@ -96,14 +96,14 @@ pub(crate) fn game_window() -> Option<HWND> {
     (window != 0).then_some(window as HWND)
 }
 
-/// Records whether `-harmony_hidden` was present on startup.
-pub(crate) fn set_hidden_start(hidden: bool) {
-    HIDDEN_START.store(hidden, Ordering::Relaxed);
+/// Records whether this run is unattended (`-harmony_hidden` or `-harmony_test_game`).
+pub(crate) fn set_unattended(unattended: bool) {
+    UNATTENDED.store(unattended, Ordering::Relaxed);
 }
 
-/// Whether the game was started with `-harmony_hidden`.
-pub(crate) fn hidden_start() -> bool {
-    HIDDEN_START.load(Ordering::Relaxed)
+/// Whether this run is unattended (`-harmony_hidden` or `-harmony_test_game`).
+pub(crate) fn unattended() -> bool {
+    UNATTENDED.load(Ordering::Relaxed)
 }
 
 /// Records whether the game's window is hidden right now.

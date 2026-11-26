@@ -359,7 +359,7 @@ Mouse and keyboard input a remote client gives the game as the player's own: cli
 _Avoid_: simulated, synthetic or fake input; SendInput (that is how a program outside the game sends input to whatever is in front)
 
 **Hidden start**:
-Starting the game without showing its window or, unless requested, playing sound. The game still draws and can later be shown.
+Starting the game without showing its window (`-harmony_hidden`). The game still draws and can later be shown; muting audio (`-harmony_mute`) is a separate switch.
 _Avoid_: headless (that also means not drawing, or no graphics card; docs/game/program/headless.md keeps the word to tell those meanings apart), background mode, invisible mode
 
 **Signal**:

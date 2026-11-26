@@ -225,12 +225,12 @@ unsafe fn of_game_class(window: HWND) -> bool {
 }
 
 /// The game's window: a window of this process without an owner, which is
-/// shown, or, in a hidden start, of the game's class.
+/// shown, or, in an unattended run, of the game's class.
 #[called_by_game]
 unsafe extern "system" fn find(window: HWND, found: LPARAM) -> BOOL {
     let mut process = 0;
     GetWindowThreadProcessId(window, &mut process);
-    let seen = IsWindowVisible(window) != 0 || (crate::base::hidden_start() && of_game_class(window));
+    let seen = IsWindowVisible(window) != 0 || (crate::base::unattended() && of_game_class(window));
     if process == GetCurrentProcessId() && seen && GetWindow(window, GW_OWNER).is_null() {
         *(found as *mut HWND) = window;
         return 0;

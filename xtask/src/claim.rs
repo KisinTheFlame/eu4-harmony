@@ -171,14 +171,14 @@ pub fn start_game_as(owner: &str, game_dir: &Path, starting: &Starting, wait: Du
     course::start_game(&ThisComputer, owner, game_dir, starting, wait, &|| false)
 }
 
-/// `cargo xtask game start`: starts this owner's test game hidden and waits
-/// for its main menu; with `--visible` shows it there, as `desktop.show`
-/// shows it. The start is a hidden start either way, so that `--sound`
-/// chooses the sound and the game can be hidden again. `--seed` starts it
-/// with the game's own `-seed`; each `--save` copies a save (explicit path
-/// or name in `%LOCALAPPDATA%\eu4-harmony-dev\saves\`) into the test game's
-/// user folder first, and each `--mod` puts a mod's
-/// folder in its playset, as a scenario's test mods are.
+/// `cargo xtask game start`: starts this owner's test game (hidden and muted
+/// by default) and waits for its main menu. `--visible` starts with its window
+/// shown from launch (still allowing `desktop.hide` / `desktop.show` later),
+/// and `--sound` keeps its sound; the two flags are independent. `--seed`
+/// starts it with the game's own `-seed`; each `--save` copies a save
+/// (explicit path or name in `%LOCALAPPDATA%\eu4-harmony-dev\saves\`) into the
+/// test game's user folder first, and each `--mod` puts a mod's folder in its
+/// playset, as a scenario's test mods are.
 fn start(args: &Args) -> Result<f64> {
     let wait = args
         .value("timeout")
@@ -186,24 +186,6 @@ fn start(args: &Args) -> Result<f64> {
     let seed = args.value("seed").map(|v| v.parse::<u32>().map_err(|_| format!("--seed {v}: a whole number below 2^32"))).transpose()?;
     let owner = owner(args)?;
     let mods = args.values("mod").into_iter().map(std::path::PathBuf::from).collect();
-    let starting = Starting { sound: args.flag("sound"), seed, saves: args.values("save"), options: None, mods, build: None };
-    let took = start_game_as(&owner, &args.game_dir()?, &starting, wait)?;
-    if args.flag("visible") {
-        show(&pipe_of(&owner)?).map_err(|why| format!("the game runs hidden at its main menu, not shown: {why}; eu4-harmony game desktop show shows it"))?;
-        println!("the window is shown");
-    }
-    Ok(took)
-}
-
-/// Shows the game's window, through remote control on the pipe `name`.
-fn show(name: &str) -> Result<()> {
-    use eu4_harmony_client::pipe;
-    use eu4_harmony_remote::desktop::{Desktop, DesktopRequest};
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    let mut client = pipe::connect(name, pipe::GAME, deadline).map_err(|e| e.to_string())?;
-    match client.ask_for::<_, Desktop>(&DesktopRequest::Show {}, Some(deadline)).map_err(|e| e.to_string())? {
-        Ok(desktop) if !desktop.hidden => Ok(()),
-        Ok(_) => Err("desktop.show answered that the window is still hidden".into()),
-        Err(refused) => Err(format!("desktop.show: {refused}")),
-    }
+    let starting = Starting { visible: args.flag("visible"), sound: args.flag("sound"), seed, saves: args.values("save"), options: None, mods, build: None };
+    start_game_as(&owner, &args.game_dir()?, &starting, wait)
 }
