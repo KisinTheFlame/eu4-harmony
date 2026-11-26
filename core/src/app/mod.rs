@@ -39,27 +39,19 @@ fn wire_all() {
     });
     native::physfs::set_on_first_init(deferred_init);
     render::present::set_hooks(render::present::PresentHooks {
-        is_held: framework_ui::held,
         discard_late: interface::tooltips::discard_late,
-        before_present: |renderer, device| {
+        before_main_present: |renderer, device| {
+            // Font page growth touches game font objects and map names; it must
+            // run on the main thread only (ADR font-pages-grow).
             base::guarded("font pages", text::unicode::fill::grow_pages);
-            base::guarded("framework UI frame", || {
-                if let Some(device) = device {
-                    unsafe { framework_ui::frame(device) }
-                }
-            });
-            base::guarded("native tooltip over framework UI", || interface::tooltips::draw_late(renderer));
-            base::guarded("screenshot", || {
-                if let Some(device) = device {
-                    capabilities::game::screenshot::presenting(device);
-                }
-            });
+            unsafe { before_any_present(renderer, device) };
         },
+        before_drawing_present: before_any_present,
         after_main_present: |device| {
             base::guarded("safe point", safe_point::presented);
             base::guarded("input", || {
                 if let Some(device) = device {
-                    let (width, height) = unsafe { framework_ui::d3d9::Backend::screen(device) };
+                    let (width, height) = unsafe { render::d3d9::screen(device) };
                     capabilities::game::input::presenting((width as u32, height as u32));
                 }
             });
@@ -70,8 +62,6 @@ fn wire_all() {
             framework_ui::device_reset();
             capabilities::game::screenshot::device_reset();
         },
-        d3d9_present: |device| unsafe { framework_ui::d3d9::Backend::present(device).is_ok() },
-        d3d9_screen: |device| unsafe { framework_ui::d3d9::Backend::screen(device) },
     });
     render::window_input::set_hooks(render::window_input::InputHooks {
         on_real_input: capabilities::game::input::real,
@@ -81,7 +71,6 @@ fn wire_all() {
     render::drawing::set_hooks(render::drawing::DrawingHooks {
         on_prepared_safe_point: safe_point::presented,
         on_prepared_input: capabilities::game::input::presenting,
-        is_holding: framework_ui::holding,
         prepare_scene: interface::window_ordering::prepare_scene,
         cursor_now: capabilities::game::input::cursor_now,
     });
@@ -162,13 +151,25 @@ fn wire_all() {
             let r = lua::reload(caller, args)?;
             Ok(eu4_harmony_remote::extensions::Reloaded { session: r.session, lost: r.lost })
         },
-        ui_hold: framework_ui::hold,
-        ui_let_go: framework_ui::let_go,
         ui_still: framework_ui::still,
         #[cfg(feature = "dev")]
         answer_memory: dev::answer_memory,
         #[cfg(feature = "dev")]
         answer_performance: dev::answer_performance,
+    });
+}
+
+unsafe fn before_any_present(renderer: usize, device: Option<*mut std::ffi::c_void>) {
+    base::guarded("framework UI frame", || {
+        if let Some(device) = device {
+            unsafe { framework_ui::frame(device) }
+        }
+    });
+    base::guarded("native tooltip over framework UI", || interface::tooltips::draw_late(renderer));
+    base::guarded("screenshot", || {
+        if let Some(device) = device {
+            capabilities::game::screenshot::presenting(device);
+        }
     });
 }
 

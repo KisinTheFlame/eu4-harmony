@@ -589,7 +589,6 @@ fn pace() {
 pub(crate) struct DrawingHooks {
     pub(crate) on_prepared_safe_point: fn(),
     pub(crate) on_prepared_input: fn((u32, u32)),
-    pub(crate) is_holding: fn() -> bool,
     pub(crate) prepare_scene: fn(&Memory) -> crate::base::Result<()>,
     pub(crate) cursor_now: fn() -> Option<[i32; 2]>,
 }
@@ -735,7 +734,7 @@ extern "C" fn frame_draws(idler: usize) {
 /// holding frames back.
 fn main_draws(m: &Memory) -> bool {
     let debug_text = m.ptr(m.at(DEBUG_COUNTRY)).ok().is_none_or(|c| c != 0);
-    debug_text || DRAWING_HOOKS.get().is_some_and(|h| (h.is_holding)())
+    debug_text || super::present::holding()
 }
 
 /// Whether the drawing thread must not draw the frame prepared: what makes

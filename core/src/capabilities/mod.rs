@@ -14,8 +14,6 @@ pub(crate) struct CapabilityHooks {
     pub(crate) on_safe_frame: fn(),
     pub(crate) reload_extension:
         fn(crate::world::Caller, eu4_harmony_remote::extensions::args::Reload) -> crate::world::GResult<eu4_harmony_remote::extensions::Reloaded>,
-    pub(crate) ui_hold: fn(),
-    pub(crate) ui_let_go: fn() -> u64,
     pub(crate) ui_still: fn(&'static str),
     #[cfg(feature = "dev")]
     pub(crate) answer_memory: fn(eu4_harmony_remote::memory::MemoryRequest) -> Result<eu4_harmony_remote::memory::MemoryAnswer, eu4_harmony_remote::Error>,

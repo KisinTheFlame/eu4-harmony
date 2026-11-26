@@ -477,19 +477,14 @@ fn arm_skip_intro(m: &Memory, frontend: usize) -> crate::base::Result<()> {
 fn taking_over(call: &mut Call) {
     let frontend = call.arg(0);
     if frontend != 0 && RETURNED.load(Ordering::Relaxed) == frontend {
-        if let Some(h) = crate::capabilities::hooks() {
-            (h.ui_hold)();
-        }
+        crate::render::present::hold();
     }
 }
 
 fn took_over(call: &mut Call) {
     let frontend = call.arg(0);
     if frontend != 0 && RETURNED.compare_exchange(frontend, 0, Ordering::Relaxed, Ordering::Relaxed).is_ok() {
-        log!(
-            "leave: the main menu took over, {} of its presents held back",
-            crate::capabilities::hooks().map_or(0, |h| (h.ui_let_go)())
-        );
+        log!("leave: the main menu took over, {} of its presents held back", crate::render::present::let_go());
         if !call.faulted() {
             if let Err(e) = arm_skip_intro(&call.memory(), frontend) {
                 log!("leave: keeping the main menu's intro: {e}");
