@@ -11,6 +11,7 @@
 //! did, the history read after it, the first frame after it, and the map
 //! manager tearing down on an in-process return.
 mod ai_draws;
+mod canal_text;
 mod coalitions;
 mod estates;
 mod histories;
@@ -220,6 +221,7 @@ impl Repair {
 /// Every repair, in the order they act at each moment.
 const REPAIRS: &[Repair] = &[
     save_checksum::REPAIR,
+    canal_text::REPAIR,
     masks::REPAIR,
     coalitions::REPAIR,
     ai_draws::REPAIR,
