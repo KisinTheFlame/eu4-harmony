@@ -83,6 +83,17 @@ The sections below come from reading eu4.exe on 2026-11-02; none of it was tried
   - The achievements are a global made on first use (`0x96080`, `[0x233d890]`, 0xa8 bytes): `achievement_ok` comes from `0x96810`; the saver writes `achievement` from the vector at `+0x38` when achievements can be earned or at `+0x88` when not, and `completed_achievements` from `+0x50` (`0x751b02`..`0x751b38`), each a vector of i16 (`0x4213a0` steps 2 bytes). Nothing empties them before a new game; a load fills them from the save. The framework empties the three after every world reset. Tested: no `achievement` list after the 1724 session.
   - The gameplay options are read once the reset is done, by the single player setup (below), so a reset after the setup is made puts them back to their defaults.
 
+## The in-game menu
+
+Read from `eu4.exe` (`menubar.gui` and Ghidra decompilation) on 2026-11-26:
+
+- **Ownership and structure**: `0x8318f0` (called by `0x81af10` and `0x82b470`) creates the `"menu"` root window (`classes::WINDOW`, vtable `0x1d926b0`, defined in `interface/menubar.gui`) and stores it at `map_manager + 0x12f0`. Its top-level button panel is the child subwindow named `"menu_panel"` stored in the window's subwindow vector at `+0x958..+0x960` (`0x28`-byte entries: `std::string` name at `+0x00`, `CWindow*` at `+0x20`; looked up by `0x15481a0`, hidden in bulk by `0x1548570`, `CWindow` vtable slot `+0x188`).
+- **Opening and closing**:
+  - `0x824810(map_manager)` toggles the in-game menu: if `menu+0xf5 != 0` it calls `0x824b00(map_manager)`; otherwise it pauses single-player time, shows `menu` (slot `+0x88`), hides all of `menu`'s subwindows (`0x1548570`), shows `"menu_panel"` (`0x15481a0`, slot `+0x1c0`), and locks the camera (`[map_manager+0x1200]+0x758 = 1`).
+  - `0x824b00(map_manager)` closes any open sub-panel and re-opens `"menu_panel"` via `0x824810`; if no sub-panel is open, it hides `menu` (which recursively hides `"menu_panel"`) and unlocks the camera.
+  - Entering any sub-panel (`menu_load_button` `0x824dd0`, `menu_save_button` `0x824e50`, `menu_options_button` `0x824ee0`, `menu_ai_prefs_button` `0x825160`, `menu_message_button` `0x8254a0`) calls `menu`'s `0x1548570`, clearing `menu_panel+0xf5` while `menu+0xf5` remains non-zero. `menu_resign_button` (`0x827400`) hides `menu` and opens the resign confirmation popup.
+  - The map manager's frame checks `menu+0xf5` at `0x81892d` (`mov rax, [r15+0x12f0]; cmp byte ptr [rax+0xf5], 0`). Thus the top-level in-game menu is visible iff the current idler (`world+0x1e00`) is a `MAP_MANAGER`, `menu` at `+0x12f0` has `+0xf4 == 0` and `+0xf5 != 0`, and its `"menu_panel"` subwindow has `+0xf4 == 0` and `+0xf5 != 0`.
+
 ## Loading a save in a game
 
 - **The way in**: `menu_load_button` → `0x824dd0` (the map manager's delegate at `+0x26f0`; it refuses only in multiplayer, `+0x19f1`) hides the in-game menu (`+0x12f0`) and shows the load window (`+0x12f8`, vtable `0x1d62ca8`, made by `0x8318f0`). Its load delegate `0x11756b0` takes the save chosen in its list and asks "CONFIRMLOADSAVETITLE"/"CONFIRMLOADSAVETEXT" (`0x11be0b0`, shown by `0x6ecae0(map manager, window)`), or "SAVEGAME_WARNING_OLD_VERSION" for a save of an older version (`0xb29ca0`). Accepting (`0x11be2d0`, vtable `0x1d65aa0` slot `+0x50`) calls `0x1176020`, which calls `0x5d0580(&request)` and then `0x824810(map manager)`. The game console's `savegame_check` (`0xe95610`) calls `0x5d0580` too.
