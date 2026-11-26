@@ -223,7 +223,7 @@ extern "C" fn take_away_search_stub() {
 }
 
 /// Checked, every search made through the index is made as the game's too.
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "modifier-sums", group: "frames", points, checkable: true };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("modifier-sums", "frames", points, true);
 
 fn points() -> Vec<Point> {
     vec![

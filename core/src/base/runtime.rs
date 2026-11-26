@@ -15,6 +15,17 @@ use windows_sys::Win32::{Foundation::HWND, System::Threading::GetCurrentThreadId
 
 pub type Result<T> = std::result::Result<T, String>;
 
+/// What this build is, appended after the version and API version in logs and
+/// the startup report; `None` for a player build.
+pub(crate) fn build_label() -> Option<&'static str> {
+    #[cfg(feature = "dev")]
+    return Some("developer build");
+    #[cfg(all(feature = "dev-test-games", not(feature = "dev")))]
+    return Some("test games' pipes");
+    #[cfg(not(feature = "dev-test-games"))]
+    return None;
+}
+
 /// Marks a function the game's code calls, which runs under [`guarded`].
 pub(crate) use eu4_harmony_core_macros::called_by_game;
 

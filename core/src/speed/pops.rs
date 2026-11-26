@@ -8,7 +8,7 @@
 use crate::native::points::{Module, Place, Point};
 use crate::native::speed_up::SpeedUp;
 
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "pops-polling", group: "frames", points, checkable: false };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("pops-polling", "frames", points, false);
 
 fn points() -> Vec<Point> {
     vec![

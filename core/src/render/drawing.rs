@@ -58,7 +58,7 @@ use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 use turns::{At, DrawingSide, MainSide};
 
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "drawing-thread", group: "frames", points, checkable: false };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("drawing-thread", "frames", points, false);
 
 /// The in-game frame's call of its drawing: `mov rcx, r13; call 0x8183b0`,
 /// `r13` the in-game idler.

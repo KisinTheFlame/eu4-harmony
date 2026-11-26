@@ -36,6 +36,27 @@ mod waiting;
 pub use session_interface::SessionInterface;
 
 use crate::{native::memory::Memory, native::points::Point};
+use std::sync::OnceLock;
+
+/// Optional developer-build switches passed in once at startup so repairs never
+/// read `dev.toml` directly.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Config {
+    pub(crate) log_stats: bool,
+    pub(crate) check_repairs: bool,
+    pub(crate) game_ends_dependencies: bool,
+    pub(crate) game_shares_ai_draws: bool,
+}
+
+static CONFIG: OnceLock<Config> = OnceLock::new();
+
+pub(crate) fn configure(config: Config) {
+    let _ = CONFIG.set(config);
+}
+
+pub(super) fn config() -> Config {
+    CONFIG.get().copied().unwrap_or_default()
+}
 
 /// While it lives, `repair` lets the game's memory go on this thread: a
 /// developer build's quarantine keeps what is freed then, while it is on

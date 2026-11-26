@@ -1001,7 +1001,10 @@ mod compare {
 /// Checked, the game's own loops write into the save as always, beside the
 /// pool, and where the world has written its game state the pool's bytes
 /// are compared with what each loop wrote.
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "parallel-saves", group: "saving", points, checkable: true };
+#[cfg(feature = "dev")]
+pub const SPEED_UP: SpeedUp = SpeedUp::new("parallel-saves", "saving", points, true).with_compare(replace_compare_points);
+#[cfg(not(feature = "dev"))]
+pub const SPEED_UP: SpeedUp = SpeedUp::new("parallel-saves", "saving", points, true);
 
 /// Replaces the read-only `PROVINCES_END` and `COUNTRIES_END` points with
 /// jump stubs that record where the game's own loops end for comparison.

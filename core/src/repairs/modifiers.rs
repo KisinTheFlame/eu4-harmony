@@ -152,7 +152,7 @@ fn modifiers_copied(call: &mut Call) {
     let (modifiers, other) = (call.arg(0), call.arg(1));
     let lost = kept_modifier_sets(modifiers);
     if !lost.is_empty() {
-        if crate::base::dev_options::check_repairs() {
+        if super::config().check_repairs {
             check_listed(&m, modifiers, &lost);
         }
         MODIFIER_SETS_WAITING_COUNT.fetch_add(lost.len(), Ordering::Relaxed);

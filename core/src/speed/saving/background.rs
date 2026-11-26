@@ -70,7 +70,7 @@ const TMP_SUFFIX: &str = ".eu4harmony-tmp";
 
 /// Left to the game, a local save's entries are deflated at the game's level
 /// on the main thread, as before.
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "background-compression", group: "saving", points, checkable: false };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("background-compression", "saving", points, false).with_shared(save_points);
 
 pub(crate) fn save_points() -> Vec<Point> {
     vec![

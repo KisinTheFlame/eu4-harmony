@@ -18,7 +18,8 @@
 //! as before.
 use super::folder::{list, read_as_written, Kind};
 use crate::base::called_by_game;
-use crate::native::points::{Function, GameFunction, Point};
+use crate::native::physfs;
+use crate::native::points::{Function, Point};
 use crate::native::speed_up::{self as speed, SpeedUp};
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
@@ -33,12 +34,10 @@ const STAT: usize = 0x1a061d0;
 /// `PHYSFS_ERR_NOT_FOUND`) and set (`0x19f8510`).
 const STAT_FAILS: usize = 0x1a062a3;
 const NOT_FOUND_MADE: usize = 0x1a06a00;
-pub(super) const SET_ERROR: GameFunction<1> = GameFunction::at(0x19f8510);
-pub(super) const NOT_FOUND: usize = 0xb;
 
 /// Checked, the game's stat answers every path the listings answer missing
 /// as well, and the game's answer is kept.
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "lookups", group: "loading", points, checkable: true };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("lookups", "loading", points, true);
 
 fn points() -> Vec<Point> {
     vec![
@@ -48,8 +47,7 @@ fn points() -> Vec<Point> {
             "ff 15 ef 03 16 00 48 8b ce 8b d8 e8 fd 34 ff ff 8b cb e8 d6 06 00 00 85 c0 0f 84 02 01 00 00 8b c8 e9 f6 00",
             "PhysFS stat fails",
         ),
-        Point::keep(NOT_FOUND_MADE, "b8 0b 00 00 00 c3", "PhysFS's not found from Windows'").uses(&[NOT_FOUND]),
-        Point::keep(SET_ERROR, "85 c9 74 7f 57 48 83 ec 20 8b f9 48 89 5c 24 30", "PhysFS sets its error"),
+        Point::keep(NOT_FOUND_MADE, "b8 0b 00 00 00 c3", "PhysFS's not found from Windows'").uses(&[physfs::NOT_FOUND]),
     ]
 }
 
@@ -90,7 +88,7 @@ extern "C" fn stat(path: *const c_char, st: usize, follow: i32) -> i32 {
         return game;
     }
     let m = crate::native::hooked_memory();
-    let _ = SET_ERROR.call(&m, [NOT_FOUND]);
+    physfs::set_not_found(&m);
     let n = ANSWERED.fetch_add(1, Ordering::Relaxed) + 1;
     if n.is_power_of_two() && n >= 1024 {
         log!("lookups: {n} paths answered missing from the folders' listings");

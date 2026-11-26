@@ -29,7 +29,7 @@ static ORIGINAL_ADD: Function<Add> = Function::new();
 /// Left to the game, every plain save chosen is deflated for no one.
 /// There is nothing to check: what the change leaves out is a copy nothing
 /// reads in single player.
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "transfer-copy", group: "loading", points, checkable: false };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("transfer-copy", "loading", points, false);
 
 fn points() -> Vec<Point> {
     vec![

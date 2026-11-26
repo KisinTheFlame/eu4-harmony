@@ -37,7 +37,6 @@ fn wire_all() {
         settings::Listener::Drawing => render::drawing::set(current.frame_rate_limit),
         settings::Listener::CameraZoom => tweaks::camera_zoom::configure(current.zoom_smoothing, current.zoom_step),
     });
-    native::speed_up::set_registry(&speed_registry::ALL);
     native::physfs::set_on_first_init(deferred_init);
     render::present::set_hooks(render::present::PresentHooks {
         is_held: framework_ui::held,
@@ -180,7 +179,9 @@ fn start(m: memory::Memory) -> std::result::Result<String, Failure> {
     if dev::fail_startup() {
         return Err("fail-startup is on in dev.toml's [test-switches]".to_string().into());
     }
-    speed_registry::check_switches()?;
+    repairs::configure(dev::repair_config());
+    let (game_paths, checked) = dev::speed_switches();
+    speed_registry::init(game_paths, checked)?;
     points::register_checked(&this_build::declared());
     let installed = points::install(m, &this_build::installed(m)).map_err(|reason| Failure::mismatch(reason, startup_failure::FailureStage::Points))?;
     dev::after_install();
@@ -242,7 +243,7 @@ fn bootstrap() -> std::result::Result<(), Failure> {
 /// or test-games build what it is.
 fn build() -> String {
     let api = format!(" (api {})", eu4_harmony_remote::API_VERSION);
-    match dev::build_label() {
+    match base::build_label() {
         Some(label) => format!("{api}, {label}"),
         None => api,
     }

@@ -507,7 +507,7 @@ extern "C" fn walked_stub() {
 
 /// Checked, every search taken is worked out again as the game does, and a
 /// difference counted; the search worked out ahead is kept.
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "army-searches", group: "ai", points, checkable: true };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("army-searches", "ai", points, true);
 
 /// The searches' points. The first is the King's walk of its children, where
 /// the searches are handed out: the developer build's `agents-order` walks

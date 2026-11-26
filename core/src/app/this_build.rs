@@ -32,13 +32,12 @@ pub(crate) fn declared() -> Vec<Point> {
     let mut all = framework();
     all.extend(super::speed_registry::points());
     all.extend(crate::dev::points());
-    crate::dev::adjust_declared(&mut all);
     all
 }
 
 pub(crate) fn installed(m: Memory) -> Vec<Point> {
     let mut all = framework();
-    all.extend(super::speed_registry::installed());
+    all.extend(super::speed_registry::installed(crate::dev::keep_shared_speed_points()));
     crate::dev::installed_points(m, &mut all);
     all
 }

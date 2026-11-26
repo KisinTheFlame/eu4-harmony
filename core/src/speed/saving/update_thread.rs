@@ -40,7 +40,7 @@ static STOPS: AtomicU64 = AtomicU64::new(0);
 static WAKE: (Mutex<()>, Condvar) = (Mutex::new(()), Condvar::new());
 
 /// Left to the game, its update thread sleeps 50 ms between updates.
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "update-thread", group: "saving", points, checkable: false };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("update-thread", "saving", points, false);
 
 fn points() -> Vec<Point> {
     vec![

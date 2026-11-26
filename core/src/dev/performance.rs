@@ -139,14 +139,19 @@ struct Started {
     update: Option<u64>,
 }
 
-impl Submission {
-    pub(crate) fn into_probe(self) -> crate::native::probes::Submission {
-        crate::native::probes::Submission(self.0.map(|s| (s.generation, s.at, s.update)))
-    }
+thread_local! {
+    static IN_FLIGHT: std::cell::RefCell<Vec<Option<Started>>> = const { std::cell::RefCell::new(Vec::new()) };
+}
 
-    pub(crate) fn from_probe(probe: crate::native::probes::Submission) -> Self {
-        Self(probe.0.map(|(generation, at, update)| Started { generation, at, update }))
-    }
+pub(crate) fn probe_submission_begins() -> crate::native::probes::Submission {
+    let sub = submission_begins();
+    IN_FLIGHT.with(|stack| stack.borrow_mut().push(sub.0));
+    crate::native::probes::Submission(true)
+}
+
+pub(crate) fn probe_submission_ends(probe: crate::native::probes::Submission, success: bool, main_thread: bool) {
+    let started = if probe.0 { IN_FLIGHT.with(|stack| stack.borrow_mut().pop()).flatten() } else { None };
+    submission_ends(Submission(started), success, main_thread);
 }
 
 /// The collection: its state behind a lock, the gate callers read before

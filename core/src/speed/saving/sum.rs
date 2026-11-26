@@ -38,7 +38,7 @@ const PARTS_A_THREAD: usize = 4;
 const GUESS: u32 = 1;
 
 /// Left to the game, its sum takes a byte at a time on the main thread.
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "save-sum", group: "saving", points, checkable: false };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("save-sum", "saving", points, false);
 
 fn points() -> Vec<Point> {
     vec![

@@ -34,7 +34,7 @@ const MADE: usize = 0xda6905;
 /// Left to the game, every add walks its list: the walk finds what the
 /// game's finds, so the saves written after a load hold the lists the same
 /// either way.
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "children", group: "loading", points, checkable: false };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("children", "loading", points, false);
 
 fn points() -> Vec<Point> {
     vec![

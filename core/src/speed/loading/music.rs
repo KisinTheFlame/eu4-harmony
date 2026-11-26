@@ -43,7 +43,7 @@ const CACHE: &str = "music.txt";
 
 /// Checked, every file is read whole as well, its numbers compared with
 /// those kept and the game's kept.
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "music", group: "loading", points, checkable: true };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("music", "loading", points, true);
 
 fn points() -> Vec<Point> {
     vec![

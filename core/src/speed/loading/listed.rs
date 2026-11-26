@@ -65,7 +65,7 @@ const OPEN_WRITE: usize = 0x19fa240;
 /// Answered by the game's own stat as well, the answer is checked: whether
 /// the path is there and, if it is, whether a file or a folder; the game's is
 /// kept.
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "listed-folders", group: "loading", points, checkable: true };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("listed-folders", "loading", points, true);
 
 fn points() -> Vec<Point> {
     vec![
@@ -417,7 +417,7 @@ extern "C" fn ask(archive: usize, name: *const c_char, path: *const c_char, stat
             1
         }
         None => {
-            let _ = super::lookups::SET_ERROR.call(&m, [super::lookups::NOT_FOUND]);
+            crate::native::physfs::set_not_found(&m);
             0
         }
     }
