@@ -13,6 +13,7 @@
 mod achievements;
 mod crash_dumps;
 mod extensions;
+mod font_growth;
 mod game;
 mod late;
 mod leak;
@@ -185,6 +186,7 @@ fn all() -> Vec<&'static dyn Scenario> {
         &windows::Windows,
         &ordering::Ordering,
         &repairs::Repairs,
+        &font_growth::FontGrowth,
         &crash_dumps::CrashDumps,
         &late::Late,
         &late::LONG,
@@ -220,6 +222,7 @@ const SETS: &[Set] = &[
             "windows",
             "window-ordering",
             "repairs",
+            "font-growth",
             "crash-dumps",
             "late",
             "long-1444",
@@ -879,7 +882,7 @@ mod tests {
         assert!(whole.iter().any(|s| s == "long-1444") && !whole.iter().any(|s| s == "long"), "{whole:?}");
         assert!(!whole.iter().any(|s| s == "perf"), "whole must not include perf: {whole:?}");
         assert!(whole.iter().all(|s| find(s).is_some()), "{whole:?}");
-        for required in ["achievements", "window-ordering", "repairs", "crash-dumps"] {
+        for required in ["achievements", "window-ordering", "repairs", "font-growth", "crash-dumps"] {
             assert!(whole.iter().any(|s| s == required), "{required} missing from whole: {whole:?}");
         }
         let release = expanded(&words("release"));
