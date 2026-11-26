@@ -37,7 +37,7 @@ fn wire_all() {
         settings::Listener::Drawing => render::drawing::set(current.frame_rate_limit),
         settings::Listener::CameraZoom => tweaks::camera_zoom::configure(current.zoom_smoothing, current.zoom_step),
     });
-    native::physfs::set_on_first_init(deferred_init);
+    native::physfs::set_init_hooks(deferred_init, mount_framework_files);
     render::present::set_hooks(render::present::PresentHooks {
         discard_late: interface::tooltips::discard_late,
         before_main_present: |renderer, device| {
@@ -299,16 +299,20 @@ fn fail_startup(reason: String, mut told: Option<notice::Message>, outdated_prox
     });
 }
 
-/// Runs once, on the game thread, from the first PhysFS call: mounts the
-/// framework files when PhysFS just initialized, then runs the rest of
-/// startup (`startup`).
-fn deferred_init(mount_files: bool) {
-    if mount_files {
-        let mut all = text::unicode::files();
-        all.extend(interface::windows::files());
-        base::guarded("framework files", || native::files::mount(&all));
-    }
+/// Runs once, on the game thread, from the first PhysFS call: discovers mods,
+/// loads extensions (declaring window sprites and images), and sets the splice
+/// plan (`startup`).
+fn deferred_init() {
     startup::run(base::game_dir().map(std::path::Path::to_path_buf).unwrap_or_default(), STARTUP.get().map_or("?", String::as_str));
+}
+
+/// Mounts the framework's in-memory files into PhysFS on every successful
+/// `PHYSFS_init`, after `deferred_init` has loaded extension images/sprites so
+/// reinitialization during startup does not drop `eu4harmony.zip`.
+fn mount_framework_files() {
+    let mut all = text::unicode::files();
+    all.extend(interface::windows::files());
+    base::guarded("framework files", || native::files::mount(&all));
 }
 
 /// Entry point invoked by `eu4_harmony_bootstrap`. Returns 0 on success.
