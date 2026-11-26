@@ -90,7 +90,7 @@ impl Scenario for Sweep {
     }
 
     fn minutes(&self) -> u32 {
-        40
+        14
     }
 
     fn parameters(&self) -> &'static [Parameter] {
@@ -98,6 +98,11 @@ impl Scenario for Sweep {
             Parameter { name: "country", default: "FRA", about: "the country played, and put in view in observe mode" },
             Parameter { name: "places", default: "main menu,paused,at speed,observing,in view", about: "the places to sweep, by commas" },
             Parameter { name: "only", default: "", about: "only the capabilities whose full names begin with one of these, by commas" },
+            Parameter {
+                name: "all_edges",
+                default: "false",
+                about: "ask every edge value in every place; false asks edges in paused and non-game edges at the main menu",
+            },
         ]
     }
 
@@ -105,6 +110,7 @@ impl Scenario for Sweep {
         let country = parameters.text("country");
         let tag = CountryTag::parse(&country).ok_or_else(|| Stop::Failed(format!("no country tag {country:?}")))?;
         let asked_places = parameters.text("places");
+        let all_edges = parameters.flag("all_edges")?;
         let places: Vec<Place> = Place::ALL.into_iter().filter(|p| asked_places.split(',').any(|w| w.trim() == p.name())).collect();
         let only: Vec<String> = parameters.text("only").split(',').map(str::trim).filter(|w| !w.is_empty()).map(String::from).collect();
         let mut all: Vec<Capability> =
@@ -113,7 +119,7 @@ impl Scenario for Sweep {
         all.sort_by_key(acts);
         *record =
             json!({ "capabilities": all.len(), "places": places.iter().map(|p| p.name()).collect::<Vec<_>>(), "answers": {}, "findings": [], "left": [] });
-        let mut sweep = Swept { tag, findings: Vec::new(), answers: BTreeMap::new(), left: Vec::new(), asked: 0 };
+        let mut sweep = Swept { tag, all_edges, findings: Vec::new(), answers: BTreeMap::new(), left: Vec::new(), asked: 0 };
         let mut outcome = Ok(());
         for place in places {
             outcome = sweep.place(game, place, &all, record);
@@ -172,9 +178,15 @@ fn acts(c: &Capability) -> bool {
     matches!(result_shape(&c.name()), Some(eu4_harmony_remote::shape::Shape::Nothing))
 }
 
+/// Whether edge argument values are swept for `c` in `place`.
+fn include_edges(place: Place, c: &Capability, all_edges: bool) -> bool {
+    all_edges || place == Place::Paused || (place == Place::MainMenu && !c.in_game)
+}
+
 /// What the sweep found as it went.
 struct Swept {
     tag: CountryTag,
+    all_edges: bool,
     findings: Vec<Value>,
     /// For each capability, for each place, how many answers of each kind.
     answers: BTreeMap<String, BTreeMap<String, BTreeMap<String, u32>>>,
@@ -190,16 +202,33 @@ impl Swept {
         self.reach(game, place)?;
         let mut values = Values::of(game, place, self.tag)?;
         let mut last = String::from("the place's own reads");
+        let mut need_ensure = false;
+        let mut checked_after_reads = false;
         for c in all {
-            for (variant, args) in values.requests(c) {
-                self.ensure(game, place, &last)?;
+            let is_act = acts(c);
+            if is_act && !checked_after_reads {
+                need_ensure = true;
+                checked_after_reads = true;
+            }
+            if place == Place::Running {
+                need_ensure = true;
+            }
+            let with_edges = include_edges(place, c, self.all_edges);
+            for (variant, args) in values.requests(c, with_edges) {
+                if need_ensure {
+                    self.ensure(game, place, &last)?;
+                    need_ensure = false;
+                }
                 last = c.name();
                 if c.as_game && variant == Variant::Real {
                     self.asked += 1;
                     let as_player = Raw { name: c.name(), acting: None, args: args.clone() };
                     match game.try_ask::<Value>(&as_player, ANSWER)? {
                         Err(Error { code: Code::AsTheGame, .. }) => self.count(c, place, "as_the_game"),
-                        other => self.found(c, place, "as the player", format!("not refused as_the_game: {other:?}")),
+                        other => {
+                            self.found(c, place, "as the player", format!("not refused as_the_game: {other:?}"));
+                            need_ensure = true;
+                        }
                     }
                 }
                 let request = Raw { name: c.name(), acting: c.as_game.then_some(As::Game), args };
@@ -212,10 +241,14 @@ impl Swept {
                         // Gone on with only when the game still answers.
                         game.ask::<Menu>(&MenuRequest::State {})?;
                         self.count(c, place, "no answer");
+                        need_ensure = true;
                         continue;
                     }
                     other => other?,
                 };
+                if is_act {
+                    need_ensure = true;
+                }
                 match answer {
                     Ok(result) => {
                         self.count(c, place, "ok");
@@ -237,6 +270,9 @@ impl Swept {
                         self.count(c, place, &word);
                         if matches!(code, Code::Internal | Code::BadRequest) {
                             self.found(c, place, &written, format!("refused {word}: {message}"));
+                        }
+                        if matches!(code, Code::NotInGame | Code::SessionChanged) && place != Place::MainMenu {
+                            need_ensure = true;
                         }
                         // An argument may be refused first, the place after it.
                         let arguments = matches!(code, Code::InvalidArgument | Code::NotFound);
@@ -457,22 +493,25 @@ impl Values {
         }
     }
 
-    /// The requests of `c`: once with the player's arguments, then once for
-    /// each argument with each value at the edge of its kind.
-    fn requests(&self, c: &Capability) -> Vec<(Variant, Map<String, Value>)> {
+    /// The requests of `c`: once with the player's arguments, and when
+    /// `with_edges` holds, once for each argument with each value at the edge
+    /// of its kind.
+    fn requests(&self, c: &Capability, with_edges: bool) -> Vec<(Variant, Map<String, Value>)> {
         let mut real = Map::new();
         for arg in c.args.iter().filter(|a| !a.optional) {
             real.insert(arg.name.into(), self.real(c, arg.name, arg.kind));
         }
         let mut requests = vec![(Variant::Real, real.clone())];
-        for arg in c.args {
-            for edge in edges(c, arg.name, arg.kind) {
-                if real.get(arg.name) == Some(&edge) {
-                    continue;
+        if with_edges {
+            for arg in c.args {
+                for edge in edges(c, arg.name, arg.kind) {
+                    if real.get(arg.name) == Some(&edge) {
+                        continue;
+                    }
+                    let mut args = real.clone();
+                    args.insert(arg.name.into(), edge);
+                    requests.push((Variant::Edge, args));
                 }
-                let mut args = real.clone();
-                args.insert(arg.name.into(), edge);
-                requests.push((Variant::Edge, args));
             }
         }
         // A wait answers only once days have passed, which they do not in
@@ -583,13 +622,20 @@ mod tests {
         let all: Vec<Capability> = capabilities().into_iter().filter(swept).collect();
         assert!(all.len() > 250, "only {} capabilities swept", all.len());
         for c in &all {
-            let requests = v.requests(c);
+            let requests = v.requests(c, true);
             // A wait is asked only at its edges.
             assert_eq!(requests[0].0, if c.name() == "time.wait" { Variant::Edge } else { Variant::Real }, "{}", c.name());
             for arg in c.args.iter().filter(|a| !a.optional) {
                 assert!(requests[0].1.contains_key(arg.name), "{} has no value for {}", c.name(), arg.name);
                 let value = &requests[0].1[arg.name];
                 assert!(!value.is_null(), "{}'s {} is null", c.name(), arg.name);
+            }
+            let real_only = v.requests(c, false);
+            if c.name() == "time.wait" {
+                assert!(real_only.is_empty());
+            } else {
+                assert_eq!(real_only.len(), 1);
+                assert_eq!(real_only[0].0, Variant::Real);
             }
         }
         let fixed = [Kind::UnitKind, Kind::Button, Kind::Direction, Kind::Keys, Kind::PowerKind, Kind::Terms];
@@ -598,6 +644,13 @@ mod tests {
             assert!(!edges(&any, "x", *kind).is_empty(), "{kind:?} has no edge values");
         }
         assert!(!capabilities().iter().filter(|c| swept(c)).any(|c| c.name() == "menu.return" || c.group == "memory" || c.name() == "input.click"));
+        let menu_cap = all.iter().find(|c| !c.in_game).expect("at least one non-game capability");
+        let game_cap = eu4_harmony_remote::capability("building.build").unwrap();
+        assert!(include_edges(Place::Paused, game_cap, false));
+        assert!(!include_edges(Place::Running, game_cap, false));
+        assert!(!include_edges(Place::MainMenu, game_cap, false));
+        assert!(include_edges(Place::MainMenu, menu_cap, false));
+        assert!(include_edges(Place::Running, game_cap, true));
     }
 
     /// An answer's fields fill the arguments of their names, a choice the
@@ -610,17 +663,17 @@ mod tests {
             { "building": "marketplace", "can": true },
         ] }));
         let build = eu4_harmony_remote::capability("building.build").unwrap();
-        let requests = v.requests(build);
+        let requests = v.requests(build, true);
         assert_eq!(requests[0].1["building"], json!("marketplace"));
         assert_eq!(requests[0].1["province"], json!(183));
         let edges: Vec<&Value> = requests[1..].iter().map(|(_, args)| &args["building"]).collect();
         assert!(edges.contains(&&json!("")), "{edges:?}");
         let get = eu4_harmony_remote::capability("country.get").unwrap();
-        assert_eq!(v.requests(get)[0].1["country"], json!("FRA"), "a country's own read is of the player's");
+        assert_eq!(v.requests(get, true)[0].1["country"], json!("FRA"), "a country's own read is of the player's");
         let advance = eu4_harmony_remote::capability("time.advance").unwrap();
-        assert_eq!(v.requests(advance)[0].1["days"], json!(1));
+        assert_eq!(v.requests(advance, true)[0].1["days"], json!(1));
         let wait = eu4_harmony_remote::capability("time.wait").unwrap();
-        let days: Vec<Value> = v.requests(wait).into_iter().map(|(_, args)| args["days"].clone()).collect();
+        let days: Vec<Value> = v.requests(wait, true).into_iter().map(|(_, args)| args["days"].clone()).collect();
         assert_eq!(days, [json!(0), json!(36501)], "a wait is asked only at its edges");
     }
 

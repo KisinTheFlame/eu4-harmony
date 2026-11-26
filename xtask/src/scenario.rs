@@ -18,7 +18,6 @@ mod game;
 mod late;
 mod leak;
 mod logs;
-mod ordering;
 mod perf;
 mod repairs;
 mod sessions;
@@ -175,25 +174,21 @@ pub trait Scenario: Sync {
 }
 
 fn all() -> Vec<&'static dyn Scenario> {
-    let mut all: Vec<&'static dyn Scenario> = vec![
-        &perf::Perf,
-        &leak::GROWTH,
-        &leak::LEAK,
+    vec![
         &sweep::Sweep,
         &sessions::Sessions,
         &achievements::Achievements,
         &extensions::Extensions,
         &windows::Windows,
-        &ordering::Ordering,
         &repairs::Repairs,
         &font_growth::FontGrowth,
         &crash_dumps::CrashDumps,
-        &late::Late,
-        &late::LONG,
+        &late::LONG_1800,
         &late::CHECKED,
-    ];
-    all.extend(late::SEGMENTS.iter().map(|s| s as &dyn Scenario));
-    all
+        &perf::Perf,
+        &leak::GROWTH,
+        &leak::LEAK,
+    ]
 }
 
 fn find(name: &str) -> Option<&'static dyn Scenario> {
@@ -210,35 +205,12 @@ pub struct Set {
 }
 
 /// The sets, in `cargo xtask scenario`'s list after the scenarios.
-const SETS: &[Set] = &[
-    Set {
-        name: "whole",
-        about: "the framework through the real game from end to end, the long game in stretches side by side",
-        scenarios: &[
-            "sweep",
-            "sessions",
-            "achievements",
-            "extensions",
-            "windows",
-            "window-ordering",
-            "repairs",
-            "font-growth",
-            "crash-dumps",
-            "late",
-            "long-1444",
-            "long-1600",
-            "long-1700",
-            "long-1760",
-            "long-1780",
-            "long-1800",
-            "long-1820",
-            "checked",
-            "growth",
-        ],
-        jobs: claim::AT_ONCE,
-    },
-    Set { name: "release", about: "whole, and the long game played through in one, before a release", scenarios: &["whole", "long"], jobs: claim::AT_ONCE },
-];
+const SETS: &[Set] = &[Set {
+    name: "release",
+    about: "the release gate: end-to-end framework regression checks across the real game",
+    scenarios: &["sweep", "sessions", "achievements", "extensions", "windows", "repairs", "font-growth", "crash-dumps", "long-1800", "checked"],
+    jobs: claim::AT_ONCE,
+}];
 
 /// The names asked for, each set's in its place by the scenarios it names,
 /// a set it names by its own.
@@ -856,8 +828,8 @@ mod tests {
         assert_eq!(asked.parameters, [("leak".to_string(), "rounds".to_string(), "1".to_string())]);
         assert!(parse(&words("--rounds 1")).unwrap_err().contains("unknown option --rounds"));
         assert!(parse(&words("perf --out")).unwrap_err().contains("--out needs a value"));
-        assert_eq!(parse(&words("whole --jobs 3")).unwrap().jobs, Some(3));
-        assert!(parse(&words("whole --jobs 0")).unwrap_err().contains("a whole number above 0"));
+        assert_eq!(parse(&words("release --jobs 3")).unwrap().jobs, Some(3));
+        assert!(parse(&words("release --jobs 0")).unwrap_err().contains("a whole number above 0"));
     }
 
     /// A run names its owner, and each scenario's test game has a name of
@@ -874,20 +846,24 @@ mod tests {
     }
 
     #[test]
-    fn whole_plays_the_long_game_in_stretches_and_release_plays_it_through() {
-        assert_eq!(SETS.iter().find(|set| set.name == "whole").map(|set| set.jobs), Some(claim::AT_ONCE));
+    fn release_is_the_single_gate_set_and_excludes_diagnostics() {
+        let set_names: Vec<&str> = SETS.iter().map(|set| set.name).collect();
+        assert_eq!(set_names, ["release"]);
+        assert_eq!(SETS[0].jobs, claim::AT_ONCE);
         let alone: Vec<&str> = all().iter().filter(|s| s.alone()).map(|s| s.name()).collect();
         assert_eq!(alone, ["perf"]);
-        let whole = expanded(&words("whole"));
-        assert!(whole.iter().any(|s| s == "long-1444") && !whole.iter().any(|s| s == "long"), "{whole:?}");
-        assert!(!whole.iter().any(|s| s == "perf"), "whole must not include perf: {whole:?}");
-        assert!(whole.iter().all(|s| find(s).is_some()), "{whole:?}");
-        for required in ["achievements", "window-ordering", "repairs", "font-growth", "crash-dumps"] {
-            assert!(whole.iter().any(|s| s == required), "{required} missing from whole: {whole:?}");
-        }
         let release = expanded(&words("release"));
-        assert_eq!(release.len(), whole.len() + 1);
-        assert_eq!(release.last().map(String::as_str), Some("long"));
+        assert!(release.iter().all(|s| find(s).is_some()), "{release:?}");
+        for required in ["sweep", "sessions", "achievements", "extensions", "windows", "repairs", "font-growth", "crash-dumps", "long-1800", "checked"] {
+            assert!(release.iter().any(|s| s == required), "{required} missing from release: {release:?}");
+        }
+        for diagnostic in ["perf", "growth", "leak"] {
+            assert!(!release.iter().any(|s| s == diagnostic), "release must not include diagnostic {diagnostic}: {release:?}");
+            assert!(find(diagnostic).is_some(), "diagnostic {diagnostic} must stay registered");
+        }
+        for removed in ["late", "long", "long-1444", "long-1600", "long-1700", "long-1760", "long-1780", "long-1820", "window-ordering"] {
+            assert!(find(removed).is_none(), "removed scenario {removed} still registered");
+        }
     }
 
     #[test]

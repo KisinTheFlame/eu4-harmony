@@ -28,7 +28,7 @@ impl Scenario for Achievements {
     }
 
     fn minutes(&self) -> u32 {
-        6
+        2
     }
 
     fn parameters(&self) -> &'static [Parameter] {

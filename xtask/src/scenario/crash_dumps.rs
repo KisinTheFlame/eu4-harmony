@@ -31,7 +31,7 @@ impl Scenario for CrashDumps {
     }
 
     fn minutes(&self) -> u32 {
-        2
+        1
     }
 
     fn expects_crash(&self) -> bool {
