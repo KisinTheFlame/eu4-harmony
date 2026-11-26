@@ -16,6 +16,7 @@ fn framework() -> Vec<Point> {
     all.extend(crate::native::objects::points());
     all.extend(crate::native::game_string::points());
     all.extend(crate::native::game_heap::points());
+    all.extend(crate::native::crash::points());
     all.extend(crate::world::points());
     all.extend(crate::capabilities::points());
     all.extend(crate::interface::points());
@@ -23,7 +24,7 @@ fn framework() -> Vec<Point> {
     all.extend(crate::repairs::points());
     all.extend(crate::tweaks::points());
     all.extend(crate::text::points());
-    all.extend(crate::render::present::points());
+    all.extend(crate::render::points());
     all.extend(crate::speed::loading_times::points());
     all
 }

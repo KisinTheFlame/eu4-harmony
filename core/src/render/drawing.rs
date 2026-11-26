@@ -588,9 +588,7 @@ fn pace() {
 
 pub(crate) struct DrawingHooks {
     pub(crate) on_prepared_safe_point: fn(),
-    pub(crate) on_prepared_input: fn((u32, u32)),
     pub(crate) prepare_scene: fn(&Memory) -> crate::base::Result<()>,
-    pub(crate) cursor_now: fn() -> Option<[i32; 2]>,
 }
 
 static DRAWING_HOOKS: std::sync::OnceLock<DrawingHooks> = std::sync::OnceLock::new();
@@ -604,10 +602,6 @@ pub(super) fn prepare_scene_hook(m: &Memory) -> crate::base::Result<()> {
         Some(h) => (h.prepare_scene)(m),
         None => Ok(()),
     }
-}
-
-pub(super) fn cursor_now_hook() -> Option<[i32; 2]> {
-    DRAWING_HOOKS.get().and_then(|h| (h.cursor_now)())
 }
 
 /// The daily update begins (`game::events`): it lets the lock go.
@@ -708,10 +702,10 @@ impl course::StageOps for LiveStage<'_> {
         // frame outside a game, and the input taken for the next.
         if let Some(h) = DRAWING_HOOKS.get() {
             (h.on_prepared_safe_point)();
-            let screen = SCREEN.load(Ordering::Relaxed);
-            if screen != 0 {
-                (h.on_prepared_input)(((screen >> 32) as u32, screen as u32));
-            }
+        }
+        let screen = SCREEN.load(Ordering::Relaxed);
+        if screen != 0 {
+            super::input::presenting(((screen >> 32) as u32, screen as u32));
         }
     }
 

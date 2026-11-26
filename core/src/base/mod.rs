@@ -17,6 +17,7 @@ pub(crate) mod report;
 pub(crate) mod runtime;
 pub(crate) mod settings;
 pub(crate) mod stack;
+pub(crate) mod status;
 pub(crate) mod troubleshooting;
 pub(crate) mod zip;
 

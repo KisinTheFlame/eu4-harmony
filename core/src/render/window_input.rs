@@ -36,7 +36,6 @@ pub type Handler = fn(Event) -> bool;
 static HANDLER: std::sync::OnceLock<Handler> = std::sync::OnceLock::new();
 
 pub(crate) struct InputHooks {
-    pub(crate) on_real_input: fn(u32) -> bool,
     pub(crate) is_modal: fn() -> bool,
     pub(crate) on_wheel: fn(i16),
 }
@@ -180,7 +179,7 @@ fn dispatch_message(
 
 #[called_by_game]
 unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    if !INJECTING.load(Ordering::Relaxed) && crate::base::guarded("input from Windows", || HOOKS.get().is_some_and(|h| (h.on_real_input)(message))) {
+    if !INJECTING.load(Ordering::Relaxed) && crate::base::guarded("input from Windows", || super::input::real(message)) {
         return 0;
     }
     let handler = HANDLER.get().copied();

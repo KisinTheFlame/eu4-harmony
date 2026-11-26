@@ -13,15 +13,11 @@ use crate::native::points::Point;
 use std::sync::OnceLock;
 
 /// Callbacks wired by top-level `app` so `interface` never depends on
-/// `world`, `capabilities`, `lua`, `speed`, or `framework_ui`.
+/// `lua`, `speed`, or `framework_ui`.
 pub(crate) struct InterfaceHooks {
     pub(crate) mod_id: fn(usize) -> Option<String>,
-    pub(crate) in_game: fn(&Memory) -> bool,
-    pub(crate) modifiers_held: fn() -> (bool, bool),
     pub(crate) on_main_menu_frame: fn(usize, bool),
     pub(crate) framework_tooltip_at: fn() -> Option<Vec<u8>>,
-    pub(crate) player_letters: fn(&Memory) -> Option<String>,
-    pub(crate) resolve_shield_country: fn(&Memory, Option<&str>) -> Result<Option<u64>>,
 }
 
 static HOOKS: OnceLock<InterfaceHooks> = OnceLock::new();
@@ -35,11 +31,11 @@ pub(super) fn mod_id(extension: usize) -> Option<String> {
 }
 
 pub(super) fn in_game(m: &Memory) -> bool {
-    HOOKS.get().is_some_and(|h| (h.in_game)(m))
+    crate::world::context(m).is_ok()
 }
 
 pub(super) fn modifiers_held() -> (bool, bool) {
-    HOOKS.get().map_or((false, false), |h| (h.modifiers_held)())
+    crate::render::input::modifiers_held()
 }
 
 pub(super) fn on_main_menu_frame(frontend: usize, show_corner: bool) {
@@ -53,14 +49,20 @@ pub(super) fn framework_tooltip_at() -> Option<Vec<u8>> {
 }
 
 pub(super) fn player_letters(m: &Memory) -> Option<String> {
-    HOOKS.get().and_then(|h| (h.player_letters)(m))
+    crate::world::context(m).ok().map(|ctx| String::from_utf8_lossy(&ctx.player.letters()).into_owned())
 }
 
 pub(super) fn resolve_shield_country(m: &Memory, named: Option<&str>) -> Result<Option<u64>> {
-    match HOOKS.get() {
-        Some(h) => (h.resolve_shield_country)(m, named),
-        None => Ok(None),
-    }
+    let Ok(ctx) = crate::world::context(m) else {
+        return Ok(None);
+    };
+    let letters = match named {
+        Some(s) => s.to_string(),
+        None => String::from_utf8_lossy(&ctx.player.letters()).into_owned(),
+    };
+    let bytes: [u8; 3] = letters.as_bytes().try_into().map_err(|_| format!("{letters:?} is not a tag"))?;
+    let tag = crate::world::country_named(m, &ctx, eu4_harmony_remote::CountryTag(bytes)).map_err(|e| e.message)?;
+    Ok(Some(tag.0))
 }
 
 pub(crate) fn points() -> Vec<Point> {

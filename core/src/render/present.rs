@@ -206,18 +206,34 @@ impl PresentHost for LiveHost {
         if let Some(h) = HOOKS.get() {
             unsafe { (h.before_main_present)(renderer, device) };
         }
+        crate::base::guarded("screenshot", || {
+            if let Some(device) = device {
+                super::screenshot::presenting(device);
+            }
+        });
     }
 
     fn before_drawing_present(&mut self, renderer: usize, device: Option<*mut c_void>) {
         if let Some(h) = HOOKS.get() {
             unsafe { (h.before_drawing_present)(renderer, device) };
         }
+        crate::base::guarded("screenshot", || {
+            if let Some(device) = device {
+                super::screenshot::presenting(device);
+            }
+        });
     }
 
     fn after_main_present(&mut self, device: Option<*mut c_void>) {
         if let Some(h) = HOOKS.get() {
             unsafe { (h.after_main_present)(device) };
         }
+        crate::base::guarded("input", || {
+            if let Some(device) = device {
+                let (width, height) = unsafe { d3d9::screen(device) };
+                super::input::presenting((width as u32, height as u32));
+            }
+        });
     }
 
     fn screen_size(&mut self, device: *mut c_void) -> (f32, f32) {
@@ -271,6 +287,7 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
 fn before_reset(_: &mut Call) {
     probes::device_reset();
     d3d9::clear_device();
+    super::screenshot::device_reset();
     if let Some(h) = HOOKS.get() {
         (h.before_reset)();
     }

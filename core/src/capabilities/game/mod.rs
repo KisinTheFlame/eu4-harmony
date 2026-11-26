@@ -24,7 +24,6 @@ pub(crate) mod world;
 
 #[cfg(test)]
 pub(crate) use crate::fake_game::buffers;
-pub(crate) use crate::native::objects::gui_scale;
 pub(crate) use crate::world::{
     action, commands, conditions, content, context, context_any, country, envoys, fail, game, map_manager, modifiers, named, paused, player, power, reasons,
     special_countries, thousandths, unbulleted, view, world_context, world_context_any, As, Caller, Ctx, Fail, GResult, InWorld, Status, Tag, View, World,

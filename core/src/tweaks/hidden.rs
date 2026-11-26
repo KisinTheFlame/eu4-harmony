@@ -59,7 +59,6 @@ static SWITCHES: OnceLock<Switches> = OnceLock::new();
 
 pub(crate) struct HiddenHooks {
     pub(crate) on_early_sync: fn(),
-    pub(crate) on_hold_cursor: fn(Option<[i32; 2]>),
 }
 
 static HOOKS: OnceLock<HiddenHooks> = OnceLock::new();
@@ -161,9 +160,7 @@ pub fn show() -> Result<(), Refused> {
 pub fn hide() -> Result<(), Refused> {
     let window = window()?;
     if !crate::base::swap_hidden(true) {
-        if let Some(h) = HOOKS.get() {
-            (h.on_hold_cursor)(None);
-        }
+        crate::render::input::hold(None);
         conceal(window, true);
         log!("hidden start: the window is hidden again");
     }
@@ -355,9 +352,7 @@ unsafe extern "C" fn warp(device: usize, at: *const [i32; 2]) {
     if hidden() {
         let at = *at;
         crate::base::guarded("warp cursor", || {
-            if let Some(h) = HOOKS.get() {
-                (h.on_hold_cursor)(Some(at));
-            }
+            crate::render::input::hold(Some(at));
         });
     } else {
         ORIGINAL_WARP.get()(device, at);

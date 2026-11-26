@@ -16,7 +16,7 @@ use crate::{
     base::{self, heap, icu, lang, log, notice, paths, report, settings},
     capabilities, dev, framework_ui, interface, lua,
     native::{self, baseline, memory, points},
-    remote, render, repairs, session, speed, text, tweaks, world,
+    remote, render, repairs, session, speed, text, tweaks,
 };
 use std::sync::{atomic::Ordering, OnceLock};
 use windows_sys::Win32::System::{
@@ -47,34 +47,21 @@ fn wire_all() {
             unsafe { before_any_present(renderer, device) };
         },
         before_drawing_present: before_any_present,
-        after_main_present: |device| {
+        after_main_present: |_device| {
             base::guarded("safe point", safe_point::presented);
-            base::guarded("input", || {
-                if let Some(device) = device {
-                    let (width, height) = unsafe { render::d3d9::screen(device) };
-                    capabilities::game::input::presenting((width as u32, height as u32));
-                }
-            });
             base::guarded("text costs", text::unicode::costs::log_when_due);
         },
         before_reset: || {
             interface::tooltips::clear();
             framework_ui::device_reset();
-            capabilities::game::screenshot::device_reset();
         },
     });
-    render::window_input::set_hooks(render::window_input::InputHooks {
-        on_real_input: capabilities::game::input::real,
-        is_modal: framework_ui::modal,
-        on_wheel: tweaks::camera_zoom::before_sdl_wheel,
-    });
+    render::window_input::set_hooks(render::window_input::InputHooks { is_modal: framework_ui::modal, on_wheel: tweaks::camera_zoom::before_sdl_wheel });
     render::drawing::set_hooks(render::drawing::DrawingHooks {
         on_prepared_safe_point: safe_point::presented,
-        on_prepared_input: capabilities::game::input::presenting,
         prepare_scene: interface::window_ordering::prepare_scene,
-        cursor_now: capabilities::game::input::cursor_now,
     });
-    tweaks::hidden::set_hooks(tweaks::hidden::HiddenHooks { on_early_sync: proxy::sync_once, on_hold_cursor: capabilities::game::input::hold });
+    tweaks::hidden::set_hooks(tweaks::hidden::HiddenHooks { on_early_sync: proxy::sync_once });
     session::sessions::set_listener(|happening| {
         use session::sessions::Happening;
         match happening {
@@ -83,7 +70,7 @@ fn wire_all() {
                 capabilities::game::signals::session_forgotten();
                 capabilities::game::map::reset_session();
             }
-            Happening::Began(_) => capabilities::game::input::session_began(),
+            Happening::Began(_) => render::input::session_began(),
             Happening::Ended(session, end) => {
                 log!("session {session} ending ({end:?})");
                 capabilities::game::signal_costs::log_session();
@@ -97,7 +84,6 @@ fn wire_all() {
                 remote::campaign_changes();
             }
             Happening::WorldReset(world_ptr) => {
-                session::saves::clear_session();
                 repairs::world_reset(&native::hooked_memory(), world_ptr);
                 dev::world_reset();
             }
@@ -120,8 +106,6 @@ fn wire_all() {
     });
     interface::set_hooks(interface::InterfaceHooks {
         mod_id: lua::mod_id,
-        in_game: |m| world::context(m).is_ok(),
-        modifiers_held: capabilities::game::input::modifiers_held,
         on_main_menu_frame: |frontend, show_corner| {
             safe_point::main_menu_frame(frontend);
             speed::loading_times::log_main_menu();
@@ -130,20 +114,6 @@ fn wire_all() {
             }
         },
         framework_tooltip_at: framework_ui::tooltip_at,
-        player_letters: |m| world::context(m).ok().map(|ctx| String::from_utf8_lossy(&ctx.player.letters()).into_owned()),
-        resolve_shield_country: |m, named| {
-            let letters = match named {
-                Some(s) => s.to_string(),
-                None => match world::context(m).ok() {
-                    Some(ctx) => String::from_utf8_lossy(&ctx.player.letters()).into_owned(),
-                    None => return Ok(None),
-                },
-            };
-            let session = capabilities::game::WorldSession::open(world::Caller::Remote(world::As::Player)).map_err(|e| e.message)?;
-            let bytes: [u8; 3] = letters.as_bytes().try_into().map_err(|_| format!("{letters:?} is not a tag"))?;
-            let tag = capabilities::game::countries::named(session.m, &session.world, eu4_harmony_remote::CountryTag(bytes)).map_err(|e| e.message)?;
-            Ok(Some(tag.0))
-        },
     });
     capabilities::set_hooks(capabilities::CapabilityHooks {
         on_safe_frame: safe_point::game_frame,
@@ -166,11 +136,6 @@ unsafe fn before_any_present(renderer: usize, device: Option<*mut std::ffi::c_vo
         }
     });
     base::guarded("native tooltip over framework UI", || interface::tooltips::draw_late(renderer));
-    base::guarded("screenshot", || {
-        if let Some(device) = device {
-            capabilities::game::screenshot::presenting(device);
-        }
-    });
 }
 
 fn start(m: memory::Memory) -> std::result::Result<String, Failure> {

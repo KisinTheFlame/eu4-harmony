@@ -18,10 +18,7 @@ use eu4_harmony_remote::{
 /// `CAS`); [`super::Status::NotFound`] when there is none. Every capability
 /// that takes a country finds it here.
 pub fn named(m: &Memory, ctx: &impl InWorld, tag: CountryTag) -> GResult<Tag> {
-    match world::countries(m, ctx)?.into_iter().find(|t| t.letters() == tag.0) {
-        Some(found) => Ok(found),
-        None => Err(eu4_harmony_checks::countries::not_found(&tag.to_string()).into()),
-    }
+    crate::world::country_named(m, ctx, tag)
 }
 
 /// Whether the two countries are at war, or either is a rebel faction.
