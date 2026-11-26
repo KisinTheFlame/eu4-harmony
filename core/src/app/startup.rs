@@ -125,7 +125,7 @@ pub(crate) fn run(game_dir: PathBuf, installed: &str) {
         }
     };
     let logs = crate::base::open_logs(&user_dir);
-    crate::native::crash::register_windows_dumps(&user_dir);
+    crate::native::crash::register_windows_dumps();
     super::report_header(Some(&game_dir));
     log!("user dir {}", user_dir.display());
     let chosen = settings::load(&user_dir);

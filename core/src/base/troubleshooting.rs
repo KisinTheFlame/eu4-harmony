@@ -88,29 +88,10 @@ fn files_in(dir: &Path, under: &str, out: &mut Vec<Source>) -> std::io::Result<(
     Ok(())
 }
 
-fn harmony_dumps(user: &UserFolder, out: &mut Vec<Source>) -> crate::base::Result<()> {
-    let entries = match std::fs::read_dir(user.harmony_dumps()) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(format!("cannot list Harmony minidumps: {e}")),
-    };
-    for entry in entries {
-        let entry = entry.map_err(|e| e.to_string())?;
-        if let Some((pid, created)) = entry.file_name().to_str().and_then(eu4_harmony_folders::captured_dump_id) {
-            if entry.file_type().map_err(|e| e.to_string())?.is_file() {
-                let run = eu4_harmony_logging::process_run_id(pid, created);
-                out.push(Source::new(format!("harmony-dumps/{run}/minidump.dmp"), entry.path()));
-            }
-        }
-    }
-    Ok(())
-}
-
 /// Every existing crash folder is included; saves are never enumerated.
 fn sources(user: &UserFolder) -> crate::base::Result<Vec<Source>> {
     let mut out = Vec::new();
     files_in(&user.logs(), "harmony-logs", &mut out).map_err(|e| format!("cannot list framework logs: {e}"))?;
-    harmony_dumps(user, &mut out)?;
     files_in(&user.game_logs(), "game-logs", &mut out).map_err(|e| format!("cannot list game logs: {e}"))?;
     for name in user.crash_folders()? {
         files_in(&user.crashes().join(&name), &format!("crashes/{name}"), &mut out).map_err(|e| format!("cannot list crash folder {name}: {e}"))?;
@@ -289,9 +270,6 @@ mod tests {
         put(&user.core_log(), "core");
         put(&user.report(), "report");
         put(&user.logs().join("core.snapshot-run-1.new"), "in progress");
-        put(&user.harmony_dumps().join("harmony-42-000000000000abcd.dmp"), "complete");
-        put(&user.harmony_dumps().join("harmony-43-000000000000abcd.partial"), "in progress");
-        put(&user.harmony_dumps().join("unrelated.dmp"), "unrelated");
         put(&user.game_logs().join("error.log"), "error");
         for name in ["eu4_2026_11_08", "eu4_2026_11_09", "eu4_2026_11_10", "eu4_2026_11_11"] {
             put(&user.crashes().join(name).join("exception.txt"), name);
@@ -309,7 +287,6 @@ mod tests {
                 "crashes/eu4_2026_11_10/exception.txt",
                 "crashes/eu4_2026_11_11/exception.txt",
                 "game-logs/error.log",
-                "harmony-dumps/42-abcd/minidump.dmp",
                 "harmony-logs/core.log",
                 "harmony-logs/report.txt",
                 "settings/dlc_load.json",

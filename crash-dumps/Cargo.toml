@@ -4,13 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
+description = "Windows Error Reporting callback that writes minidumps when eu4.exe crashes"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
-
-[[bin]]
-name = "eu4-harmony-dump-writer"
-path = "src/main.rs"
+crate-type = ["cdylib"]
 
 [dependencies]
 eu4-harmony-folders = { path = "../folders" }

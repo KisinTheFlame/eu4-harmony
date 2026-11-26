@@ -16,13 +16,8 @@ use crate::native::points::Point;
 use std::time::Duration;
 use windows_sys::Win32::System::Diagnostics::Debug::{GetErrorMode, CONTEXT, SEM_NOGPFAULTERRORBOX};
 
-mod backup;
-
-pub(crate) fn register_windows_dumps(user: &std::path::Path) {
-    let ready = crate::base::paths::core_dir().and_then(|core| {
-        backup::init(&core, eu4_harmony_folders::UserFolder::new(user).harmony_dumps());
-        eu4_harmony_folders::windows_crash_callback::register(&core)
-    });
+pub(crate) fn register_windows_dumps() {
+    let ready = crate::base::paths::core_dir().and_then(|core| eu4_harmony_folders::windows_crash_callback::register(&core));
     match ready {
         Ok(()) if unsafe { GetErrorMode() } & SEM_NOGPFAULTERRORBOX != 0 => {
             log!("Windows crash minidumps: registered, but this process's error mode suppresses Windows Error Reporting");
@@ -114,15 +109,6 @@ fn read_exception(m: &Memory, pointers: usize) -> Option<(u32, u64, Vec<u64>, Co
 /// The game's crash handling begins to write a crash's files.
 fn crashed(call: &mut Call) {
     let m = call.memory();
-    let pointers = call.arg(1);
-    if pointers != 0 {
-        // The game's stack-overflow helper owns a different thread. Preserve
-        // the game's own dump there rather than attribute registers to it.
-        if m.ptr(pointers).and_then(|record| m.u32(record)).is_ok_and(|code| code != 0xc000_00fd) {
-            let tid = unsafe { windows_sys::Win32::System::Threading::GetThreadId(call.arg(2) as _) };
-            backup::capture(tid, pointers);
-        }
-    }
     let what = text(&m, call.arg(0));
     let date = match crate::native::objects::current_date(&m) {
         Some(date) => format!(", the game at {}", eu4_harmony_checks::Date(date)),
