@@ -4,7 +4,7 @@ use super::{
     course::{Course, Key, Role, Token},
     native, placement,
 };
-use crate::{memory::Memory, base::Result};
+use crate::{native::memory::Memory, base::Result};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -356,7 +356,7 @@ impl Registry {
         }
         // Derived windows also enter the shared display methods. Only an
         // ordinary GUI interface permits adopting its container into a scope.
-        if m.ptr(root + crate::objects::gui::window::GUI)? != m.at(crate::objects::gui::classes::WINDOW_GUI) {
+        if m.ptr(root + crate::native::objects::gui::window::GUI)? != m.at(crate::native::objects::gui::classes::WINDOW_GUI) {
             return Ok(());
         }
         let node = native::window_node(m, root)?;

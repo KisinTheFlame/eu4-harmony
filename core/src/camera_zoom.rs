@@ -31,11 +31,11 @@
 //!   camera moves such as menu sweeps and province jumps.
 use crate::base::called_by_game;
 use crate::drawing::SETTINGS;
-use crate::memory::Memory;
-use crate::objects::camera::camera as fields;
-use crate::objects::campaign::globals::MAP;
-use crate::objects::gui::globals::SCALE as GRAPHICS;
-use crate::points::{Function, Point};
+use crate::native::memory::Memory;
+use crate::native::objects::camera::camera as fields;
+use crate::native::objects::campaign::globals::MAP;
+use crate::native::objects::gui::globals::SCALE as GRAPHICS;
+use crate::native::points::{Function, Point};
 use crate::base::settings::{DEFAULT_ZOOM_SMOOTHING, DEFAULT_ZOOM_STEP, ZOOM_SMOOTHING_BOUNDS, ZOOM_STEP_BOUNDS};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
@@ -262,7 +262,7 @@ pub fn before_sdl_wheel(delta: i16) {
     if delta == 0 {
         return;
     }
-    let Some(m) = crate::memory() else { return };
+    let Some(m) = crate::native::memory() else { return };
     let at = m.at(SDL_WHEEL_ACCUM);
     if let Ok(raw) = m.u16(at) {
         let accum = raw as i16;
@@ -355,7 +355,7 @@ unsafe extern "C" fn wheel_zoom(camera: usize, notches: f32, cursor: *const [i32
         if camera == 0 || cursor.is_null() || !notches.is_finite() || notches == 0.0 {
             return;
         }
-        let m = crate::hooked_memory();
+        let m = crate::native::hooked_memory();
         let Ok(map) = m.ptr(m.at(MAP)) else { return };
         if map == 0 || m.u8(map + MAP_READY).unwrap_or(0) == 0 {
             return;
@@ -415,7 +415,7 @@ fn prepare_glide_dt(camera: usize, dt: f32) -> f32 {
     if camera == 0 || !dt.is_finite() || dt <= 0.0 {
         return dt;
     }
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let Ok(settings) = m.ptr(m.at(SETTINGS)) else { return dt };
     if settings == 0 {
         return dt;
@@ -433,7 +433,7 @@ fn finish_glide(camera: usize, dt: f32) {
     if camera == 0 {
         return;
     }
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let moving = m.u8(camera + CAMERA_MOVING).unwrap_or(0) != 0;
     if let Some(goal) = read_vec3(&m, camera + fields::GOAL_POSITION) {
         state().after_glide(camera, dt, moving, goal);

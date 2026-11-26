@@ -4,13 +4,9 @@
 use super::commands::{write, Block};
 use super::content::checks;
 use super::{action, conditions, content, power, GResult, Session, Tag};
-use crate::containers;
-use crate::game_string;
-use crate::{
-    memory::Memory,
-    objects::campaign::{country, idea_group},
-    points::{GameFunction, Point},
-};
+use crate::native::containers;
+use crate::native::game_string;
+use crate::{native::memory::Memory, native::objects::campaign::{country, idea_group}, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::ideas::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind, Resource},

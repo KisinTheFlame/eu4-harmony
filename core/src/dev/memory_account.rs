@@ -9,7 +9,7 @@
 //! [`CRT_HEAP`] holds, the process's default heap; the framework allocates
 //! from the default heap too, so what the game holds there is what the heap
 //! has allocated less the framework's own heap.
-use crate::points::Point;
+use crate::native::points::Point;
 use eu4_harmony_remote::memory::{Heap, Memory, MemoryAnswer, MemoryRequest};
 use eu4_harmony_remote::Error;
 
@@ -20,7 +20,7 @@ const FREE_READS_HEAP: usize = 0x1a6834b;
 
 /// Where `eu4.exe` lies, 0 before startup.
 fn base() -> usize {
-    crate::memory().map_or(0, |m| m.base)
+    crate::native::memory().map_or(0, |m| m.base)
 }
 
 pub fn points() -> Vec<Point> {
@@ -33,7 +33,7 @@ pub fn game_heap() -> usize {
     if base == 0 {
         return 0;
     }
-    crate::memory::Memory { base }.ptr(base + CRT_HEAP).unwrap_or(0)
+    crate::native::memory::Memory { base }.ptr(base + CRT_HEAP).unwrap_or(0)
 }
 
 /// What the process holds now; the census's generations are left for it to

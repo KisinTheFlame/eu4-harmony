@@ -13,7 +13,7 @@
 //! past the walk, as it does when the walk ends without finding the child.
 //! Any other add, the adds the add itself makes and every other thread's
 //! walk the list as before.
-use crate::points::Point;
+use crate::native::points::Point;
 use crate::speed::SpeedUp;
 use std::sync::atomic::AtomicU32;
 
@@ -55,8 +55,8 @@ fn points() -> Vec<Point> {
 /// The thread whose next walk is left out, by its id; 0 for none.
 static MARKED: AtomicU32 = AtomicU32::new(0);
 
-crate::resume!(ADD_MADE_RESUME: ADD_MADE_AT = ADD_MADE_NEXT);
-crate::resume!(WALK_RESUME: LOOP_AT = WALK_LOOP, WALKED_AT = WALKED);
+resume!(ADD_MADE_RESUME: ADD_MADE_AT = ADD_MADE_NEXT);
+resume!(WALK_RESUME: LOOP_AT = WALK_LOOP, WALKED_AT = WALKED);
 
 /// Replaces the call of the add: the thread marked around it.
 #[unsafe(naked)]

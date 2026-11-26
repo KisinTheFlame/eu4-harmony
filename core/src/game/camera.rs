@@ -8,14 +8,10 @@
 //! them. The camera's height is in the same unit, above the map's base plane
 //! (docs/game/interface/camera.md).
 use super::{map_manager, with_state, GResult, World, WorldSession};
-use crate::{
-    memory::Memory,
-    objects::{
+use crate::{native::memory::Memory, native::objects::{
         camera::{self as layout, camera as fields, grid},
         campaign::globals,
-    },
-    points::{GameFunction, Point},
-};
+    }, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::{
     camera::{args, Camera},
     ProvinceId,
@@ -238,7 +234,7 @@ mod tests {
     use super::*;
     use crate::game::buffers::tur;
     use crate::game::{buffers::Image, buffers::Object, buffers::Provinces, commands::Commands, player::Player, Caller, Fail, Status, View};
-    use crate::objects::campaign::{classes, world};
+    use crate::native::objects::campaign::{classes, world};
 
     /// Where a camera looks, `(x, height, z)`, written as the game keeps it.
     fn put(camera: usize, at: usize, [x, y, z]: [f32; 3]) {
@@ -250,7 +246,7 @@ mod tests {
     /// The map manager turning the camera's goal to a province: its
     /// position the province's number across, 0 up.
     extern "C" fn look_at_province(manager: usize, province: usize) -> usize {
-        let id = unsafe { *((province + crate::objects::campaign::province::ID) as *const u32) };
+        let id = unsafe { *((province + crate::native::objects::campaign::province::ID) as *const u32) };
         put(unsafe { *((manager + layout::IN_MAP_MANAGER) as *const usize) }, fields::GOAL_LOOK_AT, [id as f32, 0.0, 0.0]);
         0
     }

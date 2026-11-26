@@ -4,12 +4,7 @@
 use super::commands::{write, Block};
 use super::army::FIND_ID;
 use super::{action, commands, content, thousandths, Ctx, GResult, Session, Tag};
-use crate::{
-    containers, game_string,
-    memory::Memory,
-    objects::campaign::{country as country_fields, functions, province as culture_fields},
-    points::{GameFunction, Point},
-};
+use crate::{native::containers, native::game_string, native::memory::Memory, native::objects::campaign::{country as country_fields, functions, province as culture_fields}, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::advisors::args;
 use eu4_harmony_remote::{
     advisors::{Advisor, AdvisorOption, HiredAdvisor},

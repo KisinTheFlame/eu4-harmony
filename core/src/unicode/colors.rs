@@ -4,8 +4,8 @@
 //! Other formatting, and every surviving byte, stay as they were.
 use super::game_text;
 use crate::base::called_by_game;
-use crate::game_string;
-use crate::points::{Function, Point};
+use crate::native::game_string;
+use crate::native::points::{Function, Point};
 
 const REMOVE: usize = 0x17046a0;
 type Remove = unsafe extern "C" fn(*const u8, *mut u8) -> *mut u8;

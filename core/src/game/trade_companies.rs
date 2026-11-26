@@ -4,13 +4,7 @@
 //! (docs/game/diplomacy/envoys.md, "Trade companies").
 use super::commands::{write, Block};
 use super::{action, envoys, with_state, Ctx, GResult, Session, Tag};
-use crate::{
-    game_string,
-    memory::Memory,
-    objects::campaign::province as province_fields,
-    points::{GameFunction, Point},
-    unicode::game_text,
-};
+use crate::{native::game_string, native::memory::Memory, native::objects::campaign::province as province_fields, native::points::{GameFunction, Point}, unicode::game_text};
 use eu4_harmony_remote::trade_companies::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},

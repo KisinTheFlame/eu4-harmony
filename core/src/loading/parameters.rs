@@ -23,8 +23,8 @@
 //! game's function makes the text too and the two are compared; left to
 //! the game, nothing is installed.
 use crate::base::called_by_game;
-use crate::game_string;
-use crate::points::{Function, Point};
+use crate::native::game_string;
+use crate::native::points::{Function, Point};
 use crate::speed::{self, SpeedUp};
 use std::cell::RefCell;
 
@@ -140,7 +140,7 @@ extern "C" fn substituted(definition: usize, text: usize, arguments: usize, para
 #[unsafe(naked)]
 unsafe extern "C" fn substitute_stub(_: usize, _: usize, _: usize, _: usize) {
     std::arch::naked_asm!(
-        crate::call_rust!(call substituted, "mov r11, [rsp + 0x48]", "test r11, r11"),
+        call_rust!(call substituted, "mov r11, [rsp + 0x48]", "test r11, r11"),
         "jz 2f",
         "jmp r11",
         "2:",

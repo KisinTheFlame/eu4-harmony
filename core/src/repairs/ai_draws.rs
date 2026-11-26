@@ -22,9 +22,9 @@
 //! developer build with the test switch `game-shares-ai-draws`, every draw is
 //! the game's.
 use crate::base::called_by_game;
-use crate::hooks::Call;
-use crate::objects::campaign::globals;
-use crate::points::{Function, Point};
+use crate::native::hooks::Call;
+use crate::native::objects::campaign::globals;
+use crate::native::points::{Function, Point};
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 

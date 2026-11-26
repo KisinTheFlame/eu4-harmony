@@ -5,12 +5,7 @@
 //! curia").
 use super::commands::{write, Block};
 use super::{action, conditions, content, Ctx, GResult, Session, Tag};
-use crate::{
-    containers, game_string,
-    memory::Memory,
-    objects::{campaign::country, map},
-    points::{GameFunction, Point},
-};
+use crate::{native::containers, native::game_string, native::memory::Memory, native::objects::{campaign::country, map}, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::choices::{Amount, Choice, Resource};
 use eu4_harmony_remote::religion::{args, ReligionOption};
 

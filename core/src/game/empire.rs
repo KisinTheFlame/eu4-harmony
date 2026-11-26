@@ -4,12 +4,7 @@
 //! shares with it, an empire's reforms (docs/game/countries/empires.md).
 use super::commands::{write, Block};
 use super::{action, conditions, content, envoys, questions, script, thousandths, Ctx, GResult, Session, Tag};
-use crate::{
-    containers, game_string,
-    memory::Memory,
-    objects::campaign::event_option,
-    points::{GameFunction, Point},
-};
+use crate::{native::containers, native::game_string, native::memory::Memory, native::objects::campaign::event_option, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::choices::{Amount, Choice, Resource};
 use eu4_harmony_remote::empire::{args, EmpireReforms, ImperialIncident, ImperialReform, IncidentOption};
 use eu4_harmony_remote::{CountryTag, Date};

@@ -44,7 +44,6 @@ pub extern "C" fn eu4h_resolve_stub(return_address: usize) -> u32 {
     crate::points::jump_stub_index(return_address).unwrap_or(u32::MAX)
 }
 
-#[macro_export]
 macro_rules! call_rust {
     ($($arg:literal,)* call $f:ident $(, $then:literal)* $(,)?) => {
         concat!(

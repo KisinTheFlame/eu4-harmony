@@ -8,12 +8,7 @@ use super::{
     envoys,
     with_state, Ctx, GResult, Session, Tag,
 };
-use crate::{
-    game_string,
-    memory::Memory,
-    objects::campaign::{construction, country, province as field},
-    points::{GameFunction, Point},
-};
+use crate::{native::game_string, native::memory::Memory, native::objects::campaign::{construction, country, province as field}, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::colonists::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},

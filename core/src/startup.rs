@@ -6,8 +6,8 @@
 //! ([`Found`], [`Setup`]) the startup report's text is made from, and
 //! applied after.
 use crate::framework_ui::mods_window::Card;
-use crate::splice::{Element, Plan};
-use crate::{base::lang, loading, base::loc, lua, base::mods, base::notice, physfs, pipe, base::report, saves, saving, base::settings, splice, ui, unicode};
+use crate::native::splice::{Element, Plan};
+use crate::{base::lang, loading, base::loc, lua, base::mods, base::notice, native::physfs, pipe, base::report, saves, saving, base::settings, native::splice, ui, unicode};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -140,7 +140,7 @@ pub(crate) fn run(game_dir: PathBuf, installed: &str) {
     let every: Vec<_> = mods.iter().collect();
     let (loc_notes, loc_append) = loc::install(language, &every);
     if let Some((path, text)) = loc_append {
-        plan.add(&path, crate::splice::Addition::Append(text));
+        plan.add(&path, crate::native::splice::Addition::Append(text));
     }
     for note in &loc_notes {
         log!("localisation: {note}");

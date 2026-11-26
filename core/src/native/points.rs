@@ -4,9 +4,11 @@
 //! undoing (ADR framework-succeeds-or-fails-as-a-whole). [`install`] applies
 //! every point or none, and [`Memory::at`] gives the address of only what a
 //! point checks. [`this_build`] gathers every point of a build.
-pub mod this_build;
-
-use crate::{hooks::{self, Observer}, memory::Memory, base::Result};
+use super::{
+    hooks::{self, Observer},
+    memory::Memory,
+};
+use crate::base::Result;
 use std::ffi::CStr;
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -67,12 +69,11 @@ pub struct Resume {
 /// Declares the places a jump stub continues at: a slot for each, which the
 /// stub jumps through (`jmp qword ptr [rip + {slot}]`), and the list its
 /// [`Point::jump`] takes.
-#[macro_export]
 macro_rules! resume {
     ($list:ident: $($slot:ident = $rva:expr),+ $(,)?) => {
         $(static $slot: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);)+
-        static $list: [$crate::points::Resume; [$(stringify!($slot)),+].len()] =
-            [$($crate::points::Resume { rva: $rva, address: &$slot }),+];
+        static $list: [$crate::native::points::Resume; [$(stringify!($slot)),+].len()] =
+            [$($crate::native::points::Resume { rva: $rva, address: &$slot }),+];
     };
 }
 
@@ -285,12 +286,25 @@ impl Checked {
 }
 
 static CHECKED: OnceLock<Checked> = OnceLock::new();
+static DECLARED_PROVIDER: OnceLock<fn() -> Vec<Point>> = OnceLock::new();
+
+pub(crate) fn set_declared_provider(provider: fn() -> Vec<Point>) {
+    let _ = DECLARED_PROVIDER.set(provider);
+}
 
 /// Whether a dependency point checks the game's bytes at `rva`, or a point's
-/// bytes use it: one of the points this build declares ([`this_build::declared`]),
-/// which the offline checks check.
+/// bytes use it: one of the points this build declares, which the offline
+/// checks check.
 pub(crate) fn checks(rva: usize) -> bool {
-    CHECKED.get_or_init(|| Checked::of(&this_build::declared())).contains(rva)
+    CHECKED
+        .get_or_init(|| {
+            #[cfg(test)]
+            let points = DECLARED_PROVIDER.get().map_or_else(crate::this_build::declared, |f| f());
+            #[cfg(not(test))]
+            let points = DECLARED_PROVIDER.get().map_or_else(Vec::new, |f| f());
+            Checked::of(&points)
+        })
+        .contains(rva)
 }
 
 /// What [`install`] did, for the log and the startup report.
@@ -604,7 +618,7 @@ fn name_jump_stubs(points: &[Point], addresses: &[usize]) {
         JUMP_STUBS.stubs[i][1].store(at, Ordering::Relaxed);
     }
     JUMP_STUBS.count.store(pairs.len(), Ordering::Release);
-    crate::stub::clear_unwind_cache();
+    super::stub::clear_unwind_cache();
 }
 
 /// Returns the 1-based entry index in [`JUMP_STUBS`] whose stub contains
@@ -638,7 +652,7 @@ pub fn install(m: Memory, points: &[Point]) -> Result<Installed> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hooks::Call;
+    use super::hooks::Call;
     use std::sync::Mutex;
     use windows_sys::Win32::System::Memory::{VirtualAlloc, MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READWRITE, PAGE_READWRITE};
 
@@ -858,7 +872,7 @@ mod tests {
     /// change the same bytes.
     #[test]
     fn every_point_is_well_formed() {
-        let points = this_build::declared();
+        let points = crate::this_build::declared();
         let problems: Vec<String> = points.iter().flat_map(malformed).collect();
         assert!(problems.is_empty(), "{problems:#?}");
         // Exports are far from the image and from each other.
@@ -879,7 +893,7 @@ mod tests {
     /// bytes, or right after them, where the jump's own bytes end.
     #[test]
     fn every_jump_resumes_at_code_a_point_checks() {
-        let points = this_build::declared();
+        let points = crate::this_build::declared();
         let checked: Vec<(usize, usize)> = points
             .iter()
             .filter(|p| p.method.is_none())
@@ -905,7 +919,7 @@ mod tests {
     #[test]
     fn every_point_uses_what_it_names() {
         let mut wrong = Vec::new();
-        for point in this_build::declared().iter().filter(|p| !p.uses.is_empty()) {
+        for point in crate::this_build::declared().iter().filter(|p| !p.uses.is_empty()) {
             let Place::Rva(rva) = point.place else { continue };
             let code = eu4_harmony_analysis::instructions(&hex(point.bytes).unwrap(), rva);
             let carried: Vec<u64> = code.iter().flat_map(eu4_harmony_analysis::values).collect();
@@ -1179,7 +1193,7 @@ mod tests {
     fn every_point_matches_the_installed_game() {
         with_game(|m, lookup| {
             assert_eq!(crate::baseline::recognize(&m).unwrap(), "1.37.5");
-            let points = this_build::declared();
+            let points = crate::this_build::declared();
             let addresses = check(m, &points, lookup).unwrap();
             assert_eq!(addresses.len(), points.len());
         });
@@ -1191,9 +1205,9 @@ mod tests {
     #[ignore]
     fn observers_forward_every_argument_their_function_reads() {
         let mut found = None;
-        with_game(|m, lookup| found = Some((m, check(m, &this_build::declared(), lookup).unwrap())));
+        with_game(|m, lookup| found = Some((m, check(m, &crate::this_build::declared(), lookup).unwrap())));
         let (m, addresses) = found.unwrap();
-        let points = this_build::declared();
+        let points = crate::this_build::declared();
         let image = unsafe { eu4_harmony_analysis::loaded(m.base) };
         let mut short = Vec::new();
         for (point, &at) in points.iter().zip(&addresses) {
@@ -1275,7 +1289,7 @@ mod tests {
     #[unsafe(naked)]
     extern "C" fn jump_seh_stub() {
         std::arch::naked_asm!(
-            crate::call_rust!("mov rcx, rax", call probe),
+            call_rust!("mov rcx, rax", call probe),
             "jmp qword ptr [rip + {resume}]",
             probe = sym jump_seh_probe,
             resume = sym SEH_JUMP_NEXT,

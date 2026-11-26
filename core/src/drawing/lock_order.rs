@@ -2,7 +2,7 @@
 //! Cold construction, abnormal completion and genuine crossings retain the
 //! ordinary frame-check lifetime. See docs/game/interface/stream-formatting.md.
 use super::{main_side, on_main, MainLock};
-use crate::{hooks::Call, points::Point};
+use crate::{native::hooks::Call, native::points::Point};
 
 fn before(_: &mut Call) {
     if on_main() {

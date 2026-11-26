@@ -6,7 +6,7 @@
 //! The detours run on whichever thread the game reads files from (GUI
 //! definitions load on the game's LoadingThread) and never call extension code.
 use crate::base::called_by_game;
-use crate::{hooks::Call, points::{Function, Point}, splice::{self, Plan}, base::Result};
+use crate::{native::hooks::Call, native::points::{Function, Point}, native::splice::{self, Plan}, base::Result};
 use std::{
     collections::HashMap,
     ffi::{c_char, c_void, CStr},
@@ -50,6 +50,18 @@ struct State {
 
 static STATE: LazyLock<Mutex<State>> = LazyLock::new(|| Mutex::new(State { plan: None, open: HashMap::new(), served: HashMap::new() }));
 static INIT_ONCE: Once = Once::new();
+static ON_FIRST_INIT: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
+
+/// Registers the callback invoked once on the first PhysFS call.
+pub(crate) fn set_on_first_init(hook: fn()) {
+    let _ = ON_FIRST_INIT.set(hook);
+}
+
+fn run_first_init() {
+    if let Some(hook) = ON_FIRST_INIT.get() {
+        hook();
+    }
+}
 
 fn state() -> std::sync::MutexGuard<'static, State> {
     STATE.lock().unwrap_or_else(|e| e.into_inner())
@@ -96,9 +108,9 @@ pub fn normalize(path: &str) -> String {
 unsafe extern "C" fn init_detour(argv0: *const c_char) -> i32 {
     let result = ORIG_INIT.get()(argv0);
     if result != 0 {
-        crate::base::guarded("framework files", crate::files::mount);
+        crate::base::guarded("framework files", crate::native::files::mount);
     }
-    crate::base::guarded("PHYSFS_init", || INIT_ONCE.call_once(crate::deferred_init));
+    crate::base::guarded("PHYSFS_init", || INIT_ONCE.call_once(run_first_init));
     result
 }
 
@@ -106,7 +118,7 @@ unsafe extern "C" fn init_detour(argv0: *const c_char) -> i32 {
 unsafe extern "C" fn open_read_detour(path: *const c_char) -> File {
     let handle = ORIG_OPEN_READ.get()(path);
     crate::base::guarded("PHYSFS_openRead", || {
-        INIT_ONCE.call_once(crate::deferred_init);
+        INIT_ONCE.call_once(run_first_init);
         if handle.is_null() {
             return;
         }

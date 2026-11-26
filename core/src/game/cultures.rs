@@ -3,12 +3,7 @@
 //! promote and demote buttons, each a use of diplomatic power the spend_power
 //! command carries (docs/game/countries/power-spending.md, "Cultures").
 use super::{action, commands, content::checks, power, thousandths, world, Ctx, GResult, Session, Tag};
-use crate::{
-    containers, game_string,
-    memory::Memory,
-    objects::campaign::{country, province},
-    points::{GameFunction, Point},
-};
+use crate::{native::containers, native::game_string, native::memory::Memory, native::objects::campaign::{country, province}, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::cultures::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind, Resource},
@@ -88,7 +83,7 @@ pub fn points() -> Vec<Point> {
 fn all(m: &Memory) -> GResult<Vec<usize>> {
     let database = DATABASE.call(m, [])?;
     let (first, end) = (m.ptr(database + ALL)?, m.ptr(database + ALL_END)?);
-    let count = crate::containers::span(first, end, 8, 10_000)?;
+    let count = crate::native::containers::span(first, end, 8, 10_000)?;
     (0..count).map(|i| Ok(m.ptr(first + 8 * i)?)).collect()
 }
 

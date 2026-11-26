@@ -143,6 +143,9 @@ pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool, plan: &mut
     notes
 }
 
+/// Sprite name for non-moveable framework window frames and extension windows.
+pub const FIXED_BACKGROUND_SPRITE: &str = "GFX_eu4harmony_fixed_window_background";
+
 /// The frame under `count` slots of `area`: a window of its own in the
 /// framework's window background, as the extension windows are, which the
 /// pointer does not light up and whose clicks do not reach the map. A button
@@ -152,8 +155,7 @@ fn frame(area: &hosts::ButtonArea, count: i32) -> String {
     format!(
         "\n\t\twindowType = {{ name = \"{FRAME}\" backGround = \"{FRAME_BACKGROUND}\" position = {{ x = {x} y = {y} }} size = {{ x = {w} y = {h} }} \
          moveable = 0 dontRender = \"\" horizontalBorder = \"\" verticalBorder = \"\" fullScreen = no Orientation = \"UPPER_LEFT\"\n\
-         \t\t\tguiButtonType = {{ name = \"{FRAME_BACKGROUND}\" quadTextureSprite = \"{}\" }}\n\t\t}}\n",
-        crate::windows::FIXED_BACKGROUND_SPRITE
+         \t\t\tguiButtonType = {{ name = \"{FRAME_BACKGROUND}\" quadTextureSprite = \"{FIXED_BACKGROUND_SPRITE}\" }}\n\t\t}}\n"
     )
 }
 

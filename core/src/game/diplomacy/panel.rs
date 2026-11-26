@@ -8,17 +8,10 @@ use super::{
     acts::{Act, NO_ACCEPTANCE, SCRIPTED},
     judge, letters, other, send, verdict, Kind, Ticket,
 };
-use crate::{
-    game::{countries, fail, with_state, Ctx, GResult, Session, Status, Tag},
-    game_string,
-    memory::Memory,
-    objects::{
+use crate::{game::{countries, fail, with_state, Ctx, GResult, Session, Status, Tag}, native::game_string, native::memory::Memory, native::objects::{
         campaign::{country as country_fields, province as province_fields},
         diplomacy::{action, action_list, breakdown, classes},
-    },
-    points::{GameFunction, Point},
-    unicode::game_text,
-};
+    }, native::points::{GameFunction, Point}, unicode::game_text};
 use eu4_harmony_remote::{
     choices::{Acceptance, Choice, Factor},
     diplomacy::{self as remote, args, Options},
@@ -380,7 +373,7 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, order: &PanelOrder) ->
                 return Err(invalid(format!("province {id} is not controlled by {}, and the window lists only those it controls", letters(recipient))));
             }
             let cores = m.ptr(address + province_fields::CORES)?;
-            let count = crate::containers::span(cores, m.ptr(address + province_fields::CORES + 8)?, 8, MOST_CORES)?;
+            let count = crate::native::containers::span(cores, m.ptr(address + province_fields::CORES + 8)?, 8, MOST_CORES)?;
             let mut held = false;
             for i in 0..count {
                 held |= Tag(m.u64(cores + i * 8)?) == ctx.player;
@@ -510,7 +503,7 @@ fn acceptance(m: &Memory, at: usize, token: u32) -> GResult<Option<Acceptance>> 
 
 fn read_factors(m: &Memory, factors: usize) -> GResult<Vec<Factor>> {
     let (begin, end) = (m.ptr(factors)?, m.ptr(factors + 8)?);
-    let count = crate::containers::span(begin, end, breakdown::SIZE, MOST_FACTORS)?;
+    let count = crate::native::containers::span(begin, end, breakdown::SIZE, MOST_FACTORS)?;
     (0..count)
         .map(|i| {
             let item = begin + i * breakdown::SIZE;

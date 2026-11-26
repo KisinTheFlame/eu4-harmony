@@ -9,9 +9,9 @@
 //! virtual function's call (`0x1654ac0`) and from `abort` (`0x1654b50`),
 //! each once a process. What ends the game without its filter, as the
 //! heap's own end of a corrupted heap does, is not recorded.
-use crate::hooks::Call;
-use crate::memory::Memory;
-use crate::points::Point;
+use crate::native::hooks::Call;
+use crate::native::memory::Memory;
+use crate::native::points::Point;
 use crate::base::stack::Context;
 use std::time::Duration;
 use windows_sys::Win32::System::Diagnostics::Debug::{GetErrorMode, CONTEXT, SEM_NOGPFAULTERRORBOX};
@@ -124,9 +124,9 @@ fn crashed(call: &mut Call) {
         }
     }
     let what = text(&m, call.arg(0));
-    let date = match crate::game::world_context_any(&m) {
-        Ok(world) => format!(", the game at {}", eu4_harmony_checks::Date(world.date)),
-        Err(_) => String::new(),
+    let date = match crate::native::objects::current_date(&m) {
+        Some(date) => format!(", the game at {}", eu4_harmony_checks::Date(date)),
+        None => String::new(),
     };
     let mut frames = [0u64; FRAMES];
     let line = match read_exception(&m, call.arg(1)) {

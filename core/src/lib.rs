@@ -13,35 +13,23 @@
 #[macro_use]
 pub(crate) mod base;
 #[macro_use]
-pub mod stub;
+pub(crate) mod native;
 pub mod achievements;
 mod army_search;
-pub mod baseline;
-mod bound_element;
 pub mod camera_zoom;
 pub mod catalogue;
-pub mod containers;
 mod crash;
 pub mod dev;
 pub mod drawing;
-pub mod files;
 pub mod framework_ui;
 pub mod game;
-pub mod game_heap;
-pub mod game_string;
 pub mod hidden;
-pub mod hooks;
 pub mod loading;
 mod loading_times;
 pub mod lua;
-mod main_thread;
 pub mod map;
-pub mod memory;
 mod modifier_sums;
-pub mod objects;
-pub mod physfs;
 pub mod pipe;
-pub mod points;
 mod proxy;
 pub mod remote;
 pub mod repairs;
@@ -51,9 +39,9 @@ pub mod saving;
 pub mod sessions;
 pub mod sound;
 pub mod speed;
-pub mod splice;
 mod startup;
 mod startup_failure;
+mod this_build;
 mod tooltips;
 pub mod ui;
 pub mod unicode;
@@ -62,26 +50,15 @@ pub mod windows;
 pub mod wording;
 
 use base::{heap, icu, lang, log, notice, paths, report, settings};
+use native::{baseline, memory, points};
 use std::sync::{atomic::Ordering, OnceLock};
 use windows_sys::Win32::System::{
     LibraryLoader::GetModuleHandleW,
     Threading::{GetCurrentProcess, TerminateProcess},
 };
 
-static MEMORY: OnceLock<memory::Memory> = OnceLock::new();
 /// What startup installed, for the report.
 static STARTUP: OnceLock<String> = OnceLock::new();
-
-/// The game image, once startup has begun.
-pub(crate) fn memory() -> Option<&'static memory::Memory> {
-    MEMORY.get()
-}
-
-/// The game image, for code only hooks run: startup records it before it
-/// installs them.
-pub(crate) fn hooked_memory() -> memory::Memory {
-    *MEMORY.get().expect("hooks run after startup")
-}
 
 fn wire_base() {
     log::set_maintenance(lua::maintain_logs);
@@ -92,6 +69,14 @@ fn wire_base() {
         settings::Listener::Drawing => drawing::set(current.frame_rate_limit),
         settings::Listener::CameraZoom => camera_zoom::configure(current.zoom_smoothing, current.zoom_step),
     });
+    native::speed_up::set_registry(&speed::ALL);
+    native::points::set_declared_provider(this_build::declared);
+    native::files::set_provider(|| {
+        let mut all = unicode::framework_fonts::files();
+        all.extend(windows::files());
+        all
+    });
+    native::physfs::set_on_first_init(deferred_init);
 }
 
 fn start(m: memory::Memory) -> std::result::Result<String, Failure> {
@@ -102,7 +87,7 @@ fn start(m: memory::Memory) -> std::result::Result<String, Failure> {
         return Err("fail-startup is on in dev.toml's [test-switches]".to_string().into());
     }
     speed::check_switches()?;
-    let installed = points::install(m, &points::this_build::installed(m)).map_err(|reason| Failure::mismatch(reason, startup_failure::FailureStage::Points))?;
+    let installed = points::install(m, &this_build::installed(m)).map_err(|reason| Failure::mismatch(reason, startup_failure::FailureStage::Points))?;
     dev::after_install();
     Ok(format!("baseline {baseline}: {} dependency points match; {} hooks, {} writes", installed.checked, installed.hooks, installed.writes))
 }
@@ -150,7 +135,7 @@ fn bootstrap() -> std::result::Result<(), Failure> {
         triage: None,
     })?;
     let m = memory::Memory { base: unsafe { GetModuleHandleW(std::ptr::null()) } as usize };
-    let _ = MEMORY.set(m);
+    native::set_memory(m);
     let summary = start(m)?;
     log!("startup: {summary}");
     log!("memory at startup: {}", heap::summary());

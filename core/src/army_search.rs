@@ -45,7 +45,7 @@
 //! arrive in provinces) is not, and is what a developer build counts when it
 //! checks the searches (`crate::speed`).
 use crate::base::called_by_game;
-use crate::points::{Function, Point};
+use crate::native::points::{Function, Point};
 use crate::speed::SpeedUp;
 
 /// The searches' course: what the hooks' moments make of the searches worked
@@ -69,10 +69,10 @@ const ARMIES_WALKED_ON: usize = 0x14b67a;
 /// The King's list of army agents: first node; a node's agent at `+0` and
 /// the next node at `+0x10`. Its children's list, `+0x40`. The record of the
 /// offensive its country follows, `+0xcf8`, its fields `+0x10`..`+0x38`.
-use crate::objects::campaign::ai_king::{AGENTS as ARMIES, CHILDREN};
+use crate::native::objects::campaign::ai_king::{AGENTS as ARMIES, CHILDREN};
 const FOLLOWED: usize = 0xcf8;
 const OFFENSIVE: std::ops::Range<usize> = 0x10..0x38;
-use crate::objects::list::NEXT;
+use crate::native::objects::list::NEXT;
 /// A unit handed to an agent: `(agent, unit)`.
 const UNIT_TO_AGENT: usize = 0xe4990;
 
@@ -103,8 +103,8 @@ const UNIT_BATTLE: usize = 0x110;
 const UNIT_DAYS: usize = 0x24;
 /// A unit's battle, its two bytes of retreating, and a field whose being
 /// set ends the think before it searches; the agent's target over the sea.
-use crate::objects::campaign::unit::{BATTLE as UNIT_IN_BATTLE, FLEET as UNIT_STOPS, LOCATION as UNIT_LOCATION, MOVEMENT_LOCKED as UNIT_LOCKED};
-const UNIT_RETREATING: usize = crate::objects::campaign::unit::RETREATING[0];
+use crate::native::objects::campaign::unit::{BATTLE as UNIT_IN_BATTLE, FLEET as UNIT_STOPS, LOCATION as UNIT_LOCATION, MOVEMENT_LOCKED as UNIT_LOCKED};
+const UNIT_RETREATING: usize = crate::native::objects::campaign::unit::RETREATING[0];
 /// An army agent's thinks at peace without a search, and how many lead to
 /// one.
 const THINKS_WITHOUT_SEARCH: usize = 0xbf0;
@@ -116,7 +116,7 @@ const SEA_TARGET_PROVINCE: usize = 0xb00;
 /// The world, its date at `+0x1dd0`; the countries (`+0x118` of the
 /// country manager); a country's flags `+0x289b`, `+0x1988`, the
 /// one that keeps its armies from sea targets, and its war plan.
-use crate::objects::campaign::{
+use crate::native::objects::campaign::{
     countries::LIST as COUNTRY_LIST,
     globals::{COUNTRY_MANAGER as COUNTRIES, WORLD},
     world::DATE,
@@ -172,7 +172,7 @@ static YEAR: Function<DatePart> = Function::new();
 static DAY_OF_YEAR: Function<DatePart> = Function::new();
 
 fn base() -> usize {
-    crate::hooked_memory().base
+    crate::native::hooked_memory().base
 }
 
 unsafe fn read<T: Copy>(at: usize) -> T {
@@ -473,15 +473,15 @@ unsafe extern "C" fn search(
     outcome.province
 }
 
-crate::resume!(CHILDREN_RESUME: CHILDREN_ON = CHILDREN_WALK_ON, NO_CHILDREN_ON = ARMIES_WALK);
-crate::resume!(WALKED_RESUME: WALKED_ON = ARMIES_WALKED_ON);
+resume!(CHILDREN_RESUME: CHILDREN_ON = CHILDREN_WALK_ON, NO_CHILDREN_ON = ARMIES_WALK);
+resume!(WALKED_RESUME: WALKED_ON = ARMIES_WALKED_ON);
 
 /// Replaces `mov rbx, [rdi + 0x40]; test rbx, rbx; je` with the searches
 /// handed out first.
 #[unsafe(naked)]
 extern "C" fn children_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("mov rcx, rdi", "mov rdx, [rbp]", call children_begin),
+        call_rust!("mov rcx, rdi", "mov rdx, [rbp]", call children_begin),
         "mov rbx, [rdi + {children}]",
         "test rbx, rbx",
         "jnz 2f",
@@ -499,7 +499,7 @@ extern "C" fn children_stub() {
 #[unsafe(naked)]
 extern "C" fn walked_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call armies_end),
+        call_rust!(call armies_end),
         "mov edx, esi",
         "mov rcx, rdi",
         "jmp qword ptr [rip + {on}]",

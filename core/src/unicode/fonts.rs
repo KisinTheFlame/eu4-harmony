@@ -5,7 +5,7 @@
 //! page is filled, after which a font drawn wholly from the system font keeps
 //! none of them; when the game destroys the font, both forget it.
 use super::{fill, glyphs};
-use crate::{hooks::Call, objects::text::font::OWN_GLYPHS, points::Point};
+use crate::{native::hooks::Call, native::objects::text::font::OWN_GLYPHS, native::points::Point};
 
 /// The font method that loads its page, then parses its `.fnt` (font).
 const LOAD: usize = 0x15953c0;

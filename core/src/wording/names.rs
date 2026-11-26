@@ -13,18 +13,18 @@
 //! they are created, and keep the game's order, as do names that localisation
 //! puts together itself (`[Root.Monarch.GetName]` is the given name only).
 use crate::base::called_by_game;
-use crate::game_string;
+use crate::native::game_string;
 use crate::base::lang;
 use crate::base::loc;
-use crate::memory::Memory;
-use crate::points::{Function, Point};
+use crate::native::memory::Memory;
+use crate::native::points::{Function, Point};
 use crate::unicode::game_text;
 use eu4_harmony_loc::Language;
 
 // A ruler, heir or consort: their given name (a `std::string`, regnal number
 // included), their dynasty, whose name is a `std::string` at +8, and their
 // culture.
-use crate::objects::campaign::person::{CULTURE, DYNASTY, DYNASTY_NAME, GIVEN_NAME};
+use crate::native::objects::campaign::person::{CULTURE, DYNASTY, DYNASTY_NAME, GIVEN_NAME};
 /// A culture: its key as in common/cultures and its group; a group's key.
 const CULTURE_KEY: usize = 0x48;
 const CULTURE_GROUP: usize = 0x88;
@@ -86,7 +86,7 @@ extern "C" fn full_name(person: usize, out: *mut u8) -> *mut u8 {
     let out = unsafe { original(person, out) };
     crate::base::guarded("full name", || {
         let reorder = || -> Option<()> {
-            let m = crate::memory()?;
+            let m = crate::native::memory()?;
             if !writes_family_first(m, person) {
                 return None;
             }
@@ -109,7 +109,7 @@ extern "C" fn heir_name(name: *mut u8, suffix: *const u8, len: usize, heir: usiz
     unsafe {
         let suffix = std::slice::from_raw_parts(suffix, len);
         let family_first_name = || -> Option<Vec<u8>> {
-            let m = crate::memory()?;
+            let m = crate::native::memory()?;
             if !writes_family_first(m, heir) {
                 return None;
             }
@@ -126,7 +126,7 @@ extern "C" fn heir_name(name: *mut u8, suffix: *const u8, len: usize, heir: usiz
 
 macro_rules! heir_stub {
     ($stub:ident, $done:ident, $resume:ident, $rva:expr) => {
-        crate::resume!($resume: $done = $rva);
+        resume!($resume: $done = $rva);
 
         /// Replaces `call append` (0x932f0) of the heir's given name in
         /// `rcx` with " " + dynasty (`rdx`, `r8` bytes); the heir is in `rbx`.

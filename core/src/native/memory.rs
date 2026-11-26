@@ -3,6 +3,24 @@
 //! (ADR game-memory-is-read-in-process-under-seh); writes go through
 //! WriteProcessMemory on our own process.
 use crate::base::Result;
+use std::sync::OnceLock;
+
+static MEMORY: OnceLock<Memory> = OnceLock::new();
+
+pub(crate) fn set_memory(m: Memory) {
+    let _ = MEMORY.set(m);
+}
+
+/// The game image, once startup has begun.
+pub(crate) fn memory() -> Option<&'static Memory> {
+    MEMORY.get()
+}
+
+/// The game image, for code only hooks run: startup records it before it
+/// installs them.
+pub(crate) fn hooked_memory() -> Memory {
+    *MEMORY.get().expect("hooks run after startup")
+}
 use windows_sys::Win32::System::{
     Diagnostics::Debug::WriteProcessMemory,
     Memory::{VirtualProtect, PAGE_READWRITE},

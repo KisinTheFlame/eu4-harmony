@@ -2,12 +2,7 @@
 //! too: the sets of modifiers they copy, which they alone own. Those they
 //! are copied over from their own set still lists, and go with them.
 use super::LettingGo;
-use crate::{
-    hooks::Call,
-    memory::Memory,
-    objects::campaign::{classes, modifiers},
-    points::Point,
-};
+use crate::{native::hooks::Call, native::memory::Memory, native::objects::campaign::{classes, modifiers}, native::points::Point};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Mutex,
@@ -172,7 +167,7 @@ fn modifiers_copied(call: &mut Call) {
 /// heap census is enabled, of what the repair takes the game to do.
 fn check_listed(m: &Memory, modifiers: usize, lost: &[usize]) {
     let listed = (|| {
-        let added = modifiers + modifiers::OWN + crate::objects::campaign::modifier_set::ADDED;
+        let added = modifiers + modifiers::OWN + crate::native::objects::campaign::modifier_set::ADDED;
         let (begin, end) = (m.ptr(added)?, m.ptr(added + 8)?);
         let mut sets = Vec::new();
         if end > begin {

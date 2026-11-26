@@ -16,9 +16,9 @@
 //! after which they are the same. The sum is the game's to the bit.
 use super::parallel;
 use crate::base::called_by_game;
-use crate::memory::Memory;
-use crate::objects::stream;
-use crate::points::{Function, Point};
+use crate::native::memory::Memory;
+use crate::native::objects::stream;
+use crate::native::points::{Function, Point};
 use crate::speed::SpeedUp;
 use crate::base::Result;
 use std::ops::Range;
@@ -66,7 +66,7 @@ static ORIGINAL_SUM: Function<Sum> = Function::new();
 
 #[called_by_game]
 extern "C" fn sum(stream: usize, count: i32) -> u32 {
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let count = match counted(m, stream, count) {
         Ok(count) if count > 0 && count as usize >= FEWEST => count,
         _ => return ORIGINAL_SUM.get()(stream, count),

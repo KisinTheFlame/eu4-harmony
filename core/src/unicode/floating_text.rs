@@ -12,8 +12,7 @@
 //! pass also appends the rest of its bytes to the word); the word also ends
 //! after a non-ASCII character a line may break after.
 use super::{breaks, text_loops};
-use crate::points::Point;
-use crate::resume;
+use crate::native::points::Point;
 
 const LAYOUT_GLYPH: usize = 0x159c833;
 const LAYOUT_FOUND: usize = 0x159c842;

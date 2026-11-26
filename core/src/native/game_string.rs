@@ -4,8 +4,8 @@
 //! by a NUL inside the capacity. The framework reads and changes the game's
 //! strings only through here, and grows them only through the game's own
 //! append, so the game frees them as usual.
-use crate::unicode::game_text;
-use crate::{memory::Memory, points::{Function, GameFunction, Point}, base::Result};
+use super::game_text;
+use crate::{native::memory::Memory, native::points::{Function, GameFunction, Point}, base::Result};
 
 pub const SIZE: usize = 0x10;
 pub const CAPACITY: usize = 0x18;

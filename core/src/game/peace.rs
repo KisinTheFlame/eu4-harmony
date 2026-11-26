@@ -14,16 +14,10 @@ use super::{
     diplomacy::{self, Made, Ticket},
     Ctx, GResult, Session, Tag,
 };
-use crate::{
-    game_string,
-    memory::Memory,
-    objects::{
+use crate::{native::game_string, native::memory::Memory, native::objects::{
         campaign::province,
         diplomacy::{action, region, scripted, term, treaty},
-    },
-    points::{GameFunction, Point},
-    unicode::game_text,
-};
+    }, native::points::{GameFunction, Point}, unicode::game_text};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     peace::{args, Evaluation, TermOption, Terms},
@@ -245,7 +239,7 @@ fn allowed(m: &Memory, treaty: usize, at: usize) -> GResult<(bool, Vec<String>)>
     let mut list = [0usize; 3];
     let list_at = list.as_mut_ptr() as usize;
     let (can, text) = game_string::written(m, |s| TERM_ALLOWED.call(m, [treaty, at, list_at, 0, s]))?;
-    crate::game_heap::free_vector(m, unsafe { std::ptr::read_volatile(&list) })?;
+    crate::native::game_heap::free_vector(m, unsafe { std::ptr::read_volatile(&list) })?;
     Ok((can as u8 != 0, if can as u8 != 0 { Vec::new() } else { diplomacy::text_lines(&text) }))
 }
 
@@ -506,7 +500,7 @@ mod tests {
             commands::record,
             Caller, Fail, Status,
         };
-        use crate::objects::campaign::{country as country_fields, globals};
+        use crate::native::objects::campaign::{country as country_fields, globals};
 
         /// Turkey and Byzantium at peace. Runs `action` over Turkey's
         /// session.

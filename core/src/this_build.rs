@@ -1,21 +1,21 @@
 //! Every dependency point of this build, in one place: the framework's own,
 //! those of the development tools built in, and those dev.toml chooses at
 //! startup. Startup installs [`installed`], all or none; the offline checks
-//! and [`Memory::at`](crate::memory::Memory::at) take [`declared`], so that a
+//! and [`Memory::at`](crate::native::memory::Memory::at) take [`declared`], so that a
 //! developer build's points are checked as a player's are. A module's
 //! `points` only declares: it changes nothing, and what a tool needs to
 //! start, startup does here.
-use super::Point;
-use crate::memory::Memory;
+use crate::native::memory::Memory;
+use crate::native::points::Point;
 
 /// The framework's own points but the speed-ups', which every build
 /// installs.
 fn framework() -> Vec<Point> {
-    let mut all = crate::physfs::points();
-    all.extend(crate::files::points());
-    all.extend(crate::objects::points());
-    all.extend(crate::game_string::points());
-    all.extend(crate::game_heap::points());
+    let mut all = crate::native::physfs::points();
+    all.extend(crate::native::files::points());
+    all.extend(crate::native::objects::points());
+    all.extend(crate::native::game_string::points());
+    all.extend(crate::native::game_heap::points());
     all.extend(crate::game::points());
     all.extend(crate::ui::points());
     all.extend(crate::windows::points());
@@ -31,7 +31,7 @@ fn framework() -> Vec<Point> {
     all.extend(crate::framework_ui::hook::points());
     all.extend(crate::hidden::points());
     all.extend(crate::crash::points());
-    all.extend(crate::main_thread::points());
+    all.extend(crate::native::main_thread::points());
     all.extend(crate::camera_zoom::points());
     all.extend(crate::sound::points());
     all.extend(crate::loading_times::points());
@@ -158,7 +158,7 @@ mod tests {
                 text.contains(&format!("{path}::points")) || text.contains(&format!("{path}::REPAIR")) || text.contains(&format!("{path}::SPEED_UP"))
             })
         };
-        let this = vec!["points".to_string(), "this_build".to_string()];
+        let this = vec!["this_build".to_string()];
         // Every speed-up, wherever its module, is collected in `speed`'s list.
         let speed_ups = vec!["speed".to_string()];
         let mut loose = Vec::new();

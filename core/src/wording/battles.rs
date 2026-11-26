@@ -10,10 +10,10 @@
 //! war overview's battle rows put their names together elsewhere and keep the
 //! game's order.
 use crate::base::called_by_game;
-use crate::game_string;
+use crate::native::game_string;
 use crate::base::lang;
 use crate::base::loc;
-use crate::points::{Function, Point};
+use crate::native::points::{Function, Point};
 use crate::unicode::game_text;
 use eu4_harmony_loc::Language;
 use std::sync::{Mutex, OnceLock};
@@ -28,7 +28,7 @@ static WORDS: Mutex<Option<Vec<Vec<u8>>>> = Mutex::new(None);
 static REWORDS: OnceLock<bool> = OnceLock::new();
 
 fn localisation(key: &str) -> crate::base::Result<Vec<u8>> {
-    let m = crate::memory().ok_or("no memory")?;
+    let m = crate::native::memory().ok_or("no memory")?;
     let key = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
     game_string::localized(m, key.as_ptr() as usize)
 }

@@ -73,11 +73,7 @@ macro_rules! layer_modules {
 
 crate::catalogue::capability_groups!(layer_modules);
 
-use crate::{
-    memory::Memory,
-    objects::campaign::{self, countries as country_list, country as country_fields, globals, map_manager, pause, tag},
-    points::{GameFunction, Point},
-};
+use crate::{native::memory::Memory, native::objects::campaign::{self, countries as country_list, country as country_fields, globals, map_manager, pause, tag}, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::signals::Kind;
 use std::sync::Mutex;
 
@@ -201,7 +197,7 @@ fn game() -> GResult<&'static Memory> {
     if crate::base::thread_id() != crate::base::main_thread() {
         return fail(Status::WrongContext, "called off the game's main thread");
     }
-    crate::memory().ok_or_else(|| Fail { status: Status::Unavailable, message: "game capabilities unavailable".into() })
+    crate::native::memory().ok_or_else(|| Fail { status: Status::Unavailable, message: "game capabilities unavailable".into() })
 }
 
 /// The session a capability reads, as its caller reads it: the game, the
@@ -458,14 +454,7 @@ pub fn unbulleted(line: &str) -> &str {
     line.trim_start_matches(|c: char| c.is_whitespace() || matches!(c, '-' | '－' | '•' | '·'))
 }
 
-/// How many window pixels a GUI unit takes, (across, down); None before the
-/// GUI exists (docs/game/interface/text-input.md §3).
-pub fn gui_scale(m: &Memory) -> Option<(f32, f32)> {
-    use crate::objects::gui::{globals, scale};
-    let gui = m.ptr(m.at(globals::SCALE)).ok().filter(|&g| g != 0)?;
-    let read = |at: usize| m.u32(gui + at).ok().map(f32::from_bits).filter(|s| s.is_finite() && *s > 0.0);
-    Some((read(scale::ACROSS)?, read(scale::DOWN)?))
-}
+pub(crate) use crate::native::objects::gui_scale;
 
 /// Country tag as stored by the game (see [`tag`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -632,8 +621,8 @@ pub fn map_manager(m: &Memory, ctx: &impl InWorld) -> GResult<usize> {
 /// buttons find it: the map manager's method answers it
 /// (`objects::session`).
 pub fn command_session(m: &Memory, ctx: &impl InWorld) -> GResult<usize> {
-    let session = crate::objects::session::OF_MAP_MANAGER.call(m, [map_manager(m, ctx)?])?;
-    if session == 0 || m.ptr(session)? != m.at(crate::objects::session::CLASS) {
+    let session = crate::native::objects::session::OF_MAP_MANAGER.call(m, [map_manager(m, ctx)?])?;
+    if session == 0 || m.ptr(session)? != m.at(crate::native::objects::session::CLASS) {
         return Err("the map manager has no session".to_string().into());
     }
     Ok(session)

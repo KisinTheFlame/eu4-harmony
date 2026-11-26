@@ -16,7 +16,7 @@
 //! in a session those toggles are disabled so the next session is the first to
 //! see a change.
 use crate::base::called_by_game;
-use crate::{objects::campaign::{achievements, world}, points::{Function, Point}, base::settings::Settings};
+use crate::{native::objects::campaign::{achievements, world}, native::points::{Function, Point}, base::settings::Settings};
 use std::{
     cell::Cell,
     sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},
@@ -64,7 +64,7 @@ pub fn follow(settings: &Settings) {
     // Once startup has taken the game checksum, the game keeps the answer
     // and reads it again only from where it keeps it.
     let found = GAME_CHECKSUM.load(Ordering::Acquire);
-    let Some(m) = crate::memory().filter(|_| found != 0) else { return };
+    let Some(m) = crate::native::memory().filter(|_| found != 0) else { return };
     let answer = taken_as_vanilla(found == VANILLA);
     let at = KEPT_IN.load(Ordering::Acquire) + achievements::VANILLA_GAME_CHECKSUM;
     if let Err(e) = m.write(at, &[answer as u8]) {
@@ -129,7 +129,7 @@ unsafe extern "C" fn daily(achievements: usize, scope: usize) {
 // before comparing with the script's expected yes/no. Keeping both the
 // bypass and comparison in the game preserves `ironman = no` and negation.
 const SCRIPT_IRONMAN: usize = 0xcc6dc3;
-crate::resume!(SCRIPT_IRONMAN_RESUME: SCRIPT_IRONMAN_COMPARE = 0xcc6dca);
+resume!(SCRIPT_IRONMAN_RESUME: SCRIPT_IRONMAN_COMPARE = 0xcc6dca);
 
 #[called_by_game]
 extern "C" fn script_ironman(actual: u8) -> u8 {
@@ -140,7 +140,7 @@ extern "C" fn script_ironman(actual: u8) -> u8 {
 extern "C" fn script_ironman_stub() {
     std::arch::naked_asm!(
         "movzx eax, byte ptr [rax + {ironman}]",
-        crate::call_rust!("mov ecx, eax", call script_ironman, "mov rax, [rsp + 0x48]"),
+        call_rust!("mov ecx, eax", call script_ironman, "mov rax, [rsp + 0x48]"),
         "jmp qword ptr [rip + {compare}]",
         ironman = const world::IRONMAN,
         script_ironman = sym script_ironman,
@@ -170,7 +170,7 @@ unsafe extern "C" fn checksum_known(achievements: usize, vanilla: u8) -> usize {
     unsafe { ORIGINAL_CHECKSUM_KNOWN.get()(achievements, answer as u8) }
 }
 
-crate::resume!(CAN_BE_EARNED_RESUME: CAN_BE_EARNED_YES = CAN_BE_EARNED_IRONMAN, CAN_BE_EARNED_NO = CAN_BE_EARNED_NOT_IRONMAN);
+resume!(CAN_BE_EARNED_RESUME: CAN_BE_EARNED_YES = CAN_BE_EARNED_IRONMAN, CAN_BE_EARNED_NO = CAN_BE_EARNED_NOT_IRONMAN);
 
 /// The setup's `cmp byte ptr [rsi + 0x280], 0; je`, with achievements
 /// outside ironman taken as the checkbox set.
@@ -191,7 +191,7 @@ extern "C" fn can_be_earned_stub() {
     );
 }
 
-crate::resume!(REASONS_RESUME: REASONS_YES = REASONS_IRONMAN, REASONS_NO = REASONS_NOT_IRONMAN);
+resume!(REASONS_RESUME: REASONS_YES = REASONS_IRONMAN, REASONS_NO = REASONS_NOT_IRONMAN);
 
 /// The same, before the setup lists why achievements cannot be earned.
 #[unsafe(naked)]

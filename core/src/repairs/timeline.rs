@@ -45,19 +45,11 @@
 //!    (`min(0.25, 24.0 / speed)`) rather than waiting `24 / speed` real
 //!    seconds.
 
-use crate::{
-    base::{called_by_game, Result},
-    game_heap::{self, delete},
-    game_string,
-    hooks::Call,
-    memory::Memory,
-    objects::{
+use crate::{base::{called_by_game, Result}, native::game_heap::{self, delete}, native::game_string, native::hooks::Call, native::memory::Memory, native::objects::{
         application,
         campaign::{country, globals, map_manager, province, tag, world},
         text,
-    },
-    points::{Function, GameFunction, Point},
-};
+    }, native::points::{Function, GameFunction, Point}};
 use std::{
     collections::{HashMap, HashSet},
     sync::{
@@ -92,7 +84,7 @@ const UPDATE_CHECK: usize = 0x8153fd;
 const UPDATE_APPLIED_AT: usize = 0x815405;
 const UPDATE_REFRESH_NAMES_AT: usize = 0x815478;
 const UPDATE_DONE_AT: usize = 0x815497;
-crate::resume!(
+resume!(
     UPDATE_RESUME:
         UPDATE_APPLIED = UPDATE_APPLIED_AT,
         UPDATE_REFRESH_NAMES = UPDATE_REFRESH_NAMES_AT,
@@ -101,12 +93,12 @@ crate::resume!(
 
 const BORDER_OWNERS: usize = 0x12dc261;
 const BORDER_OWNERS_RESUME_AT: usize = 0x12dc283;
-crate::resume!(BORDER_RESUME: BORDER_OWNERS_RESUME = BORDER_OWNERS_RESUME_AT);
+resume!(BORDER_RESUME: BORDER_OWNERS_RESUME = BORDER_OWNERS_RESUME_AT);
 
 const STATE_BORDER_OWNERS: usize = 0x12dc4a4;
 const STATE_BORDER_VALID_AT: usize = 0x12dc4c2;
 const STATE_BORDER_INVALID_AT: usize = 0x12dc4d0;
-crate::resume!(
+resume!(
     STATE_BORDER_RESUME:
         STATE_BORDER_VALID = STATE_BORDER_VALID_AT,
         STATE_BORDER_INVALID = STATE_BORDER_INVALID_AT
@@ -378,7 +370,7 @@ fn timeline_stopped(_: &mut Call) {
 #[unsafe(naked)]
 extern "C" fn update_check_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(
+        call_rust!(
             "movzx ecx, al",
             "mov rdx, r13",
             call on_timeline_update,
@@ -453,7 +445,7 @@ fn mark_map_names_due(m: &Memory, idler: usize) -> Result<()> {
 /// 2 to skip directly to `UPDATE_DONE`.
 #[called_by_game]
 extern "C" fn on_timeline_update(updated: u8, idler: usize) -> u32 {
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let applied = updated != 0;
     if applied {
         schedule_immediate_timeline_colors(&m, idler);
@@ -516,7 +508,7 @@ extern "C" fn border_owners_stub() {
     std::arch::naked_asm!(
         "cmp byte ptr [rsp + 0x118], 0",
         "jne 9f",
-        crate::call_rust!(
+        call_rust!(
             "mov rcx, rbx",
             "mov rdx, r13",
             "lea r8, [rsp + 0x38]",
@@ -555,7 +547,7 @@ extern "C" fn state_border_owners_stub() {
     std::arch::naked_asm!(
         "cmp byte ptr [rsp + 0x118], 0",
         "jne 9f",
-        crate::call_rust!(
+        call_rust!(
             "mov rcx, rdi",
             "mov rdx, r13",
             call timeline_border_both_owned,
@@ -586,7 +578,7 @@ extern "C" fn state_border_owners_stub() {
 
 #[called_by_game]
 extern "C" fn timeline_border_owners(prov1: usize, prov2: usize, out1: *mut u64, out2: *mut u64) -> u32 {
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let Ok(Some((t1, t2))) = read_timeline_pair(&m, prov1, prov2) else {
         return 0;
     };
@@ -599,7 +591,7 @@ extern "C" fn timeline_border_owners(prov1: usize, prov2: usize, out1: *mut u64,
 
 #[called_by_game]
 extern "C" fn timeline_border_both_owned(prov1: usize, prov2: usize) -> i32 {
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let Ok(Some((t1, t2))) = read_timeline_pair(&m, prov1, prov2) else {
         return -1;
     };
@@ -743,7 +735,7 @@ unsafe extern "C" fn build_timeline_data(this: usize, world: usize, base: usize)
         return unsafe { ORIGINAL_BUILD.get()(this, world, base) };
     }
     reset_playback_state();
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     match try_build_timeline_data(&m, this, world, base) {
         Ok(()) => this,
         Err(err) => {

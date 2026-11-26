@@ -5,12 +5,7 @@
 //! tooltip lists them, and a capability refusing one gives those lines as
 //! the game's reasons (docs/adding-a-capability.md).
 use super::{GResult, Tag};
-use crate::{
-    game_string,
-    memory::Memory,
-    points::{GameFunction, Point},
-    unicode::game_text,
-};
+use crate::{native::game_string, native::memory::Memory, native::points::{GameFunction, Point}, unicode::game_text};
 
 /// Makes a scope: `(scope, country tag by value, province, 0)`.
 pub(super) const SCOPE: GameFunction<4> = GameFunction::at(0x94590);
@@ -73,7 +68,7 @@ impl<'m> Scope<'m> {
     /// it is, as the game evaluates a parliament bribe for a seat: bound as
     /// `let (_from, scope)`, so that the first outlives the second.
     pub(super) fn with_province_from(m: &'m Memory, country: Tag, province: u32) -> GResult<(Box<Self>, Box<Self>)> {
-        let mut from = Self::new(m, Tag(crate::objects::campaign::route_options::NO_TAG), province)?;
+        let mut from = Self::new(m, Tag(crate::native::objects::campaign::route_options::NO_TAG), province)?;
         let mut scope = Self::new(m, country, 0)?;
         scope.bytes[FROM / 8] = from.address() as u64;
         Ok((from, scope))

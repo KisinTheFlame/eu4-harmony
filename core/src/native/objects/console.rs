@@ -15,7 +15,7 @@ pub mod result {
     pub const SIZE: usize = 0x28;
 }
 
-use crate::points::Point;
+use crate::native::points::Point;
 
 pub fn points() -> Vec<Point> {
     vec![

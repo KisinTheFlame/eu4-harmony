@@ -2,11 +2,11 @@
 //! The original stream and its file remain owned by the native in-game load;
 //! only its save description's borrowed input changes during `0x74b8a0`.
 //! See docs/game/program/saves.md, "File position queries while parsing text".
-use crate::{base::called_by_game, memory::Memory, objects::stream, points::{GameFunction, Point}, speed::SpeedUp, base::Result};
+use crate::{base::called_by_game, native::memory::Memory, native::objects::stream, native::points::{GameFunction, Point}, speed::SpeedUp, base::Result};
 
 const LOAD: GameFunction<2> = GameFunction::at(0x74b8a0);
 const MAKE_STREAM: GameFunction<8> = GameFunction::at(0x171ebc0);
-use crate::objects::stream::FILE_VTABLE as FILE_STREAM;
+use crate::native::objects::stream::FILE_VTABLE as FILE_STREAM;
 const FILE_HOLDER: usize = 0x38;
 const ZIPPED: usize = 0x28;
 const LOAD_CALL: usize = 0x5d0c78;
@@ -49,7 +49,7 @@ impl Input {
             return Ok(None);
         }
         let file = m.ptr(m.ptr(original + FILE_HOLDER)?)?;
-        let Some(bytes) = crate::physfs::text_snapshot(file)? else { return Ok(None) };
+        let Some(bytes) = crate::native::physfs::text_snapshot(file)? else { return Ok(None) };
         let at = m.call(m.vslot(original, 0x80)?, &[original])?;
         if at > bytes.len() {
             return Ok(None);
@@ -68,7 +68,7 @@ impl Input {
 #[called_by_game]
 extern "C" fn load(world: usize, save: usize) -> usize {
     crate::base::guarded("text save input", || {
-        let m = crate::hooked_memory();
+        let m = crate::native::hooked_memory();
         let mut input = match Input::prepare(&m, save) {
             Ok(input) => input,
             Err(e) => {
@@ -95,12 +95,12 @@ extern "C" fn load(world: usize, save: usize) -> usize {
     })
 }
 
-crate::resume!(LOAD_RESUME: LOAD_CONTINUE = LOAD_NEXT);
+resume!(LOAD_RESUME: LOAD_CONTINUE = LOAD_NEXT);
 
 #[unsafe(naked)]
 extern "C" fn load_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call load, "mov rax, [rsp + 0x48]"),
+        call_rust!(call load, "mov rax, [rsp + 0x48]"),
         "jmp qword ptr [rip + {next}]",
         load = sym load,
         next = sym LOAD_CONTINUE,

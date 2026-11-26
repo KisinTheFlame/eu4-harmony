@@ -14,11 +14,7 @@
 //! return has taken the session's interface down after they began to wait
 //! ([`super::waiting`]).
 use super::waiting::{Kind, Moment, Waiting};
-use crate::{
-    hooks::Call,
-    memory::Memory,
-    points::{GameFunction, Point},
-};
+use crate::{native::hooks::Call, native::memory::Memory, native::points::{GameFunction, Point}};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// `(_, database)`: puts a database of trade nodes in place of the one

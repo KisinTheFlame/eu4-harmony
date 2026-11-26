@@ -16,8 +16,8 @@
 //! no capability runs: there `time` pauses the game at a date remote control
 //! advances it to.
 use super::{army, context_any, fail, orders, world_context, world_context_any, GResult, InWorld, Status, Tag, World};
-use crate::containers;
-use crate::{hooks::Call, memory::Memory, objects::campaign::{battle, side, unit, world}, points::Point, base::Result};
+use crate::native::containers;
+use crate::{native::hooks::Call, native::memory::Memory, native::objects::campaign::{battle, side, unit, world}, native::points::Point, base::Result};
 use eu4_harmony_remote::signals::Kind;
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -407,7 +407,7 @@ fn battle(m: &Memory, combat: usize, attacker_won: bool) -> Result<Option<Battle
     let party = attackers.iter().chain(&defenders).any(|t| Some(*t) == player);
     let seen = party || (province != 0 && !super::world::hidden(m, province).map_err(|e| e.message)?);
     Ok(Some(Battle {
-        province: if province == 0 { 0 } else { m.u32(province + crate::objects::campaign::province::ID)? },
+        province: if province == 0 { 0 } else { m.u32(province + crate::native::objects::campaign::province::ID)? },
         naval: kind == 2,
         attackers,
         defenders,

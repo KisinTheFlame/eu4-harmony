@@ -3,11 +3,7 @@
 //! view's own lines (docs/game/provinces/religion.md, "Piety").
 use super::commands::{write, Block};
 use super::{action, content, Ctx, GResult, Session, Tag};
-use crate::{
-    memory::Memory,
-    objects::campaign::country,
-    points::{GameFunction, Point},
-};
+use crate::{native::memory::Memory, native::objects::campaign::country, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::choices::{Amount, Choice, Resource};
 use eu4_harmony_remote::religion::ReligionOption;
 

@@ -3,15 +3,11 @@
 //! "Loans").
 use super::commands::{write, Block};
 use super::{action, power, thousandths, Fail, GResult, Session, Status, Tag};
-use crate::containers;
-use crate::{
-    memory::Memory,
-    objects::{
+use crate::native::containers;
+use crate::{native::memory::Memory, native::objects::{
         campaign::{country, loan as fields},
         list,
-    },
-    points::{GameFunction, Point},
-};
+    }, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::loans::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},

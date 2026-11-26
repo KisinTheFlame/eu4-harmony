@@ -2,7 +2,7 @@
 //! rebuild. With source provinces, the native rebuild still fills the list
 //! afresh for every target. All distance writes stay in their original order.
 //! See docs/game/program/saves.md, "Country distance scratch space".
-use crate::{base::called_by_game, points::Point, speed::SpeedUp};
+use crate::{base::called_by_game, native::points::Point, speed::SpeedUp};
 
 const INITIALIZE: usize = 0x2d0b5d;
 const INITIALIZED: usize = 0x2d0b65;
@@ -58,17 +58,17 @@ fn points() -> Vec<Point> {
     ]
 }
 
-crate::resume!(INITIALIZE_RESUME: INITIALIZE_AT = INITIALIZED);
-crate::resume!(TARGET_RESUME: FILL_AT = FILL, STORE_AT = STORE);
-crate::resume!(RESERVE_RESUME: GROW_AT = GROW, APPEND_AT = APPEND);
-crate::resume!(CLEAR_RESUME: CLEARED_AT = CLEARED);
-crate::resume!(FINISH_RESUME: FINISH_AT = FINISHED);
+resume!(INITIALIZE_RESUME: INITIALIZE_AT = INITIALIZED);
+resume!(TARGET_RESUME: FILL_AT = FILL, STORE_AT = STORE);
+resume!(RESERVE_RESUME: GROW_AT = GROW, APPEND_AT = APPEND);
+resume!(CLEAR_RESUME: CLEARED_AT = CLEARED);
+resume!(FINISH_RESUME: FINISH_AT = FINISHED);
 
 #[called_by_game]
 extern "C" fn release(block: usize, capacity: usize) {
     crate::base::guarded("country distance scratch", || {
         if block != 0 {
-            crate::game_heap::delete(&crate::hooked_memory(), block, capacity * 4).expect("the native scratch allocation must be released");
+            crate::native::game_heap::delete(&crate::native::hooked_memory(), block, capacity * 4).expect("the native scratch allocation must be released");
         }
     });
 }
@@ -129,7 +129,7 @@ extern "C" fn clear_stub() {
 #[unsafe(naked)]
 extern "C" fn finish_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("mov rcx, [rbp + 0x48]", "mov edx, [rbp + 0x50]", call release),
+        call_rust!("mov rcx, [rbp + 0x48]", "mov edx, [rbp + 0x50]", call release),
         "mov [rbp - 0x30], rax",
         "mov [rbp - 0x1c], r12d",
         "jmp qword ptr [rip + {next}]",

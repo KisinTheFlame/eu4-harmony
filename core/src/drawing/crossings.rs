@@ -8,8 +8,8 @@
 //! for the log, of the crossings and of how long each held the frames back.
 use super::{drawing_on, is_drawing_thread, main_side, on_main, MainLock};
 use crate::base::called_by_game;
-use crate::hooks::Call;
-use crate::points::Point;
+use crate::native::hooks::Call;
+use crate::native::points::Point;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::time::Instant;
 
@@ -145,7 +145,7 @@ extern "C" fn renderer_called(slot: usize) {
     if !drawing_on() || super::main_protects_changes() {
         return;
     }
-    crossing(crate::hooked_memory().at(RENDERER_TABLE[slot]));
+    crossing(crate::native::hooked_memory().at(RENDERER_TABLE[slot]));
 }
 
 macro_rules! renderer_entries {
@@ -169,7 +169,7 @@ extern "C" fn renderer_entries() {
         "mov r11d, dword ptr gs:[0x48]",
         "cmp r11d, dword ptr [rip + {main}]",
         "jne 4f",
-        crate::call_rust!("mov ecx, eax", call renderer_called),
+        call_rust!("mov ecx, eax", call renderer_called),
         "4:",
         "lea r11, [rip + {originals}]",
         "jmp qword ptr [r11 + rax * 8]",
@@ -224,7 +224,7 @@ fn lock_taken(lock: usize, by: usize) {
         super::course::LockAction::TakePresentationFirst => {
             main_side(|s| {
                 let took = s.lock_order(&MainLock);
-                TRACKER.record_lock_order(crate::hooked_memory().at(by), took);
+                TRACKER.record_lock_order(crate::native::hooked_memory().at(by), took);
             });
         }
         super::course::LockAction::None => {}
@@ -252,7 +252,7 @@ pub(super) fn mesh_let_go(into: usize) {
     if !held && UNHELD_LOGGED.fetch_add(1, Ordering::Relaxed) < MOST_UNHELD_LOGGED {
         let mut frames = [std::ptr::null_mut(); 16];
         let n = unsafe { windows_sys::Win32::System::Diagnostics::Debug::RtlCaptureStackBackTrace(1, 16, frames.as_mut_ptr(), std::ptr::null_mut()) } as usize;
-        let base = crate::hooked_memory().at(0usize);
+        let base = crate::native::hooked_memory().at(0usize);
         let stack: Vec<String> = frames[..n]
             .iter()
             .map(|&f| f as usize)

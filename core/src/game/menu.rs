@@ -24,19 +24,12 @@ mod course;
 pub mod leave;
 
 use super::{fail, game, As, Caller, GResult, Status, Tag};
-use crate::{
-    base::Result,
-    game_string,
-    memory::Memory,
-    objects::{
+use crate::{base::Result, native::game_string, native::memory::Memory, native::objects::{
         application,
         campaign::{classes as campaign_classes, countries as country_list, country as country_fields, globals, map_manager as manager_fields, world},
         gui::{classes as gui_classes, main_menu},
         setup,
-    },
-    points::{GameFunction, Point},
-    saves::file as save_file,
-};
+    }, native::points::{GameFunction, Point}, saves::file as save_file};
 use std::{
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
@@ -573,7 +566,7 @@ pub(crate) fn in_game_menu_open(m: &Memory) -> bool {
 }
 
 fn in_game_menu_visible(m: &Memory) -> Result<bool> {
-    use crate::objects::gui::window;
+    use crate::native::objects::gui::window;
     let Some(manager) = map_manager(m)? else { return Ok(false) };
     let menu = m.ptr(manager + manager_fields::MENU)?;
     if menu == 0 || m.ptr(menu)? != m.at(gui_classes::WINDOW) || m.u8(menu + window::DEAD)? != 0 || m.u8(menu + window::OPEN)? == 0 {
@@ -581,7 +574,7 @@ fn in_game_menu_visible(m: &Memory) -> Result<bool> {
     }
     let begin = m.ptr(menu + window::SUBWINDOWS)?;
     let end = m.ptr(menu + window::SUBWINDOWS_END)?;
-    let count = crate::containers::span(begin, end, window::SUBWINDOW_ENTRY, 64)?;
+    let count = crate::native::containers::span(begin, end, window::SUBWINDOW_ENTRY, 64)?;
     for i in 0..count {
         let entry = begin + i * window::SUBWINDOW_ENTRY;
         if game_string::read(m, entry)? == b"menu_panel" {
@@ -822,7 +815,7 @@ mod tests {
     fn in_game_menu_visible_requires_live_menu_and_open_menu_panel() {
         use super::{campaign_classes, globals, gui_classes, in_game_menu_visible, manager_fields, world};
         use crate::game::buffers::{Image, Object};
-        use crate::objects::gui::window;
+        use crate::native::objects::gui::window;
 
         let image = Image::new();
         let m = image.memory();

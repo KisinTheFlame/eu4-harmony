@@ -4,12 +4,7 @@
 //! (docs/game/countries/modifiers.md). Every group that asks a country's
 //! modifiers asks them here.
 use super::{thousandths, GResult};
-use crate::{
-    game_string,
-    memory::Memory,
-    objects::campaign::{country, modifier_set, modifier_type, modifiers, named_modifier},
-    points::{GameFunction, Point},
-};
+use crate::{native::game_string, native::memory::Memory, native::objects::campaign::{country, modifier_set, modifier_type, modifiers, named_modifier}, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::{
     countries::{ModifierValue, NamedModifier},
     Date,
@@ -83,7 +78,7 @@ pub fn has(m: &Memory, country: usize, modifier: usize) -> GResult<bool> {
 /// The kinds of modifier, by index: the vector's begin and how many.
 fn types(m: &Memory) -> GResult<(usize, usize)> {
     let begin = m.ptr(m.at(modifier_type::TYPES))?;
-    let count = crate::containers::span(begin, m.ptr(m.at(modifier_type::TYPES) + 8)?, modifier_type::SIZE, MOST_TYPES)?;
+    let count = crate::native::containers::span(begin, m.ptr(m.at(modifier_type::TYPES) + 8)?, modifier_type::SIZE, MOST_TYPES)?;
     Ok((begin, count))
 }
 

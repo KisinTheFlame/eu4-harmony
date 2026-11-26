@@ -5,20 +5,16 @@
 use super::commands::{write, Block};
 use super::content::checks;
 use super::{action, conditions, content, modifiers, thousandths, GResult, Session, Tag};
-use crate::containers;
-use crate::game_string;
-use crate::{
-    memory::Memory,
-    objects::{campaign::country, map},
-    points::{GameFunction, Point},
-};
+use crate::native::containers;
+use crate::native::game_string;
+use crate::{native::memory::Memory, native::objects::{campaign::country, map}, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::estates::args;
 use eu4_harmony_remote::{
     choices::Choice,
     estates::{AgendaInProgress, Estate, EstateAgenda, EstateInteraction, Privilege},
 };
 
-use crate::objects::campaign::country::ESTATES;
+use crate::native::objects::campaign::country::ESTATES;
 /// An entry of the country's estates ([`ESTATES`]).
 const ENTRY: usize = 0xa8;
 const ENTRY_ESTATE: usize = 0x10;

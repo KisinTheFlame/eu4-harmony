@@ -19,9 +19,9 @@
 //! The count comes from the function's code ([`eu4_harmony_analysis::arguments`]);
 //! `RVA:N` gives it for a function the exception directory has no entry for
 //! (a leaf), or overrides it.
-use crate::hooks::Call;
-use crate::memory::Memory;
-use crate::points::Point;
+use crate::native::hooks::Call;
+use crate::native::memory::Memory;
+use crate::native::points::Point;
 use crate::unicode::game_text;
 use eu4_harmony_analysis as analysis;
 use std::cell::RefCell;
@@ -122,7 +122,7 @@ fn text_at(m: &Memory, p: usize) -> Option<String> {
         let text = game_text::to_utf8(bytes);
         (text.chars().count() >= 2 && !text.chars().any(|c| c.is_control() && c != '\n' && c != '\t')).then_some(text)
     };
-    use crate::game_string::{CAPACITY, INLINE, SIZE};
+    use crate::native::game_string::{CAPACITY, INLINE, SIZE};
     if let (Ok(size), Ok(capacity)) = (m.u64(p + SIZE), m.u64(p + CAPACITY)) {
         if (INLINE as u64..1 << 20).contains(&capacity) && size <= capacity {
             let data = if capacity <= INLINE as u64 { Some(p) } else { m.ptr(p).ok() };

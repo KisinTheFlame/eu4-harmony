@@ -9,12 +9,7 @@ use super::{
     power::{self, BOOST_STABILITY, CAN_INCREASE_STABILITY, CAN_REDUCE_WAR_EXHAUSTION},
     spendings, Ctx, GResult, Session,
 };
-use crate::{
-    game_string,
-    memory::Memory,
-    objects::campaign::country::STABILITY,
-    points::{GameFunction, Point},
-};
+use crate::{native::game_string, native::memory::Memory, native::objects::campaign::country::STABILITY, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind, Resource},
     stability::{args, StabilityAction, StabilityOption},
@@ -213,7 +208,7 @@ mod tests {
         power::{COST, FUNCTIONS, NO_ID},
         Caller, Fail, Status,
     };
-    use crate::objects::campaign::country;
+    use crate::native::objects::campaign::country;
 
     /// What a spending costs: 50 points.
     extern "C" fn fifty() -> usize {

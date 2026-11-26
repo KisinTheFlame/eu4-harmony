@@ -35,7 +35,7 @@ mod waiting;
 
 pub use session_interface::SessionInterface;
 
-use crate::{memory::Memory, points::Point};
+use crate::{native::memory::Memory, native::points::Point};
 
 /// While it lives, `repair` lets the game's memory go on this thread: a
 /// developer build's quarantine keeps what is freed then, while it is on

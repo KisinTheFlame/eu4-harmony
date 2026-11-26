@@ -15,12 +15,7 @@
 //! the game (docs/research/interface-evidence.md); here
 //! only what owns a window kills it.
 use super::{interface_parts::TAKE_WINDOW_OFF, LettingGo};
-use crate::{
-    hooks::Call,
-    memory::Memory,
-    objects::gui::window as gui_window,
-    points::{GameFunction, Point},
-};
+use crate::{native::hooks::Call, native::memory::Memory, native::objects::gui::window as gui_window, native::points::{GameFunction, Point}};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The windows killed so since the last world reset, for the log.
@@ -177,7 +172,7 @@ fn build_interface_going(call: &mut Call) {
             let list_box = m.ptr(building + TAB_LIST_BOX)?;
             if list_box != 0 && m.vslot(list_box, LIST_BOX_DETACH_SLOT)? == m.at(LIST_BOX_DETACH) {
                 let mut theirs = false;
-                for node in crate::containers::chain(m, m.ptr(list_box + LIST_BOX_ENTRIES)?, LIST_BOX_NODE_NEXT, crate::containers::MOST)? {
+                for node in crate::native::containers::chain(m, m.ptr(list_box + LIST_BOX_ENTRIES)?, LIST_BOX_NODE_NEXT, crate::native::containers::MOST)? {
                     if within(m.ptr(node)?.wrapping_sub(ENTRY_PART)) {
                         theirs = true;
                         break;

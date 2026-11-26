@@ -9,8 +9,7 @@
 //! non-ASCII character a line may break after, the width since the last
 //! "space" starts over too, so Chinese wraps between characters.
 use super::{breaks, text_loops};
-use crate::points::Point;
-use crate::resume;
+use crate::native::points::Point;
 
 const GLYPH: usize = 0x159b687;
 const FOUND: usize = 0x159b696;

@@ -72,7 +72,7 @@ pub mod map {
     /// Builds every country's name again, when the map has its font, and
     /// marks the map mode for its refresh at the next frame, which builds
     /// the other names again: `(map)`.
-    pub const REBUILD_NAMES: crate::points::GameFunction<1> = crate::points::GameFunction::at(0x10a4680);
+    pub const REBUILD_NAMES: crate::native::points::GameFunction<1> = crate::native::points::GameFunction::at(0x10a4680);
 }
 
 /// What the renderer's texture creation is told: the format (a
@@ -111,7 +111,7 @@ pub mod text_texture {
     pub const EXTENT: usize = 0x2d0;
 }
 
-use crate::{game_string, points::Point};
+use crate::{native::game_string, native::points::Point};
 
 pub fn points() -> Vec<Point> {
     use self::*;

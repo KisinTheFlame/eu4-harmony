@@ -24,8 +24,8 @@
 //! lets go of its ancestor folders' listings before the call returns.
 use super::folder::{list, read_as_written, Kind};
 use crate::base::called_by_game;
-use crate::hooks::Call;
-use crate::points::{Function, Point};
+use crate::native::hooks::Call;
+use crate::native::points::{Function, Point};
 use crate::speed::{self, SpeedUp};
 use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr};
@@ -101,8 +101,8 @@ static GAME_STAT: Function<Stat> = Function::new();
 type WriteDir = extern "C" fn() -> *const c_char;
 static WRITE_DIR: Function<WriteDir> = Function::new();
 
-crate::resume!(CHECK_RESUME: CHECK_ASKED_AT = CHECK_ASKED);
-crate::resume!(FIND_RESUME: FIND_ASKED_AT = FIND_ASKED);
+resume!(CHECK_RESUME: CHECK_ASKED_AT = CHECK_ASKED);
+resume!(FIND_RESUME: FIND_ASKED_AT = FIND_ASKED);
 
 /// Not the listings' to answer: the game's stat answers.
 const LEFT: i32 = -1;
@@ -391,7 +391,7 @@ fn written(call: &mut Call) {
 /// PhysFS's "not found"; [`LEFT`] for the game's stat to answer.
 #[called_by_game]
 extern "C" fn ask(archive: usize, name: *const c_char, path: *const c_char, stat: *mut u8) -> i32 {
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     if archive != m.base + FOLDER_ARCHIVE || name.is_null() || path.is_null() {
         return LEFT;
     }
@@ -432,7 +432,7 @@ extern "C" fn check_asks_stub() {
         "lea r8, [rsp + 0x20]",
         "mov rcx, [r15]",
         "mov rdx, rsi",
-        crate::call_rust!("mov r10, rcx", "mov rcx, r9", "mov r9, r8", "mov r8, rdx", "mov rdx, r10", call ask, "mov eax, [rsp + 0x48]"),
+        call_rust!("mov r10, rcx", "mov rcx, r9", "mov r9, r8", "mov r8, rdx", "mov rdx, r10", call ask, "mov eax, [rsp + 0x48]"),
         "cmp eax, -1",
         "jne 2f",
         "call qword ptr [r9 + 0x68]",
@@ -451,7 +451,7 @@ extern "C" fn find_asks_stub() {
         "lea r8, [rbp + 8]",
         "mov rdx, [rbp]",
         "mov rcx, [rbx]",
-        crate::call_rust!("mov r10, rcx", "mov rcx, rax", "mov r9, r8", "mov r8, rdx", "mov rdx, r10", call ask, "mov eax, [rsp + 0x48]"),
+        call_rust!("mov r10, rcx", "mov rcx, rax", "mov r9, r8", "mov r8, rdx", "mov rdx, r10", call ask, "mov eax, [rsp + 0x48]"),
         "cmp eax, -1",
         "jne 2f",
         "mov rax, [rbx + 0x18]",

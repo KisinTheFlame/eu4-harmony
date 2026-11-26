@@ -4,11 +4,7 @@
 //! faith").
 use super::commands::{write, Block};
 use super::{action, country as country_at, Ctx, GResult, Session, Tag};
-use crate::{
-    memory::Memory,
-    objects::campaign::{country, religion, world},
-    points::{GameFunction, Point},
-};
+use crate::{native::memory::Memory, native::objects::campaign::{country, religion, world}, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     religion::DefenderOfTheFaith,

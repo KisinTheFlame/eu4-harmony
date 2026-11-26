@@ -10,12 +10,7 @@
 //! fired through the game's own `TriggerEvent` once its trigger holds, as
 //! `country_event` and `province_event` fire one.
 use super::{conditions, countries, country, with_state, GResult, Status, Tag, World, WorldSession};
-use crate::{
-    containers, game_string,
-    memory::Memory,
-    objects::campaign::{country as country_fields, event, globals::WORLD, province as province_fields, route_options::NO_TAG},
-    points::{GameFunction, Point},
-};
+use crate::{native::containers, native::game_string, native::memory::Memory, native::objects::campaign::{country as country_fields, event, globals::WORLD, province as province_fields, route_options::NO_TAG}, native::points::{GameFunction, Point}};
 use eu4_harmony_checks::script::{self as checks, Use};
 use eu4_harmony_remote::{
     script::{args, FlagState, Scope, VariableState},

@@ -8,8 +8,8 @@
 //! what crashed the game with a pure call (`super::session_interface`), so
 //! the rule is kept here, once.
 use super::LettingGo;
-use crate::memory::Memory;
-use crate::points::GameFunction;
+use crate::native::memory::Memory;
+use crate::native::points::GameFunction;
 use std::{
     collections::HashMap,
     sync::{

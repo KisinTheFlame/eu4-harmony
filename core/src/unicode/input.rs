@@ -26,12 +26,11 @@
 //! keep working with a Chinese input method switched on.
 use super::game_text;
 use crate::base::called_by_game;
-use crate::objects::{
+use crate::native::objects::{
     gui::{self, edit_box, editor, events, manager},
     text::font,
 };
-use crate::points::{Function, Point};
-use crate::resume;
+use crate::native::points::{Function, Point};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
 use windows_sys::Win32::UI::Input::Ime::*;
@@ -104,7 +103,7 @@ fn typed_char(typed: &[u8]) -> &[u8] {
 #[called_by_game]
 extern "C" fn copy_char(from: *const u8, string: *mut u8) {
     unsafe {
-        crate::game_string::set_inline(string, typed_char(game_text::up_to_nul(from, 4)));
+        crate::native::game_string::set_inline(string, typed_char(game_text::up_to_nul(from, 4)));
     }
 }
 
@@ -120,7 +119,7 @@ fn without_result(lparam: isize) -> isize {
 }
 
 /// Whether an edit box has the keyboard.
-fn edit_box_focused(m: &crate::memory::Memory) -> bool {
+fn edit_box_focused(m: &crate::native::memory::Memory) -> bool {
     let focused = || -> crate::base::Result<bool> {
         let listener = m.ptr(m.ptr(m.at(gui::globals::MANAGER))? + manager::FOCUSED_LISTENER)?;
         let class = m.ptr(listener)? == m.at(gui::classes::EDIT_BOX_LISTENER);
@@ -139,7 +138,7 @@ fn taken_by_input_method(message: u32, wparam: usize) -> bool {
 /// DefWindowProc then sees the message.
 #[called_by_game]
 unsafe extern "C" fn ime_message(window: HWND, message: u32, wparam: usize, lparam: *mut isize, video: usize) -> i32 {
-    if taken_by_input_method(message, wparam) && crate::memory().is_some_and(edit_box_focused) {
+    if taken_by_input_method(message, wparam) && crate::native::memory().is_some_and(edit_box_focused) {
         return 1;
     }
     let original = ORIGINAL_IME.get();
@@ -169,7 +168,7 @@ unsafe extern "C" fn ime_message(window: HWND, message: u32, wparam: usize, lpar
 /// insets, plus a shift (see [`edit_box`]), plus the offset. The box's place
 /// on screen is what its method [`edit_box::PLACE`] gives, as its click
 /// handling (0x1534560) takes it from the mouse.
-fn caret_on_screen(m: &crate::memory::Memory, edit_box: usize, offset: u32) -> crate::base::Result<(i32, i32)> {
+fn caret_on_screen(m: &crate::native::memory::Memory, edit_box: usize, offset: u32) -> crate::base::Result<(i32, i32)> {
     let mut place = [0i32; 2];
     m.call(m.vslot(edit_box, edit_box::PLACE)?, &[edit_box, place.as_mut_ptr() as usize])?;
     let shift = m.ptr(edit_box + edit_box::SHIFT_HOLDER)? + edit_box::SHIFT;
@@ -196,7 +195,7 @@ extern "C" fn caret_at(edit_box: usize, offset: u32) {
             return;
         }
         let window = GetFocus();
-        let m = crate::hooked_memory();
+        let m = crate::native::hooked_memory();
         let (Some((across, down)), Ok(font)) = (crate::game::gui_scale(&m), m.ptr(edit_box + edit_box::EDITOR + editor::FONT)) else { return };
         if window.is_null() || font == 0 {
             return;

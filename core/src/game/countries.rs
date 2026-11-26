@@ -1,17 +1,11 @@
 //! Countries: finding one by its tag, its tag, whether two are hostile, one
 //! read of a country and its budget (docs/game/countries/countries.md).
 use super::{commands, country, modifiers, thousandths, world, GResult, InWorld, Tag, WorldSession};
-use crate::containers;
-use crate::{
-    game_string,
-    memory::Memory,
-    objects::campaign::{
+use crate::native::containers;
+use crate::{native::game_string, native::memory::Memory, native::objects::campaign::{
         classes, country as fields, country_diplomacy, idea_group, loan, modifiers as modifiers_fields, person, rebel_faction, subject_relation, subject_type,
         technology, war, world as world_fields,
-    },
-    points::{GameFunction, Point},
-    unicode::game_text,
-};
+    }, native::points::{GameFunction, Point}, unicode::game_text};
 use eu4_harmony_remote::{
     countries::{
         args, Budget, Country, Entry, GoverningCapacity, IdeaGroup, Legitimacy, LegitimacyKind, Loan, Loans, ModifierValue, Modifiers, Person, Power, Rebels,

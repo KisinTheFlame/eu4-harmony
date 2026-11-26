@@ -34,7 +34,7 @@
 //! a test, which is to run as fast when its window is behind others, and a
 //! shown window is throttled by Windows as any other then anyway.
 use crate::base::called_by_game;
-use crate::points::{Function, Point};
+use crate::native::points::{Function, Point};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 
@@ -231,10 +231,10 @@ const MINIMIZE_WINDOW: usize = 0x1735340;
 /// Starts `CrashReporter.exe` and waits for it.
 const START_CRASH_REPORTER: usize = 0x164f950;
 
-crate::resume!(WINDOW_MADE_RESUME: WINDOW_MADE_AT = WINDOW_MADE_NEXT);
-crate::resume!(INIT_SHOWS_RESUME: INIT_SHOWS_AT = INIT_SHOWS_NEXT);
-crate::resume!(SUPPRESS_RESUME: SUPPRESS_AT = SUPPRESS_STORED_NEXT);
-crate::resume!(CRASH_MINIMIZES_RESUME: CRASH_MINIMIZES_AT = CRASH_MINIMIZES_NEXT);
+resume!(WINDOW_MADE_RESUME: WINDOW_MADE_AT = WINDOW_MADE_NEXT);
+resume!(INIT_SHOWS_RESUME: INIT_SHOWS_AT = INIT_SHOWS_NEXT);
+resume!(SUPPRESS_RESUME: SUPPRESS_AT = SUPPRESS_STORED_NEXT);
+resume!(CRASH_MINIMIZES_RESUME: CRASH_MINIMIZES_AT = CRASH_MINIMIZES_NEXT);
 
 type WarpCursor = unsafe extern "C" fn(usize, *const [i32; 2]);
 type MinimizeWindow = unsafe extern "C" fn(usize);
@@ -283,7 +283,7 @@ extern "C" fn window_flags(flags: u32) -> u32 {
 #[unsafe(naked)]
 extern "C" fn window_made_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("mov ecx, [rbp + 0x30]", call window_flags, "push rax", "mov eax, [rsp + 0x50]", "mov [rbp + 0x30], eax", "pop rax"),
+        call_rust!("mov ecx, [rbp + 0x30]", call window_flags, "push rax", "mov eax, [rsp + 0x50]", "mov [rbp + 0x30], eax", "pop rax"),
         "mov edx, 0x2fff0000",
         "jmp qword ptr [rip + {next}]",
         window_flags = sym window_flags,
@@ -308,7 +308,7 @@ extern "C" fn init_shows(window: usize, command: i32) {
 #[unsafe(naked)]
 extern "C" fn init_shows_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call init_shows),
+        call_rust!(call init_shows),
         "jmp qword ptr [rip + {next}]",
         init_shows = sym init_shows,
         next = sym INIT_SHOWS_AT,
@@ -322,14 +322,14 @@ extern "C" fn init_shows_stub() {
 #[called_by_game]
 extern "C" fn suppress(asked: u8) {
     let on = asked != 0 || hidden_start();
-    unsafe { *(crate::hooked_memory().at(SUPPRESS_ERROR_MESSAGES) as *mut u8) = on as u8 };
+    unsafe { *(crate::native::hooked_memory().at(SUPPRESS_ERROR_MESSAGES) as *mut u8) = on as u8 };
     crate::base::guarded("proxy sync", crate::proxy::sync_once);
 }
 
 #[unsafe(naked)]
 extern "C" fn suppress_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("movzx ecx, al", call suppress),
+        call_rust!("movzx ecx, al", call suppress),
         "jmp qword ptr [rip + {next}]",
         suppress = sym suppress,
         next = sym SUPPRESS_AT,
@@ -361,7 +361,7 @@ extern "C" fn crash_minimizes(window: usize) {
 #[unsafe(naked)]
 extern "C" fn crash_minimizes_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call crash_minimizes),
+        call_rust!(call crash_minimizes),
         "jmp qword ptr [rip + {next}]",
         crash_minimizes = sym crash_minimizes,
         next = sym CRASH_MINIMIZES_AT,

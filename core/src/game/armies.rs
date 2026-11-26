@@ -7,7 +7,7 @@
 //! the player gave the army an order, exactly once
 //! (ADR remote-control-uses-capabilities).
 use super::{army, orders, signals, thousandths, with_state, Caller, GResult, Session, Tag, View};
-use crate::{memory::Memory, objects::campaign::unit};
+use crate::{native::memory::Memory, native::objects::campaign::unit};
 use eu4_harmony_checks::armies as checks;
 use eu4_harmony_remote::armies::{self as remote, args, ArmyKind, Blocked, RouteBy};
 use eu4_harmony_remote::ArmyId;
@@ -303,7 +303,7 @@ pub fn selected(Session { m, ctx, .. }: Session) -> GResult<u64> {
 }
 
 /// The group's dependency points: none of its own.
-pub fn points() -> Vec<crate::points::Point> {
+pub fn points() -> Vec<crate::native::points::Point> {
     Vec::new()
 }
 
@@ -352,7 +352,7 @@ mod tests {
         commands::record,
         Fail, Status,
     };
-    use crate::objects::{
+    use crate::native::objects::{
         campaign::{classes, country, globals, regiment, unit_type},
         list,
     };

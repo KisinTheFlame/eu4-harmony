@@ -23,7 +23,7 @@ mod window;
 
 use super::{fail, Caller, GResult, Status};
 use crate::base::called_by_game;
-use crate::points::{Function, Point};
+use crate::native::points::{Function, Point};
 use plan::{Held, Step};
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -84,7 +84,7 @@ fn drawing_thread_cursor() -> Option<[i32; 2]> {
     if !crate::drawing::is_drawing_thread() {
         return None;
     }
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     if m.u8(m.at(WINDOWS_CURSOR)).ok()? == 0 {
         return None;
     }

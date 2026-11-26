@@ -11,7 +11,7 @@
 //! (text) and 0x170ebf0 (binary); each returns 1 for a token, 0 at the end.
 use super::legacy;
 use crate::base::called_by_game;
-use crate::points::{Function, Point};
+use crate::native::points::{Function, Point};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const TEXT_TOKEN: usize = 0x170e700;

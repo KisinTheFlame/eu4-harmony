@@ -5,12 +5,19 @@
 //! system, PhysFS, as the game initializes it, after every place already there.
 //! Their names are the framework's own, under `eu4harmony` names no game or mod
 //! file has, so they add files and never stand in for one.
-use crate::points::{Function, Point};
+use super::points::{Function, Point};
 use std::ffi::{c_char, c_void};
+use std::sync::OnceLock;
 
 type MountMemoryFn = unsafe extern "C" fn(*const c_void, u64, Option<unsafe extern "C" fn(*mut c_void)>, *const c_char, *const c_char, i32) -> i32;
 
 static MOUNT_MEMORY: Function<MountMemoryFn> = Function::new();
+static PROVIDER: OnceLock<fn() -> Vec<File>> = OnceLock::new();
+
+/// Registers the provider that gathers all framework files before PhysFS mounts them.
+pub(crate) fn set_provider(provider: fn() -> Vec<File>) {
+    let _ = PROVIDER.set(provider);
+}
 
 /// One file: its path in the game's file system and its bytes.
 pub struct File {
@@ -20,9 +27,7 @@ pub struct File {
 
 /// Every framework file.
 fn all() -> Vec<File> {
-    let mut all = crate::unicode::framework_fonts::files();
-    all.extend(crate::windows::files());
-    all
+    PROVIDER.get().map_or_else(Vec::new, |f| f())
 }
 
 /// Mounts the framework's files: once PhysFS is initialized, before the

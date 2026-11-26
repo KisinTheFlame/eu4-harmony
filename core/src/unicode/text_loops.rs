@@ -27,7 +27,7 @@
 use super::glyphs::{self, Glyph};
 use super::{fill, game_text};
 use crate::base::called_by_game;
-use crate::objects::text::font::OWN_GLYPHS;
+use crate::native::objects::text::font::OWN_GLYPHS;
 
 /// The glyph `font` draws for `c`.
 pub fn glyph(font: usize, c: char) -> *const Glyph {
@@ -96,7 +96,7 @@ pub unsafe extern "C" fn layout_char(font: usize, text: *const u8, word: usize, 
     unsafe {
         let (glyph, n) = glyph_at(font, text);
         if n > 1 {
-            crate::game_string::append(word, std::slice::from_raw_parts(text.add(1), n - 1));
+            crate::native::game_string::append(word, std::slice::from_raw_parts(text.add(1), n - 1));
         }
         *len = n;
         glyph

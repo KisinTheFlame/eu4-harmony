@@ -2,15 +2,12 @@
 //! color pass it can observe (mode 12, option 26) and overwrites the colors of
 //! the requested provinces; clearing restores the mode that was active before.
 //! Ported from eu4-regional-combat's range preview (docs/game/provinces/map-modes.md).
-use crate::{game::{self, fail, map_coloring::MapColor, GResult, Status}, hooks::Call, memory::Memory, objects::campaign::{classes, globals, map, map_manager, province}, points::{GameFunction, Point}, base::Result};
+use crate::{game::{self, fail, map_coloring::MapColor, GResult, Status}, native::hooks::Call, native::memory::Memory, native::objects::campaign::{classes, globals, map, map_manager, province}, native::points::{GameFunction, Point}, base::Result};
 use std::{cell::RefCell, collections::BTreeMap, sync::Mutex};
 
 const FILL: usize = 0x12fd9b0;
 const SECONDARY: usize = 0x12fdcb0;
-pub(crate) const RENDERER: usize = 0x10a8c30;
-/// The in-game idler's map mode set (`drawing::deferred` defers it from a
-/// moved capital).
-pub(crate) const REFRESH: GameFunction<4> = GameFunction::at(0x821ff0);
+pub(crate) use crate::native::objects::map_rva::{REFRESH, RENDERER};
 const POLITICAL_MODE: i32 = 1;
 const PAINT_MODE: i32 = 12;
 const PAINT_OPTION: u32 = 26;
@@ -287,7 +284,7 @@ pub fn reset_session() {
         s.coloring = Coloring::default();
         s.saved.take()
     });
-    let Some(m) = crate::memory() else { return };
+    let Some(m) = crate::native::memory() else { return };
     if let (Some((old, old_mode)), Ok(ctx)) = (saved, game::context(m)) {
         if let Ok(current) = manager(m, &ctx) {
             let current_mode = m.i32(current + map_manager::MODE).unwrap_or(-1);

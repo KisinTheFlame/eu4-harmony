@@ -3,10 +3,7 @@
 //! count, which the main menu, made again, would unload with the game's
 //! graphics, stays loaded.
 use crate::base::called_by_game;
-use crate::{
-    objects::gui::{classes as gui_classes, sprite_type},
-    points::{Function, Point},
-};
+use crate::{native::objects::gui::{classes as gui_classes, sprite_type}, native::points::{Function, Point}};
 
 /// `(sprite type)`: unloads a sprite type with its group of graphics
 /// (`0x14dc240`), letting its textures go; its [`sprite_type::UNLOAD`].
@@ -26,7 +23,7 @@ static ORIGINAL_SPRITE_TYPE_UNLOAD: Function<SpriteTypeUnload> = Function::new()
 #[called_by_game]
 unsafe extern "C" fn sprite_type_unloading(kind: usize) {
     let stays = crate::base::guarded("sprite type unload", || {
-        let m = crate::hooked_memory();
+        let m = crate::native::hooked_memory();
         let kept = (|| -> crate::base::Result<u32> {
             let shown = if m.u8(kind + sprite_type::LAZY)? != 0 { m.u32(kind + sprite_type::SHOWN)? } else { 0 };
             if shown != 0 {
@@ -37,7 +34,7 @@ unsafe extern "C" fn sprite_type_unloading(kind: usize) {
         match kept {
             Ok(0) => false,
             Ok(shown) => {
-                let name = crate::game_string::key(&m, kind + sprite_type::NAME).unwrap_or_default();
+                let name = crate::native::game_string::key(&m, kind + sprite_type::NAME).unwrap_or_default();
                 log!("repair: the sprite type {name} stays loaded with its group: {shown} shown sprite(s) show it");
                 true
             }

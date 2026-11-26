@@ -4,7 +4,7 @@
 //! spendings").
 use super::content::{self, checks};
 use super::{power, thousandths, Ctx, GResult, Session};
-use crate::{containers, game_string, memory::Memory, points::Point};
+use crate::{native::containers, native::game_string, native::memory::Memory, native::points::Point};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind},
     government::{args, Faction},

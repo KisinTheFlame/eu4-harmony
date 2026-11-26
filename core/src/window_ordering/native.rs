@@ -1,14 +1,14 @@
 //! Native first-scene preparation, without a graphics submission.
 //! Call only outside native candidate iteration, under presentation ownership.
 //! Evidence: research/window-input-refresh.md and window-activation.md.
-use crate::{containers, memory::Memory, points::{GameFunction, Point}, base::Result};
+use crate::{native::containers, native::memory::Memory, native::points::{GameFunction, Point}, base::Result};
 
 const WALK: GameFunction<5> = GameFunction::at(0x14dd7a0);
 const HITS: GameFunction<4> = GameFunction::at(0x14dda50);
 const INSERT: GameFunction<3> = GameFunction::at(0xcc220);
 const QUALIFY: GameFunction<1> = GameFunction::at(0x14defd0);
 const COUNT: usize = 0x23494d0;
-use crate::objects::{campaign::functions::YES, gui::globals::OTHER_CAMERA};
+use crate::native::objects::{campaign::functions::YES, gui::globals::OTHER_CAMERA};
 const DRAW_LIST: usize = 0x298;
 const HIT_LIST: usize = 0x58;
 const OWNER_LIST: usize = 0x70;
@@ -38,20 +38,20 @@ pub(super) const ATTACHED_NODE: usize = 0x168;
 pub(super) use super::placement::PARENT;
 
 pub(super) fn scene(m: &Memory) -> Result<Option<(usize, usize)>> {
-    let manager = m.ptr(m.at(crate::objects::gui::globals::MANAGER))?;
+    let manager = m.ptr(m.at(crate::native::objects::gui::globals::MANAGER))?;
     if manager == 0 {
         return Ok(None);
     }
-    let scene = m.ptr(manager + crate::objects::gui::manager::SCENE)?;
+    let scene = m.ptr(manager + crate::native::objects::gui::manager::SCENE)?;
     Ok((scene != 0).then_some((manager, scene)))
 }
 
 pub(super) fn window_node(m: &Memory, root: usize) -> Result<usize> {
-    if m.ptr(root + crate::objects::gui::window::GUI)? != m.at(crate::objects::gui::classes::WINDOW_GUI) {
+    if m.ptr(root + crate::native::objects::gui::window::GUI)? != m.at(crate::native::objects::gui::classes::WINDOW_GUI) {
         return Err("ordering requires the ordinary window GUI interface".into());
     }
     let node = m.ptr(root + WINDOW_NODE)?;
-    if node == 0 || m.ptr(node + OWNER)? != root + crate::objects::gui::window::GUI {
+    if node == 0 || m.ptr(node + OWNER)? != root + crate::native::objects::gui::window::GUI {
         return Err("window container ownership changed".into());
     }
     Ok(node)
@@ -60,15 +60,15 @@ pub(super) fn window_node(m: &Memory, root: usize) -> Result<usize> {
 /// Only the checked ordinary window GUI interface permits subtracting 0x30.
 pub(super) fn window_of(m: &Memory, node: usize) -> Result<Option<usize>> {
     let owner = m.ptr(node + OWNER)?;
-    if owner == 0 || m.ptr(owner)? != m.at(crate::objects::gui::classes::WINDOW_GUI) {
+    if owner == 0 || m.ptr(owner)? != m.at(crate::native::objects::gui::classes::WINDOW_GUI) {
         return Ok(None);
     }
-    let root = owner.checked_sub(crate::objects::gui::window::GUI).ok_or("invalid window GUI address")?;
+    let root = owner.checked_sub(crate::native::objects::gui::window::GUI).ok_or("invalid window GUI address")?;
     Ok((window_node(m, root)? == node).then_some(root))
 }
 
 pub(super) fn visible(m: &Memory, root: usize, first_root: usize) -> Result<bool> {
-    if m.u8(root + RETIRED)? != 0 || m.u8(root + crate::objects::gui::window::OPEN)? == 0 {
+    if m.u8(root + RETIRED)? != 0 || m.u8(root + crate::native::objects::gui::window::OPEN)? == 0 {
         return Ok(false);
     }
     let node = window_node(m, root)?;
@@ -105,7 +105,7 @@ pub(super) fn target_node(m: &Memory, scene: usize, gui: usize) -> Result<Option
 }
 
 pub(super) fn press_unhandled(m: &Memory, event: usize) -> Result<bool> {
-    use crate::objects::gui::mouse_input as fields;
+    use crate::native::objects::gui::mouse_input as fields;
     Ok(m.u32(event + fields::DEVICE)? == fields::MOUSE
         && [fields::PRESSED, fields::DOUBLE].contains(&m.u32(event + fields::KIND)?)
         && [1, fields::RIGHT].contains(&m.u32(event + fields::BUTTON)?)
@@ -120,12 +120,9 @@ pub(super) fn host_nodes(
     m: &Memory,
     root: usize,
     frame: Option<usize>,
-    controls: &[(usize, crate::bound_element::Look)],
+    controls: &[(usize, crate::native::bound_element::Look)],
 ) -> Result<(Option<usize>, Vec<usize>)> {
-    use crate::{
-        bound_element::Look,
-        objects::gui::{classes, window},
-    };
+    use crate::{native::bound_element::Look, native::objects::gui::{classes, window}};
     let mut nodes = Vec::new();
     if let Some(frame) = frame {
         nodes.push(window_node(m, frame)?);

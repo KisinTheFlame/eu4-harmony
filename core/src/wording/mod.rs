@@ -5,7 +5,7 @@
 //! A language words these in its own templates in the framework's
 //! localisation, which only a language that orders them differently from the
 //! game needs ([`TEMPLATES`]); for any other the game's own text stands.
-use crate::points::Point;
+use crate::native::points::Point;
 
 pub mod battles;
 pub mod dates;

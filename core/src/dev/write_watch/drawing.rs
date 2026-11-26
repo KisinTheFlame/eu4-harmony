@@ -23,7 +23,7 @@
 //! out, not for play. A block freed and made again at the same start between
 //! the two parts passes for the one read.
 use super::{report, start_on, stop, Watch, GAME_READS_ONLY, STARTED, WHO_WROTE};
-use crate::memory::Memory;
+use crate::native::memory::Memory;
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 
 const OFF: u8 = 0;

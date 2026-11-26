@@ -11,8 +11,8 @@
 //! See docs/game/interface/map-drawing-reads.md, "The frame's temporary highlights".
 use super::{is_drawing_thread, on_main};
 use crate::base::called_by_game;
-use crate::memory::Memory;
-use crate::points::Point;
+use crate::native::memory::Memory;
+use crate::native::points::Point;
 use std::cell::RefCell;
 use std::sync::Mutex;
 
@@ -26,7 +26,7 @@ const TEMPORARY: u8 = 4;
 // The classifier reads no field beyond its two display flags at +0x30c/d.
 const READER_SIZE: usize = 0x310;
 const READER_BEGINS: usize = 0x12ddac7;
-crate::resume!(READER_RESUME: READER_GOES_ON = 0x12ddad7);
+resume!(READER_RESUME: READER_GOES_ON = 0x12ddad7);
 
 pub(super) fn points() -> Vec<Point> {
     vec![
@@ -184,7 +184,7 @@ extern "C" fn border_reader(idler: usize) -> usize {
     }
     let kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
     let Some(kept) = kept.as_ref() else { return idler };
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     READER.with(|r| {
         let mut r = r.borrow_mut();
         match prepared_reader(&m, idler, &mut r, kept) {
@@ -201,7 +201,7 @@ extern "C" fn border_reader(idler: usize) -> usize {
 #[unsafe(naked)]
 extern "C" fn reader_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("mov rcx, r11", call border_reader, "mov r11, [rsp + 0x48]"),
+        call_rust!("mov rcx, r11", call border_reader, "mov r11, [rsp + 0x48]"),
         "movzx eax, byte ptr [r11 + 0x30d]",
         "movzx edx, byte ptr [r11 + 0x30c]",
         "jmp qword ptr [rip + {goes_on}]",

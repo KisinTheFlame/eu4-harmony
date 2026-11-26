@@ -10,8 +10,8 @@
 //! threads that write the game state (`super::parallel`) and combined.
 use super::background::COPY_LEVEL;
 use crate::base::called_by_game;
-use crate::memory::Memory;
-use crate::points::{Function, Point};
+use crate::native::memory::Memory;
+use crate::native::points::{Function, Point};
 use crate::speed::SpeedUp;
 use crate::base::zip::{crc32, crc32_combine};
 use crate::base::Result;
@@ -61,7 +61,7 @@ extern "C" fn deflate(zip: usize, data: usize, buffer: usize, size: usize, crc: 
     if level != COPY_LEVEL as i32 {
         return ORIGINAL_DEFLATE.get()(zip, data, buffer, size, crc, level);
     }
-    crate::base::guarded("zip deflate", || match store(crate::hooked_memory(), zip, data, crc) {
+    crate::base::guarded("zip deflate", || match store(crate::native::hooked_memory(), zip, data, crc) {
         Ok(written) => written,
         Err(e) => {
             // What the game's deflate answers when zlib fails.

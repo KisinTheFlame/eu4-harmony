@@ -1,4 +1,4 @@
-//! MinHook binding, used only by [`points`](crate::points): hooks are created
+//! MinHook binding, used only by [`points`](crate::native::points): hooks are created
 //! from dependency point declarations, enabled together, and removed again
 //! only when startup is undone. Once startup succeeds they stay for the life of
 //! the game process.
@@ -15,7 +15,7 @@
 //! (ADR framework-succeeds-or-fails-as-a-whole). Every other function the
 //! game calls is marked `#[called_by_game]`, which does the same.
 use crate::base::called_by_game;
-use crate::{memory::Memory, base::Result};
+use crate::{native::memory::Memory, base::Result};
 use std::sync::Mutex;
 
 extern "C" {
@@ -373,7 +373,7 @@ mod tests {
     fn a_panic_in_a_function_the_game_calls_is_fatal() {
         assert_eq!(halves(8), 4);
         let payload = std::panic::catch_unwind(|| halves(3)).unwrap_err();
-        assert_eq!(payload.downcast_ref::<String>().map(String::as_str), Some("fatal: eu4_harmony_core::hooks::tests::halves: 3 is odd"));
+        assert_eq!(payload.downcast_ref::<String>().map(String::as_str), Some("fatal: eu4_harmony_core::native::hooks::tests::halves: 3 is odd"));
     }
 
     /// Every function with a body that the game's code may call, an

@@ -5,17 +5,11 @@
 use super::administration::checks as refuse;
 use super::commands::{write, Block};
 use super::{action, administration::MOST_CONSTRUCTIONS, context_any, game, signals, thousandths, with_state, Ctx, GResult, Session, Tag};
-use crate::containers;
-use crate::{
-    game_string,
-    hooks::Call,
-    memory::Memory,
-    objects::{
+use crate::native::containers;
+use crate::{native::game_string, native::hooks::Call, native::memory::Memory, native::objects::{
         campaign::{building as fields, construction, country, province as field},
         list,
-    },
-    points::{GameFunction, Point},
-};
+    }, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::buildings::{args, BuildingConstruction, BuildingOption, BuildingOptions};
 use eu4_harmony_remote::choices::{Amount, Choice, Resource};
 use eu4_harmony_remote::{Date, ProvinceId};

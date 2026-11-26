@@ -17,8 +17,8 @@
 //! load is the same call with the same bytes. Any other game keeps the
 //! game's way.
 use crate::base::called_by_game;
-use crate::objects::campaign::{globals::WORLD, world::MULTIPLAYER};
-use crate::points::{Function, Point};
+use crate::native::objects::campaign::{globals::WORLD, world::MULTIPLAYER};
+use crate::native::points::{Function, Point};
 use crate::speed::SpeedUp;
 
 /// The transfer's add: `(manager, name, data, compress) -> index`.
@@ -56,7 +56,7 @@ extern "C" fn add(manager: usize, name: usize, data: usize, compress: u8) -> u32
 
 /// Whether the world is a single player game's: its multiplayer kind 0.
 fn single_player() -> bool {
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     match m.ptr(m.at(WORLD)) {
         Ok(world) if world != 0 => m.i32(world + MULTIPLAYER).is_ok_and(|kind| kind == 0),
         _ => false,

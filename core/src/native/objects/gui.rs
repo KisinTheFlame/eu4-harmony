@@ -247,7 +247,7 @@ pub mod main_menu {
     pub const PAGES: usize = 0x8e8;
     /// The application, as every idler keeps it, whose idler switch starts
     /// a game.
-    pub use crate::objects::application::idler::APPLICATION;
+    pub use crate::native::objects::application::idler::APPLICATION;
     /// The start of a game was accepted (its start command ran), u8.
     pub const LAUNCH_ACCEPTED: usize = 0x714;
     /// The game starts at the main menu's next frame, u8.
@@ -389,7 +389,7 @@ pub mod editor {
 
 /// The functions the methods above are, by RVA.
 pub mod functions {
-    use crate::points::GameFunction;
+    use crate::native::points::GameFunction;
 
     pub const FIND_BUTTON: GameFunction<2> = GameFunction::at(0x1548700);
     pub const FIND_TEXT: GameFunction<2> = GameFunction::at(0x1548d30);
@@ -451,7 +451,7 @@ pub mod functions {
 }
 
 use super::campaign;
-use crate::points::Point;
+use crate::native::points::Point;
 
 pub fn points() -> Vec<Point> {
     use self::{functions::*, globals::*, *};

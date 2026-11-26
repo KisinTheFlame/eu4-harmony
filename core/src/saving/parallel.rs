@@ -35,9 +35,9 @@
 //! (`super::sum`).
 use crate::base::called_by_game;
 use crate::game::commands::{STREAM_VTABLE, TOKENS_LAST, TOKENS_READY, TOKEN_NAMES, WRITER_VTABLE};
-use crate::memory::Memory;
-use crate::objects::stream;
-use crate::points::{Function, GameFunction, Point};
+use crate::native::memory::Memory;
+use crate::native::objects::stream;
+use crate::native::points::{Function, GameFunction, Point};
 use crate::saves::{GameToken, EQUALS, NUMBER, WRITE_TOKEN};
 use crate::speed::{self, SpeedUp};
 use crate::base::Result;
@@ -67,7 +67,7 @@ const COUNTRIES_END: usize = 0x7517b4;
 /// `+PROVINCE_ID` (0 for none) and writes itself with its method `+8`.
 const PROVINCE_FIRST: usize = 0x1c90;
 const PROVINCE_LAST: usize = 0x1c98;
-use crate::objects::campaign::{province::SIZE as PROVINCE_SIZE, world::PROVINCES as PROVINCE_ARRAY};
+use crate::native::objects::campaign::{province::SIZE as PROVINCE_SIZE, world::PROVINCES as PROVINCE_ARRAY};
 const PROVINCE_ID: usize = 0x20;
 const WRITE_ITSELF: usize = 0x8;
 /// The world's countries: as many as its method `+0x40` says, pointers at
@@ -92,7 +92,7 @@ const WRITER_STREAM: usize = 0x10;
 const WRITER_SIZE: usize = 0x20;
 const WRITER_DEPTH: usize = crate::saves::WRITER_DEPTH;
 
-/// The game's memory stream, whose layout is `crate::objects::stream`.
+/// The game's memory stream, whose layout is `crate::native::objects::stream`.
 const MEMORY_STREAM: [usize; 2] = [0x1d92200, STREAM_VTABLE];
 const STREAM_WRITE_SLOT: usize = 0x50;
 const STREAM_WRITE: usize = 0x171f290;
@@ -200,7 +200,7 @@ extern "C" fn value_object() -> usize {
     match HOLDERS.with(Cell::get) {
         0 => match GAME_VALUE_OBJECT.load(Ordering::Relaxed) {
             0 => {
-                let object = crate::hooked_memory().at(VALUE_OBJECT);
+                let object = crate::native::hooked_memory().at(VALUE_OBJECT);
                 GAME_VALUE_OBJECT.store(object, Ordering::Relaxed);
                 object
             }
@@ -231,14 +231,14 @@ const INLINE_5_STORES_NEXT: usize = 0x84cbc0;
 const INLINE_5_OBJECT: usize = 0x84cbd8;
 const INLINE_5_OBJECT_NEXT: usize = 0x84cbdf;
 
-crate::resume!(INLINE_1_STORES_RESUME: INLINE_1_STORES_AT = INLINE_1_STORES_NEXT);
-crate::resume!(INLINE_1_OBJECT_RESUME: INLINE_1_OBJECT_AT = INLINE_1_OBJECT_NEXT);
-crate::resume!(INLINE_2_RESUME: INLINE_2_AT = INLINE_2_NEXT);
-crate::resume!(INLINE_3_STORES_RESUME: INLINE_3_STORES_AT = INLINE_3_STORES_NEXT);
-crate::resume!(INLINE_3_OBJECT_RESUME: INLINE_3_OBJECT_AT = INLINE_3_OBJECT_NEXT);
-crate::resume!(INLINE_4_RESUME: INLINE_4_AT = INLINE_4_NEXT);
-crate::resume!(INLINE_5_STORES_RESUME: INLINE_5_STORES_AT = INLINE_5_STORES_NEXT);
-crate::resume!(INLINE_5_OBJECT_RESUME: INLINE_5_OBJECT_AT = INLINE_5_OBJECT_NEXT);
+resume!(INLINE_1_STORES_RESUME: INLINE_1_STORES_AT = INLINE_1_STORES_NEXT);
+resume!(INLINE_1_OBJECT_RESUME: INLINE_1_OBJECT_AT = INLINE_1_OBJECT_NEXT);
+resume!(INLINE_2_RESUME: INLINE_2_AT = INLINE_2_NEXT);
+resume!(INLINE_3_STORES_RESUME: INLINE_3_STORES_AT = INLINE_3_STORES_NEXT);
+resume!(INLINE_3_OBJECT_RESUME: INLINE_3_OBJECT_AT = INLINE_3_OBJECT_NEXT);
+resume!(INLINE_4_RESUME: INLINE_4_AT = INLINE_4_NEXT);
+resume!(INLINE_5_STORES_RESUME: INLINE_5_STORES_AT = INLINE_5_STORES_NEXT);
+resume!(INLINE_5_OBJECT_RESUME: INLINE_5_OBJECT_AT = INLINE_5_OBJECT_NEXT);
 
 /// `mov [byte], r12b; lea rax, [r14 + rbp]; mov [value], rax`.
 #[unsafe(naked)]
@@ -246,7 +246,7 @@ extern "C" fn inline_1_stores_stub() {
     std::arch::naked_asm!(
         "lea rax, [r14 + rbp]",
         "push rcx",
-        crate::call_rust!(call object, "mov rcx, [rsp + 0x48]"),
+        call_rust!(call object, "mov rcx, [rsp + 0x48]"),
         "mov byte ptr [rcx + 0x18], r12b",
         "mov [rcx + 0x10], rax",
         "pop rcx",
@@ -260,7 +260,7 @@ extern "C" fn inline_1_stores_stub() {
 #[unsafe(naked)]
 extern "C" fn inline_1_object_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call object, "mov rcx, [rsp + 0x48]"),
+        call_rust!(call object, "mov rcx, [rsp + 0x48]"),
         "mov rax, [rcx]",
         "jmp qword ptr [rip + {next}]",
         object = sym value_object,
@@ -273,7 +273,7 @@ extern "C" fn inline_1_object_stub() {
 #[unsafe(naked)]
 extern "C" fn inline_2_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call object, "mov rcx, [rsp + 0x48]"),
+        call_rust!(call object, "mov rcx, [rsp + 0x48]"),
         "lea rax, [rdi + 8]",
         "mov byte ptr [rcx + 0x18], r15b",
         "mov [rcx + 0x10], rax",
@@ -290,7 +290,7 @@ extern "C" fn inline_3_stores_stub() {
     std::arch::naked_asm!(
         "lea rax, [rbx + 8]",
         "push rcx",
-        crate::call_rust!(call object, "mov rcx, [rsp + 0x48]"),
+        call_rust!(call object, "mov rcx, [rsp + 0x48]"),
         "mov [rcx + 0x10], rax",
         "mov byte ptr [rcx + 0x18], 0",
         "pop rcx",
@@ -304,7 +304,7 @@ extern "C" fn inline_3_stores_stub() {
 #[unsafe(naked)]
 extern "C" fn inline_3_object_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call object, "mov rcx, [rsp + 0x48]"),
+        call_rust!(call object, "mov rcx, [rsp + 0x48]"),
         "jmp qword ptr [rip + {next}]",
         object = sym value_object,
         next = sym INLINE_3_OBJECT_AT,
@@ -318,7 +318,7 @@ extern "C" fn inline_3_object_stub() {
 extern "C" fn inline_4_stub() {
     std::arch::naked_asm!(
         "lea rax, [rsp + 0x498]",
-        crate::call_rust!(call object, "mov rcx, [rsp + 0x48]"),
+        call_rust!(call object, "mov rcx, [rsp + 0x48]"),
         "mov byte ptr [rcx + 0x18], r15b",
         "mov [rcx + 0x10], rax",
         "mov rax, [rcx]",
@@ -334,7 +334,7 @@ extern "C" fn inline_5_stores_stub() {
     std::arch::naked_asm!(
         "lea rax, [rbx + 4]",
         "push rcx",
-        crate::call_rust!(call object, "mov rcx, [rsp + 0x48]"),
+        call_rust!(call object, "mov rcx, [rsp + 0x48]"),
         "mov [rcx + 0x10], rax",
         "mov byte ptr [rcx + 0x18], 0",
         "pop rcx",
@@ -348,7 +348,7 @@ extern "C" fn inline_5_stores_stub() {
 #[unsafe(naked)]
 extern "C" fn inline_5_object_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call object, "mov rcx, [rsp + 0x48]"),
+        call_rust!(call object, "mov rcx, [rsp + 0x48]"),
         "jmp qword ptr [rip + {next}]",
         object = sym value_object,
         next = sym INLINE_5_OBJECT_AT,
@@ -357,8 +357,8 @@ extern "C" fn inline_5_object_stub() {
 
 // --- The loops ---
 
-crate::resume!(PROVINCES_RESUME: PROVINCES_GAME = PROVINCES_ITEMS, PROVINCES_DONE = PROVINCES_END);
-crate::resume!(COUNTRIES_RESUME: COUNTRIES_GAME = COUNTRIES_ITEMS, COUNTRIES_DONE = COUNTRIES_END);
+resume!(PROVINCES_RESUME: PROVINCES_GAME = PROVINCES_ITEMS, PROVINCES_DONE = PROVINCES_END);
+resume!(COUNTRIES_RESUME: COUNTRIES_GAME = COUNTRIES_ITEMS, COUNTRIES_DONE = COUNTRIES_END);
 
 /// Replaces `mov edi, r13d; mov rax, [r14 + 0x1c98]` at the start of the
 /// provinces' loop: the framework writes them, and the game goes on at the
@@ -366,7 +366,7 @@ crate::resume!(COUNTRIES_RESUME: COUNTRIES_GAME = COUNTRIES_ITEMS, COUNTRIES_DON
 #[unsafe(naked)]
 extern "C" fn provinces_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("mov rcx, r14", "mov rdx, rsi", call write, "cmp byte ptr [rsp + 0x48], 0"),
+        call_rust!("mov rcx, r14", "mov rdx, rsi", call write, "cmp byte ptr [rsp + 0x48], 0"),
         "jne 2f",
         "mov edi, r13d",
         "mov rax, [r14 + 0x1c98]",
@@ -384,7 +384,7 @@ extern "C" fn provinces_stub() {
 #[unsafe(naked)]
 extern "C" fn countries_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("mov rcx, r14", "mov rdx, rsi", call write, "cmp byte ptr [rsp + 0x48], 0"),
+        call_rust!("mov rcx, r14", "mov rdx, rsi", call write, "cmp byte ptr [rsp + 0x48], 0"),
         "jne 2f",
         "mov edi, r13d",
         "mov rax, [r14]",
@@ -682,7 +682,7 @@ impl Writing {
                 let mut key = Object::<0x20>([0; 0x20]);
                 TAG_STRING.call(&m, [key.address(), &tag as *const u64 as usize])?;
                 let written = WRITE_COUNTRY.call(&m, [writer, key.address(), item]);
-                crate::game_string::destroy_checked(&m, key.address())?;
+                crate::native::game_string::destroy_checked(&m, key.address())?;
                 written?;
             }
         }
@@ -959,15 +959,15 @@ mod compare {
         course::loop_ended(writer, which);
     }
 
-    crate::resume!(PROVINCES_END_RESUME: PROVINCES_END_AT = PROVINCES_END + 8);
-    crate::resume!(COUNTRIES_END_RESUME: COUNTRIES_END_AT = COUNTRIES_END + 8);
+    resume!(PROVINCES_END_RESUME: PROVINCES_END_AT = PROVINCES_END + 8);
+    resume!(COUNTRIES_END_RESUME: COUNTRIES_END_AT = COUNTRIES_END + 8);
     static CLOSE: AtomicUsize = AtomicUsize::new(0);
 
     /// Replaces `mov rcx, rsi; call <close a block>` at a loop's end.
     #[unsafe(naked)]
     extern "C" fn provinces_end_stub() {
         std::arch::naked_asm!(
-            crate::call_rust!("mov rcx, rsi", "xor edx, edx", call end),
+            call_rust!("mov rcx, rsi", "xor edx, edx", call end),
             "mov rcx, rsi",
             "call qword ptr [rip + {close}]",
             "jmp qword ptr [rip + {next}]",
@@ -980,7 +980,7 @@ mod compare {
     #[unsafe(naked)]
     extern "C" fn countries_end_stub() {
         std::arch::naked_asm!(
-            crate::call_rust!("mov rcx, rsi", "mov edx, 1", call end),
+            call_rust!("mov rcx, rsi", "mov edx, 1", call end),
             "mov rcx, rsi",
             "call qword ptr [rip + {close}]",
             "jmp qword ptr [rip + {next}]",
@@ -1007,7 +1007,7 @@ pub const SPEED_UP: SpeedUp = SpeedUp { name: "parallel-saves", group: "saving",
 /// Replaces the read-only `PROVINCES_END` and `COUNTRIES_END` points with
 /// jump stubs that record where the game's own loops end for comparison.
 pub fn replace_compare_points(points: &mut Vec<Point>) {
-    points.retain(|p| !matches!(p.place, crate::points::Place::Rva(PROVINCES_END | COUNTRIES_END)));
+    points.retain(|p| !matches!(p.place, crate::native::points::Place::Rva(PROVINCES_END | COUNTRIES_END)));
     points.extend(compare::points());
 }
 
@@ -1177,7 +1177,7 @@ mod tests {
             WRITE_COUNTRY.rva(),
         ];
         for rva in taken {
-            assert!(crate::points::checks(rva), "{rva:#x}");
+            assert!(crate::native::points::checks(rva), "{rva:#x}");
         }
     }
 

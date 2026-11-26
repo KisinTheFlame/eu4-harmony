@@ -12,7 +12,7 @@
 //! The cache wrapper (`0x776b90`) uses the same loop and update; it also
 //! wakes the thread after setting its closure's stop byte.
 use crate::base::called_by_game;
-use crate::points::{Function, Point};
+use crate::native::points::{Function, Point};
 use crate::speed::SpeedUp;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex};
@@ -80,7 +80,7 @@ static ORIGINAL_UPDATE: Function<Update> = Function::new();
 extern "C" fn update(arg: usize) -> bool {
     crate::base::guarded("save's update thread", || {
         let stops = STOPS.load(Ordering::SeqCst);
-        let m = crate::hooked_memory();
+        let m = crate::native::hooked_memory();
         let updated = (|| {
             let object = m.ptr(m.ptr(arg)? + UPDATED)?;
             m.call(m.vslot(object, UPDATE_METHOD)?, &[object, 0])
@@ -103,8 +103,8 @@ extern "C" fn stopped() {
     wake.notify_all();
 }
 
-crate::resume!(STOP_RESUME: STOP_AT = STOP_NEXT);
-crate::resume!(CACHE_STOP_RESUME: CACHE_STOP_AT = CACHE_STOP_NEXT);
+resume!(STOP_RESUME: STOP_AT = STOP_NEXT);
+resume!(CACHE_STOP_RESUME: CACHE_STOP_AT = CACHE_STOP_NEXT);
 
 /// Replaces `mov byte ptr [rsp + 0x30], 1`: the thread is woken once it is
 /// told to stop, so that its loop sees the byte.
@@ -112,7 +112,7 @@ crate::resume!(CACHE_STOP_RESUME: CACHE_STOP_AT = CACHE_STOP_NEXT);
 extern "C" fn stop_stub() {
     std::arch::naked_asm!(
         "mov byte ptr [rsp + 0x30], 1",
-        crate::call_rust!(call stopped),
+        call_rust!(call stopped),
         "jmp qword ptr [rip + {next}]",
         stopped = sym stopped,
         next = sym STOP_AT,
@@ -123,7 +123,7 @@ extern "C" fn stop_stub() {
 extern "C" fn cache_stop_stub() {
     std::arch::naked_asm!(
         "mov byte ptr [rbp - 0x30], 1",
-        crate::call_rust!(call stopped),
+        call_rust!(call stopped),
         // Replay the compare after Rust has changed the flags: the native
         // conditional jump at the resume site still chooses whether to join.
         "cmp qword ptr [rbx], 0",

@@ -37,7 +37,7 @@
 //! held it, as it does with one the diplomacy would not take, is not waited
 //! for.
 use super::waiting::{self, Moment, Waiting};
-use crate::{game::army::FIND_ID, hooks::Call, memory::Memory, points::Point};
+use crate::{game::army::FIND_ID, native::hooks::Call, native::memory::Memory, native::points::Point};
 use std::collections::HashSet;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -294,7 +294,7 @@ fn in_use(m: &Memory) -> crate::base::Result<HashSet<usize>> {
     for at in (begin..end).step_by(8) {
         found.insert(m.ptr(at)?);
     }
-    for country in crate::containers::countries(m)? {
+    for country in crate::native::containers::countries(m)? {
         for field in COUNTRY_PERSONS {
             found.insert(m.ptr(country + field)?);
         }

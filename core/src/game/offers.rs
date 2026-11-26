@@ -3,19 +3,15 @@
 //! player, and answered as the player does, with the dialog's accept or
 //! decline button. The evidence is in docs/game/diplomacy/questions-and-offers.md.
 use super::{map_manager, Ctx, GResult, Session, Status, Tag};
-use crate::containers;
-use crate::{
-    game_string,
-    memory::Memory,
-    objects::{
+use crate::native::containers;
+use crate::{native::game_string, native::memory::Memory, native::objects::{
         campaign,
         diplomacy::action,
         gui::{
             classes as gui_classes, dialog, diplomacy_dialog as diplomacy, element, functions as gui_functions, message_icon as icon, message_icon_holder,
             text_box, window as gui_window,
         },
-    },
-};
+    }};
 use eu4_harmony_remote::{
     offers::{args, Offer},
     CountryTag, Date,
@@ -180,7 +176,7 @@ mod checks {
 }
 
 /// The group's dependency points: none of its own.
-pub fn points() -> Vec<crate::points::Point> {
+pub fn points() -> Vec<crate::native::points::Point> {
     Vec::new()
 }
 
@@ -217,7 +213,7 @@ mod tests {
         buffers::{self, Image, Object},
         Caller, Fail,
     };
-    use crate::objects::gui::message_icon_holder;
+    use crate::native::objects::gui::message_icon_holder;
     use std::cell::RefCell;
 
     /// A dialog the game's own check no longer lets be answered, in a byte

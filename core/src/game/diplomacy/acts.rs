@@ -7,7 +7,7 @@
 //! is a dependency point. An act's name is the capability's that does it,
 //! and its details, in parentheses, are the arguments its capability chooses in
 //! the window the act opens ([`super::Details`]), by their names.
-use crate::points::Point;
+use crate::native::points::Point;
 use eu4_harmony_remote::diplomacy::{DiplomacyAnswer, Outcome};
 
 macro_rules! acts {

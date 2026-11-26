@@ -5,13 +5,7 @@
 use super::commands::{write, Block};
 use super::units::checks;
 use super::{action, army, modifiers, Caller, Ctx, GResult, Session};
-use crate::{
-    containers, game_string,
-    memory::Memory,
-    objects::campaign::{country as country_fields, unit},
-    points::{GameFunction, Point},
-    unicode::game_text,
-};
+use crate::{native::containers, native::game_string, native::memory::Memory, native::objects::campaign::{country as country_fields, unit}, native::points::{GameFunction, Point}, unicode::game_text};
 use eu4_harmony_remote::leaders::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
@@ -31,9 +25,9 @@ const LEADER_SPENDING: usize = 3;
 /// it.
 const MAY_LEAVE: GameFunction<2> = GameFunction::at(0x862a70);
 const MAY_TAKE: GameFunction<3> = GameFunction::at(0x862fa0);
-/// The country's leaders, a [`crate::objects::list`] of them, and its count.
+/// The country's leaders, a [`crate::native::objects::list`] of them, and its count.
 const LEADERS: usize = 0x1468;
-const LEADERS_COUNT: usize = LEADERS + crate::objects::list::COUNT;
+const LEADERS_COUNT: usize = LEADERS + crate::native::objects::list::COUNT;
 /// A leader's fields: its ID (type at `+0x10`, number at `+0x14`), name,
 /// kind, skills (siege, maneuver, fire, shock), the unit it leads, and its
 /// monarch's ID.

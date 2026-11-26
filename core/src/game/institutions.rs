@@ -5,13 +5,9 @@ use super::commands::{write, Block};
 use super::content::{self, checks};
 use super::provinces::{i32s, INSTITUTIONS};
 use super::{action, thousandths, GResult, Session, Tag};
-use crate::containers;
-use crate::game_string;
-use crate::{
-    memory::Memory,
-    objects::campaign::{country, institution, world},
-    points::{GameFunction, Point},
-};
+use crate::native::containers;
+use crate::native::game_string;
+use crate::{native::memory::Memory, native::objects::campaign::{country, institution, world}, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::choices::{Amount, Choice, Resource};
 use eu4_harmony_remote::institutions::{args, InstitutionOption};
 

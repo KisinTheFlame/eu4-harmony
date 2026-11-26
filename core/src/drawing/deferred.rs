@@ -10,10 +10,10 @@
 //! a day, through the whole day.
 use super::{drawing_on, on_main, APP, APP_IDLER, APP_MAP};
 use crate::base::called_by_game;
-use crate::game_string;
-use crate::memory::Memory;
-use crate::objects::campaign::globals::WORLD;
-use crate::points::{Function, Point};
+use crate::native::game_string;
+use crate::native::memory::Memory;
+use crate::native::objects::campaign::globals::WORLD;
+use crate::native::points::{Function, Point};
 
 pub(super) fn points() -> Vec<Point> {
     vec![
@@ -66,7 +66,7 @@ const WORLD_INTERFACE: usize = 0x1e00;
 /// keeps every register, and goes on at its third instruction.
 const OWNER_TOLD: usize = 0x10af990;
 const OWNER_TOLD_GOES_ON: usize = 0x10af996;
-crate::resume!(OWNER_TOLD_RESUME: OWNER_TOLD_GOES_ON_AT = OWNER_TOLD_GOES_ON);
+resume!(OWNER_TOLD_RESUME: OWNER_TOLD_GOES_ON_AT = OWNER_TOLD_GOES_ON);
 /// The minimap drawn again (`0x10b6c50`: the minimap and a flag): its texture
 /// made from `map/minimap_base.bmp` once and the countries' colors, which
 /// the drawing draws. It answers nothing its callers read, and they call it
@@ -88,7 +88,7 @@ const MINIMAP: usize = 0x10b6c50;
 const MAP_MODE_SET: usize = crate::map::REFRESH.rva();
 const MAP_MODE_GOES_ON: usize = 0x821ffa;
 const MAP_MODE_FROM_CAPITAL: usize = 0xa1a194;
-crate::resume!(MAP_MODE_RESUME: MAP_MODE_GOES_ON_AT = MAP_MODE_GOES_ON);
+resume!(MAP_MODE_RESUME: MAP_MODE_GOES_ON_AT = MAP_MODE_GOES_ON);
 /// A port's model on the map (`0x13238b0`: the province's entry of the
 /// graphical map's, the province, the graphical map, a flag), made, moved or
 /// let go. The map's markers' update calls it (`0x1321880`); the center of
@@ -99,9 +99,9 @@ crate::resume!(MAP_MODE_RESUME: MAP_MODE_GOES_ON_AT = MAP_MODE_GOES_ON);
 const PORT_MODEL: usize = 0x13238b0;
 const PORT_MODEL_GOES_ON: usize = 0x13238b7;
 const PORT_MODEL_FROM_TRADE: usize = 0x474d16;
-crate::resume!(PORT_MODEL_RESUME: PORT_MODEL_GOES_ON_AT = PORT_MODEL_GOES_ON);
+resume!(PORT_MODEL_RESUME: PORT_MODEL_GOES_ON_AT = PORT_MODEL_GOES_ON);
 const MINIMAP_GOES_ON: usize = 0x10b6c57;
-crate::resume!(MINIMAP_RESUME: MINIMAP_GOES_ON_AT = MINIMAP_GOES_ON);
+resume!(MINIMAP_RESUME: MINIMAP_GOES_ON_AT = MINIMAP_GOES_ON);
 /// A mesh object's scalar deleting destructor (`pdxmeshobject.cpp`, the slot
 /// 0 of its vtable `0x1d92408`, called through it only): the object and
 /// whether to free it (bit 0). It takes the object off its mesh's list of
@@ -151,7 +151,7 @@ fn defer_or_cross(caller_matches: bool, crossing_at: usize) -> bool {
     match DEFERRED.decide(on_main(), drawing_on(), caller_matches, false, true) {
         super::course::DeferredAction::Defer => true,
         super::course::DeferredAction::RunWithCrossing => {
-            super::crossings::crossing(crate::hooked_memory().at(crossing_at));
+            super::crossings::crossing(crate::native::hooked_memory().at(crossing_at));
             false
         }
         super::course::DeferredAction::RunNow => false,
@@ -161,7 +161,7 @@ fn defer_or_cross(caller_matches: bool, crossing_at: usize) -> bool {
 #[called_by_game]
 unsafe extern "C" fn map_text(idler: usize, province: u32, kind: usize, text: usize, number: usize, last: usize) -> usize {
     if deferring() {
-        let m = crate::hooked_memory();
+        let m = crate::native::hooked_memory();
         if let (Ok(kind_text), Ok(text_text)) = (game_string::read(&m, kind), game_string::read(&m, text)) {
             // The strings are the call's to destroy.
             let destroy: unsafe extern "C" fn(usize) = unsafe { std::mem::transmute(m.at(game_string::DESTROY_AT.rva())) };
@@ -198,7 +198,7 @@ extern "C" fn owner_told(map: usize, province: i32) -> bool {
 #[unsafe(naked)]
 extern "C" fn owner_told_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call owner_told, "cmp byte ptr [rsp + 0x48], 0"),
+        call_rust!(call owner_told, "cmp byte ptr [rsp + 0x48], 0"),
         "jne 2f",
         "mov r9, rcx",
         "cmp edx, -1",
@@ -217,7 +217,7 @@ extern "C" fn minimap(minimap: usize, flag: u32) -> bool {
     if !defer_or_cross(true, MINIMAP) {
         return false;
     }
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let idler = m.ptr(m.at(APP)).and_then(|app| m.ptr(app + APP_IDLER)).unwrap_or(0);
     let flag = flag & 0xff;
     let due = Deferred::Minimap { idler, minimap, flag };
@@ -228,7 +228,7 @@ extern "C" fn minimap(minimap: usize, flag: u32) -> bool {
 /// Whether the map mode's set waits for the next frame: from a moved capital.
 #[called_by_game]
 extern "C" fn map_mode_set(idler: usize, mode: u32, first: u32, second: u32, from: usize) -> bool {
-    if !defer_or_cross(from == crate::hooked_memory().at(MAP_MODE_FROM_CAPITAL), MAP_MODE_SET) {
+    if !defer_or_cross(from == crate::native::hooked_memory().at(MAP_MODE_FROM_CAPITAL), MAP_MODE_SET) {
         return false;
     }
     defer(Deferred::MapMode { idler, mode, first: first & 0xff, second: second & 0xff });
@@ -238,7 +238,7 @@ extern "C" fn map_mode_set(idler: usize, mode: u32, first: u32, second: u32, fro
 #[unsafe(naked)]
 extern "C" fn map_mode_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("mov rax, qword ptr [rbp + 8]", "mov qword ptr [rsp + 0x20], rax", call map_mode_set, "cmp byte ptr [rsp + 0x48], 0"),
+        call_rust!("mov rax, qword ptr [rbp + 8]", "mov qword ptr [rsp + 0x20], rax", call map_mode_set, "cmp byte ptr [rsp + 0x48], 0"),
         "jne 2f",
         "mov qword ptr [rsp + 8], rbx",
         "mov qword ptr [rsp + 0x10], rbp",
@@ -254,7 +254,7 @@ extern "C" fn map_mode_stub() {
 /// trade's update.
 #[called_by_game]
 extern "C" fn port_model(entry: usize, province: usize, map: usize, flag: u32, from: usize) -> bool {
-    if !defer_or_cross(from == crate::hooked_memory().at(PORT_MODEL_FROM_TRADE), PORT_MODEL) {
+    if !defer_or_cross(from == crate::native::hooked_memory().at(PORT_MODEL_FROM_TRADE), PORT_MODEL) {
         return false;
     }
     defer(Deferred::PortModel { entry, province, map, flag: flag & 0xff });
@@ -264,7 +264,7 @@ extern "C" fn port_model(entry: usize, province: usize, map: usize, flag: u32, f
 #[unsafe(naked)]
 extern "C" fn port_model_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("mov rax, qword ptr [rbp + 8]", "mov qword ptr [rsp + 0x20], rax", call port_model, "cmp byte ptr [rsp + 0x48], 0"),
+        call_rust!("mov rax, qword ptr [rbp + 8]", "mov qword ptr [rsp + 0x20], rax", call port_model, "cmp byte ptr [rsp + 0x48], 0"),
         "jne 2f",
         "mov rax, rsp",
         "mov qword ptr [rax + 0x18], r8",
@@ -279,7 +279,7 @@ extern "C" fn port_model_stub() {
 #[unsafe(naked)]
 extern "C" fn minimap_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call minimap, "cmp byte ptr [rsp + 0x48], 0"),
+        call_rust!(call minimap, "cmp byte ptr [rsp + 0x48], 0"),
         "jne 2f",
         "mov rax, rsp",
         "mov qword ptr [rax + 0x10], rbx",
@@ -301,7 +301,7 @@ unsafe extern "C" fn mesh_let_go(mesh: usize, free: u32) -> usize {
         defer(Deferred::MeshLetGo { mesh, free });
         return mesh;
     }
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     super::crossings::mesh_let_go(m.at(MESH_LET_GO));
     unsafe { ORIGINAL_MESH_LET_GO.get()(mesh, free) }
 }

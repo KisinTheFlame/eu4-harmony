@@ -6,16 +6,11 @@ use super::{
     power::{self, ADVANCE_TECH},
     GResult, Session, Tag,
 };
-use crate::containers;
-use crate::{
-    game_string,
-    memory::Memory,
-    objects::{
+use crate::native::containers;
+use crate::{native::game_string, native::memory::Memory, native::objects::{
         campaign::{country, technology as levels},
         gui::functions::ADD_MONTHS,
-    },
-    points::{GameFunction, Point},
-};
+    }, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::technology::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind},

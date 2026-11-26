@@ -6,13 +6,9 @@
 use super::commands::{write, Block};
 use super::content::{self, checks};
 use super::{action, commands, thousandths, with_state, Ctx, Fail, GResult, Session, Status, Tag};
-use crate::containers;
-use crate::game_string;
-use crate::{
-    memory::Memory,
-    objects::campaign::{construction, country, great_project as project, province, world},
-    points::{GameFunction, Point},
-};
+use crate::native::containers;
+use crate::native::game_string;
+use crate::{native::memory::Memory, native::objects::campaign::{construction, country, great_project as project, province, world}, native::points::{GameFunction, Point}};
 use eu4_harmony_checks::Date;
 use eu4_harmony_remote::choices::{Amount, Choice, Resource};
 use eu4_harmony_remote::monuments::{args, Buildable, MonumentConstruction, MonumentKind, MonumentOption};

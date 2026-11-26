@@ -3,11 +3,7 @@
 //! (docs/game/diplomacy/envoys.md, "Centers of trade").
 use super::commands::{write, Block};
 use super::{action, envoys, with_state, Ctx, GResult, Session, Tag};
-use crate::{
-    game_string,
-    memory::Memory,
-    points::{GameFunction, Point},
-};
+use crate::{native::game_string, native::memory::Memory, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::centers_of_trade::args;
 use eu4_harmony_remote::{
     centers_of_trade::CenterOfTradeOptions,
@@ -17,7 +13,7 @@ use eu4_harmony_remote::{
 
 /// The province's center of trade, or null; its level is at `+0x14` of the
 /// object at its `+8`.
-use crate::objects::campaign::province::{CENTER_OF_TRADE as CENTER, CENTER_OF_TRADE_DATA as LEVELS, CENTER_OF_TRADE_LEVEL as LEVEL};
+use crate::native::objects::campaign::province::{CENTER_OF_TRADE as CENTER, CENTER_OF_TRADE_DATA as LEVELS, CENTER_OF_TRADE_LEVEL as LEVEL};
 /// The rules of both ways, the upgrade's and the downgrade's: each
 /// `(center, tag, reasons or null) -> bool`, writing every line.
 const MAY_CHANGE: GameFunction<3> = GameFunction::at(0x476ac0);

@@ -1,5 +1,5 @@
 //! Edit boxes, a character at a time. The game's text editor (inside the
-//! box, [`crate::objects::gui::editor`]) keeps its text as a `std::string` and its
+//! box, [`crate::native::objects::gui::editor`]) keeps its text as a `std::string` and its
 //! caret as a line and a byte column within it; every operation moved, cut
 //! and deleted single bytes, which splits a UTF-8 sequence. Here
 //! each one moves over, cuts before or deletes a whole character
@@ -22,14 +22,13 @@
 //!   Shift with Left or Right selects a character.
 use super::{breaks, game_text};
 use crate::base::called_by_game;
-use crate::game_string;
-use crate::hooks::Call;
-use crate::objects::gui::{
+use crate::native::game_string;
+use crate::native::hooks::Call;
+use crate::native::objects::gui::{
     editor::{CARET_MOVED, COLUMN, LINE, SELECT_LEFT, SELECT_RIGHT, TEXT},
     functions::{EDITOR_SELECT_LEFT, EDITOR_SELECT_RIGHT},
 };
-use crate::points::{Function, GameFunction, Point};
-use crate::resume;
+use crate::native::points::{Function, GameFunction, Point};
 use std::cell::RefCell;
 
 const LINE_COL_TO_INDEX: GameFunction<3> = GameFunction::at(0x153aa90);
@@ -160,12 +159,12 @@ unsafe fn caret(inner: usize) -> (usize, usize) {
 /// Where a line and column are in the text, as the editor counts (it never
 /// goes past the end of the text).
 fn index_of(inner: usize, line: usize, column: usize) -> crate::base::Result<usize> {
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     LINE_COL_TO_INDEX.call(&m, [inner, line, column]).map(|i| i as u32 as usize)
 }
 
 fn erase(inner: usize, at: usize, count: usize) -> crate::base::Result<()> {
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     for _ in 0..count {
         ERASE_AT.call(&m, [inner, at])?;
     }

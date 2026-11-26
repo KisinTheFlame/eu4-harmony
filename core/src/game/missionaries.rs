@@ -8,12 +8,7 @@ use super::{
     envoys::{self, Kind},
     with_state, Ctx, GResult, Session, Tag,
 };
-use crate::{
-    game_string,
-    memory::Memory,
-    objects::campaign::province as province_fields,
-    points::{GameFunction, Point},
-};
+use crate::{native::game_string, native::memory::Memory, native::objects::campaign::province as province_fields, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::missionaries::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
@@ -37,7 +32,7 @@ const SENDER: usize = 0x80;
 /// The country's multiplier of the upkeep, thousandths.
 const UPKEEP_FACTOR: usize = 0xedc;
 /// The province's conversion progress, thousandths of a percent.
-use crate::objects::campaign::province::MISSIONARY_PROGRESS as PROGRESS;
+use crate::native::objects::campaign::province::MISSIONARY_PROGRESS as PROGRESS;
 /// How many of the country's missionaries the game sends by itself.
 const AUTOMATIC: usize = 0x14a0;
 

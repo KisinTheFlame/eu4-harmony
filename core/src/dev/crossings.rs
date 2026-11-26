@@ -21,9 +21,9 @@
 //! the framework log (`report-every`), each the stacks counted since the
 //! start, most first.
 use crate::base::called_by_game;
-use crate::hooks::Call;
-use crate::memory::PAGE;
-use crate::points::Point;
+use crate::native::hooks::Call;
+use crate::native::memory::PAGE;
+use crate::native::points::Point;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use windows_sys::Win32::Foundation::EXCEPTION_ACCESS_VIOLATION;
@@ -185,7 +185,7 @@ fn end() {
 }
 
 /// The daily update begins (`game::events`).
-pub fn day_begins(m: &crate::memory::Memory) {
+pub fn day_begins(m: &crate::native::memory::Memory) {
     if crate::base::thread_id() != crate::base::main_thread() {
         return;
     }

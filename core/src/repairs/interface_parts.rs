@@ -3,9 +3,7 @@
 //! of the units selected, which it never kills, and the outliner's entries,
 //! which it never deletes.
 use super::LettingGo;
-use crate::{
-    hooks::Call,
-    objects::{
+use crate::{native::hooks::Call, native::objects::{
         campaign::{
             classes,
             map_manager::{LET_MAP_MODES_GO, LET_OUTLINER_GO},
@@ -13,9 +11,7 @@ use crate::{
         },
         gui::window as gui_window,
         list,
-    },
-    points::{GameFunction, Point},
-};
+    }, native::points::{GameFunction, Point}};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// `(unit view, flags)`: the unit view's deleting destructor, its vtable's

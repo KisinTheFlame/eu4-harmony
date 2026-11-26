@@ -4,17 +4,10 @@
 //! is being built or done there, and what the player can recruit there
 //! (docs/game/provinces/provinces.md).
 use super::{commands, modifiers, player::Eyes, signals, thousandths, with_state, Ctx, GResult, InWorld, Tag, World, WorldSession};
-use crate::containers;
-use crate::{
-    game_string,
-    memory::Memory,
-    objects::campaign::{
+use crate::native::containers;
+use crate::{native::game_string, native::memory::Memory, native::objects::campaign::{
         building, classes, construction, country, geometry, globals, institution, map, province as field, terrain, unit_type, world as world_field,
-    },
-    objects::list,
-    points::{GameFunction, Point},
-    unicode::game_text,
-};
+    }, native::objects::list, native::points::{GameFunction, Point}, unicode::game_text};
 use eu4_harmony_remote::provinces::args;
 use eu4_harmony_remote::{
     countries::ModifierValue,
@@ -222,7 +215,7 @@ pub(super) const INSTITUTIONS: GameFunction<0> = GameFunction::at(0x855ad0);
 const MOST_KINDS: usize = 10_000;
 
 pub fn points() -> Vec<Point> {
-    use crate::objects::campaign::countries;
+    use crate::native::objects::campaign::countries;
     let getter = |function: GameFunction<3>, bytes: &'static str, what: &'static str, value: &'static [usize]| Point::keep(function, bytes, what).uses(value);
     vec![
         getter(

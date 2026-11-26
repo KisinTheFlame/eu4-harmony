@@ -15,9 +15,9 @@
 use super::distance;
 use super::outline::Outline;
 use super::system_font::Bitmap;
-use crate::physfs;
-use crate::points::Point;
-use crate::splice::{Addition, Plan};
+use crate::native::physfs;
+use crate::native::points::Point;
+use crate::native::splice::{Addition, Plan};
 use std::fmt::Write;
 use std::sync::Mutex;
 

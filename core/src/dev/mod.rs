@@ -29,7 +29,7 @@ mod trace;
 #[cfg(feature = "dev")]
 mod write_watch;
 
-use crate::{hooks::Call, memory::Memory, points::Point};
+use crate::{native::hooks::Call, native::memory::Memory, native::points::Point};
 
 /// A token carried across a frame's `Present` call for performance timing.
 #[cfg(feature = "dev")]
@@ -39,7 +39,7 @@ pub(crate) struct Submission(performance::Submission);
 pub(crate) struct Submission;
 
 pub(crate) use crate::base::dev_options::{
-    build_label, check_repairs, fail_startup, game_ends_dependencies, game_shares_ai_draws, load, log_repair_stats, report_lines, speed_switches, test_notice,
+    build_label, check_repairs, fail_startup, game_ends_dependencies, game_shares_ai_draws, load, log_repair_stats, report_lines, test_notice,
 };
 
 /// All static dependency points declared by development tools, checked by the
@@ -92,7 +92,7 @@ pub(crate) fn installed_points(m: Memory, all: &mut Vec<Point>) {
         crate::saving::parallel::replace_compare_points(all);
     }
     if agents_order::chosen() {
-        all.retain(|p| !matches!(p.place, crate::points::Place::Rva(crate::army_search::CHILDREN_WALK)));
+        all.retain(|p| !matches!(p.place, crate::native::points::Place::Rva(crate::army_search::CHILDREN_WALK)));
         all.extend(agents_order::points());
     }
     let watch = write_watch::chosen(&m);

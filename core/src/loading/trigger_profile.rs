@@ -33,8 +33,8 @@
 //! own cost as well, compares the two for every trigger, and returns the
 //! game's.
 use crate::base::called_by_game;
-use crate::hooks::Call;
-use crate::points::{Function, Point};
+use crate::native::hooks::Call;
+use crate::native::points::{Function, Point};
 use crate::speed::{self, SpeedUp};
 use std::cell::RefCell;
 use std::collections::HashMap;

@@ -368,11 +368,11 @@ mod tests {
         let mut native = Recorder::new(&drawing);
         showing(&mut state, b"Save");
         let header = frame.filter(|| Some(current(&state)), &native, 7, 0).unwrap();
-        assert_eq!(crate::containers::pointers(&crate::memory::Memory { base: 0 }, header, 10).unwrap(), [11, 33]);
+        assert_eq!(crate::native::containers::pointers(&crate::native::memory::Memory { base: 0 }, header, 10).unwrap(), [11, 33]);
         // An unrelated nested draw must not free the outer replacement list.
         assert!(frame.filter(|| None, &native, 7, 0).is_none());
         frame.returned();
-        assert_eq!(crate::containers::pointers(&crate::memory::Memory { base: 0 }, header, 10).unwrap(), [11, 33]);
+        assert_eq!(crate::native::containers::pointers(&crate::native::memory::Memory { base: 0 }, header, 10).unwrap(), [11, 33]);
         frame.returned();
         frame.finish(|| current(&state), &mut native, 44, &drawing).unwrap();
         frame.finish(|| current(&state), &mut native, 44, &drawing).unwrap();
@@ -559,7 +559,7 @@ mod tests {
         // The after observer pairs with the failed before observer, rather
         // than retiring the outer native call's still-borrowed list.
         frame.returned();
-        assert_eq!(crate::containers::pointers(&crate::memory::Memory { base: 0 }, header, 10).unwrap(), [11, 33]);
+        assert_eq!(crate::native::containers::pointers(&crate::native::memory::Memory { base: 0 }, header, 10).unwrap(), [11, 33]);
         frame.returned();
         frame.finish(|| current(&state), &mut native, 44, &drawing).unwrap();
         assert_eq!(native.scenes(), [At::Begin, At::Setup, At::Draw, At::End]);

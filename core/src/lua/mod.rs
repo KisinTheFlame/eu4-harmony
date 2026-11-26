@@ -309,7 +309,7 @@ impl RuntimeEnv for CoreEnv {
     type LocBackup = crate::base::loc::Earlier;
 
     fn supported(&self) -> bool {
-        crate::memory().is_some()
+        crate::native::memory().is_some()
     }
 
     fn declare_windows(&self, extension: &Extension) {
@@ -575,7 +575,7 @@ impl Host for Live {
 
     fn first_error(&self, extension: &Extension, from: &str, message: &str) {
         // The player is told in a game the framework runs in.
-        if crate::memory().is_some() {
+        if crate::native::memory().is_some() {
             log!("extension {:?}: error in {from}: {message}", extension.id());
             crate::base::notice::post(&format!("errors:{}", extension.id()), Repeat::Session, Message::new("EU4HARMONY_ERRORS").arg("MOD", extension.name()));
         }
@@ -585,7 +585,7 @@ impl Host for Live {
         log!("extension {:?} stopped: {reason}", extension.id());
         ui::hide_extension(extension.index());
         crate::windows::forget(extension.index());
-        if let Some(m) = crate::memory() {
+        if let Some(m) = crate::native::memory() {
             map::release(m, extension.index());
             crate::base::notice::post(
                 &format!("stopped:{}", extension.id()),
@@ -598,7 +598,7 @@ impl Host for Live {
     fn reload_reset(&self, extension: usize, new: &Extension) {
         ui::forget_extension(extension);
         declare_windows(new);
-        if let Some(m) = crate::memory() {
+        if let Some(m) = crate::native::memory() {
             map::release(m, extension);
         }
     }

@@ -3,7 +3,7 @@
 //! draw it once after the framework UI, before the presentation lock opens.
 //! See research/panel-entry-text.md and research/gui-drawing.md.
 use super::handoff::{Current, Display, Filter, Frame, Handoff, Native};
-use crate::{hooks::Call, memory::Memory, objects::{gui::element, text::text_texture}, points::{GameFunction, Point}, base::Result};
+use crate::{native::hooks::Call, native::memory::Memory, native::objects::{gui::element, text::text_texture}, native::points::{GameFunction, Point}, base::Result};
 use std::{
     cell::{Cell, RefCell},
     sync::Mutex,
@@ -60,7 +60,7 @@ fn ready(m: &Memory, display: &Display) -> Result<bool> {
 }
 
 fn without_node(m: &Memory, header: usize, node: usize) -> Result<Option<Filter>> {
-    let nodes = crate::containers::pointers(m, header, 16384)?;
+    let nodes = crate::native::containers::pointers(m, header, 16384)?;
     if !nodes.contains(&node) {
         return Ok(None);
     }
@@ -140,7 +140,7 @@ pub(crate) fn discard_late() {
 /// Finish the current frame after the UI mutex and its D3D state block have
 /// been released, before screenshot/Present release the presentation lock.
 pub(crate) fn draw_late(renderer: usize) {
-    let Some(m) = crate::memory() else {
+    let Some(m) = crate::native::memory() else {
         discard_late();
         return;
     };
@@ -222,15 +222,15 @@ mod tests {
         let m = Memory { base: 0 };
         let original = crate::game::buffers::Object::new(24).vector(0, &[11, 22, 33]);
         let filtered = without_node(&m, original.at(), 22).unwrap().unwrap();
-        assert_eq!(crate::containers::pointers(&m, filtered.header(), 10).unwrap(), [11, 33]);
-        assert_eq!(crate::containers::pointers(&m, original.at(), 10).unwrap(), [11, 22, 33]);
+        assert_eq!(crate::native::containers::pointers(&m, filtered.header(), 10).unwrap(), [11, 33]);
+        assert_eq!(crate::native::containers::pointers(&m, original.at(), 10).unwrap(), [11, 22, 33]);
         assert!(without_node(&m, original.at(), 44).unwrap().is_none());
     }
 
     #[test]
     fn the_native_node_class_and_draw_returns_are_checked_before_runtime_use() {
         for rva in [NODE_CLASS, DRAW_FIRST_RETURN, DRAW_SECOND_RETURN] {
-            assert!(crate::points::checks(rva), "unchecked tooltip address {rva:#x}");
+            assert!(crate::native::points::checks(rva), "unchecked tooltip address {rva:#x}");
         }
     }
 }

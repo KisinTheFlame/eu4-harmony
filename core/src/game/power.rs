@@ -8,13 +8,7 @@
 //! some of these buttons.
 use super::commands::{write, Block};
 use super::{action, commands::Commands, conditions, GResult, Tag};
-use crate::{
-    game_string,
-    memory::Memory,
-    objects::campaign::country,
-    points::{GameFunction, Point},
-    unicode::game_text,
-};
+use crate::{native::game_string, native::memory::Memory, native::objects::campaign::country, native::points::{GameFunction, Point}, unicode::game_text};
 use eu4_harmony_remote::choices::PowerKind;
 use std::ffi::CStr;
 

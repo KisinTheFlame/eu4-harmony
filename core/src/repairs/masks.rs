@@ -3,11 +3,7 @@
 //! to, and IDs pass from texture to texture as they load again. The buffer
 //! is let go before a texture smaller than it is written to it.
 use super::LettingGo;
-use crate::{
-    hooks::Call,
-    objects::gui::transparency_mask,
-    points::{GameFunction, Point},
-};
+use crate::{native::hooks::Call, native::objects::gui::transparency_mask, native::points::{GameFunction, Point}};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// `(bits, count)`: a `std::vector<bool>`'s resize; and where the texture

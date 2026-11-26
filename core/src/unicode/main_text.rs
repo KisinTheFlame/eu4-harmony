@@ -16,8 +16,7 @@
 //! the layout pass ends a word after a non-ASCII character that a line may
 //! break after (`breaks`), as it does after a space.
 use super::{breaks, text_loops};
-use crate::points::Point;
-use crate::resume;
+use crate::native::points::Point;
 
 const LAYOUT_GLYPH: usize = 0x1599728;
 const LAYOUT_GLYPH_DONE: usize = 0x1599734;
@@ -111,7 +110,7 @@ extern "C" fn draw_stub() {
         "movzx r8d, byte ptr [rcx + r9]",
         "movss xmm3, dword ptr [r14 + {scale}]",
         "jmp qword ptr [rip + {done}]",
-        scale = const crate::objects::text::font::SCALE,
+        scale = const crate::native::objects::text::font::SCALE,
         glyph = sym text_loops::glyph_in,
         done = sym DRAW_DONE,
     );
@@ -148,7 +147,7 @@ pub fn points() -> Vec<Point> {
             draw_stub as *const () as usize,
             &DRAW_RESUME,
         )
-        .uses(&[crate::objects::text::font::SCALE, crate::objects::text::font::OWN_GLYPHS]),
+        .uses(&[crate::native::objects::text::font::SCALE, crate::native::objects::text::font::OWN_GLYPHS]),
         Point::keep(DRAW_GLYPH_DONE, "48 89 55 38", "text drawing glyph found"),
     ]
 }

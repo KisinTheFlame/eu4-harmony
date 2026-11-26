@@ -4,12 +4,8 @@
 //! commands, with the view's own checks (docs/game/provinces/religion.md).
 use super::commands::{write, Block};
 use super::{action, conditions, content, power, GResult, Session, Tag};
-use crate::objects::campaign::country;
-use crate::{
-    containers, game_string,
-    memory::Memory,
-    points::{GameFunction, Point},
-};
+use crate::native::objects::campaign::country;
+use crate::{native::containers, native::game_string, native::memory::Memory, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::choices::{Amount, Choice, PowerKind, Resource};
 use eu4_harmony_remote::ProvinceId;
 use eu4_harmony_remote::religion::{args, ReligionOption};
@@ -576,7 +572,7 @@ fn secondary_candidates(m: &Memory, country: usize) -> GResult<Vec<usize>> {
         (0..count).map(|i| m.ptr(vector[0] + i * 8)).collect::<Result<Vec<_>, _>>()
     })();
     if vector[0] != 0 {
-        crate::game_heap::free_vector(m, vector)?;
+        crate::native::game_heap::free_vector(m, vector)?;
     }
     Ok(read?)
 }
@@ -771,10 +767,10 @@ pub fn establish_holy_order(Session { m, ctx, commands, .. }: Session, args::Est
         return Err(content::checks::not_found("holy order", &key));
     };
     let province = super::with_state(|s| s.geography.province_address(m, &ctx, id))?;
-    if m.u64(province + crate::objects::campaign::province::OWNER)? != ctx.player.0 {
+    if m.u64(province + crate::native::objects::campaign::province::OWNER)? != ctx.player.0 {
         return Err(content::checks::not_now(format!("province {id} is not the player's")));
     }
-    let state = m.ptr(province + crate::objects::campaign::province::STATE)?;
+    let state = m.ptr(province + crate::native::objects::campaign::province::STATE)?;
     if state == 0 {
         return Err(content::checks::not_now(format!("province {id} is in no state")));
     }
@@ -810,7 +806,7 @@ fn states(m: &Memory, ctx: &super::Ctx) -> GResult<Vec<(u32, usize)>> {
     for i in 0..count.clamp(0, containers::MOST as i32) as usize {
         let id = m.u32(ids + i * 4)?;
         let province = super::with_state(|s| s.geography.province_address(m, ctx, id))?;
-        let state = m.ptr(province + crate::objects::campaign::province::STATE)?;
+        let state = m.ptr(province + crate::native::objects::campaign::province::STATE)?;
         if state != 0 && out.iter().all(|&(_, s)| s != state) {
             out.push((id, state));
         }
@@ -827,7 +823,7 @@ fn consecrate_choice(m: &Memory, state: usize) -> GResult<Choice> {
 
 /// A religion's key, the name of its token.
 fn religion_key(m: &Memory, religion: usize) -> GResult<String> {
-    let token = m.u32(religion + crate::objects::campaign::province::RELIGION_TOKEN)?;
+    let token = m.u32(religion + crate::native::objects::campaign::province::RELIGION_TOKEN)?;
     Ok(super::commands::type_name(m, token).ok_or_else(|| format!("no token {token:#x}"))?)
 }
 
@@ -1212,10 +1208,10 @@ pub fn consecrate_metropolitan(Session { m, ctx, commands, .. }: Session, args::
         return Err(checks::not_of_religion("metropolitans"));
     }
     let province = super::with_state(|s| s.geography.province_address(m, &ctx, id))?;
-    if m.u64(province + crate::objects::campaign::province::OWNER)? != ctx.player.0 {
+    if m.u64(province + crate::native::objects::campaign::province::OWNER)? != ctx.player.0 {
         return Err(content::checks::not_now(format!("province {id} is not the player's")));
     }
-    let state = m.ptr(province + crate::objects::campaign::province::STATE)?;
+    let state = m.ptr(province + crate::native::objects::campaign::province::STATE)?;
     if state == 0 {
         return Err(content::checks::not_now(format!("province {id} is in no state")));
     }

@@ -48,9 +48,9 @@ mod turns;
 pub(crate) use crossings::SCENE_BEGINS;
 
 use crate::base::called_by_game;
-use crate::hooks::Call;
-use crate::memory::Memory;
-use crate::points::{GameFunction, Point};
+use crate::native::hooks::Call;
+use crate::native::memory::Memory;
+use crate::native::points::{GameFunction, Point};
 use crate::speed::SpeedUp;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
@@ -117,7 +117,7 @@ const IDLER_CAMERA_B: usize = 0x60;
 /// application's focus (`+0xb8`).
 const IDLER_HOLDS_CAMERA: usize = 0x1b80;
 const IDLER_HOLDS_CAMERA_2: usize = 0x3b0;
-use crate::objects::gui::globals::OTHER_CAMERA;
+use crate::native::objects::gui::globals::OTHER_CAMERA;
 const APP_FOCUS: usize = 0xb8;
 
 pub fn main_draw_point(before: fn(&mut Call)) -> Point {
@@ -187,12 +187,12 @@ fn points() -> Vec<Point> {
 /// where it goes on.
 const IDLER_SWITCH: usize = 0x14c2839;
 const IDLER_SWITCH_GOES_ON: usize = 0x14c2840;
-crate::resume!(SWITCH_RESUME: IDLER_SWITCH_GOES_ON_AT = IDLER_SWITCH_GOES_ON);
+resume!(SWITCH_RESUME: IDLER_SWITCH_GOES_ON_AT = IDLER_SWITCH_GOES_ON);
 
 #[unsafe(naked)]
 extern "C" fn idler_switch_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call idler_switches),
+        call_rust!(call idler_switches),
         "lea rbx, [rdi + 0x78]",
         "cmp rbx, rsi",
         "jmp qword ptr [rip + {goes_on}]",
@@ -211,18 +211,18 @@ static IN_FRAME: AtomicBool = AtomicBool::new(false);
 /// until it has. What was deferred is done before the idler goes.
 #[called_by_game]
 extern "C" fn idler_switches() {
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let mut stage = LiveStage(&m);
     FRAMES.clear_across_deferred(&mut stage, |_| {
         main_side(|s| s.drawing_frame_ends(&MainLock, || IN_FRAME.load(Ordering::Acquire)));
     });
 }
 
-crate::resume!(FRAME_RESUME: FRAME_DRAWN_AT = FRAME_DRAWN);
-crate::resume!(HEAD_RESUME: HEAD_GOES_ON_AT = HEAD_GOES_ON, HEAD_END_AT = HEAD_END);
+resume!(FRAME_RESUME: FRAME_DRAWN_AT = FRAME_DRAWN);
+resume!(HEAD_RESUME: HEAD_GOES_ON_AT = HEAD_GOES_ON, HEAD_END_AT = HEAD_END);
 static HEAD_AT: AtomicUsize = AtomicUsize::new(0);
-crate::resume!(CAMERA_RESUME: CAMERA_LENGTH_TAKEN_AT = CAMERA_LENGTH_TAKEN);
-crate::resume!(MAP_RESUME: MAP_LENGTH_TAKEN_AT = MAP_LENGTH_TAKEN);
+resume!(CAMERA_RESUME: CAMERA_LENGTH_TAKEN_AT = CAMERA_LENGTH_TAKEN);
+resume!(MAP_RESUME: MAP_LENGTH_TAKEN_AT = MAP_LENGTH_TAKEN);
 /// The length of the drawing thread's frame, in seconds (a float's bits).
 static DRAWING_LENGTH: AtomicU32 = AtomicU32::new(0);
 
@@ -293,7 +293,7 @@ fn move_camera(m: &Memory, idler: usize, length: f32) -> crate::base::Result<()>
 #[unsafe(naked)]
 extern "C" fn frame_draws_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("mov rcx, r13", call frame_draws),
+        call_rust!("mov rcx, r13", call frame_draws),
         "jmp qword ptr [rip + {drawn}]",
         frame_draws = sym frame_draws,
         drawn = sym FRAME_DRAWN_AT,
@@ -559,7 +559,7 @@ fn app_frame_after(call: &mut Call) {
 /// began to wait for before it was stopped never begins.
 fn stop() {
     STOPPED.store(true, Ordering::Release);
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let mut stage = LiveStage(&m);
     FRAMES.clear_across_deferred(&mut stage, |_| {
         let _guard = PREPARED_WAKE.0.lock().unwrap_or_else(|e| e.into_inner());
@@ -590,7 +590,7 @@ pub fn day_begins() {
         return;
     }
     FRAMES.note_day_ran();
-    crate::dev::drawing_day_begins(&crate::hooked_memory());
+    crate::dev::drawing_day_begins(&crate::native::hooked_memory());
     main_side(|s| s.day_begins(&MainLock));
 }
 
@@ -696,7 +696,7 @@ impl course::StageOps for LiveStage<'_> {
 /// lock.
 #[called_by_game]
 extern "C" fn frame_draws(idler: usize) {
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let mut stage = LiveStage(&m);
     FRAMES.stage_frame(idler, &mut stage);
 }
@@ -877,7 +877,7 @@ fn maybe_log_pace(base: usize, gaps: &mut course::Gaps, last_drawn: &mut u64, lo
 /// The drawing thread.
 fn run() {
     DRAWING_THREAD.store(crate::base::thread_id(), Ordering::Relaxed);
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let mut display_rate = display_refresh_rate();
     let mut display_checked = Instant::now();
     let mut current_perf_rate = match FRAME_RATE_LIMIT.load(Ordering::Relaxed) {

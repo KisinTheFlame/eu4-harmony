@@ -37,7 +37,7 @@ pub const RUNS_QUEUE: u32 = 0xc014;
 pub const RUNNING: u32 = 6;
 
 use super::campaign::{classes::MAP_MANAGER, map_manager};
-use crate::points::{GameFunction, Point};
+use crate::native::points::{GameFunction, Point};
 
 pub fn points() -> Vec<Point> {
     vec![

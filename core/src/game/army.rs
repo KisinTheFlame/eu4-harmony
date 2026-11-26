@@ -5,12 +5,7 @@
 //! Visibility follows the game: units in fogged provinces are never read in
 //! the player's view.
 use super::{armies::Army, country, world, Ctx, GResult, Tag, View, MAX_UNITS};
-use crate::{
-    containers,
-    memory::Memory,
-    objects::campaign::{classes, country as country_fields, functions, globals, list, province, regiment, route_options, tag, task, unit, unit_type},
-    points::{GameFunction, Point},
-};
+use crate::{native::containers, native::memory::Memory, native::objects::campaign::{classes, country as country_fields, functions, globals, list, province, regiment, route_options, tag, task, unit, unit_type}, native::points::{GameFunction, Point}};
 use eu4_harmony_checks::armies as checks;
 use std::collections::BTreeSet;
 
@@ -18,7 +13,7 @@ const CAN_ENTER: GameFunction<9> = GameFunction::at(0x1a2280);
 const MILITARY_TAG: GameFunction<2> = GameFunction::at(0x1a8d20);
 const CAN_ATTACK: GameFunction<2> = GameFunction::at(0xd54a60);
 /// The game's lookup of an object by its ID (the type, u32, then the number).
-pub(crate) const FIND_ID: GameFunction<1> = GameFunction::at(0x14cf730);
+pub(crate) use crate::native::objects::army_rva::{FIND_ID, MORALE};
 /// Where the unit constructor registers the unit's ID.
 const REGISTER_UNIT: usize = 0xd3b0f8;
 /// What the idle task answers: no task kind, and false.
@@ -30,7 +25,7 @@ const LOAD: usize = 0x90ada0;
 /// A unit's morale as its panel shows it, its regiments' weighted by their
 /// strength: (unit, out, weighted), and the most it can have: (unit, out,
 /// int, explanation), as the panel asks them.
-pub const MORALE: GameFunction<3> = GameFunction::at(0xd4c060);
+// MORALE is declared in `native::objects::army_rva`.
 const MAX_MORALE: GameFunction<4> = GameFunction::at(0xd4cd10);
 /// What an army's regiments and a fleet's ships cost a month, their
 /// classes' [`unit::MAINTENANCE`] methods: (unit, out).
@@ -280,9 +275,9 @@ pub fn regiments_of(m: &Memory, unit: usize) -> GResult<Vec<Regiment>> {
         let unit_type = m.ptr(r + regiment::TYPE)?;
         out.push(Regiment {
             number: m.u32(r + regiment::NUMBER)?,
-            name: crate::game_string::shown(m, r + regiment::NAME)?,
+            name: crate::native::game_string::shown(m, r + regiment::NAME)?,
             kind,
-            unit_type: crate::game_string::key(m, unit_type + unit_type::NAME)?,
+            unit_type: crate::native::game_string::key(m, unit_type + unit_type::NAME)?,
             strength: m.i32(r + regiment::STRENGTH)?,
             max_strength: m.i32(unit_type + unit_type::MAX_STRENGTH)?,
             morale: m.i32(r + regiment::MORALE)?,
@@ -399,7 +394,7 @@ mod tests {
         buffers::{self, Image, Object, Provinces},
         Caller, Fail, Session, Status,
     };
-    use crate::objects::campaign::country;
+    use crate::native::objects::campaign::country;
 
     /// The Ottomans' army 11 of two regiments and fleet 12 of one ship in
     /// province 1, the army aboard the fleet; Byzantium's army 21 in

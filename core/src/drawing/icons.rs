@@ -9,9 +9,9 @@
 //! thread works each point out again with the camera as it is then, and
 //! moves the window by the difference.
 use crate::base::called_by_game;
-use crate::memory::Memory;
-use crate::objects::gui::globals::SCALE as GRAPHICS;
-use crate::points::Point;
+use crate::native::memory::Memory;
+use crate::native::objects::gui::globals::SCALE as GRAPHICS;
+use crate::native::points::Point;
 use std::sync::Mutex;
 
 /// In the placing, the window put at its place: `mov rdx, [rsp + 0xb8]`, the
@@ -23,7 +23,7 @@ use std::sync::Mutex;
 /// camera moves.
 const PLACED: usize = 0x132e5c4;
 const PLACED_GOES_ON: usize = 0x132e5cc;
-crate::resume!(PLACED_RESUME: PLACED_GOES_ON_AT = PLACED_GOES_ON);
+resume!(PLACED_RESUME: PLACED_GOES_ON_AT = PLACED_GOES_ON);
 /// The projection (`0x132e210`): the point times the 4×4 matrix at `+0x80`
 /// of the object it is given, the rows at `+0x80`, `+0x90`, `+0xa0` and
 /// `+0xb0`, the last times the constant at `0x1dc25c0` (all ones); x and y
@@ -73,7 +73,7 @@ pub(super) fn points() -> Vec<Point> {
 #[unsafe(naked)]
 extern "C" fn placed_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("mov rcx, r14", "lea rdx, [rbp + 8]", call placed),
+        call_rust!("mov rcx, r14", "lea rdx, [rbp + 8]", call placed),
         "mov rdx, qword ptr [rsp + 0xb8]",
         "jmp qword ptr [rip + {goes_on}]",
         placed = sym placed,
@@ -88,7 +88,7 @@ extern "C" fn placed(window: usize, frame: usize) {
     if !super::on_main() || !super::drawing_on() {
         return;
     }
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let read = || -> crate::base::Result<Icon> {
         let put = m.u64(frame + 0xb8)?;
         let point_at = m.ptr(frame + 0xd8)?;

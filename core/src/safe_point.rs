@@ -151,7 +151,7 @@ static MAIN_MENU: AtomicUsize = AtomicUsize::new(0);
 /// where the game's own clicks run.
 pub fn main_menu_frame(frontend: usize) {
     MAIN_MENU.store(frontend, Ordering::Relaxed);
-    if let Some(m) = crate::memory() {
+    if let Some(m) = crate::native::memory() {
         sessions::frame_ran();
         repairs::main_menu_shown(m);
         game::menu::main_menu_frame(m, frontend);
@@ -160,7 +160,7 @@ pub fn main_menu_frame(frontend: usize) {
 
 /// After the map manager's frame.
 pub fn game_frame() {
-    let Some(m) = crate::memory().copied() else { return };
+    let Some(m) = crate::native::memory().copied() else { return };
     if crate::base::thread_id() != crate::base::main_thread() {
         return;
     }
@@ -215,7 +215,7 @@ pub fn presented() {
         return;
     }
     let frontend = MAIN_MENU.swap(0, Ordering::Relaxed);
-    let Some(m) = crate::memory() else { return };
+    let Some(m) = crate::native::memory() else { return };
     if GAME_FRAME.swap(false, Ordering::Relaxed) {
         return;
     }

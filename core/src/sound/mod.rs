@@ -21,7 +21,7 @@ pub mod loudness;
 pub mod music;
 
 use crate::base::called_by_game;
-use crate::points::{Function, Point};
+use crate::native::points::{Function, Point};
 use music::{Choices, Track};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -103,11 +103,11 @@ const AUDIO_ASKED: usize = 0x16a68ed;
 const NO_CHANGES_ALLOWED: usize = 0x16a6919;
 const AUDIO_S16LSB: u32 = 0x8010;
 
-crate::resume!(VOLUMES_RESUME: VOLUMES_AT = VOLUMES_PUSHED_NEXT);
-crate::resume!(AMBIENT_RESUME: AMBIENT_AT = AMBIENT_SCALED_NEXT);
-crate::resume!(THEME_RESUME: THEME_AT = THEME_GAIN_NEXT);
-crate::resume!(VOICE_RESUME: VOICE_AT = VOICE_MIXED_NEXT);
-crate::resume!(REST_RESUME: REST_AT = STREAM_REST_MIXED_NEXT);
+resume!(VOLUMES_RESUME: VOLUMES_AT = VOLUMES_PUSHED_NEXT);
+resume!(AMBIENT_RESUME: AMBIENT_AT = AMBIENT_SCALED_NEXT);
+resume!(THEME_RESUME: THEME_AT = THEME_GAIN_NEXT);
+resume!(VOICE_RESUME: VOICE_AT = VOICE_MIXED_NEXT);
+resume!(REST_RESUME: REST_AT = STREAM_REST_MIXED_NEXT);
 
 type Mix = unsafe extern "C" fn(*mut i16, *const i16, u32, u32, i32);
 static ORIGINAL_MIX: Function<Mix> = Function::new();
@@ -162,7 +162,7 @@ extern "C" fn volumes(master: f32, factor: f32, music: f32, effects: f32, out: *
 #[unsafe(naked)]
 extern "C" fn volumes_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(
+        call_rust!(
             "lea rax, [rsp + 0x30]",
             "mov [rsp + 0x20], rax",
             call volumes,
@@ -185,7 +185,7 @@ extern "C" fn ambient(ambient: f32, master: f32) -> u32 {
 #[unsafe(naked)]
 extern "C" fn ambient_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("movss xmm0, [rax + 0xc4]", "movss xmm1, [rax + 0xb4]", call ambient, "movd xmm3, dword ptr [rsp + 0x48]"),
+        call_rust!("movss xmm0, [rax + 0xc4]", "movss xmm1, [rax + 0xb4]", call ambient, "movd xmm3, dword ptr [rsp + 0x48]"),
         "jmp qword ptr [rip + {next}]",
         ambient = sym ambient,
         next = sym AMBIENT_AT,
@@ -202,7 +202,7 @@ extern "C" fn theme(master: f32, music: f32, out: *mut [f32; 2]) {
 #[unsafe(naked)]
 extern "C" fn theme_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(
+        call_rust!(
             "movss xmm0, [rax + 0xb4]",
             "movss xmm1, [rax + 0xc0]",
             "lea r8, [rsp + 0x30]",
@@ -223,7 +223,7 @@ extern "C" fn theme_stub() {
 #[expect(clippy::too_many_arguments, reason = "the game's call's arguments, the voice and its gain, and which of the two calls it is")]
 fn mix(device: *mut i16, source: *const i16, format: u32, bytes: u32, volume: i32, voice: usize, gain: f32, first: bool) {
     crate::base::guarded("mix a voice", || {
-        let memory = crate::hooked_memory();
+        let memory = crate::native::hooked_memory();
         let sound = memory.ptr(voice + SOUND).unwrap_or(0);
         let stream = sound != 0 && memory.u32(sound + KIND).is_ok_and(|kind| kind == STREAM);
         if stream && format == AUDIO_S16LSB {
@@ -256,7 +256,7 @@ macro_rules! mix_stub {
         #[unsafe(naked)]
         extern "C" fn $name() {
             std::arch::naked_asm!(
-                crate::call_rust!(
+                call_rust!(
                     "mov eax, [rbp + 0x28]",
                     "mov [rsp + 0x20], rax",
                     "mov [rsp + 0x28], rbx",
@@ -343,7 +343,7 @@ fn mix_music(voice: usize, sound: usize, source: &[i16], device: &mut [i16], gai
 
 /// The path of a sound's file in the game's files, as the sound keeps it.
 fn path_of(sound: usize) -> String {
-    let bytes = crate::hooked_memory().bytes(sound + PATH, PATH_LENGTH).unwrap_or_default();
+    let bytes = crate::native::hooked_memory().bytes(sound + PATH, PATH_LENGTH).unwrap_or_default();
     let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
     String::from_utf8_lossy(&bytes[..end]).into_owned()
 }
@@ -356,7 +356,7 @@ fn analyze(path: String) -> Analysis {
     let result = cell.clone();
     std::thread::spawn(move || {
         let started = std::time::Instant::now();
-        let loudness = crate::physfs::read(&path).map_err(|e| e.to_string()).and_then(|data| analysis::loudness(&data));
+        let loudness = crate::native::physfs::read(&path).map_err(|e| e.to_string()).and_then(|data| analysis::loudness(&data));
         let took = started.elapsed().as_secs_f64();
         match &loudness {
             Ok(Some(loudness)) => log!("music: {path} is {loudness:.1} LUFS, analyzed in {took:.2} s"),

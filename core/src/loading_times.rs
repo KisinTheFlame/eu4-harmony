@@ -9,8 +9,8 @@
 //! stretches that lie between them (`main` up to the engine's Init, the rest
 //! of InitGame after the flags). A save's load is logged at every load. The
 //! observers only read the clock.
-use crate::hooks::Call;
-use crate::points::Point;
+use crate::native::hooks::Call;
+use crate::native::points::Point;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;

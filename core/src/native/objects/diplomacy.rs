@@ -318,7 +318,7 @@ pub mod war_entry {
     pub const SIZE: usize = 0x80;
 }
 
-use crate::points::Point;
+use crate::native::points::Point;
 
 pub fn points() -> Vec<Point> {
     use super::campaign::{globals::WORLD, world::DATE};

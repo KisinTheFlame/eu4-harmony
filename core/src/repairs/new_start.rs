@@ -1,9 +1,6 @@
 //! What a world reset leaves of a session, which vanilla never meets
 //! outside a load, whose save sets it again: put back as a new start has it.
-use crate::{
-    memory::Memory,
-    objects::campaign::{achievements, globals, religions, world},
-};
+use crate::{native::memory::Memory, native::objects::campaign::{achievements, globals, religions, world}};
 use std::sync::Mutex;
 
 /// The Empire's religion and heretic religion the game's definitions give,

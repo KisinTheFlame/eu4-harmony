@@ -272,7 +272,7 @@ mod tests {
         // The game puts a country in view at its start; the start takes it
         // out before it answers.
         let engine = Engine::new(remember);
-        let observer = game::Tag(game_tag(b"O00", 900).0 | 7 << crate::objects::campaign::tag::KIND);
+        let observer = game::Tag(game_tag(b"O00", 900).0 | 7 << crate::native::objects::campaign::tag::KIND);
         let in_view = Some(tur());
         let mut game = Fake { player: Some(game::player::Player::Observes { own: observer, in_view }), ..Fake::default() };
         let start = engine.submit(Request::Menu(MenuRequest::Start { country: None }));

@@ -3,7 +3,7 @@
 //! before taking it modulo the list's weight, so that about half the draws
 //! come out negative and pick the list's first name. The number is taken
 //! modulo the weight as it is.
-use crate::points::Point;
+use crate::native::points::Point;
 
 /// Where the pick of a name from a list (`0xda9880`), weighing its male and
 /// female names each by a factor, turns its random number (`esi`, 0 to

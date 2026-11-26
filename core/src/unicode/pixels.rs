@@ -26,9 +26,8 @@ use super::buttons;
 use super::fill;
 use super::glyphs::Glyph;
 use crate::base::called_by_game;
-use crate::objects::text::text_texture;
-use crate::points::Point;
-use crate::resume;
+use crate::native::objects::text::text_texture;
+use crate::native::points::Point;
 use std::cell::Cell;
 use std::ffi::c_void;
 use windows::core::Interface;
@@ -209,7 +208,7 @@ extern "C" fn main_text_quad_stub() {
         "movd xmm0, dword ptr [r14 + {page_width}]",
         "jmp qword ptr [rip + {done}]",
         snapped = sym main_text_quad,
-        page_width = const crate::objects::text::font::PAGE_SIZE,
+        page_width = const crate::native::objects::text::font::PAGE_SIZE,
         done = sym MAIN_QUAD_DONE,
     );
 }
@@ -337,7 +336,7 @@ pub fn points() -> Vec<Point> {
             main_text_quad_stub as *const () as usize,
             &MAIN_QUAD_RESUME,
         )
-        .uses(&[crate::objects::text::font::PAGE_SIZE]),
+        .uses(&[crate::native::objects::text::font::PAGE_SIZE]),
         Point::jump(BUTTON_QUAD, "f3 0f 2c c1 66 0f 6e d0", "button text glyph corners", button_quad_stub as *const () as usize, &BUTTON_QUAD_RESUME),
         // The four corners go into the vertices as floats already.
         Point::write(0x1598594usize, "0f 5b d2", "button text bottom kept", "0f 1f 00"),

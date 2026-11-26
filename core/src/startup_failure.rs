@@ -1,6 +1,6 @@
 //! Startup failure triage (cold path only).
 //!
-//! When [`crate::baseline::recognize`] or [`crate::points::install`] fails,
+//! When [`crate::native::baseline::recognize`] or [`crate::native::points::install`] fails,
 //! normal startup already aborted without hashing `eu4.exe` or touching disk.
 //! On the failure thread (outside the Windows loader lock), [`diagnose`]
 //! inspects `launcher-settings.json`, the on-disk `eu4.exe` SHA-256, and

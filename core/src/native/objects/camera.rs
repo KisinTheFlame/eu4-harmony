@@ -50,7 +50,7 @@ pub mod grid {
 }
 
 use super::campaign::globals::MAP;
-use crate::points::Point;
+use crate::native::points::Point;
 
 pub fn points() -> Vec<Point> {
     use self::{camera::*, grid::*};

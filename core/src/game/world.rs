@@ -7,12 +7,7 @@ use super::{
     provinces::{Neighbor, Province},
     special_countries, Ctx, GResult, InWorld, Status, Tag, MAX_PROVINCES,
 };
-use crate::{
-    containers,
-    memory::Memory,
-    objects::campaign::{adjacency, countries as country_list, country as country_fields, geometry, globals, map, province, world},
-    points::{GameFunction, Point},
-};
+use crate::{native::containers, native::memory::Memory, native::objects::campaign::{adjacency, countries as country_list, country as country_fields, geometry, globals, map, province, world}, native::points::{GameFunction, Point}};
 const STRAIT_BLOCKED: GameFunction<2> = GameFunction::at(0x96f650);
 
 pub fn points() -> Vec<Point> {

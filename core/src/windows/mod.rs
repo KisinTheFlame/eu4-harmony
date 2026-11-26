@@ -15,7 +15,7 @@
 //! closed and the pop-ups shown come back out of it as what extensions and
 //! remote clients hear.
 mod gui;
-pub(crate) use gui::FIXED_BACKGROUND_SPRITE;
+// FIXED_BACKGROUND_SPRITE now lives in `native::splice`.
 mod live;
 
 use eu4_harmony_lua::{
@@ -205,8 +205,8 @@ pub fn close_popup(extension: usize, number: u32) -> Result<(), String> {
 /// game's language.
 pub fn popups() -> Vec<eu4_harmony_remote::popups::Popup> {
     let game_words = |key: &str| {
-        crate::memory()
-            .and_then(|m| crate::game_string::unformatted(m, key).ok())
+        crate::native::memory()
+            .and_then(|m| crate::native::game_string::unformatted(m, key).ok())
             .filter(|w| !w.is_empty())
             .map(|w| crate::unicode::game_text::chars(&w).map(|(c, _)| c).collect())
             .unwrap_or_else(|| key.to_string())
@@ -251,24 +251,24 @@ pub fn take_shown() -> Vec<(u32, String)> {
     shown.into_iter().map(|(number, extension)| (number, crate::lua::mod_id(extension).unwrap_or_default())).collect()
 }
 
-pub fn points() -> Vec<crate::points::Point> {
+pub fn points() -> Vec<crate::native::points::Point> {
     live::points()
 }
 
 /// The framework files the definitions are read from, empty until
 /// extensions declare windows (ADR framework-files-in-the-game-file-system).
-pub fn files() -> Vec<crate::files::File> {
-    let mut files: Vec<crate::files::File> =
-        [live::WINDOWS_FILE, live::POPUPS_FILE].into_iter().map(|path| crate::files::File { path: path.into(), data: gui::file(&[]).into_bytes() }).collect();
+pub fn files() -> Vec<crate::native::files::File> {
+    let mut files: Vec<crate::native::files::File> =
+        [live::WINDOWS_FILE, live::POPUPS_FILE].into_iter().map(|path| crate::native::files::File { path: path.into(), data: gui::file(&[]).into_bytes() }).collect();
     let mut sprites = gui::SPRITES.trim_end().strip_suffix('}').expect("the framework sprites close their block").to_string();
     with(|all| {
         for image in all.images.values().flatten() {
             sprites.push_str(&image.definition());
-            files.push(crate::files::File { path: image.path.clone(), data: image.data.to_vec() });
+            files.push(crate::native::files::File { path: image.path.clone(), data: image.data.to_vec() });
         }
     });
     sprites.push_str("}\n");
-    files.push(crate::files::File { path: SPRITES_FILE.into(), data: sprites.into_bytes() });
+    files.push(crate::native::files::File { path: SPRITES_FILE.into(), data: sprites.into_bytes() });
     files
 }
 
@@ -283,7 +283,7 @@ const STRIP_WINDOW: &str = "floating_buttons";
 /// Splices the entry buttons of the windows declared at startup into the
 /// panel button strip; what could not be, as notes. A window whose entry
 /// button an extension reload adds shows it from the next start.
-pub fn splice_entries(plan: &mut crate::splice::Plan) -> Vec<String> {
+pub fn splice_entries(plan: &mut crate::native::splice::Plan) -> Vec<String> {
     with(|all| {
         let mut text = String::new();
         for d in all.wanted.declared() {
@@ -294,7 +294,7 @@ pub fn splice_entries(plan: &mut crate::splice::Plan) -> Vec<String> {
             }
         }
         if !text.is_empty() {
-            plan.add(STRIP_FILE, crate::splice::Addition::Window { window: STRIP_WINDOW.into(), text });
+            plan.add(STRIP_FILE, crate::native::splice::Addition::Window { window: STRIP_WINDOW.into(), text });
         }
         Vec::new()
     })
@@ -303,5 +303,5 @@ pub fn splice_entries(plan: &mut crate::splice::Plan) -> Vec<String> {
 /// The element names of a window's definition: its own, and its game
 /// widgets' by their names, with the mod's prefix.
 fn type_name(id: &str, window: &str) -> String {
-    format!("{}{window}", crate::splice::prefix(id))
+    format!("{}{window}", crate::native::splice::prefix(id))
 }

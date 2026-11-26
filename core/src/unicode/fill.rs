@@ -49,11 +49,11 @@ use super::outline::Outline;
 use super::pages::{self, Drawn, Game, Made, NoRoom, Pages, Shared, Texture};
 use super::system_font::{Face, SystemFonts};
 use super::tone::Tone;
-use crate::game_string;
-use crate::hooks::Call;
-use crate::memory::Memory;
-use crate::objects::text::{self as objects, font::OWN_GLYPHS, texture_description, texture_level, textures};
-use crate::points::Point;
+use crate::native::game_string;
+use crate::native::hooks::Call;
+use crate::native::memory::Memory;
+use crate::native::objects::text::{self as objects, font::OWN_GLYPHS, texture_description, texture_level, textures};
+use crate::native::points::Point;
 use crate::base::settings;
 use std::cell::RefCell;
 use std::ffi::c_void;
@@ -678,7 +678,7 @@ fn replace_own_glyphs(m: &Memory, font: usize, wrapper: usize, pages: &mut Pages
         let slot = font + OWN_GLYPHS + byte as usize * 8;
         let mut record = m.ptr(slot)?;
         if record == 0 {
-            record = crate::game_heap::new(m, std::mem::size_of::<Glyph>())?;
+            record = crate::native::game_heap::new(m, std::mem::size_of::<Glyph>())?;
             if record == 0 {
                 continue;
             }
@@ -733,7 +733,7 @@ pub fn abandoned(font: usize) {
 /// its file brought no longer apply.
 pub fn loaded(font: usize) -> bool {
     let Some(own) = LOADING.with(|l| l.borrow_mut().finish(font)) else { return false };
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let result = (|| -> crate::base::Result<bool> {
         let (manager, entry) = page_entry(&m, font)?;
         let wrapper = m.ptr(entry)?;
@@ -851,7 +851,7 @@ impl Game<PageTexture> for InGame<'_> {
 /// The names on the map are built again from the map's fonts' pages as they
 /// are now, when a game is going on; returns whether they were.
 fn rebuild_map_names(m: &Memory) -> crate::base::Result<bool> {
-    use crate::objects::{application, campaign, text::map};
+    use crate::native::objects::{application, campaign, text::map};
     let world = m.ptr(m.at(campaign::globals::WORLD))?;
     let manager = if world == 0 { 0 } else { m.ptr(world + campaign::world::MAP_MANAGER)? };
     if manager == 0 || m.ptr(manager)? != m.at(campaign::classes::MAP_MANAGER) {
@@ -875,7 +875,7 @@ pub fn want_room_everywhere() {
 /// Pages that asked for room grow, at the frame the main thread presents
 /// ([`pages::present`]).
 pub fn grow_pages() {
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     pages::present(&PAGES, &mut InGame { m: &m });
 }
 

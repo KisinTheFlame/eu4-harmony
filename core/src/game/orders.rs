@@ -3,15 +3,11 @@
 //! which route.
 use super::commands::{write, Block};
 use super::{armies::RouteSource, army, commands::Commands, fail, paused, signals::Change, world, Caller, Ctx, GResult, Session, Status, MAX_UNITS};
-use crate::containers;
-use crate::{
-    memory::Memory,
-    objects::{
+use crate::native::containers;
+use crate::{native::memory::Memory, native::objects::{
         campaign::{geometry, globals, province, route_options, unit},
         list,
-    },
-    points::{GameFunction, Point},
-};
+    }, native::points::{GameFunction, Point}};
 use eu4_harmony_checks::armies as checks;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
@@ -315,7 +311,7 @@ impl Orders {
                 return Err("temporary route shares nodes with the army route".to_string().into());
             }
             for node in temp.nodes {
-                crate::game_heap::delete(m, node, list::NODE_SIZE)?;
+                crate::native::game_heap::delete(m, node, list::NODE_SIZE)?;
             }
             Ok(())
         })();
@@ -445,7 +441,7 @@ pub fn transport(session: &Session, army: usize, id: u64, goal: u32) -> GResult<
     })();
     // The vector's buffer is the game's: freed as its own small blocks are.
     if begin != 0 && capacity > begin && capacity - begin < 0x1000 {
-        crate::game_heap::delete(m, begin, capacity - begin)?;
+        crate::native::game_heap::delete(m, begin, capacity - begin)?;
     }
     let fleets = fleets?;
     if fleets.is_empty() {

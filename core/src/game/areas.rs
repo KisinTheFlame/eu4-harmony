@@ -2,12 +2,7 @@
 //! preserve territorial cores, use the loaded static modifiers, and cross-check
 //! the arithmetic against the game's getters (docs/game/provinces/area-governing-cost.md).
 use super::{countries, modifiers, provinces, with_state, GResult, Session, Status, Tag};
-use crate::{
-    containers, game_string,
-    memory::Memory,
-    objects::campaign::province,
-    points::{GameFunction, Point},
-};
+use crate::{native::containers, native::game_string, native::memory::Memory, native::objects::campaign::province, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::{
     provinces::{args, AreaSnapshot, StateKind},
     CountryTag, ProvinceId,

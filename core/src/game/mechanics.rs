@@ -6,12 +6,7 @@ use super::commands::{write, Block};
 use super::content::checks;
 use super::government::GOVERNMENT;
 use super::{action, conditions, content, modifiers, thousandths, Ctx, GResult, Session, Tag};
-use crate::{
-    containers, game_string,
-    memory::Memory,
-    objects::campaign::modifier_set,
-    points::{GameFunction, Point},
-};
+use crate::{native::containers, native::game_string, native::memory::Memory, native::objects::campaign::modifier_set, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::government::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},

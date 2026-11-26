@@ -3,7 +3,7 @@
 //! window-elements.md).
 //!
 //! The definitions [`super::gui`] writes are served as framework files
-//! (`crate::physfs::serve`) and read with the game's own reread of an
+//! (`crate::native::physfs::serve`) and read with the game's own reread of an
 //! interface file, which takes new names after startup: an extension
 //! reload's windows are named afresh, and each pop-up has a name of its own.
 //! A window is built with the game's CreateWindow, placed, shown and bound:
@@ -13,7 +13,7 @@
 //! game's `ui` observer of Kill tells [`killed`]; one still wanted open is
 //! built again at the next frame.
 //!
-//! How each element is set and its clicks heard is `crate::bound_element`'s,
+//! How each element is set and its clicks heard is `crate::native::bound_element`'s,
 //! which the elements spliced into vanilla windows share.
 //!
 //! Locks: [`LIVE`] is held while the framework calls the game, so what the
@@ -26,21 +26,10 @@ mod entries;
 mod lifecycle;
 
 use super::{gui, with};
-use crate::{
-    base::Result,
-    bound_element::{self, BoundElement, Hears, Look, Shown},
-    game::{self, Caller, WorldSession},
-    game_string,
-    hooks::Call,
-    memory::Memory,
-    objects::{
+use crate::{base::Result, native::bound_element::{self, BoundElement, Hears, Look, Shown}, game::{self, Caller, WorldSession}, native::game_string, native::hooks::Call, native::memory::Memory, native::objects::{
         campaign,
         gui::{classes, element, functions, list_box, manager, scene, window, window_gui},
-    },
-    points::{GameFunction, Point},
-    ui::{self, Callback},
-    unicode::game_text,
-};
+    }, native::points::{GameFunction, Point}, ui::{self, Callback}, unicode::game_text};
 use eu4_harmony_lua::windows::Wanted;
 use eu4_harmony_lua::{
     layout::{self, Kind, Window},
@@ -302,7 +291,7 @@ fn place(window: &Window, (sw, sh): (i32, i32)) -> (i32, i32) {
 /// Reads the definitions file `path`, served with `text`, into the game.
 fn read_definitions(m: &Memory, mgr: usize, path: &str, text: String) -> Result<()> {
     log!("windows: reading {} bytes of definitions from {path}", text.len());
-    crate::physfs::serve(path, game_text::from_str(&text));
+    crate::native::physfs::serve(path, game_text::from_str(&text));
     with_string(m, path.as_bytes(), |p| functions::READ_DEFINITIONS.call(m, [mgr, p]).map(|_| ()))
 }
 
@@ -413,7 +402,7 @@ fn wants(last_read: Option<u64>) -> Wants {
 /// At every safe frame of a game, after the extensions: the game's windows
 /// made to show what extensions want.
 pub(crate) fn frame() {
-    let Some(m) = crate::memory() else { return };
+    let Some(m) = crate::native::memory() else { return };
     if crate::base::thread_id() != crate::base::main_thread() {
         return;
     }
@@ -492,7 +481,7 @@ pub(crate) fn killed(m: &Memory, root: usize) {
 pub(crate) fn session_ended() {
     crate::tooltips::clear();
     STRIP_DIRTY.store(false, Ordering::Release);
-    if let Some(m) = crate::memory() {
+    if let Some(m) = crate::native::memory() {
         with_live(|live| {
             if let Err(e) = entries::retire(m, live, |_| true) {
                 live.report(format!("entry buttons at the session's end: {e}"));
@@ -534,7 +523,7 @@ pub(crate) fn managed_tooltip(element: usize) -> Option<Vec<u8>> {
 /// The element names of an entry button, by its mod's prefix: the button
 /// and its background.
 pub fn entry_names(id: &str, window: &str) -> (String, String) {
-    let prefix = crate::splice::prefix(id);
+    let prefix = crate::native::splice::prefix(id);
     (format!("{prefix}entry_{window}"), format!("{prefix}entry_{window}_background"))
 }
 
@@ -613,7 +602,7 @@ pub fn points() -> Vec<Point> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bound_element::Clicked;
+    use crate::native::bound_element::Clicked;
     use eu4_harmony_lua::WindowChange;
     use serde_json::json;
 

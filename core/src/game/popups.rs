@@ -6,7 +6,7 @@ use super::{GResult, WorldSession};
 use eu4_harmony_remote::popups::{args, Popup};
 
 /// The group's dependency points: none of its own.
-pub fn points() -> Vec<crate::points::Point> {
+pub fn points() -> Vec<crate::native::points::Point> {
     Vec::new()
 }
 

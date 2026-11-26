@@ -23,7 +23,7 @@
 //! The files opened, what is read from them and what each lookup answers stay
 //! as they were.
 use crate::base::called_by_game;
-use crate::points::{Function, Point};
+use crate::native::points::{Function, Point};
 use crate::speed::SpeedUp;
 use std::cell::{Cell, UnsafeCell};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
@@ -204,16 +204,16 @@ static ORIGINAL_RELEASE: Function<Release> = Function::new();
 type EntryRead = extern "C" fn(usize, usize, usize) -> i32;
 static ORIGINAL_ENTRY_READ: Function<EntryRead> = Function::new();
 
-crate::resume!(OPEN_TAKES_RESUME: OPEN_TAKEN_AT = OPEN_TAKEN);
-crate::resume!(OPEN_GIVES_RESUME: OPEN_GIVEN_AT = OPEN_GIVEN);
-crate::resume!(READ_GRABS_RESUME: READ_GRABBED_AT = READ_GRABBED);
-crate::resume!(READ_LINKS_RESUME: READ_LINKED_AT = READ_RELEASES);
-crate::resume!(READ_RELEASES_RESUME: READ_RELEASED_AT = READ_RELEASED);
-crate::resume!(FIND_GRABS_RESUME: FIND_GRABBED_AT = FIND_GRABBED);
-crate::resume!(FIND_RELEASES_RESUME: FIND_RELEASED_AT = FIND_RELEASED);
-crate::resume!(CLOSE_GRABS_RESUME: CLOSE_GRABBED_AT = CLOSE_GRABBED);
-crate::resume!(CLOSE_RELEASES_RESUME: CLOSE_RELEASED_AT = CLOSE_RELEASED);
-crate::resume!(CLOSE_RELEASES_AFTER_RESUME: CLOSE_RELEASED_AFTER_AT = CLOSE_RELEASED_AFTER);
+resume!(OPEN_TAKES_RESUME: OPEN_TAKEN_AT = OPEN_TAKEN);
+resume!(OPEN_GIVES_RESUME: OPEN_GIVEN_AT = OPEN_GIVEN);
+resume!(READ_GRABS_RESUME: READ_GRABBED_AT = READ_GRABBED);
+resume!(READ_LINKS_RESUME: READ_LINKED_AT = READ_RELEASES);
+resume!(READ_RELEASES_RESUME: READ_RELEASED_AT = READ_RELEASED);
+resume!(FIND_GRABS_RESUME: FIND_GRABBED_AT = FIND_GRABBED);
+resume!(FIND_RELEASES_RESUME: FIND_RELEASED_AT = FIND_RELEASED);
+resume!(CLOSE_GRABS_RESUME: CLOSE_GRABBED_AT = CLOSE_GRABBED);
+resume!(CLOSE_RELEASES_RESUME: CLOSE_RELEASED_AT = CLOSE_RELEASED);
+resume!(CLOSE_RELEASES_AFTER_RESUME: CLOSE_RELEASED_AFTER_AT = CLOSE_RELEASED_AFTER);
 
 /// An SRW lock in a static.
 struct Lock(UnsafeCell<SRWLOCK>);
@@ -456,7 +456,7 @@ thread_local! {
 }
 
 fn base() -> usize {
-    crate::hooked_memory().base
+    crate::native::hooked_memory().base
 }
 
 /// PhysFS's lock: 0 before PhysFS starts and after it ends.
@@ -553,7 +553,7 @@ extern "C" fn open_takes_stub() {
     std::arch::naked_asm!(
         "test r14d, r14d",
         "je 2f",
-        crate::call_rust!(call take_open_lock),
+        call_rust!(call take_open_lock),
         "mov byte ptr [rsp + 0x38], 1",
         "jmp qword ptr [rip + {taken}]",
         "2:",
@@ -569,7 +569,7 @@ extern "C" fn open_takes_stub() {
 #[unsafe(naked)]
 extern "C" fn open_gives_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("mov ecx, r14d", call give_open_lock, "mov rax, [rsp + 0x48]"),
+        call_rust!("mov ecx, r14d", call give_open_lock, "mov rax, [rsp + 0x48]"),
         "jmp qword ptr [rip + {given}]",
         give_open_lock = sym give_open_lock,
         given = sym OPEN_GIVEN_AT,
@@ -581,7 +581,7 @@ extern "C" fn open_gives_stub() {
 extern "C" fn read_grabs_stub() {
     std::arch::naked_asm!(
         "mov rsi, rdi",
-        crate::call_rust!(call hold_to_read),
+        call_rust!(call hold_to_read),
         "jmp qword ptr [rip + {grabbed}]",
         hold_to_read = sym hold_to_read,
         grabbed = sym READ_GRABBED_AT,
@@ -592,7 +592,7 @@ extern "C" fn read_grabs_stub() {
 #[unsafe(naked)]
 extern "C" fn read_links_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("mov rcx, rdi", call link_open_file),
+        call_rust!("mov rcx, rdi", call link_open_file),
         "jmp qword ptr [rip + {linked}]",
         link_open_file = sym link_open_file,
         linked = sym READ_LINKED_AT,
@@ -602,7 +602,7 @@ extern "C" fn read_links_stub() {
 #[unsafe(naked)]
 extern "C" fn read_releases_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call give_back_read),
+        call_rust!(call give_back_read),
         "jmp qword ptr [rip + {released}]",
         give_back_read = sym give_back_read,
         released = sym READ_RELEASED_AT,
@@ -612,7 +612,7 @@ extern "C" fn read_releases_stub() {
 #[unsafe(naked)]
 extern "C" fn find_grabs_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call hold_to_read),
+        call_rust!(call hold_to_read),
         "jmp qword ptr [rip + {grabbed}]",
         hold_to_read = sym hold_to_read,
         grabbed = sym FIND_GRABBED_AT,
@@ -622,7 +622,7 @@ extern "C" fn find_grabs_stub() {
 #[unsafe(naked)]
 extern "C" fn find_releases_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call give_back_read),
+        call_rust!(call give_back_read),
         "jmp qword ptr [rip + {released}]",
         give_back_read = sym give_back_read,
         released = sym FIND_RELEASED_AT,
@@ -632,7 +632,7 @@ extern "C" fn find_releases_stub() {
 #[unsafe(naked)]
 extern "C" fn close_grabs_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call hold_to_close),
+        call_rust!(call hold_to_close),
         "jmp qword ptr [rip + {grabbed}]",
         hold_to_close = sym hold_to_close,
         grabbed = sym CLOSE_GRABBED_AT,
@@ -642,7 +642,7 @@ extern "C" fn close_grabs_stub() {
 #[unsafe(naked)]
 extern "C" fn close_releases_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call give_back_close),
+        call_rust!(call give_back_close),
         "jmp qword ptr [rip + {released}]",
         give_back_close = sym give_back_close,
         released = sym CLOSE_RELEASED_AT,
@@ -652,7 +652,7 @@ extern "C" fn close_releases_stub() {
 #[unsafe(naked)]
 extern "C" fn close_releases_after_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call give_back_close),
+        call_rust!(call give_back_close),
         "jmp qword ptr [rip + {released}]",
         give_back_close = sym give_back_close,
         released = sym CLOSE_RELEASED_AFTER_AT,

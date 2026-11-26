@@ -35,9 +35,9 @@
 //! collection's lookup entries, provenance records and resolved strings are
 //! compared with what skipping `0x14b4a20` would have kept.
 use crate::base::called_by_game;
-use crate::hooks::Call;
-use crate::memory::Memory;
-use crate::points::{Function, GameFunction, Point};
+use crate::native::hooks::Call;
+use crate::native::memory::Memory;
+use crate::native::points::{Function, GameFunction, Point};
 use crate::speed::{self, SpeedUp};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -63,7 +63,7 @@ const REPLACE_NOT_FOUND: usize = 0x16fac22;
 /// colliding hashes.
 const CHECK_COLLISIONS: usize = 0x16fd7a0;
 
-use crate::game_string::LOCALISATION;
+use crate::native::game_string::LOCALISATION;
 /// Offsets in `[LOCALISATION]` (`+8..+0x10` collections, `+0x20` shared text
 /// arena).
 const STORE_COLLECTIONS: usize = 0x08;
@@ -95,8 +95,8 @@ pub const SPEED_UP: SpeedUp = SpeedUp { name: "localisation", group: "loading", 
 type CheckCollisions = unsafe extern "C" fn() -> u8;
 static ORIGINAL_CHECK_COLLISIONS: Function<CheckCollisions> = Function::new();
 
-crate::resume!(MAIN_RELOAD_RESUME: MAIN_AFTER_RELOAD_AT = MAIN_AFTER_RELOAD);
-crate::resume!(REPLACE_RESUME: REPLACE_FOUND_AT = REPLACE_FOUND, REPLACE_NOT_FOUND_AT = REPLACE_NOT_FOUND);
+resume!(MAIN_RELOAD_RESUME: MAIN_AFTER_RELOAD_AT = MAIN_AFTER_RELOAD);
+resume!(REPLACE_RESUME: REPLACE_FOUND_AT = REPLACE_FOUND, REPLACE_NOT_FOUND_AT = REPLACE_NOT_FOUND);
 
 fn points() -> Vec<Point> {
     vec![
@@ -315,7 +315,7 @@ extern "C" fn replace_search_stub() {
         "lea ebx, [r12 + rdi]",
         "mov dword ptr [rax + 8], ebx",
         "xor r14d, r14d",
-        crate::call_rust!(
+        call_rust!(
             "mov rcx, r15",
             "mov rdx, rsi",
             "mov r8d, r11d",
@@ -403,7 +403,7 @@ unsafe fn any_adjacent_equal_hash(store: usize) -> Option<bool> {
 
 #[called_by_game]
 unsafe extern "C" fn check_collisions() -> u8 {
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     if FORCE_GAME.with(Cell::get) || category_logged(&m, TEXT_LOG_CATEGORY) {
         return unsafe { ORIGINAL_CHECK_COLLISIONS.get()() };
     }
@@ -445,7 +445,7 @@ unsafe fn c_bytes(at: usize) -> Vec<u8> {
 }
 
 unsafe fn std_string_bytes(at: usize) -> Vec<u8> {
-    crate::game_string::text(at as *const u8).to_vec()
+    crate::native::game_string::text(at as *const u8).to_vec()
 }
 
 unsafe fn snapshot_store(store: usize) -> Vec<(Vec<u8>, CollectionSnap)> {
@@ -498,7 +498,7 @@ extern "C" fn main_reload() {
     if !speed::checked(&SPEED_UP) {
         return;
     }
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let before = unsafe { snapshot_store(m.ptr(m.at(LOCALISATION)).unwrap_or(0)) };
     FORCE_GAME.with(|f| f.set(true));
     let _ = RELOAD_LOC.call(&m, []);
@@ -510,7 +510,7 @@ extern "C" fn main_reload() {
 #[unsafe(naked)]
 extern "C" fn main_reload_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call main_reload),
+        call_rust!(call main_reload),
         "mov al, 1",
         "jmp qword ptr [rip + {after}]",
         main_reload = sym main_reload,

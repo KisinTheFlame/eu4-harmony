@@ -17,11 +17,7 @@ use super::{
     waiting::{self, Moment, Waiting},
     LettingGo,
 };
-use crate::{
-    hooks::Call,
-    memory::Memory,
-    points::{GameFunction, Point},
-};
+use crate::{native::hooks::Call, native::memory::Memory, native::points::{GameFunction, Point}};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// `(list)`: a list's kill, the method its window's kill calls on it.
@@ -128,10 +124,10 @@ fn world_clearing(m: &Memory) {
                 Some((_, size, texts)) => {
                     let _letting_go = LettingGo::new("list entry");
                     for text in *texts {
-                        crate::game_string::destroy_checked(m, entry + text)?;
+                        crate::native::game_string::destroy_checked(m, entry + text)?;
                     }
                     HOLDER_DESTRUCTOR.call(m, [entry])?;
-                    crate::game_heap::delete(m, entry, *size)?;
+                    crate::native::game_heap::delete(m, entry, *size)?;
                 }
                 None => waiting::delete_by_its_class(m, entry, "list entry")?,
             }

@@ -24,10 +24,9 @@
 use super::glyphs::Glyph;
 use super::{breaks, text_loops};
 use crate::base::called_by_game;
-use crate::game_string;
-use crate::objects::text::font::{OWN_GLYPHS, SCALE_FROM_GLYPHS};
-use crate::points::Point;
-use crate::resume;
+use crate::native::game_string;
+use crate::native::objects::text::font::{OWN_GLYPHS, SCALE_FROM_GLYPHS};
+use crate::native::points::Point;
 use std::cell::Cell;
 
 const FIT_GLYPH: usize = 0x159ef51;

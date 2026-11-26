@@ -294,15 +294,15 @@ impl Game for Real {
     type Writing = Arc<Writing>;
 
     fn prepare(&mut self, which: Loop, world: usize, writer: usize) -> Result<Option<Self::Writing>> {
-        Ok(Writing::new(crate::hooked_memory(), which, world, writer)?.map(Arc::new))
+        Ok(Writing::new(crate::native::hooked_memory(), which, world, writer)?.map(Arc::new))
     }
 
     fn at(&mut self, writing: &Self::Writing) -> Result<u32> {
-        position(crate::hooked_memory(), writing.stream)
+        position(crate::native::hooked_memory(), writing.stream)
     }
 
     fn same_writer(&mut self, writing: &Self::Writing, writer: usize) -> bool {
-        let m = crate::hooked_memory();
+        let m = crate::native::hooked_memory();
         m.bytes(writer, WRITER_SIZE).is_ok_and(|now| now[..0xc] == writing.writer[..0xc] && now[0x10..0x1a] == writing.writer[0x10..0x1a])
     }
 
@@ -342,15 +342,15 @@ impl Game for Real {
     }
 
     fn append(&mut self, writing: &Self::Writing, runs: &[Vec<u8>]) -> Result<()> {
-        append(crate::hooked_memory(), writing.stream, runs)
+        append(crate::native::hooked_memory(), writing.stream, runs)
     }
 
     fn splice(&mut self, writing: &Self::Writing, inserts: &[(u32, Vec<Vec<u8>>)]) -> Result<()> {
-        splice(crate::hooked_memory(), writing.stream, inserts)
+        splice(crate::native::hooked_memory(), writing.stream, inserts)
     }
 
     fn written(&mut self, writing: &Self::Writing, from: u32, to: u32) -> Result<Vec<u8>> {
-        read(crate::hooked_memory(), writing.stream, from, to)
+        read(crate::native::hooked_memory(), writing.stream, from, to)
     }
 
     fn remember(&mut self, which: Loop, largest: usize) {

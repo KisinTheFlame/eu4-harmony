@@ -11,7 +11,7 @@ pub(super) const REPAIR: super::Repair = super::Repair { first_frame_after_reset
 /// the sessions they held leave, which they would keep committed. A heap
 /// keeps a page while a block on it lives, and what a session leaves is
 /// strewn among what it let go.
-fn give_back_pages(_: &crate::memory::Memory) {
+fn give_back_pages(_: &crate::native::memory::Memory) {
     #[repr(C)]
     struct Optimize {
         version: u32,

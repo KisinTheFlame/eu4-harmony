@@ -1,5 +1,5 @@
 //! Zip files, as the game writes its compressed saves and the DLC their
-//! music, and as the framework writes its own files (`crate::files`): the
+//! music, and as the framework writes its own files (`crate::native::files`): the
 //! central directory at the end, each entry stored or deflated, checked
 //! against its CRC-32.
 //!

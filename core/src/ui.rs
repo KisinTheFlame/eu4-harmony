@@ -7,23 +7,13 @@
 //! Extensions state what they want (visible, enabled, text, tooltip) and each
 //! host's update hook applies it, so state survives the game rebuilding the
 //! window and never needs a callback inside the game's UI code. How a bound
-//! element is set and heard is `crate::bound_element`'s, which extension
+//! element is set and heard is `crate::native::bound_element`'s, which extension
 //! windows share.
-use crate::{
-    base::{hosts::Host, notice, Result},
-    bound_element::{self, BoundElement, Hears, Look, Shown},
-    game::{self, GResult},
-    game_string,
-    hooks::Call,
-    memory::Memory,
-    objects::{
+use crate::{base::{hosts::Host, notice, Result}, native::bound_element::{self, BoundElement, Hears, Look, Shown}, game::{self, GResult}, native::game_string, native::hooks::Call, native::memory::Memory, native::objects::{
         campaign::unit,
         gui::{army_panel, button, callback, classes, element, functions, main_menu, mouse_input, signal, window},
         list,
-    },
-    points::{GameFunction, Point},
-    splice::{Element, ElementKind},
-};
+    }, native::points::{GameFunction, Point}, native::splice::{Element, ElementKind}};
 use eu4_harmony_lua::windows::HostedElements;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Mutex;
@@ -184,7 +174,7 @@ impl Subscription {
     }
 
     pub(crate) fn subscribed(&self, m: &Memory) -> Result<bool> {
-        Ok(crate::containers::items(m, self.signal + signal::LISTENERS, 512)?.contains(&self.context()))
+        Ok(crate::native::containers::items(m, self.signal + signal::LISTENERS, 512)?.contains(&self.context()))
     }
 
     /// Subscribes it, and has the button report right and double clicks.
@@ -270,7 +260,7 @@ struct Ui {
 /// Code that holds this calls the game: to look elements up, subscribe and
 /// unsubscribe, show, hide, enable and set text. What the game calls back
 /// with takes it only with `try_lock` (tooltips; clicks are only queued,
-/// `crate::bound_element`), except the
+/// `crate::native::bound_element`), except the
 /// destruction hooks, which must detach; none of those calls destroys a
 /// panel, button or window, so a destruction hook never runs under the lock.
 static UI: Mutex<Option<Ui>> = Mutex::new(None);
@@ -561,11 +551,11 @@ fn bind_frame(m: &Memory, root: usize) -> Result<usize> {
     if m.vslot(root, window::FIND_WINDOW)? != m.at(functions::FIND_WINDOW) {
         return Err("the window's subwindow lookup is not the one the framework knows".into());
     }
-    let frame = crate::windows::with_string(m, crate::splice::FRAME.as_bytes(), |name| functions::FIND_WINDOW.call(m, [root, name, 0]))?;
+    let frame = crate::windows::with_string(m, crate::native::splice::FRAME.as_bytes(), |name| functions::FIND_WINDOW.call(m, [root, name, 0]))?;
     if frame == 0 || m.ptr(frame)? != m.at(classes::WINDOW) {
         return Err("not found".into());
     }
-    keep_still(m, frame, crate::splice::FRAME_BACKGROUND)?;
+    keep_still(m, frame, crate::native::splice::FRAME_BACKGROUND)?;
     Ok(frame)
 }
 
@@ -789,7 +779,7 @@ pub fn points() -> Vec<Point> {
 
 pub fn take_clicks() -> Vec<Click> {
     with_ui(|ui| {
-        if let Some(m) = crate::memory() {
+        if let Some(m) = crate::native::memory() {
             ui.hear_clicks(&mut GameHost(m));
         }
         std::mem::take(&mut ui.clicks)

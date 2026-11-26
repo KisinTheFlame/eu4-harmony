@@ -5,15 +5,10 @@
 //! question waits for the player's answer. All of it also in observe mode
 //! with no country in view, as the game lets the player run time then too. The evidence is in docs/game/day/time.md.
 use super::{action, context, context_any, fail, map_manager, paused, questions, world_context_any, Caller, GResult, Status, World, WorldSession};
-use crate::{
-    hooks::Call,
-    memory::Memory,
-    objects::campaign::{
+use crate::{native::hooks::Call, native::memory::Memory, native::objects::campaign::{
         globals::{END_DATE, WORLD},
         map_manager as manager, pause as pause_state, world,
-    },
-    points::{GameFunction, Point},
-};
+    }, native::points::{GameFunction, Point}};
 use std::sync::Mutex;
 
 /// `(world, index)`: sets the speed, clamped to 0..=4, as both speed commands
@@ -365,7 +360,7 @@ mod tests {
             buffers::{self, Image, Object},
             Fail,
         };
-        use crate::objects::campaign::classes;
+        use crate::native::objects::campaign::classes;
         use std::cell::Cell;
 
         thread_local! {

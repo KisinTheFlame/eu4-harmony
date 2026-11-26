@@ -11,8 +11,8 @@
 //! (collection, key, value: NUL-terminated, line, version, replace).
 use super::game_text;
 use crate::base::called_by_game;
-use crate::game_string;
-use crate::points::{Function, Point};
+use crate::native::game_string;
+use crate::native::points::{Function, Point};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const IMPORT: usize = 0x16fd650;

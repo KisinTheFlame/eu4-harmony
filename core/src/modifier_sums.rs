@@ -19,7 +19,7 @@
 //! game does as well and counts any answer that differs; left to the game,
 //! the game's code stays as it is.
 use crate::base::called_by_game;
-use crate::points::{Function, Point};
+use crate::native::points::{Function, Point};
 use crate::speed::{self, SpeedUp};
 use std::cell::{Cell, RefCell};
 
@@ -38,7 +38,7 @@ const TAKE_AWAY_FOUND: usize = 0x8ea88e;
 const TAKE_AWAY_NOT_FOUND: usize = 0x8ea805;
 // A set: whether it keeps its values by modifier, its pairs and their
 // count.
-use crate::objects::campaign::modifier_set::{BY_MODIFIER, COUNT, PAIRS};
+use crate::native::objects::campaign::modifier_set::{BY_MODIFIER, COUNT, PAIRS};
 
 /// Searches in a call made pair by pair before the set is put in an index,
 /// and the least pairs a set has for one.
@@ -185,14 +185,14 @@ extern "C" fn find_for_stub(set: usize, modifier: i32) -> isize {
     unsafe { find(set, modifier) }
 }
 
-crate::resume!(ADD_RESUME: ADD_FOUND_AT = ADD_FOUND, ADD_NOT_FOUND_AT = ADD_NOT_FOUND);
-crate::resume!(TAKE_AWAY_RESUME: TAKE_AWAY_FOUND_AT = TAKE_AWAY_FOUND, TAKE_AWAY_NOT_FOUND_AT = TAKE_AWAY_NOT_FOUND);
+resume!(ADD_RESUME: ADD_FOUND_AT = ADD_FOUND, ADD_NOT_FOUND_AT = ADD_NOT_FOUND);
+resume!(TAKE_AWAY_RESUME: TAKE_AWAY_FOUND_AT = TAKE_AWAY_FOUND, TAKE_AWAY_NOT_FOUND_AT = TAKE_AWAY_NOT_FOUND);
 
 /// Replaces the search of `0x8ea420`: the pair found in `rcx`.
 #[unsafe(naked)]
 extern "C" fn add_search_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("mov rcx, [rbp]", "mov edx, edi", call find_for_stub, "mov r11, [rsp + 0x48]"),
+        call_rust!("mov rcx, [rbp]", "mov edx, edi", call find_for_stub, "mov r11, [rsp + 0x48]"),
         "test r11, r11",
         "js 2f",
         "mov rcx, r11",
@@ -209,7 +209,7 @@ extern "C" fn add_search_stub() {
 #[unsafe(naked)]
 extern "C" fn take_away_search_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("mov rcx, [rbp]", "mov edx, edi", call find_for_stub, "mov r11, [rsp + 0x48]"),
+        call_rust!("mov rcx, [rbp]", "mov edx, edi", call find_for_stub, "mov r11, [rsp + 0x48]"),
         "test r11, r11",
         "js 2f",
         "mov rax, r11",

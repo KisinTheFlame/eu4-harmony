@@ -2,7 +2,7 @@
 //! key and its name, the game's arrays its databases keep, and a check's
 //! reasons (docs/adding-a-capability.md).
 use super::GResult;
-use crate::{game_string, memory::Memory, unicode::game_text};
+use crate::{native::game_string, native::memory::Memory, unicode::game_text};
 
 /// The text of the `std::string` at `string`, a content key.
 pub fn key(m: &Memory, string: usize) -> GResult<String> {

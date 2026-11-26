@@ -24,8 +24,8 @@
 //! another path (`0x5c8ba0`) and keep the game's compression.
 //!
 //! The game's deflate at level 0 is the framework's copy (`super::stored`).
-use crate::hooks::Call;
-use crate::points::Point;
+use crate::native::hooks::Call;
+use crate::native::points::Point;
 use crate::speed::SpeedUp;
 use crate::base::zip::{self, DEFLATED, STORED};
 use crate::base::Result;

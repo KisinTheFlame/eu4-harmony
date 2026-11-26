@@ -15,17 +15,10 @@
 use super::peace::checks as checks_peace;
 use super::{commands::Commands, context_any, countries, country, fail, game, Caller, Ctx, GResult, Session, Status, Tag, WorldSession};
 use crate::base::called_by_game;
-use crate::{
-    game_string,
-    hooks::Call,
-    memory::Memory,
-    objects::{
+use crate::{native::game_string, native::hooks::Call, native::memory::Memory, native::objects::{
         diplomacy::{action, casus_belli, classes, command, factor, globals, send_window, side, sides, war_entry, war_goal, war_goal_type, war_goals, world},
         gui,
-    },
-    points::{GameFunction, Point},
-    unicode::game_text,
-};
+    }, native::points::{GameFunction, Point}, unicode::game_text};
 use eu4_harmony_remote::{
     choices,
     diplomacy::{self as remote, args, CallAllies},
@@ -1514,7 +1507,7 @@ mod tests {
             commands::record,
             Fail,
         };
-        use crate::objects::campaign::{country as country_fields, globals as campaign};
+        use crate::native::objects::campaign::{country as country_fields, globals as campaign};
         use std::cell::RefCell;
 
         thread_local! {

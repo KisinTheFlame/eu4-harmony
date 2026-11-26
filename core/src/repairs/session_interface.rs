@@ -5,15 +5,10 @@
 //! it is gone after pass for what its interface may show until then
 //! ([`super::waiting`]).
 use super::LettingGo;
-use crate::{
-    hooks::Call,
-    memory::Memory,
-    objects::{
+use crate::{native::hooks::Call, native::memory::Memory, native::objects::{
         campaign::{map_manager as manager_fields, message_window},
         list,
-    },
-    points::{GameFunction, Point},
-};
+    }, native::points::{GameFunction, Point}};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 /// `(map manager)`: the map manager's destructor, which its deleting
@@ -52,7 +47,7 @@ impl SessionInterface {
     /// in-game load marks as closed, go first, unless open, which go with
     /// the other popups.
     pub fn before_reset(m: &Memory, manager: usize) -> crate::base::Result<Self> {
-        let popups = crate::containers::items(m, manager + manager_fields::POPUPS, crate::containers::MOST)?;
+        let popups = crate::native::containers::items(m, manager + manager_fields::POPUPS, crate::native::containers::MOST)?;
         let mut node = m.ptr(manager + manager_fields::MESSAGE_WINDOWS + list::HEAD)?;
         while node != 0 {
             let window = m.ptr(node + list::ITEM)?;
@@ -160,7 +155,7 @@ fn let_session_interface_go(m: &Memory, manager: usize) -> crate::base::Result<u
 fn let_message_icons_go(m: &Memory, holder: usize) -> crate::base::Result<()> {
     EMPTY_MESSAGE_ICONS.call(m, [holder])?;
     MESSAGE_ICON_HOLDER_DESTRUCTOR.call(m, [holder])?;
-    crate::game_heap::delete(m, holder, manager_fields::MESSAGE_ICON_HOLDER_SIZE)
+    crate::native::game_heap::delete(m, holder, manager_fields::MESSAGE_ICON_HOLDER_SIZE)
 }
 
 /// The map manager's interface is built again, at an in-game load: the

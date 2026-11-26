@@ -10,8 +10,8 @@
 //! "Frames late at speed 5").
 use super::{drawing_on, on_main, IDLER_MAP, OTHER_CAMERA};
 use crate::base::called_by_game;
-use crate::memory::Memory;
-use crate::points::Point;
+use crate::native::memory::Memory;
+use crate::native::points::Point;
 use std::sync::Mutex;
 
 pub(super) fn points() -> Vec<Point> {
@@ -88,7 +88,7 @@ const MAP_TOOLTIPS_ON: usize = 0x530;
 /// by `0x14164a0`), before it is turned into the window's place.
 const PLACED: usize = 0x14159d2;
 const PLACED_GOES_ON: usize = 0x14159dd;
-crate::resume!(PLACED_RESUME: PLACED_GOES_ON_AT = PLACED_GOES_ON);
+resume!(PLACED_RESUME: PLACED_GOES_ON_AT = PLACED_GOES_ON);
 /// The tooltips' window holder, and in it the window's orientation, the
 /// anchor its place is turned by, the window's place kept, and the GUI object
 /// with the slots that set its place and give its size.
@@ -143,7 +143,7 @@ pub(super) fn update(m: &Memory, idler: usize) -> crate::base::Result<()> {
 #[unsafe(naked)]
 extern "C" fn placed_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("mov rcx, rsi", "mov rdx, r12", "mov r8, qword ptr [rbp]", "add r8, 0xa0", call placed),
+        call_rust!("mov rcx, rsi", "mov rdx, r12", "mov r8, qword ptr [rbp]", "add r8, 0xa0", call placed),
         "mov r11, qword ptr [rsi + 8]",
         "mov rax, qword ptr [rbp + 0xa0]",
         "jmp qword ptr [rip + {goes_on}]",
@@ -160,7 +160,7 @@ extern "C" fn placed(tooltips: usize, cursor: usize, place_at: usize) {
     if !on_main() || !drawing_on() {
         return;
     }
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let pair = |at: usize| -> crate::base::Result<[i32; 2]> { Ok([m.u32(at)? as i32, m.u32(at + 4)? as i32]) };
     match (pair(cursor), pair(place_at)) {
         (Ok(cursor), Ok(place)) => *PLACING.lock().unwrap_or_else(|e| e.into_inner()) = Some((Placed { tooltips, cursor, place }, place)),

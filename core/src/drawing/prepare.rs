@@ -22,8 +22,8 @@
 //!   due, and runs the off-screen passes with no rebuild asked for.
 use super::{direct1, direct3, is_drawing_thread, APP, APP_MAP, IDLER_CAMERA, IDLER_MAP, SETTINGS};
 use crate::base::called_by_game;
-use crate::memory::Memory;
-use crate::points::{GameFunction, Point};
+use crate::native::memory::Memory;
+use crate::native::points::{GameFunction, Point};
 
 pub(super) fn points() -> Vec<Point> {
     vec![
@@ -58,7 +58,7 @@ pub(super) fn points() -> Vec<Point> {
 }
 
 /// The graphical map's flag that its names are to be made again.
-use crate::objects::text::map::NAMES_DUE as MAP_NAMES_DUE;
+use crate::native::objects::text::map::NAMES_DUE as MAP_NAMES_DUE;
 /// The graphical map's names' level, which the names are made for.
 const MAP_NAMES_LEVEL: usize = 0x638;
 /// The map's names made again (rcx the graphical map, edx the level, r8b
@@ -102,7 +102,7 @@ const IDLER_MAP_MODE_ARG: usize = 0x40;
 const PASSES: usize = 0x10a51e0;
 const PASSES_ASKED: usize = 0x81887c;
 const PASSES_ASKED_GO_ON: usize = 0x81889f;
-crate::resume!(PASSES_RESUME: PASSES_ASKED_GO_ON_AT = PASSES_ASKED_GO_ON);
+resume!(PASSES_RESUME: PASSES_ASKED_GO_ON_AT = PASSES_ASKED_GO_ON);
 const IDLER_PASSES: usize = 0x338;
 
 /// The bytes the drawing thread's passes are given: never set, so no
@@ -112,7 +112,7 @@ static mut NO_PASSES: [u8; 8] = [0; 8];
 #[unsafe(naked)]
 extern "C" fn passes_asked_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call drawing_thread_passes, "cmp byte ptr [rsp + 0x48], 0"),
+        call_rust!(call drawing_thread_passes, "cmp byte ptr [rsp + 0x48], 0"),
         "jne 2f",
         "lea rax, [r15 + 0x33d]",
         "lea r10, [r15 + 0x33c]",

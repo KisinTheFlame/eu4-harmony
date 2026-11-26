@@ -6,7 +6,7 @@ mod native;
 mod placement;
 mod registry;
 
-use crate::{hooks::Call, memory::Memory, points::Point, base::Result};
+use crate::{native::hooks::Call, native::memory::Memory, native::points::Point, base::Result};
 use input::Input;
 use registry::Registry;
 pub(crate) use registry::{Identity, Owned};
@@ -119,7 +119,7 @@ impl<A: OrderAccess> Orderer<A> {
         self.0.with_registry(Registry::clear);
     }
 
-    fn attach(&self, m: &Memory, host: crate::base::hosts::Host, root: usize, frame: Option<usize>, controls: &[(usize, crate::bound_element::Look)]) -> Result<()> {
+    fn attach(&self, m: &Memory, host: crate::base::hosts::Host, root: usize, frame: Option<usize>, controls: &[(usize, crate::native::bound_element::Look)]) -> Result<()> {
         let (floor, nodes) = native::host_nodes(m, root, frame, controls)?;
         self.0.with_registry(|state| {
             state.host(m, host as usize, root)?;
@@ -226,7 +226,7 @@ pub(crate) fn clear() {
 }
 
 /// Complete attached node groups, from the existing host binding.
-pub(crate) fn attach(m: &Memory, host: crate::base::hosts::Host, root: usize, frame: Option<usize>, controls: &[(usize, crate::bound_element::Look)]) -> Result<()> {
+pub(crate) fn attach(m: &Memory, host: crate::base::hosts::Host, root: usize, frame: Option<usize>, controls: &[(usize, crate::native::bound_element::Look)]) -> Result<()> {
     LIVE.attach(m, host, root, frame, controls)
 }
 
@@ -263,7 +263,7 @@ fn handler_after(call: &mut Call) {
 
 fn gui_visibility_before(call: &mut Call) {
     if crate::base::thread_id() == crate::base::main_thread() {
-        checked(LIVE.before_visibility(&call.memory(), call.arg(0) - crate::objects::gui::window::GUI));
+        checked(LIVE.before_visibility(&call.memory(), call.arg(0) - crate::native::objects::gui::window::GUI));
     }
 }
 fn root_visibility_before(call: &mut Call) {
@@ -321,7 +321,7 @@ pub(crate) fn points() -> Vec<Point> {
         ),
         Point::observe(0x14e9a70usize, "4c 8b dc 53 41 56 48 81 ec b8 00 00 00", "native window order after input batch", 4, None, Some(batch_after)),
         Point::observe(
-            crate::objects::gui::functions::WINDOW_SHOW,
+            crate::native::objects::gui::functions::WINDOW_SHOW,
             "40 53 48 83 ec 30 80 b9 c5 00 00 00 00 48 8b d9",
             "window GUI shown",
             1,
@@ -329,7 +329,7 @@ pub(crate) fn points() -> Vec<Point> {
             Some(visibility_after),
         ),
         Point::observe(
-            crate::objects::gui::functions::WINDOW_HIDE,
+            crate::native::objects::gui::functions::WINDOW_HIDE,
             "48 89 5c 24 10 57 48 83 ec 30 48 8b f9 48 8b 89 00 0a 00 00",
             "window GUI hidden",
             1,

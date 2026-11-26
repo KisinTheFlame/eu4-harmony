@@ -1,18 +1,14 @@
 //! The game's memory as a test lays it out: an object of the game's in a
-//! buffer of the test's, its fields set at the offsets `crate::objects`
+//! buffer of the test's, its fields set at the offsets `crate::native::objects`
 //! names ([`Object`]), and the game's image, its globals and functions put at
 //! their RVAs ([`Image`]). A capability then runs through its interface over
 //! a [`Session`] made of them ([`session`]), reading and calling them as it
 //! reads and calls the game's: through [`Memory`], under the same guard.
 use super::{commands::Commands, Caller, Ctx, Session, Tag, View};
-use crate::{
-    game_string,
-    memory::Memory,
-    objects::{
+use crate::{native::game_string, native::memory::Memory, native::objects::{
         campaign::{countries as country_list, country, globals},
         list, map,
-    },
-};
+    }};
 use windows_sys::Win32::System::{
     Diagnostics::Debug::FlushInstructionCache,
     Memory::{VirtualAlloc, VirtualFree, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_EXECUTE_READWRITE, PAGE_NOACCESS},
@@ -171,7 +167,7 @@ impl Drop for Object {
 
 /// Past the furthest RVA a dependency point names.
 const IMAGE: usize = 40 << 20;
-use crate::memory::PAGE;
+use crate::native::memory::PAGE;
 
 /// The game's image, for a test: reserved as far as the game's, with only
 /// what the test puts there, the game's globals and its functions at their
@@ -297,7 +293,7 @@ pub struct Provinces {
 
 impl Provinces {
     pub fn new(image: &Image, count: usize) -> Self {
-        use crate::objects::campaign::{geometry, globals, map, province, world};
+        use crate::native::objects::campaign::{geometry, globals, map, province, world};
         // A second world on the thread that holds one would wait for itself.
         assert!(!HOLDING.with(|h| h.replace(true)), "a test has one world of provinces at a time");
         let held = GEOGRAPHY.lock().unwrap_or_else(|e| e.into_inner());
@@ -347,17 +343,17 @@ impl Provinces {
 
     /// The province `id` owned by `owner`.
     pub fn owner(&self, id: u32, owner: Tag) -> &Self {
-        self.u64(id, crate::objects::campaign::province::OWNER, owner.0)
+        self.u64(id, crate::native::objects::campaign::province::OWNER, owner.0)
     }
 
     /// Where province `id` is.
     pub fn at(&self, id: u32) -> usize {
-        self.array.at() + id as usize * crate::objects::campaign::province::SIZE
+        self.array.at() + id as usize * crate::native::objects::campaign::province::SIZE
     }
 
     /// Writes `bytes` at `offset` of province `id`.
     pub fn set(&self, id: u32, offset: usize, bytes: &[u8]) -> &Self {
-        self.array.set(id as usize * crate::objects::campaign::province::SIZE + offset, bytes);
+        self.array.set(id as usize * crate::native::objects::campaign::province::SIZE + offset, bytes);
         self
     }
 
@@ -411,7 +407,7 @@ pub fn envoy(away: bool, size: usize) -> Object {
 /// An army (`land`) or a fleet of `owner`'s with the ID `id`, as
 /// [`units`] lets the game find it, `size` bytes or as far as its owner.
 pub fn unit(m: &Memory, id: u64, owner: Tag, land: bool, size: usize) -> Object {
-    use crate::objects::campaign::{classes, unit};
+    use crate::native::objects::campaign::{classes, unit};
     let class = if land { classes::ARMY } else { classes::FLEET };
     Object::new(size.max(unit::OWNER + 8)).u64(0, m.at(class) as u64).u64(unit::ID, id).u64(unit::OWNER, owner.0)
 }
@@ -424,7 +420,7 @@ thread_local! {
 /// The game's lookup of an object by its ID: a unit of [`units`], by where
 /// it holds its ID.
 extern "C" fn find_id(key: *const u64) -> usize {
-    use crate::objects::campaign::unit;
+    use crate::native::objects::campaign::unit;
     let id = unsafe { *key };
     UNITS.with(|u| u.borrow().iter().find(|&&at| unsafe { *((at + unit::ID) as *const u64) } == id).map_or(0, |at| at + unit::ID_HOLDER))
 }
@@ -468,7 +464,7 @@ impl Object {
     /// `items`.
     pub fn game_array(mut self, offset: usize, items: &[u64]) -> Self {
         let items: Box<[u64]> = items.into();
-        self = self.u64(offset + crate::containers::ARRAY_DATA, items.as_ptr() as u64).i32(offset + crate::containers::ARRAY_COUNT, items.len() as i32);
+        self = self.u64(offset + crate::native::containers::ARRAY_DATA, items.as_ptr() as u64).i32(offset + crate::native::containers::ARRAY_COUNT, items.len() as i32);
         self.vectors.push(items);
         self
     }
@@ -639,8 +635,8 @@ mod tests {
         let image = Image::new();
         let m = image.memory();
         // A global and a function of the game's, at RVAs points check.
-        image.i32(crate::objects::campaign::globals::SPECIAL_COUNTRIES[0], 7).function(super::super::IS_PAUSED.rva(), twice as *const ());
-        assert_eq!(m.i32(m.at(crate::objects::campaign::globals::SPECIAL_COUNTRIES[0])).unwrap(), 7);
+        image.i32(crate::native::objects::campaign::globals::SPECIAL_COUNTRIES[0], 7).function(super::super::IS_PAUSED.rva(), twice as *const ());
+        assert_eq!(m.i32(m.at(crate::native::objects::campaign::globals::SPECIAL_COUNTRIES[0])).unwrap(), 7);
         assert_eq!(super::super::IS_PAUSED.call(m, [21]).unwrap(), 42);
     }
 

@@ -67,8 +67,8 @@ pub mod stream {
     pub const OWNS_BUFFER: usize = 0x55;
     pub const OWNS_GROWING: usize = 0x56;
 
-    pub(super) fn points() -> Vec<crate::points::Point> {
-        use crate::points::Point;
+    pub(super) fn points() -> Vec<crate::native::points::Point> {
+        use crate::native::points::Point;
         vec![Point::keep(
             0x171ec8fusize,
             "48 8d 05 c2 16 6a 00 48 89 03 48 89 73 38 48 89 6b 40 4c 89 73 48 89 7b 50 c6 43 54 00 0f b6 84 24 80 00 00 00 88 43 55 0f b6 84 24 88 00 00 00 88 43 56",
@@ -89,7 +89,87 @@ pub mod map {
     pub const NODE_SIZE: usize = 0x28;
 }
 
-use crate::points::Point;
+use super::{memory::Memory, points::{GameFunction, Point}};
+
+/// How many window pixels a GUI unit takes, (across, down); None before the
+/// GUI exists (docs/game/interface/text-input.md §3).
+pub(crate) fn gui_scale(m: &Memory) -> Option<(f32, f32)> {
+    let gui = m.ptr(m.at(gui::globals::SCALE)).ok().filter(|&g| g != 0)?;
+    let read = |at: usize| m.u32(gui + at).ok().map(f32::from_bits).filter(|s| s.is_finite() && *s > 0.0);
+    Some((read(gui::scale::ACROSS)?, read(gui::scale::DOWN)?))
+}
+
+/// Reads the current game date (hours since 5000 BC) directly from the global
+/// world pointer when available, for crash records without depending on `world`.
+pub(crate) fn current_date(m: &Memory) -> Option<i32> {
+    let world = m.ptr(m.at(campaign::globals::WORLD)).ok().filter(|&w| w != 0)?;
+    let date = m.i32(world + campaign::world::DATE).ok()?;
+    (date > 0).then_some(date)
+}
+
+/// Shared native army function RVAs used by repairs, speed-ups and capabilities.
+pub(crate) mod army_rva {
+    use super::GameFunction;
+    pub(crate) const FIND_ID: GameFunction<1> = GameFunction::at(0x14cf730);
+    pub(crate) const MORALE: GameFunction<3> = GameFunction::at(0xd4c060);
+}
+
+/// Shared native command-writer/token-table RVAs used by parallel saving and commands.
+pub(crate) mod commands_rva {
+    pub(crate) use super::stream::VTABLE as STREAM_VTABLE;
+    pub(crate) const TOKENS_READY: usize = 0x2357b30;
+    pub(crate) const TOKENS_LAST: usize = 0x2357b28;
+    pub(crate) const TOKEN_NAMES: usize = 0x242b888;
+    pub(crate) const WRITER_VTABLE: usize = 0x1dbf7d8;
+}
+
+/// Shared native save-writer constants and token representation.
+pub(crate) mod saves_rva {
+    use super::GameFunction;
+    pub(crate) const WRITE_TOKEN: GameFunction<2> = GameFunction::at(0x1708870);
+    pub(crate) const WRITE_CLOSE: GameFunction<1> = GameFunction::at(0x17087e0);
+    pub(crate) const WRITER_DEPTH: usize = 0x8;
+    pub(crate) const EQUALS: u32 = 1;
+    pub(crate) const NUMBER: u32 = 0xc;
+    pub(crate) const TOKEN_TEXT_LEN: usize = 512;
+
+    #[repr(C)]
+    pub(crate) struct GameToken {
+        kind: u32,
+        text: [u8; TOKEN_TEXT_LEN],
+        rest: u32,
+    }
+
+    impl GameToken {
+        pub(crate) fn new(kind: u32, text: &str) -> Self {
+            let mut token = Self { kind, text: [0; TOKEN_TEXT_LEN], rest: 0 };
+            token.text[..text.len()].copy_from_slice(text.as_bytes());
+            token
+        }
+
+        /// A token of text the game keeps, its NUL included.
+        pub(crate) fn from_bytes(kind: u32, text: &[u8]) -> Self {
+            let mut token = Self { kind, text: [0; TOKEN_TEXT_LEN], rest: 0 };
+            let n = text.len().min(TOKEN_TEXT_LEN - 1);
+            token.text[..n].copy_from_slice(&text[..n]);
+            token
+        }
+    }
+}
+
+/// Shared native map renderer RVAs used by drawing and map coloring.
+pub(crate) mod map_rva {
+    use super::GameFunction;
+    pub(crate) const RENDERER: usize = 0x10a8c30;
+    /// The in-game idler's map mode set (`drawing::deferred` defers it from a moved capital).
+    pub(crate) const REFRESH: GameFunction<4> = GameFunction::at(0x821ff0);
+}
+
+/// Shared native calendar date RVAs.
+pub(crate) mod dates_rva {
+    /// `(&date)`: the date's year.
+    pub(crate) const YEAR: usize = 0xcfd70;
+}
 
 pub fn points() -> Vec<Point> {
     let mut all = campaign::points();

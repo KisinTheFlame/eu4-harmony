@@ -4,14 +4,8 @@
 //! [`count`] says how many wait, for advancing time too. The evidence is in
 //! docs/game/diplomacy/questions-and-offers.md.
 use super::{map_manager, Ctx, GResult, Session};
-use crate::containers;
-use crate::{
-    game_string,
-    memory::Memory,
-    objects::campaign::{self, classes, event, event_option, event_window as window, pending_event as pending, route_options::NO_TAG, world},
-    points::{GameFunction, Point},
-    unicode::game_text,
-};
+use crate::native::containers;
+use crate::{native::game_string, native::memory::Memory, native::objects::campaign::{self, classes, event, event_option, event_window as window, pending_event as pending, route_options::NO_TAG, world}, native::points::{GameFunction, Point}, unicode::game_text};
 use eu4_harmony_remote::{
     questions::{args, Question, QuestionOption},
     Date,

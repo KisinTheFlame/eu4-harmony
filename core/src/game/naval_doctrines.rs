@@ -4,13 +4,7 @@
 use super::commands::{write, Block};
 use super::content::{self, checks};
 use super::{action, power, thousandths, Ctx, GResult, Session, Tag};
-use crate::{
-    containers,
-    game_string,
-    memory::Memory,
-    objects::campaign::country,
-    points::{GameFunction, Point},
-};
+use crate::{native::containers, native::game_string, native::memory::Memory, native::objects::campaign::country, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::choices::{Amount, Choice, Resource};
 use eu4_harmony_remote::naval_doctrines::{args, NavalDoctrineOption};
 

@@ -15,10 +15,10 @@
 //! Each of the functions takes the date, a `std::string` slot it constructs
 //! the text in, and, for the format language, the format.
 use crate::base::called_by_game;
-use crate::game_string;
+use crate::native::game_string;
 use crate::base::lang;
 use crate::base::loc;
-use crate::points::{Function, GameFunction, Point};
+use crate::native::points::{Function, GameFunction, Point};
 use crate::unicode::game_text;
 use eu4_harmony_loc::Language;
 
@@ -127,8 +127,7 @@ extern "C" fn year_month_day(date: *const i32, out: *mut u8, extra: usize) -> *m
 /// with a comma: `(&date, out string)`, which the framework replaces.
 pub const NEXT_MONTH_YEAR: GameFunction<2> = GameFunction::at(0x6e5b40);
 
-/// `(&date)`: the date's year.
-pub const YEAR: usize = 0xcfd70;
+pub(crate) use crate::native::objects::dates_rva::YEAR;
 
 pub fn points() -> Vec<Point> {
     let f = |f: extern "C" fn(*const i32, *mut u8, usize) -> *mut u8| f as DateText;

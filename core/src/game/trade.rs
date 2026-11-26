@@ -4,13 +4,8 @@
 //! leaves out only the nodes none of whose provinces the player has
 //! discovered, which the trade map leaves out.
 use super::{thousandths, with_state, world, Ctx, GResult, Session, Status, Tag};
-use crate::containers;
-use crate::{
-    game_string,
-    memory::Memory,
-    objects::campaign::{globals, province},
-    points::{GameFunction, Point},
-};
+use crate::native::containers;
+use crate::{native::game_string, native::memory::Memory, native::objects::campaign::{globals, province}, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::trade::args;
 use eu4_harmony_remote::{
     trade::{Flow, Merchant, MerchantAction, NodeValue, TradeNode, TradePower},

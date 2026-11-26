@@ -2,8 +2,8 @@
 //! the country's pools of envoys, each kind's count and how many are free
 //! (docs/game/diplomacy/envoys.md).
 use super::GResult;
-use crate::containers;
-use crate::{memory::Memory, points::Point, unicode::game_text};
+use crate::native::containers;
+use crate::{native::memory::Memory, native::points::Point, unicode::game_text};
 
 /// A country's envoys: a pointer to the pools, one per kind at its offset.
 pub(super) const POOLS: usize = 0x1480;
@@ -92,7 +92,7 @@ pub fn lines(text: &[u8]) -> Vec<String> {
 /// The game's text for the localisation key `key`, as plain Unicode.
 pub fn localized(m: &Memory, key: &str) -> GResult<String> {
     let key = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
-    Ok(game_text::plain(&crate::game_string::localized(m, key.as_ptr() as usize)?))
+    Ok(game_text::plain(&crate::native::game_string::localized(m, key.as_ptr() as usize)?))
 }
 
 /// The refusals the framework words itself in the actions of missionaries,

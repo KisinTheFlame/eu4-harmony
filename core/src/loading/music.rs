@@ -17,7 +17,7 @@
 //! numbers in from there while the file is as it was, and the game reads only
 //! what is new or changed.
 use crate::base::called_by_game;
-use crate::points::{GameFunction, Point};
+use crate::native::points::{GameFunction, Point};
 use crate::speed::{self, SpeedUp};
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
@@ -69,13 +69,13 @@ fn points() -> Vec<Point> {
 const SOUND_NAME_USE: usize = 0x16a9acd;
 const KEPT: usize = 0x16a9cd7;
 
-crate::resume!(READ_WHOLE_RESUME: READ_WHOLE_AT = READ_WHOLE_NEXT);
+resume!(READ_WHOLE_RESUME: READ_WHOLE_AT = READ_WHOLE_NEXT);
 
 /// Replaces the read: `rax` is the decoder to let go, 0 for none.
 #[unsafe(naked)]
 extern "C" fn read_whole_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("lea rcx, [rbx + 0x10]", call read_whole, "mov rax, [rsp + 0x48]"),
+        call_rust!("lea rcx, [rbx + 0x10]", call read_whole, "mov rax, [rsp + 0x48]"),
         "jmp qword ptr [rip + {next}]",
         read_whole = sym read_whole,
         next = sym READ_WHOLE_AT,
@@ -112,7 +112,7 @@ static KEPT_MUSIC: Mutex<Option<HashMap<(String, String), Kept>>> = Mutex::new(N
 
 #[called_by_game]
 extern "C" fn read_whole(sound: usize) -> usize {
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let read = || READ.call(&m, [sound, 1]).unwrap_or(0);
     crate::base::guarded("music", || {
         let name = unsafe { CStr::from_ptr((sound + SOUND_NAME) as *const c_char) };
@@ -147,7 +147,7 @@ extern "C" fn read_whole(sound: usize) -> usize {
 
 /// Where the game reads the file from, and what tells the file as it is.
 fn place_of(name: &CStr) -> Option<(String, Print)> {
-    let place = crate::physfs::real_dir(name.as_ptr())?;
+    let place = crate::native::physfs::real_dir(name.as_ptr())?;
     let path = Path::new(&place);
     let print = if path.is_dir() {
         let meta = std::fs::metadata(path.join(name.to_str().ok()?)).ok()?;
@@ -202,7 +202,7 @@ fn put(sound: usize, k: &Kept) {
 }
 
 fn taken(sound: usize, print: Print) -> Option<Kept> {
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     Some(Kept {
         print,
         samples: m.u64(sound + SOUND_SAMPLES).ok()?,

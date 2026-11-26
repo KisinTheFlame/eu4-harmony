@@ -41,20 +41,11 @@
 //! each does in the game; here are the game's own steps and the hooks that
 //! hand them over (`super`'s `InGame`).
 use crate::base::called_by_game;
-use crate::{
-    game_string,
-    hooks::Call,
-    memory::Memory,
-    notice::Message,
-    objects::{
+use crate::{native::game_string, native::hooks::Call, native::memory::Memory, notice::Message, native::objects::{
         application,
         campaign::{load_request, map_manager as manager_fields, world},
         gui,
-    },
-    points::{Function, GameFunction, Point},
-    repairs, sessions,
-    unicode::game_text,
-};
+    }, native::points::{Function, GameFunction, Point}, repairs, sessions, unicode::game_text};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Mutex,
@@ -172,7 +163,7 @@ static EXIT_SAVE_AT: AtomicUsize = AtomicUsize::new(0);
 static LOADING_IN_GAME: AtomicBool = AtomicBool::new(false);
 static SETUP_SAVE_WAITED: AtomicBool = AtomicBool::new(false);
 
-crate::resume!(SETUP_SAVE_RESUME: SETUP_SAVE_NEXT = SETUP_SAVE_DONE);
+resume!(SETUP_SAVE_RESUME: SETUP_SAVE_NEXT = SETUP_SAVE_DONE);
 
 /// Replaces the session setup's `call <ironman exit save>`: made unless an
 /// in-game load runs, which makes it once it has let the file go.
@@ -193,7 +184,7 @@ extern "C" fn setup_save_stub() {
     );
 }
 
-crate::resume!(RESET_RESUME: RESET_NEXT = RESET_EXIT_SAVE_DONE);
+resume!(RESET_RESUME: RESET_NEXT = RESET_EXIT_SAVE_DONE);
 
 /// Replaces the world reset's `call <ironman exit save>`: made unless
 /// [`QUIET_RESET`] is set.
@@ -279,7 +270,7 @@ pub(super) fn save_failed() {
 /// Every in-game load: its steps, around the game's own (`super::course`).
 #[called_by_game]
 unsafe extern "C" fn in_game_load(request: usize) -> u32 {
-    let Some(m) = crate::memory().copied() else { return ORIGINAL.get()(request) };
+    let Some(m) = crate::native::memory().copied() else { return ORIGINAL.get()(request) };
     crate::base::guarded("in-game load", || {
         if crate::game::signals::in_day() {
             log!("leave: refused an in-game load while a daily update is on the stack");
@@ -295,8 +286,8 @@ unsafe extern "C" fn in_game_load(request: usize) -> u32 {
 /// a C string of game text.
 #[called_by_game]
 extern "C" fn question_text(out: usize, key: usize, values: usize, name: usize) {
-    let m = crate::hooked_memory();
-    if let Err(e) = crate::game_string::localize_into(&m, out, key, values, 1) {
+    let m = crate::native::hooked_memory();
+    if let Err(e) = crate::native::game_string::localize_into(&m, out, key, values, 1) {
         log!("leave: the load question's text: {e}");
         return;
     }
@@ -316,13 +307,13 @@ extern "C" fn question_text(out: usize, key: usize, values: usize, name: usize) 
     }
 }
 
-crate::resume!(QUESTION_RESUME: QUESTION_NEXT = QUESTION_TEXT_DONE);
+resume!(QUESTION_RESUME: QUESTION_NEXT = QUESTION_TEXT_DONE);
 
 /// Replaces the load question's `call <localisation lookup>` for its text.
 #[unsafe(naked)]
 extern "C" fn question_text_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("mov r9, rdi", call text),
+        call_rust!("mov r9, rdi", call text),
         "jmp qword ptr [rip + {next}]",
         text = sym question_text,
         next = sym QUESTION_NEXT,
@@ -358,16 +349,16 @@ pub(super) fn load_in_game(m: &Memory, name: &str) -> Result<u32, String> {
 #[called_by_game]
 extern "C" fn returning() {
     crate::framework_ui::still("EU4HARMONY_STILL_RETURN");
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     COURSE.returning(&mut InGame::new(&m));
 }
 
-crate::resume!(RETURN_RESUME: RETURN_NEXT = RETURN_EXIT_SAVE_DONE);
+resume!(RETURN_RESUME: RETURN_NEXT = RETURN_EXIT_SAVE_DONE);
 
 /// Replaces the return's `call <ironman exit save>`.
 #[unsafe(naked)]
 extern "C" fn returning_stub() {
-    std::arch::naked_asm!(crate::call_rust!(call returning), "jmp qword ptr [rip + {next}]", returning = sym returning, next = sym RETURN_NEXT,);
+    std::arch::naked_asm!(call_rust!(call returning), "jmp qword ptr [rip + {next}]", returning = sym returning, next = sym RETURN_NEXT,);
 }
 
 type Restart = unsafe extern "C" fn(usize, usize) -> usize;
@@ -377,7 +368,7 @@ static ORIGINAL_RESTART: Function<Restart> = Function::new();
 /// restarts, or returns in process, or stays in the session.
 #[called_by_game]
 unsafe extern "C" fn restart(app: usize, argument: usize) -> usize {
-    let Some(m) = crate::memory().copied() else { return ORIGINAL_RESTART.get()(app, argument) };
+    let Some(m) = crate::native::memory().copied() else { return ORIGINAL_RESTART.get()(app, argument) };
     crate::base::guarded("return to the main menu", || COURSE.restart(&mut InGame { app, argument, ..InGame::new(&m) }))
 }
 
@@ -423,7 +414,7 @@ fn take_the_interface_down(m: &Memory, manager: usize) -> crate::base::Result<()
 /// information again.
 fn main_menu(m: &Memory, app: usize) -> crate::base::Result<()> {
     let (first, second) = (m.ptr(app + application::MAIN_MENU_ARGS.0)?, m.ptr(app + application::MAIN_MENU_ARGS.1)?);
-    let memory = crate::game_heap::new(m, MAIN_MENU_SIZE)?;
+    let memory = crate::native::game_heap::new(m, MAIN_MENU_SIZE)?;
     if memory == 0 {
         return Err("no memory for the main menu".into());
     }
@@ -529,7 +520,7 @@ extern "C" fn setup_back(app: usize) -> bool {
         return false;
     }
     crate::framework_ui::still("EU4HARMONY_STILL_RETURN");
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let took = Took::begin();
     let back = RESET_GAME.call(&m, [app, 0]).and_then(|_| {
         log!("leave: the single player setup was left; the world reset with the history, {}", took.end());
@@ -545,14 +536,14 @@ extern "C" fn setup_back(app: usize) -> bool {
     }
 }
 
-crate::resume!(SETUP_BACK_RESUME: SETUP_BACK_NEXT = SETUP_BACK_RESTART_DONE);
+resume!(SETUP_BACK_RESUME: SETUP_BACK_NEXT = SETUP_BACK_RESTART_DONE);
 
 /// Replaces the setup's back button's request for the restart: made unless
 /// [`setup_back`] went back in process.
 #[unsafe(naked)]
 extern "C" fn setup_back_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("mov rcx, rbx", call back, "cmp byte ptr [rsp + 0x48], 0"),
+        call_rust!("mov rcx, rbx", call back, "cmp byte ptr [rsp + 0x48], 0"),
         "jne 2f",
         "mov word ptr [rbx + 0x83], 0x101",
         "2:",

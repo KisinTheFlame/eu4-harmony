@@ -8,12 +8,9 @@ use super::content::checks;
 use super::factions::{boost_faction, factions};
 use super::mechanics::{interact, mechanics};
 use super::{action, conditions, content, power, thousandths, GResult, Session, Tag};
-use crate::containers;
-use crate::game_string;
-use crate::{
-    memory::Memory,
-    points::{GameFunction, Point},
-};
+use crate::native::containers;
+use crate::native::game_string;
+use crate::{native::memory::Memory, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::government::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind, Resource},

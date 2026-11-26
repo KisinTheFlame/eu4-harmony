@@ -39,10 +39,10 @@
 pub mod drawing;
 
 use crate::base::called_by_game;
-use crate::hooks::Call;
-use crate::memory::Memory;
-use crate::objects::campaign;
-use crate::points::Point;
+use crate::native::hooks::Call;
+use crate::native::memory::Memory;
+use crate::native::objects::campaign;
+use crate::native::points::Point;
 use eu4_harmony_analysis as analysis;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::OnceLock;
@@ -62,7 +62,7 @@ use windows_sys::Win32::System::Threading::{
     THREAD_QUERY_INFORMATION, THREAD_SUSPEND_RESUME,
 };
 
-use crate::memory::PAGE;
+use crate::native::memory::PAGE;
 /// A heap entry that is an allocated block (winnt.h).
 const PROCESS_HEAP_ENTRY_BUSY: u32 = 4;
 /// The groups the table holds; writes past them are only counted.
@@ -773,7 +773,7 @@ fn start_on(m: &Memory, w: Watch) -> Result<String, String> {
     // count lies in the entry or, in some Windows versions, in a block of its
     // own the entry points to at +0x10.
     let mut kept = vec![entry & !(PAGE - 1), (entry + 0x30) & !(PAGE - 1)];
-    if let Ok(count) = crate::memory().ok_or(()).and_then(|m| m.ptr(entry + 0x10).map_err(|_| ())) {
+    if let Ok(count) = crate::native::memory().ok_or(()).and_then(|m| m.ptr(entry + 0x10).map_err(|_| ())) {
         if count != 0 {
             kept.extend([count & !(PAGE - 1), (count + 8) & !(PAGE - 1)]);
         }

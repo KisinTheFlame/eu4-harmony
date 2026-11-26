@@ -25,9 +25,8 @@
 //! projection, the layout and the size the game keeps for the texture.
 use super::{breaks, text_loops};
 use crate::base::called_by_game;
-use crate::objects::text::font::{OWN_GLYPHS, SCALE};
-use crate::points::Point;
-use crate::resume;
+use crate::native::objects::text::font::{OWN_GLYPHS, SCALE};
+use crate::native::points::Point;
 
 const MEASURE_GLYPH: usize = 0x1597074;
 const MEASURE_FOUND: usize = 0x1597080;
@@ -69,7 +68,7 @@ fn texture_pixels(scale: f32, size: [i32; 2], powers_of_two: bool) -> [i32; 2] {
 
 /// Whether the game makes text textures a power of two across and down.
 pub fn powers_of_two() -> bool {
-    unsafe { *(crate::hooked_memory().at(POWERS_OF_TWO) as *const u8) != 0 }
+    unsafe { *(crate::native::hooked_memory().at(POWERS_OF_TWO) as *const u8) != 0 }
 }
 
 /// The pixels the texture of `font`'s text of `width` × `height` GUI units

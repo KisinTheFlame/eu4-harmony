@@ -27,7 +27,7 @@ pub const STARTED: usize = 0x2cb0;
 /// entered, a `std::string` global (`-start_tag`); the setup empties it.
 pub const START_TAG: usize = 0x1fd39a8;
 
-use crate::{game_string, points::Point};
+use crate::{native::game_string, native::points::Point};
 
 pub fn points() -> Vec<Point> {
     vec![

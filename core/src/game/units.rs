@@ -4,15 +4,10 @@
 //! the player can and why not (docs/game/military/units.md).
 use super::commands::{write, Block};
 use super::{action, army, commands, Ctx, GResult, Session};
-use crate::{
-    game_string,
-    memory::Memory,
-    objects::{
+use crate::{native::game_string, native::memory::Memory, native::objects::{
         campaign::{classes, province, unit},
         list,
-    },
-    points::{GameFunction, Point},
-};
+    }, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::armies::args;
 use eu4_harmony_remote::ArmyList;
 use eu4_harmony_remote::{armies::ArmyAction, choices::Choice, recruiting::UnitKind, ArmyId};
@@ -48,7 +43,7 @@ const TROOP_SHIPS: GameFunction<1> = GameFunction::at(0xd45d70);
 const MAY_CONSOLIDATE: usize = 0x148;
 /// A unit's mission (its task), and the mission's method that answers its
 /// kind; a unit's mercenary company.
-use crate::objects::campaign::unit::TASK as MISSION;
+use crate::native::objects::campaign::unit::TASK as MISSION;
 const MISSION_KIND: usize = 0x50;
 const COMPANY: usize = 0x48;
 /// The mission kinds of drilling and of evading.
@@ -279,7 +274,7 @@ fn attach_targets(m: &Memory, unit: usize) -> GResult<Vec<usize>> {
         return Ok(Vec::new());
     }
     let mut out = Vec::new();
-    for node in crate::containers::chain(m, m.ptr(at + province::UNITS)?, list::NEXT, super::MAX_UNITS)? {
+    for node in crate::native::containers::chain(m, m.ptr(at + province::UNITS)?, list::NEXT, super::MAX_UNITS)? {
         let other = m.ptr(node + list::ITEM)?;
         if other != 0 && other != unit && may_attach_to(m, unit, other)? {
             out.push(other);

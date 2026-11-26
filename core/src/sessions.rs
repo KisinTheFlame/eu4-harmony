@@ -53,7 +53,7 @@
 //!   reset is done.
 //! - The game restarts: the saves compressed in the background are put in
 //!   their place, and remote control answers every request while it can.
-use crate::{game, hooks::Call, points::Point};
+use crate::{game, native::hooks::Call, native::points::Point};
 use std::{
     sync::Mutex,
     time::{Duration, Instant},
@@ -317,14 +317,14 @@ fn tell(happened: Vec<Happening>) {
             }
             Happening::WorldReset(world) => {
                 crate::saves::clear_session();
-                crate::repairs::world_reset(&crate::hooked_memory(), world);
+                crate::repairs::world_reset(&crate::native::hooked_memory(), world);
                 crate::dev::world_reset();
             }
-            Happening::FirstFrameAfterReset => crate::repairs::first_frame_after_reset(&crate::hooked_memory()),
+            Happening::FirstFrameAfterReset => crate::repairs::first_frame_after_reset(&crate::native::hooked_memory()),
             Happening::ResetWithHistory => {
                 game::signals::world_reset();
                 game::orders::world_replaced();
-                crate::repairs::after_history(&crate::hooked_memory());
+                crate::repairs::after_history(&crate::native::hooked_memory());
             }
             Happening::Restarting => {
                 crate::saving::background::wait();

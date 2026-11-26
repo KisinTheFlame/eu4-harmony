@@ -4,15 +4,10 @@
 use super::commands::{write, Block};
 use super::units::checks;
 use super::{action, with_state, Ctx, GResult, Session};
-use crate::{
-    game_string,
-    memory::Memory,
-    objects::campaign::{
+use crate::{native::game_string, native::memory::Memory, native::objects::campaign::{
         country,
         province::{FORT_LEVEL, MOTHBALL, MOTHBALLED},
-    },
-    points::{GameFunction, Point},
-};
+    }, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::forts::args;
 use eu4_harmony_remote::{choices::Choice, forts::PlayerFort, ProvinceId};
 
@@ -67,7 +62,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<PlayerFort>> {
 /// Mothballs the fort (`mothball` true) or reopens it.
 fn set(Session { m, ctx, commands, .. }: Session, id: u32, mothball: bool) -> GResult<()> {
     let address = with_state(|s| s.geography.province_address(m, &ctx, id))?;
-    if m.u8(address + HAS_FORT)? == 0 || m.u64(address + crate::objects::campaign::province::OWNER)? != ctx.player.0 {
+    if m.u8(address + HAS_FORT)? == 0 || m.u64(address + crate::native::objects::campaign::province::OWNER)? != ctx.player.0 {
         return Err(checks::no_fort(id));
     }
     let fort = read(m, &ctx, id, address)?;

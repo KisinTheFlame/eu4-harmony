@@ -5,10 +5,7 @@
 use super::commands::{write, Block};
 use super::empire::{self, CELESTIAL, CELESTIAL_TOKEN};
 use super::{action, conditions, content, thousandths, GResult, Session};
-use crate::{
-    containers, game_string,
-    points::{GameFunction, Point},
-};
+use crate::{native::containers, native::game_string, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::celestial_empire::{args, CelestialDecrees, CelestialReforms, Decree};
 use eu4_harmony_remote::choices::{Amount, Choice, Resource};
 use eu4_harmony_remote::Date;
@@ -74,7 +71,7 @@ pub fn points() -> Vec<Point> {
 }
 
 /// What a reform costs, as the view says.
-fn reform_cost(m: &crate::memory::Memory) -> GResult<Vec<Amount>> {
+fn reform_cost(m: &crate::native::memory::Memory) -> GResult<Vec<Amount>> {
     Ok(vec![
         Amount::new(Resource::Mandate, thousandths(m.i32(m.at(MANDATE_COST))?)),
         Amount::new(Resource::Stability, thousandths(m.i32(m.at(STABILITY_COST))?)),
@@ -98,7 +95,7 @@ pub fn pass_reform(session: Session, args::PassReform { reform }: args::PassRefo
 }
 
 /// The decrees in the database, in its order.
-fn all_decrees(m: &crate::memory::Memory) -> GResult<Vec<usize>> {
+fn all_decrees(m: &crate::native::memory::Memory) -> GResult<Vec<usize>> {
     let database = m.ptr(m.at(DECREES))?;
     if database == 0 {
         return Ok(Vec::new());
@@ -107,7 +104,7 @@ fn all_decrees(m: &crate::memory::Memory) -> GResult<Vec<usize>> {
 }
 
 /// The decrees the view offers the player, with their keys.
-fn offered_decrees(m: &crate::memory::Memory, player: super::Tag) -> GResult<Vec<(String, usize)>> {
+fn offered_decrees(m: &crate::native::memory::Memory, player: super::Tag) -> GResult<Vec<(String, usize)>> {
     let mut out = Vec::new();
     for at in all_decrees(m)? {
         if at != 0 && conditions::holds(m, at + decree::POTENTIAL, player, 0)? {

@@ -17,17 +17,14 @@
 //! its country wrote that day.
 use super::options::{self, AgentsOrder};
 use crate::base::called_by_game;
-use crate::{
-    army_search::{ARMIES_WALK, ARMIES_WALKED as WALKED, CHILDREN_WALK as WALKS},
-    points::Point,
-};
+use crate::{army_search::{ARMIES_WALK, ARMIES_WALKED as WALKED, CHILDREN_WALK as WALKS}, native::points::Point};
 
 // In the top agent's step `0x14b370`, once it has thought, the walk of its
 // children (`WALKS`: `mov rbx, [rdi + 0x40]; test rbx, rbx; je`, `rdi` the
 // top agent, `rbp` the day's argument it hands on), and what follows the
 // walk of its armies' agents (`WALKED`: `mov edx, esi; mov rcx, rdi; call`),
 // as `core/src/army_search.rs` names them.
-use crate::objects::{
+use crate::native::objects::{
     campaign::ai_king::{AGENTS as ARMIES, CHILDREN},
     list::{NEXT, PREVIOUS, TAIL as LAST},
 };
@@ -63,7 +60,7 @@ unsafe extern "C" fn walk(top: usize, day: usize) {
     }
 }
 
-crate::resume!(WALKED_RESUME: WALKED_AT = WALKED);
+resume!(WALKED_RESUME: WALKED_AT = WALKED);
 
 /// Replaces the two walks: `rdi` is the top agent, `rbp` the day's
 /// argument; the registers the step uses after them (`rdi`, `rsi`, `rbp`)
@@ -71,7 +68,7 @@ crate::resume!(WALKED_RESUME: WALKED_AT = WALKED);
 #[unsafe(naked)]
 extern "C" fn walks_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!("mov rcx, rdi", "mov rdx, [rbp]", call walk),
+        call_rust!("mov rcx, rdi", "mov rdx, [rbp]", call walk),
         "jmp qword ptr [rip + {walked}]",
         walk = sym walk,
         walked = sym WALKED_AT,

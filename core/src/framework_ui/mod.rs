@@ -938,10 +938,10 @@ pub unsafe fn frame(device: *mut c_void) {
     DEVICE.store(device, Ordering::Relaxed);
     input::attach(handle);
     // The framework UI is as large as the game's own, whatever its scale.
-    let scale = crate::memory().and_then(crate::game::gui_scale).map_or(1.0, |(across, _)| across.clamp(0.5, 4.0));
+    let scale = crate::native::memory().and_then(crate::game::gui_scale).map_or(1.0, |(across, _)| across.clamp(0.5, 4.0));
     let pixels = unsafe { d3d9::Backend::screen(device) };
     let menu = MAIN_MENU_FRAME.load(Ordering::Relaxed);
-    let in_game_menu = crate::memory().is_some_and(crate::game::menu::in_game_menu_open);
+    let in_game_menu = crate::native::memory().is_some_and(crate::game::menu::in_game_menu_open);
     ui.font.set_scale(scale);
     ui.shell.sync_frame(frame_number, (menu != u64::MAX).then_some(menu), in_game_menu, pixels, scale);
     ui.shell.tick(&ui.font);

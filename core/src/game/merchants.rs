@@ -9,12 +9,8 @@ use super::{
     trade::{self, DEFINITION, ENTRIES, ENTRY_SIZE, HAS_MERCHANT, HOME, KEY, LINKS, LINK_SIZE, LINK_TO, MOST, NAME, STEER_LINK},
     Ctx, GResult, Session, Tag,
 };
-use crate::containers;
-use crate::{
-    game_string,
-    memory::Memory,
-    points::{GameFunction, Point},
-};
+use crate::native::containers;
+use crate::{native::game_string, native::memory::Memory, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     merchants::{args, Downstream, MerchantOptions, Merchants, Mission, Placed, TradingPolicies, TradingPolicy},

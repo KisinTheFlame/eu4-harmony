@@ -40,7 +40,7 @@ fn hide(caller: Caller) -> GResult<Desktop> {
 }
 
 /// The group's dependency points: none of its own.
-pub fn points() -> Vec<crate::points::Point> {
+pub fn points() -> Vec<crate::native::points::Point> {
     Vec::new()
 }
 

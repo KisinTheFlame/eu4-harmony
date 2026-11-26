@@ -4,11 +4,7 @@
 //! player can and why not (docs/game/military/sieges.md).
 use super::units::checks;
 use super::{power, Ctx, GResult, Session, View};
-use crate::{
-    game_string,
-    memory::Memory,
-    points::{GameFunction, Point},
-};
+use crate::{native::game_string, native::memory::Memory, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::sieges::args;
 use eu4_harmony_remote::ProvinceId;
 use eu4_harmony_remote::{
@@ -142,7 +138,7 @@ mod tests {
         power::{COST, NO_ID},
         Caller, Fail, Session, Status, Tag,
     };
-    use crate::objects::campaign::province;
+    use crate::native::objects::campaign::province;
 
     /// The game's cost of a spending: 50 points.
     extern "C" fn fifty() -> usize {

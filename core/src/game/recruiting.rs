@@ -9,7 +9,7 @@ use super::{
     provinces::{self, can_recruit, unit_type, UnitKind},
     with_state, Fail, GResult, Session, Status,
 };
-use crate::{game_string, objects::campaign::unit_type as unit_type_fields};
+use crate::{native::game_string, native::objects::campaign::unit_type as unit_type_fields};
 use eu4_harmony_remote::recruiting::{args, Recruit};
 use eu4_harmony_remote::ProvinceId;
 
@@ -65,7 +65,7 @@ fn no_unit_type(kind: &str) -> Fail {
 }
 
 /// The group's dependency points: none of its own.
-pub fn points() -> Vec<crate::points::Point> {
+pub fn points() -> Vec<crate::native::points::Point> {
     Vec::new()
 }
 
@@ -90,7 +90,7 @@ mod tests {
         provinces::{CAN_RECRUIT, RECRUIT_PLACE},
         Caller, Tag,
     };
-    use crate::objects::campaign::{classes, country};
+    use crate::native::objects::campaign::{classes, country};
     use eu4_harmony_remote::recruiting::UnitKind as Kind;
 
     /// The game's recruit check: no, for want of money.

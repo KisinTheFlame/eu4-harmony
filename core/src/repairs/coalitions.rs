@@ -2,7 +2,7 @@
 //! lock, in vanilla too: a country's coalition, which the AI of the
 //! countries in it leaves in parallel. Leaving and joining a coalition take
 //! turns.
-use crate::{hooks::Call, objects::campaign::country, points::Point};
+use crate::{native::hooks::Call, native::objects::campaign::country, native::points::Point};
 use std::sync::atomic::Ordering;
 
 /// `(country, …, other)`: a country's AI weighs leaving the coalition

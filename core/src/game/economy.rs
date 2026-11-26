@@ -9,12 +9,7 @@ use super::{
     power::{self, CAN_DECLARE_BANKRUPTCY, CAN_REDUCE_INFLATION, PROMOTE_MERCANTILISM, REDUCE_INFLATION},
     Ctx, GResult, Session, Tag,
 };
-use crate::{
-    game_string,
-    memory::Memory,
-    objects::campaign::country,
-    points::{GameFunction, Point},
-};
+use crate::{native::game_string, native::memory::Memory, native::objects::campaign::country, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind, Resource},
     economy::{EconomyAction, EconomyOption},

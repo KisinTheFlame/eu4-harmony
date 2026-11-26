@@ -4,14 +4,10 @@
 use super::commands::{write, Block};
 use super::content::{self, checks};
 use super::{action, thousandths, Ctx, GResult, Session, Tag};
-use crate::containers;
-use crate::game_string;
-use crate::objects::gui::functions::ADD_MONTHS;
-use crate::{
-    memory::Memory,
-    objects::campaign::{age_ability, country, world},
-    points::{GameFunction, Point},
-};
+use crate::native::containers;
+use crate::native::game_string;
+use crate::native::objects::gui::functions::ADD_MONTHS;
+use crate::{native::memory::Memory, native::objects::campaign::{age_ability, country, world}, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::ages::{args, Age, AgeAbilityOption, GoldenEra};
 use eu4_harmony_remote::choices::{Amount, Choice, Resource};
 

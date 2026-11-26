@@ -5,12 +5,12 @@
 use super::commands::{write, Block};
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
-use crate::containers;
-use crate::game_string;
-use crate::{memory::Memory, points::Point};
+use crate::native::containers;
+use crate::native::game_string;
+use crate::{native::memory::Memory, native::points::Point};
 use eu4_harmony_remote::parliament::args;
 use eu4_harmony_remote::ProvinceId;
-use crate::objects::campaign::province;
+use crate::native::objects::campaign::province;
 use eu4_harmony_remote::{
     choices::Choice,
     parliament::{Issue, Parliament, Seat, Seats},

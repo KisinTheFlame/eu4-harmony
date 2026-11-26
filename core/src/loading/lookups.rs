@@ -18,7 +18,7 @@
 //! as before.
 use super::folder::{list, read_as_written, Kind};
 use crate::base::called_by_game;
-use crate::points::{Function, GameFunction, Point};
+use crate::native::points::{Function, GameFunction, Point};
 use crate::speed::{self, SpeedUp};
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
@@ -89,7 +89,7 @@ extern "C" fn stat(path: *const c_char, st: usize, follow: i32) -> i32 {
         speed::compared(&SPEED_UP, game == 0, || format!("{:?} found by the game, missing from the listings", unsafe { CStr::from_ptr(path) }));
         return game;
     }
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let _ = SET_ERROR.call(&m, [NOT_FOUND]);
     let n = ANSWERED.fetch_add(1, Ordering::Relaxed) + 1;
     if n.is_power_of_two() && n >= 1024 {

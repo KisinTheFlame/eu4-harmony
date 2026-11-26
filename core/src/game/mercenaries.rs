@@ -5,12 +5,7 @@
 use super::commands::{write, Block};
 use super::units::checks;
 use super::{action, with_state, Ctx, GResult, Session};
-use crate::{
-    game_string,
-    memory::Memory,
-    points::{GameFunction, Point},
-    unicode::game_text,
-};
+use crate::{native::game_string, native::memory::Memory, native::points::{GameFunction, Point}, unicode::game_text};
 use eu4_harmony_remote::mercenaries::args;
 use eu4_harmony_remote::ProvinceId;
 use eu4_harmony_remote::{

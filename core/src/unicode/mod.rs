@@ -16,7 +16,7 @@ pub mod floating_text;
 pub mod font_load;
 pub mod fonts;
 pub mod framework_fonts;
-pub mod game_text;
+pub(crate) use crate::native::game_text;
 pub mod glyphs;
 pub mod input;
 pub mod legacy;
@@ -36,7 +36,7 @@ pub mod text_loops;
 pub mod text_width;
 pub mod tone;
 
-use crate::points::Point;
+use crate::native::points::Point;
 
 pub fn points() -> Vec<Point> {
     let mut points = font_load::points();

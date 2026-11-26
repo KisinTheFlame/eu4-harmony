@@ -2,11 +2,7 @@
 //! animation, which its element deletes only while it is on the element's
 //! animations, and the text box takes off them while it does not play. It
 //! is put back on them, owned, as the text box goes.
-use crate::{
-    hooks::Call,
-    objects::gui::{classes as gui_classes, element, text_box},
-    points::{GameFunction, Point},
-};
+use crate::{native::hooks::Call, native::objects::gui::{classes as gui_classes, element, text_box}, native::points::{GameFunction, Point}};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// `(text box)`: a text box's destructor, which its deleting destructor

@@ -3,11 +3,7 @@
 //! (docs/game/countries/power-spending.md, "National focus").
 use super::commands::{write, Block};
 use super::{action, power, technology::key, GResult, Session};
-use crate::{
-    game_string,
-    memory::Memory,
-    points::{GameFunction, Point},
-};
+use crate::{native::game_string, native::memory::Memory, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::focus::args;
 use eu4_harmony_remote::{
     choices::{Choice, PowerKind},

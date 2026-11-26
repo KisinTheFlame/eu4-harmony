@@ -192,7 +192,7 @@ pub unsafe extern "C" fn after_at(text: *const u8, len: u32, end: u32) -> bool {
 /// `string` is the game's `std::string`.
 #[called_by_game]
 pub unsafe extern "C" fn after_in(string: *const u8, end: u32) -> bool {
-    after(unsafe { crate::game_string::text(string) }, end as usize)
+    after(unsafe { crate::native::game_string::text(string) }, end as usize)
 }
 
 #[cfg(test)]

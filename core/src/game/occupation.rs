@@ -9,12 +9,7 @@
 use super::commands::{write, Block};
 use super::peace::checks;
 use super::{action, countries, diplomacy, with_state, GResult, Session, Tag};
-use crate::{
-    game_string,
-    memory::Memory,
-    objects::campaign::province,
-    points::{GameFunction, Point},
-};
+use crate::{native::game_string, native::memory::Memory, native::objects::campaign::province, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::{
     choices::Choice,
     occupation::{args, Transferred, Transfers},
@@ -26,10 +21,10 @@ use eu4_harmony_remote::{
 /// gets the button's tooltip when the check says no.
 const CHECK: GameFunction<4> = GameFunction::at(0x3dbce0);
 
-/// The list of allies the check fills, a [`crate::objects::list`]: the
+/// The list of allies the check fills, a [`crate::native::objects::list`]: the
 /// first node, and in each node the ally's tag and the next node.
 mod receivers {
-    pub use crate::objects::list::{HEAD as FIRST, ITEM as TAG, NEXT, NODE_SIZE, SIZE};
+    pub use crate::native::objects::list::{HEAD as FIRST, ITEM as TAG, NEXT, NODE_SIZE, SIZE};
 }
 
 /// The most allies a list is believed to hold.
@@ -97,7 +92,7 @@ fn nodes(m: &Memory, mut node: usize) -> GResult<Vec<Tag>> {
         }
         let next = m.ptr(node + receivers::NEXT)?;
         allies.push(Tag(m.u64(node + receivers::TAG)?));
-        crate::game_heap::delete(m, node, receivers::NODE_SIZE)?;
+        crate::native::game_heap::delete(m, node, receivers::NODE_SIZE)?;
         node = next;
     }
     Ok(allies)
@@ -137,7 +132,7 @@ mod tests {
         commands::record,
         Caller, Fail, Status,
     };
-    use crate::game_heap::DELETE;
+    use crate::native::game_heap::DELETE;
 
     /// A province of the test's the check says no for, in a byte the
     /// province does not use.

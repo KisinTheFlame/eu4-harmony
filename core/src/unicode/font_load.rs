@@ -21,8 +21,7 @@
 //! limit is raised to 256 MiB.
 use super::glyphs::{self, Glyph};
 use crate::base::called_by_game;
-use crate::points::Point;
-use crate::resume;
+use crate::native::points::Point;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const ID_CHECK: usize = 0x1595c86;

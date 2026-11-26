@@ -12,15 +12,7 @@
 //! not read, so [`Commands::post`] writes the command it read out again and refuses it
 //! unless every key given came back with the value given.
 use super::{command_session, context, game, world_context, Fail, GResult};
-use crate::{
-    game_string,
-    hooks::Call,
-    memory::Memory,
-    objects::session::{self, fields as session_fields},
-    objects::stream,
-    points::{GameFunction, Point},
-    unicode::game_text,
-};
+use crate::{native::game_string, native::hooks::Call, native::memory::Memory, native::objects::session::{self, fields as session_fields}, native::objects::stream, native::points::{GameFunction, Point}, unicode::game_text};
 use std::cell::OnceCell;
 use std::fmt::Display;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -46,13 +38,7 @@ const ID: usize = 0x4c;
 const WRITE_KEY: GameFunction<2> = GameFunction::at(0x1709280);
 /// The token table: whether it is set up, its last index, and its names, one
 /// `std::string` each.
-pub(crate) const TOKENS_READY: usize = 0x2357b30;
-pub(crate) const TOKENS_LAST: usize = 0x2357b28;
-pub(crate) const TOKEN_NAMES: usize = 0x242b888;
-/// The memory stream's and the writer's vtables, as the local handler's post
-/// makes them; the stream's `+0x18` sets its mode and whether it writes.
-pub(crate) use crate::objects::stream::VTABLE as STREAM_VTABLE;
-pub(crate) const WRITER_VTABLE: usize = 0x1dbf7d8;
+pub(crate) use crate::native::objects::commands_rva::{STREAM_VTABLE, TOKENS_LAST, TOKENS_READY, TOKEN_NAMES, WRITER_VTABLE};
 const STREAM_MODE: usize = 0x171ed90;
 /// Reading, as the local handler's post reads back what it wrote: a text
 /// tokenizer (its base `(tokenizer, stream, owns)`, then its own vtable, whose
@@ -587,7 +573,7 @@ fn written(m: &Memory, command: usize, token: u32) -> crate::base::Result<Vec<u8
     // The game grew the vector through the stream.
     let bytes = unsafe { std::ptr::read_volatile(&bytes) };
     let result = result.and_then(|_| m.bytes(bytes[0], bytes[1] - bytes[0]));
-    crate::game_heap::free_vector(m, bytes)?;
+    crate::native::game_heap::free_vector(m, bytes)?;
     result
 }
 

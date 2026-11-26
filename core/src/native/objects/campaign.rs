@@ -65,7 +65,7 @@ pub mod classes {
 pub mod functions {
     /// The subject type a country is to its overlord: `(country)`, null for
     /// none.
-    pub const SUBJECT_TYPE: crate::points::GameFunction<1> = crate::points::GameFunction::at(0x3d79f0);
+    pub const SUBJECT_TYPE: crate::native::points::GameFunction<1> = crate::native::points::GameFunction::at(0x3d79f0);
     /// `()`: answers yes; answers no. Many classes' methods are one of them.
     pub const YES: usize = 0x8f440;
     pub const NO: usize = 0x8f450;
@@ -557,13 +557,13 @@ pub mod subject_relation {
 
 /// A kind of subject, one that `common/subject_types` defines.
 pub mod subject_type {
-    /// Its key there (`vassal`), a `std::string` (`crate::game_string`).
+    /// Its key there (`vassal`), a `std::string` (`crate::native::game_string`).
     pub const KEY: usize = 0x10;
 }
 
 /// A war going on, of [`classes::WAR`].
 pub mod war {
-    /// Its name, a `std::string` (`crate::game_string`).
+    /// Its name, a `std::string` (`crate::native::game_string`).
     pub const NAME: usize = 0x28;
     /// The tags of its attackers and of its defenders, each a vector (begin,
     /// end); the first of each side is the side's leader.
@@ -930,7 +930,7 @@ pub mod map_manager {
     /// The map mode before the current one, i32.
     pub const PREVIOUS_MODE: usize = 0x30;
     /// The application, as every idler keeps it.
-    pub use crate::objects::application::idler::APPLICATION;
+    pub use crate::native::objects::application::idler::APPLICATION;
     /// Its pause state (see [`super::pause`]).
     pub const PAUSE: usize = 0x418;
     /// Its methods, by vtable offset: the refresh, and the one that answers
@@ -974,13 +974,13 @@ pub mod map_manager {
     pub const SESSION_WINDOWS: [usize; 19] =
         [0x12e0, 0x558, 0x1450, 0x11b8, 0x11b0, 0x1b80, 0x5ba0, 0x1280, 0x1288, 0x1290, 0x1270, 0x1278, 0x12c0, 0x12a8, 0x12b0, 0x1228, 0x1230, 0x1408, 0x1458];
     /// Lets its outliner go: `(outliner)`.
-    pub const LET_OUTLINER_GO: crate::points::GameFunction<1> = crate::points::GameFunction::at(0x81dc30);
+    pub const LET_OUTLINER_GO: crate::native::points::GameFunction<1> = crate::native::points::GameFunction::at(0x81dc30);
     /// Lets its map modes' panel go: `(panel)`.
-    pub const LET_MAP_MODES_GO: crate::points::GameFunction<1> = crate::points::GameFunction::at(0x81de20);
+    pub const LET_MAP_MODES_GO: crate::native::points::GameFunction<1> = crate::native::points::GameFunction::at(0x81de20);
     /// Two more, which the game lets go with a function of their own (the
     /// rebuild calls it before it makes them again): the field and the
     /// function.
-    pub const SESSION_OBJECTS: [(usize, crate::points::GameFunction<1>); 2] = [(0x1418, LET_OUTLINER_GO), (0x2448, LET_MAP_MODES_GO)];
+    pub const SESSION_OBJECTS: [(usize, crate::native::points::GameFunction<1>); 2] = [(0x1418, LET_OUTLINER_GO), (0x2448, LET_MAP_MODES_GO)];
     /// The size of [`MESSAGE_ICON_HOLDER`], which its function `0xdffca0`
     /// empties of its icons without freeing it.
     pub const MESSAGE_ICON_HOLDER_SIZE: usize = 0x7000;
@@ -1156,7 +1156,7 @@ pub mod event_window {
 }
 
 pub use super::list;
-use crate::points::Point;
+use crate::native::points::Point;
 
 pub fn points() -> Vec<Point> {
     use self::{functions::*, globals::*, *};
@@ -1424,8 +1424,8 @@ pub fn points() -> Vec<Point> {
         .uses(&[
             classes::WAR,
             war::NAME,
-            war::NAME + crate::game_string::SIZE,
-            war::NAME + crate::game_string::CAPACITY,
+            war::NAME + crate::native::game_string::SIZE,
+            war::NAME + crate::native::game_string::CAPACITY,
             war::ATTACKERS,
             war::ATTACKERS + 8,
             war::DEFENDERS,

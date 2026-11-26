@@ -18,9 +18,9 @@
 //! hangs. So the framework draws only in frames the main thread presents: the
 //! main menu and the game.
 use crate::base::called_by_game;
-use crate::hooks::Call;
-use crate::objects::text::renderer::DEVICE;
-use crate::points::{Function, Point};
+use crate::native::hooks::Call;
+use crate::native::objects::text::renderer::DEVICE;
+use crate::native::points::{Function, Point};
 use std::ffi::c_void;
 
 const PRESENT: usize = 0x16d4db0;
@@ -53,7 +53,7 @@ impl<F: FnOnce()> Drop for PresentingGuard<F> {
 /// native tooltips over it, and screenshot capture) and returns the Direct3D 9
 /// device pointer when available.
 unsafe fn before_present(renderer: usize) -> Option<*mut c_void> {
-    let device = crate::base::guarded("frame present", || crate::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()).map(|device| device as *mut c_void));
+    let device = crate::base::guarded("frame present", || crate::native::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()).map(|device| device as *mut c_void));
     crate::base::guarded("font pages", crate::unicode::fill::grow_pages);
     crate::base::guarded("framework UI frame", || {
         if let Some(device) = device {
@@ -80,11 +80,11 @@ unsafe fn call_present(renderer: usize) -> u8 {
     if !crate::hidden::hidden_start() {
         return ORIGINAL_PRESENT.get()(renderer);
     }
-    let Some(device) = crate::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()).filter(|&p| p != 0) else {
+    let Some(device) = crate::native::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()).filter(|&p| p != 0) else {
         return ORIGINAL_PRESENT.get()(renderer);
     };
     let ok = u8::from(super::d3d9::Backend::present(device as *mut c_void).is_ok());
-    if let Some(m) = crate::memory() {
+    if let Some(m) = crate::native::memory() {
         let _ = m.write(renderer + RENDERER_PRESENTED, &[ok]);
     }
     ok

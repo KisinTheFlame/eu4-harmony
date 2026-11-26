@@ -18,11 +18,11 @@
 //! by jumps alone, so `free` returns to the code that deleted the block.
 //! Blocks allocated before the framework started are not counted, nor are
 //! blocks of other modules' heaps and allocators.
-use crate::game_heap;
-use crate::hooks::Call;
+use crate::native::game_heap;
+use crate::native::hooks::Call;
 #[cfg(test)]
-use crate::hooks::HookFrame;
-use crate::points::Point;
+use crate::native::hooks::HookFrame;
+use crate::native::points::Point;
 use eu4_harmony_remote::memory::{
     Freed, Generation, Holder, Holders, Kept, Leftovers, Lost, MemoryAnswer, MemoryRequest, Pages, Pinning, Quarantine, Site, Trend, Uncounted, Watching,
     Written,
@@ -79,7 +79,7 @@ static BLOCKS: [Mutex<Option<Shard>>; SHARDS] = [const { Mutex::new(None) }; SHA
 static GENERATION: AtomicU32 = AtomicU32::new(0);
 /// Where `eu4.exe` lies, 0 before startup and in tests.
 fn base() -> usize {
-    crate::memory().map_or(0, |m| m.base)
+    crate::native::memory().map_or(0, |m| m.base)
 }
 
 fn shard(block: usize) -> std::sync::MutexGuard<'static, Option<Shard>> {
@@ -385,7 +385,7 @@ fn leftovers_from(now: u32, counts: &Counts, sites: usize, name: impl Fn(SiteKey
 type Owners = HashMap<(SiteKey, u32), u64>;
 
 /// The game's writable sections, by RVA and size, from its headers.
-fn writable_sections(m: &crate::memory::Memory) -> Vec<(u32, usize)> {
+fn writable_sections(m: &crate::native::memory::Memory) -> Vec<(u32, usize)> {
     const WRITE: u32 = 0x8000_0000;
     let read = || -> crate::base::Result<Vec<(u32, usize)>> {
         let nt = m.base + m.u32(m.base + 0x3c)? as usize;
@@ -406,7 +406,7 @@ fn writable_sections(m: &crate::memory::Memory) -> Vec<(u32, usize)> {
 
 /// Reads `size` bytes from `start` into the scan, a megabyte at a time;
 /// what cannot be read is passed over.
-fn scan_range(m: &crate::memory::Memory, scan: &mut Scan, buffer: &mut [u8], source: Source, start: usize, size: usize) {
+fn scan_range(m: &crate::native::memory::Memory, scan: &mut Scan, buffer: &mut [u8], source: Source, start: usize, size: usize) {
     let mut offset = 0;
     while offset + 8 <= size {
         let n = (size - offset).min(buffer.len()) & !7;
@@ -425,7 +425,7 @@ fn scan_range(m: &crate::memory::Memory, scan: &mut Scan, buffer: &mut [u8], sou
 fn holders_of(now: u32, sites: &[SiteKey]) -> HashMap<SiteKey, Holders> {
     let Some(last) = now.checked_sub(2) else { return HashMap::new() };
     let began = std::time::Instant::now();
-    let m = crate::memory::Memory { base: base() };
+    let m = crate::native::memory::Memory { base: base() };
     let wanted: HashSet<SiteKey> = sites.iter().copied().collect();
     let shards: Vec<_> = BLOCKS.iter().map(|s| s.lock().unwrap_or_else(|e| e.into_inner())).collect();
     let live = || shards.iter().filter_map(|s| s.as_ref()).flat_map(|s| s.blocks.iter());
@@ -739,7 +739,7 @@ mod tests {
 
     /// Runs an observer of the census on a call, as the seam does.
     fn run(observer: fn(&mut Call), frame: &mut HookFrame) {
-        observer(&mut Call::new(frame, crate::memory::Memory { base: 0 }));
+        observer(&mut Call::new(frame, crate::native::memory::Memory { base: 0 }));
     }
 
     #[test]

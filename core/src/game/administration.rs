@@ -5,16 +5,11 @@
 //! the command's own check is asked again there.
 use super::commands::{write, Block};
 use super::{action, conditions, fail, with_state, Ctx, GResult, Session, Status, Tag};
-use crate::containers;
-use crate::{
-    game_string,
-    memory::Memory,
-    objects::{
+use crate::native::containers;
+use crate::{native::game_string, native::memory::Memory, native::objects::{
         campaign::{construction, country, province as field},
         list,
-    },
-    points::{GameFunction, Point},
-};
+    }, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::provinces::args;
 use eu4_harmony_remote::ProvinceId;
 use eu4_harmony_remote::{

@@ -25,10 +25,9 @@
 //! (0xfd45d4, 0xfd464b), so whatever it gives is arbitrary.
 use super::{breaks, game_text, text_loops};
 use crate::base::called_by_game;
-use crate::game_string;
-use crate::objects::text::font::{OWN_GLYPHS, SCALE, SCALE_FROM_GLYPHS};
-use crate::points::Point;
-use crate::resume;
+use crate::native::game_string;
+use crate::native::objects::text::font::{OWN_GLYPHS, SCALE, SCALE_FROM_GLYPHS};
+use crate::native::points::Point;
 
 resume!(LAYOUT_RESUME: LAYOUT_DONE = 0x159dc13);
 resume!(DRAW_RESUME: DRAW_DONE = 0x159df9a);
@@ -54,9 +53,9 @@ extern "C" fn space_letters(dst: usize, src: *const u8, spacer: *const u8) {
         let spacer = game_string::text(spacer);
         let chars = characters(game_string::text(src));
         for (i, c) in chars.iter().enumerate() {
-            crate::game_string::append(dst, c);
+            crate::native::game_string::append(dst, c);
             if i + 1 < chars.len() && !spacer.is_empty() {
-                crate::game_string::append(dst, spacer);
+                crate::native::game_string::append(dst, spacer);
             }
         }
     }

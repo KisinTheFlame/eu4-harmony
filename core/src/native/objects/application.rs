@@ -23,7 +23,7 @@ pub const CONTINUE_TASK: usize = 0x5d0;
 /// The map the game draws (`objects::text::map`).
 pub const MAP: usize = 0x360;
 
-use crate::points::Point;
+use crate::native::points::Point;
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -37,6 +37,6 @@ pub fn points() -> Vec<Point> {
         // The map manager's frame building the names on the map again,
         // through its application's map.
         Point::keep(0x8152aausize, "49 8b 8d 30 03 00 00 48 8b 89 60 03 00 00 e8 b3 9f 89 00", "map manager's map")
-            .uses(&[crate::objects::campaign::map_manager::APPLICATION, MAP]),
+            .uses(&[crate::native::objects::campaign::map_manager::APPLICATION, MAP]),
     ]
 }

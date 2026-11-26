@@ -4,12 +4,9 @@
 use super::commands::{write, Block};
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
-use crate::containers;
-use crate::game_string;
-use crate::{
-    memory::Memory,
-    points::{GameFunction, Point},
-};
+use crate::native::containers;
+use crate::native::game_string;
+use crate::{native::memory::Memory, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::missions::args;
 use eu4_harmony_remote::{choices::Choice, missions::Mission};
 

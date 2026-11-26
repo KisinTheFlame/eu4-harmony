@@ -4,7 +4,7 @@
 //! one processor for their main threads. Nothing in the game says why it pins
 //! the thread (docs/game/program/headless.md, "One game per machine"); the call
 //! is left out, in every game.
-use crate::points::Point;
+use crate::native::points::Point;
 
 /// The application's run pins the main thread:
 /// `SetThreadAffinityMask(GetCurrentThread(), mask)`, whose result nothing
