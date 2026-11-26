@@ -7,8 +7,17 @@
 //! - `lookups`: whether a file is in a folder of the game's or of the
 //!   workshop's, answered from the folder's listing instead of asking
 //!   Windows each time.
-//! - `children`: a save's dated nodes added to their parent without walking
-//!   its list for them first.
+//! - `children`: dated history node lists (`0x7e7cd0`) maintained with an O(1)
+//!   membership set and O(log K) date-ordered predecessor index.
+//! - `province_shapes`: province pixel shape updates (`0xa402a0`) retain the
+//!   last-span cache on existing-point hits so world resets stay O(1).
+//! - `country_distances`: country distance rebuilds (`0x2d0b30`) precompute
+//!   capital separation once per province, detect adjacency in O(|T|*deg), and
+//!   prune planar distances with x-sorted wrapped coordinates.
+//! - `flag_atlas`: flag cache validation (`0x10c5ff0`) cached and flag atlas
+//!   page textures reused across in-game world resets.
+//! - `token_lookup`: text lexer keyword lookups (`0x6e4880`) answered from a
+//!   lock-free flat hash table instead of walking the ternary search tree.
 //! - `opens`: files opened, looked up and closed by several threads at once,
 //!   instead of one at a time under two global locks.
 //! - `listed`: every folder of the search path answered from its listing,
@@ -39,8 +48,10 @@
 use std::path::Path;
 
 pub mod children;
+pub mod country_distances;
 pub mod distance_scratch;
 pub mod dlc_verify;
+pub mod flag_atlas;
 mod folder;
 pub mod listed;
 pub mod loading_screen;
@@ -49,7 +60,9 @@ pub mod lookups;
 pub mod music;
 pub mod opens;
 pub mod parameters;
+pub mod province_shapes;
 pub mod save_input;
+pub mod token_lookup;
 pub mod transfer;
 pub mod trigger_profile;
 
