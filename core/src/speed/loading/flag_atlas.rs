@@ -313,11 +313,12 @@ extern "C" fn stash_before_clear_stub() {
 
 /// Replaces `0x10c9f8f..0x10c9f9e`: checks whether page `r15` of `r12` can skip
 /// loading `flagfiles_i.tga` (either already populated or re-attached from stash).
+/// Reads the return value from `[rsp + 0x48]` inside `call_rust!`'s "then"
+/// clause because `call_rust!` restores the entry `rax` before returning.
 #[unsafe(naked)]
 extern "C" fn reuse_page_texture_stub() {
     std::arch::naked_asm!(
-        call_rust!("mov rcx, r12", "mov rdx, r15", "movzx r8d, sil", call reuse),
-        "test al, al",
+        call_rust!("mov rcx, r12", "mov rdx, r15", "movzx r8d, sil", call reuse, "cmp byte ptr [rsp + 0x48], 0"),
         "jnz 2f",
         "jmp qword ptr [rip + {load}]",
         "2:",

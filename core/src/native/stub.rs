@@ -117,6 +117,49 @@ mod tests {
         assert!(found.is_empty(), "hand-written calls into Rust: {found:?}");
     }
 
+    /// `call_rust!` restores the caller's `rax` before exiting; testing `al`/`eax`/`rax`
+    /// right after a `call_rust!` that did not read `[rsp + 0x48]` checks stale register
+    /// contents instead of the Rust return value.
+    #[test]
+    fn stubs_do_not_test_rax_after_call_rust_without_reading_return_slot() {
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut stack = vec![src];
+        let mut bad = Vec::new();
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") && !path.ends_with("stub.rs") {
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    let lines: Vec<&str> = text.lines().collect();
+                    let mut i = 0;
+                    while i < lines.len() {
+                        if lines[i].contains("call_rust!(") {
+                            let start = i;
+                            let mut block = String::new();
+                            while i < lines.len() {
+                                block.push_str(lines[i]);
+                                if lines[i].contains("),") {
+                                    break;
+                                }
+                                i += 1;
+                            }
+                            if !block.contains("[rsp + 0x48]") && i + 1 < lines.len() {
+                                let next = lines[i + 1].trim();
+                                if next.starts_with("\"test al,") || next.starts_with("\"test eax,") || next.starts_with("\"test rax,") {
+                                    bad.push(format!("{}:{}: {next}", path.display(), start + 1));
+                                }
+                            }
+                        }
+                        i += 1;
+                    }
+                }
+            }
+        }
+        assert!(bad.is_empty(), "stub tests restored rax instead of [rsp + 0x48]: {bad:?}");
+    }
+
     extern "C" fn sum(a: usize, b: usize, c: usize, d: usize, e: usize, out: *mut u32) -> usize {
         // Fails on a misaligned stack: the SSE store needs 16 bytes.
         let probe = std::hint::black_box([0u128; 1]);
