@@ -12,16 +12,12 @@
 //! presentation seam. A clicked button is heard into a bounded queue of its
 //! owner's ([`Hears`]), with the keys held down with the click, and taken up
 //! at the next frame.
-use super::ui::{self, Callback, Subscription};
+use super::native_gui::{self, Callback, Subscription};
 use crate::{
     base::{called_by_game, Result},
     native::{
-        game_string,
         memory::Memory,
-        objects::{
-            campaign::tag,
-            gui::{button, element, functions, list_box},
-        },
+        objects::gui::{element, functions, list_box},
     },
     text::unicode::game_text,
 };
@@ -103,7 +99,7 @@ pub(crate) enum Hears {
 
 /// A click the game reported: the callback's context, the button, whether
 /// it was a right click, and the keys held down with it
-/// ([`ui::modifiers`]), read as it came, while they still are.
+/// ([`native_gui::modifiers`]), read as it came, while they still are.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Clicked {
     pub context: usize,
@@ -123,7 +119,7 @@ static CLICKED: [Mutex<Vec<Clicked>>; 2] = [Mutex::new(Vec::new()), Mutex::new(V
 fn heard<const Q: usize>(context: usize, button: usize, right: bool) {
     let mut clicked = CLICKED[Q].lock().unwrap_or_else(|e| e.into_inner());
     if clicked.len() < CLICKS {
-        clicked.push(Clicked { context, button, right, modifiers: ui::modifiers() });
+        clicked.push(Clicked { context, button, right, modifiers: native_gui::modifiers() });
     }
 }
 
@@ -146,7 +142,7 @@ pub(crate) fn take_clicks(hears: Hears) -> Vec<Clicked> {
 
 /// A listener on the button `object`'s clicks, which hears them into the
 /// queue of `hears`; not yet subscribed.
-pub(crate) fn listener(m: &Memory, object: usize, hears: Hears) -> Result<Subscription> {
+fn listener(m: &Memory, object: usize, hears: Hears) -> Result<Subscription> {
     let (left, right) = match hears {
         Hears::Panels => (left_click::<0> as *const () as usize, right_click::<0> as *const () as usize),
         Hears::Windows => (left_click::<1> as *const () as usize, right_click::<1> as *const () as usize),
@@ -208,7 +204,7 @@ impl BoundElement {
 
     /// Its listener's callback, to keep once it is let go: the game may
     /// still hold a pointer to it.
-    pub(crate) fn retire(self) -> Option<Callback> {
+    pub(super) fn retire(self) -> Option<Callback> {
         self.subscription.map(|s| s.wrapper)
     }
 
@@ -277,7 +273,7 @@ impl BoundElement {
             Look::Text => {
                 if let Some(text) = want.text_box() {
                     if self.applied.text.as_ref() != Some(&text) {
-                        write_text(m, self.object, &text)?;
+                        native_gui::write_text(m, self.object, &text)?;
                         self.applied.text = Some(text);
                     }
                 }
@@ -289,13 +285,13 @@ impl BoundElement {
             Look::Button | Look::Flag | Look::Icon => {
                 if let Some(tag) = want.country.as_ref().filter(|_| self.look == Look::Flag) {
                     if self.applied.country.as_ref() != Some(tag) {
-                        set_country(m, self.object, tag)?;
+                        native_gui::set_country(m, self.object, tag)?;
                         self.applied.country = Some(tag.clone());
                     }
                 }
                 if let Some(on) = want.enabled.filter(|_| self.look == Look::Button) {
                     if self.applied.enabled != Some(on) {
-                        self.call(m, element::ENABLE, &[ui::SET_ENABLED.rva()], &[on as usize])?;
+                        self.call(m, element::ENABLE, &[native_gui::SET_ENABLED.rva()], &[on as usize])?;
                         self.applied.enabled = Some(on);
                     }
                 }
@@ -315,8 +311,8 @@ impl BoundElement {
                 if let Some(on) = want.visible {
                     if self.visible(m)? != on {
                         let known: &[usize] = match (on, self.look == Look::Icon) {
-                            (true, false) => &[ui::SHOW],
-                            (false, false) => &[ui::HIDE],
+                            (true, false) => &[native_gui::SHOW],
+                            (false, false) => &[native_gui::HIDE],
                             (true, true) => &functions::ICON_SHOWS,
                             (false, true) => &functions::ICON_HIDES,
                         };
@@ -345,47 +341,49 @@ impl BoundElement {
     }
 }
 
-/// Builds a game string holding `bytes` with the game's allocator and moves
-/// it into the text box `object`. The setter takes the string's contents and
-/// leaves it empty (docs/game/interface/interface-bindings.md, "The setter"); it is
-/// still the framework's, and destroyed as every `std::string` is, which
-/// holds whatever the setter leaves in it.
-pub(crate) fn write_text(m: &Memory, object: usize, bytes: &[u8]) -> Result<()> {
-    let mut string = game_string::empty();
-    let at = string.as_mut_ptr() as usize;
-    if !bytes.is_empty() {
-        game_string::append_checked(m, at, bytes)?;
-    }
-    let set = ui::TEXT_SET.call(m, [object, at, 0]);
-    game_string::destroy_checked(m, at)?;
-    set.map(|_| ())
+/// Shared bound-element native operations used across host-window binding
+/// (`ui`), extension windows/pop-ups (`windows::lifecycle`), and panel button
+/// strip entries (`windows::entries`).
+pub(super) trait ElementOps {
+    fn listener(&mut self, object: usize, look: Look) -> Result<BoundElement>;
+    fn subscribed(&mut self, element: &BoundElement) -> bool;
+    fn link(&mut self, element: &mut BoundElement) -> Result<()>;
+    fn unlink(&mut self, element: &mut BoundElement) -> Result<()>;
+    fn apply(&mut self, element: &mut BoundElement, shown: &Shown) -> Result<()>;
 }
 
-/// Gives a flag its country, which must be one of the game's: the game takes
-/// the tag's index into its countries unchecked. Nothing for none.
-pub(crate) fn set_country(m: &Memory, object: usize, letters: &str) -> Result<()> {
-    if letters.is_empty() {
-        return Ok(());
+/// Live [`ElementOps`] adapter over game memory for one click queue (`Hears`).
+pub(super) struct LiveElements<'a>(pub &'a Memory, pub Hears);
+
+impl ElementOps for LiveElements<'_> {
+    fn listener(&mut self, object: usize, look: Look) -> Result<BoundElement> {
+        BoundElement::listening(self.0, object, look, self.1)
     }
-    let Some(raw) = super::resolve_shield_country(m, Some(letters))? else {
-        return Err(format!("{letters:?} is not a known country"));
-    };
-    let index = (raw >> tag::INDEX) as u16 as i16;
-    let argument: [u64; 2] = [raw, 1];
-    for (slot, function) in [(button::SET_COUNTRY, functions::SET_COUNTRY.rva()), (element::INDEX, functions::SET_INDEX.rva())] {
-        if m.vslot(object, slot)? != m.at(function) {
-            return Err("a flag's method is not the one the framework knows".into());
-        }
+
+    fn subscribed(&mut self, element: &BoundElement) -> bool {
+        element.subscribed(self.0).unwrap_or(false)
     }
-    functions::SET_COUNTRY.call(m, [object, argument.as_ptr() as usize])?;
-    functions::SET_INDEX.call(m, [object, index as i32 as u32 as usize])?;
-    Ok(())
+
+    fn link(&mut self, element: &mut BoundElement) -> Result<()> {
+        element.link(self.0)
+    }
+
+    fn unlink(&mut self, element: &mut BoundElement) -> Result<()> {
+        element.unlink(self.0)
+    }
+
+    fn apply(&mut self, element: &mut BoundElement, shown: &Shown) -> Result<()> {
+        element.apply(self.0, shown)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fake_game::buffers::{Image, Object};
+    use crate::{
+        fake_game::buffers::{Image, Object},
+        native::game_string,
+    };
     use std::cell::RefCell;
 
     thread_local! {
@@ -437,19 +435,19 @@ mod tests {
             let m = image.memory();
             let (shows, hides, frames): (usize, usize, usize) = match look {
                 Look::Icon => (functions::ICON_SHOWS[0], functions::ICON_HIDES[0], functions::ICON_FRAMES[0]),
-                _ => (ui::SHOW, ui::HIDE, functions::BUTTON_FRAME),
+                _ => (native_gui::SHOW, native_gui::HIDE, functions::BUTTON_FRAME),
             };
             image
                 .function(shows, show as *const ())
                 .function(hides, hide as *const ())
-                .function(ui::SET_ENABLED.rva(), enable as *const ())
+                .function(native_gui::SET_ENABLED.rva(), enable as *const ())
                 .function(frames, frame as *const ())
-                .function(ui::TEXT_SET.rva(), text_set as *const ())
+                .function(native_gui::TEXT_SET.rva(), text_set as *const ())
                 .function(game_string::DESTROY_AT.rva(), destroy as *const ());
             let vtable = Object::new(0x300)
                 .u64(element::SHOW, m.at(shows) as u64)
                 .u64(element::HIDE, m.at(hides) as u64)
-                .u64(element::ENABLE, m.at(ui::SET_ENABLED.rva()) as u64)
+                .u64(element::ENABLE, m.at(native_gui::SET_ENABLED.rva()) as u64)
                 .u64(element::FRAME, m.at(frames) as u64);
             let element = Object::new(0x200).u64(0, vtable.at() as u64).u8(element::VISIBLE, 1);
             taken();
@@ -484,7 +482,7 @@ mod tests {
     fn a_method_the_framework_does_not_know_is_not_called() {
         let game = Game::new(Look::Button);
         let m = game.image.memory();
-        game.vtable.set(element::HIDE, &(m.at(ui::SHOW) as u64).to_le_bytes());
+        game.vtable.set(element::HIDE, &(m.at(native_gui::SHOW) as u64).to_le_bytes());
         let mut b = game.bound(Look::Button);
         assert!(b.apply(m, &Shown { visible: Some(false), ..Shown::default() }).unwrap_err().contains("not one the framework knows"));
         assert_eq!(taken(), []);

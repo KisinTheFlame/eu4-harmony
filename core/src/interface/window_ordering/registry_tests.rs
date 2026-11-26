@@ -4,7 +4,6 @@ use crate::{
     interface::bound_element::Look,
     native::objects::gui::{classes, globals, mouse_input, window},
 };
-use std::rc::Rc;
 
 struct Tree {
     image: Image,
@@ -64,28 +63,9 @@ impl Tree {
     }
 }
 
-#[derive(Default)]
-struct LocalAccess {
-    registry: Rc<RefCell<Registry>>,
-    input: RefCell<Input>,
-}
-
-impl OrderAccess for LocalAccess {
-    fn with_registry<T>(&self, f: impl FnOnce(&mut Registry) -> T) -> T {
-        f(&mut self.registry.borrow_mut())
-    }
-
-    fn with_input<T>(&self, f: impl FnOnce(&mut Input) -> T) -> T {
-        f(&mut self.input.borrow_mut())
-    }
-
-    fn hold(&self) -> Hold {
-        Hold::Local(self.registry.clone())
-    }
-}
-
 struct RecordingScene {
     owns_presentation: bool,
+    snapshot_calls: usize,
     apply_calls: usize,
     refresh_calls: usize,
     tamper_snapshot_once: bool,
@@ -95,7 +75,7 @@ struct RecordingScene {
 
 impl Default for RecordingScene {
     fn default() -> Self {
-        Self { owns_presentation: true, apply_calls: 0, refresh_calls: 0, tamper_snapshot_once: false, fail_apply: None, fail_refresh: None }
+        Self { owns_presentation: true, snapshot_calls: 0, apply_calls: 0, refresh_calls: 0, tamper_snapshot_once: false, fail_apply: None, fail_refresh: None }
     }
 }
 
@@ -113,6 +93,7 @@ impl SceneOps for RecordingScene {
     }
 
     fn apply(&mut self, m: &Memory, parent: usize, after: &[usize], movable: &BTreeSet<usize>) -> Result<()> {
+        self.snapshot_calls += 1;
         self.apply_calls += 1;
         if let Some(error) = self.fail_apply.take() {
             return Err(error);
@@ -140,7 +121,7 @@ fn mouse_event(kind: u32, button: u32) -> Object {
     event
 }
 
-fn click_window(orderer: &Orderer<LocalAccess>, scene: &mut RecordingScene, m: &Memory, gui: usize, handled: bool) {
+fn click_window(orderer: &Orderer, scene: &mut RecordingScene, m: &Memory, gui: usize, handled: bool) {
     let event = mouse_event(mouse_input::PRESSED, 1);
     orderer.mouse_before(m, event.at(), scene).unwrap();
     orderer.handler_before(m, gui, event.at()).unwrap();
@@ -154,7 +135,7 @@ fn click_window(orderer: &Orderer<LocalAccess>, scene: &mut RecordingScene, m: &
 #[test]
 fn request_order_and_accepted_original_click_share_the_real_registry() {
     let tree = Tree::new(3);
-    let orderer = Orderer(LocalAccess::default());
+    let orderer = Orderer::default();
     let mut scene = RecordingScene::default();
     orderer.bind_owned(tree.memory(), &[tree.owned(1, 1)]).unwrap();
     orderer.flush(tree.memory(), &mut scene).unwrap();
@@ -169,12 +150,12 @@ fn request_order_and_accepted_original_click_share_the_real_registry() {
     click_window(&orderer, &mut scene, tree.memory(), tree.roots[2].at() + window::GUI, true);
     assert_eq!(scene.apply_calls, 2);
     assert_eq!(scene.refresh_calls, 2);
-    assert!(!orderer.0.with_registry(|r| r.is_dirty()));
+    assert!(!orderer.with_registry(|r| r.needs_flush()));
 
     orderer.visibility_after(tree.memory()).unwrap();
-    assert!(!orderer.0.with_registry(|r| r.is_dirty()), "a repeated native show is inert");
+    assert!(!orderer.with_registry(|r| r.needs_flush()), "a repeated native show is inert");
     orderer.bind_owned(tree.memory(), &[tree.owned(1, 1)]).unwrap();
-    assert!(!orderer.0.with_registry(|r| r.is_dirty()), "an unchanged open request is inert");
+    assert!(!orderer.with_registry(|r| r.needs_flush()), "an unchanged open request is inert");
     orderer.bind_owned(tree.memory(), &[tree.owned(1, 2)]).unwrap();
     orderer.flush(tree.memory(), &mut scene).unwrap();
     assert_eq!(tree.scope_order(), [tree.nodes[0].at(), tree.nodes[2].at(), tree.nodes[1].at()]);
@@ -184,7 +165,7 @@ fn request_order_and_accepted_original_click_share_the_real_registry() {
 #[test]
 fn reconstruction_retains_order_and_retirement_prevents_reading_the_old_root() {
     let tree = Tree::new(4);
-    let orderer = Orderer(LocalAccess::default());
+    let orderer = Orderer::default();
     let mut scene = RecordingScene::default();
     orderer.bind_owned(tree.memory(), &[tree.owned(1, 1)]).unwrap();
     orderer.flush(tree.memory(), &mut scene).unwrap();
@@ -208,35 +189,38 @@ fn attached_group_stays_after_the_host_background_and_before_the_picker() {
     let parent = tree.nodes[0].at();
     tree.link(tree.parent(), &[parent]);
     tree.link(parent, &[background.at(), tree.nodes[1].at(), tree.nodes[2].at(), tree.nodes[3].at()]);
-    let orderer = Orderer(LocalAccess::default());
-    orderer.0.with_registry(|r| r.attached(tree.memory(), tree.roots[0].at(), Some(background.at()), &[tree.nodes[2].at(), tree.nodes[3].at()])).unwrap();
-    let changes = orderer.0.with_registry(|r| r.changes(tree.memory())).unwrap();
+    let orderer = Orderer::default();
+    orderer.with_registry(|r| r.attached(tree.memory(), tree.roots[0].at(), Some(background.at()), &[tree.nodes[2].at(), tree.nodes[3].at()])).unwrap();
+    let changes = orderer.with_registry(|r| r.changes(tree.memory())).unwrap();
     assert_eq!(changes.len(), 1);
     assert_eq!(changes[0].after, [background.at(), tree.nodes[2].at(), tree.nodes[3].at(), tree.nodes[1].at()]);
     assert_eq!(changes[0].movable, [tree.nodes[2].at(), tree.nodes[3].at()].into_iter().collect());
     orderer.retire(tree.roots[0].at());
-    assert_eq!(orderer.0.with_registry(|r| r.scope_count()), 0);
-    assert_eq!(orderer.0.with_registry(|r| r.entry_count()), 0);
+    // Retiring the host stops observing its attached scope altogether.
+    assert!(orderer.with_registry(|r| r.changes(tree.memory())).unwrap().is_empty());
+    assert!(orderer.with_registry(|r| r.target(tree.memory(), tree.roots[1].at() + window::GUI)).unwrap().is_none());
 }
 
 #[test]
 fn rebuilding_a_host_keeps_its_relation_to_an_independent_window() {
     let tree = Tree::new(3);
     tree.link(tree.parent(), &[tree.nodes[0].at(), tree.nodes[1].at()]);
-    let orderer = Orderer(LocalAccess::default());
+    let orderer = Orderer::default();
     let mut scene = RecordingScene::default();
-    orderer.0.with_registry(|r| r.host(tree.memory(), 0, tree.roots[0].at())).unwrap();
+    orderer.with_registry(|r| r.host(tree.memory(), 0, tree.roots[0].at())).unwrap();
     orderer.bind_owned(tree.memory(), &[tree.owned(1, 1)]).unwrap();
     orderer.flush(tree.memory(), &mut scene).unwrap();
     orderer.retire(tree.roots[0].at());
     tree.roots[0].set(0x30, &0usize.to_le_bytes());
     tree.link(tree.parent(), &[tree.nodes[1].at(), tree.nodes[2].at()]);
-    orderer.0.with_registry(|r| r.host(tree.memory(), 0, tree.roots[2].at())).unwrap();
+    orderer.with_registry(|r| r.host(tree.memory(), 0, tree.roots[2].at())).unwrap();
     orderer.flush(tree.memory(), &mut scene).unwrap();
     assert_eq!(tree.scope_order(), [tree.nodes[2].at(), tree.nodes[1].at()]);
     let hold = orderer.begin_owned(&BTreeSet::new());
-    assert_eq!(orderer.0.with_registry(|r| r.scope_count()), 0, "without related framework windows, vanilla ordering is no longer observed");
     drop(hold);
+    let applies_before = scene.apply_calls;
+    click_window(&orderer, &mut scene, tree.memory(), tree.roots[2].at() + window::GUI, true);
+    assert_eq!(scene.apply_calls, applies_before, "without related framework windows, vanilla ordering is no longer observed");
 }
 
 #[test]
@@ -244,34 +228,34 @@ fn shared_visibility_methods_ignore_a_derived_window_outside_the_related_scope()
     let tree = Tree::new(2);
     tree.link(tree.parent(), &[tree.nodes[0].at()]);
     tree.link(tree.nodes[0].at(), &[tree.nodes[1].at()]);
-    let orderer = Orderer(LocalAccess::default());
+    let orderer = Orderer::default();
     let mut scene = RecordingScene::default();
-    orderer.0.with_registry(|r| r.attached(tree.memory(), tree.roots[0].at(), None, &[tree.nodes[1].at()])).unwrap();
+    orderer.with_registry(|r| r.attached(tree.memory(), tree.roots[0].at(), None, &[tree.nodes[1].at()])).unwrap();
     orderer.flush(tree.memory(), &mut scene).unwrap();
-    let entries = orderer.0.with_registry(|r| r.entry_count());
     // The observed derived class shares root show/hide with ordinary windows.
     // Classification must not read the ordinary node field at root+0xa30.
     let derived = Object::new(0x38).u64(0, (tree.memory().base + 0x1d57768) as u64).u64(0x30, (tree.memory().base + 0x1d57510) as u64);
     orderer.before_visibility(tree.memory(), derived.at()).unwrap();
     orderer.visibility_after(tree.memory()).unwrap();
-    assert_eq!(orderer.0.with_registry(|r| r.entry_count()), entries);
-    assert!(!orderer.0.with_registry(|r| r.is_dirty()));
+    assert!(!orderer.with_registry(|r| r.needs_flush()));
+    let applies = scene.apply_calls;
+    orderer.flush(tree.memory(), &mut scene).unwrap();
+    assert_eq!(scene.apply_calls, applies);
 }
 
 #[test]
 fn shared_visibility_methods_still_adopt_a_hidden_ordinary_window() {
     let tree = Tree::new(2);
     tree.link(tree.parent(), &[tree.nodes[0].at()]);
-    let orderer = Orderer(LocalAccess::default());
+    let orderer = Orderer::default();
     let mut scene = RecordingScene::default();
     orderer.bind_owned(tree.memory(), &[tree.owned(0, 1)]).unwrap();
     orderer.flush(tree.memory(), &mut scene).unwrap();
     tree.roots[1].set(0xf5, &[0]);
     tree.link(tree.parent(), &[tree.nodes[0].at(), tree.nodes[1].at()]);
     orderer.before_visibility(tree.memory(), tree.roots[1].at()).unwrap();
-    let (root, role) = orderer.0.with_registry(|r| r.node_entry(tree.nodes[1].at())).unwrap();
-    assert_eq!(root, Some(tree.roots[1].at()));
-    assert_eq!(role, course::Role::Original);
+    // Adopting the hidden window makes it an activation target before its show completes.
+    assert!(orderer.with_registry(|r| r.target(tree.memory(), tree.roots[1].at() + window::GUI)).unwrap().is_some());
     tree.roots[1].set(0xf5, &[1]);
     orderer.visibility_after(tree.memory()).unwrap();
     orderer.flush(tree.memory(), &mut scene).unwrap();
@@ -281,7 +265,7 @@ fn shared_visibility_methods_still_adopt_a_hidden_ordinary_window() {
 #[test]
 fn shared_visibility_methods_reject_broken_ordinary_window_ownership() {
     let tree = Tree::new(2);
-    let orderer = Orderer(LocalAccess::default());
+    let orderer = Orderer::default();
     orderer.bind_owned(tree.memory(), &[tree.owned(0, 1)]).unwrap();
     tree.nodes[1].set(0x118, &0usize.to_le_bytes());
     let error = orderer.before_visibility(tree.memory(), tree.roots[1].at()).unwrap_err();
@@ -307,7 +291,7 @@ fn ancestor_gate_visibility_changes_without_changing_the_child_open_byte() {
 #[test]
 fn coordinator_defers_placement_across_holds_nested_walks_and_faults() {
     let tree = Tree::new(3);
-    let orderer = Orderer(LocalAccess::default());
+    let orderer = Orderer::default();
     let mut scene = RecordingScene::default();
     let hold = orderer.begin_owned(&[tree.owned(1, 1).identity].into_iter().collect());
     orderer.bind_owned(tree.memory(), &[tree.owned(1, 1)]).unwrap();
@@ -353,24 +337,24 @@ fn coordinator_defers_placement_across_holds_nested_walks_and_faults() {
 #[test]
 fn failed_snapshot_apply_or_refresh_keeps_dirty_for_retry() {
     let tree = Tree::new(2);
-    let orderer = Orderer(LocalAccess::default());
+    let orderer = Orderer::default();
     orderer.bind_owned(tree.memory(), &[tree.owned(0, 1)]).unwrap();
 
     let mut stale = RecordingScene { tamper_snapshot_once: true, ..Default::default() };
     assert!(orderer.flush(tree.memory(), &mut stale).unwrap_err().contains("native order changed before placement"));
-    assert!(orderer.0.with_registry(|r| r.is_dirty()));
+    assert!(orderer.with_registry(|r| r.needs_flush()));
 
     let mut fail_apply = RecordingScene { fail_apply: Some("apply failed".into()), ..Default::default() };
     assert_eq!(orderer.flush(tree.memory(), &mut fail_apply).unwrap_err(), "apply failed");
-    assert!(orderer.0.with_registry(|r| r.is_dirty()));
+    assert!(orderer.with_registry(|r| r.needs_flush()));
 
     let mut fail_refresh = RecordingScene { fail_refresh: Some("refresh failed".into()), ..Default::default() };
     assert_eq!(orderer.flush(tree.memory(), &mut fail_refresh).unwrap_err(), "refresh failed");
-    assert!(orderer.0.with_registry(|r| r.is_dirty()));
+    assert!(orderer.with_registry(|r| r.needs_flush()));
 
     let mut ok = RecordingScene::default();
     orderer.flush(tree.memory(), &mut ok).unwrap();
-    assert!(!orderer.0.with_registry(|r| r.is_dirty()));
+    assert!(!orderer.with_registry(|r| r.needs_flush()));
     assert_eq!(tree.scope_order(), [tree.nodes[1].at(), tree.nodes[0].at()]);
 }
 

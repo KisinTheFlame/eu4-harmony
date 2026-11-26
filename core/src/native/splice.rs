@@ -1,6 +1,6 @@
 //! Turns the discovered mods' UI declarations into per-file splice text and
 //! the list of elements the UI layer binds at runtime.
-use crate::{base::hosts, base::mods::DiscoveredMod, base::pdx, base::Result};
+use crate::{base::mods::DiscoveredMod, base::pdx, base::Result};
 pub use eu4_harmony_manifest::ui::{prefix, ElementKind};
 use std::collections::HashMap;
 
@@ -19,11 +19,6 @@ pub struct Element {
     /// Whether it is in its window's button area.
     pub in_area: bool,
 }
-
-/// The name of the frame the framework puts under a window's button area,
-/// and of the button that is its background.
-pub const FRAME: &str = "eu4h_button_area";
-pub const FRAME_BACKGROUND: &str = "eu4h_button_area_background";
 
 /// A change to one game file.
 #[derive(Clone, Debug)]
@@ -45,8 +40,6 @@ pub struct Plan {
     everywhere: Vec<Everywhere>,
     pub elements: Vec<Element>,
     pub slots: usize,
-    /// The windows whose button area has a frame ([`FRAME`]).
-    pub frames: Vec<hosts::Host>,
 }
 
 /// An addition to every file of some paths that it is for.
@@ -90,7 +83,7 @@ impl Plan {
     }
 
     /// Adds `addition` before every other addition to the file.
-    fn add_first(&mut self, normalized: &str, addition: Addition) {
+    pub fn add_first(&mut self, normalized: &str, addition: Addition) {
         self.by_file.entry(normalized.to_string()).or_default().insert(0, addition);
     }
 }
@@ -112,7 +105,8 @@ pub fn apply(text: &str, additions: &[Addition]) -> Result<String> {
 }
 
 /// `include(i)` decides whether mod `i` takes part (its extension loaded, or it has none).
-pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool, plan: &mut Plan) -> Vec<String> {
+/// Returns `(notes, slots_by_window)` so `interface` can splice button-area frames.
+pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool, plan: &mut Plan) -> (Vec<String>, HashMap<&'static str, i32>) {
     let mut notes = Vec::new();
     // Button-area slots taken, by window.
     let mut slots: HashMap<&'static str, i32> = HashMap::new();
@@ -132,31 +126,8 @@ pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool, plan: &mut
             plan.add(fragment.window_file, Addition::Window { window: fragment.window_name, text: fragment.text });
         }
     }
-    // Each button area's frame, first in its window so that it is drawn
-    // under every element spliced there.
-    for window in hosts::WINDOWS {
-        let (Some(area), Some(&count)) = (window.buttons, slots.get(window.name)) else { continue };
-        plan.add_first(window.file, Addition::Window { window: window.name.into(), text: frame(&area, count) });
-        plan.frames.push(window.host);
-    }
     plan.slots = slots.values().sum::<i32>() as usize;
-    notes
-}
-
-/// Sprite name for non-moveable framework window frames and extension windows.
-pub const FIXED_BACKGROUND_SPRITE: &str = "GFX_eu4harmony_fixed_window_background";
-
-/// The frame under `count` slots of `area`: a window of its own in the
-/// framework's window background, as the extension windows are, which the
-/// pointer does not light up and whose clicks do not reach the map. A button
-/// would light up; an icon is drawn at its sprite's size, not stretched.
-fn frame(area: &hosts::ButtonArea, count: i32) -> String {
-    let ((x, y), (w, h)) = area.frame(count);
-    format!(
-        "\n\t\twindowType = {{ name = \"{FRAME}\" backGround = \"{FRAME_BACKGROUND}\" position = {{ x = {x} y = {y} }} size = {{ x = {w} y = {h} }} \
-         moveable = 0 dontRender = \"\" horizontalBorder = \"\" verticalBorder = \"\" fullScreen = no Orientation = \"UPPER_LEFT\"\n\
-         \t\t\tguiButtonType = {{ name = \"{FRAME_BACKGROUND}\" quadTextureSprite = \"{FIXED_BACKGROUND_SPRITE}\" }}\n\t\t}}\n"
-    )
+    (notes, slots)
 }
 
 #[cfg(test)]
@@ -177,24 +148,6 @@ mod tests {
         assert!(appended("interface/topbar.gui", b"\xff other").is_empty());
         assert!(plan.may_add_to("interface/topbar.gui") && plan.may_add_to("interface/core.gui"));
         assert!(!plan.may_add_to("interface/core.gfx") && !plan.may_add_to("common/x.gui"));
-    }
-
-    #[test]
-    fn a_button_area_s_frame_comes_first_and_holds_its_slots() {
-        let area = crate::base::hosts::window("single_unitpanel").unwrap().buttons.unwrap();
-        let mut plan = Plan::default();
-        plan.add("interface/unitpanel_main.gui", Addition::Window { window: "single_unitpanel".into(), text: " BUTTON ".into() });
-        plan.add_first("interface/unitpanel_main.gui", Addition::Window { window: "single_unitpanel".into(), text: super::frame(&area, 10) });
-        let file = "guiTypes = { windowType = { name = \"single_unitpanel\" } }";
-        let out = apply(file, &plan.for_file("interface/unitpanel_main.gui", file.as_bytes())).unwrap();
-        let (frame, button) = (out.find("eu4h_button_area").unwrap(), out.find("BUTTON").unwrap());
-        assert!(frame < button, "{out}");
-        assert!(out.contains("position = { x = 504 y = 69 } size = { x = 116 y = 392 }"), "two columns: {out}");
-        assert!(
-            out.contains("windowType = { name = \"eu4h_button_area\" backGround = \"eu4h_button_area_background\""),
-            "a window, which no pointer lights up: {out}"
-        );
-        assert_eq!(out.matches('{').count(), out.matches('}').count());
     }
 
     #[test]
