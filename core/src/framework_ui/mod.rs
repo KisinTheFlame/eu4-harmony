@@ -9,16 +9,15 @@
 //! lock.
 pub mod d3d9;
 pub mod fonts_page;
-pub mod hook;
-pub mod input;
 pub mod mods_window;
 pub mod text;
 pub mod widgets;
 
-use crate::settings::{self, FrameRateLimit, Page, Role, Settings, Shows};
-use crate::troubleshooting::local_dumps;
-use crate::unicode::system_font::SystemFonts;
-use crate::{lang, loc};
+use crate::base::settings::{self, FrameRateLimit, Page, Role, Settings, Shows};
+use crate::base::troubleshooting::local_dumps;
+use crate::render::window_input as input;
+use crate::text::unicode::system_font::SystemFonts;
+use crate::{base::lang, base::loc};
 use fonts_page::{FontSystem, FontsPage};
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
@@ -65,9 +64,9 @@ trait UiHost {
     fn display_refresh_rate(&self) -> u32;
     fn font_system(&self) -> Self::Fonts;
     fn mod_cards(&self) -> &[mods_window::Card];
-    fn notice_current(&self) -> Option<crate::notice::Showing>;
+    fn notice_current(&self) -> Option<crate::base::notice::Showing>;
     fn dismiss_notice(&mut self);
-    fn troubleshooting_state(&self) -> crate::troubleshooting::State;
+    fn troubleshooting_state(&self) -> crate::base::troubleshooting::State;
     fn start_troubleshooting(&mut self);
     fn dumps_configured(&self) -> std::io::Result<bool>;
     fn start_enable_dumps(&mut self) -> std::io::Result<()>;
@@ -109,7 +108,7 @@ impl UiHost for LiveHost {
     }
 
     fn display_refresh_rate(&self) -> u32 {
-        crate::drawing::display_refresh_rate()
+        crate::render::drawing::display_refresh_rate()
     }
 
     fn font_system(&self) -> Self::Fonts {
@@ -120,20 +119,20 @@ impl UiHost for LiveHost {
         mods_window::cards()
     }
 
-    fn notice_current(&self) -> Option<crate::notice::Showing> {
-        crate::notice::current()
+    fn notice_current(&self) -> Option<crate::base::notice::Showing> {
+        crate::base::notice::current()
     }
 
     fn dismiss_notice(&mut self) {
-        crate::notice::dismiss();
+        crate::base::notice::dismiss();
     }
 
-    fn troubleshooting_state(&self) -> crate::troubleshooting::State {
-        crate::troubleshooting::state()
+    fn troubleshooting_state(&self) -> crate::base::troubleshooting::State {
+        crate::base::troubleshooting::state()
     }
 
     fn start_troubleshooting(&mut self) {
-        crate::troubleshooting::start();
+        crate::base::troubleshooting::start();
     }
 
     fn dumps_configured(&self) -> std::io::Result<bool> {
@@ -338,7 +337,7 @@ impl DumpStatus {
 /// that says what it did.
 fn about_page(
     dumps: &DumpStatus,
-    troubleshooting: &crate::troubleshooting::State,
+    troubleshooting: &crate::base::troubleshooting::State,
     words: &dyn Fn(&str) -> String,
     words_with: mods_window::Words,
 ) -> Vec<Widget> {
@@ -366,8 +365,8 @@ fn about_page(
 
 /// What the troubleshooting files' packing has come to, as the line under
 /// its button says it.
-fn troubleshooting_line(state: &crate::troubleshooting::State, words_with: mods_window::Words) -> String {
-    use crate::troubleshooting::State;
+fn troubleshooting_line(state: &crate::base::troubleshooting::State, words_with: mods_window::Words) -> String {
+    use crate::base::troubleshooting::State;
     match state {
         State::Idle => String::new(),
         State::Packing => words_with("EU4HARMONY_ABOUT_PACKING", &[]),
@@ -446,7 +445,7 @@ fn settings_window(
     fonts: &FontsPage<impl FontSystem>,
     display_hz: u32,
     dumps: &DumpStatus,
-    troubleshooting: &crate::troubleshooting::State,
+    troubleshooting: &crate::base::troubleshooting::State,
     in_game: bool,
     words_with: mods_window::Words,
 ) -> Window {
@@ -831,7 +830,7 @@ impl<H: UiHost> Shell<H> {
 }
 
 impl FrameworkUi {
-    fn new() -> crate::Result<Self> {
+    fn new() -> crate::base::Result<Self> {
         let face = SystemFonts::new().map(|fonts| settings::current().face(Role::Body, |f| fonts.has_family(f)))?;
         let font = text::UiFont::new(&face)?;
         Ok(Self { font, backend: d3d9::Backend::default(), shell: Shell::new(LiveHost::new()) })
@@ -847,8 +846,8 @@ pub(crate) fn tooltip_at() -> Option<Vec<u8>> {
     let guard = UI.try_lock().ok()?;
     let ui = guard.as_ref()?;
     let content = ui.shell.tooltip_content(&ui.font)?;
-    let text = content.resolve(|key| Some(crate::loc::framework(crate::lang::player(), key, &[])));
-    Some(crate::unicode::game_text::from_str(&text))
+    let text = content.resolve(|key| Some(crate::base::loc::framework(crate::base::lang::player(), key, &[])));
+    Some(crate::text::unicode::game_text::from_str(&text))
 }
 
 /// Shows the framework's words for `key` over the frame the game presented
@@ -856,7 +855,7 @@ pub(crate) fn tooltip_at() -> Option<Vec<u8>> {
 /// that keeps it from drawing for seconds, such as leaving a session. The
 /// game's window shows it until the game presents its next frame.
 pub fn still(key: &str) {
-    if crate::thread_id() != crate::main_thread() || FAILED.load(Ordering::Relaxed) {
+    if crate::base::thread_id() != crate::base::main_thread() || FAILED.load(Ordering::Relaxed) {
         return;
     }
     let device = DEVICE.load(Ordering::Relaxed);
@@ -894,7 +893,7 @@ pub fn holding() -> bool {
 }
 
 /// Whether the frame the main thread presents now is held back.
-fn held() -> bool {
+pub(crate) fn held() -> bool {
     let holding = HOLDING.load(Ordering::Relaxed);
     if holding {
         HELD.fetch_add(1, Ordering::Relaxed);
@@ -929,7 +928,7 @@ pub unsafe fn frame(device: *mut c_void) {
                 // Expected on a system without the fonts: notices fall back to message boxes.
                 log!("framework UI unavailable: {e}");
                 FAILED.store(true, Ordering::Relaxed);
-                crate::notice::fall_back("the framework UI is unavailable");
+                crate::base::notice::fall_back("the framework UI is unavailable");
                 return;
             }
         }
@@ -938,10 +937,10 @@ pub unsafe fn frame(device: *mut c_void) {
     DEVICE.store(device, Ordering::Relaxed);
     input::attach(handle);
     // The framework UI is as large as the game's own, whatever its scale.
-    let scale = crate::memory().and_then(crate::game::gui_scale).map_or(1.0, |(across, _)| across.clamp(0.5, 4.0));
+    let scale = crate::native::memory().and_then(crate::capabilities::game::gui_scale).map_or(1.0, |(across, _)| across.clamp(0.5, 4.0));
     let pixels = unsafe { d3d9::Backend::screen(device) };
     let menu = MAIN_MENU_FRAME.load(Ordering::Relaxed);
-    let in_game_menu = crate::memory().is_some_and(crate::game::menu::in_game_menu_open);
+    let in_game_menu = crate::native::memory().is_some_and(crate::capabilities::game::menu::in_game_menu_open);
     ui.font.set_scale(scale);
     ui.shell.sync_frame(frame_number, (menu != u64::MAX).then_some(menu), in_game_menu, pixels, scale);
     ui.shell.tick(&ui.font);
@@ -963,7 +962,7 @@ pub fn device_reset() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::unicode::system_font::Face;
+    use crate::text::unicode::system_font::Face;
     use eu4_harmony_loc::Language;
 
     fn keys(key: &str) -> String {
@@ -1061,7 +1060,7 @@ mod tests {
                     let page = FontsPage::new(fonts, &next);
                     for in_game in [false, true] {
                         let window =
-                            settings_window(&next, &next, &page, 180, &DumpStatus::Available, &crate::troubleshooting::State::Idle, in_game, &keys_with);
+                            settings_window(&next, &next, &page, 180, &DumpStatus::Available, &crate::base::troubleshooting::State::Idle, in_game, &keys_with);
                         assert_eq!(chosen_settings(&window, &next, &page, 180, in_game), next, "{language:?} in_game={in_game}");
                     }
                 }
@@ -1073,7 +1072,7 @@ mod tests {
     fn the_settings_window_saves_the_language_chosen() {
         let next = Settings { language: Some(Language::English), ..Settings::default() };
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &next);
-        let mut window = settings_window(&next, &next, &page, 60, &DumpStatus::Available, &crate::troubleshooting::State::Idle, false, &keys_with);
+        let mut window = settings_window(&next, &next, &page, 60, &DumpStatus::Available, &crate::base::troubleshooting::State::Idle, false, &keys_with);
         let languages = Language::ALL.iter().map(|l| l.native_name().to_string()).collect();
         let korean = Language::ALL.iter().position(|&l| l == Language::Korean).unwrap();
         window.set_options("language", languages, korean);
@@ -1092,7 +1091,7 @@ mod tests {
     fn the_restart_line_shows_while_a_change_waits_for_the_next_start() {
         let current = Settings { language: Some(Language::English), ..Settings::default() };
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &current);
-        let idle = crate::troubleshooting::State::Idle;
+        let idle = crate::base::troubleshooting::State::Idle;
         // Nothing changed: no line, but its room, so the buttons stay put.
         let mut window = settings_window(&current, &current, &page, 60, &DumpStatus::Available, &idle, false, &keys_with);
         assert_eq!(restart_shown(&mut window), "");
@@ -1158,7 +1157,7 @@ mod tests {
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &current);
         let short_words_with = |key: &str, args: &[(&str, &str)]| if args.is_empty() { short_words(key) } else { keys_with(key, args) };
         let mut window =
-            settings_window(&current, &current, &page, 180, &DumpStatus::Available, &crate::troubleshooting::State::Idle, false, &short_words_with);
+            settings_window(&current, &current, &page, 180, &DumpStatus::Available, &crate::base::troubleshooting::State::Idle, false, &short_words_with);
         window.center(&Mono, 1200.0, 900.0);
         assert_eq!(chosen_settings(&window, &current, &page, 180, false).frame_rate_limit, FrameRateLimit::Display);
 
@@ -1205,7 +1204,7 @@ mod tests {
     #[test]
     fn the_dump_button_allows_retry_after_cancellation_or_failure() {
         let cancelled = std::io::Error::from_raw_os_error(windows_sys::Win32::Foundation::ERROR_CANCELLED as i32);
-        let idle = crate::troubleshooting::State::Idle;
+        let idle = crate::base::troubleshooting::State::Idle;
         for (state, clickable, feedback) in [
             (DumpStatus::from_check(Ok(false)), true, None),
             (DumpStatus::Pending, false, Some("EU4HARMONY_DUMPS_PENDING")),
@@ -1225,11 +1224,11 @@ mod tests {
     fn the_about_page_shows_the_version_and_what_the_troubleshooting_button_did() {
         let current = Settings::default();
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &current);
-        let mut window = settings_window(&current, &current, &page, 60, &DumpStatus::Available, &crate::troubleshooting::State::Idle, false, &keys_with);
+        let mut window = settings_window(&current, &current, &page, 60, &DumpStatus::Available, &crate::base::troubleshooting::State::Idle, false, &keys_with);
         let about = Page::ALL.iter().position(|&p| p == Page::About).unwrap();
         let version = format!("EU4HARMONY_ABOUT_VERSION VERSION={}", env!("CARGO_PKG_VERSION"));
         assert!(matches!(&window.pages[about][0], Widget::Heading(text) if *text == version));
-        window.set_label_after(TROUBLESHOOTING, troubleshooting_line(&crate::troubleshooting::State::Saved("a.zip".into()), &keys_with));
+        window.set_label_after(TROUBLESHOOTING, troubleshooting_line(&crate::base::troubleshooting::State::Saved("a.zip".into()), &keys_with));
         let line = window.pages[about].iter().skip_while(|w| !matches!(w, Widget::Button { id: TROUBLESHOOTING, .. })).nth(1);
         assert!(matches!(line, Some(Widget::Label(text)) if text == "EU4HARMONY_ABOUT_SAVED FILE=a.zip"));
     }
@@ -1248,12 +1247,12 @@ mod tests {
         current: Settings,
         next: Settings,
         saved: Vec<(Settings, bool)>,
-        notice: Option<crate::notice::Showing>,
+        notice: Option<crate::base::notice::Showing>,
         dismissed: usize,
         dumps_configured: bool,
         dump_pending: bool,
         dump_finished: Option<std::io::Result<()>>,
-        troubleshooting: crate::troubleshooting::State,
+        troubleshooting: crate::base::troubleshooting::State,
         cards: Vec<mods_window::Card>,
     }
 
@@ -1268,7 +1267,7 @@ mod tests {
                 dumps_configured: false,
                 dump_pending: false,
                 dump_finished: None,
-                troubleshooting: crate::troubleshooting::State::Idle,
+                troubleshooting: crate::base::troubleshooting::State::Idle,
                 cards: Vec::new(),
             }
         }
@@ -1302,18 +1301,18 @@ mod tests {
         fn mod_cards(&self) -> &[mods_window::Card] {
             &self.cards
         }
-        fn notice_current(&self) -> Option<crate::notice::Showing> {
+        fn notice_current(&self) -> Option<crate::base::notice::Showing> {
             self.notice.clone()
         }
         fn dismiss_notice(&mut self) {
             self.dismissed += 1;
             self.notice = None;
         }
-        fn troubleshooting_state(&self) -> crate::troubleshooting::State {
+        fn troubleshooting_state(&self) -> crate::base::troubleshooting::State {
             self.troubleshooting.clone()
         }
         fn start_troubleshooting(&mut self) {
-            self.troubleshooting = crate::troubleshooting::State::Packing;
+            self.troubleshooting = crate::base::troubleshooting::State::Packing;
         }
         fn dumps_configured(&self) -> std::io::Result<bool> {
             Ok(self.dumps_configured)
@@ -1454,7 +1453,7 @@ mod tests {
 
     #[test]
     fn shell_reaps_async_dump_setup_after_settings_closes_and_retains_notice_position() {
-        let host = FakeHost { notice: Some(crate::notice::Showing { number: 1, title: "First".into(), text: "Body".into() }), ..Default::default() };
+        let host = FakeHost { notice: Some(crate::base::notice::Showing { number: 1, title: "First".into(), text: "Body".into() }), ..Default::default() };
         let mut shell = Shell::new(host);
         shell.sync_frame(1, Some(1), false, (1280.0, 720.0), 1.0);
         shell.tick(&FixedMeasure);
@@ -1463,7 +1462,7 @@ mod tests {
         let notice = &mut shell.notice.as_mut().unwrap().1;
         notice.x = 77.0;
         notice.y = 88.0;
-        shell.host.notice = Some(crate::notice::Showing { number: 1, title: "Updated".into(), text: "Body".into() });
+        shell.host.notice = Some(crate::base::notice::Showing { number: 1, title: "Updated".into(), text: "Body".into() });
         shell.tick(&FixedMeasure);
         let notice = &shell.notice.as_ref().unwrap().1;
         assert_eq!((notice.x, notice.y), (77.0, 88.0));

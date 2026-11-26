@@ -18,9 +18,9 @@ use super::{
     LettingGo,
 };
 use crate::{
-    hooks::Call,
-    memory::Memory,
-    points::{GameFunction, Point},
+    native::hooks::Call,
+    native::memory::Memory,
+    native::points::{GameFunction, Point},
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -97,7 +97,7 @@ fn list_killing(call: &mut Call) {
             }
             node = m.ptr(node + CONNECTION_NEXT)?;
         }
-        crate::Result::Ok(found)
+        crate::base::Result::Ok(found)
     })();
     match found {
         Ok(found) => {
@@ -128,15 +128,15 @@ fn world_clearing(m: &Memory) {
                 Some((_, size, texts)) => {
                     let _letting_go = LettingGo::new("list entry");
                     for text in *texts {
-                        crate::game_string::destroy_checked(m, entry + text)?;
+                        crate::native::game_string::destroy_checked(m, entry + text)?;
                     }
                     HOLDER_DESTRUCTOR.call(m, [entry])?;
-                    crate::game_heap::delete(m, entry, *size)?;
+                    crate::native::game_heap::delete(m, entry, *size)?;
                 }
                 None => waiting::delete_by_its_class(m, entry, "list entry")?,
             }
             DELETED.fetch_add(1, Ordering::Relaxed);
-            crate::Result::Ok(())
+            crate::base::Result::Ok(())
         })();
         if let Err(e) = deleted {
             log!("repair: an entry a list's kill left, {entry:#x}, was not deleted: {e}");

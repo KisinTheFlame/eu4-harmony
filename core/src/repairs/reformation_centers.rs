@@ -5,8 +5,8 @@
 //! Complete that detach at the two writes, before the new center is installed,
 //! using the game's setter so conversion progress and map colors follow it.
 use crate::{
-    called_by_game,
-    points::{GameFunction, Point},
+    base::called_by_game,
+    native::points::{GameFunction, Point},
 };
 
 const CREATE_DETACH: usize = 0xdae38f;
@@ -27,13 +27,13 @@ pub(super) const REPAIR: super::Repair = super::Repair { points, ..super::Repair
 #[called_by_game]
 extern "C" fn detached(province: usize) {
     let progress = 0i32;
-    if let Err(e) = SET_CONVERSION.call(&crate::hooked_memory(), [province, (&raw const progress) as usize, 0]) {
+    if let Err(e) = SET_CONVERSION.call(&crate::native::hooked_memory(), [province, (&raw const progress) as usize, 0]) {
         log!("repair: a new conversion center's source was not detached from its old conversion: {e}");
     }
 }
 
-crate::resume!(CREATE_RESUME: CREATE_NEXT = CREATE_DETACHED);
-crate::resume!(POLICY_RESUME: POLICY_NEXT = POLICY_DETACHED);
+resume!(CREATE_RESUME: CREATE_NEXT = CREATE_DETACHED);
+resume!(POLICY_RESUME: POLICY_NEXT = POLICY_DETACHED);
 
 /// The manager's successful creation: rax is the old center, rbp the
 /// province, rdi the new center and rcx zero. Replay both displaced moves.
@@ -43,7 +43,7 @@ extern "C" fn create_detach_stub() {
         "mov [rax + {target}], rcx",
         "pushfq",
         // call_rust's frame saves the game's rbp at [rbp].
-        crate::call_rust!("mov rcx, [rbp]", call detached),
+        call_rust!("mov rcx, [rbp]", call detached),
         "popfq",
         "mov rbx, [rdi + 0x10]",
         "jmp qword ptr [rip + {next}]",
@@ -61,7 +61,7 @@ extern "C" fn policy_detach_stub() {
     std::arch::naked_asm!(
         "mov [rax + {target}], rdx",
         "pushfq",
-        crate::call_rust!("mov rcx, rdi", call detached),
+        call_rust!("mov rcx, rdi", call detached),
         "popfq",
         "mov rbp, [rsi + 0x10]",
         "jmp qword ptr [rip + {next}]",

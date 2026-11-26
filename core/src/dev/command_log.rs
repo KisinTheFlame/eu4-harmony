@@ -3,8 +3,8 @@
 //! a player build has none of this). dev.toml's `[command-log]` can name the
 //! types to log, by the game's names (`types = ["buildunit", "move_order"]`);
 //! every type is logged when it names none. It listens to the command layer
-//! ([`crate::game::commands`]), which writes a command out only when asked.
-use crate::game::commands::{self, Heard};
+//! ([`crate::world::commands`]), which writes a command out only when asked.
+use crate::world::commands::{self, Heard};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
 

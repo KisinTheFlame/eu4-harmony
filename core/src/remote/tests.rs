@@ -1,13 +1,13 @@
 //! The engine driven with typed requests through the catalogue's seam, a
 //! scripted catalogue behind it: what the engine itself does with requests,
 //! whatever they ask. What a group of the catalogue does is tested with the
-//! group (`crate::catalogue`).
+//! group (`crate::capabilities::catalogue`).
 use super::*;
-use crate::catalogue::{
+use crate::capabilities::catalogue::{process, signals, Outcome, Poll};
+use crate::fake_game::{
+    buffers::{byz, tur, wal},
     fake::{self, answer, ok, PLENTY},
-    process, signals, Outcome, Poll,
 };
-use crate::game::buffers::{byz, tur, wal};
 
 const ARMY: u64 = 4_294_967_377;
 const FLEET: u64 = 4_294_967_400;
@@ -353,7 +353,7 @@ fn requests_from_other_threads_are_answered_on_the_one_that_runs_the_engine() {
 fn what_a_game_frame_tells_extensions_is_kept_as_signals() {
     let observed = |session, new_session, date, changes| game::frame::Observed {
         world: game::World { world: 0, date, countries: 0, player: game::player::Player::Plays(tur()) },
-        seen: crate::sessions::Seen { session, new_session },
+        seen: crate::session::sessions::Seen { session, new_session },
         visibility_current: true,
         changes,
     };

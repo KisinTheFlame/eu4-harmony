@@ -10,7 +10,7 @@
 use super::SiteKey;
 use std::collections::HashMap;
 
-pub use crate::memory::PAGE;
+pub use crate::native::memory::PAGE;
 /// How full a page in use is, in eighths: `by_use[0]` is up to an eighth.
 pub const PARTS: usize = 8;
 

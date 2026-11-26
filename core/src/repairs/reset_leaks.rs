@@ -3,12 +3,12 @@
 //! leader, a country's rebel factions and the agents its AI started are let
 //! go with them.
 use super::LettingGo;
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::{
-    hooks::Call,
-    memory::Memory,
-    objects::campaign::{ai_king, classes, country, functions, leader, mercenary_company, world},
-    points::Point,
+    native::hooks::Call,
+    native::memory::Memory,
+    native::objects::campaign::{ai_king, classes, country, functions, leader, mercenary_company, world},
+    native::points::Point,
 };
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -72,9 +72,9 @@ fn country_going(call: &mut Call) {
         if bytes != 0 {
             m.write(country + country::ENTRY_BYTES, &0usize.to_le_bytes())?;
             let _letting_go = LettingGo::new("country's array of bytes");
-            crate::game_heap::delete(&m, bytes, 0)?;
+            crate::native::game_heap::delete(&m, bytes, 0)?;
         }
-        crate::Result::Ok(())
+        crate::base::Result::Ok(())
     })();
     if let Err(e) = freed {
         log!("repair: a country's array of bytes was not freed: {e}");
@@ -98,7 +98,7 @@ fn company_going(call: &mut Call) {
         let _letting_go = LettingGo::new("mercenary company's leader");
         m.call(m.vslot(leader, 0)?, &[leader, 1])?;
         LEADERS.fetch_add(1, Ordering::Relaxed);
-        crate::Result::Ok(())
+        crate::base::Result::Ok(())
     })();
     if let Err(e) = deleted {
         log!("repair: a mercenary company's leader was not deleted: {e}");
@@ -110,7 +110,7 @@ fn company_going(call: &mut Call) {
 /// first of those that do ([`delete_rebel_factions`]).
 #[called_by_game]
 extern "C" fn world_clearing() {
-    super::world_clearing(&crate::hooked_memory());
+    super::world_clearing(&crate::native::hooked_memory());
 }
 
 /// As the world's clear begins: every country's rebel factions, whose vector
@@ -123,10 +123,10 @@ extern "C" fn world_clearing() {
 /// leaves its provinces be.
 fn delete_rebel_factions(m: &Memory) {
     let deleted = (|| {
-        for country in crate::containers::countries(m)? {
+        for country in crate::native::containers::countries(m)? {
             let vector = country + country::REBEL_FACTIONS;
             let (begin, end) = (m.ptr(vector)?, m.ptr(vector + 8)?);
-            let factions = (begin..end).step_by(8).map(|at| m.ptr(at)).collect::<crate::Result<Vec<_>>>()?;
+            let factions = (begin..end).step_by(8).map(|at| m.ptr(at)).collect::<crate::base::Result<Vec<_>>>()?;
             for faction in factions.into_iter().filter(|&f| f != 0) {
                 let _letting_go = LettingGo::new("rebel faction");
                 m.call(m.vslot(faction, 0)?, &[faction, 1])?;
@@ -135,7 +135,7 @@ fn delete_rebel_factions(m: &Memory) {
             // Each took itself off; none is left for the clear.
             m.write(vector + 8, &m.ptr(vector)?.to_le_bytes())?;
         }
-        crate::Result::Ok(())
+        crate::base::Result::Ok(())
     })();
     if let Err(e) = deleted {
         log!("repair: the rebel factions were not deleted: {e}");
@@ -143,8 +143,8 @@ fn delete_rebel_factions(m: &Memory) {
 }
 
 /// The items of one of the game's lists.
-fn list_items(m: &Memory, header: usize) -> crate::Result<Vec<usize>> {
-    crate::containers::items(m, header, crate::containers::MOST)
+fn list_items(m: &Memory, header: usize) -> crate::base::Result<Vec<usize>> {
+    crate::native::containers::items(m, header, crate::native::containers::MOST)
 }
 
 /// The agent at the top of a country's AI is being deleted: the agents it
@@ -161,7 +161,7 @@ fn ai_king_going(call: &mut Call) {
         let mut agents = list_items(&m, king + ai_king::AGENTS)?;
         agents.extend(list_items(&m, king + ai_king::RETIRED)?);
         agents.retain(|&a| a != 0);
-        crate::Result::Ok(agents)
+        crate::base::Result::Ok(agents)
     })();
     match kept {
         Ok(agents) => AGENTS_LEFT.lock().unwrap_or_else(|e| e.into_inner()).push((king, agents)),
@@ -192,7 +192,7 @@ fn ai_king_gone(call: &mut Call) {
     }
 }
 
-crate::resume!(WORLD_CLEARING_RESUME: WORLD_CLEARING_NEXT = WORLD_CLEARING_DONE);
+resume!(WORLD_CLEARING_RESUME: WORLD_CLEARING_NEXT = WORLD_CLEARING_DONE);
 
 /// Replaces the world's clear marking the world as being cleared: marks it,
 /// then [`world_clearing`].
@@ -200,7 +200,7 @@ crate::resume!(WORLD_CLEARING_RESUME: WORLD_CLEARING_NEXT = WORLD_CLEARING_DONE)
 extern "C" fn world_clearing_stub() {
     std::arch::naked_asm!(
         "mov byte ptr [rsi + {clearing}], 1",
-        crate::call_rust!(call clearing_fn),
+        call_rust!(call clearing_fn),
         "jmp qword ptr [rip + {next}]",
         clearing = const world::CLEARING,
         clearing_fn = sym world_clearing,

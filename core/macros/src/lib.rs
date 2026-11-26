@@ -26,7 +26,7 @@ pub fn called_by_game(args: TokenStream, item: TokenStream) -> TokenStream {
     };
     let body = &function.block;
     function.block = syn::parse_quote!({
-        crate::guarded(concat!(module_path!(), "::", #name), move || -> #output #body)
+        crate::base::guarded(concat!(module_path!(), "::", #name), move || -> #output #body)
     });
     quote!(#function).into()
 }

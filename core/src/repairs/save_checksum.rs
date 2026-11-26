@@ -3,9 +3,9 @@
 //! stream sums its bytes otherwise than the memory stream the save was
 //! written from, so such a save never matched and turned achievements off.
 //! The file is summed as the save was.
-use crate::called_by_game;
-use crate::points::Point;
-use crate::saving::sum::SaveSum;
+use crate::base::called_by_game;
+use crate::base::save_sum::SaveSum;
+use crate::native::points::Point;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// In the save checksum (`0x14e3390(out, stream, cut, salt, salt length)`),
@@ -15,7 +15,7 @@ const SAVE_CHECKSUM_SUM: usize = 0x14e33f9;
 const SAVE_CHECKSUM_SUM_DONE: usize = 0x14e3403;
 /// A file's stream (vtable [`FILE_STREAM`]): its sum of its bytes, its
 /// method at `+0x98`, and where it keeps the file.
-use crate::objects::stream::FILE_VTABLE as FILE_STREAM;
+use crate::native::objects::stream::FILE_VTABLE as FILE_STREAM;
 const FILE_STREAM_SUM: usize = 0x1710c00;
 const FILE_STREAM_SUM_METHOD: usize = 0x98;
 const FILE_STREAM_FILE: usize = 0x38;
@@ -28,12 +28,12 @@ static FILE_STREAM_SUM_AT: AtomicUsize = AtomicUsize::new(0);
 /// the file cannot be read.
 #[called_by_game]
 unsafe extern "C" fn file_stream_sum(stream: usize, count: i32) -> u32 {
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let mut sum = SaveSum::default();
     let read = m
         .ptr(stream + FILE_STREAM_FILE)
         .and_then(|holder| m.ptr(holder))
-        .and_then(|file| crate::physfs::read_from_start(file, u64::try_from(count).ok(), |bytes| sum.add(bytes)));
+        .and_then(|file| crate::native::physfs::read_from_start(file, u64::try_from(count).ok(), |bytes| sum.add(bytes)));
     match read {
         Ok(()) => sum.value(),
         Err(e) => {
@@ -43,7 +43,7 @@ unsafe extern "C" fn file_stream_sum(stream: usize, count: i32) -> u32 {
     }
 }
 
-crate::resume!(SAVE_CHECKSUM_SUM_RESUME: SAVE_CHECKSUM_SUM_NEXT = SAVE_CHECKSUM_SUM_DONE);
+resume!(SAVE_CHECKSUM_SUM_RESUME: SAVE_CHECKSUM_SUM_NEXT = SAVE_CHECKSUM_SUM_DONE);
 
 /// Replaces the save checksum's sum of the stream's bytes: a file's stream
 /// is summed by [`file_stream_sum`], any other by its own method.
@@ -53,7 +53,7 @@ extern "C" fn save_checksum_sum_stub() {
         "mov rcx, rbx",
         "cmp r12, qword ptr [rip + {file_sum}]",
         "jne 2f",
-        crate::call_rust!(call sum, "mov eax, dword ptr [rsp + 0x48]"),
+        call_rust!(call sum, "mov eax, dword ptr [rsp + 0x48]"),
         "jmp 3f",
         "2:",
         "call r12",

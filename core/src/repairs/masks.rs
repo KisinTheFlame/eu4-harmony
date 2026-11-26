@@ -4,9 +4,9 @@
 //! is let go before a texture smaller than it is written to it.
 use super::LettingGo;
 use crate::{
-    hooks::Call,
-    objects::gui::transparency_mask,
-    points::{GameFunction, Point},
+    native::hooks::Call,
+    native::objects::gui::transparency_mask,
+    native::points::{GameFunction, Point},
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -50,7 +50,7 @@ fn mask_resizing(call: &mut Call) {
         let _letting_go = LettingGo::new("transparency mask");
         WORDS_DESTRUCTOR.call(&m, [mask + transparency_mask::WORDS])?;
         m.write(mask + transparency_mask::BITS, &0usize.to_le_bytes())?;
-        crate::Result::Ok(capacity - begin)
+        crate::base::Result::Ok(capacity - begin)
     })();
     match let_go {
         Ok(bytes) => {

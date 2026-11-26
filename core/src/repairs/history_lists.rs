@@ -15,7 +15,7 @@
 //! hold, at any depth, is deleted first, unless something it holds is the
 //! second's too, or one of the first's others holds it.
 use super::LettingGo;
-use crate::{hooks::Call, memory::Memory, points::Point};
+use crate::{native::hooks::Call, native::memory::Memory, native::points::Point};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -27,7 +27,7 @@ const EMPTY_LIST: usize = 0x7e7f20;
 const FIRST_EMPTIED: [usize; 3] = [0x2e37de, 0x2cc06b, 0x463795];
 /// The second history, from the first.
 const SECOND: usize = 0x40;
-/// A history's list, a [`crate::objects::list`] of objects, a node taken
+/// A history's list, a [`crate::native::objects::list`] of objects, a node taken
 /// out marked removed, its object deleted.
 const LIST: usize = 0x20;
 /// At most this many objects are followed under one history, against a
@@ -53,12 +53,12 @@ fn since_reset() -> String {
 }
 
 /// What a history lists, the nodes taken out left out.
-fn listed(m: &Memory, history: usize) -> crate::Result<Vec<usize>> {
-    crate::containers::items(m, history + LIST, MOST)
+fn listed(m: &Memory, history: usize) -> crate::base::Result<Vec<usize>> {
+    crate::native::containers::items(m, history + LIST, MOST)
 }
 
 /// Everything under `objects`, at any depth, not counting them.
-fn under(m: &Memory, objects: &[usize], found: &mut HashSet<usize>) -> crate::Result<()> {
+fn under(m: &Memory, objects: &[usize], found: &mut HashSet<usize>) -> crate::base::Result<()> {
     let mut next: Vec<usize> = Vec::new();
     for &object in objects {
         next.extend(listed(m, object)?);
@@ -87,7 +87,7 @@ fn emptying(call: &mut Call) {
     }
 }
 
-fn delete_alone(m: &Memory, first: usize) -> crate::Result<()> {
+fn delete_alone(m: &Memory, first: usize) -> crate::base::Result<()> {
     let listed_first = listed(m, first)?;
     if listed_first.is_empty() {
         return Ok(());

@@ -5,7 +5,7 @@
 //! The clock is read at the collection's edge ([`Clock`]): the game's
 //! monotonic instant in [`RealClock`], a controlled instant in the tests, so
 //! the lifecycle is driven through its interface without touching the state.
-use crate::game::{fail, GResult, Status};
+use crate::world::{fail, GResult, Status};
 use eu4_harmony_remote::performance::{Observed, Report};
 use std::{
     sync::{
@@ -137,6 +137,16 @@ struct Started {
     generation: u64,
     at: Instant,
     update: Option<u64>,
+}
+
+impl Submission {
+    pub(crate) fn into_probe(self) -> crate::native::probes::Submission {
+        crate::native::probes::Submission(self.0.map(|s| (s.generation, s.at, s.update)))
+    }
+
+    pub(crate) fn from_probe(probe: crate::native::probes::Submission) -> Self {
+        Self(probe.0.map(|(generation, at, update)| Started { generation, at, update }))
+    }
 }
 
 /// The collection: its state behind a lock, the gate callers read before

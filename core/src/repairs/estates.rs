@@ -15,15 +15,15 @@
 //! wait ([`super::waiting`]), as the trade nodes are.
 use super::waiting::{Kind, Moment, Waiting};
 use crate::{
-    memory::Memory,
-    points::{GameFunction, Point},
+    native::memory::Memory,
+    native::points::{GameFunction, Point},
 };
 use std::{
     collections::HashSet,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use crate::objects::campaign::country::ESTATES;
+use crate::native::objects::campaign::country::ESTATES;
 /// The size of an entry of a country's estates ([`ESTATES`]).
 const ESTATE_SIZE: usize = 0xa8;
 /// An estate's class, and its two vectors of modifiers (begin, end).
@@ -65,10 +65,10 @@ fn world_clearing(m: &Memory) {
 }
 
 /// Every country's estates' modifiers, each once.
-fn modifiers(m: &Memory) -> crate::Result<Vec<usize>> {
+fn modifiers(m: &Memory) -> crate::base::Result<Vec<usize>> {
     let mut found = Vec::new();
     let mut seen = HashSet::new();
-    for country in crate::containers::countries(m)? {
+    for country in crate::native::containers::countries(m)? {
         let (begin, end) = (m.ptr(country + ESTATES)?, m.ptr(country + ESTATES + 8)?);
         for estate in (begin..end).step_by(ESTATE_SIZE) {
             if m.ptr(estate)? != m.at(ESTATE) {

@@ -10,8 +10,8 @@
 //! reads back as left alone.
 use super::setting_widgets;
 use super::widgets::{Widget, Window};
-use crate::settings::{Page, Role, Settings};
-use crate::unicode::system_font::{self, Face, SystemFonts, REGULAR};
+use crate::base::settings::{Page, Role, Settings};
+use crate::text::unicode::system_font::{self, Face, SystemFonts, REGULAR};
 use eu4_harmony_loc::Language;
 
 /// What the page asks of the system's fonts.

@@ -3,10 +3,10 @@
 //! are copied over from their own set still lists, and go with them.
 use super::LettingGo;
 use crate::{
-    hooks::Call,
-    memory::Memory,
-    objects::campaign::{classes, modifiers},
-    points::Point,
+    native::hooks::Call,
+    native::memory::Memory,
+    native::objects::campaign::{classes, modifiers},
+    native::points::Point,
 };
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -50,7 +50,7 @@ static MODIFIER_SETS_LEFT: Mutex<Vec<(usize, Vec<usize>)>> = Mutex::new(Vec::new
 static MODIFIER_SETS_WAITING: Mutex<Vec<(usize, Vec<usize>)>> = Mutex::new(Vec::new());
 
 /// The sets a country's modifiers copied, which nothing else points to.
-fn modifier_copies(m: &Memory, modifiers: usize) -> crate::Result<Vec<usize>> {
+fn modifier_copies(m: &Memory, modifiers: usize) -> crate::base::Result<Vec<usize>> {
     let (begin, end) = (m.ptr(modifiers + modifiers::COPIES)?, m.ptr(modifiers + modifiers::COPIES + 8)?);
     let mut sets = Vec::new();
     if end > begin {
@@ -83,7 +83,7 @@ fn delete_modifier_sets(m: &Memory, sets: Vec<usize>) {
     }
 }
 
-fn keep_modifier_sets(modifiers: usize, sets: crate::Result<Vec<usize>>) {
+fn keep_modifier_sets(modifiers: usize, sets: crate::base::Result<Vec<usize>>) {
     match sets {
         Ok(sets) if sets.is_empty() => {}
         Ok(sets) => MODIFIER_SETS_LEFT.lock().unwrap_or_else(|e| e.into_inner()).push((modifiers, sets)),
@@ -152,7 +152,7 @@ fn modifiers_copied(call: &mut Call) {
     let (modifiers, other) = (call.arg(0), call.arg(1));
     let lost = kept_modifier_sets(modifiers);
     if !lost.is_empty() {
-        if crate::dev::check_repairs() {
+        if crate::base::dev_options::check_repairs() {
             check_listed(&m, modifiers, &lost);
         }
         MODIFIER_SETS_WAITING_COUNT.fetch_add(lost.len(), Ordering::Relaxed);
@@ -172,7 +172,7 @@ fn modifiers_copied(call: &mut Call) {
 /// heap census is enabled, of what the repair takes the game to do.
 fn check_listed(m: &Memory, modifiers: usize, lost: &[usize]) {
     let listed = (|| {
-        let added = modifiers + modifiers::OWN + crate::objects::campaign::modifier_set::ADDED;
+        let added = modifiers + modifiers::OWN + crate::native::objects::campaign::modifier_set::ADDED;
         let (begin, end) = (m.ptr(added)?, m.ptr(added + 8)?);
         let mut sets = Vec::new();
         if end > begin {
@@ -180,7 +180,7 @@ fn check_listed(m: &Memory, modifiers: usize, lost: &[usize]) {
                 sets.push(m.ptr(at)?);
             }
         }
-        crate::Result::Ok(sets)
+        crate::base::Result::Ok(sets)
     })();
     match listed {
         Ok(listed) => {

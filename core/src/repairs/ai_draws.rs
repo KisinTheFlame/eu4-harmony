@@ -21,10 +21,10 @@
 //! stage, are stepped as the game steps them. With `-seed`, and in a
 //! developer build with the test switch `game-shares-ai-draws`, every draw is
 //! the game's.
-use crate::called_by_game;
-use crate::hooks::Call;
-use crate::objects::campaign::globals;
-use crate::points::{Function, Point};
+use crate::base::called_by_game;
+use crate::native::hooks::Call;
+use crate::native::objects::campaign::globals;
+use crate::native::points::{Function, Point};
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
@@ -127,10 +127,10 @@ fn drawn_apart() -> Option<u32> {
             Some(n)
         }
         Some(None) => None,
-        None if crate::thread_id() == crate::main_thread() => None,
+        None if crate::base::thread_id() == crate::base::main_thread() => None,
         None => OWN
             .try_with(|own| {
-                let mut stream = own.get().unwrap_or_else(|| Stream::of(STAGE_SEED.load(Ordering::Relaxed), u64::from(crate::thread_id()) | 1 << 48));
+                let mut stream = own.get().unwrap_or_else(|| Stream::of(STAGE_SEED.load(Ordering::Relaxed), u64::from(crate::base::thread_id()) | 1 << 48));
                 let n = stream.draw();
                 own.set(Some(stream));
                 OWN_DRAWS.fetch_add(1, Ordering::Relaxed);
@@ -177,7 +177,7 @@ fn phase_ended(_: &mut Call) {
         return;
     }
     let stages = STAGES.fetch_add(1, Ordering::Relaxed) + 1;
-    if crate::dev::log_repair_stats() && stages.is_multiple_of(100) {
+    if crate::base::dev_options::log_repair_stats() && stages.is_multiple_of(100) {
         log!("repair: the AI's countries' draws: {}", counted());
     }
 }
@@ -225,7 +225,7 @@ fn since_reset() -> String {
 /// draws from the world's one generator as the game's do, so that the repair
 /// can be measured against it.
 fn game_shares_ai_draws() -> bool {
-    crate::dev::game_shares_ai_draws()
+    crate::base::dev_options::game_shares_ai_draws()
 }
 
 /// The repair as the world reset sees it ([`super::REPAIRS`]).

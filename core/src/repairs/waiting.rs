@@ -8,8 +8,8 @@
 //! what crashed the game with a pure call (`super::session_interface`), so
 //! the rule is kept here, once.
 use super::LettingGo;
-use crate::memory::Memory;
-use crate::points::GameFunction;
+use crate::native::memory::Memory;
+use crate::native::points::GameFunction;
 use std::{
     collections::HashMap,
     sync::{
@@ -23,7 +23,7 @@ use std::{
 pub(super) enum Moment {
     /// A return whose session's interface is gone (`super::session_interface`).
     Return,
-    /// A world reset that ended (`crate::sessions`).
+    /// A world reset that ended (`crate::session::sessions`).
     Reset,
 }
 
@@ -142,7 +142,7 @@ pub(super) struct Kind {
 impl Kind {
     /// Deletes `object` if it is still one of the kind, by its class, and
     /// answers whether it did; one that is no longer is kept and logged.
-    pub(super) fn delete(&self, m: &Memory, object: usize) -> crate::Result<bool> {
+    pub(super) fn delete(&self, m: &Memory, object: usize) -> crate::base::Result<bool> {
         if m.ptr(object)? != m.at(self.class) {
             log!("repair: a {} left was not one, {object:#x}; kept", self.what);
             return Ok(false);
@@ -171,7 +171,7 @@ impl Waiting<()> {
 
 /// Deletes `object` by its own deleting destructor, its vtable's first slot,
 /// as `what` lets it go.
-pub(super) fn delete_by_its_class(m: &Memory, object: usize, what: &'static str) -> crate::Result<()> {
+pub(super) fn delete_by_its_class(m: &Memory, object: usize, what: &'static str) -> crate::base::Result<()> {
     let _letting_go = LettingGo::new(what);
     m.call(m.vslot(object, 0)?, &[object, 1])?;
     Ok(())

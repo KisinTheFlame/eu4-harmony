@@ -5,7 +5,7 @@
 //!
 //! The live host reaches the capability catalogue as the extension, through
 //! the seam remote control's engine reaches it through as the player
-//! (`crate::catalogue::Catalogue`), so both share one implementation
+//! (`crate::capabilities::catalogue::Catalogue`), so both share one implementation
 //! (ADR one-capability-catalogue);
 //! interface elements, the map, texts and the player language through the
 //! core's own modules; the network through [`http`]. Each extension's log is
@@ -13,12 +13,13 @@
 mod http;
 
 use crate::{
-    catalogue::{self, Catalogue, Place, Wait},
-    game::{self, map_coloring, Caller},
-    map,
-    mods::DiscoveredMod,
-    notice::{Message, Repeat},
-    saves, ui,
+    base::mods::DiscoveredMod,
+    base::notice::{Message, Repeat},
+    capabilities::catalogue::{self, Catalogue, Place, Wait},
+    capabilities::game::map,
+    capabilities::game::{self, map_coloring, Caller},
+    interface::ui,
+    session::saves,
 };
 use eu4_harmony_lua::{
     dispatch::{self, Heard},
@@ -111,7 +112,7 @@ impl ExtensionRuntime {
             } else {
                 // The shared journal opens on the first log call, before main.lua
                 // can write; leases prevent another process rotating this run.
-                crate::log::event(format_args!(
+                crate::base::log::event(format_args!(
                     "extension loading: id={} version={} interface={}",
                     m.manifest.id,
                     m.descriptor.version.as_deref().unwrap_or("not declared"),
@@ -226,7 +227,7 @@ impl ExtensionRuntime {
         self.refresh_report(env, began);
     }
 
-    fn tell_ended<E: RuntimeEnv>(&self, env: &E, end: crate::sessions::End) {
+    fn tell_ended<E: RuntimeEnv>(&self, env: &E, end: crate::session::sessions::End) {
         let all = self.extensions();
         dispatch::hear(&all, &Heard::of(&end.signal()), &mut Fed { runtime: self, env, began: false });
         env.windows_session_ended();
@@ -313,10 +314,10 @@ trait RuntimeEnv {
 struct CoreEnv;
 
 impl RuntimeEnv for CoreEnv {
-    type LocBackup = crate::loc::Earlier;
+    type LocBackup = crate::base::loc::Earlier;
 
     fn supported(&self) -> bool {
-        crate::memory().is_some()
+        crate::native::memory().is_some()
     }
 
     fn declare_windows(&self, extension: &Extension) {
@@ -324,19 +325,19 @@ impl RuntimeEnv for CoreEnv {
     }
 
     fn post_notice(&self, key: &str, repeat: Repeat, message: Message) {
-        crate::notice::post(key, repeat, message);
+        crate::base::notice::post(key, repeat, message);
     }
 
     fn reload_loc(&self, id: &str, harmony: &Path) -> (Vec<String>, Self::LocBackup) {
-        crate::loc::reload_mod(id, harmony)
+        crate::base::loc::reload_mod(id, harmony)
     }
 
     fn restore_loc(&self, id: &str, earlier: Self::LocBackup) {
-        crate::loc::restore_mod(id, earlier);
+        crate::base::loc::restore_mod(id, earlier);
     }
 
     fn session_going_on(&self) -> bool {
-        crate::sessions::going_on()
+        crate::session::sessions::going_on()
     }
 
     fn saves_begin_session(&self) -> bool {
@@ -365,16 +366,16 @@ impl RuntimeEnv for CoreEnv {
             row: None,
         };
         let mut clicks: Vec<dispatch::Click> = ui::take_clicks().into_iter().map(click).collect();
-        clicks.extend(crate::windows::take_clicks());
+        clicks.extend(crate::interface::windows::take_clicks());
         clicks
     }
 
     fn take_windows_seen(&self) -> Vec<dispatch::WindowSeen> {
-        crate::windows::take_seen()
+        crate::interface::windows::take_seen()
     }
 
     fn take_popups_pressed(&self) -> Vec<dispatch::PopupPressed> {
-        crate::windows::take_popups_pressed()
+        crate::interface::windows::take_popups_pressed()
     }
 
     fn extensions_listen(&self, kinds: BTreeSet<eu4_harmony_remote::signals::Kind>) {
@@ -382,15 +383,15 @@ impl RuntimeEnv for CoreEnv {
     }
 
     fn windows_frame(&self) {
-        crate::windows::frame();
+        crate::interface::windows::frame();
     }
 
     fn windows_session_ended(&self) {
-        crate::windows::session_ended();
+        crate::interface::windows::session_ended();
     }
 
     fn write_report(&self) {
-        crate::report::write();
+        crate::base::report::write();
     }
 
     fn clocks_now(&self) -> Clocks {
@@ -511,22 +512,22 @@ impl Host for Live {
     }
 
     fn window(&self, extension: usize, change: WindowChange) -> Result<(), String> {
-        crate::windows::change(extension, change)
+        crate::interface::windows::change(extension, change)
     }
 
     fn tooltip(&self, extension: usize, window: Option<&str>, widget: &str) -> Result<eu4_harmony_lua::Text, String> {
         match window {
-            Some(window) => crate::windows::tooltip(extension, window, widget),
+            Some(window) => crate::interface::windows::tooltip(extension, window, widget),
             None => ui::tooltip(extension, widget),
         }
     }
 
     fn popup(&self, extension: usize, popup: Popup) -> Result<u32, String> {
-        crate::windows::popup(extension, popup)
+        crate::interface::windows::popup(extension, popup)
     }
 
     fn close_popup(&self, extension: usize, popup: u32) -> Result<(), String> {
-        crate::windows::close_popup(extension, popup)
+        crate::interface::windows::close_popup(extension, popup)
     }
 
     fn paint(&self, extension: usize, colors: &[(u32, [u8; 4])]) -> Result<(), Error> {
@@ -539,11 +540,11 @@ impl Host for Live {
     }
 
     fn text(&self, id: &str, key: &str) -> Option<String> {
-        crate::loc::mod_text(id, key)
+        crate::base::loc::mod_text(id, key)
     }
 
     fn language(&self) -> String {
-        crate::lang::player().id().to_string()
+        crate::base::lang::player().id().to_string()
     }
 
     fn fetch(&self, request: fetch::Request) -> Box<dyn Pending<fetch::Answer>> {
@@ -577,24 +578,24 @@ impl Host for Live {
     }
 
     fn session(&self) -> u64 {
-        crate::sessions::number()
+        crate::session::sessions::number()
     }
 
     fn first_error(&self, extension: &Extension, from: &str, message: &str) {
         // The player is told in a game the framework runs in.
-        if crate::memory().is_some() {
+        if crate::native::memory().is_some() {
             log!("extension {:?}: error in {from}: {message}", extension.id());
-            crate::notice::post(&format!("errors:{}", extension.id()), Repeat::Session, Message::new("EU4HARMONY_ERRORS").arg("MOD", extension.name()));
+            crate::base::notice::post(&format!("errors:{}", extension.id()), Repeat::Session, Message::new("EU4HARMONY_ERRORS").arg("MOD", extension.name()));
         }
     }
 
     fn stopped(&self, extension: &Extension, reason: &str) {
         log!("extension {:?} stopped: {reason}", extension.id());
         ui::hide_extension(extension.index());
-        crate::windows::forget(extension.index());
-        if let Some(m) = crate::memory() {
+        crate::interface::windows::forget(extension.index());
+        if let Some(m) = crate::native::memory() {
             map::release(m, extension.index());
-            crate::notice::post(
+            crate::base::notice::post(
                 &format!("stopped:{}", extension.id()),
                 Repeat::Run,
                 Message::new("EU4HARMONY_STOPPED").arg("MOD", extension.name()).arg("DETAIL", reason),
@@ -605,7 +606,7 @@ impl Host for Live {
     fn reload_reset(&self, extension: usize, new: &Extension) {
         ui::forget_extension(extension);
         declare_windows(new);
-        if let Some(m) = crate::memory() {
+        if let Some(m) = crate::native::memory() {
             map::release(m, extension);
         }
     }
@@ -641,7 +642,7 @@ pub fn load(mods: &[DiscoveredMod], log_dir: &Path, data_dir: &Path) -> Vec<Load
 
 /// The windows an extension's main.lua returns, for the framework to build.
 fn declare_windows(extension: &Extension) {
-    crate::windows::declare(extension.index(), extension.id(), extension.windows(), extension.images());
+    crate::interface::windows::declare(extension.index(), extension.id(), extension.windows(), extension.images());
 }
 
 /// What an extension reload came to.
@@ -658,7 +659,7 @@ pub struct Reloaded {
 /// it loads is the old one asked for its save data and replaced. On the
 /// main thread, between frames.
 pub fn reload(_: Caller, args::Reload { id }: args::Reload) -> game::GResult<Reloaded> {
-    if crate::thread_id() != crate::main_thread() {
+    if crate::base::thread_id() != crate::base::main_thread() {
         return Err(game::Fail { status: game::Status::WrongContext, message: "called off the game's main thread".into() });
     }
     RUNTIME.reload(&CoreEnv, &id)
@@ -676,34 +677,23 @@ fn not_loaded(m: &DiscoveredMod, e: &str) -> Message {
 
 // ---------- dispatch ----------
 
-/// The extensions, as they hear the sessions' ends and the game's safe frames
-/// (`crate::safe_point`).
-pub(crate) struct Extensions;
+/// Within an extension's own call, no extension is called again: one would
+/// run inside itself, its waiting tasks dropped under the task running.
+pub(crate) fn can_hear_end() -> bool {
+    !eu4_harmony_lua::calling()
+}
 
-impl crate::safe_point::Listener for Extensions {
-    fn name(&self) -> &'static str {
-        "extensions"
-    }
+/// Every extension hears it, on the main thread, before anything of the
+/// session is taken down: once leaving is certain, after the ironman exit
+/// save, when there is one, was written. Heard late, after the extension's
+/// call it ended in, the session's state is gone by then, as what ended
+/// it ran inside that call.
+pub(crate) fn session_ended(end: crate::session::sessions::End) {
+    RUNTIME.tell_ended(&CoreEnv, end);
+}
 
-    /// Within an extension's own call, no extension is called again: one
-    /// would run inside itself, its waiting tasks dropped under the task
-    /// running.
-    fn can_hear(&self) -> bool {
-        !eu4_harmony_lua::calling()
-    }
-
-    /// Every extension hears it, on the main thread, before anything of the
-    /// session is taken down: once leaving is certain, after the ironman exit
-    /// save, when there is one, was written. Heard late, after the extension's
-    /// call it ended in, the session's state is gone by then, as what ended
-    /// it ran inside that call.
-    fn ended(&self, end: crate::sessions::End) {
-        RUNTIME.tell_ended(&CoreEnv, end);
-    }
-
-    fn frame(&self, _: u64, heard: &[game::Heard]) {
-        RUNTIME.frame(&CoreEnv, heard);
-    }
+pub(crate) fn safe_frame(heard: &[game::Heard]) {
+    RUNTIME.frame(&CoreEnv, heard);
 }
 
 /// What the running game gives a frame: the extension save data of the save
@@ -1131,8 +1121,7 @@ mod tests {
             std::fs::write(harmony.join("lua/main.lua"), code).unwrap();
         }
         let discovered = DiscoveredMod {
-            descriptor_file: dir.join(format!("{id}.mod")),
-            descriptor: crate::mods::Descriptor { name: id.to_string(), version: Some("1.0".into()), path: Some(dir.clone()), archive: None },
+            descriptor: crate::base::mods::Descriptor { name: id.to_string(), version: Some("1.0".into()), path: Some(dir.clone()), archive: None },
             dir: dir.clone(),
             manifest: eu4_harmony_manifest::HarmonyMod::read(&dir).unwrap().manifest,
             layout: eu4_harmony_manifest::Layout { extension: lua.map(|_| "lua/main.lua".into()), ui: Vec::new(), misplaced: Vec::new() },
@@ -1272,7 +1261,7 @@ mod tests {
         assert_eq!(runtime.collect_save_data(), vec![("framed".into(), Some(serde_json::json!({"n": 9})))]);
 
         // Session end dispatches handler, notifies windows, and drains clocks.
-        runtime.tell_ended(&env, crate::sessions::End::Return);
+        runtime.tell_ended(&env, crate::session::sessions::End::Return);
         assert_eq!(env.windows_ended.load(std::sync::atomic::Ordering::Relaxed), 1);
         assert!(runtime.state.lock().unwrap().session_clocks.is_none());
         assert!(host.0.lock().unwrap().iter().any(|l| l == "ended"), "{:?}", host.0.lock().unwrap());

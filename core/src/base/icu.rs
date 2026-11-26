@@ -1,0 +1,208 @@
+//! The ICU that ships with Windows (`icu.dll`, Windows 10 1903 and later;
+//! ADR built-in-unicode-module): where user-perceived characters begin and
+//! where a line may break, over UTF-8 text. Loaded at startup; a system without
+//! it cannot run the framework.
+use crate::base::Result;
+use std::ffi::{c_char, c_void};
+use std::sync::OnceLock;
+use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32};
+
+type Status = i32;
+type OpenUtf8 = unsafe extern "C" fn(*mut c_void, *const c_char, i64, *mut Status) -> *mut c_void;
+type CloseText = unsafe extern "C" fn(*mut c_void) -> *mut c_void;
+type OpenBreaks = unsafe extern "C" fn(i32, *const c_char, *const u16, i32, *mut Status) -> *mut c_void;
+type SetText = unsafe extern "C" fn(*mut c_void, *mut c_void, *mut Status);
+type Step = unsafe extern "C" fn(*mut c_void) -> i32;
+type RuleStatus = unsafe extern "C" fn(*const c_void) -> i32;
+type CloseBreaks = unsafe extern "C" fn(*mut c_void);
+
+#[cfg(test)]
+const CHARACTER: i32 = 0;
+const LINE: i32 = 2;
+const DONE: i32 = -1;
+/// Rule statuses from here up mark a forced line break.
+const LINE_HARD: i32 = 100;
+
+pub struct Icu {
+    open_utf8: OpenUtf8,
+    close_text: CloseText,
+    open_breaks: OpenBreaks,
+    set_text: SetText,
+    first: Step,
+    next: Step,
+    rule_status: RuleStatus,
+    close_breaks: CloseBreaks,
+}
+
+/// A place a line may break: before the byte at `offset`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LineBreak {
+    pub offset: usize,
+    /// A line break in the text itself, not just an opportunity.
+    pub forced: bool,
+}
+
+static ICU: OnceLock<std::result::Result<Icu, String>> = OnceLock::new();
+
+/// Loads the system ICU once.
+pub fn load() -> Result<&'static Icu> {
+    ICU.get_or_init(|| {
+        let name: Vec<u16> = "icu.dll\0".encode_utf16().collect();
+        let module = unsafe { LoadLibraryExW(name.as_ptr(), std::ptr::null_mut(), LOAD_LIBRARY_SEARCH_SYSTEM32) };
+        if module.is_null() {
+            return Err("Windows has no icu.dll (Windows 10 1903 or later is needed)".into());
+        }
+        let find = |symbol: &[u8]| {
+            unsafe { GetProcAddress(module, symbol.as_ptr()) }
+                .map(|f| f as usize)
+                .ok_or_else(|| format!("icu.dll has no {}", String::from_utf8_lossy(&symbol[..symbol.len() - 1])))
+        };
+        unsafe {
+            Ok(Icu {
+                open_utf8: std::mem::transmute::<usize, OpenUtf8>(find(b"utext_openUTF8\0")?),
+                close_text: std::mem::transmute::<usize, CloseText>(find(b"utext_close\0")?),
+                open_breaks: std::mem::transmute::<usize, OpenBreaks>(find(b"ubrk_open\0")?),
+                set_text: std::mem::transmute::<usize, SetText>(find(b"ubrk_setUText\0")?),
+                first: std::mem::transmute::<usize, Step>(find(b"ubrk_first\0")?),
+                next: std::mem::transmute::<usize, Step>(find(b"ubrk_next\0")?),
+                rule_status: std::mem::transmute::<usize, RuleStatus>(find(b"ubrk_getRuleStatus\0")?),
+                close_breaks: std::mem::transmute::<usize, CloseBreaks>(find(b"ubrk_close\0")?),
+            })
+        }
+    })
+    .as_ref()
+    .map_err(Clone::clone)
+}
+
+impl Icu {
+    /// Opens a break iterator of `kind`, with no text yet.
+    fn open(&self, kind: i32) -> Result<*mut c_void> {
+        let mut status = 0;
+        let breaks = unsafe { (self.open_breaks)(kind, std::ptr::null(), std::ptr::null(), 0, &mut status) };
+        if status > 0 || breaks.is_null() {
+            return Err(format!("ubrk_open failed: {status}"));
+        }
+        Ok(breaks)
+    }
+
+    /// Gives the iterator `breaks` the text, and each boundary after its
+    /// start with its rule status. The iterator keeps no hold on the text
+    /// once this returns, and may be given another.
+    fn walk(&self, breaks: *mut c_void, text: &str, mut each: impl FnMut(usize, i32)) -> Result<()> {
+        let mut status = 0;
+        let utext = unsafe { (self.open_utf8)(std::ptr::null_mut(), text.as_ptr() as *const c_char, text.len() as i64, &mut status) };
+        if status > 0 || utext.is_null() {
+            return Err(format!("utext_openUTF8 failed: {status}"));
+        }
+        unsafe { (self.set_text)(breaks, utext, &mut status) };
+        let result = if status > 0 {
+            Err(format!("ubrk_setUText failed: {status}"))
+        } else {
+            unsafe { (self.first)(breaks) };
+            loop {
+                let at = unsafe { (self.next)(breaks) };
+                if at == DONE {
+                    break;
+                }
+                each(at as usize, unsafe { (self.rule_status)(breaks) });
+            }
+            Ok(())
+        };
+        unsafe { (self.close_text)(utext) };
+        result
+    }
+
+    /// Runs a break iterator of `kind` over `text`, giving each boundary after
+    /// the start and its rule status.
+    fn boundaries(&self, kind: i32, text: &str, each: impl FnMut(usize, i32)) -> Result<()> {
+        let breaks = self.open(kind)?;
+        let result = self.walk(breaks, text, each);
+        unsafe { (self.close_breaks)(breaks) };
+        result
+    }
+
+    /// Byte offsets where user-perceived characters begin, followed by
+    /// `text.len()`.
+    #[cfg(test)]
+    pub fn graphemes(&self, text: &str) -> Result<Vec<usize>> {
+        let mut starts = vec![0];
+        self.boundaries(CHARACTER, text, |at, _| starts.push(at))?;
+        if text.is_empty() {
+            starts.clear();
+        }
+        Ok(starts)
+    }
+
+    /// Places a line may break, by the Unicode line breaking rules; the end
+    /// of the text is the last.
+    pub fn line_breaks(&self, text: &str) -> Result<Vec<LineBreak>> {
+        let mut breaks = Vec::new();
+        self.boundaries(LINE, text, |offset, status| breaks.push(LineBreak { offset, forced: status >= LINE_HARD }))?;
+        Ok(breaks)
+    }
+
+    /// A line break iterator to give one text after another: opening one
+    /// reads ICU's rules, which costs more than the breaks of a short text.
+    pub fn line_breaker(&'static self) -> Result<LineBreaker> {
+        Ok(LineBreaker { icu: self, breaks: self.open(LINE)? })
+    }
+}
+
+/// An open line break iterator ([`Icu::line_breaker`]). ICU's iterators are
+/// not for two threads at once, so it is not `Send`.
+pub struct LineBreaker {
+    icu: &'static Icu,
+    breaks: *mut c_void,
+}
+
+impl LineBreaker {
+    /// What [`Icu::line_breaks`] gives for `text`.
+    pub fn line_breaks(&mut self, text: &str) -> Result<Vec<LineBreak>> {
+        let mut breaks = Vec::new();
+        self.icu.walk(self.breaks, text, |offset, status| breaks.push(LineBreak { offset, forced: status >= LINE_HARD }))?;
+        Ok(breaks)
+    }
+}
+
+impl Drop for LineBreaker {
+    fn drop(&mut self) {
+        unsafe { (self.icu.close_breaks)(self.breaks) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn graphemes_keep_supplementary_and_combined_characters_whole() {
+        let icu = load().unwrap();
+        // "a", a supplementary-plane ideograph, then "e" with a combining acute.
+        assert_eq!(icu.graphemes("a\u{20bb7}e\u{301}").unwrap(), [0, 1, 5, 8]);
+        assert_eq!(icu.graphemes("").unwrap(), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn chinese_breaks_between_characters_but_not_before_a_comma() {
+        let icu = load().unwrap();
+        let offsets: Vec<usize> = icu.line_breaks("中文，测试").unwrap().iter().map(|b| b.offset).collect();
+        // 中|文，|测|试: never between 文 and ，.
+        assert_eq!(offsets, [3, 9, 12, 15]);
+    }
+
+    #[test]
+    fn a_line_breaker_gives_each_text_what_a_new_iterator_gives() {
+        let icu = load().unwrap();
+        let mut breaker = icu.line_breaker().unwrap();
+        for text in ["中文，测试", "ab cd\nef", "", "a\u{20bb7}e\u{301} 中", "中文，测试"] {
+            assert_eq!(breaker.line_breaks(text).unwrap(), icu.line_breaks(text).unwrap(), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn newlines_are_forced_breaks_and_spaces_are_opportunities() {
+        let icu = load().unwrap();
+        let breaks = icu.line_breaks("ab cd\nef").unwrap();
+        assert_eq!(breaks, [LineBreak { offset: 3, forced: false }, LineBreak { offset: 6, forced: true }, LineBreak { offset: 8, forced: false }]);
+    }
+}

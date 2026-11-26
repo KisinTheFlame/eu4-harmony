@@ -15,10 +15,10 @@
 //! and the walk's end does it once: the list stays whole under the walk, and
 //! the caches end as the game's last refresh in the walk leaves them. Every
 //! other refresh, and every other thread's, is the game's.
-use crate::called_by_game;
+use crate::base::called_by_game;
 use crate::{
-    objects::campaign::country,
-    points::{Function, Point},
+    native::objects::campaign::country,
+    native::points::{Function, Point},
 };
 use std::cell::RefCell;
 
@@ -111,7 +111,7 @@ unsafe extern "C" fn refresh(country: usize, label: usize) {
 /// filled, so that a walk reading the freed list fails there at once.
 #[called_by_game]
 extern "C" fn walk_begins(subject: usize) {
-    crate::dev::quarantine_begin("subject relation's end");
+    crate::native::probes::quarantine_begin("subject relation's end");
     let listed = listed(subject);
     if game_ends_dependencies() {
         log!("repair: off (game-ends-dependencies): a subject relation's end walks {}'s list ({listed}) as the game does", tag(subject));
@@ -123,7 +123,7 @@ extern "C" fn walk_begins(subject: usize) {
 /// The walk is over: the subject's refresh that waited is done.
 #[called_by_game]
 extern "C" fn walk_ended() {
-    crate::dev::quarantine_end();
+    crate::native::probes::quarantine_end();
     if game_ends_dependencies() {
         return;
     }
@@ -141,7 +141,7 @@ extern "C" fn walk_ended() {
 
 /// A country's tag, from its three letters.
 fn tag(country: usize) -> String {
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     match m.u64(country + country::TAG) {
         Ok(tag) => String::from_utf8_lossy(&tag.to_le_bytes()[..3]).into_owned(),
         Err(_) => "?".into(),
@@ -150,7 +150,7 @@ fn tag(country: usize) -> String {
 
 /// The tags in a country's `support_independence` list, the first 32.
 fn listed(country: usize) -> String {
-    let m = crate::hooked_memory();
+    let m = crate::native::hooked_memory();
     let mut tags = Vec::new();
     let mut node = m.ptr(country + country::SUPPORT_INDEPENDENCE).unwrap_or(0);
     while node != 0 && tags.len() < 32 {
@@ -164,11 +164,11 @@ fn listed(country: usize) -> String {
 /// A developer build's test switch `game-ends-dependencies`: a subject
 /// relation's end is the game's own, so that the defect can be tried.
 fn game_ends_dependencies() -> bool {
-    crate::dev::game_ends_dependencies()
+    crate::base::dev_options::game_ends_dependencies()
 }
 
-crate::resume!(WALK_RESUME: WALK_EMPTY_AT = PAST_WALK, WALK_FIRST_AT = WALK_FIRST);
-crate::resume!(WALKED_RESUME: WALKED_AT = PAST_WALK);
+resume!(WALK_RESUME: WALK_EMPTY_AT = PAST_WALK, WALK_FIRST_AT = WALK_FIRST);
+resume!(WALKED_RESUME: WALKED_AT = PAST_WALK);
 
 /// Replaces the start of the walk: the list's first node, and the walk
 /// marked when there is one.
@@ -180,7 +180,7 @@ extern "C" fn walk_stub() {
         "jnz 2f",
         "jmp qword ptr [rip + {empty}]",
         "2:",
-        crate::call_rust!("mov rcx, rsi", call walk_begins),
+        call_rust!("mov rcx, rsi", call walk_begins),
         "jmp qword ptr [rip + {first}]",
         list = const country::SUPPORT_INDEPENDENCE,
         walk_begins = sym walk_begins,
@@ -194,7 +194,7 @@ extern "C" fn walk_stub() {
 #[unsafe(naked)]
 extern "C" fn walked_stub() {
     std::arch::naked_asm!(
-        crate::call_rust!(call walk_ended),
+        call_rust!(call walk_ended),
         "movzx r15d, byte ptr [rbp + 0xf8]",
         "jmp qword ptr [rip + {next}]",
         walk_ended = sym walk_ended,

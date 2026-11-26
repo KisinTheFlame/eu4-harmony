@@ -1,0 +1,430 @@
+//! Hooks on the PhysFS functions that `eu4.exe` exports by name. Script files
+//! (`.gui`, `.gfx`) are read whole into a buffer before the game's lexer sees
+//! them, so the hooks serve a spliced copy of the chosen files from a buffer
+//! of our own.
+//!
+//! The detours run on whichever thread the game reads files from (GUI
+//! definitions load on the game's LoadingThread) and never call extension code.
+use crate::base::called_by_game;
+use crate::{
+    base::Result,
+    native::hooks::Call,
+    native::points::{Function, Point},
+    native::splice::{self, Plan},
+};
+use std::{
+    collections::HashMap,
+    ffi::{c_char, c_void, CStr},
+    sync::{LazyLock, Mutex, Once},
+};
+
+type File = *mut c_void;
+
+type InitFn = unsafe extern "C" fn(*const c_char) -> i32;
+type OpenReadFn = unsafe extern "C" fn(*const c_char) -> File;
+type FileLengthFn = unsafe extern "C" fn(File) -> i64;
+type ReadBytesFn = unsafe extern "C" fn(File, *mut c_void, u64) -> i64;
+type SeekFn = unsafe extern "C" fn(File, u64) -> i32;
+type TellFn = unsafe extern "C" fn(File) -> i64;
+type EofFn = unsafe extern "C" fn(File) -> i32;
+type GetRealDirFn = unsafe extern "C" fn(*const c_char) -> *const c_char;
+type CloseFn = unsafe extern "C" fn(File) -> i32;
+
+static ORIG_INIT: Function<InitFn> = Function::new();
+static ORIG_OPEN_READ: Function<OpenReadFn> = Function::new();
+static ORIG_FILE_LENGTH: Function<FileLengthFn> = Function::new();
+static ORIG_READ_BYTES: Function<ReadBytesFn> = Function::new();
+static ORIG_SEEK: Function<SeekFn> = Function::new();
+static ORIG_TELL: Function<TellFn> = Function::new();
+static ORIG_EOF: Function<EofFn> = Function::new();
+static GET_REAL_DIR: Function<GetRealDirFn> = Function::new();
+static CLOSE: Function<CloseFn> = Function::new();
+
+struct Spliced {
+    data: Vec<u8>,
+    cursor: usize,
+}
+
+struct State {
+    plan: Option<Plan>,
+    open: HashMap<usize, Spliced>,
+    /// Files the framework serves with bytes of its own, by normalized
+    /// path, whatever the file found holds.
+    served: HashMap<String, Vec<u8>>,
+}
+
+static STATE: LazyLock<Mutex<State>> = LazyLock::new(|| Mutex::new(State { plan: None, open: HashMap::new(), served: HashMap::new() }));
+static INIT_ONCE: Once = Once::new();
+static ON_FIRST_INIT: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
+
+/// Registers the callback invoked once on the first PhysFS call.
+pub(crate) fn set_on_first_init(hook: fn()) {
+    let _ = ON_FIRST_INIT.set(hook);
+}
+
+fn run_first_init() {
+    if let Some(hook) = ON_FIRST_INIT.get() {
+        hook();
+    }
+}
+
+fn state() -> std::sync::MutexGuard<'static, State> {
+    STATE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Installs the splice plan; files opened from now on are served spliced.
+pub fn set_plan(plan: Plan) {
+    state().plan = Some(plan);
+}
+
+/// Serves the file at `path`, one PhysFS finds (a framework file), with
+/// `data` from now on, whatever it holds: what the framework writes after
+/// startup for the game to read again (`crate::interface::windows`).
+pub fn serve(path: &str, data: Vec<u8>) {
+    state().served.insert(normalize(path), data);
+}
+
+/// The archive or folder PhysFS reads `path` from, as it names it.
+pub(crate) fn real_dir(path: *const c_char) -> Option<String> {
+    if GET_REAL_DIR.address() == 0 {
+        return None;
+    }
+    let dir = unsafe { GET_REAL_DIR.get()(path) };
+    (!dir.is_null()).then(|| c_str(dir))
+}
+
+fn c_str(p: *const c_char) -> String {
+    if p.is_null() {
+        return "<null>".into();
+    }
+    unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned()
+}
+
+/// Lower-cased, forward-slashed, without a leading `/` or `./`.
+pub fn normalize(path: &str) -> String {
+    let mut s = path.replace('\\', "/").to_ascii_lowercase();
+    while let Some(rest) = s.strip_prefix("./").or_else(|| s.strip_prefix('/')) {
+        s = rest.to_string();
+    }
+    s
+}
+
+#[called_by_game]
+unsafe extern "C" fn init_detour(argv0: *const c_char) -> i32 {
+    let result = ORIG_INIT.get()(argv0);
+    if result != 0 {
+        crate::base::guarded("framework files", crate::native::files::mount);
+    }
+    crate::base::guarded("PHYSFS_init", || INIT_ONCE.call_once(run_first_init));
+    result
+}
+
+#[called_by_game]
+unsafe extern "C" fn open_read_detour(path: *const c_char) -> File {
+    let handle = ORIG_OPEN_READ.get()(path);
+    crate::base::guarded("PHYSFS_openRead", || {
+        INIT_ONCE.call_once(run_first_init);
+        if handle.is_null() {
+            return;
+        }
+        let raw = c_str(path);
+        let normalized = normalize(&raw);
+        let served = state().served.get(&normalized).cloned();
+        if let Some(data) = served {
+            log!("served {raw:?}: {} bytes", data.len());
+            state().open.insert(handle as usize, Spliced { data, cursor: 0 });
+            return;
+        }
+        if !state().plan.as_ref().is_some_and(|p| p.may_add_to(&normalized)) {
+            return;
+        }
+        let real_dir = match GET_REAL_DIR.address() {
+            0 => "<n/a>".into(),
+            _ => c_str(GET_REAL_DIR.get()(path)),
+        };
+        match splice_handle(handle, &normalized) {
+            // Nothing in the file to change: read as it is.
+            Ok((_, None)) => {
+                if ORIG_SEEK.get()(handle, 0) == 0 {
+                    log!("rewind of the unchanged {raw:?} failed");
+                }
+            }
+            Ok((before, Some(data))) => {
+                log!("spliced {raw:?} from {real_dir:?}: {before} -> {} bytes", data.len());
+                state().open.insert(handle as usize, Spliced { data, cursor: 0 });
+            }
+            Err(e) => {
+                log!("splice of {raw:?} failed, serving the original: {e}");
+                if ORIG_SEEK.get()(handle, 0) == 0 {
+                    log!("rewind after a failed splice also failed");
+                }
+            }
+        }
+    });
+    handle
+}
+
+/// Reads the whole original file through the trampolines and applies the
+/// plan: the file's length, and what it becomes, None when nothing changed.
+fn splice_handle(handle: File, normalized: &str) -> Result<(usize, Option<Vec<u8>>)> {
+    let len = unsafe { ORIG_FILE_LENGTH.get()(handle) };
+    if !(0..=64 * 1024 * 1024).contains(&len) {
+        return Err(format!("unexpected file length {len}"));
+    }
+    let mut data = vec![0u8; len as usize];
+    let read = unsafe { ORIG_READ_BYTES.get()(handle, data.as_mut_ptr() as _, len as u64) };
+    if read != len {
+        return Err(format!("short read {read} of {len}"));
+    }
+    let additions = state().plan.as_ref().map(|p| p.for_file(normalized, &data)).unwrap_or_default();
+    if additions.is_empty() {
+        return Ok((len as usize, None));
+    }
+    let text = String::from_utf8(data).map_err(|e| format!("file is not UTF-8: {e}"))?;
+    let spliced = splice::apply(&text, &additions)?;
+    Ok((len as usize, (spliced != text).then(|| spliced.into_bytes())))
+}
+
+/// Reads a file the game opened, `handle`, from its start, as the game would
+/// read it: `count` bytes, or all of them with None, handed to `chunk` a piece
+/// at a time. The file is left at the end of what was read.
+pub(crate) fn read_from_start(handle: usize, count: Option<u64>, mut chunk: impl FnMut(&[u8])) -> Result<()> {
+    let handle = handle as File;
+    if unsafe { seek_detour(handle, 0) } == 0 {
+        return Err("the file could not be rewound".into());
+    }
+    let mut left = count.unwrap_or(u64::MAX);
+    let mut buffer = vec![0u8; 0x40000];
+    while left > 0 {
+        let want = left.min(buffer.len() as u64);
+        let read = unsafe { read_bytes_detour(handle, buffer.as_mut_ptr().cast(), want) };
+        if read < 0 {
+            return Err("the file could not be read".into());
+        }
+        if read == 0 {
+            break;
+        }
+        chunk(&buffer[..read as usize]);
+        left -= read as u64;
+    }
+    Ok(())
+}
+
+/// A snapshot of a text save through the already open file, leaving its
+/// position unchanged even after a failed read. The file stays open.
+pub(crate) fn text_snapshot(handle: usize) -> Result<Option<Vec<u8>>> {
+    snapshot(&mut Input(handle as File)).map_err(|e| format!("the text save could not be buffered: {e}"))
+}
+
+struct Input(File);
+
+impl std::io::Read for Input {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        let read = unsafe { read_bytes_detour(self.0, out.as_mut_ptr().cast(), out.len() as u64) };
+        usize::try_from(read).map_err(|_| std::io::Error::other("PhysFS read failed"))
+    }
+}
+
+impl std::io::Seek for Input {
+    fn seek(&mut self, from: std::io::SeekFrom) -> std::io::Result<u64> {
+        use std::io::{Error, SeekFrom};
+        let position = match from {
+            SeekFrom::Start(at) => Some(at),
+            SeekFrom::Current(by) => u64::try_from(unsafe { tell_detour(self.0) }).ok().and_then(|at| at.checked_add_signed(by)),
+            SeekFrom::End(by) => u64::try_from(unsafe { file_length_detour(self.0) }).ok().and_then(|at| at.checked_add_signed(by)),
+        }
+        .ok_or_else(|| Error::other("PhysFS position unavailable"))?;
+        if unsafe { seek_detour(self.0, position) } == 0 {
+            return Err(Error::other("PhysFS seek failed"));
+        }
+        Ok(position)
+    }
+
+    fn stream_position(&mut self) -> std::io::Result<u64> {
+        u64::try_from(unsafe { tell_detour(self.0) }).map_err(|_| std::io::Error::other("PhysFS position unavailable"))
+    }
+}
+
+/// Probe before allocating: ZIP and binary saves keep their native paths.
+/// The native memory stream's positions and lengths are signed 32-bit.
+fn snapshot(input: &mut (impl std::io::Read + std::io::Seek)) -> std::io::Result<Option<Vec<u8>>> {
+    use std::io::{Error, ErrorKind, SeekFrom};
+    let position = input.stream_position()?;
+    let result = (|| {
+        input.seek(SeekFrom::Start(0))?;
+        let mut header = [0; 6];
+        match input.read_exact(&mut header) {
+            Err(e) if e.kind() == ErrorKind::UnexpectedEof => return Ok(None),
+            other => other?,
+        }
+        if &header != b"EU4txt" {
+            return Ok(None);
+        }
+        let length = input.seek(SeekFrom::End(0))?;
+        let length = i32::try_from(length).map_err(|_| Error::other("save exceeds the memory stream's length range"))? as usize;
+        input.seek(SeekFrom::Start(0))?;
+        let mut data = Vec::new();
+        data.try_reserve_exact(length).map_err(Error::other)?;
+        data.resize(length, 0);
+        input.read_exact(&mut data)?;
+        Ok(Some(data))
+    })();
+    // Restoration is required on success, refusal and read failure alike.
+    input.seek(SeekFrom::Start(position))?;
+    result
+}
+
+/// Reads the whole of a file in the game's file system, as the game sees it
+/// (a mod's file over the game's, a DLC's archive among them), without the
+/// framework's splicing. Any thread may call it.
+pub(crate) fn read(path: &str) -> Result<Vec<u8>> {
+    let name = std::ffi::CString::new(path).map_err(|_| format!("{path:?} holds a NUL"))?;
+    let file = unsafe { ORIG_OPEN_READ.get()(name.as_ptr()) };
+    if file.is_null() {
+        return Err(format!("{path} could not be opened"));
+    }
+    let length = unsafe { ORIG_FILE_LENGTH.get()(file) };
+    let mut data = vec![0u8; usize::try_from(length).unwrap_or(0)];
+    let read = unsafe { ORIG_READ_BYTES.get()(file, data.as_mut_ptr().cast(), data.len() as u64) };
+    unsafe { CLOSE.get()(file) };
+    if length < 0 || read != length {
+        return Err(format!("{path} could not be read"));
+    }
+    Ok(data)
+}
+
+#[called_by_game]
+unsafe extern "C" fn file_length_detour(handle: File) -> i64 {
+    if let Some(s) = state().open.get(&(handle as usize)) {
+        return s.data.len() as i64;
+    }
+    ORIG_FILE_LENGTH.get()(handle)
+}
+
+#[called_by_game]
+unsafe extern "C" fn read_bytes_detour(handle: File, buf: *mut c_void, len: u64) -> i64 {
+    {
+        let mut st = state();
+        if let Some(s) = st.open.get_mut(&(handle as usize)) {
+            if buf.is_null() {
+                return -1;
+            }
+            let n = (len as usize).min(s.data.len().saturating_sub(s.cursor));
+            std::ptr::copy_nonoverlapping(s.data.as_ptr().add(s.cursor), buf as *mut u8, n);
+            s.cursor += n;
+            return n as i64;
+        }
+    }
+    ORIG_READ_BYTES.get()(handle, buf, len)
+}
+
+#[called_by_game]
+unsafe extern "C" fn seek_detour(handle: File, pos: u64) -> i32 {
+    {
+        let mut st = state();
+        if let Some(s) = st.open.get_mut(&(handle as usize)) {
+            if pos as usize > s.data.len() {
+                return 0;
+            }
+            s.cursor = pos as usize;
+            return 1;
+        }
+    }
+    ORIG_SEEK.get()(handle, pos)
+}
+
+#[called_by_game]
+unsafe extern "C" fn tell_detour(handle: File) -> i64 {
+    if let Some(s) = state().open.get(&(handle as usize)) {
+        return s.cursor as i64;
+    }
+    ORIG_TELL.get()(handle)
+}
+
+#[called_by_game]
+unsafe extern "C" fn eof_detour(handle: File) -> i32 {
+    if let Some(s) = state().open.get(&(handle as usize)) {
+        return (s.cursor >= s.data.len()) as i32;
+    }
+    ORIG_EOF.get()(handle)
+}
+
+/// `PHYSFS_close` is only observed: a spliced copy is dropped as its file
+/// closes.
+fn close_before(call: &mut Call) {
+    let handle = call.arg(0);
+    state().open.remove(&handle);
+}
+
+/// Every PhysFS function the core detours, observes or calls, by export name.
+pub fn points() -> Vec<Point> {
+    vec![
+        Point::replace(c"PHYSFS_init", "40 56 48 83 ec 20 83 3d 33 1a 94 00 00 48 8b f1", "PhysFS init", init_detour as InitFn, &ORIG_INIT),
+        Point::replace(c"PHYSFS_openRead", "40 55 48 83 ec 30 48 8d 6c 24 20 48 89 5d 20 48", "PhysFS open", open_read_detour as OpenReadFn, &ORIG_OPEN_READ),
+        Point::replace(c"PHYSFS_fileLength", "48 8b 01 48 8b c8 48 ff 60 30", "PhysFS file length", file_length_detour as FileLengthFn, &ORIG_FILE_LENGTH),
+        Point::replace(
+            c"PHYSFS_readBytes",
+            "40 53 56 41 56 48 83 ec 20 48 b8 ff ff ff ff ff",
+            "PhysFS read",
+            read_bytes_detour as ReadBytesFn,
+            &ORIG_READ_BYTES,
+        ),
+        Point::replace(c"PHYSFS_seek", "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57", "PhysFS seek", seek_detour as SeekFn, &ORIG_SEEK),
+        Point::replace(c"PHYSFS_tell", "40 53 48 83 ec 20 48 8b 01 48 8b d9 48 8b c8 ff", "PhysFS tell", tell_detour as TellFn, &ORIG_TELL),
+        Point::replace(c"PHYSFS_eof", "40 57 48 83 ec 20 80 79 08 00 74 41 48 8b 41 28", "PhysFS end of file", eof_detour as EofFn, &ORIG_EOF),
+        Point::observe(c"PHYSFS_close", "48 89 5c 24 08 57 48 83 ec 20 48 8b f9 48 8b 0d", "PhysFS close", 1, Some(close_before), None).recorded(CLOSE.slot()),
+        Point::keep(c"PHYSFS_getRealDir", "48 83 ec 28 e8 37 38 00 00 48 85 c0 74 09 48 8b", "PhysFS real directory").recorded(GET_REAL_DIR.slot()),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize;
+
+    #[test]
+    fn normalizes_separators_case_and_leading_dots() {
+        assert_eq!(normalize("Interface\\UnitPanel_Main.GUI"), "interface/unitpanel_main.gui");
+        assert_eq!(normalize("./interface/x.gui"), "interface/x.gui");
+        assert_eq!(normalize("/interface/x.gui"), "interface/x.gui");
+    }
+
+    #[test]
+    fn a_text_snapshot_preserves_bytes_and_the_original_position() {
+        use std::io::Cursor;
+        let bytes = b"EU4txt\nquoted=\"a\\\"b\"\r\nchecksum=\"unchanged\"";
+        let mut input = Cursor::new(bytes);
+        input.set_position(17);
+        assert_eq!(super::snapshot(&mut input).unwrap().unwrap(), bytes);
+        assert_eq!(input.position(), 17);
+        for bytes in [b"PK\x03\x04zip".as_slice(), b"EU4bin", b"EU4"] {
+            let mut input = Cursor::new(bytes);
+            input.set_position(2);
+            assert!(super::snapshot(&mut input).unwrap().is_none());
+            assert_eq!(input.position(), 2);
+        }
+    }
+
+    #[test]
+    fn a_failed_snapshot_restores_the_position() {
+        use std::io::{Cursor, Read, Seek, SeekFrom};
+        struct Interrupted(Cursor<&'static [u8]>, usize);
+        impl Read for Interrupted {
+            fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+                self.1 += 1;
+                if self.1 > 1 {
+                    return Err(std::io::Error::other("read failure after the header"));
+                }
+                self.0.read(out)
+            }
+        }
+        impl Seek for Interrupted {
+            fn seek(&mut self, at: SeekFrom) -> std::io::Result<u64> {
+                self.0.seek(at)
+            }
+        }
+        let mut input = Interrupted(Cursor::new(b"EU4txt\ndata"), 0);
+        input.0.set_position(4);
+        assert!(super::snapshot(&mut input).is_err());
+        assert_eq!(input.0.position(), 4);
+    }
+}

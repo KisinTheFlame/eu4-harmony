@@ -15,9 +15,9 @@
 //! ([`super::waiting`]).
 use super::waiting::{Kind, Moment, Waiting};
 use crate::{
-    hooks::Call,
-    memory::Memory,
-    points::{GameFunction, Point},
+    native::hooks::Call,
+    native::memory::Memory,
+    native::points::{GameFunction, Point},
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -59,7 +59,7 @@ fn replacing(call: &mut Call) {
             return Ok(Vec::new());
         }
         let (begin, end) = (m.ptr(database + NODES)?, m.ptr(database + NODES + 8)?);
-        (begin..end).step_by(8).map(|at| m.ptr(at)).filter(|n| !matches!(n, Ok(0))).collect::<crate::Result<Vec<_>>>()
+        (begin..end).step_by(8).map(|at| m.ptr(at)).filter(|n| !matches!(n, Ok(0))).collect::<crate::base::Result<Vec<_>>>()
     })();
     match nodes {
         Ok(nodes) => {
@@ -99,7 +99,7 @@ pub(super) fn points() -> Vec<Point> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::buffers::{Image, Object};
+    use crate::fake_game::buffers::{Image, Object};
     use std::sync::Mutex;
 
     /// The nodes the test's deleting destructor was called with, and its

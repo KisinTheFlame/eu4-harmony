@@ -23,7 +23,7 @@
 //! out, not for play. A block freed and made again at the same start between
 //! the two parts passes for the one read.
 use super::{report, start_on, stop, Watch, GAME_READS_ONLY, STARTED, WHO_WROTE};
-use crate::memory::Memory;
+use crate::native::memory::Memory;
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 
 const OFF: u8 = 0;
@@ -52,7 +52,7 @@ pub fn day_begins(m: &Memory) {
             log!("write watch: the drawing thread's next {} frame(s) watched for what they read", options.drawing_frames);
         }
         READ => {
-            let watch = Watch { reads: false, first_read: false, thread: crate::main_thread(), hold: false, only_seen: true };
+            let watch = Watch { reads: false, first_read: false, thread: crate::base::main_thread(), hold: false, only_seen: true };
             WHO_WROTE.store(true, Ordering::Release);
             match start_on(m, watch) {
                 Ok(what) => {
@@ -69,7 +69,7 @@ pub fn day_begins(m: &Memory) {
         }
         WATCHING if DAYS_WATCHED.fetch_add(1, Ordering::Relaxed) + 1 >= options.drawing_days => {
             stop();
-            report(crate::drawing::drawing_rva(), 0, false);
+            report(crate::render::drawing::drawing_rva(), 0, false);
             WHO_WROTE.store(false, Ordering::Release);
             PHASE.store(DONE, Ordering::Release);
             log!("write watch: done, {} day(s) watched", options.drawing_days);
@@ -86,7 +86,7 @@ pub fn frame_begins(m: &Memory) -> bool {
     }
     let first = FRAMES_READ.load(Ordering::Relaxed) == 0;
     GAME_READS_ONLY.store(true, Ordering::Release);
-    let watch = Watch { reads: true, first_read: first, thread: crate::thread_id(), hold: true, only_seen: false };
+    let watch = Watch { reads: true, first_read: first, thread: crate::base::thread_id(), hold: true, only_seen: false };
     match start_on(m, watch) {
         Ok(what) => {
             *STARTED.lock().unwrap_or_else(|e| e.into_inner()) = what;
@@ -110,7 +110,7 @@ pub fn frame_ends(watched: bool) {
     stop();
     GAME_READS_ONLY.store(false, Ordering::Release);
     let n = FRAMES_READ.fetch_add(1, Ordering::Relaxed) + 1;
-    report(crate::drawing::drawing_rva(), n, true);
+    report(crate::render::drawing::drawing_rva(), n, true);
     if n >= super::super::options::options().write_watch.drawing_frames {
         PHASE.store(READ, Ordering::Release);
     }

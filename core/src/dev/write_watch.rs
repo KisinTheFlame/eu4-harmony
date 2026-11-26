@@ -38,11 +38,11 @@
 //! is for finding out, not for play.
 pub mod drawing;
 
-use crate::called_by_game;
-use crate::hooks::Call;
-use crate::memory::Memory;
-use crate::objects::campaign;
-use crate::points::Point;
+use crate::base::called_by_game;
+use crate::native::hooks::Call;
+use crate::native::memory::Memory;
+use crate::native::objects::campaign;
+use crate::native::points::Point;
 use eu4_harmony_analysis as analysis;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::OnceLock;
@@ -62,7 +62,7 @@ use windows_sys::Win32::System::Threading::{
     THREAD_QUERY_INFORMATION, THREAD_SUSPEND_RESUME,
 };
 
-use crate::memory::PAGE;
+use crate::native::memory::PAGE;
 /// A heap entry that is an allocated block (winnt.h).
 const PROCESS_HEAP_ENTRY_BUSY: u32 = 4;
 /// The groups the table holds; writes past them are only counted.
@@ -273,7 +273,7 @@ fn open_threads(a: &Arena) -> usize {
     while more && n < HELD {
         // The threads that write a save's countries and provinces with the
         // main thread go on, and their writes are watched too.
-        let writes_saves = crate::saving::parallel::threads().contains(&entry.th32ThreadID);
+        let writes_saves = crate::speed::saving::parallel::threads().contains(&entry.th32ThreadID);
         if entry.th32OwnerProcessID == process && entry.th32ThreadID != me && entry.th32ThreadID != watchdog && !writes_saves {
             let h = unsafe { OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, 0, entry.th32ThreadID) };
             // A thread of a module `let-run` names goes on, what it reads and
@@ -640,12 +640,12 @@ fn record(a: &Arena, context: &CONTEXT, address: usize, thread: u32, kind: u8) {
     }
     let main = if who_wrote {
         if thread == MAIN.load(Ordering::Relaxed) {
-            if crate::drawing::main_holds() {
+            if crate::render::drawing::main_holds() {
                 MAIN_LOCKED
             } else {
                 MAIN_UNLOCKED
             }
-        } else if crate::drawing::is_drawing_thread() {
+        } else if crate::render::drawing::is_drawing_thread() {
             DRAWING_THREAD
         } else {
             OTHER_THREAD
@@ -749,7 +749,7 @@ unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
 /// of what was read, emptied first at the round's first reading call; or
 /// its writes, those to what the round's reading calls read marked.
 fn start(m: &Memory, reads: bool, first_read: bool) -> Result<String, String> {
-    start_on(m, Watch { reads, first_read, thread: crate::main_thread(), hold: true, only_seen: false })
+    start_on(m, Watch { reads, first_read, thread: crate::base::main_thread(), hold: true, only_seen: false })
 }
 
 /// What a watch watches: reads or writes, the thread it is for, whether the
@@ -773,7 +773,7 @@ fn start_on(m: &Memory, w: Watch) -> Result<String, String> {
     // count lies in the entry or, in some Windows versions, in a block of its
     // own the entry points to at +0x10.
     let mut kept = vec![entry & !(PAGE - 1), (entry + 0x30) & !(PAGE - 1)];
-    if let Ok(count) = crate::memory().ok_or(()).and_then(|m| m.ptr(entry + 0x10).map_err(|_| ())) {
+    if let Ok(count) = crate::native::memory().ok_or(()).and_then(|m| m.ptr(entry + 0x10).map_err(|_| ())) {
         if count != 0 {
             kept.extend([count & !(PAGE - 1), (count + 8) & !(PAGE - 1)]);
         }
@@ -1044,7 +1044,7 @@ fn before(call: &mut Call) {
     // counts; the observed function is looked up in the hooks' registry, a
     // read of the heap the watch may record.
     if WATCHING.load(Ordering::SeqCst) != NONE {
-        if crate::thread_id() == crate::main_thread() && call.observed() == Some(WATCHING_ADDRESS.load(Ordering::SeqCst)) {
+        if crate::base::thread_id() == crate::base::main_thread() && call.observed() == Some(WATCHING_ADDRESS.load(Ordering::SeqCst)) {
             DEPTH.fetch_add(1, Ordering::SeqCst);
         }
         return;
@@ -1053,7 +1053,7 @@ fn before(call: &mut Call) {
     let Some(address) = call.observed() else { return };
     let Some(index) = w.index(address) else { return };
     let m = call.memory();
-    if crate::thread_id() != crate::main_thread() || !begun(w, &m) || CALLS.load(Ordering::SeqCst) >= w.calls {
+    if crate::base::thread_id() != crate::base::main_thread() || !begun(w, &m) || CALLS.load(Ordering::SeqCst) >= w.calls {
         return;
     }
     let done = READ_DONE.load(Ordering::SeqCst);
@@ -1083,7 +1083,7 @@ fn after(call: &mut Call) {
     // Before anything else, so that the framework's own work here is not
     // watched; a return from within the watched call only counts.
     let index = WATCHING.load(Ordering::SeqCst);
-    if index == NONE || crate::thread_id() != crate::main_thread() || call.observed() != Some(WATCHING_ADDRESS.load(Ordering::SeqCst)) {
+    if index == NONE || crate::base::thread_id() != crate::base::main_thread() || call.observed() != Some(WATCHING_ADDRESS.load(Ordering::SeqCst)) {
         return;
     }
     if DEPTH.load(Ordering::SeqCst) > 0 {

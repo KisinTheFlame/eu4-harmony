@@ -1,0 +1,214 @@
+//! Localisation in the core, in the player language (`lang`): the
+//! framework's own texts, the texts each mod ships in
+//! `eu4-harmony/localisation/` (format in `eu4_harmony_loc`), and the splice
+//! that adds the mods' keys to the game's own localisation, so that their
+//! `.gui` fragments can name them like any vanilla key.
+use super::{dev_options, lang, mods::DiscoveredMod};
+use eu4_harmony_loc::{self as format, Catalog, Language};
+use std::collections::BTreeMap;
+use std::sync::{LazyLock, RwLock};
+
+static FRAMEWORK: LazyLock<Catalog> = LazyLock::new(|| {
+    let mut catalog = Catalog::default();
+    for source in [
+        include_str!("../../localisation/eu4harmony_l_english.yml"),
+        include_str!("../../localisation/eu4harmony_l_french.yml"),
+        include_str!("../../localisation/eu4harmony_l_german.yml"),
+        include_str!("../../localisation/eu4harmony_l_spanish.yml"),
+        include_str!("../../localisation/eu4harmony_l_simp_chinese.yml"),
+    ] {
+        catalog.add(format::parse(source).expect("the framework's localisation parses"));
+    }
+    for source in dev_options::localisations() {
+        catalog.add(format::parse(source).expect("the developer build's localisation parses"));
+    }
+    catalog
+});
+
+/// The catalogs of the mods taking part, by mod id.
+static MODS: RwLock<BTreeMap<String, Catalog>> = RwLock::new(BTreeMap::new());
+
+/// A framework text in `language`, with its `$NAME$` values filled in.
+pub fn framework(language: Language, key: &str, args: &[(&str, &str)]) -> String {
+    format::fill(&FRAMEWORK.text(language, key).unwrap_or_else(|| key.to_string()), args)
+}
+
+/// A framework text `language` has of its own, with its `$NAME$` values
+/// filled in; `None` when only another language has it. For texts a language
+/// gives only where it differs from what the game does (date formats).
+pub fn framework_own(language: Language, key: &str, args: &[(&str, &str)]) -> Option<String> {
+    FRAMEWORK.raw_in(language, key).map(|raw| format::fill(&format::unescape(raw), args))
+}
+
+/// A mod's text in the player language; `None` when the mod has no such key.
+pub fn mod_text(id: &str, key: &str) -> Option<String> {
+    MODS.read().unwrap_or_else(|e| e.into_inner()).get(id)?.text(lang::player(), key)
+}
+
+/// The texts a mod had before an extension reload read them again, which
+/// [`restore_mod`] puts back when the new code does not load.
+pub struct Earlier(Option<Catalog>);
+
+/// Reads the mod `id`'s localisation again from its `eu4-harmony/` folder,
+/// for an extension reload, before its new code loads: the new code's
+/// layouts are checked against them, and `text.get` gives them. What was
+/// spliced into the game's own localisation at startup stays. Returns
+/// problems for the log, and the texts it took the place of.
+pub fn reload_mod(id: &str, harmony: &std::path::Path) -> (Vec<String>, Earlier) {
+    let (catalog, problems) = format::load_dir(&harmony.join("localisation"));
+    let earlier = MODS.write().unwrap_or_else(|e| e.into_inner()).insert(id.to_string(), catalog);
+    (problems, Earlier(earlier))
+}
+
+/// Puts back the texts the mod `id` had before [`reload_mod`], for the old
+/// code that goes on.
+pub fn restore_mod(id: &str, Earlier(earlier): Earlier) {
+    let mut mods = MODS.write().unwrap_or_else(|e| e.into_inner());
+    match earlier {
+        Some(catalog) => mods.insert(id.to_string(), catalog),
+        None => mods.remove(id),
+    };
+}
+
+/// The vanilla file the mods' keys are appended to. The game loads it in
+/// every language it runs in.
+fn target(game: Language) -> String {
+    format!("localisation/text_l_{}.yml", game.id())
+}
+
+/// Loads the localisation of `mods` (those taking part, in playset order) and
+/// returns problems for the log and report together with the optional
+/// `(vanilla_file, appended_text)` entry to splice into the game's localisation.
+pub fn install(language: &lang::Decision, mods: &[&DiscoveredMod]) -> (Vec<String>, Option<(String, String)>) {
+    let player = language.player;
+    let mut notes = Vec::new();
+    let mut catalogs = BTreeMap::new();
+    let mut owners: BTreeMap<String, String> = BTreeMap::new();
+    let mut lines = String::new();
+    for m in mods {
+        let id = &m.manifest.id;
+        let (catalog, problems) = format::load_dir(&m.dir.join("eu4-harmony").join("localisation"));
+        notes.extend(problems.into_iter().map(|p| format!("{id}: localisation/{p}")));
+        for key in catalog.keys() {
+            if let Some(owner) = owners.get(key) {
+                notes.push(format!("{id}: localisation key {key} is already defined by {owner}; the game shows that text"));
+                continue;
+            }
+            let Some(raw) = catalog.raw(player, key) else { continue };
+            owners.insert(key.to_string(), id.clone());
+            // As written: the Unicode module keeps the game's text in UTF-8.
+            lines.push_str(&format!(" {key}:0 \"{raw}\"\n"));
+        }
+        catalogs.insert(id.clone(), catalog);
+    }
+    let appended = (!lines.is_empty()).then(|| (target(language.game), format!("# EU4 Harmony: mod texts in {}\n{lines}", player.id())));
+    log!("localisation: {} key(s) of {} mod(s) in {}", owners.len(), catalogs.len(), player.id());
+    *MODS.write().unwrap_or_else(|e| e.into_inner()) = catalogs;
+    (notes, appended)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn framework_texts_exist_in_every_language() {
+        // The `$NAME$` values a text fills in, and its line breaks.
+        let shape = |text: &str| (text.split('$').skip(1).step_by(2).map(str::to_string).collect::<BTreeSet<_>>(), text.matches("\\n").count());
+        // Wording templates: only a language that orders things its own way
+        // has them, and they may use only their own values.
+        let template = |key: &str| crate::text::wording::TEMPLATES.iter().find(|(k, _)| *k == key).map(|(_, names)| *names);
+        let required = |language| FRAMEWORK.keys_in(language).into_iter().filter(|k| template(k).is_none()).collect::<BTreeSet<_>>();
+        // The languages the framework has texts in; the others show English's.
+        for language in Language::ALL.into_iter().filter(|l| !FRAMEWORK.keys_in(*l).is_empty()) {
+            assert_eq!(required(language), required(Language::English), "{language:?}");
+            for key in FRAMEWORK.keys_in(language).into_iter().filter(|k| k.starts_with("EU4HARMONY_DATE") || template(k).is_some()) {
+                let allowed = template(key).unwrap_or_else(|| panic!("{key} is not a wording template"));
+                let (names, _) = shape(FRAMEWORK.raw_in(language, key).unwrap());
+                assert!(names.iter().all(|n| allowed.contains(&n.as_str())), "{language:?} {key}: {names:?}");
+            }
+            for key in required(language) {
+                let (text, english) = (FRAMEWORK.raw(language, key).unwrap(), FRAMEWORK.raw(Language::English, key).unwrap());
+                assert_eq!(shape(text), shape(english), "{language:?} {key}");
+            }
+            let text = framework(language, "EU4HARMONY_NOTICE_TITLE_MORE", &[("COUNT", "2")]);
+            assert!(text.contains('2') && !text.contains("$COUNT$"), "{text}");
+            if matches!(language, Language::SimpChinese | Language::TradChinese) {
+                for key in FRAMEWORK.keys_in(language) {
+                    let text = FRAMEWORK.raw_in(language, key).unwrap();
+                    assert!(
+                        !text.chars().any(|c| matches!(c, '"' | '\'' | '“' | '”' | '‘' | '’')),
+                        "{language:?} {key} uses single/double quotes instead of corner brackets 「」/『』: {text}"
+                    );
+                }
+            }
+        }
+        assert_eq!(framework(Language::Russian, "EU4HARMONY_SETTINGS_SAVE", &[]), "Save");
+        assert!(framework(Language::English, "EU4HARMONY_NOT_LOADED", &[("MOD", "X"), ("DETAIL", "d")]).contains("\"X\" was not loaded:\nd"));
+    }
+
+    /// Held by the tests that change the mods' texts, which are the whole
+    /// process's.
+    static MODS_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn a_reload_s_texts_go_back_when_its_code_does_not_load() {
+        let _held = MODS_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("eu4h-reload-loc-{}", std::process::id()));
+        let loc = dir.join("localisation");
+        std::fs::create_dir_all(&loc).unwrap();
+        std::fs::write(
+            loc.join("r_l_english.yml"),
+            "l_english:
+ R_OLD:0 \"Old\"
+",
+        )
+        .unwrap();
+        let (_, first) = reload_mod("r", &dir);
+        std::fs::write(
+            loc.join("r_l_english.yml"),
+            "l_english:
+ R_NEW:0 \"New\"
+",
+        )
+        .unwrap();
+        let (problems, earlier) = reload_mod("r", &dir);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(mod_text("r", "R_NEW").as_deref(), Some("New"), "the new code is checked against the new texts");
+        restore_mod("r", earlier);
+        assert_eq!((mod_text("r", "R_OLD").as_deref(), mod_text("r", "R_NEW")), (Some("Old"), None), "the old code goes on with its own");
+        restore_mod("r", first);
+        assert_eq!(mod_text("r", "R_OLD"), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn mod_keys_are_appended_to_the_game_language_file() {
+        let _held = MODS_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("eu4h-loc-{}", std::process::id()));
+        let loc = dir.join("eu4-harmony").join("localisation");
+        std::fs::create_dir_all(&loc).unwrap();
+        std::fs::write(loc.join("t_l_english.yml"), "l_english:\n T_APPLY:0 \"Apply\"\n T_ONLY:0 \"English\"\n").unwrap();
+        std::fs::write(loc.join("t_l_german.yml"), "l_german:\n T_APPLY:0 \"Übernehmen\"\n").unwrap();
+        let m = crate::base::mods::DiscoveredMod {
+            descriptor: crate::base::mods::Descriptor { name: "T".into(), version: None, path: Some(dir.clone()), archive: None },
+            dir: dir.clone(),
+            manifest: crate::base::mods::Manifest::parse(
+                "id = \"t\"
+api_version = \"0.3\"",
+            )
+            .unwrap(),
+            layout: Default::default(),
+        };
+        // A German player in a game that runs in English.
+        let language = lang::Decision { player: Language::German, game: Language::English, reason: String::new() };
+        let (notes, appended) = install(&language, &[&m]);
+        assert!(notes.is_empty(), "{notes:?}");
+        let (file, text) = appended.unwrap();
+        assert_eq!(file, "localisation/text_l_english.yml");
+        assert!(text.contains(" T_APPLY:0 \"Übernehmen\"\n") && text.contains(" T_ONLY:0 \"English\"\n"), "{text}");
+        assert_eq!(mod_text("t", "T_APPLY").as_deref(), Some("Apply"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}

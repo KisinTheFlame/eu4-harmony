@@ -16,10 +16,10 @@
 //! only what owns a window kills it.
 use super::{interface_parts::TAKE_WINDOW_OFF, LettingGo};
 use crate::{
-    hooks::Call,
-    memory::Memory,
-    objects::gui::window as gui_window,
-    points::{GameFunction, Point},
+    native::hooks::Call,
+    native::memory::Memory,
+    native::objects::gui::window as gui_window,
+    native::points::{GameFunction, Point},
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -36,7 +36,7 @@ fn since_reset() -> String {
 }
 
 /// Kills the window at `owner + field`, if there is one, and forgets it there.
-fn kill_field(m: &Memory, owner: usize, field: usize) -> crate::Result<()> {
+fn kill_field(m: &Memory, owner: usize, field: usize) -> crate::base::Result<()> {
     let window = m.ptr(owner + field)?;
     if window != 0 {
         m.write(owner + field, &0usize.to_le_bytes())?;
@@ -45,14 +45,14 @@ fn kill_field(m: &Memory, owner: usize, field: usize) -> crate::Result<()> {
     Ok(())
 }
 
-fn kill(m: &Memory, window: usize) -> crate::Result<()> {
+fn kill(m: &Memory, window: usize) -> crate::base::Result<()> {
     m.call(m.vslot(window, gui_window::KILL)?, &[window])?;
     KILLED.fetch_add(1, Ordering::Relaxed);
     Ok(())
 }
 
 /// Runs a repair as an owner goes, logging what failed.
-fn going(m: Memory, what: &str, f: impl FnOnce(&Memory) -> crate::Result<()>) {
+fn going(m: Memory, what: &str, f: impl FnOnce(&Memory) -> crate::base::Result<()>) {
     let _letting_go = LettingGo::new("panel's window");
     if let Err(e) = f(&m) {
         log!("repair: {what}: not let go: {e}");
@@ -177,7 +177,7 @@ fn build_interface_going(call: &mut Call) {
             let list_box = m.ptr(building + TAB_LIST_BOX)?;
             if list_box != 0 && m.vslot(list_box, LIST_BOX_DETACH_SLOT)? == m.at(LIST_BOX_DETACH) {
                 let mut theirs = false;
-                for node in crate::containers::chain(m, m.ptr(list_box + LIST_BOX_ENTRIES)?, LIST_BOX_NODE_NEXT, crate::containers::MOST)? {
+                for node in crate::native::containers::chain(m, m.ptr(list_box + LIST_BOX_ENTRIES)?, LIST_BOX_NODE_NEXT, crate::native::containers::MOST)? {
                     if within(m.ptr(node)?.wrapping_sub(ENTRY_PART)) {
                         theirs = true;
                         break;

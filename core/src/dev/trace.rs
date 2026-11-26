@@ -19,10 +19,10 @@
 //! The count comes from the function's code ([`eu4_harmony_analysis::arguments`]);
 //! `RVA:N` gives it for a function the exception directory has no entry for
 //! (a leaf), or overrides it.
-use crate::hooks::Call;
-use crate::memory::Memory;
-use crate::points::Point;
-use crate::unicode::game_text;
+use crate::native::hooks::Call;
+use crate::native::memory::Memory;
+use crate::native::points::Point;
+use crate::text::unicode::game_text;
 use eu4_harmony_analysis as analysis;
 use std::cell::RefCell;
 use std::io::Write as _;
@@ -87,7 +87,7 @@ fn time_line(t: &Time, main: u32) -> String {
 /// Writes the timed calls once a second into `call-times.tsv` in the logs
 /// folder, a new file each run.
 fn write_times() {
-    let path = match crate::paths::game_dir().and_then(|dir| crate::paths::user_dir(&dir)) {
+    let path = match crate::base::paths::game_dir().and_then(|dir| crate::base::paths::user_dir(&dir)) {
         Ok(dir) => eu4_harmony_folders::UserFolder::new(dir).logs().join("call-times.tsv"),
         Err(e) => {
             log!("trace: the times are not written: {e}");
@@ -107,7 +107,7 @@ fn write_times() {
     loop {
         std::thread::sleep(Duration::from_secs(1));
         let times = std::mem::take(&mut *TIMES.lock().unwrap_or_else(|e| e.into_inner()));
-        let main = crate::main_thread();
+        let main = crate::base::main_thread();
         for t in &times {
             let _ = file.write_all(time_line(t, main).as_bytes());
         }
@@ -122,7 +122,7 @@ fn text_at(m: &Memory, p: usize) -> Option<String> {
         let text = game_text::to_utf8(bytes);
         (text.chars().count() >= 2 && !text.chars().any(|c| c.is_control() && c != '\n' && c != '\t')).then_some(text)
     };
-    use crate::game_string::{CAPACITY, INLINE, SIZE};
+    use crate::native::game_string::{CAPACITY, INLINE, SIZE};
     if let (Ok(size), Ok(capacity)) = (m.u64(p + SIZE), m.u64(p + CAPACITY)) {
         if (INLINE as u64..1 << 20).contains(&capacity) && size <= capacity {
             let data = if capacity <= INLINE as u64 { Some(p) } else { m.ptr(p).ok() };
@@ -151,10 +151,10 @@ fn before(call: &mut Call) {
         let argument = call.arg(0);
         Time {
             rva: traced.rva,
-            thread: crate::thread_id(),
+            thread: crate::base::thread_id(),
             start: origin.elapsed(),
             end: Duration::ZERO,
-            date: crate::game::world_context_any(&m).ok().map(|w| w.date),
+            date: crate::world::world_context_any(&m).ok().map(|w| w.date),
             argument,
             field: traced.field.and_then(|f| m.u64(argument.wrapping_add(f)).ok()),
         }
@@ -265,7 +265,7 @@ impl Chosen {
             return;
         }
         if options.times && TIMED.set(Instant::now()).is_ok() {
-            let writer = std::thread::Builder::new().name("eu4-harmony call times".into()).spawn(|| crate::guarded("trace", write_times));
+            let writer = std::thread::Builder::new().name("eu4-harmony call times".into()).spawn(|| crate::base::guarded("trace", write_times));
             if let Err(e) = writer {
                 log!("trace: the times are not written: {e}");
             }

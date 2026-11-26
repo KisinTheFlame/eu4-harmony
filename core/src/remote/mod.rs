@@ -1,7 +1,7 @@
 //! Remote control's engine (ADR remote-control-engine-and-transports).
 //! Transports hand it typed requests from any thread ([`submit`]); it runs them
 //! at the safe points (`crate::safe_point`) on the game's main thread, through
-//! the capability catalogue (`crate::catalogue`), each as the player or as the
+//! the capability catalogue (`crate::capabilities::catalogue`), each as the player or as the
 //! game as it asks (ADR requests-act-as-the-player-or-as-the-game), within a
 //! time budget per frame,
 //! and hands the responses back. A request that waits, such as one for the
@@ -19,11 +19,12 @@
 //! again, and the numbers start again with it; an in-process return keeps
 //! them. The restart ends this process's engine ([`Engine::end`]), whoever
 //! asked for the return: from then on it answers at once.
+pub(crate) mod pipe;
 #[cfg(test)]
 mod tests;
 
-use crate::catalogue::{self, menu, signals, Catalogue, Live, Place, Wait};
-use crate::game::{self, As, Heard};
+use crate::capabilities::catalogue::{self, menu, signals, Catalogue, Live, Place, Wait};
+use crate::capabilities::game::{self, As, Heard};
 use eu4_harmony_remote::{signals::Signal, Code, Error, Request, Response};
 use std::{
     collections::VecDeque,
@@ -167,6 +168,7 @@ impl Engine {
 
     /// Queues a request as the player, from any thread; once the process
     /// ends, answers it at once.
+    #[cfg(test)]
     pub fn submit(&self, request: Request) -> Reply {
         self.submit_as(request, As::Player)
     }
@@ -437,28 +439,18 @@ pub fn submit(request: Request, acting: As) -> Reply {
     ENGINE.submit_as(request, acting)
 }
 
-/// Remote control, as it hears the sessions' ends and the game's safe frames
-/// (`crate::safe_point`).
-pub(crate) struct Remote;
+/// Kept as a signal; the requests sent from now on belong to the next
+/// session.
+pub(crate) fn session_ended(end: crate::session::sessions::End) {
+    ENGINE.session_ended(end.reason());
+}
 
-impl crate::safe_point::Listener for Remote {
-    fn name(&self) -> &'static str {
-        "remote control"
-    }
-
-    /// Kept as a signal; the requests sent from now on belong to the next
-    /// session.
-    fn ended(&self, end: crate::sessions::End) {
-        ENGINE.session_ended(end.reason());
-    }
-
-    /// Keeps what extensions just heard, then runs at the game's frame.
-    fn frame(&self, session: u64, heard: &[Heard]) {
-        ENGINE.hear(heard.iter().cloned());
-        ENGINE.enter(session);
-        crate::sessions::set_at(crate::sessions::At::Game);
-        ENGINE.run(&mut Live(game::Caller::Remote(As::Player)), &Place::Game, BUDGET);
-    }
+/// Keeps what extensions just heard, then runs at the game's frame.
+pub(crate) fn safe_frame(session: u64, heard: &[Heard]) {
+    ENGINE.hear(heard.iter().cloned());
+    ENGINE.enter(session);
+    crate::session::sessions::set_at(crate::session::sessions::At::Game);
+    ENGINE.run(&mut Live(game::Caller::Remote(As::Player)), &Place::Game, BUDGET);
 }
 
 /// The campaign changes (a save begins to load): requests that need a game

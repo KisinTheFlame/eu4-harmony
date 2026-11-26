@@ -6,7 +6,7 @@
 //! Here is what they share: letting the game's memory go ([`LettingGo`]),
 //! what waits to be let go until the game can no longer use it
 //! ([`waiting`]), and the moments of the sessions a repair acts on, which the
-//! sessions tell (`crate::sessions`) and a repair declares: the main menu
+//! sessions tell (`crate::session::sessions`) and a repair declares: the main menu
 //! shown, the world's clear, the world's reset, after which all say what they
 //! did, the history read after it, and the first frame after it.
 mod ai_draws;
@@ -35,7 +35,7 @@ mod waiting;
 
 pub use session_interface::SessionInterface;
 
-use crate::{memory::Memory, points::Point};
+use crate::{native::memory::Memory, native::points::Point};
 
 /// While it lives, `repair` lets the game's memory go on this thread: a
 /// developer build's quarantine keeps what is freed then, while it is on
@@ -45,18 +45,18 @@ struct LettingGo;
 
 impl LettingGo {
     fn new(repair: &'static str) -> Self {
-        crate::dev::quarantine_begin(repair);
+        crate::native::probes::quarantine_begin(repair);
         Self
     }
 }
 
 impl Drop for LettingGo {
     fn drop(&mut self) {
-        crate::dev::quarantine_end();
+        crate::native::probes::quarantine_end();
     }
 }
 
-/// The first safe frame after a world reset (`crate::sessions`), of the main
+/// The first safe frame after a world reset (`crate::session::sessions`), of the main
 /// menu or of the session it began: each repair lets go what had to wait
 /// for it.
 pub fn first_frame_after_reset(m: &Memory) {
@@ -87,7 +87,7 @@ fn world_clearing(m: &Memory) {
     }
 }
 
-/// After every world reset (`crate::sessions`), of the world `world`: what
+/// After every world reset (`crate::session::sessions`), of the world `world`: what
 /// waited for it to end is due, each repair acts on it, and all say what
 /// they let go since the last.
 pub fn world_reset(m: &Memory, world: usize) {
@@ -100,7 +100,7 @@ pub fn world_reset(m: &Memory, world: usize) {
     log!("repair: since the last world reset, {}", since_reset());
 }
 
-/// After a world reset that read the game's history (`crate::sessions`):
+/// After a world reset that read the game's history (`crate::session::sessions`):
 /// each repair acts on it in turn.
 pub fn after_history(m: &Memory) {
     for repair in REPAIRS {
