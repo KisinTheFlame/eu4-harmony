@@ -28,6 +28,11 @@
 //! - `trigger_profile`: the triggers' optimization profile matched through a
 //!   compact interned index instead of allocating a temporary hash table at
 //!   every tree node.
+//! - `loading_screen`: redundant loading-screen redraws (`0x11bb4f0`) throttled
+//!   so rapid progress updates do not stall on repeated DWM/vsync presents.
+//! - `dlc_verify`: when `dlc_signature` misses, skips archive MD5 scans for
+//!   DLCs that fail the store ownership check and hashes owned archives live in
+//!   parallel across worker threads.
 //!
 //! `folder` is shared by `lookups` and `listed`: a folder's listing and the
 //! names Windows reads as they are written, written once.
@@ -35,8 +40,10 @@ use std::path::Path;
 
 pub mod children;
 pub mod distance_scratch;
+pub mod dlc_verify;
 mod folder;
 pub mod listed;
+pub mod loading_screen;
 pub mod localisation;
 pub mod lookups;
 pub mod music;

@@ -59,13 +59,13 @@ panic = false
 # them: their points are not installed. Each is named by its name, its group or
 # "all": pops-polling, drawing-thread and modifier-sums (group "frames"); music,
 # lookups, children, opens, listed-folders, transfer-copy, save-input, distance-scratch, script-parameters,
-# localisation and trigger-profile ("loading"); background-compression,
+# localisation, trigger-profile, loading-screen and dlc-verify ("loading"); background-compression,
 # stored-copy, parallel-saves, save-sum and update-thread ("saving");
 # army-searches ("ai").
 game-paths = []
 # The speed-ups whose answers are checked against the game's own, named the
 # same way; those that can be are music, lookups, listed-folders,
-# script-parameters, localisation, trigger-profile, parallel-saves,
+# script-parameters, localisation, trigger-profile, dlc-verify, parallel-saves,
 # army-searches and modifier-sums. Each difference is logged,
 # and the startup report counts the answers checked and those that differed.
 checked = []

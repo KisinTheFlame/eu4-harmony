@@ -4,7 +4,7 @@ use crate::native::points::Point;
 use crate::native::speed_up::{self, SpeedUp};
 
 /// Every speed-up, in the order the report names them.
-pub(crate) static ALL: [&SpeedUp; 20] = [
+pub(crate) static ALL: [&SpeedUp; 22] = [
     &crate::speed::pops::SPEED_UP,
     &crate::render::drawing::SPEED_UP,
     &crate::speed::loading::music::SPEED_UP,
@@ -18,6 +18,8 @@ pub(crate) static ALL: [&SpeedUp; 20] = [
     &crate::speed::loading::parameters::SPEED_UP,
     &crate::speed::loading::localisation::SPEED_UP,
     &crate::speed::loading::trigger_profile::SPEED_UP,
+    &crate::speed::loading::loading_screen::SPEED_UP,
+    &crate::speed::loading::dlc_verify::SPEED_UP,
     &crate::speed::saving::background::SPEED_UP,
     &crate::speed::saving::stored::SPEED_UP,
     &crate::speed::saving::parallel::SPEED_UP,
@@ -80,14 +82,28 @@ mod tests {
         let all = Chosen::of_list(&ALL, &[], &strings(&["all"])).unwrap();
         assert_eq!(
             all.checked,
-            ["music", "lookups", "listed-folders", "script-parameters", "localisation", "trigger-profile", "parallel-saves", "army-searches", "modifier-sums"]
-                .iter()
-                .fold(0, |b, n| b | bit(n))
+            [
+                "music",
+                "lookups",
+                "listed-folders",
+                "script-parameters",
+                "localisation",
+                "trigger-profile",
+                "dlc-verify",
+                "parallel-saves",
+                "army-searches",
+                "modifier-sums"
+            ]
+            .iter()
+            .fold(0, |b, n| b | bit(n))
         );
         let both = Chosen::of_list(&ALL, &strings(&["music"]), &strings(&["loading"])).unwrap();
         assert_eq!(
             (both.game_paths, both.checked),
-            (bit("music"), bit("lookups") | bit("listed-folders") | bit("script-parameters") | bit("localisation") | bit("trigger-profile"))
+            (
+                bit("music"),
+                bit("lookups") | bit("listed-folders") | bit("script-parameters") | bit("localisation") | bit("trigger-profile") | bit("dlc-verify")
+            )
         );
         assert!(Chosen::of_list(&ALL, &[], &strings(&["children"])).unwrap_err().contains("cannot be checked"));
         assert!(Chosen::of_list(&ALL, &strings(&["muisc"]), &[]).unwrap_err().contains("no speed-up"));
