@@ -181,9 +181,7 @@ fn dispatch_message(
 
 #[called_by_game]
 unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    if !INJECTING.load(Ordering::Relaxed)
-        && crate::base::guarded("input from Windows", || HOOKS.get().is_some_and(|h| (h.on_real_input)(message)))
-    {
+    if !INJECTING.load(Ordering::Relaxed) && crate::base::guarded("input from Windows", || HOOKS.get().is_some_and(|h| (h.on_real_input)(message))) {
         return 0;
     }
     let handler = HANDLER.get().copied();

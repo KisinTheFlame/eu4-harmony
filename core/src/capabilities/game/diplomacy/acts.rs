@@ -28,6 +28,7 @@ macro_rules! acts {
         impl Act {
             /// The arguments its capability chooses in the window it opens,
             /// besides the country it is sent to.
+            #[cfg(test)]
             pub fn details(self) -> &'static [&'static str] {
                 match self {
                     $( Act::$Act => &[$($(stringify!($detail)),+)?], )*
@@ -178,6 +179,7 @@ impl Act {
     }
 
     /// The act named so, as its capability is.
+    #[cfg(test)]
     pub fn named(name: &str) -> Option<Self> {
         ACTS.iter().find(|a| a.3 == name).map(|a| a.0)
     }
@@ -186,10 +188,12 @@ impl Act {
         ACTS.iter().find(|a| a.0 == self).expect("every act is in the table")
     }
 
+    #[cfg(test)]
     pub fn token(self) -> u32 {
         self.entry().1
     }
 
+    #[cfg(test)]
     pub fn offer(self) -> bool {
         self.entry().2
     }

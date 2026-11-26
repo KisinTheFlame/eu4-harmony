@@ -16,7 +16,11 @@
 //! in a session those toggles are disabled so the next session is the first to
 //! see a change.
 use crate::base::called_by_game;
-use crate::{native::objects::campaign::{achievements, world}, native::points::{Function, Point}, base::settings::Settings};
+use crate::{
+    base::settings::Settings,
+    native::objects::campaign::{achievements, world},
+    native::points::{Function, Point},
+};
 use std::{
     cell::Cell,
     sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},

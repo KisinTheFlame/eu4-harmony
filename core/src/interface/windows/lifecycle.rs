@@ -6,7 +6,15 @@
 //! applied generation or list is committed only after it succeeds.
 use super::gui;
 use super::{self as live, Bound, Built, ElementOps, Key, Live, WantWindow, Wants};
-use crate::{native::bound_element::{BoundElement, Look, Shown}, native::game_heap, native::memory::Memory, native::objects::gui::{functions, globals, list_box, list_entry, window}, interface::ui, interface::window_ordering::{self, Identity, Owned}, base::Result};
+use crate::{
+    base::Result,
+    interface::bound_element::{BoundElement, Look, Shown},
+    interface::ui,
+    interface::window_ordering::{self, Identity, Owned},
+    native::game_heap,
+    native::memory::Memory,
+    native::objects::gui::{functions, globals, list_box, list_entry, window},
+};
 use eu4_harmony_lua::{
     layout::{self, Kind, Placed},
     Popup, Property,
@@ -168,10 +176,10 @@ impl Native for Game<'_> {
     }
     fn popup_text(&mut self, root: usize, text: &str) -> Result<()> {
         let text_box = live::find(self.m, root, Some(&Kind::Text { text: None, font: layout::Font::Body, align: layout::Align::Start }), gui::TEXT)?;
-        crate::native::bound_element::write_text(self.m, text_box, &crate::text::unicode::game_text::from_str(text))
+        crate::interface::bound_element::write_text(self.m, text_box, &crate::text::unicode::game_text::from_str(text))
     }
     fn country(&mut self, object: usize, tag: &str) -> Result<()> {
-        crate::native::bound_element::set_country(self.m, object, tag)
+        crate::interface::bound_element::set_country(self.m, object, tag)
     }
     fn player(&mut self) -> Option<String> {
         live::player_letters(self.m)

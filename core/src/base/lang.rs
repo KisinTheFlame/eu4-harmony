@@ -65,11 +65,6 @@ pub fn player() -> Language {
     DECISION.get().map_or(Language::English, |d| d.player)
 }
 
-/// The language whose localisation files the game loads.
-pub fn game() -> Language {
-    DECISION.get().map_or(Language::English, |d| d.game)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

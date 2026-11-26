@@ -289,6 +289,7 @@ impl<T: Texture, L> Pages<T, L> {
     }
 
     /// Every page asks for room (the test switch `grow-pages`).
+    #[cfg(any(test, feature = "dev"))]
     pub fn want_room_everywhere(&mut self) {
         self.pages.values_mut().for_each(|(page, _)| page.want_room());
         self.due |= GROW;

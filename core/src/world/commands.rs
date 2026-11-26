@@ -12,10 +12,22 @@
 //! not read, so [`Commands::post`] writes the command it read out again and refuses it
 //! unless every key given came back with the value given.
 use super::{command_session, context, game, world_context, Fail, GResult};
-use crate::{native::game_string, native::hooks::Call, native::memory::Memory, native::objects::session::{self, fields as session_fields}, native::objects::stream, native::points::{GameFunction, Point}, text::unicode::game_text};
+use crate::{
+    native::game_string,
+    native::hooks::Call,
+    native::memory::Memory,
+    native::objects::session::{self, fields as session_fields},
+    native::objects::stream,
+    native::points::{GameFunction, Point},
+    text::unicode::game_text,
+};
+#[cfg(feature = "dev")]
 use std::cell::OnceCell;
 use std::fmt::Display;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(feature = "dev")]
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(feature = "dev")]
 use std::sync::Mutex;
 
 /// `(lambda)`: the session's call of a command's execute, for every command
@@ -33,6 +45,7 @@ const WRITE_BLOCK: usize = 0x08;
 const READ_BLOCK: usize = 0x18;
 const CHECK: usize = 0x40;
 const TYPE: usize = 0x50;
+#[cfg(feature = "dev")]
 const ID: usize = 0x4c;
 /// `(writer, token)`: writes a token as a key.
 const WRITE_KEY: GameFunction<2> = GameFunction::at(0x1709280);
@@ -452,6 +465,7 @@ fn refused(m: &Memory, command: usize, given: &Written) -> GResult<Option<Refuse
 }
 
 /// A command the game executes, heard just before it runs.
+#[cfg(feature = "dev")]
 pub struct Heard {
     m: Memory,
     command: usize,
@@ -463,6 +477,7 @@ pub struct Heard {
     text: OnceCell<Option<String>>,
 }
 
+#[cfg(feature = "dev")]
 impl Heard {
     /// Its written form, on one line; written the first time it is asked for,
     /// so that a listener that wants only some types costs the others
@@ -486,16 +501,20 @@ impl Heard {
     }
 }
 
+#[cfg(feature = "dev")]
 static LISTENERS: Mutex<Vec<fn(&Heard)>> = Mutex::new(Vec::new());
+#[cfg(feature = "dev")]
 static LISTENING: AtomicBool = AtomicBool::new(false);
 /// How many commands the game executed, for [`post_with`] to tell that its
 /// command ran.
 static EXECUTED: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "dev")]
 static WRITING_BROKEN: AtomicBool = AtomicBool::new(false);
 
 /// Calls `heard` with every command the game executes, the player's, the
 /// AI's and the game's own, on the main thread just before it runs. A
 /// command's sender does not tell the player's commands from the AI's.
+#[cfg(feature = "dev")]
 pub fn listen(heard: fn(&Heard)) {
     LISTENERS.lock().unwrap_or_else(|e| e.into_inner()).push(heard);
     LISTENING.store(true, Ordering::Relaxed);
@@ -503,19 +522,24 @@ pub fn listen(heard: fn(&Heard)) {
 
 fn executing(call: &mut Call) {
     EXECUTED.fetch_add(1, Ordering::Relaxed);
-    if !LISTENING.load(Ordering::Relaxed) {
-        return;
+    #[cfg(feature = "dev")]
+    {
+        if !LISTENING.load(Ordering::Relaxed) {
+            return;
+        }
+        let m = call.memory();
+        let Ok(command) = m.ptr(call.arg(0) + LAMBDA_COMMAND) else { return };
+        let Ok(token) = m.vslot(command, TYPE).and_then(|f| m.call(f, &[command])) else { return };
+        let token = token as u32;
+        let kind = type_name(&m, token).unwrap_or_else(|| format!("token {token}"));
+        let heard = Heard { m, command, token, kind, id: m.u32(command + ID).unwrap_or(0), text: OnceCell::new() };
+        let listeners = LISTENERS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        for listener in listeners {
+            listener(&heard);
+        }
     }
-    let m = call.memory();
-    let Ok(command) = m.ptr(call.arg(0) + LAMBDA_COMMAND) else { return };
-    let Ok(token) = m.vslot(command, TYPE).and_then(|f| m.call(f, &[command])) else { return };
-    let token = token as u32;
-    let kind = type_name(&m, token).unwrap_or_else(|| format!("token {token}"));
-    let heard = Heard { m, command, token, kind, id: m.u32(command + ID).unwrap_or(0), text: OnceCell::new() };
-    let listeners = LISTENERS.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    for listener in listeners {
-        listener(&heard);
-    }
+    #[cfg(not(feature = "dev"))]
+    let _ = call;
 }
 
 /// The name of token `token`: a command's type, or the key of an object

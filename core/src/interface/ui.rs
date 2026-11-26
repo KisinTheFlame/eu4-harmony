@@ -7,11 +7,11 @@
 //! Extensions state what they want (visible, enabled, text, tooltip) and each
 //! host's update hook applies it, so state survives the game rebuilding the
 //! window and never needs a callback inside the game's UI code. How a bound
-//! element is set and heard is `crate::native::bound_element`'s, which extension
+//! element is set and heard is `crate::interface::bound_element`'s, which extension
 //! windows share.
+use super::bound_element::{self, BoundElement, Hears, Look, Shown};
 use crate::{
     base::{hosts::Host, notice, Result},
-    native::bound_element::{self, BoundElement, Hears, Look, Shown},
     native::game_string,
     native::hooks::Call,
     native::memory::Memory,
@@ -268,7 +268,7 @@ struct Ui {
 /// Code that holds this calls the game: to look elements up, subscribe and
 /// unsubscribe, show, hide, enable and set text. What the game calls back
 /// with takes it only with `try_lock` (tooltips; clicks are only queued,
-/// `crate::native::bound_element`), except the
+/// `crate::interface::bound_element`), except the
 /// destruction hooks, which must detach; none of those calls destroys a
 /// panel, button or window, so a destruction hook never runs under the lock.
 static UI: Mutex<Option<Ui>> = Mutex::new(None);

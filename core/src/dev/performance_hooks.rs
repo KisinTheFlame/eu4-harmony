@@ -2,7 +2,7 @@
 //! docs/game/interface/frame-lifecycle.md, headless.md and time.md establishes
 //! these sites; no sampling reads live world state on the drawing thread.
 use super::performance;
-use crate::{world as game, native::hooks::Call, native::points::Point};
+use crate::{native::hooks::Call, native::points::Point, world as game};
 use eu4_harmony_remote::performance::{PerformanceAnswer, PerformanceRequest};
 
 pub fn answer(request: PerformanceRequest) -> game::GResult<PerformanceAnswer> {

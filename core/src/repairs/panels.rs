@@ -15,7 +15,12 @@
 //! the game (docs/research/interface-evidence.md); here
 //! only what owns a window kills it.
 use super::{interface_parts::TAKE_WINDOW_OFF, LettingGo};
-use crate::{native::hooks::Call, native::memory::Memory, native::objects::gui::window as gui_window, native::points::{GameFunction, Point}};
+use crate::{
+    native::hooks::Call,
+    native::memory::Memory,
+    native::objects::gui::window as gui_window,
+    native::points::{GameFunction, Point},
+};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The windows killed so since the last world reset, for the log.

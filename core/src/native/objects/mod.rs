@@ -86,10 +86,14 @@ pub mod map {
     pub const RIGHT: usize = 0x10;
     pub const NIL: usize = 0x19;
     pub const VALUE: usize = 0x20;
+    #[cfg(test)]
     pub const NODE_SIZE: usize = 0x28;
 }
 
-use super::{memory::Memory, points::{GameFunction, Point}};
+use super::{
+    memory::Memory,
+    points::{GameFunction, Point},
+};
 
 /// How many window pixels a GUI unit takes, (across, down); None before the
 /// GUI exists (docs/game/interface/text-input.md §3).

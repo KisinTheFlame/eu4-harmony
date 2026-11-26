@@ -66,6 +66,7 @@ pub fn live() -> usize {
 }
 
 /// How many blocks the framework's heap holds now.
+#[cfg(feature = "dev")]
 pub fn blocks() -> usize {
     BLOCKS.load(Ordering::Relaxed)
 }

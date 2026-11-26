@@ -24,12 +24,12 @@ pub(crate) mod world;
 
 #[cfg(test)]
 pub(crate) use crate::fake_game::buffers;
+pub(crate) use crate::native::objects::gui_scale;
 pub(crate) use crate::world::{
     action, commands, conditions, content, context, context_any, country, envoys, fail, game, map_manager, modifiers, named, paused, player, power, reasons,
     special_countries, thousandths, unbulleted, view, world_context, world_context_any, As, Caller, Ctx, Fail, GResult, InWorld, Status, Tag, View, World,
     MAX_PROVINCES, MAX_UNITS,
 };
-pub(crate) use crate::native::objects::gui_scale;
 
 /// Declares each capability group's module of the layer, and collects the
 /// groups' dependency points ([`group_points`]), from the catalogue's list
@@ -81,10 +81,6 @@ impl Session {
         let m = game()?;
         let ctx = context(m)?;
         Ok(Self { m, ctx, view: view(caller), caller, commands: commands::Commands::Game })
-    }
-
-    pub fn world(self) -> GResult<WorldSession> {
-        Ok(WorldSession { m: self.m, world: world_context(self.m)?, view: self.view, caller: self.caller, commands: self.commands })
     }
 
     pub fn with_view(self, view: View) -> Self {
@@ -188,8 +184,7 @@ pub(crate) fn clear_geography() {
 pub fn begin_frame(m: &Memory) -> GResult<Frame> {
     let (world, fog) = signals::frame_campaign(m)?;
     let seen = crate::session::sessions::frame_read(world.world, world.player.own().0, || {
-        let tag =
-            |tag: Option<Tag>| tag.filter(|t| t.normal()).map(|t| String::from_utf8_lossy(&t.letters()).into_owned()).unwrap_or_else(|| "none".into());
+        let tag = |tag: Option<Tag>| tag.filter(|t| t.normal()).map(|t| String::from_utf8_lossy(&t.letters()).into_owned()).unwrap_or_else(|| "none".into());
         format!(
             "game_date={} own={} in_view={} observing={}",
             eu4_harmony_checks::Date(world.date),

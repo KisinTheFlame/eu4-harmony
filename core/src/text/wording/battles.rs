@@ -10,9 +10,9 @@
 //! war overview's battle rows put their names together elsewhere and keep the
 //! game's order.
 use crate::base::called_by_game;
-use crate::native::game_string;
 use crate::base::lang;
 use crate::base::loc;
+use crate::native::game_string;
 use crate::native::points::{Function, Point};
 use crate::text::unicode::game_text;
 use eu4_harmony_loc::Language;

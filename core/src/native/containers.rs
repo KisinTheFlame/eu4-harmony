@@ -4,10 +4,14 @@
 //! loops back is refused, and a node the game removed while it was walking
 //! the list, which it frees once it is done, is left out. A fix to how one of
 //! them is read reaches every reader.
-use crate::{base::Result, native::memory::Memory, native::objects::{
+use crate::{
+    base::Result,
+    native::memory::Memory,
+    native::objects::{
         campaign::{countries, globals},
         list, map,
-    }};
+    },
+};
 use std::collections::BTreeSet;
 
 /// The most entries of a container believed where its reader names no
@@ -192,7 +196,8 @@ mod tests {
     fn a_map_holds_its_values() {
         let m = Memory { base: 0 };
         let head = Object::map(&[3, 1, 2]);
-        let mut values: Vec<u64> = map(&m, head.at(), MOST).unwrap().into_iter().map(|node| m.u64(node + crate::native::objects::map::VALUE).unwrap()).collect();
+        let mut values: Vec<u64> =
+            map(&m, head.at(), MOST).unwrap().into_iter().map(|node| m.u64(node + crate::native::objects::map::VALUE).unwrap()).collect();
         values.sort();
         assert_eq!(values, [1, 2, 3]);
         assert!(map(&m, head.at(), 2).is_err());

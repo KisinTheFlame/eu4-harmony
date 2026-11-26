@@ -3,7 +3,10 @@
 //! count, which the main menu, made again, would unload with the game's
 //! graphics, stays loaded.
 use crate::base::called_by_game;
-use crate::{native::objects::gui::{classes as gui_classes, sprite_type}, native::points::{Function, Point}};
+use crate::{
+    native::objects::gui::{classes as gui_classes, sprite_type},
+    native::points::{Function, Point},
+};
 
 /// `(sprite type)`: unloads a sprite type with its group of graphics
 /// (`0x14dc240`), letting its textures go; its [`sprite_type::UNLOAD`].

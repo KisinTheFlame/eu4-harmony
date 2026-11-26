@@ -77,6 +77,7 @@ pub fn lufs(mean_square: f64) -> f64 {
 /// Measures a stream of stereo frames as they come.
 #[derive(Clone, Debug)]
 pub struct Meter {
+    #[cfg(test)]
     rate: f64,
     /// Frames in the 100 ms step between blocks.
     step: usize,
@@ -104,6 +105,7 @@ impl Meter {
     /// A meter for frames at `rate` a second.
     pub fn at(rate: f64) -> Self {
         Self {
+            #[cfg(test)]
             rate,
             step: (rate / 10.0).round() as usize,
             stages: k_weighting(rate),
@@ -148,6 +150,7 @@ impl Meter {
     }
 
     /// The seconds of blocks measured, gated or not.
+    #[cfg(test)]
     pub fn seconds(&self) -> f64 {
         self.blocks as f64 * self.step as f64 / self.rate
     }

@@ -6,7 +6,7 @@
 //! army back from the extension that was moving it, and extensions hear that
 //! the player gave the army an order, exactly once
 //! (ADR remote-control-uses-capabilities).
-use super::{army, orders, signals, thousandths, with_state, Caller, GResult, Session, Tag, View};
+use super::{army, orders, signals, thousandths, with_state, Caller, GResult, Session, Tag};
 use crate::{native::memory::Memory, native::objects::campaign::unit};
 use eu4_harmony_checks::armies as checks;
 use eu4_harmony_remote::armies::{self as remote, args, ArmyKind, Blocked, RouteBy};
@@ -228,19 +228,6 @@ pub fn can_enter(Session { m, ctx, .. }: Session, id: u64, province: u32) -> GRe
 pub fn strait_open(Session { m, ctx, .. }: Session, id: u64, from: u32, to: u32) -> GResult<bool> {
     let army = army::own_land(m, &ctx, id)?;
     with_state(|s| s.geography.strait_open(m, &ctx, army, from, to))
-}
-
-/// Whether an own land army may attack a visible army in `province`.
-pub fn can_attack(Session { m, ctx, .. }: Session, id: u64, target: u64, province: u32) -> GResult<bool> {
-    if !signals::visibility_current(m, &ctx) {
-        return Err(checks::visibility_not_current().into());
-    }
-    let army = army::own_land(m, &ctx, id)?;
-    let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
-    let Some((_, unit)) = army::in_province(m, &ctx, address, View::Player)?.into_iter().find(|(a, _)| a.id == target) else {
-        return Err(checks::not_visible(target, province).into());
-    };
-    Ok(unit != army && army::can_attack(m, army, unit)?)
 }
 
 /// Whether an own land army may attack an army the player sees, wherever

@@ -120,6 +120,7 @@ const IDLER_HOLDS_CAMERA_2: usize = 0x3b0;
 use crate::native::objects::gui::globals::OTHER_CAMERA;
 const APP_FOCUS: usize = 0xb8;
 
+#[cfg(feature = "dev")]
 pub fn main_draw_point(before: fn(&mut Call)) -> Point {
     Point::observe(DRAWING, "48 8b c4 48 89 58 08 55 56 57 41 54 41 55 41 56 41 57", "performance: main-thread drawing", 1, Some(before), None)
 }
@@ -462,6 +463,7 @@ fn drawing_side<T>(f: impl FnOnce(&mut DrawingSide) -> T) -> T {
 static MAIN_HOLDS: AtomicBool = AtomicBool::new(false);
 
 /// The drawing's RVA, for the write watch's report.
+#[cfg(feature = "dev")]
 pub const fn drawing_rva() -> usize {
     DRAWING.rva()
 }
@@ -818,6 +820,7 @@ static TARGET_RATE: AtomicU32 = AtomicU32::new(0);
 
 /// The actual target interval used by the drawing thread; the native
 /// main-thread path and unlimited drawing have no declared target.
+#[cfg(feature = "dev")]
 pub fn target_interval() -> Option<Duration> {
     let rate = TARGET_RATE.load(Ordering::Relaxed);
     (drawing_on() && rate != 0).then(|| Duration::from_secs_f64(1.0 / rate as f64))

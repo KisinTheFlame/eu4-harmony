@@ -2,7 +2,12 @@
 //! too: the sets of modifiers they copy, which they alone own. Those they
 //! are copied over from their own set still lists, and go with them.
 use super::LettingGo;
-use crate::{native::hooks::Call, native::memory::Memory, native::objects::campaign::{classes, modifiers}, native::points::Point};
+use crate::{
+    native::hooks::Call,
+    native::memory::Memory,
+    native::objects::campaign::{classes, modifiers},
+    native::points::Point,
+};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Mutex,

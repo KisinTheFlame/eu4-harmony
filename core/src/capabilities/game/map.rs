@@ -2,7 +2,14 @@
 //! color pass it can observe (mode 12, option 26) and overwrites the colors of
 //! the requested provinces; clearing restores the mode that was active before.
 //! Ported from eu4-regional-combat's range preview (docs/game/provinces/map-modes.md).
-use crate::{capabilities::game::{self, fail, map_coloring::MapColor, GResult, Status}, native::hooks::Call, native::memory::Memory, native::objects::campaign::{classes, globals, map, map_manager, province}, native::points::Point, base::Result};
+use crate::{
+    base::Result,
+    capabilities::game::{self, fail, map_coloring::MapColor, GResult, Status},
+    native::hooks::Call,
+    native::memory::Memory,
+    native::objects::campaign::{classes, globals, map, map_manager, province},
+    native::points::Point,
+};
 use std::{cell::RefCell, collections::BTreeMap, sync::Mutex};
 
 const FILL: usize = 0x12fd9b0;

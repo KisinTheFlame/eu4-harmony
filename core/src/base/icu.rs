@@ -16,6 +16,7 @@ type Step = unsafe extern "C" fn(*mut c_void) -> i32;
 type RuleStatus = unsafe extern "C" fn(*const c_void) -> i32;
 type CloseBreaks = unsafe extern "C" fn(*mut c_void);
 
+#[cfg(test)]
 const CHARACTER: i32 = 0;
 const LINE: i32 = 2;
 const DONE: i32 = -1;
@@ -122,6 +123,7 @@ impl Icu {
 
     /// Byte offsets where user-perceived characters begin, followed by
     /// `text.len()`.
+    #[cfg(test)]
     pub fn graphemes(&self, text: &str) -> Result<Vec<usize>> {
         let mut starts = vec![0];
         self.boundaries(CHARACTER, text, |at, _| starts.push(at))?;

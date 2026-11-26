@@ -14,10 +14,10 @@
 //! a window whose font has no such page, on a device `fill` cannot fill, keeps
 //! the game's font, which draws its own glyphs.
 use super::fill::Kind;
-use crate::native::files::File;
 use crate::base::pdx;
-use crate::native::splice::{Addition, Plan};
 use crate::base::Result;
+use crate::native::files::File;
+use crate::native::splice::{Addition, Plan};
 use std::collections::HashSet;
 use std::sync::Mutex;
 

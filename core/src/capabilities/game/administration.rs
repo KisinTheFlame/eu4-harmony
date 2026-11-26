@@ -6,10 +6,15 @@
 use super::commands::{write, Block};
 use super::{action, conditions, fail, with_state, Ctx, GResult, Session, Status, Tag};
 use crate::native::containers;
-use crate::{native::game_string, native::memory::Memory, native::objects::{
+use crate::{
+    native::game_string,
+    native::memory::Memory,
+    native::objects::{
         campaign::{construction, country, province as field},
         list,
-    }, native::points::{GameFunction, Point}};
+    },
+    native::points::{GameFunction, Point},
+};
 use eu4_harmony_remote::provinces::args;
 use eu4_harmony_remote::ProvinceId;
 use eu4_harmony_remote::{
@@ -28,6 +33,7 @@ pub enum Development {
 }
 
 impl Development {
+    #[cfg(test)]
     pub const ALL: [Development; 3] = [Self::Tax, Self::Production, Self::Manpower];
 
     fn index(self) -> usize {
@@ -588,13 +594,13 @@ mod tests {
         assert_eq!(reasons(&text), ["这", "最", "有"]);
     }
 
-    use crate::fake_game::buffers::{byz, tur};
     use crate::capabilities::game::{
         buffers::{self, write_reason, Image, Object, Provinces},
         commands::record,
         power::{ABOUT_PROVINCE, COST, NO_ID},
         spendings, Fail,
     };
+    use crate::fake_game::buffers::{byz, tur};
     use std::cell::Cell;
 
     thread_local! {

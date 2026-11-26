@@ -107,6 +107,7 @@ pub enum Widget {
     },
     /// A label followed by an info mark (GLOSSARY): while the pointer is on
     /// the mark, `info` shows beside it.
+    #[cfg_attr(not(test), expect(dead_code, reason = "info-mark widget kept for framework UI pages and covered by layout tests"))]
     Explained {
         label: String,
         info: String,

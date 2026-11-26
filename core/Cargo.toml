@@ -23,7 +23,7 @@ eu4-harmony-remote = { path = "../remote" }
 # http.fetch (src/lua/http.rs): the system's proxy and, through SChannel, its
 # certificates; one tokio thread sends every request.
 reqwest = { workspace = true }
-# Compressing saves in the background (src/saves/background.rs).
+# Compressing saves in the background (src/speed/saving/background.rs).
 miniz_oxide = { workspace = true }
 lewton = { workspace = true }
 serde = { workspace = true }
@@ -48,10 +48,10 @@ windows-sys = { workspace = true, features = [
     "Win32_System_Environment",
     "Win32_System_Diagnostics_Debug",
     "Win32_System_EventLog",
-    # The process's threads, which the write watch holds (src/write_watch.rs).
+    # The process's threads, which the write watch holds (src/dev/write_watch.rs).
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_IO",
-    # Exception records, for the write watch (src/write_watch.rs).
+    # Exception records, for the write watch (src/dev/write_watch.rs).
     "Win32_System_Kernel",
     "Win32_System_Pipes",
     "Win32_System_ProcessStatus",
@@ -79,7 +79,7 @@ windows = { workspace = true, features = [
 # Reading the game's code for call tracing and write watching. Tests use it
 # too, through the dev-dependency below.
 eu4-harmony-analysis = { path = "../analysis", optional = true }
-# A developer build's options, in dev.toml (src/dev/options.rs).
+# A developer build's options, in dev.toml (src/base/dev_options.rs).
 toml = { workspace = true, optional = true }
 
 [build-dependencies]
@@ -92,7 +92,7 @@ toml = { workspace = true }
 [features]
 # Serves remote control on the test game's own pipe, the one
 # -harmony_test_game names, so that test games run side by side
-# (src/pipe.rs, docs/dev-tools.md#test-games).
+# (src/remote/pipe.rs, docs/dev-tools.md#test-games).
 dev-test-games = []
 # A developer build with all development tools included, configured in dev.toml
 # (src/dev/mod.rs, docs/dev-tools.md). A player build has none of them.

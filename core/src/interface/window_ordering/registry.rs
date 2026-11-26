@@ -4,7 +4,7 @@ use super::{
     course::{Course, Key, Role, Token},
     native, placement,
 };
-use crate::{native::memory::Memory, base::Result};
+use crate::{base::Result, native::memory::Memory};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]

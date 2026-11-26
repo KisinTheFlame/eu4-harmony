@@ -38,7 +38,11 @@
 //! - A game's safe frame: what happened since the last one, in its order
 //!   (`game::Frame::heard`), first to the extensions, then to remote control,
 //!   which keeps what they just heard and runs.
-use crate::{capabilities::game::{self, Heard}, lua, remote, repairs, session::sessions::{self, At, End}};
+use crate::{
+    capabilities::game::{self, Heard},
+    lua, remote, repairs,
+    session::sessions::{self, At, End},
+};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Mutex,

@@ -14,7 +14,6 @@ pub use eu4_harmony_manifest::{same_descriptor, Descriptor, HarmonyMod, Layout, 
 
 #[derive(Debug)]
 pub struct DiscoveredMod {
-    pub descriptor_file: PathBuf,
     pub descriptor: Descriptor,
     pub dir: PathBuf,
     pub manifest: Manifest,
@@ -96,7 +95,7 @@ pub fn discover(user_dir: &Path) -> Result<(Vec<DiscoveredMod>, Vec<Skipped>)> {
             });
             continue;
         }
-        mods.push(DiscoveredMod { descriptor_file, descriptor, dir, manifest, layout });
+        mods.push(DiscoveredMod { descriptor, dir, manifest, layout });
     }
     Ok((mods, notes))
 }

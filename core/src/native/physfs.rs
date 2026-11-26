@@ -6,7 +6,12 @@
 //! The detours run on whichever thread the game reads files from (GUI
 //! definitions load on the game's LoadingThread) and never call extension code.
 use crate::base::called_by_game;
-use crate::{native::hooks::Call, native::points::{Function, Point}, native::splice::{self, Plan}, base::Result};
+use crate::{
+    base::Result,
+    native::hooks::Call,
+    native::points::{Function, Point},
+    native::splice::{self, Plan},
+};
 use std::{
     collections::HashMap,
     ffi::{c_char, c_void, CStr},

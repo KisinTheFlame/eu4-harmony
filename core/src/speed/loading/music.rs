@@ -297,7 +297,8 @@ mod tests {
 
     #[test]
     fn an_entry_is_told_by_its_name_in_any_case() {
-        let entry = |crc| crate::base::zip::Entry { method: crate::base::zip::DEFLATED, crc, packed: 5, unpacked: 9, ..crate::base::zip::Entry::stored(b"", b"") };
+        let entry =
+            |crc| crate::base::zip::Entry { method: crate::base::zip::DEFLATED, crc, packed: 5, unpacked: 9, ..crate::base::zip::Entry::stored(b"", b"") };
         let entries = prints(vec![
             crate::base::zip::Entry { name: b"music/MainTheme.ogg".to_vec(), ..entry(1) },
             crate::base::zip::Entry { name: b"music/other.ogg".to_vec(), ..entry(2) },

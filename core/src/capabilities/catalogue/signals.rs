@@ -6,8 +6,10 @@
 //! (ADR requests-act-as-the-player-or-as-the-game).
 use super::{process, Outcome, Poll, Wait};
 use crate::capabilities::game::{Heard, View};
+#[cfg(test)]
+use eu4_harmony_remote::signals::Signal;
 use eu4_harmony_remote::{
-    signals::{Filter, Numbered, Signal, Signals, SignalsAnswer, SignalsRequest},
+    signals::{Filter, Numbered, Signals, SignalsAnswer, SignalsRequest},
     Answer, Code, Error, Response,
 };
 use std::collections::VecDeque;
@@ -40,6 +42,7 @@ impl Buffer {
     }
 
     /// Keeps a signal the player's view shows.
+    #[cfg(test)]
     pub fn push(&mut self, signal: Signal) {
         self.keep(Heard { signal, seen: true });
     }

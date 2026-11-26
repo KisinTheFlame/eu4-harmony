@@ -3,6 +3,8 @@
 //! `app` is the root node of the core DAG: it depends on all other submodules
 //! to assemble dependency points, register cross-node callbacks, drive startup,
 //! and coordinate safe points. No other production submodule may depend on `app`.
+#[cfg(test)]
+mod dag_test;
 mod proxy;
 mod safe_point;
 mod speed_registry;
@@ -90,10 +92,7 @@ fn wire_all() {
         prepare_scene: interface::window_ordering::prepare_scene,
         cursor_now: capabilities::game::input::cursor_now,
     });
-    tweaks::hidden::set_hooks(tweaks::hidden::HiddenHooks {
-        on_early_sync: proxy::sync_once,
-        on_hold_cursor: capabilities::game::input::hold,
-    });
+    tweaks::hidden::set_hooks(tweaks::hidden::HiddenHooks { on_early_sync: proxy::sync_once, on_hold_cursor: capabilities::game::input::hold });
     session::sessions::set_listener(|happening| {
         use session::sessions::Happening;
         match happening {

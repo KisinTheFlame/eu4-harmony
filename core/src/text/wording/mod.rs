@@ -12,6 +12,7 @@ pub mod dates;
 pub mod names;
 
 /// Every template key, with the `$NAME$` values it may use.
+#[cfg(test)]
 pub const TEMPLATES: &[(&str, &[&str])] = &[
     ("EU4HARMONY_DATE", &["YEAR", "MONTH_NUMBER", "DAY"]),
     ("EU4HARMONY_DATE_MONTH", &["YEAR", "MONTH_NUMBER"]),

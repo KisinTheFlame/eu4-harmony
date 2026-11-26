@@ -5,8 +5,8 @@
 //! when it has none: 5 to 6.5% of the main thread at the fastest speed and a
 //! third of a paused frame (docs/game/day/frame-scheduling.md). With a timeout of 0
 //! it polls.
-use crate::native::speed_up::SpeedUp;
 use crate::native::points::{Module, Place, Point};
+use crate::native::speed_up::SpeedUp;
 
 pub const SPEED_UP: SpeedUp = SpeedUp { name: "pops-polling", group: "frames", points, checkable: false };
 

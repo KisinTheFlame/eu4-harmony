@@ -14,7 +14,10 @@
 //! once a return has taken the session's interface down after they began to
 //! wait ([`super::waiting`]), as the trade nodes are.
 use super::waiting::{Kind, Moment, Waiting};
-use crate::{native::memory::Memory, native::points::{GameFunction, Point}};
+use crate::{
+    native::memory::Memory,
+    native::points::{GameFunction, Point},
+};
 use std::{
     collections::HashSet,
     sync::atomic::{AtomicUsize, Ordering},

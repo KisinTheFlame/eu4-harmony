@@ -184,8 +184,10 @@ pub fn shared_sets() -> (usize, usize) {
 }
 
 /// The temporary glyphs of one draw call on this thread; they end with it.
+#[cfg(test)]
 pub struct DrawCall(());
 
+#[cfg(test)]
 impl DrawCall {
     pub fn begin() -> Self {
         TEMPORARIES.with(|t| t.borrow_mut().clear());
@@ -206,6 +208,7 @@ impl DrawCall {
     }
 }
 
+#[cfg(test)]
 impl Drop for DrawCall {
     fn drop(&mut self) {
         TEMPORARIES.with(|t| t.borrow_mut().clear());

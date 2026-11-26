@@ -195,11 +195,6 @@ impl Geography {
         Ok(self.nodes(m, ctx)?.iter().filter(|n| n.id != 0).map(|n| n.address).collect())
     }
 
-    /// Every province armies can stand on, as (number, address).
-    pub fn land_provinces(&mut self, m: &Memory, ctx: &impl InWorld) -> GResult<Vec<(u32, usize)>> {
-        Ok(self.nodes(m, ctx)?.iter().filter(|n| n.admissible()).map(|n| (n.id, n.address)).collect())
-    }
-
     /// Land connections between passable land provinces.
     pub fn neighbors(&mut self, m: &Memory, ctx: &impl InWorld, id: u32) -> GResult<Vec<Neighbor>> {
         let node = self.node(m, ctx, id)?;
@@ -233,12 +228,6 @@ impl Geography {
         }
         let military = super::army::military_tag(m, ctx, army)?;
         Ok(STRAIT_BLOCKED.call(m, [military.0 as usize, edge.address])? as u8 == 0)
-    }
-
-    pub fn clear_if_changed(&mut self, m: &Memory, ctx: &impl InWorld) {
-        if self.nodes(m, ctx).is_err() {
-            self.clear();
-        }
     }
 }
 

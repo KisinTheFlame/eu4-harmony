@@ -8,7 +8,6 @@ pub(crate) mod stub;
 #[macro_use]
 pub(crate) mod points;
 pub(crate) mod baseline;
-pub(crate) mod bound_element;
 pub(crate) mod containers;
 pub(crate) mod files;
 pub(crate) mod game_heap;

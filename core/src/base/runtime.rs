@@ -9,9 +9,9 @@ use std::sync::{
     atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, Ordering},
     OnceLock,
 };
-use windows_sys::Win32::{Foundation::HWND, System::Threading::GetCurrentThreadId};
 #[cfg(not(test))]
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, TerminateProcess};
+use windows_sys::Win32::{Foundation::HWND, System::Threading::GetCurrentThreadId};
 
 pub type Result<T> = std::result::Result<T, String>;
 

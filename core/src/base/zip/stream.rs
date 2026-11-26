@@ -88,6 +88,7 @@ impl<W: Write> Stream<W> {
 
     /// Adds data already stored or compressed by the caller, like the
     /// in-memory ZIP writer.
+    #[cfg(test)]
     pub fn entry(&mut self, entry: &Entry, data: &[u8]) -> io::Result<()> {
         Self::check_name(&entry.name)?;
         let entry = Entry { flags: entry.flags & !DATA_DESCRIPTOR, local: self.position, packed: data.len(), ..entry.clone() };

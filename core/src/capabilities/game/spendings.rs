@@ -9,7 +9,12 @@
 //! button posts.
 use super::commands::{write, Block};
 use super::{action, army, power, with_state, Ctx, GResult, Session, Tag};
-use crate::{native::game_string, native::memory::Memory, native::objects::campaign::{country, rebel_faction, unit}, native::points::{GameFunction, Point}};
+use crate::{
+    native::game_string,
+    native::memory::Memory,
+    native::objects::campaign::{country, rebel_faction, unit},
+    native::points::{GameFunction, Point},
+};
 use eu4_harmony_remote::choices::{Amount, Choice, PowerKind, Resource};
 
 /// `(country, province, text or null, _)`: whether the country may move its

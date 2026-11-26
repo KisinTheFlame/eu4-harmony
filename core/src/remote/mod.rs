@@ -168,6 +168,7 @@ impl Engine {
 
     /// Queues a request as the player, from any thread; once the process
     /// ends, answers it at once.
+    #[cfg(test)]
     pub fn submit(&self, request: Request) -> Reply {
         self.submit_as(request, As::Player)
     }

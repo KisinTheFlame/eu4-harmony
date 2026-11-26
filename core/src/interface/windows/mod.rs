@@ -258,8 +258,10 @@ pub fn points() -> Vec<crate::native::points::Point> {
 /// The framework files the definitions are read from, empty until
 /// extensions declare windows (ADR framework-files-in-the-game-file-system).
 pub fn files() -> Vec<crate::native::files::File> {
-    let mut files: Vec<crate::native::files::File> =
-        [live::WINDOWS_FILE, live::POPUPS_FILE].into_iter().map(|path| crate::native::files::File { path: path.into(), data: gui::file(&[]).into_bytes() }).collect();
+    let mut files: Vec<crate::native::files::File> = [live::WINDOWS_FILE, live::POPUPS_FILE]
+        .into_iter()
+        .map(|path| crate::native::files::File { path: path.into(), data: gui::file(&[]).into_bytes() })
+        .collect();
     let mut sprites = gui::SPRITES.trim_end().strip_suffix('}').expect("the framework sprites close their block").to_string();
     with(|all| {
         for image in all.images.values().flatten() {

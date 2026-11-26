@@ -30,13 +30,13 @@
 //!   is settling and vanilla's rate (made frame-rate-independent) for other
 //!   camera moves such as menu sweeps and province jumps.
 use crate::base::called_by_game;
-use crate::render::drawing::SETTINGS;
+use crate::base::settings::{DEFAULT_ZOOM_SMOOTHING, DEFAULT_ZOOM_STEP, ZOOM_SMOOTHING_BOUNDS, ZOOM_STEP_BOUNDS};
 use crate::native::memory::Memory;
 use crate::native::objects::camera::camera as fields;
 use crate::native::objects::campaign::globals::MAP;
 use crate::native::objects::gui::globals::SCALE as GRAPHICS;
 use crate::native::points::{Function, Point};
-use crate::base::settings::{DEFAULT_ZOOM_SMOOTHING, DEFAULT_ZOOM_STEP, ZOOM_SMOOTHING_BOUNDS, ZOOM_STEP_BOUNDS};
+use crate::render::drawing::SETTINGS;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 

@@ -16,11 +16,11 @@
 //! after which they are the same. The sum is the game's to the bit.
 use super::parallel;
 use crate::base::called_by_game;
+use crate::base::Result;
 use crate::native::memory::Memory;
 use crate::native::objects::stream;
 use crate::native::points::{Function, Point};
 use crate::native::speed_up::SpeedUp;
-use crate::base::Result;
 use std::ops::Range;
 
 /// `(stream, count) -> sum`: from the stream's start, `count` bytes, or all

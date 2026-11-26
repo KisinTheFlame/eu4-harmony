@@ -4,10 +4,15 @@
 //! the player can and why not (docs/game/military/units.md).
 use super::commands::{write, Block};
 use super::{action, army, commands, Ctx, GResult, Session};
-use crate::{native::game_string, native::memory::Memory, native::objects::{
+use crate::{
+    native::game_string,
+    native::memory::Memory,
+    native::objects::{
         campaign::{classes, province, unit},
         list,
-    }, native::points::{GameFunction, Point}};
+    },
+    native::points::{GameFunction, Point},
+};
 use eu4_harmony_remote::armies::args;
 use eu4_harmony_remote::ArmyList;
 use eu4_harmony_remote::{armies::ArmyAction, choices::Choice, recruiting::UnitKind, ArmyId};

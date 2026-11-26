@@ -46,6 +46,7 @@ impl Shot {
     }
 
     /// The image's size in percent of the frame's.
+    #[cfg(test)]
     pub fn percent(&self) -> u32 {
         self.percent
     }

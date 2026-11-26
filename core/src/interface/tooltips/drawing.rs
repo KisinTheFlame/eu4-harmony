@@ -3,7 +3,13 @@
 //! draw it once after the framework UI, before the presentation lock opens.
 //! See research/panel-entry-text.md and research/gui-drawing.md.
 use super::handoff::{Current, Display, Filter, Frame, Handoff, Native};
-use crate::{native::hooks::Call, native::memory::Memory, native::objects::{gui::element, text::text_texture}, native::points::{GameFunction, Point}, base::Result};
+use crate::{
+    base::Result,
+    native::hooks::Call,
+    native::memory::Memory,
+    native::objects::{gui::element, text::text_texture},
+    native::points::{GameFunction, Point},
+};
 use std::{
     cell::{Cell, RefCell},
     sync::Mutex,

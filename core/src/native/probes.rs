@@ -14,6 +14,9 @@ pub(crate) struct Submission(pub(crate) Option<(u64, std::time::Instant, Option<
 pub(crate) struct Submission;
 
 #[cfg(feature = "dev")]
+pub(crate) type AfterObserver = fn(&mut Call);
+
+#[cfg(feature = "dev")]
 pub(crate) struct ProbeHandlers {
     pub(crate) day_begins: fn(&Call),
     pub(crate) day_ends: fn(&Call),
@@ -31,7 +34,7 @@ pub(crate) struct ProbeHandlers {
     pub(crate) save_ends: fn(&mut Call),
     pub(crate) quarantine_begin: fn(&'static str),
     pub(crate) quarantine_end: fn(),
-    pub(crate) quarantine_after_observer: fn() -> Option<fn(&mut Call)>,
+    pub(crate) quarantine_after_observer: fn() -> Option<AfterObserver>,
 }
 
 #[cfg(feature = "dev")]

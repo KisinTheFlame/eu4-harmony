@@ -2,7 +2,7 @@
 //! times delayed text, lays out colors and line breaks, rebuilds only changed
 //! text, and places the tooltip within the screen. Only a framework-owned
 //! target replaces the final content (research/panel-entry-text.md).
-use crate::{native::game_string, native::hooks::Call, native::memory::Memory, native::points::Point, base::Result};
+use crate::{base::Result, native::game_string, native::hooks::Call, native::memory::Memory, native::points::Point};
 mod drawing;
 mod handoff;
 use drawing::with_handoff;

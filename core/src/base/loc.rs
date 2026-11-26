@@ -192,7 +192,6 @@ mod tests {
         std::fs::write(loc.join("t_l_english.yml"), "l_english:\n T_APPLY:0 \"Apply\"\n T_ONLY:0 \"English\"\n").unwrap();
         std::fs::write(loc.join("t_l_german.yml"), "l_german:\n T_APPLY:0 \"Übernehmen\"\n").unwrap();
         let m = crate::base::mods::DiscoveredMod {
-            descriptor_file: dir.join("t.mod"),
             descriptor: crate::base::mods::Descriptor { name: "T".into(), version: None, path: Some(dir.clone()), archive: None },
             dir: dir.clone(),
             manifest: crate::base::mods::Manifest::parse(

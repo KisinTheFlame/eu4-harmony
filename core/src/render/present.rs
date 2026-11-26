@@ -54,7 +54,8 @@ impl<F: FnOnce()> Drop for PresentingGuard<F> {
 }
 
 unsafe fn before_present(renderer: usize) -> Option<*mut c_void> {
-    let device = crate::base::guarded("frame present", || crate::native::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()).map(|device| device as *mut c_void));
+    let device =
+        crate::base::guarded("frame present", || crate::native::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()).map(|device| device as *mut c_void));
     if let Some(hooks) = HOOKS.get() {
         (hooks.before_present)(renderer, device);
     }

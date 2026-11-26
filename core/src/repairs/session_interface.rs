@@ -5,10 +5,15 @@
 //! it is gone after pass for what its interface may show until then
 //! ([`super::waiting`]).
 use super::LettingGo;
-use crate::{native::hooks::Call, native::memory::Memory, native::objects::{
+use crate::{
+    native::hooks::Call,
+    native::memory::Memory,
+    native::objects::{
         campaign::{map_manager as manager_fields, message_window},
         list,
-    }, native::points::{GameFunction, Point}};
+    },
+    native::points::{GameFunction, Point},
+};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 /// `(map manager)`: the map manager's destructor, which its deleting

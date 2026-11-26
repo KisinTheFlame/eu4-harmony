@@ -15,9 +15,9 @@
 //! Each of the functions takes the date, a `std::string` slot it constructs
 //! the text in, and, for the format language, the format.
 use crate::base::called_by_game;
-use crate::native::game_string;
 use crate::base::lang;
 use crate::base::loc;
+use crate::native::game_string;
 use crate::native::points::{Function, GameFunction, Point};
 use crate::text::unicode::game_text;
 use eu4_harmony_loc::Language;

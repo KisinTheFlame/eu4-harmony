@@ -48,6 +48,7 @@ impl Page {
     }
 
     /// How much of the page's height is in use.
+    #[cfg(test)]
     pub fn used_height(&self) -> u32 {
         self.next_y
     }

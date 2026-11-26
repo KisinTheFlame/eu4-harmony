@@ -6,10 +6,14 @@
 //! reads and calls the game's: through [`Memory`], under the same guard.
 use crate::capabilities::game::Session;
 use crate::world::{commands::Commands, Caller, Ctx, Tag, View};
-use crate::{native::game_string, native::memory::Memory, native::objects::{
+use crate::{
+    native::game_string,
+    native::memory::Memory,
+    native::objects::{
         campaign::{countries as country_list, country, globals},
         list, map,
-    }};
+    },
+};
 use windows_sys::Win32::System::{
     Diagnostics::Debug::FlushInstructionCache,
     Memory::{VirtualAlloc, VirtualFree, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_EXECUTE_READWRITE, PAGE_NOACCESS},
@@ -465,7 +469,9 @@ impl Object {
     /// `items`.
     pub fn game_array(mut self, offset: usize, items: &[u64]) -> Self {
         let items: Box<[u64]> = items.into();
-        self = self.u64(offset + crate::native::containers::ARRAY_DATA, items.as_ptr() as u64).i32(offset + crate::native::containers::ARRAY_COUNT, items.len() as i32);
+        self = self
+            .u64(offset + crate::native::containers::ARRAY_DATA, items.as_ptr() as u64)
+            .i32(offset + crate::native::containers::ARRAY_COUNT, items.len() as i32);
         self.vectors.push(items);
         self
     }

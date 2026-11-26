@@ -12,8 +12,19 @@
 //! presentation seam. A clicked button is heard into a bounded queue of its
 //! owner's ([`Hears`]), with the keys held down with the click, and taken up
 //! at the next frame.
-use crate::base::called_by_game;
-use crate::{capabilities::game::{self, Caller, WorldSession}, native::game_string, native::memory::Memory, native::objects::gui::{button, element, functions, list_box}, interface::ui::{self, Callback, Subscription}, text::unicode::game_text, base::Result};
+use super::ui::{self, Callback, Subscription};
+use crate::{
+    base::{called_by_game, Result},
+    native::{
+        game_string,
+        memory::Memory,
+        objects::{
+            campaign::tag,
+            gui::{button, element, functions, list_box},
+        },
+    },
+    text::unicode::game_text,
+};
 use eu4_harmony_lua::Property;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -356,17 +367,18 @@ pub(crate) fn set_country(m: &Memory, object: usize, letters: &str) -> Result<()
     if letters.is_empty() {
         return Ok(());
     }
-    let session = WorldSession::open(Caller::Remote(game::As::Player)).map_err(|e| e.message)?;
-    let bytes: [u8; 3] = letters.as_bytes().try_into().map_err(|_| format!("{letters:?} is not a tag"))?;
-    let tag = game::countries::named(session.m, &session.world, eu4_harmony_remote::CountryTag(bytes)).map_err(|e| e.message)?;
-    let argument: [u64; 2] = [tag.0, 1];
+    let Some(raw) = super::resolve_shield_country(m, Some(letters))? else {
+        return Err(format!("{letters:?} is not a known country"));
+    };
+    let index = (raw >> tag::INDEX) as u16 as i16;
+    let argument: [u64; 2] = [raw, 1];
     for (slot, function) in [(button::SET_COUNTRY, functions::SET_COUNTRY.rva()), (element::INDEX, functions::SET_INDEX.rva())] {
         if m.vslot(object, slot)? != m.at(function) {
             return Err("a flag's method is not the one the framework knows".into());
         }
     }
     functions::SET_COUNTRY.call(m, [object, argument.as_ptr() as usize])?;
-    functions::SET_INDEX.call(m, [object, tag.index() as i32 as u32 as usize])?;
+    functions::SET_INDEX.call(m, [object, index as i32 as u32 as usize])?;
     Ok(())
 }
 

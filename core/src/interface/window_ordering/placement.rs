@@ -5,7 +5,11 @@
 //! this module owns neither their logical identity nor their lifetime.
 //! Internal GUI child lists and manager registration vectors are left unchanged.
 //! Evidence: docs/game/interface/window-placement.md.
-use crate::{native::memory::Memory, native::points::{GameFunction, Point}, base::Result};
+use crate::{
+    base::Result,
+    native::memory::Memory,
+    native::points::{GameFunction, Point},
+};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 const MOST: usize = 100_000;

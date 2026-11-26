@@ -5,7 +5,11 @@
 //! strings only through here, and grows them only through the game's own
 //! append, so the game frees them as usual.
 use super::game_text;
-use crate::{native::memory::Memory, native::points::{Function, GameFunction, Point}, base::Result};
+use crate::{
+    base::Result,
+    native::memory::Memory,
+    native::points::{Function, GameFunction, Point},
+};
 
 pub const SIZE: usize = 0x10;
 pub const CAPACITY: usize = 0x18;
@@ -161,6 +165,7 @@ pub fn empty() -> [usize; OBJECT / 8] {
 }
 
 /// Whether the string at `string` is empty and has never grown.
+#[cfg(test)]
 pub fn untouched(m: &Memory, string: usize) -> Result<bool> {
     Ok(m.u64(string + SIZE)? == 0 && m.u64(string + CAPACITY)? == INLINE as u64)
 }

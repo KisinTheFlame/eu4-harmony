@@ -17,7 +17,11 @@ use super::{
     waiting::{self, Moment, Waiting},
     LettingGo,
 };
-use crate::{native::hooks::Call, native::memory::Memory, native::points::{GameFunction, Point}};
+use crate::{
+    native::hooks::Call,
+    native::memory::Memory,
+    native::points::{GameFunction, Point},
+};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// `(list)`: a list's kill, the method its window's kill calls on it.

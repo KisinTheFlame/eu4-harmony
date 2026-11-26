@@ -1,6 +1,7 @@
 //! Native game `.gui` interface integration: host-window element binding,
 //! extension windows and pop-ups, window ordering, and late native tooltips.
 
+pub(super) mod bound_element;
 pub(crate) mod tooltips;
 pub(crate) mod ui;
 pub(crate) mod window_ordering;

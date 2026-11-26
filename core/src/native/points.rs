@@ -86,7 +86,6 @@ pub struct Function<F> {
 }
 
 impl<F: Copy> Function<F> {
-    #[expect(clippy::new_without_default, reason = "made in statics, where only a const fn will do")]
     pub const fn new() -> Self {
         Self { address: AtomicUsize::new(0), kind: PhantomData }
     }
@@ -651,8 +650,8 @@ pub fn install(m: Memory, points: &[Point]) -> Result<Installed> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::hooks::Call;
+    use super::*;
     use std::sync::Mutex;
     use windows_sys::Win32::System::Memory::{VirtualAlloc, MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READWRITE, PAGE_READWRITE};
 

@@ -17,7 +17,13 @@
 //! advances it to.
 use super::{army, context_any, fail, orders, world_context, world_context_any, GResult, InWorld, Status, Tag, World};
 use crate::native::containers;
-use crate::{native::hooks::Call, native::memory::Memory, native::objects::campaign::{battle, side, unit, world}, native::points::Point, base::Result};
+use crate::{
+    base::Result,
+    native::hooks::Call,
+    native::memory::Memory,
+    native::objects::campaign::{battle, side, unit, world},
+    native::points::Point,
+};
 use eu4_harmony_remote::signals::Kind;
 use std::cell::RefCell;
 use std::collections::BTreeSet;

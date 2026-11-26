@@ -115,7 +115,6 @@ pub mod mouse_input {
     pub const BUTTON: usize = 0x18;
     pub const DEVICE: usize = 0x50;
     pub const PRESSED: u32 = 3;
-    pub const RELEASED: u32 = 4;
     pub const DOUBLE: u32 = 5;
     /// The right mouse button, and the mouse as the device.
     pub const RIGHT: u32 = 2;
@@ -283,9 +282,7 @@ pub mod transparency_mask {
 pub mod sprite_type {
     /// Its name, a game string (`GFX_…`).
     pub const NAME: usize = 0x10;
-    /// The group of graphics it is one of, u32: 1 the main menu's, 3 the
-    /// game's; and whether its group loaded it, u8.
-    pub const GROUP: usize = 0x40;
+    /// Whether its group loaded it, u8 (group u32 sits at `+0x40`).
     pub const LOADED: usize = 0x44;
     /// Its method that unloads it with its group, by vtable offset.
     pub const UNLOAD: usize = 0x48;

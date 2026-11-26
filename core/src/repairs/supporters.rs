@@ -16,7 +16,10 @@
 //! the caches end as the game's last refresh in the walk leaves them. Every
 //! other refresh, and every other thread's, is the game's.
 use crate::base::called_by_game;
-use crate::{native::objects::campaign::country, native::points::{Function, Point}};
+use crate::{
+    native::objects::campaign::country,
+    native::points::{Function, Point},
+};
 use std::cell::RefCell;
 
 /// `(country, source label)`: a country's refresh of its diplomatic caches,

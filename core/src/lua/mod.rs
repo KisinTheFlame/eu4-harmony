@@ -12,7 +12,15 @@
 //! `eu4-harmony/logs/extension-<id>.log`, with bounded older segments beside it.
 mod http;
 
-use crate::{capabilities::catalogue::{self, Catalogue, Place, Wait}, capabilities::game::{self, map_coloring, Caller}, capabilities::game::map, base::mods::DiscoveredMod, base::notice::{Message, Repeat}, session::saves, interface::ui};
+use crate::{
+    base::mods::DiscoveredMod,
+    base::notice::{Message, Repeat},
+    capabilities::catalogue::{self, Catalogue, Place, Wait},
+    capabilities::game::map,
+    capabilities::game::{self, map_coloring, Caller},
+    interface::ui,
+    session::saves,
+};
 use eu4_harmony_lua::{
     dispatch::{self, Heard},
     fetch, Answered, Arg, Called, Element, Extension, Host, Mod, Pending, Popup, WindowChange,
@@ -1113,7 +1121,6 @@ mod tests {
             std::fs::write(harmony.join("lua/main.lua"), code).unwrap();
         }
         let discovered = DiscoveredMod {
-            descriptor_file: dir.join(format!("{id}.mod")),
             descriptor: crate::base::mods::Descriptor { name: id.to_string(), version: Some("1.0".into()), path: Some(dir.clone()), archive: None },
             dir: dir.clone(),
             manifest: eu4_harmony_manifest::HarmonyMod::read(&dir).unwrap().manifest,

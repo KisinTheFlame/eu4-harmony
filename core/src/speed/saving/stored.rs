@@ -10,11 +10,11 @@
 //! threads that write the game state (`super::parallel`) and combined.
 use super::background::COPY_LEVEL;
 use crate::base::called_by_game;
+use crate::base::zip::{crc32, crc32_combine};
+use crate::base::Result;
 use crate::native::memory::Memory;
 use crate::native::points::{Function, Point};
 use crate::native::speed_up::SpeedUp;
-use crate::base::zip::{crc32, crc32_combine};
-use crate::base::Result;
 
 /// `(zip, data stream, buffer, its size, &crc, level) -> bytes written`: an
 /// entry's data deflated into the zip's stream (`[zip]`), from the start of

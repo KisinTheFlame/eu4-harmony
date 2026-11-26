@@ -4,7 +4,12 @@
 //! go with them.
 use super::LettingGo;
 use crate::base::called_by_game;
-use crate::{native::hooks::Call, native::memory::Memory, native::objects::campaign::{ai_king, classes, country, functions, leader, mercenary_company, world}, native::points::Point};
+use crate::{
+    native::hooks::Call,
+    native::memory::Memory,
+    native::objects::campaign::{ai_king, classes, country, functions, leader, mercenary_company, world},
+    native::points::Point,
+};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Mutex,

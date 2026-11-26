@@ -2,7 +2,14 @@
 //! The original stream and its file remain owned by the native in-game load;
 //! only its save description's borrowed input changes during `0x74b8a0`.
 //! See docs/game/program/saves.md, "File position queries while parsing text".
-use crate::{base::called_by_game, native::memory::Memory, native::objects::stream, native::points::{GameFunction, Point}, native::speed_up::SpeedUp, base::Result};
+use crate::{
+    base::called_by_game,
+    base::Result,
+    native::memory::Memory,
+    native::objects::stream,
+    native::points::{GameFunction, Point},
+    native::speed_up::SpeedUp,
+};
 
 const LOAD: GameFunction<2> = GameFunction::at(0x74b8a0);
 const MAKE_STREAM: GameFunction<8> = GameFunction::at(0x171ebc0);

@@ -7,7 +7,10 @@
 //! applied after.
 use crate::framework_ui::mods_window::Card;
 use crate::native::splice::{Element, Plan};
-use crate::{base::lang, speed::loading, base::loc, lua, base::mods, base::notice, native::physfs, remote::pipe, base::report, session::saves, speed::saving, base::settings, native::splice, interface::ui, text::unicode};
+use crate::{
+    base::lang, base::loc, base::mods, base::notice, base::report, base::settings, interface::ui, lua, native::physfs, native::splice, remote::pipe,
+    session::saves, speed::loading, speed::saving, text::unicode,
+};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -230,7 +233,6 @@ mod tests {
 
     fn a_mod(id: &str, name: &str, misplaced: &[&str]) -> mods::DiscoveredMod {
         mods::DiscoveredMod {
-            descriptor_file: PathBuf::from(format!("mod\\{id}.mod")),
             descriptor: mods::Descriptor { name: name.into(), version: Some("1.2".into()), path: None, archive: None },
             dir: PathBuf::from(format!("D:\\mods\\{id}")),
             manifest: mods::Manifest {

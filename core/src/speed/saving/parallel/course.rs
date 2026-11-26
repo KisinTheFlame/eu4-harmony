@@ -10,8 +10,8 @@
 //! through [`Game`]: the real one in [`Real`], and a recorder in the tests
 //! that says what each run wrote and what fails.
 use super::{append, comparing, pool, position, read, splice, Ahead, Loop, Task, Writing, LAST_RUN, SPEED_UP, WRITER_SIZE};
-use crate::native::speed_up as speed;
 use crate::base::Result;
+use crate::native::speed_up as speed;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -193,6 +193,7 @@ impl<G: Game> Course<G> {
 
     /// Checked, where the game's own loop ended: where the stream stands, to
     /// compare the pool's bytes with what the loop wrote.
+    #[cfg(any(test, feature = "dev"))]
     fn loop_ended(&mut self, g: &mut G, writer: usize, which: usize) {
         let Some(flight) = self.in_flight.as_mut().filter(|f| f.writer == writer && f.at[which].is_some()) else { return };
         match g.at(&flight.loops[which]) {
@@ -282,6 +283,7 @@ pub(crate) fn join(writer: usize) {
 }
 
 /// Checked, where the game's own loop ended (`super::compare::end`).
+#[cfg(feature = "dev")]
 pub(super) fn loop_ended(writer: usize, which: usize) {
     COURSE.lock().unwrap_or_else(|e| e.into_inner()).loop_ended(&mut Real, writer, which);
 }

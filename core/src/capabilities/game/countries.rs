@@ -24,12 +24,6 @@ pub fn named(m: &Memory, ctx: &impl InWorld, tag: CountryTag) -> GResult<Tag> {
     }
 }
 
-/// The three letters of a country's tag (for example `CAS`).
-pub fn tag(WorldSession { m, world: ctx, .. }: WorldSession, country_id: Tag) -> GResult<[u8; 3]> {
-    country(m, &ctx, country_id)?;
-    Ok(country_id.letters())
-}
-
 /// Whether the two countries are at war, or either is a rebel faction.
 pub fn hostile(WorldSession { m, world: ctx, .. }: WorldSession, args::Hostile { country, other }: args::Hostile) -> GResult<bool> {
     world::hostile(m, &ctx, named(m, &ctx, country)?, named(m, &ctx, other)?)

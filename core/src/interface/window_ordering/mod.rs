@@ -6,7 +6,7 @@ mod native;
 mod placement;
 mod registry;
 
-use crate::{native::hooks::Call, native::memory::Memory, native::points::Point, base::Result};
+use crate::{base::Result, native::hooks::Call, native::memory::Memory, native::points::Point};
 use input::Input;
 use registry::Registry;
 pub(crate) use registry::{Identity, Owned};
@@ -119,7 +119,14 @@ impl<A: OrderAccess> Orderer<A> {
         self.0.with_registry(Registry::clear);
     }
 
-    fn attach(&self, m: &Memory, host: crate::base::hosts::Host, root: usize, frame: Option<usize>, controls: &[(usize, crate::native::bound_element::Look)]) -> Result<()> {
+    fn attach(
+        &self,
+        m: &Memory,
+        host: crate::base::hosts::Host,
+        root: usize,
+        frame: Option<usize>,
+        controls: &[(usize, crate::interface::bound_element::Look)],
+    ) -> Result<()> {
         let (floor, nodes) = native::host_nodes(m, root, frame, controls)?;
         self.0.with_registry(|state| {
             state.host(m, host as usize, root)?;
@@ -226,7 +233,13 @@ pub(crate) fn clear() {
 }
 
 /// Complete attached node groups, from the existing host binding.
-pub(crate) fn attach(m: &Memory, host: crate::base::hosts::Host, root: usize, frame: Option<usize>, controls: &[(usize, crate::native::bound_element::Look)]) -> Result<()> {
+pub(in crate::interface) fn attach(
+    m: &Memory,
+    host: crate::base::hosts::Host,
+    root: usize,
+    frame: Option<usize>,
+    controls: &[(usize, crate::interface::bound_element::Look)],
+) -> Result<()> {
     LIVE.attach(m, host, root, frame, controls)
 }
 

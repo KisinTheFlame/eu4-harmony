@@ -20,7 +20,8 @@ pub(crate) struct CapabilityHooks {
     #[cfg(feature = "dev")]
     pub(crate) answer_memory: fn(eu4_harmony_remote::memory::MemoryRequest) -> Result<eu4_harmony_remote::memory::MemoryAnswer, eu4_harmony_remote::Error>,
     #[cfg(feature = "dev")]
-    pub(crate) answer_performance: fn(eu4_harmony_remote::performance::PerformanceRequest) -> crate::world::GResult<eu4_harmony_remote::performance::PerformanceAnswer>,
+    pub(crate) answer_performance:
+        fn(eu4_harmony_remote::performance::PerformanceRequest) -> crate::world::GResult<eu4_harmony_remote::performance::PerformanceAnswer>,
 }
 
 static HOOKS: OnceLock<CapabilityHooks> = OnceLock::new();

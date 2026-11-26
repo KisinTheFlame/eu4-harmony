@@ -33,6 +33,7 @@ extern "C" {
 }
 
 /// A page of memory, as Windows commits, protects and watches it.
+#[cfg(any(test, feature = "dev"))]
 pub const PAGE: usize = 0x1000;
 
 /// The game image, by its load address.

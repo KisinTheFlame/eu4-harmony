@@ -45,11 +45,19 @@
 //!    (`min(0.25, 24.0 / speed)`) rather than waiting `24 / speed` real
 //!    seconds.
 
-use crate::{base::{called_by_game, Result}, native::game_heap::{self, delete}, native::game_string, native::hooks::Call, native::memory::Memory, native::objects::{
+use crate::{
+    base::{called_by_game, Result},
+    native::game_heap::{self, delete},
+    native::game_string,
+    native::hooks::Call,
+    native::memory::Memory,
+    native::objects::{
         application,
         campaign::{country, globals, map_manager, province, tag, world},
         text,
-    }, native::points::{Function, GameFunction, Point}};
+    },
+    native::points::{Function, GameFunction, Point},
+};
 use std::{
     collections::{HashMap, HashSet},
     sync::{

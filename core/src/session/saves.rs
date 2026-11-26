@@ -10,7 +10,12 @@
 pub mod file;
 
 use crate::base::called_by_game;
-use crate::{native::hooks::Call, native::memory::Memory, native::points::{GameFunction, Point}, base::Result};
+use crate::{
+    base::Result,
+    native::hooks::Call,
+    native::memory::Memory,
+    native::points::{GameFunction, Point},
+};
 use eu4_harmony_remote::binary as base64;
 use serde_json::Value;
 use std::{

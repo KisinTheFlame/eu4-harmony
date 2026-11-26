@@ -13,7 +13,9 @@
 //! sent is a [`Ticket`]; [`answer`] says what came of it, from the commands the
 //! game carried out, which an observer of the game's own function sees.
 use super::peace::checks as checks_peace;
-use super::{commands::Commands, context_any, countries, country, fail, game, Caller, Ctx, GResult, Session, Status, Tag, WorldSession};
+#[cfg(test)]
+use super::Caller;
+use super::{commands::Commands, context_any, countries, country, fail, Ctx, GResult, Session, Status, Tag, WorldSession};
 use crate::base::called_by_game;
 use crate::{native::game_string, native::hooks::Call, native::memory::Memory, native::objects::{
         diplomacy::{action, casus_belli, classes, command, factor, globals, send_window, side, sides, war_entry, war_goal, war_goal_type, war_goals, world},
@@ -423,13 +425,6 @@ fn still_acting(from: Tag, acting: Option<Tag>) -> GResult<()> {
     }
     let now = acting.map_or("no country is in view".to_string(), |country| format!("{} is in view", letters(country)));
     fail(Status::Rejected, format!("it was sent as {}, and {now}: what comes of it is no longer seen", letters(from)))
-}
-
-/// The allies a declaration of war sent called to arms, none for a proposal;
-/// [`Status::NotFound`] and [`Status::NotInGame`] as [`answer`].
-pub fn allies_called(_: Caller, ticket: Ticket) -> GResult<Vec<Tag>> {
-    game()?;
-    Ok(kept(ticket)?.0.called)
 }
 
 /// The action sent with `ticket`, and what the game did with it so far,

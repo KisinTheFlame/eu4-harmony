@@ -2,7 +2,11 @@
 //! the game frees or that the framework frees as the game made them. Every
 //! part of the framework that allocates or frees the game's memory does it
 //! through here.
-use crate::{native::memory::Memory, native::points::{GameFunction, Point}, base::Result};
+use crate::{
+    base::Result,
+    native::memory::Memory,
+    native::points::{GameFunction, Point},
+};
 
 /// `(size)`: the game's `operator new`.
 pub const NEW: GameFunction<1> = GameFunction::at(0x1a332d4);

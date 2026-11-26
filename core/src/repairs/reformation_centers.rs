@@ -4,7 +4,10 @@
 //! and leaves a dangling pointer (docs/game/provinces/reformation-centers.md).
 //! Complete that detach at the two writes, before the new center is installed,
 //! using the game's setter so conversion progress and map colors follow it.
-use crate::{base::called_by_game, native::points::{GameFunction, Point}};
+use crate::{
+    base::called_by_game,
+    native::points::{GameFunction, Point},
+};
 
 const CREATE_DETACH: usize = 0xdae38f;
 const CREATE_DETACHED: usize = 0xdae397;

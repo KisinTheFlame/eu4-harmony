@@ -1,5 +1,9 @@
 use super::*;
-use crate::{native::bound_element::Look, capabilities::game::buffers::{Image, Object}, native::objects::gui::{classes, globals, mouse_input, window}};
+use crate::{
+    fake_game::buffers::{Image, Object},
+    interface::bound_element::Look,
+    native::objects::gui::{classes, globals, mouse_input, window},
+};
 use std::rc::Rc;
 
 struct Tree {

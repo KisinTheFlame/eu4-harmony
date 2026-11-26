@@ -5,7 +5,12 @@
 //! tooltip lists them, and a capability refusing one gives those lines as
 //! the game's reasons (docs/adding-a-capability.md).
 use super::{GResult, Tag};
-use crate::{native::game_string, native::memory::Memory, native::points::{GameFunction, Point}, text::unicode::game_text};
+use crate::{
+    native::game_string,
+    native::memory::Memory,
+    native::points::{GameFunction, Point},
+    text::unicode::game_text,
+};
 
 /// Makes a scope: `(scope, country tag by value, province, 0)`.
 pub(crate) const SCOPE: GameFunction<4> = GameFunction::at(0x94590);

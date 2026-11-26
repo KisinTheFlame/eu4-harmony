@@ -14,22 +14,22 @@
 mod base;
 #[macro_use]
 mod native;
-mod text;
-mod render;
-mod repairs;
-mod speed;
-mod tweaks;
-mod session;
-mod interface;
-mod world;
-mod capabilities;
-mod lua;
-mod remote;
-mod framework_ui;
-mod dev;
 mod app;
+mod capabilities;
+mod dev;
 #[cfg(test)]
 mod fake_game;
+mod framework_ui;
+mod interface;
+mod lua;
+mod remote;
+mod render;
+mod repairs;
+mod session;
+mod speed;
+mod text;
+mod tweaks;
+mod world;
 
 /// Called by the proxy from its DllMain. Returns 0 on success.
 #[no_mangle]

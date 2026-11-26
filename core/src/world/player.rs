@@ -11,7 +11,11 @@
 //! the country in view and, in observe mode, refreshes the fog of war and
 //! the map.
 use super::{fail, GResult, Status, Tag, View, World};
-use crate::{native::memory::Memory, native::objects::campaign::world, native::points::{GameFunction, Point}};
+use crate::{
+    native::memory::Memory,
+    native::objects::campaign::world,
+    native::points::{GameFunction, Point},
+};
 
 /// The game's setter of the country in view: (world, tag), the tag by value.
 const SET_IN_VIEW: GameFunction<2> = GameFunction::at(0x763a20);

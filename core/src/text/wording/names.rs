@@ -13,9 +13,9 @@
 //! they are created, and keep the game's order, as do names that localisation
 //! puts together itself (`[Root.Monarch.GetName]` is the given name only).
 use crate::base::called_by_game;
-use crate::native::game_string;
 use crate::base::lang;
 use crate::base::loc;
+use crate::native::game_string;
 use crate::native::memory::Memory;
 use crate::native::points::{Function, Point};
 use crate::text::unicode::game_text;

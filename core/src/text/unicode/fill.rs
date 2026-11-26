@@ -49,12 +49,12 @@ use super::outline::Outline;
 use super::pages::{self, Drawn, Game, Made, NoRoom, Pages, Shared, Texture};
 use super::system_font::{Face, SystemFonts};
 use super::tone::Tone;
+use crate::base::settings;
 use crate::native::game_string;
 use crate::native::hooks::Call;
 use crate::native::memory::Memory;
 use crate::native::objects::text::{self as objects, font::OWN_GLYPHS, texture_description, texture_level, textures};
 use crate::native::points::Point;
-use crate::base::settings;
 use std::cell::RefCell;
 use std::ffi::c_void;
 use std::sync::LazyLock;
@@ -868,6 +868,7 @@ fn rebuild_map_names(m: &Memory) -> crate::base::Result<bool> {
 }
 
 /// Every page asks for room (the test switch `grow-pages`).
+#[cfg(feature = "dev")]
 pub fn want_room_everywhere() {
     PAGES.lock().want_room_everywhere();
 }

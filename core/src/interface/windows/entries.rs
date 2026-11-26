@@ -2,10 +2,17 @@
 //! button strip (`floating_buttons`), behind an internal seam shared by the
 //! running game and failure-injecting process tests.
 use super::{ElementOps, Entry, Live, STRIP_BACKGROUND, STRIP_FIRST, STRIP_SLOTS, STRIP_STEP, TEXT_HIDE, TEXT_PLACE, TEXT_PLACE_SLOT, TEXT_SHOW};
-use crate::{base::Result, native::bound_element::{self, BoundElement, Look, Shown}, native::memory::Memory, native::objects::{
+use crate::{
+    base::Result,
+    interface::bound_element::{self, BoundElement, Look, Shown},
+    interface::ui,
+    native::memory::Memory,
+    native::objects::{
         campaign::map_manager,
         gui::{classes, element, functions, window},
-    }, interface::ui, text::unicode::game_text};
+    },
+    text::unicode::game_text,
+};
 use eu4_harmony_lua::windows::ResolvedEntry;
 
 pub(crate) struct EntrySpec {

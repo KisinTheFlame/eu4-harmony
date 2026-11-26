@@ -4,7 +4,12 @@
 //! (docs/game/countries/modifiers.md). Every group that asks a country's
 //! modifiers asks them here.
 use super::{thousandths, GResult};
-use crate::{native::game_string, native::memory::Memory, native::objects::campaign::{country, modifier_set, modifier_type, modifiers, named_modifier}, native::points::{GameFunction, Point}};
+use crate::{
+    native::game_string,
+    native::memory::Memory,
+    native::objects::campaign::{country, modifier_set, modifier_type, modifiers, named_modifier},
+    native::points::{GameFunction, Point},
+};
 use eu4_harmony_remote::{
     countries::{ModifierValue, NamedModifier},
     Date,
@@ -152,7 +157,7 @@ pub fn named_modifiers(m: &Memory, entries: Vec<usize>, hidden: bool) -> GResult
 
 /// The refusals the framework words itself for modifiers.
 pub mod checks {
-    use crate::capabilities::game::{Fail, Status};
+    use crate::world::{Fail, Status};
 
     /// The refusal of a key that names no modifier.
     pub fn not_found(key: &str) -> Fail {

@@ -13,7 +13,7 @@
 //! game's `ui` observer of Kill tells [`killed`]; one still wanted open is
 //! built again at the next frame.
 //!
-//! How each element is set and its clicks heard is `crate::native::bound_element`'s,
+//! How each element is set and its clicks heard is `crate::interface::bound_element`'s,
 //! which the elements spliced into vanilla windows share.
 //!
 //! Locks: [`LIVE`] is held while the framework calls the game, so what the
@@ -25,10 +25,11 @@ mod entries;
 #[path = "lifecycle.rs"]
 mod lifecycle;
 
+use super::super::ui::{self, Callback};
 use super::{gui, with};
 use crate::{
     base::Result,
-    native::bound_element::{self, BoundElement, Hears, Look, Shown},
+    interface::bound_element::{self, BoundElement, Hears, Look, Shown},
     native::game_string,
     native::hooks::Call,
     native::memory::Memory,
@@ -39,7 +40,6 @@ use crate::{
     native::points::{GameFunction, Point},
     text::unicode::game_text,
 };
-use super::super::ui::{self, Callback};
 use eu4_harmony_lua::windows::Wanted;
 use eu4_harmony_lua::{
     layout::{self, Kind, Window},
@@ -609,7 +609,7 @@ pub fn points() -> Vec<Point> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::native::bound_element::Clicked;
+    use crate::interface::bound_element::Clicked;
     use eu4_harmony_lua::WindowChange;
     use serde_json::json;
 

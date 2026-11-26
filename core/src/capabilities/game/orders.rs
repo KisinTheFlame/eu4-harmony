@@ -4,10 +4,14 @@
 use super::commands::{write, Block};
 use super::{armies::RouteSource, army, commands::Commands, fail, paused, signals::Change, world, Caller, Ctx, GResult, Session, Status, MAX_UNITS};
 use crate::native::containers;
-use crate::{native::memory::Memory, native::objects::{
+use crate::{
+    native::memory::Memory,
+    native::objects::{
         campaign::{geometry, globals, province, route_options, unit},
         list,
-    }, native::points::{GameFunction, Point}};
+    },
+    native::points::{GameFunction, Point},
+};
 use eu4_harmony_checks::armies as checks;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};

@@ -9,10 +9,10 @@
 //! virtual function's call (`0x1654ac0`) and from `abort` (`0x1654b50`),
 //! each once a process. What ends the game without its filter, as the
 //! heap's own end of a corrupted heap does, is not recorded.
+use crate::base::stack::Context;
 use crate::native::hooks::Call;
 use crate::native::memory::Memory;
 use crate::native::points::Point;
-use crate::base::stack::Context;
 use std::time::Duration;
 use windows_sys::Win32::System::Diagnostics::Debug::{GetErrorMode, CONTEXT, SEM_NOGPFAULTERRORBOX};
 

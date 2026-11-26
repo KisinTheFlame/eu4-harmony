@@ -25,8 +25,8 @@ impl Wait for Ran {
 #[cfg(test)]
 mod tests {
     use super::super::{Place, Request};
-    use crate::fake_game::fake::{answer, quiet, Fake};
     use super::*;
+    use crate::fake_game::fake::{answer, quiet, Fake};
     use crate::remote::Engine;
     use std::time::Duration;
 

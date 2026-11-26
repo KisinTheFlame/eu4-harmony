@@ -100,7 +100,7 @@ pub fn localized(m: &Memory, key: &str) -> GResult<String> {
 /// docs/adding-a-capability.md); those the game gives reasons for are
 /// [`super::action`]'s.
 pub mod checks {
-    use crate::capabilities::game::{Fail, Status};
+    use crate::world::{Fail, Status};
 
     /// The refusal of recalling an envoy of a `kind` ("missionary") from where
     /// the player has none.

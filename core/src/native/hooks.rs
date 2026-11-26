@@ -15,7 +15,7 @@
 //! (ADR framework-succeeds-or-fails-as-a-whole). Every other function the
 //! game calls is marked `#[called_by_game]`, which does the same.
 use crate::base::called_by_game;
-use crate::{native::memory::Memory, base::Result};
+use crate::{base::Result, native::memory::Memory};
 use std::sync::Mutex;
 
 extern "C" {
@@ -53,6 +53,7 @@ pub struct HookFrame {
     fault: usize,
 }
 
+#[cfg(test)]
 impl HookFrame {
     /// A call with these arguments, as a test gives an observer.
     pub fn new(args: &[usize]) -> Self {
@@ -75,6 +76,7 @@ impl HookFrame {
     }
 
     /// The same call, made from `return_address`.
+    #[cfg(feature = "dev")]
     pub fn from(mut self, return_address: usize) -> Self {
         self.return_address = return_address;
         self

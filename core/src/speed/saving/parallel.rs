@@ -835,6 +835,7 @@ pub fn start() {
 }
 
 /// The pool's threads, which the write watch leaves running.
+#[cfg(feature = "dev")]
 pub fn threads() -> &'static [u32] {
     POOL.get().and_then(Option::as_ref).map_or(&[], |p| &p.threads)
 }
@@ -949,6 +950,7 @@ impl<T: Send> Task for Each<T> {
 /// pool, and where the world has written its game state the pool's bytes are
 /// compared with what each loop wrote. Where the game's loops end is observed
 /// only when `checked` includes `parallel-saves` in a developer build.
+#[cfg(feature = "dev")]
 mod compare {
     use super::*;
 
@@ -993,7 +995,8 @@ mod compare {
         vec![
             Point::jump(PROVINCES_END, "48 8b ce e8 a9 70 fb 00", "provinces written", provinces_end_stub as *const () as usize, &PROVINCES_END_RESUME),
             Point::jump(COUNTRIES_END, "48 8b ce e8 24 70 fb 00", "countries written", countries_end_stub as *const () as usize, &COUNTRIES_END_RESUME),
-            Point::keep(crate::native::objects::saves_rva::WRITE_CLOSE, "40 53 48 81 ec 30 02 00 00 ff 49 08 48 8b d9", "save writer closes a block (checked)").recorded(&CLOSE),
+            Point::keep(crate::native::objects::saves_rva::WRITE_CLOSE, "40 53 48 81 ec 30 02 00 00 ff 49 08 48 8b d9", "save writer closes a block (checked)")
+                .recorded(&CLOSE),
         ]
     }
 }
@@ -1005,6 +1008,7 @@ pub const SPEED_UP: SpeedUp = SpeedUp { name: "parallel-saves", group: "saving",
 
 /// Replaces the read-only `PROVINCES_END` and `COUNTRIES_END` points with
 /// jump stubs that record where the game's own loops end for comparison.
+#[cfg(feature = "dev")]
 pub fn replace_compare_points(points: &mut Vec<Point>) {
     points.retain(|p| !matches!(p.place, crate::native::points::Place::Rva(PROVINCES_END | COUNTRIES_END)));
     points.extend(compare::points());

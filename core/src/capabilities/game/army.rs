@@ -5,7 +5,12 @@
 //! Visibility follows the game: units in fogged provinces are never read in
 //! the player's view.
 use super::{armies::Army, country, world, Ctx, GResult, Tag, View, MAX_UNITS};
-use crate::{native::containers, native::memory::Memory, native::objects::campaign::{classes, country as country_fields, functions, globals, list, province, regiment, route_options, tag, task, unit, unit_type}, native::points::{GameFunction, Point}};
+use crate::{
+    native::containers,
+    native::memory::Memory,
+    native::objects::campaign::{classes, country as country_fields, functions, globals, list, province, regiment, route_options, tag, task, unit, unit_type},
+    native::points::{GameFunction, Point},
+};
 use eu4_harmony_checks::armies as checks;
 use std::collections::BTreeSet;
 
@@ -388,12 +393,12 @@ pub fn can_attack(m: &Memory, army: usize, target: usize) -> GResult<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fake_game::buffers::{byz, tur};
     use crate::capabilities::game::As;
     use crate::capabilities::game::{
         buffers::{self, Image, Object, Provinces},
         Caller, Fail, Session, Status,
     };
+    use crate::fake_game::buffers::{byz, tur};
     use crate::native::objects::campaign::country;
 
     /// The Ottomans' army 11 of two regiments and fleet 12 of one ship in

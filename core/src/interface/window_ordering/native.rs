@@ -1,7 +1,12 @@
 //! Native first-scene preparation, without a graphics submission.
 //! Call only outside native candidate iteration, under presentation ownership.
 //! Evidence: research/window-input-refresh.md and window-activation.md.
-use crate::{native::containers, native::memory::Memory, native::points::{GameFunction, Point}, base::Result};
+use crate::{
+    base::Result,
+    native::containers,
+    native::memory::Memory,
+    native::points::{GameFunction, Point},
+};
 
 const WALK: GameFunction<5> = GameFunction::at(0x14dd7a0);
 const HITS: GameFunction<4> = GameFunction::at(0x14dda50);
@@ -120,9 +125,12 @@ pub(super) fn host_nodes(
     m: &Memory,
     root: usize,
     frame: Option<usize>,
-    controls: &[(usize, crate::native::bound_element::Look)],
+    controls: &[(usize, crate::interface::bound_element::Look)],
 ) -> Result<(Option<usize>, Vec<usize>)> {
-    use crate::{native::bound_element::Look, native::objects::gui::{classes, window}};
+    use crate::{
+        interface::bound_element::Look,
+        native::objects::gui::{classes, window},
+    };
     let mut nodes = Vec::new();
     if let Some(frame) = frame {
         nodes.push(window_node(m, frame)?);

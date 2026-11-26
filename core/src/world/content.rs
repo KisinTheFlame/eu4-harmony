@@ -4,11 +4,6 @@
 use super::GResult;
 use crate::{native::game_string, native::memory::Memory, text::unicode::game_text};
 
-/// The text of the `std::string` at `string`, a content key.
-pub fn key(m: &Memory, string: usize) -> GResult<String> {
-    Ok(game_string::key(m, string)?)
-}
-
 /// The game's text for the localisation key `key`, in the player language,
 /// without color codes. A `$NAME$` in it that names another key, as
 /// `grant_consessions_to_the_church` names `ESTATE_CHURCH`, is that key's
@@ -68,7 +63,7 @@ pub fn checked(m: &Memory, check: impl FnOnce(usize) -> GResult<usize>) -> GResu
 /// decisions and missions; those the game gives reasons for are
 /// [`super::action`]'s.
 pub mod checks {
-    use crate::capabilities::game::{Fail, Status};
+    use crate::world::{Fail, Status};
 
     /// The refusal of a content key that names nothing of `kind` (such as "idea
     /// group") the player has or is offered.

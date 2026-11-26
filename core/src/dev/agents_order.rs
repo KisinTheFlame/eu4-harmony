@@ -17,7 +17,10 @@
 //! its country wrote that day.
 use super::options::{self, AgentsOrder};
 use crate::base::called_by_game;
-use crate::{speed::army_search::{ARMIES_WALK, ARMIES_WALKED as WALKED, CHILDREN_WALK as WALKS}, native::points::Point};
+use crate::{
+    native::points::Point,
+    speed::army_search::{ARMIES_WALK, ARMIES_WALKED as WALKED, CHILDREN_WALK as WALKS},
+};
 
 // In the top agent's step `0x14b370`, once it has thought, the walk of its
 // children (`WALKS`: `mov rbx, [rdi + 0x40]; test rbx, rbx; je`, `rdi` the
