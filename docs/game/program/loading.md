@@ -74,14 +74,33 @@ The flags (`0x10b2b70`, 0.6 s) read the countries' tags and their flags' files a
 
 ### The rest of InitGame after the flags: after the events
 
-The triggers' optimization profile (`0xb9b4e0`, about 1.1 s) and the effects' validation work on every trigger and effect the databases and the events read, and the trade nodes' setup (`0xb67830`) on the countries and provinces: they follow the events.
+After the flags (`0x10b2b70`), `InitGame` (`0x2043a0`) finishes with the trade nodes' setup (`0xb67830`), the triggers' optimization pass (`0x205bd2..0x205ca5`), and effect validation. Under mutex `[0x23582b0]`, `0x205bed..0x205c94` walks both `std::unordered_set<CTrigger*>` lists in `[0x2340010]` (`+0x08` top-level, `+0x48` nested): first computing `[trigger + 0x58]` via `0xb9b4e0(0xb9b380(), trigger)`, then calling `0xb980a0(trigger)` to stably sort `[trigger + 0x08]` (length `[trigger + 0x14]`) ascending by `[child + 0x58]` via `0xbbd220`/`0xbbd310` whenever `[manager + 0x58] != 0` and every direct child has a non-zero cost. After unlocking `[0x23582b0]`, `0xb89560` frees the two sets via `0xc03b0`, `0xc04d0`, and `0x17394f0` (`operator delete`), then clears `[0x2340010]`. These passes work on every trigger and effect loaded by the databases and events, so they must follow the events.
+
+### Script loaders (`0x46fab0`, `0x4882c0`, `0x8d5bd0`, `0x6f3250`) and concurrency
+
+All 48 direct call sites of dynamic token creation (`0x170d410`) reside in earlier database and scripted-definition loaders (including `0xdb03f0`, called only from `0xacb950`, `0xacc000`, and `0xace660`), not in `customizable_localization` (`0x46fab0`), `decisions` (`0x4882c0`), `missions` (`0x8d5bd0`), `events` (`0x6f3250`), trigger parsing (`0xb89f60`), or effect parsing (`0x5dec50`). Those four script loaders each parse files via stack-local lexers (`0x170cd10` → `0x170e700` reading the frozen token trie `0x6e4880`), while registering triggers (`0xb89710`, mutex `[0x23582b0]`, TLS nesting depth `[0x1fd5c00]`) and effects (`0x5de720`/`0x5de8d0`/`0x5dea80`, mutex `[0x2357d78]`). `events` (`0x6f3250`) additionally mutates sequential `namespace` state (`DAT_0x1fd1798 += 100000` and `EventManager`'s unlocked namespace table) and lazy-initializes `[0x2456bc0]` without a lock; each loader also appends parsed objects into its own unlocked manager containers.
+
+### Loading screen redraws during startup (`0x11bb4f0`, `0x10a8930`)
+
+`0x11bb4f0(graphics, text, change_screen)` has 21 direct callers across startup and load preparation. When `[graphics+0x530]` (device ready) is set, `0x14df050` returns non-zero, and the loading screen GUI window `[0x242bef8]` exists, it updates the `"status"` and `"tip"` text widgets and calls `0x10b3600(graphics, "", 1, change_screen)`, which performs a full Direct3D BeginScene..EndScene..Present sequence (blocking on DWM/vsync) with no message-pump or simulation side effects. A non-zero `change_screen` asks `0x10b3600` to pick a new loading screen image via `0x10b2ee0`.
+
+Inside `0x10a2e40`, `0x10a8930` creates the ~4,940 province graphics entries and calls `0x11bb4f0` once up front (`CREATING_PROVINCE`) and again every 100 provinces (`i == (i / 100) * 100`), producing ~52 synchronous presents (~1.57 s hidden / ~1 s visible) around ~15 ms of actual object creation. `0x12db850` adds 7–8 further presents across its map graphics sub-steps.
+
+### DLC signature verification (`0x150b8d0`, `0x15098b0`, `0x150ae80`, `0x166c150`)
+
+When Steam AppID detection (`0x1564660`) activates DLC verification (`[dlc_manager+0xe0] == 0`), `0x150b8d0` verifies installed DLCs before the PhysFS search path is rebuilt (`0x873be0`):
+
+1. It reads `dlc_signature` from the user folder and computes a signature over all non-exempt `.dlc` descriptor files via `0x15098b0(mgr, out, param_3 = 1)` (~6 ms). If it matches `dlc_signature`, all DLCs are marked verified (`+0x374 = 2`) and the remaining checks are skipped.
+2. On mismatch, it iterates every DLC and calls `0x150ae80`, which computes that DLC's archive `.zip` MD5 (`0x1509d20`, 123 archives totaling 3.49 GB, ~5.2 s single-threaded; `dlc126.zip` 804 MB and `dlc125.zip` 759 MB alone take ~2.27 s) and looks its `steam_id` up in the Steam store backend (`0x166c390`, populated by `0x166c150` from `ISteamApps::GetDLCCount` / `BGetDLCDataByIndex`). Any DLC missing from that list logs `[dlc.cpp:1489]: Could not find item in store backend.` and receives status `1` instead of `2`.
+3. Finally, `0x150b8d0` calls `0x15098b0(mgr, out, param_3 = 0)`, which hashes only the `.dlc` files with status `2` (~5 ms), and writes that digest to `dlc_signature`.
+
+Because step 1 hashes all non-exempt `.dlc` files (`param_3 = 1`) while step 3 hashes only status-`2` `.dlc` files (`param_3 = 0`), whenever even one installed `.dlc` fails the Steam store lookup (for example, unowned DLC depots remaining on disk after an Expansion Subscription ends), the saved `dlc_signature` never matches step 1 on the next start—forcing the full 3.49 GB `0x150ae80` archive MD5 pass (~5.2 s) on every Steam launch. Unverified DLCs (`+0x374 = 1`) are skipped by `0x1505dc0` when mounting archives into PhysFS.
 
 ## Not looked into
 
 - Which thread held the open's lock while the LoadingThread waited on it from 10 to 18 s; with L4 the opens to read no longer take it.
 - Why the framework's glyphs took twice as long after L5 as with L4.
 - What the gfx stage's part before the meshes (`.gfx`, the map, `.gui`) shares with the databases, and whether the databases could begin before it.
-- Whether the events' effects make dynamic tokens.
 - Vanilla's startup and load, without the framework, on the same machine.
 - What `0x1806bf0` keeps of a music file, and whether the game reads every file again when it plays.
 - Which of the game's things the dated nodes are, and how long their lists get.
@@ -94,11 +113,11 @@ Recorded sites and partially understood addresses; a listing is not a complete f
 
 | RVA | Kind | Known role or scope |
 | --- | --- | --- |
-| `0x7e510` | function | Referenced while examining the databases with l4; complete role not established |
+| `0x7e510` | function | Static initializer setting `0x1fd1a98` to `"customizable_localization"` |
 | `0x9b240` | function | Referenced while examining the databases; complete role not established |
 | `0x2855b0` | function | Referenced while examining the databases; complete role not established |
 | `0x46cf00` | function | Referenced while examining the databases; complete role not established |
-| `0x46fab0` | function | Referenced while examining the databases; complete role not established |
+| `0x46fab0` | function | Loads `common/customizable_localization` database from `0x208620` |
 | `0x5b91f0` | function | Referenced while examining the databases with l4; complete role not established |
 | `0x728570` | function | Referenced while examining the databases; complete role not established |
 | `0x72e4a0` | function | Referenced while examining the databases; complete role not established |
