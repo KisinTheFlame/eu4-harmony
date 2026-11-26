@@ -58,8 +58,18 @@ fn wire_all() {
     });
     render::window_input::set_hooks(render::window_input::InputHooks { is_modal: framework_ui::modal, on_wheel: tweaks::camera_zoom::before_sdl_wheel });
     render::drawing::set_hooks(render::drawing::DrawingHooks {
-        on_prepared_safe_point: safe_point::presented,
-        prepare_scene: interface::window_ordering::prepare_scene,
+        on_prepared_safe_point: || {
+            // While the drawing thread presents in-game frames, the main thread
+            // never enters `before_main_present`; grow font pages here while
+            // the main thread holds the presentation lock (ADR font-pages-grow).
+            base::guarded("font pages", text::unicode::grow_pages);
+            base::guarded("safe point", safe_point::presented);
+            base::guarded("text costs", text::unicode::log_costs_when_due);
+        },
+        prepare_scene: |m| {
+            base::guarded("font pages", text::unicode::grow_pages);
+            interface::window_ordering::prepare_scene(m)
+        },
     });
     tweaks::hidden::set_hooks(tweaks::hidden::HiddenHooks { on_early_sync: proxy::sync_once });
     session::sessions::set_listener(|happening| {
