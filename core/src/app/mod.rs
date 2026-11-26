@@ -86,6 +86,7 @@ fn wire_all() {
                 capabilities::game::signal_costs::log_session();
                 safe_point::session_ended(end);
                 session::saves::clear_session();
+                base::report::write();
                 base::log::checkpoint();
             }
             Happening::CampaignChanges => {
@@ -97,7 +98,10 @@ fn wire_all() {
                 repairs::world_reset(&native::hooked_memory(), world_ptr);
                 dev::world_reset();
             }
-            Happening::FirstFrameAfterReset => repairs::first_frame_after_reset(&native::hooked_memory()),
+            Happening::FirstFrameAfterReset => {
+                repairs::first_frame_after_reset(&native::hooked_memory());
+                base::report::write();
+            }
             Happening::ResetWithHistory => {
                 capabilities::game::signals::world_reset();
                 capabilities::game::orders::world_replaced();

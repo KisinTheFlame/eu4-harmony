@@ -77,9 +77,21 @@ fn loads_after(year: u32, years: u32, save_every: u32) -> bool {
 
 /// The checkable speed-ups that must check at least one answer during `checked`
 /// (hidden, silent, 1444 observe mode with autosaves). `music` is omitted
-/// because silent hidden runs do not necessarily stream music tracks.
-const REQUIRED_CHECKED: &[&str] =
-    &["lookups", "listed-folders", "script-parameters", "localisation", "trigger-profile", "parallel-saves", "army-searches", "modifier-sums"];
+/// because silent hidden runs do not necessarily stream music tracks, and
+/// `dlc-verify` is omitted because it only runs on a `dlc_signature` miss.
+const REQUIRED_CHECKED: &[&str] = &[
+    "lookups",
+    "listed-folders",
+    "script-parameters",
+    "localisation",
+    "trigger-profile",
+    "parallel-saves",
+    "army-searches",
+    "modifier-sums",
+    "country-distances",
+    "flag-atlas",
+    "token-lookup",
+];
 
 /// Parses `<name>: <checked> answer(s) checked, <differed> differing from the game's`.
 fn parse_check_line(line: &str) -> Option<(String, u64, u64)> {

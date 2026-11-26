@@ -590,36 +590,33 @@ unsafe extern "C" fn rebuild_distances(country: usize, arg2: u8) {
     }
 
     if speed::checked(&SPEED_UP) {
-        // Compute our results without writing, then run the game's original
-        // rebuild and compare every target country's two distance slots.
-        let computed = SCRATCH.with(|cell| {
-            let Ok(mut s) = cell.try_borrow_mut() else {
-                return false;
-            };
-            compute_distances(country, true, &mut s)
-        });
+        // Run the game's original rebuild first so `PRE_REBUILD_FN` (`0x2d0a00`)
+        // refreshes `country + 0x2338` before our fast path reads it, then
+        // compare every target country's two distance slots against the result.
         ORIGINAL_REBUILD.get()(country, arg2);
-        if computed {
-            SCRATCH.with(|cell| {
-                if let Ok(s) = cell.try_borrow() {
-                    let near_buf = read_usize(country + 0x2398) as *const u16;
-                    let any_buf = read_usize(country + 0x23b0) as *const u16;
-                    let mut mismatch: Option<(usize, u16, u16, u16, u16)> = None;
-                    for &(t_idx, exp_near, exp_any) in &s.checked_results {
-                        let got_near = *near_buf.add(t_idx);
-                        let got_any = *any_buf.add(t_idx);
-                        if got_near != exp_near || got_any != exp_any {
-                            mismatch = Some((t_idx, exp_near, got_near, exp_any, got_any));
-                            break;
-                        }
-                    }
-                    speed::compared(&SPEED_UP, mismatch.is_none(), || {
-                        let (t_idx, en, gn, ea, ga) = mismatch.unwrap();
-                        format!("country {country:#x} vs target {t_idx}: fast=({en},{ea}) game=({gn},{ga})")
-                    });
+        SCRATCH.with(|cell| {
+            let Ok(mut s) = cell.try_borrow_mut() else {
+                return;
+            };
+            if !compute_distances(country, true, &mut s) {
+                return;
+            }
+            let near_buf = read_usize(country + 0x2398) as *const u16;
+            let any_buf = read_usize(country + 0x23b0) as *const u16;
+            let mut mismatch: Option<(usize, u16, u16, u16, u16)> = None;
+            for &(t_idx, exp_near, exp_any) in &s.checked_results {
+                let got_near = *near_buf.add(t_idx);
+                let got_any = *any_buf.add(t_idx);
+                if got_near != exp_near || got_any != exp_any {
+                    mismatch = Some((t_idx, exp_near, got_near, exp_any, got_any));
+                    break;
                 }
+            }
+            speed::compared(&SPEED_UP, mismatch.is_none(), || {
+                let (t_idx, en, gn, ea, ga) = mismatch.unwrap();
+                format!("country {country:#x} vs target {t_idx}: fast=({en},{ea}) game=({gn},{ga})")
             });
-        }
+        });
         return;
     }
 
