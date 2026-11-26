@@ -152,6 +152,37 @@ fn since_reset() -> String {
     )
 }
 
+/// Reads the objects a deleted history record leaves behind, filtering out
+/// null persons and relations the game already deleted (`gone`).
+fn record_left(m: &Memory, record: usize, gone: Option<&HashSet<usize>>) -> crate::base::Result<Vec<(usize, Left)>> {
+    let class = m.ptr(record)?;
+    if class == m.at(BATTLE_RECORD) {
+        let battle = m.ptr(record + BATTLE)?;
+        return Ok(if battle == 0 { Vec::new() } else { vec![(battle, Left::Battle)] });
+    }
+    if DIPLOMACY_RECORDS.iter().any(|&c| class == m.at(c)) {
+        let relation = m.ptr(record + RELATION)?;
+        let already_gone = gone.is_some_and(|g| g.contains(&relation));
+        return Ok(if relation == 0 || already_gone { Vec::new() } else { vec![(relation, Left::Relation)] });
+    }
+    let fields: &[usize] = if class == m.at(MONARCH_RECORD) {
+        &MONARCH_PERSONS
+    } else if class == m.at(HEIR_RECORD) || class == m.at(QUEEN_RECORD) {
+        &SMALL_PERSONS
+    } else {
+        return Ok(Vec::new());
+    };
+    let nulls = null_persons(m)?;
+    let mut persons = Vec::new();
+    for field in fields {
+        let person = m.ptr(record + field)?;
+        if person != 0 && !nulls.contains(&person) {
+            persons.push((person, Left::Person));
+        }
+    }
+    Ok(persons)
+}
+
 /// A record of a history is being deleted: the persons it holds that are not
 /// null wait, and so does a battle.
 fn record_going(call: &mut Call) {
@@ -160,34 +191,10 @@ fn record_going(call: &mut Call) {
         return;
     }
     let m = call.memory();
-    let kept = (|| {
-        let class = m.ptr(record)?;
-        if class == m.at(BATTLE_RECORD) {
-            let battle = m.ptr(record + BATTLE)?;
-            return Ok(if battle == 0 { Vec::new() } else { vec![(battle, Left::Battle)] });
-        }
-        if DIPLOMACY_RECORDS.iter().any(|&c| class == m.at(c)) {
-            let relation = m.ptr(record + RELATION)?;
-            let gone = GONE.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|g| g.contains(&relation));
-            return Ok(if relation == 0 || gone { Vec::new() } else { vec![(relation, Left::Relation)] });
-        }
-        let fields: &[usize] = if class == m.at(MONARCH_RECORD) {
-            &MONARCH_PERSONS
-        } else if class == m.at(HEIR_RECORD) || class == m.at(QUEEN_RECORD) {
-            &SMALL_PERSONS
-        } else {
-            return Ok(Vec::new());
-        };
-        let nulls = null_persons(&m)?;
-        let mut persons = Vec::new();
-        for field in fields {
-            let person = m.ptr(record + field)?;
-            if person != 0 && !nulls.contains(&person) {
-                persons.push((person, Left::Person));
-            }
-        }
-        crate::base::Result::Ok(persons)
-    })();
+    let kept = {
+        let guard = GONE.lock().unwrap_or_else(|e| e.into_inner());
+        record_left(&m, record, guard.as_ref())
+    };
     match kept {
         Ok(left) => {
             for (object, kind) in left {
@@ -226,58 +233,59 @@ fn relation_made(call: &mut Call) {
 /// return are deleted, unless the diplomacy was given one: the session's
 /// interface may show them until it goes.
 fn world_clearing(m: &Memory) {
-    let due = WAITING.take_due(Moment::Return);
-    let deleted = (|| {
-        for (relation, _) in due {
-            if m.u8(relation + GIVEN)? != 0 {
-                RELATIONS_KEPT.fetch_add(1, Ordering::Relaxed);
-                continue;
-            }
-            m.write(relation + PERMITTED, &[1u8])?;
-            waiting::delete_by_its_class(m, relation, "diplomatic history's relation")?;
-            RELATIONS.fetch_add(1, Ordering::Relaxed);
-        }
-        crate::base::Result::Ok(())
-    })();
-    if let Err(e) = deleted {
+    if let Err(e) = clear_due_relations(m, &WAITING, &RELATIONS, &RELATIONS_KEPT) {
         log!("repair: the relations the diplomatic histories left were not all deleted: {e}");
     }
+}
+
+fn clear_due_relations(m: &Memory, waiting: &Waiting<Left>, deleted: &AtomicUsize, kept: &AtomicUsize) -> crate::base::Result<()> {
+    for (relation, _) in waiting.take_due(Moment::Return) {
+        if m.u8(relation + GIVEN)? != 0 {
+            kept.fetch_add(1, Ordering::Relaxed);
+            continue;
+        }
+        m.write(relation + PERMITTED, &[1u8])?;
+        waiting::delete_by_its_class(m, relation, "diplomatic history's relation")?;
+        deleted.fetch_add(1, Ordering::Relaxed);
+    }
+    Ok(())
 }
 
 /// The first frame after a world reset: what waited from before its end is
 /// deleted, unless the game still has a person; relations wait for the
 /// world's next clear.
 fn let_go(m: &Memory) {
-    let due = WAITING.take_due(Moment::Reset);
-    if due.is_empty() {
-        return;
-    }
-    let deleted = (|| {
-        let in_use = in_use(m)?;
-        for (object, kind) in due {
-            if kind == Left::Battle {
-                waiting::delete_by_its_class(m, object, "war history's battle")?;
-                BATTLES.fetch_add(1, Ordering::Relaxed);
-                continue;
-            }
-            let person = object;
-            if in_use.contains(&person) {
-                PERSONS_KEPT.fetch_add(1, Ordering::Relaxed);
-                continue;
-            }
-            let id = m.u64(person + ID)?;
-            if FIND_ID.call(m, [&id as *const u64 as usize])? == person {
-                PERSONS_KEPT.fetch_add(1, Ordering::Relaxed);
-                continue;
-            }
-            waiting::delete_by_its_class(m, person, "history's person")?;
-            PERSONS.fetch_add(1, Ordering::Relaxed);
-        }
-        crate::base::Result::Ok(())
-    })();
-    if let Err(e) = deleted {
+    if let Err(e) = let_go_due(m, &WAITING, &PERSONS, &PERSONS_KEPT, &BATTLES) {
         log!("repair: what the histories left was not all deleted: {e}");
     }
+}
+
+fn let_go_due(m: &Memory, waiting: &Waiting<Left>, persons: &AtomicUsize, persons_kept: &AtomicUsize, battles: &AtomicUsize) -> crate::base::Result<()> {
+    let due = waiting.take_due(Moment::Reset);
+    if due.is_empty() {
+        return Ok(());
+    }
+    let in_use = in_use(m)?;
+    for (object, kind) in due {
+        if kind == Left::Battle {
+            waiting::delete_by_its_class(m, object, "war history's battle")?;
+            battles.fetch_add(1, Ordering::Relaxed);
+            continue;
+        }
+        let person = object;
+        if in_use.contains(&person) {
+            persons_kept.fetch_add(1, Ordering::Relaxed);
+            continue;
+        }
+        let id = m.u64(person + ID)?;
+        if FIND_ID.call(m, [&id as *const u64 as usize])? == person {
+            persons_kept.fetch_add(1, Ordering::Relaxed);
+            continue;
+        }
+        waiting::delete_by_its_class(m, person, "history's person")?;
+        persons.fetch_add(1, Ordering::Relaxed);
+    }
+    Ok(())
 }
 
 /// The game's null persons.
@@ -400,4 +408,106 @@ pub(super) fn points() -> Vec<Point> {
         Point::keep(0x29c1dbusize, "49 8b 82 98 12 00 00", "country heir").uses(&[COUNTRY_PERSONS[1]]),
         Point::keep(0x29c30dusize, "49 8b 82 b0 12 00 00", "country queen").uses(&[COUNTRY_PERSONS[2]]),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fake_game::buffers::{Image, Object};
+    use crate::native::containers::{ARRAY_COUNT, ARRAY_DATA};
+    use crate::native::objects::campaign::{countries, globals};
+    use std::cell::RefCell;
+
+    thread_local! {
+        static DELETED: RefCell<Vec<(usize, usize)>> = const { RefCell::new(Vec::new()) };
+        static REGISTERED: RefCell<Option<(u64, usize)>> = const { RefCell::new(None) };
+    }
+
+    extern "C" fn delete_any(object: usize, flags: usize) -> usize {
+        DELETED.with(|d| d.borrow_mut().push((object, flags)));
+        object
+    }
+
+    extern "C" fn find_id(id_ptr: usize) -> usize {
+        let id = unsafe { *(id_ptr as *const u64) };
+        REGISTERED.with(|r| r.borrow().filter(|(k, _)| *k == id).map_or(0, |(_, p)| p))
+    }
+
+    #[test]
+    fn record_left_filters_nulls_and_gone_relations_and_let_go_respects_live_persons_and_given_relations() {
+        DELETED.with(|d| d.borrow_mut().clear());
+        let image = Image::new();
+        image.function(FIND_ID.rva(), find_id as *const ());
+        let m = image.memory();
+
+        let vtable = Object::new(0x10).u64(0, delete_any as *const () as u64);
+        let null_monarch = Object::new(0x20);
+        let null_heir = Object::new(0x20);
+        let null_queen = Object::new(0x20);
+        image.u64(NULL_PERSONS[0], null_monarch.at() as u64);
+        image.u64(NULL_PERSONS[1], null_heir.at() as u64);
+        image.u64(NULL_PERSONS[2], null_queen.at() as u64);
+
+        let orphan_person = Object::new(0x20).u64(0, vtable.at() as u64).u64(ID, 101);
+        let vector_person = Object::new(0x20).u64(0, vtable.at() as u64).u64(ID, 102);
+        let country_person = Object::new(0x20).u64(0, vtable.at() as u64).u64(ID, 103);
+        let id_person = Object::new(0x20).u64(0, vtable.at() as u64).u64(ID, 104);
+        REGISTERED.with(|r| *r.borrow_mut() = Some((104, id_person.at())));
+
+        // ALL_PERSONS vector holds `vector_person`.
+        let all_buf = Object::new(8).u64(0, vector_person.at() as u64);
+        image.u64(ALL_PERSONS, all_buf.at() as u64);
+        image.u64(ALL_PERSONS + 8, (all_buf.at() + 8) as u64);
+
+        // One country holding `country_person` as its heir.
+        let country_obj = Object::new(0x1300).u64(COUNTRY_PERSONS[1], country_person.at() as u64);
+        let country_ptrs = Object::new(8).u64(0, country_obj.at() as u64);
+        let country_mgr =
+            Object::new(countries::ARRAY + 0x20).u64(countries::ARRAY + ARRAY_DATA, country_ptrs.at() as u64).u32(countries::ARRAY + ARRAY_COUNT, 1);
+        image.u64(globals::COUNTRY_MANAGER, country_mgr.at() as u64);
+
+        // Monarch record references 1 null person and 3 live candidates.
+        let monarch_rec = Object::new(0x60)
+            .u64(0, m.at(MONARCH_RECORD) as u64)
+            .u64(MONARCH_PERSONS[0], null_monarch.at() as u64)
+            .u64(MONARCH_PERSONS[1], orphan_person.at() as u64)
+            .u64(MONARCH_PERSONS[2], vector_person.at() as u64)
+            .u64(MONARCH_PERSONS[3], country_person.at() as u64);
+        let heir_rec = Object::new(0x50).u64(0, m.at(HEIR_RECORD) as u64).u64(SMALL_PERSONS[0], id_person.at() as u64);
+        let battle = Object::new(0x20).u64(0, vtable.at() as u64);
+        let battle_rec = Object::new(0x50).u64(0, m.at(BATTLE_RECORD) as u64).u64(BATTLE, battle.at() as u64);
+
+        // Three diplomatic records: one already gone, one given to diplomacy, one orphaned.
+        let gone_rel = Object::new(0x30).u64(0, vtable.at() as u64);
+        let given_rel = Object::new(0x30).u64(0, vtable.at() as u64).u8(GIVEN, 1);
+        let orphan_rel = Object::new(0x30).u64(0, vtable.at() as u64).u8(GIVEN, 0).u8(PERMITTED, 0);
+        let gone_rec = Object::new(0x50).u64(0, m.at(DIPLOMACY_RECORDS[0]) as u64).u64(RELATION, gone_rel.at() as u64);
+        let given_rec = Object::new(0x50).u64(0, m.at(DIPLOMACY_RECORDS[1]) as u64).u64(RELATION, given_rel.at() as u64);
+        let orphan_rec = Object::new(0x50).u64(0, m.at(DIPLOMACY_RECORDS[2]) as u64).u64(RELATION, orphan_rel.at() as u64);
+
+        let gone_set = HashSet::from([gone_rel.at()]);
+        let waiting: Waiting<Left> = Waiting::new();
+        for rec in [monarch_rec.at(), heir_rec.at(), battle_rec.at(), gone_rec.at(), given_rec.at(), orphan_rec.at()] {
+            for (obj, kind) in record_left(m, rec, Some(&gone_set)).unwrap() {
+                waiting.wait(obj, kind, kind.waits_for());
+            }
+        }
+        assert!(record_left(m, gone_rec.at(), Some(&gone_set)).unwrap().is_empty());
+
+        // Reset passes: only `orphan_person` and `battle` are deleted; the other 3 persons are kept.
+        Moment::Reset.passed();
+        let (p_del, p_kept, b_del) = (AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0));
+        let_go_due(m, &waiting, &p_del, &p_kept, &b_del).unwrap();
+        assert_eq!((p_del.load(Ordering::Relaxed), p_kept.load(Ordering::Relaxed), b_del.load(Ordering::Relaxed)), (1, 3, 1));
+        assert_eq!(DELETED.with(|d| d.borrow().clone()), vec![(orphan_person.at(), 1), (battle.at(), 1)]);
+
+        // Return passes: `given_rel` is kept, `orphan_rel` gets PERMITTED=1 and is deleted.
+        DELETED.with(|d| d.borrow_mut().clear());
+        Moment::Return.passed();
+        let (r_del, r_kept) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        clear_due_relations(m, &waiting, &r_del, &r_kept).unwrap();
+        assert_eq!((r_del.load(Ordering::Relaxed), r_kept.load(Ordering::Relaxed)), (1, 1));
+        assert_eq!(m.u8(orphan_rel.at() + PERMITTED).unwrap(), 1);
+        assert_eq!(DELETED.with(|d| d.borrow().clone()), vec![(orphan_rel.at(), 1)]);
+    }
 }

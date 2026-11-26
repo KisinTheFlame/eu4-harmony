@@ -35,7 +35,6 @@
 //! shown window is throttled by Windows as any other then anyway.
 use crate::base::called_by_game;
 use crate::native::points::{Function, Point};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 
 /// The switches on the game's command line.
@@ -57,12 +56,9 @@ impl Switches {
 }
 
 static SWITCHES: OnceLock<Switches> = OnceLock::new();
-/// Whether the game's window is hidden now.
-static HIDDEN: AtomicBool = AtomicBool::new(false);
 
 pub(crate) struct HiddenHooks {
     pub(crate) on_early_sync: fn(),
-    pub(crate) on_hold_cursor: fn(Option<[i32; 2]>),
 }
 
 static HOOKS: OnceLock<HiddenHooks> = OnceLock::new();
@@ -82,7 +78,6 @@ pub fn read_switches() {
     if !switches.hidden {
         return;
     }
-    HIDDEN.store(true, Ordering::Relaxed);
     crate::base::set_hidden(true);
     full_speed();
     if switches.sound {
@@ -123,7 +118,7 @@ fn full_speed() {
 
 /// Whether the game was started hidden.
 pub fn hidden_start() -> bool {
-    SWITCHES.get().is_some_and(|s| s.hidden)
+    crate::base::hidden_start()
 }
 
 /// Whether the game plays sound: a hidden start does only with
@@ -134,7 +129,7 @@ pub fn sound() -> bool {
 
 /// Whether the game's window is hidden now.
 pub fn hidden() -> bool {
-    HIDDEN.load(Ordering::Relaxed)
+    crate::base::is_hidden()
 }
 
 /// What [`show`] and [`hide`] refuse.
@@ -151,8 +146,7 @@ pub enum Refused {
 pub fn show() -> Result<(), Refused> {
     use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE};
     let window = window()?;
-    if HIDDEN.swap(false, Ordering::Relaxed) {
-        crate::base::set_hidden(false);
+    if crate::base::swap_hidden(false) {
         conceal(window, false);
         // Shown already, unless Init has not shown it yet.
         unsafe { ShowWindow(window, SW_SHOWNOACTIVATE) };
@@ -165,11 +159,8 @@ pub fn show() -> Result<(), Refused> {
 /// hidden start.
 pub fn hide() -> Result<(), Refused> {
     let window = window()?;
-    if !HIDDEN.swap(true, Ordering::Relaxed) {
-        crate::base::set_hidden(true);
-        if let Some(h) = HOOKS.get() {
-            (h.on_hold_cursor)(None);
-        }
+    if !crate::base::swap_hidden(true) {
+        crate::render::input::hold(None);
         conceal(window, true);
         log!("hidden start: the window is hidden again");
     }
@@ -361,9 +352,7 @@ unsafe extern "C" fn warp(device: usize, at: *const [i32; 2]) {
     if hidden() {
         let at = *at;
         crate::base::guarded("warp cursor", || {
-            if let Some(h) = HOOKS.get() {
-                (h.on_hold_cursor)(Some(at));
-            }
+            crate::render::input::hold(Some(at));
         });
     } else {
         ORIGINAL_WARP.get()(device, at);

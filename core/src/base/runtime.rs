@@ -15,11 +15,24 @@ use windows_sys::Win32::{Foundation::HWND, System::Threading::GetCurrentThreadId
 
 pub type Result<T> = std::result::Result<T, String>;
 
+/// What this build is, appended after the version and API version in logs and
+/// the startup report; `None` for a player build.
+pub(crate) fn build_label() -> Option<&'static str> {
+    #[cfg(feature = "dev")]
+    return Some("developer build");
+    #[cfg(all(feature = "dev-test-games", not(feature = "dev")))]
+    return Some("test games' pipes");
+    #[cfg(not(feature = "dev-test-games"))]
+    return None;
+}
+
 /// Marks a function the game's code calls, which runs under [`guarded`].
 pub(crate) use eu4_harmony_core_macros::called_by_game;
 
 static GAME_DIR: OnceLock<PathBuf> = OnceLock::new();
 pub(crate) static MAIN_THREAD: AtomicU32 = AtomicU32::new(0);
+/// Thread ID of the framework's drawing thread, 0 while none is running.
+pub(crate) static DRAWING_THREAD: AtomicU32 = AtomicU32::new(0);
 /// When the proxy called the bootstrap, as the game's process began.
 static BOOTSTRAP: OnceLock<std::time::Instant> = OnceLock::new();
 /// The game's Win32 window handle, once attached.
@@ -61,6 +74,17 @@ pub(crate) fn main_thread() -> u32 {
     MAIN_THREAD.load(Ordering::Relaxed)
 }
 
+/// Records the active drawing thread's OS thread ID (0 when stopped).
+pub(crate) fn set_drawing_thread(id: u32) {
+    DRAWING_THREAD.store(id, Ordering::Release);
+}
+
+/// Whether the current thread is the framework's drawing thread.
+pub(crate) fn is_drawing_thread() -> bool {
+    let id = DRAWING_THREAD.load(Ordering::Acquire);
+    id != 0 && thread_id() == id
+}
+
 /// Records the game's Win32 window handle once the window procedure attaches.
 pub(crate) fn set_game_window(window: HWND) {
     GAME_WINDOW.store(window as isize, Ordering::Release);
@@ -85,6 +109,11 @@ pub(crate) fn hidden_start() -> bool {
 /// Records whether the game's window is hidden right now.
 pub(crate) fn set_hidden(hidden: bool) {
     HIDDEN_NOW.store(hidden, Ordering::Relaxed);
+}
+
+/// Atomically updates the hidden flag and returns its previous value.
+pub(crate) fn swap_hidden(hidden: bool) -> bool {
+    HIDDEN_NOW.swap(hidden, Ordering::Relaxed)
 }
 
 /// Whether the game's window is hidden right now.

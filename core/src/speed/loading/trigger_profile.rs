@@ -93,7 +93,7 @@ const ENTRY_COST: usize = 0x58;
 /// `CTriggerProfileNode*` at `+0x10`), `+0x18` child count.
 const NODE_CHILDREN_HEAD: usize = 0x10;
 
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "trigger-profile", group: "loading", points, checkable: true };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("trigger-profile", "loading", points, true);
 
 type Lookup = unsafe extern "C" fn(usize, usize) -> u64;
 type GetManager = unsafe extern "C" fn() -> usize;

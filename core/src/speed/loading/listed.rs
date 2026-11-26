@@ -22,14 +22,13 @@
 //! changed are let go of; when Windows cannot tell what changed, all the
 //! folder's are. A file or folder the game makes or removes through PhysFS
 //! lets go of its ancestor folders' listings before the call returns.
-use super::folder::{list, read_as_written, Kind};
+use super::folder::{lowered_relative, DirectoryCache, Kind};
 use crate::base::called_by_game;
 use crate::native::hooks::Call;
 use crate::native::points::{Function, Point};
 use crate::native::speed_up::{self as speed, SpeedUp};
 use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Storage::FileSystem::{
@@ -65,7 +64,7 @@ const OPEN_WRITE: usize = 0x19fa240;
 /// Answered by the game's own stat as well, the answer is checked: whether
 /// the path is there and, if it is, whether a file or a folder; the game's is
 /// kept.
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "listed-folders", group: "loading", points, checkable: true };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("listed-folders", "loading", points, true);
 
 fn points() -> Vec<Point> {
     vec![
@@ -107,58 +106,26 @@ resume!(FIND_RESUME: FIND_ASKED_AT = FIND_ASKED);
 /// Not the listings' to answer: the game's stat answers.
 const LEFT: i32 = -1;
 
-type Listing = HashMap<Box<str>, Kind>;
-
-/// What the listings say of a folder.
-#[derive(Clone)]
-enum Folder {
-    Listed(Arc<Listing>),
-    /// It is not there, or a file is where it would be.
-    Missing,
-    /// Not for the listings to say.
-    Unknown,
-}
-
-/// A folder of the search path, as PhysFS names it (`...\`), with the
-/// listings of the folders below it, by their path from it in lower case,
-/// `/` between names, "" for itself; None for one that cannot be listed.
-struct Root {
-    path: Box<str>,
-    /// In lower case, `\` between names, ending in `\`.
-    lower: Box<str>,
-    listings: RwLock<HashMap<Box<str>, Option<Arc<Listing>>>>,
-    /// Counts the changes Windows told of: a listing made across one is not
-    /// kept.
-    changes: AtomicU64,
-}
-
 /// The roots by the address of PhysFS's name for them, None for one that
 /// cannot be watched.
-static ROOTS: RwLock<Option<HashMap<usize, Option<Arc<Root>>>>> = RwLock::new(None);
+static ROOTS: RwLock<Option<HashMap<usize, Option<Arc<DirectoryCache>>>>> = RwLock::new(None);
 
-fn root(name: *const c_char) -> Option<Arc<Root>> {
+fn root(name: *const c_char) -> Option<Arc<DirectoryCache>> {
     let path = unsafe { CStr::from_ptr(name) }.to_str().ok()?;
     if let Some(found) = ROOTS.read().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|r| r.get(&(name as usize))) {
         // The same address may be a root mounted after another unmounted.
         match found {
-            Some(root) if &*root.path == path => return Some(root.clone()),
+            Some(root) if root.path() == path => return Some(root.clone()),
             None => return None,
             Some(_) => {}
         }
     }
     let mut roots = ROOTS.write().unwrap_or_else(|e| e.into_inner());
     let roots = roots.get_or_insert_with(HashMap::new);
-    if let Some(Some(root)) = roots.get(&(name as usize)).filter(|r| r.as_ref().is_some_and(|r| &*r.path == path)) {
+    if let Some(Some(root)) = roots.get(&(name as usize)).filter(|r| r.as_ref().is_some_and(|r| r.path() == path)) {
         return Some(root.clone());
     }
-    let made = (path.ends_with('\\') && path.is_ascii()).then(|| {
-        Arc::new(Root {
-            path: path.into(),
-            lower: path.replace('/', "\\").to_ascii_lowercase().into(),
-            listings: RwLock::new(HashMap::new()),
-            changes: AtomicU64::new(0),
-        })
-    });
+    let made = (path.ends_with('\\') && path.is_ascii()).then(|| Arc::new(DirectoryCache::new(path)));
     let made = made.filter(|root| watch(root.clone()));
     if made.is_none() {
         log!("listed-folders: {path:?} left to the game's stat");
@@ -168,92 +135,20 @@ fn root(name: *const c_char) -> Option<Arc<Root>> {
 }
 
 /// The path in lower case into `out`, if the listings can answer for it:
-/// ASCII, names Windows reads as they are written.
+/// ASCII, `/`-separated names Windows reads as they are written.
 fn lowered<'a>(path: &[u8], out: &'a mut [u8; 512]) -> Option<&'a str> {
-    if path.is_empty() || path.len() > out.len() {
-        return None;
-    }
-    for (o, &c) in out.iter_mut().zip(path) {
-        if !c.is_ascii() {
-            return None;
-        }
-        *o = c.to_ascii_lowercase();
-    }
-    let lower = std::str::from_utf8(&out[..path.len()]).ok()?;
-    // `/` is the separator here; every name is read as it is written.
-    lower.split('/').all(read_as_written).then_some(lower)
-}
-
-impl Root {
-    fn folder(&self, folder: &str) -> Folder {
-        if let Some(found) = self.listings.read().unwrap_or_else(|e| e.into_inner()).get(folder) {
-            return found.clone().map_or(Folder::Unknown, Folder::Listed);
-        }
-        if let Some((parent, name)) = folder.rsplit_once('/').or_else(|| (!folder.is_empty()).then_some(("", folder))) {
-            match self.folder(parent) {
-                Folder::Listed(listing) => match listing.get(name) {
-                    Some(Kind::Folder) => {}
-                    Some(Kind::Other) => return Folder::Unknown,
-                    Some(Kind::File) | None => return Folder::Missing,
-                },
-                other => return other,
-            }
-        }
-        let changes = self.changes.load(Ordering::Acquire);
-        let made = list(&format!("{}{}", self.path, folder.replace('/', "\\"))).map(Arc::new);
-        let mut listings = self.listings.write().unwrap_or_else(|e| e.into_inner());
-        if self.changes.load(Ordering::Acquire) == changes {
-            listings.insert(folder.into(), made.clone());
-        }
-        made.map_or(Folder::Unknown, Folder::Listed)
-    }
-
-    /// What is at `path`, a path from the root in lower case: None for what
-    /// is not there.
-    fn kind(&self, path: &str) -> Result<Option<Kind>, ()> {
-        let (folder, name) = path.rsplit_once('/').unwrap_or(("", path));
-        match self.folder(folder) {
-            Folder::Listed(listing) => Ok(listing.get(name).copied()),
-            Folder::Missing => Ok(None),
-            Folder::Unknown => Err(()),
-        }
-    }
-
-    /// Windows or PhysFS told of a change to `path`, from the root in lower
-    /// case: the listings of every ancestor folder along `path`, of `path`
-    /// itself and of what was below it are let go of. `PHYSFS_mkdir` creates
-    /// missing nested folders in one call, so letting go of only the immediate
-    /// parent would leave higher cached folders stale until the watcher catches
-    /// up.
-    fn changed(&self, path: &str) {
-        let mut listings = self.listings.write().unwrap_or_else(|e| e.into_inner());
-        self.changes.fetch_add(1, Ordering::AcqRel);
-        let mut parent = path;
-        while let Some((folder, _)) = parent.rsplit_once('/') {
-            listings.remove(folder);
-            parent = folder;
-        }
-        listings.remove("");
-        let below = format!("{path}/");
-        listings.retain(|k, _| **k != *path && !k.starts_with(&below));
-    }
-
-    fn all_changed(&self) {
-        let mut listings = self.listings.write().unwrap_or_else(|e| e.into_inner());
-        self.changes.fetch_add(1, Ordering::AcqRel);
-        listings.clear();
-    }
+    lowered_relative(path, false, out)
 }
 
 /// Watches `root` for names made, removed or renamed below it, from before
 /// this returns; false if Windows will not.
-fn watch(root: Arc<Root>) -> bool {
+fn watch(root: Arc<DirectoryCache>) -> bool {
     struct Watch {
         folder: HANDLE,
         overlapped: OVERLAPPED,
         buffer: [u32; 16384],
     }
-    let wide: Vec<u16> = root.path.encode_utf16().chain([0]).collect();
+    let wide: Vec<u16> = root.path().encode_utf16().chain([0]).collect();
     let folder = unsafe {
         CreateFileW(
             wide.as_ptr(),
@@ -292,23 +187,23 @@ fn watch(root: Arc<Root>) -> bool {
         loop {
             let mut bytes = 0;
             if unsafe { GetOverlappedResult(w.folder, &w.overlapped, &mut bytes, 1) } == 0 {
-                root.all_changed();
-                log!("listed-folders: watching {:?} failed; left to the game's stat from now", root.path);
+                root.invalidate_all();
+                log!("listed-folders: watching {:?} failed; left to the game's stat from now", root.path());
                 forget(&root);
                 return;
             }
             if bytes == 0 {
-                root.all_changed();
+                root.invalidate_all();
             } else {
                 for path in changes(&w.buffer, bytes as usize) {
-                    match lowered(path.replace('\\', "/").as_bytes(), &mut [0; 512]) {
-                        Some(lower) => root.changed(lower),
-                        None => root.all_changed(),
+                    match lowered_relative(path.as_bytes(), true, &mut [0; 512]) {
+                        Some(lower) => root.invalidate_path(lower),
+                        None => root.invalidate_all(),
                     }
                 }
             }
             if !ask(&mut w) {
-                root.all_changed();
+                root.invalidate_all();
                 forget(&root);
                 return;
             }
@@ -329,7 +224,7 @@ impl<T> SendWatch<T> {
 }
 
 /// A root no longer watched: its paths go to the game's stat.
-fn forget(root: &Arc<Root>) {
+fn forget(root: &Arc<DirectoryCache>) {
     if let Some(roots) = ROOTS.write().unwrap_or_else(|e| e.into_inner()).as_mut() {
         for slot in roots.values_mut() {
             if slot.as_ref().is_some_and(|r| Arc::ptr_eq(r, root)) {
@@ -356,22 +251,6 @@ fn changes(buffer: &[u32], bytes: usize) -> Vec<String> {
     paths
 }
 
-fn invalidate_written<'a>(roots: impl IntoIterator<Item = &'a Root>, dir: &str, path: &str) {
-    let dir = dir.replace('/', "\\").to_ascii_lowercase();
-    let dir = if dir.ends_with('\\') { dir } else { format!("{dir}\\") };
-    let whole = format!("{dir}{}", path.replace('/', "\\").to_ascii_lowercase());
-    for root in roots {
-        if let Some(rest) = whole.strip_prefix(&*root.lower) {
-            let parts: Vec<&str> = rest.split('\\').filter(|part| !part.is_empty()).collect();
-            if parts.is_empty() || parts.iter().any(|&part| part == "." || part == "..") {
-                root.all_changed();
-            } else {
-                root.changed(&parts.join("/"));
-            }
-        }
-    }
-}
-
 /// After the game made or removed something through PhysFS: the listings of
 /// the path's ancestor folders are let go of.
 fn written(call: &mut Call) {
@@ -383,7 +262,7 @@ fn written(call: &mut Call) {
     let dir = unsafe { CStr::from_ptr(dir) }.to_string_lossy();
     let path = unsafe { CStr::from_ptr(path) }.to_string_lossy();
     let Some(roots) = ROOTS.read().unwrap_or_else(|e| e.into_inner()).clone() else { return };
-    invalidate_written(roots.values().flatten().map(Arc::as_ref), &dir, &path);
+    DirectoryCache::invalidate_written(roots.values().flatten().map(Arc::as_ref), &dir, &path);
 }
 
 /// Answers PhysFS's question to an entry of the search path, if it is a
@@ -407,7 +286,7 @@ extern "C" fn ask(archive: usize, name: *const c_char, path: *const c_char, stat
         let game_kind = (game != 0).then(|| unsafe { (stat.add(STAT_TYPE) as *const u32).read() });
         let ours = kind.map(|k| if k == Kind::Folder { TYPE_FOLDER } else { TYPE_FILE });
         speed::compared(&SPEED_UP, game_kind == ours, || {
-            format!("{}{} is {game_kind:?} to the game's stat, {ours:?} to the listings", root.path, unsafe { CStr::from_ptr(path) }.to_string_lossy())
+            format!("{}{} is {game_kind:?} to the game's stat, {ours:?} to the listings", root.path(), unsafe { CStr::from_ptr(path) }.to_string_lossy())
         });
         return game;
     }
@@ -417,7 +296,7 @@ extern "C" fn ask(archive: usize, name: *const c_char, path: *const c_char, stat
             1
         }
         None => {
-            let _ = super::lookups::SET_ERROR.call(&m, [super::lookups::NOT_FOUND]);
+            crate::native::physfs::set_not_found(&m);
             0
         }
     }
@@ -467,9 +346,8 @@ extern "C" fn find_asks_stub() {
 mod tests {
     use super::*;
 
-    fn root_at(dir: &std::path::Path) -> Root {
-        let path = format!("{}\\", dir.to_string_lossy());
-        Root { lower: path.to_ascii_lowercase().into(), path: path.into(), listings: RwLock::new(HashMap::new()), changes: AtomicU64::new(0) }
+    fn root_at(dir: &std::path::Path) -> DirectoryCache {
+        DirectoryCache::new(&dir.to_string_lossy())
     }
 
     #[test]
@@ -507,10 +385,10 @@ mod tests {
         std::fs::write(dir.join("a").join("b").join("c.txt"), b"x").unwrap();
         // Kept until told.
         assert_eq!(root.kind("a/b/c.txt"), Ok(None));
-        root.changed("a/b/c.txt");
+        root.invalidate_path("a/b/c.txt");
         assert_eq!(root.kind("a/b/c.txt"), Ok(Some(Kind::File)));
         std::fs::remove_dir_all(dir.join("a").join("b")).unwrap();
-        root.changed("a/b");
+        root.invalidate_path("a/b");
         assert_eq!(root.kind("a/b/c.txt"), Ok(None));
         assert_eq!(root.kind("a/b"), Ok(None));
         std::fs::remove_dir_all(&dir).unwrap();
@@ -528,7 +406,7 @@ mod tests {
 
         std::fs::create_dir_all(dir.join("shadercache").join("dx9").join("vs_3_0")).unwrap();
         let write_dir = dir.to_string_lossy();
-        invalidate_written([&root], &write_dir, "shadercache/dx9/vs_3_0");
+        DirectoryCache::invalidate_written([&root], &write_dir, "shadercache/dx9/vs_3_0");
         assert_eq!(root.kind("shadercache"), Ok(Some(Kind::Folder)));
         assert_eq!(root.kind("shadercache/dx9"), Ok(Some(Kind::Folder)));
         assert_eq!(root.kind("shadercache/dx9/vs_3_0"), Ok(Some(Kind::Folder)));
@@ -536,7 +414,7 @@ mod tests {
         // Repeated separators normalize to the same ancestor chain.
         assert_eq!(root.kind("nested/sub/leaf"), Ok(None));
         std::fs::create_dir_all(dir.join("nested").join("sub").join("leaf")).unwrap();
-        invalidate_written([&root], &write_dir, "nested//sub/leaf");
+        DirectoryCache::invalidate_written([&root], &write_dir, "nested//sub/leaf");
         assert_eq!(root.kind("nested"), Ok(Some(Kind::Folder)));
         assert_eq!(root.kind("nested/sub/leaf"), Ok(Some(Kind::Folder)));
 

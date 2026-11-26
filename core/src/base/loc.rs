@@ -3,7 +3,7 @@
 //! `eu4-harmony/localisation/` (format in `eu4_harmony_loc`), and the splice
 //! that adds the mods' keys to the game's own localisation, so that their
 //! `.gui` fragments can name them like any vanilla key.
-use super::{dev_options, lang, mods::DiscoveredMod};
+use super::{lang, mods::DiscoveredMod};
 use eu4_harmony_loc::{self as format, Catalog, Language};
 use std::collections::BTreeMap;
 use std::sync::{LazyLock, RwLock};
@@ -19,7 +19,14 @@ static FRAMEWORK: LazyLock<Catalog> = LazyLock::new(|| {
     ] {
         catalog.add(format::parse(source).expect("the framework's localisation parses"));
     }
-    for source in dev_options::localisations() {
+    #[cfg(feature = "dev")]
+    for source in [
+        include_str!("../../localisation/dev/eu4harmony_dev_l_english.yml"),
+        include_str!("../../localisation/dev/eu4harmony_dev_l_french.yml"),
+        include_str!("../../localisation/dev/eu4harmony_dev_l_german.yml"),
+        include_str!("../../localisation/dev/eu4harmony_dev_l_spanish.yml"),
+        include_str!("../../localisation/dev/eu4harmony_dev_l_simp_chinese.yml"),
+    ] {
         catalog.add(format::parse(source).expect("the developer build's localisation parses"));
     }
     catalog

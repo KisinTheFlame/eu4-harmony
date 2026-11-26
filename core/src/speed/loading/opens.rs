@@ -91,7 +91,7 @@ const ENTRY_FOLDER: u32 = 4;
 
 /// Left to the game, one thread at a time opens, looks up or closes a file;
 /// the answers are the same either way, so there is nothing to check.
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "opens", group: "loading", points, checkable: false };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("opens", "loading", points, false);
 
 fn points() -> Vec<Point> {
     vec![

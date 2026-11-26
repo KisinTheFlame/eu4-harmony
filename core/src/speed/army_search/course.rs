@@ -12,8 +12,8 @@
 //! of its own, so the batch in flight is kept per thread.
 use super::{base, read, search_as_the_game, today, Call, Outcome, ARMIES, ARMY_THINK, COUNTDOWN, NEXT, SPEED_UP, THINK, THINKS_TODAY};
 use crate::native::speed_up as speed;
+use crate::speed::pool::QueuePool;
 use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock};
 use std::time::Instant;
@@ -174,6 +174,7 @@ impl Course {
             }
             PENDING => {
                 add(Count::NotBegun, 1);
+                job.settle();
             }
             _ => {
                 let began = Instant::now();
@@ -182,7 +183,6 @@ impl Course {
                 add(Count::UnderWay, 1);
             }
         }
-        job.settle();
     }
 
     /// The framework's search: the one worked out ahead when the think gives
@@ -238,6 +238,24 @@ impl Course {
         }
     }
 
+    /// Runs `f` while holding the batch's write gate so no background search
+    /// reads unit lists during a hand-over; nested calls re-enter without
+    /// deadlocking.
+    fn run_unit_to_agent<R>(cell: &RefCell<Self>, f: impl FnOnce() -> R) -> R {
+        let gate = cell.borrow().handing_gate();
+        let Some(gate) = gate else { return f() };
+        let _writing = gate.write().unwrap_or_else(|e| e.into_inner());
+        cell.borrow_mut().handing = true;
+        struct Clear<'a>(&'a RefCell<Course>);
+        impl Drop for Clear<'_> {
+            fn drop(&mut self) {
+                self.0.borrow_mut().handing = false;
+            }
+        }
+        let _clear = Clear(cell);
+        f()
+    }
+
     /// After the King's army agents' day: the searches not taken called off,
     /// those under way waited for.
     fn end(&mut self) {
@@ -279,17 +297,9 @@ pub(super) fn search(agent: usize, given: Call, argument: usize) -> Option<Outco
     COURSE.with(|c| c.borrow_mut().search(&mut Real, agent, given, argument))
 }
 
-/// A unit handed to an agent (`super::unit_to_agent`). The course is let go
-/// while the game runs the hand-over, which may hand another unit: that one
-/// sees this thread already handing, and does not take the gate again.
+/// A unit handed to an agent (`super::unit_to_agent`).
 pub(super) fn unit_to_agent(f: impl FnOnce() -> usize) -> usize {
-    let gate = COURSE.with(|c| c.borrow().handing_gate());
-    let Some(gate) = gate else { return f() };
-    let _writing = gate.write().unwrap_or_else(|e| e.into_inner());
-    COURSE.with(|c| c.borrow_mut().handing = true);
-    let result = f();
-    COURSE.with(|c| c.borrow_mut().handing = false);
-    result
+    COURSE.with(|c| Course::run_unit_to_agent(c, f))
 }
 
 /// After the King's army agents' day (`super::armies_end`).
@@ -345,8 +355,7 @@ impl Game for Real {
 
     fn hand_out(&mut self, jobs: &[Arc<Job>]) {
         let Some(pool) = pool() else { return };
-        pool.queue.lock().unwrap_or_else(|e| e.into_inner()).extend(jobs.iter().cloned());
-        pool.ready.notify_all();
+        pool.submit(jobs.iter().cloned());
     }
 
     fn game_path(&self) -> bool {
@@ -364,50 +373,21 @@ impl Game for Real {
 
 // --- The pool ---
 
-struct Pool {
-    queue: Mutex<VecDeque<Arc<Job>>>,
-    ready: Condvar,
-}
-
-static POOL: OnceLock<Option<&'static Pool>> = OnceLock::new();
+static POOL: OnceLock<Option<QueuePool<Arc<Job>>>> = OnceLock::new();
 const MOST_THREADS: usize = 8;
 /// The search lays out arrays as long as the provinces on its stack.
 const STACK: usize = 16 << 20;
 
-fn pool() -> Option<&'static Pool> {
-    *POOL.get_or_init(|| {
+fn pool() -> Option<&'static QueuePool<Arc<Job>>> {
+    POOL.get_or_init(|| {
         let wanted = std::thread::available_parallelism().map_or(1, |n| n.get()).saturating_sub(2).min(MOST_THREADS);
-        if wanted == 0 {
-            return None;
+        let pool = QueuePool::new("eu4-harmony army search", "army search", wanted, Some(STACK), |job: Arc<Job>| job.work());
+        if let Some(pool) = &pool {
+            log!("army searches: {} threads to search with", pool.workers());
         }
-        let pool: &'static Pool = Box::leak(Box::new(Pool { queue: Mutex::new(VecDeque::new()), ready: Condvar::new() }));
-        let started = (0..wanted)
-            .filter(|i| {
-                std::thread::Builder::new()
-                    .name(format!("eu4-harmony army search {i}"))
-                    .stack_size(STACK)
-                    .spawn(move || crate::base::guarded("army search", || worker(pool)))
-                    .is_ok()
-            })
-            .count();
-        log!("army searches: {started} threads to search with");
-        (started > 0).then_some(pool)
+        pool
     })
-}
-
-fn worker(pool: &'static Pool) -> ! {
-    loop {
-        let job = {
-            let mut queue = pool.queue.lock().unwrap_or_else(|e| e.into_inner());
-            loop {
-                if let Some(job) = queue.pop_front() {
-                    break job;
-                }
-                queue = pool.ready.wait(queue).unwrap_or_else(|e| e.into_inner());
-            }
-        };
-        job.work();
-    }
+    .as_ref()
 }
 
 // --- What came of the searches, for the log ---
@@ -667,14 +647,14 @@ mod tests {
     #[test]
     fn a_unit_handed_holds_the_gate_and_nesting_does_not_deadlock() {
         let mut g = Fake { agents: vec![1], ..Default::default() };
-        COURSE.with(|c| c.borrow_mut().begin(&mut g, 0x1000, 0));
-        let gate = COURSE.with(|c| c.borrow().batch.as_ref().unwrap().gate.clone());
+        let course = RefCell::new(begun(&mut g));
+        let gate = course.borrow().batch.as_ref().unwrap().gate.clone();
         let held = gate.clone();
-        let result = unit_to_agent(|| {
+        let result = Course::run_unit_to_agent(&course, || {
             // The gate is held to write: a search cannot read meanwhile.
             assert!(held.try_write().is_err());
             // A unit handed again within the hand-over does not take it again.
-            unit_to_agent(|| 7)
+            Course::run_unit_to_agent(&course, || 7)
         });
         assert_eq!(result, 7);
         // Once handed, the gate is free again.
@@ -683,7 +663,8 @@ mod tests {
 
     #[test]
     fn a_unit_handed_with_no_batch_runs_at_once() {
-        assert_eq!(unit_to_agent(|| 42), 42);
+        let course = RefCell::new(Course::new());
+        assert_eq!(Course::run_unit_to_agent(&course, || 42), 42);
     }
 
     #[test]

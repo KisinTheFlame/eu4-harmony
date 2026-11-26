@@ -285,10 +285,11 @@ impl Checked {
 }
 
 static CHECKED: OnceLock<Checked> = OnceLock::new();
-static DECLARED_PROVIDER: OnceLock<fn() -> Vec<Point>> = OnceLock::new();
 
-pub(crate) fn set_declared_provider(provider: fn() -> Vec<Point>) {
-    let _ = DECLARED_PROVIDER.set(provider);
+/// Records the declared dependency points once at startup so [`checks`]
+/// recognizes every verified RVA without a back-channel provider.
+pub(crate) fn register_checked(points: &[Point]) {
+    let _ = CHECKED.set(Checked::of(points));
 }
 
 /// Whether a dependency point checks the game's bytes at `rva`, or a point's
@@ -298,9 +299,9 @@ pub(crate) fn checks(rva: usize) -> bool {
     CHECKED
         .get_or_init(|| {
             #[cfg(test)]
-            let points = DECLARED_PROVIDER.get().map_or_else(crate::app::this_build::declared, |f| f());
+            let points = crate::app::this_build::declared();
             #[cfg(not(test))]
-            let points = DECLARED_PROVIDER.get().map_or_else(Vec::new, |f| f());
+            let points: Vec<Point> = Vec::new();
             Checked::of(&points)
         })
         .contains(rva)
@@ -1006,6 +1007,22 @@ mod tests {
         }
         let twice: Vec<String> = by_address.iter().filter(|(_, files)| files.len() > 1).map(|(a, files)| format!("{a:#x}: {}", files.join(", "))).collect();
         assert!(twice.is_empty(), "{twice:#?}");
+    }
+
+    /// Every `Place::Rva` `Action::Keep` dependency point across the build is
+    /// declared at most once (ADR framework-succeeds-or-fails-as-a-whole):
+    /// shared RVAs belong in `native::objects::points()`, not re-declared by
+    /// each consumer.
+    #[test]
+    fn every_rva_keep_point_is_declared_once() {
+        let mut by_rva: std::collections::BTreeMap<usize, Vec<&'static str>> = std::collections::BTreeMap::new();
+        for point in crate::app::this_build::declared() {
+            if let (Place::Rva(rva), Action::Keep) = (point.place, point.action) {
+                by_rva.entry(rva).or_default().push(point.what);
+            }
+        }
+        let twice: Vec<String> = by_rva.iter().filter(|(_, whats)| whats.len() > 1).map(|(rva, whats)| format!("{rva:#x}: {}", whats.join(", "))).collect();
+        assert!(twice.is_empty(), "duplicate Point::keep RVAs:\n{twice:#?}");
     }
 
     /// A field of the game's objects that more than one module reads is

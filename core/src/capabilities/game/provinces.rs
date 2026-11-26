@@ -76,7 +76,7 @@ fn discovered(m: &Memory, world: &World, eyes: Eyes, mut provinces: Vec<Province
     }
     for p in provinces.iter_mut().filter(|p| p.id != 0) {
         let address = with_state(|s| s.geography.province_address(m, world, p.id))?;
-        if super::world::undiscovered(m, eyes, address)? {
+        if super::geography::undiscovered(m, eyes, address)? {
             (p.owner, p.controller) = (None, None);
         }
     }
@@ -162,7 +162,7 @@ pub(super) fn readable(m: &Memory, world: &impl InWorld, eyes: Eyes, id: u32) ->
         return Err(eu4_harmony_checks::provinces::not_found(0).into());
     }
     let address = with_state(|s| s.geography.province_address(m, world, id))?;
-    if super::world::undiscovered(m, eyes, address)? {
+    if super::geography::undiscovered(m, eyes, address)? {
         return Err(eu4_harmony_checks::provinces::not_discovered(id).into());
     }
     Ok(address)

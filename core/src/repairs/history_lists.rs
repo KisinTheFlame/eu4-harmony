@@ -143,3 +143,78 @@ pub(super) fn points() -> Vec<Point> {
         Point::keep(0x7e930busize, "c6 43 18 01", "history list node marked taken out"),
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fake_game::buffers::{Image, Object};
+    use crate::native::objects::list;
+    use std::cell::RefCell;
+
+    thread_local! {
+        static DELETED_OBJECTS: RefCell<Vec<(usize, usize)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    extern "C" fn delete_record(object: usize, flags: usize) -> usize {
+        DELETED_OBJECTS.with(|d| d.borrow_mut().push((object, flags)));
+        object
+    }
+
+    /// Links `items` into the native intrusive list header at `owner + LIST`,
+    /// returning the backing node buffers so they remain alive for the test.
+    fn link_list(owner: &Object, items: &[usize]) -> Vec<Object> {
+        let nodes: Vec<Object> = items.iter().map(|&item| Object::new(list::NODE_SIZE).u64(list::ITEM, item as u64)).collect();
+        for i in 0..nodes.len() {
+            if i + 1 < nodes.len() {
+                let next = nodes[i + 1].at();
+                nodes[i].set(list::NEXT, &next.to_le_bytes());
+            }
+        }
+        let head = nodes.first().map_or(0, Object::at);
+        let tail = nodes.last().map_or(0, Object::at);
+        owner.set(LIST + list::HEAD, &head.to_le_bytes());
+        owner.set(LIST + list::TAIL, &tail.to_le_bytes());
+        owner.set(LIST + list::COUNT, &(nodes.len() as u32).to_le_bytes());
+        nodes
+    }
+
+    #[test]
+    fn delete_alone_removes_only_top_level_unshared_blocks_and_skips_blocks_holding_second_history_items() {
+        DELETED_OBJECTS.with(|d| d.borrow_mut().clear());
+        let _image = Image::new();
+        let m = Memory { base: 0 };
+        let vtable = Object::new(0x10).u64(0, delete_record as *const () as u64);
+
+        let make_rec = || Object::new(LIST + 0x20).u64(0, vtable.at() as u64);
+        let exclusive_leaf = make_rec();
+        let exclusive_block = make_rec();
+        let nested_child = make_rec();
+        let shared_leaf = make_rec();
+        let partial_block = make_rec();
+        let second_only = make_rec();
+
+        // `exclusive_block` owns `nested_child`; `partial_block` owns `shared_leaf` (which `second` also lists).
+        let _n1 = link_list(&exclusive_block, &[nested_child.at()]);
+        let _n2 = link_list(&partial_block, &[shared_leaf.at()]);
+
+        // Country holds first history at offset 0 and second history at offset SECOND (0x40).
+        let pair = Object::new(SECOND + LIST + 0x20);
+        let first_nodes = link_list(&pair, &[exclusive_leaf.at(), exclusive_block.at(), nested_child.at(), partial_block.at(), shared_leaf.at()]);
+        let second_nodes: Vec<Object> =
+            [shared_leaf.at(), second_only.at()].iter().map(|&item| Object::new(list::NODE_SIZE).u64(list::ITEM, item as u64)).collect();
+        second_nodes[0].set(list::NEXT, &second_nodes[1].at().to_le_bytes());
+        pair.set(SECOND + LIST + list::HEAD, &second_nodes[0].at().to_le_bytes());
+        pair.set(SECOND + LIST + list::TAIL, &second_nodes[1].at().to_le_bytes());
+        pair.set(SECOND + LIST + list::COUNT, &2u32.to_le_bytes());
+
+        let shared_before = SHARED.load(Ordering::Relaxed);
+        delete_alone(&m, pair.at()).unwrap();
+
+        // Only `exclusive_leaf` and `exclusive_block` are deleted:
+        // `nested_child` goes with `exclusive_block`, `shared_leaf` is in `second`,
+        // and `partial_block` is skipped because it holds `shared_leaf`.
+        assert_eq!(DELETED_OBJECTS.with(|d| d.borrow().clone()), vec![(exclusive_leaf.at(), 1), (exclusive_block.at(), 1)]);
+        assert_eq!(SHARED.load(Ordering::Relaxed) - shared_before, 1);
+        drop((first_nodes, second_nodes));
+    }
+}

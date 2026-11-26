@@ -2,6 +2,7 @@
 //! animation, which its element deletes only while it is on the element's
 //! animations, and the text box takes off them while it does not play. It
 //! is put back on them, owned, as the text box goes.
+use super::LettingGo;
 use crate::{
     native::hooks::Call,
     native::objects::gui::{classes as gui_classes, element, text_box},
@@ -37,7 +38,7 @@ fn since_reset() -> String {
 /// destructor lets it go, so a developer build's quarantine keeps what the
 /// whole destructor frees, until [`text_box_gone`].
 fn text_box_going(call: &mut Call) {
-    crate::native::probes::quarantine_begin("text box's animation");
+    LettingGo::begin("text box's animation");
     let m = call.memory();
     let boxed = call.arg(0);
     let owned = (|| {
@@ -53,20 +54,22 @@ fn text_box_going(call: &mut Call) {
     }
 }
 
+#[cfg(feature = "dev")]
+fn text_box_gone(_: &mut Call) {
+    LettingGo::end();
+}
+
 pub(super) fn points() -> Vec<Point> {
+    #[cfg(feature = "dev")]
+    let after: Option<fn(&mut Call)> = Some(text_box_gone);
+    #[cfg(not(feature = "dev"))]
+    let after: Option<fn(&mut Call)> = None;
     vec![
         // A text box's destructor, which leaves its animation, and ends in
         // the element's; that deletes the animations the element owns, and
         // the text box makes its own with it.
-        Point::observe(
-            TEXT_BOX_DESTRUCTOR,
-            "40 53 48 83 ec 20 48 8b d9 48 8d 05 10 52 86 00 48 89 01",
-            "text box destructor",
-            1,
-            Some(text_box_going),
-            crate::native::probes::quarantine_after_observer(),
-        )
-        .uses(&[gui_classes::TEXT_BOX]),
+        Point::observe(TEXT_BOX_DESTRUCTOR, "40 53 48 83 ec 20 48 8b d9 48 8d 05 10 52 86 00 48 89 01", "text box destructor", 1, Some(text_box_going), after)
+            .uses(&[gui_classes::TEXT_BOX]),
         Point::keep(0x152ab58usize, "48 8b cb 48 83 c4 20 5b e9 1b 7b 02 00", "text box destructor ends in the element's"),
         Point::keep(OWN_ANIMATION, "48 85 d2 0f 84 a9 00 00 00 53 48 83 ec 30 4c 8b 81 90 00 00 00", "own an animation").uses(&[element::ANIMATIONS]),
         Point::keep(0x1552a22usize, "49 8b 92 98 00 00 00 48 89 5c 24 20 c6 44 24 28 01", "animation put on owned"),

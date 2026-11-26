@@ -311,8 +311,7 @@ impl Engine {
     /// Runs a request at `now`, acting as it asks.
     fn start(&self, running: &mut Running, catalogue: &mut dyn Catalogue, q: Queued, now: Instant) {
         let started = Instant::now();
-        catalogue.act_as(q.acting);
-        match catalogue.run(q.request.clone(), Some(&running.signals), now) {
+        match catalogue.run(q.request.clone(), q.acting, Some(&running.signals), now) {
             catalogue::Outcome::Done(response) => self.answer(&q, response, started.elapsed()),
             catalogue::Outcome::Held(response, hold) => {
                 running.holds.push(hold);
@@ -347,8 +346,7 @@ impl Engine {
                     w.wait.given_up(at);
                     continue;
                 }
-                at.act_as(w.acting);
-                match w.wait.poll(at) {
+                match at.with_acting(w.acting, |at| w.wait.poll(at)) {
                     Some(response) => {
                         (self.log)(&format!("remote #{} {}: {} after {} ms", w.number, w.name, outcome(&response), now.duration_since(w.started).as_millis()));
                         self.deliver(&w.slot, response);
@@ -441,16 +439,15 @@ pub fn submit(request: Request, acting: As) -> Reply {
 
 /// Kept as a signal; the requests sent from now on belong to the next
 /// session.
-pub(crate) fn session_ended(end: crate::session::sessions::End) {
-    ENGINE.session_ended(end.reason());
+pub(crate) fn session_ended(reason: eu4_harmony_remote::signals::SessionEnd) {
+    ENGINE.session_ended(reason);
 }
 
 /// Keeps what extensions just heard, then runs at the game's frame.
 pub(crate) fn safe_frame(session: u64, heard: &[Heard]) {
     ENGINE.hear(heard.iter().cloned());
     ENGINE.enter(session);
-    crate::session::sessions::set_at(crate::session::sessions::At::Game);
-    ENGINE.run(&mut Live(game::Caller::Remote(As::Player)), &Place::Game, BUDGET);
+    ENGINE.run(&mut Live::remote(), &Place::Game, BUDGET);
 }
 
 /// The campaign changes (a save begins to load): requests that need a game
@@ -462,13 +459,13 @@ pub(crate) fn campaign_changes() {
 /// At a safe point with no game to read: `why` answers the requests that
 /// need one, or, when None, they wait.
 pub(crate) fn run_outside(why: Option<game::Fail>) {
-    ENGINE.run(&mut Live(game::Caller::Remote(As::Player)), &Place::Outside(why.map(Error::from)), BUDGET);
+    ENGINE.run(&mut Live::remote(), &Place::Outside(why.map(Error::from)), BUDGET);
 }
 
 /// At a game's frame with no game the player can play: `why` answers the
 /// requests that need one.
 pub(crate) fn run_unplayable(why: game::Fail) {
-    ENGINE.run(&mut Live(game::Caller::Remote(As::Player)), &Place::Unplayable(Error::from(why)), BUDGET);
+    ENGINE.run(&mut Live::remote(), &Place::Unplayable(Error::from(why)), BUDGET);
 }
 
 /// Before the game starts `eu4.exe` again, which ends this process: every

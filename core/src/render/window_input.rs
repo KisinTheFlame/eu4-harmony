@@ -27,7 +27,6 @@ pub enum Event {
     Escape,
 }
 
-static WINDOW: AtomicIsize = AtomicIsize::new(0);
 static ORIGINAL: AtomicIsize = AtomicIsize::new(0);
 /// A message [`inject`] hands over is going through the procedure.
 static INJECTING: AtomicBool = AtomicBool::new(false);
@@ -37,7 +36,6 @@ pub type Handler = fn(Event) -> bool;
 static HANDLER: std::sync::OnceLock<Handler> = std::sync::OnceLock::new();
 
 pub(crate) struct InputHooks {
-    pub(crate) on_real_input: fn(u32) -> bool,
     pub(crate) is_modal: fn() -> bool,
     pub(crate) on_wheel: fn(i16),
 }
@@ -181,7 +179,7 @@ fn dispatch_message(
 
 #[called_by_game]
 unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    if !INJECTING.load(Ordering::Relaxed) && crate::base::guarded("input from Windows", || HOOKS.get().is_some_and(|h| (h.on_real_input)(message))) {
+    if !INJECTING.load(Ordering::Relaxed) && crate::base::guarded("input from Windows", || super::input::real(message)) {
         return 0;
     }
     let handler = HANDLER.get().copied();
@@ -260,7 +258,7 @@ pub fn inject(message: u32, wparam: WPARAM, lparam: LPARAM) -> bool {
 /// Puts the framework's window procedure in front of the game's, once the
 /// game has its window. Returns whether it is in place.
 pub fn attach(handler: Handler) -> bool {
-    if WINDOW.load(Ordering::Acquire) != 0 {
+    if crate::base::game_window().is_some() {
         return true;
     }
     let _ = HANDLER.set(handler);
@@ -280,7 +278,6 @@ pub fn attach(handler: Handler) -> bool {
         return false;
     }
     ORIGINAL.store(previous, Ordering::Release);
-    WINDOW.store(window as isize, Ordering::Release);
     crate::base::set_game_window(window);
     log!("framework UI: input attached to window {window:?}");
     true

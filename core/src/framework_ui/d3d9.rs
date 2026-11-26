@@ -137,26 +137,13 @@ impl Backend {
         Ok(())
     }
 
-    /// The device's viewport size in pixels.
-    ///
-    /// # Safety
-    /// `device` is null or a live `IDirect3DDevice9*`.
-    pub unsafe fn screen(device: *mut c_void) -> (f32, f32) {
-        let Some(device) = IDirect3DDevice9::from_raw_borrowed(&device) else { return (0.0, 0.0) };
-        let mut viewport = D3DVIEWPORT9::default();
-        if device.GetViewport(&mut viewport).is_err() {
-            return (0.0, 0.0);
-        }
-        (viewport.Width as f32, viewport.Height as f32)
-    }
-
     /// Draws `commands` (in GUI units, `scale` pixels each) on `device` (an
     /// `IDirect3DDevice9*`) in a scene of their own, after the game's scene
     /// has ended and before it presents, leaving the device as the game had
     /// it. With no commands the device is left alone.
     ///
     /// # Safety
-    /// `device` is null or the game's live device, on the main thread.
+    /// `device` is null or the game's live device.
     pub unsafe fn draw(&mut self, device: *mut c_void, font: &UiFont, commands: &[Command], scale: f32) -> windows::core::Result<()> {
         let Some(device) = IDirect3DDevice9::from_raw_borrowed(&device) else { return Ok(()) };
         if commands.is_empty() {
@@ -166,16 +153,6 @@ impl Backend {
         let drawn = self.draw_scene(device, font, commands, scale);
         device.EndScene()?;
         drawn
-    }
-
-    /// Presents what was drawn, as the game's Present wrapper does, outside
-    /// the game's frame.
-    ///
-    /// # Safety
-    /// `device` is null or the game's live device, on the main thread.
-    pub unsafe fn present(device: *mut c_void) -> windows::core::Result<()> {
-        let Some(device) = IDirect3DDevice9::from_raw_borrowed(&device) else { return Ok(()) };
-        device.Present(std::ptr::null(), std::ptr::null(), windows::Win32::Foundation::HWND::default(), std::ptr::null())
     }
 
     unsafe fn draw_scene(&mut self, device: &IDirect3DDevice9, font: &UiFont, commands: &[Command], scale: f32) -> windows::core::Result<()> {

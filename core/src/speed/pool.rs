@@ -1,0 +1,371 @@
+//! General-purpose worker pools shared across speed-ups (`saving` and
+//! `army_search`), decoupled from save-writer `Holders` or AI job types.
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
+
+/// A cooperative work item executed by every thread of a [`WorkerPool`] plus
+/// the submitting thread.
+pub(crate) trait Work: Send + Sync {
+    /// Claims and executes work units until none remain. `on_worker` is `true`
+    /// on pool worker threads and `false` on the submitting thread.
+    fn work(&self, on_worker: bool);
+    /// Called when the pool times out waiting for workers so the task stops
+    /// producing results.
+    fn abandon(&self);
+}
+
+struct BatchState {
+    work: Option<Arc<dyn Work>>,
+    round: u64,
+    busy: usize,
+    shutdown: bool,
+}
+
+/// Reusable one-batch-at-a-time worker pool where the submitting thread works
+/// alongside the pool threads (`saving::parallel`, `saving::stored`, `saving::sum`).
+pub(crate) struct WorkerPool {
+    threads: Vec<u32>,
+    handles: Mutex<Vec<std::thread::JoinHandle<()>>>,
+    inner: Arc<BatchInner>,
+    in_use: AtomicBool,
+    broken: AtomicBool,
+}
+
+struct BatchInner {
+    state: Mutex<BatchState>,
+    start: Condvar,
+    done: Condvar,
+}
+
+impl WorkerPool {
+    /// Spawns up to `wanted` worker threads named `"{name_prefix} {i}"`,
+    /// running `on_worker_start` once on each worker before entering the work
+    /// loop.
+    pub(crate) fn new(name_prefix: &'static str, guard_label: &'static str, wanted: usize, on_worker_start: impl Fn() + Send + Sync + 'static) -> Self {
+        let inner = Arc::new(BatchInner {
+            state: Mutex::new(BatchState { work: None, round: 0, busy: 0, shutdown: false }),
+            start: Condvar::new(),
+            done: Condvar::new(),
+        });
+        let init = Arc::new(on_worker_start);
+        let ids = Arc::new(Mutex::new(Vec::new()));
+        let handles: Vec<_> = (0..wanted)
+            .filter_map(|i| {
+                let ids = ids.clone();
+                let inner = inner.clone();
+                let init = init.clone();
+                std::thread::Builder::new()
+                    .name(format!("{name_prefix} {i}"))
+                    .spawn(move || {
+                        ids.lock().unwrap_or_else(|e| e.into_inner()).push(crate::base::thread_id());
+                        init();
+                        batch_worker(&inner, guard_label);
+                    })
+                    .ok()
+            })
+            .collect();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while ids.lock().unwrap_or_else(|e| e.into_inner()).len() < handles.len() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let threads = ids.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        Self { threads, handles: Mutex::new(handles), inner, in_use: AtomicBool::new(false), broken: AtomicBool::new(false) }
+    }
+
+    pub(crate) fn is_broken(&self) -> bool {
+        self.broken.load(Ordering::SeqCst)
+    }
+
+    /// Total concurrency: worker threads plus the submitting thread.
+    pub(crate) fn width(&self) -> usize {
+        self.threads.len() + 1
+    }
+
+    /// OS thread IDs of the pool's worker threads.
+    #[cfg(feature = "dev")]
+    pub(crate) fn thread_ids(&self) -> &[u32] {
+        &self.threads
+    }
+
+    /// Hands `work` to the pool's workers unless another batch is in progress
+    /// or the pool has timed out.
+    pub(crate) fn begin(&self, work: Arc<dyn Work>) -> bool {
+        if self.is_broken() || self.in_use.swap(true, Ordering::SeqCst) {
+            return false;
+        }
+        let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.work = Some(work);
+        state.round += 1;
+        state.busy = self.threads.len();
+        self.inner.start.notify_all();
+        true
+    }
+
+    /// Helps finish the current batch on the calling thread, waits up to
+    /// `timeout` for all workers, and releases the pool. Returns the thread
+    /// width, or marks the pool broken and abandons `work` on timeout.
+    pub(crate) fn finish(&self, work: &dyn Work, timeout: Duration, timeout_note: &str) -> usize {
+        work.work(false);
+        let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+        let deadline = Instant::now() + timeout;
+        while state.busy > 0 {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                self.broken.store(true, Ordering::SeqCst);
+                work.abandon();
+                log!("{timeout_note}");
+                break;
+            }
+            state = self.inner.done.wait_timeout(state, left).unwrap_or_else(|e| e.into_inner()).0;
+        }
+        state.work = None;
+        self.in_use.store(false, Ordering::SeqCst);
+        self.width()
+    }
+
+    /// Runs `work` synchronously across the pool and the calling thread.
+    pub(crate) fn run(&self, work: Arc<dyn Work>, timeout: Duration, timeout_note: &str) -> Option<usize> {
+        self.begin(work.clone()).then(|| self.finish(&*work, timeout, timeout_note))
+    }
+
+    /// Evaluates `f(0..count)` across the pool and calling thread, returning
+    /// `None` if the pool is busy, broken, or any part was skipped.
+    pub(crate) fn each<T: Send + 'static>(
+        &self,
+        count: usize,
+        timeout: Duration,
+        timeout_note: &str,
+        f: impl Fn(usize) -> T + Send + Sync + 'static,
+    ) -> Option<Vec<T>> {
+        let task = Arc::new(EachWork { next: AtomicUsize::new(0), f: Box::new(f), out: (0..count).map(|_| Mutex::new(None)).collect() });
+        self.run(task.clone(), timeout, timeout_note)?;
+        if self.is_broken() {
+            return None;
+        }
+        task.out.iter().map(|o| o.lock().unwrap_or_else(|e| e.into_inner()).take()).collect()
+    }
+}
+
+impl Drop for WorkerPool {
+    fn drop(&mut self) {
+        if self.is_broken() {
+            return;
+        }
+        {
+            let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.shutdown = true;
+            self.inner.start.notify_all();
+        }
+        for handle in std::mem::take(&mut *self.handles.lock().unwrap_or_else(|e| e.into_inner())) {
+            let _ = handle.join();
+        }
+    }
+}
+
+fn batch_worker(inner: &BatchInner, guard_label: &str) {
+    let mut seen = 0;
+    loop {
+        let work = {
+            let mut state = inner.state.lock().unwrap_or_else(|e| e.into_inner());
+            while state.round == seen && !state.shutdown {
+                state = inner.start.wait(state).unwrap_or_else(|e| e.into_inner());
+            }
+            if state.shutdown {
+                return;
+            }
+            seen = state.round;
+            state.work.clone()
+        };
+        if let Some(work) = work {
+            crate::base::guarded(guard_label, || work.work(true));
+        }
+        let mut state = inner.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.busy -= 1;
+        inner.done.notify_all();
+    }
+}
+
+struct EachWork<T> {
+    next: AtomicUsize,
+    f: Box<dyn Fn(usize) -> T + Send + Sync>,
+    out: Vec<Mutex<Option<T>>>,
+}
+
+impl<T: Send> Work for EachWork<T> {
+    fn work(&self, _: bool) {
+        loop {
+            let i = self.next.fetch_add(1, Ordering::SeqCst);
+            let Some(out) = self.out.get(i) else { return };
+            let value = (self.f)(i);
+            *out.lock().unwrap_or_else(|e| e.into_inner()) = Some(value);
+        }
+    }
+
+    fn abandon(&self) {}
+}
+
+struct QueueState<T> {
+    queue: VecDeque<T>,
+    shutdown: bool,
+}
+
+struct QueueInner<T> {
+    state: Mutex<QueueState<T>>,
+    ready: Condvar,
+}
+
+/// Multi-producer FIFO worker queue for independent asynchronous jobs
+/// (`speed::army_search`).
+pub(crate) struct QueuePool<T: Send + 'static> {
+    inner: Arc<QueueInner<T>>,
+    handles: Mutex<Vec<std::thread::JoinHandle<()>>>,
+}
+
+impl<T: Send + 'static> QueuePool<T> {
+    /// Spawns up to `wanted` worker threads (each with `stack_size` bytes of
+    /// stack) running `run` on every queued item. Returns `None` if no thread
+    /// could be started.
+    pub(crate) fn new(
+        name_prefix: &'static str,
+        guard_label: &'static str,
+        wanted: usize,
+        stack_size: Option<usize>,
+        run: impl Fn(T) + Send + Sync + 'static,
+    ) -> Option<Self> {
+        if wanted == 0 {
+            return None;
+        }
+        let inner = Arc::new(QueueInner { state: Mutex::new(QueueState { queue: VecDeque::new(), shutdown: false }), ready: Condvar::new() });
+        let run = Arc::new(run);
+        let handles: Vec<_> = (0..wanted)
+            .filter_map(|i| {
+                let inner = inner.clone();
+                let run = run.clone();
+                let mut builder = std::thread::Builder::new().name(format!("{name_prefix} {i}"));
+                if let Some(size) = stack_size {
+                    builder = builder.stack_size(size);
+                }
+                builder.spawn(move || crate::base::guarded(guard_label, || queue_worker(&inner, &*run))).ok()
+            })
+            .collect();
+        if handles.is_empty() {
+            return None;
+        }
+        Some(Self { inner, handles: Mutex::new(handles) })
+    }
+
+    pub(crate) fn workers(&self) -> usize {
+        self.handles.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+
+    pub(crate) fn submit(&self, items: impl IntoIterator<Item = T>) {
+        self.inner.state.lock().unwrap_or_else(|e| e.into_inner()).queue.extend(items);
+        self.inner.ready.notify_all();
+    }
+}
+
+impl<T: Send + 'static> Drop for QueuePool<T> {
+    fn drop(&mut self) {
+        {
+            let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.shutdown = true;
+            self.inner.ready.notify_all();
+        }
+        for handle in std::mem::take(&mut *self.handles.lock().unwrap_or_else(|e| e.into_inner())) {
+            let _ = handle.join();
+        }
+    }
+}
+
+fn queue_worker<T>(inner: &QueueInner<T>, run: &(impl Fn(T) + ?Sized)) {
+    loop {
+        let item = {
+            let mut state = inner.state.lock().unwrap_or_else(|e| e.into_inner());
+            loop {
+                if let Some(item) = state.queue.pop_front() {
+                    break item;
+                }
+                if state.shutdown {
+                    return;
+                }
+                state = inner.ready.wait(state).unwrap_or_else(|e| e.into_inner());
+            }
+        };
+        run(item);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Barrier;
+
+    #[test]
+    fn worker_pool_runs_each_and_begin_finish_across_threads() {
+        let init_hits = Arc::new(AtomicUsize::new(0));
+        let hits = init_hits.clone();
+        let pool = WorkerPool::new("test-pool", "test pool", 2, move || {
+            hits.fetch_add(1, Ordering::Relaxed);
+        });
+        assert_eq!(pool.width(), 3);
+
+        let squares = pool.each(64, Duration::from_secs(5), "timeout", |i| i * i).unwrap();
+        assert_eq!(squares, (0..64).map(|i| i * i).collect::<Vec<_>>());
+        assert_eq!(init_hits.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn worker_pool_timeout_abandons_task_and_marks_pool_broken() {
+        struct Stuck {
+            release: Arc<(Mutex<bool>, Condvar)>,
+            abandoned: AtomicBool,
+        }
+        impl Work for Stuck {
+            fn work(&self, on_worker: bool) {
+                if on_worker {
+                    let (lock, cv) = &*self.release;
+                    let mut done = lock.lock().unwrap();
+                    while !*done {
+                        done = cv.wait(done).unwrap();
+                    }
+                }
+            }
+            fn abandon(&self) {
+                self.abandoned.store(true, Ordering::SeqCst);
+            }
+        }
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let task = Arc::new(Stuck { release: release.clone(), abandoned: AtomicBool::new(false) });
+        let pool = WorkerPool::new("test-timeout", "test timeout", 1, || {});
+        let width = pool.run(task.clone(), Duration::from_millis(20), "test timed out");
+        assert_eq!(width, Some(2));
+        assert!(task.abandoned.load(Ordering::SeqCst));
+        assert!(pool.is_broken());
+        // Broken pool refuses further batches.
+        assert!(pool.each(4, Duration::from_secs(1), "timeout", |i| i).is_none());
+        // Release worker thread cleanly.
+        *release.0.lock().unwrap() = true;
+        release.1.notify_all();
+    }
+
+    #[test]
+    fn queue_pool_runs_submitted_jobs_concurrently_and_shuts_down() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let barrier = Arc::new(Barrier::new(2));
+        let c = counter.clone();
+        let b = barrier.clone();
+        let pool = QueuePool::new("test-queue", "test queue", 2, None, move |use_barrier: bool| {
+            if use_barrier {
+                b.wait();
+            }
+            c.fetch_add(1, Ordering::Relaxed);
+        })
+        .unwrap();
+        assert_eq!(pool.workers(), 2);
+        pool.submit([true, true, false, false]);
+        drop(pool);
+        assert_eq!(counter.load(Ordering::Relaxed), 4);
+    }
+}

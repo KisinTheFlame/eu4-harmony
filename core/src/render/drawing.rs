@@ -58,7 +58,7 @@ use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 use turns::{At, DrawingSide, MainSide};
 
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "drawing-thread", group: "frames", points, checkable: false };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("drawing-thread", "frames", points, false);
 
 /// The in-game frame's call of its drawing: `mov rcx, r13; call 0x8183b0`,
 /// `r13` the in-game idler.
@@ -397,7 +397,7 @@ impl turns::Lock for DrawingLock {
 }
 
 /// The drawing thread's ID, 0 until it runs; the head's stub compares it.
-static DRAWING_THREAD: AtomicU32 = AtomicU32::new(0);
+use crate::base::runtime::DRAWING_THREAD;
 static FRAMES: course::FrameCoordinator = course::FrameCoordinator::new();
 /// Wakes the drawing thread when the first frame of a session is prepared (or
 /// when the game quits), so that it sleeps at startup and on the main menu.
@@ -588,10 +588,7 @@ fn pace() {
 
 pub(crate) struct DrawingHooks {
     pub(crate) on_prepared_safe_point: fn(),
-    pub(crate) on_prepared_input: fn((u32, u32)),
-    pub(crate) is_holding: fn() -> bool,
     pub(crate) prepare_scene: fn(&Memory) -> crate::base::Result<()>,
-    pub(crate) cursor_now: fn() -> Option<[i32; 2]>,
 }
 
 static DRAWING_HOOKS: std::sync::OnceLock<DrawingHooks> = std::sync::OnceLock::new();
@@ -605,10 +602,6 @@ pub(super) fn prepare_scene_hook(m: &Memory) -> crate::base::Result<()> {
         Some(h) => (h.prepare_scene)(m),
         None => Ok(()),
     }
-}
-
-pub(super) fn cursor_now_hook() -> Option<[i32; 2]> {
-    DRAWING_HOOKS.get().and_then(|h| (h.cursor_now)())
 }
 
 /// The daily update begins (`game::events`): it lets the lock go.
@@ -648,32 +641,31 @@ impl course::StageOps for LiveStage<'_> {
         deferred::done(self.0);
     }
 
-    fn prepare_scene(&mut self) -> std::result::Result<(), String> {
-        prepare::scene(self.0).map_err(|e| e.to_string())
-    }
-
-    fn prepare_tooltips(&mut self, idler: usize) {
-        prepare::tooltips(self.0, idler);
-    }
-
-    fn clear_tooltips(&mut self) {
-        tooltip::clear();
-    }
-
     fn draw_on_main_only(&self) -> bool {
         !drawing_on() || main_draws(self.0)
     }
 
-    fn prepare_frame(&mut self, idler: usize) -> std::result::Result<(), String> {
-        prepare::frame(self.0, idler).map_err(|e| e.to_string())
+    fn prepare_for_drawing(&mut self, idler: usize) -> std::result::Result<(), (course::FallbackMode, String)> {
+        if let Err(e) = prepare::scene(self.0) {
+            return Err((course::FallbackMode::BeforeTooltips, format!("the GUI scene could not be prepared: {e}")));
+        }
+        prepare::tooltips(self.0, idler);
+        if let Err(e) = prepare::frame(self.0, idler) {
+            return Err((course::FallbackMode::AfterTooltips, format!("the frame could not be prepared: {e}")));
+        }
+        if let Err(e) = marks::keep(self.0, idler) {
+            log!("drawing: the frame's temporary map highlights could not be kept: {e}");
+        }
+        Ok(())
     }
 
-    fn keep_marks(&mut self, idler: usize) -> std::result::Result<(), String> {
-        marks::keep(self.0, idler).map_err(|e| e.to_string())
-    }
-
-    fn discard_placing(&mut self) {
+    fn draw_inline(&mut self, idler: usize, mode: course::FallbackMode) {
         icons::discard_placing();
+        draw_here(self.0, idler);
+        if mode == course::FallbackMode::BeforeTooltips {
+            prepare::tooltips(self.0, idler);
+            tooltip::clear();
+        }
     }
 
     fn clear_staged_artifacts(&mut self) {
@@ -683,36 +675,23 @@ impl course::StageOps for LiveStage<'_> {
         crossings::clear();
     }
 
-    fn frame_prepared(&mut self) {
+    fn commit_prepared(&mut self, was_idle: bool) {
         crossings::frame_prepared();
-    }
-
-    fn icons_prepared(&mut self) {
         icons::prepared();
-    }
-
-    fn note_prepared(&mut self, was_idle: bool) {
         crate::native::probes::frame_prepared();
         CAMERA_MOVED_THERE.store(1, Ordering::Relaxed);
         if was_idle {
             let _guard = PREPARED_WAKE.0.lock().unwrap_or_else(|e| e.into_inner());
             PREPARED_WAKE.1.notify_all();
         }
-    }
-
-    fn draw_here(&mut self, idler: usize) {
-        draw_here(self.0, idler);
-    }
-
-    fn after_prepared(&mut self) {
         // What the main thread does as it presents a frame: the safe point of a
         // frame outside a game, and the input taken for the next.
         if let Some(h) = DRAWING_HOOKS.get() {
             (h.on_prepared_safe_point)();
-            let screen = SCREEN.load(Ordering::Relaxed);
-            if screen != 0 {
-                (h.on_prepared_input)(((screen >> 32) as u32, screen as u32));
-            }
+        }
+        let screen = SCREEN.load(Ordering::Relaxed);
+        if screen != 0 {
+            super::input::presenting(((screen >> 32) as u32, screen as u32));
         }
     }
 
@@ -735,7 +714,7 @@ extern "C" fn frame_draws(idler: usize) {
 /// holding frames back.
 fn main_draws(m: &Memory) -> bool {
     let debug_text = m.ptr(m.at(DEBUG_COUNTRY)).ok().is_none_or(|c| c != 0);
-    debug_text || DRAWING_HOOKS.get().is_some_and(|h| (h.is_holding)())
+    debug_text || super::present::holding()
 }
 
 /// Whether the drawing thread must not draw the frame prepared: what makes
@@ -746,8 +725,7 @@ fn must_draw_here(m: &Memory) -> bool {
 
 /// Whether the current thread is the drawing thread.
 pub fn is_drawing_thread() -> bool {
-    let t = DRAWING_THREAD.load(Ordering::Relaxed);
-    t != 0 && t == crate::base::thread_id()
+    crate::base::is_drawing_thread()
 }
 
 /// The drawing thread presented a frame of `width` by `height`.
@@ -906,7 +884,7 @@ fn maybe_log_pace(base: usize, gaps: &mut course::Gaps, last_drawn: &mut u64, lo
 
 /// The drawing thread.
 fn run() {
-    DRAWING_THREAD.store(crate::base::thread_id(), Ordering::Relaxed);
+    crate::base::set_drawing_thread(crate::base::thread_id());
     let m = crate::native::hooked_memory();
     let mut display_rate = display_refresh_rate();
     let mut display_checked = Instant::now();

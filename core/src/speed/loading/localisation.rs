@@ -90,7 +90,7 @@ const LOGGERS_BUCKETS: usize = 0x04;
 const LOGGERS_TABLE: usize = 0x08;
 const TEXT_LOG_CATEGORY: u32 = 5;
 
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "localisation", group: "loading", points, checkable: true };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("localisation", "loading", points, true);
 
 type CheckCollisions = unsafe extern "C" fn() -> u8;
 static ORIGINAL_CHECK_COLLISIONS: Function<CheckCollisions> = Function::new();

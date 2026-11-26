@@ -16,6 +16,7 @@ fn framework() -> Vec<Point> {
     all.extend(crate::native::objects::points());
     all.extend(crate::native::game_string::points());
     all.extend(crate::native::game_heap::points());
+    all.extend(crate::native::crash::points());
     all.extend(crate::world::points());
     all.extend(crate::capabilities::points());
     all.extend(crate::interface::points());
@@ -23,8 +24,7 @@ fn framework() -> Vec<Point> {
     all.extend(crate::repairs::points());
     all.extend(crate::tweaks::points());
     all.extend(crate::text::points());
-    all.extend(crate::render::present::points());
-    all.extend(crate::native::main_thread::points());
+    all.extend(crate::render::points());
     all.extend(crate::speed::loading_times::points());
     all
 }
@@ -33,13 +33,12 @@ pub(crate) fn declared() -> Vec<Point> {
     let mut all = framework();
     all.extend(super::speed_registry::points());
     all.extend(crate::dev::points());
-    crate::dev::adjust_declared(&mut all);
     all
 }
 
 pub(crate) fn installed(m: Memory) -> Vec<Point> {
     let mut all = framework();
-    all.extend(super::speed_registry::installed());
+    all.extend(super::speed_registry::installed(crate::dev::keep_shared_speed_points()));
     crate::dev::installed_points(m, &mut all);
     all
 }

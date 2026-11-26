@@ -16,7 +16,7 @@ use crate::{
     base::{self, heap, icu, lang, log, notice, paths, report, settings},
     capabilities, dev, framework_ui, interface, lua,
     native::{self, baseline, memory, points},
-    remote, render, repairs, session, speed, text, tweaks, world,
+    remote, render, repairs, session, speed, text, tweaks,
 };
 use std::sync::{atomic::Ordering, OnceLock};
 use windows_sys::Win32::System::{
@@ -37,62 +37,31 @@ fn wire_all() {
         settings::Listener::Drawing => render::drawing::set(current.frame_rate_limit),
         settings::Listener::CameraZoom => tweaks::camera_zoom::configure(current.zoom_smoothing, current.zoom_step),
     });
-    native::speed_up::set_registry(&speed_registry::ALL);
-    native::points::set_declared_provider(this_build::declared);
-    native::files::set_provider(|| {
-        let mut all = text::unicode::framework_fonts::files();
-        all.extend(interface::windows::files());
-        all
-    });
     native::physfs::set_on_first_init(deferred_init);
     render::present::set_hooks(render::present::PresentHooks {
-        is_held: framework_ui::held,
         discard_late: interface::tooltips::discard_late,
-        before_present: |renderer, device| {
-            base::guarded("font pages", text::unicode::fill::grow_pages);
-            base::guarded("framework UI frame", || {
-                if let Some(device) = device {
-                    unsafe { framework_ui::frame(device) }
-                }
-            });
-            base::guarded("native tooltip over framework UI", || interface::tooltips::draw_late(renderer));
-            base::guarded("screenshot", || {
-                if let Some(device) = device {
-                    capabilities::game::screenshot::presenting(device);
-                }
-            });
+        before_main_present: |renderer, device| {
+            // Font page growth touches game font objects and map names; it must
+            // run on the main thread only (ADR font-pages-grow).
+            base::guarded("font pages", text::unicode::grow_pages);
+            unsafe { before_any_present(renderer, device) };
         },
-        after_main_present: |device| {
+        before_drawing_present: before_any_present,
+        after_main_present: |_device| {
             base::guarded("safe point", safe_point::presented);
-            base::guarded("input", || {
-                if let Some(device) = device {
-                    let (width, height) = unsafe { framework_ui::d3d9::Backend::screen(device) };
-                    capabilities::game::input::presenting((width as u32, height as u32));
-                }
-            });
-            base::guarded("text costs", text::unicode::costs::log_when_due);
+            base::guarded("text costs", text::unicode::log_costs_when_due);
         },
         before_reset: || {
             interface::tooltips::clear();
             framework_ui::device_reset();
-            capabilities::game::screenshot::device_reset();
         },
-        d3d9_present: |device| unsafe { framework_ui::d3d9::Backend::present(device).is_ok() },
-        d3d9_screen: |device| unsafe { framework_ui::d3d9::Backend::screen(device) },
     });
-    render::window_input::set_hooks(render::window_input::InputHooks {
-        on_real_input: capabilities::game::input::real,
-        is_modal: framework_ui::modal,
-        on_wheel: tweaks::camera_zoom::before_sdl_wheel,
-    });
+    render::window_input::set_hooks(render::window_input::InputHooks { is_modal: framework_ui::modal, on_wheel: tweaks::camera_zoom::before_sdl_wheel });
     render::drawing::set_hooks(render::drawing::DrawingHooks {
         on_prepared_safe_point: safe_point::presented,
-        on_prepared_input: capabilities::game::input::presenting,
-        is_holding: framework_ui::holding,
         prepare_scene: interface::window_ordering::prepare_scene,
-        cursor_now: capabilities::game::input::cursor_now,
     });
-    tweaks::hidden::set_hooks(tweaks::hidden::HiddenHooks { on_early_sync: proxy::sync_once, on_hold_cursor: capabilities::game::input::hold });
+    tweaks::hidden::set_hooks(tweaks::hidden::HiddenHooks { on_early_sync: proxy::sync_once });
     session::sessions::set_listener(|happening| {
         use session::sessions::Happening;
         match happening {
@@ -101,7 +70,7 @@ fn wire_all() {
                 capabilities::game::signals::session_forgotten();
                 capabilities::game::map::reset_session();
             }
-            Happening::Began(_) => capabilities::game::input::session_began(),
+            Happening::Began(_) => render::input::session_began(),
             Happening::Ended(session, end) => {
                 log!("session {session} ending ({end:?})");
                 capabilities::game::signal_costs::log_session();
@@ -115,7 +84,6 @@ fn wire_all() {
                 remote::campaign_changes();
             }
             Happening::WorldReset(world_ptr) => {
-                session::saves::clear_session();
                 repairs::world_reset(&native::hooked_memory(), world_ptr);
                 dev::world_reset();
             }
@@ -138,8 +106,6 @@ fn wire_all() {
     });
     interface::set_hooks(interface::InterfaceHooks {
         mod_id: lua::mod_id,
-        in_game: |m| world::context(m).is_ok(),
-        modifiers_held: capabilities::game::input::modifiers_held,
         on_main_menu_frame: |frontend, show_corner| {
             safe_point::main_menu_frame(frontend);
             speed::loading_times::log_main_menu();
@@ -148,20 +114,6 @@ fn wire_all() {
             }
         },
         framework_tooltip_at: framework_ui::tooltip_at,
-        player_letters: |m| world::context(m).ok().map(|ctx| String::from_utf8_lossy(&ctx.player.letters()).into_owned()),
-        resolve_shield_country: |m, named| {
-            let letters = match named {
-                Some(s) => s.to_string(),
-                None => match world::context(m).ok() {
-                    Some(ctx) => String::from_utf8_lossy(&ctx.player.letters()).into_owned(),
-                    None => return Ok(None),
-                },
-            };
-            let session = capabilities::game::WorldSession::open(world::Caller::Remote(world::As::Player)).map_err(|e| e.message)?;
-            let bytes: [u8; 3] = letters.as_bytes().try_into().map_err(|_| format!("{letters:?} is not a tag"))?;
-            let tag = capabilities::game::countries::named(session.m, &session.world, eu4_harmony_remote::CountryTag(bytes)).map_err(|e| e.message)?;
-            Ok(Some(tag.0))
-        },
     });
     capabilities::set_hooks(capabilities::CapabilityHooks {
         on_safe_frame: safe_point::game_frame,
@@ -169,14 +121,21 @@ fn wire_all() {
             let r = lua::reload(caller, args)?;
             Ok(eu4_harmony_remote::extensions::Reloaded { session: r.session, lost: r.lost })
         },
-        ui_hold: framework_ui::hold,
-        ui_let_go: framework_ui::let_go,
         ui_still: framework_ui::still,
         #[cfg(feature = "dev")]
         answer_memory: dev::answer_memory,
         #[cfg(feature = "dev")]
         answer_performance: dev::answer_performance,
     });
+}
+
+unsafe fn before_any_present(renderer: usize, device: Option<*mut std::ffi::c_void>) {
+    base::guarded("framework UI frame", || {
+        if let Some(device) = device {
+            unsafe { framework_ui::frame(device) }
+        }
+    });
+    base::guarded("native tooltip over framework UI", || interface::tooltips::draw_late(renderer));
 }
 
 fn start(m: memory::Memory) -> std::result::Result<String, Failure> {
@@ -186,7 +145,10 @@ fn start(m: memory::Memory) -> std::result::Result<String, Failure> {
     if dev::fail_startup() {
         return Err("fail-startup is on in dev.toml's [test-switches]".to_string().into());
     }
-    speed_registry::check_switches()?;
+    repairs::configure(dev::repair_config());
+    let (game_paths, checked) = dev::speed_switches();
+    speed_registry::init(game_paths, checked)?;
+    points::register_checked(&this_build::declared());
     let installed = points::install(m, &this_build::installed(m)).map_err(|reason| Failure::mismatch(reason, startup_failure::FailureStage::Points))?;
     dev::after_install();
     Ok(format!("baseline {baseline}: {} dependency points match; {} hooks, {} writes", installed.checked, installed.hooks, installed.writes))
@@ -247,7 +209,7 @@ fn bootstrap() -> std::result::Result<(), Failure> {
 /// or test-games build what it is.
 fn build() -> String {
     let api = format!(" (api {})", eu4_harmony_remote::API_VERSION);
-    match dev::build_label() {
+    match base::build_label() {
         Some(label) => format!("{api}, {label}"),
         None => api,
     }
@@ -327,9 +289,15 @@ fn fail_startup(reason: String, mut told: Option<notice::Message>, outdated_prox
     });
 }
 
-/// Runs once, on the game thread, from the first PhysFS call: the rest of
+/// Runs once, on the game thread, from the first PhysFS call: mounts the
+/// framework files when PhysFS just initialized, then runs the rest of
 /// startup (`startup`).
-fn deferred_init() {
+fn deferred_init(mount_files: bool) {
+    if mount_files {
+        let mut all = text::unicode::files();
+        all.extend(interface::windows::files());
+        base::guarded("framework files", || native::files::mount(&all));
+    }
     startup::run(base::game_dir().map(std::path::Path::to_path_buf).unwrap_or_default(), STARTUP.get().map_or("?", String::as_str));
 }
 

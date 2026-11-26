@@ -15,7 +15,6 @@
 //! closed and the pop-ups shown come back out of it as what extensions and
 //! remote clients hear.
 mod gui;
-// FIXED_BACKGROUND_SPRITE now lives in `native::splice`.
 mod live;
 
 use eu4_harmony_lua::{
@@ -26,7 +25,7 @@ use eu4_harmony_lua::{
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
-pub(crate) use live::{frame, killed, managed_tooltip, session_ended, show_window, with_string};
+pub(crate) use live::{frame, killed, managed_tooltip, session_ended};
 
 #[derive(Default)]
 struct Windows {
@@ -117,7 +116,7 @@ impl Windows {
             match click {
                 live::RoutedClick::Widget { extension, window, widget, row, right, modifiers } => {
                     if self.wanted.check_press(extension, &window, &widget, row).is_ok() && self.clicks.len() < 64 {
-                        let (shift, ctrl) = (modifiers & crate::interface::ui::MODIFIER_SHIFT != 0, modifiers & crate::interface::ui::MODIFIER_CTRL != 0);
+                        let (shift, ctrl) = (modifiers & super::native_gui::MODIFIER_SHIFT != 0, modifiers & super::native_gui::MODIFIER_CTRL != 0);
                         self.clicks.push(Click { extension, button: format!("{window}.{widget}"), right, shift, ctrl, row });
                     }
                 }

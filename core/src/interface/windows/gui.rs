@@ -24,7 +24,7 @@ pub const TEXT: &str = "eu4h_text";
 /// gold edge kept at every size.
 const BACKGROUND_SPRITE: &str = "GFX_eu4harmony_window_background";
 /// The same panel for fixed windows: all button states keep its colors.
-pub use crate::native::splice::FIXED_BACKGROUND_SPRITE;
+use super::super::FIXED_BACKGROUND_SPRITE;
 
 /// The framework's sprites the definitions use, a `.gfx` the game reads
 /// at startup among the framework files.

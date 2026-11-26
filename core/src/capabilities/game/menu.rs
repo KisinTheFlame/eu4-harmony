@@ -474,7 +474,7 @@ pub fn start(_: Caller, country: Option<[u8; 3]>) -> GResult<()> {
         return Ok(());
     }
     let tag = find(m, letters)?;
-    if super::world::owned_provinces(m, world_now(m)?, tag)? == 0 {
+    if super::geography::owned_provinces(m, world_now(m)?, tag)? == 0 {
         let name = String::from_utf8_lossy(&letters).into_owned();
         return fail(
             Status::Rejected,
@@ -552,37 +552,6 @@ fn map_manager(m: &Memory) -> Result<Option<usize>> {
     let world = m.ptr(m.at(globals::WORLD))?;
     let manager = if world == 0 { 0 } else { m.ptr(world + world::MAP_MANAGER)? };
     Ok((manager != 0 && m.ptr(manager)? == m.at(campaign_classes::MAP_MANAGER)).then_some(manager))
-}
-
-/// Whether a live session currently shows its top-level in-game menu
-/// (`menu` and its `menu_panel` subwindow both open and alive). Returns false
-/// when a sub-panel such as Load, Save, Game Options, or Message Settings has
-/// hidden `menu_panel`, or outside a session.
-pub(crate) fn in_game_menu_open(m: &Memory) -> bool {
-    if sessions::loading() {
-        return false;
-    }
-    in_game_menu_visible(m).unwrap_or(false)
-}
-
-fn in_game_menu_visible(m: &Memory) -> Result<bool> {
-    use crate::native::objects::gui::window;
-    let Some(manager) = map_manager(m)? else { return Ok(false) };
-    let menu = m.ptr(manager + manager_fields::MENU)?;
-    if menu == 0 || m.ptr(menu)? != m.at(gui_classes::WINDOW) || m.u8(menu + window::DEAD)? != 0 || m.u8(menu + window::OPEN)? == 0 {
-        return Ok(false);
-    }
-    let begin = m.ptr(menu + window::SUBWINDOWS)?;
-    let end = m.ptr(menu + window::SUBWINDOWS_END)?;
-    let count = crate::native::containers::span(begin, end, window::SUBWINDOW_ENTRY, 64)?;
-    for i in 0..count {
-        let entry = begin + i * window::SUBWINDOW_ENTRY;
-        if game_string::read(m, entry)? == b"menu_panel" {
-            let panel = m.ptr(entry + window::SUBWINDOW_PTR)?;
-            return Ok(panel != 0 && m.ptr(panel)? == m.at(gui_classes::WINDOW) && m.u8(panel + window::DEAD)? == 0 && m.u8(panel + window::OPEN)? != 0);
-        }
-    }
-    Ok(false)
 }
 
 /// As the `-start_tag` launch option: the country where the single player
@@ -809,55 +778,5 @@ mod tests {
         assert_eq!(save_name(".eu4"), None);
         assert_eq!(save_name("notes.txt"), None);
         assert_eq!(save_name("中.eu"), None);
-    }
-
-    #[test]
-    fn in_game_menu_visible_requires_live_menu_and_open_menu_panel() {
-        use super::{campaign_classes, globals, gui_classes, in_game_menu_visible, manager_fields, world};
-        use crate::fake_game::buffers::{Image, Object};
-        use crate::native::objects::gui::window;
-
-        let image = Image::new();
-        let m = image.memory();
-
-        let panel = Object::new(0x100).u64(0, m.at(gui_classes::WINDOW) as u64).u8(window::DEAD, 0).u8(window::OPEN, 1);
-        let other = Object::new(0x100).u64(0, m.at(gui_classes::WINDOW) as u64).u8(window::DEAD, 0).u8(window::OPEN, 1);
-        let mut subwindows = Object::new(window::SUBWINDOW_ENTRY * 2);
-        subwindows = subwindows.string(0, "menu_unsync").u64(window::SUBWINDOW_PTR, other.at() as u64);
-        subwindows = subwindows.string(window::SUBWINDOW_ENTRY, "menu_panel").u64(window::SUBWINDOW_ENTRY + window::SUBWINDOW_PTR, panel.at() as u64);
-
-        let menu = Object::new(window::SUBWINDOWS_END + 8)
-            .u64(0, m.at(gui_classes::WINDOW) as u64)
-            .u8(window::DEAD, 0)
-            .u8(window::OPEN, 1)
-            .u64(window::SUBWINDOWS, subwindows.at() as u64)
-            .u64(window::SUBWINDOWS_END, (subwindows.at() + window::SUBWINDOW_ENTRY * 2) as u64);
-        let manager = Object::new(manager_fields::MENU + 8).u64(0, m.at(campaign_classes::MAP_MANAGER) as u64).u64(manager_fields::MENU, menu.at() as u64);
-        let world = Object::new(world::MAP_MANAGER + 8).u64(world::MAP_MANAGER, manager.at() as u64);
-        image.u64(globals::WORLD, world.at() as u64);
-
-        assert_eq!(in_game_menu_visible(m), Ok(true));
-
-        // Opening a sub-panel (Load, Save, Options, Message Settings) hides menu_panel while menu stays open.
-        panel.set(window::OPEN, &[0]);
-        assert_eq!(in_game_menu_visible(m), Ok(false));
-        panel.set(window::OPEN, &[1]);
-
-        // Closing or killing menu or menu_panel hides the corner buttons.
-        menu.set(window::OPEN, &[0]);
-        assert_eq!(in_game_menu_visible(m), Ok(false));
-        menu.set(window::OPEN, &[1]);
-
-        panel.set(window::DEAD, &[1]);
-        assert_eq!(in_game_menu_visible(m), Ok(false));
-        panel.set(window::DEAD, &[0]);
-
-        menu.set(window::DEAD, &[1]);
-        assert_eq!(in_game_menu_visible(m), Ok(false));
-        menu.set(window::DEAD, &[0]);
-
-        // Main menu idler in world+MAP_MANAGER is not a map manager.
-        manager.set(0, &(m.at(gui_classes::MAIN_MENU) as u64).to_le_bytes());
-        assert_eq!(in_game_menu_visible(m), Ok(false));
     }
 }

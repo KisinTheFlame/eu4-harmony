@@ -4,8 +4,10 @@
 use super::{ElementOps, Entry, Live, STRIP_BACKGROUND, STRIP_FIRST, STRIP_SLOTS, STRIP_STEP, TEXT_HIDE, TEXT_PLACE, TEXT_PLACE_SLOT, TEXT_SHOW};
 use crate::{
     base::Result,
-    interface::bound_element::{self, BoundElement, Look, Shown},
-    interface::ui,
+    interface::{
+        bound_element::{BoundElement, Hears, LiveElements, Look, Shown},
+        native_gui,
+    },
     native::memory::Memory,
     native::objects::{
         campaign::map_manager,
@@ -36,19 +38,19 @@ struct GameStrip<'a> {
 
 impl ElementOps for GameStrip<'_> {
     fn listener(&mut self, object: usize, look: Look) -> Result<BoundElement> {
-        self.m.listener(object, look)
+        LiveElements(self.m, Hears::Windows).listener(object, look)
     }
     fn subscribed(&mut self, element: &BoundElement) -> bool {
-        self.m.subscribed(element)
+        LiveElements(self.m, Hears::Windows).subscribed(element)
     }
     fn link(&mut self, element: &mut BoundElement) -> Result<()> {
-        self.m.link(element)
+        LiveElements(self.m, Hears::Windows).link(element)
     }
     fn unlink(&mut self, element: &mut BoundElement) -> Result<()> {
-        self.m.unlink(element)
+        LiveElements(self.m, Hears::Windows).unlink(element)
     }
     fn apply(&mut self, element: &mut BoundElement, shown: &Shown) -> Result<()> {
-        self.m.apply(element, shown)
+        LiveElements(self.m, Hears::Windows).apply(element, shown)
     }
 }
 
@@ -62,19 +64,19 @@ impl StripNative for GameStrip<'_> {
     }
 
     fn vanilla_shown(&mut self, strip: usize, index: usize) -> Result<bool> {
-        let button = ui::lookup(self.m, strip, (window::FIND_BUTTON, functions::FIND_BUTTON), &format!("f_button_{index}"))?;
+        let button = native_gui::lookup(self.m, strip, (window::FIND_BUTTON, functions::FIND_BUTTON), &format!("f_button_{index}"))?;
         Ok(button != 0 && self.m.u8(button + element::VISIBLE)? != 0)
     }
 
     fn find_entry(&mut self, strip: usize, button_name: &str, background_name: &str) -> Result<Option<(usize, usize, usize)>> {
-        let button = ui::lookup(self.m, strip, (window::FIND_BUTTON, functions::FIND_BUTTON), button_name)?;
-        if button == 0 || ui::element_name(self.m, button)? != button_name.as_bytes() || self.m.ptr(button)? != self.m.at(classes::BUTTON) {
+        let button = native_gui::lookup(self.m, strip, (window::FIND_BUTTON, functions::FIND_BUTTON), button_name)?;
+        if button == 0 || native_gui::element_name(self.m, button)? != button_name.as_bytes() || self.m.ptr(button)? != self.m.at(classes::BUTTON) {
             return Ok(None);
         }
-        let background = ui::lookup(self.m, strip, (window::FIND_ICON, functions::FIND_ICON), background_name)?;
+        let background = native_gui::lookup(self.m, strip, (window::FIND_ICON, functions::FIND_ICON), background_name)?;
         let number_name = format!("{button_name}_number");
-        let number = ui::lookup(self.m, strip, (window::FIND_TEXT, functions::FIND_TEXT), &number_name)?;
-        if number == 0 || self.m.ptr(number)? != self.m.at(classes::TEXT_BOX) || ui::element_name(self.m, number)? != number_name.as_bytes() {
+        let number = native_gui::lookup(self.m, strip, (window::FIND_TEXT, functions::FIND_TEXT), &number_name)?;
+        if number == 0 || self.m.ptr(number)? != self.m.at(classes::TEXT_BOX) || native_gui::element_name(self.m, number)? != number_name.as_bytes() {
             return Err(format!("the entry {button_name} has no independent number"));
         }
         Ok(Some((button, background, number)))
@@ -83,7 +85,7 @@ impl StripNative for GameStrip<'_> {
     fn show_number(&mut self, number: usize, previous: &mut Option<String>, text: String, at: (i32, i32)) -> Result<()> {
         let visible = !text.is_empty();
         if previous.as_ref() != Some(&text) {
-            bound_element::write_text(self.m, number, &game_text::from_str(&text))?;
+            native_gui::write_text(self.m, number, &game_text::from_str(&text))?;
             *previous = Some(text);
         }
         if (self.m.u8(number + element::VISIBLE)? != 0) != visible {

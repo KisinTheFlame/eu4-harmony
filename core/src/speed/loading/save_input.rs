@@ -19,7 +19,7 @@ const ZIPPED: usize = 0x28;
 const LOAD_CALL: usize = 0x5d0c78;
 const LOAD_NEXT: usize = 0x5d0c7d;
 
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "save-input", group: "loading", points, checkable: false };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("save-input", "loading", points, false);
 
 fn points() -> Vec<Point> {
     vec![

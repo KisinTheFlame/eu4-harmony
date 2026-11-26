@@ -7,5 +7,6 @@ pub(crate) mod army_search;
 pub(crate) mod loading;
 pub(crate) mod loading_times;
 pub(crate) mod modifier_sums;
+pub(crate) mod pool;
 pub(crate) mod pops;
 pub(crate) mod saving;

@@ -2,7 +2,7 @@
 //! command (ADR commands-run-at-once), and the record of which extension set
 //! which route.
 use super::commands::{write, Block};
-use super::{armies::RouteSource, army, commands::Commands, fail, paused, signals::Change, world, Caller, Ctx, GResult, Session, Status, MAX_UNITS};
+use super::{armies::RouteSource, army, commands::Commands, fail, geography, paused, signals::Change, Caller, Ctx, GResult, Session, Status, MAX_UNITS};
 use crate::native::containers;
 use crate::{
     native::memory::Memory,
@@ -262,7 +262,7 @@ impl Orders {
         &mut self,
         m: &Memory,
         ctx: &Ctx,
-        geography: &mut world::Geography,
+        geography: &mut geography::Geography,
         army: usize,
         goal: u32,
         caller: Caller,
@@ -326,7 +326,7 @@ impl Orders {
         result
     }
 
-    pub fn find_route(&mut self, m: &Memory, ctx: &Ctx, geography: &mut world::Geography, army: usize, goal: u32, caller: Caller) -> GResult<Vec<u32>> {
+    pub fn find_route(&mut self, m: &Memory, ctx: &Ctx, geography: &mut geography::Geography, army: usize, goal: u32, caller: Caller) -> GResult<Vec<u32>> {
         match self.with_route(m, ctx, geography, army, goal, caller, |path, _| Ok(path.ids.clone()))? {
             Some(ids) => Ok(ids),
             None => Err(checks::no_route(goal).into()),
@@ -338,7 +338,7 @@ impl Orders {
     /// refused when the game finds none. To the province it is in, it stops
     /// the army, as the right click there does. Returns the player's order
     /// when the caller acts as the player.
-    pub fn move_army(&mut self, session: &Session, geography: &mut world::Geography, army: usize, id: u64, goal: u32) -> GResult<Option<Change>> {
+    pub fn move_army(&mut self, session: &Session, geography: &mut geography::Geography, army: usize, id: u64, goal: u32) -> GResult<Option<Change>> {
         let (m, ctx, caller) = (session.m, &session.ctx, session.caller);
         let before = preflight(m, ctx, army, caller)?;
         if goal == before.origin {

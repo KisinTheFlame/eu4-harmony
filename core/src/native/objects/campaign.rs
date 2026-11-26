@@ -977,6 +977,8 @@ pub mod map_manager {
     pub const LET_OUTLINER_GO: crate::native::points::GameFunction<1> = crate::native::points::GameFunction::at(0x81dc30);
     /// Lets its map modes' panel go: `(panel)`.
     pub const LET_MAP_MODES_GO: crate::native::points::GameFunction<1> = crate::native::points::GameFunction::at(0x81de20);
+    /// `(map manager, window)`: takes a window off the map manager's windows.
+    pub const TAKE_WINDOW_OFF: crate::native::points::GameFunction<2> = crate::native::points::GameFunction::at(0x6ecc80);
     /// Two more, which the game lets go with a function of their own (the
     /// rebuild calls it before it makes them again): the field and the
     /// function.
@@ -1684,5 +1686,6 @@ pub fn points() -> Vec<Point> {
         // In-game frame drawing checks whether the in-game menu window is open.
         Point::keep(0x81892dusize, "49 8b 87 f0 12 00 00 80 b8 f5 00 00 00 00", "in-game menu open check")
             .uses(&[map_manager::MENU, super::gui::window::OPEN]),
+        Point::keep(map_manager::TAKE_WINDOW_OFF, "40 53 48 83 ec 20 48 8b d9 48 8b 89 90 00 00 00 48 85 c9", "take a window off the map manager's windows"),
     ]
 }

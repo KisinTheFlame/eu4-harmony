@@ -9,7 +9,7 @@ use super::{
 };
 use crate::native::{
     memory::Memory,
-    objects::campaign::{adjacency, countries as country_list, country as country_fields, geometry, globals, province},
+    objects::campaign::{adjacency, country as country_fields, geometry, globals, province},
     points::{GameFunction, Point},
 };
 const STRAIT_BLOCKED: GameFunction<2> = GameFunction::at(0x96f650);
@@ -263,34 +263,7 @@ pub fn hidden(m: &Memory, province: usize) -> GResult<bool> {
     Ok(fogged && m.u8(province + province::HIDDEN)? & province::HIDDEN_BIT != 0)
 }
 
-/// Every country's tag, by tag index; empty slots and invalid tags are
-/// skipped.
-pub fn countries(m: &Memory, ctx: &impl InWorld) -> GResult<Vec<Tag>> {
-    let manager = m.ptr(m.at(globals::COUNTRY_MANAGER))?;
-    if m.ptr(manager + country_list::LIST)? != ctx.countries() {
-        return Err("country array moved".to_string().into());
-    }
-    let count = m.i32(manager + country_list::COUNT)?;
-    if !(0..=32767).contains(&count) {
-        return Err("country array bound".to_string().into());
-    }
-    let mut out = Vec::with_capacity(count as usize);
-    for index in 0..count as usize {
-        let country = m.ptr(ctx.countries() + index * 8)?;
-        if country == 0 {
-            continue;
-        }
-        let tag = Tag(m.u64(country + country_fields::TAG)?);
-        if !tag.valid() {
-            continue;
-        }
-        if tag.index() as usize != index {
-            return Err(format!("country {index} has the tag of country {}", tag.index()).into());
-        }
-        out.push(tag);
-    }
-    Ok(out)
-}
+pub use crate::world::countries;
 
 /// At war with each other, or either is a hostile special country (rebels).
 pub fn hostile(m: &Memory, ctx: &impl InWorld, a: Tag, b: Tag) -> GResult<bool> {

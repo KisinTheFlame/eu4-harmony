@@ -9,6 +9,7 @@ pub(crate) mod curia;
 pub(crate) mod factions;
 pub(crate) mod faith;
 pub(crate) mod frame;
+pub(crate) mod geography;
 pub(crate) mod map;
 pub(crate) mod map_coloring;
 pub(crate) mod mechanics;
@@ -20,11 +21,9 @@ pub(crate) mod signals;
 pub(crate) mod spendings;
 pub(crate) mod units;
 pub(crate) mod wars;
-pub(crate) mod world;
 
 #[cfg(test)]
 pub(crate) use crate::fake_game::buffers;
-pub(crate) use crate::native::objects::gui_scale;
 pub(crate) use crate::world::{
     action, commands, conditions, content, context, context_any, country, envoys, fail, game, map_manager, modifiers, named, paused, player, power, reasons,
     special_countries, thousandths, unbulleted, view, world_context, world_context_any, As, Caller, Ctx, Fail, GResult, InWorld, Status, Tag, View, World,
@@ -115,7 +114,7 @@ impl Session {
     }
 
     pub fn province_hidden(self, province: usize) -> GResult<bool> {
-        Ok(self.view == View::Player && world::hidden(self.m, province)?)
+        Ok(self.view == View::Player && geography::hidden(self.m, province)?)
     }
 }
 
@@ -154,7 +153,7 @@ impl WorldSession {
 
 #[derive(Default)]
 struct State {
-    geography: world::Geography,
+    geography: geography::Geography,
     orders: orders::Orders,
     wars: wars::Watch,
 }
@@ -230,7 +229,7 @@ fn watch_wars(m: &Memory, ctx: &World) -> Vec<wars::Happened> {
 /// Dependency points owned by the capability groups and capability-specific helpers.
 pub fn points() -> Vec<Point> {
     let mut points = group_points();
-    points.extend(world::points());
+    points.extend(geography::points());
     points.extend(army::points());
     points.extend(orders::points());
     points.extend(signals::points());

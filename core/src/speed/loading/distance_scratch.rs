@@ -17,7 +17,7 @@ const STORE: usize = 0x2d2052;
 const FINISH: usize = 0x2d20c8;
 const FINISHED: usize = 0x2d20d0;
 
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "distance-scratch", group: "loading", points, checkable: false };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("distance-scratch", "loading", points, false);
 
 fn points() -> Vec<Point> {
     vec![

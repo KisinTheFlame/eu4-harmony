@@ -45,6 +45,8 @@ struct Setup {
     /// The elements spliced into host windows, each with its extension's
     /// index.
     elements: Vec<(Element, Option<usize>)>,
+    /// The host windows whose button area has a framework frame.
+    frames: Vec<crate::base::hosts::Host>,
     /// What the game's file system is to add to the files it reads.
     plan: Plan,
     /// The startup report's part on the mods.
@@ -56,12 +58,14 @@ impl Setup {
     /// extension, `indices` the extensions' by the mods' places, `notes`
     /// those of discovering, splicing and the texts, and `data_dir` the
     /// extensions' data folders' folder.
+    #[expect(clippy::too_many_arguments, reason = "pure value constructor assembling startup outputs for reporting and apply")]
     fn of(
         mods: &[mods::DiscoveredMod],
         outcomes: &[lua::LoadOutcome],
         extensions: Vec<String>,
         indices: &BTreeMap<usize, usize>,
         notes: &[String],
+        frames: Vec<crate::base::hosts::Host>,
         plan: Plan,
         data_dir: &Path,
     ) -> Self {
@@ -94,7 +98,7 @@ impl Setup {
         report.extend(notes.iter().map(|note| format!("  {note}")));
         report.push(format!("UI: {} mod element(s) spliced, {} button-area slot(s)", plan.elements.len(), plan.slots));
         let elements = plan.elements.iter().map(|e| (e.clone(), indices.get(&e.owner).copied())).collect();
-        Self { cards, extensions, elements, plan, report }
+        Self { cards, extensions, elements, frames, plan, report }
     }
 
     fn apply(self) {
@@ -104,7 +108,7 @@ impl Setup {
             report::line(line);
         }
         report::write();
-        ui::set_elements(self.elements, self.plan.frames.clone());
+        ui::set_elements(self.elements, self.frames);
         physfs::set_plan(self.plan);
     }
 }
@@ -121,7 +125,7 @@ pub(crate) fn run(game_dir: PathBuf, installed: &str) {
         }
     };
     let logs = crate::base::open_logs(&user_dir);
-    crate::session::crash::register_windows_dumps(&user_dir);
+    crate::native::crash::register_windows_dumps(&user_dir);
     super::report_header(Some(&game_dir));
     log!("user dir {}", user_dir.display());
     let chosen = settings::load(&user_dir);
@@ -151,13 +155,13 @@ pub(crate) fn run(game_dir: PathBuf, installed: &str) {
     let data_dir = user_dir.join("eu4-harmony").join("data");
     let outcomes = lua::load(&mods, &logs, &data_dir);
     let included = |i: usize| outcomes[i].included;
-    let mut ui_notes = splice::build(&mods, included, &mut plan);
+    let (mut ui_notes, slots) = splice::build(&mods, included, &mut plan);
+    let frames = ui::splice_frames(&mut plan, &slots);
     ui_notes.extend(crate::interface::windows::splice_entries(&mut plan));
     for note in &ui_notes {
         log!("ui: {note}");
     }
-    unicode::framework_fonts::plan(&mut plan);
-    unicode::map_field::plan(&mut plan);
+    unicode::plan(&mut plan);
     log!("splice plan ready: {} mod element(s), {} button slot(s)", plan.elements.len(), plan.slots);
     let notes: Vec<String> = discovery_notes
         .iter()
@@ -165,7 +169,7 @@ pub(crate) fn run(game_dir: PathBuf, installed: &str) {
         .chain(ui_notes.iter().map(|n| format!("ui: {n}")))
         .chain(loc_notes.iter().map(|n| format!("localisation: {n}")))
         .collect();
-    Setup::of(&mods, &outcomes, lua::mod_ids(), &lua::extension_indices(&mods), &notes, plan, &data_dir).apply();
+    Setup::of(&mods, &outcomes, lua::mod_ids(), &lua::extension_indices(&mods), &notes, frames, plan, &data_dir).apply();
 }
 
 /// A font chosen in the settings that is no longer installed: the player
@@ -271,7 +275,7 @@ mod tests {
         let outcomes =
             [lua::LoadOutcome { included: true, status: "loaded".into() }, lua::LoadOutcome { included: false, status: "not loaded: main.lua failed".into() }];
         let notes = ["discovery: a note".to_string()];
-        let setup = Setup::of(&mods, &outcomes, vec!["alpha".into()], &BTreeMap::new(), &notes, Plan::default(), Path::new("D:\\data"));
+        let setup = Setup::of(&mods, &outcomes, vec!["alpha".into()], &BTreeMap::new(), &notes, Vec::new(), Plan::default(), Path::new("D:\\data"));
         assert_eq!(setup.extensions, ["alpha"]);
         let names: Vec<&str> = setup.cards.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["Alpha", "beta"], "a mod without a name is named by its id");

@@ -22,7 +22,7 @@
 //! The main thread waits for the GPU only when a step is not done after
 //! [`PATIENCE`] presents. Everything here runs on the thread that
 //! presents.
-use crate::capabilities::game::{Fail, GResult, Status};
+use crate::base::status::{Fail, GResult, Status};
 use std::ffi::c_void;
 use std::time::{Duration, Instant};
 use windows::core::{Error, Interface, HRESULT};

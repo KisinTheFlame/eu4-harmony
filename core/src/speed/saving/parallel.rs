@@ -41,10 +41,11 @@ use crate::native::objects::saves_rva::{GameToken, EQUALS, NUMBER, WRITER_DEPTH,
 use crate::native::objects::stream;
 use crate::native::points::{Function, GameFunction, Point};
 use crate::native::speed_up::{self as speed, SpeedUp};
+use crate::speed::pool::{Work, WorkerPool};
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 
 /// The save's course: what the hooks' moments make of the loops handed to the
 /// pool, and where their bytes go into the game's stream.
@@ -429,10 +430,10 @@ struct Ahead {
     writings: [Arc<Writing>; 2],
 }
 
-impl Task for Ahead {
-    fn work(&self, mut holders: Option<&mut Holders>) {
+impl Work for Ahead {
+    fn work(&self, on_worker: bool) {
         for writing in &self.writings {
-            writing.work(holders.as_deref_mut());
+            writing.work(on_worker);
         }
     }
 
@@ -560,7 +561,7 @@ impl Writing {
                 (0..count).map(|i| m.ptr(array + i * 8)).collect::<Result<Vec<_>>>()?
             }
         };
-        let threads = pool().map_or(1, |p| p.threads.len() + 1);
+        let threads = pool().map_or(1, WorkerPool::width);
         if items.len() < FEWEST_ITEMS || threads < 2 {
             return Ok(None);
         }
@@ -607,9 +608,14 @@ impl Writing {
 
     /// Writes runs until none is left; on the pool's threads with their own
     /// copies of the two static objects.
-    fn work(&self, holders: Option<&mut Holders>) {
-        if let Some(h) = holders {
-            h.0.copy_from_slice(&self.holders);
+    fn work(&self, on_worker: bool) {
+        if on_worker {
+            let copies = HOLDERS.with(Cell::get);
+            if copies != 0 {
+                unsafe {
+                    std::ptr::copy_nonoverlapping(self.holders.as_ptr(), copies as *mut u8, self.holders.len());
+                }
+            }
             set_mxcsr(self.mxcsr);
         }
         loop {
@@ -747,20 +753,9 @@ fn set_mxcsr(value: u32) {
 
 // --- The pool ---
 
-/// What the pool's threads and the thread that hands it out do together,
-/// each taking parts of it until none is left.
-pub(super) trait Task: Send + Sync {
-    /// Takes parts until none is left: on a thread of the pool with its
-    /// copies of the two static objects, on the thread that handed the task
-    /// out without.
-    fn work(&self, holders: Option<&mut Holders>);
-    /// The pool gave up waiting for a thread: what the task made is not used.
-    fn abandon(&self);
-}
-
-impl Task for Writing {
-    fn work(&self, holders: Option<&mut Holders>) {
-        Writing::work(self, holders)
+impl Work for Writing {
+    fn work(&self, on_worker: bool) {
+        Writing::work(self, on_worker)
     }
 
     fn abandon(&self) {
@@ -768,65 +763,22 @@ impl Task for Writing {
     }
 }
 
-pub(super) struct Pool {
-    /// Its threads' ids.
-    threads: Vec<u32>,
-    state: Mutex<State>,
-    start: Condvar,
-    done: Condvar,
-    /// Set from a task's handing out to its end: one at a time.
-    in_use: AtomicBool,
-    /// A thread did not come back in time: the pool is not used again.
-    broken: AtomicBool,
-}
+const TIMEOUT_NOTE: &str = "saves: a thread of the pool did not finish in time; saves are written by the game alone from now on";
 
-struct State {
-    task: Option<Arc<dyn Task>>,
-    /// Counts the tasks handed out, which tells a thread a new one is there.
-    round: u64,
-    /// The threads still working on the current task.
-    busy: usize,
-}
+static POOL: OnceLock<WorkerPool> = OnceLock::new();
 
-static POOL: OnceLock<Option<Pool>> = OnceLock::new();
-
-/// The pool, made at startup; None when it has no thread or broke.
-pub(super) fn pool() -> Option<&'static Pool> {
-    let pool = POOL
-        .get_or_init(|| {
-            let wanted = std::thread::available_parallelism().map_or(1, |n| n.get()).min(MOST_THREADS) - 1;
-            let pool = Pool {
-                threads: Vec::new(),
-                state: Mutex::new(State { task: None, round: 0, busy: 0 }),
-                start: Condvar::new(),
-                done: Condvar::new(),
-                in_use: AtomicBool::new(false),
-                broken: AtomicBool::new(false),
-            };
-            let ids = Arc::new(Mutex::new(Vec::new()));
-            let started: Vec<_> = (0..wanted)
-                .filter_map(|i| {
-                    let ids = ids.clone();
-                    std::thread::Builder::new()
-                        .name(format!("eu4-harmony save writer {i}"))
-                        .spawn(move || {
-                            ids.lock().unwrap_or_else(|e| e.into_inner()).push(crate::base::thread_id());
-                            worker();
-                        })
-                        .ok()
-                })
-                .collect();
-            // Each thread says its id before it waits for work.
-            let deadline = Instant::now() + Duration::from_secs(5);
-            while ids.lock().unwrap_or_else(|e| e.into_inner()).len() < started.len() && Instant::now() < deadline {
-                std::thread::sleep(Duration::from_millis(1));
-            }
-            let threads = ids.lock().unwrap_or_else(|e| e.into_inner()).clone();
-            log!("saves: {} threads to write saves with", threads.len());
-            Some(Pool { threads, ..pool })
-        })
-        .as_ref()?;
-    (!pool.broken.load(Ordering::SeqCst)).then_some(pool)
+/// The pool, made at startup; None when it broke.
+pub(super) fn pool() -> Option<&'static WorkerPool> {
+    let pool = POOL.get_or_init(|| {
+        let wanted = std::thread::available_parallelism().map_or(1, |n| n.get()).min(MOST_THREADS) - 1;
+        let pool = WorkerPool::new("eu4-harmony save writer", "parallel save", wanted, || {
+            let holders = Box::leak(Box::new(Holders([0; 2 * HOLDER_SIZE])));
+            HOLDERS.with(|h| h.set(holders.0.as_ptr() as usize));
+        });
+        log!("saves: {} threads to write saves with", pool.width().saturating_sub(1));
+        pool
+    });
+    (!pool.is_broken()).then_some(pool)
 }
 
 /// Starts the pool's threads, which wait for the first save.
@@ -837,84 +789,7 @@ pub fn start() {
 /// The pool's threads, which the write watch leaves running.
 #[cfg(feature = "dev")]
 pub fn threads() -> &'static [u32] {
-    POOL.get().and_then(Option::as_ref).map_or(&[], |p| &p.threads)
-}
-
-fn worker() {
-    // Waits for the pool to be made, which happens as this thread starts.
-    let pool = loop {
-        if let Some(Some(pool)) = POOL.get() {
-            break pool;
-        }
-        std::thread::sleep(Duration::from_millis(1));
-    };
-    let holders = Box::leak(Box::new(Holders([0; 2 * HOLDER_SIZE])));
-    HOLDERS.with(|h| h.set(holders.0.as_ptr() as usize));
-    let mut seen = 0;
-    loop {
-        let task = {
-            let mut state = pool.state.lock().unwrap_or_else(|e| e.into_inner());
-            while state.round == seen {
-                state = pool.start.wait(state).unwrap_or_else(|e| e.into_inner());
-            }
-            seen = state.round;
-            state.task.clone()
-        };
-        if let Some(task) = task {
-            crate::base::guarded("parallel save", || task.work(Some(holders)));
-        }
-        let mut state = pool.state.lock().unwrap_or_else(|e| e.into_inner());
-        state.busy -= 1;
-        pool.done.notify_all();
-    }
-}
-
-impl Pool {
-    /// How many threads work on a task: the pool's and the one handing it
-    /// out.
-    pub(super) fn width(&self) -> usize {
-        self.threads.len() + 1
-    }
-
-    /// Hands the task to the pool's threads, unless one is being worked on.
-    pub(super) fn begin(&self, task: Arc<dyn Task>) -> bool {
-        if self.in_use.swap(true, Ordering::SeqCst) {
-            return false;
-        }
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        state.task = Some(task);
-        state.round += 1;
-        state.busy = self.threads.len();
-        self.start.notify_all();
-        true
-    }
-
-    /// Works on the task handed out until no part is left, waits for the
-    /// pool's threads, and frees the pool; how many threads worked on it.
-    pub(super) fn finish(&self, task: &dyn Task) -> usize {
-        task.work(None);
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        let deadline = Instant::now() + WAIT;
-        while state.busy > 0 {
-            let left = deadline.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                self.broken.store(true, Ordering::SeqCst);
-                task.abandon();
-                log!("saves: a thread of the pool did not finish in {WAIT:?}; saves are written by the game alone from now on");
-                break;
-            }
-            state = self.done.wait_timeout(state, left).unwrap_or_else(|e| e.into_inner()).0;
-        }
-        state.task = None;
-        self.in_use.store(false, Ordering::SeqCst);
-        self.width()
-    }
-
-    /// The task worked on by every thread of the pool and this one, unless
-    /// the pool is in use; how many threads worked on it.
-    pub(super) fn run(&self, task: Arc<dyn Task>) -> Option<usize> {
-        self.begin(task.clone()).then(|| self.finish(&*task))
-    }
+    POOL.get().map_or(&[], WorkerPool::thread_ids)
 }
 
 /// `f` of each of `0..count`, taken in turn by the pool's threads and this
@@ -922,28 +797,7 @@ impl Pool {
 /// What `f` reads must stay as it is until this returns: the parts are done
 /// by then.
 pub(super) fn each<T: Send + 'static>(count: usize, f: impl Fn(usize) -> T + Send + Sync + 'static) -> Option<Vec<T>> {
-    let task = Arc::new(Each { next: AtomicUsize::new(0), f: Box::new(f), out: (0..count).map(|_| Mutex::new(None)).collect() });
-    pool()?.run(task.clone())?;
-    task.out.iter().map(|o| o.lock().unwrap_or_else(|e| e.into_inner()).take()).collect()
-}
-
-struct Each<T> {
-    next: AtomicUsize,
-    f: Box<dyn Fn(usize) -> T + Send + Sync>,
-    out: Vec<Mutex<Option<T>>>,
-}
-
-impl<T: Send> Task for Each<T> {
-    fn work(&self, _: Option<&mut Holders>) {
-        loop {
-            let i = self.next.fetch_add(1, Ordering::SeqCst);
-            let Some(out) = self.out.get(i) else { return };
-            let value = (self.f)(i);
-            *out.lock().unwrap_or_else(|e| e.into_inner()) = Some(value);
-        }
-    }
-
-    fn abandon(&self) {}
+    pool()?.each(count, WAIT, TIMEOUT_NOTE, f)
 }
 
 /// Checked, the game's own loops write into the save as always, beside the
@@ -962,7 +816,6 @@ mod compare {
 
     resume!(PROVINCES_END_RESUME: PROVINCES_END_AT = PROVINCES_END + 8);
     resume!(COUNTRIES_END_RESUME: COUNTRIES_END_AT = COUNTRIES_END + 8);
-    static CLOSE: AtomicUsize = AtomicUsize::new(0);
 
     /// Replaces `mov rcx, rsi; call <close a block>` at a loop's end.
     #[unsafe(naked)]
@@ -973,7 +826,7 @@ mod compare {
             "call qword ptr [rip + {close}]",
             "jmp qword ptr [rip + {next}]",
             end = sym end,
-            close = sym CLOSE,
+            close = sym crate::native::objects::saves_rva::WRITE_CLOSE_ADDR,
             next = sym PROVINCES_END_AT,
         );
     }
@@ -986,7 +839,7 @@ mod compare {
             "call qword ptr [rip + {close}]",
             "jmp qword ptr [rip + {next}]",
             end = sym end,
-            close = sym CLOSE,
+            close = sym crate::native::objects::saves_rva::WRITE_CLOSE_ADDR,
             next = sym COUNTRIES_END_AT,
         );
     }
@@ -995,8 +848,6 @@ mod compare {
         vec![
             Point::jump(PROVINCES_END, "48 8b ce e8 a9 70 fb 00", "provinces written", provinces_end_stub as *const () as usize, &PROVINCES_END_RESUME),
             Point::jump(COUNTRIES_END, "48 8b ce e8 24 70 fb 00", "countries written", countries_end_stub as *const () as usize, &COUNTRIES_END_RESUME),
-            Point::keep(crate::native::objects::saves_rva::WRITE_CLOSE, "40 53 48 81 ec 30 02 00 00 ff 49 08 48 8b d9", "save writer closes a block (checked)")
-                .recorded(&CLOSE),
         ]
     }
 }
@@ -1004,7 +855,10 @@ mod compare {
 /// Checked, the game's own loops write into the save as always, beside the
 /// pool, and where the world has written its game state the pool's bytes
 /// are compared with what each loop wrote.
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "parallel-saves", group: "saving", points, checkable: true };
+#[cfg(feature = "dev")]
+pub const SPEED_UP: SpeedUp = SpeedUp::new("parallel-saves", "saving", points, true).with_compare(replace_compare_points);
+#[cfg(not(feature = "dev"))]
+pub const SPEED_UP: SpeedUp = SpeedUp::new("parallel-saves", "saving", points, true);
 
 /// Replaces the read-only `PROVINCES_END` and `COUNTRIES_END` points with
 /// jump stubs that record where the game's own loops end for comparison.
@@ -1203,5 +1057,100 @@ mod tests {
         o.set(WRITER_STREAM, 0x1234_5678usize);
         assert_eq!((o.get::<i32>(WRITER_DEPTH), o.get::<usize>(WRITER_STREAM)), (-1, 0x1234_5678));
         assert_eq!(o.address() % 16, 0);
+    }
+
+    /// In-process double-segment memory stream layout matching `native::objects::stream`
+    /// so `read()` and `splice()` can be exercised directly across fixed + growing segments.
+    struct FakeStream {
+        vtable: Box<[usize; 16]>,
+        stream: Box<Object<{ stream::SIZE }>>,
+        fixed: Box<[u8]>,
+        growing_buf: Vec<u8>,
+        growing_hdr: Box<[usize; 3]>,
+    }
+
+    extern "C" fn fake_stream_write(stream_ptr: usize, data_ptr: usize, len: usize) -> usize {
+        unsafe {
+            let bytes = std::slice::from_raw_parts(data_ptr as *const u8, len);
+            let at_ptr = (stream_ptr + stream::AT) as *mut u32;
+            let kept_ptr = (stream_ptr + stream::KEPT) as *mut u32;
+            let cap = *((stream_ptr + stream::CAPACITY) as *const u32) as usize;
+            let fixed = *((stream_ptr + stream::BUFFER) as *const usize) as *mut u8;
+            let growing = *((stream_ptr + stream::GROWING) as *const usize) as *mut usize;
+            let mut pos = *at_ptr as usize;
+            for &b in bytes {
+                if pos < cap {
+                    *fixed.add(pos) = b;
+                    if pos + 1 > *kept_ptr as usize {
+                        *kept_ptr = (pos + 1) as u32;
+                    }
+                } else {
+                    let g_begin = *growing as *mut u8;
+                    let g_idx = pos - cap;
+                    *g_begin.add(g_idx) = b;
+                    let new_end = g_begin.add(g_idx + 1) as usize;
+                    if new_end > *growing.add(1) {
+                        *growing.add(1) = new_end;
+                    }
+                }
+                pos += 1;
+            }
+            *at_ptr = pos as u32;
+        }
+        len
+    }
+
+    impl FakeStream {
+        fn new(fixed_cap: usize, growing_cap: usize) -> Self {
+            let mut vtable = Box::new([0usize; 16]);
+            vtable[STREAM_WRITE_SLOT / 8] = fake_stream_write as *const () as usize;
+            let fixed = vec![0u8; fixed_cap].into_boxed_slice();
+            let mut growing_buf = vec![0u8; growing_cap];
+            let g_start = growing_buf.as_mut_ptr() as usize;
+            let growing_hdr = Box::new([g_start, g_start, g_start + growing_cap]);
+            let mut stream = Box::new(Object::<{ stream::SIZE }>([0; stream::SIZE]));
+            stream.set(0, vtable.as_ptr() as usize);
+            stream.set(stream::BUFFER, fixed.as_ptr() as usize);
+            stream.set(stream::CAPACITY, fixed_cap as u32);
+            stream.set(stream::GROWING, growing_hdr.as_ptr() as usize);
+            Self { vtable, stream, fixed, growing_buf, growing_hdr }
+        }
+
+        fn addr(&mut self) -> usize {
+            self.stream.address()
+        }
+
+        fn write_all(&mut self, data: &[u8]) {
+            let ptr = self.addr();
+            fake_stream_write(ptr, data.as_ptr() as usize, data.len());
+        }
+
+        fn contents(&mut self) -> Vec<u8> {
+            let m = Memory { base: 0 };
+            let end = position(m, self.addr()).unwrap();
+            read(m, self.addr(), 0, end).unwrap()
+        }
+    }
+
+    #[test]
+    fn memory_stream_read_and_splice_handle_fixed_and_growing_segments() {
+        let mut s = FakeStream::new(10, 64);
+        // Initial stream: "HEADER|MID|TAIL!" (16 bytes: 10 in fixed, 6 in growing).
+        s.write_all(b"HEADER|MID|TAIL!");
+        let m = Memory { base: 0 };
+        let addr = s.addr();
+        assert_eq!(read(m, addr, 0, 16).unwrap(), b"HEADER|MID|TAIL!");
+        assert_eq!(read(m, addr, 7, 13).unwrap(), b"MID|TA");
+        assert_eq!(read(m, addr, 11, 16).unwrap(), b"TAIL!");
+
+        // Splice provinces at offset 7 (in fixed) and countries at offset 11 (in growing).
+        splice(m, addr, &[(7, vec![b"[P1]".to_vec(), b"[P2]".to_vec()]), (11, vec![b"[C1]".to_vec()])]).unwrap();
+        assert_eq!(s.contents(), b"HEADER|[P1][P2]MID|[C1]TAIL!");
+
+        // Out-of-order or past-end insert offsets fail cleanly without mutating.
+        let end = position(m, addr).unwrap();
+        assert!(splice(m, addr, &[(10, vec![]), (5, vec![])]).is_err());
+        assert!(splice(m, addr, &[(end + 1, vec![])]).is_err());
+        let _ = (&s.vtable, &s.fixed, &s.growing_buf, &s.growing_hdr);
     }
 }

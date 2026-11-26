@@ -9,9 +9,10 @@
 //! written and the game ends. The game's stream, writer and pool are reached
 //! through [`Game`]: the real one in [`Real`], and a recorder in the tests
 //! that says what each run wrote and what fails.
-use super::{append, comparing, pool, position, read, splice, Ahead, Loop, Task, Writing, LAST_RUN, SPEED_UP, WRITER_SIZE};
+use super::{append, comparing, pool, position, read, splice, Ahead, Loop, Writing, LAST_RUN, SPEED_UP, TIMEOUT_NOTE, WAIT, WRITER_SIZE};
 use crate::base::Result;
 use crate::native::speed_up as speed;
+use crate::speed::pool::Work;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -316,19 +317,19 @@ impl Game for Real {
     fn gather(&mut self, loops: &[Self::Writing; 2]) -> usize {
         let ahead = Ahead { writings: loops.clone() };
         match pool() {
-            Some(pool) => pool.finish(&ahead),
+            Some(pool) => pool.finish(&ahead, WAIT, TIMEOUT_NOTE),
             // Only a finish that gave up waiting breaks the pool, and none
             // runs between the handing out and this: the runs left are
             // written here.
             None => {
-                ahead.work(None);
+                ahead.work(false);
                 1
             }
         }
     }
 
     fn alone(&mut self, writing: &Self::Writing) -> Option<usize> {
-        pool()?.run(writing.clone())
+        pool()?.run(writing.clone(), WAIT, TIMEOUT_NOTE)
     }
 
     fn runs(&mut self, writing: &Self::Writing) -> Result<Vec<Vec<u8>>> {

@@ -3,11 +3,10 @@
 //! leader, a country's rebel factions and the agents its AI started are let
 //! go with them.
 use super::LettingGo;
-use crate::base::called_by_game;
 use crate::{
     native::hooks::Call,
     native::memory::Memory,
-    native::objects::campaign::{ai_king, classes, country, functions, leader, mercenary_company, world},
+    native::objects::campaign::{ai_king, classes, country, functions, leader, mercenary_company},
     native::points::Point,
 };
 use std::sync::{
@@ -18,11 +17,6 @@ use std::sync::{
 /// `(country)`: a country's destructor, which every world reset runs for
 /// every country, as the country tags are set up again.
 const COUNTRY_DESTRUCTOR: usize = 0x2cbf20;
-/// Where the world's own reset begins to clear the world (`0x74a260`), as
-/// it marks it as being cleared (`mov byte ptr [rsi + world::CLEARING], 1`);
-/// and what follows. Its clear then clears every country.
-const WORLD_CLEARING: usize = 0x74a289;
-const WORLD_CLEARING_DONE: usize = 0x74a290;
 /// `(faction, flags)`, `(leader, flags)`: the deleting destructors of a rebel
 /// faction and of a leader, their vtables' first slots.
 const FACTION_DELETE: usize = 0xa94480;
@@ -105,14 +99,6 @@ fn company_going(call: &mut Call) {
     }
 }
 
-/// The world's own reset begins to clear the world, before any country is
-/// cleared: the repairs act on it in turn ([`super::REPAIRS`]), this one
-/// first of those that do ([`delete_rebel_factions`]).
-#[called_by_game]
-extern "C" fn world_clearing() {
-    super::world_clearing(&crate::native::hooked_memory());
-}
-
 /// As the world's clear begins: every country's rebel factions, whose vector
 /// a country's clear (`0x2e1a30`) lets go without them, are deleted first,
 /// before any country is cleared. Not as each country is: a country's clear
@@ -192,22 +178,6 @@ fn ai_king_gone(call: &mut Call) {
     }
 }
 
-resume!(WORLD_CLEARING_RESUME: WORLD_CLEARING_NEXT = WORLD_CLEARING_DONE);
-
-/// Replaces the world's clear marking the world as being cleared: marks it,
-/// then [`world_clearing`].
-#[unsafe(naked)]
-extern "C" fn world_clearing_stub() {
-    std::arch::naked_asm!(
-        "mov byte ptr [rsi + {clearing}], 1",
-        call_rust!(call clearing_fn),
-        "jmp qword ptr [rip + {next}]",
-        clearing = const world::CLEARING,
-        clearing_fn = sym world_clearing,
-        next = sym WORLD_CLEARING_NEXT,
-    );
-}
-
 pub(super) fn points() -> Vec<Point> {
     vec![
         Point::observe(
@@ -220,9 +190,6 @@ pub(super) fn points() -> Vec<Point> {
         ),
         // The country's deleting destructor.
         Point::keep(0x28651fusize, "e8 fc 59 04 00 f6 c3 01 74 0d ba 78 9b 00 00", "country deleting destructor"),
-        Point::jump(WORLD_CLEARING, "c6 86 85 74 00 00 01", "world clearing", world_clearing_stub as *const () as usize, &WORLD_CLEARING_RESUME)
-            .uses(&[world::CLEARING]),
-        Point::keep(WORLD_CLEARING_DONE, "c7 44 24 50 65 01 00 00", "world clearing marked"),
         // The world's own reset clears every country.
         Point::keep(0x74ad92usize, "48 8b 8e e8 1c 00 00 48 8b 0c c1 e8 8e 6c b9 ff", "world reset country clear"),
         // A rebel faction and a leader go by their first slots; a leader

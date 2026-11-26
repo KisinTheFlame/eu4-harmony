@@ -4,7 +4,7 @@
 //! [`WAITED`] or when the game returns to the main menu first.
 use super::{signals, Outcome as Ran, Poll, Wait};
 use crate::capabilities::game::{
-    diplomacy::{self as layer, Act, Answer, Declaration, PanelOrder, Ticket},
+    diplomacy::{self as layer, Act, Answer, Declaration, Ticket},
     GResult,
 };
 use eu4_harmony_remote::diplomacy::args;
@@ -25,7 +25,7 @@ layer! {
     fn offer_peace(asked: args::OfferPeace) -> Ticket = session layer::offer_peace;
     fn propose_alliance(asked: args::ProposeAlliance) -> Ticket = session layer::propose_alliance;
     fn options(asked: args::Options) -> Options = session layer::options;
-    fn act(country: CountryTag, order: PanelOrder<CountryTag>) -> Ticket = session layer::act;
+    fn panel_action(request: DiplomacyRequest) -> (Ticket, Act) = session layer::panel_action;
     fn scripted_action(asked: args::ScriptedAction) -> Ticket = session layer::scripted;
     fn call_to_arms(asked: args::CallToArms) -> Ticket = session layer::call_to_arms;
     fn answer(ticket: Ticket) -> Answer = world layer::answer;
@@ -51,11 +51,7 @@ pub fn run(request: DiplomacyRequest, game: &mut (impl Layer + ?Sized), now: Ins
             let answers = (|o| Answered::Diplomacy(DiplomacyAnswer::ScriptedAction(o))) as Answers;
             game.scripted_action(args::ScriptedAction { country, action }).map(|ticket| (ticket, Answering::With(answers), None))
         }
-        request => {
-            let (country, order) = panel_order(request);
-            let act = order.act();
-            game.act(country, order).map(|ticket| (ticket, Answering::Act(act), None))
-        }
+        request => game.panel_action(request).map(|(ticket, act)| (ticket, Answering::Act(act), None)),
     };
     match sent {
         Ok((ticket, answers, called)) => Ran::Later(Box::new(Waiting { ticket, answers, called, until: now + WAITED })),
@@ -72,147 +68,6 @@ fn done(answer: GResult<DiplomacyAnswer>) -> Ran {
 /// diplomatic actions do, answering it through `answers`.
 pub fn waiting(ticket: Ticket, answers: Answers, now: Instant) -> Ran {
     Ran::Later(Box::new(Waiting { ticket, answers: Answering::With(answers), called: None, until: now + WAITED }))
-}
-
-macro_rules! match_panel_order {
-    ($request:expr; simple: [$($Simple:ident),* $(,)?]; typed: { $($arm:tt)* }) => {
-        match $request {
-            $( DiplomacyRequest::$Simple { country } => (country, PanelOrder::Simple(Act::$Simple)), )*
-            $($arm)*
-            DiplomacyRequest::WarGoals { .. }
-            | DiplomacyRequest::Options { .. }
-            | DiplomacyRequest::AddRival { .. }
-            | DiplomacyRequest::RemoveRival { .. }
-            | DiplomacyRequest::DeclareWar { .. }
-            | DiplomacyRequest::OfferPeace { .. }
-            | DiplomacyRequest::ProposeAlliance { .. }
-            | DiplomacyRequest::CallToArms { .. }
-            | DiplomacyRequest::ScriptedAction { .. } => unreachable!("handled before panel_order"),
-        }
-    };
-}
-
-/// Exhaustive, compile-time checked conversion from any panel-action
-/// [`DiplomacyRequest`] to its recipient country and typed [`PanelOrder`].
-fn panel_order(request: DiplomacyRequest) -> (CountryTag, PanelOrder<CountryTag>) {
-    match_panel_order!(
-        request;
-        simple: [
-            SurrenderUnconditionally,
-            CancelAlliance,
-            SupportIndependence,
-            StopSupportingIndependence,
-            FormCoalition,
-            LeaveCoalition,
-            DemandReligiousUnity,
-            RemoveElector,
-            GrantElector,
-            RemoveFreeCity,
-            GrantFreeCity,
-            CallCrusade,
-            Excommunicate,
-            LiftExcommunication,
-            InviteToFederation,
-            RemoveFromFederation,
-            AskToJoinFederation,
-            LeaveFederation,
-            InviteToTradeLeague,
-            RemoveFromTradeLeague,
-            InviteToEmpire,
-            AskToJoinTradeLeague,
-            ImproveRelations,
-            StopImprovingRelations,
-            Annex,
-            CancelAnnexation,
-            Integrate,
-            CancelIntegration,
-            DesignateMarch,
-            RevokeMarch,
-            AbandonUnion,
-            OfferVassalization,
-            ReleaseVassal,
-            AskForMarch,
-            DemandTributary,
-            ReleaseTributary,
-            ArrangeRoyalMarriage,
-            BreakRoyalMarriage,
-            ConvertTributaryToVassal,
-            TradeFavorsForGold,
-            TradeFavorsForMen,
-            TradeFavorsForSailors,
-            TradeFavorsForHeir,
-            TradeFavorsForWarPreparations,
-            SupportHeir,
-            StopSupportingHeir,
-            CurryFavors,
-            StopCurryingFavors,
-            BuildSpyNetwork,
-            StopBuildingSpyNetwork,
-            CounterEspionage,
-            StopCounterEspionage,
-            JustifyTradeConflict,
-            StealMaps,
-            SlanderMerchants,
-            SabotageRecruitment,
-            SowDiscontent,
-            SabotageReputation,
-            CorruptOfficials,
-            InfiltrateAdministration,
-            AgitateForLiberty,
-            CancelTradePowerTransfer,
-            SteerTrade,
-            StopSteeringTrade,
-            Embargo,
-            LiftEmbargo,
-            AskToBeTributary,
-            Guarantee,
-            CancelGuarantee,
-            Warn,
-            AskMilitaryAccess,
-            CancelMilitaryAccess,
-            OfferMilitaryAccess,
-            RevokeMilitaryAccess,
-            AskFleetBasing,
-            CancelFleetBasing,
-            OfferFleetBasing,
-            RevokeFleetBasing,
-            ShareKnowledge,
-            StopSharingKnowledge,
-            AskForKnowledgeSharing,
-            ImperialRelations,
-            ImperialRealmWar,
-            SellShips,
-            ShareMaps,
-            TakeOnDebt,
-            Influence,
-            Insult,
-            ClaimThrone,
-            StopWarSubsidies,
-            RecallCondottieri,
-        ];
-        typed: {
-            DiplomacyRequest::EnforcePeace { country, enemy } => (country, PanelOrder::EnforcePeace { enemy }),
-            DiplomacyRequest::DemandUnlawfulTerritory { country, province } => (country, PanelOrder::DemandUnlawfulTerritory { province }),
-            DiplomacyRequest::TradeFavorsForTrust { country, favors, trust } => (country, PanelOrder::TradeFavorsForTrust { favors, trust }),
-            DiplomacyRequest::FabricateClaim { country, province } => (country, PanelOrder::FabricateClaim { province }),
-            DiplomacyRequest::ClaimStates { country, province } => (country, PanelOrder::ClaimStates { province }),
-            DiplomacyRequest::SupportRebels { country, rebels } => (country, PanelOrder::SupportRebels { rebels }),
-            DiplomacyRequest::TransferTradePower { country, percent } => (country, PanelOrder::TransferTradePower { percent }),
-            DiplomacyRequest::ThreatenWar { country, province } => (country, PanelOrder::ThreatenWar { province }),
-            DiplomacyRequest::SendGift { country, amount } => (country, PanelOrder::SendGift { amount }),
-            DiplomacyRequest::InterveneInWar { country, enemy } => (country, PanelOrder::InterveneInWar { enemy }),
-            DiplomacyRequest::BreakAlliance { country, ally } => (country, PanelOrder::BreakAlliance { ally }),
-            DiplomacyRequest::TradeFavorsToBreakAlliance { country, ally } => (country, PanelOrder::TradeFavorsToBreakAlliance { ally }),
-            DiplomacyRequest::TradeFavorsToReduceRelations { country, target } => (country, PanelOrder::TradeFavorsToReduceRelations { target }),
-            DiplomacyRequest::OfferLoan { country, amount } => (country, PanelOrder::OfferLoan { amount }),
-            DiplomacyRequest::SubsidizeWar { country, amount, duration } => (country, PanelOrder::SubsidizeWar { amount, duration }),
-            DiplomacyRequest::SellProvince { country, province, price } => (country, PanelOrder::SellProvince { province, price }),
-            DiplomacyRequest::TradeFavorsForCore { country, province } => (country, PanelOrder::TradeFavorsForCore { province }),
-            DiplomacyRequest::OfferCondottieri { country, army, price } => (country, PanelOrder::OfferCondottieri { army, price }),
-            DiplomacyRequest::CharterCompany { country, province, price } => (country, PanelOrder::CharterCompany { province, price }),
-            DiplomacyRequest::AppointCardinal { country, pay } => (country, PanelOrder::AppointCardinal { pay: pay.unwrap_or(false) }),
-        }
-    )
 }
 
 // The answer of the capability that sent the action, around what came of it.
@@ -485,8 +340,8 @@ mod tests {
                 request.insert(argument.name.into(), argument.kind.json(argument.kind.example()).unwrap());
             }
             let request: DiplomacyRequest = serde_json::from_value(request.into()).unwrap();
-            let (_, order) = panel_order(request);
-            assert_eq!(order.act(), act, "{name}");
+            let (_, mapped_act) = layer::panel_target_and_act(request).expect("panel action");
+            assert_eq!(mapped_act, act, "{name}");
         }
         assert!(acts > 100, "{acts} acts");
     }

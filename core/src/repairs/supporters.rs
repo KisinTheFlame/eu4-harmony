@@ -15,6 +15,7 @@
 //! and the walk's end does it once: the list stays whole under the walk, and
 //! the caches end as the game's last refresh in the walk leaves them. Every
 //! other refresh, and every other thread's, is the game's.
+use super::LettingGo;
 use crate::base::called_by_game;
 use crate::{
     native::objects::campaign::country,
@@ -84,22 +85,45 @@ struct Walk {
     waiting: usize,
 }
 
+/// Per-thread stack of in-progress `support_independence` walks, deferring
+/// refreshes for any walked subject until its walk finishes.
+#[derive(Default)]
+struct WalkStack {
+    walks: Vec<Walk>,
+}
+
+impl WalkStack {
+    fn begin(&mut self, subject: usize, listed: String) {
+        self.walks.push(Walk { subject, listed, waiting: 0 });
+    }
+
+    /// Returns `true` if `country` is currently being walked and its refresh
+    /// was deferred (retaining `label`), `false` if it should run immediately.
+    fn defer_refresh(&mut self, country: usize, label: usize) -> bool {
+        match self.walks.iter_mut().rev().find(|walk| walk.subject == country) {
+            Some(walk) => {
+                walk.waiting = label;
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn end(&mut self) -> Option<Walk> {
+        self.walks.pop()
+    }
+}
+
 thread_local! {
     /// The walks going on on this thread, the innermost last.
-    static WALKS: RefCell<Vec<Walk>> = const { RefCell::new(Vec::new()) };
+    static WALKS: RefCell<WalkStack> = const { RefCell::new(WalkStack { walks: Vec::new() }) };
 }
 
 /// A refresh of a country: put off while a walk of that country goes on on
 /// this thread, the game's otherwise.
 #[called_by_game]
 unsafe extern "C" fn refresh(country: usize, label: usize) {
-    let waits = WALKS.with(|walks| match walks.borrow_mut().iter_mut().rev().find(|walk| walk.subject == country) {
-        Some(walk) => {
-            walk.waiting = label;
-            true
-        }
-        None => false,
-    });
+    let waits = WALKS.with(|walks| walks.borrow_mut().defer_refresh(country, label));
     if !waits {
         unsafe { ORIGINAL_REFRESH.get()(country, label) };
     }
@@ -111,23 +135,23 @@ unsafe extern "C" fn refresh(country: usize, label: usize) {
 /// filled, so that a walk reading the freed list fails there at once.
 #[called_by_game]
 extern "C" fn walk_begins(subject: usize) {
-    crate::native::probes::quarantine_begin("subject relation's end");
+    LettingGo::begin("subject relation's end");
     let listed = listed(subject);
     if game_ends_dependencies() {
         log!("repair: off (game-ends-dependencies): a subject relation's end walks {}'s list ({listed}) as the game does", tag(subject));
     } else {
-        WALKS.with(|walks| walks.borrow_mut().push(Walk { subject, listed, waiting: 0 }));
+        WALKS.with(|walks| walks.borrow_mut().begin(subject, listed));
     }
 }
 
 /// The walk is over: the subject's refresh that waited is done.
 #[called_by_game]
 extern "C" fn walk_ended() {
-    crate::native::probes::quarantine_end();
+    LettingGo::end();
     if game_ends_dependencies() {
         return;
     }
-    let Some(walk) = WALKS.with(|walks| walks.borrow_mut().pop()) else { return };
+    let Some(walk) = WALKS.with(|walks| walks.borrow_mut().end()) else { return };
     log!(
         "repair: a subject relation's end walked {}'s list ({}){}",
         tag(walk.subject),
@@ -164,7 +188,7 @@ fn listed(country: usize) -> String {
 /// A developer build's test switch `game-ends-dependencies`: a subject
 /// relation's end is the game's own, so that the defect can be tried.
 fn game_ends_dependencies() -> bool {
-    crate::base::dev_options::game_ends_dependencies()
+    super::config().game_ends_dependencies
 }
 
 resume!(WALK_RESUME: WALK_EMPTY_AT = PAST_WALK, WALK_FIRST_AT = WALK_FIRST);
@@ -200,4 +224,45 @@ extern "C" fn walked_stub() {
         walk_ended = sym walk_ended,
         next = sym WALKED_AT,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn walk_stack_defers_subject_refreshes_across_nested_walks_and_passes_other_countries_through() {
+        let mut stack = WalkStack::default();
+        assert!(!stack.defer_refresh(0x100, 1), "no walk active");
+
+        // Outer walk on subject A, nested walk on subject B.
+        stack.begin(0x100, "FRA CAS".into());
+        assert!(!stack.defer_refresh(0x300, 99), "unrelated country refreshes immediately");
+        assert!(stack.defer_refresh(0x100, 10));
+        assert!(stack.defer_refresh(0x100, 11), "later label replaces earlier pending refresh");
+
+        stack.begin(0x200, "HAB".into());
+        assert!(stack.defer_refresh(0x200, 20));
+        assert!(stack.defer_refresh(0x100, 12), "outer subject remains deferred during inner walk");
+
+        // Ending inner walk on B emits only B's pending refresh; ending outer walk emits A's latest label.
+        let inner = stack.end().unwrap();
+        assert_eq!((inner.subject, inner.waiting), (0x200, 20));
+        assert!(!stack.defer_refresh(0x200, 21), "inner subject is no longer walked");
+
+        let outer = stack.end().unwrap();
+        assert_eq!((outer.subject, outer.waiting), (0x100, 12));
+        assert!(!stack.defer_refresh(0x100, 13));
+
+        // Nested walk on the same subject holds refresh until the outermost walk finishes.
+        stack.begin(0x100, "FRA".into());
+        stack.begin(0x100, "FRA".into());
+        assert!(stack.defer_refresh(0x100, 30));
+        let inner_same = stack.end().unwrap();
+        assert_eq!((inner_same.subject, inner_same.waiting), (0x100, 30));
+        // Re-feeding inner's waiting refresh while outer is still active defers it onto outer!
+        assert!(stack.defer_refresh(inner_same.subject, inner_same.waiting));
+        let outer_same = stack.end().unwrap();
+        assert_eq!((outer_same.subject, outer_same.waiting), (0x100, 30));
+    }
 }

@@ -4,7 +4,7 @@
 //! the game's own answers of where an army may go and whom it may attack.
 //! Visibility follows the game: units in fogged provinces are never read in
 //! the player's view.
-use super::{armies::Army, country, world, Ctx, GResult, Tag, View, MAX_UNITS};
+use super::{armies::Army, country, geography, Ctx, GResult, Tag, View, MAX_UNITS};
 use crate::{
     native::containers,
     native::memory::Memory,
@@ -42,7 +42,6 @@ pub fn points() -> Vec<Point> {
         Point::keep(CAN_ENTER, "48 89 5c 24 08 48 89 6c 24 10 56 57 41 56 48 83", "army access query"),
         Point::keep(MILITARY_TAG, "48 89 5c 24 08 57 48 83 ec 20 48 8b da 48 8b f9", "army military tag"),
         Point::keep(CAN_ATTACK, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 80", "attack permission query"),
-        Point::keep(FIND_ID, "44 8b 09 41 81 f9 68 12 00 00 76 5c 4c 8b 05 15", "object lookup by ID"),
         Point::keep(REGISTER_UNIT, "48 8d 54 24 48 48 8d 4f 10 e8 8a 40 79 00", "unit registered by its ID").uses(&[unit::ID_HOLDER]),
         Point::keep(NO_KIND, "33 c0 c3", "no task kind"),
         Point::keep(
@@ -51,7 +50,6 @@ pub fn points() -> Vec<Point> {
             "army put aboard a fleet",
         )
         .uses(&[unit::FLEET, unit::ABOARD + list::TAIL, unit::ABOARD + list::COUNT, list::PREVIOUS, list::NEXT, list::REMOVED]),
-        Point::keep(MORALE, "48 89 5c 24 18 55 56 57 48 83 ec 20 48 8b 41 38 33 db 48 2b 41 30", "unit morale").uses(&[unit::REGIMENTS]),
         Point::keep(MAX_MORALE, "48 89 5c 24 10 4c 89 4c 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8d 6c 24 e0", "unit max morale"),
         Point::keep(ARMY_MAINTENANCE, "48 89 5c 24 10 48 89 74 24 18 57 48 83 ec 20 c7 02 00 00 00 00 48 8b f2 48 8b 59 30", "army maintenance")
             .uses(&[unit::REGIMENTS]),
@@ -174,7 +172,7 @@ pub fn roster(m: &Memory, ctx: &Ctx) -> GResult<Vec<(u64, usize, bool)>> {
 /// Land armies in a province, as (record, address): in the player's view
 /// none while fog hides it.
 pub fn in_province(m: &Memory, ctx: &Ctx, province: usize, view: View) -> GResult<Vec<(Army, usize)>> {
-    let hidden = |m, province| Ok::<_, super::Fail>(view == View::Player && world::hidden(m, province)?);
+    let hidden = |m, province| Ok::<_, super::Fail>(view == View::Player && geography::hidden(m, province)?);
     if hidden(m, province)? {
         return Ok(Vec::new());
     }

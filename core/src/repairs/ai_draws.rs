@@ -177,7 +177,7 @@ fn phase_ended(_: &mut Call) {
         return;
     }
     let stages = STAGES.fetch_add(1, Ordering::Relaxed) + 1;
-    if crate::base::dev_options::log_repair_stats() && stages.is_multiple_of(100) {
+    if super::config().log_stats && stages.is_multiple_of(100) {
         log!("repair: the AI's countries' draws: {}", counted());
     }
 }
@@ -225,7 +225,7 @@ fn since_reset() -> String {
 /// draws from the world's one generator as the game's do, so that the repair
 /// can be measured against it.
 fn game_shares_ai_draws() -> bool {
-    crate::base::dev_options::game_shares_ai_draws()
+    super::config().game_shares_ai_draws
 }
 
 /// The repair as the world reset sees it ([`super::REPAIRS`]).

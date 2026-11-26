@@ -70,28 +70,6 @@ impl Registry {
         self.dirty = false;
     }
 
-    #[cfg(test)]
-    pub fn is_dirty(&self) -> bool {
-        self.dirty
-    }
-
-    #[cfg(test)]
-    pub fn scope_count(&self) -> usize {
-        self.scopes.len()
-    }
-
-    #[cfg(test)]
-    pub fn entry_count(&self) -> usize {
-        self.entries.len()
-    }
-
-    #[cfg(test)]
-    pub fn node_entry(&self, node: usize) -> Option<(Option<usize>, Role)> {
-        let key = self.nodes.get(&node)?;
-        let entry = self.entries.get(key)?;
-        Some((entry.root, entry.role))
-    }
-
     fn key(&mut self) -> Key {
         self.next = self.next.checked_add(1).expect("window identity exhausted");
         self.next

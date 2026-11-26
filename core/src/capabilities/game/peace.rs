@@ -152,7 +152,7 @@ fn send(Session { m, ctx, commands, .. }: Session, enemy: Tag, terms: &[Term], o
 fn at_war(m: &Memory, ctx: &Ctx, enemy: Tag) -> GResult<()> {
     diplomacy::other(m, ctx, enemy)?;
     country(m, ctx, enemy)?;
-    if !super::world::at_war(m, ctx, ctx.player, enemy)? {
+    if !super::geography::at_war(m, ctx, ctx.player, enemy)? {
         return Err(checks::not_at_war(diplomacy::letters(enemy)));
     }
     Ok(())

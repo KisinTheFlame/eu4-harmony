@@ -9,7 +9,8 @@ use crate::base::called_by_game;
 use crate::{
     base::Result,
     native::hooks::Call,
-    native::points::{Function, Point},
+    native::memory::Memory,
+    native::points::{Function, GameFunction, Point},
     native::splice::{self, Plan},
 };
 use std::{
@@ -55,16 +56,18 @@ struct State {
 
 static STATE: LazyLock<Mutex<State>> = LazyLock::new(|| Mutex::new(State { plan: None, open: HashMap::new(), served: HashMap::new() }));
 static INIT_ONCE: Once = Once::new();
-static ON_FIRST_INIT: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
+static ON_FIRST_INIT: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();
 
-/// Registers the callback invoked once on the first PhysFS call.
-pub(crate) fn set_on_first_init(hook: fn()) {
+/// Registers the callback invoked once on the first PhysFS call. The boolean
+/// argument is `true` when invoked from a successful `PHYSFS_init` (so
+/// framework files can be mounted immediately).
+pub(crate) fn set_on_first_init(hook: fn(bool)) {
     let _ = ON_FIRST_INIT.set(hook);
 }
 
-fn run_first_init() {
+fn run_first_init(mounted_ready: bool) {
     if let Some(hook) = ON_FIRST_INIT.get() {
-        hook();
+        hook(mounted_ready);
     }
 }
 
@@ -112,10 +115,7 @@ pub fn normalize(path: &str) -> String {
 #[called_by_game]
 unsafe extern "C" fn init_detour(argv0: *const c_char) -> i32 {
     let result = ORIG_INIT.get()(argv0);
-    if result != 0 {
-        crate::base::guarded("framework files", crate::native::files::mount);
-    }
-    crate::base::guarded("PHYSFS_init", || INIT_ONCE.call_once(run_first_init));
+    crate::base::guarded("PHYSFS_init", || INIT_ONCE.call_once(|| run_first_init(result != 0)));
     result
 }
 
@@ -123,7 +123,7 @@ unsafe extern "C" fn init_detour(argv0: *const c_char) -> i32 {
 unsafe extern "C" fn open_read_detour(path: *const c_char) -> File {
     let handle = ORIG_OPEN_READ.get()(path);
     crate::base::guarded("PHYSFS_openRead", || {
-        INIT_ONCE.call_once(run_first_init);
+        INIT_ONCE.call_once(|| run_first_init(false));
         if handle.is_null() {
             return;
         }
@@ -356,6 +356,17 @@ fn close_before(call: &mut Call) {
     state().open.remove(&handle);
 }
 
+/// `PHYSFS_setErrorCode(code)`: shared by loading speed-ups that answer a
+/// missing file without calling Windows.
+pub(crate) const SET_ERROR: GameFunction<1> = GameFunction::at(0x19f8510);
+/// `PHYSFS_ERR_NOT_FOUND`.
+pub(crate) const NOT_FOUND: usize = 0xb;
+
+/// Sets PhysFS's thread-local error code to `PHYSFS_ERR_NOT_FOUND`.
+pub(crate) fn set_not_found(m: &Memory) {
+    let _ = SET_ERROR.call(m, [NOT_FOUND]);
+}
+
 /// Every PhysFS function the core detours, observes or calls, by export name.
 pub fn points() -> Vec<Point> {
     vec![
@@ -374,6 +385,7 @@ pub fn points() -> Vec<Point> {
         Point::replace(c"PHYSFS_eof", "40 57 48 83 ec 20 80 79 08 00 74 41 48 8b 41 28", "PhysFS end of file", eof_detour as EofFn, &ORIG_EOF),
         Point::observe(c"PHYSFS_close", "48 89 5c 24 08 57 48 83 ec 20 48 8b f9 48 8b 0d", "PhysFS close", 1, Some(close_before), None).recorded(CLOSE.slot()),
         Point::keep(c"PHYSFS_getRealDir", "48 83 ec 28 e8 37 38 00 00 48 85 c0 74 09 48 8b", "PhysFS real directory").recorded(GET_REAL_DIR.slot()),
+        Point::keep(SET_ERROR, "85 c9 74 7f 57 48 83 ec 20 8b f9 48 89 5c 24 30", "PhysFS sets its error"),
     ]
 }
 

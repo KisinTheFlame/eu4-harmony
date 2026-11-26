@@ -35,7 +35,7 @@ pub(super) const STORED_BLOCK: usize = 0xffff;
 const STORED_BATCH: usize = 16 * STORED_BLOCK;
 
 /// Left to the game, its deflate copies at level 0, through zlib.
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "stored-copy", group: "saving", points, checkable: false };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("stored-copy", "saving", points, false);
 
 fn points() -> Vec<Point> {
     vec![

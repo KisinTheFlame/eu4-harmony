@@ -7,7 +7,7 @@
 //! before the game presents (`hook`); the window procedure ([`input`]) hands
 //! it the mouse and keyboard on the window's thread. The two share it under a
 //! lock.
-pub mod d3d9;
+mod d3d9;
 pub mod fonts_page;
 pub mod mods_window;
 pub mod text;
@@ -20,7 +20,7 @@ use crate::text::unicode::system_font::SystemFonts;
 use crate::{base::lang, base::loc};
 use fonts_page::{FontSystem, FontsPage};
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use widgets::{Action, Command, Measure, Rect, Side, Widget, Window};
 
@@ -190,8 +190,6 @@ unsafe impl Send for FrameworkUi {}
 static UI: Mutex<Option<FrameworkUi>> = Mutex::new(None);
 static FAILED: AtomicBool = AtomicBool::new(false);
 static FRAME: AtomicU64 = AtomicU64::new(0);
-/// The device the game presented its last frame with, for [`still`].
-static DEVICE: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 static MAIN_MENU_FRAME: AtomicU64 = AtomicU64::new(u64::MAX);
 static MODAL: AtomicBool = AtomicBool::new(false);
 
@@ -840,7 +838,7 @@ impl FrameworkUi {
 /// The actual self-drawn visual target, in the same units and stacking order
 /// as drawing and input. Empty content belongs to the hit, too.
 pub(crate) fn tooltip_at() -> Option<Vec<u8>> {
-    if FAILED.load(Ordering::Relaxed) || HOLDING.load(Ordering::Relaxed) {
+    if FAILED.load(Ordering::Relaxed) || crate::render::present::holding() {
         return None;
     }
     let guard = UI.try_lock().ok()?;
@@ -858,47 +856,15 @@ pub fn still(key: &str) {
     if crate::base::thread_id() != crate::base::main_thread() || FAILED.load(Ordering::Relaxed) {
         return;
     }
-    let device = DEVICE.load(Ordering::Relaxed);
+    let device = crate::render::d3d9::last_device();
     let mut guard = UI.lock().unwrap_or_else(|e| e.into_inner());
     let (Some(ui), false) = (guard.as_mut(), device.is_null()) else { return };
     let commands = ui.shell.still_commands(&ui.font, words(key));
-    let shown = unsafe { ui.backend.draw(device, &ui.font, &commands, ui.shell.scale) }.and_then(|()| unsafe { d3d9::Backend::present(device) });
+    let shown = unsafe { ui.backend.draw(device, &ui.font, &commands, ui.shell.scale) }.and_then(|()| unsafe { crate::render::d3d9::present(device) });
     match shown {
         Ok(()) => log!("framework UI: still notice {key}"),
         Err(e) => log!("framework UI: no still notice {key}: {e}"),
     }
-}
-
-/// While set, the frames the main thread presents are held back, and the
-/// game's window keeps showing what it showed last, such as a still notice.
-static HOLDING: AtomicBool = AtomicBool::new(false);
-static HELD: AtomicU64 = AtomicU64::new(0);
-
-/// Holds back the frames the main thread presents from now on.
-pub fn hold() {
-    HELD.store(0, Ordering::Relaxed);
-    HOLDING.store(true, Ordering::Relaxed);
-}
-
-/// Lets the frames the main thread presents through again; answers how many
-/// were held back.
-pub fn let_go() -> u64 {
-    HOLDING.store(false, Ordering::Relaxed);
-    HELD.swap(0, Ordering::Relaxed)
-}
-
-/// Whether frames are held back now, without counting one.
-pub fn holding() -> bool {
-    HOLDING.load(Ordering::Relaxed)
-}
-
-/// Whether the frame the main thread presents now is held back.
-pub(crate) fn held() -> bool {
-    let holding = HOLDING.load(Ordering::Relaxed);
-    if holding {
-        HELD.fetch_add(1, Ordering::Relaxed);
-    }
-    holding
 }
 
 fn handle(event: input::Event) -> bool {
@@ -934,13 +900,12 @@ pub unsafe fn frame(device: *mut c_void) {
         }
     }
     let ui = guard.as_mut().expect("just made");
-    DEVICE.store(device, Ordering::Relaxed);
     input::attach(handle);
     // The framework UI is as large as the game's own, whatever its scale.
-    let scale = crate::native::memory().and_then(crate::capabilities::game::gui_scale).map_or(1.0, |(across, _)| across.clamp(0.5, 4.0));
-    let pixels = unsafe { d3d9::Backend::screen(device) };
+    let scale = crate::native::memory().and_then(crate::native::objects::gui_scale).map_or(1.0, |(across, _)| across.clamp(0.5, 4.0));
+    let pixels = unsafe { crate::render::d3d9::screen(device) };
     let menu = MAIN_MENU_FRAME.load(Ordering::Relaxed);
-    let in_game_menu = crate::native::memory().is_some_and(crate::capabilities::game::menu::in_game_menu_open);
+    let in_game_menu = crate::native::memory().is_some_and(crate::session::sessions::in_game_menu_open);
     ui.font.set_scale(scale);
     ui.shell.sync_frame(frame_number, (menu != u64::MAX).then_some(menu), in_game_menu, pixels, scale);
     ui.shell.tick(&ui.font);

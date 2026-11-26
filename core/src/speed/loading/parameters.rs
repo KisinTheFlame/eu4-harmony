@@ -151,7 +151,7 @@ unsafe extern "C" fn substitute_stub(_: usize, _: usize, _: usize, _: usize) {
 
 /// Checked, the game's function makes each use's text too, which is kept,
 /// and the two are compared byte for byte.
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "script-parameters", group: "loading", points, checkable: true };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("script-parameters", "loading", points, true);
 
 fn points() -> Vec<Point> {
     use game_string::{CAPACITY, SIZE};

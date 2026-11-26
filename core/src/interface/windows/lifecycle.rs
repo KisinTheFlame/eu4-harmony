@@ -8,9 +8,11 @@ use super::gui;
 use super::{self as live, Bound, Built, ElementOps, Key, Live, WantWindow, Wants};
 use crate::{
     base::Result,
-    interface::bound_element::{BoundElement, Look, Shown},
-    interface::ui,
-    interface::window_ordering::{self, Identity, Owned},
+    interface::{
+        bound_element::{BoundElement, Hears, LiveElements, Look, Shown},
+        native_gui,
+        window_ordering::{self, Identity, Owned},
+    },
     native::game_heap,
     native::memory::Memory,
     native::objects::gui::{functions, globals, list_box, list_entry, window},
@@ -69,19 +71,19 @@ struct Game<'a> {
 
 impl ElementOps for Game<'_> {
     fn listener(&mut self, object: usize, look: Look) -> Result<BoundElement> {
-        self.m.listener(object, look)
+        LiveElements(self.m, Hears::Windows).listener(object, look)
     }
     fn subscribed(&mut self, element: &BoundElement) -> bool {
-        self.m.subscribed(element)
+        LiveElements(self.m, Hears::Windows).subscribed(element)
     }
     fn link(&mut self, element: &mut BoundElement) -> Result<()> {
-        self.m.link(element)
+        LiveElements(self.m, Hears::Windows).link(element)
     }
     fn unlink(&mut self, element: &mut BoundElement) -> Result<()> {
-        self.m.unlink(element)
+        LiveElements(self.m, Hears::Windows).unlink(element)
     }
     fn apply(&mut self, element: &mut BoundElement, shown: &Shown) -> Result<()> {
-        self.m.apply(element, shown)
+        LiveElements(self.m, Hears::Windows).apply(element, shown)
     }
 }
 
@@ -124,22 +126,19 @@ impl Native for Game<'_> {
         live::find(self.m, root, kind, name)
     }
     fn keep_still(&mut self, root: usize) -> Result<()> {
-        ui::keep_still(self.m, root, gui::BACKGROUND)
+        native_gui::keep_still(self.m, root, gui::BACKGROUND)
     }
     fn show(&mut self, root: usize, shown: bool) -> Result<()> {
-        live::show_window(self.m, root, shown)
+        native_gui::show_window(self.m, root, shown)
     }
     fn kill(&mut self, root: usize) -> Kill {
-        let checked =
-            self.m.vslot(root, window::KILL).and_then(
-                |kill| {
-                    if kill == self.m.at(ui::WINDOW_KILL) {
-                        Ok(kill)
-                    } else {
-                        Err("a window's kill method changed".into())
-                    }
-                },
-            );
+        let checked = self.m.vslot(root, window::KILL).and_then(|kill| {
+            if kill == self.m.at(native_gui::WINDOW_KILL) {
+                Ok(kill)
+            } else {
+                Err("a window's kill method changed".into())
+            }
+        });
         match checked {
             Err(e) => Kill::NotCalled(e),
             Ok(kill) => {
@@ -163,7 +162,7 @@ impl Native for Game<'_> {
         if entry == 0 {
             return Err("the game allocated no list entry".into());
         }
-        live::with_string(self.m, name.as_bytes(), |t| functions::LIST_ENTRY.call(self.m, [entry, self.manager, t]))?;
+        native_gui::with_string(self.m, name.as_bytes(), |t| functions::LIST_ENTRY.call(self.m, [entry, self.manager, t]))?;
         let root = self.m.ptr(entry + list_entry::WINDOW)?;
         if root == 0 {
             game_heap::delete(self.m, entry, list_entry::SIZE)?;
@@ -176,10 +175,10 @@ impl Native for Game<'_> {
     }
     fn popup_text(&mut self, root: usize, text: &str) -> Result<()> {
         let text_box = live::find(self.m, root, Some(&Kind::Text { text: None, font: layout::Font::Body, align: layout::Align::Start }), gui::TEXT)?;
-        crate::interface::bound_element::write_text(self.m, text_box, &crate::text::unicode::game_text::from_str(text))
+        native_gui::write_text(self.m, text_box, &crate::text::unicode::game_text::from_str(text))
     }
     fn country(&mut self, object: usize, tag: &str) -> Result<()> {
-        crate::interface::bound_element::set_country(self.m, object, tag)
+        native_gui::set_country(self.m, object, tag)
     }
     fn player(&mut self) -> Option<String> {
         live::player_letters(self.m)

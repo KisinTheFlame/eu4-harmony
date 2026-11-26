@@ -36,6 +36,9 @@ pub fn ok(result: Value) -> Value {
     json!({"ok": true, "result": result})
 }
 
+/// Handler for bound-group requests in [`Fake`] tests.
+pub type ScriptedBound = Box<dyn FnMut(&eu4_harmony_remote::Request) -> Option<eu4_harmony_remote::Response> + Send>;
+
 #[derive(Default)]
 pub struct Fake {
     /// Every capability called, with its arguments.
@@ -62,6 +65,9 @@ pub struct Fake {
     pub inputs_handled: u64,
     /// The player, as the session gives it; the Ottomans played when None.
     pub player: Option<game::player::Player>,
+    /// Optional handler for bound-group requests (such as `countries.*`,
+    /// `provinces.*`, `console.run`) that have no dedicated `Layer` trait.
+    pub scripted: Option<ScriptedBound>,
 }
 
 impl Fake {
@@ -70,8 +76,8 @@ impl Fake {
     }
 }
 
-// Called as no one: the bound groups' requests fail here, as a capability it
-// does not script does.
+// Called as no one: bound-group requests go through `scripted` when present,
+// or fail as unscripted otherwise.
 impl Game for Fake {
     fn as_game(&mut self) -> &mut dyn Game {
         self
@@ -79,6 +85,10 @@ impl Game for Fake {
 
     fn caller(&self) -> Option<game::Caller> {
         None
+    }
+
+    fn scripted_bound(&mut self, request: &eu4_harmony_remote::Request) -> Option<eu4_harmony_remote::Response> {
+        self.scripted.as_mut().and_then(|f| f(request))
     }
 }
 
@@ -419,11 +429,13 @@ We have a truce with them.",
 
     /// Warning Byzantium is sent; anything else is refused with the game's
     /// reason.
-    fn act(&mut self, country: CountryTag, order: game::diplomacy::PanelOrder<CountryTag>) -> GResult<game::diplomacy::Ticket> {
-        let act = order.act();
+    fn panel_action(&mut self, request: eu4_harmony_remote::diplomacy::DiplomacyRequest) -> GResult<(game::diplomacy::Ticket, game::diplomacy::Act)> {
+        let Some((country, act)) = game::diplomacy::panel_target_and_act(request) else {
+            return fail(Status::InvalidArgument, "request is not a diplomacy panel action");
+        };
         self.call(format!("act {country} Act({act:?})"));
-        match order {
-            game::diplomacy::PanelOrder::Simple(game::diplomacy::Act::Warn) if found(country)? == byz() => Ok(game::diplomacy::Ticket(4)),
+        match act {
+            game::diplomacy::Act::Warn if found(country)? == byz() => Ok((game::diplomacy::Ticket(4), act)),
             _ => fail(Status::Rejected, "Is not the Papal Controller."),
         }
     }

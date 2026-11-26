@@ -61,7 +61,7 @@ const DLC_STORE_KIND: usize = 0x2b0;
 const STORE_VT_FIND: usize = 0xa8;
 const ITEM_VT_OWNED: usize = 0x20;
 
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "dlc-verify", group: "loading", points, checkable: true };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("dlc-verify", "loading", points, true);
 
 type VerifyOne = unsafe extern "C" fn(usize, usize, i32, u8) -> u32;
 type HashDlc = unsafe extern "C" fn(usize, usize) -> usize;

@@ -186,7 +186,7 @@ pub(super) fn follow_cursor(m: &Memory, idler: usize) -> crate::base::Result<()>
     if m.u8(m.at(OTHER_CAMERA))? != 0 {
         return Ok(());
     }
-    let Some(now) = super::cursor_now_hook() else {
+    let Some(now) = crate::render::input::cursor_now() else {
         return Ok(());
     };
     let manager = m.ptr(placed.tooltips + TOOLTIPS_MANAGER)?;

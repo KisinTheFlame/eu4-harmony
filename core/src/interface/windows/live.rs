@@ -25,17 +25,18 @@ mod entries;
 #[path = "lifecycle.rs"]
 mod lifecycle;
 
-use super::super::ui::{self, Callback};
 use super::{gui, with};
 use crate::{
     base::Result,
-    interface::bound_element::{self, BoundElement, Hears, Look, Shown},
-    native::game_string,
+    interface::{
+        bound_element::{self, BoundElement, ElementOps, Hears, Look},
+        native_gui::{self, Callback},
+    },
     native::hooks::Call,
     native::memory::Memory,
     native::objects::{
         campaign,
-        gui::{classes, element, functions, list_box, manager, scene, window, window_gui},
+        gui::{classes, element, functions, list_box, manager, scene, window},
     },
     native::points::{GameFunction, Point},
     text::unicode::game_text,
@@ -51,39 +52,6 @@ use std::sync::Mutex;
 
 pub(super) use entries::EntrySpec;
 pub(super) use lifecycle::Events as ReconcileEvents;
-
-/// Shared bound-element native operations used by both window/pop-up
-/// reconciliation ([`lifecycle`]) and panel-button-strip reconciliation
-/// ([`entries`]).
-pub(super) trait ElementOps {
-    fn listener(&mut self, object: usize, look: Look) -> Result<BoundElement>;
-    fn subscribed(&mut self, element: &BoundElement) -> bool;
-    fn link(&mut self, element: &mut BoundElement) -> Result<()>;
-    fn unlink(&mut self, element: &mut BoundElement) -> Result<()>;
-    fn apply(&mut self, element: &mut BoundElement, shown: &Shown) -> Result<()>;
-}
-
-impl ElementOps for &Memory {
-    fn listener(&mut self, object: usize, look: Look) -> Result<BoundElement> {
-        BoundElement::listening(self, object, look, Hears::Windows)
-    }
-
-    fn subscribed(&mut self, element: &BoundElement) -> bool {
-        element.subscribed(self).unwrap_or(false)
-    }
-
-    fn link(&mut self, element: &mut BoundElement) -> Result<()> {
-        element.link(self)
-    }
-
-    fn unlink(&mut self, element: &mut BoundElement) -> Result<()> {
-        element.unlink(self)
-    }
-
-    fn apply(&mut self, element: &mut BoundElement, shown: &Shown) -> Result<()> {
-        element.apply(self, shown)
-    }
-}
 
 /// The framework files the definitions are read from: extension windows'
 /// and pop-ups', each served with what it is to hold when it is read.
@@ -260,18 +228,6 @@ fn unpack(place: u64) -> (i32, i32) {
     (place as u32 as i32, (place >> 32) as u32 as i32)
 }
 
-/// Calls `f` with a game string holding `text`, destroyed after.
-pub(crate) fn with_string<T>(m: &Memory, text: &[u8], f: impl FnOnce(usize) -> Result<T>) -> Result<T> {
-    let mut string = game_string::empty();
-    let at = string.as_mut_ptr() as usize;
-    if !text.is_empty() {
-        game_string::append_checked(m, at, text)?;
-    }
-    let result = f(at);
-    game_string::destroy_checked(m, at)?;
-    result
-}
-
 fn idler(m: &Memory) -> Result<usize> {
     let world = m.ptr(m.at(campaign::globals::WORLD))?;
     if world == 0 {
@@ -302,29 +258,19 @@ fn place(window: &Window, (sw, sh): (i32, i32)) -> (i32, i32) {
 fn read_definitions(m: &Memory, mgr: usize, path: &str, text: String) -> Result<()> {
     log!("windows: reading {} bytes of definitions from {path}", text.len());
     crate::native::physfs::serve(path, game_text::from_str(&text));
-    with_string(m, path.as_bytes(), |p| functions::READ_DEFINITIONS.call(m, [mgr, p]).map(|_| ()))
+    native_gui::with_string(m, path.as_bytes(), |p| functions::READ_DEFINITIONS.call(m, [mgr, p]).map(|_| ()))
 }
 
 /// A window built from the definition `name`, hidden; checked to be one.
 fn create(m: &Memory, mgr: usize, name: &str) -> Result<usize> {
-    let root = with_string(m, name.as_bytes(), |n| functions::CREATE_WINDOW.call(m, [mgr, n]))?;
+    let root = native_gui::with_string(m, name.as_bytes(), |n| functions::CREATE_WINDOW.call(m, [mgr, n]))?;
     if root == 0 {
         return Err(format!("the game built no window {name}"));
     }
-    if m.ptr(root)? != m.at(classes::WINDOW) || m.vslot(root, window::KILL)? != m.at(ui::WINDOW_KILL) {
+    if m.ptr(root)? != m.at(classes::WINDOW) || m.vslot(root, window::KILL)? != m.at(native_gui::WINDOW_KILL) {
         return Err(format!("{name} is not a window of the kind the framework knows"));
     }
     Ok(root)
-}
-
-pub(crate) fn show_window(m: &Memory, root: usize, show: bool) -> Result<()> {
-    let gui = root + window::GUI;
-    let (slot, function) = if show { (window_gui::SHOW, functions::WINDOW_SHOW) } else { (window_gui::HIDE, functions::WINDOW_HIDE) };
-    let at = m.vslot(gui, slot)?;
-    if at != m.at(function) {
-        return Err("a window's show or hide is not the one the framework knows".into());
-    }
-    m.call(at, &[gui]).map(|_| ())
 }
 
 fn set_position(m: &Memory, root: usize, at: (i32, i32)) -> Result<()> {
@@ -339,16 +285,16 @@ fn find(m: &Memory, root: usize, kind: Option<&Kind>, name: &str) -> Result<usiz
             if m.vslot(root, window::FIND_LIST_BOX)? != m.at(functions::FIND_LIST_BOX) {
                 return Err("a window's list box lookup is not the one the framework knows".into());
             }
-            with_string(m, name.as_bytes(), |n| functions::FIND_LIST_BOX.call(m, [root, n]))?
+            native_gui::with_string(m, name.as_bytes(), |n| functions::FIND_LIST_BOX.call(m, [root, n]))?
         }
-        Some(Kind::Text { .. }) => ui::lookup(m, root, (window::FIND_TEXT, functions::FIND_TEXT), name)?,
-        Some(Kind::Icon { .. } | Kind::Progress { .. }) => ui::lookup(m, root, (window::FIND_ICON, functions::FIND_ICON), name)?,
-        _ => ui::lookup(m, root, (window::FIND_BUTTON, functions::FIND_BUTTON), name)?,
+        Some(Kind::Text { .. }) => native_gui::lookup(m, root, (window::FIND_TEXT, functions::FIND_TEXT), name)?,
+        Some(Kind::Icon { .. } | Kind::Progress { .. }) => native_gui::lookup(m, root, (window::FIND_ICON, functions::FIND_ICON), name)?,
+        _ => native_gui::lookup(m, root, (window::FIND_BUTTON, functions::FIND_BUTTON), name)?,
     };
     if object == 0 {
         return Err(format!("{name} not found"));
     }
-    if !matches!(kind, Some(Kind::List { .. })) && ui::element_name(m, object)? != name.as_bytes() {
+    if !matches!(kind, Some(Kind::List { .. })) && native_gui::element_name(m, object)? != name.as_bytes() {
         return Err(format!("the lookup of {name} found another element"));
     }
     Ok(object)
@@ -609,7 +555,7 @@ pub fn points() -> Vec<Point> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interface::bound_element::Clicked;
+    use crate::interface::bound_element::{Clicked, Shown};
     use eu4_harmony_lua::WindowChange;
     use serde_json::json;
 
@@ -694,7 +640,7 @@ mod tests {
         entry_el.set_linked_for_test(true);
 
         let raw = vec![
-            click_of(&btn.element, true, ui::MODIFIER_SHIFT | ui::MODIFIER_CTRL),
+            click_of(&btn.element, true, native_gui::MODIFIER_SHIFT | native_gui::MODIFIER_CTRL),
             click_of(&row_btn.element, false, 0),
             click_of(&close_btn.element, false, 0),
             click_of(&popup_btn.element, false, 0),
@@ -736,7 +682,7 @@ mod tests {
                     widget: "press".into(),
                     row: None,
                     right: true,
-                    modifiers: ui::MODIFIER_SHIFT | ui::MODIFIER_CTRL
+                    modifiers: native_gui::MODIFIER_SHIFT | native_gui::MODIFIER_CTRL
                 },
                 RoutedClick::Widget { extension: 1, window: "tools".into(), widget: "row_press".into(), row: Some(1), right: false, modifiers: 0 },
                 RoutedClick::Close { extension: 1, window: "tools".into() },

@@ -31,7 +31,7 @@ const LOADING_SCREEN_GUI: usize = 0x242bef8;
 /// Minimum interval between consecutive throttled redraws (10 Hz max).
 const MIN_INTERVAL: Duration = Duration::from_millis(100);
 
-pub const SPEED_UP: SpeedUp = SpeedUp { name: "loading-screen", group: "loading", points, checkable: false };
+pub const SPEED_UP: SpeedUp = SpeedUp::new("loading-screen", "loading", points, false);
 
 type UpdateLoadingScreen = unsafe extern "C" fn(usize, usize, u8);
 static ORIGINAL: Function<UpdateLoadingScreen> = Function::new();

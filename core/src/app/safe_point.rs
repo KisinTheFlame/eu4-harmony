@@ -160,10 +160,11 @@ impl Listener for Remote {
     }
 
     fn ended(&self, end: End) {
-        remote::session_ended(end);
+        remote::session_ended(end.reason());
     }
 
     fn frame(&self, session: u64, heard: &[Heard]) {
+        sessions::set_at(At::Game);
         remote::safe_frame(session, heard);
     }
 }

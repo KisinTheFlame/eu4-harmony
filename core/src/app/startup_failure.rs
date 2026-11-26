@@ -97,7 +97,7 @@ struct Evidence {
 /// Must never be called under the Windows loader lock.
 pub(crate) fn diagnose(game_dir: &Path, stage: FailureStage) -> Option<Diagnosis> {
     let settings = read_launcher_settings(game_dir);
-    let exe_path = current_exe().unwrap_or_else(|| game_dir.join("eu4.exe"));
+    let exe_path = crate::base::paths::current_exe().ok().unwrap_or_else(|| game_dir.join("eu4.exe"));
     let exe_matches_vanilla = sha256_file(&exe_path).ok().map(|digest| digest == VANILLA_1_37_5_SHA256);
     let conflicting_dlls = find_conflicting_dlls(game_dir, &loaded_module_paths());
     classify(stage, &Evidence { settings, exe_matches_vanilla, conflicting_dlls })
@@ -169,11 +169,11 @@ fn read_launcher_settings(game_dir: &Path) -> Option<LauncherSettings> {
 /// `game_dir`, excluding Harmony's own `eu4-harmony\` subfolder and retired/
 /// staged proxy files.
 fn find_conflicting_dlls(game_dir: &Path, modules: &[PathBuf]) -> Vec<String> {
-    let root = normalize_path(game_dir);
+    let root = crate::base::paths::normalize_path(game_dir);
     let prefix = format!("{root}\\");
     let mut found = Vec::new();
     for module in modules {
-        let norm = normalize_path(module);
+        let norm = crate::base::paths::normalize_path(module);
         let Some(rel_lower) = norm.strip_prefix(&prefix) else { continue };
         if !rel_lower.ends_with(".dll") {
             continue;
@@ -209,20 +209,6 @@ fn relative_preserving_case(module: &Path, rel_lower: &str) -> String {
     } else {
         rel_lower.to_string()
     }
-}
-
-fn normalize_path(path: &Path) -> String {
-    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let text = resolved.to_string_lossy();
-    let text = text.strip_prefix(r"\\?\").unwrap_or(&text);
-    text.trim_end_matches(['\\', '/']).replace('/', "\\").to_ascii_lowercase()
-}
-
-fn current_exe() -> Option<PathBuf> {
-    use windows_sys::Win32::System::LibraryLoader::GetModuleFileNameW;
-    let mut buf = vec![0u16; 32768];
-    let n = unsafe { GetModuleFileNameW(std::ptr::null_mut(), buf.as_mut_ptr(), buf.len() as u32) } as usize;
-    (n > 0 && n < buf.len()).then(|| PathBuf::from(String::from_utf16_lossy(&buf[..n])))
 }
 
 fn loaded_module_paths() -> Vec<PathBuf> {

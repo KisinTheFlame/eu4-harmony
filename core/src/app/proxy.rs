@@ -167,7 +167,7 @@ impl Host for LiveHost<'_> {
         let resolved_user = self.resolved_user.as_deref();
         updating::with_restart_notice(|| {
             log!("proxy: restarting eu4.exe to load the updated version.dll");
-            let exe = current_exe()?;
+            let exe = crate::base::paths::current_exe()?;
             // Release log leases before spawning the replacement process so it
             // can claim the primary `core.log` name directly.
             crate::base::log::close();
@@ -260,17 +260,7 @@ fn source_dir_for_core(game_dir: &Path, core_dir: &Path, command_line: &str) -> 
         return None;
     }
     let source_dir = core_dir.parent()?;
-    (!same_path(source_dir, game_dir)).then(|| source_dir.to_path_buf())
-}
-
-fn same_path(a: &Path, b: &Path) -> bool {
-    fn normalize(path: &Path) -> String {
-        let resolved = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        let text = resolved.to_string_lossy();
-        let text = text.strip_prefix(r"\\?\").unwrap_or(&text);
-        text.trim_end_matches(['\\', '/']).replace('/', "\\").to_ascii_lowercase()
-    }
-    normalize(a) == normalize(b)
+    (!crate::base::paths::same_path(source_dir, game_dir)).then(|| source_dir.to_path_buf())
 }
 
 /// Reads and clears [`RESTARTED_ENV`] once per process, so a later in-game
@@ -389,16 +379,6 @@ fn replace_proxy_file(game_dir: &Path, source_bytes: &[u8]) -> Result<PathBuf, S
         return Err(format!("cannot move {} into place: {e} ({rollback})", staged.display()));
     }
     Ok(retired)
-}
-
-fn current_exe() -> Result<PathBuf, String> {
-    use windows_sys::Win32::System::LibraryLoader::GetModuleFileNameW;
-    let mut buf = vec![0u16; 32768];
-    let n = unsafe { GetModuleFileNameW(std::ptr::null_mut(), buf.as_mut_ptr(), buf.len() as u32) } as usize;
-    if n == 0 || n >= buf.len() {
-        return Err("GetModuleFileNameW failed or was truncated".into());
-    }
-    Ok(PathBuf::from(String::from_utf16_lossy(&buf[..n])))
 }
 
 /// Spawns a replacement `eu4.exe` with the current command line, working in
@@ -551,7 +531,7 @@ mod tests {
         assert_eq!(source_dir_for_core(&game, &external_core_dir, "eu4.exe").as_deref(), Some(external.as_path()));
         // Case differences on Windows still match.
         let upper = PathBuf::from(external_core_dir.to_string_lossy().to_uppercase());
-        assert_eq!(source_dir_for_core(&game, &upper, "eu4.exe").map(|p| same_path(&p, &external)), Some(true));
+        assert_eq!(source_dir_for_core(&game, &upper, "eu4.exe").map(|p| crate::base::paths::same_path(&p, &external)), Some(true));
         // Local/manual install does not trigger sync.
         assert_eq!(source_dir_for_core(&game, &local_core_dir, "eu4.exe"), None);
         // Arbitrary build output folder (not `eu4-harmony\`) does not trigger sync.

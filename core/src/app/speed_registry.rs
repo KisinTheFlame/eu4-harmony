@@ -32,23 +32,23 @@ pub(crate) static ALL: [&SpeedUp; 22] = [
 /// Every speed-up's points: what the offline checks check and the framework
 /// may use, whether startup installs them or not.
 pub(crate) fn points() -> Vec<Point> {
-    ALL.iter().flat_map(|s| (s.points)()).collect()
+    speed_up::declared_points(&ALL)
 }
 
 /// The points startup installs: those of the speed-ups not left to the game.
-pub(crate) fn installed() -> Vec<Point> {
-    ALL.iter().filter(|s| !speed_up::game_path(s)).flat_map(|s| (s.points)()).collect()
+pub(crate) fn installed(keep_shared: bool) -> Vec<Point> {
+    speed_up::installed_points(&ALL, keep_shared)
 }
 
-/// Fails startup when dev.toml names a speed-up there is none of.
-pub(crate) fn check_switches() -> crate::base::Result<()> {
-    speed_up::check_switches(&ALL)
+/// Validates `dev.toml`'s speed-up switches and installs the plan once.
+pub(crate) fn init(game_paths: &[String], checked: &[String]) -> crate::base::Result<()> {
+    speed_up::init(&ALL, game_paths, checked)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::native::speed_up::{compared, differences, lines, Chosen};
+    use crate::native::speed_up::{lines, Chosen};
 
     fn strings(names: &[&str]) -> Vec<String> {
         names.iter().map(|n| n.to_string()).collect()
@@ -128,9 +128,11 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "dev")]
     #[test]
     fn a_comparison_is_counted_and_a_difference_too() {
-        speed_up::set_registry(&ALL);
+        use crate::native::speed_up::{compared, differences};
+        let _ = speed_up::init(&ALL, &[], &[]);
         let speed_up = &crate::speed::saving::sum::SPEED_UP;
         let (checked, differed) = differences(speed_up);
         compared(speed_up, true, || unreachable!("an agreement says nothing"));

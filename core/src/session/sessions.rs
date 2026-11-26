@@ -336,7 +336,12 @@ pub fn ending(end: End) {
 
 /// The game begins to read a save.
 pub fn load_began() {
-    tell(lifecycle(Lifecycle::load_began));
+    let (number, happened) = lifecycle(|l| {
+        let h = l.load_began();
+        (l.number, h)
+    });
+    crate::base::set_session_number(number);
+    tell(happened);
 }
 
 /// The game read the save it is reading into its world, or not.
@@ -360,7 +365,12 @@ pub fn frame_ran() {
 /// return, the single player setup left), and its reset is done: the next
 /// game begun on it is a new session, though the game reads nothing for it.
 pub fn reset_with_history() {
-    tell(lifecycle(Lifecycle::reset_with_history));
+    let (number, happened) = lifecycle(|l| {
+        let h = l.reset_with_history();
+        (l.number, h)
+    });
+    crate::base::set_session_number(number);
+    tell(happened);
 }
 
 /// `(world)`: the world's own reset, inside the game's and at startup.
@@ -369,7 +379,46 @@ const WORLD_RESET: usize = 0x749020;
 /// After every world reset.
 fn world_reset(call: &mut Call) {
     let world = call.arg(0);
+    super::saves::clear_session();
     tell(lifecycle(|l| l.world_reset(world)));
+}
+
+/// Whether a live session currently shows its top-level in-game menu
+/// (`menu` and its `menu_panel` subwindow both open and alive). Returns false
+/// when a sub-panel such as Load, Save, Game Options, or Message Settings has
+/// hidden `menu_panel`, or outside a session.
+pub(crate) fn in_game_menu_open(m: &crate::native::memory::Memory) -> bool {
+    if loading() {
+        return false;
+    }
+    in_game_menu_visible(m).unwrap_or(false)
+}
+
+fn in_game_menu_visible(m: &crate::native::memory::Memory) -> crate::base::Result<bool> {
+    use crate::native::objects::{
+        campaign::{classes as campaign_classes, globals, map_manager as manager_fields, world},
+        gui::{classes as gui_classes, window},
+    };
+    let w = m.ptr(m.at(globals::WORLD))?;
+    let manager = if w == 0 { 0 } else { m.ptr(w + world::MAP_MANAGER)? };
+    if manager == 0 || m.ptr(manager)? != m.at(campaign_classes::MAP_MANAGER) {
+        return Ok(false);
+    }
+    let menu = m.ptr(manager + manager_fields::MENU)?;
+    if menu == 0 || m.ptr(menu)? != m.at(gui_classes::WINDOW) || m.u8(menu + window::DEAD)? != 0 || m.u8(menu + window::OPEN)? == 0 {
+        return Ok(false);
+    }
+    let begin = m.ptr(menu + window::SUBWINDOWS)?;
+    let end = m.ptr(menu + window::SUBWINDOWS_END)?;
+    let count = crate::native::containers::span(begin, end, window::SUBWINDOW_ENTRY, 64)?;
+    for i in 0..count {
+        let entry = begin + i * window::SUBWINDOW_ENTRY;
+        if crate::native::game_string::read(m, entry)? == b"menu_panel" {
+            let panel = m.ptr(entry + window::SUBWINDOW_PTR)?;
+            return Ok(panel != 0 && m.ptr(panel)? == m.at(gui_classes::WINDOW) && m.u8(panel + window::DEAD)? == 0 && m.u8(panel + window::OPEN)? != 0);
+        }
+    }
+    Ok(false)
 }
 
 pub fn points() -> Vec<Point> {
@@ -553,5 +602,54 @@ mod tests {
         l.world_reset(0x1000);
         assert_eq!(l.reset_with_history(), vec![ResetWithHistory]);
         assert_eq!(l.number, 3);
+    }
+
+    #[test]
+    fn in_game_menu_visible_requires_live_menu_and_open_menu_panel() {
+        use crate::fake_game::buffers::{Image, Object};
+        use crate::native::objects::{
+            campaign::{classes as campaign_classes, globals, map_manager as manager_fields, world},
+            gui::{classes as gui_classes, window},
+        };
+
+        let image = Image::new();
+        let m = image.memory();
+
+        let panel = Object::new(0x100).u64(0, m.at(gui_classes::WINDOW) as u64).u8(window::DEAD, 0).u8(window::OPEN, 1);
+        let other = Object::new(0x100).u64(0, m.at(gui_classes::WINDOW) as u64).u8(window::DEAD, 0).u8(window::OPEN, 1);
+        let mut subwindows = Object::new(window::SUBWINDOW_ENTRY * 2);
+        subwindows = subwindows.string(0, "menu_unsync").u64(window::SUBWINDOW_PTR, other.at() as u64);
+        subwindows = subwindows.string(window::SUBWINDOW_ENTRY, "menu_panel").u64(window::SUBWINDOW_ENTRY + window::SUBWINDOW_PTR, panel.at() as u64);
+
+        let menu = Object::new(window::SUBWINDOWS_END + 8)
+            .u64(0, m.at(gui_classes::WINDOW) as u64)
+            .u8(window::DEAD, 0)
+            .u8(window::OPEN, 1)
+            .u64(window::SUBWINDOWS, subwindows.at() as u64)
+            .u64(window::SUBWINDOWS_END, (subwindows.at() + window::SUBWINDOW_ENTRY * 2) as u64);
+        let manager = Object::new(manager_fields::MENU + 8).u64(0, m.at(campaign_classes::MAP_MANAGER) as u64).u64(manager_fields::MENU, menu.at() as u64);
+        let world_obj = Object::new(world::MAP_MANAGER + 8).u64(world::MAP_MANAGER, manager.at() as u64);
+        image.u64(globals::WORLD, world_obj.at() as u64);
+
+        assert_eq!(in_game_menu_visible(m), Ok(true));
+
+        panel.set(window::OPEN, &[0]);
+        assert_eq!(in_game_menu_visible(m), Ok(false));
+        panel.set(window::OPEN, &[1]);
+
+        menu.set(window::OPEN, &[0]);
+        assert_eq!(in_game_menu_visible(m), Ok(false));
+        menu.set(window::OPEN, &[1]);
+
+        panel.set(window::DEAD, &[1]);
+        assert_eq!(in_game_menu_visible(m), Ok(false));
+        panel.set(window::DEAD, &[0]);
+
+        menu.set(window::DEAD, &[1]);
+        assert_eq!(in_game_menu_visible(m), Ok(false));
+        menu.set(window::DEAD, &[0]);
+
+        manager.set(0, &(m.at(gui_classes::MAIN_MENU) as u64).to_le_bytes());
+        assert_eq!(in_game_menu_visible(m), Ok(false));
     }
 }

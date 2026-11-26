@@ -9,8 +9,8 @@ use eu4_harmony_remote::{Answer, Response};
 /// once they are carried out, and the session its client sends in next is
 /// the one they leave, also when they ended the one it ran in.
 pub fn run_and_answer_next(request: ConsoleRequest, game: &mut dyn Game) -> Outcome {
-    let answer = bound(game, "console", |caller| crate::capabilities::game::console::run_request(request, caller));
-    Outcome::Later(Box::new(Ran(Some(answer.map(Answer::Console)))))
+    let answer = bound(game, "console", request, eu4_harmony_remote::Request::Console, crate::capabilities::game::console::run_request, Answer::Console);
+    Outcome::Later(Box::new(Ran(Some(answer))))
 }
 
 /// A command run, its answer kept for the next safe point.
