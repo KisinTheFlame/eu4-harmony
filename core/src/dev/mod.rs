@@ -258,7 +258,7 @@ pub(crate) fn new_session() {
     }
     if switches.grow_pages {
         log!("test switch grow-pages: every font page grows");
-        crate::text::unicode::fill::want_room_everywhere();
+        crate::text::unicode::want_room_everywhere();
     }
     if switches.crash {
         log!("test switch crash: crashing the game");

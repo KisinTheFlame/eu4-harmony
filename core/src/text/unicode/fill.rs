@@ -689,8 +689,13 @@ fn replace_own_glyphs(m: &Memory, font: usize, wrapper: usize, pages: &mut Pages
     Ok(())
 }
 
+/// The font method that loads its page, then parses its `.fnt` (font).
+const LOAD: usize = 0x15953c0;
+/// Frees a font's own glyph table as the font goes (the table).
+const DESTROY_TABLE: usize = 0x1594360;
+
 /// `font` starts loading on this thread (see [`Loading`]).
-pub fn loading(font: usize) {
+fn loading(font: usize) {
     LOADING.with(|l| l.borrow_mut().begin(font));
 }
 
@@ -724,14 +729,14 @@ fn create_before(call: &mut Call) {
 }
 
 /// A font's load ended in a fault: nothing is filled in for it.
-pub fn abandoned(font: usize) {
+fn abandoned(font: usize) {
     LOADING.with(|l| l.borrow_mut().finish(font));
 }
 
 /// `font` has loaded: gives it a page of system glyphs. Returns whether the
 /// font now draws every character from the system font, so that the glyphs
 /// its file brought no longer apply.
-pub fn loaded(font: usize) -> bool {
+fn loaded(font: usize) -> bool {
     let Some(own) = LOADING.with(|l| l.borrow_mut().finish(font)) else { return false };
     let m = crate::native::hooked_memory();
     let result = (|| -> crate::base::Result<bool> {
@@ -885,12 +890,39 @@ fn destroy_before(call: &mut Call) {
 }
 
 /// The font is being destroyed.
-pub fn forget(font: usize) {
+fn forget(font: usize) {
     PAGES.lock().forget(font);
+}
+
+fn font_load_before(call: &mut Call) {
+    loading(call.arg(0));
+}
+
+fn font_load_after(call: &mut Call) {
+    let font = call.arg(0);
+    // A load that faulted left no font to fill in or seal.
+    if call.faulted() {
+        abandoned(font);
+        return;
+    }
+    // The font's file has been parsed: its glyphs above 0xFF are all in.
+    glyphs::seal(font);
+    if loaded(font) {
+        glyphs::clear(font);
+    }
+}
+
+fn font_table_destroy_before(call: &mut Call) {
+    // The function frees the font's own table, which it is given.
+    let font = call.arg(0) - OWN_GLYPHS;
+    glyphs::forget(font);
+    forget(font);
 }
 
 pub fn points() -> Vec<Point> {
     vec![
+        Point::observe(LOAD, "48 89 5c 24 08 57 48 81 ec 80 00 00 00 48 8b f9", "font load", 1, Some(font_load_before), Some(font_load_after)),
+        Point::observe(DESTROY_TABLE, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48", "font table destructor", 1, Some(font_table_destroy_before), None),
         Point::observe(CREATE_TEXTURE, "48 89 5c 24 20 55 56 57 41 54 41 55 41 56 41 57", "texture creation", 5, Some(create_before), None),
         Point::observe(DESTROY_TEXTURE, "40 53 48 83 ec 20 48 8b d9 ff 15 51 91 8f 00 48", "texture destruction", 1, Some(destroy_before), None),
         // The `.fnt` loader allocates its 16-byte glyph records with it.

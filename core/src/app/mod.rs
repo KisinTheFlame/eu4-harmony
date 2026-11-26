@@ -43,13 +43,13 @@ fn wire_all() {
         before_main_present: |renderer, device| {
             // Font page growth touches game font objects and map names; it must
             // run on the main thread only (ADR font-pages-grow).
-            base::guarded("font pages", text::unicode::fill::grow_pages);
+            base::guarded("font pages", text::unicode::grow_pages);
             unsafe { before_any_present(renderer, device) };
         },
         before_drawing_present: before_any_present,
         after_main_present: |_device| {
             base::guarded("safe point", safe_point::presented);
-            base::guarded("text costs", text::unicode::costs::log_when_due);
+            base::guarded("text costs", text::unicode::log_costs_when_due);
         },
         before_reset: || {
             interface::tooltips::clear();
@@ -294,7 +294,7 @@ fn fail_startup(reason: String, mut told: Option<notice::Message>, outdated_prox
 /// startup (`startup`).
 fn deferred_init(mount_files: bool) {
     if mount_files {
-        let mut all = text::unicode::framework_fonts::files();
+        let mut all = text::unicode::files();
         all.extend(interface::windows::files());
         base::guarded("framework files", || native::files::mount(&all));
     }
