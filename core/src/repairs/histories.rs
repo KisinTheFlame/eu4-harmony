@@ -37,7 +37,7 @@
 //! held it, as it does with one the diplomacy would not take, is not waited
 //! for.
 use super::waiting::{self, Moment, Waiting};
-use crate::{game::army::FIND_ID, native::hooks::Call, native::memory::Memory, native::points::Point};
+use crate::{capabilities::game::army::FIND_ID, native::hooks::Call, native::memory::Memory, native::points::Point};
 use std::collections::HashSet;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},

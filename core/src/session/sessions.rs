@@ -6,8 +6,8 @@
 //! the safe points (`crate::safe_point`) with each frame and where the
 //! safe point is, the save loader (`crate::session::saves`) as it begins and ends to
 //! read a save, the world's own reset (observed here), leaving a session
-//! (`crate::game::menu::leave`) as the session ends and as the world is reset
-//! with its history, and the game's restart (`crate::game::time`). A
+//! (`crate::capabilities::game::menu::leave`) as the session ends and as the world is reset
+//! with its history, and the game's restart (`crate::capabilities::game::time`). A
 //! [`Lifecycle`] keeps the state and says what happened ([`Happening`]);
 //! [`tell`] hands each happening to those that hear it, outside the lock, as
 //! their handlers may ask where the game is:
@@ -17,7 +17,7 @@
 //!   than the last. Sessions are numbered here, and only here. What the
 //!   capability layer keeps of the last frame's session, its map, routes
 //!   and wars, and the changes it collected for it, is let go (`game`,
-//!   `game::signals`), and the map's coloring put back (`crate::map`), before
+//!   `game::signals`), and the map's coloring put back (`crate::capabilities::game::map`), before
 //!   anything hears that session ended. The last day and the country in
 //!   view the session's frames showed are forgotten by the frame that sees
 //!   the new session (`game::frame`).

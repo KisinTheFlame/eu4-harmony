@@ -1038,7 +1038,7 @@ mod tests {
 
     #[test]
     fn subscriptions_link_unlink_restore_click_flags_and_drop_taking_right_even_on_dispatch_failure() {
-        use crate::game::buffers::{Image, Object};
+        use crate::fake_game::buffers::{Image, Object};
         use std::cell::Cell;
 
         thread_local! {

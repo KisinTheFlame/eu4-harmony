@@ -1,7 +1,7 @@
 //! Remote control's engine (ADR remote-control-engine-and-transports).
 //! Transports hand it typed requests from any thread ([`submit`]); it runs them
 //! at the safe points (`crate::safe_point`) on the game's main thread, through
-//! the capability catalogue (`crate::catalogue`), each as the player or as the
+//! the capability catalogue (`crate::capabilities::catalogue`), each as the player or as the
 //! game as it asks (ADR requests-act-as-the-player-or-as-the-game), within a
 //! time budget per frame,
 //! and hands the responses back. A request that waits, such as one for the
@@ -19,11 +19,12 @@
 //! again, and the numbers start again with it; an in-process return keeps
 //! them. The restart ends this process's engine ([`Engine::end`]), whoever
 //! asked for the return: from then on it answers at once.
+pub(crate) mod pipe;
 #[cfg(test)]
 mod tests;
 
-use crate::catalogue::{self, menu, signals, Catalogue, Live, Place, Wait};
-use crate::game::{self, As, Heard};
+use crate::capabilities::catalogue::{self, menu, signals, Catalogue, Live, Place, Wait};
+use crate::capabilities::game::{self, As, Heard};
 use eu4_harmony_remote::{signals::Signal, Code, Error, Request, Response};
 use std::{
     collections::VecDeque,

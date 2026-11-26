@@ -5,7 +5,7 @@
 //! The clock is read at the collection's edge ([`Clock`]): the game's
 //! monotonic instant in [`RealClock`], a controlled instant in the tests, so
 //! the lifecycle is driven through its interface without touching the state.
-use crate::game::{fail, GResult, Status};
+use crate::world::{fail, GResult, Status};
 use eu4_harmony_remote::performance::{Observed, Report};
 use std::{
     sync::{

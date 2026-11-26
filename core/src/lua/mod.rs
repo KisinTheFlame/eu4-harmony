@@ -5,14 +5,14 @@
 //!
 //! The live host reaches the capability catalogue as the extension, through
 //! the seam remote control's engine reaches it through as the player
-//! (`crate::catalogue::Catalogue`), so both share one implementation
+//! (`crate::capabilities::catalogue::Catalogue`), so both share one implementation
 //! (ADR one-capability-catalogue);
 //! interface elements, the map, texts and the player language through the
 //! core's own modules; the network through [`http`]. Each extension's log is
 //! `eu4-harmony/logs/extension-<id>.log`, with bounded older segments beside it.
 mod http;
 
-use crate::{catalogue::{self, Catalogue, Place, Wait}, game::{self, map_coloring, Caller}, map, base::mods::DiscoveredMod, base::notice::{Message, Repeat}, session::saves, interface::ui};
+use crate::{capabilities::catalogue::{self, Catalogue, Place, Wait}, capabilities::game::{self, map_coloring, Caller}, capabilities::game::map, base::mods::DiscoveredMod, base::notice::{Message, Repeat}, session::saves, interface::ui};
 use eu4_harmony_lua::{
     dispatch::{self, Heard},
     fetch, Answered, Arg, Called, Element, Extension, Host, Mod, Pending, Popup, WindowChange,

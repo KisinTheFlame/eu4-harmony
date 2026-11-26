@@ -21,15 +21,15 @@ pub(crate) mod speed;
 pub(crate) mod tweaks;
 pub(crate) mod session;
 pub(crate) mod interface;
-pub mod catalogue;
-pub mod dev;
-pub mod framework_ui;
-pub mod game;
-pub mod lua;
-pub mod map;
-pub mod pipe;
+pub(crate) mod world;
+pub(crate) mod capabilities;
+pub(crate) mod lua;
+pub(crate) mod remote;
+pub(crate) mod framework_ui;
+pub(crate) mod dev;
+#[cfg(test)]
+pub(crate) mod fake_game;
 mod proxy;
-pub mod remote;
 pub mod safe_point;
 mod speed_registry;
 mod startup;
@@ -78,7 +78,7 @@ fn wire_base() {
             base::guarded("native tooltip over framework UI", || interface::tooltips::draw_late(renderer));
             base::guarded("screenshot", || {
                 if let Some(device) = device {
-                    game::screenshot::presenting(device);
+                    capabilities::game::screenshot::presenting(device);
                 }
             });
         },
@@ -87,7 +87,7 @@ fn wire_base() {
             base::guarded("input", || {
                 if let Some(device) = device {
                     let (width, height) = unsafe { framework_ui::d3d9::Backend::screen(device) };
-                    game::input::presenting((width as u32, height as u32));
+                    capabilities::game::input::presenting((width as u32, height as u32));
                 }
             });
             base::guarded("text costs", text::unicode::costs::log_when_due);
@@ -95,57 +95,57 @@ fn wire_base() {
         before_reset: || {
             interface::tooltips::clear();
             framework_ui::device_reset();
-            game::screenshot::device_reset();
+            capabilities::game::screenshot::device_reset();
         },
         d3d9_present: |device| unsafe { framework_ui::d3d9::Backend::present(device).is_ok() },
         d3d9_screen: |device| unsafe { framework_ui::d3d9::Backend::screen(device) },
     });
     render::window_input::set_hooks(render::window_input::InputHooks {
-        on_real_input: game::input::real,
+        on_real_input: capabilities::game::input::real,
         is_modal: framework_ui::modal,
         on_wheel: tweaks::camera_zoom::before_sdl_wheel,
     });
     render::drawing::set_hooks(render::drawing::DrawingHooks {
         on_prepared_safe_point: safe_point::presented,
-        on_prepared_input: game::input::presenting,
+        on_prepared_input: capabilities::game::input::presenting,
         is_holding: framework_ui::holding,
         prepare_scene: interface::window_ordering::prepare_scene,
-        cursor_now: game::input::cursor_now,
+        cursor_now: capabilities::game::input::cursor_now,
     });
     tweaks::hidden::set_hooks(tweaks::hidden::HiddenHooks {
         on_early_sync: proxy::sync_once,
-        on_hold_cursor: game::input::hold,
+        on_hold_cursor: capabilities::game::input::hold,
     });
     session::sessions::set_listener(|happening| {
         use session::sessions::Happening;
         match happening {
             Happening::Forgotten(_) => {
-                game::session_forgotten();
-                game::signals::session_forgotten();
-                map::reset_session();
+                capabilities::game::session_forgotten();
+                capabilities::game::signals::session_forgotten();
+                capabilities::game::map::reset_session();
             }
-            Happening::Began(_) => game::input::session_began(),
+            Happening::Began(_) => capabilities::game::input::session_began(),
             Happening::Ended(session, end) => {
                 log!("session {session} ending ({end:?})");
-                game::signal_costs::log_session();
+                capabilities::game::signal_costs::log_session();
                 safe_point::session_ended(end);
                 session::saves::clear_session();
                 base::log::checkpoint();
             }
             Happening::CampaignChanges => {
-                game::signals::load_begin();
-                game::orders::world_replaced();
+                capabilities::game::signals::load_begin();
+                capabilities::game::orders::world_replaced();
                 remote::campaign_changes();
             }
-            Happening::WorldReset(world) => {
+            Happening::WorldReset(world_ptr) => {
                 session::saves::clear_session();
-                repairs::world_reset(&native::hooked_memory(), world);
+                repairs::world_reset(&native::hooked_memory(), world_ptr);
                 dev::world_reset();
             }
             Happening::FirstFrameAfterReset => repairs::first_frame_after_reset(&native::hooked_memory()),
             Happening::ResetWithHistory => {
-                game::signals::world_reset();
-                game::orders::world_replaced();
+                capabilities::game::signals::world_reset();
+                capabilities::game::orders::world_replaced();
                 repairs::after_history(&native::hooked_memory());
             }
             Happening::Restarting => {
@@ -161,8 +161,8 @@ fn wire_base() {
     });
     interface::set_hooks(interface::InterfaceHooks {
         mod_id: lua::mod_id,
-        in_game: |m| game::context(m).is_ok(),
-        modifiers_held: game::input::modifiers_held,
+        in_game: |m| world::context(m).is_ok(),
+        modifiers_held: capabilities::game::input::modifiers_held,
         on_main_menu_frame: |frontend, show_corner| {
             safe_point::main_menu_frame(frontend);
             speed::loading_times::log_main_menu();
@@ -171,20 +171,34 @@ fn wire_base() {
             }
         },
         framework_tooltip_at: framework_ui::tooltip_at,
-        player_letters: |m| game::context(m).ok().map(|ctx| String::from_utf8_lossy(&ctx.player.letters()).into_owned()),
+        player_letters: |m| world::context(m).ok().map(|ctx| String::from_utf8_lossy(&ctx.player.letters()).into_owned()),
         resolve_shield_country: |m, named| {
             let letters = match named {
                 Some(s) => s.to_string(),
-                None => match game::context(m).ok() {
+                None => match world::context(m).ok() {
                     Some(ctx) => String::from_utf8_lossy(&ctx.player.letters()).into_owned(),
                     None => return Ok(None),
                 },
             };
-            let session = game::WorldSession::open(game::Caller::Remote(game::As::Player)).map_err(|e| e.message)?;
+            let session = capabilities::game::WorldSession::open(world::Caller::Remote(world::As::Player)).map_err(|e| e.message)?;
             let bytes: [u8; 3] = letters.as_bytes().try_into().map_err(|_| format!("{letters:?} is not a tag"))?;
-            let tag = game::countries::named(session.m, &session.world, eu4_harmony_remote::CountryTag(bytes)).map_err(|e| e.message)?;
+            let tag = capabilities::game::countries::named(session.m, &session.world, eu4_harmony_remote::CountryTag(bytes)).map_err(|e| e.message)?;
             Ok(Some(tag.0))
         },
+    });
+    capabilities::set_hooks(capabilities::CapabilityHooks {
+        on_safe_frame: safe_point::game_frame,
+        reload_extension: |caller, args| {
+            let r = lua::reload(caller, args)?;
+            Ok(eu4_harmony_remote::extensions::Reloaded { session: r.session, lost: r.lost })
+        },
+        ui_hold: framework_ui::hold,
+        ui_let_go: framework_ui::let_go,
+        ui_still: framework_ui::still,
+        #[cfg(feature = "dev")]
+        answer_memory: dev::answer_memory,
+        #[cfg(feature = "dev")]
+        answer_performance: dev::answer_performance,
     });
 }
 

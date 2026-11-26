@@ -95,7 +95,7 @@ pub(super) fn points() -> Vec<Point> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::buffers::{Image, Object};
+    use crate::fake_game::buffers::{Image, Object};
     use std::sync::Mutex;
 
     /// The nodes the test's deleting destructor was called with, and its

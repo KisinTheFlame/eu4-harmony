@@ -5,7 +5,7 @@
 //! is open, the input method's text included, and mouse messages over the
 //! framework UI otherwise.
 //!
-//! Remote control's input (`crate::game::input`) comes through here too, as
+//! Remote control's input (`crate::capabilities::game::input`) comes through here too, as
 //! the messages Windows would send ([`inject`]); a message Windows sends
 //! itself is first asked whether it hands the cursor back to the player.
 use crate::base::called_by_game;

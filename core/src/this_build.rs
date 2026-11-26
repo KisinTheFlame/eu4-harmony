@@ -16,9 +16,9 @@ fn framework() -> Vec<Point> {
     all.extend(crate::native::objects::points());
     all.extend(crate::native::game_string::points());
     all.extend(crate::native::game_heap::points());
-    all.extend(crate::game::points());
+    all.extend(crate::world::points());
+    all.extend(crate::capabilities::points());
     all.extend(crate::interface::points());
-    all.extend(crate::map::points());
     all.extend(crate::session::points());
     all.extend(crate::repairs::points());
     all.extend(crate::tweaks::points());
@@ -120,16 +120,16 @@ mod tests {
         }
         // A capability group's module of the layer is collected by the
         // layer, from the catalogue's list of the groups, which names it.
-        let catalogue = vec!["catalogue".to_string()];
+        let catalogue = vec!["capabilities".to_string(), "catalogue".to_string()];
         let listed = |module: &[String]| match module {
-            [game, name] if game == "game" => {
+            [cap, game, name] if cap == "capabilities" && game == "game" => {
                 let list = &texts[&catalogue];
                 list.contains(&format!("({name})")) || list.contains(&format!("({name}: Layer)"))
             }
             _ => false,
         };
         let collects = |collector: &[String], module: &[String]| {
-            if collector == ["game"] && listed(module) {
+            if collector == ["capabilities", "game"] && listed(module) {
                 return true;
             }
             let text = &texts[collector];

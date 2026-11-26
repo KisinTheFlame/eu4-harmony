@@ -159,7 +159,7 @@ pub fn countries(m: &Memory) -> Result<Vec<usize>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::buffers::Object;
+    use crate::fake_game::buffers::Object;
 
     #[test]
     fn a_list_leaves_out_removed_nodes_and_refuses_a_loop() {

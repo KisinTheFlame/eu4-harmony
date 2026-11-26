@@ -189,7 +189,7 @@ pub fn day_begins(m: &crate::native::memory::Memory) {
     if crate::base::thread_id() != crate::base::main_thread() {
         return;
     }
-    if let Ok(w) = crate::game::world_context_any(m) {
+    if let Ok(w) = crate::world::world_context_any(m) {
         DATE.store(w.date as u32, Ordering::Relaxed);
     }
     IN_DAY.store(true, Ordering::Release);

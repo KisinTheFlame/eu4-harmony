@@ -154,7 +154,7 @@ fn before(call: &mut Call) {
             thread: crate::base::thread_id(),
             start: origin.elapsed(),
             end: Duration::ZERO,
-            date: crate::game::world_context_any(&m).ok().map(|w| w.date),
+            date: crate::world::world_context_any(&m).ok().map(|w| w.date),
             argument,
             field: traced.field.and_then(|f| m.u64(argument.wrapping_add(f)).ok()),
         }

@@ -13,7 +13,7 @@
 //! owner's ([`Hears`]), with the keys held down with the click, and taken up
 //! at the next frame.
 use crate::base::called_by_game;
-use crate::{game::{self, Caller, WorldSession}, native::game_string, native::memory::Memory, native::objects::gui::{button, element, functions, list_box}, interface::ui::{self, Callback, Subscription}, text::unicode::game_text, base::Result};
+use crate::{capabilities::game::{self, Caller, WorldSession}, native::game_string, native::memory::Memory, native::objects::gui::{button, element, functions, list_box}, interface::ui::{self, Callback, Subscription}, text::unicode::game_text, base::Result};
 use eu4_harmony_lua::Property;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -373,7 +373,7 @@ pub(crate) fn set_country(m: &Memory, object: usize, letters: &str) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::buffers::{Image, Object};
+    use crate::fake_game::buffers::{Image, Object};
     use std::cell::RefCell;
 
     thread_local! {

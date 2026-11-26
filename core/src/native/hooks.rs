@@ -397,18 +397,42 @@ mod tests {
         /// memory as a test lays it out: declared under `#[cfg(test)]` in
         /// its parent, whose stand-ins for the game's functions the game never
         /// calls.
-        fn for_tests(file: &std::path::Path) -> bool {
-            let (Some(dir), Some(stem)) = (file.parent(), file.file_stem().and_then(|s| s.to_str())) else { return false };
-            let parents = [dir.join("mod.rs"), dir.join("lib.rs"), dir.with_extension("rs")];
-            parents.iter().filter_map(|p| std::fs::read_to_string(p).ok()).any(|text| {
-                let lines: Vec<&str> = text.lines().map(str::trim).collect();
-                lines.windows(2).any(|w| w[0] == "#[cfg(test)]" && [format!("mod {stem};"), format!("pub mod {stem};")].iter().any(|d| w[1] == d))
-            })
+        fn for_tests(src: &std::path::Path, file: &std::path::Path) -> bool {
+            let mut cur = file;
+            while let Some(dir) = cur.parent() {
+                let stem = if cur.file_name().and_then(|s| s.to_str()) == Some("mod.rs") {
+                    dir.file_name().and_then(|s| s.to_str())
+                } else {
+                    cur.file_stem().and_then(|s| s.to_str())
+                };
+                let search_dir = if cur.file_name().and_then(|s| s.to_str()) == Some("mod.rs") { dir.parent() } else { Some(dir) };
+                if let (Some(parent_dir), Some(stem)) = (search_dir, stem) {
+                    let parents = [parent_dir.join("mod.rs"), parent_dir.join("lib.rs"), parent_dir.with_extension("rs")];
+                    let matched = parents.iter().filter_map(|p| std::fs::read_to_string(p).ok()).any(|text| {
+                        let lines: Vec<&str> = text.lines().map(str::trim).collect();
+                        lines.windows(2).any(|w| {
+                            w[0] == "#[cfg(test)]"
+                                && [format!("mod {stem};"), format!("pub mod {stem};"), format!("pub(crate) mod {stem};"), format!("pub(super) mod {stem};")]
+                                    .iter()
+                                    .any(|d| w[1] == d)
+                        })
+                    });
+                    if matched {
+                        return true;
+                    }
+                }
+                if dir == src {
+                    break;
+                }
+                cur = dir;
+            }
+            false
         }
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut files = Vec::new();
-        sources(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
+        sources(&src, &mut files);
         let mut bare = Vec::new();
-        for file in files.into_iter().filter(|f| !for_tests(f)) {
+        for file in files.into_iter().filter(|f| !for_tests(&src, f)) {
             let text = std::fs::read_to_string(&file).unwrap();
             let lines: Vec<&str> = text.lines().collect();
             // A file's tests, at its end, call nothing of the game's.

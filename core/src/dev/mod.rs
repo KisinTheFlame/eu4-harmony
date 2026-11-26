@@ -154,7 +154,7 @@ pub(crate) fn after_install() {}
 pub(crate) fn new_session() {
     let switches = &options::options().test_switches;
     for text in &switches.post {
-        match crate::game::commands::Commands::Game.post(text) {
+        match crate::world::commands::Commands::Game.post(text) {
             Ok(()) => log!("test command carried out: {text}"),
             Err(refused) => log!("test command not posted ({refused:?}): {text}"),
         }
@@ -415,6 +415,6 @@ pub(crate) fn answer_memory(request: eu4_harmony_remote::memory::MemoryRequest) 
 #[cfg(feature = "dev")]
 pub(crate) fn answer_performance(
     request: eu4_harmony_remote::performance::PerformanceRequest,
-) -> crate::game::GResult<eu4_harmony_remote::performance::PerformanceAnswer> {
+) -> crate::world::GResult<eu4_harmony_remote::performance::PerformanceAnswer> {
     performance_hooks::answer(request)
 }

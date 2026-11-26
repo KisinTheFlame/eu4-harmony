@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn a_ready_tooltip_needs_no_hit_target_but_must_have_its_current_holder_and_texture() {
-        use crate::game::buffers::Object;
+        use crate::fake_game::buffers::Object;
         let m = Memory { base: 0 };
         let texture = Object::new(8);
         // The tooltip owner deliberately clears the node's hit-target pointer.
@@ -220,7 +220,7 @@ mod tests {
     #[test]
     fn the_native_vector_is_filtered_without_changing_its_storage_or_other_nodes() {
         let m = Memory { base: 0 };
-        let original = crate::game::buffers::Object::new(24).vector(0, &[11, 22, 33]);
+        let original = crate::fake_game::buffers::Object::new(24).vector(0, &[11, 22, 33]);
         let filtered = without_node(&m, original.at(), 22).unwrap().unwrap();
         assert_eq!(crate::native::containers::pointers(&m, filtered.header(), 10).unwrap(), [11, 33]);
         assert_eq!(crate::native::containers::pointers(&m, original.at(), 10).unwrap(), [11, 22, 33]);

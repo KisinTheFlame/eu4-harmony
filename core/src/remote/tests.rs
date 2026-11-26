@@ -1,13 +1,13 @@
 //! The engine driven with typed requests through the catalogue's seam, a
 //! scripted catalogue behind it: what the engine itself does with requests,
 //! whatever they ask. What a group of the catalogue does is tested with the
-//! group (`crate::catalogue`).
+//! group (`crate::capabilities::catalogue`).
 use super::*;
-use crate::catalogue::{
+use crate::capabilities::catalogue::{process, signals, Outcome, Poll};
+use crate::fake_game::{
+    buffers::{byz, tur, wal},
     fake::{self, answer, ok, PLENTY},
-    process, signals, Outcome, Poll,
 };
-use crate::game::buffers::{byz, tur, wal};
 
 const ARMY: u64 = 4_294_967_377;
 const FLEET: u64 = 4_294_967_400;
