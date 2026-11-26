@@ -28,6 +28,8 @@
 //! - `trigger_profile`: the triggers' optimization profile matched through a
 //!   compact interned index instead of allocating a temporary hash table at
 //!   every tree node.
+//! - `loading_screen`: redundant loading-screen redraws (`0x11bb4f0`) throttled
+//!   so rapid progress updates do not stall on repeated DWM/vsync presents.
 //!
 //! `folder` is shared by `lookups` and `listed`: a folder's listing and the
 //! names Windows reads as they are written, written once.
@@ -37,6 +39,7 @@ pub mod children;
 pub mod distance_scratch;
 mod folder;
 pub mod listed;
+pub mod loading_screen;
 pub mod localisation;
 pub mod lookups;
 pub mod music;

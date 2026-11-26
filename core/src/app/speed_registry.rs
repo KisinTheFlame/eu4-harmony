@@ -4,7 +4,7 @@ use crate::native::points::Point;
 use crate::native::speed_up::{self, SpeedUp};
 
 /// Every speed-up, in the order the report names them.
-pub(crate) static ALL: [&SpeedUp; 20] = [
+pub(crate) static ALL: [&SpeedUp; 21] = [
     &crate::speed::pops::SPEED_UP,
     &crate::render::drawing::SPEED_UP,
     &crate::speed::loading::music::SPEED_UP,
@@ -18,6 +18,7 @@ pub(crate) static ALL: [&SpeedUp; 20] = [
     &crate::speed::loading::parameters::SPEED_UP,
     &crate::speed::loading::localisation::SPEED_UP,
     &crate::speed::loading::trigger_profile::SPEED_UP,
+    &crate::speed::loading::loading_screen::SPEED_UP,
     &crate::speed::saving::background::SPEED_UP,
     &crate::speed::saving::stored::SPEED_UP,
     &crate::speed::saving::parallel::SPEED_UP,
