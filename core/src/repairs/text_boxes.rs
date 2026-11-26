@@ -2,6 +2,7 @@
 //! animation, which its element deletes only while it is on the element's
 //! animations, and the text box takes off them while it does not play. It
 //! is put back on them, owned, as the text box goes.
+use super::LettingGo;
 use crate::{
     native::hooks::Call,
     native::objects::gui::{classes as gui_classes, element, text_box},
@@ -37,7 +38,7 @@ fn since_reset() -> String {
 /// destructor lets it go, so a developer build's quarantine keeps what the
 /// whole destructor frees, until [`text_box_gone`].
 fn text_box_going(call: &mut Call) {
-    crate::native::probes::quarantine_begin("text box's animation");
+    LettingGo::begin("text box's animation");
     let m = call.memory();
     let boxed = call.arg(0);
     let owned = (|| {
@@ -55,7 +56,7 @@ fn text_box_going(call: &mut Call) {
 
 #[cfg(feature = "dev")]
 fn text_box_gone(_: &mut Call) {
-    crate::native::probes::quarantine_end();
+    LettingGo::end();
 }
 
 pub(super) fn points() -> Vec<Point> {

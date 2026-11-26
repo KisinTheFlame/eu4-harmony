@@ -8,22 +8,20 @@ use crate::{
     native::objects::{
         campaign::{
             classes,
-            map_manager::{LET_MAP_MODES_GO, LET_OUTLINER_GO},
+            map_manager::{LET_MAP_MODES_GO, LET_OUTLINER_GO, TAKE_WINDOW_OFF},
             map_modes, outliner, unit_view,
         },
         gui::window as gui_window,
         list,
     },
-    native::points::{GameFunction, Point},
+    native::points::Point,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// `(unit view, flags)`: the unit view's deleting destructor, its vtable's
 /// first slot, which the interface rebuild calls before it makes it again,
-/// and the framework as the map manager goes. `(map manager, window)`:
-/// takes a window off the map manager's windows.
+/// and the framework as the map manager goes.
 const UNIT_VIEW_DELETE: usize = 0x14719b0;
-pub(super) const TAKE_WINDOW_OFF: GameFunction<2> = GameFunction::at(0x6ecc80);
 /// Where the unit view, making its selection's bar again, lets the old one
 /// go: off the map manager's windows, then killed.
 const SELECTION_BAR_MADE_AGAIN: usize = 0x1471540;
@@ -140,7 +138,6 @@ pub(super) fn points() -> Vec<Point> {
         Point::method(classes::UNIT_VIEW, 0, UNIT_VIEW_DELETE, "unit view deleting destructor method"),
         // The rebuild deletes the unit view by its first slot.
         Point::keep(0x81cdbcusize, "49 8b 8e a0 5b 00 00 48 85 c9 74 0a 48 8b 01 ba 01 00 00 00 ff 10", "unit view deleted by the rebuild"),
-        Point::keep(TAKE_WINDOW_OFF, "40 53 48 83 ec 20 48 8b d9 48 8b 89 90 00 00 00 48 85 c9", "take a window off the map manager's windows"),
         Point::keep(
             SELECTION_BAR_MADE_AGAIN,
             "48 8b 91 a0 01 00 00 48 85 d2 74 18 48 8b cf e8 2c b7 27 ff 48 8b 8b a0 01 00 00 48 8b 01 ff 90 30 01 00 00",

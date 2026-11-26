@@ -14,11 +14,11 @@
 //! windows the session's builds made without knowing their owners crashed
 //! the game (docs/research/interface-evidence.md); here
 //! only what owns a window kills it.
-use super::{interface_parts::TAKE_WINDOW_OFF, LettingGo};
+use super::LettingGo;
 use crate::{
     native::hooks::Call,
     native::memory::Memory,
-    native::objects::gui::window as gui_window,
+    native::objects::{campaign::map_manager::TAKE_WINDOW_OFF, gui::window as gui_window},
     native::points::{GameFunction, Point},
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -27,7 +27,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 static KILLED: AtomicUsize = AtomicUsize::new(0);
 
 /// The repair as the world reset sees it ([`super::REPAIRS`]).
-pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset), ..super::Repair::NONE };
+pub(super) const REPAIR: super::Repair =
+    super::Repair { points, since_reset: Some(since_reset), map_manager_going: Some(map_manager_going), ..super::Repair::NONE };
 
 /// What the repair let go since the last world reset, for the log; its
 /// counts start again.
@@ -443,8 +444,8 @@ const FLAGSHIP_DESIGNER_WINDOW: usize = 0x570;
 /// As the map manager an in-process return lets go is going: the last made
 /// first. The country history and the papacy are closed first, as the
 /// papacy open is listed by the GUI; they stay, without their windows.
-pub(super) fn map_manager_going(m: Memory, manager: usize) {
-    going(m, "the map manager's panels", |m| {
+fn map_manager_going(m: &Memory, manager: usize) {
+    going(*m, "the map manager's panels", |m| {
         for (field, close) in [(COUNTRY_HISTORY, CLOSE_COUNTRY_HISTORY), (PAPACY, CLOSE_PAPACY)] {
             let panel = m.ptr(manager + field)?;
             if panel != 0 && m.ptr(panel)? != 0 {

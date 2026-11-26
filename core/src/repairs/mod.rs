@@ -8,7 +8,8 @@
 //! ([`waiting`]), and the moments of the sessions a repair acts on, which the
 //! sessions tell (`crate::session::sessions`) and a repair declares: the main menu
 //! shown, the world's clear, the world's reset, after which all say what they
-//! did, the history read after it, and the first frame after it.
+//! did, the history read after it, the first frame after it, and the map
+//! manager tearing down on an in-process return.
 mod ai_draws;
 mod coalitions;
 mod estates;
@@ -35,8 +36,17 @@ mod waiting;
 
 pub use session_interface::SessionInterface;
 
-use crate::{native::memory::Memory, native::points::Point};
+use crate::{
+    base::called_by_game,
+    native::{memory::Memory, objects::campaign::world, points::Point},
+};
 use std::sync::OnceLock;
+
+/// Where the world's own reset begins to clear the world (`0x74a260`), as
+/// it marks it as being cleared (`mov byte ptr [rsi + world::CLEARING], 1`);
+/// and what follows. Its clear then clears every country.
+const WORLD_CLEARING: usize = 0x74a289;
+const WORLD_CLEARING_DONE: usize = 0x74a290;
 
 /// Optional developer-build switches passed in once at startup so repairs never
 /// read `dev.toml` directly.
@@ -66,14 +76,25 @@ struct LettingGo;
 
 impl LettingGo {
     fn new(repair: &'static str) -> Self {
-        crate::native::probes::quarantine_begin(repair);
+        Self::begin(repair);
         Self
+    }
+
+    /// Manual quarantine entry for repairs whose teardown spans separate
+    /// `before` and `after` hook callbacks.
+    fn begin(repair: &'static str) {
+        crate::native::probes::quarantine_begin(repair);
+    }
+
+    /// Paired manual quarantine exit for [`Self::begin`].
+    fn end() {
+        crate::native::probes::quarantine_end();
     }
 }
 
 impl Drop for LettingGo {
     fn drop(&mut self) {
-        crate::native::probes::quarantine_end();
+        Self::end();
     }
 }
 
@@ -99,11 +120,39 @@ pub fn main_menu_shown(m: &Memory) {
 }
 
 /// The world's own reset begins to clear the world, before any country is
-/// cleared (`reset_leaks`): each repair acts on it in turn.
-fn world_clearing(m: &Memory) {
+/// cleared: each repair acts on it in turn.
+#[called_by_game]
+extern "C" fn world_clearing_hook() {
+    let m = crate::native::hooked_memory();
     for repair in REPAIRS {
         if let Some(act) = repair.world_clearing {
-            act(m);
+            act(&m);
+        }
+    }
+}
+
+resume!(WORLD_CLEARING_RESUME: WORLD_CLEARING_NEXT = WORLD_CLEARING_DONE);
+
+/// Replaces the world's clear marking the world as being cleared: marks it,
+/// then dispatches `world_clearing` across [`REPAIRS`].
+#[unsafe(naked)]
+extern "C" fn world_clearing_stub() {
+    std::arch::naked_asm!(
+        "mov byte ptr [rsi + {clearing}], 1",
+        call_rust!(call clearing_fn),
+        "jmp qword ptr [rip + {next}]",
+        clearing = const world::CLEARING,
+        clearing_fn = sym world_clearing_hook,
+        next = sym WORLD_CLEARING_NEXT,
+    );
+}
+
+/// An in-process return is tearing down the leaving map manager: each repair
+/// that cleans up map-manager-owned panels acts on it in turn.
+fn map_manager_going(m: &Memory, manager: usize) {
+    for repair in REPAIRS {
+        if let Some(act) = repair.map_manager_going {
+            act(m, manager);
         }
     }
 }
@@ -143,6 +192,8 @@ struct Repair {
     /// As the world's own reset begins to clear the world, before any
     /// country is cleared.
     world_clearing: Option<fn(&Memory)>,
+    /// As the map manager torn down by an in-process return enters its destructor.
+    map_manager_going: Option<fn(&Memory, usize)>,
     /// After every world reset, of the world given.
     world_reset: Option<fn(&Memory, usize)>,
     /// After a world reset that read the game's history.
@@ -159,6 +210,7 @@ impl Repair {
         since_reset: None,
         main_menu_shown: None,
         world_clearing: None,
+        map_manager_going: None,
         world_reset: None,
         after_history: None,
         first_frame_after_reset: None,
@@ -198,7 +250,13 @@ fn since_reset() -> String {
 }
 
 pub fn points() -> Vec<Point> {
-    REPAIRS.iter().flat_map(|r| (r.points)()).collect()
+    let mut all = vec![
+        Point::jump(WORLD_CLEARING, "c6 86 85 74 00 00 01", "world clearing", world_clearing_stub as *const () as usize, &WORLD_CLEARING_RESUME)
+            .uses(&[world::CLEARING]),
+        Point::keep(WORLD_CLEARING_DONE, "c7 44 24 50 65 01 00 00", "world clearing marked"),
+    ];
+    all.extend(REPAIRS.iter().flat_map(|r| (r.points)()));
+    all
 }
 
 #[cfg(test)]

@@ -97,7 +97,7 @@ fn map_manager_going(call: &mut Call) {
         Ok(gone) => log!("repair: {gone} parts of the session's interface the map manager leaves were let go"),
         Err(e) => log!("repair: the session's interface was not let go: {e}"),
     }
-    super::panels::map_manager_going(m, manager);
+    super::map_manager_going(&m, manager);
     GONE.store(true, Ordering::Relaxed);
 }
 
