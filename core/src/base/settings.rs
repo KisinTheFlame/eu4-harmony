@@ -501,6 +501,24 @@ impl Role {
     }
 }
 
+/// The bundled default Chinese font family for `role`: body text, headings and
+/// the map each have one, shown in Simplified Chinese as a "Default" choice at
+/// the top of its font list rather than under its real family name.
+pub fn bundled_default_family(role: Role) -> Option<&'static str> {
+    match role {
+        Role::Body => Some("FZPingXianYaSongS-R-GB"),
+        Role::Heading => Some("FZYaSongS-B-GB"),
+        Role::Map => Some("FZShengShiKaiShuS-EB-GB"),
+        Role::Console => None,
+    }
+}
+
+/// Whether `family` is one of the bundled default Chinese fonts whose real
+/// names stay hidden from the settings window's font lists.
+pub fn is_bundled_default_family(family: &str) -> bool {
+    Role::ALL.into_iter().filter_map(bundled_default_family).any(|f| f == family)
+}
+
 /// The system font family that draws when none of a role's [`defaults`] is
 /// installed: one Windows has in every language.
 pub const LAST_RESORT: &str = "Segoe UI";

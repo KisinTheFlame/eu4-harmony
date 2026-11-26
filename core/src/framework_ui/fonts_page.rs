@@ -10,7 +10,7 @@
 //! reads back as left alone.
 use super::setting_widgets;
 use super::widgets::{Widget, Window};
-use crate::base::settings::{Page, Role, Settings};
+use crate::base::settings::{self, Page, Role, Settings};
 use crate::text::unicode::system_font::{self, Face, SystemFonts, REGULAR};
 use eu4_harmony_loc::Language;
 
@@ -91,8 +91,11 @@ fn labels(role: Role) -> (&'static str, &'static str) {
 struct Lists {
     /// The families offered, by English name, in their drop-down list's order.
     families: Vec<String>,
-    /// The same, as the player language names them.
+    /// The same, as the player language names them. When [`Self::has_default`]
+    /// is true, index 0's display text comes from localisation instead.
     names: Vec<String>,
+    /// Whether index 0 is the Simplified Chinese bundled default entry.
+    has_default: bool,
     /// The weights offered for the family selected, in their list's order.
     weights: Vec<u16>,
     /// The face the role showed when the page was made, in the weight that
@@ -126,10 +129,14 @@ impl<F: FontSystem> FontsPage<F> {
             .collect();
         // The installed families that draw `text`, by English name and as
         // shown in the language, and those chosen or shown that do not.
+        // Bundled default Chinese fonts stay hidden under their real names
+        // everywhere and are offered only as a top "Default" entry per role in
+        // Simplified Chinese.
         let offered = |text: &str, roles: &[Role]| {
-            let (mut families, mut names): (Vec<String>, Vec<String>) = fonts.families_with(text, language).into_iter().unzip();
+            let (mut families, mut names): (Vec<String>, Vec<String>) =
+                fonts.families_with(text, language).into_iter().filter(|(english, _)| !settings::is_bundled_default_family(english)).unzip();
             for family in roles.iter().flat_map(|&role| next.chosen(role).into_iter().chain([&shown[at(role)]])).map(|face| &face.family) {
-                if !families.contains(family) {
+                if !settings::is_bundled_default_family(family) && !families.contains(family) {
                     families.push(family.clone());
                     names.push(family.clone());
                 }
@@ -144,9 +151,18 @@ impl<F: FontSystem> FontsPage<F> {
             .into_iter()
             .zip(shown)
             .map(|(role, shown)| {
-                let (families, names) = if role == Role::Console { latin.clone() } else { written.clone() };
+                let (mut families, mut names) = if role == Role::Console { latin.clone() } else { written.clone() };
+                let default_family =
+                    (language == Language::SimpChinese).then(|| settings::bundled_default_family(role)).flatten().filter(|family| fonts.has_family(family));
+                let has_default = if let Some(family) = default_family {
+                    families.insert(0, family.to_string());
+                    names.insert(0, String::new());
+                    true
+                } else {
+                    false
+                };
                 let (weights, ..) = weight_options(&fonts, &shown);
-                Lists { families, names, weights, shown }
+                Lists { families, names, has_default, weights, shown }
             })
             .collect();
         Self { fonts, language, roles }
@@ -179,13 +195,13 @@ impl<F: FontSystem> FontsPage<F> {
         let ((family_id, weight_id), (family_label, weight_label)) = (ids(role), labels(role));
         let lists = self.lists(role);
         let (_, names, selected) = weight_options(&self.fonts, &lists.shown);
+        let mut options = lists.names.clone();
+        if lists.has_default {
+            options[0] = words("EU4HARMONY_SETTINGS_FONT_DEFAULT");
+        }
         [
             Widget::Label(words(family_label)),
-            Widget::Dropdown {
-                id: family_id,
-                options: lists.names.clone(),
-                selected: lists.families.iter().position(|f| *f == lists.shown.family).unwrap_or(0),
-            },
+            Widget::Dropdown { id: family_id, options, selected: lists.families.iter().position(|f| *f == lists.shown.family).unwrap_or(0) },
             Widget::Label(words(weight_label)),
             Widget::Dropdown { id: weight_id, options: names, selected },
         ]
@@ -215,11 +231,12 @@ impl<F: FontSystem> FontsPage<F> {
         }
         for role in Role::ALL {
             let ((family_id, weight_id), lists) = (ids(role), self.lists(role));
-            let family = window.selected(family_id).and_then(|i| lists.families.get(i)).cloned().unwrap_or_else(|| lists.shown.family.clone());
+            let selected = window.selected(family_id);
+            let family = selected.and_then(|i| lists.families.get(i)).cloned().unwrap_or_else(|| lists.shown.family.clone());
             let weight = window.selected(weight_id).and_then(|i| lists.weights.get(i).copied()).unwrap_or(lists.shown.weight);
             let face = Face::new(family, weight);
             if face != lists.shown {
-                *chosen.chosen_mut(role) = Some(face);
+                *chosen.chosen_mut(role) = if lists.has_default && selected == Some(0) { None } else { Some(face) };
             }
         }
     }
@@ -370,5 +387,69 @@ pub mod tests {
         let (_, window) = opened(&gone);
         assert!(options(&window, "map").contains(&"Gone".to_string()));
         assert_eq!(options(&window, "map")[window.selected("map").unwrap()], "KaiTi");
+    }
+
+    fn installed_with_bundled() -> Table {
+        let mut table = installed().0;
+        table.extend([
+            ("FZPingXianYaSongS-R-GB", &[400][..], Writes::Every),
+            ("FZYaSongS-B-GB", &[400][..], Writes::Every),
+            ("FZShengShiKaiShuS-EB-GB", &[400][..], Writes::Every),
+        ]);
+        Table(table)
+    }
+
+    fn opened_with(table: Table, next: &Settings) -> (FontsPage<Table>, Window) {
+        let page = FontsPage::new(table, next);
+        let window = Window::new("", page.widgets(next, &keys), 600.0);
+        (page, window)
+    }
+
+    #[test]
+    fn bundled_chinese_defaults_hide_real_names_and_offer_top_default_only_in_simplified_chinese() {
+        let real_names = ["FZPingXianYaSongS-R-GB", "FZYaSongS-B-GB", "FZShengShiKaiShuS-EB-GB"];
+        let chinese = Settings { language: Some(Language::SimpChinese), ..Settings::default() };
+        let (page, window) = opened_with(installed_with_bundled(), &chinese);
+        for id in ["body", "heading", "map", "console"] {
+            let list = options(&window, id);
+            for real in real_names {
+                assert!(!list.contains(&real.to_string()), "{id} must not expose {real}: {list:?}");
+            }
+        }
+        for id in ["body", "heading", "map"] {
+            let list = options(&window, id);
+            assert_eq!(list.first().map(String::as_str), Some("EU4HARMONY_SETTINGS_FONT_DEFAULT"), "{id}: {list:?}");
+            assert_eq!(window.selected(id), Some(0), "{id} starts on Default");
+        }
+        assert!(!options(&window, "console").contains(&"EU4HARMONY_SETTINGS_FONT_DEFAULT".to_string()));
+        // Leaving all three on Default keeps them following the language.
+        let mut unchanged = chinese.clone();
+        page.read_back(&window, &mut unchanged);
+        assert_eq!(unchanged, chinese);
+
+        // Switching from a chosen font back to Default clears the override and resets weights to Regular.
+        let custom = Settings { body_font: Some(Face::new("Microsoft YaHei", 700)), ..chinese.clone() };
+        let (mut page, mut window) = opened_with(installed_with_bundled(), &custom);
+        assert_eq!(options(&window, "body")[window.selected("body").unwrap()], "Microsoft YaHei");
+        let default_index = select(&mut window, "body", "EU4HARMONY_SETTINGS_FONT_DEFAULT");
+        assert_eq!(default_index, 0);
+        page.chose(&mut window, "body", default_index);
+        assert_eq!((options(&window, "body_weight"), window.selected("body_weight")), (vec!["Regular".to_string()], Some(0)));
+        let mut saved = custom.clone();
+        page.read_back(&window, &mut saved);
+        assert_eq!(saved.body_font, None);
+
+        // Other languages neither expose the real names nor offer the Default entry.
+        for language in [Language::English, Language::TradChinese, Language::Japanese] {
+            let settings = Settings { language: Some(language), ..Settings::default() };
+            let (_, window) = opened_with(installed_with_bundled(), &settings);
+            for id in ["body", "heading", "map", "console"] {
+                let list = options(&window, id);
+                assert!(!list.contains(&"EU4HARMONY_SETTINGS_FONT_DEFAULT".to_string()), "{language:?} {id}: {list:?}");
+                for real in real_names {
+                    assert!(!list.contains(&real.to_string()), "{language:?} {id} exposes {real}: {list:?}");
+                }
+            }
+        }
     }
 }

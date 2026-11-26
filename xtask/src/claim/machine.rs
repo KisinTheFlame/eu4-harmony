@@ -296,6 +296,12 @@ impl Machine for ThisComputer {
                 remove_file(&core.join(helper))?;
             }
         }
+        let bundled_fonts = crate::files::fonts_dir();
+        let core_fonts = core.join("fonts");
+        fs::create_dir_all(&core_fonts).map_err(|e| format!("cannot make {}: {e}", core_fonts.display()))?;
+        for (name, _) in crate::files::BUNDLED_FONTS {
+            copy(&bundled_fonts.join(name), &core_fonts.join(name))?;
+        }
         let options = repo().join("dev.toml");
         if let Some(text) = &starting.options {
             fs::write(core.join("dev.toml"), text).map_err(|e| format!("cannot write {}: {e}", core.join("dev.toml").display()))?;
