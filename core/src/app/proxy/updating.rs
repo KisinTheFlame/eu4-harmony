@@ -166,12 +166,12 @@ pub(super) fn guard_swap<T>(swap: impl FnOnce() -> T) -> (T, bool) {
 }
 
 /// Shows the localized "Harmony has been updated. Restarting…" notice (unless
-/// this is a hidden start), waits briefly so the player sees it, and runs
+/// this run is unattended), waits briefly so the player sees it, and runs
 /// `after_notice` while the notice remains visible before closing it cleanly.
 /// Returns `None` without calling `after_notice` if a shutdown signal arrived
 /// during the wait.
 pub(super) fn with_restart_notice<T>(after_notice: impl FnOnce() -> T) -> Option<T> {
-    if crate::tweaks::hidden::hidden_start() {
+    if crate::tweaks::hidden::unattended() {
         return Some(after_notice());
     }
     let _handler = ConsoleRegistration::install();

@@ -1,9 +1,9 @@
 //! Starting the game from its folder, for `eu4-harmony start` and the claim
-//! of `cargo xtask game`: hidden or shown (the framework's switch
-//! `-harmony_hidden`, docs/game/program/headless.md), the player's game or a test game
-//! with a user folder, a core and a pipe of its own (docs/dev-tools.md#test-games),
-//! returning once remote control says the main menu is up. Steam must be
-//! running, as for any start of the game.
+//! of `cargo xtask game`: hidden or shown (`-harmony_hidden`), muted or with
+//! sound (`-harmony_mute`, docs/game/program/headless.md), the player's game
+//! or a test game with a user folder, a core and a pipe of its own
+//! (docs/dev-tools.md#test-games), returning once remote control says the main
+//! menu is up. Steam must be running, as for any start of the game.
 use crate::Result;
 use crate::{
     game::Game,
@@ -49,10 +49,10 @@ pub const WAIT: Duration = Duration::from_secs(300);
 /// How the game is started.
 #[derive(Clone, Debug, Default)]
 pub struct Start {
-    /// The framework's hidden start.
+    /// Start the game window hidden (`-harmony_hidden`).
     pub hidden: bool,
-    /// Sound in a hidden start.
-    pub sound: bool,
+    /// Start the game muted (`-harmony_mute`).
+    pub mute: bool,
     /// The game's own `-seed`, which seeds its random generator and gives
     /// each AI agent a generator of its own (docs/game/ai/work-scheduling.md).
     pub seed: Option<u32>,
@@ -88,9 +88,9 @@ impl Start {
         let mut words = Vec::new();
         if self.hidden {
             words.push("-harmony_hidden".to_string());
-            if self.sound {
-                words.push("-harmony_sound".to_string());
-            }
+        }
+        if self.mute {
+            words.push("-harmony_mute".to_string());
         }
         words.extend(self.seed.map(|seed| format!("-seed={seed}")));
         match &self.test_game {
@@ -125,7 +125,8 @@ pub fn knows(path: &Path, text: &str) -> bool {
 /// core: an installed `version.dll` proxy and an active core DLL (either
 /// beside the proxy or in Harmony's own Steam Workshop item); a proxy that
 /// knows `-harmony_core` and a core with the test games' pipes when starting a
-/// test game; and for a hidden start a core that knows `-harmony_hidden`.
+/// test game; for a hidden start a core that knows `-harmony_hidden`; and for
+/// a muted start a core that knows `-harmony_mute`.
 fn framework_has(game_dir: &Path, start: &Start) -> Result<()> {
     let proxy = game_dir.join("version.dll");
     let core = match &start.test_game {
@@ -159,6 +160,9 @@ fn framework_has(game_dir: &Path, start: &Start) -> Result<()> {
             game_dir.display()
         ));
     }
+    if start.mute && !knows(&core, "-harmony_mute") {
+        return Err(format!("the framework in {} does not support -harmony_mute: rebuild or install a current build, or start with sound", game_dir.display()));
+    }
     Ok(())
 }
 
@@ -183,10 +187,11 @@ pub fn start(game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> std:
     let since = std::time::SystemTime::now();
     let game = Game::spawn(&exe, &start.switches(), game_dir)?;
     let id = game.id();
-    let how = match (start.hidden, start.sound) {
-        (true, true) => ", hidden, with sound",
+    let how = match (start.hidden, start.mute) {
+        (true, true) => ", hidden, muted",
         (true, false) => ", hidden",
-        (false, _) => "",
+        (false, true) => ", muted",
+        (false, false) => "",
     };
     let seed = start.seed.map_or(String::new(), |seed| format!(", -seed={seed}"));
     let test_game = start.test_game.as_ref().map_or(String::new(), |g| format!(", the test game {}", g.name));
@@ -234,8 +239,8 @@ fn reason(log: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    fn switches(hidden: bool, sound: bool, seed: Option<u32>) -> Vec<String> {
-        Start { hidden, sound, seed, ..Default::default() }.switches()
+    fn switches(hidden: bool, mute: bool, seed: Option<u32>) -> Vec<String> {
+        Start { hidden, mute, seed, ..Default::default() }.switches()
     }
 
     /// A test game names its user folder, its core and its pipe, a word
@@ -243,9 +248,9 @@ mod tests {
     #[test]
     fn a_test_game_names_its_user_folder_core_and_pipe() {
         let game = TestGame { name: "b".into(), user_dir: PathBuf::from(r"C:\claims\b\user"), core: PathBuf::from(r"C:\a b\core.dll") };
-        let start = Start { hidden: true, sound: false, seed: None, user_dir: None, test_game: Some(game) };
+        let start = Start { hidden: true, mute: true, seed: None, user_dir: None, test_game: Some(game) };
         let words = start.switches();
-        assert_eq!(words, ["-harmony_hidden", r"-userdir=C:\claims\b\user", r#""-harmony_core=C:\a b\core.dll""#, "-harmony_test_game=b"]);
+        assert_eq!(words, ["-harmony_hidden", "-harmony_mute", r"-userdir=C:\claims\b\user", r#""-harmony_core=C:\a b\core.dll""#, "-harmony_test_game=b"]);
         assert_eq!(start.pipe().unwrap(), r"\\.\pipe\eu4-harmony-b");
         assert_eq!(Start::default().pipe().unwrap(), eu4_harmony_remote::PIPE);
     }
@@ -268,7 +273,8 @@ mod tests {
         std::fs::write(game.join("version.dll"), b"").unwrap();
         assert!(framework_has(&game, &shown).unwrap_err().contains("core DLL was not found"));
 
-        // Workshop core satisfies shown start, and satisfies hidden start once it carries `-harmony_hidden`.
+        // Workshop core satisfies shown start, hidden start once it carries `-harmony_hidden`,
+        // and muted start once it carries `-harmony_mute`.
         if let Some(workshop_dir) = eu4_harmony_folders::workshop_item(&game, eu4_harmony_folders::PUBLISHED_FILE_ID) {
             let core = workshop_dir.join("eu4-harmony").join("eu4_harmony_core.dll");
             std::fs::create_dir_all(core.parent().unwrap()).unwrap();
@@ -277,24 +283,28 @@ mod tests {
 
             let hidden = Start { hidden: true, ..Default::default() };
             assert!(framework_has(&game, &hidden).unwrap_err().contains("has no hidden start"));
+            let muted = Start { mute: true, ..Default::default() };
+            assert!(framework_has(&game, &muted).unwrap_err().contains("-harmony_mute"));
 
-            std::fs::write(&core, b"core supporting -harmony_hidden").unwrap();
+            std::fs::write(&core, b"core supporting -harmony_hidden and -harmony_mute").unwrap();
             assert!(framework_has(&game, &hidden).is_ok());
+            assert!(framework_has(&game, &muted).is_ok());
         }
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
-    fn sound_is_a_switch_of_a_hidden_start_only() {
+    fn hidden_and_mute_are_independent_switches() {
         assert_eq!(switches(false, false, None), Vec::<String>::new());
-        assert_eq!(switches(false, true, None), Vec::<String>::new());
+        assert_eq!(switches(false, true, None), ["-harmony_mute"]);
         assert_eq!(switches(true, false, None), ["-harmony_hidden"]);
-        assert_eq!(switches(true, true, None), ["-harmony_hidden", "-harmony_sound"]);
+        assert_eq!(switches(true, true, None), ["-harmony_hidden", "-harmony_mute"]);
     }
 
     #[test]
     fn a_seed_is_the_game_s_own_switch() {
         assert_eq!(switches(true, false, Some(7)), ["-harmony_hidden", "-seed=7"]);
+        assert_eq!(switches(false, true, Some(0)), ["-harmony_mute", "-seed=0"]);
         assert_eq!(switches(false, false, Some(0)), ["-seed=0"]);
     }
 

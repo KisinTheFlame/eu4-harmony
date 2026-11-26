@@ -1,49 +1,54 @@
-//! The hidden start (GLOSSARY): the game started with `-harmony_hidden` on
-//! its command line runs with nothing of it on the player's desktop, and with
-//! no sound unless `-harmony_sound` is there too (docs/game/program/headless.md). The
-//! switches are read once, as the framework starts; this module answers
-//! whether the game is hidden now, and its points keep the game from showing
-//! itself:
+//! Window visibility and audio mute switches (GLOSSARY): `-harmony_hidden`
+//! starts the game with nothing of its window on the player's desktop, and
+//! `-harmony_mute` disables audio independently via SDL's `dummy` audio driver
+//! (docs/game/program/headless.md). Both switches are read once as the
+//! framework starts; an unattended run (`-harmony_hidden` or, in a test-games
+//! build, `-harmony_test_game=<name>`) keeps dialogs and power throttling out
+//! of the way and allows toggling visibility through remote control:
 //!
-//! - the window is made with `SDL_WINDOW_HIDDEN`, without which SDL shows it,
-//!   and the application's Init shows it cloaked, as a tool window, without
-//!   the focus: DWM draws nothing of a cloaked window and lets no click reach
-//!   it, a tool window has no taskbar button and is not in Alt+Tab, and for
-//!   the rest of Windows it is shown. A window not shown at all makes
-//!   NVIDIA's Direct3D 9 driver keep 3 KB of the game's heap at most of its
-//!   frames, 20 MB a minute and more (docs/game/program/headless.md); hiding it
-//!   again conceals it so, and showing it ends that;
-//! - the game's own error messages are left out, as `-suppresserrormessages`
-//!   leaves them out;
-//! - the input device moves remote control's held cursor instead of Windows'
-//!   cursor;
-//! - after a crash, the window is not minimized, which would put it on the
-//!   taskbar, and the crash reporter is not started.
+//! - when `-harmony_hidden` is given, the window is made with
+//!   `SDL_WINDOW_HIDDEN`, without which SDL shows it, and the application's
+//!   Init shows it cloaked, as a tool window, without the focus: DWM draws
+//!   nothing of a cloaked window and lets no click reach it, a tool window has
+//!   no taskbar button and is not in Alt+Tab, and for the rest of Windows it
+//!   is shown. A window not shown at all makes NVIDIA's Direct3D 9 driver keep
+//!   3 KB of the game's heap at most of its frames, 20 MB a minute and more
+//!   (docs/game/program/headless.md); hiding it again conceals it so, and
+//!   showing it ends that;
+//! - in an unattended run, the game's own error messages are left out, as
+//!   `-suppresserrormessages` leaves them out, and after a crash the crash
+//!   reporter is not started;
+//! - while the window is hidden, the input device moves remote control's held
+//!   cursor instead of Windows' cursor, and after a crash the window is not
+//!   minimized, which would put it on the taskbar.
 //!
-//! Sound needs no point: before SDL's audio starts, the `dummy` driver is
-//! chosen through the environment, which SDL reads then
-//! (docs/game/program/headless.md).
+//! Muting needs no point: when `-harmony_mute` is given, before SDL's audio
+//! starts, the `dummy` driver is chosen through the environment, which SDL
+//! reads then (docs/game/program/headless.md).
 //!
 //! Windows throttles a process whose windows the player cannot see
 //! (EcoQoS): its threads run seldom and slowly, and its timer resolution
 //! requests are ignored, so a sleep of a millisecond takes a tick of 15.6 ms.
 //! A hidden game got 5% of a core where it needed a whole one
-//! (docs/research/performance-evidence.md). So a hidden
-//! start opts the process out of both, once as the framework starts. A game
-//! shown later stays opted out: it is a game started for remote control or
-//! a test, which is to run as fast when its window is behind others, and a
+//! (docs/research/performance-evidence.md). So an unattended run opts the
+//! process out of both, once as the framework starts. A game shown at startup
+//! or later stays opted out: it is a game started for remote control or a
+//! test, which is to run as fast when its window is behind others, and a
 //! shown window is throttled by Windows as any other then anyway.
 use crate::base::called_by_game;
 use crate::native::points::{Function, Point};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 
-/// The switches on the game's command line.
+/// The visibility, audio and test-game switches on the game's command line.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Switches {
-    /// `-harmony_hidden`.
+    /// `-harmony_hidden`: start with the game window hidden.
     pub hidden: bool,
-    /// `-harmony_sound`, which only a hidden start looks at.
-    pub sound: bool,
+    /// `-harmony_mute`: silence audio via SDL's `dummy` driver.
+    pub mute: bool,
+    /// `-harmony_test_game=<name>`: isolated test game (only in `dev-test-games` builds).
+    pub test_game: bool,
 }
 
 impl Switches {
@@ -51,11 +56,22 @@ impl Switches {
     /// dash or two, as the game writes them again when it restarts.
     pub fn of(command_line: &str) -> Self {
         let has = |switch: &str| command_line.split_whitespace().any(|word| eu4_harmony_folders::same_switch(word.trim_matches('"'), switch));
-        Self { hidden: has("-harmony_hidden"), sound: has("-harmony_sound") }
+        #[cfg(feature = "dev-test-games")]
+        let test_game = eu4_harmony_folders::switch_value(command_line, "-harmony_test_game").is_some();
+        #[cfg(not(feature = "dev-test-games"))]
+        let test_game = false;
+        Self { hidden: has("-harmony_hidden"), mute: has("-harmony_mute"), test_game }
+    }
+
+    /// Whether this run is unattended (a hidden start or a test game).
+    pub fn unattended(self) -> bool {
+        self.hidden || self.test_game
     }
 }
 
 static SWITCHES: OnceLock<Switches> = OnceLock::new();
+/// Whether the game created its window in exclusive fullscreen mode.
+static FULLSCREEN: AtomicBool = AtomicBool::new(false);
 
 pub(crate) struct HiddenHooks {
     pub(crate) on_early_sync: fn(),
@@ -68,25 +84,26 @@ pub(crate) fn set_hooks(hooks: HiddenHooks) {
 }
 
 /// Reads the switches from the game's command line, once as the framework
-/// starts, and turns the sound off for a hidden start without
-/// `-harmony_sound`.
+/// starts, turning audio off for `-harmony_mute`, starting hidden for
+/// `-harmony_hidden`, and opting unattended runs out of Windows power throttling.
 pub fn read_switches() {
     use windows_sys::Win32::System::Environment::SetEnvironmentVariableW;
     let switches = Switches::of(crate::base::paths::command_line());
     let _ = SWITCHES.set(switches);
-    crate::base::set_hidden_start(switches.hidden);
-    if !switches.hidden {
-        return;
+    let is_unattended = switches.unattended();
+    crate::base::set_unattended(is_unattended);
+    if switches.hidden {
+        crate::base::set_hidden(true);
+        log!("hidden start: the window starts hidden");
     }
-    crate::base::set_hidden(true);
-    full_speed();
-    if switches.sound {
-        log!("hidden start, with sound");
-    } else {
+    if switches.mute {
         let name: Vec<u16> = "SDL_AUDIODRIVER\0".encode_utf16().collect();
         let value: Vec<u16> = "dummy\0".encode_utf16().collect();
         unsafe { SetEnvironmentVariableW(name.as_ptr(), value.as_ptr()) };
-        log!("hidden start, without sound");
+        log!("audio muted (-harmony_mute)");
+    }
+    if is_unattended {
+        full_speed();
     }
 }
 
@@ -116,15 +133,19 @@ fn full_speed() {
     }
 }
 
-/// Whether the game was started hidden.
+/// Whether the game was started with `-harmony_hidden`.
 pub fn hidden_start() -> bool {
-    crate::base::hidden_start()
+    SWITCHES.get().is_some_and(|s| s.hidden)
 }
 
-/// Whether the game plays sound: a hidden start does only with
-/// `-harmony_sound`.
+/// Whether this run is unattended (`-harmony_hidden` or `-harmony_test_game`).
+pub fn unattended() -> bool {
+    SWITCHES.get().is_some_and(|s| s.unattended())
+}
+
+/// Whether the game plays sound (`false` when started with `-harmony_mute`).
 pub fn sound() -> bool {
-    SWITCHES.get().is_none_or(|s| !s.hidden || s.sound)
+    SWITCHES.get().is_none_or(|s| !s.mute)
 }
 
 /// Whether the game's window is hidden now.
@@ -135,8 +156,10 @@ pub fn hidden() -> bool {
 /// What [`show`] and [`hide`] refuse.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Refused {
-    /// The game was not started hidden.
-    NotHiddenStart,
+    /// The game was neither started hidden nor started as a test game.
+    NotControllable,
+    /// The game's window is exclusive fullscreen and cannot be hidden safely.
+    Fullscreen,
     /// The game has no window yet.
     NoWindow,
 }
@@ -195,8 +218,11 @@ fn conceal(window: windows_sys::Win32::Foundation::HWND, on: bool) {
 }
 
 fn window() -> Result<windows_sys::Win32::Foundation::HWND, Refused> {
-    if !hidden_start() {
-        return Err(Refused::NotHiddenStart);
+    if !unattended() {
+        return Err(Refused::NotControllable);
+    }
+    if FULLSCREEN.load(Ordering::Relaxed) {
+        return Err(Refused::Fullscreen);
     }
     crate::base::game_window().ok_or(Refused::NoWindow)
 }
@@ -269,14 +295,17 @@ pub fn points() -> Vec<Point> {
 }
 
 /// The flags the window is made with: `SDL_WINDOW_HIDDEN` in place of
-/// `SDL_WINDOW_SHOWN` for a hidden start. A full screen device needs the focus, which a hidden game
-/// never has, so a hidden start in full screen ends the game.
+/// `SDL_WINDOW_SHOWN` when starting hidden. A full screen device needs the
+/// focus, which a hidden game never has, so a hidden start in full screen ends
+/// the game.
 #[called_by_game]
 extern "C" fn window_flags(flags: u32) -> u32 {
-    if !hidden_start() {
+    let is_fullscreen = flags & SDL_WINDOW_FULLSCREEN != 0;
+    FULLSCREEN.store(is_fullscreen, Ordering::Relaxed);
+    if !hidden() {
         return flags;
     }
-    if flags & SDL_WINDOW_FULLSCREEN != 0 {
+    if is_fullscreen {
         crate::base::fatal("a hidden start needs a windowed or borderless game, and the settings have it full screen");
     }
     flags & !SDL_WINDOW_SHOWN | SDL_WINDOW_HIDDEN
@@ -320,12 +349,12 @@ extern "C" fn init_shows_stub() {
 }
 
 /// Stores whether the game's error messages are left out: as the command
-/// line asks, and always for a hidden start. Also runs Harmony's early proxy
+/// line asks, and always in an unattended run. Also runs Harmony's early proxy
 /// sync here (step 3 of `main`, outside the loader lock and before Steam,
 /// worker pools or the game window are created).
 #[called_by_game]
 extern "C" fn suppress(asked: u8) {
-    let on = asked != 0 || hidden_start();
+    let on = asked != 0 || unattended();
     unsafe { *(crate::native::hooked_memory().at(SUPPRESS_ERROR_MESSAGES) as *mut u8) = on as u8 };
     crate::base::guarded("proxy sync", || {
         if let Some(h) = HOOKS.get() {
@@ -378,12 +407,12 @@ extern "C" fn crash_minimizes_stub() {
     );
 }
 
-/// The crash reporter is a program with a window: a hidden start does not
+/// The crash reporter is a program with a window: an unattended run does not
 /// start it. The crash's files are written before, either way. Runs inside
 /// the game's crash handling, so it takes no lock.
 #[called_by_game]
 unsafe extern "C" fn start_crash_reporter(handler: usize, folder: usize) -> usize {
-    if hidden_start() {
+    if unattended() {
         0
     } else {
         ORIGINAL_REPORTER.get()(handler, folder)
@@ -402,10 +431,27 @@ mod tests {
 
     #[test]
     fn the_switches_are_words_of_the_command_line_in_any_case() {
-        let both = Switches::of(r#""E:\Steam\Europa Universalis IV\eu4.exe" -harmony_hidden -HARMONY_SOUND"#);
-        assert_eq!(both, Switches { hidden: true, sound: true });
-        assert_eq!(Switches::of(r#""E:\eu4.exe" "-harmony_hidden""#), Switches { hidden: true, sound: false });
-        assert_eq!(Switches::of(r#""E:\harmony_hidden\eu4.exe" -harmony_hiddenx -debug"#), Switches::default());
-        assert_eq!(Switches::of(r#"--E:\eu4.exe --harmony_hidden --userdir="E:\u" -skiplauncher"#), Switches { hidden: true, sound: false });
+        let both = Switches::of(r#""E:\Steam\Europa Universalis IV\eu4.exe" -harmony_hidden -HARMONY_MUTE"#);
+        assert_eq!(both, Switches { hidden: true, mute: true, test_game: false });
+        assert!(both.unattended());
+
+        assert_eq!(Switches::of(r#""E:\eu4.exe" "-harmony_hidden""#), Switches { hidden: true, mute: false, test_game: false });
+        assert_eq!(Switches::of(r#""E:\eu4.exe" -harmony_mute"#), Switches { hidden: false, mute: true, test_game: false });
+        assert!(!Switches::of(r#""E:\eu4.exe" -harmony_mute"#).unattended());
+        assert_eq!(Switches::of(r#""E:\harmony_hidden\eu4.exe" -harmony_hiddenx -harmony_mutex -debug"#), Switches::default());
+        assert_eq!(
+            Switches::of(r#"--E:\eu4.exe --harmony_hidden --harmony_mute --userdir="E:\u" -skiplauncher"#),
+            Switches { hidden: true, mute: true, test_game: false }
+        );
+
+        let test_game = Switches::of(r#""E:\eu4.exe" -harmony_mute -harmony_test_game=qa"#);
+        #[cfg(feature = "dev-test-games")]
+        assert_eq!(test_game, Switches { hidden: false, mute: true, test_game: true });
+        #[cfg(feature = "dev-test-games")]
+        assert!(test_game.unattended());
+        #[cfg(not(feature = "dev-test-games"))]
+        assert_eq!(test_game, Switches { hidden: false, mute: true, test_game: false });
+        #[cfg(not(feature = "dev-test-games"))]
+        assert!(!test_game.unattended());
     }
 }

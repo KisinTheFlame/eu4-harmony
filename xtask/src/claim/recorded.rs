@@ -50,6 +50,8 @@ pub(crate) struct Recorded {
     pub(crate) ends_before_menu: Option<u32>,
     /// The games that end while the claim waits, one a wait.
     pub(crate) end_while_waiting: Mutex<Vec<u32>>,
+    /// The `Start` options passed to each `start_game` call, in order.
+    pub(crate) starts: Mutex<Vec<Start>>,
 }
 
 impl Recorded {
@@ -65,6 +67,7 @@ impl Recorded {
             ended: Mutex::new(Vec::new()),
             ends_before_menu: None,
             end_while_waiting: Mutex::new(Vec::new()),
+            starts: Mutex::new(Vec::new()),
         }
     }
 
@@ -146,6 +149,7 @@ impl Machine for Recorded {
     }
     fn start_game(&self, _: &Path, _: &Path, start: &Start, _: Duration) -> std::result::Result<(Process, f64), Failed> {
         self.push(Did::Start);
+        self.starts.lock().unwrap().push(start.clone());
         if let Some(code) = self.ends_before_menu {
             let ended = Ended { id: GAME.id, started: GAME.started, code };
             return Err(Failed { message: format!("the game ended (exit code {code}) before its main menu"), ended: Some(ended) });

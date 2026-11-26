@@ -274,8 +274,8 @@ fn fail_startup(reason: String, mut told: Option<notice::Message>, outdated_prox
         }
         report::line(format!("startup FAILED; nothing was hooked and no extension runs:\n{reason}"));
         report::write();
-        if tweaks::hidden::hidden_start() {
-            log!("startup failed in a hidden start, ending the game: {}", reason.replace('\n', "; "));
+        if tweaks::hidden::unattended() {
+            log!("startup failed in an unattended run, ending the game: {}", reason.replace('\n', "; "));
             unsafe { TerminateProcess(GetCurrentProcess(), 3) };
         }
         // A changed game can fail every point; the report keeps the full list.

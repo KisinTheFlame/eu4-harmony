@@ -23,7 +23,7 @@ pub(crate) mod zip;
 
 pub(crate) use eu4_harmony_manifest::{hosts, pdx};
 pub(crate) use runtime::{
-    build_label, called_by_game, fatal, game_dir, game_window, guarded, hidden_start, is_drawing_thread, is_hidden, log_panics, main_thread, mark_bootstrap,
-    open_fallback_log, open_logs, reopen_log, set_drawing_thread, set_game_dir, set_game_window, set_hidden, set_hidden_start, set_session_number,
-    since_bootstrap, swap_hidden, thread_id, Result, MAIN_THREAD,
+    build_label, called_by_game, fatal, game_dir, game_window, guarded, is_drawing_thread, is_hidden, log_panics, main_thread, mark_bootstrap,
+    open_fallback_log, open_logs, reopen_log, set_drawing_thread, set_game_dir, set_game_window, set_hidden, set_session_number, set_unattended,
+    since_bootstrap, swap_hidden, thread_id, unattended, Result, MAIN_THREAD,
 };
