@@ -7,7 +7,7 @@
 //! applied after.
 use crate::framework_ui::mods_window::Card;
 use crate::native::splice::{Element, Plan};
-use crate::{base::lang, speed::loading, base::loc, lua, base::mods, base::notice, native::physfs, pipe, base::report, saves, speed::saving, base::settings, native::splice, ui, text::unicode};
+use crate::{base::lang, speed::loading, base::loc, lua, base::mods, base::notice, native::physfs, pipe, base::report, session::saves, speed::saving, base::settings, native::splice, interface::ui, text::unicode};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -118,7 +118,7 @@ pub(crate) fn run(game_dir: PathBuf, installed: &str) {
         }
     };
     let logs = crate::base::open_logs(&user_dir);
-    crate::crash::register_windows_dumps(&user_dir);
+    crate::session::crash::register_windows_dumps(&user_dir);
     crate::report_header(Some(&game_dir));
     log!("user dir {}", user_dir.display());
     let chosen = settings::load(&user_dir);
@@ -149,7 +149,7 @@ pub(crate) fn run(game_dir: PathBuf, installed: &str) {
     let outcomes = lua::load(&mods, &logs, &data_dir);
     let included = |i: usize| outcomes[i].included;
     let mut ui_notes = splice::build(&mods, included, &mut plan);
-    ui_notes.extend(crate::windows::splice_entries(&mut plan));
+    ui_notes.extend(crate::interface::windows::splice_entries(&mut plan));
     for note in &ui_notes {
         log!("ui: {note}");
     }

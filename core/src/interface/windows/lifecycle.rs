@@ -6,7 +6,7 @@
 //! applied generation or list is committed only after it succeeds.
 use super::gui;
 use super::{self as live, Bound, Built, ElementOps, Key, Live, WantWindow, Wants};
-use crate::{native::bound_element::{BoundElement, Look, Shown}, native::game_heap, native::memory::Memory, native::objects::gui::{functions, globals, list_box, list_entry, window}, ui, window_ordering::{self, Identity, Owned}, base::Result};
+use crate::{native::bound_element::{BoundElement, Look, Shown}, native::game_heap, native::memory::Memory, native::objects::gui::{functions, globals, list_box, list_entry, window}, interface::ui, interface::window_ordering::{self, Identity, Owned}, base::Result};
 use eu4_harmony_lua::{
     layout::{self, Kind, Placed},
     Popup, Property,

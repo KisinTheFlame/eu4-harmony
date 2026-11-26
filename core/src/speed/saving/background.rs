@@ -348,7 +348,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("test.eu4");
         std::fs::write(&path, &packed).unwrap();
-        let header = crate::saves::file::read(&path).unwrap();
+        let header = crate::session::saves::file::read(&path).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
         assert!(header.date.is_some());
     }

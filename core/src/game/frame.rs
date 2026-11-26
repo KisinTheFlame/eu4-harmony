@@ -4,14 +4,14 @@
 //! [`Frame`], which extensions and remote control hear ([`Frame::heard`]).
 //! Reading the game is `game::begin_frame`'s; deciding is here alone.
 use super::{buildings, named, signals, wars, Tag, World};
-use crate::sessions::Seen;
+use crate::session::sessions::Seen;
 use eu4_harmony_remote::signals::{Kind, Signal, Winner};
 
 /// What a safe frame read of the game, before anything is made of it.
 pub struct Observed {
     /// The game and its player, also with no country to act as.
     pub world: World,
-    /// What the frame shows of sessions (`crate::sessions`).
+    /// What the frame shows of sessions (`crate::session::sessions`).
     pub seen: Seen,
     /// Visibility reflects the frame's date.
     pub visibility_current: bool,

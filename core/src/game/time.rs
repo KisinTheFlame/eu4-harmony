@@ -72,7 +72,7 @@ pub fn time(WorldSession { m, world: ctx, .. }: WorldSession) -> GResult<Time> {
     } else {
         Pause::Window
     };
-    Ok(Time { session: crate::sessions::number(), date: ctx.date, speed: index as u32 + 1, pause, over: over(m, &ctx)? })
+    Ok(Time { session: crate::session::sessions::number(), date: ctx.date, speed: index as u32 + 1, pause, over: over(m, &ctx)? })
 }
 
 /// Pauses the game with the player's own pause, as the player would, also
@@ -172,7 +172,7 @@ pub struct Stop {
 /// A stop held.
 struct Held {
     number: u64,
-    /// The session it was held in (`crate::sessions::number`).
+    /// The session it was held in (`crate::session::sessions::number`).
     session: u64,
     date: i32,
     reached: bool,
@@ -254,7 +254,7 @@ impl Stop {
 impl Drop for Stop {
     fn drop(&mut self) {
         if !self.released {
-            let (number, session) = (self.number, crate::sessions::number());
+            let (number, session) = (self.number, crate::session::sessions::number());
             stops(|s| s.call_off(number, session));
         }
     }
@@ -268,7 +268,7 @@ pub fn stop_at(caller: Caller, date: i32) -> GResult<Stop> {
     if let Caller::Extension(_) = caller {
         return fail(Status::Unavailable, "only remote control advances time");
     }
-    let session = crate::sessions::number();
+    let session = crate::session::sessions::number();
     let number = stops(|s| s.hold(session, date));
     Ok(Stop { number, released: false })
 }
@@ -279,11 +279,11 @@ pub fn stop_at(caller: Caller, date: i32) -> GResult<Stop> {
 /// day, and a window that holds the game paused too (an event window, a
 /// message set to pause) does not let it run on once it closes.
 pub(super) fn day_passed(m: &Memory) {
-    if crate::sessions::loading() {
+    if crate::session::sessions::loading() {
         return;
     }
     let Ok(ctx) = world_context_any(m) else { return };
-    let session = crate::sessions::number();
+    let session = crate::session::sessions::number();
     let asked = || context_any(m).is_ok_and(|player| questions::count(m, &player).is_ok_and(|waiting| waiting > 0));
     let due = stops(|s| s.reach(session, ctx.date)) || (stops(|s| s.advancing(session)) && asked());
     if due {
@@ -329,11 +329,11 @@ pub(crate) fn pause_game(m: &Memory, ctx: &World) -> GResult<()> {
 }
 
 /// Before the game starts `eu4.exe` again, whoever asked for it: the
-/// sessions are told (`crate::sessions::restarting`), so that remote control
+/// sessions are told (`crate::session::sessions::restarting`), so that remote control
 /// answers every request while this process can still write the answers.
 fn restart_before(_: &mut Call) {
     log!("the game starts eu4.exe again");
-    crate::sessions::restarting();
+    crate::session::sessions::restarting();
 }
 
 /// The speed, the pause toggle and the restart.
@@ -510,7 +510,7 @@ mod tests {
     #[test]
     fn only_remote_control_holds_a_stop_and_one_dropped_is_called_off() {
         assert_eq!(stop_at(Caller::Extension(0), 100).unwrap_err().status, Status::Unavailable);
-        let session = crate::sessions::number();
+        let session = crate::session::sessions::number();
         let answered = stop_at(Caller::Remote(As::Player), 100).unwrap();
         let given_up = stop_at(Caller::Remote(As::Player), 1000).unwrap();
         answered.release();

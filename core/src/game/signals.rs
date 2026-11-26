@@ -133,7 +133,7 @@ fn boundary<T>(f: impl FnOnce(&mut Boundary) -> T) -> T {
     f(guard.get_or_insert_with(Boundary::default))
 }
 
-/// A save begins to be read. Told by the sessions (`crate::sessions`), as
+/// A save begins to be read. Told by the sessions (`crate::session::sessions`), as
 /// are [`world_reset`] and [`session_forgotten`].
 pub fn load_begin() {
     boundary(Boundary::replaced);
@@ -261,7 +261,7 @@ thread_local! {
 fn route_before(call: &mut Call) {
     let (m, army) = (&call.memory(), call.arg(0));
     let watched = (|| {
-        if orders::own_mutation_thread() == crate::base::thread_id() || crate::sessions::loading() {
+        if orders::own_mutation_thread() == crate::base::thread_id() || crate::session::sessions::loading() {
             return None;
         }
         let id = own_army_id(m, army)?;
@@ -338,7 +338,7 @@ fn route_changed(before: Option<&orders::Path>, after: Option<&orders::Path>) ->
 /// Battle resolution: args are (battle, winner side, loser side, side index).
 fn defeat_before(call: &mut Call) {
     let m = &call.memory();
-    if crate::sessions::loading() {
+    if crate::session::sessions::loading() {
         return;
     }
     let a = [call.arg(0), call.arg(1), call.arg(2), call.arg(3)];
@@ -374,7 +374,7 @@ fn defeat_before(call: &mut Call) {
 /// while someone listens to battles.
 fn results_before(call: &mut Call) {
     let m = &call.memory();
-    if crate::sessions::loading() || !listened(Kind::Battle) {
+    if crate::session::sessions::loading() || !listened(Kind::Battle) {
         return;
     }
     let (a, back) = ([call.arg(0), call.arg(1)], call.caller());
@@ -471,7 +471,7 @@ pub fn points() -> Vec<Point> {
 /// Fails when the frame is not one: while a save loads, off the main thread,
 /// or when the campaign cannot be read.
 pub fn frame_campaign(m: &Memory) -> GResult<(World, u8)> {
-    if crate::sessions::loading() {
+    if crate::session::sessions::loading() {
         return fail(Status::NotReady, "a save is being loaded");
     }
     if crate::base::thread_id() != crate::base::main_thread() {

@@ -117,7 +117,7 @@ impl Windows {
             match click {
                 live::RoutedClick::Widget { extension, window, widget, row, right, modifiers } => {
                     if self.wanted.check_press(extension, &window, &widget, row).is_ok() && self.clicks.len() < 64 {
-                        let (shift, ctrl) = (modifiers & crate::ui::MODIFIER_SHIFT != 0, modifiers & crate::ui::MODIFIER_CTRL != 0);
+                        let (shift, ctrl) = (modifiers & crate::interface::ui::MODIFIER_SHIFT != 0, modifiers & crate::interface::ui::MODIFIER_CTRL != 0);
                         self.clicks.push(Click { extension, button: format!("{window}.{widget}"), right, shift, ctrl, row });
                     }
                 }
@@ -179,7 +179,7 @@ pub fn forget(extension: usize) {
 
 /// A change an extension makes to its windows, checked by the Lua host.
 pub fn change(extension: usize, change: WindowChange) -> Result<(), String> {
-    let in_game = crate::sessions::going_on();
+    let in_game = crate::session::sessions::going_on();
     with(|all| all.wanted.change(extension, change, in_game))
 }
 
@@ -190,7 +190,7 @@ pub fn tooltip(extension: usize, window: &str, widget: &str) -> Result<eu4_harmo
 
 /// Shows a pop-up of `extension`'s, and gives its number.
 pub fn popup(extension: usize, popup: Popup) -> Result<u32, String> {
-    let in_game = crate::sessions::going_on();
+    let in_game = crate::session::sessions::going_on();
     with(|all| all.wanted.popup(extension, popup, in_game))
 }
 
@@ -215,7 +215,7 @@ pub fn popups() -> Vec<eu4_harmony_remote::popups::Popup> {
     open.into_iter()
         .map(|(number, extension, popup)| eu4_harmony_remote::popups::Popup {
             popup: number,
-            mod_id: crate::lua::mod_id(extension).unwrap_or_default(),
+            mod_id: super::mod_id(extension).unwrap_or_default(),
             header: popup.header.clone(),
             title: popup.title.clone(),
             text: popup.text.clone(),
@@ -248,7 +248,7 @@ pub fn take_clicks() -> Vec<Click> {
 /// The pop-ups shown since the last frame: each one's number and its mod.
 pub fn take_shown() -> Vec<(u32, String)> {
     let shown = with(|all| all.wanted.take_shown());
-    shown.into_iter().map(|(number, extension)| (number, crate::lua::mod_id(extension).unwrap_or_default())).collect()
+    shown.into_iter().map(|(number, extension)| (number, super::mod_id(extension).unwrap_or_default())).collect()
 }
 
 pub fn points() -> Vec<crate::native::points::Point> {

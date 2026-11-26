@@ -299,7 +299,14 @@ pub fn stop(session: Session, args::Stop { army: ArmyId(id) }: args::Stop) -> GR
 
 /// The own land army shown in the open single-army panel.
 pub fn selected(Session { m, ctx, .. }: Session) -> GResult<u64> {
-    crate::ui::selected_army(m, &ctx)
+    let army = match crate::interface::ui::selected_army_ptr(m)? {
+        crate::interface::ui::SelectedArmyPanel::Open(army) => army,
+        crate::interface::ui::SelectedArmyPanel::NotOpen => return Err(eu4_harmony_checks::armies::panel_not_open().into()),
+    };
+    if !super::army::is_own_army(m, ctx.player, army)? {
+        return Err(eu4_harmony_checks::armies::none_selected().into());
+    }
+    Ok(m.u64(army + crate::native::objects::campaign::unit::ID)?)
 }
 
 /// The group's dependency points: none of its own.

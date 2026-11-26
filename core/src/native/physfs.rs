@@ -74,7 +74,7 @@ pub fn set_plan(plan: Plan) {
 
 /// Serves the file at `path`, one PhysFS finds (a framework file), with
 /// `data` from now on, whatever it holds: what the framework writes after
-/// startup for the game to read again (`crate::windows`).
+/// startup for the game to read again (`crate::interface::windows`).
 pub fn serve(path: &str, data: Vec<u8>) {
     state().served.insert(normalize(path), data);
 }

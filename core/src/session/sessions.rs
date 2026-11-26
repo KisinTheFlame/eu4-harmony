@@ -4,7 +4,7 @@
 //!
 //! The hooks that see a session begin or end call in here, and only here:
 //! the safe points (`crate::safe_point`) with each frame and where the
-//! safe point is, the save loader (`crate::saves`) as it begins and ends to
+//! safe point is, the save loader (`crate::session::saves`) as it begins and ends to
 //! read a save, the world's own reset (observed here), leaving a session
 //! (`crate::game::menu::leave`) as the session ends and as the world is reset
 //! with its history, and the game's restart (`crate::game::time`). A
@@ -53,9 +53,9 @@
 //!   reset is done.
 //! - The game restarts: the saves compressed in the background are put in
 //!   their place, and remote control answers every request while it can.
-use crate::{game, native::hooks::Call, native::points::Point};
+use crate::native::{hooks::Call, points::Point};
 use std::{
-    sync::Mutex,
+    sync::{Mutex, OnceLock},
     time::{Duration, Instant},
 };
 
@@ -292,44 +292,19 @@ fn lifecycle<T>(f: impl FnOnce(&mut Lifecycle) -> T) -> T {
     f(&mut LIFECYCLE.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
-/// Hands each happening to those that hear it, in order.
+static LISTENER: OnceLock<fn(Happening)> = OnceLock::new();
+
+/// Registers the top-level dispatcher invoked for each [`Happening`] in order.
+pub(crate) fn set_listener(listener: fn(Happening)) {
+    let _ = LISTENER.set(listener);
+}
+
+/// Hands each happening to the registered listener, in order.
 fn tell(happened: Vec<Happening>) {
     for happening in happened {
         crate::base::log::event(format_args!("sessions: {happening:?}"));
-        match happening {
-            Happening::Forgotten(_) => {
-                game::session_forgotten();
-                game::signals::session_forgotten();
-                crate::map::reset_session();
-            }
-            Happening::Began(_) => game::input::session_began(),
-            Happening::Ended(session, end) => {
-                log!("session {session} ending ({end:?})");
-                game::signal_costs::log_session();
-                crate::safe_point::session_ended(end);
-                crate::saves::clear_session();
-                crate::base::log::checkpoint();
-            }
-            Happening::CampaignChanges => {
-                game::signals::load_begin();
-                game::orders::world_replaced();
-                crate::remote::campaign_changes();
-            }
-            Happening::WorldReset(world) => {
-                crate::saves::clear_session();
-                crate::repairs::world_reset(&crate::native::hooked_memory(), world);
-                crate::dev::world_reset();
-            }
-            Happening::FirstFrameAfterReset => crate::repairs::first_frame_after_reset(&crate::native::hooked_memory()),
-            Happening::ResetWithHistory => {
-                game::signals::world_reset();
-                game::orders::world_replaced();
-                crate::repairs::after_history(&crate::native::hooked_memory());
-            }
-            Happening::Restarting => {
-                crate::speed::saving::background::wait();
-                crate::remote::restarting();
-            }
+        if let Some(listener) = LISTENER.get() {
+            listener(happening);
         }
     }
 }
@@ -338,21 +313,12 @@ fn tell(happened: Vec<Happening>) {
 /// in it is collected: what it shows of sessions. A session is the world and
 /// the player's own tag: a change of the country in view leaves it going on
 /// (ADR observe-mode-acts-as-the-country-in-view).
-pub fn frame_read(world: &game::World) -> Seen {
-    let (seen, happened) = lifecycle(|l| l.frame_read((world.world, world.player.own().0)));
+pub fn frame_read(world: usize, own_tag: u64, context_line: impl FnOnce() -> String) -> Seen {
+    let (seen, happened) = lifecycle(|l| l.frame_read((world, own_tag)));
     crate::base::set_session_number(seen.session);
     tell(happened);
     if seen.new_session {
-        let tag =
-            |tag: Option<game::Tag>| tag.filter(|t| t.normal()).map(|t| String::from_utf8_lossy(&t.letters()).into_owned()).unwrap_or_else(|| "none".into());
-        crate::base::log::event(format_args!(
-            "session {} context: game_date={} own={} in_view={} observing={}",
-            seen.session,
-            eu4_harmony_checks::Date(world.date),
-            tag(Some(world.player.own())),
-            tag(world.player.acting()),
-            world.player.observing()
-        ));
+        crate::base::log::event(format_args!("session {} context: {}", seen.session, context_line()));
     }
     seen
 }

@@ -7,7 +7,7 @@
 //! interface file, which takes new names after startup: an extension
 //! reload's windows are named afresh, and each pop-up has a name of its own.
 //! A window is built with the game's CreateWindow, placed, shown and bound:
-//! its buttons' clicks subscribed as the army panel's are (`crate::ui`), its
+//! its buttons' clicks subscribed as the army panel's are (`crate::interface::ui`), its
 //! elements set as what the extension wants changes. The framework kills
 //! it when it is to close, and hears when the game kills it itself, as the
 //! game's `ui` observer of Kill tells [`killed`]; one still wanted open is
@@ -26,10 +26,20 @@ mod entries;
 mod lifecycle;
 
 use super::{gui, with};
-use crate::{base::Result, native::bound_element::{self, BoundElement, Hears, Look, Shown}, game::{self, Caller, WorldSession}, native::game_string, native::hooks::Call, native::memory::Memory, native::objects::{
+use crate::{
+    base::Result,
+    native::bound_element::{self, BoundElement, Hears, Look, Shown},
+    native::game_string,
+    native::hooks::Call,
+    native::memory::Memory,
+    native::objects::{
         campaign,
         gui::{classes, element, functions, list_box, manager, scene, window, window_gui},
-    }, native::points::{GameFunction, Point}, ui::{self, Callback}, text::unicode::game_text};
+    },
+    native::points::{GameFunction, Point},
+    text::unicode::game_text,
+};
+use super::super::ui::{self, Callback};
 use eu4_harmony_lua::windows::Wanted;
 use eu4_harmony_lua::{
     layout::{self, Kind, Window},
@@ -446,18 +456,15 @@ fn clicks(m: &Memory) {
 /// The letters of the player's country, none in observe mode with no
 /// country in view.
 fn player_letters(m: &Memory) -> Option<String> {
-    game::context(m).ok().map(|ctx| String::from_utf8_lossy(&ctx.player.letters()).into_owned())
+    super::super::player_letters(m)
 }
 
 /// Opens the diplomacy view on the country of a pop-up's shield, on the
 /// `side` of [`gui::SHIELDS`], as a click on the game's own shields does.
 fn open_diplomacy(m: &Memory, number: u32, side: usize) -> Result<()> {
-    let named = with(|all| all.wanted.open_popup(number).map(|p| p.popup.shields[side].clone()));
-    let Some(letters) = named.flatten().or_else(|| player_letters(m)) else { return Ok(()) };
-    let session = WorldSession::open(Caller::Remote(game::As::Player)).map_err(|e| e.message)?;
-    let bytes: [u8; 3] = letters.as_bytes().try_into().map_err(|_| format!("{letters:?} is not a tag"))?;
-    let tag = game::countries::named(session.m, &session.world, eu4_harmony_remote::CountryTag(bytes)).map_err(|e| e.message)?;
-    OPEN_DIPLOMACY.call(m, [idler(m)?, tag.0 as usize])?;
+    let named = with(|all| all.wanted.open_popup(number).map(|p| p.popup.shields[side].clone())).flatten();
+    let Some(tag) = super::super::resolve_shield_country(m, named.as_deref())? else { return Ok(()) };
+    OPEN_DIPLOMACY.call(m, [idler(m)?, tag as usize])?;
     Ok(())
 }
 
@@ -479,7 +486,7 @@ pub(crate) fn killed(m: &Memory, root: usize) {
 /// The session ended: every window and pop-up is killed, and the state
 /// forgets them.
 pub(crate) fn session_ended() {
-    crate::tooltips::clear();
+    crate::interface::tooltips::clear();
     STRIP_DIRTY.store(false, Ordering::Release);
     if let Some(m) = crate::native::memory() {
         with_live(|live| {
@@ -492,7 +499,7 @@ pub(crate) fn session_ended() {
         });
     }
     with(|all| all.end_session());
-    crate::window_ordering::clear();
+    crate::interface::window_ordering::clear();
 }
 
 // ---------- the game's big panels and tooltips ----------
@@ -509,7 +516,7 @@ fn panels_closing(_: &mut Call) {
 /// Passes the actual hit to the shared native presentation adapter.
 fn tooltip_after(call: &mut Call) {
     if !call.faulted() && crate::base::thread_id() == crate::base::main_thread() {
-        crate::tooltips::hit(call.arg(2));
+        crate::interface::tooltips::hit(call.arg(2));
     }
 }
 

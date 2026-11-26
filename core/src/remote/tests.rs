@@ -353,7 +353,7 @@ fn requests_from_other_threads_are_answered_on_the_one_that_runs_the_engine() {
 fn what_a_game_frame_tells_extensions_is_kept_as_signals() {
     let observed = |session, new_session, date, changes| game::frame::Observed {
         world: game::World { world: 0, date, countries: 0, player: game::player::Player::Plays(tur()) },
-        seen: crate::sessions::Seen { session, new_session },
+        seen: crate::session::sessions::Seen { session, new_session },
         visibility_current: true,
         changes,
     };

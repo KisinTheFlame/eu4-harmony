@@ -21,7 +21,7 @@
 //! (observing, say) only once the game's frames have been so for
 //! `sessions::UNPLAYABLE_AFTER`; until then what needs a game waits, as at a
 //! frame that is not ready. What begins and ends a session, and where the
-//! safe point is, is told to the sessions (`crate::sessions`).
+//! safe point is, is told to the sessions (`crate::session::sessions`).
 //!
 //! The extensions (`crate::lua`) and remote control (`crate::remote`) are the
 //! two [`Listener`]s of [`Listeners`], which says in one place what they hear
@@ -38,11 +38,7 @@
 //! - A game's safe frame: what happened since the last one, in its order
 //!   (`game::Frame::heard`), first to the extensions, then to remote control,
 //!   which keeps what they just heard and runs.
-use crate::{
-    game::{self, Heard},
-    lua, remote, repairs,
-    sessions::{self, At, End},
-};
+use crate::{game::{self, Heard}, lua, remote, repairs, session::sessions::{self, At, End}};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Mutex,
@@ -134,7 +130,7 @@ impl<E: Listener, R: Listener> Listeners<E, R> {
 
 static LISTENERS: Listeners<lua::Extensions, remote::Remote> = Listeners::new(lua::Extensions, remote::Remote);
 
-/// The session going on ended, for `end` (`crate::sessions`).
+/// The session going on ended, for `end` (`crate::session::sessions`).
 pub(crate) fn session_ended(end: End) {
     crate::dev::session_ended();
     LISTENERS.ended(end);
@@ -180,7 +176,7 @@ pub fn game_frame() {
             let mut heard = game::signal_costs::SIGNALS.time(|| frame.heard());
             // The pop-ups extensions showed since the last frame.
             heard.extend(
-                crate::windows::take_shown()
+                crate::interface::windows::take_shown()
                     .into_iter()
                     .map(|(popup, from)| game::Heard { signal: eu4_harmony_remote::signals::Signal::Popup { popup, from }, seen: true }),
             );

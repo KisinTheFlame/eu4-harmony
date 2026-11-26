@@ -34,7 +34,7 @@ pub fn session(_: Caller) -> GResult<Session> {
     let m = game()?;
     let world = world_context(m)?;
     Ok(Session {
-        session: crate::sessions::number(),
+        session: crate::session::sessions::number(),
         date: world.date,
         paused: paused(m, &world)?,
         visibility_current: signals::visibility_current(m, &world),

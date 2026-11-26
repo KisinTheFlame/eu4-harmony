@@ -19,8 +19,9 @@ pub(crate) mod render;
 pub(crate) mod repairs;
 pub(crate) mod speed;
 pub(crate) mod tweaks;
+pub(crate) mod session;
+pub(crate) mod interface;
 pub mod catalogue;
-mod crash;
 pub mod dev;
 pub mod framework_ui;
 pub mod game;
@@ -30,16 +31,10 @@ pub mod pipe;
 mod proxy;
 pub mod remote;
 pub mod safe_point;
-pub mod saves;
-pub mod sessions;
 mod speed_registry;
 mod startup;
 mod startup_failure;
 mod this_build;
-mod tooltips;
-pub mod ui;
-mod window_ordering;
-pub mod windows;
 
 use base::{heap, icu, lang, log, notice, paths, report, settings};
 use native::{baseline, memory, points};
@@ -66,13 +61,13 @@ fn wire_base() {
     native::points::set_declared_provider(this_build::declared);
     native::files::set_provider(|| {
         let mut all = text::unicode::framework_fonts::files();
-        all.extend(windows::files());
+        all.extend(interface::windows::files());
         all
     });
     native::physfs::set_on_first_init(deferred_init);
     render::present::set_hooks(render::present::PresentHooks {
         is_held: framework_ui::held,
-        discard_late: tooltips::discard_late,
+        discard_late: interface::tooltips::discard_late,
         before_present: |renderer, device| {
             base::guarded("font pages", text::unicode::fill::grow_pages);
             base::guarded("framework UI frame", || {
@@ -80,7 +75,7 @@ fn wire_base() {
                     unsafe { framework_ui::frame(device) }
                 }
             });
-            base::guarded("native tooltip over framework UI", || tooltips::draw_late(renderer));
+            base::guarded("native tooltip over framework UI", || interface::tooltips::draw_late(renderer));
             base::guarded("screenshot", || {
                 if let Some(device) = device {
                     game::screenshot::presenting(device);
@@ -98,7 +93,7 @@ fn wire_base() {
             base::guarded("text costs", text::unicode::costs::log_when_due);
         },
         before_reset: || {
-            tooltips::clear();
+            interface::tooltips::clear();
             framework_ui::device_reset();
             game::screenshot::device_reset();
         },
@@ -114,12 +109,82 @@ fn wire_base() {
         on_prepared_safe_point: safe_point::presented,
         on_prepared_input: game::input::presenting,
         is_holding: framework_ui::holding,
-        prepare_scene: window_ordering::prepare_scene,
+        prepare_scene: interface::window_ordering::prepare_scene,
         cursor_now: game::input::cursor_now,
     });
     tweaks::hidden::set_hooks(tweaks::hidden::HiddenHooks {
         on_early_sync: proxy::sync_once,
         on_hold_cursor: game::input::hold,
+    });
+    session::sessions::set_listener(|happening| {
+        use session::sessions::Happening;
+        match happening {
+            Happening::Forgotten(_) => {
+                game::session_forgotten();
+                game::signals::session_forgotten();
+                map::reset_session();
+            }
+            Happening::Began(_) => game::input::session_began(),
+            Happening::Ended(session, end) => {
+                log!("session {session} ending ({end:?})");
+                game::signal_costs::log_session();
+                safe_point::session_ended(end);
+                session::saves::clear_session();
+                base::log::checkpoint();
+            }
+            Happening::CampaignChanges => {
+                game::signals::load_begin();
+                game::orders::world_replaced();
+                remote::campaign_changes();
+            }
+            Happening::WorldReset(world) => {
+                session::saves::clear_session();
+                repairs::world_reset(&native::hooked_memory(), world);
+                dev::world_reset();
+            }
+            Happening::FirstFrameAfterReset => repairs::first_frame_after_reset(&native::hooked_memory()),
+            Happening::ResetWithHistory => {
+                game::signals::world_reset();
+                game::orders::world_replaced();
+                repairs::after_history(&native::hooked_memory());
+            }
+            Happening::Restarting => {
+                speed::saving::background::wait();
+                remote::restarting();
+            }
+        }
+    });
+    session::saves::set_hooks(session::saves::SaveHooks {
+        collect_save_data: lua::collect_save_data,
+        join_parallel_save: speed::saving::parallel::join,
+        wait_background_save: speed::saving::background::wait,
+    });
+    interface::set_hooks(interface::InterfaceHooks {
+        mod_id: lua::mod_id,
+        in_game: |m| game::context(m).is_ok(),
+        modifiers_held: game::input::modifiers_held,
+        on_main_menu_frame: |frontend, show_corner| {
+            safe_point::main_menu_frame(frontend);
+            speed::loading_times::log_main_menu();
+            if show_corner {
+                framework_ui::main_menu_frame();
+            }
+        },
+        framework_tooltip_at: framework_ui::tooltip_at,
+        player_letters: |m| game::context(m).ok().map(|ctx| String::from_utf8_lossy(&ctx.player.letters()).into_owned()),
+        resolve_shield_country: |m, named| {
+            let letters = match named {
+                Some(s) => s.to_string(),
+                None => match game::context(m).ok() {
+                    Some(ctx) => String::from_utf8_lossy(&ctx.player.letters()).into_owned(),
+                    None => return Ok(None),
+                },
+            };
+            let session = game::WorldSession::open(game::Caller::Remote(game::As::Player)).map_err(|e| e.message)?;
+            let bytes: [u8; 3] = letters.as_bytes().try_into().map_err(|_| format!("{letters:?} is not a tag"))?;
+            let tag = game::countries::named(session.m, &session.world, eu4_harmony_remote::CountryTag(bytes)).map_err(|e| e.message)?;
+            Ok(Some(tag.0))
+        },
     });
 }
 

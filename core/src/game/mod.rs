@@ -350,7 +350,7 @@ static RECALL: Mutex<frame::Recall> = Mutex::new(frame::Recall::new());
 
 /// A game frame shows another session than the last frame did: what the
 /// capabilities kept of that one goes. Told by the sessions
-/// (`crate::sessions`).
+/// (`crate::session::sessions`).
 pub fn session_forgotten() {
     with_state(|s| {
         s.geography.clear();
@@ -361,12 +361,22 @@ pub fn session_forgotten() {
 
 /// Starts a safe frame (see [`signals`]); fails when this is not one, saying
 /// why. The sessions hear of it first, which let what was kept of another
-/// session go (`crate::sessions`). An army the player gave an order is no
+/// session go (`crate::session::sessions`). An army the player gave an order is no
 /// longer an extension's to move. What happened since the last frame is
 /// [`frame`]'s to decide.
 pub fn begin_frame(m: &Memory) -> GResult<Frame> {
     let (world, fog) = signals::frame_campaign(m)?;
-    let seen = crate::sessions::frame_read(&world);
+    let seen = crate::session::sessions::frame_read(world.world, world.player.own().0, || {
+        let tag =
+            |tag: Option<Tag>| tag.filter(|t| t.normal()).map(|t| String::from_utf8_lossy(&t.letters()).into_owned()).unwrap_or_else(|| "none".into());
+        format!(
+            "game_date={} own={} in_view={} observing={}",
+            eu4_harmony_checks::Date(world.date),
+            tag(Some(world.player.own())),
+            tag(world.player.acting()),
+            world.player.observing()
+        )
+    });
     let (visibility_current, changes) = signals::take_frame(&world, fog);
     with_state(|s| {
         for change in &changes {

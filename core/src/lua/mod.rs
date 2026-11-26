@@ -12,7 +12,7 @@
 //! `eu4-harmony/logs/extension-<id>.log`, with bounded older segments beside it.
 mod http;
 
-use crate::{catalogue::{self, Catalogue, Place, Wait}, game::{self, map_coloring, Caller}, map, base::mods::DiscoveredMod, base::notice::{Message, Repeat}, saves, ui};
+use crate::{catalogue::{self, Catalogue, Place, Wait}, game::{self, map_coloring, Caller}, map, base::mods::DiscoveredMod, base::notice::{Message, Repeat}, session::saves, interface::ui};
 use eu4_harmony_lua::{
     dispatch::{self, Heard},
     fetch, Answered, Arg, Called, Element, Extension, Host, Mod, Pending, Popup, WindowChange,
@@ -219,7 +219,7 @@ impl ExtensionRuntime {
         self.refresh_report(env, began);
     }
 
-    fn tell_ended<E: RuntimeEnv>(&self, env: &E, end: crate::sessions::End) {
+    fn tell_ended<E: RuntimeEnv>(&self, env: &E, end: crate::session::sessions::End) {
         let all = self.extensions();
         dispatch::hear(&all, &Heard::of(&end.signal()), &mut Fed { runtime: self, env, began: false });
         env.windows_session_ended();
@@ -329,7 +329,7 @@ impl RuntimeEnv for CoreEnv {
     }
 
     fn session_going_on(&self) -> bool {
-        crate::sessions::going_on()
+        crate::session::sessions::going_on()
     }
 
     fn saves_begin_session(&self) -> bool {
@@ -358,16 +358,16 @@ impl RuntimeEnv for CoreEnv {
             row: None,
         };
         let mut clicks: Vec<dispatch::Click> = ui::take_clicks().into_iter().map(click).collect();
-        clicks.extend(crate::windows::take_clicks());
+        clicks.extend(crate::interface::windows::take_clicks());
         clicks
     }
 
     fn take_windows_seen(&self) -> Vec<dispatch::WindowSeen> {
-        crate::windows::take_seen()
+        crate::interface::windows::take_seen()
     }
 
     fn take_popups_pressed(&self) -> Vec<dispatch::PopupPressed> {
-        crate::windows::take_popups_pressed()
+        crate::interface::windows::take_popups_pressed()
     }
 
     fn extensions_listen(&self, kinds: BTreeSet<eu4_harmony_remote::signals::Kind>) {
@@ -375,11 +375,11 @@ impl RuntimeEnv for CoreEnv {
     }
 
     fn windows_frame(&self) {
-        crate::windows::frame();
+        crate::interface::windows::frame();
     }
 
     fn windows_session_ended(&self) {
-        crate::windows::session_ended();
+        crate::interface::windows::session_ended();
     }
 
     fn write_report(&self) {
@@ -504,22 +504,22 @@ impl Host for Live {
     }
 
     fn window(&self, extension: usize, change: WindowChange) -> Result<(), String> {
-        crate::windows::change(extension, change)
+        crate::interface::windows::change(extension, change)
     }
 
     fn tooltip(&self, extension: usize, window: Option<&str>, widget: &str) -> Result<eu4_harmony_lua::Text, String> {
         match window {
-            Some(window) => crate::windows::tooltip(extension, window, widget),
+            Some(window) => crate::interface::windows::tooltip(extension, window, widget),
             None => ui::tooltip(extension, widget),
         }
     }
 
     fn popup(&self, extension: usize, popup: Popup) -> Result<u32, String> {
-        crate::windows::popup(extension, popup)
+        crate::interface::windows::popup(extension, popup)
     }
 
     fn close_popup(&self, extension: usize, popup: u32) -> Result<(), String> {
-        crate::windows::close_popup(extension, popup)
+        crate::interface::windows::close_popup(extension, popup)
     }
 
     fn paint(&self, extension: usize, colors: &[(u32, [u8; 4])]) -> Result<(), Error> {
@@ -570,7 +570,7 @@ impl Host for Live {
     }
 
     fn session(&self) -> u64 {
-        crate::sessions::number()
+        crate::session::sessions::number()
     }
 
     fn first_error(&self, extension: &Extension, from: &str, message: &str) {
@@ -584,7 +584,7 @@ impl Host for Live {
     fn stopped(&self, extension: &Extension, reason: &str) {
         log!("extension {:?} stopped: {reason}", extension.id());
         ui::hide_extension(extension.index());
-        crate::windows::forget(extension.index());
+        crate::interface::windows::forget(extension.index());
         if let Some(m) = crate::native::memory() {
             map::release(m, extension.index());
             crate::base::notice::post(
@@ -634,7 +634,7 @@ pub fn load(mods: &[DiscoveredMod], log_dir: &Path, data_dir: &Path) -> Vec<Load
 
 /// The windows an extension's main.lua returns, for the framework to build.
 fn declare_windows(extension: &Extension) {
-    crate::windows::declare(extension.index(), extension.id(), extension.windows(), extension.images());
+    crate::interface::windows::declare(extension.index(), extension.id(), extension.windows(), extension.images());
 }
 
 /// What an extension reload came to.
@@ -690,7 +690,7 @@ impl crate::safe_point::Listener for Extensions {
     /// save, when there is one, was written. Heard late, after the extension's
     /// call it ended in, the session's state is gone by then, as what ended
     /// it ran inside that call.
-    fn ended(&self, end: crate::sessions::End) {
+    fn ended(&self, end: crate::session::sessions::End) {
         RUNTIME.tell_ended(&CoreEnv, end);
     }
 
@@ -1265,7 +1265,7 @@ mod tests {
         assert_eq!(runtime.collect_save_data(), vec![("framed".into(), Some(serde_json::json!({"n": 9})))]);
 
         // Session end dispatches handler, notifies windows, and drains clocks.
-        runtime.tell_ended(&env, crate::sessions::End::Return);
+        runtime.tell_ended(&env, crate::session::sessions::End::Return);
         assert_eq!(env.windows_ended.load(std::sync::atomic::Ordering::Relaxed), 1);
         assert!(runtime.state.lock().unwrap().session_clocks.is_none());
         assert!(host.0.lock().unwrap().iter().any(|l| l == "ended"), "{:?}", host.0.lock().unwrap());

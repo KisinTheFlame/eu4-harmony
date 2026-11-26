@@ -23,7 +23,7 @@ use std::{
 pub(super) enum Moment {
     /// A return whose session's interface is gone (`super::session_interface`).
     Return,
-    /// A world reset that ended (`crate::sessions`).
+    /// A world reset that ended (`crate::session::sessions`).
     Reset,
 }
 

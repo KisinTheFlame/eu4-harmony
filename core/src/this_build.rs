@@ -17,18 +17,13 @@ fn framework() -> Vec<Point> {
     all.extend(crate::native::game_string::points());
     all.extend(crate::native::game_heap::points());
     all.extend(crate::game::points());
-    all.extend(crate::ui::points());
-    all.extend(crate::windows::points());
-    all.extend(crate::window_ordering::points());
-    all.extend(crate::tooltips::points());
+    all.extend(crate::interface::points());
     all.extend(crate::map::points());
-    all.extend(crate::saves::points());
+    all.extend(crate::session::points());
     all.extend(crate::repairs::points());
-    all.extend(crate::sessions::points());
     all.extend(crate::tweaks::points());
     all.extend(crate::text::points());
     all.extend(crate::render::present::points());
-    all.extend(crate::crash::points());
     all.extend(crate::native::main_thread::points());
     all.extend(crate::speed::loading_times::points());
     all

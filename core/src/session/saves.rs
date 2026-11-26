@@ -6,7 +6,7 @@
 //! How the game writes and reads saves is in docs/game/program/saves.md.
 //!
 //! The save loader is observed as well, which tells the sessions
-//! (`crate::sessions`) when a save is being read and whether it was.
+//! (`crate::session::sessions`) when a save is being read and whether it was.
 pub mod file;
 
 use crate::base::called_by_game;
@@ -311,6 +311,18 @@ fn decode(tokens: &[Token]) -> Result<BTreeMap<String, Value>> {
 
 // `GameToken` is declared in `native::objects::saves_rva`.
 
+pub(crate) struct SaveHooks {
+    pub(crate) collect_save_data: fn() -> Vec<(String, Option<serde_json::Value>)>,
+    pub(crate) join_parallel_save: fn(usize),
+    pub(crate) wait_background_save: fn(),
+}
+
+static SAVE_HOOKS: std::sync::OnceLock<SaveHooks> = std::sync::OnceLock::new();
+
+pub(crate) fn set_hooks(hooks: SaveHooks) {
+    let _ = SAVE_HOOKS.set(hooks);
+}
+
 /// Writes the entry with the game's writer, after the world's game state and
 /// before the checksum is taken of it.
 fn write_entry(m: Memory, writer: usize) -> Result<()> {
@@ -323,7 +335,7 @@ fn write_entry(m: Memory, writer: usize) -> Result<()> {
         log!("saves: the world is written off the main thread; the data from each extension's last save_data is written");
     }
     let data = if with_data(|d| d.should_poll_live(on_main)) {
-        let polled = crate::lua::collect_save_data();
+        let polled = SAVE_HOOKS.get().map_or_else(Vec::new, |h| (h.collect_save_data)());
         with_data(|d| d.apply_polled(polled))
     } else {
         with_data(|d| d.current.clone())
@@ -356,7 +368,11 @@ fn write_entry(m: Memory, writer: usize) -> Result<()> {
 
 #[called_by_game]
 extern "C" fn game_state_written(writer: usize) {
-    crate::base::guarded("parallel save", || crate::speed::saving::parallel::join(writer));
+    crate::base::guarded("parallel save", || {
+        if let Some(h) = SAVE_HOOKS.get() {
+            (h.join_parallel_save)(writer);
+        }
+    });
     crate::base::guarded("save data writer", || {
         if let Err(e) = write_entry(crate::native::hooked_memory(), writer) {
             log!("saves: {e}");
@@ -436,7 +452,7 @@ extern "C" fn take_entry(reader: usize) -> bool {
         Ok(false) => return false,
         Ok(true) => block_tokens(m, reader).and_then(|tokens| decode(&tokens)),
         // The game skips the entry, as one it does not know.
-        Err(e) if !crate::sessions::loading() => {
+        Err(e) if !crate::session::sessions::loading() => {
             log!("saves: {e}");
             return false;
         }
@@ -485,8 +501,10 @@ fn world_state(m: &Memory) -> Result<(usize, u8)> {
 
 fn load_before(call: &mut Call) {
     // A save compressed in the background is in its place before any is read.
-    crate::speed::saving::background::wait();
-    crate::sessions::load_began();
+    if let Some(h) = SAVE_HOOKS.get() {
+        (h.wait_background_save)();
+    }
+    super::sessions::load_began();
     with_data(|d| d.load_began(call.arg(2), call.arg(1)));
 }
 
@@ -494,7 +512,7 @@ fn load_after(call: &mut Call) {
     struct Exit;
     impl Drop for Exit {
         fn drop(&mut self) {
-            crate::sessions::load_ended();
+            super::sessions::load_ended();
         }
     }
     let _exit = Exit;
@@ -506,7 +524,7 @@ fn load_after(call: &mut Call) {
             let m = call.memory();
             let (world, daily) = world_state(&m)?;
             let read = call.result() == Some(success_ptr) && m.u8(success_ptr)? == 1 && world == expected_world && daily == 0;
-            crate::sessions::load_read(read);
+            super::sessions::load_read(read);
             Ok(read)
         })
     });

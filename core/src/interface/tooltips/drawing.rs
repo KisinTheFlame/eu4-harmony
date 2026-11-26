@@ -45,7 +45,7 @@ pub(super) fn showing(m: &Memory, owner: usize, text: &[u8]) -> Result<()> {
 fn current() -> Current {
     // Release the handoff mutex before asking the framework UI for its text.
     // With no prepared presentation this does not visit the UI at all.
-    with_handoff(|handoff| handoff.current(None)).with_text(crate::framework_ui::tooltip_at)
+    with_handoff(|handoff| handoff.current(None)).with_text(super::super::framework_tooltip_at)
 }
 
 fn ready(m: &Memory, display: &Display) -> Result<bool> {

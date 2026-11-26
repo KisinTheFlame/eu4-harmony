@@ -56,7 +56,7 @@ fn content_before(call: &mut Call) {
     if crate::base::thread_id() != crate::base::main_thread() || !with_handoff(|handoff| handoff.presenting()) {
         return;
     }
-    let framework = crate::framework_ui::tooltip_at();
+    let framework = super::framework_tooltip_at();
     let content = with_handoff(|handoff| handoff.content(framework));
     let text = match content {
         Some(Content::Framework(text)) => {
@@ -66,7 +66,7 @@ fn content_before(call: &mut Call) {
             }
             Some(text)
         }
-        Some(Content::Managed(target)) => crate::windows::managed_tooltip(target).or_else(|| crate::ui::managed_tooltip(target)),
+        Some(Content::Managed(target)) => crate::interface::windows::managed_tooltip(target).or_else(|| crate::interface::ui::managed_tooltip(target)),
         None => None,
     };
     // None is an unmanaged hit: preserve both native strings and every flag.

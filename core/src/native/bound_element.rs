@@ -1,6 +1,6 @@
 //! A game element the framework has bound, in a vanilla window that hosts an
-//! extension's elements (`crate::ui`) or in an extension window or pop-up
-//! (`crate::windows`): how the framework makes it show what is wanted of it,
+//! extension's elements (`crate::interface::ui`) or in an extension window or pop-up
+//! (`crate::interface::windows`): how the framework makes it show what is wanted of it,
 //! and how it hears the element's clicks.
 //!
 //! What it shows is set only where it differs from what was set before, each
@@ -8,12 +8,12 @@
 //! for its look, and a fault or a method it does not know is an error. Window
 //! text boxes hide by showing no text, while independent floating numbers on
 //! the panel button strip use text-box show and hide (`windows::entries`). The
-//! tooltip is kept, and given to the game by [`crate::tooltips`] at its native
+//! tooltip is kept, and given to the game by [`crate::interface::tooltips`] at its native
 //! presentation seam. A clicked button is heard into a bounded queue of its
 //! owner's ([`Hears`]), with the keys held down with the click, and taken up
 //! at the next frame.
 use crate::base::called_by_game;
-use crate::{game::{self, Caller, WorldSession}, native::game_string, native::memory::Memory, native::objects::gui::{button, element, functions, list_box}, ui::{self, Callback, Subscription}, text::unicode::game_text, base::Result};
+use crate::{game::{self, Caller, WorldSession}, native::game_string, native::memory::Memory, native::objects::gui::{button, element, functions, list_box}, interface::ui::{self, Callback, Subscription}, text::unicode::game_text, base::Result};
 use eu4_harmony_lua::Property;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -82,8 +82,8 @@ impl Shown {
 }
 
 /// Whose queue a bound button's clicks are heard into: the elements spliced
-/// into vanilla windows' (`crate::ui`), or the extension windows' and
-/// pop-ups' (`crate::windows`).
+/// into vanilla windows' (`crate::interface::ui`), or the extension windows' and
+/// pop-ups' (`crate::interface::windows`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Hears {
     Panels = 0,

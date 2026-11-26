@@ -9,11 +9,19 @@
 //! window and never needs a callback inside the game's UI code. How a bound
 //! element is set and heard is `crate::native::bound_element`'s, which extension
 //! windows share.
-use crate::{base::{hosts::Host, notice, Result}, native::bound_element::{self, BoundElement, Hears, Look, Shown}, game::{self, GResult}, native::game_string, native::hooks::Call, native::memory::Memory, native::objects::{
-        campaign::unit,
+use crate::{
+    base::{hosts::Host, notice, Result},
+    native::bound_element::{self, BoundElement, Hears, Look, Shown},
+    native::game_string,
+    native::hooks::Call,
+    native::memory::Memory,
+    native::objects::{
         gui::{army_panel, button, callback, classes, element, functions, main_menu, mouse_input, signal, window},
         list,
-    }, native::points::{GameFunction, Point}, native::splice::{Element, ElementKind}};
+    },
+    native::points::{GameFunction, Point},
+    native::splice::{Element, ElementKind},
+};
 use eu4_harmony_lua::windows::HostedElements;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Mutex;
@@ -93,7 +101,7 @@ impl Elements {
 
     fn shown_for(&self, declared: &Declared, resolve_text: &impl Fn(&str, &eu4_harmony_lua::Text) -> String) -> Shown {
         let Some(extension) = declared.extension else { return Shown::default() };
-        let owner = crate::lua::mod_id(extension).unwrap_or_default();
+        let owner = super::mod_id(extension).unwrap_or_default();
         let Some(state) = self.hosted.get(extension, &declared.element.name) else {
             return Shown { tooltip: Some(Vec::new()), ..Shown::default() };
         };
@@ -110,7 +118,7 @@ impl Elements {
 /// The framework's listener on a button's click signal: the callback the
 /// game calls back through, which must outlive the subscription, and what
 /// the button reported before. Extension windows' buttons subscribe so too
-/// (`crate::windows`).
+/// (`crate::interface::windows`).
 pub(crate) struct Subscription {
     pub object: usize,
     signal: usize,
@@ -344,11 +352,11 @@ impl HostNative for GameHost<'_> {
     }
 
     fn attach_ordering(&mut self, host: Host, root: usize, frame: Option<usize>, controls: &[(usize, Look)]) -> Result<()> {
-        crate::window_ordering::attach(self.0, host, root, frame, controls)
+        crate::interface::window_ordering::attach(self.0, host, root, frame, controls)
     }
 
     fn detach_ordering(&mut self, root: usize) {
-        crate::window_ordering::detach_host(root);
+        crate::interface::window_ordering::detach_host(root);
     }
 
     fn apply_element(&mut self, element: &mut BoundElement, shown: &Shown) -> Result<()> {
@@ -364,7 +372,7 @@ impl HostNative for GameHost<'_> {
     }
 
     fn show_frame(&mut self, frame: usize, open: bool) -> Result<()> {
-        crate::windows::show_window(self.0, frame, open)
+        crate::interface::windows::show_window(self.0, frame, open)
     }
 
     fn resolve_text(&self, owner: &str, text: &eu4_harmony_lua::Text) -> String {
@@ -551,7 +559,7 @@ fn bind_frame(m: &Memory, root: usize) -> Result<usize> {
     if m.vslot(root, window::FIND_WINDOW)? != m.at(functions::FIND_WINDOW) {
         return Err("the window's subwindow lookup is not the one the framework knows".into());
     }
-    let frame = crate::windows::with_string(m, crate::native::splice::FRAME.as_bytes(), |name| functions::FIND_WINDOW.call(m, [root, name, 0]))?;
+    let frame = crate::interface::windows::with_string(m, crate::native::splice::FRAME.as_bytes(), |name| functions::FIND_WINDOW.call(m, [root, name, 0]))?;
     if frame == 0 || m.ptr(frame)? != m.at(classes::WINDOW) {
         return Err("not found".into());
     }
@@ -581,7 +589,7 @@ pub(crate) fn keep_still(m: &Memory, window: usize, name: &str) -> Result<()> {
 
 fn panel_after(call: &mut Call) {
     let m = call.memory();
-    if call.faulted() || crate::base::thread_id() != crate::base::main_thread() || game::context(&m).is_err() {
+    if call.faulted() || crate::base::thread_id() != crate::base::main_thread() || !super::in_game(&m) {
         return;
     }
     let panel = call.arg(0);
@@ -623,18 +631,16 @@ fn menu_after(call: &mut Call) {
     if call.faulted() || crate::base::thread_id() != crate::base::main_thread() {
         return;
     }
-    crate::safe_point::main_menu_frame(call.arg(0));
     crate::text::unicode::log_once();
-    crate::speed::loading_times::log_main_menu();
-    match main_menu_page(&m, call.arg(0)) {
-        Ok(true) => crate::framework_ui::main_menu_frame(),
-        Ok(false) => {}
+    let show_corner = match main_menu_page(&m, call.arg(0)) {
+        Ok(page) => page,
         // The corner button then shows on every page of the main menu.
         Err(e) => {
             with_ui(|ui| report_once(&mut ui.reported, format!("main menu page unknown: {e}")));
-            crate::framework_ui::main_menu_frame();
+            true
         }
-    }
+    };
+    super::on_main_menu_frame(call.arg(0), show_corner);
 }
 
 fn panel_destroy(call: &mut Call) {
@@ -653,16 +659,16 @@ fn button_destroy(call: &mut Call) {
 /// Every teardown path of a root window passes here first (notice-window.md §3).
 fn window_kill(call: &mut Call) {
     let window = call.arg(0);
-    crate::window_ordering::retire(window);
+    crate::interface::window_ordering::retire(window);
     retire(call.memory(), |b| b.root == window);
-    crate::windows::killed(&call.memory(), window);
+    crate::interface::windows::killed(&call.memory(), window);
 }
 /// Backstop for a root freed without passing the kill hook.
 fn window_delete(call: &mut Call) {
     let window = call.arg(0);
-    crate::window_ordering::retire(window);
+    crate::interface::window_ordering::retire(window);
     retire(call.memory(), |b| b.root == window);
-    crate::windows::killed(&call.memory(), window);
+    crate::interface::windows::killed(&call.memory(), window);
 }
 
 /// The keys held down now, as [`MODIFIER_SHIFT`] and [`MODIFIER_CTRL`]: the
@@ -672,7 +678,7 @@ fn window_delete(call: &mut Call) {
 pub(crate) fn modifiers() -> u32 {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_SHIFT};
     let down = |key: u16| unsafe { GetKeyState(key as i32) } < 0;
-    let (shift, ctrl) = game::input::modifiers_held();
+    let (shift, ctrl) = super::modifiers_held();
     let mut out = 0;
     if shift || down(VK_SHIFT) {
         out |= MODIFIER_SHIFT;
@@ -711,7 +717,7 @@ fn button_input(call: &mut Call) {
 /// The actual native hit, for the shared presentation adapter.
 fn tooltip_after(call: &mut Call) {
     if call.result() == Some(call.arg(1)) && crate::base::thread_id() == crate::base::main_thread() {
-        crate::tooltips::hit(call.arg(2));
+        crate::interface::tooltips::hit(call.arg(2));
     }
 }
 
@@ -805,22 +811,25 @@ pub fn hide_extension(extension: usize) {
     with_ui(|ui| ui.elements.hosted.hide(extension));
 }
 
-/// The own land army shown in the open single-army panel.
-pub fn selected_army(m: &Memory, ctx: &game::Ctx) -> GResult<u64> {
-    let (panel, root) = with_ui(|ui| ui.bindings.iter().find(|b| b.host == Host::ArmyPanel).map(|b| (b.holder, b.root)))
-        .ok_or_else(|| game::Fail::from(eu4_harmony_checks::armies::panel_not_open()))?;
+/// Outcome of reading the native army pointer shown in the open single-army panel.
+pub(crate) enum SelectedArmyPanel {
+    Open(usize),
+    NotOpen,
+}
+
+/// The native army object shown in the open single-army panel, if open.
+pub(crate) fn selected_army_ptr(m: &Memory) -> Result<SelectedArmyPanel> {
+    let Some((panel, root)) = with_ui(|ui| ui.bindings.iter().find(|b| b.host == Host::ArmyPanel).map(|b| (b.holder, b.root))) else {
+        return Ok(SelectedArmyPanel::NotOpen);
+    };
     let ours = m.ptr(panel)? == m.at(classes::ARMY_PANEL) && m.ptr(panel + army_panel::WINDOW)? == root;
     if !ours || m.ptr(root)? != m.at(classes::WINDOW) || m.ptr(root + window::GUI)? != m.at(classes::WINDOW_GUI) {
-        return Err("army panel changed".to_string().into());
+        return Err("army panel changed".to_string());
     }
     if m.u8(root + window::OPEN)? != 1 {
-        return Err(eu4_harmony_checks::armies::panel_not_open().into());
+        return Ok(SelectedArmyPanel::NotOpen);
     }
-    let army = m.ptr(panel + army_panel::ARMY)?;
-    if !game::army::is_own_army(m, ctx.player, army)? {
-        return Err(eu4_harmony_checks::armies::none_selected().into());
-    }
-    Ok(m.u64(army + unit::ID)?)
+    Ok(SelectedArmyPanel::Open(m.ptr(panel + army_panel::ARMY)?))
 }
 
 #[cfg(test)]

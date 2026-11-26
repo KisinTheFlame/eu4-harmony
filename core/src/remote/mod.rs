@@ -448,7 +448,7 @@ impl crate::safe_point::Listener for Remote {
 
     /// Kept as a signal; the requests sent from now on belong to the next
     /// session.
-    fn ended(&self, end: crate::sessions::End) {
+    fn ended(&self, end: crate::session::sessions::End) {
         ENGINE.session_ended(end.reason());
     }
 
@@ -456,7 +456,7 @@ impl crate::safe_point::Listener for Remote {
     fn frame(&self, session: u64, heard: &[Heard]) {
         ENGINE.hear(heard.iter().cloned());
         ENGINE.enter(session);
-        crate::sessions::set_at(crate::sessions::At::Game);
+        crate::session::sessions::set_at(crate::session::sessions::At::Game);
         ENGINE.run(&mut Live(game::Caller::Remote(As::Player)), &Place::Game, BUDGET);
     }
 }

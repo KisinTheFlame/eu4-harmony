@@ -24,10 +24,7 @@
 //! capabilities only hand over what they hold (`super`'s `InGame`); the
 //! tests record the game instead.
 use super::{Launch, Place, Returned};
-use crate::{
-    game::{fail, GResult, Status, Tag},
-    sessions::{At, End},
-};
+use crate::{game::{fail, GResult, Status, Tag}, session::sessions::{At, End}};
 use std::{
     sync::Mutex,
     time::{Duration, Instant},
@@ -91,7 +88,7 @@ impl Steps {
     }
 }
 
-/// What the game's save loader has done (`crate::sessions`).
+/// What the game's save loader has done (`crate::session::sessions`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct Reads {
     /// The saves the game began to read since it started.
@@ -117,7 +114,7 @@ pub enum Step {
     /// written, and the session goes on.
     ExitSave,
     /// The session ends, and everything that keeps something of it hears
-    /// why (`crate::sessions::ending`): after the exit save, once leaving is
+    /// why (`crate::session::sessions::ending`): after the exit save, once leaving is
     /// certain.
     Ended(End),
     /// The game's in-game load: it resets the world and reads the save.
@@ -241,7 +238,7 @@ pub(super) trait Game {
     fn load_in_game(&mut self, name: &str) -> Result<u32, String>;
     /// Writes the ironman exit save, or says why it was not written.
     fn exit_save(&mut self) -> Result<(), String>;
-    /// The session ends, for `end` (`crate::sessions::ending`).
+    /// The session ends, for `end` (`crate::session::sessions::ending`).
     fn end(&mut self, end: End);
     /// The game's own in-game load, inside [`Course::in_game_load`], and
     /// what it answered.

@@ -1,6 +1,6 @@
 //! Pop-ups: the extensions' pop-ups open in the game, and pressing one of
 //! their buttons as the player does (cli/skills/ui/windows.md). What they
-//! are is `crate::windows`'; a pop-up is the extensions' and the player's
+//! are is `crate::interface::windows`'; a pop-up is the extensions' and the player's
 //! alike, so remote control's view leaves nothing of them out.
 use super::{GResult, WorldSession};
 use eu4_harmony_remote::popups::{args, Popup};
@@ -31,16 +31,16 @@ mod checks {
 
 /// The pop-ups open, oldest first.
 pub fn list(_: WorldSession) -> GResult<Vec<Popup>> {
-    Ok(crate::windows::popups())
+    Ok(crate::interface::windows::popups())
 }
 
 /// Presses a pop-up's button, as the player does: the pop-up closes, and its
 /// extension has the answer at the next frame.
 pub fn answer(_: WorldSession, args::Answer { popup, button }: args::Answer) -> GResult<()> {
-    let open = crate::windows::popups();
+    let open = crate::interface::windows::popups();
     let Some(found) = open.iter().find(|p| p.popup == popup) else { return Err(checks::not_open(popup)) };
     if button == 0 || button as usize > found.buttons.len() {
         return Err(checks::no_button(popup, found.buttons.len()));
     }
-    crate::windows::press_popup(popup, button).map_err(|_| checks::not_open(popup))
+    crate::interface::windows::press_popup(popup, button).map_err(|_| checks::not_open(popup))
 }

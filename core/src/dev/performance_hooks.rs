@@ -27,7 +27,7 @@ fn refresh_context() -> game::GResult<()> {
     if !(0..=4).contains(&index) {
         return Err("invalid game speed during performance collection".to_string().into());
     }
-    performance::context(crate::sessions::number(), index as u32 + 1, game::paused(m, &world)?, crate::render::drawing::target_interval());
+    performance::context(crate::session::sessions::number(), index as u32 + 1, game::paused(m, &world)?, crate::render::drawing::target_interval());
     Ok(())
 }
 

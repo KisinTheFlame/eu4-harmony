@@ -277,7 +277,7 @@ pub fn clear(m: &Memory, ctx: &game::Ctx, extension: usize) -> GResult<()> {
 }
 
 /// Drops coloring state at a session change, restoring the mode when the
-/// same map is still there. Told by the sessions (`crate::sessions`) at the
+/// same map is still there. Told by the sessions (`crate::session::sessions`) at the
 /// new session's first frame.
 pub fn reset_session() {
     let saved = with_state(|s| {

@@ -29,7 +29,7 @@ use crate::{base::Result, native::game_string, native::memory::Memory, native::o
         campaign::{classes as campaign_classes, countries as country_list, country as country_fields, globals, map_manager as manager_fields, world},
         gui::{classes as gui_classes, main_menu},
         setup,
-    }, native::points::{GameFunction, Point}, saves::file as save_file};
+    }, native::points::{GameFunction, Point}, session::saves::file as save_file};
 use std::{
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
@@ -58,7 +58,7 @@ const SELECT: GameFunction<3> = GameFunction::at(0x111cb80);
 /// country does once it selected it (`0x110e88c`).
 const START: GameFunction<1> = GameFunction::at(0x1120280);
 
-use crate::sessions::{self, At, End};
+use crate::session::sessions::{self, At, End};
 use course::{Action, Course, Reads, Rules, Steps};
 
 /// Where the game is.
