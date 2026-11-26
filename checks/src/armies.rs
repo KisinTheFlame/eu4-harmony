@@ -83,12 +83,6 @@ pub fn visibility_not_current() -> Refusal {
     Refusal::new(Status::NotReady, "visibility is not current yet")
 }
 
-/// The refusal of a target that is not among the armies the player sees in
-/// `province`.
-pub fn not_visible(target: u64, province: u32) -> Refusal {
-    Refusal::new(Status::NotFound, format!("no visible army {target} in {province}"))
-}
-
 /// The refusal of an army the player sees nowhere.
 pub fn not_seen(target: u64) -> Refusal {
     Refusal::new(Status::NotFound, format!("the player sees no army {target}"))

@@ -428,10 +428,6 @@ _Avoid_: checkbox, switch, radio button (a different framework widget: one choic
 A framework widget of a few named options side by side in one bar; the chosen one sits under a highlight, which slides to another when it is clicked.
 _Avoid_: slider (that sets a number on a scale), radio buttons, segmented control
 
-**Info mark**:
-A small i in a circle after a label in the framework UI; while the pointer is on it, a short explanation shows beside it.
-_Avoid_: help icon, tooltip on its own (any text that shows under the pointer)
-
 **Side list**:
 A list down a window's left side in the framework UI, one item of which is chosen with a click; the rest of the window shows the chosen one.
 _Avoid_: sidebar, tabs, master-detail

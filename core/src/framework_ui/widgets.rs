@@ -25,7 +25,6 @@ pub const BACKGROUND: Color = 0xf01c2026;
 pub const TITLE_BAR: Color = 0xff2b3a4a;
 pub const BORDER: Color = 0xff6b8aa8;
 pub const TEXT: Color = 0xffe8e8e8;
-pub const MUTED: Color = 0xffa0a8b0;
 pub const CONTROL: Color = 0xff34404c;
 pub const HOVER: Color = 0xff455768;
 pub const LIST: Color = 0xff232a31;
@@ -104,13 +103,6 @@ pub enum Widget {
         max: u32,
         value: u32,
         format: fn(u32) -> String,
-    },
-    /// A label followed by an info mark (GLOSSARY): while the pointer is on
-    /// the mark, `info` shows beside it.
-    #[cfg_attr(not(test), expect(dead_code, reason = "info-mark widget kept for framework UI pages and covered by layout tests"))]
-    Explained {
-        label: String,
-        info: String,
     },
 }
 
@@ -223,9 +215,6 @@ const GAP: f32 = 10.0;
 /// The share of the screen a side list may take, and its scroll bar's width.
 const SIDE_SHARE: f32 = 0.6;
 const SCROLL_BAR: f32 = 4.0;
-/// The info mark, and how far it stands after its label.
-const MARK: &str = "ⓘ";
-const MARK_GAP: f32 = 6.0;
 /// How long a choice bar's highlight takes to slide to another option.
 const SLIDE: Duration = Duration::from_millis(150);
 const SLIDER_TRACK_H: f32 = 6.0;
@@ -267,8 +256,6 @@ pub struct Window {
 enum Slot {
     Lines(usize, Vec<String>, Rect, Style),
     Control(usize, Rect),
-    /// The info mark of an explained label, by body index.
-    Mark(usize, Rect),
 }
 
 /// How a piece of text is drawn.
@@ -567,16 +554,6 @@ impl Window {
                     y += h + 4.0;
                 }
                 Widget::Gap => y += GAP,
-                Widget::Explained { label, .. } => {
-                    let mark = measure.width(MARK, TEXT_SIZE);
-                    let lines = measure.wrap(label, TEXT_SIZE, self.inner() - mark - MARK_GAP);
-                    let h = lines.len().max(1) as f32 * LINE;
-                    let last = lines.last().map_or(0.0, |l| measure.width(l, TEXT_SIZE));
-                    let mark = Rect { x: self.left() + last + MARK_GAP, y: y + h - LINE, w: mark, h: LINE };
-                    slots.push(Slot::Lines(i, lines, Rect { x: self.left(), y, w: self.inner(), h }, Style::Body));
-                    slots.push(Slot::Mark(i, mark));
-                    y += h + 4.0;
-                }
                 Widget::Button { .. } | Widget::Dropdown { .. } | Widget::Choice { .. } | Widget::Slider { .. } => {
                     slots.push(Slot::Control(i, Rect { x: self.left(), y, w: self.inner(), h: ROW }));
                     y += ROW + 8.0;
@@ -774,7 +751,6 @@ impl Window {
                         | Widget::Toggle { .. }
                         | Widget::Choice { .. }
                         | Widget::Slider { .. }
-                        | Widget::Explained { .. }
                         | Widget::Managed { .. } => None,
                     };
                 }
@@ -796,14 +772,6 @@ impl Window {
         for slot in self.layout(measure).into_iter().rev() {
             let (i, rect) = match slot {
                 Slot::Lines(i, _, rect, _) | Slot::Control(i, rect) => (i, rect),
-                Slot::Mark(i, rect) => {
-                    if rect.contains(x, y) {
-                        if let Widget::Explained { info, .. } = self.widget(i) {
-                            return Some(info.as_str().into());
-                        }
-                    }
-                    continue;
-                }
             };
             if rect.contains(x, y) {
                 if let Widget::Choice { options, tooltips, .. } = self.widget(i) {
@@ -958,9 +926,6 @@ impl Window {
                         color: if enabled { TEXT } else { DISABLED_TEXT },
                     });
                 }
-                Slot::Mark(_, r) => {
-                    out.push(Command::Text { x: r.x, y: r.y, text: MARK.into(), size: TEXT_SIZE, color: if hover(&r) { TEXT } else { MUTED } });
-                }
                 Slot::Control(i, r) => {
                     let enabled = self.raw_widget(i).enabled();
                     let fill = if !enabled {
@@ -981,7 +946,6 @@ impl Window {
                         | Widget::Toggle { .. }
                         | Widget::Choice { .. }
                         | Widget::Slider { .. }
-                        | Widget::Explained { .. }
                         | Widget::Managed { .. } => continue,
                     };
                     let x = if centred { r.x + (r.w - measure.width(&label, TEXT_SIZE)) / 2.0 } else { r.x + 8.0 };
@@ -1013,7 +977,7 @@ fn bottom(slots: &[Slot], top: f32) -> f32 {
     slots
         .iter()
         .map(|s| match s {
-            Slot::Lines(_, _, r, _) | Slot::Control(_, r) | Slot::Mark(_, r) => r.y + r.h,
+            Slot::Lines(_, _, r, _) | Slot::Control(_, r) => r.y + r.h,
         })
         .fold(top, f32::max)
 }
@@ -1102,7 +1066,7 @@ mod tests {
         let mut w = Window::new(
             "Settings",
             vec![
-                Widget::Explained { label: "At the fastest speed".into(), info: "Faster time: days pass sooner".into() },
+                Widget::Label("At the fastest speed".into()),
                 Widget::Choice { id: "pace", options: vec!["Smooth".into(), "Faster".into()], tooltips: Vec::new(), selected: 0 },
             ],
             300.0,
@@ -1141,21 +1105,6 @@ mod tests {
     /// Whether a text that starts with `start` is drawn.
     fn shows(w: &Window, start: &str) -> bool {
         w.draw(&Mono).into_iter().any(|c| matches!(c, Command::Text { text, .. } if text.starts_with(start)))
-    }
-
-    #[test]
-    fn an_info_mark_shows_its_text_while_the_pointer_is_on_it() {
-        let mut w = speed();
-        assert!(!shows(&w, "Faster time"));
-        let (mx, my) = spot(&w, MARK);
-        w.mouse_move(mx + 1.0, my + 4.0);
-        assert_eq!(w.tooltip_at(&Mono, mx + 1.0, my + 4.0), Some("Faster time: days pass sooner".into()));
-        assert!(!shows(&w, "Faster time"), "the native adapter owns the tooltip pixels");
-        // A click on it does nothing.
-        assert_eq!(w.mouse_down(&Mono, mx + 1.0, my + 4.0), None);
-        w.mouse_move(0.0, 0.0);
-        assert!(!shows(&w, "Faster time"));
-        assert_eq!(w.tooltip_at(&Mono, 0.0, 0.0), None);
     }
 
     #[test]

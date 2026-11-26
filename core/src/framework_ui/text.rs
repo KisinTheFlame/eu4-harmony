@@ -239,9 +239,8 @@ mod tests {
 
     #[test]
     fn the_framework_ui_draws_light_text_only() {
-        use super::super::widgets::{MUTED, TEXT};
+        use super::super::widgets::TEXT;
         assert_eq!(Tone::of(TEXT), Tone::Light);
-        assert_eq!(Tone::of(MUTED), Tone::Light);
     }
 
     #[test]

@@ -41,8 +41,6 @@ windows-sys = { workspace = true, features = [
     # The profiler: where a thread's stack ends.
     "Win32_System_Memory",
     "Win32_System_ProcessStatus",
-    # Steam's process and user, before a start.
-    "Win32_System_Registry",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
     # The profiler: the CPU cycles each thread ran.
