@@ -261,7 +261,8 @@ impl Journal {
     pub fn path(&self) -> PathBuf {
         self.dir.join(format!("{}.log", self.stem))
     }
-    pub fn failures(&self) -> u64 {
+    #[cfg(test)]
+    fn failures(&self) -> u64 {
         self.failures
     }
 

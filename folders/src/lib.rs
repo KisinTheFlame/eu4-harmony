@@ -86,29 +86,16 @@ pub fn user_dir(game_dir: Option<&Path>) -> Result<PathBuf> {
     }
 }
 
-/// Resolves the user directory from a command line, `userdir.txt`, and an
-/// explicit `documents` path when supplied; shared by the proxy (under the
-/// loader lock) and the rest of the workspace.
-pub fn user_dir_with_documents(command_line: &str, game_dir: Option<&Path>, documents: Option<&Path>) -> Option<PathBuf> {
-    let relative = |path: PathBuf| match game_dir {
-        Some(game) if !path.is_absolute() => game.join(path),
-        _ => path,
-    };
-    if let Some(named) = switch_value(command_line, "-userdir").filter(|v| !v.is_empty()) {
-        return Some(relative(PathBuf::from(named)));
-    }
-    if let Some(named) = game_dir.and_then(named_user_dir) {
-        return Some(named);
-    }
-    Some(documents?.join("Paradox Interactive").join("Europa Universalis IV"))
-}
-
 /// The user directory of the game started with `command_line`: the folder
 /// its `-userdir=` names, as the game takes it before `userdir.txt`, relative
 /// to the game folder when it is not absolute; else [`user_dir`].
 pub fn user_dir_of(command_line: &str, game_dir: Option<&Path>) -> Result<PathBuf> {
-    if let Some(dir) = user_dir_with_documents(command_line, game_dir, None) {
-        return Ok(dir);
+    if let Some(named) = switch_value(command_line, "-userdir").filter(|v| !v.is_empty()) {
+        let path = PathBuf::from(named);
+        return Ok(match game_dir {
+            Some(game) if !path.is_absolute() => game.join(path),
+            _ => path,
+        });
     }
     user_dir(game_dir)
 }
@@ -399,11 +386,6 @@ fn documents() -> Result<PathBuf> {
         .ok_or_else(|| format!("cannot find the Documents folder: registry status {status}"))
 }
 
-/// The Windows user's Documents folder when available, without failing.
-pub fn documents_dir() -> Option<PathBuf> {
-    documents().ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -551,10 +533,12 @@ mod tests {
 
     #[test]
     fn the_user_folder_is_the_one_userdir_names_first() {
-        let game = Path::new(r"E:\game");
-        assert_eq!(user_dir_of(r"eu4.exe -userdir=D:\u", Some(game)).unwrap(), Path::new(r"D:\u"));
-        assert_eq!(user_dir_of("eu4.exe -userdir=u", Some(game)).unwrap(), Path::new(r"E:\game\u"));
-        assert_eq!(user_dir_of("eu4.exe -userdir=", Some(game)).unwrap(), user_dir(Some(game)).unwrap());
-        assert_eq!(user_dir_of("eu4.exe", Some(game)).unwrap(), user_dir(Some(game)).unwrap());
+        let game = scratch("userdir-first");
+        fs::write(game.join("userdir.txt"), "D:\\named\n").unwrap();
+        assert_eq!(user_dir_of(r"eu4.exe -userdir=D:\u", Some(&game)).unwrap(), Path::new(r"D:\u"));
+        assert_eq!(user_dir_of(r#"eu4.exe "--userdir=rel dir""#, Some(&game)).unwrap(), game.join("rel dir"));
+        assert_eq!(user_dir_of("eu4.exe -userdir=", Some(&game)).unwrap(), Path::new(r"D:\named"));
+        assert_eq!(user_dir_of("eu4.exe", Some(&game)).unwrap(), Path::new(r"D:\named"));
+        let _ = fs::remove_dir_all(game);
     }
 }

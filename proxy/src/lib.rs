@@ -232,34 +232,6 @@ mod tests {
         assert_eq!(super::switch("eu4.exe -harmony_core= -debug", "harmony_core"), None);
     }
 
-    /// The proxy's log goes into the user folder the framework's other
-    /// programs find.
-    #[test]
-    fn the_user_folder_is_the_one_the_folders_crate_finds() {
-        let game = std::env::temp_dir().join(format!("eu4h-proxy-userdir-{}", std::process::id()));
-        std::fs::create_dir_all(&game).unwrap();
-        let docs = eu4_harmony_folders::documents_dir();
-        for (userdir_txt, line) in [
-            (None, "eu4.exe"),
-            (None, r"eu4.exe -userdir=D:\u"),
-            (None, r#"eu4.exe "--userdir=rel dir""#),
-            (Some("\u{feff}  D:\\named\n"), "eu4.exe"),
-            (Some("named"), "eu4.exe"),
-            (Some("   "), "eu4.exe"),
-            (Some(r"D:\named"), r"eu4.exe -userdir=D:\wins"),
-        ] {
-            match userdir_txt {
-                Some(text) => std::fs::write(game.join("userdir.txt"), text).unwrap(),
-                None => {
-                    let _ = std::fs::remove_file(game.join("userdir.txt"));
-                }
-            }
-            let expected = eu4_harmony_folders::user_dir_of(line, Some(&game)).unwrap();
-            assert_eq!(eu4_harmony_folders::user_dir_with_documents(line, Some(&game), docs.as_deref()), Some(expected), "{line} {userdir_txt:?}");
-        }
-        std::fs::remove_dir_all(&game).unwrap();
-    }
-
     /// The interface a core reads from the proxy.
     #[test]
     fn the_proxy_offers_its_interface() {

@@ -111,21 +111,6 @@ pub fn end_game(id: u32) -> Result<()> {
     }
 }
 
-/// Waits for every `eu4.exe` to end, a minute at most.
-pub fn wait_closed() -> Result<()> {
-    let mut waited = Duration::ZERO;
-    loop {
-        match processes() {
-            Ok(games) if games.is_empty() => return Ok(()),
-            Ok(_) if waited >= ENDING => return Err("eu4.exe did not end".into()),
-            Ok(_) => {}
-            Err(e) => return Err(format!("cannot tell whether eu4.exe has ended: {e}")),
-        }
-        std::thread::sleep(LOOK);
-        waited += LOOK;
-    }
-}
-
 /// One `eu4.exe`, held open from when it is started or found until it is
 /// dropped, so that its exit code stays to be read once it ends: Windows
 /// keeps a process's exit code only while a handle to it is open.
