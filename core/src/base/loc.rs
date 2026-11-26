@@ -118,7 +118,7 @@ mod tests {
         let shape = |text: &str| (text.split('$').skip(1).step_by(2).map(str::to_string).collect::<BTreeSet<_>>(), text.matches("\\n").count());
         // Wording templates: only a language that orders things its own way
         // has them, and they may use only their own values.
-        let template = |key: &str| crate::wording::TEMPLATES.iter().find(|(k, _)| *k == key).map(|(_, names)| *names);
+        let template = |key: &str| crate::text::wording::TEMPLATES.iter().find(|(k, _)| *k == key).map(|(_, names)| *names);
         let required = |language| FRAMEWORK.keys_in(language).into_iter().filter(|k| template(k).is_none()).collect::<BTreeSet<_>>();
         // The languages the framework has texts in; the others show English's.
         for language in Language::ALL.into_iter().filter(|l| !FRAMEWORK.keys_in(*l).is_empty()) {

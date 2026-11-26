@@ -221,7 +221,7 @@ fn effects(m: &Memory, player: Tag, definition: usize, value: i32) -> GResult<Ve
 /// A name the government view gives, written by `name`.
 fn named(m: &Memory, name: GameFunction<3>, object: usize, country: usize) -> GResult<String> {
     let (_, text) = game_string::written(m, |out| name.call(m, [object, out, country]))?;
-    Ok(crate::unicode::game_text::plain(&text))
+    Ok(crate::text::unicode::game_text::plain(&text))
 }
 
 /// The day the interaction's cooldown ends, while one runs.

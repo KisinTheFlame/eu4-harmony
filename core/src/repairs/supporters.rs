@@ -108,7 +108,7 @@ unsafe extern "C" fn refresh(country: usize, label: usize) {
 /// filled, so that a walk reading the freed list fails there at once.
 #[called_by_game]
 extern "C" fn walk_begins(subject: usize) {
-    crate::dev::quarantine_begin("subject relation's end");
+    crate::native::probes::quarantine_begin("subject relation's end");
     let listed = listed(subject);
     if game_ends_dependencies() {
         log!("repair: off (game-ends-dependencies): a subject relation's end walks {}'s list ({listed}) as the game does", tag(subject));
@@ -120,7 +120,7 @@ extern "C" fn walk_begins(subject: usize) {
 /// The walk is over: the subject's refresh that waited is done.
 #[called_by_game]
 extern "C" fn walk_ended() {
-    crate::dev::quarantine_end();
+    crate::native::probes::quarantine_end();
     if game_ends_dependencies() {
         return;
     }
@@ -161,7 +161,7 @@ fn listed(country: usize) -> String {
 /// A developer build's test switch `game-ends-dependencies`: a subject
 /// relation's end is the game's own, so that the defect can be tried.
 fn game_ends_dependencies() -> bool {
-    crate::dev::game_ends_dependencies()
+    crate::base::dev_options::game_ends_dependencies()
 }
 
 resume!(WALK_RESUME: WALK_EMPTY_AT = PAST_WALK, WALK_FIRST_AT = WALK_FIRST);

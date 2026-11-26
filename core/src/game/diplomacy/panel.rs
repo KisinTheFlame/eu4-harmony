@@ -11,7 +11,7 @@ use super::{
 use crate::{game::{countries, fail, with_state, Ctx, GResult, Session, Status, Tag}, native::game_string, native::memory::Memory, native::objects::{
         campaign::{country as country_fields, province as province_fields},
         diplomacy::{action, action_list, breakdown, classes},
-    }, native::points::{GameFunction, Point}, unicode::game_text};
+    }, native::points::{GameFunction, Point}, text::unicode::game_text};
 use eu4_harmony_remote::{
     choices::{Acceptance, Choice, Factor},
     diplomacy::{self as remote, args, Options},

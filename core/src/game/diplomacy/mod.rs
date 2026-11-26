@@ -18,7 +18,7 @@ use crate::base::called_by_game;
 use crate::{native::game_string, native::hooks::Call, native::memory::Memory, native::objects::{
         diplomacy::{action, casus_belli, classes, command, factor, globals, send_window, side, sides, war_entry, war_goal, war_goal_type, war_goals, world},
         gui,
-    }, native::points::{GameFunction, Point}, unicode::game_text};
+    }, native::points::{GameFunction, Point}, text::unicode::game_text};
 use eu4_harmony_remote::{
     choices,
     diplomacy::{self as remote, args, CallAllies},

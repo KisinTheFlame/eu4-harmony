@@ -208,7 +208,7 @@ pub fn popups() -> Vec<eu4_harmony_remote::popups::Popup> {
         crate::native::memory()
             .and_then(|m| crate::native::game_string::unformatted(m, key).ok())
             .filter(|w| !w.is_empty())
-            .map(|w| crate::unicode::game_text::chars(&w).map(|(c, _)| c).collect())
+            .map(|w| crate::text::unicode::game_text::chars(&w).map(|(c, _)| c).collect())
             .unwrap_or_else(|| key.to_string())
     };
     let open: Vec<(u32, usize, Popup)> = with(|all| all.wanted.popups().iter().map(|p| (p.number, p.extension, p.popup.clone())).collect());

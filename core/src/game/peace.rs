@@ -17,7 +17,7 @@ use super::{
 use crate::{native::game_string, native::memory::Memory, native::objects::{
         campaign::province,
         diplomacy::{action, region, scripted, term, treaty},
-    }, native::points::{GameFunction, Point}, unicode::game_text};
+    }, native::points::{GameFunction, Point}, text::unicode::game_text};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     peace::{args, Evaluation, TermOption, Terms},

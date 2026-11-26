@@ -171,7 +171,7 @@ pub(super) fn guard_swap<T>(swap: impl FnOnce() -> T) -> (T, bool) {
 /// Returns `None` without calling `after_notice` if a shutdown signal arrived
 /// during the wait.
 pub(super) fn with_restart_notice<T>(after_notice: impl FnOnce() -> T) -> Option<T> {
-    if crate::hidden::hidden_start() {
+    if crate::tweaks::hidden::hidden_start() {
         return Some(after_notice());
     }
     let _handler = ConsoleRegistration::install();

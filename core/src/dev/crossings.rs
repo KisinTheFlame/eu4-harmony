@@ -47,7 +47,7 @@ const GAME_RANGES: [(usize, usize); 4] = [(0xde6000, 0x14a6000), (0x14d9000, 0x1
 /// stages and the flags take, a clock, a string's helper, a number's
 /// formatting, and a table of the tick profiler's. A call into them opens
 /// their page and is not counted.
-const NOT_PRESENTATION: [usize; 5] = [crate::loading::opens::SPIN, 0x15e4f00, 0x16f7a20, 0x125b470, 0x1580370];
+const NOT_PRESENTATION: [usize; 5] = [crate::speed::loading::opens::SPIN, 0x15e4f00, 0x16f7a20, 0x125b470, 0x1580370];
 /// Modules whose code is the graphics' too.
 const MODULES: [&str; 2] = ["d3d9.dll", "d3dx9_43.dll"];
 

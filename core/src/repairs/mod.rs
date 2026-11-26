@@ -45,14 +45,14 @@ struct LettingGo;
 
 impl LettingGo {
     fn new(repair: &'static str) -> Self {
-        crate::dev::quarantine_begin(repair);
+        crate::native::probes::quarantine_begin(repair);
         Self
     }
 }
 
 impl Drop for LettingGo {
     fn drop(&mut self) {
-        crate::dev::quarantine_end();
+        crate::native::probes::quarantine_end();
     }
 }
 

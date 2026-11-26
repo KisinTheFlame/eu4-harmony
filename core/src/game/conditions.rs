@@ -5,7 +5,7 @@
 //! tooltip lists them, and a capability refusing one gives those lines as
 //! the game's reasons (docs/adding-a-capability.md).
 use super::{GResult, Tag};
-use crate::{native::game_string, native::memory::Memory, native::points::{GameFunction, Point}, unicode::game_text};
+use crate::{native::game_string, native::memory::Memory, native::points::{GameFunction, Point}, text::unicode::game_text};
 
 /// Makes a scope: `(scope, country tag by value, province, 0)`.
 pub(super) const SCOPE: GameFunction<4> = GameFunction::at(0x94590);
@@ -175,7 +175,7 @@ fn strip(text: &[u8], mark: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::lines;
-    use crate::unicode::game_text;
+    use crate::text::unicode::game_text;
 
     #[test]
     fn a_condition_s_lines_lose_their_marks_and_indent() {

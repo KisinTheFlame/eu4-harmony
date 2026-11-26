@@ -7,7 +7,7 @@
 //! applied after.
 use crate::framework_ui::mods_window::Card;
 use crate::native::splice::{Element, Plan};
-use crate::{base::lang, loading, base::loc, lua, base::mods, base::notice, native::physfs, pipe, base::report, saves, saving, base::settings, native::splice, ui, unicode};
+use crate::{base::lang, speed::loading, base::loc, lua, base::mods, base::notice, native::physfs, pipe, base::report, saves, speed::saving, base::settings, native::splice, ui, text::unicode};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 

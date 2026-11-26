@@ -1,14 +1,14 @@
 //! The game on the player's desktop, for a game started hidden
-//! (`crate::hidden`).
+//! (`crate::tweaks::hidden`).
 use super::{fail, Caller, Fail, GResult, Status};
 use eu4_harmony_remote::desktop::Desktop;
 
 fn now() -> Desktop {
-    Desktop { hidden: crate::hidden::hidden(), hidden_start: crate::hidden::hidden_start(), sound: crate::hidden::sound() }
+    Desktop { hidden: crate::tweaks::hidden::hidden(), hidden_start: crate::tweaks::hidden::hidden_start(), sound: crate::tweaks::hidden::sound() }
 }
 
-fn refused(refused: crate::hidden::Refused) -> Fail {
-    use crate::hidden::Refused;
+fn refused(refused: crate::tweaks::hidden::Refused) -> Fail {
+    use crate::tweaks::hidden::Refused;
     match refused {
         Refused::NotHiddenStart => Fail { status: Status::InvalidArgument, message: "the game was not started hidden (-harmony_hidden)".into() },
         Refused::NoWindow => Fail { status: Status::NotReady, message: "the game has no window yet".into() },
@@ -29,13 +29,13 @@ fn desktop(caller: Caller) -> GResult<Desktop> {
 
 fn show(caller: Caller) -> GResult<Desktop> {
     remote_only(caller)?;
-    crate::hidden::show().map_err(refused)?;
+    crate::tweaks::hidden::show().map_err(refused)?;
     Ok(now())
 }
 
 fn hide(caller: Caller) -> GResult<Desktop> {
     remote_only(caller)?;
-    crate::hidden::hide().map_err(refused)?;
+    crate::tweaks::hidden::hide().map_err(refused)?;
     Ok(now())
 }
 

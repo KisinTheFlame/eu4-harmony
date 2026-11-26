@@ -100,8 +100,8 @@ impl Elements {
         Shown {
             visible: state.visible,
             enabled: state.enabled,
-            text: state.text.as_ref().map(|text| crate::unicode::game_text::from_str(&resolve_text(&owner, text))),
-            tooltip: Some(crate::unicode::game_text::from_str(&resolve_text(&owner, &state.tooltip))),
+            text: state.text.as_ref().map(|text| crate::text::unicode::game_text::from_str(&resolve_text(&owner, text))),
+            tooltip: Some(crate::text::unicode::game_text::from_str(&resolve_text(&owner, &state.tooltip))),
             ..Shown::default()
         }
     }
@@ -624,8 +624,8 @@ fn menu_after(call: &mut Call) {
         return;
     }
     crate::safe_point::main_menu_frame(call.arg(0));
-    crate::unicode::log_once();
-    crate::loading_times::log_main_menu();
+    crate::text::unicode::log_once();
+    crate::speed::loading_times::log_main_menu();
     match main_menu_page(&m, call.arg(0)) {
         Ok(true) => crate::framework_ui::main_menu_frame(),
         Ok(false) => {}

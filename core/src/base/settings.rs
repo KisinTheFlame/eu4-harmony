@@ -908,7 +908,7 @@ mod tests {
 
     #[test]
     fn the_default_for_latin_headings_is_a_weight_segoe_ui_has() {
-        let Ok(fonts) = crate::unicode::system_font::SystemFonts::new() else { return };
+        let Ok(fonts) = crate::text::unicode::system_font::SystemFonts::new() else { return };
         if !fonts.has_family("Segoe UI") {
             eprintln!("Segoe UI is not installed; skipped");
             return;

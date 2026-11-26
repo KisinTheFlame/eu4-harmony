@@ -166,7 +166,7 @@ fn line(m: &Memory, key: &str, cost: f64) -> GResult<String> {
     let key = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
     let amount = format!("{}", cost.round() as i64);
     let text = game_string::localized_with(m, key.as_ptr() as usize, &[(c"COST", amount.as_bytes())])?;
-    Ok(crate::unicode::game_text::plain(&text))
+    Ok(crate::text::unicode::game_text::plain(&text))
 }
 
 /// The papal actions the view offers the player: those whose potential

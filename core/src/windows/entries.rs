@@ -5,7 +5,7 @@ use super::{ElementOps, Entry, Live, STRIP_BACKGROUND, STRIP_FIRST, STRIP_SLOTS,
 use crate::{base::Result, native::bound_element::{self, BoundElement, Look, Shown}, native::memory::Memory, native::objects::{
         campaign::map_manager,
         gui::{classes, element, functions, window},
-    }, ui, unicode::game_text};
+    }, ui, text::unicode::game_text};
 use eu4_harmony_lua::windows::ResolvedEntry;
 
 pub(crate) struct EntrySpec {

@@ -29,7 +29,7 @@ use super::{gui, with};
 use crate::{base::Result, native::bound_element::{self, BoundElement, Hears, Look, Shown}, game::{self, Caller, WorldSession}, native::game_string, native::hooks::Call, native::memory::Memory, native::objects::{
         campaign,
         gui::{classes, element, functions, list_box, manager, scene, window, window_gui},
-    }, native::points::{GameFunction, Point}, ui::{self, Callback}, unicode::game_text};
+    }, native::points::{GameFunction, Point}, ui::{self, Callback}, text::unicode::game_text};
 use eu4_harmony_lua::windows::Wanted;
 use eu4_harmony_lua::{
     layout::{self, Kind, Window},

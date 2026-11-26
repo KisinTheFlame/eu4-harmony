@@ -584,7 +584,7 @@ mod tests {
 
     #[test]
     fn bullets_are_left_out_of_reasons() {
-        let text = crate::unicode::game_text::from_str("- 这\n－最\n有");
+        let text = crate::text::unicode::game_text::from_str("- 这\n－最\n有");
         assert_eq!(reasons(&text), ["这", "最", "有"]);
     }
 

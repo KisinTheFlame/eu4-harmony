@@ -445,7 +445,7 @@ pub fn points() -> Vec<Point> {
 /// without color codes, the bullet a line may start with, or empty lines
 /// (docs/adding-a-capability.md, "Choices, reasons, costs").
 pub fn reasons(text: &[u8]) -> Vec<String> {
-    crate::unicode::game_text::plain(text).lines().map(|l| unbulleted(l).trim_end()).filter(|l| !l.is_empty()).map(str::to_string).collect()
+    crate::text::unicode::game_text::plain(text).lines().map(|l| unbulleted(l).trim_end()).filter(|l| !l.is_empty()).map(str::to_string).collect()
 }
 
 /// A reason's line without the bullets it starts with: a check's own `- `

@@ -273,7 +273,7 @@ fn open_threads(a: &Arena) -> usize {
     while more && n < HELD {
         // The threads that write a save's countries and provinces with the
         // main thread go on, and their writes are watched too.
-        let writes_saves = crate::saving::parallel::threads().contains(&entry.th32ThreadID);
+        let writes_saves = crate::speed::saving::parallel::threads().contains(&entry.th32ThreadID);
         if entry.th32OwnerProcessID == process && entry.th32ThreadID != me && entry.th32ThreadID != watchdog && !writes_saves {
             let h = unsafe { OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, 0, entry.th32ThreadID) };
             // A thread of a module `let-run` names goes on, what it reads and
@@ -640,12 +640,12 @@ fn record(a: &Arena, context: &CONTEXT, address: usize, thread: u32, kind: u8) {
     }
     let main = if who_wrote {
         if thread == MAIN.load(Ordering::Relaxed) {
-            if crate::drawing::main_holds() {
+            if crate::render::drawing::main_holds() {
                 MAIN_LOCKED
             } else {
                 MAIN_UNLOCKED
             }
-        } else if crate::drawing::is_drawing_thread() {
+        } else if crate::render::drawing::is_drawing_thread() {
             DRAWING_THREAD
         } else {
             OTHER_THREAD

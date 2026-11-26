@@ -17,7 +17,7 @@
 //! its country wrote that day.
 use super::options::{self, AgentsOrder};
 use crate::base::called_by_game;
-use crate::{army_search::{ARMIES_WALK, ARMIES_WALKED as WALKED, CHILDREN_WALK as WALKS}, native::points::Point};
+use crate::{speed::army_search::{ARMIES_WALK, ARMIES_WALKED as WALKED, CHILDREN_WALK as WALKS}, native::points::Point};
 
 // In the top agent's step `0x14b370`, once it has thought, the walk of its
 // children (`WALKS`: `mov rbx, [rdi + 0x40]; test rbx, rbx; je`, `rdi` the
@@ -53,7 +53,7 @@ unsafe fn walk_list(list: usize, from: usize, step: usize, day: usize) {
 /// first as the framework's own walk does (`core/src/army_search.rs`).
 #[called_by_game]
 unsafe extern "C" fn walk(top: usize, day: usize) {
-    crate::army_search::children_begin(top, day);
+    crate::speed::army_search::children_begin(top, day);
     let (from, step) = if order() == AgentsOrder::Reversed { (LAST, PREVIOUS) } else { (0, NEXT) };
     for list in [CHILDREN, ARMIES] {
         unsafe { walk_list(top + list, from, step, day) };

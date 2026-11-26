@@ -142,7 +142,7 @@ fn take_loan(m: &Memory, ctx: &Ctx) -> GResult<EconomyOption> {
         return option(Choice::cannot(reasons, Vec::new()));
     }
     if RUIN_BLOCKED.call(m, [ctx.country])? & 0xff != 0 {
-        let rule = crate::unicode::game_text::to_utf8(&game_string::localized(m, c"FE_BLOCK_NATION_RUINING".as_ptr() as usize)?);
+        let rule = crate::text::unicode::game_text::to_utf8(&game_string::localized(m, c"FE_BLOCK_NATION_RUINING".as_ptr() as usize)?);
         let until = power::date_text(m, m.i32(ctx.country + RUIN_BLOCKED_UNTIL)?)?;
         return option(Choice::cannot(power::tooltip(m, c"NO_NATION_RUINING_LOANS", &[(c"DATE", until), (c"OPTION", rule)])?, Vec::new()));
     }
@@ -361,7 +361,7 @@ mod tests {
             .function(HAS.rva(), has as *const ())
             .function(MAY_PROMOTE_MERCANTILISM.rva(), may_promote as *const ())
             .function(MAY_GO_BANKRUPT.rva(), may_go_bankrupt as *const ())
-            .function(crate::wording::dates::NEXT_MONTH_YEAR.rva(), month_year as *const ());
+            .function(crate::text::wording::dates::NEXT_MONTH_YEAR.rva(), month_year as *const ());
         let player = Object::country(tur(), country::MODIFIERS + 8)
             .i32(country::POWER, adm)
             .i32(country::INFLATION, inflation)

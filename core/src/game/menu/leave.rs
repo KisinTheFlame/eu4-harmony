@@ -45,7 +45,7 @@ use crate::{native::game_string, native::hooks::Call, native::memory::Memory, no
         application,
         campaign::{load_request, map_manager as manager_fields, world},
         gui,
-    }, native::points::{Function, GameFunction, Point}, repairs, sessions, unicode::game_text};
+    }, native::points::{Function, GameFunction, Point}, repairs, sessions, text::unicode::game_text};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Mutex,

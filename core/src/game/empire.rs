@@ -207,7 +207,7 @@ pub(super) fn listed(m: &Memory, ctx: &Ctx, empire: usize, at: usize, passed: &[
     };
     Ok(ImperialReform {
         reform,
-        name: crate::unicode::game_text::plain(&name),
+        name: crate::text::unicode::game_text::plain(&name),
         branch: (!container.is_empty()).then_some(container),
         passed: is_passed,
         choice,

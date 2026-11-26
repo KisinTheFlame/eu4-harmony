@@ -79,7 +79,7 @@ impl OrderAccess for LiveAccess {
 struct LiveScene;
 impl SceneOps for LiveScene {
     fn owns_presentation(&self) -> bool {
-        crate::drawing::main_owns_presentation()
+        crate::render::drawing::main_owns_presentation()
     }
 
     fn snapshot(&self, m: &Memory, parent: usize) -> Result<Vec<usize>> {

@@ -31,6 +31,34 @@ mod write_watch;
 
 use crate::{native::hooks::Call, native::memory::Memory, native::points::Point};
 
+/// Installs runtime probe handlers into `native::probes` in a developer build.
+#[cfg(feature = "dev")]
+pub(crate) fn install_probes() {
+    crate::native::probes::install(crate::native::probes::ProbeHandlers {
+        day_begins,
+        day_ends,
+        drawing_day_begins,
+        frame_check_before,
+        frame_check_after,
+        frame_prepared,
+        frame_invalidated,
+        drawing_frame_begins,
+        drawing_frame_ends,
+        submission_begins: || performance::submission_begins().into_probe(),
+        submission_ends: |s, ok, main| performance::submission_ends(performance::Submission::from_probe(s), ok, main),
+        device_reset,
+        save_begins,
+        save_ends,
+        quarantine_begin,
+        quarantine_end,
+        quarantine_after_observer,
+    });
+}
+
+#[cfg(not(feature = "dev"))]
+#[inline(always)]
+pub(crate) fn install_probes() {}
+
 /// A token carried across a frame's `Present` call for performance timing.
 #[cfg(feature = "dev")]
 pub(crate) struct Submission(performance::Submission);
@@ -38,9 +66,7 @@ pub(crate) struct Submission(performance::Submission);
 #[cfg(not(feature = "dev"))]
 pub(crate) struct Submission;
 
-pub(crate) use crate::base::dev_options::{
-    build_label, check_repairs, fail_startup, game_ends_dependencies, game_shares_ai_draws, load, log_repair_stats, report_lines, test_notice,
-};
+pub(crate) use crate::base::dev_options::{build_label, fail_startup, load, report_lines, test_notice};
 
 /// All static dependency points declared by development tools, checked by the
 /// offline checks in a developer build regardless of `dev.toml`.
@@ -63,7 +89,7 @@ pub(crate) fn points() -> Vec<Point> {
 /// whose bytes should also be checked offline.
 #[cfg(feature = "dev")]
 pub(crate) fn adjust_declared(all: &mut Vec<Point>) {
-    crate::saving::parallel::replace_compare_points(all);
+    crate::speed::saving::parallel::replace_compare_points(all);
 }
 
 #[cfg(not(feature = "dev"))]
@@ -84,15 +110,15 @@ pub(crate) fn installed_points(m: Memory, all: &mut Vec<Point>) {
     }
     if opts.performance.enabled {
         all.extend(performance_hooks::points());
-        if crate::speed::game_path(&crate::saving::background::SPEED_UP) {
-            all.extend(crate::saving::background::save_points());
+        if crate::native::speed_up::game_path(&crate::speed::saving::background::SPEED_UP) {
+            all.extend(crate::speed::saving::background::save_points());
         }
     }
-    if crate::speed::checked(&crate::saving::parallel::SPEED_UP) && !crate::speed::game_path(&crate::saving::parallel::SPEED_UP) {
-        crate::saving::parallel::replace_compare_points(all);
+    if crate::native::speed_up::checked(&crate::speed::saving::parallel::SPEED_UP) && !crate::native::speed_up::game_path(&crate::speed::saving::parallel::SPEED_UP) {
+        crate::speed::saving::parallel::replace_compare_points(all);
     }
     if agents_order::chosen() {
-        all.retain(|p| !matches!(p.place, crate::native::points::Place::Rva(crate::army_search::CHILDREN_WALK)));
+        all.retain(|p| !matches!(p.place, crate::native::points::Place::Rva(crate::speed::army_search::CHILDREN_WALK)));
         all.extend(agents_order::points());
     }
     let watch = write_watch::chosen(&m);
@@ -135,7 +161,7 @@ pub(crate) fn new_session() {
     }
     if switches.grow_pages {
         log!("test switch grow-pages: every font page grows");
-        crate::unicode::fill::want_room_everywhere();
+        crate::text::unicode::fill::want_room_everywhere();
     }
     if switches.crash {
         log!("test switch crash: crashing the game");

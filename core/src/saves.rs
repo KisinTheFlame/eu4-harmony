@@ -356,7 +356,7 @@ fn write_entry(m: Memory, writer: usize) -> Result<()> {
 
 #[called_by_game]
 extern "C" fn game_state_written(writer: usize) {
-    crate::base::guarded("parallel save", || crate::saving::parallel::join(writer));
+    crate::base::guarded("parallel save", || crate::speed::saving::parallel::join(writer));
     crate::base::guarded("save data writer", || {
         if let Err(e) = write_entry(crate::native::hooked_memory(), writer) {
             log!("saves: {e}");
@@ -485,7 +485,7 @@ fn world_state(m: &Memory) -> Result<(usize, u8)> {
 
 fn load_before(call: &mut Call) {
     // A save compressed in the background is in its place before any is read.
-    crate::saving::background::wait();
+    crate::speed::saving::background::wait();
     crate::sessions::load_began();
     with_data(|d| d.load_began(call.arg(2), call.arg(1)));
 }

@@ -5,7 +5,7 @@ use crate::native::containers;
 use crate::{native::game_string, native::memory::Memory, native::objects::campaign::{
         classes, country as fields, country_diplomacy, idea_group, loan, modifiers as modifiers_fields, person, rebel_faction, subject_relation, subject_type,
         technology, war, world as world_fields,
-    }, native::points::{GameFunction, Point}, unicode::game_text};
+    }, native::points::{GameFunction, Point}, text::unicode::game_text};
 use eu4_harmony_remote::{
     countries::{
         args, Budget, Country, Entry, GoverningCapacity, IdeaGroup, Legitimacy, LegitimacyKind, Loan, Loans, ModifierValue, Modifiers, Person, Power, Rebels,

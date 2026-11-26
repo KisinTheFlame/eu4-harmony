@@ -139,6 +139,16 @@ struct Started {
     update: Option<u64>,
 }
 
+impl Submission {
+    pub(crate) fn into_probe(self) -> crate::native::probes::Submission {
+        crate::native::probes::Submission(self.0.map(|s| (s.generation, s.at, s.update)))
+    }
+
+    pub(crate) fn from_probe(probe: crate::native::probes::Submission) -> Self {
+        Self(probe.0.map(|(generation, at, update)| Started { generation, at, update }))
+    }
+}
+
 /// The collection: its state behind a lock, the gate callers read before
 /// measuring, and the clock it reads at its edge.
 struct Collector<C: Clock> {

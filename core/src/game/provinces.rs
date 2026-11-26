@@ -7,7 +7,7 @@ use super::{commands, modifiers, player::Eyes, signals, thousandths, with_state,
 use crate::native::containers;
 use crate::{native::game_string, native::memory::Memory, native::objects::campaign::{
         building, classes, construction, country, geometry, globals, institution, map, province as field, terrain, unit_type, world as world_field,
-    }, native::objects::list, native::points::{GameFunction, Point}, unicode::game_text};
+    }, native::objects::list, native::points::{GameFunction, Point}, text::unicode::game_text};
 use eu4_harmony_remote::provinces::args;
 use eu4_harmony_remote::{
     countries::ModifierValue,

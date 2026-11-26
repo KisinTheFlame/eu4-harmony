@@ -12,7 +12,7 @@
 //! not read, so [`Commands::post`] writes the command it read out again and refuses it
 //! unless every key given came back with the value given.
 use super::{command_session, context, game, world_context, Fail, GResult};
-use crate::{native::game_string, native::hooks::Call, native::memory::Memory, native::objects::session::{self, fields as session_fields}, native::objects::stream, native::points::{GameFunction, Point}, unicode::game_text};
+use crate::{native::game_string, native::hooks::Call, native::memory::Memory, native::objects::session::{self, fields as session_fields}, native::objects::stream, native::points::{GameFunction, Point}, text::unicode::game_text};
 use std::cell::OnceCell;
 use std::fmt::Display;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

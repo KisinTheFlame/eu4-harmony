@@ -10,7 +10,7 @@
 //! multiplayer game, is refused with the game's own words
 //! (docs/game/scripts/game-console.md).
 use super::{fail, GResult, Status, WorldSession};
-use crate::{native::game_string, native::memory::Memory, native::objects::console::{result, GLOBAL as CONSOLE}, native::points::{GameFunction, Point}, unicode::game_text};
+use crate::{native::game_string, native::memory::Memory, native::objects::console::{result, GLOBAL as CONSOLE}, native::points::{GameFunction, Point}, text::unicode::game_text};
 
 /// `console() -> console`: the game console ([`CONSOLE`]), made if there is
 /// none.

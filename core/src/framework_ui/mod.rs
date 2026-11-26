@@ -9,15 +9,14 @@
 //! lock.
 pub mod d3d9;
 pub mod fonts_page;
-pub mod hook;
-pub mod input;
 pub mod mods_window;
 pub mod text;
 pub mod widgets;
 
 use crate::base::settings::{self, FrameRateLimit, Page, Role, Settings, Shows};
 use crate::base::troubleshooting::local_dumps;
-use crate::unicode::system_font::SystemFonts;
+use crate::render::window_input as input;
+use crate::text::unicode::system_font::SystemFonts;
 use crate::{base::lang, base::loc};
 use fonts_page::{FontSystem, FontsPage};
 use std::ffi::c_void;
@@ -109,7 +108,7 @@ impl UiHost for LiveHost {
     }
 
     fn display_refresh_rate(&self) -> u32 {
-        crate::drawing::display_refresh_rate()
+        crate::render::drawing::display_refresh_rate()
     }
 
     fn font_system(&self) -> Self::Fonts {
@@ -848,7 +847,7 @@ pub(crate) fn tooltip_at() -> Option<Vec<u8>> {
     let ui = guard.as_ref()?;
     let content = ui.shell.tooltip_content(&ui.font)?;
     let text = content.resolve(|key| Some(crate::base::loc::framework(crate::base::lang::player(), key, &[])));
-    Some(crate::unicode::game_text::from_str(&text))
+    Some(crate::text::unicode::game_text::from_str(&text))
 }
 
 /// Shows the framework's words for `key` over the frame the game presented
@@ -894,7 +893,7 @@ pub fn holding() -> bool {
 }
 
 /// Whether the frame the main thread presents now is held back.
-fn held() -> bool {
+pub(crate) fn held() -> bool {
     let holding = HOLDING.load(Ordering::Relaxed);
     if holding {
         HELD.fetch_add(1, Ordering::Relaxed);
@@ -963,7 +962,7 @@ pub fn device_reset() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::unicode::system_font::Face;
+    use crate::text::unicode::system_font::Face;
     use eu4_harmony_loc::Language;
 
     fn keys(key: &str) -> String {

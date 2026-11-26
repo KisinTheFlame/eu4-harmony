@@ -168,7 +168,7 @@ impl Native for Game<'_> {
     }
     fn popup_text(&mut self, root: usize, text: &str) -> Result<()> {
         let text_box = live::find(self.m, root, Some(&Kind::Text { text: None, font: layout::Font::Body, align: layout::Align::Start }), gui::TEXT)?;
-        crate::native::bound_element::write_text(self.m, text_box, &crate::unicode::game_text::from_str(text))
+        crate::native::bound_element::write_text(self.m, text_box, &crate::text::unicode::game_text::from_str(text))
     }
     fn country(&mut self, object: usize, tag: &str) -> Result<()> {
         crate::native::bound_element::set_country(self.m, object, tag)

@@ -2,7 +2,7 @@
 //! opinion and its parts, the aggressive expansion it holds, its trust and
 //! the favors it owes (docs/game/diplomacy/diplomacy.md, "Opinion").
 use super::{countries, country, thousandths, world, GResult, Tag, WorldSession};
-use crate::{native::game_string, native::memory::Memory, native::objects::campaign::{country as fields, country_diplomacy, opinion_modifier}, native::points::{GameFunction, Point}, unicode::game_text};
+use crate::{native::game_string, native::memory::Memory, native::objects::campaign::{country as fields, country_diplomacy, opinion_modifier}, native::points::{GameFunction, Point}, text::unicode::game_text};
 use eu4_harmony_remote::{
     countries::{args, Opinion, OpinionOf, OpinionPart},
     CountryTag,

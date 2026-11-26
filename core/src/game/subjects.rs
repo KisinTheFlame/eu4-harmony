@@ -10,7 +10,7 @@
 //! command layer.
 use super::commands::{write, Block};
 use super::{action, commands, countries, country, fail, with_state, Ctx, GResult, Session, Status, Tag};
-use crate::{native::game_string, native::memory::Memory, native::objects::campaign::{country as country_fields, functions, tag}, native::points::{GameFunction, Point}, unicode::game_text};
+use crate::{native::game_string, native::memory::Memory, native::objects::campaign::{country as country_fields, functions, tag}, native::points::{GameFunction, Point}, text::unicode::game_text};
 use eu4_harmony_remote::{
     choices::Choice,
     subjects::{args, SubjectInteraction as Listed},

@@ -8,7 +8,7 @@
 //! some of these buttons.
 use super::commands::{write, Block};
 use super::{action, commands::Commands, conditions, GResult, Tag};
-use crate::{native::game_string, native::memory::Memory, native::objects::campaign::country, native::points::{GameFunction, Point}, unicode::game_text};
+use crate::{native::game_string, native::memory::Memory, native::objects::campaign::country, native::points::{GameFunction, Point}, text::unicode::game_text};
 use eu4_harmony_remote::choices::PowerKind;
 use std::ffi::CStr;
 
@@ -234,10 +234,10 @@ pub fn scripted(m: &Memory, function: usize, player: Tag) -> GResult<(bool, Vec<
 }
 
 /// The game's date `date` as its texts write a month and year, moved on to
-/// the first of the next month ([`crate::wording::dates`]), in the player
+/// the first of the next month ([`crate::text::wording::dates`]), in the player
 /// language.
 pub fn date_text(m: &Memory, date: i32) -> GResult<String> {
-    let (_, text) = game_string::written(m, |out| crate::wording::dates::NEXT_MONTH_YEAR.call(m, [&date as *const i32 as usize, out]))?;
+    let (_, text) = game_string::written(m, |out| crate::text::wording::dates::NEXT_MONTH_YEAR.call(m, [&date as *const i32 as usize, out]))?;
     Ok(game_text::to_utf8(&text))
 }
 
@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn a_tooltip_s_lines_lose_their_codes() {
-        let text = crate::unicode::game_text::from_str("§RYou can only change it every §Y5§! years.§!\n\n");
+        let text = crate::text::unicode::game_text::from_str("§RYou can only change it every §Y5§! years.§!\n\n");
         assert_eq!(super::plain_lines(&text), ["You can only change it every 5 years."]);
     }
 }

@@ -3,7 +3,7 @@
 //! the provinces' owners watched at each new day, the buildings finished and
 //! the battles heard, and turning what was heard into the signals extensions
 //! and remote control hear. Logged when a session ends, then counted afresh.
-use crate::unicode::costs::Cost;
+use crate::text::unicode::costs::Cost;
 use std::time::Duration;
 
 /// The wars read and compared with the day before, at a new day.

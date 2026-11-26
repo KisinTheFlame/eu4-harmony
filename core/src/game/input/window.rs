@@ -4,7 +4,7 @@
 //! which the game reads, after it (docs/game/interface/input.md). A position in
 //! the frame is one in the window's client area, scaled when the two differ.
 use super::{plan::Held, plan::Step, Button, Direction, Position};
-use crate::framework_ui::input::{inject, window};
+use crate::render::window_input::{inject, window};
 use windows_sys::Win32::Foundation::{POINT, RECT};
 use windows_sys::Win32::Graphics::Gdi::{ClientToScreen, ScreenToClient};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;

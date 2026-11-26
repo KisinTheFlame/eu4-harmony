@@ -58,7 +58,7 @@ unsafe extern "C" fn cursor_at(out: *mut [i32; 2], full_screen: u8, borderless: 
     let held = || {
         // No player's mouse moves a hidden game's cursor: remote control
         // holds it from the start.
-        if crate::hidden::hidden() && state().cursor.is_none() {
+        if crate::tweaks::hidden::hidden() && state().cursor.is_none() {
             hold(None);
         }
         state().cursor.or_else(drawing_thread_cursor)
@@ -81,7 +81,7 @@ unsafe extern "C" fn cursor_at(out: *mut [i32; 2], full_screen: u8, borderless: 
 /// the game's window itself; SDL's, which the game reads otherwise, needs no
 /// window (docs/game/interface/frame-lifecycle.md).
 fn drawing_thread_cursor() -> Option<[i32; 2]> {
-    if !crate::drawing::is_drawing_thread() {
+    if !crate::render::drawing::is_drawing_thread() {
         return None;
     }
     let m = crate::native::hooked_memory();
@@ -382,7 +382,7 @@ pub fn presenting(size: (u32, u32)) {
 /// Remote control holds the cursor at `at`, in pixels of the window's client
 /// area; with none, where it holds it already, or else in the middle of the
 /// window, where it does not scroll the map. For a
-/// hidden game, whose cursor no player's mouse moves (`crate::hidden`).
+/// hidden game, whose cursor no player's mouse moves (`crate::tweaks::hidden`).
 pub fn hold(at: Option<[i32; 2]>) {
     let mut s = state();
     let Some(at) = at.or(s.cursor).or_else(|| window::middle(s.frame)) else { return };

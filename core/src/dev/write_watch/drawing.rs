@@ -69,7 +69,7 @@ pub fn day_begins(m: &Memory) {
         }
         WATCHING if DAYS_WATCHED.fetch_add(1, Ordering::Relaxed) + 1 >= options.drawing_days => {
             stop();
-            report(crate::drawing::drawing_rva(), 0, false);
+            report(crate::render::drawing::drawing_rva(), 0, false);
             WHO_WROTE.store(false, Ordering::Release);
             PHASE.store(DONE, Ordering::Release);
             log!("write watch: done, {} day(s) watched", options.drawing_days);
@@ -110,7 +110,7 @@ pub fn frame_ends(watched: bool) {
     stop();
     GAME_READS_ONLY.store(false, Ordering::Release);
     let n = FRAMES_READ.fetch_add(1, Ordering::Relaxed) + 1;
-    report(crate::drawing::drawing_rva(), n, true);
+    report(crate::render::drawing::drawing_rva(), n, true);
     if n >= super::super::options::options().write_watch.drawing_frames {
         PHASE.store(READ, Ordering::Release);
     }

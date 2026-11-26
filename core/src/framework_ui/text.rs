@@ -4,9 +4,9 @@
 //! drawn at the size in pixels the game's GUI scale gives them, in the tone
 //! of light text, which is all the framework UI draws (`unicode::tone`).
 use super::widgets::{Measure, Rect};
-use crate::unicode::atlas::Page;
-use crate::unicode::system_font::{Face, SystemFonts};
-use crate::unicode::tone::Tone;
+use crate::text::unicode::atlas::Page;
+use crate::text::unicode::system_font::{Face, SystemFonts};
+use crate::text::unicode::tone::Tone;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn chinese_wraps_between_characters_and_english_at_spaces() {
-        if !crate::unicode::system_font::chinese_installed() {
+        if !crate::text::unicode::system_font::chinese_installed() {
             return;
         }
         let font = UiFont::new(&Face::regular("Microsoft YaHei")).unwrap();
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn layout_places_glyphs_left_to_right_and_fills_the_page() {
-        if !crate::unicode::system_font::chinese_installed() {
+        if !crate::text::unicode::system_font::chinese_installed() {
             return;
         }
         let font = UiFont::new(&Face::regular("Microsoft YaHei")).unwrap();
@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn a_frame_draws_from_the_page_it_uploads_when_the_page_fills() {
-        if !crate::unicode::system_font::chinese_installed() {
+        if !crate::text::unicode::system_font::chinese_installed() {
             return;
         }
         let font = UiFont::new(&Face::regular("Microsoft YaHei")).unwrap();

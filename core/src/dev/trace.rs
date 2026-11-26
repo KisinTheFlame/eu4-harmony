@@ -22,7 +22,7 @@
 use crate::native::hooks::Call;
 use crate::native::memory::Memory;
 use crate::native::points::Point;
-use crate::unicode::game_text;
+use crate::text::unicode::game_text;
 use eu4_harmony_analysis as analysis;
 use std::cell::RefCell;
 use std::io::Write as _;

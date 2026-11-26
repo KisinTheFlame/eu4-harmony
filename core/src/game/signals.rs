@@ -204,7 +204,7 @@ fn visibility_before(_: &mut Call) {
 fn daily_before(call: &mut Call) {
     DAILY_DEPTH.fetch_add(1, Ordering::AcqRel);
     boundary(Boundary::invalidate);
-    crate::drawing::day_begins();
+    crate::render::drawing::day_begins();
     crate::dev::day_begins(call);
 }
 
@@ -213,7 +213,7 @@ fn daily_before(call: &mut Call) {
 fn daily_after(call: &mut Call) {
     DAILY_DEPTH.fetch_update(Ordering::AcqRel, Ordering::Acquire, |d| Some(d.saturating_sub(1))).ok();
     crate::dev::day_ends(call);
-    crate::drawing::day_ends();
+    crate::render::drawing::day_ends();
     super::menu::day_ran();
     if !call.faulted() {
         super::time::day_passed(&call.memory());

@@ -33,7 +33,7 @@ fn since_reset() -> String {
 /// destructor lets it go, so a developer build's quarantine keeps what the
 /// whole destructor frees, until [`text_box_gone`].
 fn text_box_going(call: &mut Call) {
-    crate::dev::quarantine_begin("text box's animation");
+    crate::native::probes::quarantine_begin("text box's animation");
     let m = call.memory();
     let boxed = call.arg(0);
     let owned = (|| {
@@ -60,7 +60,7 @@ pub(super) fn points() -> Vec<Point> {
             "text box destructor",
             1,
             Some(text_box_going),
-            crate::dev::quarantine_after_observer(),
+            crate::native::probes::quarantine_after_observer(),
         )
         .uses(&[gui_classes::TEXT_BOX]),
         Point::keep(0x152ab58usize, "48 8b cb 48 83 c4 20 5b e9 1b 7b 02 00", "text box destructor ends in the element's"),

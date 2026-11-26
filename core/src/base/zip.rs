@@ -5,8 +5,8 @@
 //!
 //! Every reader and writer of zip files in the framework is this one: the
 //! continue box's save header (`crate::saves::file`), the saves compressed
-//! in the background (`crate::saving::background`), the framework files and
-//! the music cache (`crate::loading::music`).
+//! in the background (`crate::speed::saving::background`), the framework files and
+//! the music cache (`crate::speed::loading::music`).
 use crate::base::Result;
 use std::io::{Read, Seek, SeekFrom};
 

@@ -6,7 +6,7 @@
 use super::commands::{write, Block};
 use super::{action, conditions, content, GResult, Session};
 use crate::native::containers;
-use crate::{native::game_string, native::memory::Memory, native::points::Point, unicode::game_text};
+use crate::{native::game_string, native::memory::Memory, native::points::Point, text::unicode::game_text};
 use eu4_harmony_remote::decisions::args;
 use eu4_harmony_remote::{choices::Choice, decisions::Decision};
 

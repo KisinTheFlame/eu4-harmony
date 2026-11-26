@@ -25,39 +25,26 @@ fn framework() -> Vec<Point> {
     all.extend(crate::saves::points());
     all.extend(crate::repairs::points());
     all.extend(crate::sessions::points());
-    all.extend(crate::achievements::points());
-    all.extend(crate::unicode::points());
-    all.extend(crate::wording::points());
-    all.extend(crate::framework_ui::hook::points());
-    all.extend(crate::hidden::points());
+    all.extend(crate::tweaks::points());
+    all.extend(crate::text::points());
+    all.extend(crate::render::present::points());
     all.extend(crate::crash::points());
     all.extend(crate::native::main_thread::points());
-    all.extend(crate::camera_zoom::points());
-    all.extend(crate::sound::points());
-    all.extend(crate::loading_times::points());
+    all.extend(crate::speed::loading_times::points());
     all
 }
 
-/// Every point this build declares, whether startup installs it or not:
-/// what the offline checks check, and what the framework may use. The
-/// speed-ups' are all among them, those dev.toml leaves to the game too. The
-/// `agents-order` test switch's walks are not: they hook the bytes the army
-/// searches' walk of the King's children does, in its place, and keep the
-/// bytes the searches keep, which these check.
 pub(crate) fn declared() -> Vec<Point> {
     let mut all = framework();
-    all.extend(crate::speed::points());
+    all.extend(crate::speed_registry::points());
     all.extend(crate::dev::points());
     crate::dev::adjust_declared(&mut all);
     all
 }
 
-/// What startup installs in the game whose image is `m`: the framework's
-/// points, those of the speed-ups dev.toml does not leave to the game, and
-/// whichever development tools dev.toml enables for this run.
 pub(crate) fn installed(m: Memory) -> Vec<Point> {
     let mut all = framework();
-    all.extend(crate::speed::installed());
+    all.extend(crate::speed_registry::installed());
     crate::dev::installed_points(m, &mut all);
     all
 }
@@ -159,8 +146,8 @@ mod tests {
             })
         };
         let this = vec!["this_build".to_string()];
-        // Every speed-up, wherever its module, is collected in `speed`'s list.
-        let speed_ups = vec!["speed".to_string()];
+        // Every speed-up, wherever its module, is collected in `speed_registry`'s list.
+        let speed_ups = vec!["speed_registry".to_string()];
         let mut loose = Vec::new();
         for module in &declaring {
             let mut at = module.clone();

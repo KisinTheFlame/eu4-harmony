@@ -103,7 +103,7 @@ fn choice(m: &Memory, player: Tag, country: usize, date: i32, category: &Categor
     if cost <= have {
         return Ok(Choice::can(price));
     }
-    let kind = crate::unicode::game_text::to_utf8(&game_string::localized(m, power_name(category.kind).as_ptr() as usize)?);
+    let kind = crate::text::unicode::game_text::to_utf8(&game_string::localized(m, power_name(category.kind).as_ptr() as usize)?);
     let values = [(c"TYPE", kind), (c"POWER_COST", power::whole(cost)), (c"POWER_AVAILABLE", power::whole(have))];
     let mut reasons = power::tooltip(m, c"CV_RESEARCH_TECH_NOPOWER", &values)?;
     reasons.extend(when(m, country, date, cost, category.kind)?);

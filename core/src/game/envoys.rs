@@ -3,7 +3,7 @@
 //! (docs/game/diplomacy/envoys.md).
 use super::GResult;
 use crate::native::containers;
-use crate::{native::memory::Memory, native::points::Point, unicode::game_text};
+use crate::{native::memory::Memory, native::points::Point, text::unicode::game_text};
 
 /// A country's envoys: a pointer to the pools, one per kind at its offset.
 pub(super) const POOLS: usize = 0x1480;

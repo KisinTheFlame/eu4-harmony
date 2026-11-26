@@ -5,7 +5,7 @@
 use super::commands::{write, Block};
 use super::units::checks;
 use super::{action, army, modifiers, Caller, Ctx, GResult, Session};
-use crate::{native::containers, native::game_string, native::memory::Memory, native::objects::campaign::{country as country_fields, unit}, native::points::{GameFunction, Point}, unicode::game_text};
+use crate::{native::containers, native::game_string, native::memory::Memory, native::objects::campaign::{country as country_fields, unit}, native::points::{GameFunction, Point}, text::unicode::game_text};
 use eu4_harmony_remote::leaders::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},

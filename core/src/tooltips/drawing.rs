@@ -13,7 +13,7 @@ const DRAW: GameFunction<2> = GameFunction::at(0x14dd350);
 const DRAW_FIRST_RETURN: usize = 0x14dd2bd;
 const DRAW_SECOND_RETURN: usize = 0x14dd742;
 const SETUP: GameFunction<1> = GameFunction::at(0x14dcf90);
-const BEGIN: GameFunction<1> = GameFunction::at(crate::drawing::SCENE_BEGINS);
+const BEGIN: GameFunction<1> = GameFunction::at(crate::render::drawing::SCENE_BEGINS);
 const END: GameFunction<1> = GameFunction::at(0x16d4e50);
 const INVALIDATE: usize = 0x1414e50;
 const DELETE_OWNER: usize = 0x1414b60;
@@ -119,7 +119,7 @@ fn filter_before(call: &mut Call) {
         return;
     }
     let m = call.memory();
-    let eligible = (crate::base::thread_id() == crate::base::main_thread() || crate::drawing::is_drawing_thread())
+    let eligible = (crate::base::thread_id() == crate::base::main_thread() || crate::render::drawing::is_drawing_thread())
         && [m.at(DRAW_FIRST_RETURN), m.at(DRAW_SECOND_RETURN)].contains(&call.caller());
     let filtered = FRAME.with_borrow_mut(|frame| frame.filter(|| eligible.then(current), &Game(&m), call.arg(0), call.arg(1)));
     if let Some(header) = filtered {

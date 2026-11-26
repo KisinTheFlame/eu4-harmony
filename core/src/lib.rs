@@ -14,40 +14,32 @@
 pub(crate) mod base;
 #[macro_use]
 pub(crate) mod native;
-pub mod achievements;
-mod army_search;
-pub mod camera_zoom;
+pub(crate) mod text;
+pub(crate) mod render;
+pub(crate) mod repairs;
+pub(crate) mod speed;
+pub(crate) mod tweaks;
 pub mod catalogue;
 mod crash;
 pub mod dev;
-pub mod drawing;
 pub mod framework_ui;
 pub mod game;
-pub mod hidden;
-pub mod loading;
-mod loading_times;
 pub mod lua;
 pub mod map;
-mod modifier_sums;
 pub mod pipe;
 mod proxy;
 pub mod remote;
-pub mod repairs;
 pub mod safe_point;
 pub mod saves;
-pub mod saving;
 pub mod sessions;
-pub mod sound;
-pub mod speed;
+mod speed_registry;
 mod startup;
 mod startup_failure;
 mod this_build;
 mod tooltips;
 pub mod ui;
-pub mod unicode;
 mod window_ordering;
 pub mod windows;
-pub mod wording;
 
 use base::{heap, icu, lang, log, notice, paths, report, settings};
 use native::{baseline, memory, points};
@@ -61,22 +53,74 @@ use windows_sys::Win32::System::{
 static STARTUP: OnceLock<String> = OnceLock::new();
 
 fn wire_base() {
+    dev::install_probes();
     log::set_maintenance(lua::maintain_logs);
-    report::set_providers(lua::timing_lines, speed::check_lines);
+    report::set_providers(lua::timing_lines, native::speed_up::check_lines);
     settings::set_listener(|listener, current| match listener {
-        settings::Listener::Achievements => achievements::follow(current),
-        settings::Listener::Sound => sound::choose(current),
-        settings::Listener::Drawing => drawing::set(current.frame_rate_limit),
-        settings::Listener::CameraZoom => camera_zoom::configure(current.zoom_smoothing, current.zoom_step),
+        settings::Listener::Achievements => tweaks::achievements::follow(current),
+        settings::Listener::Sound => tweaks::sound::choose(current),
+        settings::Listener::Drawing => render::drawing::set(current.frame_rate_limit),
+        settings::Listener::CameraZoom => tweaks::camera_zoom::configure(current.zoom_smoothing, current.zoom_step),
     });
-    native::speed_up::set_registry(&speed::ALL);
+    native::speed_up::set_registry(&speed_registry::ALL);
     native::points::set_declared_provider(this_build::declared);
     native::files::set_provider(|| {
-        let mut all = unicode::framework_fonts::files();
+        let mut all = text::unicode::framework_fonts::files();
         all.extend(windows::files());
         all
     });
     native::physfs::set_on_first_init(deferred_init);
+    render::present::set_hooks(render::present::PresentHooks {
+        is_held: framework_ui::held,
+        discard_late: tooltips::discard_late,
+        before_present: |renderer, device| {
+            base::guarded("font pages", text::unicode::fill::grow_pages);
+            base::guarded("framework UI frame", || {
+                if let Some(device) = device {
+                    unsafe { framework_ui::frame(device) }
+                }
+            });
+            base::guarded("native tooltip over framework UI", || tooltips::draw_late(renderer));
+            base::guarded("screenshot", || {
+                if let Some(device) = device {
+                    game::screenshot::presenting(device);
+                }
+            });
+        },
+        after_main_present: |device| {
+            base::guarded("safe point", safe_point::presented);
+            base::guarded("input", || {
+                if let Some(device) = device {
+                    let (width, height) = unsafe { framework_ui::d3d9::Backend::screen(device) };
+                    game::input::presenting((width as u32, height as u32));
+                }
+            });
+            base::guarded("text costs", text::unicode::costs::log_when_due);
+        },
+        before_reset: || {
+            tooltips::clear();
+            framework_ui::device_reset();
+            game::screenshot::device_reset();
+        },
+        d3d9_present: |device| unsafe { framework_ui::d3d9::Backend::present(device).is_ok() },
+        d3d9_screen: |device| unsafe { framework_ui::d3d9::Backend::screen(device) },
+    });
+    render::window_input::set_hooks(render::window_input::InputHooks {
+        on_real_input: game::input::real,
+        is_modal: framework_ui::modal,
+        on_wheel: tweaks::camera_zoom::before_sdl_wheel,
+    });
+    render::drawing::set_hooks(render::drawing::DrawingHooks {
+        on_prepared_safe_point: safe_point::presented,
+        on_prepared_input: game::input::presenting,
+        is_holding: framework_ui::holding,
+        prepare_scene: window_ordering::prepare_scene,
+        cursor_now: game::input::cursor_now,
+    });
+    tweaks::hidden::set_hooks(tweaks::hidden::HiddenHooks {
+        on_early_sync: proxy::sync_once,
+        on_hold_cursor: game::input::hold,
+    });
 }
 
 fn start(m: memory::Memory) -> std::result::Result<String, Failure> {
@@ -86,7 +130,7 @@ fn start(m: memory::Memory) -> std::result::Result<String, Failure> {
     if dev::fail_startup() {
         return Err("fail-startup is on in dev.toml's [test-switches]".to_string().into());
     }
-    speed::check_switches()?;
+    speed_registry::check_switches()?;
     let installed = points::install(m, &this_build::installed(m)).map_err(|reason| Failure::mismatch(reason, startup_failure::FailureStage::Points))?;
     dev::after_install();
     Ok(format!("baseline {baseline}: {} dependency points match; {} hooks, {} writes", installed.checked, installed.hooks, installed.writes))
@@ -124,7 +168,7 @@ fn bootstrap() -> std::result::Result<(), Failure> {
     let game_dir = paths::game_dir()?;
     // The log stays buffered until the user directory is known (deferred_init).
     log!("eu4-harmony core {}{} bootstrap in {}", env!("CARGO_PKG_VERSION"), build(), game_dir.display());
-    hidden::read_switches();
+    tweaks::hidden::read_switches();
     let found = proxy::interface(&game_dir);
     base::set_game_dir(game_dir);
     log!("proxy interface: {}", found.map_or_else(|| "no proxy in the game folder".to_string(), |i| i.to_string()));
@@ -172,7 +216,7 @@ fn report_header(game_dir: Option<&std::path::Path>) {
     for line in dev::report_lines() {
         report::line(line);
     }
-    for line in speed::report_lines() {
+    for line in native::speed_up::report_lines() {
         report::line(line);
     }
 }
@@ -212,7 +256,7 @@ fn fail_startup(reason: String, mut told: Option<notice::Message>, outdated_prox
         }
         report::line(format!("startup FAILED; nothing was hooked and no extension runs:\n{reason}"));
         report::write();
-        if hidden::hidden_start() {
+        if tweaks::hidden::hidden_start() {
             log!("startup failed in a hidden start, ending the game: {}", reason.replace('\n', "; "));
             unsafe { TerminateProcess(GetCurrentProcess(), 3) };
         }
