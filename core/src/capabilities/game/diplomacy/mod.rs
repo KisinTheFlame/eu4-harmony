@@ -33,7 +33,9 @@ pub mod acts;
 mod panel;
 
 pub use acts::Act;
-pub use panel::{act, options, scripted, PanelOrder, What};
+#[cfg(test)]
+pub use panel::panel_target_and_act;
+pub use panel::{options, panel_action, scripted, What};
 
 /// The constructor of a declaration of war: (action, from, to, flag, date,
 /// war goal), the war goal copied; the flag 0 as the diplomacy panel's.
@@ -284,7 +286,7 @@ pub fn offer_peace(Session { m, ctx, commands, .. }: Session, args::OfferPeace {
     other(m, &ctx, enemy)?;
     // The game's check refuses an offer to a country the player is not at
     // war with without a reason: it looks for the war between them first.
-    if !super::world::at_war(m, &ctx, ctx.player, enemy)? {
+    if !super::geography::at_war(m, &ctx, ctx.player, enemy)? {
         return fail(Status::Rejected, format!("the player is not at war with {}", letters(enemy)));
     }
     let treaty = super::peace::Treaty::new(m, &ctx, enemy, false)?;
@@ -360,7 +362,7 @@ fn rival_command(Session { m, ctx, commands, .. }: Session, kind: &str, check: G
 /// reasons.
 pub fn call_to_arms(session: Session, args::CallToArms { country }: args::CallToArms) -> GResult<Ticket> {
     let ally = countries::named(session.m, &session.ctx, country)?;
-    panel::sent(session, ally, &What::Act(Act::CallToArms), None).map_err(|fail| {
+    panel::send_simple(session, ally, &What::Act(Act::CallToArms)).map_err(|fail| {
         if fail.status == Status::Rejected && fail.message.starts_with(panel::NOT_OFFERED) {
             checks_peace::no_call_to_arms(letters(ally))
         } else {

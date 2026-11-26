@@ -3,7 +3,7 @@
 //! merchants in any node the player has discovered, so the player's view
 //! leaves out only the nodes none of whose provinces the player has
 //! discovered, which the trade map leaves out.
-use super::{thousandths, with_state, world, Ctx, GResult, Session, Status, Tag};
+use super::{geography, thousandths, with_state, Ctx, GResult, Session, Status, Tag};
 use crate::native::containers;
 use crate::{native::game_string, native::memory::Memory, native::objects::campaign::{globals, province}, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::trade::args;
@@ -148,7 +148,7 @@ fn seen(session: Session) -> GResult<Option<BTreeSet<usize>>> {
     let mut seen = BTreeSet::new();
     for address in with_state(|s| s.geography.addresses(session.m, &session.ctx))? {
         let node = session.m.ptr(address + province::TRADE_NODE)?;
-        if node != 0 && !world::undiscovered(session.m, eyes, address)? {
+        if node != 0 && !geography::undiscovered(session.m, eyes, address)? {
             seen.insert(session.m.ptr(node + DEFINITION)?);
         }
     }
@@ -238,7 +238,7 @@ fn links(m: &Memory, definition: usize) -> GResult<Vec<usize>> {
 fn countries_in(m: &Memory, ctx: &Ctx, node: usize, links: &[usize]) -> GResult<Vec<TradePower>> {
     let entries = m.ptr(node + ENTRIES)?;
     let mut out = Vec::new();
-    for tag in world::countries(m, ctx)? {
+    for tag in geography::countries(m, ctx)? {
         if !tag.normal() {
             continue;
         }

@@ -4,7 +4,7 @@
 //! the game's own answers of where an army may go and whom it may attack.
 //! Visibility follows the game: units in fogged provinces are never read in
 //! the player's view.
-use super::{armies::Army, country, world, Ctx, GResult, Tag, View, MAX_UNITS};
+use super::{armies::Army, country, geography, Ctx, GResult, Tag, View, MAX_UNITS};
 use crate::{
     native::containers,
     native::memory::Memory,
@@ -172,7 +172,7 @@ pub fn roster(m: &Memory, ctx: &Ctx) -> GResult<Vec<(u64, usize, bool)>> {
 /// Land armies in a province, as (record, address): in the player's view
 /// none while fog hides it.
 pub fn in_province(m: &Memory, ctx: &Ctx, province: usize, view: View) -> GResult<Vec<(Army, usize)>> {
-    let hidden = |m, province| Ok::<_, super::Fail>(view == View::Player && world::hidden(m, province)?);
+    let hidden = |m, province| Ok::<_, super::Fail>(view == View::Player && geography::hidden(m, province)?);
     if hidden(m, province)? {
         return Ok(Vec::new());
     }

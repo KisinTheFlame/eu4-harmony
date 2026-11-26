@@ -1,7 +1,7 @@
 //! What one country thinks of another, as the diplomacy view shows it: the
 //! opinion and its parts, the aggressive expansion it holds, its trust and
 //! the favors it owes (docs/game/diplomacy/diplomacy.md, "Opinion").
-use super::{countries, country, thousandths, world, GResult, Tag, WorldSession};
+use super::{countries, country, geography, thousandths, GResult, Tag, WorldSession};
 use crate::{
     native::game_string,
     native::memory::Memory,
@@ -62,7 +62,7 @@ pub fn opinions(session: WorldSession, args::Opinions { toward }: args::Opinions
     let WorldSession { m, world: ctx, .. } = session;
     let to = countries::named(m, &ctx, toward)?;
     let mut out = Vec::new();
-    for from in world::countries(m, &ctx)? {
+    for from in geography::countries(m, &ctx)? {
         if from.index() == to.index() {
             continue;
         }

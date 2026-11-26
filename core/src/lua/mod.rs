@@ -499,7 +499,7 @@ impl Host for Live {
         (self.reach)(caller, &mut |c| {
             let Some(request) = request.take() else { return };
             // Extensions give no input, which only remote clients have.
-            called = Some(match c.run(request, None, Instant::now()) {
+            called = Some(match c.run(request, game::As::Game, None, Instant::now()) {
                 catalogue::Outcome::Done(response) | catalogue::Outcome::Held(response, _) => Called::Done(lua_form(response)),
                 catalogue::Outcome::Later(wait) => Called::Later(Box::new(Later(self.reach, caller, wait))),
             })
@@ -842,7 +842,7 @@ mod tests {
     }
 
     impl Catalogue for ScriptedCatalogue {
-        fn run(&mut self, request: Request, _: Option<&catalogue::signals::Buffer>, _: Instant) -> catalogue::Outcome {
+        fn run(&mut self, request: Request, _: game::As, _: Option<&catalogue::signals::Buffer>, _: Instant) -> catalogue::Outcome {
             use eu4_harmony_remote::{
                 armies::{Army, ArmyAnswer, ArmyKind, ArmyRequest, Units},
                 session::{Session, SessionAnswer, SessionRequest},

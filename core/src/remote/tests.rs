@@ -78,24 +78,18 @@ fn nothing() -> Response {
 }
 
 impl Catalogue for Scripted {
-    fn run(&mut self, request: Request, signals: Option<&signals::Buffer>, now: Instant) -> Outcome {
+    fn run(&mut self, request: Request, acting: As, signals: Option<&signals::Buffer>, now: Instant) -> Outcome {
         std::thread::sleep(self.delay);
+        self.acted.push(acting);
         let name = request.name();
         self.ran.push(name.clone());
         if let Some(does) = &mut self.does {
             does();
         }
         match request {
-            Request::Signals(r) => {
-                let acting = self.acted.last().copied().unwrap_or_default();
-                signals::run(r, signals.expect("the engine keeps signals"), game::view(game::Caller::Remote(acting)), now)
-            }
+            Request::Signals(r) => signals::run(r, signals.expect("the engine keeps signals"), game::view(game::Caller::Remote(acting)), now),
             _ => Outcome::Done(self.answers.get(&name).cloned().unwrap_or_else(nothing)),
         }
-    }
-
-    fn act_as(&mut self, acting: As) {
-        self.acted.push(acting);
     }
 
     fn at(&mut self, signals: Option<&signals::Buffer>, now: Instant, place: &Place, polls: &mut dyn FnMut(&mut Poll<'_>)) {

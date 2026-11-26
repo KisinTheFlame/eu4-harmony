@@ -1,6 +1,6 @@
 //! Countries: finding one by its tag, its tag, whether two are hostile, one
 //! read of a country and its budget (docs/game/countries/countries.md).
-use super::{commands, country, modifiers, thousandths, world, GResult, InWorld, Tag, WorldSession};
+use super::{commands, country, geography, modifiers, thousandths, GResult, InWorld, Tag, WorldSession};
 use crate::native::containers;
 use crate::{native::game_string, native::memory::Memory, native::objects::campaign::{
         classes, country as fields, country_diplomacy, idea_group, loan, modifiers as modifiers_fields, person, rebel_faction, subject_relation, subject_type,
@@ -23,7 +23,7 @@ pub fn named(m: &Memory, ctx: &impl InWorld, tag: CountryTag) -> GResult<Tag> {
 
 /// Whether the two countries are at war, or either is a rebel faction.
 pub fn hostile(WorldSession { m, world: ctx, .. }: WorldSession, args::Hostile { country, other }: args::Hostile) -> GResult<bool> {
-    world::hostile(m, &ctx, named(m, &ctx, country)?, named(m, &ctx, other)?)
+    geography::hostile(m, &ctx, named(m, &ctx, country)?, named(m, &ctx, other)?)
 }
 
 /// A war going on.

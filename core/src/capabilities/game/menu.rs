@@ -474,7 +474,7 @@ pub fn start(_: Caller, country: Option<[u8; 3]>) -> GResult<()> {
         return Ok(());
     }
     let tag = find(m, letters)?;
-    if super::world::owned_provinces(m, world_now(m)?, tag)? == 0 {
+    if super::geography::owned_provinces(m, world_now(m)?, tag)? == 0 {
         let name = String::from_utf8_lossy(&letters).into_owned();
         return fail(
             Status::Rejected,

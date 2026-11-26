@@ -27,7 +27,7 @@ const PRODUCTION_DAG: &[(&str, &[&str])] = &[
     ("interface", &["base", "native", "text", "render", "session", "world"]),
     ("capabilities", &["base", "native", "text", "render", "repairs", "tweaks", "session", "interface", "world"]),
     ("lua", &["base", "native", "interface", "session", "world", "capabilities"]),
-    ("remote", &["base", "session", "world", "capabilities"]),
+    ("remote", &["base", "capabilities"]),
     ("framework_ui", &["base", "native", "text", "render", "tweaks", "session"]),
     ("dev", &["base", "native", "text", "render", "session", "repairs", "speed", "world"]),
     (

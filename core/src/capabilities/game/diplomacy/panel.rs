@@ -14,7 +14,7 @@ use crate::{capabilities::game::{countries, fail, with_state, Ctx, GResult, Sess
     }, native::points::{GameFunction, Point}, text::unicode::game_text};
 use eu4_harmony_remote::{
     choices::{Acceptance, Choice, Factor},
-    diplomacy::{self as remote, args, Options},
+    diplomacy::{self as remote, args, DiplomacyRequest, Options},
     ArmyId, CountryTag, ProvinceId,
 };
 
@@ -109,9 +109,9 @@ fn listed(o: Offered) -> remote::Offered {
 }
 
 /// A diplomacy panel action paired with the exact typed choices its window
-/// requires, eliminating untyped option bags across the catalogue seam.
+/// requires, kept internal to the panel layer.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PanelOrder<Country = Tag> {
+enum PanelOrder<Country = Tag> {
     /// Any panel action whose window takes no extra choice beyond the recipient.
     Simple(Act),
     SendGift { amount: u32 },
@@ -138,7 +138,7 @@ pub enum PanelOrder<Country = Tag> {
 
 impl<Country> PanelOrder<Country> {
     /// The underlying panel action this order sends.
-    pub fn act(&self) -> Act {
+    fn act(&self) -> Act {
         match self {
             Self::Simple(act) => *act,
             Self::SendGift { .. } => Act::SendGift,
@@ -165,7 +165,7 @@ impl<Country> PanelOrder<Country> {
     }
 
     /// Maps country tags carried in the order into resolved game tags.
-    pub fn countries<Found, E>(self, mut find: impl FnMut(Country) -> Result<Found, E>) -> Result<PanelOrder<Found>, E> {
+    fn countries<Found, E>(self, mut find: impl FnMut(Country) -> Result<Found, E>) -> Result<PanelOrder<Found>, E> {
         Ok(match self {
             Self::Simple(act) => PanelOrder::Simple(act),
             Self::SendGift { amount } => PanelOrder::SendGift { amount },
@@ -192,12 +192,165 @@ impl<Country> PanelOrder<Country> {
     }
 }
 
-/// Sends `order` to the country a request names, each country found in the
-/// game, as [`sent`].
-pub fn act(session: Session, country: CountryTag, order: PanelOrder<CountryTag>) -> GResult<Ticket> {
+macro_rules! match_panel_order {
+    ($request:expr; simple: [$($Simple:ident),* $(,)?]; typed: { $($arm:tt)* }) => {
+        match $request {
+            $( DiplomacyRequest::$Simple { country } => Some((country, PanelOrder::Simple(Act::$Simple))), )*
+            $($arm)*
+            DiplomacyRequest::WarGoals { .. }
+            | DiplomacyRequest::Options { .. }
+            | DiplomacyRequest::AddRival { .. }
+            | DiplomacyRequest::RemoveRival { .. }
+            | DiplomacyRequest::DeclareWar { .. }
+            | DiplomacyRequest::OfferPeace { .. }
+            | DiplomacyRequest::ProposeAlliance { .. }
+            | DiplomacyRequest::CallToArms { .. }
+            | DiplomacyRequest::ScriptedAction { .. } => None,
+        }
+    };
+}
+
+/// Exhaustive, compile-time checked conversion from any panel-action
+/// [`DiplomacyRequest`] to its recipient country and typed [`PanelOrder`].
+fn panel_order(request: DiplomacyRequest) -> Option<(CountryTag, PanelOrder<CountryTag>)> {
+    match_panel_order!(
+        request;
+        simple: [
+            SurrenderUnconditionally,
+            CancelAlliance,
+            SupportIndependence,
+            StopSupportingIndependence,
+            FormCoalition,
+            LeaveCoalition,
+            DemandReligiousUnity,
+            RemoveElector,
+            GrantElector,
+            RemoveFreeCity,
+            GrantFreeCity,
+            CallCrusade,
+            Excommunicate,
+            LiftExcommunication,
+            InviteToFederation,
+            RemoveFromFederation,
+            AskToJoinFederation,
+            LeaveFederation,
+            InviteToTradeLeague,
+            RemoveFromTradeLeague,
+            InviteToEmpire,
+            AskToJoinTradeLeague,
+            ImproveRelations,
+            StopImprovingRelations,
+            Annex,
+            CancelAnnexation,
+            Integrate,
+            CancelIntegration,
+            DesignateMarch,
+            RevokeMarch,
+            AbandonUnion,
+            OfferVassalization,
+            ReleaseVassal,
+            AskForMarch,
+            DemandTributary,
+            ReleaseTributary,
+            ArrangeRoyalMarriage,
+            BreakRoyalMarriage,
+            ConvertTributaryToVassal,
+            TradeFavorsForGold,
+            TradeFavorsForMen,
+            TradeFavorsForSailors,
+            TradeFavorsForHeir,
+            TradeFavorsForWarPreparations,
+            SupportHeir,
+            StopSupportingHeir,
+            CurryFavors,
+            StopCurryingFavors,
+            BuildSpyNetwork,
+            StopBuildingSpyNetwork,
+            CounterEspionage,
+            StopCounterEspionage,
+            JustifyTradeConflict,
+            StealMaps,
+            SlanderMerchants,
+            SabotageRecruitment,
+            SowDiscontent,
+            SabotageReputation,
+            CorruptOfficials,
+            InfiltrateAdministration,
+            AgitateForLiberty,
+            CancelTradePowerTransfer,
+            SteerTrade,
+            StopSteeringTrade,
+            Embargo,
+            LiftEmbargo,
+            AskToBeTributary,
+            Guarantee,
+            CancelGuarantee,
+            Warn,
+            AskMilitaryAccess,
+            CancelMilitaryAccess,
+            OfferMilitaryAccess,
+            RevokeMilitaryAccess,
+            AskFleetBasing,
+            CancelFleetBasing,
+            OfferFleetBasing,
+            RevokeFleetBasing,
+            ShareKnowledge,
+            StopSharingKnowledge,
+            AskForKnowledgeSharing,
+            ImperialRelations,
+            ImperialRealmWar,
+            SellShips,
+            ShareMaps,
+            TakeOnDebt,
+            Influence,
+            Insult,
+            ClaimThrone,
+            StopWarSubsidies,
+            RecallCondottieri,
+        ];
+        typed: {
+            DiplomacyRequest::EnforcePeace { country, enemy } => Some((country, PanelOrder::EnforcePeace { enemy })),
+            DiplomacyRequest::DemandUnlawfulTerritory { country, province } => Some((country, PanelOrder::DemandUnlawfulTerritory { province })),
+            DiplomacyRequest::TradeFavorsForTrust { country, favors, trust } => Some((country, PanelOrder::TradeFavorsForTrust { favors, trust })),
+            DiplomacyRequest::FabricateClaim { country, province } => Some((country, PanelOrder::FabricateClaim { province })),
+            DiplomacyRequest::ClaimStates { country, province } => Some((country, PanelOrder::ClaimStates { province })),
+            DiplomacyRequest::SupportRebels { country, rebels } => Some((country, PanelOrder::SupportRebels { rebels })),
+            DiplomacyRequest::TransferTradePower { country, percent } => Some((country, PanelOrder::TransferTradePower { percent })),
+            DiplomacyRequest::ThreatenWar { country, province } => Some((country, PanelOrder::ThreatenWar { province })),
+            DiplomacyRequest::SendGift { country, amount } => Some((country, PanelOrder::SendGift { amount })),
+            DiplomacyRequest::InterveneInWar { country, enemy } => Some((country, PanelOrder::InterveneInWar { enemy })),
+            DiplomacyRequest::BreakAlliance { country, ally } => Some((country, PanelOrder::BreakAlliance { ally })),
+            DiplomacyRequest::TradeFavorsToBreakAlliance { country, ally } => Some((country, PanelOrder::TradeFavorsToBreakAlliance { ally })),
+            DiplomacyRequest::TradeFavorsToReduceRelations { country, target } => Some((country, PanelOrder::TradeFavorsToReduceRelations { target })),
+            DiplomacyRequest::OfferLoan { country, amount } => Some((country, PanelOrder::OfferLoan { amount })),
+            DiplomacyRequest::SubsidizeWar { country, amount, duration } => Some((country, PanelOrder::SubsidizeWar { amount, duration })),
+            DiplomacyRequest::SellProvince { country, province, price } => Some((country, PanelOrder::SellProvince { province, price })),
+            DiplomacyRequest::TradeFavorsForCore { country, province } => Some((country, PanelOrder::TradeFavorsForCore { province })),
+            DiplomacyRequest::OfferCondottieri { country, army, price } => Some((country, PanelOrder::OfferCondottieri { army, price })),
+            DiplomacyRequest::CharterCompany { country, province, price } => Some((country, PanelOrder::CharterCompany { province, price })),
+            DiplomacyRequest::AppointCardinal { country, pay } => Some((country, PanelOrder::AppointCardinal { pay: pay.unwrap_or(false) })),
+        }
+    )
+}
+
+/// Sends a panel-action [`DiplomacyRequest`], returning its ticket and [`Act`].
+pub fn panel_action(session: Session, request: DiplomacyRequest) -> GResult<(Ticket, Act)> {
+    let Some((country, order)) = panel_order(request) else {
+        return fail(Status::InvalidArgument, "request is not a diplomacy panel action");
+    };
+    let act = order.act();
     let found = |tag| countries::named(session.m, &session.ctx, tag);
     let (country, order) = (found(country)?, order.countries(found)?);
-    sent(session, country, &What::Act(order.act()), Some(&order))
+    let ticket = sent(session, country, &What::Act(act), Some(&order))?;
+    Ok((ticket, act))
+}
+
+/// Maps a panel-action [`DiplomacyRequest`] to its target country and [`Act`]
+/// without exposing internal [`PanelOrder`] variants.
+#[cfg(test)]
+pub fn panel_target_and_act(request: DiplomacyRequest) -> Option<(CountryTag, Act)> {
+    let (country, order) = panel_order(request)?;
+    Some((country, order.act()))
 }
 
 /// Sends the scripted action of this content key to the country a request
@@ -207,12 +360,17 @@ pub fn scripted(session: Session, args::ScriptedAction { country, action }: args
     sent(session, country, &What::Scripted(action), None)
 }
 
+/// Sends `what` to `country` with no extra window choices.
+pub(super) fn send_simple(session: Session, country: Tag, what: &What) -> GResult<Ticket> {
+    sent(session, country, what, None)
+}
+
 /// Sends `what` to `country`, as the panel's button and the window it opens
 /// send it, with `order`'s typed window choices: [`Status::Rejected`] when
 /// the panel does not offer it toward that country now, or the game does not
 /// let the player send it, with its reasons; [`Status::InvalidArgument`] when
 /// a value violates the act's window bounds.
-pub(super) fn sent(Session { m, ctx, commands, .. }: Session, country: Tag, what: &What, order: Option<&PanelOrder>) -> GResult<Ticket> {
+fn sent(Session { m, ctx, commands, .. }: Session, country: Tag, what: &What, order: Option<&PanelOrder>) -> GResult<Ticket> {
     other(m, &ctx, country)?;
     let panel = Panel::list(m, &ctx, country)?;
     let mut found = None;

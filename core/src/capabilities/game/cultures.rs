@@ -2,7 +2,7 @@
 //! the government view's cultures window lists them, and its select,
 //! promote and demote buttons, each a use of diplomatic power the spend_power
 //! command carries (docs/game/countries/power-spending.md, "Cultures").
-use super::{action, commands, content::checks, power, thousandths, world, Ctx, GResult, Session, Tag};
+use super::{action, commands, content::checks, geography, power, thousandths, Ctx, GResult, Session, Tag};
 use crate::{native::containers, native::game_string, native::memory::Memory, native::objects::campaign::{country, province}, native::points::{GameFunction, Point}};
 use eu4_harmony_remote::cultures::args;
 use eu4_harmony_remote::{
@@ -167,7 +167,7 @@ fn buttons(primary: bool, accepted: bool) -> Vec<CultureActionKind> {
 /// thousandths, by the culture's address.
 fn development(m: &Memory, ctx: &Ctx) -> GResult<Vec<(usize, i64)>> {
     let mut out: Vec<(usize, i64)> = Vec::new();
-    for at in world::provinces_owned_by(m, ctx.world, ctx.player)? {
+    for at in geography::provinces_owned_by(m, ctx.world, ctx.player)? {
         let culture = m.ptr(at + province::CULTURE)?;
         if culture == 0 {
             continue;

@@ -313,7 +313,7 @@ struct Building {
 /// The player's great projects' constructions, province by province.
 fn building(m: &Memory, ctx: &Ctx) -> GResult<Vec<Building>> {
     let mut out = Vec::new();
-    for place in super::world::provinces_owned_by(m, ctx.world, ctx.player)? {
+    for place in super::geography::provinces_owned_by(m, ctx.world, ctx.player)? {
         for c in containers::items(m, place + province::CONSTRUCTIONS, MOST_CONSTRUCTIONS)? {
             let token = m.u32(c + construction::KIND)?;
             if commands::type_name(m, token).as_deref() != Some("great_project_construction") {

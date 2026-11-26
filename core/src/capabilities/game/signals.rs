@@ -411,7 +411,7 @@ fn battle(m: &Memory, combat: usize, attacker_won: bool) -> Result<Option<Battle
     let (attacker, defender) = (m.ptr(combat + battle::SIDES[0])?, m.ptr(combat + battle::SIDES[1])?);
     let (attackers, defenders) = (countries(attacker)?, countries(defender)?);
     let party = attackers.iter().chain(&defenders).any(|t| Some(*t) == player);
-    let seen = party || (province != 0 && !super::world::hidden(m, province).map_err(|e| e.message)?);
+    let seen = party || (province != 0 && !super::geography::hidden(m, province).map_err(|e| e.message)?);
     Ok(Some(Battle {
         province: if province == 0 { 0 } else { m.u32(province + crate::native::objects::campaign::province::ID)? },
         naval: kind == 2,
