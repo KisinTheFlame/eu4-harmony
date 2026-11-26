@@ -5,15 +5,34 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use windows_sys::Win32::System::LibraryLoader::GetModuleFileNameW;
 
-/// Directory containing the running `eu4.exe`.
-pub fn game_dir() -> Result<PathBuf> {
+/// Full path to the running `eu4.exe`.
+pub fn current_exe() -> Result<PathBuf> {
     let mut buf = vec![0u16; 32768];
     let n = unsafe { GetModuleFileNameW(std::ptr::null_mut(), buf.as_mut_ptr(), buf.len() as u32) } as usize;
-    if n == 0 {
-        return Err("GetModuleFileNameW failed".into());
+    if n == 0 || n >= buf.len() {
+        return Err("GetModuleFileNameW failed or was truncated".into());
     }
-    let exe = PathBuf::from(String::from_utf16_lossy(&buf[..n]));
+    Ok(PathBuf::from(String::from_utf16_lossy(&buf[..n])))
+}
+
+/// Directory containing the running `eu4.exe`.
+pub fn game_dir() -> Result<PathBuf> {
+    let exe = current_exe()?;
     exe.parent().map(Path::to_path_buf).ok_or_else(|| "exe has no parent directory".into())
+}
+
+/// Canonicalized, lower-cased Windows path without `\\?\` prefix or trailing
+/// separators, for case-insensitive path comparisons.
+pub fn normalize_path(path: &Path) -> String {
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let text = resolved.to_string_lossy();
+    let text = text.strip_prefix(r"\\?\").unwrap_or(&text);
+    text.trim_end_matches(['\\', '/']).replace('/', "\\").to_ascii_lowercase()
+}
+
+/// Whether `a` and `b` refer to the same Windows path.
+pub fn same_path(a: &Path, b: &Path) -> bool {
+    normalize_path(a) == normalize_path(b)
 }
 
 /// The game's data directory: the folder `-userdir` on its command line

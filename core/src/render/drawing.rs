@@ -397,7 +397,7 @@ impl turns::Lock for DrawingLock {
 }
 
 /// The drawing thread's ID, 0 until it runs; the head's stub compares it.
-static DRAWING_THREAD: AtomicU32 = AtomicU32::new(0);
+use crate::base::runtime::DRAWING_THREAD;
 static FRAMES: course::FrameCoordinator = course::FrameCoordinator::new();
 /// Wakes the drawing thread when the first frame of a session is prepared (or
 /// when the game quits), so that it sleeps at startup and on the main menu.
@@ -746,8 +746,7 @@ fn must_draw_here(m: &Memory) -> bool {
 
 /// Whether the current thread is the drawing thread.
 pub fn is_drawing_thread() -> bool {
-    let t = DRAWING_THREAD.load(Ordering::Relaxed);
-    t != 0 && t == crate::base::thread_id()
+    crate::base::is_drawing_thread()
 }
 
 /// The drawing thread presented a frame of `width` by `height`.
@@ -906,7 +905,7 @@ fn maybe_log_pace(base: usize, gaps: &mut course::Gaps, last_drawn: &mut u64, lo
 
 /// The drawing thread.
 fn run() {
-    DRAWING_THREAD.store(crate::base::thread_id(), Ordering::Relaxed);
+    crate::base::set_drawing_thread(crate::base::thread_id());
     let m = crate::native::hooked_memory();
     let mut display_rate = display_refresh_rate();
     let mut display_checked = Instant::now();

@@ -79,7 +79,7 @@ fn thread() -> String {
     let id = crate::base::thread_id();
     if id == crate::base::main_thread() {
         format!("the main thread ({id})")
-    } else if crate::render::drawing::is_drawing_thread() {
+    } else if crate::base::is_drawing_thread() {
         format!("the drawing thread ({id})")
     } else {
         format!("thread {id}")

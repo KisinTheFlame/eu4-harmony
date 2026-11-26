@@ -38,12 +38,6 @@ fn wire_all() {
         settings::Listener::CameraZoom => tweaks::camera_zoom::configure(current.zoom_smoothing, current.zoom_step),
     });
     native::speed_up::set_registry(&speed_registry::ALL);
-    native::points::set_declared_provider(this_build::declared);
-    native::files::set_provider(|| {
-        let mut all = text::unicode::framework_fonts::files();
-        all.extend(interface::windows::files());
-        all
-    });
     native::physfs::set_on_first_init(deferred_init);
     render::present::set_hooks(render::present::PresentHooks {
         is_held: framework_ui::held,
@@ -187,6 +181,7 @@ fn start(m: memory::Memory) -> std::result::Result<String, Failure> {
         return Err("fail-startup is on in dev.toml's [test-switches]".to_string().into());
     }
     speed_registry::check_switches()?;
+    points::register_checked(&this_build::declared());
     let installed = points::install(m, &this_build::installed(m)).map_err(|reason| Failure::mismatch(reason, startup_failure::FailureStage::Points))?;
     dev::after_install();
     Ok(format!("baseline {baseline}: {} dependency points match; {} hooks, {} writes", installed.checked, installed.hooks, installed.writes))
@@ -327,9 +322,15 @@ fn fail_startup(reason: String, mut told: Option<notice::Message>, outdated_prox
     });
 }
 
-/// Runs once, on the game thread, from the first PhysFS call: the rest of
+/// Runs once, on the game thread, from the first PhysFS call: mounts the
+/// framework files when PhysFS just initialized, then runs the rest of
 /// startup (`startup`).
-fn deferred_init() {
+fn deferred_init(mount_files: bool) {
+    if mount_files {
+        let mut all = text::unicode::framework_fonts::files();
+        all.extend(interface::windows::files());
+        base::guarded("framework files", || native::files::mount(&all));
+    }
     startup::run(base::game_dir().map(std::path::Path::to_path_buf).unwrap_or_default(), STARTUP.get().map_or("?", String::as_str));
 }
 

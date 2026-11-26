@@ -162,13 +162,10 @@ type AtWar = unsafe extern "C" fn(usize, u8) -> i32;
 static WARS_FOUGHT: Function<AtWar> = Function::new();
 type RouteCheck = unsafe extern "C" fn(usize, usize, usize, usize) -> u8;
 static ROUTE_CHECK: Function<RouteCheck> = Function::new();
-type Strength = unsafe extern "C" fn(usize, *mut i32, u8) -> *const i32;
-static STRENGTH: Function<Strength> = Function::new();
 type Score =
     unsafe extern "C" fn(usize, usize, f32, usize, *mut i32, *mut u8, *mut u8, *mut u8, u8, f32, f32, f32, *mut u8, f32, *mut u8, *mut u8, usize, usize) -> f32;
 static SCORE: Function<Score> = Function::new();
 type DatePart = unsafe extern "C" fn(usize) -> i32;
-static YEAR: Function<DatePart> = Function::new();
 static DAY_OF_YEAR: Function<DatePart> = Function::new();
 
 fn base() -> usize {
@@ -322,7 +319,7 @@ unsafe fn prepare(agent: usize, argument: usize) -> Option<Call> {
         let mut sea_target = (read::<u8>(country + NO_SEA_TARGETS) == 0 && SEA_TARGET.get()(agent, unit, &mut sea, argument) != 0) as u8;
         // `0xeb749`..`0xeb7a8`: for most countries one day in three.
         let world = read::<usize>(base + WORLD);
-        let days = YEAR.get()(world + DATE) * 365 + DAY_OF_YEAR.get()(world + DATE);
+        let days = crate::native::objects::dates_rva::YEAR_FN.get()(world + DATE) * 365 + DAY_OF_YEAR.get()(world + DATE);
         if SEARCHES_EVERY_THINK.get()(agent) == 0 && days % 3 != read::<i16>(agent + COUNTRY_INDEX) as i32 % 3 {
             return None;
         }
@@ -350,7 +347,7 @@ unsafe fn prepare(agent: usize, argument: usize) -> Option<Call> {
             return Some(Call { depth: DEEP, unit, argument, score: START_SCORE, a: 0, b: 0, c: 0, d: 0, flag: 1, other: 0, out: [0; 0x15] });
         }
         let mut strength = 0i32;
-        let strength = *STRENGTH.get()(unit, &mut strength, 0) as f32 / STRENGTH_SCALE;
+        let strength = *crate::native::objects::army_rva::MORALE_FN.get()(unit, &mut strength, 0) as f32 / STRENGTH_SCALE;
         let (mut a, mut seen_enemy, mut e, mut f, mut g, mut stays) = (0i32, 0u8, 0u8, 0u8, 0u8, 0u8);
         SCORE.get()(
             agent,
@@ -591,9 +588,7 @@ fn points() -> Vec<Point> {
         Point::keep(0xd511a0usize, "83 b9 10 01 00 00 00 7e 16 48 8b 81", "unit's destination").recorded(DESTINATION.slot()),
         Point::keep(0x359e20usize, "40 57 48 83 ec 20 8b b9 88 19 00 00", "country's wars").recorded(WARS_FOUGHT.slot()),
         Point::keep(0x1032f0usize, "48 89 5c 24 08 48 89 74 24 18 48 89", "army route check").recorded(ROUTE_CHECK.slot()),
-        Point::keep(crate::native::objects::army_rva::MORALE, "48 89 5c 24 18 55 56 57 48 83 ec 20", "unit's strength").recorded(STRENGTH.slot()),
         Point::keep(0xf8ea0usize, "48 89 5c 24 18 4c 89 4c 24 20 48 89", "army score of a province").recorded(SCORE.slot()),
-        Point::keep(crate::native::objects::dates_rva::YEAR, "44 8b 01 41 b9 01 00 00 00 41 81 e8", "date's year").recorded(YEAR.slot()),
         Point::keep(0xcfe10usize, "48 83 ec 28 44 8b 11 41 81 ea c0 55", "date's day of the year").recorded(DAY_OF_YEAR.slot()),
     ]
 }

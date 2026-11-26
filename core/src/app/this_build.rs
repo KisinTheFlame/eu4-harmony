@@ -24,7 +24,6 @@ fn framework() -> Vec<Point> {
     all.extend(crate::tweaks::points());
     all.extend(crate::text::points());
     all.extend(crate::render::present::points());
-    all.extend(crate::native::main_thread::points());
     all.extend(crate::speed::loading_times::points());
     all
 }

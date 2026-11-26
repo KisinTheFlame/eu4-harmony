@@ -14,11 +14,11 @@ pub(crate) mod game_heap;
 pub(crate) mod game_string;
 pub(crate) mod game_text;
 pub(crate) mod hooks;
-pub(crate) mod main_thread;
 pub(crate) mod memory;
 pub(crate) mod objects;
 pub(crate) mod physfs;
 pub(crate) mod probes;
+pub(crate) mod save_sum;
 pub(crate) mod speed_up;
 pub(crate) mod splice;
 

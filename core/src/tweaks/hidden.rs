@@ -35,7 +35,6 @@
 //! shown window is throttled by Windows as any other then anyway.
 use crate::base::called_by_game;
 use crate::native::points::{Function, Point};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 
 /// The switches on the game's command line.
@@ -57,8 +56,6 @@ impl Switches {
 }
 
 static SWITCHES: OnceLock<Switches> = OnceLock::new();
-/// Whether the game's window is hidden now.
-static HIDDEN: AtomicBool = AtomicBool::new(false);
 
 pub(crate) struct HiddenHooks {
     pub(crate) on_early_sync: fn(),
@@ -82,7 +79,6 @@ pub fn read_switches() {
     if !switches.hidden {
         return;
     }
-    HIDDEN.store(true, Ordering::Relaxed);
     crate::base::set_hidden(true);
     full_speed();
     if switches.sound {
@@ -123,7 +119,7 @@ fn full_speed() {
 
 /// Whether the game was started hidden.
 pub fn hidden_start() -> bool {
-    SWITCHES.get().is_some_and(|s| s.hidden)
+    crate::base::hidden_start()
 }
 
 /// Whether the game plays sound: a hidden start does only with
@@ -134,7 +130,7 @@ pub fn sound() -> bool {
 
 /// Whether the game's window is hidden now.
 pub fn hidden() -> bool {
-    HIDDEN.load(Ordering::Relaxed)
+    crate::base::is_hidden()
 }
 
 /// What [`show`] and [`hide`] refuse.
@@ -151,8 +147,7 @@ pub enum Refused {
 pub fn show() -> Result<(), Refused> {
     use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE};
     let window = window()?;
-    if HIDDEN.swap(false, Ordering::Relaxed) {
-        crate::base::set_hidden(false);
+    if crate::base::swap_hidden(false) {
         conceal(window, false);
         // Shown already, unless Init has not shown it yet.
         unsafe { ShowWindow(window, SW_SHOWNOACTIVATE) };
@@ -165,8 +160,7 @@ pub fn show() -> Result<(), Refused> {
 /// hidden start.
 pub fn hide() -> Result<(), Refused> {
     let window = window()?;
-    if !HIDDEN.swap(true, Ordering::Relaxed) {
-        crate::base::set_hidden(true);
+    if !crate::base::swap_hidden(true) {
         if let Some(h) = HOOKS.get() {
             (h.on_hold_cursor)(None);
         }

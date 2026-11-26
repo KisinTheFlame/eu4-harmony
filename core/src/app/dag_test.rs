@@ -22,7 +22,7 @@ const PRODUCTION_DAG: &[(&str, &[&str])] = &[
     ("repairs", &["base", "native"]),
     ("speed", &["base", "native"]),
     ("tweaks", &["base", "native", "render"]),
-    ("session", &["base", "native", "render"]),
+    ("session", &["base", "native"]),
     ("interface", &["base", "native", "text", "render", "session"]),
     ("world", &["base", "native", "text"]),
     ("capabilities", &["base", "native", "text", "render", "repairs", "tweaks", "session", "interface", "world"]),

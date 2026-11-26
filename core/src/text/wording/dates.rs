@@ -127,13 +127,9 @@ extern "C" fn year_month_day(date: *const i32, out: *mut u8, extra: usize) -> *m
 /// with a comma: `(&date, out string)`, which the framework replaces.
 pub const NEXT_MONTH_YEAR: GameFunction<2> = GameFunction::at(0x6e5b40);
 
-pub(crate) use crate::native::objects::dates_rva::YEAR;
-
 pub fn points() -> Vec<Point> {
     let f = |f: extern "C" fn(*const i32, *mut u8, usize) -> *mut u8| f as DateText;
     vec![
-        // The calendar the dates are read in: hours since 5000 BC.
-        Point::keep(YEAR, "44 8b 01 41 b9 01 00 00 00 41 81 e8 c0 55 9c 02", "date year"),
         Point::replace(0x14c7890usize, "48 89 5c 24 10 48 89 74 24 18 48 89 7c 24 20 48", "date in a format", f(formatted), &ORIGINAL_FORMAT),
         Point::replace(0x6e6100usize, "48 89 5c 24 08 57 48 81 ec c0 00 00 00 48 8b fa", "date as month and year", f(month_year), &ORIGINAL_MONTH),
         Point::replace(

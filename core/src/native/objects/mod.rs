@@ -114,8 +114,11 @@ pub(crate) fn current_date(m: &Memory) -> Option<i32> {
 /// Shared native army function RVAs used by repairs, speed-ups and capabilities.
 pub(crate) mod army_rva {
     use super::GameFunction;
+    use crate::native::points::Function;
     pub(crate) const FIND_ID: GameFunction<1> = GameFunction::at(0x14cf730);
     pub(crate) const MORALE: GameFunction<3> = GameFunction::at(0xd4c060);
+    pub(crate) type StrengthFn = unsafe extern "C" fn(usize, *mut i32, u8) -> *const i32;
+    pub(crate) static MORALE_FN: Function<StrengthFn> = Function::new();
 }
 
 /// Shared native command-writer/token-table RVAs used by parallel saving and commands.
@@ -130,8 +133,10 @@ pub(crate) mod commands_rva {
 /// Shared native save-writer constants and token representation.
 pub(crate) mod saves_rva {
     use super::GameFunction;
+    use std::sync::atomic::AtomicUsize;
     pub(crate) const WRITE_TOKEN: GameFunction<2> = GameFunction::at(0x1708870);
     pub(crate) const WRITE_CLOSE: GameFunction<1> = GameFunction::at(0x17087e0);
+    pub(crate) static WRITE_CLOSE_ADDR: AtomicUsize = AtomicUsize::new(0);
     pub(crate) const WRITER_DEPTH: usize = 0x8;
     pub(crate) const EQUALS: u32 = 1;
     pub(crate) const NUMBER: u32 = 0xc;
@@ -171,8 +176,11 @@ pub(crate) mod map_rva {
 
 /// Shared native calendar date RVAs.
 pub(crate) mod dates_rva {
+    use crate::native::points::Function;
     /// `(&date)`: the date's year.
     pub(crate) const YEAR: usize = 0xcfd70;
+    pub(crate) type YearFn = unsafe extern "C" fn(usize) -> i32;
+    pub(crate) static YEAR_FN: Function<YearFn> = Function::new();
 }
 
 pub fn points() -> Vec<Point> {
@@ -186,5 +194,16 @@ pub fn points() -> Vec<Point> {
     all.extend(application::points());
     all.extend(diplomacy::points());
     all.extend(console::points());
+    all.extend([
+        Point::keep(army_rva::FIND_ID, "44 8b 09 41 81 f9 68 12 00 00 76 5c 4c 8b 05 15", "object lookup by ID"),
+        Point::keep(army_rva::MORALE, "48 89 5c 24 18 55 56 57 48 83 ec 20 48 8b 41 38 33 db 48 2b 41 30", "unit morale")
+            .uses(&[campaign::unit::REGIMENTS])
+            .recorded(army_rva::MORALE_FN.slot()),
+        Point::keep(saves_rva::WRITE_TOKEN, "40 55 53 56 57 41 54 41 56 41 57 48 8d 6c 24 d9", "save writer writes a token"),
+        Point::keep(saves_rva::WRITE_CLOSE, "40 53 48 81 ec 30 02 00 00 ff 49 08 48 8b d9", "save writer closes a block")
+            .uses(&[saves_rva::WRITER_DEPTH])
+            .recorded(&saves_rva::WRITE_CLOSE_ADDR),
+        Point::keep(dates_rva::YEAR, "44 8b 01 41 b9 01 00 00 00 41 81 e8 c0 55 9c 02", "date year").recorded(dates_rva::YEAR_FN.slot()),
+    ]);
     all
 }

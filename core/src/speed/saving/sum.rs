@@ -131,7 +131,7 @@ fn add_at(stream: usize, len: i32) {
     }
 }
 
-pub(crate) use crate::base::save_sum::{serial, step, SaveSum};
+pub(crate) use crate::native::save_sum::{serial, step, SaveSum};
 
 /// `a` after the bytes: eight at a step, unless they take it past 0xffff.
 fn advance_a(mut a: u32, data: &[u8]) -> u32 {

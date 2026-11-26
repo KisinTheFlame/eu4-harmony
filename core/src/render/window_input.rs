@@ -27,7 +27,6 @@ pub enum Event {
     Escape,
 }
 
-static WINDOW: AtomicIsize = AtomicIsize::new(0);
 static ORIGINAL: AtomicIsize = AtomicIsize::new(0);
 /// A message [`inject`] hands over is going through the procedure.
 static INJECTING: AtomicBool = AtomicBool::new(false);
@@ -260,7 +259,7 @@ pub fn inject(message: u32, wparam: WPARAM, lparam: LPARAM) -> bool {
 /// Puts the framework's window procedure in front of the game's, once the
 /// game has its window. Returns whether it is in place.
 pub fn attach(handler: Handler) -> bool {
-    if WINDOW.load(Ordering::Acquire) != 0 {
+    if crate::base::game_window().is_some() {
         return true;
     }
     let _ = HANDLER.set(handler);
@@ -280,7 +279,6 @@ pub fn attach(handler: Handler) -> bool {
         return false;
     }
     ORIGINAL.store(previous, Ordering::Release);
-    WINDOW.store(window as isize, Ordering::Release);
     crate::base::set_game_window(window);
     log!("framework UI: input attached to window {window:?}");
     true

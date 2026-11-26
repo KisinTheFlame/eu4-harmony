@@ -1,6 +1,6 @@
 //! Pure byte-sum algorithm matching the game's memory stream checksum
 //! (`0x171f3f0`), shared between save-checksum repairs and parallel save
-//! checksumming without coupling those nodes.
+//! checksumming.
 
 /// The sum of bytes the save checksum is taken of, as a memory stream sums
 /// them: its two halves.
@@ -34,4 +34,28 @@ pub(crate) fn serial(mut s: SaveSum, data: &[u8]) -> SaveSum {
         s = step(s, byte);
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sums_bytes_incrementally_and_packs_halves() {
+        let mut s = SaveSum::default();
+        s.add(b"AB");
+        // 'A' = 65: a = 65, b = 65
+        // 'B' = 66: a = 131, b = 196
+        assert_eq!(s, SaveSum { a: 131, b: 196 });
+        assert_eq!(s.value(), (131 << 16) | 196);
+    }
+
+    #[test]
+    fn folds_high_bits_when_a_or_b_exceeds_u16() {
+        let after = step(SaveSum { a: 0xffff, b: 0xffff }, 1);
+        // a = 0x10000 -> 1; b = 0xffff + 1 = 0x10000 -> 1
+        assert_eq!(after, SaveSum { a: 1, b: 1 });
+        let chunked = serial(serial(SaveSum::default(), &[0xff; 300]), &[0xff; 300]);
+        assert_eq!(chunked, serial(SaveSum::default(), &[0xff; 600]));
+    }
 }

@@ -55,16 +55,18 @@ struct State {
 
 static STATE: LazyLock<Mutex<State>> = LazyLock::new(|| Mutex::new(State { plan: None, open: HashMap::new(), served: HashMap::new() }));
 static INIT_ONCE: Once = Once::new();
-static ON_FIRST_INIT: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
+static ON_FIRST_INIT: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();
 
-/// Registers the callback invoked once on the first PhysFS call.
-pub(crate) fn set_on_first_init(hook: fn()) {
+/// Registers the callback invoked once on the first PhysFS call. The boolean
+/// argument is `true` when invoked from a successful `PHYSFS_init` (so
+/// framework files can be mounted immediately).
+pub(crate) fn set_on_first_init(hook: fn(bool)) {
     let _ = ON_FIRST_INIT.set(hook);
 }
 
-fn run_first_init() {
+fn run_first_init(mounted_ready: bool) {
     if let Some(hook) = ON_FIRST_INIT.get() {
-        hook();
+        hook(mounted_ready);
     }
 }
 
@@ -112,10 +114,7 @@ pub fn normalize(path: &str) -> String {
 #[called_by_game]
 unsafe extern "C" fn init_detour(argv0: *const c_char) -> i32 {
     let result = ORIG_INIT.get()(argv0);
-    if result != 0 {
-        crate::base::guarded("framework files", crate::native::files::mount);
-    }
-    crate::base::guarded("PHYSFS_init", || INIT_ONCE.call_once(run_first_init));
+    crate::base::guarded("PHYSFS_init", || INIT_ONCE.call_once(|| run_first_init(result != 0)));
     result
 }
 
@@ -123,7 +122,7 @@ unsafe extern "C" fn init_detour(argv0: *const c_char) -> i32 {
 unsafe extern "C" fn open_read_detour(path: *const c_char) -> File {
     let handle = ORIG_OPEN_READ.get()(path);
     crate::base::guarded("PHYSFS_openRead", || {
-        INIT_ONCE.call_once(run_first_init);
+        INIT_ONCE.call_once(|| run_first_init(false));
         if handle.is_null() {
             return;
         }

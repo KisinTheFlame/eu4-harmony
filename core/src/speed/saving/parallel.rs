@@ -962,7 +962,6 @@ mod compare {
 
     resume!(PROVINCES_END_RESUME: PROVINCES_END_AT = PROVINCES_END + 8);
     resume!(COUNTRIES_END_RESUME: COUNTRIES_END_AT = COUNTRIES_END + 8);
-    static CLOSE: AtomicUsize = AtomicUsize::new(0);
 
     /// Replaces `mov rcx, rsi; call <close a block>` at a loop's end.
     #[unsafe(naked)]
@@ -973,7 +972,7 @@ mod compare {
             "call qword ptr [rip + {close}]",
             "jmp qword ptr [rip + {next}]",
             end = sym end,
-            close = sym CLOSE,
+            close = sym crate::native::objects::saves_rva::WRITE_CLOSE_ADDR,
             next = sym PROVINCES_END_AT,
         );
     }
@@ -986,7 +985,7 @@ mod compare {
             "call qword ptr [rip + {close}]",
             "jmp qword ptr [rip + {next}]",
             end = sym end,
-            close = sym CLOSE,
+            close = sym crate::native::objects::saves_rva::WRITE_CLOSE_ADDR,
             next = sym COUNTRIES_END_AT,
         );
     }
@@ -995,8 +994,6 @@ mod compare {
         vec![
             Point::jump(PROVINCES_END, "48 8b ce e8 a9 70 fb 00", "provinces written", provinces_end_stub as *const () as usize, &PROVINCES_END_RESUME),
             Point::jump(COUNTRIES_END, "48 8b ce e8 24 70 fb 00", "countries written", countries_end_stub as *const () as usize, &COUNTRIES_END_RESUME),
-            Point::keep(crate::native::objects::saves_rva::WRITE_CLOSE, "40 53 48 81 ec 30 02 00 00 ff 49 08 48 8b d9", "save writer closes a block (checked)")
-                .recorded(&CLOSE),
         ]
     }
 }
