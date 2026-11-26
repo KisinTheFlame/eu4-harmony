@@ -40,6 +40,7 @@ l_spanish:
  EU4HARMONY_SETTINGS_CONSOLE_FONT:0 "Fuente de la consola"
  EU4HARMONY_SETTINGS_CONSOLE_WEIGHT:0 "Grosor de la fuente de la consola"
  EU4HARMONY_SETTINGS_RESTART:0 "Los cambios de idioma, de fuentes y de los nombres del mapa se aplicarán la próxima vez que se inicie el juego."
+ EU4HARMONY_SETTINGS_MAIN_MENU_ONLY:0 "Estos ajustes solo se pueden cambiar desde el menú principal."
  EU4HARMONY_SETTINGS_RETURN_WITHOUT_RESTART:0 "Volver al menú principal sin reiniciar el juego"
  EU4HARMONY_SETTINGS_SAVE_IRONMAN_BEFORE_LOAD:0 "En modo Ironman, guardar la partida antes de cargar otra"
  EU4HARMONY_SETTINGS_FRAME_RATE_LIMIT:0 "Límite de fotogramas"

@@ -1,11 +1,12 @@
 //! The framework UI (GLOSSARY, ADR framework-draws-its-own-ui): windows the
 //! framework draws itself on top of the game's picture, with widgets of its
 //! own: the notice window, the settings window and the mods window, and in the
-//! main menu the corner buttons that open those two.
+//! main menu and the in-game menu the corner buttons that open those two.
 //!
-//! [`frame`] runs once a frame on the main thread, just before the game
-//! presents (`hook`); the window procedure ([`input`]) hands it the
-//! mouse and keyboard on the window's thread. The two share it under a lock.
+//! [`frame`] runs once a frame on the main thread or the drawing thread, just
+//! before the game presents (`hook`); the window procedure ([`input`]) hands
+//! it the mouse and keyboard on the window's thread. The two share it under a
+//! lock.
 pub mod d3d9;
 pub mod fonts_page;
 pub mod hook;
@@ -37,6 +38,19 @@ struct SettingsState<F: FontSystem> {
     opened_next: Settings,
     fonts: FontsPage<F>,
     display_hz: u32,
+    in_game: bool,
+}
+
+struct ModsState {
+    window: Window,
+    in_game: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CornerContext {
+    None,
+    MainMenu,
+    InGameMenu,
 }
 
 /// Host seam for the framework UI shell: real game globals in production and
@@ -47,7 +61,7 @@ trait UiHost {
     fn mod_text(&self, id: &str, key: &str) -> Option<String>;
     fn current_settings(&self) -> Settings;
     fn next_settings(&self) -> Settings;
-    fn save_settings(&mut self, settings: Settings) -> Result<(), String>;
+    fn save_settings(&mut self, settings: Settings, in_game: bool) -> Result<(), String>;
     fn display_refresh_rate(&self) -> u32;
     fn font_system(&self) -> Self::Fonts;
     fn mod_cards(&self) -> &[mods_window::Card];
@@ -90,8 +104,8 @@ impl UiHost for LiveHost {
         settings::next()
     }
 
-    fn save_settings(&mut self, chosen: Settings) -> Result<(), String> {
-        settings::save(chosen)
+    fn save_settings(&mut self, chosen: Settings, in_game: bool) -> Result<(), String> {
+        settings::save(chosen, in_game)
     }
 
     fn display_refresh_rate(&self) -> u32 {
@@ -145,7 +159,7 @@ impl UiHost for LiveHost {
     }
 }
 
-/// Self-contained framework UI shell: owns screen/scale/mouse, main-menu
+/// Self-contained framework UI shell: owns screen/scale/mouse, menu
 /// freshness, modal windows, settings edit snapshot, notice retention, and
 /// unified stacking for drawing, input, and tooltips.
 struct Shell<H: UiHost> {
@@ -156,10 +170,11 @@ struct Shell<H: UiHost> {
     scale: f32,
     frame: u64,
     main_menu_frame: Option<u64>,
+    in_game_menu: bool,
     /// The notice on screen, by its number.
     notice: Option<(u64, Window)>,
     settings: Option<SettingsState<H::Fonts>>,
-    mods: Option<Window>,
+    mods: Option<ModsState>,
     last_dump_outcome: Option<DumpStatus>,
 }
 
@@ -220,14 +235,38 @@ fn corner(screen: (f32, f32), measure: &dyn Measure, words: &dyn Fn(&str) -> Str
 const SETTINGS_WIDTH: f32 = 600.0;
 const SETTINGS_LIST: f32 = 168.0;
 
+/// Tooltip and footer key for settings that cannot be changed during a game.
+const MAIN_MENU_ONLY_KEY: &str = "EU4HARMONY_SETTINGS_MAIN_MENU_ONLY";
+
+fn main_menu_only_tooltip() -> eu4_harmony_lua::Text {
+    eu4_harmony_lua::Text::key(MAIN_MENU_ONLY_KEY.into())
+}
+
+fn disable_widget(widget: Widget) -> Widget {
+    if matches!(widget, Widget::Gap) {
+        widget
+    } else {
+        widget.with_enabled(false).with_tooltip(main_menu_only_tooltip())
+    }
+}
+
+fn disable_main_menu_only(widgets: Vec<Widget>) -> Vec<Widget> {
+    widgets.into_iter().map(disable_widget).collect()
+}
+
 /// The widgets of the settings in [`settings::SETTINGS`] that `page` shows,
 /// in their order there, showing the values `shown` has on a `display_hz`
-/// display; each interactive widget's id is its setting's key.
-fn setting_widgets(page: Page, shown: &Settings, display_hz: u32, words: &dyn Fn(&str) -> String) -> Vec<Widget> {
+/// display; each interactive widget's id is its setting's key. When `in_game`
+/// is true, settings that cannot be modified during a session are disabled.
+fn setting_widgets(page: Page, shown: &Settings, display_hz: u32, in_game: bool, words: &dyn Fn(&str) -> String) -> Vec<Widget> {
     let mut out = Vec::new();
     for setting in settings::SETTINGS.iter().filter(|s| s.page == page) {
+        let enabled = !in_game || setting.editable_in_game();
         match setting.shows {
-            Shows::Toggle { label, field } => out.push(Widget::Toggle { id: setting.key, label: words(label), on: (field.get)(shown) }),
+            Shows::Toggle { label, field } => {
+                let widget = Widget::Toggle { id: setting.key, label: words(label), on: (field.get)(shown) };
+                out.push(if enabled { widget } else { disable_widget(widget) });
+            }
             Shows::FrameRate { label, unlimited_tooltip, field } => {
                 let (choices, selected) = settings::frame_rate_choices((field.get)(shown), display_hz);
                 let options = choices
@@ -241,16 +280,20 @@ fn setting_widgets(page: Page, shown: &Settings, display_hz: u32, words: &dyn Fn
                 let tooltips = choices
                     .iter()
                     .map(|choice| match choice {
-                        FrameRateLimit::Unlimited => eu4_harmony_lua::Text::key(unlimited_tooltip.into()),
-                        FrameRateLimit::Display | FrameRateLimit::Hz(_) => Default::default(),
+                        FrameRateLimit::Unlimited if enabled => eu4_harmony_lua::Text::key(unlimited_tooltip.into()),
+                        _ => Default::default(),
                     })
                     .collect();
-                out.push(Widget::Label(words(label)));
-                out.push(Widget::Choice { id: setting.key, options, tooltips, selected });
+                let label_widget = Widget::Label(words(label));
+                let choice_widget = Widget::Choice { id: setting.key, options, tooltips, selected };
+                out.push(if enabled { label_widget } else { disable_widget(label_widget) });
+                out.push(if enabled { choice_widget } else { disable_widget(choice_widget) });
             }
             Shows::Slider { label, min, max, format, field, .. } => {
-                out.push(Widget::Label(words(label)));
-                out.push(Widget::Slider { id: setting.key, min, max, value: (field.get)(shown).clamp(min, max), format });
+                let label_widget = Widget::Label(words(label));
+                let slider_widget = Widget::Slider { id: setting.key, min, max, value: (field.get)(shown).clamp(min, max), format };
+                out.push(if enabled { label_widget } else { disable_widget(label_widget) });
+                out.push(if enabled { slider_widget } else { disable_widget(slider_widget) });
             }
         }
     }
@@ -258,8 +301,8 @@ fn setting_widgets(page: Page, shown: &Settings, display_hz: u32, words: &dyn Fn
 }
 
 /// A page with nothing but settings from [`settings::SETTINGS`].
-fn settings_page(page: Page, shown: &Settings, display_hz: u32, words: &dyn Fn(&str) -> String) -> Vec<Widget> {
-    setting_widgets(page, shown, display_hz, words)
+fn settings_page(page: Page, shown: &Settings, display_hz: u32, in_game: bool, words: &dyn Fn(&str) -> String) -> Vec<Widget> {
+    setting_widgets(page, shown, display_hz, in_game, words)
 }
 
 /// Where problems with the framework are reported, as the About page names
@@ -338,25 +381,34 @@ fn troubleshooting_line(state: &crate::troubleshooting::State, words_with: mods_
 /// does, so that the buttons stay where they are.
 const RESTART_LINE: usize = 1;
 
-/// The line at [`RESTART_LINE`]: the words that say so while the settings
-/// `w` shows, saved, would change what takes effect only at the next start
-/// from what this session, running with `current`, has; nothing otherwise.
-fn restart_line(
+/// The line at [`RESTART_LINE`]: in the main menu, says when a change waits
+/// for the next start; in a game, says when the viewed page can only be
+/// changed from the main menu; empty otherwise so the buttons stay put.
+fn footer_notice(
     w: &Window,
     current: &Settings,
     next: &Settings,
     fonts: &FontsPage<impl FontSystem>,
     display_hz: u32,
+    in_game: bool,
     words: &dyn Fn(&str) -> String,
 ) -> Widget {
-    let waits = current.waits_for_restart(&chosen_settings(w, next, fonts, display_hz));
+    if in_game {
+        let locked = w.side.as_ref().and_then(|s| Page::ALL.get(s.selected)).is_some_and(|p| !p.editable_in_game());
+        return Widget::Label(if locked { words(MAIN_MENU_ONLY_KEY) } else { String::new() });
+    }
+    let waits = current.waits_for_restart(&chosen_settings(w, next, fonts, display_hz, false));
     Widget::Label(if waits { words("EU4HARMONY_SETTINGS_RESTART") } else { String::new() })
 }
 
 /// Takes into `chosen` what the settings window `w` shows of the settings
-/// in [`settings::SETTINGS`]; one it does not show keeps its value.
-fn read_back(w: &Window, next: &Settings, display_hz: u32, chosen: &mut Settings) {
+/// in [`settings::SETTINGS`]; one it does not show (or that is disabled in
+/// a game) keeps its value.
+fn read_back(w: &Window, next: &Settings, display_hz: u32, in_game: bool, chosen: &mut Settings) {
     for setting in &settings::SETTINGS {
+        if in_game && !setting.editable_in_game() {
+            continue;
+        }
         match setting.shows {
             Shows::Toggle { field, .. } => {
                 if let Some(on) = w.is_on(setting.key) {
@@ -385,7 +437,9 @@ fn read_back(w: &Window, next: &Settings, display_hz: u32, chosen: &mut Settings
 
 /// The settings window showing `next`, the settings the next start runs
 /// with, to a session running with `current`; its language and fonts page is
-/// `fonts`.
+/// `fonts`. When `in_game` is true, pages unavailable during a session are
+/// disabled and the first editable page is selected initially.
+#[expect(clippy::too_many_arguments, reason = "builds the settings window from the current snapshot, host status and wording seam")]
 fn settings_window(
     current: &Settings,
     next: &Settings,
@@ -393,15 +447,23 @@ fn settings_window(
     display_hz: u32,
     dumps: &DumpStatus,
     troubleshooting: &crate::troubleshooting::State,
+    in_game: bool,
     words_with: mods_window::Words,
 ) -> Window {
     let words = |key: &str| words_with(key, &[]);
     let pages = Page::ALL
         .into_iter()
         .map(|page| match page {
-            Page::LanguageFonts => fonts.widgets(next, &words),
+            Page::LanguageFonts => {
+                let widgets = fonts.widgets(next, &words);
+                if in_game {
+                    disable_main_menu_only(widgets)
+                } else {
+                    widgets
+                }
+            }
             Page::About => about_page(dumps, troubleshooting, &words, words_with),
-            _ => settings_page(page, next, display_hz, &words),
+            _ => settings_page(page, next, display_hz, in_game, &words),
         })
         .collect();
     let footer = vec![
@@ -413,16 +475,23 @@ fn settings_window(
     ];
     let side = Side::new("pages", Page::ALL.iter().map(|page| words(page.title())).collect(), SETTINGS_LIST);
     let mut window = Window::new(words("EU4HARMONY_SETTINGS_TITLE"), Vec::new(), SETTINGS_WIDTH).with_side(side).with_pages(pages).with_footer(footer);
-    window.footer_mut()[RESTART_LINE] = restart_line(&window, current, next, fonts, display_hz, &words);
+    if in_game {
+        if let Some(first_editable) = Page::ALL.iter().position(|p| p.editable_in_game()) {
+            window.select_page(first_editable);
+        }
+    }
+    window.footer_mut()[RESTART_LINE] = footer_notice(&window, current, next, fonts, display_hz, in_game, &words);
     window
 }
 
 /// The settings the settings window `w` saves: `next`, which it was opened
 /// with, as `w` changed it.
-fn chosen_settings(w: &Window, next: &Settings, fonts: &FontsPage<impl FontSystem>, display_hz: u32) -> Settings {
+fn chosen_settings(w: &Window, next: &Settings, fonts: &FontsPage<impl FontSystem>, display_hz: u32, in_game: bool) -> Settings {
     let mut chosen = next.clone();
-    fonts.read_back(w, &mut chosen);
-    read_back(w, next, display_hz, &mut chosen);
+    if !in_game {
+        fonts.read_back(w, &mut chosen);
+    }
+    read_back(w, next, display_hz, in_game, &mut chosen);
     chosen
 }
 
@@ -445,6 +514,7 @@ impl<H: UiHost> Shell<H> {
             scale: 1.0,
             frame: 0,
             main_menu_frame: None,
+            in_game_menu: false,
             notice: None,
             settings: None,
             mods: None,
@@ -459,21 +529,33 @@ impl<H: UiHost> Shell<H> {
     /// Single source of truth for the topmost modal window, shared by drawing,
     /// event dispatch, and tooltip hit-testing.
     fn active_modal(&self) -> Option<&Window> {
-        self.mods.as_ref().or(self.settings.as_ref().map(|s| &s.window))
+        self.mods.as_ref().map(|m| &m.window).or(self.settings.as_ref().map(|s| &s.window))
     }
 
     fn in_main_menu(&self) -> bool {
         self.main_menu_frame.is_some_and(|menu| self.frame.saturating_sub(menu) <= 2)
     }
 
-    fn sync_frame(&mut self, frame: u64, main_menu_frame: Option<u64>, pixels: (f32, f32), scale: f32) {
+    fn corner_context(&self) -> CornerContext {
+        if self.in_main_menu() {
+            CornerContext::MainMenu
+        } else if self.in_game_menu {
+            CornerContext::InGameMenu
+        } else {
+            CornerContext::None
+        }
+    }
+
+    fn sync_frame(&mut self, frame: u64, main_menu_frame: Option<u64>, in_game_menu: bool, pixels: (f32, f32), scale: f32) {
         self.frame = frame;
         self.main_menu_frame = main_menu_frame;
+        self.in_game_menu = in_game_menu;
         self.scale = scale;
         self.screen = (pixels.0 / scale, pixels.1 / scale);
     }
 
     fn open_settings(&mut self, measure: &dyn Measure) {
+        let in_game = self.corner_context() == CornerContext::InGameMenu;
         let next = self.host.next_settings();
         let current = self.host.current_settings();
         let fonts = FontsPage::new(self.host.font_system(), &next);
@@ -487,9 +569,9 @@ impl<H: UiHost> Shell<H> {
         };
         let troubleshooting = self.host.troubleshooting_state();
         let ww = |key: &str, args: &[(&str, &str)]| self.host.words(key, args);
-        let mut window = settings_window(&current, &next, &fonts, display_hz, &dumps, &troubleshooting, &ww);
+        let mut window = settings_window(&current, &next, &fonts, display_hz, &dumps, &troubleshooting, in_game, &ww);
         window.center(measure, self.screen.0, self.screen.1);
-        self.settings = Some(SettingsState { window, opened_next: next, fonts, display_hz });
+        self.settings = Some(SettingsState { window, opened_next: next, fonts, display_hz, in_game });
     }
 
     fn show_dump_status(&mut self, status: &DumpStatus) {
@@ -507,7 +589,9 @@ impl<H: UiHost> Shell<H> {
     /// drop-down list or choice bar `id`.
     fn settings_chose(&mut self, id: &str, index: usize) {
         if let Some(settings) = self.settings.as_mut() {
-            settings.fonts.chose(&mut settings.window, id, index);
+            if !settings.in_game {
+                settings.fonts.chose(&mut settings.window, id, index);
+            }
         }
     }
 
@@ -516,15 +600,15 @@ impl<H: UiHost> Shell<H> {
         let w = |key: &str| self.host.words(key, &[]);
         if let Some(settings) = self.settings.as_mut() {
             settings.window.footer_mut()[RESTART_LINE] =
-                restart_line(&settings.window, &current, &settings.opened_next, &settings.fonts, settings.display_hz, &w);
+                footer_notice(&settings.window, &current, &settings.opened_next, &settings.fonts, settings.display_hz, settings.in_game, &w);
         }
     }
 
     fn close_settings(&mut self, save: bool) {
         if let Some(settings) = self.settings.take() {
             if save {
-                let chosen = chosen_settings(&settings.window, &settings.opened_next, &settings.fonts, settings.display_hz);
-                match self.host.save_settings(chosen.clone()) {
+                let chosen = chosen_settings(&settings.window, &settings.opened_next, &settings.fonts, settings.display_hz, settings.in_game);
+                match self.host.save_settings(chosen.clone(), settings.in_game) {
                     Ok(()) => log!("settings saved: {chosen:?}"),
                     Err(e) => log!("settings not saved: {e}"),
                 }
@@ -533,11 +617,12 @@ impl<H: UiHost> Shell<H> {
     }
 
     fn open_mods(&mut self, measure: &dyn Measure) {
+        let in_game = self.corner_context() == CornerContext::InGameMenu;
         let ww = |key: &str, args: &[(&str, &str)]| self.host.words(key, args);
         let mt = |id: &str, key: &str| self.host.mod_text(id, key);
         let mut window = mods_window::window(self.host.mod_cards(), &ww, &mt);
         window.center(measure, self.screen.0, self.screen.1);
-        self.mods = Some(window);
+        self.mods = Some(ModsState { window, in_game });
     }
 
     fn mod_chosen(&mut self, index: usize) {
@@ -545,8 +630,8 @@ impl<H: UiHost> Shell<H> {
         let mt = |id: &str, key: &str| self.host.mod_text(id, key);
         let Some(card) = self.host.mod_cards().get(index) else { return };
         let body = mods_window::details(card, &ww, &mt);
-        if let Some(window) = self.mods.as_mut() {
-            window.body = body;
+        if let Some(mods) = self.mods.as_mut() {
+            mods.window.body = body;
         }
     }
 
@@ -554,9 +639,16 @@ impl<H: UiHost> Shell<H> {
         self.mods = None;
     }
 
-    /// Reconciles notices, async dump setup completion (even after Settings
-    /// closed), and troubleshooting packing status once per frame.
+    /// Reconciles notices, in-game modal lifetime, async dump setup completion
+    /// (even after Settings closed), and troubleshooting packing status once
+    /// per frame.
     fn tick(&mut self, measure: &dyn Measure) {
+        if self.settings.as_ref().is_some_and(|s| s.in_game) && !self.in_game_menu {
+            self.close_settings(false);
+        }
+        if self.mods.as_ref().is_some_and(|m| m.in_game) && !self.in_game_menu {
+            self.close_mods();
+        }
         match (self.host.notice_current(), &mut self.notice) {
             (None, _) => self.notice = None,
             (Some(showing), Some((shown, window))) if *shown == showing.number => window.title = showing.title,
@@ -598,8 +690,8 @@ impl<H: UiHost> Shell<H> {
         if let Move(x, y) | Down(x, y) | Up(x, y) = event {
             self.mouse = (x, y);
         }
-        if let Some(w) = self.mods.as_mut() {
-            match Self::modal_event(w, measure, event) {
+        if let Some(mods) = self.mods.as_mut() {
+            match Self::modal_event(&mut mods.window, measure, event) {
                 Some(Action::Chose("mods", index)) => self.mod_chosen(index),
                 Some(Action::Closed) => self.close_mods(),
                 _ => {}
@@ -654,7 +746,8 @@ impl<H: UiHost> Shell<H> {
         }
         if let Down(x, y) = event {
             let w = |key: &str| self.host.words(key, &[]);
-            let hit = self.in_main_menu().then(|| corner(self.screen, measure, &w).into_iter().find(|(r, ..)| r.contains(x, y))).flatten();
+            let show = self.corner_context() != CornerContext::None;
+            let hit = show.then(|| corner(self.screen, measure, &w).into_iter().find(|(r, ..)| r.contains(x, y))).flatten();
             match hit.map(|(.., opens)| opens) {
                 Some(Opens::Settings) => self.open_settings(measure),
                 Some(Opens::Mods) => self.open_mods(measure),
@@ -683,7 +776,7 @@ impl<H: UiHost> Shell<H> {
 
     fn commands(&self, measure: &dyn Measure) -> Vec<Command> {
         let mut out = Vec::new();
-        if self.in_main_menu() && !self.modal() {
+        if self.corner_context() != CornerContext::None && !self.modal() {
             let w = |key: &str| self.host.words(key, &[]);
             for (r, label, _) in corner(self.screen, measure, &w) {
                 let hover = r.contains(self.mouse.0, self.mouse.1);
@@ -716,7 +809,7 @@ impl<H: UiHost> Shell<H> {
         if let Some(content) = self.notice.as_ref().and_then(|(_, window)| window.tooltip_at(measure, x, y)) {
             return Some(content);
         }
-        if self.in_main_menu() {
+        if self.corner_context() != CornerContext::None {
             let w = |key: &str| self.host.words(key, &[]);
             return corner(self.screen, measure, &w).into_iter().find(|(rect, ..)| rect.contains(x, y)).map(|(_, label, _)| label.into());
         }
@@ -848,8 +941,9 @@ pub unsafe fn frame(device: *mut c_void) {
     let scale = crate::memory().and_then(crate::game::gui_scale).map_or(1.0, |(across, _)| across.clamp(0.5, 4.0));
     let pixels = unsafe { d3d9::Backend::screen(device) };
     let menu = MAIN_MENU_FRAME.load(Ordering::Relaxed);
+    let in_game_menu = crate::memory().is_some_and(crate::game::menu::in_game_menu_open);
     ui.font.set_scale(scale);
-    ui.shell.sync_frame(frame_number, (menu != u64::MAX).then_some(menu), pixels, scale);
+    ui.shell.sync_frame(frame_number, (menu != u64::MAX).then_some(menu), in_game_menu, pixels, scale);
     ui.shell.tick(&ui.font);
     MODAL.store(ui.shell.modal(), Ordering::Relaxed);
     let commands = ui.shell.commands(&ui.font);
@@ -894,7 +988,7 @@ mod tests {
     /// The settings window's pages as far as [`settings::SETTINGS`] builds
     /// them: the language and fonts page without its fonts.
     fn pages(shown: &Settings, display_hz: u32) -> Vec<Vec<Widget>> {
-        Page::ALL.into_iter().map(|page| settings_page(page, shown, display_hz, &keys)).collect()
+        Page::ALL.into_iter().map(|page| settings_page(page, shown, display_hz, false, &keys)).collect()
     }
 
     fn every_setting_changed() -> Settings {
@@ -939,12 +1033,12 @@ mod tests {
             let side = Side::new("pages", Page::ALL.iter().map(|p| keys(p.title())).collect(), SETTINGS_LIST);
             let window = Window::new("", Vec::new(), SETTINGS_WIDTH).with_side(side).with_pages(pages(&shown, 60));
             let mut read = before;
-            read_back(&window, &shown, 60, &mut read);
+            read_back(&window, &shown, 60, false, &mut read);
             assert_eq!(read, shown);
         }
         // A setting the window does not show keeps its value.
         let mut kept = every_setting_changed();
-        read_back(&Window::new("", Vec::new(), SETTINGS_WIDTH), &Settings::default(), 60, &mut kept);
+        read_back(&Window::new("", Vec::new(), SETTINGS_WIDTH), &Settings::default(), 60, false, &mut kept);
         assert_eq!(kept, every_setting_changed());
     }
 
@@ -965,8 +1059,11 @@ mod tests {
             for next in [following, chosen] {
                 for fonts in [Some(fonts_page::tests::installed()), None] {
                     let page = FontsPage::new(fonts, &next);
-                    let window = settings_window(&next, &next, &page, 180, &DumpStatus::Available, &crate::troubleshooting::State::Idle, &keys_with);
-                    assert_eq!(chosen_settings(&window, &next, &page, 180), next, "{language:?}");
+                    for in_game in [false, true] {
+                        let window =
+                            settings_window(&next, &next, &page, 180, &DumpStatus::Available, &crate::troubleshooting::State::Idle, in_game, &keys_with);
+                        assert_eq!(chosen_settings(&window, &next, &page, 180, in_game), next, "{language:?} in_game={in_game}");
+                    }
                 }
             }
         }
@@ -976,12 +1073,12 @@ mod tests {
     fn the_settings_window_saves_the_language_chosen() {
         let next = Settings { language: Some(Language::English), ..Settings::default() };
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &next);
-        let mut window = settings_window(&next, &next, &page, 60, &DumpStatus::Available, &crate::troubleshooting::State::Idle, &keys_with);
+        let mut window = settings_window(&next, &next, &page, 60, &DumpStatus::Available, &crate::troubleshooting::State::Idle, false, &keys_with);
         let languages = Language::ALL.iter().map(|l| l.native_name().to_string()).collect();
         let korean = Language::ALL.iter().position(|&l| l == Language::Korean).unwrap();
         window.set_options("language", languages, korean);
         // Its fonts follow it at the next start.
-        assert_eq!(chosen_settings(&window, &next, &page, 60), Settings { language: Some(Language::Korean), ..next });
+        assert_eq!(chosen_settings(&window, &next, &page, 60, false), Settings { language: Some(Language::Korean), ..next });
     }
 
     fn restart_shown(w: &mut Window) -> String {
@@ -997,25 +1094,33 @@ mod tests {
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &current);
         let idle = crate::troubleshooting::State::Idle;
         // Nothing changed: no line, but its room, so the buttons stay put.
-        let mut window = settings_window(&current, &current, &page, 60, &DumpStatus::Available, &idle, &keys_with);
+        let mut window = settings_window(&current, &current, &page, 60, &DumpStatus::Available, &idle, false, &keys_with);
         assert_eq!(restart_shown(&mut window), "");
         // A change that takes effect when saved needs no restart.
         let mut sound = current.clone();
         sound.music_loudness = !sound.music_loudness;
-        let mut window = settings_window(&current, &sound, &page, 60, &DumpStatus::Available, &idle, &keys_with);
+        let mut window = settings_window(&current, &sound, &page, 60, &DumpStatus::Available, &idle, false, &keys_with);
         assert_eq!(restart_shown(&mut window), "");
         // One that takes effect at the next start, saved before or chosen
         // now, does.
         let mut outline = current.clone();
         outline.map_outline = !outline.map_outline;
-        let mut window =
-            settings_window(&current, &outline, &FontsPage::new(Some(fonts_page::tests::installed()), &outline), 60, &DumpStatus::Available, &idle, &keys_with);
+        let mut window = settings_window(
+            &current,
+            &outline,
+            &FontsPage::new(Some(fonts_page::tests::installed()), &outline),
+            60,
+            &DumpStatus::Available,
+            &idle,
+            false,
+            &keys_with,
+        );
         assert_eq!(restart_shown(&mut window), "EU4HARMONY_SETTINGS_RESTART");
-        let mut window = settings_window(&current, &current, &page, 60, &DumpStatus::Available, &idle, &keys_with);
+        let mut window = settings_window(&current, &current, &page, 60, &DumpStatus::Available, &idle, false, &keys_with);
         let languages = Language::ALL.iter().map(|l| l.native_name().to_string()).collect();
         let korean = Language::ALL.iter().position(|&l| l == Language::Korean).unwrap();
         window.set_options("language", languages, korean);
-        window.footer_mut()[RESTART_LINE] = restart_line(&window, &current, &current, &page, 60, &keys);
+        window.footer_mut()[RESTART_LINE] = footer_notice(&window, &current, &current, &page, 60, false, &keys);
         assert_eq!(restart_shown(&mut window), "EU4HARMONY_SETTINGS_RESTART");
     }
 
@@ -1052,9 +1157,10 @@ mod tests {
         let current = Settings { language: Some(Language::English), ..Settings::default() };
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &current);
         let short_words_with = |key: &str, args: &[(&str, &str)]| if args.is_empty() { short_words(key) } else { keys_with(key, args) };
-        let mut window = settings_window(&current, &current, &page, 180, &DumpStatus::Available, &crate::troubleshooting::State::Idle, &short_words_with);
+        let mut window =
+            settings_window(&current, &current, &page, 180, &DumpStatus::Available, &crate::troubleshooting::State::Idle, false, &short_words_with);
         window.center(&Mono, 1200.0, 900.0);
-        assert_eq!(chosen_settings(&window, &current, &page, 180).frame_rate_limit, FrameRateLimit::Display);
+        assert_eq!(chosen_settings(&window, &current, &page, 180, false).frame_rate_limit, FrameRateLimit::Display);
 
         let (dx, dy) = text_pos(&window, "Display");
         assert_eq!(window.mouse_down(&Mono, dx, dy), Some(Action::Chose("pages", 3)));
@@ -1066,18 +1172,18 @@ mod tests {
         assert_eq!(window.tooltip_at(&Mono, ux, uy), Some(eu4_harmony_lua::Text::key("EU4HARMONY_SETTINGS_FRAME_RATE_UNLIMITED_TOOLTIP".into())));
 
         assert_eq!(window.mouse_down(&Mono, fx, fy), Some(Action::Chose("frame_rate_limit", 1)));
-        window.footer_mut()[RESTART_LINE] = restart_line(&window, &current, &current, &page, 180, &short_words);
+        window.footer_mut()[RESTART_LINE] = footer_notice(&window, &current, &current, &page, 180, false, &short_words);
         assert_eq!(restart_shown(&mut window), "");
-        assert_eq!(chosen_settings(&window, &current, &page, 180).frame_rate_limit, FrameRateLimit::Hz(60));
+        assert_eq!(chosen_settings(&window, &current, &page, 180, false).frame_rate_limit, FrameRateLimit::Hz(60));
 
         assert_eq!(window.mouse_down(&Mono, ux, uy), Some(Action::Chose("frame_rate_limit", 8)));
-        window.footer_mut()[RESTART_LINE] = restart_line(&window, &current, &current, &page, 180, &short_words);
+        window.footer_mut()[RESTART_LINE] = footer_notice(&window, &current, &current, &page, 180, false, &short_words);
         assert_eq!(restart_shown(&mut window), "");
-        assert_eq!(chosen_settings(&window, &current, &page, 180).frame_rate_limit, FrameRateLimit::Unlimited);
+        assert_eq!(chosen_settings(&window, &current, &page, 180, false).frame_rate_limit, FrameRateLimit::Unlimited);
 
         // Choosing the display's own rate again keeps it following the display.
         assert_eq!(window.mouse_down(&Mono, hx, hy), Some(Action::Chose("frame_rate_limit", 6)));
-        assert_eq!(chosen_settings(&window, &current, &page, 180).frame_rate_limit, FrameRateLimit::Display);
+        assert_eq!(chosen_settings(&window, &current, &page, 180, false).frame_rate_limit, FrameRateLimit::Display);
 
         // Map zoom smoothing and zoom step sliders take effect on save without a restart notice.
         let (_, sy) = text_pos(&window, "50%");
@@ -1089,9 +1195,9 @@ mod tests {
         assert_eq!(window.mouse_down(&Mono, zx + 2.0, zy), Some(Action::Slid("zoom_step", 105)));
         let _ = window.mouse_move(zx + 500.0, zy);
         window.mouse_up();
-        window.footer_mut()[RESTART_LINE] = restart_line(&window, &current, &current, &page, 180, &short_words);
+        window.footer_mut()[RESTART_LINE] = footer_notice(&window, &current, &current, &page, 180, false, &short_words);
         assert_eq!(restart_shown(&mut window), "");
-        let saved = chosen_settings(&window, &current, &page, 180);
+        let saved = chosen_settings(&window, &current, &page, 180, false);
         assert_eq!(saved.zoom_smoothing, 0);
         assert_eq!(saved.zoom_step, 200);
     }
@@ -1119,7 +1225,7 @@ mod tests {
     fn the_about_page_shows_the_version_and_what_the_troubleshooting_button_did() {
         let current = Settings::default();
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &current);
-        let mut window = settings_window(&current, &current, &page, 60, &DumpStatus::Available, &crate::troubleshooting::State::Idle, &keys_with);
+        let mut window = settings_window(&current, &current, &page, 60, &DumpStatus::Available, &crate::troubleshooting::State::Idle, false, &keys_with);
         let about = Page::ALL.iter().position(|&p| p == Page::About).unwrap();
         let version = format!("EU4HARMONY_ABOUT_VERSION VERSION={}", env!("CARGO_PKG_VERSION"));
         assert!(matches!(&window.pages[about][0], Widget::Heading(text) if *text == version));
@@ -1141,7 +1247,7 @@ mod tests {
     struct FakeHost {
         current: Settings,
         next: Settings,
-        saved: Vec<Settings>,
+        saved: Vec<(Settings, bool)>,
         notice: Option<crate::notice::Showing>,
         dismissed: usize,
         dumps_configured: bool,
@@ -1182,9 +1288,9 @@ mod tests {
         fn next_settings(&self) -> Settings {
             self.next.clone()
         }
-        fn save_settings(&mut self, chosen: Settings) -> Result<(), String> {
+        fn save_settings(&mut self, chosen: Settings, in_game: bool) -> Result<(), String> {
             self.next = chosen.clone();
-            self.saved.push(chosen);
+            self.saved.push((chosen, in_game));
             Ok(())
         }
         fn display_refresh_rate(&self) -> u32 {
@@ -1232,7 +1338,7 @@ mod tests {
     #[test]
     fn shell_corner_buttons_modal_stacking_and_main_menu_expiry_stay_consistent() {
         let mut shell = Shell::new(FakeHost::default());
-        shell.sync_frame(10, Some(10), (1280.0, 720.0), 1.0);
+        shell.sync_frame(10, Some(10), false, (1280.0, 720.0), 1.0);
         let buttons = corner(shell.screen, &FixedMeasure, &keys);
         let (settings_rect, _, _) = buttons.iter().find(|(_, _, o)| *o == Opens::Settings).unwrap();
 
@@ -1249,17 +1355,108 @@ mod tests {
         assert!(!shell.modal());
 
         // Main-menu buttons expire once frame advances more than 2 frames past main_menu_frame.
-        shell.sync_frame(13, Some(10), (1280.0, 720.0), 1.0);
+        shell.sync_frame(13, Some(10), false, (1280.0, 720.0), 1.0);
         assert!(!shell.in_main_menu());
         assert_eq!(shell.tooltip_content(&FixedMeasure), None);
         assert!(!shell.event(&FixedMeasure, input::Event::Down(cx, cy)));
     }
 
     #[test]
+    fn shell_in_game_menu_corner_buttons_settings_and_auto_close() {
+        let side_pos = |w: &Window, page: Page| {
+            let index = Page::ALL.iter().position(|&p| p == page).unwrap();
+            w.draw(&FixedMeasure)
+                .into_iter()
+                .filter_map(|c| match c {
+                    Command::Text { x, y, .. } if x < w.x + SETTINGS_LIST && y > w.y + 32.0 => Some((x + 2.0, y + 6.0)),
+                    _ => None,
+                })
+                .nth(index)
+                .unwrap_or_else(|| panic!("missing side row {page:?}"))
+        };
+        let text_pos = |w: &Window, needle: &str| {
+            w.draw(&FixedMeasure)
+                .into_iter()
+                .find_map(|c| match c {
+                    Command::Text { x, y, text, .. } if text == needle => Some((x + 2.0, y + 6.0)),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("missing text {needle:?}"))
+        };
+
+        let mut shell = Shell::new(FakeHost::default());
+        // Not in main menu and in-game menu closed: no corner buttons.
+        shell.sync_frame(20, None, false, (1280.0, 720.0), 1.0);
+        assert_eq!(shell.corner_context(), CornerContext::None);
+        assert!(shell.commands(&FixedMeasure).is_empty());
+
+        // In-game menu open: both corner buttons appear and open in-game modals.
+        shell.sync_frame(21, None, true, (1280.0, 720.0), 1.0);
+        assert_eq!(shell.corner_context(), CornerContext::InGameMenu);
+        let buttons = corner(shell.screen, &FixedMeasure, &keys);
+        let (mods_rect, _, _) = buttons.iter().find(|(_, _, o)| *o == Opens::Mods).unwrap();
+        let (settings_rect, _, _) = buttons.iter().find(|(_, _, o)| *o == Opens::Settings).unwrap();
+
+        let (mx, my) = (mods_rect.x + 4.0, mods_rect.y + 4.0);
+        assert!(!shell.event(&FixedMeasure, input::Event::Move(mx, my)));
+        assert_eq!(shell.tooltip_content(&FixedMeasure), Some("EU4HARMONY_MODS_BUTTON".into()));
+        assert!(shell.event(&FixedMeasure, input::Event::Down(mx, my)));
+        assert!(shell.mods.as_ref().is_some_and(|m| m.in_game));
+
+        // Closing the in-game menu underneath closes the in-game Mods modal on tick.
+        shell.sync_frame(22, None, false, (1280.0, 720.0), 1.0);
+        shell.tick(&FixedMeasure);
+        assert!(!shell.modal());
+
+        // Reopen in-game menu and open Settings: starts on Sessions (first editable page).
+        shell.sync_frame(23, None, true, (1280.0, 720.0), 1.0);
+        let (sx, sy) = (settings_rect.x + 4.0, settings_rect.y + 4.0);
+        assert!(shell.event(&FixedMeasure, input::Event::Down(sx, sy)));
+        let settings = shell.settings.as_mut().expect("settings open");
+        assert!(settings.in_game);
+        let sessions_idx = Page::ALL.iter().position(|&p| p == Page::Sessions).unwrap();
+        assert_eq!(settings.window.side.as_ref().unwrap().selected, sessions_idx);
+        assert_eq!(restart_shown(&mut settings.window), "");
+
+        // Switching to Achievements shows the main-menu-only footer notice and disables toggles.
+        let (ax, ay) = side_pos(&shell.settings.as_ref().unwrap().window, Page::Achievements);
+        assert!(shell.event(&FixedMeasure, input::Event::Down(ax, ay)));
+        let settings = shell.settings.as_mut().unwrap();
+        assert_eq!(restart_shown(&mut settings.window), MAIN_MENU_ONLY_KEY);
+        let (tx, ty) = text_pos(&settings.window, "EU4HARMONY_SETTINGS_ACHIEVEMENTS_OUTSIDE_IRONMAN");
+        assert_eq!(settings.window.tooltip_at(&FixedMeasure, tx, ty), Some(main_menu_only_tooltip()));
+        // Clicking the disabled toggle does not change it.
+        assert!(shell.event(&FixedMeasure, input::Event::Down(tx, ty)));
+        assert!(!shell.settings.as_ref().unwrap().window.is_on("achievements_outside_ironman").unwrap());
+
+        // Switching to Sound clears the notice, toggles music_loudness, and saves with in_game = true.
+        let (sound_x, sound_y) = side_pos(&shell.settings.as_ref().unwrap().window, Page::Sound);
+        assert!(shell.event(&FixedMeasure, input::Event::Down(sound_x, sound_y)));
+        assert_eq!(restart_shown(&mut shell.settings.as_mut().unwrap().window), "");
+        let (ml_x, ml_y) = text_pos(&shell.settings.as_ref().unwrap().window, "EU4HARMONY_SETTINGS_MUSIC_LOUDNESS");
+        assert!(shell.event(&FixedMeasure, input::Event::Down(ml_x, ml_y)));
+        let (save_x, save_y) = text_pos(&shell.settings.as_ref().unwrap().window, "EU4HARMONY_SETTINGS_SAVE");
+        assert!(shell.event(&FixedMeasure, input::Event::Down(save_x, save_y)));
+        assert!(!shell.modal());
+        assert_eq!(shell.host.saved.len(), 1);
+        assert!(shell.host.saved[0].1);
+        assert_eq!(shell.host.saved[0].0.music_loudness, !Settings::default().music_loudness);
+        assert_eq!(shell.host.saved[0].0.achievements_outside_ironman, Settings::default().achievements_outside_ironman);
+
+        // Reopen Settings in-game and drop the in-game menu underneath: closes without saving.
+        assert!(shell.event(&FixedMeasure, input::Event::Down(sx, sy)));
+        assert!(shell.modal());
+        shell.sync_frame(24, None, false, (1280.0, 720.0), 1.0);
+        shell.tick(&FixedMeasure);
+        assert!(!shell.modal());
+        assert_eq!(shell.host.saved.len(), 1);
+    }
+
+    #[test]
     fn shell_reaps_async_dump_setup_after_settings_closes_and_retains_notice_position() {
         let host = FakeHost { notice: Some(crate::notice::Showing { number: 1, title: "First".into(), text: "Body".into() }), ..Default::default() };
         let mut shell = Shell::new(host);
-        shell.sync_frame(1, Some(1), (1280.0, 720.0), 1.0);
+        shell.sync_frame(1, Some(1), false, (1280.0, 720.0), 1.0);
         shell.tick(&FixedMeasure);
 
         // Move notice window and update its title for the same notice number: position stays.

@@ -42,6 +42,9 @@ const WHEEL_DELTA: i32 = 120;
 /// What the wheel turned of a notch since its last whole one, while a modal
 /// window is open: a precision touchpad turns it by fractions of a notch.
 static WHEEL_REST: AtomicI32 = AtomicI32::new(0);
+/// Whether a modal consumed `VK_ESCAPE` on key-down, so its auto-repeats and
+/// matching key-up are swallowed rather than leaking to the in-game menu.
+static ESCAPE_SWALLOWED: AtomicBool = AtomicBool::new(false);
 
 /// The whole notches the wheel turned, `delta` in [`WHEEL_DELTA`]ths of one,
 /// with what `rest` kept of a notch; `rest` keeps what is left. A turn the
@@ -127,6 +130,43 @@ fn position(lparam: LPARAM) -> (f32, f32) {
     ((lparam & 0xffff) as i16 as f32, ((lparam >> 16) & 0xffff) as i16 as f32)
 }
 
+/// Handles Escape key-repeat/key-up suppression around [`translate_message`]
+/// and [`route_message`] so closing a framework modal with Escape never leaks
+/// a matching release or repeat into the in-game menu beneath it.
+fn dispatch_message(
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    wheel_rest: &mut i32,
+    escape_swallowed: &mut bool,
+    modal_before: bool,
+    mut handle: impl FnMut(Event) -> (bool, bool),
+) -> MessageRoute {
+    if message == WM_KILLFOCUS {
+        *escape_swallowed = false;
+        return MessageRoute::ForwardToGame;
+    }
+    if wparam == 0x1b {
+        if message == WM_KEYDOWN && *escape_swallowed {
+            return MessageRoute::Swallow;
+        }
+        if message == WM_KEYUP && *escape_swallowed {
+            *escape_swallowed = false;
+            return MessageRoute::Swallow;
+        }
+    }
+    let event = translate_message(message, wparam, lparam, wheel_rest, modal_before);
+    let (taken, modal_after) = match event {
+        Some(e) => handle(e),
+        None => (false, modal_before),
+    };
+    let route = route_message(message, taken, modal_after);
+    if message == WM_KEYDOWN && wparam == 0x1b && route == MessageRoute::Swallow {
+        *escape_swallowed = true;
+    }
+    route
+}
+
 #[called_by_game]
 unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if !INJECTING.load(Ordering::Relaxed) && crate::guarded("input from Windows", || crate::game::input::real(message)) {
@@ -134,14 +174,19 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, 
     }
     let handler = HANDLER.get().copied();
     let mut wheel_rest = WHEEL_REST.load(Ordering::Relaxed);
-    let event = translate_message(message, wparam, lparam, &mut wheel_rest, super::modal());
+    let mut escape_swallowed = ESCAPE_SWALLOWED.load(Ordering::Relaxed);
+    let modal_before = super::modal();
+    let route = dispatch_message(message, wparam, lparam, &mut wheel_rest, &mut escape_swallowed, modal_before, |e| {
+        let taken = match handler {
+            Some(h) => crate::guarded("framework UI input", || h(e)),
+            None => false,
+        };
+        (taken, super::modal())
+    });
     WHEEL_REST.store(wheel_rest, Ordering::Relaxed);
-    let taken = match (handler, event) {
-        (Some(h), Some(e)) => crate::guarded("framework UI input", || h(e)),
-        _ => false,
-    };
+    ESCAPE_SWALLOWED.store(escape_swallowed, Ordering::Relaxed);
     // While a modal window is open the game gets no input at all.
-    match route_message(message, taken, super::modal()) {
+    match route {
         MessageRoute::Swallow => 0,
         MessageRoute::DefaultProc => DefWindowProcW(window, message, wparam, lparam),
         MessageRoute::ForwardToGame => {
@@ -274,5 +319,30 @@ mod tests {
         assert_eq!(rest, 60);
         assert_eq!(translate_message(WM_MOUSEWHEEL, step, 0, &mut rest, true), Some(Event::Wheel(1)));
         assert_eq!(rest, 0);
+    }
+
+    #[test]
+    fn escape_closing_a_modal_swallows_repeats_and_matching_key_up() {
+        let mut rest = 0;
+        let mut swallowed = false;
+        // First Escape closes the modal and is swallowed.
+        assert_eq!(dispatch_message(WM_KEYDOWN, 0x1b, 0, &mut rest, &mut swallowed, true, |_| (true, false)), MessageRoute::Swallow);
+        assert!(swallowed);
+        // Auto-repeat before release stays swallowed without invoking the handler.
+        assert_eq!(
+            dispatch_message(WM_KEYDOWN, 0x1b, 1 << 30, &mut rest, &mut swallowed, false, |_| panic!("repeat must be suppressed")),
+            MessageRoute::Swallow
+        );
+        assert!(swallowed);
+        // Matching key-up is swallowed and resets state.
+        assert_eq!(dispatch_message(WM_KEYUP, 0x1b, 0, &mut rest, &mut swallowed, false, |_| (false, false)), MessageRoute::Swallow);
+        assert!(!swallowed);
+        // Next Escape reaches the game (e.g. to close the in-game menu).
+        assert_eq!(dispatch_message(WM_KEYDOWN, 0x1b, 0, &mut rest, &mut swallowed, false, |_| (false, false)), MessageRoute::ForwardToGame);
+        assert!(!swallowed);
+        // Losing focus clears any pending Escape suppression.
+        swallowed = true;
+        assert_eq!(dispatch_message(WM_KILLFOCUS, 0, 0, &mut rest, &mut swallowed, false, |_| (false, false)), MessageRoute::ForwardToGame);
+        assert!(!swallowed);
     }
 }

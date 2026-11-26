@@ -40,6 +40,7 @@ l_french:
  EU4HARMONY_SETTINGS_CONSOLE_FONT:0 "Police de la console"
  EU4HARMONY_SETTINGS_CONSOLE_WEIGHT:0 "Graisse de la police de la console"
  EU4HARMONY_SETTINGS_RESTART:0 "Les modifications de la langue, des polices et des noms sur la carte prendront effet au prochain démarrage du jeu."
+ EU4HARMONY_SETTINGS_MAIN_MENU_ONLY:0 "Ces paramètres ne peuvent être modifiés que depuis le menu principal."
  EU4HARMONY_SETTINGS_RETURN_WITHOUT_RESTART:0 "Revenir au menu principal sans redémarrer le jeu"
  EU4HARMONY_SETTINGS_SAVE_IRONMAN_BEFORE_LOAD:0 "En mode Ironman, sauvegarder la partie avant d'en charger une autre"
  EU4HARMONY_SETTINGS_FRAME_RATE_LIMIT:0 "Limite d'images par seconde"

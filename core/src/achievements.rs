@@ -12,9 +12,9 @@
 //!   vanilla's wherever it keeps the answer, which the check, the save
 //!   checksum's salt and the ironman load in a modded game all read.
 //!
-//! The settings are followed as they are loaded and saved; the settings window
-//! opens only in the main menu, so the next session is the first to see a
-//! change.
+//! The settings are followed as they are loaded and saved from the main menu;
+//! in a session those toggles are disabled so the next session is the first to
+//! see a change.
 use crate::called_by_game;
 use crate::{
     objects::campaign::{achievements, world},
