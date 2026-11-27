@@ -382,13 +382,12 @@ impl Tickets {
 }
 
 /// Owns the fair ticket presentation lock, the main thread's lock state, its
-/// lock-free atomic mirrors (`main_holds`, `main_protects_changes`), and lock
-/// wait accounting in one place so the mirrors never drift from `MainSide`.
+/// lock-free atomic mirror (`main_holds`), and lock wait accounting in one
+/// place so the mirror never drifts from `MainSide`.
 struct PresentationLock {
     tickets: Tickets,
     main: Mutex<MainSide>,
     main_holds: AtomicBool,
-    main_protects_changes: AtomicBool,
     main_waited: AtomicU64,
     waited_at: [AtomicU64; 3],
     drawing_waited: AtomicU64,
@@ -400,7 +399,6 @@ impl PresentationLock {
             tickets: Tickets::new(),
             main: Mutex::new(MainSide::new()),
             main_holds: AtomicBool::new(false),
-            main_protects_changes: AtomicBool::new(false),
             main_waited: AtomicU64::new(0),
             waited_at: [const { AtomicU64::new(0) }; 3],
             drawing_waited: AtomicU64::new(0),
@@ -440,16 +438,11 @@ impl PresentationLock {
         let mut guard = self.main.lock().unwrap_or_else(|e| e.into_inner());
         let out = f(&mut guard);
         self.main_holds.store(guard.holds(), Ordering::Release);
-        self.main_protects_changes.store(guard.protects_changes(), Ordering::Release);
         out
     }
 
     fn main_holds(&self) -> bool {
         self.main_holds.load(Ordering::Acquire)
-    }
-
-    fn main_protects_changes(&self) -> bool {
-        self.main_protects_changes.load(Ordering::Acquire)
     }
 
     fn swap_waits(&self) -> (u64, [u64; 3], u64) {
@@ -725,10 +718,6 @@ static SCREEN: AtomicU64 = AtomicU64::new(0);
 
 fn main_side<T>(f: impl FnOnce(&mut MainSide) -> T) -> T {
     PRESENTATION.with_main(f)
-}
-
-pub(super) fn main_protects_changes() -> bool {
-    PRESENTATION.main_protects_changes()
 }
 
 thread_local! {
@@ -1273,36 +1262,20 @@ mod tests {
         let lock = PresentationLock::new();
         let adapter = LocalLock(&lock);
         assert!(!lock.main_holds());
-        assert!(!lock.main_protects_changes());
 
         lock.with_main(|s| s.frame_begins(&adapter));
         assert!(lock.main_holds());
-        assert!(lock.main_protects_changes());
 
         lock.with_main(|s| s.day_begins(&adapter));
         assert!(!lock.main_holds());
-        assert!(!lock.main_protects_changes());
 
         lock.with_main(|s| {
-            s.order_scope_begins();
-            assert!(s.lock_order(&adapter));
+            assert!(s.crossing(&adapter));
         });
         assert!(lock.main_holds());
-        assert!(!lock.main_protects_changes(), "order-only scope must not claim change protection");
-
-        lock.with_main(|s| {
-            let _ = s.crossing(&adapter);
-        });
-        assert!(lock.main_holds());
-        assert!(lock.main_protects_changes());
-
-        lock.with_main(|s| s.order_scope_ends(&adapter, false));
-        assert!(lock.main_holds(), "promoted crossing keeps ownership past scope exit");
-        assert!(lock.main_protects_changes());
 
         lock.with_main(|s| s.frame_check(&adapter));
         assert!(!lock.main_holds());
-        assert!(!lock.main_protects_changes());
     }
 
     #[test]

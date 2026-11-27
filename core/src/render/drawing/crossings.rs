@@ -58,9 +58,8 @@ impl CrossingsTracker {
         true
     }
 
-    /// Runs a main-thread renderer call: skips work when `main` already
-    /// protects graphics changes beyond a transient lock-order scope, and
-    /// otherwise promotes ownership and records a crossing.
+    /// Runs a main-thread renderer call: skips work when `main` already holds
+    /// the presentation lock, and otherwise records a crossing.
     fn renderer_call(
         &self,
         drawing_on: bool,
@@ -70,7 +69,7 @@ impl CrossingsTracker {
         main: &mut super::turns::MainSide,
         lock: &impl super::turns::Lock,
     ) -> bool {
-        if !on_main || !drawing_on || main.protects_changes() {
+        if !on_main || !drawing_on || main.holds() {
             return false;
         }
         self.record_main_crossing(drawing_on, on_main, into, now, main, lock)
@@ -166,70 +165,14 @@ impl<const N: usize> LockOrder<N> {
     }
 }
 
-/// Ends lock-order-only presentation ownership at checked stream-helper
-/// returns. Cold construction, abnormal completion and genuine crossings retain
-/// the ordinary frame-check lifetime (docs/game/interface/stream-formatting.md).
-fn order_scope_before(_: &mut Call) {
-    if on_main() {
-        main_side(|s| s.order_scope_begins());
-    }
-}
-
-fn order_scope_after(call: &mut Call) {
-    if on_main() {
-        main_side(|s| s.order_scope_ends(&MainLock, call.faulted()));
-    }
-}
-
-fn order_scope_cold(_: &mut Call) {
-    if on_main() {
-        main_side(|s| s.order_scope_cold());
-    }
-}
-
-fn lock_order_points() -> Vec<Point> {
-    vec![
-        Point::keep(0x91b59, "48 8d 4c 24 48 e8 65 ac 97 01 48 8b c3 48 8b 5c 24 58 48 83 c4 20 5f 5e 5d c3", "facet normal exit releases its guard"),
-        Point::keep(0x91b24, "48 8b d5 48 8d 4c 24 50 e8 af fd ff ff", "facet cold construction call"),
-        Point::keep(0x91ad0, "48 8d 4c 24 40 e8 ee ac 97 01", "facet nested guard release"),
-        Point::keep(0x1a0c7c8, "48 83 ec 28 48 63 01 85 c0 75 09 48 83 c4 28 e9 44 2d 05 00", "lock-zero guard destruction"),
-        Point::keep(0x1a5f520, "48 8d 0d a9 d8 8d 00 48 ff 25 2a 72 10 00", "lock-zero LeaveCriticalSection"),
-        Point::observe(
-            0x1a0c408,
-            "48 8b c4 48 89 58 10 48 89 68 18 48 89 70 20",
-            "stream shared-state scope",
-            1,
-            Some(order_scope_before),
-            Some(order_scope_after),
-        ),
-        Point::observe(0x91a70, "48 89 5c 24 20 55 56 57 48 83 ec 20", "stream facet lookup scope", 1, Some(order_scope_before), Some(order_scope_after)),
-        Point::observe(0x918e0, "48 89 5c 24 10 48 89 74 24 18 55 57 41 56", "facet cold path retains ownership", 2, Some(order_scope_cold), None),
-        Point::keep(0x91759, "48 8d 4c 24 48 e8 65 b0 97 01 48 8b c3 48 8b 5c 24 58 48 83 c4 20 5f 5e 5d c3", "later facet normal exit releases its guard"),
-        Point::keep(0x91724, "48 8b d5 48 8d 4c 24 50 e8 bf fd ff ff", "later facet cold construction call"),
-        Point::keep(0x916d0, "48 8d 4c 24 40 e8 ee b0 97 01", "later facet nested guard release"),
-        Point::observe(0x91670, "48 89 5c 24 20 55 56 57 48 83 ec 20", "later stream facet lookup scope", 1, Some(order_scope_before), Some(order_scope_after)),
-        Point::observe(0x914f0, "48 89 5c 24 10 48 89 74 24 18 55 57 41 56", "later facet cold path retains ownership", 2, Some(order_scope_cold), None),
-        Point::keep(0x924d9, "48 8d 4c 24 48 e8 e5 a2 97 01 48 8b c3 48 8b 5c 24 58 48 83 c4 20 5f 5e 5d c3", "numeric facet normal exit releases its guard"),
-        Point::keep(0x924a4, "48 8b d5 48 8d 4c 24 50 e8 df fb ff ff", "numeric facet cold construction call"),
-        Point::keep(0x92450, "48 8d 4c 24 40 e8 6e a3 97 01", "numeric facet nested guard release"),
-        Point::observe(
-            0x923f0,
-            "48 89 5c 24 20 55 56 57 48 83 ec 20",
-            "numeric stream facet lookup scope",
-            1,
-            Some(order_scope_before),
-            Some(order_scope_after),
-        ),
-        Point::observe(
-            0x92090,
-            "40 55 53 56 57 41 56 48 8d 6c 24 e0 48 81 ec 20 01 00 00",
-            "numeric facet cold path retains ownership",
-            2,
-            Some(order_scope_cold),
-            None,
-        ),
-    ]
-}
+/// The MSVC CRT `_Lockit(0)` locale/facet critical section (`0x233cdd0`),
+/// entered exclusively via `0x1a5f504` (`0x1a0c750`, `_Lockit` ctor) and left
+/// via `0x1a5f520` (`0x1a0c7c8`, `_Lockit` dtor). All 175 callers in `eu4.exe`
+/// touch only CRT locale/facet internals and heap allocation — none ever enters
+/// EU4 graphics, the renderer table, or any crossing. Because it is a strict
+/// leaf lock that can never nest a presentation-lock acquisition, it is exempt
+/// from `LOCK_ORDER` (docs/game/interface/stream-locks.md).
+const STREAM_LOCALE_LOCK: usize = 0x233cdd0;
 
 pub(super) fn points() -> Vec<Point> {
     [
@@ -246,6 +189,9 @@ pub(super) fn points() -> Vec<Point> {
         // mov rbx, [rcx + 0x1a8]; ...; mov rcx, [rbx + 0x70]; test rcx, rcx; je
         Point::keep(0xd3b147, "48 8b 99 a8 01 00 00 45 33 ed 48 85 db 74 35 48 8b 4b 70 48 85 c9 74 0d", "a unit's place's model let go with the unit")
             .uses(&[UNIT_PLACE, PLACE_MODEL]),
+        Point::keep(0x1a5f504, "48 83 ec 28 e8 43 db 00 00 48 8d 0d bc d8 8d 00 48 83 c4 28 48 ff 25 31 72 10 00", "lock-zero EnterCriticalSection")
+            .uses(&[STREAM_LOCALE_LOCK]),
+        Point::keep(0x1a5f520, "48 8d 0d a9 d8 8d 00 48 ff 25 2a 72 10 00", "lock-zero LeaveCriticalSection").uses(&[STREAM_LOCALE_LOCK]),
     ]
     .into_iter()
     .chain(CROSSINGS_AT.iter().map(|&(rva, bytes, what, argc)| Point::observe(rva, bytes, what, argc, Some(crossed), None)))
@@ -259,7 +205,6 @@ pub(super) fn points() -> Vec<Point> {
         Point::import(ACQUIRE_SRW, "KERNEL32.dll", "AcquireSRWLockExclusive", "the game takes a slim lock")
             .redirected(srw_taken as *const () as usize, &ORIGINAL_ACQUIRE_SRW),
     ])
-    .chain(lock_order_points())
     .collect()
 }
 
@@ -359,14 +304,14 @@ const RENDERER_ENTRY_LEN: usize = 16;
 /// drawing"): held back each time, the frame was never drawn.
 #[called_by_game]
 extern "C" fn renderer_called(slot: usize) {
-    if !drawing_on() || super::main_protects_changes() {
+    if !drawing_on() || super::main_holds() {
         return;
     }
     renderer_crossing(crate::native::hooked_memory().at(RENDERER_TABLE[slot]));
 }
 
 fn renderer_crossing(into: usize) {
-    if !on_main() || !drawing_on() || super::main_protects_changes() {
+    if !on_main() || !drawing_on() || super::main_holds() {
         return;
     }
     main_side(|s| {
@@ -442,7 +387,7 @@ unsafe extern "system" fn srw_taken(lock: usize) {
 }
 
 fn lock_taken(lock: usize, by: usize) {
-    if !drawing_on() {
+    if !drawing_on() || lock == crate::native::hooked_memory().at(STREAM_LOCALE_LOCK) {
         return;
     }
     let tid = crate::base::thread_id();
@@ -457,7 +402,7 @@ fn lock_taken(lock: usize, by: usize) {
         }
         LockAction::TakePresentationFirst => {
             main_side(|s| {
-                let took = s.lock_order(&MainLock);
+                let took = s.crossing(&MainLock);
                 TRACKER.record_lock_order(crate::native::hooked_memory().at(by), took);
             });
         }
@@ -593,29 +538,21 @@ mod tests {
     }
 
     #[test]
-    fn renderer_call_promotes_order_only_scope_and_skips_when_drawing_is_off() {
+    fn renderer_call_skips_when_drawing_off_or_main_holds_and_crosses_when_unheld() {
         let lock = TestLock::default();
         let mut main = super::super::turns::MainSide::new();
         let tracker = CrossingsTracker::new();
         let now = Instant::now();
 
         main.day_begins(&lock);
-        main.order_scope_begins();
-        assert!(main.lock_order(&lock));
-        assert!(main.order_only());
-        assert!(!main.protects_changes());
-
         assert!(!tracker.renderer_call(false, true, 0x1000, now, &mut main, &lock));
-        assert!(main.order_only());
+        assert!(!main.holds());
         assert_eq!(tracker.holding_back(), None);
 
         assert!(tracker.renderer_call(true, true, 0x2000, now, &mut main, &lock));
-        assert!(!main.order_only());
-        assert!(main.protects_changes());
+        assert!(main.holds());
         assert_eq!(tracker.holding_back(), Some(0x2000));
 
-        main.order_scope_ends(&lock, false);
-        assert!(main.holds());
         assert!(!tracker.renderer_call(true, true, 0x3000, now, &mut main, &lock));
 
         main.frame_check(&lock);
