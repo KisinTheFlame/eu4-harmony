@@ -21,17 +21,19 @@ permissions:
 
 # The build, the tests and the developer build use the release profile, so
 # that they are built as a player's build is, with no debug assertions and no
-# overflow checks, but without its optimization: CI checks that they build,
-# link and pass, and how fast they run does not matter there. Optimizing the
-# workspace took about three quarters of the time spent compiling it, most of
-# it in the (de)serializing of every request and answer.
+# overflow checks, but without optimization or debug info: CI checks that they
+# build, link and pass, and neither speed nor PDB symbols matter there.
+# Optimizing the workspace took about three quarters of the time spent
+# compiling it, most of it in the (de)serializing of every request and answer.
 env:
   CARGO_PROFILE_RELEASE_OPT_LEVEL: "0"
   CARGO_PROFILE_RELEASE_LTO: "false"
+  CARGO_PROFILE_RELEASE_DEBUG: "0"
 
-# The build, the tests and the developer build each compile the whole
-# workspace once, and none needs another's result, so each is a job of its own
-# and they run side by side instead of one after another.
+# Each build and test variant compiles almost the whole workspace once
+# (eu4-harmony-core/dev enables eu4-harmony-remote/dev, which rebuilds the
+# crates that depend on remote), and none needs another's result, so each is a
+# job of its own and they run side by side instead of one after another.
 jobs:
   build:
     runs-on: windows-2025
@@ -60,6 +62,18 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/master' }}
       - name: Test
         run: cargo test --release --locked
+
+  # The developer build's tests, including the development tools and dev
+  # remote capabilities, run beside the player build's tests.
+  dev-test:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - name: Rust
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - name: Test the developer build
         run: cargo test --release --locked --features eu4-harmony-core/dev
 
@@ -115,3 +129,25 @@ jobs:
         run: rustup toolchain install
       - name: Format
         run: cargo fmt --all --check
+
+  # Single required status check for branch protection: fails unless every job
+  # above succeeded, so adding or splitting CI jobs never requires editing
+  # repository rulesets.
+  ci:
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [build, test, dev-test, dev-build, clippy, release-tests, fmt]
+    steps:
+      - name: Verify all checks succeeded
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          failed = [f"{name}: {info.get('result')}" for name, info in needs.items() if info.get("result") != "success"]
+          if failed:
+              print("Failed or incomplete jobs:\n" + "\n".join(f"  - {item}" for item in failed), file=sys.stderr)
+              sys.exit(1)
+          print(f"All {len(needs)} CI jobs succeeded.")
+          PY
