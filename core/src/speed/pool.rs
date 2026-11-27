@@ -1,6 +1,5 @@
-//! General-purpose worker pools shared across speed-ups (`saving` and
-//! `army_search`), decoupled from save-writer `Holders` or AI job types.
-use std::collections::VecDeque;
+//! General-purpose worker pool used by parallel saving speed-ups, decoupled
+//! from save-writer `Holders`.
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -206,101 +205,9 @@ impl<T: Send> Work for EachWork<T> {
     fn abandon(&self) {}
 }
 
-struct QueueState<T> {
-    queue: VecDeque<T>,
-    shutdown: bool,
-}
-
-struct QueueInner<T> {
-    state: Mutex<QueueState<T>>,
-    ready: Condvar,
-}
-
-/// Multi-producer FIFO worker queue for independent asynchronous jobs
-/// (`speed::army_search`).
-pub(crate) struct QueuePool<T: Send + 'static> {
-    inner: Arc<QueueInner<T>>,
-    handles: Mutex<Vec<std::thread::JoinHandle<()>>>,
-}
-
-impl<T: Send + 'static> QueuePool<T> {
-    /// Spawns up to `wanted` worker threads (each with `stack_size` bytes of
-    /// stack) running `run` on every queued item. Returns `None` if no thread
-    /// could be started.
-    pub(crate) fn new(
-        name_prefix: &'static str,
-        guard_label: &'static str,
-        wanted: usize,
-        stack_size: Option<usize>,
-        run: impl Fn(T) + Send + Sync + 'static,
-    ) -> Option<Self> {
-        if wanted == 0 {
-            return None;
-        }
-        let inner = Arc::new(QueueInner { state: Mutex::new(QueueState { queue: VecDeque::new(), shutdown: false }), ready: Condvar::new() });
-        let run = Arc::new(run);
-        let handles: Vec<_> = (0..wanted)
-            .filter_map(|i| {
-                let inner = inner.clone();
-                let run = run.clone();
-                let mut builder = std::thread::Builder::new().name(format!("{name_prefix} {i}"));
-                if let Some(size) = stack_size {
-                    builder = builder.stack_size(size);
-                }
-                builder.spawn(move || crate::base::guarded(guard_label, || queue_worker(&inner, &*run))).ok()
-            })
-            .collect();
-        if handles.is_empty() {
-            return None;
-        }
-        Some(Self { inner, handles: Mutex::new(handles) })
-    }
-
-    pub(crate) fn workers(&self) -> usize {
-        self.handles.lock().unwrap_or_else(|e| e.into_inner()).len()
-    }
-
-    pub(crate) fn submit(&self, items: impl IntoIterator<Item = T>) {
-        self.inner.state.lock().unwrap_or_else(|e| e.into_inner()).queue.extend(items);
-        self.inner.ready.notify_all();
-    }
-}
-
-impl<T: Send + 'static> Drop for QueuePool<T> {
-    fn drop(&mut self) {
-        {
-            let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
-            state.shutdown = true;
-            self.inner.ready.notify_all();
-        }
-        for handle in std::mem::take(&mut *self.handles.lock().unwrap_or_else(|e| e.into_inner())) {
-            let _ = handle.join();
-        }
-    }
-}
-
-fn queue_worker<T>(inner: &QueueInner<T>, run: &(impl Fn(T) + ?Sized)) {
-    loop {
-        let item = {
-            let mut state = inner.state.lock().unwrap_or_else(|e| e.into_inner());
-            loop {
-                if let Some(item) = state.queue.pop_front() {
-                    break item;
-                }
-                if state.shutdown {
-                    return;
-                }
-                state = inner.ready.wait(state).unwrap_or_else(|e| e.into_inner());
-            }
-        };
-        run(item);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Barrier;
 
     #[test]
     fn worker_pool_runs_each_and_begin_finish_across_threads() {
@@ -348,24 +255,5 @@ mod tests {
         // Release worker thread cleanly.
         *release.0.lock().unwrap() = true;
         release.1.notify_all();
-    }
-
-    #[test]
-    fn queue_pool_runs_submitted_jobs_concurrently_and_shuts_down() {
-        let counter = Arc::new(AtomicUsize::new(0));
-        let barrier = Arc::new(Barrier::new(2));
-        let c = counter.clone();
-        let b = barrier.clone();
-        let pool = QueuePool::new("test-queue", "test queue", 2, None, move |use_barrier: bool| {
-            if use_barrier {
-                b.wait();
-            }
-            c.fetch_add(1, Ordering::Relaxed);
-        })
-        .unwrap();
-        assert_eq!(pool.workers(), 2);
-        pool.submit([true, true, false, false]);
-        drop(pool);
-        assert_eq!(counter.load(Ordering::Relaxed), 4);
     }
 }

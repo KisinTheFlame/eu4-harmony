@@ -4,7 +4,7 @@ use crate::native::points::Point;
 use crate::native::speed_up::{self, SpeedUp};
 
 /// Every speed-up, in the order the report names them.
-pub(crate) static ALL: [&SpeedUp; 28] = [
+pub(crate) static ALL: [&SpeedUp; 27] = [
     &crate::speed::pops::SPEED_UP,
     &crate::render::drawing::SPEED_UP,
     &crate::speed::loading::music::SPEED_UP,
@@ -29,7 +29,6 @@ pub(crate) static ALL: [&SpeedUp; 28] = [
     &crate::speed::saving::parallel::SPEED_UP,
     &crate::speed::saving::sum::SPEED_UP,
     &crate::speed::saving::update_thread::SPEED_UP,
-    &crate::speed::army_search::SPEED_UP,
     &crate::speed::army_checks::SPEED_UP,
     &crate::speed::support_checks::SPEED_UP,
     &crate::speed::modifier_sums::SPEED_UP,
@@ -100,7 +99,6 @@ mod tests {
                 "trigger-profile",
                 "dlc-verify",
                 "parallel-saves",
-                "army-searches",
                 "army-checks",
                 "support-checks",
                 "modifier-sums"
@@ -131,10 +129,10 @@ mod tests {
     #[test]
     fn the_report_names_what_was_chosen() {
         assert!(lines(&ALL, Chosen::default()).is_empty());
-        let chosen = Chosen::of_list(&ALL, &strings(&["frames"]), &strings(&["army-searches"])).unwrap();
+        let chosen = Chosen::of_list(&ALL, &strings(&["frames"]), &strings(&["army-checks"])).unwrap();
         assert_eq!(
             lines(&ALL, chosen),
-            ["speed-ups left to the game: pops-polling, drawing-thread, modifier-sums", "speed-ups checked against the game: army-searches"]
+            ["speed-ups left to the game: pops-polling, drawing-thread, modifier-sums", "speed-ups checked against the game: army-checks"]
         );
     }
 

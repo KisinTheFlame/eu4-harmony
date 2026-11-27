@@ -1,5 +1,5 @@
 //! Speed-up descriptors, switch validation, point-plan assembly, and answer
-//! comparison (`ADR the-game-may-be-made-faster-with-reasoned-differences`).
+//! comparison (`ADR speed-ups-preserve-game-answers`).
 //!
 //! In a player build (`not(feature = "dev")`), [`game_path`] and [`checked`]
 //! compile to constant `false`, eliminating hot-path registry lookups.
@@ -247,12 +247,6 @@ pub(crate) fn differences(speed_up: &SpeedUp) -> (u64, u64) {
     let Some(i) = PLAN.get().and_then(|p| p.place(speed_up)) else { return (0, 0) };
     let counts = &COUNTS[i];
     (counts[0].load(Ordering::Relaxed), counts[1].load(Ordering::Relaxed))
-}
-
-#[cfg(not(feature = "dev"))]
-#[inline(always)]
-pub(crate) const fn differences(_speed_up: &SpeedUp) -> (u64, u64) {
-    (0, 0)
 }
 
 /// The startup report's lines: the speed-ups left to the game and checked;

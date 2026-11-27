@@ -54,7 +54,8 @@ const REQUIRED_CHECKED: &[&str] = &[
     "localisation",
     "trigger-profile",
     "parallel-saves",
-    "army-searches",
+    "army-checks",
+    "support-checks",
     "modifier-sums",
     "country-distances",
     "flag-atlas",
@@ -139,8 +140,8 @@ impl Scenario for Long {
             Parameter { name: "memory_mb", default: "8000", about: "the game's private bytes, in MB, it must stay under" },
             Parameter {
                 name: "may_differ",
-                default: "army-searches",
-                about: "the speed-ups whose differences have their reasons (ADR the-game-may-be-made-faster-with-reasoned-differences), by commas: counted, not failed",
+                default: "",
+                about: "speed-ups explicitly allowed to differ during debugging (empty by default under ADR speed-ups-preserve-game-answers), by commas: counted, not failed",
             },
         ];
         if self.checked {
@@ -250,7 +251,7 @@ fn play_checked(game: &mut Game, parameters: &Parameters, record: &mut Value) ->
     }
 
     // Phase 2: late game (observer-1800.7.1) to exercise large-map speed-ups
-    // (country-distances, army-searches, modifier-sums, parallel-saves, token-lookup).
+    // (country-distances, army-checks, support-checks, modifier-sums, parallel-saves, token-lookup).
     if !late_save.is_empty() && late_years > 0 {
         let save_name = crate::saves::save_name(&late_save);
         game.ask::<Session>(&MenuRequest::Load { save: save_name })?;
@@ -460,7 +461,7 @@ mod tests {
     #[test]
     fn parses_checked_speed_up_counts_from_report_lines() {
         assert_eq!(parse_check_line("localisation: 1234 answer(s) checked, 0 differing from the game's"), Some(("localisation".into(), 1234, 0)));
-        assert_eq!(parse_check_line("army-searches: 2520 answer(s) checked, 3 differing from the game's"), Some(("army-searches".into(), 2520, 3)));
+        assert_eq!(parse_check_line("army-checks: 2520 answer(s) checked, 3 differing from the game's"), Some(("army-checks".into(), 2520, 3)));
         assert_eq!(parse_check_line("unrelated"), None);
     }
 

@@ -1,4 +1,10 @@
+---
+status: superseded by speed-ups-preserve-game-answers
+---
+
 # The game may be made faster with reasoned differences
+
+Superseded: speed-ups now preserve the game's answers without introducing behavioral differences (ADR speed-ups-preserve-game-answers).
 
 The framework may change what the game computes to make it faster, the AI included, when each difference has a reason that can be stated and checked, and the game the player plays is the same game in kind: the same rules and data, an AI that decides by the same rules and the same information. A change of this kind is allowed when its differences are one of these, said in the change's research and its pull request:
 

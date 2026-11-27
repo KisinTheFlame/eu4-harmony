@@ -36,6 +36,7 @@ use crate::native::speed_up::{self as speed, SpeedUp};
 use std::cell::RefCell;
 
 const THREAT_LOOK: usize = 0x195750;
+const ARMY_SEARCH: usize = 0x1022b0;
 
 const FORT_PASS_CALL: usize = 0xd45289;
 const FORT_PASS_DONE: usize = 0xd45296;
@@ -59,9 +60,11 @@ const MAX_SCOPE_DEPTH: usize = 16;
 
 type RouteQuery = unsafe extern "C" fn(usize, usize, usize, usize, usize, usize, usize, usize) -> u8;
 type ThreatLook = unsafe extern "C" fn(usize, usize, i32, u8, usize, usize) -> usize;
+type ArmySearch = unsafe extern "C" fn(usize, i32, usize, usize, *mut f32, *mut i32, *mut u8, *mut u8, *mut u8, u8, u8, *mut u8) -> i32;
 
 static ORIGINAL_ROUTE_QUERY: Function<RouteQuery> = Function::new();
 static ORIGINAL_THREAT_LOOK: Function<ThreatLook> = Function::new();
+static ORIGINAL_ARMY_SEARCH: Function<ArmySearch> = Function::new();
 
 #[derive(Clone, Copy, Default)]
 struct Scope {
@@ -106,7 +109,7 @@ thread_local! {
 }
 
 /// RAII scope guard for one search on the current thread.
-pub(super) struct SearchGuard {
+struct SearchGuard {
     pushed: bool,
 }
 
@@ -119,9 +122,8 @@ impl Drop for SearchGuard {
 }
 
 /// Enters a per-search cache scope on the current thread when `army-checks` is
-/// active. Called by `army_search` around `0x1022b0` and by this module around
-/// `0x96c520` and `0x195750`.
-pub(super) fn search_scope() -> SearchGuard {
+/// active, around `0x96c520`, `0x195750`, and `0x1022b0`.
+fn search_scope() -> SearchGuard {
     if speed::game_path(&SPEED_UP) {
         return SearchGuard { pushed: false };
     }
@@ -139,6 +141,25 @@ unsafe extern "C" fn route_query(a0: usize, a1: usize, a2: usize, a3: usize, a4:
 unsafe extern "C" fn threat_look(a0: usize, a1: usize, a2: i32, a3: u8, a4: usize, a5: usize) -> usize {
     let _scope = search_scope();
     unsafe { ORIGINAL_THREAT_LOOK.get()(a0, a1, a2, a3, a4, a5) }
+}
+
+#[called_by_game]
+unsafe extern "C" fn army_search(
+    callback: usize,
+    depth: i32,
+    unit: usize,
+    argument: usize,
+    score: *mut f32,
+    a: *mut i32,
+    b: *mut u8,
+    c: *mut u8,
+    d: *mut u8,
+    flag: u8,
+    other: u8,
+    out: *mut u8,
+) -> i32 {
+    let _scope = search_scope();
+    unsafe { ORIGINAL_ARMY_SEARCH.get()(callback, depth, unit, argument, score, a, b, c, d, flag, other, out) }
 }
 
 unsafe fn native_fort_pass(army: usize) -> bool {
@@ -447,6 +468,7 @@ fn points() -> Vec<Point> {
     vec![
         Point::replace(ROUTE_QUERY, "4c 89 4c 24 20 48 89 54 24 10 48 89 4c 24 08 55", "route query", route_query as RouteQuery, &ORIGINAL_ROUTE_QUERY),
         Point::replace(THREAT_LOOK, "44 88 4c 24 20 48 89 54 24 10 55 53 41 54 41 55", "threat map look", threat_look as ThreatLook, &ORIGINAL_THREAT_LOOK),
+        Point::replace(ARMY_SEARCH, "4c 89 4c 24 20 89 54 24 10 48 89 4c 24 08 55 53", "army search", army_search as ArmySearch, &ORIGINAL_ARMY_SEARCH),
         Point::jump(
             FORT_PASS_CALL,
             "45 33 c0 ba e0 00 00 00 e8 4a b8 ff ff",
