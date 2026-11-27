@@ -145,6 +145,9 @@ impl<const N: usize> LockOrder<N> {
     }
 
     fn observe(&self, lock: usize, on_drawing: bool, on_main_unheld: bool) -> LockAction {
+        if !on_drawing && !on_main_unheld {
+            return LockAction::None;
+        }
         let count = self.known.load(Ordering::Acquire).min(N);
         let known = self.locks[..count].iter().any(|l| l.load(Ordering::Relaxed) == lock);
         if on_drawing {
@@ -155,7 +158,7 @@ impl<const N: usize> LockOrder<N> {
                 return LockAction::WarnOverflow;
             }
             LockAction::None
-        } else if known && on_main_unheld {
+        } else if known {
             LockAction::TakePresentationFirst
         } else {
             LockAction::None
@@ -442,7 +445,13 @@ fn lock_taken(lock: usize, by: usize) {
     if !drawing_on() {
         return;
     }
-    match LOCK_ORDER.observe(lock, is_drawing_thread(), on_main() && !super::main_holds()) {
+    let tid = crate::base::thread_id();
+    let on_drawing = tid == super::DRAWING_THREAD.load(Ordering::Relaxed);
+    let on_main_unheld = !on_drawing && tid == crate::base::main_thread() && !super::main_holds();
+    if !on_drawing && !on_main_unheld {
+        return;
+    }
+    match LOCK_ORDER.observe(lock, on_drawing, on_main_unheld) {
         LockAction::WarnOverflow => {
             log!("drawing: the drawing thread took more than 64 of the game's locks; the rest are not kept in order");
         }
@@ -579,6 +588,7 @@ mod tests {
         assert_eq!(order.observe(0xdd, true, false), LockAction::None, "overflow warns only once");
         assert_eq!(order.observe(0xaa, false, true), LockAction::TakePresentationFirst);
         assert_eq!(order.observe(0xaa, false, false), LockAction::None, "main already holds presentation lock");
+        assert_eq!(order.observe(0xcc, false, false), LockAction::None, "worker threads bypass lock-order scan");
         assert_eq!(order.observe(0xcc, false, true), LockAction::None, "unknown lock untouched");
     }
 

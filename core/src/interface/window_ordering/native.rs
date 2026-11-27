@@ -238,6 +238,34 @@ fn append(m: &Memory, vector: usize, value: usize) -> Result<()> {
     }
 }
 
+/// Writes `values` into a cleared or partially filled native pointer vector,
+/// copying the portion that fits within existing capacity in one write and
+/// falling back to native insertion (`0xcc220`) only if the vector must grow.
+fn append_all(m: &Memory, vector: usize, values: &[usize]) -> Result<()> {
+    if values.is_empty() {
+        return Ok(());
+    }
+    let end = m.ptr(vector + 8)?;
+    let capacity = m.ptr(vector + 16)?;
+    if end > capacity {
+        return Err("GUI vector end exceeds its native capacity".into());
+    }
+    let elem = std::mem::size_of::<usize>();
+    let room = (capacity - end) / elem;
+    let bulk = values.len().min(room);
+    if bulk > 0 {
+        // SAFETY: `values` is a contiguous slice of `usize` pointers in native
+        // little-endian layout, matching the game's `std::vector<void*>`.
+        let bytes = unsafe { std::slice::from_raw_parts(values.as_ptr() as *const u8, bulk * elem) };
+        m.write(end, bytes)?;
+        m.write(vector + 8, &(end + bytes.len()).to_le_bytes())?;
+    }
+    for &value in &values[bulk..] {
+        append(m, vector, value)?;
+    }
+    Ok(())
+}
+
 /// Rebuild from live tree nodes; never dereference the retired old hit array.
 /// Nodes no longer reachable through visibility gates are excluded from both
 /// later mouse and keyboard dispatch. Hidden GUI bytes need not be revisited:
@@ -276,11 +304,13 @@ fn rebuild_lists(m: &Memory, scene: usize, manager_for_input_reset: Option<usize
         if !other_camera {
             m.write(scene + PREPARED_CURSOR, &m.bytes(scene + CURSOR, 8)?)?;
             HITS.call(m, [scene, scene + DRAW_LIST, scene + CURSOR, scene + HIT_LIST])?;
+            let mut owners = Vec::with_capacity(nodes.len());
             for node in nodes {
                 if m.ptr(node + OWNER)? != 0 {
-                    append(m, scene + OWNER_LIST, node)?;
+                    owners.push(node);
                 }
             }
+            append_all(m, scene + OWNER_LIST, &owners)?;
         }
         if manager_for_input_reset.is_some() {
             // This destroys candidate wrappers, not their GUI targets. It assigns
@@ -291,4 +321,27 @@ fn rebuild_lists(m: &Memory, scene: usize, manager_for_input_reset: Option<usize
     })();
     let restored = m.write(m.at(COUNT), &saved_count);
     result.and(restored)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn append_all_writes_multiple_pointers_into_native_vector_capacity() {
+        let m = Memory { base: 0 };
+        let mut storage = [0usize; 6];
+        let begin = storage.as_mut_ptr() as usize;
+        let mut header = [begin, begin, begin + storage.len() * std::mem::size_of::<usize>()];
+        let vector = header.as_mut_ptr() as usize;
+        append_all(&m, vector, &[0x11, 0x22, 0x33, 0x44]).unwrap();
+        assert_eq!(header[1], begin + 4 * std::mem::size_of::<usize>());
+        assert_eq!(&storage[..4], &[0x11, 0x22, 0x33, 0x44]);
+        // Clearing resets end back to begin and subsequent batch overwrites cleanly.
+        clear(&m, vector).unwrap();
+        assert_eq!(header[1], begin);
+        append_all(&m, vector, &[0xaa, 0xbb]).unwrap();
+        assert_eq!(header[1], begin + 2 * std::mem::size_of::<usize>());
+        assert_eq!(&storage[..2], &[0xaa, 0xbb]);
+    }
 }

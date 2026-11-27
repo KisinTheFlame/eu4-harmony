@@ -136,13 +136,23 @@ pub(super) fn follow_camera(m: &Memory) -> crate::base::Result<()> {
     let (half, minus_half) = (f32_at(m.at(HALF))?, f32_at(m.at(MINUS_HALF))?);
     let size = m.u64(m.ptr(m.at(GRAPHICS))? + SCREEN_SIZE)?;
     let (width, height) = (size as u32 as i32 as f32, (size >> 32) as u32 as i32 as f32);
+    let mut cached_matrix: Option<(usize, [[f32; 4]; 4])> = None;
     for icon in icons.iter() {
-        let mut row = [[0f32; 4]; 4];
-        for (r, row) in row.iter_mut().enumerate() {
-            for (c, v) in row.iter_mut().enumerate() {
-                *v = f32_at(icon.matrix + MATRIX + r * 16 + c * 4)?;
+        let row = match cached_matrix {
+            Some((addr, row)) if addr == icon.matrix => row,
+            _ => {
+                let mut raw = [0u8; 64];
+                m.read_into(icon.matrix + MATRIX, &mut raw)?;
+                let row: [[f32; 4]; 4] = std::array::from_fn(|r| {
+                    std::array::from_fn(|c| {
+                        let at = (r * 4 + c) * 4;
+                        f32::from_le_bytes([raw[at], raw[at + 1], raw[at + 2], raw[at + 3]])
+                    })
+                });
+                cached_matrix = Some((icon.matrix, row));
+                row
             }
-        }
+        };
         let [x, y, z] = icon.point;
         let v: [f32; 4] = std::array::from_fn(|c| x * row[0][c] + y * row[1][c] + z * row[2][c] + row[3][c]);
         if v[3] == 0.0 {
