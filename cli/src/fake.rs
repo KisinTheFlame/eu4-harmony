@@ -21,7 +21,7 @@ use eu4_harmony_lua::{
     dispatch::{self, Heard},
     fetch, values,
     windows::{HostedElements, Windows},
-    Answered, Arg, Called, Element, Extension, Host, Mod, Pending, Popup, Property, WindowChange,
+    Answered, Called, Element, Extension, Host, Mod, Pending, Popup, Property, WindowChange,
 };
 use eu4_harmony_manifest::Manifest;
 use eu4_harmony_remote::{
@@ -435,50 +435,35 @@ impl FakeMod {
 
     /// Reloads the extension's Lua scripts and localisation files in place,
     /// carrying save data across and delivering `on_session` when a session is
-    /// going on (matching `core/src/lua/mod.rs`).
+    /// going on through the same `eu4_harmony_lua::reload` transaction as the
+    /// core.
     pub fn reload(&self) -> Result<ReloadReport, String> {
         let old = self.ext();
-        let harmony = self.source.root.join("eu4-harmony");
-        if harmony.join("manifest.toml").is_file() {
-            let manifest = eu4_harmony_manifest::HarmonyMod::read(&self.source.root)?.manifest;
-            if manifest.id != self.source.manifest.id {
-                return Err(format!("manifest id changed to {:?}", manifest.id));
-            }
-            if manifest.permissions != self.source.manifest.permissions {
-                return Err("manifest permissions changed".into());
-            }
-            if let Some(why) = manifest.unsupported(eu4_harmony_remote::API_VERSION) {
-                return Err(why);
-            }
-        }
-        let (texts, _) = eu4_harmony_loc::load_dir(&harmony.join("localisation"));
-        let prev_texts = self.fake.replace_texts(texts);
-        let m = Mod {
+        let in_session = self.fake.calendar().going_on;
+        let req = eu4_harmony_lua::Reload {
+            dir: &self.source.root,
             id: &self.source.manifest.id,
             name: &self.source.name,
-            harmony,
             permissions: &self.source.manifest.permissions,
             data: Some(self.data.clone()),
+            in_session,
         };
-        let new = match eu4_harmony_lua::open(old.index(), &m, self.fake.clone()) {
-            Ok(new) => new,
-            Err(e) => {
+        let reloaded = eu4_harmony_lua::reload(
+            &old,
+            &req,
+            self.fake.clone(),
+            |harmony| {
+                let (texts, problems) = eu4_harmony_loc::load_dir(&harmony.join("localisation"));
+                (problems, self.fake.replace_texts(texts))
+            },
+            |prev_texts| {
                 self.fake.replace_texts(prev_texts);
-                return Err(format!("the new code did not load: {e}"));
-            }
-        };
-        if new.images() != old.images() {
-            self.fake.replace_texts(prev_texts);
-            return Err("entry images changed".into());
-        }
-        let cal = self.fake.calendar();
-        let outcome = eu4_harmony_lua::reload_handoff(&old, &new, self.fake.as_ref(), cal.going_on);
-        let saved_kept = outcome.saved.is_some();
-        *self.extension.lock().unwrap_or_else(|e| e.into_inner()) = new.clone();
-        if cal.going_on {
-            new.handle("on_session", &[Arg::Json(outcome.saved.unwrap_or(Value::Null))]);
-        }
-        Ok(ReloadReport { session: cal.going_on, saved_kept, lost: outcome.lost })
+            },
+            |new, _| {
+                *self.extension.lock().unwrap_or_else(|e| e.into_inner()) = new.clone();
+            },
+        )?;
+        Ok(ReloadReport { session: in_session, saved_kept: reloaded.saved.is_some(), lost: reloaded.lost })
     }
 
     // ---------- typed readbacks ----------
@@ -818,8 +803,7 @@ impl Fake {
     /// `time.wait`, as the game answers it: once the days the test raises
     /// reach the date, counted from the last day raised, or else the world's
     /// date, or else 1444.11.11.
-    fn wait(&self, request: &Value, store: &Store) -> Called {
-        let days = request.get("days").and_then(Value::as_u64).and_then(|d| u32::try_from(d).ok()).unwrap_or(0);
+    fn wait(&self, days: u32, store: &Store) -> Called {
         let today = self.calendar().today;
         let from = today.or_else(|| store.world.as_ref().and_then(|w| lua_date(&w.date()))).or_else(|| Date::from_ymd(1444, 11, 11));
         match from.map(|from| eu4_harmony_remote::checks::time::days_after(from, days)) {
@@ -857,19 +841,22 @@ impl Fake {
 
 impl Host for Fake {
     fn run(&self, _: usize, request: Request) -> Called {
+        let name = request.name();
         let json = eu4_harmony_remote::form::as_lua(|| serde_json::to_value(&request)).unwrap_or(Value::Null);
-        let name = json.get("capability").and_then(Value::as_str).unwrap_or_default().to_string();
         let mut store = self.store();
         store.calls.push(json.clone());
         let answered = match store.answers.get(&name) {
-            None if name == "time.wait" => return self.wait(&json, &store),
-            None if store.world.is_some() && crate::world::ANSWERS.contains(&name.as_str()) => {
-                let calendar = self.calendar();
-                store.world.as_mut().and_then(|w| w.answer(&name, &json, calendar)).unwrap_or(Ok(Value::Null))
-            }
             None => {
-                store.unanswered.push(name.clone());
-                Err(Error::new(Code::NotReady, format!("the fake game has no answer for {name}; give one with mod:answer(\"{name}\", ...)")))
+                if let Request::Time(eu4_harmony_remote::time::TimeRequest::Wait { days }) = request {
+                    return self.wait(days, &store);
+                }
+                let calendar = self.calendar();
+                if let Some(result) = store.world.as_mut().and_then(|w| w.answer(&request, calendar)) {
+                    result
+                } else {
+                    store.unanswered.push(name.clone());
+                    Err(Error::new(Code::NotReady, format!("the fake game has no answer for {name}; give one with mod:answer(\"{name}\", ...)")))
+                }
             }
             Some(Answer::Value(value)) => Ok(value.clone()),
             Some(Answer::Refusal(code, message)) => Err(Error::new(*code, message.clone())),
@@ -1307,6 +1294,6 @@ mod tests {
         // Manifest permission changes are rejected.
         dir.write("lua/main.lua", "return {}");
         dir.write("manifest.toml", &format!("id = \"rel\"\napi_version = \"{}\"\npermissions = {{ files = true }}\n", eu4_harmony_remote::API_VERSION));
-        assert!(m.reload().unwrap_err().contains("manifest permissions changed"));
+        assert!(m.reload().unwrap_err().contains("permissions changed"));
     }
 }
