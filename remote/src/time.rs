@@ -4,9 +4,9 @@ use crate::{signals::Signals, Date};
 use serde::{Deserialize, Serialize};
 
 /// The game speeds, slowest first, as the descriptions below state them.
-pub use eu4_harmony_checks::time::SPEEDS;
+pub use crate::checks::time::SPEEDS;
 /// The most days one advance or wait may ask for: a hundred years.
-pub use eu4_harmony_checks::time::MOST_DAYS;
+pub use crate::checks::time::MOST_DAYS;
 
 group! {
     /// Time: the date, pausing and resuming, the speed, waiting for days,

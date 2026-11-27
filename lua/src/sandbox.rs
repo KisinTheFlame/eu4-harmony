@@ -1,4 +1,4 @@
-//! An extension's Lua state: the sandbox (ADR extensions-are-lua-in-a-sandbox)
+﻿//! An extension's Lua state: the sandbox (ADR extensions-are-lua-in-a-sandbox)
 //! and what the host puts in it. Lua's own string, table, math, utf8 and
 //! coroutine libraries, the base library without loading files or bytecode,
 //! `os.clock`; the framework's globals `log`, `json`, `mod_files`, `text`, and
@@ -138,7 +138,7 @@ pub fn open(at: &Opening) -> mlua::Result<Opened> {
         "get",
         lua.create_function(move |lua, (key, values): (String, Option<Table>)| {
             let Some(raw) = host.text(&mod_id, &key) else {
-                return failure(lua, "not_found", &eu4_harmony_checks::texts::not_found(&key).message);
+                return failure(lua, "not_found", &eu4_harmony_remote::checks::texts::not_found(&key).message);
             };
             let mut args = Vec::new();
             if let Some(values) = values {

@@ -1,4 +1,4 @@
-//! A game for the tests of the catalogue's stateful groups (time, menu,
+﻿//! A game for the tests of the catalogue's stateful groups (time, menu,
 //! screenshot, input, diplomacy, peace) and of the pipe: scripted layer
 //! slices and a record of the calls. A capability of a group it does not
 //! script fails (`unscripted`), as every request of a bound group
@@ -99,7 +99,7 @@ pub fn found(tag: CountryTag) -> GResult<Tag> {
         b"TUR" => Ok(tur()),
         b"BYZ" => Ok(byz()),
         b"WAL" => Ok(wal()),
-        _ => Err(eu4_harmony_checks::countries::not_found(&tag.to_string()).into()),
+        _ => Err(eu4_harmony_remote::checks::countries::not_found(&tag.to_string()).into()),
     }
 }
 
@@ -272,7 +272,7 @@ impl time::Layer for Fake {
         self.call("resume".into());
         self.clock.check("resume")?;
         if let Some(end) = self.clock.time.over {
-            return Err(eu4_harmony_checks::time::over(eu4_harmony_checks::Date(end)).into());
+            return Err(eu4_harmony_remote::checks::time::over(eu4_harmony_remote::Date(end)).into());
         }
         self.clock.time.pause = game::time::Pause::Running;
         Ok(())
@@ -280,7 +280,7 @@ impl time::Layer for Fake {
 
     fn set_speed(&mut self, speed: u32) -> GResult<()> {
         self.call(format!("speed {speed}"));
-        eu4_harmony_checks::time::speed(speed)?;
+        eu4_harmony_remote::checks::time::speed(speed)?;
         self.clock.time.speed = speed;
         Ok(())
     }

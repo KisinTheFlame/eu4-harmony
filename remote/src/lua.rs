@@ -189,13 +189,13 @@ fn signal_args(kind: Kind) -> Vec<Arg> {
 }
 
 /// The handler `signal` calls, `on_<kind>`, and its arguments in Lua's form
-/// (`eu4_harmony_checks::form`), as its kind says it is called. None for a
+/// (`crate::form`), as its kind says it is called. None for a
 /// signal whose handler's arguments the Lua host gives itself (`on_session`'s
 /// saved data).
 #[cfg(test)]
 pub(crate) fn handler_call(signal: &Signal) -> Option<(&'static str, Vec<serde_json::Value>)> {
     let kind = signal.kind();
-    let mut table = eu4_harmony_checks::form::as_lua(|| serde_json::to_value(signal)).ok()?;
+    let mut table = crate::form::as_lua(|| serde_json::to_value(signal)).ok()?;
     let fields = table.as_object_mut()?;
     fields.remove("signal");
     Some((kind.handler(), handler_args(kind, fields)?))

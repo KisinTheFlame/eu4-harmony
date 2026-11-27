@@ -88,17 +88,21 @@ impl From<String> for Fail {
     }
 }
 
-/// A refusal of the framework's own checks (`eu4_harmony_checks`).
-impl From<eu4_harmony_checks::Refusal> for Fail {
-    fn from(refusal: eu4_harmony_checks::Refusal) -> Self {
-        use eu4_harmony_checks::Status as Checked;
-        let status = match refusal.status {
-            Checked::NotReady => Status::NotReady,
-            Checked::NotFound => Status::NotFound,
-            Checked::Rejected => Status::Rejected,
-            Checked::InvalidArgument => Status::InvalidArgument,
+/// A refusal of the framework's shared checks (`eu4_harmony_remote::checks`).
+impl From<eu4_harmony_remote::Error> for Fail {
+    fn from(error: eu4_harmony_remote::Error) -> Self {
+        use eu4_harmony_remote::Code;
+        let status = match error.code {
+            Code::NotInGame => Status::NotInGame,
+            Code::NoCountry => Status::NoCountry,
+            Code::NotReady => Status::NotReady,
+            Code::NotFound => Status::NotFound,
+            Code::Rejected => Status::Rejected,
+            Code::InvalidArgument | Code::BadRequest => Status::InvalidArgument,
+            Code::Unavailable | Code::AsTheGame | Code::SessionChanged => Status::Unavailable,
+            Code::Internal => Status::Internal,
         };
-        Self { status, message: refusal.message }
+        Self { status, message: error.message }
     }
 }
 

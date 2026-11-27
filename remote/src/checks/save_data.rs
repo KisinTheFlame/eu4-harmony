@@ -1,6 +1,7 @@
 //! Extension save data, which every save carries whole
 //! (ADR extension-save-data-in-the-save).
-use crate::{Checked, Refusal, Status};
+use super::Checked;
+use crate::{Code, Error};
 
 /// How much JSON one extension's data may be.
 pub const MAX_JSON: usize = 16 * 1024 * 1024;
@@ -8,7 +9,7 @@ pub const MAX_JSON: usize = 16 * 1024 * 1024;
 /// Refuses data of more than [`MAX_JSON`] bytes as JSON.
 pub fn size(json_len: usize) -> Checked {
     if json_len > MAX_JSON {
-        return Err(Refusal::new(Status::InvalidArgument, format!("save data is {json_len} bytes of JSON; at most {MAX_JSON} are kept")));
+        return Err(Error::new(Code::InvalidArgument, format!("save data is {json_len} bytes of JSON; at most {MAX_JSON} are kept")));
     }
     Ok(())
 }
@@ -22,6 +23,6 @@ mod tests {
         assert!(size(0).is_ok());
         assert!(size(MAX_JSON).is_ok());
         let refusal = size(MAX_JSON + 1).unwrap_err();
-        assert_eq!((refusal.status, refusal.message.as_str()), (Status::InvalidArgument, "save data is 16777217 bytes of JSON; at most 16777216 are kept"));
+        assert_eq!((refusal.code, refusal.message.as_str()), (Code::InvalidArgument, "save data is 16777217 bytes of JSON; at most 16777216 are kept"));
     }
 }

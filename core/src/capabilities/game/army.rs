@@ -1,4 +1,4 @@
-//! One army or fleet as the game keeps it: found by its ID with the checks
+﻿//! One army or fleet as the game keeps it: found by its ID with the checks
 //! that make it the player's, a land army or one the player sees, and their
 //! refusals; its record, place, regiments and the armies aboard a fleet; and
 //! the game's own answers of where an army may go and whom it may attack.
@@ -11,7 +11,7 @@ use crate::{
     native::objects::campaign::{classes, country as country_fields, functions, globals, list, province, regiment, route_options, tag, task, unit, unit_type},
     native::points::{GameFunction, Point},
 };
-use eu4_harmony_checks::armies as checks;
+use eu4_harmony_remote::checks::armies as checks;
 use std::collections::BTreeSet;
 
 const CAN_ENTER: GameFunction<9> = GameFunction::at(0x1a2280);

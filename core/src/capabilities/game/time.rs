@@ -1,4 +1,4 @@
-//! Time: the date, whether the game is paused and by what, and its speed;
+﻿//! Time: the date, whether the game is paused and by what, and its speed;
 //! pausing and resuming as the player would, and setting the speed with the
 //! game's speed commands, as the player's speed keys do; stopping time
 //! as a date is reached, for remote control's advancing; and whether a
@@ -89,7 +89,7 @@ pub fn pause(WorldSession { m, world, .. }: WorldSession) -> GResult<()> {
 pub fn resume(WorldSession { m, world: ctx, .. }: WorldSession) -> GResult<()> {
     if paused(m, &ctx)? {
         if let Some(end) = over(m, &ctx)? {
-            return Err(eu4_harmony_checks::time::over(eu4_harmony_checks::Date(end)).into());
+            return Err(eu4_harmony_remote::checks::time::over(eu4_harmony_remote::Date(end)).into());
         }
         if !lets_time_run(m, &ctx)? {
             return fail(Status::Rejected, "the game does not let time run with no country to play");
@@ -128,7 +128,7 @@ fn lets_time_run(m: &Memory, ctx: &World) -> GResult<bool> {
 /// keys do: one of the game's speed commands for each step, each carried out
 /// at once.
 pub fn set_speed(caller: Caller, speed: u32) -> GResult<()> {
-    eu4_harmony_checks::time::speed(speed)?;
+    eu4_harmony_remote::checks::time::speed(speed)?;
     let WorldSession { m, world: ctx, commands, .. } = WorldSession::open(caller)?;
     let target = speed as i32 - 1;
     let now = m.i32(ctx.world + world::SPEED)?;
@@ -424,7 +424,7 @@ mod tests {
                 assert_eq!(now, (false, false), "held {held:?}");
             }
             let (over, now) = world(110, true, (true, false), resume);
-            let refusal: Fail = eu4_harmony_checks::time::over(eu4_harmony_checks::Date(100)).into();
+            let refusal: Fail = eu4_harmony_remote::checks::time::over(eu4_harmony_remote::Date(100)).into();
             assert_eq!(refused(over), (refusal.status, refusal.message));
             assert_eq!(now, (true, false));
             let (nobody, now) = world(10, false, (false, true), resume);

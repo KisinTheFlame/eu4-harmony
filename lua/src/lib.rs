@@ -1,4 +1,4 @@
-//! The Lua host (ADR extensions-are-lua-in-a-sandbox): runs a mod's extension,
+﻿//! The Lua host (ADR extensions-are-lua-in-a-sandbox): runs a mod's extension,
 //! its Lua scripts, in a Lua state of its own, in the sandbox, and calls its
 //! handlers.
 //!
@@ -146,7 +146,7 @@ pub enum Called {
 }
 
 /// A capability's answer as Lua is to have it, written as JSON in Lua's form
-/// (`eu4_harmony_checks::form::as_lua`: an army's ID a number, a date an
+/// (`eu4_harmony_remote::form::as_lua`: an army's ID a number, a date an
 /// object of year, month and day); `null` for one with no result. Or why it
 /// failed.
 pub type Answered = Result<Value, eu4_harmony_remote::Error>;
@@ -831,7 +831,7 @@ impl Extension {
         CURRENT.with(|c| c.set(previous));
         self.count(elapsed, timed_out);
         let value = returned.map_err(|err| err.to_string()).and_then(|v| values::to_json(&v)).and_then(|v| {
-            eu4_harmony_checks::save_data::size(v.to_string().len()).map_err(|r| r.message)?;
+            eu4_harmony_remote::checks::save_data::size(v.to_string().len()).map_err(|r| r.message)?;
             Ok(v)
         });
         Some(match value {

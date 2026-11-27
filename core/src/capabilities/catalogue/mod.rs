@@ -1,4 +1,4 @@
-//! The capability catalogue (ADR one-capability-catalogue), as the core runs
+﻿//! The capability catalogue (ADR one-capability-catalogue), as the core runs
 //! its requests: through the capability layer (`crate::capabilities::game`), for both of
 //! its callers, remote control's engine (`crate::remote`), which runs them as
 //! the player, and the Lua host (`crate::lua`), which runs them as the
@@ -941,7 +941,7 @@ mod tests {
             let name = request.name();
             match fake::Fake::default().run(request, game::As::Game, Some(&signals::Buffer::new()), Instant::now()) {
                 Outcome::Done(Ok(answer)) | Outcome::Held(Ok(answer), _) => {
-                    let lua = eu4_harmony_checks::form::as_lua(|| serde_json::to_value(&answer)).unwrap();
+                    let lua = eu4_harmony_remote::form::as_lua(|| serde_json::to_value(&answer)).unwrap();
                     let shape = result_shape(&name).unwrap_or_else(|| panic!("{name} has no result shape"));
                     shape.check(&lua).unwrap_or_else(|why| panic!("{name}'s answer is not its shape: {why}\n{lua}"));
                     shaped.push(name);

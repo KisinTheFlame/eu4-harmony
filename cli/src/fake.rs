@@ -1,4 +1,4 @@
-//! The fake game: the Lua host's other host (`eu4_harmony_lua::Host`), a
+﻿//! The fake game: the Lua host's other host (`eu4_harmony_lua::Host`), a
 //! data store and session controller in place of the running game, for
 //! `eu4-harmony test`.
 //!
@@ -822,9 +822,9 @@ impl Fake {
         let days = request.get("days").and_then(Value::as_u64).and_then(|d| u32::try_from(d).ok()).unwrap_or(0);
         let today = self.calendar().today;
         let from = today.or_else(|| store.world.as_ref().and_then(|w| lua_date(&w.date()))).or_else(|| Date::from_ymd(1444, 11, 11));
-        match from.map(|from| eu4_harmony_checks::time::days_after(from, days)) {
+        match from.map(|from| eu4_harmony_remote::checks::time::days_after(from, days)) {
             Some(Ok(until)) => Called::Later(Box::new(Until { calendar: self.calendar.clone(), until })),
-            Some(Err(refusal)) => Called::Done(Err(refusal.into())),
+            Some(Err(refusal)) => Called::Done(Err(refusal)),
             None => Called::Done(Err(Error::new(Code::Internal, "the fake game has no date"))),
         }
     }
@@ -857,7 +857,7 @@ impl Fake {
 
 impl Host for Fake {
     fn run(&self, _: usize, request: Request) -> Called {
-        let json = eu4_harmony_checks::form::as_lua(|| serde_json::to_value(&request)).unwrap_or(Value::Null);
+        let json = eu4_harmony_remote::form::as_lua(|| serde_json::to_value(&request)).unwrap_or(Value::Null);
         let name = json.get("capability").and_then(Value::as_str).unwrap_or_default().to_string();
         let mut store = self.store();
         store.calls.push(json.clone());

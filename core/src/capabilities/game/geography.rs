@@ -1,4 +1,4 @@
-//! Reading the map's provinces and the countries: the provinces' graph,
+﻿//! Reading the map's provinces and the countries: the provinces' graph,
 //! fog of war and discovery, and who is at war with whom. One army or fleet is
 //! read by [`super::army`].
 use super::{
@@ -156,7 +156,7 @@ impl Geography {
         let nodes = self.nodes(m, ctx)?;
         let count = nodes.len();
         let Some(node) = nodes.get(id as usize).cloned() else {
-            return Err(eu4_harmony_checks::provinces::not_found(id).into());
+            return Err(eu4_harmony_remote::checks::provinces::not_found(id).into());
         };
         if let Err(e) = validate_node(m, &node, count) {
             self.clear();

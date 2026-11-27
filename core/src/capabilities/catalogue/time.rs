@@ -1,4 +1,4 @@
-//! Time: the clock, pausing, resuming and the speed, as the player would, and
+﻿//! Time: the clock, pausing, resuming and the speed, as the player would, and
 //! advancing time, which only remote control does. An advance answers at a
 //! later safe point: once the date is reached and the game paused there, or
 //! earlier, saying why, among it once the main menu is up after an
@@ -113,7 +113,7 @@ pub fn run(request: TimeRequest, game: &mut (impl Layer + ?Sized), signals: Opti
 /// A wait for the date `days` from now, in this session.
 fn wait(game: &mut (impl Layer + ?Sized), days: u32) -> Result<Waiting, Error> {
     let time = game.time()?;
-    let until = eu4_harmony_checks::time::days_after(Date(time.date), days)?;
+    let until = eu4_harmony_remote::checks::time::days_after(Date(time.date), days)?;
     Ok(Waiting { session: time.session, until: until.0 })
 }
 
@@ -149,13 +149,13 @@ enum Started {
 }
 
 fn start(game: &mut (impl Layer + ?Sized), signals: &signals::Buffer, view: View, days: u32, speed: Option<u32>) -> Result<Started, Error> {
-    eu4_harmony_checks::time::days(days)?;
+    eu4_harmony_remote::checks::time::days(days)?;
     if let Some(speed) = speed {
-        eu4_harmony_checks::time::speed(speed)?;
+        eu4_harmony_remote::checks::time::speed(speed)?;
     }
     let time = game.time()?;
     if let Some(end) = time.over {
-        return Err(eu4_harmony_checks::time::over(Date(end)).into());
+        return Err(eu4_harmony_remote::checks::time::over(Date(end)));
     }
     let since = signals.last();
     if game.questions_waiting()? > 0 {

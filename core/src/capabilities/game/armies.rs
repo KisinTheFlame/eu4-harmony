@@ -1,4 +1,4 @@
-//! The player's armies and the armies they can see: reading them, the routes
+﻿//! The player's armies and the armies they can see: reading them, the routes
 //! the game would choose, and moving and stopping them.
 //!
 //! An extension's order installs a route that stays its own until someone
@@ -8,7 +8,7 @@
 //! (ADR remote-control-uses-capabilities).
 use super::{army, orders, signals, thousandths, with_state, Caller, GResult, Session, Tag};
 use crate::{native::memory::Memory, native::objects::campaign::unit};
-use eu4_harmony_checks::armies as checks;
+use eu4_harmony_remote::checks::armies as checks;
 use eu4_harmony_remote::armies::{self as remote, args, ArmyKind, Blocked, RouteBy};
 use eu4_harmony_remote::ArmyId;
 use eu4_harmony_remote::CountryTag;
@@ -56,7 +56,7 @@ pub struct Army {
 }
 
 impl Army {
-    /// What of its state stops an order (`eu4_harmony_checks::armies`).
+    /// What of its state stops an order (`eu4_harmony_remote::checks::armies`).
     pub fn condition(&self) -> checks::Condition {
         checks::Condition {
             in_battle: self.in_battle,
@@ -288,10 +288,10 @@ pub fn stop(session: Session, args::Stop { army: ArmyId(id) }: args::Stop) -> GR
 pub fn selected(Session { m, ctx, .. }: Session) -> GResult<u64> {
     let army = match crate::interface::ui::selected_army_ptr(m)? {
         crate::interface::ui::SelectedArmyPanel::Open(army) => army,
-        crate::interface::ui::SelectedArmyPanel::NotOpen => return Err(eu4_harmony_checks::armies::panel_not_open().into()),
+        crate::interface::ui::SelectedArmyPanel::NotOpen => return Err(eu4_harmony_remote::checks::armies::panel_not_open().into()),
     };
     if !super::army::is_own_army(m, ctx.player, army)? {
-        return Err(eu4_harmony_checks::armies::none_selected().into());
+        return Err(eu4_harmony_remote::checks::armies::none_selected().into());
     }
     Ok(m.u64(army + crate::native::objects::campaign::unit::ID)?)
 }

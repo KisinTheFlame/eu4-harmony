@@ -1,4 +1,4 @@
-//! The map camera: where the view looks and how high it is, and turning it to
+﻿//! The map camera: where the view looks and how high it is, and turning it to
 //! a province, to a map position or to another height. A move is made at
 //! once, the next frame drawn showing the camera where it was sent, or, when
 //! asked, glides there over some frames as the game's own moves do.
@@ -54,7 +54,7 @@ pub fn look_at(WorldSession { m, world: ctx, .. }: WorldSession, args::LookAt { 
     let camera = match (province, x, y) {
         (Some(ProvinceId(province)), None, None) => {
             if province == 0 {
-                return Err(eu4_harmony_checks::provinces::not_found(0).into());
+                return Err(eu4_harmony_remote::checks::provinces::not_found(0).into());
             }
             let (manager, camera) = movable(m, &ctx)?;
             let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;

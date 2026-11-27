@@ -1,4 +1,4 @@
-//! What one country thinks of another, as the diplomacy view shows it: the
+﻿//! What one country thinks of another, as the diplomacy view shows it: the
 //! opinion and its parts, the aggressive expansion it holds, its trust and
 //! the favors it owes (docs/game/diplomacy/diplomacy.md, "Opinion").
 use super::{countries, country, geography, thousandths, GResult, Tag, WorldSession};
@@ -41,7 +41,7 @@ pub fn points() -> Vec<Point> {
 pub fn opinion(session: WorldSession, args::Opinion { of, toward }: args::Opinion) -> GResult<Opinion> {
     let WorldSession { m, world: ctx, .. } = session;
     let (from, to) = (countries::named(m, &ctx, of)?, countries::named(m, &ctx, toward)?);
-    if let Some(refusal) = eu4_harmony_checks::countries::of_itself(&of.to_string(), &toward.to_string()) {
+    if let Some(refusal) = eu4_harmony_remote::checks::countries::of_itself(&of.to_string(), &toward.to_string()) {
         return Err(refusal.into());
     }
     let c = country(m, &ctx, from)?;

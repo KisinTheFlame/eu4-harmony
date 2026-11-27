@@ -1,4 +1,4 @@
-//! The main menu, for remote control (ADR remote-control-uses-capabilities):
+﻿//! The main menu, for remote control (ADR remote-control-uses-capabilities):
 //! where the game is, the saves, loading one, starting a new game and returning
 //! to the main menu (docs/game/interface/main-menu.md).
 //!
@@ -678,7 +678,7 @@ fn find(m: &Memory, letters: [u8; 3]) -> GResult<Tag> {
             return Ok(tag);
         }
     }
-    Err(eu4_harmony_checks::countries::not_found(&String::from_utf8_lossy(&letters)).into())
+    Err(eu4_harmony_remote::checks::countries::not_found(&String::from_utf8_lossy(&letters)).into())
 }
 
 /// What came of a return to the main menu so far.

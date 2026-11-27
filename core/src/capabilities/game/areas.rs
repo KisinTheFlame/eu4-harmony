@@ -1,4 +1,4 @@
-//! A country's share of an area and its governing costs. State projections
+﻿//! A country's share of an area and its governing costs. State projections
 //! preserve territorial cores, use the loaded static modifiers, and cross-check
 //! the arithmetic against the game's getters (docs/game/provinces/area-governing-cost.md).
 use super::{countries, modifiers, provinces, with_state, GResult, Session, Status, Tag};
@@ -193,7 +193,7 @@ pub fn governing_capacity(
 
 pub fn area(Session { m, ctx, .. }: Session, args::Area { province: ProvinceId(id) }: args::Area) -> GResult<AreaSnapshot> {
     if id == 0 {
-        return Err(eu4_harmony_checks::provinces::not_found(0).into());
+        return Err(eu4_harmony_remote::checks::provinces::not_found(0).into());
     }
     let address = with_state(|s| s.geography.province_address(m, &ctx, id))?;
     if Tag(m.u64(address + province::OWNER)?).index() != ctx.player.index() {

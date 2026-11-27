@@ -1,4 +1,4 @@
-//! Route queries, moving and stopping own land armies with the game's move
+﻿//! Route queries, moving and stopping own land armies with the game's move
 //! command (ADR commands-run-at-once), and the record of which extension set
 //! which route.
 use super::commands::{write, Block};
@@ -12,7 +12,7 @@ use crate::{
     },
     native::points::{GameFunction, Point},
 };
-use eu4_harmony_checks::armies as checks;
+use eu4_harmony_remote::checks::armies as checks;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 
@@ -386,7 +386,7 @@ const SHIP_ROOM: GameFunction<1> = GameFunction::at(0xae1a40);
 /// the boarding: the player has no fleet there, or none with room for the
 /// whole army, which a step onto the sea needs. None when a fleet there may
 /// take it, or `sea` is land, or the unit a fleet.
-fn boarding_refused(m: &Memory, ctx: &Ctx, army: usize, sea: usize, goal: u32) -> GResult<Option<eu4_harmony_checks::Refusal>> {
+fn boarding_refused(m: &Memory, ctx: &Ctx, army: usize, sea: usize, goal: u32) -> GResult<Option<eu4_harmony_remote::Error>> {
     if !army::is_army(m, army)? || m.u8(m.ptr(sea + province::GEOMETRY)? + geometry::TERRAIN)? & geometry::LAND != 0 {
         return Ok(None);
     }

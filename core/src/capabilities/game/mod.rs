@@ -1,4 +1,4 @@
-//! The capability layer: every capability extensions and remote clients use,
+﻿//! The capability layer: every capability extensions and remote clients use,
 //! implemented once (ADR remote-control-uses-capabilities). Shared game-world
 //! read/command primitives live in `crate::world` and are re-exported here for
 //! the capability group modules.
@@ -108,7 +108,7 @@ impl Session {
 
     pub fn require_current_visibility(self) -> GResult<()> {
         if self.view == View::Player && !signals::visibility_current(self.m, &self.ctx) {
-            return Err(eu4_harmony_checks::armies::visibility_not_current().into());
+            return Err(eu4_harmony_remote::checks::armies::visibility_not_current().into());
         }
         Ok(())
     }
@@ -186,7 +186,7 @@ pub fn begin_frame(m: &Memory) -> GResult<Frame> {
         let tag = |tag: Option<Tag>| tag.filter(|t| t.normal()).map(|t| String::from_utf8_lossy(&t.letters()).into_owned()).unwrap_or_else(|| "none".into());
         format!(
             "game_date={} own={} in_view={} observing={}",
-            eu4_harmony_checks::Date(world.date),
+            eu4_harmony_remote::Date(world.date),
             tag(Some(world.player.own())),
             tag(world.player.acting()),
             world.player.observing()

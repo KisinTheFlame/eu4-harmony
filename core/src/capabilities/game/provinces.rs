@@ -1,4 +1,4 @@
-//! Provinces: every province, a province's land neighbors, and one
+﻿//! Provinces: every province, a province's land neighbors, and one
 //! province's snapshot: its name, development, terrain, fort, buildings,
 //! autonomy, culture, religion, unrest, trade, state, cores and claims, what
 //! is being built or done there, and what the player can recruit there
@@ -159,11 +159,11 @@ impl UnitKind {
 /// the player has not discovered refused as terra incognita.
 pub(super) fn readable(m: &Memory, world: &impl InWorld, eyes: Eyes, id: u32) -> GResult<usize> {
     if id == 0 {
-        return Err(eu4_harmony_checks::provinces::not_found(0).into());
+        return Err(eu4_harmony_remote::checks::provinces::not_found(0).into());
     }
     let address = with_state(|s| s.geography.province_address(m, world, id))?;
     if super::geography::undiscovered(m, eyes, address)? {
-        return Err(eu4_harmony_checks::provinces::not_discovered(id).into());
+        return Err(eu4_harmony_remote::checks::provinces::not_discovered(id).into());
     }
     Ok(address)
 }
@@ -743,7 +743,7 @@ mod tests {
             institutions: vec![InstitutionProgress { institution: "feudalism".into(), progress: 100.0 }],
         };
         let answer = Answer::Province(ProvinceAnswer::Get(Box::new(snapshot)));
-        let lua = eu4_harmony_checks::form::as_lua(|| serde_json::to_value(&answer)).unwrap();
+        let lua = eu4_harmony_remote::form::as_lua(|| serde_json::to_value(&answer)).unwrap();
         result_shape("province.get").unwrap().check(&lua).unwrap();
         let line = response_json(&Ok(answer)).to_string();
         assert!(line.contains(r#""name":"君士坦丁堡""#), "{line}");

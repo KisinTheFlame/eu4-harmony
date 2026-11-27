@@ -1,4 +1,4 @@
-//! The uses of monarch power the province view, the army panel, the siege
+﻿//! The uses of monarch power the province view, the army panel, the siege
 //! view and the stability view's rebels offer besides developing, coring
 //! and the barrages: moving the capital and the trade port, a Siberian
 //! frontier, tribal land and razing a province; scorched earth, seizing and
@@ -212,7 +212,7 @@ pub fn in_province(m: &Memory, ctx: &Ctx, province: usize, which: InProvince) ->
 /// The province's address, by its number.
 fn province_at(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
     if id == 0 {
-        return Err(eu4_harmony_checks::provinces::not_found(0).into());
+        return Err(eu4_harmony_remote::checks::provinces::not_found(0).into());
     }
     with_state(|s| s.geography.province_address(m, ctx, id))
 }

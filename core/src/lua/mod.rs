@@ -1,4 +1,4 @@
-//! The core's side of the Lua host (`eu4_harmony_lua`,
+﻿//! The core's side of the Lua host (`eu4_harmony_lua`,
 //! ADR extensions-are-lua-in-a-sandbox): loads every mod's extension at startup
 //! on [`LuaHost`], the running game, and calls its handlers at safe points
 //! (`crate::safe_point`).
@@ -569,7 +569,7 @@ impl<S: Surface> Pending<Answered> for Later<S> {
 /// A response as the Lua host takes it: the answer written in Lua's form.
 fn lua_form(response: Response) -> Answered {
     let answer = response?;
-    eu4_harmony_checks::form::as_lua(|| serde_json::to_value(&answer)).map_err(|e| Error::new(Code::Internal, format!("the answer cannot be written: {e}")))
+    eu4_harmony_remote::form::as_lua(|| serde_json::to_value(&answer)).map_err(|e| Error::new(Code::Internal, format!("the answer cannot be written: {e}")))
 }
 
 impl<S: Surface> Host for LuaHost<S> {

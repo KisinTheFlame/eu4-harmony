@@ -1,4 +1,4 @@
-//! Game-world read and command primitives shared by `capabilities` and `dev`:
+﻿//! Game-world read and command primitives shared by `capabilities` and `dev`:
 //! world/country context, caller/view/result types, command posting, player
 //! state, script conditions, content registries, modifiers, envoys, and power
 //! spendings. Depends only on `base`, `native`, and `text`.
@@ -83,7 +83,7 @@ pub fn countries(m: &Memory, ctx: &impl InWorld) -> GResult<Vec<Tag>> {
 pub fn country_named(m: &Memory, ctx: &impl InWorld, tag: eu4_harmony_remote::CountryTag) -> GResult<Tag> {
     match countries(m, ctx)?.into_iter().find(|t| t.letters() == tag.0) {
         Some(found) => Ok(found),
-        None => Err(eu4_harmony_checks::countries::not_found(&tag.to_string()).into()),
+        None => Err(eu4_harmony_remote::checks::countries::not_found(&tag.to_string()).into()),
     }
 }
 

@@ -11,11 +11,11 @@
 //! move as days pass.
 //!
 //! What the world refuses, it refuses as the core does, through the same
-//! checks and in the same words (`eu4_harmony_checks`): an ID of no army of
+//! checks and in the same words (`eu4_harmony_remote::checks`): an ID of no army of
 //! the player's, a fleet where a land army is asked for, an order to an army
 //! the game would not let the framework order, a target the player does not
 //! see. The game is never paused in the world.
-use eu4_harmony_checks::{
+use eu4_harmony_remote::checks::{
     armies as army_checks, countries as country_checks, provinces as province_checks,
     script::{self as script_checks, Use},
 };
@@ -230,20 +230,20 @@ impl World {
     }
 
     fn province(&self, id: u32) -> Result<&Place, Error> {
-        self.provinces.iter().find(|p| p.id == id).ok_or_else(|| province_checks::not_found(id).into())
+        self.provinces.iter().find(|p| p.id == id).ok_or_else(|| province_checks::not_found(id))
     }
 
     /// The player's army or fleet `id`.
     fn own(&self, id: u64) -> Result<&Army, Error> {
         let player = self.player();
-        self.armies.iter().find(|a| a.id == id && a.owner == player).ok_or_else(|| army_checks::not_own(id).into())
+        self.armies.iter().find(|a| a.id == id && a.owner == player).ok_or_else(|| army_checks::not_own(id))
     }
 
     /// The player's land army `id`.
     fn own_land(&self, id: u64) -> Result<&Army, Error> {
         let army = self.own(id)?;
         if army.kind != "army" {
-            return Err(army_checks::not_land().into());
+            return Err(army_checks::not_land());
         }
         Ok(army)
     }
@@ -263,10 +263,7 @@ impl World {
 
     /// A land army the player sees, in a province not under fog.
     fn seen(&self, id: u64) -> Result<&Army, Error> {
-        self.armies
-            .iter()
-            .find(|a| a.id == id && a.kind == "army" && a.province.is_some_and(|p| self.visible(p)))
-            .ok_or_else(|| army_checks::not_seen(id).into())
+        self.armies.iter().find(|a| a.id == id && a.kind == "army" && a.province.is_some_and(|p| self.visible(p))).ok_or_else(|| army_checks::not_seen(id))
     }
 
     /// What `of` thinks of `toward`, in Lua's form.
@@ -329,7 +326,7 @@ impl World {
 
     /// The route an army would take to `to`, as `army.route_to` answers it.
     fn route_from(&self, army: &Army, to: u32) -> Result<Vec<u32>, Error> {
-        army.province.and_then(|from| self.route(from, to)).ok_or_else(|| army_checks::no_route(to).into())
+        army.province.and_then(|from| self.route(from, to)).ok_or_else(|| army_checks::no_route(to))
     }
 
     /// The shortest route over land from `from` to `to`, `to` last; none
@@ -410,7 +407,7 @@ impl World {
             "country.get" => {
                 let tag = text("country");
                 if !self.country_known(&tag) {
-                    return Some(Err(country_checks::not_found(&tag).into()));
+                    return Some(Err(country_checks::not_found(&tag)));
                 }
                 let mut country = json!({
                     "tag": tag, "treasury": 0.0, "manpower": 0, "max_manpower": 0, "stability": 0.0, "prestige": 0.0,
@@ -429,24 +426,24 @@ impl World {
                 let (a, b) = (text("country"), text("other"));
                 let unknown = [&a, &b].into_iter().find(|t| !self.country_known(t)).cloned();
                 match unknown {
-                    Some(unknown) => Err(country_checks::not_found(&unknown).into()),
+                    Some(unknown) => Err(country_checks::not_found(&unknown)),
                     None => Ok(json!(self.hostile(&a, &b))),
                 }
             }
             "country.opinion" => {
                 let (of, toward) = (text("of"), text("toward"));
                 if let Some(unknown) = [&of, &toward].into_iter().find(|t| !self.country_known(t)) {
-                    return Some(Err(country_checks::not_found(unknown).into()));
+                    return Some(Err(country_checks::not_found(unknown)));
                 }
                 match country_checks::of_itself(&of, &toward) {
-                    Some(refusal) => Err(refusal.into()),
+                    Some(refusal) => Err(refusal),
                     None => Ok(self.opinion_json(&of, &toward)),
                 }
             }
             "country.opinions" => {
                 let toward = text("toward");
                 if !self.country_known(&toward) {
-                    return Some(Err(country_checks::not_found(&toward).into()));
+                    return Some(Err(country_checks::not_found(&toward)));
                 }
                 let row = |of: &String| {
                     let mut o = self.opinion_json(of, &toward);
@@ -494,8 +491,8 @@ impl World {
                 })
             }
             "army.selected" => match self.selected {
-                Some(id) => self.own_land(id).map(|a| json!(a.id)).map_err(|_| army_checks::none_selected().into()),
-                None => Err(army_checks::panel_not_open().into()),
+                Some(id) => self.own_land(id).map(|a| json!(a.id)).map_err(|_| army_checks::none_selected()),
+                None => Err(army_checks::panel_not_open()),
             },
             "army.route_to" => {
                 let to = province("province");
@@ -555,7 +552,7 @@ impl World {
         script_checks::name(what, name)?;
         match scope {
             Scope::Country(tag) | Scope::Ruler(tag) | Scope::Heir(tag) | Scope::Consort(tag) if !self.country_known(&tag.to_string()) => {
-                return Err(country_checks::not_found(&tag.to_string()).into());
+                return Err(country_checks::not_found(&tag.to_string()));
             }
             Scope::Province(ProvinceId(id)) => {
                 self.province(id)?;
@@ -592,8 +589,8 @@ impl World {
 
 /// A date as Lua has it, from its text.
 fn date(text: &str) -> Value {
-    match eu4_harmony_checks::Date::parse(text) {
-        Some(d) => eu4_harmony_checks::form::as_lua(|| serde_json::to_value(d)).unwrap_or(Value::Null),
+    match eu4_harmony_remote::Date::parse(text) {
+        Some(d) => eu4_harmony_remote::form::as_lua(|| serde_json::to_value(d)).unwrap_or(Value::Null),
         None => Value::String(text.into()),
     }
 }
@@ -715,10 +712,7 @@ mod tests {
             let e = ask(&mut w, capability, request).unwrap_err();
             (e.code, e.message)
         };
-        let words = |refusal: eu4_harmony_checks::Refusal| {
-            let e = Error::from(refusal);
-            (e.code, e.message)
-        };
+        let words = |e: Error| (e.code, e.message);
         assert_eq!(refused("army.get", json!({"army": 2})), words(army_checks::not_own(2)));
         assert_eq!(refused("country.get", json!({"country": "ZZZ"})), words(country_checks::not_found("ZZZ")));
         assert_eq!(refused("province.get", json!({"province": 9})), words(province_checks::not_found(9)));
