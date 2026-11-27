@@ -4240,6 +4240,7 @@
 "0x109d0e0" = { kind = "function", notes = ["game/interface/camera.md", "game/interface/frame-lifecycle.md"] }
 "0x109d0ff" = { kind = "code", name = "camera points", notes = ["game/interface/camera.md"] }
 "0x109d140" = { kind = "leaf", name = "camera goal", notes = ["game/interface/camera.md"] }
+"0x109d330" = { kind = "leaf", notes = ["game/interface/camera.md"] }
 "0x109d540" = { kind = "function", notes = ["game/interface/camera.md"] }
 "0x109d830" = { kind = "function", notes = ["game/interface/camera.md"] }
 "0x109d8b0" = { kind = "function", notes = ["game/interface/camera.md"] }

@@ -23,8 +23,8 @@
 //!   fractional wheel remainder (`0x23349e8`) on direction reversal.
 //! - Replaces `0x109ec30` with a multiplicative height curve scaled by the
 //!   game's `zoom_speed` setting, using `0x109d540` to keep the hovered map
-//!   point pinned under the cursor on zoom-in (when `centered_zoom_in` is on)
-//!   while keeping zoom-out strictly vertical as vanilla does.
+//!   point pinned under the cursor for both zoom-in and zoom-out (when
+//!   `centered_zoom_in` is on, falling back to vertical zoom otherwise).
 //! - Wraps `0x109f6d0` to apply exact exponential smoothing
 //!   (`1 - exp(-k * dt)`), with a snappy convergence rate while a wheel zoom
 //!   is settling and vanilla's rate (made frame-rate-independent) for other
@@ -32,7 +32,7 @@
 use crate::base::called_by_game;
 use crate::base::settings::{DEFAULT_ZOOM_SMOOTHING, DEFAULT_ZOOM_STEP, ZOOM_SMOOTHING_BOUNDS, ZOOM_STEP_BOUNDS};
 use crate::native::memory::Memory;
-use crate::native::objects::camera::camera as fields;
+use crate::native::objects::camera::{camera as fields, grid};
 use crate::native::objects::campaign::globals::MAP;
 use crate::native::objects::gui::globals::SCALE as GRAPHICS;
 use crate::native::points::{Function, Point};
@@ -59,6 +59,11 @@ const CLAMP_ON_MAP_RVA: usize = 0x109d0e0;
 /// Lowest allowed camera height at a position (`rcx` camera, `rdx` `&[f32; 3]`,
 /// `r8` map) -> `f32`.
 const MIN_GROUND_HEIGHT_RVA: usize = 0x109cd00;
+/// Copies the `0x218`-byte camera view struct (`rcx` dst, `rdx` src).
+const COPY_VIEW_RVA: usize = 0x109d330;
+/// Rebuilds the view, projection and inverse matrices of a camera view struct
+/// (`rcx` view).
+const UPDATE_VIEW_RVA: usize = 0x1581930;
 /// Builds a world-space ray from NDC (`rcx` view at `camera + 0x30`, `rdx`
 /// `&[f32; 3]` ndc, `r8` `&mut [f32; 3]` out dir, `r9` `&mut [f32; 3]` out origin).
 const SCREEN_RAY_RVA: usize = 0x1581ff0;
@@ -77,6 +82,13 @@ const MAP_READY: usize = 0x30;
 
 /// Camera fields beyond `objects::camera::camera`.
 const CAMERA_VIEW: usize = 0x30;
+/// Size of the camera view struct at `camera + 0x30` (up to the first wrap
+/// copy at `camera + 0x248`, copied verbatim by `0x109d330`).
+const CAMERA_VIEW_SIZE: usize = 0x218;
+/// Position, look-at and up vectors inside the camera view struct.
+const VIEW_POSITION: usize = 0x180;
+const VIEW_LOOK_AT: usize = 0x18c;
+const VIEW_UP: usize = 0x198;
 const CAMERA_MOVING: usize = 0x6f4;
 const CAMERA_SPEED_MULT: usize = 0x774;
 
@@ -91,7 +103,7 @@ const CAMERA_TILT_SCALE: f32 = 0.3;
 /// `0x109cd00`).
 const MAP_PLANE_Y: f32 = 19.0;
 /// Maximum cursor drift (in pixels per axis) that still reuses the current
-/// zoom-in world anchor across rapid consecutive wheel ticks.
+/// zoom world anchor across rapid consecutive wheel ticks.
 const ANCHOR_CURSOR_TOLERANCE: i32 = 2;
 /// Maximum goal displacement (in map units per axis) before treating the
 /// camera as moved by something other than our zoom (panning or `look_at`).
@@ -139,6 +151,8 @@ type CameraGlide = unsafe extern "C" fn(usize, f32);
 type FocusAtCursor = unsafe extern "C" fn(usize, *const [f32; 3], *const [f32; 2], f32, u8);
 type ClampOnMap = unsafe extern "C" fn(usize);
 type MinGroundHeight = unsafe extern "C" fn(usize, *const [f32; 3], usize) -> f32;
+type CopyView = unsafe extern "C" fn(usize, usize) -> usize;
+type UpdateView = unsafe extern "C" fn(usize);
 type ScreenRay = unsafe extern "C" fn(usize, *const [f32; 3], *mut [f32; 3], *mut [f32; 3]);
 
 static ORIGINAL_WHEEL_ZOOM: Function<WheelZoom> = Function::new();
@@ -146,6 +160,8 @@ static ORIGINAL_GLIDE: Function<CameraGlide> = Function::new();
 static FOCUS_AT_CURSOR: Function<FocusAtCursor> = Function::new();
 static CLAMP_ON_MAP: Function<ClampOnMap> = Function::new();
 static MIN_GROUND_HEIGHT: Function<MinGroundHeight> = Function::new();
+static COPY_VIEW: Function<CopyView> = Function::new();
+static UPDATE_VIEW: Function<UpdateView> = Function::new();
 static SCREEN_RAY: Function<ScreenRay> = Function::new();
 
 pub fn points() -> Vec<Point> {
@@ -157,6 +173,9 @@ pub fn points() -> Vec<Point> {
         Point::keep(FOCUS_AT_CURSOR_RVA, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18", "camera focus at screen cursor").recorded(FOCUS_AT_CURSOR.slot()),
         Point::keep(CLAMP_ON_MAP_RVA, "48 89 5c 24 08 57 48 83 ec 20 48 8b 1d e7 2d 2a 01", "clamp camera on map").recorded(CLAMP_ON_MAP.slot()),
         Point::keep(MIN_GROUND_HEIGHT_RVA, "48 83 ec 28 f3 0f 10 42 08 4d 8b c8", "minimum camera height above ground").recorded(MIN_GROUND_HEIGHT.slot()),
+        Point::keep(COPY_VIEW_RVA, "0f 10 02 0f 11 01 0f 10 4a 10 0f 11 49 10", "copy camera view").recorded(COPY_VIEW.slot()),
+        Point::keep(UPDATE_VIEW_RVA, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18 4c 89 6c 24 20", "rebuild camera view matrices")
+            .recorded(UPDATE_VIEW.slot()),
         Point::keep(SCREEN_RAY_RVA, "48 89 5c 24 08 57 48 83 ec 60 48 8d 99 80 01 00 00", "camera view ray from screen point").recorded(SCREEN_RAY.slot()),
         // Field and global checks inside the camera functions and SDL's WndProc.
         Point::keep(0x109ee1a, "48 8b 05 c7 cf 38 01 f3 0f 59 88 d0 00 00 00", "settings zoom_speed").uses(&[SETTINGS, SETTINGS_ZOOM_SPEED]),
@@ -168,12 +187,17 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x109d939, "48 8b 05 78 bb 2a 01", "graphics context for camera zoom").uses(&[GRAPHICS]),
         Point::keep(0x109d95e, "48 8b 88 88 04 00 00", "graphics viewport size").uses(&[GRAPHICS_VIEWPORT]),
         Point::keep(0x109d992, "48 8d 4b 30", "camera view offset").uses(&[CAMERA_VIEW]),
+        Point::keep(0x1581987, "4d 8d 8d 98 01 00 00 4d 8d 85 8c 01 00 00 49 8d 95 80 01 00 00", "camera view position, look-at and up offsets").uses(&[
+            VIEW_UP,
+            VIEW_LOOK_AT,
+            VIEW_POSITION,
+        ]),
         Point::keep(0x109d8dd, "41 80 78 30 00", "map ready flag").uses(&[MAP_READY]),
         Point::keep(0x173b76a, "66 03 05 77 92 bf 00 66 89 05 70 92 bf 00", "SDL vertical wheel accumulator").uses(&[SDL_WHEEL_ACCUM]),
     ]
 }
 
-/// A pinned map point under the mouse cursor across consecutive zoom-in ticks.
+/// A pinned map point under the mouse cursor across consecutive zoom ticks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Anchor {
     cursor: [i32; 2],
@@ -203,7 +227,7 @@ impl ZoomState {
             && (goal[2] - self.last_goal[2]).abs() <= GOAL_MATCH_TOLERANCE
     }
 
-    /// Reuses the cached zoom-in world anchor when the camera's goal has not
+    /// Reuses the cached zoom world anchor when the camera's goal has not
     /// been moved externally and the cursor stayed on the same spot.
     fn cached_anchor(&self, camera: usize, goal: [f32; 3], cursor: [i32; 2]) -> Option<[f32; 3]> {
         if !self.matches_goal(camera, goal) {
@@ -235,8 +259,10 @@ impl ZoomState {
     }
 
     /// Updates tracked state after `0x109f6d0` runs: keeps `last_goal` in sync
-    /// with any map-edge clamp applied by the glide, and clears `zoom_active`
-    /// once the camera settles.
+    /// with any north/south edge clamp (`0x109dc30`) or horizontal wrap
+    /// (`0x109e040`) applied by the glide, invalidates the cached anchor if
+    /// either moved the goal laterally, and clears `zoom_active` once the
+    /// camera settles.
     fn after_glide(&mut self, camera: usize, dt: f32, moving: bool, goal: [f32; 3]) {
         if !self.zoom_active || self.camera != camera {
             return;
@@ -244,6 +270,9 @@ impl ZoomState {
         if dt > 0.0 && !moving {
             self.clear();
         } else {
+            if (goal[0] - self.last_goal[0]).abs() > 1e-3 || (goal[2] - self.last_goal[2]).abs() > 1e-3 {
+                self.anchor = None;
+            }
             self.last_goal = goal;
         }
     }
@@ -320,6 +349,79 @@ fn ray_plane_hit(origin: [f32; 3], dir: [f32; 3], plane_y: f32) -> Option<[f32; 
     hit.iter().all(|v| v.is_finite()).then_some(hit)
 }
 
+/// Computes the north/south `z` shift that `0x109dc30` applies to keep the
+/// camera's top/bottom ground intersections within `[-400, map_h + 400]`
+/// (vertically centering the map when both edges exceed their limits at high
+/// altitude). Pre-applying this to the zoom goal prevents `0x109f6d0` from
+/// overshooting past the poles and rubber-banding back on subsequent frames.
+fn north_south_clamp_dz(mut z_top: f32, mut z_bot: f32, height: f32, min_h: f32, max_h: f32, map_h: f32) -> f32 {
+    if !z_top.is_finite() || !z_bot.is_finite() || !height.is_finite() || map_h <= 0.0 {
+        return 0.0;
+    }
+    let above_min = height - min_h;
+    let low_band = (max_h - min_h) * 0.04;
+    if low_band > 0.0 && above_min < low_band {
+        let angle = (1.0 - above_min / low_band) * std::f32::consts::FRAC_PI_2;
+        let adj = (1.0 - angle.cos()) * 40.0;
+        z_top -= adj;
+        z_bot -= adj * 0.3;
+    }
+    let north_limit = map_h + 400.0;
+    let south_limit = -400.0;
+    let north_over = (z_top > north_limit).then_some(z_top - north_limit);
+    let south_over = (z_bot < south_limit).then_some(z_bot - south_limit);
+    match (north_over, south_over) {
+        (Some(n), Some(s)) => -((n + s) * 0.5),
+        (Some(n), None) => -n,
+        (None, Some(s)) => -s,
+        (None, None) => 0.0,
+    }
+}
+
+#[repr(C, align(16))]
+struct ViewCopy([u8; CAMERA_VIEW_SIZE]);
+
+/// Evaluates `0x109dc30`'s north/south frustum bounds at the camera's goal
+/// pose on a stack copy of `camera + 0x30`, shifting `goal_pos` and
+/// `goal_look_at` in `z` if needed. Returns `true` when the goal was clamped.
+fn clamp_goal_frustum(m: &Memory, camera: usize, map: usize) -> bool {
+    let Some(mut goal_pos) = read_vec3(m, camera + fields::GOAL_POSITION) else { return false };
+    let Some(mut goal_look) = read_vec3(m, camera + fields::GOAL_LOOK_AT) else { return false };
+    let Ok(min_h) = m.i32(camera + fields::MIN_HEIGHT) else { return false };
+    let Ok(max_h) = m.i32(camera + fields::MAX_HEIGHT) else { return false };
+    let Ok(map_h) = m.i32(map + grid::HEIGHT) else { return false };
+    if map_h <= 0 {
+        return false;
+    }
+    let mut view = ViewCopy([0u8; CAMERA_VIEW_SIZE]);
+    let view_ptr = view.0.as_mut_ptr() as usize;
+    unsafe { COPY_VIEW.get()(view_ptr, camera + CAMERA_VIEW) };
+    write_vec3(m, view_ptr + VIEW_POSITION, goal_pos);
+    write_vec3(m, view_ptr + VIEW_LOOK_AT, goal_look);
+    write_vec3(m, view_ptr + VIEW_UP, [0.0, 1.0, 0.0]);
+    unsafe { UPDATE_VIEW.get()(view_ptr) };
+
+    let edge_z = |ndc: [f32; 3]| -> f32 {
+        let mut dir = [0.0f32; 3];
+        let mut origin = [0.0f32; 3];
+        unsafe { SCREEN_RAY.get()(view_ptr, &ndc, &mut dir, &mut origin) };
+        let t = if dir[1].abs() >= 1e-4 { (origin[1] / dir[1]).abs() } else { 4000.0 };
+        dir[2] * t + origin[2]
+    };
+    let z_top = edge_z([0.0, 1.0, 0.0]);
+    let z_bot = edge_z([0.0, -1.0, 0.0]);
+    let dz = north_south_clamp_dz(z_top, z_bot, goal_pos[1], min_h as f32, max_h as f32, map_h as f32);
+    if dz.abs() <= 1e-3 {
+        return false;
+    }
+    goal_pos[2] += dz;
+    goal_look[2] += dz;
+    write_vec3(m, camera + fields::GOAL_POSITION, goal_pos);
+    write_vec3(m, camera + fields::GOAL_LOOK_AT, goal_look);
+    unsafe { CLAMP_ON_MAP.get()(camera) };
+    true
+}
+
 fn read_vec3(m: &Memory, at: usize) -> Option<[f32; 3]> {
     Some([f32::from_bits(m.u32(at).ok()?), f32::from_bits(m.u32(at + 4).ok()?), f32::from_bits(m.u32(at + 8).ok()?)])
 }
@@ -378,7 +480,7 @@ unsafe extern "C" fn wheel_zoom(camera: usize, notches: f32, cursor: *const [i32
 
         let cursor_px = unsafe { *cursor };
         let mut used_anchor = None;
-        if notches > 0.0 && centered_zoom_in {
+        if centered_zoom_in {
             let world_pt = {
                 let cached = state().cached_anchor(camera, goal_pos, cursor_px);
                 cached.or_else(|| raycast_cursor(&m, camera, cursor_px))
@@ -396,6 +498,10 @@ unsafe extern "C" fn wheel_zoom(camera: usize, notches: f32, cursor: *const [i32
             write_vec3(&m, camera + fields::GOAL_POSITION, next_pos);
             write_vec3(&m, camera + fields::GOAL_LOOK_AT, next_look);
             unsafe { CLAMP_ON_MAP.get()(camera) };
+        }
+
+        if clamp_goal_frustum(&m, camera, map) {
+            used_anchor = None;
         }
 
         // Entering the nation-selection lobby leaves `+0x774` slowly ramping from
@@ -534,8 +640,18 @@ mod tests {
         // Zero-dt main-thread glide does not clear zoom_active even when not moving.
         s.after_glide(cam, 0.0, false, goal);
         assert!(s.zoom_active);
+        // Unchanged goal during glide keeps both zoom_active and the anchor.
+        s.after_glide(cam, 0.016, true, goal);
+        assert!(s.zoom_active && s.anchor == Some(anchor));
+        // North/south edge clamp or horizontal wrap invalidates the stale
+        // anchor while keeping zoom_active and updating last_goal.
+        let edge_clamped = [500.0, 800.0, 560.0];
+        s.after_glide(cam, 0.016, true, edge_clamped);
+        assert!(s.zoom_active && s.anchor.is_none());
+        assert!(s.check_glide(cam, edge_clamped));
+        assert_eq!(s.cached_anchor(cam, edge_clamped, [960, 540]), None);
         // Settling on a real frame clears zoom_active and anchor.
-        s.after_glide(cam, 0.016, false, goal);
+        s.after_glide(cam, 0.016, false, edge_clamped);
         assert!(!s.zoom_active && s.anchor.is_none());
         // External camera jump clears zoom_active immediately.
         s.record_zoom(cam, goal, Some(anchor));
@@ -550,5 +666,20 @@ mod tests {
         assert!(!should_reset_wheel_accum(40, 40));
         assert!(!should_reset_wheel_accum(0, -40));
         assert!(!should_reset_wheel_accum(-40, 0));
+    }
+
+    #[test]
+    fn north_south_frustum_clamp_matches_edge_and_high_altitude_bounds() {
+        // Inside [-400, 2448]: no shift.
+        assert_eq!(north_south_clamp_dz(2000.0, 200.0, 1000.0, 50.0, 3000.0, 2048.0), 0.0);
+        // North overflow only: shifts south by the exact excess.
+        let north = north_south_clamp_dz(2648.0, 500.0, 1500.0, 50.0, 3000.0, 2048.0);
+        assert!((north - (-200.0)).abs() < 1e-4, "{north}");
+        // South overflow only: shifts north by the exact excess.
+        let south = north_south_clamp_dz(1500.0, -550.0, 1500.0, 50.0, 3000.0, 2048.0);
+        assert!((south - 150.0).abs() < 1e-4, "{south}");
+        // Both edges overflow at high altitude: centers vertically.
+        let both = north_south_clamp_dz(2848.0, -500.0, 3000.0, 50.0, 3000.0, 2048.0);
+        assert!((both - (-150.0)).abs() < 1e-4, "{both}");
     }
 }
