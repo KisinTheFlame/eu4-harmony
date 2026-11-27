@@ -12,7 +12,10 @@ use registry::Registry;
 pub(crate) use registry::{Identity, Owned};
 use std::{
     collections::BTreeSet,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc, Mutex, OnceLock,
+    },
 };
 
 fn checked(result: Result<()>) {
@@ -58,6 +61,7 @@ impl SceneOps for LiveScene {
 struct Orderer {
     registry: Arc<Mutex<Registry>>,
     input: Mutex<Input>,
+    map_markers: AtomicU32,
 }
 
 impl Orderer {
@@ -166,11 +170,36 @@ impl Orderer {
         self.with_input(|input| input.pop_capture(handled));
     }
 
+    fn in_map_markers(&self) -> bool {
+        self.map_markers.load(Ordering::Acquire) != 0
+    }
+
+    fn map_markers_before(&self) {
+        self.map_markers.fetch_add(1, Ordering::AcqRel);
+    }
+
+    fn map_markers_after(&self) {
+        self.map_markers.fetch_update(Ordering::AcqRel, Ordering::Acquire, |d| Some(d.saturating_sub(1))).ok();
+    }
+
+    fn prepend_backdrop(&self, m: &Memory, root: usize) -> Result<()> {
+        if self.in_map_markers() {
+            self.with_registry(|state| state.mark_backdrop(m, root))?;
+        }
+        Ok(())
+    }
+
     fn before_visibility(&self, m: &Memory, root: usize) -> Result<()> {
+        if self.in_map_markers() {
+            return self.with_registry(|state| state.mark_backdrop(m, root));
+        }
         self.with_registry(|state| state.before_visibility(m, root))
     }
 
     fn visibility_after(&self, m: &Memory) -> Result<()> {
+        if self.in_map_markers() {
+            return Ok(());
+        }
         self.with_registry(|state| state.visibility(m))
     }
 
@@ -266,6 +295,21 @@ fn visibility_after(call: &mut Call) {
 fn destroyed(call: &mut Call) {
     retire(call.arg(0));
 }
+fn map_markers_before(_: &mut Call) {
+    if crate::base::thread_id() == crate::base::main_thread() {
+        live().map_markers_before();
+    }
+}
+fn map_markers_after(_: &mut Call) {
+    if crate::base::thread_id() == crate::base::main_thread() {
+        live().map_markers_after();
+    }
+}
+fn prepend_to_first_root_before(call: &mut Call) {
+    if crate::base::thread_id() == crate::base::main_thread() {
+        checked(live().prepend_backdrop(&call.memory(), call.arg(0) - crate::native::objects::gui::window::GUI));
+    }
+}
 fn batch_after(call: &mut Call) {
     checked(live().batch_after(&call.memory(), call.faulted(), &mut LiveScene));
 }
@@ -340,6 +384,22 @@ pub(crate) fn points() -> Vec<Point> {
             Some(visibility_after),
         ),
         Point::observe(0x1546730usize, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57", "window base destruction retires order", 1, Some(destroyed), None),
+        Point::observe(
+            0x10a6d00usize,
+            "48 89 5c 24 10 48 89 6c 24 18 56 48 83 ec 30 33",
+            "map markers update suppresses map icon activation",
+            4,
+            Some(map_markers_before),
+            Some(map_markers_after),
+        ),
+        Point::observe(
+            0x15466d0usize,
+            "48 89 5c 24 08 57 48 83 ec 20 48 8b f9 48 8b 89 00 0a 00 00",
+            "map icon prepended to first GUI root",
+            1,
+            Some(prepend_to_first_root_before),
+            None,
+        ),
     ]);
     points
 }

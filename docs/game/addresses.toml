@@ -2592,7 +2592,7 @@
 "0x8c1ac2" = { kind = "code", notes = ["game/interface/drawing-boundaries.md"] }
 "0x8c1ad5" = { kind = "code", notes = ["game/interface/drawing-boundaries.md"] }
 "0x8c1f80" = { kind = "function", name = "construct a native message popup", notes = ["game/interface/frame-lifecycle.md", "game/interface/message-pop-up-actions.md"] }
-"0x8c4370" = { kind = "function", name = "fill and lay out a default message popup", notes = ["game/interface/message-pop-up-actions.md"] }
+"0x8c4370" = { kind = "function", name = "fill and lay out a default message popup", notes = ["game/interface/message-pop-up-actions.md", "game/interface/window-ordering.md"] }
 "0x8c5a0f" = { kind = "code", notes = ["game/interface/message-pop-up-actions.md"] }
 "0x8c5a64" = { kind = "code", notes = ["game/interface/message-pop-up-actions.md"] }
 "0x8c5a6c" = { kind = "code", notes = ["game/interface/message-pop-up-actions.md"] }
@@ -4302,9 +4302,11 @@
 "0x10a5b7f" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x10a5e72" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x10a5f30" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md"] }
-"0x10a6d00" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md"] }
+"0x10a6d00" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md", "game/interface/window-ordering.md"] }
 "0x10a6d11" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x10a6d16" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
+"0x10a6e95" = { kind = "code", notes = ["game/interface/frame-lifecycle.md", "game/interface/window-ordering.md"] }
+"0x10a6ec0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
 "0x10a71da" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
 "0x10a74c0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
 "0x10a7a90" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md"] }
@@ -4319,6 +4321,7 @@
 "0x10ae980" = { kind = "function", notes = ["game/program/loading.md"] }
 "0x10af270" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
 "0x10af990" = { kind = "leaf", name = "the map told of a province's new owner", notes = ["game/interface/frame-lifecycle.md"] }
+"0x10b06e0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/window-ordering.md"] }
 "0x10b2830" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x10b2a00" = { kind = "function", notes = ["game/interface/map-drawing-reads.md"] }
 "0x10b2b70" = { kind = "function", name = "flags and loading screens", notes = ["game/program/load-preparation.md", "game/program/loading.md"] }
@@ -4550,6 +4553,7 @@
 "0x1219c42" = { kind = "code", notes = ["game/provinces/provinces.md"] }
 "0x1219c4a" = { kind = "code", notes = ["game/provinces/provinces.md"] }
 "0x1219c5e" = { kind = "code", notes = ["game/provinces/provinces.md"] }
+"0x1223ee0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
 "0x1229425" = { kind = "code", notes = ["game/military/armies.md"] }
 "0x1229cf0" = { kind = "function", notes = ["game/provinces/provinces.md"] }
 "0x1229d2f" = { kind = "code", notes = ["game/provinces/provinces.md"] }
@@ -4706,14 +4710,14 @@
 "0x1326c60" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
 "0x1326fd0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md"] }
 "0x1327c6a" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
-"0x13284c0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
-"0x1329e40" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
 "0x132b1b0" = { kind = "function", name = "show and update the province's reformation-center icon", notes = ["game/provinces/reformation-centers.md"] }
 "0x132b23e" = { kind = "code", notes = ["game/provinces/reformation-centers.md"] }
 "0x132c050" = { kind = "function", notes = ["game/interface/timeline.md", "game/provinces/map-modes.md"] }
-"0x132e210" = { kind = "function", name = "a map icon's projection", notes = ["game/interface/frame-lifecycle.md", "game/provinces/reformation-centers.md"] }
-"0x132e300" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/provinces/reformation-centers.md"] }
+"0x132e0c0" = { kind = "function", notes = ["game/interface/window-ordering.md"] }
+"0x132e210" = { kind = "function", name = "a map icon's projection", notes = ["game/interface/frame-lifecycle.md", "game/interface/window-ordering.md", "game/provinces/reformation-centers.md"] }
+"0x132e300" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/window-ordering.md", "game/provinces/reformation-centers.md"] }
 "0x132e4d5" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
+"0x132e52b" = { kind = "code", notes = ["game/interface/window-ordering.md"] }
 "0x132e553" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x132e5c4" = { kind = "code", name = "a map icon's window put at its place", notes = ["game/interface/frame-lifecycle.md"] }
 "0x132e5cc" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
@@ -4721,7 +4725,6 @@
 "0x132f1c0" = { kind = "function", name = "update the reformation-center conversion map icon", notes = ["game/interface/frame-lifecycle.md", "game/provinces/reformation-centers.md"] }
 "0x132f43b" = { kind = "code", name = "reformation-center icon string-capacity read at the reported fault", notes = ["game/provinces/reformation-centers.md"] }
 "0x13320a0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/program/world-interface-coupling.md"] }
-"0x1337c90" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
 "0x133a503" = { kind = "code", notes = ["game/day/dates.md"] }
 "0x133b0e0" = { kind = "function", notes = ["game/provinces/religion.md"] }
 "0x133eba0" = { kind = "function", name = "make state confirmation", notes = ["game/provinces/area-governing-cost.md"] }
@@ -5420,8 +5423,8 @@
 "0x15465a0" = { kind = "function", name = "move a window container to its parent's end", notes = ["game/interface/extension-windows.md", "game/interface/window-ordering.md", "game/interface/window-placement.md"] }
 "0x15465f0" = { kind = "function", name = "move a window container to its parent's beginning", notes = ["game/interface/extension-windows.md", "game/interface/window-ordering.md", "game/interface/window-placement.md"] }
 "0x1546660" = { kind = "function", notes = ["game/interface/window-placement.md"] }
-"0x15466d0" = { kind = "function", name = "prepend a window graphics node to the first gui root", notes = ["game/interface/message-pop-up-actions.md"] }
-"0x1546730" = { kind = "function", notes = ["game/interface/extension-windows.md", "game/interface/main-menu.md", "game/interface/window-construction.md", "game/interface/window-input-refresh.md", "game/interface/window-visibility.md"] }
+"0x15466d0" = { kind = "function", name = "prepend a window graphics node to the first gui root", notes = ["game/interface/frame-lifecycle.md", "game/interface/message-pop-up-actions.md", "game/interface/window-ordering.md"] }
+"0x1546730" = { kind = "function", notes = ["game/interface/extension-windows.md", "game/interface/main-menu.md", "game/interface/window-construction.md", "game/interface/window-input-refresh.md", "game/interface/window-ordering.md", "game/interface/window-visibility.md"] }
 "0x1546a30" = { kind = "leaf", notes = ["game/interface/extension-windows.md"] }
 "0x1546a50" = { kind = "function", name = "window wheel and input-catching handler", notes = ["game/interface/extension-windows.md", "game/interface/window-activation.md"] }
 "0x1546a5a" = { kind = "code", notes = ["game/interface/extension-windows.md"] }
@@ -5434,13 +5437,13 @@
 "0x1547370" = { kind = "function", notes = ["game/interface/extension-windows.md"] }
 "0x1547520" = { kind = "function", name = "window kill", notes = ["game/interface/extension-windows.md", "game/interface/main-menu.md", "game/interface/window-construction.md", "game/interface/window-elements.md", "game/interface/window-visibility.md"] }
 "0x1547910" = { kind = "leaf", notes = ["game/interface/window-construction.md", "game/interface/window-visibility.md"] }
-"0x1547a50" = { kind = "function", notes = ["game/interface/extension-windows.md", "game/interface/window-visibility.md"] }
+"0x1547a50" = { kind = "function", notes = ["game/interface/extension-windows.md", "game/interface/window-ordering.md", "game/interface/window-visibility.md"] }
 "0x1547a75" = { kind = "code", notes = ["game/interface/window-visibility.md"] }
 "0x1547b00" = { kind = "function", name = "window hide", notes = ["game/interface/extension-windows.md", "game/interface/interface-bindings.md", "game/interface/window-construction.md", "game/interface/window-visibility.md"] }
 "0x1547b1a" = { kind = "code", notes = ["game/interface/window-visibility.md"] }
 "0x1547c00" = { kind = "function", name = "window slide hide", notes = ["game/interface/main-menu.md"] }
 "0x1547c60" = { kind = "function", notes = ["game/interface/window-construction.md"] }
-"0x1547cc0" = { kind = "function", notes = ["game/interface/extension-windows.md", "game/interface/window-visibility.md"] }
+"0x1547cc0" = { kind = "function", notes = ["game/interface/extension-windows.md", "game/interface/window-ordering.md", "game/interface/window-visibility.md"] }
 "0x1547cef" = { kind = "code", name = "window background", notes = ["game/interface/extension-windows.md"] }
 "0x1547d0b" = { kind = "code", notes = ["game/interface/window-visibility.md"] }
 "0x1547d90" = { kind = "function", name = "window show", notes = ["game/interface/extension-windows.md", "game/interface/message-button-drawing.md", "game/interface/message-pop-up-actions.md", "game/interface/window-construction.md", "game/interface/window-ordering.md", "game/interface/window-visibility.md"] }
@@ -5465,10 +5468,13 @@
 "0x154a7b0" = { kind = "leaf", notes = ["game/interface/extension-windows.md"] }
 "0x154ac90" = { kind = "function", notes = ["game/interface/window-elements.md"] }
 "0x154ad60" = { kind = "leaf", name = "read an ordinary window's instance or definition name", notes = ["game/interface/window-activation.md"] }
+"0x154b260" = { kind = "function", notes = ["game/interface/window-ordering.md"] }
 "0x154b2f0" = { kind = "function", notes = ["game/interface/window-elements.md"] }
 "0x154bcb0" = { kind = "function", notes = ["game/interface/window-placement.md"] }
 "0x154bd50" = { kind = "function", notes = ["game/interface/window-placement.md"] }
+"0x154d950" = { kind = "function", notes = ["game/interface/window-ordering.md"] }
 "0x154dd30" = { kind = "function", notes = ["game/interface/window-visibility.md"] }
+"0x154e2f0" = { kind = "function", notes = ["game/interface/window-ordering.md"] }
 "0x154e4a0" = { kind = "function", name = "move a window to the second scene tree", notes = ["game/interface/window-ordering.md"] }
 "0x154e500" = { kind = "function", name = "apply a window operation to its element groups", notes = ["game/interface/extension-windows.md", "game/interface/message-button-drawing.md", "game/interface/message-pop-up-actions.md", "game/interface/window-ordering.md", "game/interface/window-visibility.md"] }
 "0x154e580" = { kind = "code", notes = ["game/interface/message-button-drawing.md"] }
@@ -6587,7 +6593,7 @@
 "0x1d54d58" = { kind = "data", notes = ["game/diplomacy/questions-and-offers.md"] }
 "0x1d57170" = { kind = "data", notes = ["game/interface/gui-drawing.md"] }
 "0x1d57348" = { kind = "data", notes = ["game/interface/camera.md", "game/interface/main-menu.md"] }
-"0x1d57510" = { kind = "data", notes = ["game/interface/window-visibility.md"] }
+"0x1d57510" = { kind = "data", notes = ["game/interface/window-ordering.md", "game/interface/window-visibility.md"] }
 "0x1d57768" = { kind = "data", notes = ["game/interface/window-placement.md", "game/interface/window-visibility.md"] }
 "0x1d580d0" = { kind = "data", notes = ["game/interface/map-drawing-reads.md"] }
 "0x1d58108" = { kind = "data", notes = ["game/interface/rendering-architecture.md", "game/interface/window-activation.md", "game/interface/window-construction.md"] }
@@ -6668,7 +6674,7 @@
 "0x1d92200" = { kind = "data", notes = ["game/program/saves.md"] }
 "0x1d92408" = { kind = "data", notes = ["game/interface/map-drawing-reads.md"] }
 "0x1d924a8" = { kind = "data", notes = ["game/day/frame-and-idlers.md"] }
-"0x1d926b0" = { kind = "data", notes = ["game/interface/interface-bindings.md", "game/interface/main-menu.md", "game/interface/window-construction.md", "game/interface/window-elements.md", "game/interface/window-placement.md", "game/interface/window-visibility.md"] }
+"0x1d926b0" = { kind = "data", notes = ["game/interface/interface-bindings.md", "game/interface/main-menu.md", "game/interface/window-construction.md", "game/interface/window-elements.md", "game/interface/window-ordering.md", "game/interface/window-placement.md", "game/interface/window-visibility.md"] }
 "0x1d929d0" = { kind = "data", notes = ["game/interface/main-menu.md", "game/interface/message-button-drawing.md", "game/interface/window-activation.md", "game/interface/window-construction.md", "game/interface/window-ordering.md", "game/interface/window-placement.md", "game/interface/window-visibility.md"] }
 "0x1d92c28" = { kind = "data", name = "show-element operation virtual table", notes = ["game/interface/message-button-drawing.md", "game/interface/message-pop-up-actions.md", "game/interface/window-visibility.md"] }
 "0x1d92c30" = { kind = "data", notes = ["game/interface/window-visibility.md"] }
@@ -7048,6 +7054,7 @@
 "0x2358318" = { kind = "data", notes = ["game/provinces/map-modes.md"] }
 "0x2358340" = { kind = "data", notes = ["game/interface/map-drawing-reads.md"] }
 "0x2358390" = { kind = "data", notes = ["game/interface/map-drawing-reads.md"] }
+"0x2358400" = { kind = "data", notes = ["game/interface/frame-lifecycle.md", "game/interface/window-ordering.md"] }
 "0x2358730" = { kind = "data", notes = ["game/interface/map-drawing-reads.md"] }
 "0x2358778" = { kind = "data", notes = ["game/program/localisation-loading.md"] }
 "0x2358780" = { kind = "data", notes = ["game/program/localisation-loading.md"] }

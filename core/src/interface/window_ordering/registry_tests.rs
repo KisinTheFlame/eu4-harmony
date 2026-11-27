@@ -410,3 +410,80 @@ fn host_nodes_validates_controls_scrollbars_icons_and_background() {
     let err = native::host_nodes(m, host_root.at(), None, &[(wrong_class.at(), Look::Icon)]).unwrap_err();
     assert!(err.contains("unrecognized attached visual node group"));
 }
+
+#[test]
+fn map_icon_show_prepend_and_click_never_demote_owned_windows() {
+    let tree = Tree::new(4);
+    // 0: existing visible map icon, 1: newly entering map icon (hidden), 2: vanilla HUD/panel, 3: Harmony panel.
+    tree.roots[1].set(0xf5, &[0]);
+    tree.link(tree.parent(), &[tree.nodes[0].at(), tree.nodes[2].at(), tree.nodes[1].at(), tree.nodes[3].at()]);
+    let orderer = Orderer::default();
+    let mut scene = RecordingScene::default();
+
+    // Pre-existing map icon is recorded when map markers prepends it before any Harmony window opens.
+    orderer.map_markers_before();
+    orderer.prepend_backdrop(tree.memory(), tree.roots[0].at()).unwrap();
+    orderer.map_markers_after();
+
+    orderer.bind_owned(tree.memory(), &[tree.owned(3, 1)]).unwrap();
+    orderer.flush(tree.memory(), &mut scene).unwrap();
+    let applies = scene.apply_calls;
+    assert_eq!(tree.scope_order(), [tree.nodes[0].at(), tree.nodes[2].at(), tree.nodes[1].at(), tree.nodes[3].at()]);
+
+    // Camera pans: map markers shows icon 1 and prepends both visible icons to the front of scene+0x110.
+    orderer.map_markers_before();
+    orderer.before_visibility(tree.memory(), tree.roots[1].at()).unwrap();
+    tree.roots[1].set(0xf5, &[1]);
+    orderer.visibility_after(tree.memory()).unwrap();
+    orderer.prepend_backdrop(tree.memory(), tree.roots[0].at()).unwrap();
+    orderer.prepend_backdrop(tree.memory(), tree.roots[1].at()).unwrap();
+    tree.link(tree.parent(), &[tree.nodes[1].at(), tree.nodes[0].at(), tree.nodes[2].at(), tree.nodes[3].at()]);
+    orderer.map_markers_after();
+
+    assert!(!orderer.with_registry(|r| r.needs_flush()), "map icon visibility changes must not dirty window ordering");
+    orderer.flush(tree.memory(), &mut scene).unwrap();
+    assert_eq!(scene.apply_calls, applies);
+    assert_eq!(tree.scope_order(), [tree.nodes[1].at(), tree.nodes[0].at(), tree.nodes[2].at(), tree.nodes[3].at()]);
+
+    // Clicking a map icon does not activate it or move the Harmony panel beneath it.
+    click_window(&orderer, &mut scene, tree.memory(), tree.roots[1].at() + window::GUI, true);
+    assert_eq!(scene.apply_calls, applies);
+    assert_eq!(tree.scope_order(), [tree.nodes[1].at(), tree.nodes[0].at(), tree.nodes[2].at(), tree.nodes[3].at()]);
+
+    // Clicking a genuine vanilla window (2) demotes the Harmony panel behind 2, but still above both map icons.
+    click_window(&orderer, &mut scene, tree.memory(), tree.roots[2].at() + window::GUI, true);
+    assert_eq!(tree.scope_order(), [tree.nodes[1].at(), tree.nodes[0].at(), tree.nodes[3].at(), tree.nodes[2].at()]);
+}
+
+#[test]
+fn hidden_map_icon_and_late_backdrop_classification_keep_ordering_consistent() {
+    let tree = Tree::new(4);
+    // 0: visible map icon at prefix, 1: vanilla panel, 2: hidden pooled map icon trailing behind, 3: Harmony panel.
+    tree.roots[2].set(0xf5, &[0]);
+    tree.link(tree.parent(), &[tree.nodes[0].at(), tree.nodes[1].at(), tree.nodes[2].at(), tree.nodes[3].at()]);
+    let orderer = Orderer::default();
+    let mut scene = RecordingScene::default();
+
+    orderer.bind_owned(tree.memory(), &[tree.owned(3, 1)]).unwrap();
+    orderer.flush(tree.memory(), &mut scene).unwrap();
+
+    // Even if icon 0 had already been adopted as Original, map markers demotes it to backdrop
+    // and clears any pending activation without disturbing the Harmony panel.
+    orderer.map_markers_before();
+    orderer.prepend_backdrop(tree.memory(), tree.roots[0].at()).unwrap();
+    orderer.before_visibility(tree.memory(), tree.roots[2].at()).unwrap();
+    orderer.visibility_after(tree.memory()).unwrap();
+    orderer.map_markers_after();
+    orderer.flush(tree.memory(), &mut scene).unwrap();
+    assert_eq!(tree.scope_order(), [tree.nodes[0].at(), tree.nodes[1].at(), tree.nodes[2].at(), tree.nodes[3].at()]);
+
+    // A trailing hidden map icon does not block clicking vanilla panel 1 from lowering the Harmony panel behind 1.
+    click_window(&orderer, &mut scene, tree.memory(), tree.roots[1].at() + window::GUI, true);
+    assert_eq!(tree.scope_order(), [tree.nodes[0].at(), tree.nodes[3].at(), tree.nodes[1].at(), tree.nodes[2].at()]);
+
+    // Retiring a backdrop root clears its classification so a reused address can act as an ordinary window.
+    orderer.retire(tree.roots[0].at());
+    assert!(orderer.with_registry(|r| r.target(tree.memory(), tree.roots[0].at() + window::GUI)).unwrap().is_none());
+    orderer.before_visibility(tree.memory(), tree.roots[0].at()).unwrap();
+    assert!(orderer.with_registry(|r| r.target(tree.memory(), tree.roots[0].at() + window::GUI)).unwrap().is_some());
+}
