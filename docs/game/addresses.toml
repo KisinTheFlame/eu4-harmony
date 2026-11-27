@@ -2189,7 +2189,7 @@
 "0x80b7f8" = { kind = "code", name = "flagship designer torn down", notes = ["game/interface/main-menu.md"] }
 "0x80c670" = { kind = "function", notes = ["game/interface/extension-windows.md"] }
 "0x80c6e0" = { kind = "function", name = "closing the big panels", notes = ["game/interface/extension-windows.md", "game/interface/message-pop-up-actions.md"] }
-"0x80c9f0" = { kind = "function", name = "laying out the panel button strip", notes = ["game/interface/extension-windows.md"] }
+"0x80c9f0" = { kind = "function", name = "laying out the panel button strip", notes = ["game/interface/drawing-boundaries.md", "game/interface/extension-windows.md"] }
 "0x80cdcb" = { kind = "code", notes = ["game/interface/extension-windows.md"] }
 "0x80cdf2" = { kind = "code", notes = ["game/interface/extension-windows.md"] }
 "0x80d522" = { kind = "code", notes = ["game/interface/extension-windows.md"] }
@@ -2389,7 +2389,7 @@
 "0x82f9e0" = { kind = "function", notes = ["game/program/saves.md"] }
 "0x830150" = { kind = "function", notes = ["game/interface/message-pop-up-actions.md"] }
 "0x83065d" = { kind = "code", notes = ["game/interface/message-pop-up-actions.md"] }
-"0x830700" = { kind = "function", name = "arrange the panel button strip", notes = ["game/interface/extension-windows.md", "game/interface/panel-entry-text.md", "game/interface/window-elements.md"] }
+"0x830700" = { kind = "function", name = "arrange the panel button strip", notes = ["game/interface/drawing-boundaries.md", "game/interface/extension-windows.md", "game/interface/panel-entry-text.md", "game/interface/window-elements.md"] }
 "0x830fd0" = { kind = "function", notes = ["game/interface/camera.md", "game/interface/frame-lifecycle.md", "game/interface/rendering-architecture.md", "game/interface/window-activation.md", "game/military/army-orders.md", "game/program/headless.md"] }
 "0x8310a2" = { kind = "code", notes = ["game/interface/window-activation.md"] }
 "0x8310ba" = { kind = "code", notes = ["game/interface/window-activation.md"] }
@@ -4307,7 +4307,8 @@
 "0x10a7f87" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x10a87c0" = { kind = "function", notes = ["game/interface/window-activation.md"] }
 "0x10a8930" = { kind = "function", notes = ["game/interface/main-menu.md", "game/program/loading.md", "game/program/world-interface-coupling.md"] }
-"0x10a8c30" = { kind = "function", name = "map renderer", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md", "game/interface/rendering-architecture.md", "game/interface/timeline.md", "game/provinces/map-modes.md"] }
+"0x10a8c30" = { kind = "function", name = "map renderer", notes = ["game/interface/drawing-boundaries.md", "game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md", "game/interface/rendering-architecture.md", "game/interface/timeline.md", "game/provinces/map-modes.md"] }
+"0x10a8d34" = { kind = "code", notes = ["game/interface/drawing-boundaries.md"] }
 "0x10a9be0" = { kind = "function", name = "the map's names made", notes = ["game/interface/drawing-boundaries.md", "game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md", "game/interface/timeline.md", "game/provinces/map-modes.md"] }
 "0x10ad9f0" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x10ae980" = { kind = "function", notes = ["game/program/loading.md"] }
@@ -4341,10 +4342,7 @@
 "0x10b5bdb" = { kind = "code", notes = ["game/interface/message-button-drawing.md"] }
 "0x10b5fb0" = { kind = "function", notes = ["game/interface/window-placement.md", "game/program/world-interface-coupling.md"] }
 "0x10b6c50" = { kind = "function", name = "the minimap drawn again", notes = ["game/interface/drawing-boundaries.md", "game/interface/frame-lifecycle.md", "game/program/loading.md"] }
-"0x10b7e33" = { kind = "code", notes = ["game/interface/drawing-boundaries.md"] }
 "0x10b7e6d" = { kind = "code", notes = ["game/interface/drawing-boundaries.md"] }
-"0x10b7e70" = { kind = "code", notes = ["game/interface/drawing-boundaries.md"] }
-"0x10b7f0f" = { kind = "code", notes = ["game/interface/drawing-boundaries.md"] }
 "0x10b9a20" = { kind = "leaf", notes = ["game/diplomacy/questions-and-offers.md"] }
 "0x10b9a50" = { kind = "function", notes = ["game/day/time.md", "game/diplomacy/questions-and-offers.md"] }
 "0x10ba030" = { kind = "function", notes = ["game/day/time.md"] }
@@ -4654,8 +4652,10 @@
 "0x12e92c9" = { kind = "code", notes = ["game/interface/drawing-boundaries.md"] }
 "0x12e99b9" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x12e9b00" = { kind = "function", notes = ["game/interface/map-drawing-reads.md"] }
-"0x12ef5d0" = { kind = "function", notes = ["game/interface/map-drawing-reads.md"] }
-"0x12efe40" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md"] }
+"0x12ef4e0" = { kind = "function", notes = ["game/interface/drawing-boundaries.md"] }
+"0x12ef5ae" = { kind = "code", notes = ["game/interface/drawing-boundaries.md"] }
+"0x12ef5d0" = { kind = "function", notes = ["game/interface/drawing-boundaries.md", "game/interface/map-drawing-reads.md"] }
+"0x12efe40" = { kind = "function", notes = ["game/interface/drawing-boundaries.md", "game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md"] }
 "0x12efe96" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
 "0x12efefe" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
 "0x12f0b40" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/main-menu.md", "game/interface/map-drawing-reads.md", "game/interface/rendering-architecture.md", "game/provinces/map-modes.md"] }
@@ -5552,7 +5552,7 @@
 "0x156a703" = { kind = "code", notes = ["game/interface/interface-bindings.md"] }
 "0x156aa28" = { kind = "code", notes = ["game/interface/input.md"] }
 "0x156aa80" = { kind = "function", notes = ["game/interface/interface-bindings.md"] }
-"0x156b5c0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
+"0x156b5c0" = { kind = "function", notes = ["game/interface/drawing-boundaries.md", "game/interface/frame-lifecycle.md"] }
 "0x156b873" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x156ba70" = { kind = "function", notes = ["game/interface/main-menu.md", "game/program/world-interface-coupling.md"] }
 "0x156bfb0" = { kind = "function", notes = ["game/day/frame-scheduling.md", "game/interface/gui-drawing.md", "game/interface/main-menu.md"] }
@@ -5560,7 +5560,7 @@
 "0x156c7e0" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x156cab0" = { kind = "function", notes = ["game/day/frame-scheduling.md"] }
 "0x156d730" = { kind = "function", name = "sprite type unload", notes = ["game/interface/main-menu.md"] }
-"0x156e0a0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/main-menu.md"] }
+"0x156e0a0" = { kind = "function", notes = ["game/interface/drawing-boundaries.md", "game/interface/frame-lifecycle.md", "game/interface/main-menu.md"] }
 "0x156e119" = { kind = "code", notes = ["game/interface/font-textures.md"] }
 "0x156e800" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x1570e60" = { kind = "leaf", notes = ["game/interface/window-activation.md"] }
@@ -5724,7 +5724,7 @@
 "0x15ba25d" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x15ba630" = { kind = "leaf", notes = ["game/interface/frame-lifecycle.md"] }
 "0x15bd180" = { kind = "function", name = "submit the text mesh drawing", notes = ["game/interface/map-drawing-reads.md", "game/interface/message-button-drawing.md", "game/interface/panel-entry-text.md"] }
-"0x15bd460" = { kind = "function", notes = ["game/interface/main-menu.md"] }
+"0x15bd460" = { kind = "function", notes = ["game/interface/drawing-boundaries.md", "game/interface/main-menu.md"] }
 "0x15bd4ac" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x15bd500" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x15bd540" = { kind = "function", notes = ["game/day/frame-scheduling.md", "game/interface/gui-drawing.md"] }
@@ -5894,7 +5894,8 @@
 "0x16d7aa0" = { kind = "function", name = "texture creation", notes = ["game/interface/frame-lifecycle.md"] }
 "0x16d7de0" = { kind = "function", name = "a function of the graphics back end's table", notes = ["game/interface/gui-drawing.md", "game/interface/rendering-architecture.md"] }
 "0x16d7e70" = { kind = "function", name = "a function of the graphics back end's table", notes = ["game/interface/drawing-boundaries.md", "game/interface/frame-lifecycle.md"] }
-"0x16d7f30" = { kind = "function", name = "a function of the graphics back end's table", notes = ["game/interface/gui-drawing.md"] }
+"0x16d7f30" = { kind = "function", name = "a function of the graphics back end's table", notes = ["game/interface/drawing-boundaries.md", "game/interface/gui-drawing.md"] }
+"0x16d8080" = { kind = "function", notes = ["game/interface/drawing-boundaries.md"] }
 "0x16d80f0" = { kind = "function", name = "texture destruction", notes = ["game/interface/gui-drawing.md", "game/interface/rendering-architecture.md"] }
 "0x16d8120" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
 "0x16d82b0" = { kind = "function", name = "a function of the graphics back end's table", notes = ["game/interface/gui-drawing.md"] }
@@ -6758,6 +6759,7 @@
 "0x1fd1208" = { kind = "data", notes = ["game/interface/gui-drawing.md", "game/interface/rendering-architecture.md"] }
 "0x1fd1220" = { kind = "data", notes = ["game/interface/font-textures.md", "game/interface/gui-drawing.md", "game/interface/map-drawing-reads.md"] }
 "0x1fd1248" = { kind = "data", notes = ["game/interface/gui-drawing.md"] }
+"0x1fd1250" = { kind = "data", notes = ["game/interface/drawing-boundaries.md"] }
 "0x1fd1258" = { kind = "data", notes = ["game/interface/gui-drawing.md"] }
 "0x1fd1278" = { kind = "data", notes = ["game/interface/gui-drawing.md"] }
 "0x1fd1290" = { kind = "data", notes = ["game/interface/frame-lifecycle.md", "game/interface/gui-drawing.md", "game/interface/main-menu.md", "game/interface/rendering-architecture.md"] }
@@ -6774,7 +6776,7 @@
 "0x1fd1308" = { kind = "data", notes = ["game/interface/rendering-architecture.md"] }
 "0x1fd1310" = { kind = "data", notes = ["game/interface/frame-lifecycle.md"] }
 "0x1fd1320" = { kind = "data", notes = ["game/interface/font-textures.md", "game/interface/frame-lifecycle.md", "game/interface/gui-drawing.md", "game/interface/rendering-architecture.md"] }
-"0x1fd1328" = { kind = "data", notes = ["game/interface/font-textures.md", "game/interface/gui-drawing.md"] }
+"0x1fd1328" = { kind = "data", notes = ["game/interface/drawing-boundaries.md", "game/interface/font-textures.md", "game/interface/gui-drawing.md"] }
 "0x1fd1330" = { kind = "data", notes = ["game/interface/font-textures.md", "game/interface/frame-lifecycle.md", "game/interface/gui-drawing.md", "game/interface/rendering-architecture.md", "game/program/load-preparation.md"] }
 "0x1fd1338" = { kind = "data", notes = ["game/interface/frame-lifecycle.md"] }
 "0x1fd1348" = { kind = "data", notes = ["game/interface/gui-drawing.md", "game/interface/map-drawing-reads.md"] }
