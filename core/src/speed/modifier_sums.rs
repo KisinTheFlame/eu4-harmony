@@ -1,225 +1,339 @@
-//! Adding one set of modifiers to another, its lookups made through an
-//! index (docs/game/ai/work-scheduling.md, "Adding sets of modifiers").
+//! Adding or subtracting one set of modifiers from another (`0x8ea420` /
+//! `0x8ea730`, `docs/game/countries/modifiers.md`).
 //!
-//! `0x8ea420(set, added)` adds each (modifier, value) of `added` to `set`,
-//! and `0x8ea730` takes them away. A set that keeps its values by modifier
-//! (its byte `+0x10`) has them at the modifier's place; one kept as pairs
-//! (its pairs at `+0x58`, their count at `+0x64`, 8 bytes each: the
-//! modifier, then its value) is searched pair by pair for each modifier
-//! added (`0x8ea4d0`, `0x8ea7e2`), so that adding costs the product of the
-//! two sets' sizes; late in a game it is a large part of the monthly update.
+//! A modifier set keeps its values either indexed by modifier (`+0x10 != 0`,
+//! for built-in modifiers below `0x286`) or as a packed array of 8-byte
+//! `(modifier: i32, value: i32)` pairs (`+0x58`, capacity `+0x60`, count
+//! `+0x64`). The game searches a pair-mode set linearly for every entry in
+//! `added`, making large merges quadratic.
 //!
-//! The framework replaces those searches alone: the first pair holding the
-//! modifier, or none, which the game's code then adds to or appends after
-//! as before. After a few searches in one call, the set's pairs are put in
-//! an index of this thread's, which takes up the pairs the game appends as
-//! the call goes on. Each answer is what the game's search gives, so the
-//! sums, their order and the set's growth are the game's own. It is the
-//! speed-up `modifier-sums` (`crate::speed`): checked, it searches as the
-//! game does as well and counts any answer that differs; left to the game,
-//! the game's code stays as it is.
+//! Replacing `0x8ea420` and `0x8ea730` whole-function removes per-pair hook
+//! round-trips and uses a per-thread O(1) stamped direct-mapped table for
+//! built-in modifiers (`0..0x287`, with a small open-addressing fallback for
+//! any modifier outside that range) whenever a pair-mode set is large enough
+//! to benefit (`count >= 16` and `added.count > 4`). Small merges run in a
+//! tight inline linear scan without touching TLS. Pair growth and the
+//! source-set vector at `+0x38` use the game's own allocator and helpers, so
+//! sums, ordering, and heap ownership match the game bit for bit.
 use crate::base::called_by_game;
+use crate::native::game_heap;
+use crate::native::objects::campaign::modifier_set::{BY_MODIFIER, COUNT, PAIRS};
 use crate::native::points::{Function, Point};
 use crate::native::speed_up::{self as speed, SpeedUp};
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 
 /// The two functions, `(set, added) -> set`.
 const ADD: usize = 0x8ea420;
 const TAKE_AWAY: usize = 0x8ea730;
-/// Their searches: `movsxd rdx, [rbp + 0x64]` and `xor ecx, ecx` (in
-/// `0x8ea420`) or `xor eax, eax` (in `0x8ea730`), `rbp` the set and `edi`
-/// the modifier; the pair found is added to at `FOUND` with its place in
-/// `rcx` or `rax`, a modifier not found appended at `NOT_FOUND`.
-const ADD_SEARCH: usize = 0x8ea4d0;
-const ADD_FOUND: usize = 0x8ea57e;
-const ADD_NOT_FOUND: usize = 0x8ea4f4;
-const TAKE_AWAY_SEARCH: usize = 0x8ea7e2;
-const TAKE_AWAY_FOUND: usize = 0x8ea88e;
-const TAKE_AWAY_NOT_FOUND: usize = 0x8ea805;
-// A set: whether it keeps its values by modifier, its pairs and their
-// count.
-use crate::native::objects::campaign::modifier_set::{BY_MODIFIER, COUNT, PAIRS};
+/// `std::vector<CModifier*>::_Emplace_reallocate(vec, end, &added)` for `set + 0x38`.
+const ADDED_VEC_PUSH: usize = 0x8f0e0;
 
-/// Searches in a call made pair by pair before the set is put in an index,
-/// and the least pairs a set has for one.
-const SEARCHES_BEFORE_INDEX: u32 = 4;
-const PAIRS_FOR_INDEX: i32 = 16;
+const ADDED_VEC: usize = 0x38;
+const ADDED_END: usize = 0x40;
+const ADDED_CAP: usize = 0x48;
+const PAIRS_OWNER: usize = 0x50;
+const CAP: usize = 0x60;
+
+/// Sentinel stored in empty slots of a by-modifier set, skipped during merges.
+const EMPTY_MODIFIER: i32 = 0x286;
+/// Number of built-in modifier indices (`0..0x287`).
+const BUILTIN_MODIFIERS: usize = 0x287;
+/// Minimum destination pair count and incoming count before indexing pays off.
+const PAIRS_FOR_INDEX: usize = 16;
+const ADDED_FOR_INDEX: usize = 5;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct Pair {
+    modifier: i32,
+    value: i32,
+}
 
 type Sum = unsafe extern "C" fn(usize, usize) -> usize;
+type VecPush = unsafe extern "C" fn(usize, usize, *const usize);
+type FreePairs = unsafe extern "C" fn(usize);
+
 static ORIGINAL_ADD: Function<Sum> = Function::new();
 static ORIGINAL_TAKE_AWAY: Function<Sum> = Function::new();
 
-/// The first of `count` pairs at `pairs` that holds `modifier`, as the
-/// game's search finds it.
-unsafe fn search(pairs: usize, count: i32, modifier: i32) -> Option<u32> {
-    (0..count.max(0) as u32).find(|&i| unsafe { *((pairs + 8 * i as usize) as *const i32) } == modifier)
-}
-
-/// Where each modifier's first pair is in one set, by open addressing.
-#[derive(Default)]
-struct Index {
-    /// (stamp, modifier, place); a slot of another stamp is empty.
-    slots: Vec<(u32, i32, u32)>,
-    stamp: u32,
-    /// How many of the set's pairs it holds.
-    known: u32,
-}
-
-impl Index {
-    fn slot(&self, modifier: i32) -> usize {
-        (modifier as u32).wrapping_mul(0x9e37_79b9) as usize & (self.slots.len() - 1)
-    }
-
-    /// Empties it, with room for `pairs` pairs.
-    fn clear(&mut self, pairs: u32) {
-        let wanted = (pairs as usize * 2).next_power_of_two().max(64);
-        if self.slots.len() < wanted {
-            self.slots = vec![(0, 0, 0); wanted];
-            self.stamp = 0;
+/// Linear search matching the game's loop: first pair holding `modifier`.
+#[inline]
+unsafe fn linear_search(pairs: *const Pair, count: usize, modifier: i32) -> Option<usize> {
+    let mut i = 0;
+    while i < count {
+        if unsafe { (*pairs.add(i)).modifier } == modifier {
+            return Some(i);
         }
+        i += 1;
+    }
+    None
+}
+
+/// Fast per-thread index for pair-mode modifier sets: O(1) direct-mapped
+/// stamped array for built-in modifiers (`0..0x287`), plus a small
+/// open-addressing fallback table for any modifier outside that range.
+struct FastIndex {
+    /// `(stamp, place)` for `0 <= modifier < BUILTIN_MODIFIERS`.
+    direct: Box<[(u32, u32); BUILTIN_MODIFIERS]>,
+    /// `(stamp, modifier, place)` for modifiers outside `0..BUILTIN_MODIFIERS`.
+    overflow: Vec<(u32, i32, u32)>,
+    overflow_used: usize,
+    stamp: u32,
+}
+
+impl Default for FastIndex {
+    fn default() -> Self {
+        Self { direct: Box::new([(0, 0); BUILTIN_MODIFIERS]), overflow: Vec::new(), overflow_used: 0, stamp: 0 }
+    }
+}
+
+impl FastIndex {
+    #[inline]
+    fn clear(&mut self) {
         self.stamp = self.stamp.wrapping_add(1);
         if self.stamp == 0 {
-            self.slots.iter_mut().for_each(|s| s.0 = 0);
+            self.direct.fill((0, 0));
+            for slot in &mut self.overflow {
+                slot.0 = 0;
+            }
             self.stamp = 1;
         }
-        self.known = 0;
+        self.overflow_used = 0;
     }
 
-    /// Takes up the pairs from `known` to `count`, each modifier at its
-    /// first place.
-    unsafe fn take_up(&mut self, pairs: usize, count: i32) {
-        let count = count.max(0) as u32;
-        // Grown past half its room: made again, larger, from every pair.
-        if (count as usize) * 2 > self.slots.len() {
-            self.clear(count);
-        }
-        for place in self.known..count {
-            let modifier = unsafe { *((pairs + 8 * place as usize) as *const i32) };
-            let mut at = self.slot(modifier);
-            loop {
-                let (stamp, held, _) = self.slots[at];
-                if stamp != self.stamp {
-                    self.slots[at] = (self.stamp, modifier, place);
-                    break;
-                }
-                if held == modifier {
-                    break;
-                }
-                at = (at + 1) & (self.slots.len() - 1);
+    #[inline]
+    fn overflow_slot(len: usize, modifier: i32) -> usize {
+        (modifier as u32).wrapping_mul(0x9e37_79b9) as usize & (len - 1)
+    }
+
+    fn grow_overflow(&mut self, min_entries: usize) {
+        let wanted = (min_entries * 2).next_power_of_two().max(32);
+        let old = std::mem::replace(&mut self.overflow, vec![(0, 0, 0); wanted]);
+        let stamp = self.stamp;
+        for (s, modifier, place) in old {
+            if s != stamp {
+                continue;
             }
+            let mut at = Self::overflow_slot(wanted, modifier);
+            while self.overflow[at].0 == stamp {
+                at = (at + 1) & (wanted - 1);
+            }
+            self.overflow[at] = (stamp, modifier, place);
         }
-        self.known = count;
     }
 
-    fn get(&self, modifier: i32) -> Option<u32> {
-        let mut at = self.slot(modifier);
+    #[inline]
+    fn insert_if_absent(&mut self, modifier: i32, place: usize) {
+        let stamp = self.stamp;
+        if (0..BUILTIN_MODIFIERS as i32).contains(&modifier) {
+            let slot = &mut self.direct[modifier as usize];
+            if slot.0 != stamp {
+                *slot = (stamp, place as u32);
+            }
+            return;
+        }
+        if (self.overflow_used + 1) * 2 > self.overflow.len() {
+            self.grow_overflow(self.overflow_used + 1);
+        }
+        let len = self.overflow.len();
+        let mut at = Self::overflow_slot(len, modifier);
         loop {
-            let (stamp, held, place) = self.slots[at];
-            if stamp != self.stamp {
+            let (s, held, _) = self.overflow[at];
+            if s != stamp {
+                self.overflow[at] = (stamp, modifier, place as u32);
+                self.overflow_used += 1;
+                return;
+            }
+            if held == modifier {
+                return;
+            }
+            at = (at + 1) & (len - 1);
+        }
+    }
+
+    #[inline]
+    fn populate(&mut self, pairs: *const Pair, count: usize) {
+        self.clear();
+        let mut i = 0;
+        while i < count {
+            let modifier = unsafe { (*pairs.add(i)).modifier };
+            self.insert_if_absent(modifier, i);
+            i += 1;
+        }
+    }
+
+    #[inline]
+    fn get(&self, modifier: i32) -> Option<usize> {
+        let stamp = self.stamp;
+        if (0..BUILTIN_MODIFIERS as i32).contains(&modifier) {
+            let (s, place) = self.direct[modifier as usize];
+            return (s == stamp).then_some(place as usize);
+        }
+        if self.overflow_used == 0 {
+            return None;
+        }
+        let len = self.overflow.len();
+        let mut at = Self::overflow_slot(len, modifier);
+        loop {
+            let (s, held, place) = self.overflow[at];
+            if s != stamp {
                 return None;
             }
             if held == modifier {
-                return Some(place);
+                return Some(place as usize);
             }
-            at = (at + 1) & (self.slots.len() - 1);
+            at = (at + 1) & (len - 1);
         }
     }
 }
 
 thread_local! {
-    /// The call of `0x8ea420` or `0x8ea730` this thread is in, counted.
-    static CALL: Cell<u64> = const { Cell::new(0) };
-    /// The call its index and searches are of, the searches made, whether
-    /// the set is in the index.
-    static STATE: RefCell<(u64, u32, bool, Index)> = RefCell::new((0, 0, false, Index::default()));
+    static INDEX: RefCell<FastIndex> = RefCell::new(FastIndex::default());
 }
 
-/// The first pair of `set` holding `modifier`, or -1, as the game's search
-/// gives it.
-unsafe fn find(set: usize, modifier: i32) -> isize {
-    let (pairs, count) = unsafe { (*((set + PAIRS) as *const usize), *((set + COUNT) as *const i32)) };
-    // A set by modifier writes modifiers into places below 0x286 as the
-    // call goes on, which an index would not see.
-    if unsafe { *((set + BY_MODIFIER) as *const u8) } != 0 || count < PAIRS_FOR_INDEX {
-        return unsafe { search(pairs, count, modifier) }.map_or(-1, |p| p as isize);
+/// Grows `set`'s pair array using the game's allocator (`0x1a332d4`) and
+/// releases the old storage through `(set + 0x50)`'s vtable slot `+0x10`,
+/// matching `0x8ea504..0x8ea57c` identically.
+#[cold]
+#[inline(never)]
+unsafe fn grow_pairs(set: usize, needed: i32) -> *mut Pair {
+    let cap = unsafe { *((set + CAP) as *const i32) };
+    let mut new_cap = cap.wrapping_mul(2);
+    if new_cap < needed {
+        new_cap = needed;
     }
-    let call = CALL.with(Cell::get);
-    let found = STATE.with(|state| {
-        let (of, searches, indexed, index) = &mut *state.borrow_mut();
-        if *of != call {
-            (*of, *searches, *indexed) = (call, 0, false);
+    let bytes = (new_cap as u32 as usize).saturating_mul(std::mem::size_of::<Pair>());
+    let m = crate::native::hooked_memory();
+    let op_new: unsafe extern "C" fn(usize) -> usize = unsafe { std::mem::transmute(m.at(game_heap::NEW.rva())) };
+    let new_ptr = unsafe { op_new(bytes) } as *mut Pair;
+    let count = unsafe { *((set + COUNT) as *const i32) };
+    if count > 0 {
+        let old_ptr = unsafe { *((set + PAIRS) as *const *const Pair) };
+        unsafe { std::ptr::copy_nonoverlapping(old_ptr, new_ptr, count as usize) };
+    }
+    let owner = set + PAIRS_OWNER;
+    let vtable = unsafe { *(owner as *const usize) };
+    let free_fn: FreePairs = unsafe { std::mem::transmute(*((vtable + 0x10) as *const usize)) };
+    unsafe { free_fn(owner) };
+    unsafe {
+        *((set + PAIRS) as *mut usize) = new_ptr as usize;
+        *((set + CAP) as *mut i32) = new_cap;
+    }
+    new_ptr
+}
+
+#[inline]
+unsafe fn append_pair(set: usize, set_pairs: &mut *mut Pair, set_count: &mut usize, set_cap: &mut i32, modifier: i32, value: i32) -> usize {
+    let needed = (*set_count as i32).wrapping_add(1);
+    if needed > *set_cap {
+        *set_pairs = unsafe { grow_pairs(set, needed) };
+        *set_cap = unsafe { *((set + CAP) as *const i32) };
+    }
+    let place = *set_count;
+    unsafe {
+        *(*set_pairs).add(place) = Pair { modifier, value };
+        *((set + COUNT) as *mut i32) = needed;
+    }
+    *set_count = place + 1;
+    place
+}
+
+#[inline]
+unsafe fn push_added_source(set: usize, added: usize) {
+    let end = unsafe { *((set + ADDED_END) as *const usize) };
+    let cap = unsafe { *((set + ADDED_CAP) as *const usize) };
+    if end != cap {
+        unsafe {
+            *(end as *mut usize) = added;
+            *((set + ADDED_END) as *mut usize) = end + 8;
         }
-        *searches += 1;
-        if !*indexed {
-            if *searches <= SEARCHES_BEFORE_INDEX {
-                return unsafe { search(pairs, count, modifier) };
+    } else {
+        let m = crate::native::hooked_memory();
+        let push: VecPush = unsafe { std::mem::transmute(m.at(ADDED_VEC_PUSH)) };
+        unsafe { push(set + ADDED_VEC, end, &added) };
+    }
+}
+
+unsafe fn sum_sets(set: usize, added: usize, subtract: bool) -> usize {
+    let added_count = unsafe { *((added + COUNT) as *const i32) };
+    if added_count > 0 {
+        let added_count_usize = added_count as usize;
+        let added_by_mod = unsafe { *((added + BY_MODIFIER) as *const u8) } != 0;
+        let set_by_mod = unsafe { *((set + BY_MODIFIER) as *const u8) } != 0;
+        let aliased = set == added;
+        let checked = speed::checked(&SPEED_UP);
+
+        let mut set_pairs = unsafe { *((set + PAIRS) as *const *mut Pair) };
+        let mut set_count = unsafe { *((set + COUNT) as *const i32) }.max(0) as usize;
+        let mut set_cap = unsafe { *((set + CAP) as *const i32) };
+
+        if !set_by_mod && set_count >= PAIRS_FOR_INDEX && added_count_usize >= ADDED_FOR_INDEX {
+            INDEX.with(|cell| {
+                let mut index = cell.borrow_mut();
+                index.populate(set_pairs, set_count);
+                for i in 0..added_count_usize {
+                    let added_pairs = if aliased { set_pairs as *const Pair } else { unsafe { *((added + PAIRS) as *const *const Pair) } };
+                    let entry = unsafe { *added_pairs.add(i) };
+                    let modifier = entry.modifier;
+                    if modifier == EMPTY_MODIFIER {
+                        continue;
+                    }
+                    let raw = if added_by_mod && modifier <= EMPTY_MODIFIER { unsafe { (*added_pairs.offset(modifier as isize)).value } } else { entry.value };
+                    let val = if subtract { raw.wrapping_neg() } else { raw };
+                    let found = index.get(modifier);
+                    if checked {
+                        let game = unsafe { linear_search(set_pairs, set_count, modifier) };
+                        speed::compared(&SPEED_UP, found == game, || {
+                            format!("modifier {modifier}: the index found pair {found:?}, the game's search {game:?}")
+                        });
+                    }
+                    if let Some(place) = found {
+                        let dst = unsafe { &mut (*set_pairs.add(place)).value };
+                        *dst = dst.wrapping_add(val);
+                    } else {
+                        let place = unsafe { append_pair(set, &mut set_pairs, &mut set_count, &mut set_cap, modifier, val) };
+                        index.insert_if_absent(modifier, place);
+                    }
+                }
+            });
+        } else {
+            let mut added_pairs = unsafe { *((added + PAIRS) as *const *const Pair) };
+            for i in 0..added_count_usize {
+                if aliased {
+                    added_pairs = set_pairs as *const Pair;
+                }
+                let entry = unsafe { *added_pairs.add(i) };
+                let modifier = entry.modifier;
+                if modifier == EMPTY_MODIFIER {
+                    continue;
+                }
+                let raw = if added_by_mod && modifier <= EMPTY_MODIFIER { unsafe { (*added_pairs.offset(modifier as isize)).value } } else { entry.value };
+                let val = if subtract { raw.wrapping_neg() } else { raw };
+                if set_by_mod && modifier < EMPTY_MODIFIER {
+                    let slot = unsafe { &mut *set_pairs.offset(modifier as isize) };
+                    slot.modifier = modifier;
+                    slot.value = slot.value.wrapping_add(val);
+                } else if let Some(place) = unsafe { linear_search(set_pairs, set_count, modifier) } {
+                    let dst = unsafe { &mut (*set_pairs.add(place)).value };
+                    *dst = dst.wrapping_add(val);
+                } else {
+                    unsafe { append_pair(set, &mut set_pairs, &mut set_count, &mut set_cap, modifier, val) };
+                }
             }
-            index.clear(count as u32);
-            *indexed = true;
         }
-        // The pairs the game appended since are taken up first.
-        unsafe { index.take_up(pairs, count) };
-        index.get(modifier)
-    });
-    if speed::checked(&SPEED_UP) {
-        let game = unsafe { search(pairs, count, modifier) };
-        speed::compared(&SPEED_UP, found == game, || format!("modifier {modifier}: the index found pair {found:?}, the game's search {game:?}"));
     }
-    found.map_or(-1, |p| p as isize)
+    unsafe { push_added_source(set, added) };
+    set
 }
 
 #[called_by_game]
 unsafe extern "C" fn add(set: usize, added: usize) -> usize {
-    CALL.with(|c| c.set(c.get() + 1));
-    unsafe { ORIGINAL_ADD.get()(set, added) }
+    unsafe { sum_sets(set, added, false) }
 }
 
 #[called_by_game]
 unsafe extern "C" fn take_away(set: usize, added: usize) -> usize {
-    CALL.with(|c| c.set(c.get() + 1));
-    unsafe { ORIGINAL_TAKE_AWAY.get()(set, added) }
-}
-
-#[called_by_game]
-extern "C" fn find_for_stub(set: usize, modifier: i32) -> isize {
-    unsafe { find(set, modifier) }
-}
-
-resume!(ADD_RESUME: ADD_FOUND_AT = ADD_FOUND, ADD_NOT_FOUND_AT = ADD_NOT_FOUND);
-resume!(TAKE_AWAY_RESUME: TAKE_AWAY_FOUND_AT = TAKE_AWAY_FOUND, TAKE_AWAY_NOT_FOUND_AT = TAKE_AWAY_NOT_FOUND);
-
-/// Replaces the search of `0x8ea420`: the pair found in `rcx`.
-#[unsafe(naked)]
-extern "C" fn add_search_stub() {
-    std::arch::naked_asm!(
-        call_rust!("mov rcx, [rbp]", "mov edx, edi", call find_for_stub -> r11),
-        "test r11, r11",
-        "js 2f",
-        "mov rcx, r11",
-        "jmp qword ptr [rip + {found}]",
-        "2:",
-        "jmp qword ptr [rip + {not_found}]",
-        find_for_stub = sym find_for_stub,
-        found = sym ADD_FOUND_AT,
-        not_found = sym ADD_NOT_FOUND_AT,
-    );
-}
-
-/// Replaces the search of `0x8ea730`: the pair found in `rax`.
-#[unsafe(naked)]
-extern "C" fn take_away_search_stub() {
-    std::arch::naked_asm!(
-        call_rust!("mov rcx, [rbp]", "mov edx, edi", call find_for_stub -> r11),
-        "test r11, r11",
-        "js 2f",
-        "mov rax, r11",
-        "jmp qword ptr [rip + {found}]",
-        "2:",
-        "jmp qword ptr [rip + {not_found}]",
-        find_for_stub = sym find_for_stub,
-        found = sym TAKE_AWAY_FOUND_AT,
-        not_found = sym TAKE_AWAY_NOT_FOUND_AT,
-    );
+    unsafe { sum_sets(set, added, true) }
 }
 
 /// Checked, every search made through the index is made as the game's too.
@@ -227,19 +341,16 @@ pub const SPEED_UP: SpeedUp = SpeedUp::new("modifier-sums", "frames", points, tr
 
 fn points() -> Vec<Point> {
     vec![
-        Point::replace(ADD, "40 55 41 55 48 83 ec 48 4c 63 4a 64 45 33 c0 4c", "modifiers added to a set", add as Sum, &ORIGINAL_ADD),
-        Point::replace(TAKE_AWAY, "40 55 41 55 48 83 ec 48 4c 63 4a 64 45 33 c0 4c", "modifiers taken from a set", take_away as Sum, &ORIGINAL_TAKE_AWAY),
-        Point::jump(ADD_SEARCH, "48 63 55 64 33 c9", "set's search for a modifier added", add_search_stub as *const () as usize, &ADD_RESUME).uses(&[COUNT]),
-        Point::keep(ADD_FOUND, "48 8b 45 58 01 5c c8 04", "set's pair found, added to").uses(&[PAIRS]),
-        Point::keep(ADD_NOT_FOUND, "8b 45 64 8b 4d 60 ff c0 3b c1", "set's pair appended").uses(&[COUNT]),
-        Point::keep(ADD_SEARCH + 6, "48 85 d2 7e 19 48 8b 45 58 90 39 38 0f 84", "set's search pair by pair").uses(&[PAIRS]),
-        Point::jump(TAKE_AWAY_SEARCH, "48 63 55 64 33 c0", "set's search for a modifier taken", take_away_search_stub as *const () as usize, &TAKE_AWAY_RESUME)
+        Point::replace(ADD, "40 55 41 55 48 83 ec 48 4c 63 4a 64 45 33 c0 4c", "modifiers added to a set", add as Sum, &ORIGINAL_ADD).uses(&[COUNT]),
+        Point::replace(TAKE_AWAY, "40 55 41 55 48 83 ec 48 4c 63 4a 64 45 33 c0 4c", "modifiers taken from a set", take_away as Sum, &ORIGINAL_TAKE_AWAY)
             .uses(&[COUNT]),
-        Point::keep(TAKE_AWAY_FOUND, "48 8b 4d 58 01 5c c1 04", "set's pair found, taken from").uses(&[PAIRS]),
-        Point::keep(TAKE_AWAY_NOT_FOUND, "8b 45 64 8b 4d 60 ff c0 3b c1", "set's pair appended, taken from"),
-        Point::keep(0x8ea4a6usize, "80 7d 10 00 74 24", "set kept by modifier, added to").uses(&[BY_MODIFIER]),
-        Point::keep(0x8ea7b8usize, "80 7d 10 00 74 24", "set kept by modifier, taken from").uses(&[BY_MODIFIER]),
-        Point::keep(TAKE_AWAY_SEARCH + 6, "48 85 d2 7e 18 48 8b 4d 58 39 39 0f 84", "set's search pair by pair, taken from").uses(&[PAIRS]),
+        Point::keep(ADDED_VEC_PUSH, "48 89 5c 24 20 55 56 41 54 48 83 ec 20 48 8b 41 08", "modifier set's source vector push"),
+        Point::keep(0x8ea4a6, "80 7d 10 00 74 24", "set kept by modifier, added to").uses(&[BY_MODIFIER]),
+        Point::keep(0x8ea4f4, "8b 45 64 8b 4d 60 ff c0 3b c1", "set's pair capacity check").uses(&[COUNT, CAP]),
+        Point::keep(0x8ea558, "48 8b 45 50 48 8d 4d 50 ff 50 10", "set's old pairs released").uses(&[PAIRS_OWNER]),
+        Point::keep(0x8ea5de, "48 3b 55 48", "set's source vector capacity").uses(&[ADDED_CAP]),
+        Point::keep(0x8ea7b8, "80 7d 10 00 74 24", "set kept by modifier, taken from").uses(&[BY_MODIFIER]),
+        Point::keep(0x8ea57e, "48 8b 45 58 01 5c c8 04", "set's pair found, added to").uses(&[PAIRS]),
     ]
 }
 
@@ -247,41 +358,41 @@ fn points() -> Vec<Point> {
 mod tests {
     use super::*;
 
-    /// Pairs as the game lays them out.
-    fn pairs(modifiers: &[i32]) -> Vec<i32> {
-        modifiers.iter().flat_map(|&m| [m, 1]).collect()
+    fn pairs(modifiers: &[i32]) -> Vec<Pair> {
+        modifiers.iter().map(|&modifier| Pair { modifier, value: 1 }).collect()
     }
 
     #[test]
-    fn the_index_finds_the_first_pair_of_each_modifier() {
-        let held = pairs(&[7, 3, 7, 900, 3, 12]);
-        let at = held.as_ptr() as usize;
-        let mut index = Index::default();
-        index.clear(6);
-        unsafe { index.take_up(at, 6) };
-        for m in [7, 3, 900, 12, 5, 0x286] {
-            assert_eq!(index.get(m), unsafe { search(at, 6, m) }, "modifier {m}");
+    fn fast_index_finds_first_pair_for_builtin_and_overflow_modifiers() {
+        let held = pairs(&[7, 3, 7, 900, 3, 12, -5, 900]);
+        let mut index = FastIndex::default();
+        index.populate(held.as_ptr(), held.len());
+        for m in [7, 3, 900, 12, -5, 5, EMPTY_MODIFIER, 1200] {
+            assert_eq!(index.get(m), unsafe { linear_search(held.as_ptr(), held.len(), m) }, "modifier {m}");
         }
     }
 
     #[test]
-    fn pairs_appended_are_taken_up_where_they_are() {
+    fn fast_index_tracks_appended_pairs_and_resets_cleanly() {
         let mut held = pairs(&[1, 2, 3]);
-        let mut index = Index::default();
-        index.clear(3);
-        unsafe { index.take_up(held.as_ptr() as usize, 3) };
-        held.extend(pairs(&[40, 2, 41]));
-        unsafe { index.take_up(held.as_ptr() as usize, 6) };
-        assert_eq!(index.get(40), Some(3));
-        assert_eq!(index.get(2), Some(1), "the first place of a modifier held twice");
-        assert_eq!(index.get(41), Some(5));
-        // Grown past its room, it is made again from the pairs.
-        let many: Vec<i32> = (100..400).collect();
-        held.extend(pairs(&many));
-        let count = held.len() as i32 / 2;
-        unsafe { index.take_up(held.as_ptr() as usize, count) };
-        for m in [1, 2, 3, 40, 41, 100, 399] {
-            assert_eq!(index.get(m), unsafe { search(held.as_ptr() as usize, count, m) }, "modifier {m}");
+        let mut index = FastIndex::default();
+        index.populate(held.as_ptr(), held.len());
+        for m in [40, 2, 41, 700, 701, 700] {
+            let place = held.len();
+            held.push(Pair { modifier: m, value: 1 });
+            index.insert_if_absent(m, place);
         }
+        assert_eq!(index.get(40), Some(3));
+        assert_eq!(index.get(2), Some(1), "keeps first place of duplicate modifier");
+        assert_eq!(index.get(700), Some(6));
+        assert_eq!(index.get(701), Some(7));
+
+        // Populate again with a disjoint set to verify O(1) stamp clearing.
+        let next = pairs(&[10, 800]);
+        index.populate(next.as_ptr(), next.len());
+        assert_eq!(index.get(40), None);
+        assert_eq!(index.get(700), None);
+        assert_eq!(index.get(10), Some(0));
+        assert_eq!(index.get(800), Some(1));
     }
 }
