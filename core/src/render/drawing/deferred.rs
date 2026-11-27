@@ -14,9 +14,10 @@ use crate::native::game_string;
 use crate::native::memory::Memory;
 use crate::native::objects::campaign::globals::WORLD;
 use crate::native::points::{Function, Point};
+use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
-    Mutex,
+    Mutex, RwLock,
 };
 
 /// Bounded queue and reentry guard for main-thread calls deferred to frame
@@ -141,10 +142,45 @@ pub(super) fn points() -> Vec<Point> {
             minimap_upload_stub as *const () as usize,
             &MINIMAP_UPLOAD_RESUME,
         )
-        .uses(&[MINIMAP_UPLOAD_SLOT])
+        .uses(&[TEXTURE_UPLOAD_SLOT])
         .recorded(&MINIMAP_UPLOAD_AT),
         Point::keep(MINIMAP_UPLOAD_DONE, "48 8d 97 68 02 00 00", "the minimap's texture upload done"),
-        Point::keep(MINIMAP_UPLOAD_FN, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 60 48 8b 84 24 98 00 00", "the graphics back end's texture upload"),
+        Point::keep(0x10a8c91, "48 8b 85 98 16 00 00", "the map mode color texture").uses(&[MAP_COLORS_TEXTURE]),
+        Point::jump(
+            MAP_COLORS_UPLOAD_CALL,
+            "49 8b ce ff 15 3b 86 f2 00",
+            "the map mode color texture uploaded",
+            map_colors_upload_stub as *const () as usize,
+            &MAP_COLORS_UPLOAD_RESUME,
+        )
+        .uses(&[TEXTURE_UPLOAD_SLOT])
+        .recorded(&MAP_COLORS_UPLOAD_AT),
+        Point::keep(MAP_COLORS_UPLOAD_DONE, "39 5f 7c 7e 1d", "the map mode color texture upload done"),
+        Point::jump(
+            PROVINCE_MAP_UPLOAD_CALL,
+            "c7 44 24 20 04 00 00 00 ff 15 bc 1d ce 00",
+            "a province map texture uploaded",
+            province_map_upload_stub as *const () as usize,
+            &PROVINCE_MAP_UPLOAD_RESUME,
+        )
+        .uses(&[TEXTURE_UPLOAD_SLOT])
+        .recorded(&PROVINCE_MAP_UPLOAD_AT),
+        Point::keep(PROVINCE_MAP_UPLOAD_DONE, "4c 8d 5c 24 70 49 8b 5b 10", "a province map texture upload done"),
+        Point::keep(TEXTURE_UPLOAD_FN, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 60 48 8b 84 24 98 00 00", "the graphics back end's texture upload"),
+        Point::replace(
+            TEXTURE_DESC_FN,
+            "48 85 c9 0f 84 38 01 00 00 53 48 83 ec 40 48 8b 09",
+            "a texture's dimensions and format",
+            get_texture_desc as TextureDescFn,
+            &ORIGINAL_TEXTURE_DESC,
+        ),
+        Point::replace(
+            TEXTURE_RELEASE_FN,
+            "48 85 c9 74 63 53 48 83 ec 20 48 8b d9 48 89 7c 24 30",
+            "a texture's Direct3D interfaces released",
+            release_texture as TextureReleaseFn,
+            &ORIGINAL_TEXTURE_RELEASE,
+        ),
         Point::jump(OWNER_TOLD, "4c 8b c9 83 fa ff", "the map told of a province's new owner", owner_told_stub as *const () as usize, &OWNER_TOLD_RESUME),
         // mov rcx, [r13 + 0x1e00]; test rcx, rcx; je; mov rax, [rcx];
         // call [rax + 0x2a8]: the day's call of the interface's daily refresh.
@@ -219,21 +255,44 @@ const PORT_MODEL_FROM_MARKERS_C: usize = 0x1321bad;
 resume!(PORT_MODEL_RESUME: PORT_MODEL_GOES_ON_AT = PORT_MODEL_GOES_ON);
 const MINIMAP_GOES_ON: usize = 0x10b6c57;
 resume!(MINIMAP_RESUME: MINIMAP_GOES_ON_AT = MINIMAP_GOES_ON);
-/// Inside `0x10b6c50` (`eu3minimap.cpp`), once the CPU pixel buffer is ready
-/// and the minimap's texture (`[minimap + 0x260]`) already exists, `0x10b7e6d`
-/// sets `r8d = width` and calls `[0x1fd1378]` (`0x16d7e70`, D3D9 surface
-/// upload via `D3DXLoadSurfaceFromMemory`). Running that upload on the main
-/// thread while the drawing thread is inside `Present` blocks on Direct3D 9's
-/// internal device critical section; capturing the pixels and uploading them
-/// on the drawing thread before drawing removes that lock stall without
-/// racing on world state.
+/// Direct3D 9 texture uploads via `[0x1fd1378]` (`0x16d7e70`, 4-byte RGBA
+/// upload through `D3DXLoadSurfaceFromMemory`). Running these uploads on the
+/// main thread while the drawing thread is inside `Present` blocks on
+/// Direct3D 9's internal device critical section; capturing the CPU pixel
+/// buffers and flushing them on the drawing thread before drawing removes that
+/// lock stall without racing on world state:
+/// - `0x10b7e6d` in `0x10b6c50` (`eu3minimap.cpp`): minimap texture (`[minimap + 0x260]`).
+/// - `0x10a8d34` in `0x10a8c30` (`pdxmaptexturegeneration.cpp`): map-mode color texture (`[pdxmap + 0x1698]`).
+/// - `0x12ef5ae` in `0x12ef4e0` (`pdxmaptexturegeneration.cpp`): province color & stripe textures (`*slot_ptr`).
 const MINIMAP_TEXTURE: usize = 0x260;
 const MINIMAP_UPLOAD_CALL: usize = 0x10b7e6d;
 const MINIMAP_UPLOAD_DONE: usize = 0x10b7ea0;
-const MINIMAP_UPLOAD_SLOT: usize = 0x1fd1378;
-const MINIMAP_UPLOAD_FN: usize = 0x16d7e70;
+const MAP_COLORS_TEXTURE: usize = 0x1698;
+const MAP_COLORS_UPLOAD_CALL: usize = 0x10a8d34;
+const MAP_COLORS_UPLOAD_DONE: usize = 0x10a8d3d;
+const PROVINCE_MAP_UPLOAD_CALL: usize = 0x12ef5ae;
+const PROVINCE_MAP_UPLOAD_DONE: usize = 0x12ef5bc;
+const TEXTURE_UPLOAD_SLOT: usize = 0x1fd1378;
+const TEXTURE_UPLOAD_FN: usize = 0x16d7e70;
 resume!(MINIMAP_UPLOAD_RESUME: MINIMAP_UPLOAD_DONE_AT = MINIMAP_UPLOAD_DONE);
 static MINIMAP_UPLOAD_AT: AtomicUsize = AtomicUsize::new(0);
+resume!(MAP_COLORS_UPLOAD_RESUME: MAP_COLORS_UPLOAD_DONE_AT = MAP_COLORS_UPLOAD_DONE);
+static MAP_COLORS_UPLOAD_AT: AtomicUsize = AtomicUsize::new(0);
+resume!(PROVINCE_MAP_UPLOAD_RESUME: PROVINCE_MAP_UPLOAD_DONE_AT = PROVINCE_MAP_UPLOAD_DONE);
+static PROVINCE_MAP_UPLOAD_AT: AtomicUsize = AtomicUsize::new(0);
+
+/// `0x16d7f30(wrapper, out[4])` calls `IDirect3DTexture9::GetLevelDesc(0)` to
+/// read the immutable `(width, height, format, bpp)` of a texture, blocking on
+/// Direct3D 9's device critical section whenever the drawing thread is inside
+/// `Present`. Caching by `(wrapper, *wrapper)` and evicting in `0x16d8080`
+/// (the single back-end function that releases `*wrapper`) plus device reset
+/// removes those repeated lock stalls cleanly.
+const TEXTURE_DESC_FN: usize = 0x16d7f30;
+const TEXTURE_RELEASE_FN: usize = 0x16d8080;
+type TextureDescFn = unsafe extern "C" fn(usize, *mut u32);
+type TextureReleaseFn = unsafe extern "C" fn(usize);
+static ORIGINAL_TEXTURE_DESC: Function<TextureDescFn> = Function::new();
+static ORIGINAL_TEXTURE_RELEASE: Function<TextureReleaseFn> = Function::new();
 /// A mesh object's scalar deleting destructor (`pdxmeshobject.cpp`, the slot
 /// 0 of its vtable `0x1d92408`, called through it only): the object and
 /// whether to free it (bit 0). It takes the object off its mesh's list of
@@ -400,10 +459,12 @@ extern "C" fn port_model(entry: usize, province: usize, map: usize, flag: u32, f
     true
 }
 
-/// Latest minimap CPU pixel buffer staged by the main thread for upload on the
-/// drawing thread before its next frame, plus a recycled pixel buffer.
-struct PendingMinimap {
-    minimap: usize,
+/// Latest CPU pixel buffers staged by the main thread for upload on the
+/// drawing thread before its next frame, coalesced by owner `slot_ptr` (the
+/// address holding the game's `GfxTexture*`), plus recycled pixel buffers so
+/// steady-state frames do not allocate.
+struct PendingTexture {
+    slot_ptr: usize,
     renderer: usize,
     texture: usize,
     width: u32,
@@ -411,34 +472,76 @@ struct PendingMinimap {
     pixels: Vec<u8>,
 }
 
-static PENDING_MINIMAP: Mutex<(Option<PendingMinimap>, Vec<u8>)> = Mutex::new((None, Vec::new()));
+struct PendingTextures {
+    staged: Vec<PendingTexture>,
+    recycle: Vec<Vec<u8>>,
+}
+
+impl PendingTextures {
+    const fn new() -> Self {
+        Self { staged: Vec::new(), recycle: Vec::new() }
+    }
+
+    fn take_buffer(&mut self, len: usize) -> Vec<u8> {
+        // Prefer the smallest recycled buffer that already fits `len`, else any recycled buffer.
+        let best = self
+            .recycle
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| b.capacity() >= len)
+            .min_by_key(|(_, b)| b.capacity())
+            .map(|(i, _)| i)
+            .or_else(|| (!self.recycle.is_empty()).then_some(0));
+        let mut buf = best.map_or_else(Vec::new, |i| self.recycle.swap_remove(i));
+        buf.resize(len, 0);
+        buf
+    }
+
+    fn return_buffer(&mut self, buf: Vec<u8>) {
+        if self.recycle.len() < 8 {
+            self.recycle.push(buf);
+        }
+    }
+}
+
+static PENDING_TEXTURES: Mutex<PendingTextures> = Mutex::new(PendingTextures::new());
 
 #[called_by_game]
-extern "C" fn defer_minimap_upload(minimap: usize, renderer: usize, pixels: usize, width: u32, height: u32, texture: usize) -> bool {
+extern "C" fn defer_texture_upload(slot_ptr: usize, renderer: usize, pixels: usize, width: u32, height: u32, texture: usize) -> bool {
     if !on_main()
         || !drawing_on()
         || super::FRAMES.prepared_idler() == 0
-        || minimap == 0
+        || slot_ptr == 0
         || renderer == 0
         || pixels == 0
         || texture == 0
         || width == 0
         || height == 0
-        || width > 4096
-        || height > 4096
+        || width > 8192
+        || height > 8192
     {
         return false;
     }
     let len = (width as usize) * (height as usize) * 4;
     let m = crate::native::hooked_memory();
-    let mut state = PENDING_MINIMAP.lock().unwrap_or_else(|e| e.into_inner());
-    let mut buf = state.0.take().map_or_else(|| std::mem::take(&mut state.1), |old| old.pixels);
-    buf.resize(len, 0);
+    let mut state = PENDING_TEXTURES.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(existing) = state.staged.iter_mut().find(|p| p.slot_ptr == slot_ptr) {
+        existing.pixels.resize(len, 0);
+        if m.read_into(pixels, &mut existing.pixels).is_err() {
+            return false;
+        }
+        existing.renderer = renderer;
+        existing.texture = texture;
+        existing.width = width;
+        existing.height = height;
+        return true;
+    }
+    let mut buf = state.take_buffer(len);
     if m.read_into(pixels, &mut buf).is_err() {
-        state.1 = buf;
+        state.return_buffer(buf);
         return false;
     }
-    state.0 = Some(PendingMinimap { minimap, renderer, texture, width, height, pixels: buf });
+    state.staged.push(PendingTexture { slot_ptr, renderer, texture, width, height, pixels: buf });
     true
 }
 
@@ -451,8 +554,8 @@ extern "C" fn minimap_upload_stub() {
             "mov r9d, r13d",
             "mov r8, rdx",
             "mov rdx, rcx",
-            "mov rcx, rdi",
-            call defer_minimap_upload => bool
+            "lea rcx, [rdi + {slot_off}]",
+            call defer_texture_upload => bool
         ),
         "jne 2f",
         "mov r8d, r13d",
@@ -461,39 +564,164 @@ extern "C" fn minimap_upload_stub() {
         "call qword ptr [rax]",
         "2:",
         "jmp qword ptr [rip + {done}]",
-        defer_minimap_upload = sym defer_minimap_upload,
+        slot_off = const MINIMAP_TEXTURE,
+        defer_texture_upload = sym defer_texture_upload,
         at = sym MINIMAP_UPLOAD_AT,
-        to_slot = const MINIMAP_UPLOAD_SLOT - MINIMAP_UPLOAD_CALL,
+        to_slot = const TEXTURE_UPLOAD_SLOT - MINIMAP_UPLOAD_CALL,
         done = sym MINIMAP_UPLOAD_DONE_AT,
     );
 }
 
-/// Uploads the latest staged minimap pixel buffer into Direct3D 9. Called on
+#[unsafe(naked)]
+extern "C" fn map_colors_upload_stub() {
+    std::arch::naked_asm!(
+        call_rust!(
+            "mov qword ptr [rsp + 0x28], rax",
+            "mov dword ptr [rsp + 0x20], r9d",
+            "mov r9d, r10d",
+            "mov r8, r11",
+            "mov rdx, r14",
+            "lea rcx, [rbp + {slot_off}]",
+            call defer_texture_upload => bool
+        ),
+        "jne 2f",
+        "mov rcx, r14",
+        "mov rax, qword ptr [rip + {at}]",
+        "add rax, {to_slot}",
+        "call qword ptr [rax]",
+        "2:",
+        "jmp qword ptr [rip + {done}]",
+        slot_off = const MAP_COLORS_TEXTURE,
+        defer_texture_upload = sym defer_texture_upload,
+        at = sym MAP_COLORS_UPLOAD_AT,
+        to_slot = const TEXTURE_UPLOAD_SLOT - MAP_COLORS_UPLOAD_CALL,
+        done = sym MAP_COLORS_UPLOAD_DONE_AT,
+    );
+}
+
+#[unsafe(naked)]
+extern "C" fn province_map_upload_stub() {
+    std::arch::naked_asm!(
+        call_rust!(
+            "mov qword ptr [rsp + 0x28], rax",
+            "mov dword ptr [rsp + 0x20], r9d",
+            "mov r9d, r11d",
+            "mov r8, rbx",
+            "mov rdx, rdi",
+            "mov rcx, rsi",
+            call defer_texture_upload => bool
+        ),
+        "jne 2f",
+        "mov dword ptr [rsp + 0x20], 4",
+        "mov rax, qword ptr [rip + {at}]",
+        "add rax, {to_slot}",
+        "call qword ptr [rax]",
+        "2:",
+        "jmp qword ptr [rip + {done}]",
+        defer_texture_upload = sym defer_texture_upload,
+        at = sym PROVINCE_MAP_UPLOAD_AT,
+        to_slot = const TEXTURE_UPLOAD_SLOT - PROVINCE_MAP_UPLOAD_CALL,
+        done = sym PROVINCE_MAP_UPLOAD_DONE_AT,
+    );
+}
+
+/// Uploads all staged RGBA texture pixel buffers into Direct3D 9. Called on
 /// the drawing thread under the presentation lock (outside `Present`), or on
 /// the main thread immediately before inline fallback drawing once `Present`
 /// has returned.
-pub(super) fn flush_minimap(m: &Memory) {
-    let pending = PENDING_MINIMAP.lock().unwrap_or_else(|e| e.into_inner()).0.take();
-    let Some(pending) = pending else { return };
-    if m.ptr(pending.minimap + MINIMAP_TEXTURE).is_ok_and(|t| t == pending.texture) {
-        type UploadTexture = unsafe extern "C" fn(usize, *const u8, u32, u32, u32, usize);
-        let upload: UploadTexture = unsafe { std::mem::transmute(m.at(MINIMAP_UPLOAD_FN)) };
-        unsafe { upload(pending.renderer, pending.pixels.as_ptr(), pending.width, pending.height, 4, pending.texture) };
+pub(super) fn flush_textures(m: &Memory) {
+    let pending = {
+        let mut state = PENDING_TEXTURES.lock().unwrap_or_else(|e| e.into_inner());
+        if state.staged.is_empty() {
+            return;
+        }
+        std::mem::take(&mut state.staged)
+    };
+    type UploadTexture = unsafe extern "C" fn(usize, *const u8, u32, u32, u32, usize);
+    let upload: UploadTexture = unsafe { std::mem::transmute(m.at(TEXTURE_UPLOAD_FN)) };
+    for item in &pending {
+        if m.ptr(item.slot_ptr).is_ok_and(|t| t == item.texture) {
+            unsafe { upload(item.renderer, item.pixels.as_ptr(), item.width, item.height, 4, item.texture) };
+        }
     }
-    let mut state = PENDING_MINIMAP.lock().unwrap_or_else(|e| e.into_inner());
-    if state.1.capacity() < pending.pixels.capacity() {
-        state.1 = pending.pixels;
+    let mut state = PENDING_TEXTURES.lock().unwrap_or_else(|e| e.into_inner());
+    for item in pending {
+        state.return_buffer(item.pixels);
     }
 }
 
-/// Discards any staged minimap upload on idler switch, shutdown, or device reset.
-pub(super) fn clear_minimap() {
-    let mut state = PENDING_MINIMAP.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(old) = state.0.take() {
-        if state.1.capacity() < old.pixels.capacity() {
-            state.1 = old.pixels;
+/// Discards any staged texture uploads on idler switch, shutdown, or device reset.
+pub(super) fn clear_textures() {
+    let mut state = PENDING_TEXTURES.lock().unwrap_or_else(|e| e.into_inner());
+    let old = std::mem::take(&mut state.staged);
+    for item in old {
+        state.return_buffer(item.pixels);
+    }
+}
+
+/// Cached immutable level-0 descriptor returned by `0x16d7f30`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CachedTexDesc {
+    width: u32,
+    height: u32,
+    format_and_bpp: Option<(u32, u32)>,
+}
+
+static TEX_DESC_CACHE: std::sync::LazyLock<RwLock<HashMap<(usize, usize), CachedTexDesc>>> = std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
+
+/// Clears cached texture descriptors (called before Direct3D device reset).
+pub(super) fn clear_texture_desc_cache() {
+    TEX_DESC_CACHE.write().unwrap_or_else(|e| e.into_inner()).clear();
+}
+
+#[called_by_game]
+unsafe extern "C" fn get_texture_desc(wrapper: usize, out: *mut u32) {
+    if wrapper == 0 || out.is_null() {
+        return;
+    }
+    let d3d_tex = unsafe { *(wrapper as *const usize) };
+    if d3d_tex == 0 {
+        return;
+    }
+    let key = (wrapper, d3d_tex);
+    if let Some(desc) = TEX_DESC_CACHE.read().unwrap_or_else(|e| e.into_inner()).get(&key).copied() {
+        unsafe {
+            *out = desc.width;
+            *out.add(1) = desc.height;
+            if let Some((fmt, bpp)) = desc.format_and_bpp {
+                *out.add(2) = fmt;
+                *out.add(3) = bpp;
+            }
+        }
+        return;
+    }
+    const UNSET: u32 = u32::MAX;
+    let mut probe = [0u32, 0u32, UNSET, UNSET];
+    unsafe { ORIGINAL_TEXTURE_DESC.get()(wrapper, probe.as_mut_ptr()) };
+    let desc = CachedTexDesc { width: probe[0], height: probe[1], format_and_bpp: (probe[2] != UNSET).then_some((probe[2], probe[3])) };
+    unsafe {
+        *out = desc.width;
+        *out.add(1) = desc.height;
+        if let Some((fmt, bpp)) = desc.format_and_bpp {
+            *out.add(2) = fmt;
+            *out.add(3) = bpp;
         }
     }
+    TEX_DESC_CACHE.write().unwrap_or_else(|e| e.into_inner()).insert(key, desc);
+}
+
+#[called_by_game]
+unsafe extern "C" fn release_texture(wrapper: usize) {
+    if wrapper != 0 {
+        let d3d_tex = unsafe { *(wrapper as *const usize) };
+        let mut cache = TEX_DESC_CACHE.write().unwrap_or_else(|e| e.into_inner());
+        if d3d_tex != 0 {
+            cache.remove(&(wrapper, d3d_tex));
+        }
+        // Also evict any stale entry for the same wrapper or D3D9 texture address.
+        cache.retain(|&(w, t), _| w != wrapper && (d3d_tex == 0 || t != d3d_tex));
+    }
+    unsafe { ORIGINAL_TEXTURE_RELEASE.get()(wrapper) };
 }
 
 #[unsafe(naked)]

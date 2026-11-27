@@ -209,18 +209,19 @@ static IN_FRAME: AtomicBool = AtomicBool::new(false);
 /// until it has. What was deferred is done before the idler goes.
 #[called_by_game]
 extern "C" fn idler_switches() {
-    deferred::clear_minimap();
+    deferred::clear_textures();
     let m = crate::native::hooked_memory();
     let mut stage = LiveStage(&m);
     FRAMES.clear_across_deferred(&mut stage, |_| {
         main_side(|s| s.drawing_frame_ends(&MainLock, || IN_FRAME.load(Ordering::Acquire)));
     });
-    deferred::clear_minimap();
+    deferred::clear_textures();
 }
 
-/// Clears any staged minimap texture upload before a Direct3D device reset.
+/// Clears any staged texture uploads and cached texture descriptors before a Direct3D device reset.
 pub(super) fn device_reset() {
-    deferred::clear_minimap();
+    deferred::clear_textures();
+    deferred::clear_texture_desc_cache();
 }
 
 resume!(FRAME_RESUME: FRAME_DRAWN_AT = FRAME_DRAWN);
@@ -818,7 +819,7 @@ fn app_frame_after(call: &mut Call) {
 /// began to wait for before it was stopped never begins.
 fn stop() {
     STOPPED.store(true, Ordering::Release);
-    deferred::clear_minimap();
+    deferred::clear_textures();
     let m = crate::native::hooked_memory();
     let mut stage = LiveStage(&m);
     FRAMES.clear_across_deferred(&mut stage, |_| {
@@ -827,7 +828,7 @@ fn stop() {
         drop(_guard);
         main_side(|s| s.quits(&MainLock, || IN_FRAME.load(Ordering::Acquire)));
     });
-    deferred::clear_minimap();
+    deferred::clear_textures();
     log!("drawing: the game quits; the drawing thread draws no more");
 }
 
@@ -1021,7 +1022,7 @@ fn draw_here(m: &Memory, idler: usize) {
     while PRESENTING.load(Ordering::Acquire) {
         std::thread::yield_now();
     }
-    deferred::flush_minimap(m);
+    deferred::flush_textures(m);
     HERE.fetch_add(1, Ordering::Relaxed);
     unsafe { direct1(m, DRAWING)(idler) };
 }
@@ -1219,7 +1220,7 @@ fn run() {
             if let Err(e) = tooltip::follow_cursor(&m, idler) {
                 log!("drawing: the tooltip could not follow the cursor: {e}");
             }
-            deferred::flush_minimap(&m);
+            deferred::flush_textures(&m);
             IN_FRAME.store(true, Ordering::Release);
             let watched = crate::native::probes::drawing_frame_begins(&m);
             drawing_side(|d| d.frame_begins(watched));
