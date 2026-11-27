@@ -346,6 +346,7 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
 
 fn before_reset(_: &mut Call) {
     probes::device_reset();
+    drawing::device_reset();
     d3d9::clear_device();
     super::screenshot::device_reset();
     if let Some(h) = HOOKS.get() {

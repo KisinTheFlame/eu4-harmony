@@ -15,7 +15,7 @@ use crate::native::memory::Memory;
 use crate::native::objects::campaign::globals::WORLD;
 use crate::native::points::{Function, Point};
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     Mutex,
 };
 
@@ -133,6 +133,18 @@ pub(super) fn points() -> Vec<Point> {
         Point::keep(PORT_MODEL_FROM_MARKERS_A - 5, "e8 49 1e 00 00", "a port's model in the markers update, first"),
         Point::keep(PORT_MODEL_FROM_MARKERS_B - 5, "e8 13 1e 00 00", "a port's model in the markers update, second"),
         Point::keep(PORT_MODEL_FROM_MARKERS_C - 5, "e8 03 1d 00 00", "a port's model in the markers update, third"),
+        Point::keep(0x10b7e3a, "4c 8b 87 60 02 00 00", "a minimap's texture").uses(&[MINIMAP_TEXTURE]),
+        Point::jump(
+            MINIMAP_UPLOAD_CALL,
+            "45 8b c5 ff 15 02 95 f1 00",
+            "the minimap's texture uploaded",
+            minimap_upload_stub as *const () as usize,
+            &MINIMAP_UPLOAD_RESUME,
+        )
+        .uses(&[MINIMAP_UPLOAD_SLOT])
+        .recorded(&MINIMAP_UPLOAD_AT),
+        Point::keep(MINIMAP_UPLOAD_DONE, "48 8d 97 68 02 00 00", "the minimap's texture upload done"),
+        Point::keep(MINIMAP_UPLOAD_FN, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 60 48 8b 84 24 98 00 00", "the graphics back end's texture upload"),
         Point::jump(OWNER_TOLD, "4c 8b c9 83 fa ff", "the map told of a province's new owner", owner_told_stub as *const () as usize, &OWNER_TOLD_RESUME),
         // mov rcx, [r13 + 0x1e00]; test rcx, rcx; je; mov rax, [rcx];
         // call [rax + 0x2a8]: the day's call of the interface's daily refresh.
@@ -207,6 +219,21 @@ const PORT_MODEL_FROM_MARKERS_C: usize = 0x1321bad;
 resume!(PORT_MODEL_RESUME: PORT_MODEL_GOES_ON_AT = PORT_MODEL_GOES_ON);
 const MINIMAP_GOES_ON: usize = 0x10b6c57;
 resume!(MINIMAP_RESUME: MINIMAP_GOES_ON_AT = MINIMAP_GOES_ON);
+/// Inside `0x10b6c50` (`eu3minimap.cpp`), once the CPU pixel buffer is ready
+/// and the minimap's texture (`[minimap + 0x260]`) already exists, `0x10b7e6d`
+/// sets `r8d = width` and calls `[0x1fd1378]` (`0x16d7e70`, D3D9 surface
+/// upload via `D3DXLoadSurfaceFromMemory`). Running that upload on the main
+/// thread while the drawing thread is inside `Present` blocks on Direct3D 9's
+/// internal device critical section; capturing the pixels and uploading them
+/// on the drawing thread before drawing removes that lock stall without
+/// racing on world state.
+const MINIMAP_TEXTURE: usize = 0x260;
+const MINIMAP_UPLOAD_CALL: usize = 0x10b7e6d;
+const MINIMAP_UPLOAD_DONE: usize = 0x10b7ea0;
+const MINIMAP_UPLOAD_SLOT: usize = 0x1fd1378;
+const MINIMAP_UPLOAD_FN: usize = 0x16d7e70;
+resume!(MINIMAP_UPLOAD_RESUME: MINIMAP_UPLOAD_DONE_AT = MINIMAP_UPLOAD_DONE);
+static MINIMAP_UPLOAD_AT: AtomicUsize = AtomicUsize::new(0);
 /// A mesh object's scalar deleting destructor (`pdxmeshobject.cpp`, the slot
 /// 0 of its vtable `0x1d92408`, called through it only): the object and
 /// whether to free it (bit 0). It takes the object off its mesh's list of
@@ -371,6 +398,102 @@ extern "C" fn port_model(entry: usize, province: usize, map: usize, flag: u32, f
     }
     defer(Deferred::PortModel { entry, province, map, flag: flag & 0xff });
     true
+}
+
+/// Latest minimap CPU pixel buffer staged by the main thread for upload on the
+/// drawing thread before its next frame, plus a recycled pixel buffer.
+struct PendingMinimap {
+    minimap: usize,
+    renderer: usize,
+    texture: usize,
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>,
+}
+
+static PENDING_MINIMAP: Mutex<(Option<PendingMinimap>, Vec<u8>)> = Mutex::new((None, Vec::new()));
+
+#[called_by_game]
+extern "C" fn defer_minimap_upload(minimap: usize, renderer: usize, pixels: usize, width: u32, height: u32, texture: usize) -> bool {
+    if !on_main()
+        || !drawing_on()
+        || super::FRAMES.prepared_idler() == 0
+        || minimap == 0
+        || renderer == 0
+        || pixels == 0
+        || texture == 0
+        || width == 0
+        || height == 0
+        || width > 4096
+        || height > 4096
+    {
+        return false;
+    }
+    let len = (width as usize) * (height as usize) * 4;
+    let m = crate::native::hooked_memory();
+    let mut state = PENDING_MINIMAP.lock().unwrap_or_else(|e| e.into_inner());
+    let mut buf = state.0.take().map_or_else(|| std::mem::take(&mut state.1), |old| old.pixels);
+    buf.resize(len, 0);
+    if m.read_into(pixels, &mut buf).is_err() {
+        state.1 = buf;
+        return false;
+    }
+    state.0 = Some(PendingMinimap { minimap, renderer, texture, width, height, pixels: buf });
+    true
+}
+
+#[unsafe(naked)]
+extern "C" fn minimap_upload_stub() {
+    std::arch::naked_asm!(
+        call_rust!(
+            "mov qword ptr [rsp + 0x28], r8",
+            "mov dword ptr [rsp + 0x20], r9d",
+            "mov r9d, r13d",
+            "mov r8, rdx",
+            "mov rdx, rcx",
+            "mov rcx, rdi",
+            call defer_minimap_upload => bool
+        ),
+        "jne 2f",
+        "mov r8d, r13d",
+        "mov rax, qword ptr [rip + {at}]",
+        "add rax, {to_slot}",
+        "call qword ptr [rax]",
+        "2:",
+        "jmp qword ptr [rip + {done}]",
+        defer_minimap_upload = sym defer_minimap_upload,
+        at = sym MINIMAP_UPLOAD_AT,
+        to_slot = const MINIMAP_UPLOAD_SLOT - MINIMAP_UPLOAD_CALL,
+        done = sym MINIMAP_UPLOAD_DONE_AT,
+    );
+}
+
+/// Uploads the latest staged minimap pixel buffer into Direct3D 9. Called on
+/// the drawing thread under the presentation lock (outside `Present`), or on
+/// the main thread immediately before inline fallback drawing once `Present`
+/// has returned.
+pub(super) fn flush_minimap(m: &Memory) {
+    let pending = PENDING_MINIMAP.lock().unwrap_or_else(|e| e.into_inner()).0.take();
+    let Some(pending) = pending else { return };
+    if m.ptr(pending.minimap + MINIMAP_TEXTURE).is_ok_and(|t| t == pending.texture) {
+        type UploadTexture = unsafe extern "C" fn(usize, *const u8, u32, u32, u32, usize);
+        let upload: UploadTexture = unsafe { std::mem::transmute(m.at(MINIMAP_UPLOAD_FN)) };
+        unsafe { upload(pending.renderer, pending.pixels.as_ptr(), pending.width, pending.height, 4, pending.texture) };
+    }
+    let mut state = PENDING_MINIMAP.lock().unwrap_or_else(|e| e.into_inner());
+    if state.1.capacity() < pending.pixels.capacity() {
+        state.1 = pending.pixels;
+    }
+}
+
+/// Discards any staged minimap upload on idler switch, shutdown, or device reset.
+pub(super) fn clear_minimap() {
+    let mut state = PENDING_MINIMAP.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(old) = state.0.take() {
+        if state.1.capacity() < old.pixels.capacity() {
+            state.1 = old.pixels;
+        }
+    }
 }
 
 #[unsafe(naked)]
