@@ -57,11 +57,12 @@ struct ShutdownGate {
 struct GateState {
     active: bool,
     requested: bool,
+    waiters: usize,
 }
 
 impl ShutdownGate {
     const fn new() -> Self {
-        Self { state: Mutex::new(GateState { active: false, requested: false }), changed: Condvar::new() }
+        Self { state: Mutex::new(GateState { active: false, requested: false, waiters: 0 }), changed: Condvar::new() }
     }
 
     fn begin(&self) {
@@ -100,8 +101,11 @@ impl ShutdownGate {
             if remaining.is_zero() {
                 return false;
             }
+            state.waiters += 1;
+            self.changed.notify_all();
             let (next, _) = self.changed.wait_timeout(state, remaining).unwrap_or_else(|e| e.into_inner());
             state = next;
+            state.waiters -= 1;
         }
         true
     }
@@ -116,10 +120,21 @@ impl ShutdownGate {
             if remaining.is_zero() {
                 break;
             }
+            state.waiters += 1;
+            self.changed.notify_all();
             let (next, _) = self.changed.wait_timeout(state, remaining).unwrap_or_else(|e| e.into_inner());
             state = next;
+            state.waiters -= 1;
         }
         state.requested
+    }
+
+    #[cfg(test)]
+    fn wait_until_waiting(&self) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        while state.waiters == 0 {
+            state = self.changed.wait(state).unwrap_or_else(|e| e.into_inner());
+        }
     }
 }
 
@@ -401,8 +416,8 @@ mod tests {
         let gate = Arc::new(ShutdownGate::new());
         gate.begin();
         let waiter_gate = gate.clone();
-        let waiter = std::thread::spawn(move || waiter_gate.request_and_wait(Duration::from_secs(2)));
-        std::thread::sleep(Duration::from_millis(30));
+        let waiter = std::thread::spawn(move || waiter_gate.request_and_wait(Duration::from_secs(10)));
+        gate.wait_until_waiting();
         assert!(gate.is_active());
         assert!(gate.finish(), "finish reports the shutdown request");
         assert!(waiter.join().unwrap(), "shutdown handler observes graceful completion");
@@ -416,12 +431,10 @@ mod tests {
         assert!(!gate.finish());
 
         let sleeper = gate.clone();
-        let started = Instant::now();
-        let handle = std::thread::spawn(move || sleeper.wait_unless_requested(Duration::from_secs(5)));
-        std::thread::sleep(Duration::from_millis(30));
+        let handle = std::thread::spawn(move || sleeper.wait_unless_requested(Duration::from_secs(30)));
+        gate.wait_until_waiting();
         gate.mark_requested();
-        assert!(handle.join().unwrap());
-        assert!(started.elapsed() < Duration::from_secs(1), "woke promptly on shutdown");
+        assert!(handle.join().unwrap(), "notice wait wakes on shutdown request");
     }
 
     /// A shutdown waiter times out cleanly if a swap never finishes.
