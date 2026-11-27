@@ -1,12 +1,9 @@
 //! Input at screen positions. An input is answered once it is taken, and
 //! holds back the requests after it, but further input, until the game has
 //! had it.
-use crate::capabilities::game::input::checks;
-use crate::capabilities::game::{
-    self,
-    input::{Action, Taken},
-};
 use super::{Hold, Outcome, Poll};
+use crate::capabilities::game;
+use crate::render::input::{self, checks, Action, Taken};
 use eu4_harmony_remote::{
     input::{Button, Cursor, InputAnswer, InputRequest, Key, Keys},
     Answer, Error, Request,
@@ -19,20 +16,20 @@ pub trait Layer {
     /// Whether every input up to `taken` has been handed to the game and a
     /// frame has run since.
     fn handled(&mut self, taken: Taken) -> bool;
-    fn cursor(&mut self) -> game::GResult<game::input::Cursor>;
+    fn cursor(&mut self) -> game::GResult<input::Cursor>;
 }
 
 impl Layer for super::Live {
     fn take(&mut self, action: Action, scale: u32) -> game::GResult<Taken> {
-        game::input::take(self.0, action, scale)
+        input::take(self.0, action, scale)
     }
 
     fn handled(&mut self, taken: Taken) -> bool {
-        game::input::handled(taken)
+        input::handled(taken)
     }
 
-    fn cursor(&mut self) -> game::GResult<game::input::Cursor> {
-        game::input::cursor(self.0)
+    fn cursor(&mut self) -> game::GResult<input::Cursor> {
+        input::cursor(self.0)
     }
 }
 
@@ -124,7 +121,7 @@ fn taken(request: InputRequest, game: &mut (impl Layer + ?Sized)) -> (Result<Inp
 mod tests {
     use super::super::Place;
     use crate::fake_game::fake::{answer, ok, quiet, Fake, PLENTY};
-    use crate::capabilities::game::input::Action;
+    use crate::render::input::Action;
     use crate::remote::Engine;
     use eu4_harmony_remote::{input::Button, request_from_json, time::TimeRequest, Request};
     use serde_json::{json, Value};

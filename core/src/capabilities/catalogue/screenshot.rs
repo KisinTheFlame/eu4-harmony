@@ -2,7 +2,7 @@
 //! the next frame the main thread presents and encodes it on a thread of its
 //! own, so the answer comes at a later safe point.
 use super::{Outcome, Poll, Wait};
-use crate::capabilities::game::screenshot::{self as layer, Shot};
+use crate::render::screenshot::{self as layer, Shot};
 use eu4_harmony_remote::{
     screenshot::{Screenshot, ScreenshotAnswer, ScreenshotRequest},
     Answer, Binary, Error, Response,
@@ -57,7 +57,8 @@ mod tests {
     use super::super::{Place, Request};
     use crate::fake_game::fake::{answer, quiet, Fake};
     use super::*;
-    use crate::capabilities::game::{screenshot::Image, Fail, Status};
+    use crate::capabilities::game::{Fail, Status};
+    use crate::render::screenshot::Image;
     use crate::remote::Engine;
 
     use serde_json::{json, Value};

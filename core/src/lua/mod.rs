@@ -15,8 +15,7 @@ use crate::{
     base::mods::DiscoveredMod,
     base::notice::{Message, Repeat},
     capabilities::catalogue::{self, Catalogue, Place, Wait},
-    capabilities::game::map,
-    capabilities::game::{self, map_coloring, Caller},
+    capabilities::game::{self, map, Caller},
     interface::ui,
     session::saves,
 };
@@ -182,12 +181,12 @@ impl Surface for CoreSurface {
     }
 
     fn paint(&self, extension: usize, colors: &[(u32, [u8; 4])]) -> Result<(), Error> {
-        let colors: Vec<_> = colors.iter().map(|&(province, rgba)| map_coloring::MapColor { province, rgba }).collect();
-        map_coloring::paint(Caller::Extension(extension), &colors).map_err(Error::from)
+        let colors: Vec<_> = colors.iter().map(|&(province, rgba)| map::MapColor { province, rgba }).collect();
+        map::paint(Caller::Extension(extension), &colors).map_err(Error::from)
     }
 
     fn release_map(&self, extension: usize) -> Result<(), Error> {
-        map_coloring::clear(Caller::Extension(extension)).map_err(Error::from)
+        map::clear(Caller::Extension(extension)).map_err(Error::from)
     }
 
     fn cleanup_extension(&self, extension: usize, reloaded: Option<&Extension>) {

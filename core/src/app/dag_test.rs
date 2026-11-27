@@ -6,9 +6,10 @@
 //!    is registered as an explicit DAG node.
 //! 2. The declared production dependency graph is strictly acyclic.
 //! 3. Production code in each node only imports `crate::<target>` from its
-//!    declared allowed dependency list (unit tests are relaxed; `capabilities`
-//!    internals are intentionally not hard-checked).
-//! 4. `lib.rs` keeps all top-level submodules private (`mod`, never `pub mod`).
+//!    declared allowed dependency list (unit tests are relaxed).
+//! 4. Production modules under `capabilities/game/` form a strictly acyclic
+//!    internal dependency graph.
+//! 5. `lib.rs` keeps all top-level submodules private (`mod`, never `pub mod`).
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -53,7 +54,7 @@ const PRODUCTION_DAG: &[(&str, &[&str])] = &[
 ];
 
 /// Test-only node allowed dependencies.
-const FAKE_GAME_ALLOWED: &[&str] = &["base", "native", "session", "world", "capabilities", "remote"];
+const FAKE_GAME_ALLOWED: &[&str] = &["base", "native", "render", "session", "world", "capabilities", "remote"];
 
 fn src_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("src")
@@ -262,16 +263,17 @@ fn is_ident_char(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
 }
 
-/// Extracts every top-level target module referenced via `crate::<target>` or
-/// `crate::{ ... }` in already-cleaned Rust source.
-fn crate_targets(code: &str) -> BTreeSet<String> {
+/// Extracts every identifier immediately following `prefix` (either `prefix<ident>`
+/// or top-level entries inside `prefix{ ... }`) in already-cleaned Rust source.
+fn prefixed_targets(code: &str, prefix: &[u8]) -> BTreeSet<String> {
     let mut targets = BTreeSet::new();
     let bytes = code.as_bytes();
     let len = bytes.len();
+    let plen = prefix.len();
     let mut i = 0;
-    while i + 7 <= len {
-        if &bytes[i..i + 7] == b"crate::" && (i == 0 || !is_ident_char(bytes[i - 1])) {
-            let mut j = i + 7;
+    while i + plen <= len {
+        if &bytes[i..i + plen] == prefix && (i == 0 || !is_ident_char(bytes[i - 1])) {
+            let mut j = i + plen;
             while j < len && bytes[j].is_ascii_whitespace() {
                 j += 1;
             }
@@ -300,7 +302,7 @@ fn crate_targets(code: &str) -> BTreeSet<String> {
                                 j += 1;
                             }
                             let ident = &code[start..j];
-                            if ident != "self" {
+                            if ident != "self" && ident != "super" {
                                 targets.insert(ident.to_string());
                             }
                             expect_ident = false;
@@ -316,7 +318,7 @@ fn crate_targets(code: &str) -> BTreeSet<String> {
                     j += 1;
                 }
                 let ident = &code[start..j];
-                if ident != "self" {
+                if ident != "self" && ident != "super" {
                     targets.insert(ident.to_string());
                 }
                 i = j;
@@ -326,6 +328,12 @@ fn crate_targets(code: &str) -> BTreeSet<String> {
         i += 1;
     }
     targets
+}
+
+/// Extracts every top-level target module referenced via `crate::<target>` or
+/// `crate::{ ... }` in already-cleaned Rust source.
+fn crate_targets(code: &str) -> BTreeSet<String> {
+    prefixed_targets(code, b"crate::")
 }
 
 #[test]
@@ -424,6 +432,84 @@ fn fake_game_imports_respect_its_allowlist() {
         }
     }
     assert!(violations.is_empty(), "fake_game dependency violations:\n{}", violations.join("\n"));
+}
+
+#[test]
+fn capabilities_game_submodules_are_strictly_acyclic() {
+    let game_root = src_root().join("capabilities").join("game");
+    let mut modules: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
+    for entry in fs::read_dir(&game_root).unwrap().map(Result::unwrap) {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name == "mod.rs" {
+            continue;
+        }
+        if path.is_dir() {
+            let mut files = Vec::new();
+            collect_rs(&path, &mut files);
+            modules.insert(name, files);
+        } else if let Some(stem) = name.strip_suffix(".rs") {
+            modules.insert(stem.to_string(), vec![path]);
+        }
+    }
+    let all_nodes: BTreeSet<String> = modules.keys().cloned().collect();
+    let mut edges: BTreeMap<String, BTreeSet<String>> = all_nodes.iter().map(|n| (n.clone(), BTreeSet::new())).collect();
+    for (module, files) in &modules {
+        for file in files {
+            if is_test_only_file(file) {
+                continue;
+            }
+            let cleaned = strip_non_production(&fs::read_to_string(file).unwrap());
+            // Count directory depth below `capabilities/game/` to determine which `super::` chain resolves to `capabilities::game`.
+            let rel = file.strip_prefix(&game_root).unwrap();
+            let depth = rel.components().count();
+            // `foo.rs` (depth 1) or `foo/mod.rs` (depth 2, file_name == "mod.rs"): 1 `super::` reaches `capabilities::game`.
+            // `foo/bar.rs` (depth 2, file_name != "mod.rs"): 2 `super::` reach `capabilities::game`.
+            let supers = if file.file_name().is_some_and(|n| n == "mod.rs") { depth - 1 } else { depth };
+            let super_prefix = "super::".repeat(supers);
+            let mut targets = prefixed_targets(&cleaned, super_prefix.as_bytes());
+            targets.extend(prefixed_targets(&cleaned, b"crate::capabilities::game::"));
+            for target in targets {
+                if target != *module && all_nodes.contains(&target) {
+                    edges.get_mut(module).unwrap().insert(target);
+                }
+            }
+        }
+    }
+
+    let mut indegree: BTreeMap<&str, usize> = all_nodes.iter().map(|n| (n.as_str(), 0)).collect();
+    let mut dependents: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for (node, deps) in &edges {
+        for dep in deps {
+            *indegree.get_mut(node.as_str()).unwrap() += 1;
+            dependents.entry(dep.as_str()).or_default().push(node.as_str());
+        }
+    }
+    let mut queue: VecDeque<&str> = indegree.iter().filter(|&(_, &deg)| deg == 0).map(|(&n, _)| n).collect();
+    let mut visited = 0usize;
+    while let Some(node) = queue.pop_front() {
+        visited += 1;
+        if let Some(nexts) = dependents.get(node) {
+            for &next in nexts {
+                let deg = indegree.get_mut(next).unwrap();
+                *deg -= 1;
+                if *deg == 0 {
+                    queue.push_back(next);
+                }
+            }
+        }
+    }
+    if visited != all_nodes.len() {
+        let remaining: Vec<String> = indegree
+            .iter()
+            .filter(|&(_, &deg)| deg > 0)
+            .map(|(&n, _)| {
+                let deps: Vec<&str> = edges[n].iter().map(String::as_str).filter(|d| indegree[d] > 0).collect();
+                format!("  {n} -> {deps:?}")
+            })
+            .collect();
+        panic!("capabilities/game submodules contain a cycle:\n{}", remaining.join("\n"));
+    }
 }
 
 #[test]

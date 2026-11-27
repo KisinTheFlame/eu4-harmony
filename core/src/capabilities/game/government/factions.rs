@@ -2,8 +2,8 @@
 //! factions panel shows them, and boosting one, the spending its button
 //! makes (docs/game/countries/power-spending.md, "The country's other
 //! spendings").
-use super::content::{self, checks};
-use super::{power, thousandths, Ctx, GResult, Session};
+use super::super::content::{self, checks};
+use super::super::{power, thousandths, Ctx, GResult, Session};
 use crate::{native::containers, native::game_string, native::memory::Memory, native::points::Point};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind},
@@ -107,7 +107,7 @@ pub fn boost_faction(Session { m, ctx, commands, .. }: Session, args::BoostFacti
             continue;
         }
         let doing = format!("boost the faction {faction}");
-        super::action::allowed(&choice(m, &ctx, &entry)?, &doing)?;
+        super::super::action::allowed(&choice(m, &ctx, &entry)?, &doing)?;
         let skill = power_kind(m, entry.kind)?;
         return power::spend(commands, ctx.player, BOOST_FACTION, skill, m.i32(entry.kind + TYPE_INDEX)?, &doing);
     }

@@ -1,8 +1,8 @@
 //! Islamic piety's two actions, enforcing faithful adherence and calling on
 //! religious followers, as the religion view's buttons post them, with the
 //! view's own lines (docs/game/provinces/religion.md, "Piety").
-use super::commands::{write, Block};
-use super::{action, content, Ctx, GResult, Session, Tag};
+use super::super::commands::{write, Block};
+use super::super::{action, content, Ctx, GResult, Session, Tag};
 use crate::{
     native::memory::Memory,
     native::objects::campaign::country,
@@ -89,7 +89,7 @@ fn text(command: &str, country: Tag) -> String {
 
 fn take(Session { m, ctx, commands, .. }: Session, command: &str, check: GameFunction<2>, doing: &str) -> GResult<()> {
     if !uses_piety(m, ctx.country)? {
-        return Err(super::religion::checks::not_of_religion("piety"));
+        return Err(super::checks::not_of_religion("piety"));
     }
     action::carry_out(commands, &choice(m, ctx.country, check)?, doing, || Ok(text(command, ctx.player)))
 }

@@ -2,10 +2,10 @@
 //! give it, as the government view shows them, and using an interaction
 //! through the game's own command (docs/game/countries/government.md,
 //! "Government mechanics"). Part of the government group.
-use super::commands::{write, Block};
-use super::content::checks;
-use super::government::GOVERNMENT;
-use super::{action, conditions, content, modifiers, thousandths, Ctx, GResult, Session, Tag};
+use super::super::commands::{write, Block};
+use super::super::content::checks;
+use super::GOVERNMENT;
+use super::super::{action, conditions, content, modifiers, thousandths, Ctx, GResult, Session, Tag};
 use crate::{
     native::containers,
     native::game_string,

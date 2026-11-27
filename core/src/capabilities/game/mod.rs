@@ -5,17 +5,10 @@
 pub(crate) mod administration;
 pub(crate) mod areas;
 pub(crate) mod army;
-pub(crate) mod curia;
-pub(crate) mod factions;
-pub(crate) mod faith;
 pub(crate) mod frame;
 pub(crate) mod geography;
 pub(crate) mod map;
-pub(crate) mod map_coloring;
-pub(crate) mod mechanics;
-pub(crate) mod opinions;
 pub(crate) mod orders;
-pub(crate) mod piety;
 pub(crate) mod signal_costs;
 pub(crate) mod signals;
 pub(crate) mod spendings;
@@ -36,6 +29,9 @@ pub(crate) use crate::world::{
 macro_rules! layer_modules {
     (@munch [$($modules:tt)*] $(#[$attr:meta])* $Group:ident($module:ident $(: Layer)?) $(=> $outcome:expr)?, $($rest:tt)*) => {
         layer_modules!(@munch [$($modules)* { $(#[$attr])* $module }] $($rest)*);
+    };
+    (@munch $modules:tt $(#[$attr:meta])* $Group:ident($module:ident: External) => $outcome:expr, $($rest:tt)*) => {
+        layer_modules!(@munch $modules $($rest)*);
     };
     (@munch $modules:tt $(#[$attr:meta])* $Group:ident => $outcome:expr, $($rest:tt)*) => {
         layer_modules!(@munch $modules $($rest)*);
@@ -233,16 +229,10 @@ pub fn points() -> Vec<Point> {
     points.extend(army::points());
     points.extend(orders::points());
     points.extend(signals::points());
-    points.extend(mechanics::points());
-    points.extend(opinions::points());
     points.extend(administration::points());
     points.extend(areas::points());
     points.extend(units::points());
     points.extend(spendings::points());
-    points.extend(faith::points());
-    points.extend(piety::points());
-    points.extend(factions::points());
-    points.extend(curia::points());
     points.extend(map::points());
     points
 }

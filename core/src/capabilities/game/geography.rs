@@ -1,21 +1,88 @@
-﻿//! Reading the map's provinces and the countries: the provinces' graph,
+//! Reading the map's provinces and the countries: the provinces' graph,
 //! fog of war and discovery, and who is at war with whom. One army or fleet is
 //! read by [`super::army`].
-use super::{
-    country, fail,
-    player::Eyes,
-    provinces::{Neighbor, Province},
-    special_countries, Ctx, GResult, InWorld, Status, Tag,
-};
+use super::{country, fail, player::Eyes, special_countries, Ctx, GResult, InWorld, Status, Tag};
 use crate::native::{
     memory::Memory,
-    objects::campaign::{adjacency, country as country_fields, geometry, globals, province},
+    objects::campaign::{adjacency, countries as countries_fields, country as country_fields, geometry, globals, province},
     points::{GameFunction, Point},
 };
 const STRAIT_BLOCKED: GameFunction<2> = GameFunction::at(0x96f650);
+/// The game's getters of a province's base tax, production and manpower, as
+/// triggers and the province window read them: (unused, out, province).
+const BASE_TAX: GameFunction<3> = GameFunction::at(0x6de7a0);
+const BASE_PRODUCTION: GameFunction<3> = GameFunction::at(0x6de830);
+const BASE_MANPOWER: GameFunction<3> = GameFunction::at(0x6de8c0);
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Province {
+    pub id: u32,
+    pub land: bool,
+    pub lake: bool,
+    pub impassable: bool,
+    /// Not under fog of war; false while visibility is not current.
+    pub visible: bool,
+    pub owner: Option<Tag>,
+    pub controller: Option<Tag>,
+}
+
+/// A province reachable over land, possibly across a strait.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Neighbor {
+    pub to: u32,
+    pub strait: bool,
+}
 
 pub fn points() -> Vec<Point> {
-    vec![Point::keep(STRAIT_BLOCKED, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 48", "strait blockade query")]
+    let getter = |function: GameFunction<3>, bytes: &'static str, what: &'static str, value: &'static [usize]| Point::keep(function, bytes, what).uses(value);
+    vec![
+        Point::keep(STRAIT_BLOCKED, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 48", "strait blockade query"),
+        getter(
+            BASE_TAX,
+            "4c 8b ca 49 8b 88 68 04 00 00 48 8b 05 1f f1 c5 01 48 c1 e9 20 48 0f bf c9 48 8b 80 18 01 00 00 48 8b 14 c8 \
+             48 8b 8a 78 9a 00 00 48 85 c9 74 26 41 8b 40 20 39 82 b8 14 00 00 75 1a b8 d3 4d 62 10 f7 69 1c c1 fa 06 8b c2 \
+             c1 e8 1f 03 d0 69 c2 e8 03 00 00 eb 02 33 c0 41 8b 90 e4 03 00 00 03 d0 41 89 11 49 8b c1 c3",
+            "base tax getter",
+            &[province::OWNER, globals::COUNTRY_MANAGER, countries_fields::LIST, province::ID, province::BASE_TAX],
+        ),
+        getter(
+            BASE_PRODUCTION,
+            "4c 8b ca 49 8b 88 68 04 00 00 48 8b 05 8f f0 c5 01 48 c1 e9 20 48 0f bf c9 48 8b 80 18 01 00 00 48 8b 14 c8 \
+             48 8b 8a 78 9a 00 00 48 85 c9 74 26 41 8b 40 20 39 82 b8 14 00 00 75 1a b8 d3 4d 62 10 f7 69 20 c1 fa 06 8b c2 \
+             c1 e8 1f 03 d0 69 c2 e8 03 00 00 eb 02 33 c0 41 8b 90 e8 03 00 00 03 d0 41 89 11 49 8b c1 c3",
+            "base production getter",
+            &[province::OWNER, globals::COUNTRY_MANAGER, countries_fields::LIST, province::ID, province::BASE_PRODUCTION],
+        ),
+        getter(
+            BASE_MANPOWER,
+            "4c 8b ca 49 8b 88 68 04 00 00 48 8b 05 ff ef c5 01 48 c1 e9 20 48 0f bf c9 48 8b 80 18 01 00 00 48 8b 14 c8 \
+             48 8b 8a 78 9a 00 00 48 85 c9 74 26 41 8b 40 20 39 82 b8 14 00 00 75 1a b8 d3 4d 62 10 f7 69 24 c1 fa 06 8b c2 \
+             c1 e8 1f 03 d0 69 c2 e8 03 00 00 eb 02 33 c0 41 8b 90 e0 03 00 00 03 d0 41 89 11 49 8b c1 c3",
+            "base manpower getter",
+            &[province::OWNER, globals::COUNTRY_MANAGER, countries_fields::LIST, province::ID, province::BASE_MANPOWER],
+        ),
+    ]
+}
+
+/// One of the base development getters.
+fn base_development(m: &Memory, getter: GameFunction<3>, province: usize) -> GResult<i32> {
+    let mut out = 0i32;
+    let ptr = &mut out as *mut i32 as usize;
+    if getter.call(m, [0, ptr, province])? != ptr {
+        return Err("development getter returned an unexpected pointer".to_string().into());
+    }
+    Ok(out)
+}
+
+/// Base tax, production and manpower of a province, in the game's fixed point.
+pub(super) fn development_parts(m: &Memory, province: usize) -> GResult<(i32, i32, i32)> {
+    Ok((base_development(m, BASE_TAX, province)?, base_development(m, BASE_PRODUCTION, province)?, base_development(m, BASE_MANPOWER, province)?))
+}
+
+/// Total development in the game's fixed point, including tribal development.
+pub(super) fn development(m: &Memory, province: usize) -> GResult<i32> {
+    let (tax, production, manpower) = development_parts(m, province)?;
+    tax.checked_add(production).and_then(|sum| sum.checked_add(manpower)).ok_or_else(|| "province development overflow".to_string().into())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -210,9 +277,9 @@ impl Geography {
             .collect())
     }
 
-    /// Whether the army may cross from `from` to the neighbor `to`; for
-    /// straits this asks the game about blockades by the army's military tag.
-    pub fn strait_open(&mut self, m: &Memory, ctx: &Ctx, army: usize, from: u32, to: u32) -> GResult<bool> {
+    /// Whether a country fighting under `military` may cross from `from` to
+    /// the neighbor `to`; for straits this asks the game about blockades.
+    pub fn strait_open(&mut self, m: &Memory, ctx: &Ctx, military: Tag, from: u32, to: u32) -> GResult<bool> {
         let node = self.node(m, ctx, from)?;
         let Some(edge) = node.edges.iter().find(|e| e.to == to && by_land(e.kind)) else {
             return fail(Status::NotFound, format!("{to} is not a land neighbor of {from}"));
@@ -226,7 +293,6 @@ impl Geography {
                 return Err("strait crosses an invalid province".to_string().into());
             }
         }
-        let military = super::army::military_tag(m, ctx, army)?;
         Ok(STRAIT_BLOCKED.call(m, [military.0 as usize, edge.address])? as u8 == 0)
     }
 }

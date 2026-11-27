@@ -212,19 +212,26 @@ use std::{
 /// Group(module),
 /// Group(module) => outcome,
 /// Group(module: Layer) => outcome,
+/// Group(module: External) => outcome,
 /// Group => outcome,
 /// ```
 ///
 /// A group bound to the layer in its layer module ([`bind`]), answered at
 /// once, or as the expression gives its [`Outcome`] (its module here is
 /// declared beside the list); a stateful/asynchronous group with a slice of
-/// the layer whose [`Outcome`] the expression gives; or a group of neither.
+/// the layer whose [`Outcome`] the expression gives (`External` when its
+/// implementation lives in another layer such as `crate::render`, rather than
+/// `crate::capabilities::game`); or a group of neither.
 /// The module here of a group with a slice is declared here, as remote
 /// control's groups declare theirs; the capability layer declares each
 /// group's module of its own.
 macro_rules! groups {
     (@munch $names:tt [$($slices:tt)*] [$($bound:tt)*] [$($arms:tt)*]
         $(#[$attr:meta])* $Group:ident($module:ident: Layer) => $outcome:expr, $($rest:tt)*) => {
+        groups!(@munch $names [$($slices)* $module] [$($bound)*] [$($arms)* { $(#[$attr])* $Group => $outcome }] $($rest)*);
+    };
+    (@munch $names:tt [$($slices:tt)*] [$($bound:tt)*] [$($arms:tt)*]
+        $(#[$attr:meta])* $Group:ident($module:ident: External) => $outcome:expr, $($rest:tt)*) => {
         groups!(@munch $names [$($slices)* $module] [$($bound)*] [$($arms)* { $(#[$attr])* $Group => $outcome }] $($rest)*);
     };
     (@munch $names:tt [$($slices:tt)*] [$($bound:tt)*] [$($arms:tt)*]
@@ -308,7 +315,7 @@ macro_rules! capability_groups {
             Province(provinces),
             Army(armies),
             Text(texts),
-            Screenshot(screenshot: Layer) => screenshot::run(request, game),
+            Screenshot(screenshot: External) => screenshot::run(request, game),
             Console(console) => console::run_and_answer_next(request, game),
             Question(questions),
             Popup(popups),
@@ -335,7 +342,7 @@ macro_rules! capability_groups {
                     .map_or_else(|| Err(Error::new(Code::Unavailable, "dev performance capability unavailable")), |h| (h.answer_performance)(request).map_err(Error::from))
                     .map(Answer::Performance),
             ),
-            Input(input: Layer) => input::run(request, game),
+            Input(input: External) => input::run(request, game),
             Desktop(desktop),
             Decision(decisions),
             Subject(subjects),

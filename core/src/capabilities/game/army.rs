@@ -4,7 +4,7 @@
 //! the game's own answers of where an army may go and whom it may attack.
 //! Visibility follows the game: units in fogged provinces are never read in
 //! the player's view.
-use super::{armies::Army, country, geography, Ctx, GResult, Tag, View, MAX_UNITS};
+use super::{country, geography, Ctx, GResult, Tag, View, MAX_UNITS};
 use crate::{
     native::containers,
     native::memory::Memory,
@@ -13,6 +13,109 @@ use crate::{
 };
 use eu4_harmony_remote::checks::armies as checks;
 use std::collections::BTreeSet;
+
+/// A land army, or a fleet, of which the ID, owner, `land: false`, its
+/// province and its ships (as `regiments`) are read.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Army {
+    /// Full 64-bit army ID; survives save and load.
+    pub id: u64,
+    pub owner: Tag,
+    pub province: u32,
+    pub land: bool,
+    pub in_battle: bool,
+    pub sieging: bool,
+    pub retreating: bool,
+    pub exiled: bool,
+    pub movement_locked: bool,
+    /// Attached to another army.
+    pub attached: bool,
+    /// Other armies are attached to this one.
+    pub has_followers: bool,
+    /// Running a native task (for example hunting rebels) or otherwise not idle.
+    pub busy: bool,
+    pub regiments: u32,
+    /// An army's fleet while it is aboard one.
+    pub aboard: Option<u64>,
+    /// A fleet's regiments aboard.
+    pub carrying: u32,
+}
+
+impl Army {
+    /// What of its state stops an order (`eu4_harmony_remote::checks::armies`).
+    pub fn condition(&self) -> checks::Condition {
+        checks::Condition {
+            in_battle: self.in_battle,
+            sieging: self.sieging,
+            retreating: self.retreating,
+            exiled: self.exiled,
+            movement_locked: self.movement_locked,
+            attached: self.attached,
+            has_followers: self.has_followers,
+            busy: self.busy,
+            regiments: self.regiments,
+        }
+    }
+}
+
+/// A kind of regiment or ship a country recruits; the game's own order of
+/// kinds, which a country's unit types are kept by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum UnitKind {
+    Infantry,
+    Cavalry,
+    Artillery,
+    HeavyShip,
+    LightShip,
+    Galley,
+    Transport,
+}
+
+/// The unit kind a remote client names.
+impl From<eu4_harmony_remote::recruiting::UnitKind> for UnitKind {
+    fn from(kind: eu4_harmony_remote::recruiting::UnitKind) -> Self {
+        use eu4_harmony_remote::recruiting::UnitKind as Named;
+        match kind {
+            Named::Infantry => Self::Infantry,
+            Named::Cavalry => Self::Cavalry,
+            Named::Artillery => Self::Artillery,
+            Named::HeavyShip => Self::HeavyShip,
+            Named::LightShip => Self::LightShip,
+            Named::Galley => Self::Galley,
+            Named::Transport => Self::Transport,
+        }
+    }
+}
+
+/// A unit kind as remote clients name it.
+impl From<UnitKind> for eu4_harmony_remote::recruiting::UnitKind {
+    fn from(kind: UnitKind) -> Self {
+        match kind {
+            UnitKind::Infantry => Self::Infantry,
+            UnitKind::Cavalry => Self::Cavalry,
+            UnitKind::Artillery => Self::Artillery,
+            UnitKind::HeavyShip => Self::HeavyShip,
+            UnitKind::LightShip => Self::LightShip,
+            UnitKind::Galley => Self::Galley,
+            UnitKind::Transport => Self::Transport,
+        }
+    }
+}
+
+impl UnitKind {
+    pub const ALL: [UnitKind; country_fields::UNIT_KINDS] =
+        [Self::Infantry, Self::Cavalry, Self::Artillery, Self::HeavyShip, Self::LightShip, Self::Galley, Self::Transport];
+
+    /// Its index among a country's unit types.
+    pub fn index(self) -> usize {
+        self as usize
+    }
+
+    /// The game's key for it, as in a country's history (`heavy_ship`).
+    pub fn key(self) -> &'static str {
+        ["infantry", "cavalry", "artillery", "heavy_ship", "light_ship", "galley", "transport"][self.index()]
+    }
+}
 
 const CAN_ENTER: GameFunction<9> = GameFunction::at(0x1a2280);
 const MILITARY_TAG: GameFunction<2> = GameFunction::at(0x1a8d20);
@@ -258,7 +361,7 @@ pub fn regiments(m: &Memory, unit: usize) -> GResult<u32> {
 pub struct Regiment {
     pub number: u32,
     pub name: String,
-    pub kind: super::provinces::UnitKind,
+    pub kind: UnitKind,
     pub unit_type: String,
     /// Fixed point, 1 at full for the usual type: [`Self::max_strength`].
     pub strength: i32,
@@ -274,7 +377,7 @@ pub fn regiments_of(m: &Memory, unit: usize) -> GResult<Vec<Regiment>> {
     for i in 0..count {
         let r = m.ptr(begin + i * 8)?;
         let kind = m.i32(m.ptr(r + regiment::TYPE)? + unit_type::KIND)?;
-        let kind = *super::provinces::UnitKind::ALL.get(kind as usize).ok_or_else(|| format!("a regiment of kind {kind}"))?;
+        let kind = *UnitKind::ALL.get(kind as usize).ok_or_else(|| format!("a regiment of kind {kind}"))?;
         let unit_type = m.ptr(r + regiment::TYPE)?;
         out.push(Regiment {
             number: m.u32(r + regiment::NUMBER)?,
@@ -510,6 +613,13 @@ mod tests {
         assert_eq!((fleet.land, fleet.province, fleet.regiments, fleet.carrying), (false, 1, 1, 2));
         let army = record(m, &specials, army).unwrap();
         assert_eq!((army.land, army.province, army.regiments, army.aboard, army.busy), (true, 1, 2, Some(12), false));
+    }
+
+    #[test]
+    fn unit_kinds_are_in_the_games_order() {
+        assert_eq!(UnitKind::ALL.map(UnitKind::index), [0, 1, 2, 3, 4, 5, 6]);
+        assert_eq!(UnitKind::Galley.index(), 5);
+        assert_eq!(UnitKind::ALL.map(UnitKind::key)[3..], ["heavy_ship", "light_ship", "galley", "transport"]);
     }
 
     #[test]

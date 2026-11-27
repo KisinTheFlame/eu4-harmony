@@ -22,7 +22,7 @@ pub const WAITED: Duration = Duration::from_secs(5);
 layer! {
     fn war_goals(asked: args::WarGoals) -> Vec<WarGoal> = session layer::war_goals;
     fn declare_war(asked: args::DeclareWar) -> Declaration = session layer::declare_war;
-    fn offer_peace(asked: args::OfferPeace) -> Ticket = session layer::offer_peace;
+    fn offer_peace(asked: args::OfferPeace) -> Ticket = session crate::capabilities::game::peace::offer_white_peace;
     fn propose_alliance(asked: args::ProposeAlliance) -> Ticket = session layer::propose_alliance;
     fn options(asked: args::Options) -> Options = session layer::options;
     fn panel_action(request: DiplomacyRequest) -> (Ticket, Act) = session layer::panel_action;

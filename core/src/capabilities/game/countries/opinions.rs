@@ -1,7 +1,8 @@
 ﻿//! What one country thinks of another, as the diplomacy view shows it: the
 //! opinion and its parts, the aggressive expansion it holds, its trust and
 //! the favors it owes (docs/game/diplomacy/diplomacy.md, "Opinion").
-use super::{countries, country, geography, thousandths, GResult, Tag, WorldSession};
+use super as countries;
+use super::super::{country, geography, thousandths, GResult, Tag, WorldSession};
 use crate::{
     native::game_string,
     native::memory::Memory,

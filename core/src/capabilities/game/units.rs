@@ -159,7 +159,7 @@ fn auto_transport_text(id: u64) -> String {
 /// A kind of regiment or ship as the game numbers it: a country's unit kinds'
 /// order.
 fn kind_index(kind: UnitKind) -> u32 {
-    super::provinces::UnitKind::from(kind) as u32
+    army::UnitKind::from(kind) as u32
 }
 
 /// A fleet's mission, its kind in `naval_region_mission` or its command.

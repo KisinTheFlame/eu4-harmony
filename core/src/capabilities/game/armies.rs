@@ -6,7 +6,7 @@
 //! army back from the extension that was moving it, and extensions hear that
 //! the player gave the army an order, exactly once
 //! (ADR remote-control-uses-capabilities).
-use super::{army, orders, signals, thousandths, with_state, Caller, GResult, Session, Tag};
+use super::{army, orders, signals, thousandths, with_state, Caller, GResult, Session};
 use crate::{native::memory::Memory, native::objects::campaign::unit};
 use eu4_harmony_remote::checks::armies as checks;
 use eu4_harmony_remote::armies::{self as remote, args, ArmyKind, Blocked, RouteBy};
@@ -14,63 +14,8 @@ use eu4_harmony_remote::ArmyId;
 use eu4_harmony_remote::CountryTag;
 use eu4_harmony_remote::ProvinceId;
 
-/// Who set the route an army is following, as the caller sees it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum RouteSource {
-    /// The army has no route.
-    #[default]
-    None,
-    /// The player (remote control included) or the game itself.
-    External,
-    /// The calling extension, and nobody changed it since.
-    Own,
-    /// An extension other than the caller.
-    OtherExtension,
-}
-
-/// A land army, or a fleet, of which the ID, owner, `land: false`, its
-/// province and its ships (as `regiments`) are read.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Army {
-    /// Full 64-bit army ID; survives save and load.
-    pub id: u64,
-    pub owner: Tag,
-    pub province: u32,
-    pub land: bool,
-    pub in_battle: bool,
-    pub sieging: bool,
-    pub retreating: bool,
-    pub exiled: bool,
-    pub movement_locked: bool,
-    /// Attached to another army.
-    pub attached: bool,
-    /// Other armies are attached to this one.
-    pub has_followers: bool,
-    /// Running a native task (for example hunting rebels) or otherwise not idle.
-    pub busy: bool,
-    pub regiments: u32,
-    /// An army's fleet while it is aboard one.
-    pub aboard: Option<u64>,
-    /// A fleet's regiments aboard.
-    pub carrying: u32,
-}
-
-impl Army {
-    /// What of its state stops an order (`eu4_harmony_remote::checks::armies`).
-    pub fn condition(&self) -> checks::Condition {
-        checks::Condition {
-            in_battle: self.in_battle,
-            sieging: self.sieging,
-            retreating: self.retreating,
-            exiled: self.exiled,
-            movement_locked: self.movement_locked,
-            attached: self.attached,
-            has_followers: self.has_followers,
-            busy: self.busy,
-            regiments: self.regiments,
-        }
-    }
-}
+pub use super::army::Army;
+pub use super::orders::RouteSource;
 
 /// What a capability tells of an army's units beyond its record: its
 /// regiments by kind, their strength, its morale, its leader and what it
@@ -92,7 +37,7 @@ impl Detail {
         let mut units = remote::Units::default();
         let (mut strength, mut max_strength) = (0i32, 0i32);
         for r in army::regiments_of(m, unit)? {
-            use super::provinces::UnitKind as K;
+            use army::UnitKind as K;
             let count = match r.kind {
                 K::Infantry => &mut units.infantry,
                 K::Cavalry => &mut units.cavalry,
@@ -227,7 +172,8 @@ pub fn can_enter(Session { m, ctx, .. }: Session, id: u64, province: u32) -> GRe
 /// Whether the strait between two neighboring provinces is open to the army.
 pub fn strait_open(Session { m, ctx, .. }: Session, id: u64, from: u32, to: u32) -> GResult<bool> {
     let army = army::own_land(m, &ctx, id)?;
-    with_state(|s| s.geography.strait_open(m, &ctx, army, from, to))
+    let military = army::military_tag(m, &ctx, army)?;
+    with_state(|s| s.geography.strait_open(m, &ctx, military, from, to))
 }
 
 /// Whether an own land army may attack an army the player sees, wherever
@@ -271,7 +217,9 @@ pub fn move_to(session: Session, args::Move { army: ArmyId(id), province: Provin
     }
     let army = army::own(m, &ctx, id)?;
     let ordered = with_state(|s| s.orders.move_army(&session, &mut s.geography, army, id, goal))?;
-    ordered.into_iter().for_each(signals::raise);
+    if let Some(ordered) = ordered {
+        signals::raise(signals::Change::Ordered(ordered));
+    }
     Ok(())
 }
 
@@ -280,7 +228,9 @@ pub fn stop(session: Session, args::Stop { army: ArmyId(id) }: args::Stop) -> GR
     let Session { m, ctx, .. } = session;
     let army = army::own_land(m, &ctx, id)?;
     let ordered = with_state(|s| s.orders.stop_army(&session, army, id))?;
-    ordered.into_iter().for_each(signals::raise);
+    if let Some(ordered) = ordered {
+        signals::raise(signals::Change::Ordered(ordered));
+    }
     Ok(())
 }
 
@@ -344,7 +294,7 @@ mod tests {
     use crate::capabilities::game::{
         buffers::{self, Image, Object, Provinces},
         commands::record,
-        Fail, Status,
+        Fail, Status, Tag,
     };
     use crate::native::objects::{
         campaign::{classes, country, globals, regiment, unit_type},

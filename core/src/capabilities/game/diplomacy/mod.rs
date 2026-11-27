@@ -12,10 +12,9 @@
 //! as a command of its own, carried out at the game's next frame. Each action
 //! sent is a [`Ticket`]; [`answer`] says what came of it, from the commands the
 //! game carried out, which an observer of the game's own function sees.
-use super::peace::checks as checks_peace;
 #[cfg(test)]
 use super::Caller;
-use super::{commands::Commands, context_any, countries, country, fail, Ctx, GResult, Session, Status, Tag, WorldSession};
+use super::{commands::Commands, context_any, countries, country, fail, Ctx, Fail, GResult, Session, Status, Tag, WorldSession};
 use crate::base::called_by_game;
 use crate::{native::game_string, native::hooks::Call, native::memory::Memory, native::objects::{
         diplomacy::{action, casus_belli, classes, command, factor, globals, send_window, side, sides, war_entry, war_goal, war_goal_type, war_goals, world},
@@ -278,23 +277,6 @@ fn declare(Session { m, ctx, commands, .. }: Session, enemy: Tag, choice: &Choic
     })
 }
 
-/// Offers the country a request names a white peace: a peace treaty with no
-/// terms chosen, demanded by the player, in the war between them, as the
-/// peace view sends one.
-pub fn offer_peace(Session { m, ctx, commands, .. }: Session, args::OfferPeace { country }: args::OfferPeace) -> GResult<Ticket> {
-    let enemy = countries::named(m, &ctx, country)?;
-    other(m, &ctx, enemy)?;
-    // The game's check refuses an offer to a country the player is not at
-    // war with without a reason: it looks for the war between them first.
-    if !super::geography::at_war(m, &ctx, ctx.player, enemy)? {
-        return fail(Status::Rejected, format!("the player is not at war with {}", letters(enemy)));
-    }
-    let treaty = super::peace::Treaty::new(m, &ctx, enemy, false)?;
-    let offer = super::peace::Offer::new(m, &ctx, enemy, &treaty, false)?;
-    verdict(m, offer.at())?;
-    send(commands, m, &ctx, offer.at(), enemy, Vec::new())
-}
-
 /// Proposes an alliance to the country a request names.
 pub fn propose_alliance(Session { m, ctx, commands, .. }: Session, args::ProposeAlliance { country }: args::ProposeAlliance) -> GResult<Ticket> {
     let ally = countries::named(m, &ctx, country)?;
@@ -364,7 +346,7 @@ pub fn call_to_arms(session: Session, args::CallToArms { country }: args::CallTo
     let ally = countries::named(session.m, &session.ctx, country)?;
     panel::send_simple(session, ally, &What::Act(Act::CallToArms)).map_err(|fail| {
         if fail.status == Status::Rejected && fail.message.starts_with(panel::NOT_OFFERED) {
-            checks_peace::no_call_to_arms(letters(ally))
+            Fail::new(Status::Rejected, format!("the diplomacy panel offers no call to arms to {}", letters(ally)))
         } else {
             fail
         }
@@ -1555,7 +1537,7 @@ mod tests {
             let toward_turkey = [
                 refused(turkey(false, |s| war_goals(s, args::WarGoals { country }))),
                 refused(turkey(false, |s| declare(s, tur(), &war, &Calls::None))),
-                refused(turkey(false, |s| offer_peace(s, args::OfferPeace { country }))),
+                refused(turkey(false, |s| crate::capabilities::game::peace::offer_white_peace(s, args::OfferPeace { country }))),
                 refused(turkey(false, |s| propose_alliance(s, args::ProposeAlliance { country }))),
                 refused(turkey(false, |s| add_rival(s, args::AddRival { country }))),
                 refused(turkey(false, |s| remove_rival(s, args::RemoveRival { country }))),
@@ -1574,7 +1556,7 @@ mod tests {
                 (Status::InvalidArgument, "no casus belli: name one by its key, or none".into())
             );
             assert_eq!(
-                refused(turkey(false, |s| offer_peace(s, args::OfferPeace { country: CountryTag(*b"BYZ") }))),
+                refused(turkey(false, |s| crate::capabilities::game::peace::offer_white_peace(s, args::OfferPeace { country: CountryTag(*b"BYZ") }))),
                 (Status::Rejected, "the player is not at war with BYZ".into())
             );
             assert!(record::posted().is_empty());

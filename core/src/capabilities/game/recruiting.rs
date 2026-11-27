@@ -6,7 +6,8 @@
 use super::commands::{write, Block};
 use super::{
     action,
-    provinces::{self, can_recruit, unit_type, UnitKind},
+    army::UnitKind,
+    provinces::{self, can_recruit, unit_type},
     with_state, Fail, GResult, Session, Status,
 };
 use crate::{native::game_string, native::objects::campaign::unit_type as unit_type_fields};

@@ -3,11 +3,14 @@
 //! (docs/game/countries/government.md, "Reforms" and "Rank"), and strengthening
 //! the government with military points (docs/game/countries/power-spending.md,
 //! "The country's other spendings").
+mod factions;
+mod mechanics;
+
 use super::commands::{write, Block};
 use super::content::checks;
-use super::factions::{boost_faction, factions};
-use super::mechanics::{interact, mechanics};
 use super::{action, conditions, content, power, thousandths, GResult, Session, Tag};
+use factions::{boost_faction, factions};
+use mechanics::{interact, mechanics};
 use crate::native::containers;
 use crate::native::game_string;
 use crate::{native::memory::Memory, native::points::{GameFunction, Point}};
@@ -62,7 +65,7 @@ const STRENGTHEN: i32 = 35;
 const CAN_STRENGTHEN: GameFunction<2> = GameFunction::at(0x3f78e0);
 
 pub fn points() -> Vec<Point> {
-    vec![
+    let mut points = vec![
         // The select check: the reform's `potential` and `trigger`, then the
         // country's government and its type.
         Point::keep(0x40aab9usize, "48 8b 9f b8 01 00 00", "reform potential"),
@@ -88,7 +91,10 @@ pub fn points() -> Vec<Point> {
         // military points, no values.
         Point::keep(0x94f424usize, "33 d2 48 8b cf e8 b2 84 aa ff", "strengthening's spend check"),
         Point::keep(0x1dc27e0usize, "23 00 00 00 02 00 00 00 00 00 00 00 ff ff ff ff", "strengthening's spending"),
-    ]
+    ];
+    points.extend(mechanics::points());
+    points.extend(factions::points());
+    points
 }
 
 /// Whether the player can strengthen the government now, with the

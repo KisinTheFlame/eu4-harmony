@@ -45,7 +45,7 @@ pub struct Fake {
     pub calls: Vec<String>,
     /// The screenshot asked for, taken or not; a 2x1 image taken at once
     /// when None.
-    pub shot: Option<Arc<game::screenshot::Shot>>,
+    pub shot: Option<Arc<crate::render::screenshot::Shot>>,
     /// The clock the time capabilities read and set.
     pub clock: Clock,
     /// What came of the last load or start, as the game would say.
@@ -60,7 +60,7 @@ pub struct Fake {
     /// pending once they run out.
     pub answers: std::collections::VecDeque<GResult<game::diplomacy::Answer>>,
     /// The inputs taken, in order.
-    pub inputs: Vec<game::input::Action>,
+    pub inputs: Vec<crate::render::input::Action>,
     /// How many of them the game has had.
     pub inputs_handled: u64,
     /// The player, as the session gives it; the Ottomans played when None.
@@ -171,29 +171,29 @@ impl menu::Layer for Fake {
 }
 
 impl input::Layer for Fake {
-    fn take(&mut self, action: game::input::Action, scale: u32) -> GResult<game::input::Taken> {
+    fn take(&mut self, action: crate::render::input::Action, scale: u32) -> GResult<crate::render::input::Taken> {
         self.call(format!("input {action:?} at scale {scale}"));
         self.inputs.push(action);
-        Ok(game::input::Taken(self.inputs.len() as u64))
+        Ok(crate::render::input::Taken(self.inputs.len() as u64))
     }
 
-    fn handled(&mut self, taken: game::input::Taken) -> bool {
+    fn handled(&mut self, taken: crate::render::input::Taken) -> bool {
         taken.0 <= self.inputs_handled
     }
 
-    fn cursor(&mut self) -> GResult<game::input::Cursor> {
+    fn cursor(&mut self) -> GResult<crate::render::input::Cursor> {
         self.call("cursor".into());
-        Ok(game::input::Cursor { at: Some((10, 20)), ..Default::default() })
+        Ok(crate::render::input::Cursor { at: Some((10, 20)), ..Default::default() })
     }
 }
 
 impl screenshot::Layer for Fake {
-    fn screenshot(&mut self, percent: u32) -> GResult<Arc<game::screenshot::Shot>> {
+    fn screenshot(&mut self, percent: u32) -> GResult<Arc<crate::render::screenshot::Shot>> {
         self.call(format!("screenshot {percent}"));
-        game::screenshot::check_scale(percent)?;
+        crate::render::screenshot::check_scale(percent)?;
         Ok(self.shot.clone().unwrap_or_else(|| {
-            let shot = game::screenshot::Shot::new(percent);
-            shot.finish(Ok(game::screenshot::Image { png: vec![0x89, b'P', b'N', b'G'], width: 2, height: 1, frame_width: 2, frame_height: 1 }));
+            let shot = crate::render::screenshot::Shot::new(percent);
+            shot.finish(Ok(crate::render::screenshot::Image { png: vec![0x89, b'P', b'N', b'G'], width: 2, height: 1, frame_width: 2, frame_height: 1 }));
             shot
         }))
     }
