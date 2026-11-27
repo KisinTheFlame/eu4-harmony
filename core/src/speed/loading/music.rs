@@ -75,7 +75,7 @@ resume!(READ_WHOLE_RESUME: READ_WHOLE_AT = READ_WHOLE_NEXT);
 #[unsafe(naked)]
 extern "C" fn read_whole_stub() {
     std::arch::naked_asm!(
-        call_rust!("lea rcx, [rbx + 0x10]", call read_whole, "mov rax, [rsp + 0x48]"),
+        call_rust!("lea rcx, [rbx + 0x10]", call read_whole -> rax),
         "jmp qword ptr [rip + {next}]",
         read_whole = sym read_whole,
         next = sym READ_WHOLE_AT,

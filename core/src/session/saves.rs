@@ -482,7 +482,7 @@ static REGISTRY: AtomicUsize = AtomicUsize::new(0);
 #[unsafe(naked)]
 extern "C" fn entry_stub() {
     std::arch::naked_asm!(
-        call_rust!("mov rcx, rsi", call take, "cmp byte ptr [rsp + 0x48], 0"),
+        call_rust!("mov rcx, rsi", call take => bool),
         "jne 2f",
         "push qword ptr [rip + {unknown}]",
         "jmp qword ptr [rip + {registry}]",

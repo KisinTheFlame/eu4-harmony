@@ -578,7 +578,7 @@ extern "C" fn run_batch(registry: usize) -> u8 {
 #[unsafe(naked)]
 extern "C" fn batch_stub() {
     std::arch::naked_asm!(
-        call_rust!("mov rcx, r13", call run_batch, "mov rax, [rsp + 0x48]"),
+        call_rust!("mov rcx, r13", call run_batch -> rax),
         "test al, al",
         "jnz 2f",
         "mov rsi, [r13 + 8]",

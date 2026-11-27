@@ -319,8 +319,7 @@ extern "C" fn replace_search_stub() {
             "mov rcx, r15",
             "mov rdx, rsi",
             "mov r8d, r11d",
-            call find_record,
-            "mov rax, [rsp + 0x48]"
+            call find_record -> rax,
         ),
         "mov r11d, dword ptr [rsp + 0xa8]",
         "lea r9, [r15 + 0x38]",

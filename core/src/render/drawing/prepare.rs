@@ -112,7 +112,7 @@ static mut NO_PASSES: [u8; 8] = [0; 8];
 #[unsafe(naked)]
 extern "C" fn passes_asked_stub() {
     std::arch::naked_asm!(
-        call_rust!(call drawing_thread_passes, "cmp byte ptr [rsp + 0x48], 0"),
+        call_rust!(call drawing_thread_passes => bool),
         "jne 2f",
         "lea rax, [r15 + 0x33d]",
         "lea r10, [r15 + 0x33c]",

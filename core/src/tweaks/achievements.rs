@@ -144,7 +144,7 @@ extern "C" fn script_ironman(actual: u8) -> u8 {
 extern "C" fn script_ironman_stub() {
     std::arch::naked_asm!(
         "movzx eax, byte ptr [rax + {ironman}]",
-        call_rust!("mov ecx, eax", call script_ironman, "mov rax, [rsp + 0x48]"),
+        call_rust!("mov ecx, eax", call script_ironman -> rax),
         "jmp qword ptr [rip + {compare}]",
         ironman = const world::IRONMAN,
         script_ironman = sym script_ironman,

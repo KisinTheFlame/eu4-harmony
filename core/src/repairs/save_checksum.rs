@@ -53,7 +53,7 @@ extern "C" fn save_checksum_sum_stub() {
         "mov rcx, rbx",
         "cmp r12, qword ptr [rip + {file_sum}]",
         "jne 2f",
-        call_rust!(call sum, "mov eax, dword ptr [rsp + 0x48]"),
+        call_rust!(call sum -> eax),
         "jmp 3f",
         "2:",
         "call r12",

@@ -74,6 +74,24 @@ struct Stash {
     handles: Vec<usize>,
 }
 
+impl Stash {
+    fn store(&mut self, gen: u64, handles: Vec<usize>) {
+        self.gen = gen;
+        self.handles = handles;
+    }
+
+    fn take(&mut self, cur_gen: u64, page_count: usize, page_idx: usize) -> usize {
+        if self.gen != cur_gen || self.handles.len() != page_count || page_idx >= page_count {
+            return 0;
+        }
+        std::mem::take(&mut self.handles[page_idx])
+    }
+
+    fn drain_leftover(&mut self) -> Vec<usize> {
+        self.handles.drain(..).filter(|&h| h != 0).collect()
+    }
+}
+
 thread_local! {
     static STASH: RefCell<Stash> = RefCell::new(Stash::default());
 }
@@ -187,10 +205,7 @@ unsafe extern "C" fn validate_cache(flagmap: usize, dir_str: usize, flag_names_v
 /// Releases any texture handles remaining in `STASH` via the graphics table's
 /// `DestroyTexture` slot (`0x1fd1330`).
 unsafe fn drain_stash() {
-    let leftover: Vec<usize> = STASH.with(|cell| {
-        let mut s = cell.borrow_mut();
-        s.handles.drain(..).filter(|&h| h != 0).collect()
-    });
+    let leftover: Vec<usize> = STASH.with(|cell| cell.borrow_mut().drain_leftover());
     if leftover.is_empty() {
         return;
     }
@@ -243,11 +258,7 @@ unsafe extern "C" fn stash_before_clear(flagmap: usize, is_reset: u8) {
     for &page_ptr in pages {
         (page_ptr as *mut usize).write(0);
     }
-    STASH.with(|cell| {
-        let mut s = cell.borrow_mut();
-        s.gen = cur_gen;
-        s.handles = handles;
-    });
+    STASH.with(|cell| cell.borrow_mut().store(cur_gen, handles));
 }
 
 /// Called at `0x10c9f8f` inside `0x10c7280`'s per-page loop.
@@ -274,13 +285,7 @@ unsafe extern "C" fn try_reuse_page_texture(flagmap: usize, page_idx: usize, nee
     }
 
     let cur_gen = DEVICE_RESET_GEN.load(Ordering::Acquire);
-    let reused = STASH.with(|cell| {
-        let mut s = cell.borrow_mut();
-        if s.gen != cur_gen || s.handles.len() != page_count {
-            return 0usize;
-        }
-        std::mem::take(&mut s.handles[page_idx])
-    });
+    let reused = STASH.with(|cell| cell.borrow_mut().take(cur_gen, page_count, page_idx));
 
     if reused != 0 {
         (page_ptr as *mut usize).write(reused);
@@ -313,12 +318,10 @@ extern "C" fn stash_before_clear_stub() {
 
 /// Replaces `0x10c9f8f..0x10c9f9e`: checks whether page `r15` of `r12` can skip
 /// loading `flagfiles_i.tga` (either already populated or re-attached from stash).
-/// Reads the return value from `[rsp + 0x48]` inside `call_rust!`'s "then"
-/// clause because `call_rust!` restores the entry `rax` before returning.
 #[unsafe(naked)]
 extern "C" fn reuse_page_texture_stub() {
     std::arch::naked_asm!(
-        call_rust!("mov rcx, r12", "mov rdx, r15", "movzx r8d, sil", call reuse, "cmp byte ptr [rsp + 0x48], 0"),
+        call_rust!("mov rcx, r12", "mov rdx, r15", "movzx r8d, sil", call reuse => bool),
         "jnz 2f",
         "jmp qword ptr [rip + {load}]",
         "2:",
@@ -327,4 +330,43 @@ extern "C" fn reuse_page_texture_stub() {
         load = sym LOAD_FILE_AT,
         skip = sym SKIP_FILE_AT,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Stash;
+
+    #[test]
+    fn stash_reuses_each_page_handle_once_and_leaves_no_leftovers() {
+        let mut stash = Stash::default();
+        stash.store(1, vec![0x1000, 0x2000, 0x3000]);
+
+        assert_eq!(stash.take(1, 3, 0), 0x1000);
+        assert_eq!(stash.take(1, 3, 1), 0x2000);
+        assert_eq!(stash.take(1, 3, 2), 0x3000);
+        // A second take of the same page must return 0 (never double-use a handle).
+        assert_eq!(stash.take(1, 3, 1), 0);
+        assert!(stash.drain_leftover().is_empty());
+    }
+
+    #[test]
+    fn stash_rejects_stale_handles_after_device_reset_or_page_count_change_and_drains_all() {
+        let mut stash = Stash::default();
+        stash.store(2, vec![0x1000, 0x2000]);
+
+        // Device reset bumped generation 2 -> 3: refuse reuse and drain all handles for destruction.
+        assert_eq!(stash.take(3, 2, 0), 0);
+        assert_eq!(stash.drain_leftover(), vec![0x1000, 0x2000]);
+        assert!(stash.drain_leftover().is_empty());
+
+        // Page count changed (e.g. mod changed flag count): refuse reuse and drain all.
+        stash.store(3, vec![0x4000, 0x5000]);
+        assert_eq!(stash.take(3, 4, 0), 0);
+        assert_eq!(stash.drain_leftover(), vec![0x4000, 0x5000]);
+
+        // Partial reuse (e.g. rebuild stopped early): only unused handles are drained.
+        stash.store(3, vec![0x6000, 0x7000, 0x8000]);
+        assert_eq!(stash.take(3, 3, 1), 0x7000);
+        assert_eq!(stash.drain_leftover(), vec![0x6000, 0x8000]);
+    }
 }

@@ -241,6 +241,35 @@ pub fn game_frame() {
     GAME_FRAME.store(true, Ordering::Relaxed);
 }
 
+/// Decision for [`presented`] based on daily-update nesting and pending frame flags.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PresentedAction {
+    /// Inside a nested frame rendered during `CWorld::DailyUpdate`: defer
+    /// without consuming `MAIN_MENU` or `GAME_FRAME`.
+    SkipInDay,
+    /// A game frame ran since the previous present; nothing to run outside.
+    GameFrameRan,
+    /// The main menu ran since the previous present.
+    MainMenu(usize),
+    /// Neither a game frame nor the main menu ran (e.g. loading screen).
+    Elsewhere,
+}
+
+fn decide_presented(in_day: bool, game_frame: &AtomicBool, main_menu: &AtomicUsize) -> PresentedAction {
+    if in_day {
+        return PresentedAction::SkipInDay;
+    }
+    let frontend = main_menu.swap(0, Ordering::Relaxed);
+    if game_frame.swap(false, Ordering::Relaxed) {
+        return PresentedAction::GameFrameRan;
+    }
+    if frontend != 0 {
+        PresentedAction::MainMenu(frontend)
+    } else {
+        PresentedAction::Elsewhere
+    }
+}
+
 /// Just before the main thread presents a frame.
 pub fn presented() {
     crate::base::log::poll();
@@ -248,17 +277,22 @@ pub fn presented() {
     // `0x14c25a0(app, 0)`) leave `CWorld::DailyUpdate` live on the stack:
     // wait for the enclosing normal frame instead of running remote requests
     // or flipping `sessions::at` mid-day.
-    if game::signals::in_day() {
-        return;
+    match decide_presented(game::signals::in_day(), &GAME_FRAME, &MAIN_MENU) {
+        PresentedAction::SkipInDay | PresentedAction::GameFrameRan => {}
+        PresentedAction::MainMenu(frontend) => {
+            let Some(m) = crate::native::memory() else { return };
+            sessions::set_at(At::MainMenu(frontend));
+            let open = !game::menu::starting(m, frontend);
+            remote::run_outside(open.then(|| game::Fail { status: game::Status::NotInGame, message: "the main menu is open".into() }));
+        }
+        PresentedAction::Elsewhere => {
+            if crate::native::memory().is_none() {
+                return;
+            }
+            sessions::set_at(At::Elsewhere);
+            remote::run_outside(None);
+        }
     }
-    let frontend = MAIN_MENU.swap(0, Ordering::Relaxed);
-    let Some(m) = crate::native::memory() else { return };
-    if GAME_FRAME.swap(false, Ordering::Relaxed) {
-        return;
-    }
-    sessions::set_at(if frontend != 0 { At::MainMenu(frontend) } else { At::Elsewhere });
-    let open = frontend != 0 && !game::menu::starting(m, frontend);
-    remote::run_outside(open.then(|| game::Fail { status: game::Status::NotInGame, message: "the main menu is open".into() }));
 }
 
 #[cfg(test)]
@@ -362,5 +396,30 @@ mod tests {
         l.extensions.listener.busy.set(false);
         l.ended(End::Return);
         assert_eq!(*log.borrow(), ["remote ended Load", "remote ended Return", "extensions ended Load", "extensions ended Return"]);
+    }
+
+    #[test]
+    fn presented_skips_nested_daily_update_frames_without_consuming_pending_flags() {
+        let game_frame = AtomicBool::new(false);
+        let main_menu = AtomicUsize::new(0x1234);
+
+        // Nested frame inside CWorld::DailyUpdate must not run or consume flags.
+        assert_eq!(decide_presented(true, &game_frame, &main_menu), PresentedAction::SkipInDay);
+        assert_eq!(main_menu.load(Ordering::Relaxed), 0x1234);
+        assert!(!game_frame.load(Ordering::Relaxed));
+
+        // Top-level frame after the daily update consumes MAIN_MENU and runs.
+        assert_eq!(decide_presented(false, &game_frame, &main_menu), PresentedAction::MainMenu(0x1234));
+        assert_eq!(main_menu.load(Ordering::Relaxed), 0);
+        assert_eq!(decide_presented(false, &game_frame, &main_menu), PresentedAction::Elsewhere);
+
+        // A game frame suppresses MainMenu/Elsewhere and clears both flags.
+        game_frame.store(true, Ordering::Relaxed);
+        main_menu.store(0x5678, Ordering::Relaxed);
+        assert_eq!(decide_presented(true, &game_frame, &main_menu), PresentedAction::SkipInDay);
+        assert!(game_frame.load(Ordering::Relaxed));
+        assert_eq!(decide_presented(false, &game_frame, &main_menu), PresentedAction::GameFrameRan);
+        assert!(!game_frame.load(Ordering::Relaxed));
+        assert_eq!(main_menu.load(Ordering::Relaxed), 0);
     }
 }

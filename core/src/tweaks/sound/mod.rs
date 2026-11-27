@@ -185,7 +185,7 @@ extern "C" fn ambient(ambient: f32, master: f32) -> u32 {
 #[unsafe(naked)]
 extern "C" fn ambient_stub() {
     std::arch::naked_asm!(
-        call_rust!("movss xmm0, [rax + 0xc4]", "movss xmm1, [rax + 0xb4]", call ambient, "movd xmm3, dword ptr [rsp + 0x48]"),
+        call_rust!("movss xmm0, [rax + 0xc4]", "movss xmm1, [rax + 0xb4]", call ambient -> xmm3),
         "jmp qword ptr [rip + {next}]",
         ambient = sym ambient,
         next = sym AMBIENT_AT,
