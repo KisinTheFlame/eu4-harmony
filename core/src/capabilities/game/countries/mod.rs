@@ -1,6 +1,8 @@
 //! Countries: finding one by its tag, its tag, whether two are hostile, one
 //! read of a country and its budget (docs/game/countries/countries.md).
-use super::{commands, country, geography, modifiers, thousandths, GResult, InWorld, Tag, WorldSession};
+mod opinions;
+
+use super::{commands, country, geography, modifiers, thousandths, GResult, InWorld, Session, Tag, WorldSession};
 use crate::native::containers;
 use crate::{native::game_string, native::memory::Memory, native::objects::campaign::{
         classes, country as fields, country_diplomacy, idea_group, loan, modifiers as modifiers_fields, person, rebel_faction, subject_relation, subject_type,
@@ -65,7 +67,7 @@ const AGE: GameFunction<1> = GameFunction::at(0xa4e2d0);
 const WHOLE: usize = 100_000;
 
 pub fn points() -> Vec<Point> {
-    vec![
+    let mut points = vec![
         // The technology view's cost of a kind picks its category by these.
         Point::keep(0x37f39ausize, "8b 0d 58 0c fc 01 eb 16 8b 40 04 e9 43 ff ff ff 8b 0d 4c 0c fc 01 eb 06 8b 0d 48 0c fc 01", "technology kinds' categories")
             .uses(&[technology::ADM, technology::DIP, technology::MIL]),
@@ -168,7 +170,9 @@ pub fn points() -> Vec<Point> {
              62 2b af 00 8f 2b af 00 aa 2b af 00 98 2b af 00 a1 2b af 00 b4 2a af 00 a8 2a af 00 3c 2a af 00",
             "expense category names' order",
         ),
-    ]
+    ];
+    points.extend(opinions::points());
+    points
 }
 
 /// The keys of the budget's categories, the localisation keys of their
@@ -686,15 +690,25 @@ pub(super) fn sides(m: &Memory, war: usize) -> Option<(Vec<Tag>, Vec<Tag>)> {
     Some((vector_tags(m, war + war::ATTACKERS).ok()?, vector_tags(m, war + war::DEFENDERS).ok()?))
 }
 
+pub fn current_governing_capacity(
+    Session { m, ctx, .. }: Session,
+    _: args::GoverningCapacity,
+) -> GResult<eu4_harmony_remote::countries::CurrentGoverningCapacity> {
+    Ok(eu4_harmony_remote::countries::CurrentGoverningCapacity {
+        used: super::areas::total_used(m, ctx.country)?,
+        max: maximum_governing_capacity(m, ctx.country)?,
+    })
+}
+
 crate::capabilities::catalogue::bind! {
     eu4_harmony_remote::countries: CountryRequest => CountryAnswer;
     Hostile => hostile;
     Get => get;
-    GoverningCapacity => super::areas::governing_capacity;
+    GoverningCapacity => current_governing_capacity;
     Modifiers => modifiers;
     Budget => budget;
-    Opinion => super::opinions::opinion;
-    Opinions => super::opinions::opinions;
+    Opinion => opinions::opinion;
+    Opinions => opinions::opinions;
 }
 
 #[cfg(test)]

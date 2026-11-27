@@ -1,14 +1,18 @@
-//! Time: the date, whether the game is paused and by what, and its speed;
+﻿//! Time: the date, whether the game is paused and by what, and its speed;
 //! pausing and resuming as the player would, and setting the speed with the
 //! game's speed commands, as the player's speed keys do; stopping time
 //! as a date is reached, for remote control's advancing; and whether a
 //! question waits for the player's answer. All of it also in observe mode
 //! with no country in view, as the game lets the player run time then too. The evidence is in docs/game/day/time.md.
 use super::{action, context, context_any, fail, map_manager, paused, questions, world_context_any, Caller, GResult, Status, World, WorldSession};
-use crate::{native::hooks::Call, native::memory::Memory, native::objects::campaign::{
+use crate::{
+    native::memory::Memory,
+    native::objects::campaign::{
         globals::{END_DATE, WORLD},
         map_manager as manager, pause as pause_state, world,
-    }, native::points::{GameFunction, Point}};
+    },
+    native::points::{GameFunction, Point},
+};
 use std::sync::Mutex;
 
 /// `(world, index)`: sets the speed, clamped to 0..=4, as both speed commands
@@ -21,9 +25,6 @@ const SPEED_UP: usize = 0xb79970;
 /// reason, it resumes and lets go of every window holding the game paused, as
 /// the player's resuming does.
 const TOGGLE_PAUSE: GameFunction<1> = GameFunction::at(0x7e0250);
-/// `(app)`: starts `eu4.exe` again, at the end of the game's main loop, when
-/// the game returns to the main menu.
-const RESTART: usize = 0x14c3a10;
 
 /// What holds the game paused.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -89,7 +90,7 @@ pub fn pause(WorldSession { m, world, .. }: WorldSession) -> GResult<()> {
 pub fn resume(WorldSession { m, world: ctx, .. }: WorldSession) -> GResult<()> {
     if paused(m, &ctx)? {
         if let Some(end) = over(m, &ctx)? {
-            return Err(eu4_harmony_checks::time::over(eu4_harmony_checks::Date(end)).into());
+            return Err(eu4_harmony_remote::checks::time::over(eu4_harmony_remote::Date(end)).into());
         }
         if !lets_time_run(m, &ctx)? {
             return fail(Status::Rejected, "the game does not let time run with no country to play");
@@ -128,7 +129,7 @@ fn lets_time_run(m: &Memory, ctx: &World) -> GResult<bool> {
 /// keys do: one of the game's speed commands for each step, each carried out
 /// at once.
 pub fn set_speed(caller: Caller, speed: u32) -> GResult<()> {
-    eu4_harmony_checks::time::speed(speed)?;
+    eu4_harmony_remote::checks::time::speed(speed)?;
     let WorldSession { m, world: ctx, commands, .. } = WorldSession::open(caller)?;
     let target = speed as i32 - 1;
     let now = m.i32(ctx.world + world::SPEED)?;
@@ -328,22 +329,13 @@ pub(crate) fn pause_game(m: &Memory, ctx: &World) -> GResult<()> {
     Ok(())
 }
 
-/// Before the game starts `eu4.exe` again, whoever asked for it: the
-/// sessions are told (`crate::session::sessions::restarting`), so that remote control
-/// answers every request while this process can still write the answers.
-fn restart_before(_: &mut Call) {
-    log!("the game starts eu4.exe again");
-    crate::session::sessions::restarting();
-}
-
-/// The speed, the pause toggle and the restart.
+/// The speed and pause toggle.
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(SET_SPEED, "48 81 ec 88 00 00 00 41 b8 04 00 00 00 41 3b d0 44 0f 4e c2 33 c0 45 85 c0 41 0f 49 c0 89 81 08 1e 00 00", "set speed")
             .uses(&[world::SPEED, 4]),
         Point::keep(SPEED_UP, "48 8b 0d 01 65 7c 01 8b 91 08 1e 00 00 ff c2 e9 6c e0 bd ff", "speed up command").uses(&[WORLD, world::SPEED]),
         Point::keep(TOGGLE_PAUSE, "40 53 48 83 ec 20 80 79 48 00 48 8b d9 75 5c", "pause toggle").uses(&[pause_state::PLAYER_PAUSED]),
-        Point::observe(RESTART, "48 89 5c 24 08 48 89 74 24 18 55 57 41 56", "restart", 1, Some(restart_before), None),
     ]
 }
 
@@ -424,7 +416,7 @@ mod tests {
                 assert_eq!(now, (false, false), "held {held:?}");
             }
             let (over, now) = world(110, true, (true, false), resume);
-            let refusal: Fail = eu4_harmony_checks::time::over(eu4_harmony_checks::Date(100)).into();
+            let refusal: Fail = eu4_harmony_remote::checks::time::over(eu4_harmony_remote::Date(100)).into();
             assert_eq!(refused(over), (refusal.status, refusal.message));
             assert_eq!(now, (true, false));
             let (nobody, now) = world(10, false, (false, true), resume);

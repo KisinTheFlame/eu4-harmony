@@ -1,4 +1,4 @@
-//! Subjects: the interactions the subjects view offers the player toward one
+﻿//! Subjects: the interactions the subjects view offers the player toward one
 //! of the player's subjects, and carrying one out (docs/game/countries/subjects.md).
 //!
 //! The game has a fixed set of interactions, each a static object of a class
@@ -308,7 +308,7 @@ pub fn interact(Session { m, ctx, commands, .. }: Session, args::Interact { subj
     };
     if let Some(id) = province {
         if id == 0 {
-            return Err(eu4_harmony_checks::provinces::not_found(0).into());
+            return Err(eu4_harmony_remote::checks::provinces::not_found(0).into());
         }
         with_state(|s| s.geography.province_address(m, &ctx, id))?;
     }

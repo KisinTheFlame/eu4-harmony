@@ -8,7 +8,7 @@
 use super::{logs::Mark, text, Build, Game, Parameter, Parameters, Played, Scenario, Stop, CRASH_HANDLER, READING_A_DUMP};
 use eu4_harmony_remote::{menu::MenuRequest, session::Session, CountryTag};
 use serde_json::{json, Value};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub struct CrashDumps;
 
@@ -66,26 +66,13 @@ impl Scenario for CrashDumps {
         let dump_bytes = dump.as_ref().and_then(|p| std::fs::metadata(p).ok()).map(|m| m.len()).unwrap_or(0);
         let crash_lines: Vec<String> = log_mark.since(&user.core_log()).into_iter().filter(|l| l.contains("crash:")).collect();
 
-        let mut stack = Vec::new();
-        if let Some(dump_path) = &dump {
-            let log_path = user.logs().join("crash-dumps-check.log");
-            let dump_text = dump_path.display().to_string();
-            let log_text = log_path.display().to_string();
-            let symbols: Vec<_> = game.build_dir().map(|p| vec![p.to_path_buf()]).unwrap_or_default();
-            let cache = crate::symbols_dir().unwrap_or_else(|_| std::path::PathBuf::from("symbols")).display().to_string();
-            let reading = std::thread::spawn(move || crate::crash_dump::read(&dump_text, &log_text, &symbols, &cache, &[".ecxr".into(), "kn 20".into()]));
-            let deadline = Instant::now() + READING_A_DUMP;
-            while !reading.is_finished() && Instant::now() < deadline {
-                std::thread::sleep(Duration::from_millis(250));
-            }
-            if reading.is_finished() {
-                if let Ok(Ok(())) = reading.join() {
-                    let output = std::fs::read_to_string(&log_path).unwrap_or_default();
-                    let lines: Vec<&str> = output.lines().collect();
-                    stack = lines[lines.len().saturating_sub(24)..].iter().map(|l| l.to_string()).collect();
-                }
-            }
-        }
+        let symbols: Vec<_> = game.build_dir().map(|p| vec![p.to_path_buf()]).unwrap_or_default();
+        let stack = dump
+            .as_deref()
+            .map(|dump_path| {
+                crate::crash_dump::read_tail(dump_path, &user.logs().join("crash-dumps-check.log"), &symbols, &[".ecxr", "kn 20"], READING_A_DUMP, 24)
+            })
+            .unwrap_or_default();
 
         let has_exception_log = crash_lines.iter().any(|l| l.contains("0xc0000005"));
         let stack_readable = stack.iter().any(|l| l.contains("eu4_harmony_core") || l.contains("eu4+"));

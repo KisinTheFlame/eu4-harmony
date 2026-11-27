@@ -140,6 +140,26 @@ pub fn offer(session: Session, args::Offer { country, terms }: args::Offer) -> G
     send(session, enemy, &asked(session.m, &session.ctx, terms)?, true)
 }
 
+/// Offers the country a request names a white peace: a peace treaty with no
+/// terms chosen, demanded by the player, in the war between them, as the
+/// peace view sends one.
+pub fn offer_white_peace(
+    Session { m, ctx, commands, .. }: Session,
+    eu4_harmony_remote::diplomacy::args::OfferPeace { country }: eu4_harmony_remote::diplomacy::args::OfferPeace,
+) -> GResult<Ticket> {
+    let enemy = countries::named(m, &ctx, country)?;
+    diplomacy::other(m, &ctx, enemy)?;
+    // The game's check refuses an offer to a country the player is not at
+    // war with without a reason: it looks for the war between them first.
+    if !super::geography::at_war(m, &ctx, ctx.player, enemy)? {
+        return Err(checks::not_at_war(diplomacy::letters(enemy)));
+    }
+    let treaty = Treaty::new(m, &ctx, enemy, false)?;
+    let offer = Offer::new(m, &ctx, enemy, &treaty, false)?;
+    diplomacy::verdict(m, offer.at())?;
+    diplomacy::send(commands, m, &ctx, offer.at(), enemy, Vec::new())
+}
+
 fn send(Session { m, ctx, commands, .. }: Session, enemy: Tag, terms: &[Term], offer: bool) -> GResult<Ticket> {
     at_war(m, &ctx, enemy)?;
     let treaty = composed(m, &ctx, enemy, terms, offer)?;
@@ -440,11 +460,6 @@ pub mod checks {
     /// a province.
     pub fn not_a_receiver(ally: impl Display, province: u32) -> Fail {
         Fail::new(Status::Rejected, format!("the transfer occupation window does not list {ally} to take province {province}"))
-    }
-
-    /// The refusal of a call to arms the diplomacy panel does not offer.
-    pub fn no_call_to_arms(ally: impl Display) -> Fail {
-        Fail::new(Status::Rejected, format!("the diplomacy panel offers no call to arms to {ally}"))
     }
 
     #[cfg(test)]

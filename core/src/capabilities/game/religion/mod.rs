@@ -2,6 +2,10 @@
 //! aspects and the rest of the view's buttons, inviting an Islamic school's
 //! scholar, and the province view's holy orders, through the game's own
 //! commands, with the view's own checks (docs/game/provinces/religion.md).
+mod curia;
+mod faith;
+mod piety;
+
 use super::commands::{write, Block};
 use super::{action, conditions, content, power, GResult, Session, Tag};
 use crate::native::objects::campaign::country;
@@ -231,7 +235,7 @@ const TEACHING_POWER: usize = 0x178;
 const TEACHING_COST: GameFunction<2> = GameFunction::at(0x7dc7f0);
 
 pub fn points() -> Vec<Point> {
-    vec![
+    let mut points = vec![
         Point::keep(0x7e691ausize, "48 8b 05 87 53 c4 01 48 85 c0", "personal deities database").uses(&[DEITIES]),
         Point::keep(0x7e6961usize, "48 89 7b 10 48 89 7b 18 48 89 7b 20", "personal deities' vector").uses(&[DEITY_LIST]),
         Point::keep(0xaae096usize, "48 83 c3 10", "personal deity key").uses(&[DEITY_KEY]),
@@ -369,7 +373,11 @@ pub fn points() -> Vec<Point> {
         Point::keep(0xc3d5busize, "8b 9c 87 60 02 00 00", "country's points for a teaching").uses(&[country::POWER]),
         Point::keep(TEACHING_COST, "40 53 48 83 ec 20 48 8b d9 48 8d 8a c0 28 00 00", "teaching's cost"),
         Point::keep(0xc3db8usize, "48 8d 8f a8 9a 00 00", "country's teachings").uses(&[country::TEACHINGS]),
-    ]
+    ];
+    points.extend(curia::points());
+    points.extend(faith::points());
+    points.extend(piety::points());
+    points
 }
 
 /// The refusals the framework words itself.
@@ -533,8 +541,8 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<ReligionOption>> 
         let choice = reform_religion_choice(m, ctx.country, &reforms)?;
         out.push(ReligionOption { action: "reform_religion".into(), key: "reform_religion".into(), name: content::name(m, "REFORM_RELIGION")?, current: false, province: None, choice });
     }
-    out.extend(super::piety::options(m, &ctx)?);
-    out.extend(super::curia::options(m, &ctx)?);
+    out.extend(piety::options(m, &ctx)?);
+    out.extend(curia::options(m, &ctx)?);
     let own = m.ptr(ctx.country + country::SCHOOL)?;
     for school in schools(m, ctx.country)? {
         let key = game_string::key(m, school + SCHOOL_KEY)?;
@@ -1266,17 +1274,17 @@ crate::capabilities::catalogue::bind! {
     AddAspect => add_aspect;
     RemoveAspect => remove_aspect;
     ChooseBlessing => choose_blessing;
-    DefenderOfTheFaith => super::faith::defender;
-    ClaimDefenderOfTheFaith => super::faith::claim;
+    DefenderOfTheFaith => faith::defender;
+    ClaimDefenderOfTheFaith => faith::claim;
     PassReform => pass_reform;
     ReformReligion => reform_religion;
-    EnforceFaithfulAdherence => super::piety::enforce;
-    CallOnReligiousFollowers => super::piety::call;
-    TakePapalAction => super::curia::take_papal_action;
-    CallEcumenicalCouncil => super::curia::call_ecumenical_council;
-    BuyIndulgence => super::curia::buy_indulgence;
-    InvestPapalInfluence => super::curia::invest_papal_influence;
-    PickGoldenBull => super::curia::pick_golden_bull;
+    EnforceFaithfulAdherence => piety::enforce;
+    CallOnReligiousFollowers => piety::call;
+    TakePapalAction => curia::take_papal_action;
+    CallEcumenicalCouncil => curia::call_ecumenical_council;
+    BuyIndulgence => curia::buy_indulgence;
+    InvestPapalInfluence => curia::invest_papal_influence;
+    PickGoldenBull => curia::pick_golden_bull;
 }
 
 #[cfg(test)]

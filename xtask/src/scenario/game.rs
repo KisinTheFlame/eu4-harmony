@@ -5,9 +5,9 @@
 //! check that does not hold each end the scenario, as a [`Stop`].
 //!
 //! The game's process is reached only through the run's claim
-//! ([`claim::RunGame`]), which follows each game to its exit code, and the
-//! pipe by its name; so how a scenario ends is tested on the claim's
-//! recorded computer, with the client's own test server for the pipe.
+//! ([`claim::RunGame`]), which follows each game to its exit code, and remote
+//! control through [`Transport`] (a named pipe in production, or a scripted
+//! responder in unit tests).
 use crate::claim::{self, GameEnd, RunGame, Starting};
 use eu4_harmony_client::pipe::{self, Failure, NoMainMenu};
 use eu4_harmony_folders::UserFolder;
@@ -22,9 +22,63 @@ use eu4_harmony_remote::{
 };
 use serde::de::DeserializeOwned;
 use std::{
+    io,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
+
+/// Remote-control transport seam for [`Game`]: production connects to the
+/// game's named pipe ([`PipeTransport`]), while tests inject an in-process
+/// scripted responder without spawning OS pipe threads or sleeping.
+pub trait Transport {
+    /// Sends one JSON request line and returns the raw JSON response line.
+    fn ask_line(&mut self, request: &str, deadline: Instant) -> Result<String, Failure>;
+
+    /// Waits until the game answers that its main menu is up, invoking
+    /// `going_on` between probes so crashes or interrupts abort the wait.
+    fn wait_main_menu(&mut self, deadline: Instant, going_on: &mut dyn FnMut() -> Played<()>) -> Result<(), NoMainMenu<Stop>>;
+
+    /// Drops any open connection (for example before ending or restarting).
+    fn disconnect(&mut self);
+}
+
+/// Named-pipe implementation of [`Transport`] backed by `eu4_harmony_client::pipe`.
+struct PipeTransport {
+    name: String,
+    exe: String,
+    client: Option<pipe::Client>,
+}
+
+impl PipeTransport {
+    fn new(name: impl Into<String>, exe: impl Into<String>) -> Self {
+        Self { name: name.into(), exe: exe.into(), client: None }
+    }
+}
+
+impl Transport for PipeTransport {
+    fn ask_line(&mut self, request: &str, deadline: Instant) -> Result<String, Failure> {
+        let mut client = match self.client.take() {
+            Some(client) => client,
+            None => pipe::connect(&self.name, &self.exe, deadline)?,
+        };
+        let answer = client.ask(request, Some(deadline));
+        if answer.is_ok() {
+            self.client = Some(client);
+        }
+        answer
+    }
+
+    fn wait_main_menu(&mut self, deadline: Instant, going_on: &mut dyn FnMut() -> Played<()>) -> Result<(), NoMainMenu<Stop>> {
+        self.client = None;
+        let client = pipe::main_menu(&self.name, &self.exe, deadline, going_on)?;
+        self.client = Some(client);
+        Ok(())
+    }
+
+    fn disconnect(&mut self) {
+        self.client = None;
+    }
+}
 
 /// How long a step may take unless the scenario says otherwise: an answer,
 /// which a load or the days run take the longest to give.
@@ -67,9 +121,8 @@ pub struct Game {
     run: Box<dyn RunGame>,
     /// The test game's user folder; none in the tests of this module.
     user: Option<UserFolder>,
-    /// The test game's pipe, and the executable trusted to serve it.
-    pipe: (String, String),
-    client: Option<pipe::Client>,
+    /// Remote-control transport (named pipe in production, scripted in tests).
+    transport: Box<dyn Transport>,
     /// The saves the scenario loads, copied into the test game's user folder
     /// at each start.
     saves: Vec<String>,
@@ -106,11 +159,15 @@ impl Game {
     /// The test game `run` reaches, asked down the pipe `name` served by
     /// `exe`.
     fn with(run: Box<dyn RunGame>, name: &str, exe: &str) -> Self {
+        Self::with_transport(run, Box::new(PipeTransport::new(name, exe)))
+    }
+
+    /// The test game `run` reaches, asked through `transport`.
+    pub fn with_transport(run: Box<dyn RunGame>, transport: Box<dyn Transport>) -> Self {
         Self {
             run,
             user: None,
-            pipe: (name.into(), exe.into()),
-            client: None,
+            transport,
             saves: Vec::new(),
             options: None,
             mods: Vec::new(),
@@ -156,6 +213,11 @@ impl Game {
         self.run.game().is_some()
     }
 
+    /// How many other `eu4.exe` processes currently run beside this claim's own game.
+    pub fn others_running(&self) -> usize {
+        self.run.others_running()
+    }
+
     /// How many other `eu4.exe` processes were observed running beside this
     /// scenario's game once it started.
     pub fn beside(&self) -> usize {
@@ -169,7 +231,7 @@ impl Game {
 
     /// Ends the test game, if it runs.
     pub fn end(&mut self) {
-        self.client = None;
+        self.transport.disconnect();
         let _ = self.run.stop();
     }
 
@@ -184,7 +246,7 @@ impl Game {
 
     /// Waits up to `limit` for the game to end on its own.
     pub fn wait_gone(&mut self, limit: Duration) {
-        self.client = None;
+        self.transport.disconnect();
         let mut waited = Duration::ZERO;
         while waited < limit && self.runs() {
             self.run.wait(LOOK);
@@ -222,19 +284,21 @@ impl Game {
         self.not_interrupted()?;
         self.started()?;
         let deadline = Instant::now() + step;
-        let mut client = match self.client.take() {
-            Some(client) => client,
-            None => match pipe::connect(&self.pipe.0, &self.pipe.1, deadline) {
-                Ok(client) => client,
-                Err(failure) => return Ok(Err(failure)),
-            },
+        let line = serde_json::to_string(&eu4_harmony_remote::request_json(request)).expect("a request is JSON");
+        let answer_line = match self.transport.ask_line(&line, deadline) {
+            Ok(line) => line,
+            Err(failure) => return Ok(Err(failure)),
         };
-        let answer = client.ask_for(request, Some(deadline));
-        if answer.is_ok() {
-            self.client = Some(client);
+        let unreadable = |why: String| Failure::Io(io::Error::new(io::ErrorKind::InvalidData, format!("the answer to {}: {why}", request.full_name())));
+        let decoded = match pipe::answer_of(&answer_line).map_err(unreadable) {
+            Ok(Ok(result)) => serde_json::from_value(result).map(Ok).map_err(|e| unreadable(e.to_string())),
+            Ok(Err(error)) => serde_json::from_value(error).map(Err).map_err(|e| unreadable(e.to_string())),
+            Err(failure) => Err(failure),
+        };
+        if decoded.is_ok() {
             self.beside = self.beside.max(self.run.others_running());
         }
-        Ok(answer)
+        Ok(decoded)
     }
 
     /// Lets `days` days run at speed 5.
@@ -336,7 +400,7 @@ impl Game {
                 return Err(Stop::Hung(format!("the autosave was not written in {} s", SAVE_WRITTEN.as_secs())));
             }
             last = now;
-            std::thread::sleep(Duration::from_secs(1));
+            self.run.wait(Duration::from_secs(1));
         }
         self.ask(&MenuRequest::Load { save: AUTOSAVE.into() })
     }
@@ -364,19 +428,24 @@ impl Game {
     /// Waits for the main menu, in this process or the next one.
     pub fn main_menu(&mut self) -> Played<()> {
         self.started()?;
-        self.client = None;
-        let going_on = || {
-            self.not_interrupted()?;
-            match self.gone() {
-                true => Err(Stop::Crashed("the game ended on its way to the main menu".into())),
-                false => Ok(()),
+        self.transport.disconnect();
+        let run = &self.run;
+        let mut going_on = || {
+            if super::interrupted() {
+                return Err(Stop::Interrupted);
             }
+            let mut waited = Duration::ZERO;
+            while waited < BETWEEN_PROCESSES {
+                if run.game().is_some() {
+                    return Ok(());
+                }
+                run.wait(LOOK);
+                waited += LOOK;
+            }
+            Err(Stop::Crashed("the game ended on its way to the main menu".into()))
         };
-        match pipe::main_menu(&self.pipe.0, &self.pipe.1, Instant::now() + self.menu_wait, going_on) {
-            Ok(client) => {
-                self.client = Some(client);
-                Ok(())
-            }
+        match self.transport.wait_main_menu(Instant::now() + self.menu_wait, &mut going_on) {
+            Ok(()) => Ok(()),
             Err(NoMainMenu::Stopped(stop)) => Err(stop),
             Err(NoMainMenu::TimedOut) => Err(Stop::Hung(format!("the main menu did not come up in {} s", self.menu_wait.as_secs()))),
         }
@@ -445,7 +514,7 @@ impl Game {
     }
 
     fn start(&mut self) -> Played<f64> {
-        self.client = None;
+        self.transport.disconnect();
         let starting =
             Starting { saves: self.saves.clone(), options: self.options.clone(), mods: self.mods.clone(), build: self.build.clone(), ..Default::default() };
         self.started_with = Some((self.saves.clone(), self.options.clone(), self.mods.clone()));
@@ -561,33 +630,125 @@ mod tests {
     use super::*;
     use crate::claim::recorded::{held, Did, Recorded, GAME};
     use eu4_harmony_client::pipe::tests::{answer, pipe_name, serve_one, this_program};
-    use std::thread;
+    use serde_json::{json, Value};
+    use std::{
+        collections::VecDeque,
+        sync::{Arc, Mutex},
+    };
 
     const SHORT: Duration = Duration::from_millis(300);
     const MAIN_MENU_ANSWER: &str = "{\"ok\": true, \"result\": {\"process\": 1, \"place\": \"main_menu\"}}\n";
 
-    /// `owner` a's claim on a recorded computer where its test game runs or
-    /// not, and the game of a's run, asked down the test's own pipe.
-    fn game_on(test: &str, running: bool) -> (&'static Recorded, Game, String) {
+    /// Owned `RunGame` wrapper around `Arc<Recorded>` so unit tests never leak
+    /// allocations via `Box::leak`.
+    struct OwnedRecorded {
+        recorded: Arc<Recorded>,
+        owner: String,
+    }
+
+    impl OwnedRecorded {
+        fn new(recorded: Arc<Recorded>, owner: &str) -> Self {
+            Self { recorded, owner: owner.into() }
+        }
+    }
+
+    impl RunGame for OwnedRecorded {
+        fn game(&self) -> Option<u32> {
+            claim::recorded_run_game(&self.recorded, &self.owner).game()
+        }
+
+        fn start(&self, starting: &Starting, wait: Duration) -> crate::Result<f64> {
+            claim::recorded_run_game(&self.recorded, &self.owner).start(starting, wait)
+        }
+
+        fn stop(&self) -> crate::Result<()> {
+            claim::recorded_run_game(&self.recorded, &self.owner).stop()
+        }
+
+        fn ends(&self) -> Vec<GameEnd> {
+            claim::recorded_run_game(&self.recorded, &self.owner).ends()
+        }
+
+        fn wait(&self, time: Duration) {
+            claim::recorded_run_game(&self.recorded, &self.owner).wait(time)
+        }
+
+        fn others_running(&self) -> usize {
+            claim::recorded_run_game(&self.recorded, &self.owner).others_running()
+        }
+    }
+
+    type Responder = Box<dyn FnMut(&Value) -> Result<String, Failure>>;
+
+    /// Scripted in-process [`Transport`] for deterministic, zero-sleep tests.
+    struct ScriptedTransport {
+        requests: Arc<Mutex<Vec<Value>>>,
+        handler: Responder,
+        menu_outcomes: VecDeque<Result<(), NoMainMenu<Stop>>>,
+    }
+
+    impl ScriptedTransport {
+        fn new(handler: impl FnMut(&Value) -> Result<String, Failure> + 'static) -> (Self, Arc<Mutex<Vec<Value>>>) {
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            (Self { requests: requests.clone(), handler: Box::new(handler), menu_outcomes: VecDeque::new() }, requests)
+        }
+
+        fn with_menu_outcomes(mut self, outcomes: impl IntoIterator<Item = Result<(), NoMainMenu<Stop>>>) -> Self {
+            self.menu_outcomes.extend(outcomes);
+            self
+        }
+    }
+
+    impl Transport for ScriptedTransport {
+        fn ask_line(&mut self, request: &str, _deadline: Instant) -> Result<String, Failure> {
+            let parsed: Value = serde_json::from_str(request).expect("valid JSON request");
+            self.requests.lock().unwrap().push(parsed.clone());
+            (self.handler)(&parsed)
+        }
+
+        fn wait_main_menu(&mut self, _deadline: Instant, going_on: &mut dyn FnMut() -> Played<()>) -> Result<(), NoMainMenu<Stop>> {
+            if let Err(stop) = going_on() {
+                return Err(NoMainMenu::Stopped(stop));
+            }
+            self.menu_outcomes.pop_front().unwrap_or(Ok(()))
+        }
+
+        fn disconnect(&mut self) {}
+    }
+
+    fn ok_json(result: Value) -> Result<String, Failure> {
+        Ok(json!({"ok": true, "result": result}).to_string())
+    }
+
+    fn err_json(code: &str, message: &str) -> Result<String, Failure> {
+        Ok(json!({"ok": false, "error": {"code": code, "message": message}}).to_string())
+    }
+
+    fn recorded_state(running: bool) -> Arc<Recorded> {
         let mut claim = held("a");
         claim.game = running.then_some(GAME);
-        let m: &'static Recorded = Box::leak(Box::new(Recorded::new(claim::recorded::state(vec![claim]))));
+        let m = Arc::new(Recorded::new(claim::recorded::state(vec![claim])));
         if running {
             m.serving.lock().unwrap().push((claim::pipe_of("a").unwrap(), GAME.id));
         }
-        let name = pipe_name(test);
-        let mut game = Game::with(Box::new(claim::recorded_run_game(m, "a")), &name, &this_program());
+        m
+    }
+
+    fn scripted_game(running: bool, transport: ScriptedTransport) -> (Arc<Recorded>, Game) {
+        let m = recorded_state(running);
+        let mut game = Game::with_transport(Box::new(OwnedRecorded::new(m.clone(), "a")), Box::new(transport));
         (game.step, game.menu_wait) = (SHORT, Duration::from_secs(5));
         game.started_with = Some(Default::default());
         game.next_scenario();
-        (m, game, name)
+        (m, game)
     }
 
     /// A game started without what the next scenario needs is ended, for
     /// that scenario's first step to start it with it.
     #[test]
     fn a_game_started_for_other_options_or_test_mods_is_ended_for_the_next_scenario() {
-        let (m, mut game, _) = game_on("other-start", true);
+        let (transport, _) = ScriptedTransport::new(|_| ok_json(json!({})));
+        let (m, mut game) = scripted_game(true, transport);
         game.next_scenario();
         assert!(!m.did().iter().any(|d| matches!(d, Did::End(_))), "the same start's game is kept");
         game.mods(vec![PathBuf::from("qa-steady")]);
@@ -597,40 +758,36 @@ mod tests {
 
     #[test]
     fn a_game_that_ends_while_answering_has_crashed_and_its_exit_code_is_told() {
-        let (m, mut game, name) = game_on("crashed", true);
-        let server = serve_one(&name, |_, _| {});
+        let (transport, _) = ScriptedTransport::new(|_| Err(Failure::Broken));
+        let (m, mut game) = scripted_game(true, transport);
         m.ended.lock().unwrap().push(GameEnd { game: GAME, seen: "03:12:41".into(), code: 0xc000_0374 });
         let stop = game.ask::<Menu>(&MenuRequest::State {}).unwrap_err();
-        server.join().unwrap();
         assert_eq!(stop, Stop::Crashed("the game ended while answering menu".into()));
         assert_eq!(game.ended().map(|end| end.code), Some(0xc000_0374), "the claim followed it to its end");
     }
 
     #[test]
     fn a_step_with_no_answer_in_its_time_while_the_game_runs_has_hung() {
-        let (_, mut game, name) = game_on("hung", true);
-        let server = serve_one(&name, |_, _| thread::sleep(SHORT * 4));
+        let (transport, _) = ScriptedTransport::new(|_| Err(Failure::TimedOut));
+        let (_, mut game) = scripted_game(true, transport);
         let stop = game.ask::<Menu>(&MenuRequest::State {}).unwrap_err();
-        server.join().unwrap();
         assert!(matches!(&stop, Stop::Hung(why) if why.contains("had no answer")), "{stop:?}");
         assert_eq!(game.ended(), None);
     }
 
     #[test]
     fn a_refusal_fails_the_scenario() {
-        let (_, mut game, name) = game_on("failed", true);
-        let server = serve_one(&name, |pipe, _| answer(pipe, "{\"ok\": false, \"error\": {\"code\": \"rejected\", \"message\": \"not now\"}}\n"));
+        let (transport, _) = ScriptedTransport::new(|_| err_json("rejected", "not now"));
+        let (_, mut game) = scripted_game(true, transport);
         let stop = game.ask::<Menu>(&MenuRequest::State {}).unwrap_err();
-        server.join().unwrap();
         assert!(matches!(&stop, Stop::Failed(why) if why.contains("not now")), "{stop:?}");
     }
 
     #[test]
     fn a_game_that_does_not_run_is_started_within_the_claim() {
-        let (m, mut game, name) = game_on("started", false);
-        let server = serve_one(&name, |pipe, _| answer(pipe, MAIN_MENU_ANSWER));
+        let (transport, _) = ScriptedTransport::new(|_| Ok(MAIN_MENU_ANSWER.into()));
+        let (m, mut game) = scripted_game(false, transport);
         let menu: Menu = game.ask(&MenuRequest::State {}).unwrap();
-        server.join().unwrap();
         assert_eq!(menu.place, Place::MainMenu);
         assert!(m.did().contains(&Did::Start));
         assert_eq!(game.process(), Ok(GAME.id), "the claim names the game it started");
@@ -638,7 +795,8 @@ mod tests {
 
     #[test]
     fn a_game_gone_since_the_scenario_began_has_crashed() {
-        let (m, mut game, _) = game_on("gone", true);
+        let (transport, _) = ScriptedTransport::new(|_| Ok(MAIN_MENU_ANSWER.into()));
+        let (m, mut game) = scripted_game(true, transport);
         m.serving.lock().unwrap().clear();
         assert_eq!(game.ask::<Menu>(&MenuRequest::State {}).unwrap_err(), Stop::Crashed("the game ended".into()));
         assert!(!m.did().contains(&Did::Start), "a game that ran is not started again");
@@ -648,25 +806,194 @@ mod tests {
     /// answer; the next process's pipe answers once its main menu is up.
     #[test]
     fn a_return_waits_for_the_main_menu_across_the_restart() {
-        let (_, mut game, name) = game_on("restart", true);
-        let first = serve_one(&name, |_, request| assert!(request.contains("menu.return"), "{request}"));
-        let next = {
-            let name = name.clone();
-            thread::spawn(move || {
-                first.join().unwrap();
-                thread::sleep(SHORT);
-                serve_one(&name, |pipe, _| answer(pipe, MAIN_MENU_ANSWER)).join().unwrap();
-            })
-        };
+        let (transport, requests) = ScriptedTransport::new(|req| {
+            assert_eq!(req["capability"], "menu.return");
+            Err(Failure::Broken)
+        });
+        let (_, mut game) = scripted_game(true, transport.with_menu_outcomes([Ok(())]));
         assert_eq!(game.return_to_menu(), Ok(()));
-        next.join().unwrap();
+        assert_eq!(requests.lock().unwrap().len(), 1);
     }
 
     #[test]
     fn a_restart_ends_the_test_game_and_starts_it_within_the_claim() {
-        let (m, mut game, _) = game_on("again", true);
+        let (transport, _) = ScriptedTransport::new(|_| ok_json(json!({})));
+        let (m, mut game) = scripted_game(true, transport);
         assert_eq!(game.restart(), Ok(30.0));
         let ends_and_starts: Vec<Did> = m.did().into_iter().filter(|d| matches!(d, Did::End(_) | Did::Start)).collect();
         assert_eq!(ends_and_starts, [Did::End(GAME.id), Did::Start]);
+    }
+
+    /// Real named-pipe smoke test proving [`PipeTransport`] connects and
+    /// exchanges JSON with an OS pipe server.
+    #[test]
+    fn pipe_transport_exchanges_json_over_named_pipe() {
+        let m = recorded_state(true);
+        let name = pipe_name("transport-smoke");
+        let mut game = Game::with(Box::new(OwnedRecorded::new(m, "a")), &name, &this_program());
+        (game.step, game.menu_wait) = (Duration::from_secs(2), Duration::from_secs(5));
+        game.started_with = Some(Default::default());
+        game.next_scenario();
+        let server = serve_one(&name, |pipe, _| answer(pipe, MAIN_MENU_ANSWER));
+        let menu: Menu = game.ask(&MenuRequest::State {}).unwrap();
+        server.join().unwrap();
+        assert_eq!(menu.place, Place::MainMenu);
+    }
+
+    #[test]
+    fn run_answers_questions_closes_stuck_pauses_with_escape_and_reaches_goal_date() {
+        let start = Date::from_ymd(1444, 11, 11).unwrap();
+        let mut current = start;
+        let mut step = 0usize;
+        let (transport, requests) = ScriptedTransport::new(move |req| {
+            match req["capability"].as_str().unwrap() {
+                "time.get" => ok_json(json!({"date": current.to_string(), "paused": true, "speed": 5})),
+                "time.advance" => {
+                    step += 1;
+                    match step {
+                        // First advance stops on a question after 2 days.
+                        1 => {
+                            current = Date(current.0 + 2 * 24);
+                            ok_json(
+                                json!({"date": current.to_string(), "stopped": "question", "reason": "event", "process": 1, "signals": [], "last": 0, "missed": false}),
+                            )
+                        }
+                        // Next two advances stay paused at the same date -> triggers Escape on the second.
+                        2 | 3 => ok_json(
+                            json!({"date": current.to_string(), "stopped": "paused", "reason": "window", "process": 1, "signals": [], "last": 0, "missed": false}),
+                        ),
+                        // Final advance reaches the 5-day goal.
+                        _ => {
+                            current = Date(start.0 + 5 * 24);
+                            ok_json(
+                                json!({"date": current.to_string(), "stopped": "date", "reason": "reached", "process": 1, "signals": [], "last": 0, "missed": false}),
+                            )
+                        }
+                    }
+                }
+                "question.list" => ok_json(json!([{
+                    "id": 7,
+                    "event": "flavor_fra.1",
+                    "title": "Test Event",
+                    "description": "Body",
+                    "deadline": "1445.1.1",
+                    "options": [{"option": 0, "text": "OK"}]
+                }])),
+                "question.answer" => {
+                    assert_eq!(req["question"], 7);
+                    assert_eq!(req["option"], 0);
+                    ok_json(Value::Null)
+                }
+                "input.key" => {
+                    assert_eq!(req["keys"], "escape");
+                    ok_json(Value::Null)
+                }
+                other => panic!("unexpected request: {other}"),
+            }
+        });
+        let (_, mut game) = scripted_game(true, transport);
+        let reached = game.run(5).unwrap();
+        assert_eq!(reached, Date(start.0 + 5 * 24));
+        let caps: Vec<String> = requests.lock().unwrap().iter().map(|r| r["capability"].as_str().unwrap().to_string()).collect();
+        assert!(caps.contains(&"question.answer".to_string()));
+        assert!(caps.contains(&"input.key".to_string()));
+    }
+
+    #[test]
+    fn observe_with_no_country_retries_session_changed_and_leaves_view() {
+        let mut session_calls = 0usize;
+        let (transport, requests) = ScriptedTransport::new(move |req| match req["capability"].as_str().unwrap() {
+            "session.get" => {
+                session_calls += 1;
+                match session_calls {
+                    1 => ok_json(json!({"number": 1, "player": "FRA", "observing": false, "date": "1444.11.11"})),
+                    2 => err_json("session_changed", "switching to observe"),
+                    _ => ok_json(json!({"number": 2, "player": "FRA", "observing": true, "date": "1444.11.11"})),
+                }
+            }
+            "console.run" => {
+                assert_eq!(req["command"], "observe");
+                ok_json(json!(""))
+            }
+            "session.leave_view" => ok_json(json!({"number": 2, "player": null, "observing": true, "date": "1444.11.11"})),
+            other => panic!("unexpected request: {other}"),
+        });
+        let (_, mut game) = scripted_game(true, transport);
+        let session = game.observe_with_no_country().unwrap();
+        assert!(session.observing);
+        assert_eq!(session.player, None);
+        let caps: Vec<String> = requests.lock().unwrap().iter().map(|r| r["capability"].as_str().unwrap().to_string()).collect();
+        assert_eq!(caps, ["session.get", "console.run", "session.get", "session.get", "session.leave_view"]);
+    }
+
+    #[test]
+    fn autosave_and_load_waits_for_stable_size_and_loads_autosave() {
+        let now = seconds_now();
+        let mut saves_calls = 0usize;
+        let (transport, requests) = ScriptedTransport::new(move |req| match req["capability"].as_str().unwrap() {
+            "console.run" => {
+                assert_eq!(req["command"], "autosave");
+                ok_json(json!(""))
+            }
+            "menu.saves" => {
+                saves_calls += 1;
+                let bytes = if saves_calls == 1 { 1024 } else { 2048 };
+                ok_json(json!([{
+                    "name": "autosave",
+                    "file": "autosave.eu4",
+                    "bytes": bytes,
+                    "modified": now,
+                    "player": "FRA",
+                    "date": "1444.11.11",
+                    "missing_mods": []
+                }]))
+            }
+            "menu.load" => {
+                assert_eq!(req["save"], "autosave");
+                ok_json(json!({"number": 2, "player": "FRA", "observing": false, "date": "1444.11.11"}))
+            }
+            other => panic!("unexpected request: {other}"),
+        });
+        let (_, mut game) = scripted_game(true, transport);
+        let session = game.autosave_and_load().unwrap();
+        assert_eq!(session.number, 2);
+        let saves_queries = requests.lock().unwrap().iter().filter(|r| r["capability"] == "menu.saves").count();
+        assert_eq!(saves_queries, 3, "grows on poll 2, stabilizes on poll 3");
+    }
+
+    #[test]
+    fn sweep_scenario_plays_in_process_over_scripted_transport() {
+        use crate::scenario::{Parameters, Scenario};
+        let mut in_game = false;
+        let (transport, _) = ScriptedTransport::new(move |req| match req["capability"].as_str().unwrap() {
+            "menu" => ok_json(json!({"process": 1, "place": if in_game { "game" } else { "main_menu" }})),
+            "menu.start" => {
+                in_game = true;
+                ok_json(json!({"number": 1, "player": "FRA", "observing": false, "date": "1444.11.11"}))
+            }
+            "menu.return" => {
+                in_game = false;
+                ok_json(json!({"process": 1, "place": "main_menu"}))
+            }
+            "time.get" => {
+                if !in_game {
+                    err_json("not_in_game", "not in a game")
+                } else {
+                    ok_json(json!({"date": "1444.11.11", "paused": true, "speed": 2}))
+                }
+            }
+            "time.pause" => ok_json(Value::Null),
+            "session.get" => ok_json(json!({"number": 1, "player": "FRA", "observing": false, "date": "1444.11.11"})),
+            "question.list" | "province.list" | "province.neighbors" | "army.list" => ok_json(json!([])),
+            other => panic!("unexpected request in minimal sweep: {other}"),
+        });
+        let (_, mut game) = scripted_game(true, transport);
+        let sweep = super::super::sweep::Sweep;
+        let params =
+            Parameters::of(&sweep, &[("sweep".into(), "places".into(), "main menu,paused".into()), ("sweep".into(), "only".into(), "time.get".into())])
+                .unwrap();
+        let mut record = json!({});
+        sweep.play(&mut game, &params, &mut record).unwrap();
+        assert_eq!(record["findings"], json!([]), "minimal sweep produced unexpected findings: {record}");
     }
 }

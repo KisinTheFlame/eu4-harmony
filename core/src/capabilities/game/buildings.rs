@@ -1,4 +1,4 @@
-//! Buildings: what the province view's building panel offers the player in a
+﻿//! Buildings: what the province view's building panel offers the player in a
 //! province, building, cancelling and destroying a building there through the
 //! game's own commands, and the signal of a building finished
 //! (docs/game/provinces/province-view.md).
@@ -152,7 +152,7 @@ fn construction(m: &Memory, province: usize) -> GResult<Option<usize>> {
 
 fn province_address(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
     if id == 0 {
-        return Err(eu4_harmony_checks::provinces::not_found(0).into());
+        return Err(eu4_harmony_remote::checks::provinces::not_found(0).into());
     }
     with_state(|s| s.geography.province_address(m, ctx, id))
 }

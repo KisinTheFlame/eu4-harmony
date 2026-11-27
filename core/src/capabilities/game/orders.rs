@@ -1,8 +1,8 @@
-//! Route queries, moving and stopping own land armies with the game's move
+﻿//! Route queries, moving and stopping own land armies with the game's move
 //! command (ADR commands-run-at-once), and the record of which extension set
 //! which route.
 use super::commands::{write, Block};
-use super::{armies::RouteSource, army, commands::Commands, fail, geography, paused, signals::Change, Caller, Ctx, GResult, Session, Status, MAX_UNITS};
+use super::{army, commands::Commands, fail, geography, paused, Caller, Ctx, GResult, Session, Status, MAX_UNITS};
 use crate::native::containers;
 use crate::{
     native::memory::Memory,
@@ -12,9 +12,23 @@ use crate::{
     },
     native::points::{GameFunction, Point},
 };
-use eu4_harmony_checks::armies as checks;
+use eu4_harmony_remote::checks::armies as checks;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
+
+/// Who set the route an army is following, as the caller sees it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RouteSource {
+    /// The army has no route.
+    #[default]
+    None,
+    /// The player (remote control included) or the game itself.
+    External,
+    /// The calling extension, and nobody changed it since.
+    Own,
+    /// An extension other than the caller.
+    OtherExtension,
+}
 
 pub const ROUTE_QUERY: GameFunction<8> = GameFunction::at(0x96c520);
 pub const MOVE: usize = 0xd50340;
@@ -236,9 +250,9 @@ impl Orders {
     /// Records an order that was carried out, which left the army `id` on
     /// `path` from `origin`. An extension's route stays its own until someone
     /// else changes it. A remote client's order is the player's: the army is
-    /// taken back from any extension, and the player's order is returned, to
-    /// be raised once.
-    fn settle(&mut self, caller: Caller, id: u64, origin: u32, path: Path) -> Option<Change> {
+    /// taken back from any extension, and the army's ID is returned, to be
+    /// raised once as a player order.
+    fn settle(&mut self, caller: Caller, id: u64, origin: u32, path: Path) -> Option<u64> {
         match caller {
             Caller::Extension(extension) if !path.ids.is_empty() => {
                 self.receipts.insert(id, Receipt { extension, origin, path });
@@ -250,7 +264,7 @@ impl Orders {
             }
             Caller::Remote(_) => {
                 self.receipts.remove(&id);
-                Some(Change::Ordered(id))
+                Some(id)
             }
         }
     }
@@ -336,9 +350,9 @@ impl Orders {
     /// Moves the army to `goal` with the game's move command, which takes
     /// the game's route there, as the player's right click on the map does;
     /// refused when the game finds none. To the province it is in, it stops
-    /// the army, as the right click there does. Returns the player's order
-    /// when the caller acts as the player.
-    pub fn move_army(&mut self, session: &Session, geography: &mut geography::Geography, army: usize, id: u64, goal: u32) -> GResult<Option<Change>> {
+    /// the army, as the right click there does. Returns the army's ID when the
+    /// caller acts as the player.
+    pub fn move_army(&mut self, session: &Session, geography: &mut geography::Geography, army: usize, id: u64, goal: u32) -> GResult<Option<u64>> {
         let (m, ctx, caller) = (session.m, &session.ctx, session.caller);
         let before = preflight(m, ctx, army, caller)?;
         if goal == before.origin {
@@ -360,8 +374,8 @@ impl Orders {
 
     /// Stops the army where it is, with the game's command that cancels its
     /// movement, as the player's right click on the province it is in does.
-    /// Returns the player's order when the caller acts as the player.
-    pub fn stop_army(&mut self, session: &Session, army: usize, id: u64) -> GResult<Option<Change>> {
+    /// Returns the army's ID when the caller acts as the player.
+    pub fn stop_army(&mut self, session: &Session, army: usize, id: u64) -> GResult<Option<u64>> {
         let (m, caller) = (session.m, session.caller);
         let before = preflight(m, &session.ctx, army, caller)?;
         if !before.path.ids.is_empty() {
@@ -386,7 +400,7 @@ const SHIP_ROOM: GameFunction<1> = GameFunction::at(0xae1a40);
 /// the boarding: the player has no fleet there, or none with room for the
 /// whole army, which a step onto the sea needs. None when a fleet there may
 /// take it, or `sea` is land, or the unit a fleet.
-fn boarding_refused(m: &Memory, ctx: &Ctx, army: usize, sea: usize, goal: u32) -> GResult<Option<eu4_harmony_checks::Refusal>> {
+fn boarding_refused(m: &Memory, ctx: &Ctx, army: usize, sea: usize, goal: u32) -> GResult<Option<eu4_harmony_remote::Error>> {
     if !army::is_army(m, army)? || m.u8(m.ptr(sea + province::GEOMETRY)? + geometry::TERRAIN)? & geometry::LAND != 0 {
         return Ok(None);
     }
@@ -551,7 +565,7 @@ mod tests {
         // A remote client moves the army: it is taken back from the extension,
         // and one player's order comes out.
         let remote = path(&[4], &[40]);
-        assert_eq!(orders.settle(Caller::Remote(As::Player), 7, 1, remote.clone()), Some(Change::Ordered(7)));
+        assert_eq!(orders.settle(Caller::Remote(As::Player), 7, 1, remote.clone()), Some(7));
         assert!(orders.receipts.is_empty());
         for caller in [first, Caller::Extension(1), Caller::Remote(As::Player)] {
             assert_eq!(orders.source(7, 1, &remote, caller), RouteSource::External);
@@ -559,8 +573,8 @@ mod tests {
 
         // Stopping is an order too, whether or not anyone owned the army.
         assert_eq!(orders.settle(first, 7, 1, route.clone()), None);
-        assert_eq!(orders.settle(Caller::Remote(As::Player), 7, 1, Path::default()), Some(Change::Ordered(7)));
-        assert_eq!(orders.settle(Caller::Remote(As::Player), 8, 1, Path::default()), Some(Change::Ordered(8)));
+        assert_eq!(orders.settle(Caller::Remote(As::Player), 7, 1, Path::default()), Some(7));
+        assert_eq!(orders.settle(Caller::Remote(As::Player), 8, 1, Path::default()), Some(8));
         assert!(orders.receipts.is_empty());
         assert_eq!(orders.source(7, 1, &Path::default(), first), RouteSource::None);
 

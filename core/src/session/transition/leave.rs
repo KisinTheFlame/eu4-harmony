@@ -41,11 +41,21 @@
 //! each does in the game; here are the game's own steps and the hooks that
 //! hand them over (`super`'s `InGame`).
 use crate::base::called_by_game;
-use crate::{base::notice::Message, native::game_string, native::hooks::Call, native::memory::Memory, native::objects::{
+use crate::{
+    base::notice::Message,
+    native::game_string,
+    native::hooks::Call,
+    native::memory::Memory,
+    native::objects::{
         application,
         campaign::{load_request, map_manager as manager_fields, world},
         gui,
-    }, native::points::{Function, GameFunction, Point}, repairs, session::sessions, text::unicode::game_text};
+    },
+    native::points::{Function, GameFunction, Point},
+    repairs,
+    session::sessions,
+    text::unicode::game_text,
+};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Mutex,
@@ -212,7 +222,7 @@ static ORIGINAL: Function<InGameLoad> = Function::new();
 /// reset to terrain. What it answered.
 pub(super) fn load(m: &Memory, request: usize) -> u32 {
     let manager = m.ptr(request + load_request::MAP_MANAGER).ok().filter(|&p| p != 0);
-    let saved_mode = manager.and_then(|manager| crate::capabilities::game::map::mode_before_load(m, manager));
+    let saved_mode = manager.and_then(|manager| super::hooks().and_then(|h| (h.mode_before_load)(m, manager)));
     QUIET_RESET.store(true, Ordering::Relaxed);
     LOADING_IN_GAME.store(true, Ordering::Relaxed);
     SETUP_SAVE_WAITED.store(false, Ordering::Relaxed);
@@ -229,7 +239,9 @@ pub(super) fn load(m: &Memory, request: usize) -> u32 {
     }
     if Loaded::of(code) == Loaded::Read && sessions::last_load_read() {
         if let (Some(manager), Some(mode)) = (manager, saved_mode) {
-            crate::capabilities::game::map::restore_after_load(m, manager, mode);
+            if let Some(h) = super::hooks() {
+                (h.restore_after_load)(m, manager, mode);
+            }
         }
     }
     code
@@ -272,11 +284,11 @@ pub(super) fn save_failed() {
 unsafe extern "C" fn in_game_load(request: usize) -> u32 {
     let Some(m) = crate::native::memory().copied() else { return ORIGINAL.get()(request) };
     crate::base::guarded("in-game load", || {
-        if crate::capabilities::game::signals::in_day() {
+        if super::hooks().is_some_and(|h| (h.in_day)()) {
             log!("leave: refused an in-game load while a daily update is on the stack");
             return 1;
         }
-        if let Some(h) = crate::capabilities::hooks() {
+        if let Some(h) = super::hooks() {
             (h.ui_still)("EU4HARMONY_STILL_LOAD");
         }
         COURSE.in_game_load(&mut InGame { request, ..InGame::new(&m) })
@@ -350,7 +362,7 @@ pub(super) fn load_in_game(m: &Memory, name: &str) -> Result<u32, String> {
 /// returns to the main menu: the steps up to the restart it asks for next.
 #[called_by_game]
 extern "C" fn returning() {
-    if let Some(h) = crate::capabilities::hooks() {
+    if let Some(h) = super::hooks() {
         (h.ui_still)("EU4HARMONY_STILL_RETURN");
     }
     let m = crate::native::hooked_memory();
@@ -523,7 +535,7 @@ extern "C" fn setup_back(app: usize) -> bool {
     if !Rules::now().return_without_restart {
         return false;
     }
-    if let Some(h) = crate::capabilities::hooks() {
+    if let Some(h) = super::hooks() {
         (h.ui_still)("EU4HARMONY_STILL_RETURN");
     }
     let m = crate::native::hooked_memory();
@@ -684,15 +696,7 @@ mod tests {
 
     #[test]
     fn intro_elapsed_clears_fade_and_slide_thresholds() {
-        for (fade, start) in [
-            (2.2, 1.4),
-            (1.4, 3.0),
-            (0.0, 0.0),
-            (-1.0, -2.0),
-            (1e9, 1e9),
-            (f32::NAN, f32::INFINITY),
-            (2.2, f32::NEG_INFINITY),
-        ] {
+        for (fade, start) in [(2.2, 1.4), (1.4, 3.0), (0.0, 0.0), (-1.0, -2.0), (1e9, 1e9), (f32::NAN, f32::INFINITY), (2.2, f32::NEG_INFINITY)] {
             let elapsed = intro_elapsed(fade, start);
             assert!(elapsed.is_finite(), "non-finite elapsed for ({fade}, {start}): {elapsed}");
             if start.is_finite() {

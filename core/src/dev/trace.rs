@@ -1,4 +1,4 @@
-//! Logs calls of game functions, for finding out what the game passes them
+﻿//! Logs calls of game functions, for finding out what the game passes them
 //! (a developer build: a player build has none of this). The
 //! functions are the RVAs `functions` in dev.toml's `[call-trace]` lists, say
 //! `["0x15988e0", "0x159c600"]`. Each function's first calls (`calls`, 20 by
@@ -79,7 +79,7 @@ const TIMES_HEADER: &str = "function\tthread\tstart\tend\tdate\targument\tfield\
 /// times are microseconds, a date or field not read is empty.
 fn time_line(t: &Time, main: u32) -> String {
     let thread = if t.thread == main { "main".to_string() } else { t.thread.to_string() };
-    let date = t.date.map(|d| eu4_harmony_checks::Date(d).to_string()).unwrap_or_default();
+    let date = t.date.map(|d| eu4_harmony_remote::Date(d).to_string()).unwrap_or_default();
     let field = t.field.map(|f| format!("{f:#x}")).unwrap_or_default();
     format!("{:#x}\t{thread}\t{}\t{}\t{date}\t{:#x}\t{field}\n", t.rva, t.start.as_micros(), t.end.as_micros(), t.argument)
 }
@@ -279,7 +279,7 @@ mod tests {
 
     #[test]
     fn a_timed_call_is_a_line_of_its_thread_times_date_and_argument() {
-        let date = eu4_harmony_checks::Date::from_ymd(1700, 1, 2).unwrap().0;
+        let date = eu4_harmony_remote::Date::from_ymd(1700, 1, 2).unwrap().0;
         let call = Time {
             rva: 0xb0fa0,
             thread: 4242,

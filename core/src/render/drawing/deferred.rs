@@ -14,6 +14,101 @@ use crate::native::game_string;
 use crate::native::memory::Memory;
 use crate::native::objects::campaign::globals::WORLD;
 use crate::native::points::{Function, Point};
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Mutex,
+};
+
+/// Bounded queue and reentry guard for main-thread calls deferred to frame
+/// preparation.
+struct DeferredQueue<T> {
+    items: Mutex<Vec<T>>,
+    count: AtomicU64,
+    doing: AtomicBool,
+}
+
+struct DoingGuard<'a, T>(&'a DeferredQueue<T>);
+
+impl<T> Drop for DoingGuard<'_, T> {
+    fn drop(&mut self) {
+        self.0.doing.store(false, Ordering::Release);
+    }
+}
+
+/// Deferral rule for a hookable call while threaded drawing runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DeferPolicy {
+    /// Defer during the day; while replaying `done()`, run inline.
+    DeferOnly,
+    /// Defer when the caller matches the expected day-side call site;
+    /// otherwise record a crossing during the day. While replaying `done()`,
+    /// run inline.
+    DeferOrCross { caller_matches: bool },
+    /// Always defer on the main thread while threaded drawing runs, even
+    /// during replay (for mesh frees whose objects are still drawn until the
+    /// next frame update).
+    AlwaysDefer,
+}
+
+/// Decision for a hookable call that may be deferred until frame preparation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DeferredAction {
+    Defer,
+    RunNow,
+    RunWithCrossing,
+}
+
+impl<T> DeferredQueue<T> {
+    const fn new() -> Self {
+        Self { items: Mutex::new(Vec::new()), count: AtomicU64::new(0), doing: AtomicBool::new(false) }
+    }
+
+    fn is_doing(&self) -> bool {
+        self.doing.load(Ordering::Acquire)
+    }
+
+    fn decide(&self, on_main: bool, drawing_on: bool, policy: DeferPolicy) -> DeferredAction {
+        if !on_main || !drawing_on {
+            return DeferredAction::RunNow;
+        }
+        if self.is_doing() {
+            return match policy {
+                DeferPolicy::AlwaysDefer => DeferredAction::Defer,
+                DeferPolicy::DeferOnly | DeferPolicy::DeferOrCross { .. } => DeferredAction::RunNow,
+            };
+        }
+        match policy {
+            DeferPolicy::DeferOnly | DeferPolicy::AlwaysDefer | DeferPolicy::DeferOrCross { caller_matches: true } => DeferredAction::Defer,
+            DeferPolicy::DeferOrCross { caller_matches: false } => DeferredAction::RunWithCrossing,
+        }
+    }
+
+    fn push(&self, item: T) {
+        self.items.lock().unwrap_or_else(|e| e.into_inner()).push(item);
+        self.count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn push_if_absent(&self, item: T, mut same: impl FnMut(&T) -> bool) {
+        let mut items = self.items.lock().unwrap_or_else(|e| e.into_inner());
+        if !items.iter().any(&mut same) {
+            items.push(item);
+            self.count.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn take_for_execution(&self) -> Option<(Vec<T>, DoingGuard<'_, T>)> {
+        let taken = std::mem::take(&mut *self.items.lock().unwrap_or_else(|e| e.into_inner()));
+        if taken.is_empty() {
+            return None;
+        }
+        self.doing.store(true, Ordering::Release);
+        Some((taken, DoingGuard(self)))
+    }
+
+    fn logged(&self) -> u64 {
+        self.count.swap(0, Ordering::Relaxed)
+    }
+}
 
 pub(super) fn points() -> Vec<Point> {
     vec![
@@ -129,7 +224,7 @@ enum Deferred {
     MeshLetGo { mesh: usize, free: u32 },
 }
 
-static DEFERRED: super::course::DeferredQueue<Deferred> = super::course::DeferredQueue::new();
+static DEFERRED: DeferredQueue<Deferred> = DeferredQueue::new();
 
 fn defer(call: Deferred) {
     DEFERRED.push(call);
@@ -142,19 +237,19 @@ pub(super) fn logged() -> u64 {
 
 /// Whether a call of the main thread's waits for the next frame's preparation.
 fn deferring() -> bool {
-    DEFERRED.decide(on_main(), drawing_on(), true, false, false) == super::course::DeferredAction::Defer
+    DEFERRED.decide(on_main(), drawing_on(), DeferPolicy::DeferOnly) == DeferredAction::Defer
 }
 
 /// Decides a call that may either be deferred to frame preparation or cross
 /// immediately when called from another site while threaded drawing runs.
 fn defer_or_cross(caller_matches: bool, crossing_at: usize) -> bool {
-    match DEFERRED.decide(on_main(), drawing_on(), caller_matches, false, true) {
-        super::course::DeferredAction::Defer => true,
-        super::course::DeferredAction::RunWithCrossing => {
+    match DEFERRED.decide(on_main(), drawing_on(), DeferPolicy::DeferOrCross { caller_matches }) {
+        DeferredAction::Defer => true,
+        DeferredAction::RunWithCrossing => {
             super::crossings::crossing(crate::native::hooked_memory().at(crossing_at));
             false
         }
-        super::course::DeferredAction::RunNow => false,
+        DeferredAction::RunNow => false,
     }
 }
 
@@ -297,7 +392,7 @@ extern "C" fn minimap_stub() {
 /// the next update does, and the frame prepared meanwhile still draws it.
 #[called_by_game]
 unsafe extern "C" fn mesh_let_go(mesh: usize, free: u32) -> usize {
-    if free & 1 != 0 && DEFERRED.decide(on_main(), drawing_on(), true, true, false) == super::course::DeferredAction::Defer {
+    if free & 1 != 0 && DEFERRED.decide(on_main(), drawing_on(), DeferPolicy::AlwaysDefer) == DeferredAction::Defer {
         defer(Deferred::MeshLetGo { mesh, free });
         return mesh;
     }
@@ -351,5 +446,48 @@ pub(super) fn done(m: &Memory) {
             },
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deferred_queue_deduplicates_and_resets_doing_even_on_unwind() {
+        let queue: DeferredQueue<(usize, u32)> = DeferredQueue::new();
+        queue.push_if_absent((10, 1), |x| *x == (10, 1));
+        queue.push_if_absent((10, 1), |x| *x == (10, 1));
+        queue.push_if_absent((10, 2), |x| *x == (10, 2));
+        assert_eq!(queue.logged(), 2);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let (items, _guard) = queue.take_for_execution().unwrap();
+            assert_eq!(items.len(), 2);
+            assert!(queue.is_doing());
+            panic!("simulated unwind during deferred execution");
+        }));
+        assert!(result.is_err());
+        assert!(!queue.is_doing(), "RAII guard must clear `doing` on unwind");
+        assert!(queue.take_for_execution().is_none());
+    }
+
+    #[test]
+    fn deferred_policy_runs_inline_during_replay_without_spurious_crossings() {
+        let queue: DeferredQueue<u32> = DeferredQueue::new();
+        assert_eq!(queue.decide(true, false, DeferPolicy::DeferOnly), DeferredAction::RunNow);
+        assert_eq!(queue.decide(true, false, DeferPolicy::DeferOrCross { caller_matches: false }), DeferredAction::RunNow);
+
+        assert_eq!(queue.decide(true, true, DeferPolicy::DeferOnly), DeferredAction::Defer);
+        assert_eq!(queue.decide(true, true, DeferPolicy::DeferOrCross { caller_matches: true }), DeferredAction::Defer);
+        assert_eq!(queue.decide(true, true, DeferPolicy::DeferOrCross { caller_matches: false }), DeferredAction::RunWithCrossing);
+        assert_eq!(queue.decide(true, true, DeferPolicy::AlwaysDefer), DeferredAction::Defer);
+
+        queue.push(1);
+        let (_items, _guard) = queue.take_for_execution().unwrap();
+        assert_eq!(queue.decide(true, true, DeferPolicy::DeferOnly), DeferredAction::RunNow);
+        assert_eq!(queue.decide(true, true, DeferPolicy::DeferOrCross { caller_matches: true }), DeferredAction::RunNow);
+        assert_eq!(queue.decide(true, true, DeferPolicy::DeferOrCross { caller_matches: false }), DeferredAction::RunNow);
+        assert_eq!(queue.decide(true, true, DeferPolicy::AlwaysDefer), DeferredAction::Defer);
     }
 }

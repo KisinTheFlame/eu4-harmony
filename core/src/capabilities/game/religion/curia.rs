@@ -3,8 +3,8 @@
 //! controller's golden bulls, through the game's own commands, with the
 //! game's own checks (docs/game/provinces/religion.md, "The papacy and the
 //! curia").
-use super::commands::{write, Block};
-use super::{action, conditions, content, Ctx, GResult, Session, Tag};
+use super::super::commands::{write, Block};
+use super::super::{action, conditions, content, Ctx, GResult, Session, Tag};
 use crate::{
     native::containers,
     native::game_string,
@@ -151,7 +151,7 @@ fn papacy(m: &Memory, country: usize) -> GResult<Option<(usize, usize)>> {
 }
 
 fn own_papacy(m: &Memory, country: usize) -> GResult<(usize, usize)> {
-    papacy(m, country)?.ok_or_else(|| super::religion::checks::not_of_religion("papacy"))
+    papacy(m, country)?.ok_or_else(|| super::checks::not_of_religion("papacy"))
 }
 
 /// Thousandths as the number they stand for.

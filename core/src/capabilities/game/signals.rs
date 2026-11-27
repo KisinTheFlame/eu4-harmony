@@ -220,7 +220,7 @@ fn daily_after(call: &mut Call) {
     DAILY_DEPTH.fetch_update(Ordering::AcqRel, Ordering::Acquire, |d| Some(d.saturating_sub(1))).ok();
     crate::native::probes::day_ends(call);
     crate::render::drawing::day_ends();
-    super::menu::day_ran();
+    crate::session::transition::day_ran();
     if !call.faulted() {
         super::time::day_passed(&call.memory());
     }

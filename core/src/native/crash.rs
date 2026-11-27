@@ -1,4 +1,4 @@
-//! A crash's record in the framework log. As the game's crash handling
+﻿//! A crash's record in the framework log. As the game's crash handling
 //! begins to write a crash's files (`0x1654250`), the log gets what it is,
 //! where it happened, on which thread, the game's date, and the calls it was
 //! in, so that a player's logs say where the game crashed when its crash
@@ -111,7 +111,7 @@ fn crashed(call: &mut Call) {
     let m = call.memory();
     let what = text(&m, call.arg(0));
     let date = match crate::native::objects::current_date(&m) {
-        Some(date) => format!(", the game at {}", eu4_harmony_checks::Date(date)),
+        Some(date) => format!(", the game at {}", eu4_harmony_remote::Date(date)),
         None => String::new(),
     };
     let mut frames = [0u64; FRAMES];

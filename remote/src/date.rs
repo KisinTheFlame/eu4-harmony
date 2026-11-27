@@ -121,7 +121,6 @@ mod tests {
         assert_eq!(Date::parse("1444.11.11"), Some(start));
         assert_eq!(Date::parse("1445.01.01"), Date::from_ymd(1445, 1, 1));
         assert_eq!(Date::from_ymd(1445, 1, 1).unwrap().0 - start.0, 51 * 24);
-        // Every day of a year comes back as itself, and the hour is ignored.
         let first = Date::from_ymd(1450, 1, 1).unwrap();
         for day in 0..365 {
             let date = Date(first.0 + day * 24 + 13);

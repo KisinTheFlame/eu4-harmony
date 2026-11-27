@@ -11,15 +11,22 @@
 //! move as days pass.
 //!
 //! What the world refuses, it refuses as the core does, through the same
-//! checks and in the same words (`eu4_harmony_checks`): an ID of no army of
+//! checks and in the same words (`eu4_harmony_remote::checks`): an ID of no army of
 //! the player's, a fleet where a land army is asked for, an order to an army
 //! the game would not let the framework order, a target the player does not
 //! see. The game is never paused in the world.
-use eu4_harmony_checks::{
-    armies as army_checks, countries as country_checks, provinces as province_checks,
-    script::{self as script_checks, Use},
+use eu4_harmony_remote::{
+    armies::{ArmyRequest, Blocked},
+    checks::{
+        armies as army_checks, countries as country_checks, provinces as province_checks,
+        script::{self as script_checks, Use},
+    },
+    countries::CountryRequest,
+    provinces::ProvinceRequest,
+    script::{Scope, ScriptRequest},
+    session::SessionRequest,
+    ArmyId, Error, ProvinceId, Request,
 };
-use eu4_harmony_remote::{armies::Blocked, script::Scope, Code, Error, ProvinceId};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -165,32 +172,6 @@ impl Army {
     }
 }
 
-/// The capabilities the world answers.
-pub const ANSWERS: &[&str] = &[
-    "session.get",
-    "country.get",
-    "country.hostile",
-    "country.opinion",
-    "country.opinions",
-    "province.list",
-    "province.get",
-    "province.neighbors",
-    "army.get",
-    "army.list",
-    "army.at",
-    "army.selected",
-    "army.route_to",
-    "army.can_step",
-    "army.can_attack",
-    "army.move",
-    "army.stop",
-    "script.flag",
-    "script.set_flag",
-    "script.clear_flag",
-    "script.variable",
-    "script.set_variable",
-];
-
 impl World {
     /// The world `json` describes (from the test's table), or why it is not
     /// one; each army and province checked against its capability's shape.
@@ -230,20 +211,20 @@ impl World {
     }
 
     fn province(&self, id: u32) -> Result<&Place, Error> {
-        self.provinces.iter().find(|p| p.id == id).ok_or_else(|| province_checks::not_found(id).into())
+        self.provinces.iter().find(|p| p.id == id).ok_or_else(|| province_checks::not_found(id))
     }
 
     /// The player's army or fleet `id`.
     fn own(&self, id: u64) -> Result<&Army, Error> {
         let player = self.player();
-        self.armies.iter().find(|a| a.id == id && a.owner == player).ok_or_else(|| army_checks::not_own(id).into())
+        self.armies.iter().find(|a| a.id == id && a.owner == player).ok_or_else(|| army_checks::not_own(id))
     }
 
     /// The player's land army `id`.
     fn own_land(&self, id: u64) -> Result<&Army, Error> {
         let army = self.own(id)?;
         if army.kind != "army" {
-            return Err(army_checks::not_land().into());
+            return Err(army_checks::not_land());
         }
         Ok(army)
     }
@@ -263,10 +244,7 @@ impl World {
 
     /// A land army the player sees, in a province not under fog.
     fn seen(&self, id: u64) -> Result<&Army, Error> {
-        self.armies
-            .iter()
-            .find(|a| a.id == id && a.kind == "army" && a.province.is_some_and(|p| self.visible(p)))
-            .ok_or_else(|| army_checks::not_seen(id).into())
+        self.armies.iter().find(|a| a.id == id && a.kind == "army" && a.province.is_some_and(|p| self.visible(p))).ok_or_else(|| army_checks::not_seen(id))
     }
 
     /// What `of` thinks of `toward`, in Lua's form.
@@ -329,7 +307,7 @@ impl World {
 
     /// The route an army would take to `to`, as `army.route_to` answers it.
     fn route_from(&self, army: &Army, to: u32) -> Result<Vec<u32>, Error> {
-        army.province.and_then(|from| self.route(from, to)).ok_or_else(|| army_checks::no_route(to).into())
+        army.province.and_then(|from| self.route(from, to)).ok_or_else(|| army_checks::no_route(to))
     }
 
     /// The shortest route over land from `from` to `to`, `to` last; none
@@ -399,18 +377,16 @@ impl World {
         })
     }
 
-    /// The answer to `capability` asked with `request`'s arguments, if the
-    /// world answers it.
-    pub fn answer(&mut self, capability: &str, request: &Value, calendar: crate::fake::Calendar) -> Option<Result<Value, Error>> {
-        let int = |name: &str| request.get(name).and_then(Value::as_u64).unwrap_or_default();
-        let text = |name: &str| request.get(name).and_then(Value::as_str).unwrap_or_default().to_string();
-        let province = |name: &str| int(name) as u32;
-        Some(match capability {
-            "session.get" => Ok(json!({"number": calendar.session.max(1), "player": self.player(), "observing": false, "date": self.current_date(calendar)})),
-            "country.get" => {
-                let tag = text("country");
+    /// The answer to `request`, if the world answers that capability.
+    pub fn answer(&mut self, request: &Request, calendar: crate::fake::Calendar) -> Option<Result<Value, Error>> {
+        Some(match request {
+            Request::Session(SessionRequest::Get {}) => {
+                Ok(json!({"number": calendar.session.max(1), "player": self.player(), "observing": false, "date": self.current_date(calendar)}))
+            }
+            Request::Country(CountryRequest::Get { country }) => {
+                let tag = country.to_string();
                 if !self.country_known(&tag) {
-                    return Some(Err(country_checks::not_found(&tag).into()));
+                    return Some(Err(country_checks::not_found(&tag)));
                 }
                 let mut country = json!({
                     "tag": tag, "treasury": 0.0, "manpower": 0, "max_manpower": 0, "stability": 0.0, "prestige": 0.0,
@@ -425,28 +401,28 @@ impl World {
                 }
                 Ok(country)
             }
-            "country.hostile" => {
-                let (a, b) = (text("country"), text("other"));
+            Request::Country(CountryRequest::Hostile { country, other }) => {
+                let (a, b) = (country.to_string(), other.to_string());
                 let unknown = [&a, &b].into_iter().find(|t| !self.country_known(t)).cloned();
                 match unknown {
-                    Some(unknown) => Err(country_checks::not_found(&unknown).into()),
+                    Some(unknown) => Err(country_checks::not_found(&unknown)),
                     None => Ok(json!(self.hostile(&a, &b))),
                 }
             }
-            "country.opinion" => {
-                let (of, toward) = (text("of"), text("toward"));
+            Request::Country(CountryRequest::Opinion { of, toward }) => {
+                let (of, toward) = (of.to_string(), toward.to_string());
                 if let Some(unknown) = [&of, &toward].into_iter().find(|t| !self.country_known(t)) {
-                    return Some(Err(country_checks::not_found(unknown).into()));
+                    return Some(Err(country_checks::not_found(unknown)));
                 }
                 match country_checks::of_itself(&of, &toward) {
-                    Some(refusal) => Err(refusal.into()),
+                    Some(refusal) => Err(refusal),
                     None => Ok(self.opinion_json(&of, &toward)),
                 }
             }
-            "country.opinions" => {
-                let toward = text("toward");
+            Request::Country(CountryRequest::Opinions { toward }) => {
+                let toward = toward.to_string();
                 if !self.country_known(&toward) {
-                    return Some(Err(country_checks::not_found(&toward).into()));
+                    return Some(Err(country_checks::not_found(&toward)));
                 }
                 let row = |of: &String| {
                     let mut o = self.opinion_json(of, &toward);
@@ -461,16 +437,16 @@ impl World {
                 };
                 Ok(Value::Array(self.known_countries().iter().filter(|of| **of != toward).map(row).collect()))
             }
-            "province.list" => {
+            Request::Province(ProvinceRequest::List { provinces }) => {
                 let row = |p: &Place| json!({"id": p.id, "kind": p.kind, "visible": p.visible, "owner": p.owner, "controller": p.controller.clone().or_else(|| p.owner.clone())});
-                Ok(Value::Array(match request.get("provinces").and_then(Value::as_array) {
-                    Some(ids) => ids.iter().filter_map(Value::as_u64).filter_map(|id| self.provinces.iter().find(|p| u64::from(p.id) == id)).map(row).collect(),
+                Ok(Value::Array(match provinces {
+                    Some(ids) => ids.0.iter().filter_map(|ProvinceId(id)| self.provinces.iter().find(|p| p.id == *id)).map(row).collect(),
                     None => self.provinces.iter().map(row).collect(),
                 }))
             }
-            "province.get" => self.province(province("province")).map(|p| self.province_json(p)),
-            "province.neighbors" => {
-                let id = province("province");
+            Request::Province(ProvinceRequest::Get { province: ProvinceId(id) }) => self.province(*id).map(|p| self.province_json(p)),
+            Request::Province(ProvinceRequest::Neighbors { province: ProvinceId(id) }) => {
+                let id = *id;
                 self.province(id).map(|_| {
                     let list: Vec<Value> = if self.passable(id) {
                         self.neighbors(id).into_iter().filter(|(n, _)| self.passable(*n)).map(|(n, strait)| json!({"province": n, "strait": strait})).collect()
@@ -480,40 +456,38 @@ impl World {
                     Value::Array(list)
                 })
             }
-            "army.get" => self.own(int("army")).map(|a| self.army_json(a)),
-            "army.list" => {
+            Request::Army(ArmyRequest::Get { army: ArmyId(id) }) => self.own(*id).map(|a| self.army_json(a)),
+            Request::Army(ArmyRequest::List {}) => {
                 let player = self.player();
                 Ok(Value::Array(self.armies.iter().filter(|a| a.owner == player).map(|a| self.army_json(a)).collect()))
             }
-            "army.at" => {
-                let id = province("province");
+            Request::Army(ArmyRequest::At { province: ProvinceId(id) }) => {
+                let id = *id;
                 // None under fog, as the game shows the player.
                 self.province(id).map(|p| {
                     let seen = |a: &&Army| p.visible && a.province == Some(id) && a.kind == "army";
                     Value::Array(self.armies.iter().filter(seen).map(|a| self.army_json(a)).collect())
                 })
             }
-            "army.selected" => match self.selected {
-                Some(id) => self.own_land(id).map(|a| json!(a.id)).map_err(|_| army_checks::none_selected().into()),
-                None => Err(army_checks::panel_not_open().into()),
+            Request::Army(ArmyRequest::Selected {}) => match self.selected {
+                Some(id) => self.own_land(id).map(|a| json!(a.id)).map_err(|_| army_checks::none_selected()),
+                None => Err(army_checks::panel_not_open()),
             },
-            "army.route_to" => {
-                let to = province("province");
-                self.own_land(int("army")).and_then(|a| self.route_from(a, to).map(|r| json!(r)))
+            Request::Army(ArmyRequest::RouteTo { army: ArmyId(id), province: ProvinceId(to) }) => {
+                self.own_land(*id).and_then(|a| self.route_from(a, *to).map(|r| json!(r)))
             }
-            "army.can_step" => {
-                let (from, to) = (province("from"), province("to"));
-                self.own_land(int("army")).map(|_| json!(self.passable(to) && self.neighbors(from).iter().any(|(n, _)| *n == to)))
+            Request::Army(ArmyRequest::CanStep { army: ArmyId(id), from: ProvinceId(from), to: ProvinceId(to) }) => {
+                self.own_land(*id).map(|_| json!(self.passable(*to) && self.neighbors(*from).iter().any(|(n, _)| *n == *to)))
             }
-            "army.can_attack" => {
+            Request::Army(ArmyRequest::CanAttack { army: ArmyId(id), target: ArmyId(target) }) => {
                 let player = self.player();
-                self.own_land(int("army")).and_then(|own| {
-                    let other = self.seen(int("target"))?;
+                self.own_land(*id).and_then(|own| {
+                    let other = self.seen(*target)?;
                     Ok(json!(other.id != own.id && self.hostile(&player, &other.owner)))
                 })
             }
-            "army.move" => {
-                let (id, to) = (int("army"), province("province"));
+            Request::Army(ArmyRequest::Move { army: ArmyId(id), province: ProvinceId(to), transports: _ }) => {
+                let (id, to) = (*id, *to);
                 let route = self.orderable(id).and_then(|a| self.route_from(a, to));
                 route.map(|route| {
                     if let Some(a) = self.armies.iter_mut().find(|a| a.id == id) {
@@ -523,8 +497,8 @@ impl World {
                     Value::Null
                 })
             }
-            "army.stop" => {
-                let id = int("army");
+            Request::Army(ArmyRequest::Stop { army: ArmyId(id) }) => {
+                let id = *id;
                 self.orderable(id).map(|_| ()).map(|()| {
                     if let Some(a) = self.armies.iter_mut().find(|a| a.id == id) {
                         a.route.clear();
@@ -533,9 +507,15 @@ impl World {
                     Value::Null
                 })
             }
-            "script.flag" | "script.set_flag" | "script.clear_flag" | "script.variable" | "script.set_variable" => {
+            Request::Script(
+                script @ (ScriptRequest::Flag { .. }
+                | ScriptRequest::SetFlag { .. }
+                | ScriptRequest::ClearFlag { .. }
+                | ScriptRequest::Variable { .. }
+                | ScriptRequest::SetVariable { .. }),
+            ) => {
                 let date = self.current_date(calendar);
-                self.script(capability, request, date)
+                self.script(script, date)
             }
             _ => return None,
         })
@@ -546,54 +526,57 @@ impl World {
     /// advance), a variable in thousandths, as the game keeps them. The
     /// scope's country or province must be the world's; a monarch is taken to
     /// be there.
-    fn script(&mut self, capability: &str, request: &Value, date: Value) -> Result<Value, Error> {
-        let scope: Scope =
-            serde_json::from_value(request.get("scope").cloned().unwrap_or(Value::Null)).map_err(|e| Error::new(Code::InvalidArgument, e.to_string()))?;
-        let name = request.get("name").and_then(Value::as_str).unwrap_or_default();
-        let (use_, what) = if capability.ends_with("flag") { (Use::Flag, "flag") } else { (Use::Variable, "variable") };
-        script_checks::scope(use_, scope.kind(), scope == Scope::Global(true))?;
+    fn script(&mut self, request: &ScriptRequest, date: Value) -> Result<Value, Error> {
+        let (scope, name, use_, what) = match request {
+            ScriptRequest::Flag { scope, name } | ScriptRequest::SetFlag { scope, name } | ScriptRequest::ClearFlag { scope, name } => {
+                (scope, name.as_str(), Use::Flag, "flag")
+            }
+            ScriptRequest::Variable { scope, name } | ScriptRequest::SetVariable { scope, name, .. } => (scope, name.as_str(), Use::Variable, "variable"),
+            _ => unreachable!("handled by caller match"),
+        };
+        script_checks::scope(use_, scope.kind(), *scope == Scope::Global(true))?;
         script_checks::name(what, name)?;
         match scope {
             Scope::Country(tag) | Scope::Ruler(tag) | Scope::Heir(tag) | Scope::Consort(tag) if !self.country_known(&tag.to_string()) => {
-                return Err(country_checks::not_found(&tag.to_string()).into());
+                return Err(country_checks::not_found(&tag.to_string()));
             }
             Scope::Province(ProvinceId(id)) => {
-                self.province(id)?;
+                self.province(*id)?;
             }
             _ => {}
         }
-        let key = format!("{}:{name}", serde_json::to_string(&scope).unwrap_or_default());
-        Ok(match capability {
-            "script.flag" => match self.flags.get(&key) {
+        let key = format!("{}:{name}", serde_json::to_string(scope).unwrap_or_default());
+        Ok(match request {
+            ScriptRequest::Flag { .. } => match self.flags.get(&key) {
                 Some(day) => json!({"set": true, "day": day}),
                 None => json!({"set": false, "day": null}),
             },
-            "script.set_flag" => {
+            ScriptRequest::SetFlag { .. } => {
                 self.flags.insert(key, date);
                 Value::Null
             }
-            "script.clear_flag" => {
+            ScriptRequest::ClearFlag { .. } => {
                 self.flags.remove(&key);
                 Value::Null
             }
-            "script.variable" => match self.variables.get(&key) {
+            ScriptRequest::Variable { .. } => match self.variables.get(&key) {
                 Some(value) => json!({"set": true, "value": value}),
                 None => json!({"set": false, "value": 0.0}),
             },
-            _ => {
-                let value = request.get("value").and_then(Value::as_f64).unwrap_or_default();
-                script_checks::value(value)?;
+            ScriptRequest::SetVariable { value, .. } => {
+                script_checks::value(*value)?;
                 self.variables.insert(key, (value * 1000.0).round() / 1000.0);
                 Value::Null
             }
+            _ => unreachable!("handled by caller match"),
         })
     }
 }
 
 /// A date as Lua has it, from its text.
 fn date(text: &str) -> Value {
-    match eu4_harmony_checks::Date::parse(text) {
-        Some(d) => eu4_harmony_checks::form::as_lua(|| serde_json::to_value(d)).unwrap_or(Value::Null),
+    match eu4_harmony_remote::Date::parse(text) {
+        Some(d) => eu4_harmony_remote::form::as_lua(|| serde_json::to_value(d)).unwrap_or(Value::Null),
         None => Value::String(text.into()),
     }
 }
@@ -625,8 +608,17 @@ mod tests {
         .unwrap()
     }
 
-    fn ask(world: &mut World, capability: &str, request: Value) -> Result<Value, Error> {
-        let answer = world.answer(capability, &request, crate::fake::Calendar::default()).unwrap();
+    fn ask(world: &mut World, capability: &str, mut args: Value) -> Result<Value, Error> {
+        let map = args.as_object_mut().expect("request args must be a JSON object");
+        // Remote control JSON encodes army IDs as decimal strings.
+        for key in ["army", "target"] {
+            if let Some(n) = map.get(key).and_then(Value::as_u64) {
+                map.insert(key.into(), Value::String(n.to_string()));
+            }
+        }
+        map.insert("capability".into(), Value::String(capability.into()));
+        let request = eu4_harmony_remote::request_from_fields(map.clone()).unwrap_or_else(|e| panic!("invalid test request {capability}: {e}"));
+        let answer = world.answer(&request, crate::fake::Calendar::default()).unwrap();
         if let Ok(value) = &answer {
             crate::fake::check(capability, value).unwrap();
         }
@@ -636,9 +628,32 @@ mod tests {
     #[test]
     fn the_world_answers_with_the_game_s_shapes() {
         let mut w = spain();
-        for capability in ANSWERS {
-            let request = json!({"army": 1, "province": 219, "country": "CAS", "other": "GRA", "from": 217, "to": 219, "target": 2});
-            let _ = ask(&mut w, capability, request);
+        let cases = [
+            ("session.get", json!({})),
+            ("country.get", json!({"country": "CAS"})),
+            ("country.hostile", json!({"country": "CAS", "other": "GRA"})),
+            ("country.opinion", json!({"of": "CAS", "toward": "GRA"})),
+            ("country.opinions", json!({"toward": "CAS"})),
+            ("province.list", json!({})),
+            ("province.get", json!({"province": 219})),
+            ("province.neighbors", json!({"province": 219})),
+            ("army.get", json!({"army": 1})),
+            ("army.list", json!({})),
+            ("army.at", json!({"province": 217})),
+            ("army.selected", json!({})),
+            ("army.route_to", json!({"army": 1, "province": 219})),
+            ("army.can_step", json!({"army": 1, "from": 217, "to": 219})),
+            ("army.can_attack", json!({"army": 1, "target": 2})),
+            ("army.move", json!({"army": 1, "province": 219})),
+            ("army.stop", json!({"army": 1})),
+            ("script.set_flag", json!({"scope": {"country": "CAS"}, "name": "f"})),
+            ("script.flag", json!({"scope": {"country": "CAS"}, "name": "f"})),
+            ("script.clear_flag", json!({"scope": {"country": "CAS"}, "name": "f"})),
+            ("script.set_variable", json!({"scope": {"country": "CAS"}, "name": "v", "value": 1.25})),
+            ("script.variable", json!({"scope": {"country": "CAS"}, "name": "v"})),
+        ];
+        for (capability, args) in cases {
+            ask(&mut w, capability, args).unwrap_or_else(|e| panic!("{capability}: {e}"));
         }
         assert_eq!(ask(&mut w, "session.get", json!({})).unwrap()["date"], json!({"year": 1444, "month": 11, "day": 11}));
         assert_eq!(ask(&mut w, "army.selected", json!({})).unwrap(), json!(1));
@@ -715,10 +730,7 @@ mod tests {
             let e = ask(&mut w, capability, request).unwrap_err();
             (e.code, e.message)
         };
-        let words = |refusal: eu4_harmony_checks::Refusal| {
-            let e = Error::from(refusal);
-            (e.code, e.message)
-        };
+        let words = |e: Error| (e.code, e.message);
         assert_eq!(refused("army.get", json!({"army": 2})), words(army_checks::not_own(2)));
         assert_eq!(refused("country.get", json!({"country": "ZZZ"})), words(country_checks::not_found("ZZZ")));
         assert_eq!(refused("province.get", json!({"province": 9})), words(province_checks::not_found(9)));

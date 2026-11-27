@@ -1,4 +1,4 @@
-//! The scripts' flags, variables and events, read, set and fired as the
+﻿//! The scripts' flags, variables and events, read, set and fired as the
 //! scripts' own effects do (docs/game/scripts/scripts.md).
 //!
 //! A flag is kept in a flag set of its scope's: a country's, a province's,
@@ -11,7 +11,7 @@
 //! `country_event` and `province_event` fire one.
 use super::{conditions, countries, country, with_state, GResult, Status, Tag, World, WorldSession};
 use crate::{native::containers, native::game_string, native::memory::Memory, native::objects::campaign::{country as country_fields, event, globals::WORLD, province as province_fields, route_options::NO_TAG}, native::points::{GameFunction, Point}};
-use eu4_harmony_checks::script::{self as checks, Use};
+use eu4_harmony_remote::checks::script::{self as checks, Use};
 use eu4_harmony_remote::{
     script::{args, FlagState, Scope, VariableState},
     Date, ProvinceId,
@@ -279,7 +279,7 @@ fn variables_of(m: &Memory, world: &World, scope: Scope) -> GResult<usize> {
 
 fn province_address(m: &Memory, world: &World, number: u32) -> GResult<usize> {
     if number == 0 {
-        return Err(eu4_harmony_checks::provinces::not_found(0).into());
+        return Err(eu4_harmony_remote::checks::provinces::not_found(0).into());
     }
     with_state(|s| s.geography.province_address(m, world, number))
 }

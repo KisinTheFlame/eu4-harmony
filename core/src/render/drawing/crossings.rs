@@ -10,8 +10,223 @@ use super::{drawing_on, is_drawing_thread, main_side, on_main, MainLock};
 use crate::base::called_by_game;
 use crate::native::hooks::Call;
 use crate::native::points::Point;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::Mutex;
 use std::time::Instant;
+
+/// Tracks crossings that invalidate the prepared frame until the next update
+/// and aggregates crossing counts and hold-back durations for the log.
+struct CrossingsTracker {
+    changed: AtomicBool,
+    held_back_by: Mutex<Option<(usize, Instant)>>,
+    taken: AtomicU64,
+    by_crossing: Mutex<Vec<(usize, u64, u64)>>,
+}
+
+impl CrossingsTracker {
+    const fn new() -> Self {
+        Self { changed: AtomicBool::new(false), held_back_by: Mutex::new(None), taken: AtomicU64::new(0), by_crossing: Mutex::new(Vec::new()) }
+    }
+
+    fn record_crossing(&self, into: usize, now: Instant, took_lock: bool) {
+        if !self.changed.swap(true, Ordering::AcqRel) {
+            *self.held_back_by.lock().unwrap_or_else(|e| e.into_inner()) = Some((into, now));
+        }
+        self.count(into, 1, 0);
+        if took_lock {
+            self.taken.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Runs a main-thread crossing through [`super::turns::MainSide`],
+    /// promoting transient lock-order ownership and recording hold-back only
+    /// while threaded drawing is active.
+    fn record_main_crossing(
+        &self,
+        drawing_on: bool,
+        on_main: bool,
+        into: usize,
+        now: Instant,
+        main: &mut super::turns::MainSide,
+        lock: &impl super::turns::Lock,
+    ) -> bool {
+        if !on_main || !drawing_on {
+            return false;
+        }
+        let took = main.crossing(lock);
+        self.record_crossing(into, now, took);
+        true
+    }
+
+    /// Runs a main-thread renderer call: skips work when `main` already
+    /// protects graphics changes beyond a transient lock-order scope, and
+    /// otherwise promotes ownership and records a crossing.
+    fn renderer_call(
+        &self,
+        drawing_on: bool,
+        on_main: bool,
+        into: usize,
+        now: Instant,
+        main: &mut super::turns::MainSide,
+        lock: &impl super::turns::Lock,
+    ) -> bool {
+        if !on_main || !drawing_on || main.protects_changes() {
+            return false;
+        }
+        self.record_main_crossing(drawing_on, on_main, into, now, main, lock)
+    }
+
+    fn record_lock_order(&self, into: usize, took_lock: bool) {
+        self.count(into, 1, 0);
+        if took_lock {
+            self.taken.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn holding_back(&self) -> Option<usize> {
+        self.changed.load(Ordering::Acquire).then(|| self.held_back_by.lock().unwrap_or_else(|e| e.into_inner()).map_or(0, |(into, _)| into))
+    }
+
+    fn frame_prepared(&self, now: Instant) {
+        self.changed.store(false, Ordering::Release);
+        if let Some((into, at)) = self.held_back_by.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            self.count(into, 0, now.saturating_duration_since(at).as_micros() as u64);
+        }
+    }
+
+    fn clear(&self) {
+        self.changed.store(false, Ordering::Release);
+        self.held_back_by.lock().unwrap_or_else(|e| e.into_inner()).take();
+    }
+
+    fn count(&self, into: usize, times: u64, held: u64) {
+        let mut by = self.by_crossing.lock().unwrap_or_else(|e| e.into_inner());
+        match by.iter_mut().find(|c| c.0 == into) {
+            Some(c) => {
+                c.1 += times;
+                c.2 += held;
+            }
+            None => by.push((into, times, held)),
+        }
+    }
+
+    fn logged(&self, base: usize) -> (u64, String) {
+        let mut by = std::mem::take(&mut *self.by_crossing.lock().unwrap_or_else(|e| e.into_inner()));
+        by.sort_by_key(|c| std::cmp::Reverse(c.2));
+        let longest = by
+            .iter()
+            .take(3)
+            .map(|&(into, times, held)| format!("{:#x} {times}x {:.0} ms", into.wrapping_sub(base), held as f64 / 1000.0))
+            .collect::<Vec<_>>()
+            .join(", ");
+        (self.taken.swap(0, Ordering::Relaxed), longest)
+    }
+}
+
+/// Lock-free fixed-capacity set of game locks taken by the drawing thread,
+/// consulted without taking a Rust mutex inside `EnterCriticalSection` or
+/// `AcquireSRWLockExclusive`.
+struct LockOrder<const N: usize> {
+    locks: [AtomicUsize; N],
+    known: AtomicUsize,
+    overflow_logged: AtomicBool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LockAction {
+    None,
+    WarnOverflow,
+    TakePresentationFirst,
+}
+
+impl<const N: usize> LockOrder<N> {
+    const fn new() -> Self {
+        Self { locks: [const { AtomicUsize::new(0) }; N], known: AtomicUsize::new(0), overflow_logged: AtomicBool::new(false) }
+    }
+
+    fn observe(&self, lock: usize, on_drawing: bool, on_main_unheld: bool) -> LockAction {
+        let count = self.known.load(Ordering::Acquire).min(N);
+        let known = self.locks[..count].iter().any(|l| l.load(Ordering::Relaxed) == lock);
+        if on_drawing {
+            if !known && count < N {
+                self.locks[count].store(lock, Ordering::Relaxed);
+                self.known.store(count + 1, Ordering::Release);
+            } else if !known && !self.overflow_logged.swap(true, Ordering::Relaxed) {
+                return LockAction::WarnOverflow;
+            }
+            LockAction::None
+        } else if known && on_main_unheld {
+            LockAction::TakePresentationFirst
+        } else {
+            LockAction::None
+        }
+    }
+}
+
+/// Ends lock-order-only presentation ownership at checked stream-helper
+/// returns. Cold construction, abnormal completion and genuine crossings retain
+/// the ordinary frame-check lifetime (docs/game/interface/stream-formatting.md).
+fn order_scope_before(_: &mut Call) {
+    if on_main() {
+        main_side(|s| s.order_scope_begins());
+    }
+}
+
+fn order_scope_after(call: &mut Call) {
+    if on_main() {
+        main_side(|s| s.order_scope_ends(&MainLock, call.faulted()));
+    }
+}
+
+fn order_scope_cold(_: &mut Call) {
+    if on_main() {
+        main_side(|s| s.order_scope_cold());
+    }
+}
+
+fn lock_order_points() -> Vec<Point> {
+    vec![
+        Point::keep(0x91b59, "48 8d 4c 24 48 e8 65 ac 97 01 48 8b c3 48 8b 5c 24 58 48 83 c4 20 5f 5e 5d c3", "facet normal exit releases its guard"),
+        Point::keep(0x91b24, "48 8b d5 48 8d 4c 24 50 e8 af fd ff ff", "facet cold construction call"),
+        Point::keep(0x91ad0, "48 8d 4c 24 40 e8 ee ac 97 01", "facet nested guard release"),
+        Point::keep(0x1a0c7c8, "48 83 ec 28 48 63 01 85 c0 75 09 48 83 c4 28 e9 44 2d 05 00", "lock-zero guard destruction"),
+        Point::keep(0x1a5f520, "48 8d 0d a9 d8 8d 00 48 ff 25 2a 72 10 00", "lock-zero LeaveCriticalSection"),
+        Point::observe(
+            0x1a0c408,
+            "48 8b c4 48 89 58 10 48 89 68 18 48 89 70 20",
+            "stream shared-state scope",
+            1,
+            Some(order_scope_before),
+            Some(order_scope_after),
+        ),
+        Point::observe(0x91a70, "48 89 5c 24 20 55 56 57 48 83 ec 20", "stream facet lookup scope", 1, Some(order_scope_before), Some(order_scope_after)),
+        Point::observe(0x918e0, "48 89 5c 24 10 48 89 74 24 18 55 57 41 56", "facet cold path retains ownership", 2, Some(order_scope_cold), None),
+        Point::keep(0x91759, "48 8d 4c 24 48 e8 65 b0 97 01 48 8b c3 48 8b 5c 24 58 48 83 c4 20 5f 5e 5d c3", "later facet normal exit releases its guard"),
+        Point::keep(0x91724, "48 8b d5 48 8d 4c 24 50 e8 bf fd ff ff", "later facet cold construction call"),
+        Point::keep(0x916d0, "48 8d 4c 24 40 e8 ee b0 97 01", "later facet nested guard release"),
+        Point::observe(0x91670, "48 89 5c 24 20 55 56 57 48 83 ec 20", "later stream facet lookup scope", 1, Some(order_scope_before), Some(order_scope_after)),
+        Point::observe(0x914f0, "48 89 5c 24 10 48 89 74 24 18 55 57 41 56", "later facet cold path retains ownership", 2, Some(order_scope_cold), None),
+        Point::keep(0x924d9, "48 8d 4c 24 48 e8 e5 a2 97 01 48 8b c3 48 8b 5c 24 58 48 83 c4 20 5f 5e 5d c3", "numeric facet normal exit releases its guard"),
+        Point::keep(0x924a4, "48 8b d5 48 8d 4c 24 50 e8 df fb ff ff", "numeric facet cold construction call"),
+        Point::keep(0x92450, "48 8d 4c 24 40 e8 6e a3 97 01", "numeric facet nested guard release"),
+        Point::observe(
+            0x923f0,
+            "48 89 5c 24 20 55 56 57 48 83 ec 20",
+            "numeric stream facet lookup scope",
+            1,
+            Some(order_scope_before),
+            Some(order_scope_after),
+        ),
+        Point::observe(
+            0x92090,
+            "40 55 53 56 57 41 56 48 8d 6c 24 e0 48 81 ec 20 01 00 00",
+            "numeric facet cold path retains ownership",
+            2,
+            Some(order_scope_cold),
+            None,
+        ),
+    ]
+}
 
 pub(super) fn points() -> Vec<Point> {
     [
@@ -41,6 +256,7 @@ pub(super) fn points() -> Vec<Point> {
         Point::import(ACQUIRE_SRW, "KERNEL32.dll", "AcquireSRWLockExclusive", "the game takes a slim lock")
             .redirected(srw_taken as *const () as usize, &ORIGINAL_ACQUIRE_SRW),
     ])
+    .chain(lock_order_points())
     .collect()
 }
 
@@ -206,7 +422,7 @@ const ENTER_SECTION: usize = 0x1b66750;
 const ACQUIRE_SRW: usize = 0x1b66538;
 static ORIGINAL_ENTER_SECTION: AtomicUsize = AtomicUsize::new(0);
 static ORIGINAL_ACQUIRE_SRW: AtomicUsize = AtomicUsize::new(0);
-static LOCK_ORDER: super::course::LockOrder<64> = super::course::LockOrder::new();
+static LOCK_ORDER: LockOrder<64> = LockOrder::new();
 
 #[called_by_game]
 unsafe extern "system" fn section_entered(section: usize) {
@@ -227,16 +443,16 @@ fn lock_taken(lock: usize, by: usize) {
         return;
     }
     match LOCK_ORDER.observe(lock, is_drawing_thread(), on_main() && !super::main_holds()) {
-        super::course::LockAction::WarnOverflow => {
+        LockAction::WarnOverflow => {
             log!("drawing: the drawing thread took more than 64 of the game's locks; the rest are not kept in order");
         }
-        super::course::LockAction::TakePresentationFirst => {
+        LockAction::TakePresentationFirst => {
             main_side(|s| {
                 let took = s.lock_order(&MainLock);
                 TRACKER.record_lock_order(crate::native::hooked_memory().at(by), took);
             });
         }
-        super::course::LockAction::None => {}
+        LockAction::None => {}
     }
 }
 
@@ -296,7 +512,7 @@ fn unit_destroyed(call: &mut Call) {
     }
 }
 
-static TRACKER: super::course::CrossingsTracker = super::course::CrossingsTracker::new();
+static TRACKER: CrossingsTracker = CrossingsTracker::new();
 
 /// The day reaches the interface or the graphics, in the function at
 /// `into`: the lock first, kept until the next check for a frame inside the
@@ -333,4 +549,79 @@ pub(super) fn clear() {
 /// times, the milliseconds held back.
 pub(super) fn logged(base: usize) -> (u64, String) {
     TRACKER.logged(base)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[derive(Default)]
+    struct TestLock(Mutex<Vec<&'static str>>);
+
+    impl super::super::turns::Lock for TestLock {
+        fn take(&self, _: super::super::turns::At) -> Duration {
+            self.0.lock().unwrap().push("take");
+            Duration::ZERO
+        }
+        fn give(&self) {
+            self.0.lock().unwrap().push("give");
+        }
+    }
+
+    #[test]
+    fn lock_order_learns_drawing_locks_warns_once_on_overflow_and_orders_unheld_main_thread() {
+        let order: LockOrder<2> = LockOrder::new();
+        assert_eq!(order.observe(0xaa, false, true), LockAction::None);
+        assert_eq!(order.observe(0xaa, true, false), LockAction::None);
+        assert_eq!(order.observe(0xbb, true, false), LockAction::None);
+        assert_eq!(order.observe(0xcc, true, false), LockAction::WarnOverflow);
+        assert_eq!(order.observe(0xdd, true, false), LockAction::None, "overflow warns only once");
+        assert_eq!(order.observe(0xaa, false, true), LockAction::TakePresentationFirst);
+        assert_eq!(order.observe(0xaa, false, false), LockAction::None, "main already holds presentation lock");
+        assert_eq!(order.observe(0xcc, false, true), LockAction::None, "unknown lock untouched");
+    }
+
+    #[test]
+    fn renderer_call_promotes_order_only_scope_and_skips_when_drawing_is_off() {
+        let lock = TestLock::default();
+        let mut main = super::super::turns::MainSide::new();
+        let tracker = CrossingsTracker::new();
+        let now = Instant::now();
+
+        main.day_begins(&lock);
+        main.order_scope_begins();
+        assert!(main.lock_order(&lock));
+        assert!(main.order_only());
+        assert!(!main.protects_changes());
+
+        assert!(!tracker.renderer_call(false, true, 0x1000, now, &mut main, &lock));
+        assert!(main.order_only());
+        assert_eq!(tracker.holding_back(), None);
+
+        assert!(tracker.renderer_call(true, true, 0x2000, now, &mut main, &lock));
+        assert!(!main.order_only());
+        assert!(main.protects_changes());
+        assert_eq!(tracker.holding_back(), Some(0x2000));
+
+        main.order_scope_ends(&lock, false);
+        assert!(main.holds());
+        assert!(!tracker.renderer_call(true, true, 0x3000, now, &mut main, &lock));
+
+        main.frame_check(&lock);
+        assert!(!main.holds());
+    }
+
+    #[test]
+    fn tracker_records_hold_back_duration_and_clears_on_prepare() {
+        let tracker = CrossingsTracker::new();
+        let start = Instant::now();
+        tracker.record_crossing(0x1400_1234, start, true);
+        assert_eq!(tracker.holding_back(), Some(0x1400_1234));
+        tracker.frame_prepared(start + Duration::from_millis(12));
+        assert_eq!(tracker.holding_back(), None);
+        let (taken, summary) = tracker.logged(0x1400_0000);
+        assert_eq!(taken, 1);
+        assert!(summary.contains("0x1234 1x 12 ms"), "{summary}");
+    }
 }

@@ -1,4 +1,4 @@
-//! Trade companies: what the province view offers for a province's trade
+﻿//! Trade companies: what the province view offers for a province's trade
 //! company, adding the province to it and removing it, and the trade
 //! company investments of its area, through the game's own commands
 //! (docs/game/diplomacy/envoys.md, "Trade companies").
@@ -68,7 +68,7 @@ pub fn points() -> Vec<Point> {
 
 fn province(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
     if id == 0 {
-        return Err(eu4_harmony_checks::provinces::not_found(0).into());
+        return Err(eu4_harmony_remote::checks::provinces::not_found(0).into());
     }
     with_state(|s| s.geography.province_address(m, ctx, id))
 }

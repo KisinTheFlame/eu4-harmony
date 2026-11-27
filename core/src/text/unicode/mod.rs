@@ -31,7 +31,7 @@ mod text_loops;
 mod text_width;
 pub(crate) mod tone;
 
-use crate::native::{files::File, points::Point, splice::Plan};
+use crate::native::{physfs::File, points::Point, splice::Plan};
 
 /// Framework font files mounted into the game's file system at startup.
 pub(crate) fn files() -> Vec<File> {

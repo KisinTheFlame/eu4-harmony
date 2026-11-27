@@ -1,4 +1,4 @@
-//! Missionaries: what the province view's missionary button offers the
+﻿//! Missionaries: what the province view's missionary button offers the
 //! player in a province, sending and recalling one through the game's own
 //! command, and the number of missionaries the game sends by itself
 //! (docs/game/diplomacy/envoys.md, "Missionaries").
@@ -62,7 +62,7 @@ struct Province {
 
 fn province(m: &Memory, ctx: &Ctx, id: u32) -> GResult<Province> {
     if id == 0 {
-        return Err(eu4_harmony_checks::provinces::not_found(0).into());
+        return Err(eu4_harmony_remote::checks::provinces::not_found(0).into());
     }
     let address = with_state(|s| s.geography.province_address(m, ctx, id))?;
     Ok(Province { address, owner: Tag(m.u64(address + province_fields::OWNER)?) })

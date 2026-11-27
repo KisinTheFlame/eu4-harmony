@@ -1,21 +1,14 @@
-//! The capability layer: every capability extensions and remote clients use,
+﻿//! The capability layer: every capability extensions and remote clients use,
 //! implemented once (ADR remote-control-uses-capabilities). Shared game-world
 //! read/command primitives live in `crate::world` and are re-exported here for
 //! the capability group modules.
 pub(crate) mod administration;
 pub(crate) mod areas;
 pub(crate) mod army;
-pub(crate) mod curia;
-pub(crate) mod factions;
-pub(crate) mod faith;
 pub(crate) mod frame;
 pub(crate) mod geography;
 pub(crate) mod map;
-pub(crate) mod map_coloring;
-pub(crate) mod mechanics;
-pub(crate) mod opinions;
 pub(crate) mod orders;
-pub(crate) mod piety;
 pub(crate) mod signal_costs;
 pub(crate) mod signals;
 pub(crate) mod spendings;
@@ -36,6 +29,9 @@ pub(crate) use crate::world::{
 macro_rules! layer_modules {
     (@munch [$($modules:tt)*] $(#[$attr:meta])* $Group:ident($module:ident $(: Layer)?) $(=> $outcome:expr)?, $($rest:tt)*) => {
         layer_modules!(@munch [$($modules)* { $(#[$attr])* $module }] $($rest)*);
+    };
+    (@munch $modules:tt $(#[$attr:meta])* $Group:ident($module:ident: External) => $outcome:expr, $($rest:tt)*) => {
+        layer_modules!(@munch $modules $($rest)*);
     };
     (@munch $modules:tt $(#[$attr:meta])* $Group:ident => $outcome:expr, $($rest:tt)*) => {
         layer_modules!(@munch $modules $($rest)*);
@@ -108,7 +104,7 @@ impl Session {
 
     pub fn require_current_visibility(self) -> GResult<()> {
         if self.view == View::Player && !signals::visibility_current(self.m, &self.ctx) {
-            return Err(eu4_harmony_checks::armies::visibility_not_current().into());
+            return Err(eu4_harmony_remote::checks::armies::visibility_not_current().into());
         }
         Ok(())
     }
@@ -186,7 +182,7 @@ pub fn begin_frame(m: &Memory) -> GResult<Frame> {
         let tag = |tag: Option<Tag>| tag.filter(|t| t.normal()).map(|t| String::from_utf8_lossy(&t.letters()).into_owned()).unwrap_or_else(|| "none".into());
         format!(
             "game_date={} own={} in_view={} observing={}",
-            eu4_harmony_checks::Date(world.date),
+            eu4_harmony_remote::Date(world.date),
             tag(Some(world.player.own())),
             tag(world.player.acting()),
             world.player.observing()
@@ -233,16 +229,10 @@ pub fn points() -> Vec<Point> {
     points.extend(army::points());
     points.extend(orders::points());
     points.extend(signals::points());
-    points.extend(mechanics::points());
-    points.extend(opinions::points());
     points.extend(administration::points());
     points.extend(areas::points());
     points.extend(units::points());
     points.extend(spendings::points());
-    points.extend(faith::points());
-    points.extend(piety::points());
-    points.extend(factions::points());
-    points.extend(curia::points());
     points.extend(map::points());
     points
 }

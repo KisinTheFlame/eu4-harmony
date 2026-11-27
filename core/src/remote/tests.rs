@@ -1,4 +1,4 @@
-//! The engine driven with typed requests through the catalogue's seam, a
+﻿//! The engine driven with typed requests through the catalogue's seam, a
 //! scripted catalogue behind it: what the engine itself does with requests,
 //! whatever they ask. What a group of the catalogue does is tested with the
 //! group (`crate::capabilities::catalogue`).
@@ -351,7 +351,7 @@ fn what_a_game_frame_tells_extensions_is_kept_as_signals() {
         visibility_current: true,
         changes,
     };
-    let day = |y, m, d| eu4_harmony_checks::Date::from_ymd(y, m, d).unwrap().0;
+    let day = |y, m, d| eu4_harmony_remote::Date::from_ymd(y, m, d).unwrap().0;
     let mut recall = game::frame::Recall::new();
     // A battle the player neither sees nor takes part in, which a request
     // as the player, reading the player's view, does not read.

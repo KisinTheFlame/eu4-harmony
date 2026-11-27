@@ -1,7 +1,7 @@
-//! A country's share of an area and its governing costs. State projections
+﻿//! A country's share of an area and its governing costs. State projections
 //! preserve territorial cores, use the loaded static modifiers, and cross-check
 //! the arithmetic against the game's getters (docs/game/provinces/area-governing-cost.md).
-use super::{countries, modifiers, provinces, with_state, GResult, Session, Status, Tag};
+use super::{geography, modifiers, with_state, GResult, Session, Status, Tag};
 use crate::{
     native::containers,
     native::game_string,
@@ -77,7 +77,7 @@ fn out(m: &Memory, function: GameFunction<4>, p: usize, owner: &u64, factor: Opt
     Ok(result)
 }
 
-fn total_used(m: &Memory, c: usize) -> GResult<i32> {
+pub(super) fn total_used(m: &Memory, c: usize) -> GResult<i32> {
     if m.u8(c + AREAS_CURRENT)? == 0 {
         return super::fail(Status::NotReady, "country areas are not current");
     }
@@ -181,19 +181,9 @@ fn area_costs(members: &[Member], projection: GResult<i32>) -> GResult<AreaCosts
     Ok(AreaCosts { current, make_state, unavailable_reason })
 }
 
-pub fn governing_capacity(
-    Session { m, ctx, .. }: Session,
-    _: eu4_harmony_remote::countries::args::GoverningCapacity,
-) -> GResult<eu4_harmony_remote::countries::CurrentGoverningCapacity> {
-    Ok(eu4_harmony_remote::countries::CurrentGoverningCapacity {
-        used: total_used(m, ctx.country)?,
-        max: countries::maximum_governing_capacity(m, ctx.country)?,
-    })
-}
-
 pub fn area(Session { m, ctx, .. }: Session, args::Area { province: ProvinceId(id) }: args::Area) -> GResult<AreaSnapshot> {
     if id == 0 {
-        return Err(eu4_harmony_checks::provinces::not_found(0).into());
+        return Err(eu4_harmony_remote::checks::provinces::not_found(0).into());
     }
     let address = with_state(|s| s.geography.province_address(m, &ctx, id))?;
     if Tag(m.u64(address + province::OWNER)?).index() != ctx.player.index() {
@@ -225,7 +215,7 @@ pub fn area(Session { m, ctx, .. }: Session, args::Area { province: ProvinceId(i
             return Err("owned provinces of an area disagree on statehood".to_string().into());
         }
         provinces.push(ProvinceId(id));
-        let dev = provinces::development(m, p)?;
+        let dev = geography::development(m, p)?;
         development = sum([development, dev])?;
         trade_company |= m.u8(p + province::HIDDEN)? & province::TRADE_COMPANY_BIT != 0;
         let set = p + province::MODIFIERS;

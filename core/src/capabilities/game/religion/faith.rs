@@ -2,8 +2,8 @@
 //! religion, and claiming it as the religion view's button does, through
 //! the game's own command (docs/game/provinces/religion.md, "The defender of the
 //! faith").
-use super::commands::{write, Block};
-use super::{action, country as country_at, Ctx, GResult, Session, Tag};
+use super::super::commands::{write, Block};
+use super::super::{action, country as country_at, Ctx, GResult, Session, Tag};
 use crate::{
     native::memory::Memory,
     native::objects::campaign::{country, religion, world},
@@ -61,7 +61,7 @@ fn defender_of(m: &Memory, ctx: &Ctx) -> GResult<Option<Tag>> {
 /// Whether the player can claim it now, as the button's tooltip says.
 fn choice(m: &Memory, ctx: &Ctx) -> GResult<Choice> {
     let cost = vec![Amount::new(Resource::Ducats, m.i32(m.at(COST))? as f64)];
-    let (can, reasons) = super::content::checked(m, |text| Ok(MAY_CLAIM.call(m, [ctx.country, 0, text])?))?;
+    let (can, reasons) = super::super::content::checked(m, |text| Ok(MAY_CLAIM.call(m, [ctx.country, 0, text])?))?;
     Ok(if can { Choice::can(cost) } else { Choice::cannot(reasons, cost) })
 }
 

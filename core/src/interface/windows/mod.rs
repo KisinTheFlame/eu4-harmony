@@ -256,20 +256,20 @@ pub fn points() -> Vec<crate::native::points::Point> {
 
 /// The framework files the definitions are read from, empty until
 /// extensions declare windows (ADR framework-files-in-the-game-file-system).
-pub fn files() -> Vec<crate::native::files::File> {
-    let mut files: Vec<crate::native::files::File> = [live::WINDOWS_FILE, live::POPUPS_FILE]
+pub fn files() -> Vec<crate::native::physfs::File> {
+    let mut files: Vec<crate::native::physfs::File> = [live::WINDOWS_FILE, live::POPUPS_FILE]
         .into_iter()
-        .map(|path| crate::native::files::File { path: path.into(), data: gui::file(&[]).into_bytes() })
+        .map(|path| crate::native::physfs::File { path: path.into(), data: gui::file(&[]).into_bytes() })
         .collect();
     let mut sprites = gui::SPRITES.trim_end().strip_suffix('}').expect("the framework sprites close their block").to_string();
     with(|all| {
         for image in all.images.values().flatten() {
             sprites.push_str(&image.definition());
-            files.push(crate::native::files::File { path: image.path.clone(), data: image.data.to_vec() });
+            files.push(crate::native::physfs::File { path: image.path.clone(), data: image.data.to_vec() });
         }
     });
     sprites.push_str("}\n");
-    files.push(crate::native::files::File { path: SPRITES_FILE.into(), data: sprites.into_bytes() });
+    files.push(crate::native::physfs::File { path: SPRITES_FILE.into(), data: sprites.into_bytes() });
     files
 }
 

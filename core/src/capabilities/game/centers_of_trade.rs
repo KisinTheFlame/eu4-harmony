@@ -1,4 +1,4 @@
-//! Centers of trade: what the province view's center of trade button offers,
+﻿//! Centers of trade: what the province view's center of trade button offers,
 //! and upgrading and downgrading one through the game's own command
 //! (docs/game/diplomacy/envoys.md, "Centers of trade").
 use super::commands::{write, Block};
@@ -41,7 +41,7 @@ pub fn points() -> Vec<Point> {
 
 fn province(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
     if id == 0 {
-        return Err(eu4_harmony_checks::provinces::not_found(0).into());
+        return Err(eu4_harmony_remote::checks::provinces::not_found(0).into());
     }
     with_state(|s| s.geography.province_address(m, ctx, id))
 }

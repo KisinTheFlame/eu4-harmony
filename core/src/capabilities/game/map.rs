@@ -4,13 +4,23 @@
 //! Ported from eu4-regional-combat's range preview (docs/game/provinces/map-modes.md).
 use crate::{
     base::Result,
-    capabilities::game::{self, fail, map_coloring::MapColor, GResult, Status},
+    capabilities::game::{self, fail, Caller, GResult, Session, Status},
     native::hooks::Call,
     native::memory::Memory,
     native::objects::campaign::{classes, globals, map, map_manager, province},
     native::points::Point,
 };
 use std::{cell::RefCell, collections::BTreeMap, sync::Mutex};
+
+const COLORING: &str = "map coloring";
+
+/// The color of one province on the map.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MapColor {
+    pub province: u32,
+    /// Bytes R, G, B, A.
+    pub rgba: [u8; 4],
+}
 
 const FILL: usize = 0x12fd9b0;
 const SECONDARY: usize = 0x12fdcb0;
@@ -232,8 +242,23 @@ fn refresh(m: &Memory, manager: usize, mode: i32, require_color: bool) -> GResul
     Ok(())
 }
 
+/// Colors provinces, replacing the caller's previous coloring. Another
+/// extension painting later takes over the map. Only extensions color the map.
+pub fn paint(caller: Caller, colors: &[MapColor]) -> GResult<()> {
+    let extension = caller.extension(COLORING)?;
+    let Session { m, ctx, .. } = Session::open(caller)?;
+    paint_extension(m, &ctx, extension, colors)
+}
+
+/// Removes the caller's coloring and restores the map mode from before.
+pub fn clear(caller: Caller) -> GResult<()> {
+    let extension = caller.extension(COLORING)?;
+    let Session { m, ctx, .. } = Session::open(caller)?;
+    clear_extension(m, &ctx, extension)
+}
+
 /// Replaces `extension`'s coloring (memory order B, G, R, A per province).
-pub fn paint(m: &Memory, ctx: &game::Ctx, extension: usize, colors: &[MapColor]) -> GResult<()> {
+fn paint_extension(m: &Memory, ctx: &game::Ctx, extension: usize, colors: &[MapColor]) -> GResult<()> {
     if colors.is_empty() || colors.len() > game::MAX_PROVINCES {
         return fail(Status::InvalidArgument, "color list is empty or too long");
     }
@@ -276,7 +301,7 @@ fn restore(m: &Memory, ctx: &game::Ctx) -> GResult<()> {
     Ok(())
 }
 
-pub fn clear(m: &Memory, ctx: &game::Ctx, extension: usize) -> GResult<()> {
+fn clear_extension(m: &Memory, ctx: &game::Ctx, extension: usize) -> GResult<()> {
     if !with_state(|s| s.coloring.shows(extension)) {
         return Ok(());
     }
@@ -313,7 +338,7 @@ pub fn take_lost() -> Vec<usize> {
 /// Releases a stopped extension's coloring.
 pub fn release(m: &Memory, extension: usize) {
     if let Ok(ctx) = game::context(m) {
-        if let Err(e) = clear(m, &ctx, extension) {
+        if let Err(e) = clear_extension(m, &ctx, extension) {
             log!("map: release failed: {}", e.message);
         }
     }

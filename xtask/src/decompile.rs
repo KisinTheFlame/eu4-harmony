@@ -71,8 +71,11 @@ pub fn run(raw: &[String]) -> Result<()> {
             })?;
 
             let (_, _, image) = load_pe_info(&module_path)?;
-            let targets: Vec<DecompileTarget> =
-                rvas.iter().map(|&rva| DecompileTarget { rva, pdata_start: containing_pdata_start(&image, rva as usize).map(|s| s as u64) }).collect();
+            let exceptions = analysis::ExceptionTable::from_mapped(&image).unwrap_or_default();
+            let targets: Vec<DecompileTarget> = rvas
+                .iter()
+                .map(|&rva| DecompileTarget { rva, pdata_start: u32::try_from(rva).ok().and_then(|r| exceptions.primary(r)).map(u64::from) })
+                .collect();
 
             let (image_base, results) = if oneshot {
                 bridge::decompile_oneshot(&toolchain, &layout, &targets, timeout_seconds)?
@@ -111,54 +114,6 @@ fn load_pe_info(path: &Path) -> Result<(u64, u64, Vec<u8>)> {
     let image_base = analysis::preferred_base(&image);
     let image_size = image.len() as u64;
     Ok((image_base, image_size, image))
-}
-
-/// Finds the `.pdata` function start containing `rva`, walking chained
-/// `UNW_FLAG_CHAININFO` entries back to the function's entry when split.
-fn containing_pdata_start(image: &[u8], rva: usize) -> Option<usize> {
-    if analysis::bounds(image, rva).is_some() {
-        return Some(rva);
-    }
-    let mut best = None;
-    for range in analysis::functions(image) {
-        if range.contains(&rva) {
-            best = Some(range.start);
-            break;
-        }
-    }
-    let mut start = best?;
-    // Walk backwards if this runtime function is chained from an earlier part.
-    const CHAINED: u8 = 4;
-    let pe = analysis::pe(image);
-    let dir = pe + 24 + 112 + 8 * 3;
-    let pdata_start = u32_at(image, dir);
-    let pdata_size = u32_at(image, dir + 4);
-    if pdata_start == 0 || pdata_size < 12 {
-        return Some(start);
-    }
-    let pdata_end = pdata_start.saturating_add(pdata_size).min(image.len());
-    let mut raw_entries: Vec<(usize, usize, usize)> = (pdata_start..pdata_end)
-        .step_by(12)
-        .take_while(|&e| e + 12 <= pdata_end)
-        .map(|e| (u32_at(image, e), u32_at(image, e + 4), u32_at(image, e + 8)))
-        .collect();
-    raw_entries.sort_unstable();
-    let mut idx = raw_entries.partition_point(|e| e.0 <= start).checked_sub(1)?;
-    while let Some(&(begin, _, unwind)) = raw_entries.get(idx) {
-        start = begin;
-        if image.get(unwind).is_none_or(|&b| (b >> 3) & CHAINED == 0) {
-            break;
-        }
-        if idx == 0 {
-            break;
-        }
-        idx -= 1;
-    }
-    Some(start)
-}
-
-fn u32_at(image: &[u8], at: usize) -> usize {
-    u32::from_le_bytes(image[at..at + 4].try_into().unwrap()) as usize
 }
 
 fn parse_rva(raw: &str) -> Result<u64> {

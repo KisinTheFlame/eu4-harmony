@@ -1,4 +1,4 @@
-//! What extensions hear, and in what order: a frame's dispatch to every
+﻿//! What extensions hear, and in what order: a frame's dispatch to every
 //! extension, the same for the running game and the fake game.
 //!
 //! At each of the game's safe frames, every extension, in its order:
@@ -21,7 +21,7 @@ use serde_json::{Map, Value};
 use std::sync::Arc;
 
 /// A signal as extensions hear it: its kind and its fields in Lua's form
-/// (`eu4_harmony_checks::form`).
+/// (`eu4_harmony_remote::form`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Heard {
     kind: Kind,
@@ -31,7 +31,7 @@ pub struct Heard {
 impl Heard {
     /// `signal`, as extensions hear it.
     pub fn of(signal: &Signal) -> Self {
-        let written = eu4_harmony_checks::form::as_lua(|| serde_json::to_value(signal));
+        let written = eu4_harmony_remote::form::as_lua(|| serde_json::to_value(signal));
         let mut fields = match written {
             Ok(Value::Object(fields)) => fields,
             _ => Map::new(),

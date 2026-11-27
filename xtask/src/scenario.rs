@@ -569,7 +569,7 @@ fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, owner
     // The games that run beside it, which take some of the computer it
     // measures: one that plays alone waits for other sessions' to end, a
     // while.
-    let others = || eu4_harmony_client::game::processes().unwrap_or_default().len().saturating_sub(usize::from(game.runs()));
+    let others = || game.others_running();
     if scenario.alone() {
         let waiting = Instant::now();
         let mut said = false;
@@ -658,22 +658,7 @@ fn crash(owner: &str, known: &[String], ended: Option<GameEnd>, build: &Path, lo
     };
     let exception: Vec<String> = std::fs::read_to_string(folder.join("exception.txt")).unwrap_or_default().lines().take(12).map(String::from).collect();
     let dump = folder.join("minidump.dmp");
-    let mut stack = Vec::new();
-    if dump.is_file() {
-        let (dump_text, log_text) = (dump.display().to_string(), log.display().to_string());
-        let build = build.to_path_buf();
-        let symbols = crate::symbols_dir().unwrap_or_else(|_| PathBuf::from("symbols")).display().to_string();
-        let reading = std::thread::spawn(move || crate::crash_dump::read(&dump_text, &log_text, &[build], &symbols, &[".ecxr".into(), "kn 20".into()]));
-        let deadline = Instant::now() + READING_A_DUMP;
-        while !reading.is_finished() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(500));
-        }
-        if reading.is_finished() {
-            let text = std::fs::read_to_string(log).unwrap_or_default();
-            let lines: Vec<&str> = text.lines().collect();
-            stack = lines[lines.len().saturating_sub(24)..].iter().map(|l| l.to_string()).collect();
-        }
-    }
+    let stack = crate::crash_dump::read_tail(&dump, log, &[build.to_path_buf()], &[".ecxr", "kn 20"], READING_A_DUMP, 24);
     json!({
         "folder": folder.display().to_string(),
         "ended": ended,

@@ -1,3 +1,7 @@
+---
+status: superseded in part by fold-checks-into-remote
+---
+
 # A refusal lives with its capability, and the checks crate keeps only what the fakes share
 
 The framework's own refusals of a capability's call, its status and words, were all in one crate of their own, `eu4-harmony-checks`, a module per group, so that the fakes standing in for the core (the fake game of `eu4-harmony test`, the Lua host's own, remote control's engine's) would refuse what the core refuses, in its words. That was its reason, and it holds for few of them: of 22 modules, 16 had the core's one capability module as their only caller, and the refusal that every panel's action makes, "the game does not let the player … now", had been written six times there, each a little differently, and twice more in the core.

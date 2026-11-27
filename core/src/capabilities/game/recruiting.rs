@@ -1,4 +1,4 @@
-//! Recruiting: one regiment or ship of a kind in a province, ordered for the
+﻿//! Recruiting: one regiment or ship of a kind in a province, ordered for the
 //! player through the game's own recruit command, as the recruit button in
 //! the province view orders it, so that the game's checks and costs apply
 //! (docs/game/military/recruiting.md). The command goes in its written form
@@ -6,7 +6,8 @@
 use super::commands::{write, Block};
 use super::{
     action,
-    provinces::{self, can_recruit, unit_type, UnitKind},
+    army::UnitKind,
+    provinces::{self, can_recruit, unit_type},
     with_state, Fail, GResult, Session, Status,
 };
 use crate::{native::game_string, native::objects::campaign::unit_type as unit_type_fields};
@@ -42,7 +43,7 @@ pub fn options(session: Session, args::Options { province: ProvinceId(id) }: arg
 pub fn recruit(Session { m, ctx, commands, .. }: Session, args::Order { province: ProvinceId(id), kind }: args::Order) -> GResult<()> {
     let kind = UnitKind::from(kind);
     if id == 0 {
-        return Err(eu4_harmony_checks::provinces::not_found(0).into());
+        return Err(eu4_harmony_remote::checks::provinces::not_found(0).into());
     }
     let address = with_state(|s| s.geography.province_address(m, &ctx, id))?;
     let Some(unit_type) = unit_type(m, ctx.country, kind)? else {

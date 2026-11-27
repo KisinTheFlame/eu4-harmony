@@ -37,37 +37,22 @@ fn wire_all() {
         settings::Listener::Drawing => render::drawing::set(current.frame_rate_limit),
         settings::Listener::CameraZoom => tweaks::camera_zoom::configure(current.zoom_smoothing, current.zoom_step),
     });
-    native::physfs::set_init_hooks(deferred_init, mount_framework_files);
-    render::present::set_hooks(render::present::PresentHooks {
+    native::physfs::set_init_hook(deferred_init);
+    render::set_frame_hooks(render::FrameHooks {
+        grow_font_pages: || base::guarded("font pages", text::unicode::grow_pages),
+        main_frame_done: || {
+            base::guarded("safe point", safe_point::presented);
+            base::guarded("text costs", text::unicode::log_costs_when_due);
+        },
+        overlay_before_present: before_any_present,
         discard_late: interface::tooltips::discard_late,
-        before_main_present: |renderer, device| {
-            // Font page growth touches game font objects and map names; it must
-            // run on the main thread only (ADR font-pages-grow).
-            run_main_present_before(|| base::guarded("font pages", text::unicode::grow_pages), || unsafe { before_any_present(renderer, device) });
-        },
-        before_drawing_present: before_any_present,
-        after_main_present: |_device| {
-            run_main_frame_tail(|| base::guarded("safe point", safe_point::presented), || base::guarded("text costs", text::unicode::log_costs_when_due));
-        },
+        prepare_scene: interface::window_ordering::prepare_scene,
         before_reset: || {
             interface::tooltips::clear();
             framework_ui::device_reset();
         },
     });
     render::window_input::set_hooks(render::window_input::InputHooks { is_modal: framework_ui::modal, on_wheel: tweaks::camera_zoom::before_sdl_wheel });
-    render::drawing::set_hooks(render::drawing::DrawingHooks {
-        on_prepared_safe_point: || {
-            // While the drawing thread presents in-game frames, the main thread
-            // never enters `before_main_present`; grow font pages here while
-            // the main thread holds the presentation lock (ADR font-pages-grow).
-            run_prepared_safe_point(
-                || base::guarded("font pages", text::unicode::grow_pages),
-                || base::guarded("safe point", safe_point::presented),
-                || base::guarded("text costs", text::unicode::log_costs_when_due),
-            );
-        },
-        prepare_scene: |m| run_prepare_scene(|| base::guarded("font pages", text::unicode::grow_pages), || interface::window_ordering::prepare_scene(m)),
-    });
     tweaks::hidden::set_hooks(tweaks::hidden::HiddenHooks { on_early_sync: proxy::sync_once });
     session::sessions::set_listener(|happening| {
         use session::sessions::Happening;
@@ -115,6 +100,14 @@ fn wire_all() {
         join_parallel_save: speed::saving::parallel::join,
         wait_background_save: speed::saving::background::wait,
     });
+    session::transition::set_hooks(session::transition::TransitionHooks {
+        ui_still: framework_ui::still,
+        in_day: capabilities::game::signals::in_day,
+        mode_before_load: capabilities::game::map::mode_before_load,
+        restore_after_load: capabilities::game::map::restore_after_load,
+        pause_game: capabilities::game::menu::pause_for_transition,
+        is_still: capabilities::game::menu::is_still_for_transition,
+    });
     interface::set_hooks(interface::InterfaceHooks {
         mod_id: lua::mod_id,
         on_main_menu_frame: |frontend, show_corner| {
@@ -132,39 +125,11 @@ fn wire_all() {
             let r = lua::reload(caller, args)?;
             Ok(eu4_harmony_remote::extensions::Reloaded { session: r.session, lost: r.lost })
         },
-        ui_still: framework_ui::still,
         #[cfg(feature = "dev")]
         answer_memory: dev::answer_memory,
         #[cfg(feature = "dev")]
         answer_performance: dev::answer_performance,
     });
-}
-
-/// Main-thread work run just before `Present` when the main thread presents directly.
-fn run_main_present_before(grow_pages: impl FnOnce(), draw_overlay: impl FnOnce()) {
-    grow_pages();
-    draw_overlay();
-}
-
-/// Main-thread end-of-frame safe-point and cost reporting work shared by both
-/// direct main-thread presentation and drawing-thread prepared frames.
-fn run_main_frame_tail(safe_point: impl FnOnce(), log_costs: impl FnOnce()) {
-    safe_point();
-    log_costs();
-}
-
-/// Main-thread work run while preparing a frame for the drawing thread.
-fn run_prepare_scene<R>(grow_pages: impl FnOnce(), prepare_scene: impl FnOnce() -> R) -> R {
-    grow_pages();
-    prepare_scene()
-}
-
-/// Main-thread safe point while the drawing thread presents in-game frames:
-/// grows font pages (since `before_main_present` is skipped) and runs the shared
-/// end-of-frame tail.
-fn run_prepared_safe_point(grow_pages: impl FnOnce(), safe_point: impl FnOnce(), log_costs: impl FnOnce()) {
-    grow_pages();
-    run_main_frame_tail(safe_point, log_costs);
 }
 
 unsafe fn before_any_present(renderer: usize, device: Option<*mut std::ffi::c_void>) {
@@ -328,19 +293,14 @@ fn fail_startup(reason: String, mut told: Option<notice::Message>, outdated_prox
 }
 
 /// Runs once, on the game thread, from the first PhysFS call: discovers mods,
-/// loads extensions (declaring window sprites and images), and sets the splice
-/// plan (`startup`).
+/// loads extensions (declaring window sprites and images), sets the splice
+/// plan (`startup`), and hands the framework's in-memory files to PhysFS so
+/// every successful `PHYSFS_init` mounts the same archive.
 fn deferred_init() {
     startup::run(base::game_dir().map(std::path::Path::to_path_buf).unwrap_or_default(), STARTUP.get().map_or("?", String::as_str));
-}
-
-/// Mounts the framework's in-memory files into PhysFS on every successful
-/// `PHYSFS_init`, after `deferred_init` has loaded extension images/sprites so
-/// reinitialization during startup does not drop `eu4harmony.zip`.
-fn mount_framework_files() {
     let mut all = text::unicode::files();
     all.extend(interface::windows::files());
-    base::guarded("framework files", || native::files::mount(&all));
+    native::physfs::set_framework_files(&all);
 }
 
 /// Entry point invoked by `eu4_harmony_bootstrap`. Returns 0 on success.
@@ -357,44 +317,5 @@ pub(crate) fn bootstrap_entry() -> u32 {
             fail_startup("panic during startup".into(), None, false, None);
             2
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{run_main_frame_tail, run_main_present_before, run_prepare_scene, run_prepared_safe_point};
-    use std::cell::RefCell;
-
-    #[test]
-    fn both_main_present_and_drawing_thread_paths_grow_pages_and_run_tail_on_main_thread() {
-        // 1. Direct main-thread present path (main menu or drawing-thread off).
-        let main_events = RefCell::new(Vec::new());
-        run_main_present_before(|| main_events.borrow_mut().push("main:grow_pages"), || main_events.borrow_mut().push("main:overlay"));
-        run_main_frame_tail(|| main_events.borrow_mut().push("main:safe_point"), || main_events.borrow_mut().push("main:text_costs"));
-        assert_eq!(*main_events.borrow(), vec!["main:grow_pages", "main:overlay", "main:safe_point", "main:text_costs"]);
-
-        // 2. Drawing-thread path (in-game with drawing-thread on): main thread
-        // grows pages before preparing the scene and at the prepared safe point,
-        // while the drawing thread only draws the overlay.
-        let draw_events = RefCell::new(Vec::new());
-        let prepared = run_prepare_scene(
-            || draw_events.borrow_mut().push("main:grow_pages"),
-            || {
-                draw_events.borrow_mut().push("main:prepare_scene");
-                true
-            },
-        );
-        assert!(prepared);
-        draw_events.borrow_mut().push("drawing:overlay");
-        run_prepared_safe_point(
-            || draw_events.borrow_mut().push("main:grow_pages"),
-            || draw_events.borrow_mut().push("main:safe_point"),
-            || draw_events.borrow_mut().push("main:text_costs"),
-        );
-        assert_eq!(
-            *draw_events.borrow(),
-            vec!["main:grow_pages", "main:prepare_scene", "drawing:overlay", "main:grow_pages", "main:safe_point", "main:text_costs"]
-        );
-        assert!(!draw_events.borrow().iter().any(|e| e.starts_with("drawing:grow_pages")));
     }
 }

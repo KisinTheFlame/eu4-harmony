@@ -242,28 +242,8 @@ mod tests {
     /// The names and ordinals the DLL at `path` exports, read from its file.
     fn exports(path: &std::path::Path) -> Vec<(String, u32)> {
         let file = std::fs::read(path).unwrap();
-        let u16_at = |at: usize| u16::from_le_bytes([file[at], file[at + 1]]) as usize;
-        let u32_at = |at: usize| u32::from_le_bytes(file[at..at + 4].try_into().unwrap()) as usize;
-        let pe = u32_at(0x3c);
-        let optional = pe + 24;
-        let sections = optional + u16_at(pe + 20);
-        // Where an RVA lies in the file.
-        let at = |rva: usize| {
-            (0..u16_at(pe + 6))
-                .map(|i| sections + 40 * i)
-                .find(|&s| (u32_at(s + 12)..u32_at(s + 12) + u32_at(s + 16)).contains(&rva))
-                .map(|s| rva - u32_at(s + 12) + u32_at(s + 20))
-                .unwrap()
-        };
-        let directory = at(u32_at(optional + 112));
-        let (base, names, ordinals) = (u32_at(directory + 16), at(u32_at(directory + 32)), at(u32_at(directory + 36)));
-        (0..u32_at(directory + 24))
-            .map(|i| {
-                let name = at(u32_at(names + 4 * i));
-                let end = file[name..].iter().position(|&b| b == 0).unwrap();
-                (String::from_utf8_lossy(&file[name..name + end]).into_owned(), (base + u16_at(ordinals + 2 * i)) as u32)
-            })
-            .collect()
+        let image = eu4_harmony_analysis::PeImage::from_file(file).unwrap();
+        image.exports().into_iter().map(|e| (e.name, e.ordinal)).collect()
     }
 
     /// The proxy forwards exactly what Windows' own version.dll exports.

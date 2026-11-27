@@ -1,4 +1,4 @@
-//! The Lua host (ADR extensions-are-lua-in-a-sandbox): runs a mod's extension,
+﻿//! The Lua host (ADR extensions-are-lua-in-a-sandbox): runs a mod's extension,
 //! its Lua scripts, in a Lua state of its own, in the sandbox, and calls its
 //! handlers.
 //!
@@ -35,7 +35,7 @@ use serde_json::Value;
 use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex, Weak,
@@ -118,11 +118,80 @@ pub struct ReloadOutcome {
     pub lost: Option<String>,
 }
 
+/// Parameters for an in-place extension reload shared by the running game
+/// (`core`) and the fake game (`cli`).
+pub struct Reload<'a> {
+    pub dir: &'a Path,
+    pub id: &'a str,
+    pub name: &'a str,
+    pub permissions: &'a Permissions,
+    pub data: Option<PathBuf>,
+    pub in_session: bool,
+}
+
+/// Result of a completed in-place extension reload.
+pub struct Reloaded {
+    pub extension: Arc<Extension>,
+    pub saved: Option<Value>,
+    pub lost: Option<String>,
+    pub loc_problems: Vec<String>,
+}
+
+/// Runs the complete in-place extension reload transaction shared by both real
+/// `Host` adapters (`core` and `cli`'s fake game):
+/// 1. re-reads `manifest.toml` and rejects changed `id`, changed `permissions`,
+///    or an unsupported capability catalogue version;
+/// 2. reloads localisation through `reload_loc` (rolling back via `restore_loc`
+///    if loading the new code fails or entry images changed);
+/// 3. opens the replacement extension at `old.index()`;
+/// 4. hands off `save_data`, retires `old`'s waiting tasks, and calls
+///    `host.reload_reset`;
+/// 5. installs the replacement via `commit`, then dispatches `on_session` when
+///    `req.in_session` is true.
+pub fn reload<B>(
+    old: &Extension,
+    req: &Reload<'_>,
+    host: Arc<dyn Host>,
+    reload_loc: impl FnOnce(&Path) -> (Vec<String>, B),
+    restore_loc: impl FnOnce(B),
+    commit: impl FnOnce(&Arc<Extension>, &ReloadOutcome),
+) -> Result<Reloaded, String> {
+    let manifest = eu4_harmony_manifest::HarmonyMod::read(req.dir)?.manifest;
+    if manifest.id != req.id {
+        return Err(format!("the manifest's id is now {:?}; a changed id takes a restart of the game", manifest.id));
+    }
+    if manifest.permissions != *req.permissions {
+        return Err("the manifest's permissions changed; the player saw them as they were, and they change only with a restart of the game".into());
+    }
+    if let Some(why) = manifest.unsupported(eu4_harmony_remote::API_VERSION) {
+        return Err(why);
+    }
+    let harmony = req.dir.join("eu4-harmony");
+    // New texts first: the new code's windows are checked against them.
+    let (loc_problems, earlier) = reload_loc(&harmony);
+    let opening = Mod { id: req.id, name: req.name, harmony, permissions: req.permissions, data: req.data.clone() };
+    let new = match open(old.index(), &opening, host.clone()) {
+        Ok(new) => new,
+        Err(e) => {
+            restore_loc(earlier);
+            return Err(format!("the new code did not load, and the old goes on: {e}"));
+        }
+    };
+    if new.images() != old.images() {
+        restore_loc(earlier);
+        return Err("entry images changed; their native resources take effect at the next start, and the old extension goes on".into());
+    }
+    let outcome = reload_handoff(old, &new, host.as_ref(), req.in_session);
+    commit(&new, &outcome);
+    if req.in_session {
+        new.handle("on_session", &[Arg::Json(outcome.saved.clone().unwrap_or(Value::Null))]);
+    }
+    Ok(Reloaded { extension: new, saved: outcome.saved, lost: outcome.lost, loc_problems })
+}
+
 /// Transfers a running session's `save_data` from `old` to `new`, retires
-/// `old`'s waiting tasks, and resets `host` state for `new`. The caller
-/// replaces `old` with `new` and, when `in_session`, dispatches `on_session`
-/// with `saved`.
-pub fn reload_handoff(old: &Extension, new: &Extension, host: &dyn Host, in_session: bool) -> ReloadOutcome {
+/// `old`'s waiting tasks, and resets `host` state for `new`.
+fn reload_handoff(old: &Extension, new: &Extension, host: &dyn Host, in_session: bool) -> ReloadOutcome {
     // A stopped extension's code is not run again, save_data included.
     let (saved, lost) = match (in_session, old.stopped()) {
         (false, _) => (None, None),
@@ -146,7 +215,7 @@ pub enum Called {
 }
 
 /// A capability's answer as Lua is to have it, written as JSON in Lua's form
-/// (`eu4_harmony_checks::form::as_lua`: an army's ID a number, a date an
+/// (`eu4_harmony_remote::form::as_lua`: an army's ID a number, a date an
 /// object of year, month and day); `null` for one with no result. Or why it
 /// failed.
 pub type Answered = Result<Value, eu4_harmony_remote::Error>;
@@ -831,7 +900,7 @@ impl Extension {
         CURRENT.with(|c| c.set(previous));
         self.count(elapsed, timed_out);
         let value = returned.map_err(|err| err.to_string()).and_then(|v| values::to_json(&v)).and_then(|v| {
-            eu4_harmony_checks::save_data::size(v.to_string().len()).map_err(|r| r.message)?;
+            eu4_harmony_remote::checks::save_data::size(v.to_string().len()).map_err(|r| r.message)?;
             Ok(v)
         });
         Some(match value {

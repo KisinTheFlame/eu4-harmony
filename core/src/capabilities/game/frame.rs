@@ -1,4 +1,4 @@
-//! What a game's safe frame heard (GLOSSARY: Signal). What the frame read of
+﻿//! What a game's safe frame heard (GLOSSARY: Signal). What the frame read of
 //! the game, [`Observed`], and what the session's frames before it showed,
 //! kept in a [`Recall`], decide what happened since the last frame: a
 //! [`Frame`], which extensions and remote control hear ([`Frame::heard`]).
@@ -50,7 +50,7 @@ impl Recall {
         let in_view = view_changed(std::mem::replace(&mut self.in_view, now), now);
         let previous = self.day;
         let new_day = visibility_current && self.day.replace(world.date) != Some(world.date);
-        let (new_month, new_year) = eu4_harmony_checks::Date(world.date).turned(previous.filter(|_| new_day).map(eu4_harmony_checks::Date));
+        let (new_month, new_year) = eu4_harmony_remote::Date(world.date).turned(previous.filter(|_| new_day).map(eu4_harmony_remote::Date));
         let (new_month, new_year) = (new_month && listened(Kind::Month), new_year && listened(Kind::Year));
         let wars = if new_day { wars(&world) } else { Vec::new() };
         Frame { world, session: seen.session, new_session: seen.new_session, in_view, changes, new_day, new_month, new_year, wars }
@@ -195,7 +195,7 @@ mod tests {
     }
 
     fn day(y: i32, m: u32, d: u32) -> i32 {
-        eu4_harmony_checks::Date::from_ymd(y, m, d).unwrap().0
+        eu4_harmony_remote::Date::from_ymd(y, m, d).unwrap().0
     }
 
     /// A frame of session `session` at `date`, its visibility current, with

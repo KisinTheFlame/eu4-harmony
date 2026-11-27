@@ -24,7 +24,11 @@
 //! capabilities only hand over what they hold (`super`'s `InGame`); the
 //! tests record the game instead.
 use super::{Launch, Place, Returned};
-use crate::{capabilities::game::{fail, GResult, Status, Tag}, session::sessions::{At, End}};
+use crate::{
+    base::status::{fail, GResult, Status},
+    session::sessions::{At, End},
+    world::Tag,
+};
 use std::{
     sync::Mutex,
     time::{Duration, Instant},
@@ -1537,5 +1541,128 @@ mod tests {
         // Left for the main menu, and answered as the process ends.
         assert_eq!(game.did, [Did::AskReturn, Did::End(End::Return), Did::Restart]);
         assert_eq!(course.outcome(number, game.reads), Launch::Asked);
+    }
+
+    /// Joint invariant test coupling the real `sessions::Lifecycle` with
+    /// `Course` across an in-game load and an in-process return so reads,
+    /// session endings, and history resets are verified together.
+    #[test]
+    fn course_and_lifecycle_stay_in_sync_across_in_game_load_and_return() {
+        use crate::session::sessions::{Happening, Lifecycle};
+
+        struct Joint<'a> {
+            course: &'a Course,
+            lifecycle: Lifecycle,
+            happenings: Vec<Happening>,
+            in_process_ok: bool,
+            load_succeeds: bool,
+            now: Instant,
+        }
+
+        impl<'a> Joint<'a> {
+            fn reads_now(&self) -> Reads {
+                Reads { loads: self.lifecycle.loads_count(), reading: self.lifecycle.is_loading(), last_read: self.lifecycle.last_read_ok() }
+            }
+        }
+
+        impl Game for Joint<'_> {
+            fn steps(&mut self) -> Result<Steps, String> {
+                Ok(OPEN)
+            }
+            fn first_page(&mut self) -> Result<(), String> {
+                Ok(())
+            }
+            fn carry_out(&mut self, _: &Action) -> Result<(), String> {
+                Ok(())
+            }
+            fn back_to_first_page(&mut self) {}
+            fn not_continuing(&mut self) {}
+            fn reads(&self) -> Reads {
+                self.reads_now()
+            }
+            fn going_on(&self) -> bool {
+                self.lifecycle.is_going_on()
+            }
+            fn now(&self) -> Instant {
+                self.now
+            }
+            fn rules(&self) -> Rules {
+                ALL
+            }
+            fn ironman(&self) -> bool {
+                false
+            }
+            fn ask_return(&mut self) -> GResult<()> {
+                Ok(())
+            }
+            fn pause(&mut self) -> GResult<bool> {
+                Ok(false)
+            }
+            fn still(&mut self) -> bool {
+                true
+            }
+            fn load_in_game(&mut self, _: &str) -> Result<u32, String> {
+                Ok(self.course.in_game_load(self))
+            }
+            fn exit_save(&mut self) -> Result<(), String> {
+                Ok(())
+            }
+            fn end(&mut self, end: End) {
+                self.happenings.extend(self.lifecycle.ending(end));
+            }
+            fn load(&mut self) -> u32 {
+                self.happenings.extend(self.lifecycle.load_began());
+                self.lifecycle.load_read(self.load_succeeds);
+                self.lifecycle.load_ended();
+                if self.load_succeeds {
+                    0
+                } else {
+                    1
+                }
+            }
+            fn return_in_process(&mut self) -> Result<(), String> {
+                if self.in_process_ok {
+                    self.happenings.extend(self.lifecycle.reset_with_history());
+                    Ok(())
+                } else {
+                    Err("failed".into())
+                }
+            }
+            fn restart(&mut self) -> usize {
+                0
+            }
+            fn stay(&mut self) {}
+            fn save_failed(&mut self) {}
+        }
+
+        let course = Course::new();
+        let mut joint =
+            Joint { course: &course, lifecycle: Lifecycle::new(), happenings: Vec::new(), in_process_ok: true, load_succeeds: true, now: Instant::now() };
+        let (seen, h) = joint.lifecycle.frame_read((0x100, 1));
+        assert!(seen.new_session);
+        joint.happenings.extend(h);
+        assert!(joint.lifecycle.is_going_on());
+
+        // In-game load ends session 1, increments loads, and settles as Waiting for session 2.
+        let load_num = course.ask(Action::LoadInGame("autosave".into()));
+        assert!(course.game_frame(&mut joint));
+        assert!(!joint.lifecycle.is_going_on());
+        assert_eq!(course.outcome(load_num, joint.reads_now()), Launch::Waiting);
+        assert!(joint.happenings.contains(&Happening::Ended(1, End::Load)));
+        assert!(joint.happenings.contains(&Happening::CampaignChanges));
+
+        // New session begins on the next safe frame.
+        let (seen2, _) = joint.lifecycle.frame_read((0x100, 2));
+        assert!(seen2.new_session);
+        assert!(joint.lifecycle.is_going_on());
+
+        // In-process return ends session 2, resets world with history, and settles Done at MainMenu.
+        let ret_num = course.return_to_main_menu(&mut joint).unwrap().unwrap();
+        course.returning(&mut joint);
+        assert_eq!(course.restart(&mut joint), 0);
+        assert!(!joint.lifecycle.is_going_on());
+        assert!(joint.happenings.contains(&Happening::Ended(seen2.session, End::Return)));
+        assert!(joint.happenings.contains(&Happening::ResetWithHistory));
+        assert_eq!(course.returned(ret_num, || true), Returned::Done);
     }
 }

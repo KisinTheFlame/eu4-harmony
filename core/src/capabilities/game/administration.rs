@@ -1,4 +1,4 @@
-//! Province administration: what the province view's buttons do in a
+﻿//! Province administration: what the province view's buttons do in a
 //! province (docs/game/provinces/province-view.md). Each action checks as its button
 //! does, with the reasons its tooltip gives, and posts the game's own command
 //! in its written form through the session's commands ([`super::action`]);
@@ -279,7 +279,7 @@ struct Place {
 
 fn place(m: &Memory, ctx: &Ctx, id: u32) -> GResult<Place> {
     if id == 0 {
-        return Err(eu4_harmony_checks::provinces::not_found(0).into());
+        return Err(eu4_harmony_remote::checks::provinces::not_found(0).into());
     }
     let address = with_state(|s| s.geography.province_address(m, ctx, id))?;
     let owner = Some(Tag(m.u64(address + field::OWNER)?)).filter(|t| t.valid());

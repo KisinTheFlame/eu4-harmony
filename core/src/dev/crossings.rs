@@ -1,4 +1,4 @@
-//! Where the day goes into the interface's or the graphics' code (a
+﻿//! Where the day goes into the interface's or the graphics' code (a
 //! developer build with `[crossings] enabled = true`; a player build has none
 //! of this), for the drawing thread: each crossing (GLOSSARY)
 //! a day reaches, by its call stack and how often.
@@ -236,7 +236,7 @@ fn report(days: usize) {
     );
     for s in order {
         let thread = if s.thread == main { "main".to_string() } else { format!("thread {}", s.thread) };
-        let date = eu4_harmony_checks::Date(s.date).to_string();
+        let date = eu4_harmony_remote::Date(s.date).to_string();
         log!("crossing: {} time(s), {thread}, first {date}: {}", s.count, crate::base::stack::describe(&s.frames));
     }
 }

@@ -401,69 +401,35 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
 /// functions, from the exception directory, each part chained to the one
 /// before folded into the function it is part of.
 struct Image {
-    text: (u64, u64),
-    /// Each entry's begin, end and the function it is part of, by begin.
-    functions: Vec<(u64, u64, u64)>,
+    text: std::ops::Range<u32>,
+    exceptions: eu4_harmony_analysis::ExceptionTable,
 }
 
 impl Image {
     fn read(path: &Path) -> Result<Self> {
         let file = std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-        let u16_at = |o: usize| file.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]) as usize);
-        let u32_at = |o: usize| file.get(o..o + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as u64);
         let bad = || "eu4.exe is not a PE image as expected".to_string();
-        let pe = u32_at(0x3c).ok_or_else(bad)? as usize;
-        let sections = u16_at(pe + 6).ok_or_else(bad)?;
-        let optional = u16_at(pe + 20).ok_or_else(bad)?;
-        let first = pe + 24 + optional;
-        let mut table = Vec::new();
-        for i in 0..sections {
-            let s = first + 40 * i;
-            let name = file.get(s..s + 8).ok_or_else(bad)?;
-            let (size, va, raw) = (u32_at(s + 8).ok_or_else(bad)?, u32_at(s + 12).ok_or_else(bad)?, u32_at(s + 20).ok_or_else(bad)?);
-            table.push((name.to_vec(), va, size, raw));
-        }
-        let at = |rva: u64| table.iter().find(|&&(_, va, size, _)| rva >= va && rva < va + size).map(|&(_, va, _, raw)| (rva - va + raw) as usize);
-        let text = table.iter().find(|t| t.0.starts_with(b".text")).map(|t| (t.1, t.1 + t.2)).ok_or_else(bad)?;
-        // The exception directory, the fourth of the data directories.
-        let (pdata, pdata_size) = (u32_at(pe + 24 + 112 + 3 * 8).ok_or_else(bad)?, u32_at(pe + 24 + 112 + 3 * 8 + 4).ok_or_else(bad)?);
-        let base = at(pdata).ok_or_else(bad)?;
-        let mut entries = Vec::new();
-        for i in 0..(pdata_size / 12) as usize {
-            let o = base + 12 * i;
-            let (begin, end, unwind) = (u32_at(o).ok_or_else(bad)?, u32_at(o + 4).ok_or_else(bad)?, u32_at(o + 8).ok_or_else(bad)?);
-            // A part chained to the one before (UNW_FLAG_CHAININFO) names it
-            // after its unwind codes.
-            let u = at(unwind).ok_or_else(bad)?;
-            let (flags, codes) = (file[u] >> 3, file[u + 2] as usize);
-            let chained = (flags & 4 != 0).then(|| u32_at(u + 4 + 2 * ((codes + 1) & !1))).flatten();
-            entries.push((begin, end, chained));
-        }
-        entries.sort();
-        let mut first_of = BTreeMap::new();
-        let mut functions = Vec::with_capacity(entries.len());
-        for (begin, end, chained) in entries {
-            let function = chained.map_or(begin, |c| first_of.get(&c).copied().unwrap_or(c));
-            first_of.insert(begin, function);
-            functions.push((begin, end, function));
-        }
-        Ok(Self { text, functions })
+        let pe = eu4_harmony_analysis::PeImage::from_file(file).ok_or_else(bad)?;
+        let text = pe.section_bounds(b".text").ok_or_else(bad)?;
+        let exceptions = eu4_harmony_analysis::ExceptionTable::from_image(&pe).ok_or_else(bad)?;
+        Ok(Self { text, exceptions })
     }
 
     /// The function `rva` is in, by the exception directory: none for a
     /// leaf function, which has no entry there.
     fn function(&self, rva: u64) -> Option<u64> {
-        let i = self.functions.partition_point(|f| f.0 <= rva).checked_sub(1)?;
-        let (begin, end, function) = self.functions[i];
-        (rva >= begin && rva < end).then_some(function)
+        u32::try_from(rva).ok().and_then(|r| self.exceptions.primary(r)).map(u64::from)
     }
 
     fn kind(&self, rva: u64) -> &'static str {
-        if rva < self.text.0 || rva >= self.text.1 {
+        let Ok(rva32) = u32::try_from(rva) else {
+            return "data";
+        };
+        if !self.text.contains(&rva32) {
             "data"
         } else {
-            match self.function(rva) {
-                Some(f) if f == rva => "function",
+            match self.exceptions.primary(rva32) {
+                Some(f) if f == rva32 => "function",
                 Some(_) => "code",
                 // No entry of its own: a leaf function, or code in one.
                 None => "leaf",

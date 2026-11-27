@@ -1,6 +1,7 @@
 //! The scripts' flags, variables and events: the names and scopes a call
 //! may give them, and the values a variable may hold.
-use crate::{Checked, Refusal, Status};
+use super::Checked;
+use crate::{Code, Error};
 
 /// The longest name of a flag, a variable or an event, in bytes.
 pub const LONGEST_NAME: usize = 100;
@@ -40,10 +41,10 @@ impl Use {
 /// `true`.
 pub fn scope(use_: Use, kind: &str, global: bool) -> Checked {
     if !use_.kinds().contains(&kind) {
-        return Err(Refusal::new(Status::InvalidArgument, format!("{} is not kept by a {kind}: its scope is one of {}", use_.what(), use_.kinds().join(", "))));
+        return Err(Error::new(Code::InvalidArgument, format!("{} is not kept by a {kind}: its scope is one of {}", use_.what(), use_.kinds().join(", "))));
     }
     if kind == "global" && !global {
-        return Err(Refusal::new(Status::InvalidArgument, "a global scope is {global = true}"));
+        return Err(Error::new(Code::InvalidArgument, "a global scope is {global = true}"));
     }
     Ok(())
 }
@@ -54,8 +55,8 @@ pub fn scope(use_: Use, kind: &str, global: bool) -> Checked {
 pub fn name(what: &str, name: &str) -> Checked {
     let fits = |b: u8| b.is_ascii_graphic() && !matches!(b, b'=' | b'{' | b'}' | b'"' | b'#');
     if name.is_empty() || name.len() > LONGEST_NAME || !name.bytes().all(fits) {
-        return Err(Refusal::new(
-            Status::InvalidArgument,
+        return Err(Error::new(
+            Code::InvalidArgument,
             format!("{name:?} is no {what} name: one word of 1 to {LONGEST_NAME} ASCII letters, digits and marks, without =, braces, quotes or #"),
         ));
     }
@@ -66,19 +67,19 @@ pub fn name(what: &str, name: &str) -> Checked {
 /// of zero.
 pub fn value(value: f64) -> Checked {
     if !value.is_finite() || value.abs() > LARGEST_VALUE {
-        return Err(Refusal::new(Status::InvalidArgument, format!("a variable's value is from -{LARGEST_VALUE} to {LARGEST_VALUE}, not {value}")));
+        return Err(Error::new(Code::InvalidArgument, format!("a variable's value is from -{LARGEST_VALUE} to {LARGEST_VALUE}, not {value}")));
     }
     Ok(())
 }
 
 /// The refusal of an event id no event has.
-pub fn no_event(id: &str) -> Refusal {
-    Refusal::new(Status::NotFound, format!("no event {id}"))
+pub fn no_event(id: &str) -> Error {
+    Error::new(Code::NotFound, format!("no event {id}"))
 }
 
 /// The refusal of an event whose trigger does not hold for its scope.
-pub fn trigger_fails(id: &str) -> Refusal {
-    Refusal::new(Status::Rejected, format!("the trigger of event {id} does not hold"))
+pub fn trigger_fails(id: &str) -> Error {
+    Error::new(Code::Rejected, format!("the trigger of event {id} does not hold"))
 }
 
 #[cfg(test)]

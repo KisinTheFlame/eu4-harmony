@@ -278,6 +278,26 @@ impl Lifecycle {
     pub fn restarting(&mut self) -> Vec<Happening> {
         vec![Happening::Restarting]
     }
+
+    #[cfg(test)]
+    pub(crate) fn is_going_on(&self) -> bool {
+        self.going_on.is_some()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn loads_count(&self) -> usize {
+        self.loads
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_loading(&self) -> bool {
+        self.reading > 0
+    }
+
+    #[cfg(test)]
+    pub(crate) fn last_read_ok(&self) -> bool {
+        self.last_read
+    }
 }
 
 impl Default for Lifecycle {
@@ -421,15 +441,21 @@ fn in_game_menu_visible(m: &crate::native::memory::Memory) -> crate::base::Resul
     Ok(false)
 }
 
+/// `(app)`: starts `eu4.exe` again, at the end of the game's main loop, when
+/// the game returns to the main menu.
+const RESTART: usize = 0x14c3a10;
+
+/// Before the game starts `eu4.exe` again, whoever asked for it.
+fn restart_before(_: &mut Call) {
+    log!("the game starts eu4.exe again");
+    restarting();
+}
+
 pub fn points() -> Vec<Point> {
-    vec![Point::observe(
-        WORLD_RESET,
-        "48 89 5c 24 10 48 89 74 24 18 55 57 41 56 48 8b ec 48 83 ec 60 48 8b f1",
-        "world's own reset",
-        1,
-        None,
-        Some(world_reset),
-    )]
+    vec![
+        Point::observe(WORLD_RESET, "48 89 5c 24 10 48 89 74 24 18 55 57 41 56 48 8b ec 48 83 ec 60 48 8b f1", "world's own reset", 1, None, Some(world_reset)),
+        Point::observe(RESTART, "48 89 5c 24 08 48 89 74 24 18 55 57 41 56", "restart", 1, Some(restart_before), None),
+    ]
 }
 
 /// Before the game starts `eu4.exe` again, whoever asked for it.

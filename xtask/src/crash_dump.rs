@@ -5,7 +5,11 @@
 //! (`eu4_<date>_<time>`), with `minidump.dmp` and `exception.txt`; the
 //! framework's logs are in its `eu4-harmony\logs\`.
 use crate::{built, built_package, Result};
-use std::{ffi::CString, path::PathBuf};
+use std::{
+    ffi::CString,
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
 use windows::{
     core::PCSTR,
     Win32::System::Diagnostics::Debug::Extensions::{DebugCreate, IDebugClient, IDebugControl, DEBUG_EXECUTE_DEFAULT, DEBUG_OUTCTL_THIS_CLIENT},
@@ -53,4 +57,32 @@ pub fn read(dump: &str, log: &str, builds: &[PathBuf], symbols: &str, commands: 
         }
     };
     ran().map_err(|e| format!("dbgeng: {e}"))
+}
+
+/// Runs `commands` on `dump` with `dbgeng` up to `limit`, writing the full
+/// debugger output to `log`, and returns the last `tail_lines` lines if the
+/// read finished in time.
+pub fn read_tail(dump: &Path, log: &Path, builds: &[PathBuf], commands: &[&str], limit: Duration, tail_lines: usize) -> Vec<String> {
+    if !dump.is_file() {
+        return Vec::new();
+    }
+    let dump_text = dump.display().to_string();
+    let log_text = log.display().to_string();
+    let builds = builds.to_vec();
+    let commands: Vec<String> = commands.iter().map(|c| (*c).to_string()).collect();
+    let symbols = crate::symbols_dir().unwrap_or_else(|_| PathBuf::from("symbols")).display().to_string();
+    let reading = std::thread::spawn(move || read(&dump_text, &log_text, &builds, &symbols, &commands));
+    let deadline = Instant::now() + limit;
+    while !reading.is_finished() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    if !reading.is_finished() {
+        return Vec::new();
+    }
+    if reading.join().is_err() {
+        return Vec::new();
+    }
+    let output = std::fs::read_to_string(log).unwrap_or_default();
+    let lines: Vec<&str> = output.lines().collect();
+    lines[lines.len().saturating_sub(tail_lines)..].iter().map(|l| (*l).to_string()).collect()
 }

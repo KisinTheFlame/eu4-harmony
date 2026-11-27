@@ -35,11 +35,9 @@
 //! reads the countries), when the console's debug text is on (which works a
 //! country's values out as it is drawn), and while the framework holds frames
 //! back.
-mod course;
 mod crossings;
 mod deferred;
 mod icons;
-mod lock_order;
 mod marks;
 mod prepare;
 mod tooltip;
@@ -176,7 +174,6 @@ fn points() -> Vec<Point> {
     .chain(prepare::points())
     .chain(marks::points())
     .chain(crossings::points())
-    .chain(lock_order::points())
     .chain(deferred::points())
     .chain(tooltip::points())
     .chain(icons::points())
@@ -355,50 +352,323 @@ impl Tickets {
     }
 }
 
-static LOCK: Tickets = Tickets::new();
+/// Owns the fair ticket presentation lock, the main thread's lock state, its
+/// lock-free atomic mirrors (`main_holds`, `main_protects_changes`), and lock
+/// wait accounting in one place so the mirrors never drift from `MainSide`.
+struct PresentationLock {
+    tickets: Tickets,
+    main: Mutex<MainSide>,
+    main_holds: AtomicBool,
+    main_protects_changes: AtomicBool,
+    main_waited: AtomicU64,
+    waited_at: [AtomicU64; 3],
+    drawing_waited: AtomicU64,
+}
 
-/// The main thread's way to the lock ([`turns::Lock`]): its waits counted
-/// by where it waited, and [`MAIN_HOLDS`] kept.
-struct MainLock;
+impl PresentationLock {
+    const fn new() -> Self {
+        Self {
+            tickets: Tickets::new(),
+            main: Mutex::new(MainSide::new()),
+            main_holds: AtomicBool::new(false),
+            main_protects_changes: AtomicBool::new(false),
+            main_waited: AtomicU64::new(0),
+            waited_at: [const { AtomicU64::new(0) }; 3],
+            drawing_waited: AtomicU64::new(0),
+        }
+    }
 
-impl turns::Lock for MainLock {
-    fn take(&self, at: At) -> Duration {
-        let waited = LOCK.take();
+    fn take_main(&self, at: At) -> Duration {
+        let waited = self.tickets.take();
         let place = match at {
             At::Crossing => AT_CROSSING,
             At::DayEnd => AT_DAY_END,
             At::Frame | At::DrawingFrame | At::AfterPresent => AT_FRAME,
         };
-        MAIN_WAITED.fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
-        WAITED_AT[place].fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
-        MAIN_HOLDS.store(true, Ordering::Release);
+        let micros = waited.as_micros() as u64;
+        self.main_waited.fetch_add(micros, Ordering::Relaxed);
+        self.waited_at[place].fetch_add(micros, Ordering::Relaxed);
+        self.main_holds.store(true, Ordering::Release);
         waited
     }
 
-    fn give(&self) {
-        MAIN_HOLDS.store(false, Ordering::Release);
-        LOCK.give();
+    fn give_main(&self) {
+        self.main_holds.store(false, Ordering::Release);
+        self.tickets.give();
+    }
+
+    fn take_drawing(&self) -> Duration {
+        let waited = self.tickets.take();
+        self.drawing_waited.fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
+        waited
+    }
+
+    fn give_drawing(&self) {
+        self.tickets.give();
+    }
+
+    fn with_main<T>(&self, f: impl FnOnce(&mut MainSide) -> T) -> T {
+        let mut guard = self.main.lock().unwrap_or_else(|e| e.into_inner());
+        let out = f(&mut guard);
+        self.main_holds.store(guard.holds(), Ordering::Release);
+        self.main_protects_changes.store(guard.protects_changes(), Ordering::Release);
+        out
+    }
+
+    fn main_holds(&self) -> bool {
+        self.main_holds.load(Ordering::Acquire)
+    }
+
+    fn main_protects_changes(&self) -> bool {
+        self.main_protects_changes.load(Ordering::Acquire)
+    }
+
+    fn swap_waits(&self) -> (u64, [u64; 3], u64) {
+        (
+            self.main_waited.swap(0, Ordering::Relaxed),
+            [
+                self.waited_at[AT_FRAME].swap(0, Ordering::Relaxed),
+                self.waited_at[AT_CROSSING].swap(0, Ordering::Relaxed),
+                self.waited_at[AT_DAY_END].swap(0, Ordering::Relaxed),
+            ],
+            self.drawing_waited.swap(0, Ordering::Relaxed),
+        )
     }
 }
 
-/// The drawing thread's way to the lock: its waits counted.
+static PRESENTATION: PresentationLock = PresentationLock::new();
+
+/// The main thread's way to the lock ([`turns::Lock`]).
+struct MainLock;
+
+impl turns::Lock for MainLock {
+    fn take(&self, at: At) -> Duration {
+        PRESENTATION.take_main(at)
+    }
+
+    fn give(&self) {
+        PRESENTATION.give_main();
+    }
+}
+
+/// The drawing thread's way to the lock.
 struct DrawingLock;
 
 impl turns::Lock for DrawingLock {
     fn take(&self, _: At) -> Duration {
-        let waited = LOCK.take();
-        DRAWING_WAITED.fetch_add(waited.as_micros() as u64, Ordering::Relaxed);
-        waited
+        PRESENTATION.take_drawing()
     }
 
     fn give(&self) {
-        LOCK.give();
+        PRESENTATION.give_drawing();
+    }
+}
+
+/// Coordinates publication, invalidation, pacing, and drawing eligibility of
+/// prepared frames between the main thread and the drawing thread.
+struct FrameCoordinator {
+    prepared_idler: AtomicUsize,
+    prepared_seq: AtomicU64,
+    drawn_seq: AtomicU64,
+    day_ran: AtomicBool,
+    invalidated_by_main: AtomicBool,
+}
+
+impl FrameCoordinator {
+    const fn new() -> Self {
+        Self {
+            prepared_idler: AtomicUsize::new(0),
+            prepared_seq: AtomicU64::new(0),
+            drawn_seq: AtomicU64::new(0),
+            day_ran: AtomicBool::new(false),
+            invalidated_by_main: AtomicBool::new(false),
+        }
+    }
+
+    fn note_day_ran(&self) {
+        self.day_ran.store(true, Ordering::Release);
+    }
+
+    fn take_day_ran(&self) -> bool {
+        self.day_ran.swap(false, Ordering::AcqRel)
+    }
+
+    fn prepared_idler(&self) -> usize {
+        self.prepared_idler.load(Ordering::Acquire)
+    }
+
+    fn drawn_caught_up(&self, wanted: u64) -> bool {
+        self.drawn_seq.load(Ordering::Acquire) >= wanted
+    }
+
+    fn pace_target(&self, drawing_on: bool, holding_back: bool, may_pace: bool) -> Option<u64> {
+        let wanted = self.prepared_seq.load(Ordering::Acquire);
+        if !drawing_on
+            || holding_back
+            || !may_pace
+            || self.prepared_idler.load(Ordering::Acquire) == 0
+            || self.invalidated_by_main.load(Ordering::Acquire)
+            || self.drawn_caught_up(wanted)
+        {
+            return None;
+        }
+        Some(wanted)
+    }
+
+    fn main_draws_frame(&self) {
+        self.invalidated_by_main.store(true, Ordering::Release);
+    }
+
+    fn publish_prepared(&self, idler: usize) -> u64 {
+        self.invalidated_by_main.store(false, Ordering::Release);
+        self.prepared_idler.store(idler, Ordering::Release);
+        self.prepared_seq.fetch_add(1, Ordering::AcqRel) + 1
+    }
+
+    fn clear_idler(&self) {
+        self.prepared_idler.store(0, Ordering::Release);
+        self.invalidated_by_main.store(false, Ordering::Release);
+    }
+
+    fn drawable(&self, current_idler: usize, holding_back: Option<usize>, must_draw_here: bool) -> Option<(usize, u64)> {
+        let idler = self.prepared_idler.load(Ordering::Acquire);
+        let seq = self.prepared_seq.load(Ordering::Acquire);
+        if idler == 0 || current_idler != idler || holding_back.is_some() || must_draw_here || self.invalidated_by_main.load(Ordering::Acquire) {
+            return None;
+        }
+        Some((idler, seq))
+    }
+
+    fn note_drawn(&self, seq: u64) {
+        self.drawn_seq.store(seq, Ordering::Release);
+    }
+
+    fn stage_frame(&self, idler: usize, ops: &mut impl StageOps) {
+        ops.run_deferred();
+        if ops.draw_on_main_only() {
+            self.main_draws_frame();
+            ops.draw_inline(idler, FallbackMode::BeforeTooltips);
+            return;
+        }
+        if let Err((mode, reason)) = ops.prepare_for_drawing(idler) {
+            self.clear_idler();
+            self.main_draws_frame();
+            ops.clear_staged_artifacts();
+            ops.log(&format!("drawing: {reason}"));
+            ops.draw_inline(idler, mode);
+            return;
+        }
+        let was_idle = self.prepared_idler() == 0;
+        self.publish_prepared(idler);
+        ops.commit_prepared(was_idle);
+    }
+
+    fn clear_across_deferred<S: StageOps>(&self, ops: &mut S, wait_drawing_end: impl FnOnce(&mut S)) {
+        self.clear_idler();
+        ops.clear_staged_artifacts();
+        wait_drawing_end(ops);
+        ops.run_deferred();
+        self.clear_idler();
+        ops.clear_staged_artifacts();
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FallbackMode {
+    BeforeTooltips,
+    AfterTooltips,
+}
+
+trait StageOps {
+    fn run_deferred(&mut self);
+    fn draw_on_main_only(&self) -> bool;
+    fn prepare_for_drawing(&mut self, idler: usize) -> Result<(), (FallbackMode, String)>;
+    fn draw_inline(&mut self, idler: usize, mode: FallbackMode);
+    fn clear_staged_artifacts(&mut self);
+    fn commit_prepared(&mut self, was_idle: bool);
+    fn log(&mut self, line: &str);
+}
+
+const LATE_BY: [&str; 6] = ["held back", "the lock before", "drawing", "Present", "the lock after Present", "other"];
+
+/// Late-frame gap accounting across ten-second windows.
+#[derive(Default)]
+struct Gaps {
+    last: Option<Instant>,
+    held: Option<usize>,
+    parts: [Duration; 4],
+    late: [u32; 6],
+    by: Vec<(usize, u32)>,
+    longest: Duration,
+    drawing: (Duration, u32, Duration),
+}
+
+impl Gaps {
+    fn held_by(&mut self, into: usize) {
+        self.held.get_or_insert(into);
+    }
+
+    fn waited(&mut self, waited: Duration) {
+        self.parts[0] += waited;
+    }
+
+    fn drawn(&mut self, now: Instant, interval: Duration, drawing: Duration, present: Duration, lock_after: Duration) {
+        let own = drawing.saturating_sub(present + lock_after);
+        self.parts[1] += own;
+        self.drawing = (self.drawing.0 + own, self.drawing.1 + 1, self.drawing.2.max(own));
+        self.parts[2] += present;
+        self.parts[3] += lock_after;
+        if let Some(last) = self.last.replace(now) {
+            let gap = now.saturating_duration_since(last);
+            if gap > interval * 2 {
+                let rest = gap.saturating_sub(self.parts.iter().sum());
+                let why = match self.held {
+                    Some(_) => 0,
+                    None => {
+                        let parts = [self.parts[0], self.parts[1], self.parts[2], self.parts[3], rest];
+                        1 + (0..parts.len()).max_by_key(|&i| parts[i]).unwrap_or(4)
+                    }
+                };
+                self.late[why] += 1;
+                if let Some(into) = self.held {
+                    match self.by.iter_mut().find(|b| b.0 == into) {
+                        Some(b) => b.1 += 1,
+                        None => self.by.push((into, 1)),
+                    }
+                }
+            }
+            self.longest = self.longest.max(gap);
+        }
+        self.held = None;
+        self.parts = [Duration::ZERO; 4];
+    }
+
+    fn told(&mut self, base: usize) -> String {
+        self.by.sort_by_key(|b| std::cmp::Reverse(b.1));
+        let by: Vec<String> = self.by.iter().take(3).map(|(into, n)| format!("{:#x} {n}", into.wrapping_sub(base))).collect();
+        let others: Vec<String> = (1..LATE_BY.len()).map(|i| format!("{} {}", LATE_BY[i], self.late[i])).collect();
+        let (all, frames, longest) = self.drawing;
+        let told = format!(
+            "{} late (held back {} by {}, {}), the longest gap {:.0} ms; a frame's drawing {:.1} ms, the longest {:.1} ms",
+            self.late.iter().sum::<u32>(),
+            self.late[0],
+            by.join(", "),
+            others.join(", "),
+            self.longest.as_secs_f64() * 1000.0,
+            all.as_secs_f64() * 1000.0 / frames.max(1) as f64,
+            longest.as_secs_f64() * 1000.0
+        );
+        self.drawing = Default::default();
+        self.late = [0; 6];
+        self.by.clear();
+        self.longest = Duration::ZERO;
+        told
     }
 }
 
 /// The drawing thread's ID, 0 until it runs; the head's stub compares it.
 use crate::base::runtime::DRAWING_THREAD;
-static FRAMES: course::FrameCoordinator = course::FrameCoordinator::new();
+static FRAMES: FrameCoordinator = FrameCoordinator::new();
 /// Wakes the drawing thread when the first frame of a session is prepared (or
 /// when the game quits), so that it sleeps at startup and on the main menu.
 static PREPARED_WAKE: (Mutex<()>, Condvar) = (Mutex::new(()), Condvar::new());
@@ -413,39 +683,24 @@ const UNLIMITED: u32 = u32::MAX;
 /// The frame rate limit chosen in the settings: 0 to follow the display's
 /// refresh rate, a rate within `FRAME_RATE_BOUNDS`, or [`UNLIMITED`].
 static FRAME_RATE_LIMIT: AtomicU32 = AtomicU32::new(0);
-/// The frames the drawing thread drew, and the main thread's waits for the
-/// lock in microseconds, for the log.
+/// The frames the drawing thread drew, for the log.
 static DRAWN: AtomicU64 = AtomicU64::new(0);
-static MAIN_WAITED: AtomicU64 = AtomicU64::new(0);
 /// The main thread's waits for a frame to be drawn, in microseconds.
 static PACED: AtomicU64 = AtomicU64::new(0);
-/// The main thread's waits by where it waited: at an application frame, at
-/// a crossing, at the day's end.
-static WAITED_AT: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
 const AT_FRAME: usize = 0;
 const AT_CROSSING: usize = 1;
 const AT_DAY_END: usize = 2;
-static DRAWING_WAITED: AtomicU64 = AtomicU64::new(0);
 /// The frames the main thread drew itself, the drawing thread not having.
 static HERE: AtomicU64 = AtomicU64::new(0);
 /// The back buffer's size, as the drawing thread's last frame presented it.
 static SCREEN: AtomicU64 = AtomicU64::new(0);
 
-/// The main thread's side of the lock ([`turns`]).
-static MAIN: Mutex<MainSide> = Mutex::new(MainSide::new());
-/// Lock-free mirror of [`MainSide::protects_changes`], updated inside
-/// [`main_side`] so hot renderer hooks never drift from `MainSide`.
-static MAIN_PROTECTS_CHANGES: AtomicBool = AtomicBool::new(false);
-
 fn main_side<T>(f: impl FnOnce(&mut MainSide) -> T) -> T {
-    let mut guard = MAIN.lock().unwrap_or_else(|e| e.into_inner());
-    let out = f(&mut guard);
-    MAIN_PROTECTS_CHANGES.store(guard.protects_changes(), Ordering::Release);
-    out
+    PRESENTATION.with_main(f)
 }
 
 pub(super) fn main_protects_changes() -> bool {
-    MAIN_PROTECTS_CHANGES.load(Ordering::Acquire)
+    PRESENTATION.main_protects_changes()
 }
 
 thread_local! {
@@ -457,11 +712,6 @@ fn drawing_side<T>(f: impl FnOnce(&mut DrawingSide) -> T) -> T {
     DRAWING_SIDE.with(|d| f(&mut d.borrow_mut()))
 }
 
-/// The main thread holds the presentation lock: [`MainSide::holds`], read
-/// with no lock taken, for what cannot take one (the write watch's exception
-/// handler).
-static MAIN_HOLDS: AtomicBool = AtomicBool::new(false);
-
 /// The drawing's RVA, for the write watch's report.
 #[cfg(feature = "dev")]
 pub const fn drawing_rva() -> usize {
@@ -470,7 +720,7 @@ pub const fn drawing_rva() -> usize {
 
 /// Whether the main thread holds the presentation lock now.
 pub fn main_holds() -> bool {
-    MAIN_HOLDS.load(Ordering::Acquire)
+    PRESENTATION.main_holds()
 }
 
 /// Whether the current main-thread operation excludes concurrent drawing.
@@ -586,22 +836,8 @@ fn pace() {
     PACED.fetch_add(began.elapsed().as_micros() as u64, Ordering::Relaxed);
 }
 
-pub(crate) struct DrawingHooks {
-    pub(crate) on_prepared_safe_point: fn(),
-    pub(crate) prepare_scene: fn(&Memory) -> crate::base::Result<()>,
-}
-
-static DRAWING_HOOKS: std::sync::OnceLock<DrawingHooks> = std::sync::OnceLock::new();
-
-pub(crate) fn set_hooks(hooks: DrawingHooks) {
-    let _ = DRAWING_HOOKS.set(hooks);
-}
-
 pub(super) fn prepare_scene_hook(m: &Memory) -> crate::base::Result<()> {
-    match DRAWING_HOOKS.get() {
-        Some(h) => (h.prepare_scene)(m),
-        None => Ok(()),
-    }
+    super::present::prepare_scene(m)
 }
 
 /// The daily update begins (`game::events`): it lets the lock go.
@@ -636,7 +872,7 @@ fn frame_check_after(call: &mut Call) {
 
 struct LiveStage<'a>(&'a Memory);
 
-impl course::StageOps for LiveStage<'_> {
+impl StageOps for LiveStage<'_> {
     fn run_deferred(&mut self) {
         deferred::done(self.0);
     }
@@ -645,13 +881,13 @@ impl course::StageOps for LiveStage<'_> {
         !drawing_on() || main_draws(self.0)
     }
 
-    fn prepare_for_drawing(&mut self, idler: usize) -> std::result::Result<(), (course::FallbackMode, String)> {
+    fn prepare_for_drawing(&mut self, idler: usize) -> std::result::Result<(), (FallbackMode, String)> {
         if let Err(e) = prepare::scene(self.0) {
-            return Err((course::FallbackMode::BeforeTooltips, format!("the GUI scene could not be prepared: {e}")));
+            return Err((FallbackMode::BeforeTooltips, format!("the GUI scene could not be prepared: {e}")));
         }
         prepare::tooltips(self.0, idler);
         if let Err(e) = prepare::frame(self.0, idler) {
-            return Err((course::FallbackMode::AfterTooltips, format!("the frame could not be prepared: {e}")));
+            return Err((FallbackMode::AfterTooltips, format!("the frame could not be prepared: {e}")));
         }
         if let Err(e) = marks::keep(self.0, idler) {
             log!("drawing: the frame's temporary map highlights could not be kept: {e}");
@@ -659,10 +895,10 @@ impl course::StageOps for LiveStage<'_> {
         Ok(())
     }
 
-    fn draw_inline(&mut self, idler: usize, mode: course::FallbackMode) {
+    fn draw_inline(&mut self, idler: usize, mode: FallbackMode) {
         icons::discard_placing();
         draw_here(self.0, idler);
-        if mode == course::FallbackMode::BeforeTooltips {
+        if mode == FallbackMode::BeforeTooltips {
             prepare::tooltips(self.0, idler);
             tooltip::clear();
         }
@@ -684,15 +920,12 @@ impl course::StageOps for LiveStage<'_> {
             let _guard = PREPARED_WAKE.0.lock().unwrap_or_else(|e| e.into_inner());
             PREPARED_WAKE.1.notify_all();
         }
-        // What the main thread does as it presents a frame: the safe point of a
-        // frame outside a game, and the input taken for the next.
-        if let Some(h) = DRAWING_HOOKS.get() {
-            (h.on_prepared_safe_point)();
-        }
+        // Run main-thread frame-boundary maintenance (font page growth, safe
+        // point, text costs, and remote input playback) through `present` so
+        // inline main-thread frames and drawing-thread frames share one path.
         let screen = SCREEN.load(Ordering::Relaxed);
-        if screen != 0 {
-            super::input::presenting(((screen >> 32) as u32, screen as u32));
-        }
+        let screen = (screen != 0).then_some(((screen >> 32) as u32, screen as u32));
+        super::present::main_frame_prepared(screen);
     }
 
     fn log(&mut self, line: &str) {
@@ -857,23 +1090,24 @@ fn wait_until(until: Instant) {
     }
 }
 
-fn maybe_log_pace(base: usize, gaps: &mut course::Gaps, last_drawn: &mut u64, logged: &mut Instant) {
+fn maybe_log_pace(base: usize, gaps: &mut Gaps, last_drawn: &mut u64, logged: &mut Instant) {
     if logged.elapsed() < Duration::from_secs(10) {
         return;
     }
     let drawn = DRAWN.load(Ordering::Relaxed);
     let (crossings_taken, held_longest) = crossings::logged(base);
+    let (main_waited, waited_at, drawing_waited) = PRESENTATION.swap_waits();
     log!(
         "drawing: {:.1} frames a second, {}; {} drawn by the main thread; the main thread waited {:.0} ms for the lock ({:.0} at frames, {:.0} at crossings, {:.0} at days' ends) and {:.0} ms for frames drawn, the drawing thread {:.0} ms; {} crossing(s), {} deferred, the frames held back longest by {}",
         (drawn - *last_drawn) as f64 / logged.elapsed().as_secs_f64(),
         gaps.told(base),
         HERE.swap(0, Ordering::Relaxed),
-        MAIN_WAITED.swap(0, Ordering::Relaxed) as f64 / 1000.0,
-        WAITED_AT[AT_FRAME].swap(0, Ordering::Relaxed) as f64 / 1000.0,
-        WAITED_AT[AT_CROSSING].swap(0, Ordering::Relaxed) as f64 / 1000.0,
-        WAITED_AT[AT_DAY_END].swap(0, Ordering::Relaxed) as f64 / 1000.0,
+        main_waited as f64 / 1000.0,
+        waited_at[AT_FRAME] as f64 / 1000.0,
+        waited_at[AT_CROSSING] as f64 / 1000.0,
+        waited_at[AT_DAY_END] as f64 / 1000.0,
         PACED.swap(0, Ordering::Relaxed) as f64 / 1000.0,
-        DRAWING_WAITED.swap(0, Ordering::Relaxed) as f64 / 1000.0,
+        drawing_waited as f64 / 1000.0,
         crossings_taken,
         deferred::logged(),
         held_longest
@@ -899,7 +1133,7 @@ fn run() {
     let mut logged = Instant::now();
     let mut last_drawn = 0u64;
     let mut last_frame = Instant::now();
-    let mut gaps = course::Gaps::default();
+    let mut gaps = Gaps::default();
     loop {
         if !drawing_on() {
             CAMERA_MOVED_THERE.store(0, Ordering::Relaxed);
@@ -995,5 +1229,210 @@ fn run() {
             wait_until(Instant::now() + interval);
         }
         maybe_log_pace(m.at(0usize), &mut gaps, &mut last_drawn, &mut logged);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn presentation_lock_keeps_atomic_mirrors_in_sync_with_main_side() {
+        struct LocalLock<'a>(&'a PresentationLock);
+        impl turns::Lock for LocalLock<'_> {
+            fn take(&self, at: At) -> Duration {
+                self.0.take_main(at)
+            }
+            fn give(&self) {
+                self.0.give_main();
+            }
+        }
+
+        let lock = PresentationLock::new();
+        let adapter = LocalLock(&lock);
+        assert!(!lock.main_holds());
+        assert!(!lock.main_protects_changes());
+
+        lock.with_main(|s| s.frame_begins(&adapter));
+        assert!(lock.main_holds());
+        assert!(lock.main_protects_changes());
+
+        lock.with_main(|s| s.day_begins(&adapter));
+        assert!(!lock.main_holds());
+        assert!(!lock.main_protects_changes());
+
+        lock.with_main(|s| {
+            s.order_scope_begins();
+            assert!(s.lock_order(&adapter));
+        });
+        assert!(lock.main_holds());
+        assert!(!lock.main_protects_changes(), "order-only scope must not claim change protection");
+
+        lock.with_main(|s| {
+            let _ = s.crossing(&adapter);
+        });
+        assert!(lock.main_holds());
+        assert!(lock.main_protects_changes());
+
+        lock.with_main(|s| s.order_scope_ends(&adapter, false));
+        assert!(lock.main_holds(), "promoted crossing keeps ownership past scope exit");
+        assert!(lock.main_protects_changes());
+
+        lock.with_main(|s| s.frame_check(&adapter));
+        assert!(!lock.main_holds());
+        assert!(!lock.main_protects_changes());
+    }
+
+    #[test]
+    fn frame_coordinator_handles_publication_pacing_main_fallback_and_idler_switches() {
+        let frames = FrameCoordinator::new();
+
+        assert_eq!(frames.drawable(0x100, None, false), None);
+        let seq1 = frames.publish_prepared(0x100);
+        assert_eq!(seq1, 1);
+        assert_eq!(frames.pace_target(true, false, true), Some(1));
+        assert_eq!(frames.drawable(0x100, None, false), Some((0x100, 1)));
+
+        frames.note_drawn(1);
+        assert_eq!(frames.pace_target(true, false, true), None);
+
+        let seq2 = frames.publish_prepared(0x100);
+        assert_eq!(seq2, 2);
+        assert_eq!(frames.drawable(0x100, Some(0x1400_1234), false), None);
+        assert_eq!(frames.pace_target(true, true, true), None);
+
+        frames.main_draws_frame();
+        assert_eq!(frames.drawable(0x100, None, false), None);
+        assert_eq!(frames.pace_target(true, false, true), None);
+
+        let seq3 = frames.publish_prepared(0x200);
+        assert_eq!(frames.drawable(0x200, None, false), Some((0x200, seq3)));
+        frames.clear_idler();
+        assert_eq!(frames.drawable(0x200, None, false), None);
+    }
+
+    #[test]
+    fn gaps_attributes_late_frames_to_crossing_or_dominant_stage() {
+        let mut gaps = Gaps::default();
+        let t0 = Instant::now();
+        let interval = Duration::from_millis(10);
+        gaps.drawn(t0, interval, Duration::from_millis(2), Duration::from_millis(1), Duration::ZERO);
+
+        gaps.held_by(0x1400_0500);
+        gaps.drawn(t0 + Duration::from_millis(30), interval, Duration::from_millis(3), Duration::from_millis(1), Duration::ZERO);
+
+        gaps.drawn(t0 + Duration::from_millis(65), interval, Duration::from_millis(28), Duration::from_millis(25), Duration::from_millis(1));
+
+        let line = gaps.told(0x1400_0000);
+        assert!(line.starts_with("2 late (held back 1 by 0x500 1,"), "{line}");
+        assert!(line.contains("Present 1"), "{line}");
+    }
+
+    #[derive(Default)]
+    struct RecordingStage {
+        main_only: bool,
+        fail_with: Option<(FallbackMode, &'static str)>,
+        dirty_on_deferred: bool,
+        staged_dirty: bool,
+        deferred_runs: usize,
+        clears: usize,
+        logs: Vec<String>,
+        drawn_inline: Vec<(usize, FallbackMode)>,
+        commits: Vec<bool>,
+    }
+
+    impl StageOps for RecordingStage {
+        fn run_deferred(&mut self) {
+            self.deferred_runs += 1;
+            if self.dirty_on_deferred {
+                self.staged_dirty = true;
+            }
+        }
+        fn draw_on_main_only(&self) -> bool {
+            self.main_only
+        }
+        fn prepare_for_drawing(&mut self, _: usize) -> Result<(), (FallbackMode, String)> {
+            self.staged_dirty = true;
+            match self.fail_with {
+                Some((mode, reason)) => Err((mode, reason.into())),
+                None => Ok(()),
+            }
+        }
+        fn draw_inline(&mut self, idler: usize, mode: FallbackMode) {
+            self.drawn_inline.push((idler, mode));
+        }
+        fn clear_staged_artifacts(&mut self) {
+            self.staged_dirty = false;
+            self.clears += 1;
+        }
+        fn commit_prepared(&mut self, was_idle: bool) {
+            self.commits.push(was_idle);
+        }
+        fn log(&mut self, line: &str) {
+            self.logs.push(line.to_string());
+        }
+    }
+
+    #[test]
+    fn stage_frame_clears_prepared_state_and_falls_back_when_prepare_fails() {
+        let frames = FrameCoordinator::new();
+        let mut stage = RecordingStage::default();
+
+        frames.stage_frame(0x100, &mut stage);
+        assert_eq!(frames.prepared_idler(), 0x100);
+        assert_eq!(stage.commits, [true]);
+        assert_eq!(stage.deferred_runs, 1);
+        assert!(stage.staged_dirty);
+        assert!(stage.drawn_inline.is_empty());
+
+        frames.stage_frame(0x100, &mut stage);
+        assert_eq!(stage.commits, [true, false]);
+
+        stage.fail_with = Some((FallbackMode::AfterTooltips, "the frame could not be prepared: missing idler pointer"));
+        frames.stage_frame(0x100, &mut stage);
+        assert_eq!(frames.prepared_idler(), 0);
+        assert_eq!(frames.drawable(0x100, None, false), None);
+        assert_eq!(frames.pace_target(true, false, true), None);
+        assert!(!stage.staged_dirty);
+        assert_eq!(stage.drawn_inline, [(0x100, FallbackMode::AfterTooltips)]);
+        assert_eq!(stage.logs.len(), 1);
+        assert!(stage.logs[0].contains("missing idler pointer"));
+    }
+
+    #[test]
+    fn stage_frame_draws_inline_before_tooltips_on_main_only_and_scene_failure() {
+        let frames = FrameCoordinator::new();
+        let mut main_only = RecordingStage { main_only: true, ..Default::default() };
+        frames.stage_frame(0x100, &mut main_only);
+        assert_eq!(frames.prepared_idler(), 0);
+        assert_eq!(main_only.drawn_inline, [(0x100, FallbackMode::BeforeTooltips)]);
+        assert!(main_only.commits.is_empty());
+
+        let mut scene_fail = RecordingStage::default();
+        frames.stage_frame(0x100, &mut scene_fail);
+        scene_fail.fail_with = Some((FallbackMode::BeforeTooltips, "the GUI scene could not be prepared: missing GUI scene"));
+        frames.stage_frame(0x100, &mut scene_fail);
+        assert_eq!(frames.prepared_idler(), 0);
+        assert_eq!(frames.drawable(0x100, None, false), None);
+        assert!(!scene_fail.staged_dirty);
+        assert_eq!(scene_fail.drawn_inline, [(0x100, FallbackMode::BeforeTooltips)]);
+        assert!(scene_fail.logs.iter().any(|l| l.contains("missing GUI scene")));
+    }
+
+    #[test]
+    fn clear_across_deferred_reclears_artifacts_dirtied_during_deferred_work() {
+        let frames = FrameCoordinator::new();
+        let mut stage = RecordingStage { dirty_on_deferred: true, ..Default::default() };
+        frames.stage_frame(0x200, &mut stage);
+        let mut waited = false;
+
+        frames.clear_across_deferred(&mut stage, |s| {
+            assert!(!s.staged_dirty, "artifacts must be cleared before waiting for the drawing thread");
+            waited = true;
+        });
+        assert!(waited);
+        assert_eq!(frames.prepared_idler(), 0);
+        assert!(!stage.staged_dirty, "artifacts dirtied during deferred work must be cleared again");
+        assert!(stage.clears >= 2);
     }
 }

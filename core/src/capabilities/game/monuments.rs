@@ -1,4 +1,4 @@
-//! Monuments: the great projects in the player's provinces, monuments and
+﻿//! Monuments: the great projects in the player's provinces, monuments and
 //! canals, and what the monuments window's buttons do through the game's
 //! own commands: upgrading, building, moving, cancelling and boosting
 //! (docs/game/provinces/institutions-ages-monuments.md, "Monuments" and "Great
@@ -9,7 +9,7 @@ use super::{action, commands, thousandths, with_state, Ctx, Fail, GResult, Sessi
 use crate::native::containers;
 use crate::native::game_string;
 use crate::{native::memory::Memory, native::objects::campaign::{construction, country, great_project as project, province, world}, native::points::{GameFunction, Point}};
-use eu4_harmony_checks::Date;
+use eu4_harmony_remote::Date;
 use eu4_harmony_remote::choices::{Amount, Choice, Resource};
 use eu4_harmony_remote::monuments::{args, Buildable, MonumentConstruction, MonumentKind, MonumentOption};
 use eu4_harmony_remote::ProvinceId;
@@ -202,7 +202,7 @@ pub fn upgrade(Session { m, ctx, commands, .. }: Session, args::Upgrade { monume
 /// The address of a province, checked to be one.
 fn place(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
     if id == 0 {
-        return Err(eu4_harmony_checks::provinces::not_found(0).into());
+        return Err(eu4_harmony_remote::checks::provinces::not_found(0).into());
     }
     with_state(|s| s.geography.province_address(m, ctx, id))
 }

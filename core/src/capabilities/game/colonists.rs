@@ -1,4 +1,4 @@
-//! Colonists: what the province view offers the player for colonizing a
+﻿//! Colonists: what the province view offers the player for colonizing a
 //! province, expelling a minority into a new colony and promoting settlement
 //! growth, and carrying each out through the game's own commands
 //! (docs/game/diplomacy/envoys.md, "Colonists").
@@ -86,7 +86,7 @@ struct Province {
 
 fn province(m: &Memory, ctx: &Ctx, id: u32) -> GResult<Province> {
     if id == 0 {
-        return Err(eu4_harmony_checks::provinces::not_found(0).into());
+        return Err(eu4_harmony_remote::checks::provinces::not_found(0).into());
     }
     Ok(Province { address: with_state(|s| s.geography.province_address(m, ctx, id))? })
 }

@@ -10,6 +10,8 @@ pub(crate) mod present;
 pub(crate) mod screenshot;
 pub(crate) mod window_input;
 
+pub(crate) use present::{set_hooks as set_frame_hooks, FrameHooks};
+
 use crate::native::points::Point;
 
 pub(crate) fn points() -> Vec<Point> {

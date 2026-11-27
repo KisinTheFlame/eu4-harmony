@@ -154,18 +154,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "eu4-harmony-checks"
-version = "0.4.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "eu4-harmony-cli"
 version = "0.4.0"
 dependencies = [
- "eu4-harmony-checks",
  "eu4-harmony-client",
  "eu4-harmony-folders",
  "eu4-harmony-loc",
@@ -196,7 +187,6 @@ version = "0.4.0"
 dependencies = [
  "cc",
  "eu4-harmony-analysis",
- "eu4-harmony-checks",
  "eu4-harmony-core-macros",
  "eu4-harmony-folders",
  "eu4-harmony-loc",
@@ -254,7 +244,6 @@ dependencies = [
 name = "eu4-harmony-lua"
 version = "0.4.0"
 dependencies = [
- "eu4-harmony-checks",
  "eu4-harmony-loc",
  "eu4-harmony-manifest",
  "eu4-harmony-remote",
@@ -276,6 +265,7 @@ dependencies = [
 name = "eu4-harmony-proxy"
 version = "0.4.0"
 dependencies = [
+ "eu4-harmony-analysis",
  "eu4-harmony-folders",
  "eu4-harmony-logging",
  "windows-sys",
@@ -285,7 +275,6 @@ dependencies = [
 name = "eu4-harmony-remote"
 version = "0.4.0"
 dependencies = [
- "eu4-harmony-checks",
  "eu4-harmony-remote-derive",
  "serde",
  "serde_json",

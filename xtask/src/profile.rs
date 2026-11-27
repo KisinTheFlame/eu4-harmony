@@ -162,7 +162,7 @@ const PLACES: [(u32, &str, &str); 18] = [
 
 /// Refuses unless the game's file `exe` holds what [`PLACES`] expects at
 /// each place.
-fn check_places(exe: &Image) -> Result<()> {
+fn check_places(exe: &PeImage) -> Result<()> {
     let differ: Vec<String> = PLACES
         .iter()
         .filter(|(rva, bytes, _)| {
@@ -307,103 +307,14 @@ fn tree(path: &str, root: Option<&str>, depth: u32, min: f64) -> Result<()> {
 
 // ---------- which function an address lies in, and how to unwind it ----------
 
+use eu4_harmony_analysis::{ExceptionTable, PeImage, UNW_FLAG_CHAININFO as CHAINED};
+
 fn u16_at(data: &[u8], at: usize) -> Option<u16> {
     Some(u16::from_le_bytes(data.get(at..at + 2)?.try_into().ok()?))
 }
 
 fn u32_at(data: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_le_bytes(data.get(at..at + 4)?.try_into().ok()?))
-}
-
-/// A module's file, read by RVA through its sections.
-#[derive(Default)]
-struct Image {
-    data: Vec<u8>,
-    /// Each section's RVA, size and offset in the file.
-    sections: Vec<(u32, u32, u32)>,
-}
-
-impl Image {
-    fn read(data: Vec<u8>) -> Option<Self> {
-        let pe = u32_at(&data, 0x3c)? as usize;
-        let count = u16_at(&data, pe + 6)? as usize;
-        let optional = u16_at(&data, pe + 20)? as usize;
-        let mut sections = Vec::new();
-        for i in 0..count {
-            let s = pe + 24 + optional + 40 * i;
-            let (size, rva, raw_size, raw) = (u32_at(&data, s + 8)?, u32_at(&data, s + 12)?, u32_at(&data, s + 16)?, u32_at(&data, s + 20)?);
-            sections.push((rva, size.max(raw_size), raw));
-        }
-        Some(Image { data, sections })
-    }
-
-    /// The `n` bytes at `rva`, where the file has them.
-    fn at(&self, rva: u32, n: usize) -> Option<&[u8]> {
-        let &(start, _, raw) = self.sections.iter().find(|(start, size, _)| *start <= rva && rva < start + size)?;
-        let offset = (raw + rva - start) as usize;
-        self.data.get(offset..offset + n)
-    }
-}
-
-/// A module's functions from its exception directory, sorted by start: their
-/// ends, their unwind data, and the function each belongs to, a chained
-/// entry (a function's later part) counting as the function it continues.
-#[derive(Default)]
-struct Functions {
-    starts: Vec<u32>,
-    ends: Vec<u32>,
-    unwind: Vec<u32>,
-    primary: Vec<u32>,
-}
-
-/// UNW_FLAG_CHAININFO: the unwind data continues another entry's.
-const CHAINED: u8 = 4;
-
-impl Functions {
-    fn read(image: &Image) -> Option<Self> {
-        let pe = u32_at(&image.data, 0x3c)? as usize;
-        let (directory, directory_size) = (u32_at(&image.data, pe + 24 + 112 + 3 * 8)?, u32_at(&image.data, pe + 24 + 112 + 3 * 8 + 4)?);
-        let mut entries = Vec::new();
-        if directory != 0 {
-            let table = image.at(directory, directory_size as usize)?;
-            for entry in table.chunks_exact(12) {
-                entries.push((u32_at(entry, 0)?, u32_at(entry, 4)?, u32_at(entry, 8)?));
-            }
-        }
-        let primary = |start: u32, unwind: u32| -> Option<u32> {
-            let (mut at, mut info) = (start, unwind & !1);
-            for _ in 0..32 {
-                let head = image.at(info, 4)?;
-                if head[0] >> 3 & CHAINED == 0 {
-                    break;
-                }
-                let codes = u32::from(head[2]);
-                let chained = image.at(info + 4 + 2 * (codes + (codes & 1)), 12)?;
-                at = u32_at(chained, 0)?;
-                info = u32_at(chained, 8)? & !1;
-            }
-            Some(at)
-        };
-        let mut functions: Vec<_> = entries.iter().map(|&(start, end, unwind)| (start, end, unwind, primary(start, unwind).unwrap_or(start))).collect();
-        functions.sort();
-        Some(Functions {
-            starts: functions.iter().map(|f| f.0).collect(),
-            ends: functions.iter().map(|f| f.1).collect(),
-            unwind: functions.iter().map(|f| f.2).collect(),
-            primary: functions.iter().map(|f| f.3).collect(),
-        })
-    }
-
-    /// The entry `rva` lies in.
-    fn entry(&self, rva: u32) -> Option<usize> {
-        let i = self.starts.partition_point(|&s| s <= rva).checked_sub(1)?;
-        (rva < self.ends[i]).then_some(i)
-    }
-
-    /// The RVA of the function `rva` lies in, or none (a leaf function).
-    fn of(&self, rva: u32) -> Option<u32> {
-        self.entry(rva).map(|i| self.primary[i])
-    }
 }
 
 /// A thread's integer registers, by the numbers unwind data gives them (rax,
@@ -566,7 +477,7 @@ fn unwind(module: &Module, base: u64, registers: &mut Registers, stack: &Stack, 
         }
     }
     let mut r = *registers;
-    let (mut start, mut info) = (module.functions.starts[entry], module.functions.unwind[entry] & !1);
+    let (mut start, mut info) = (entry.begin, entry.unwind & !1);
     let mut first = true;
     let mut machine_frame = false;
     for _ in 0..32 {
@@ -690,8 +601,8 @@ struct Module {
     base: u64,
     end: u64,
     name: String,
-    image: Image,
-    functions: Functions,
+    image: PeImage,
+    functions: ExceptionTable,
     /// Where the core's table of its jump stubs is, if this is the core.
     stub_table: Option<u64>,
     /// The core's jump stubs, sorted, each with the place in the game that
@@ -703,25 +614,6 @@ struct Module {
 const STUB_TABLE: &str = "eu4h_jump_stubs";
 /// How many entries the table has room for.
 const STUB_TABLE_KEPT: usize = 256;
-
-/// The RVA of the export `name` of `image`.
-fn export(image: &Image, name: &str) -> Option<u32> {
-    let pe = u32_at(&image.data, 0x3c)? as usize;
-    let directory = u32_at(&image.data, pe + 24 + 112)?;
-    if directory == 0 {
-        return None;
-    }
-    let head = image.at(directory, 40)?;
-    let (names, functions, name_rvas, ordinals) = (u32_at(head, 24)?, u32_at(head, 28)?, u32_at(head, 32)?, u32_at(head, 36)?);
-    for i in 0..names {
-        let at = u32_at(image.at(name_rvas + 4 * i, 4)?, 0)?;
-        if image.at(at, name.len() + 1)? == [name.as_bytes(), &[0]].concat() {
-            let ordinal = u32::from(u16_at(image.at(ordinals + 2 * i, 2)?, 0)?);
-            return u32_at(image.at(functions + 4 * ordinal, 4)?, 0);
-        }
-    }
-    None
-}
 
 /// The jump stubs the core's table at `table` names, sorted; none until the
 /// framework has installed its points.
@@ -802,9 +694,9 @@ fn take_up_modules(process: HANDLE, modules: &mut Vec<Module>) {
             path.push(0);
             SymLoadModuleExW(process, std::ptr::null_mut(), path.as_ptr(), std::ptr::null(), base, info.SizeOfImage, std::ptr::null(), 0);
             path.pop();
-            let image = std::fs::read(String::from_utf16_lossy(&path)).ok().and_then(Image::read).unwrap_or_default();
-            let functions = Functions::read(&image).unwrap_or_default();
-            let stub_table = export(&image, STUB_TABLE).map(|rva| base + u64::from(rva));
+            let image = std::fs::read(String::from_utf16_lossy(&path)).ok().and_then(PeImage::from_file).unwrap_or_default();
+            let functions = ExceptionTable::from_image(&image).unwrap_or_default();
+            let stub_table = image.export(STUB_TABLE).map(|rva| base + u64::from(rva));
             let stubs = stub_table.map(|table| read_stubs(process, table)).unwrap_or_default();
             let name = String::from_utf16_lossy(&name[..len]).to_lowercase();
             Module { base, end: base + u64::from(info.SizeOfImage), name, image, functions, stub_table, stubs }
@@ -860,7 +752,7 @@ fn running(modules: &[Module], pcs: &[u64]) -> bool {
 fn spins(modules: &[Module], pcs: &[u64], waiting_in: &[(String, u32)]) -> bool {
     let Some(&rip) = pcs.first() else { return false };
     let Some(module) = modules.iter().find(|m| m.base <= rip && rip < m.end) else { return false };
-    let Some(function) = module.functions.of((rip - module.base) as u32) else { return false };
+    let Some(function) = module.functions.primary((rip - module.base) as u32) else { return false };
     waiting_in.iter().any(|(m, f)| *m == module.name && *f == function)
 }
 
@@ -923,7 +815,7 @@ fn tag(state: Option<(i32, bool, bool)>) -> &'static str {
 /// address is looked up one byte back, in the call.
 fn name(process: HANDLE, modules: &[Module], at: u64) -> String {
     let Some(module) = modules.iter().find(|m| m.base <= at && at < m.end) else { return "?".into() };
-    let function = module.functions.of((at - module.base) as u32);
+    let function = module.functions.primary((at - module.base) as u32);
     if module.name == "eu4.exe" {
         return function.map_or_else(|| format!("eu4.exe+0x{:x}", at - module.base), |f| format!("0x{f:x}"));
     }
@@ -1405,7 +1297,7 @@ mod tests {
     #[ignore = "needs the game: EU4_GAME_DIR"]
     fn the_places_match_the_installed_game() {
         let exe = std::path::Path::new(&std::env::var_os("EU4_GAME_DIR").expect("EU4_GAME_DIR")).join("eu4.exe");
-        let image = Image::read(std::fs::read(exe).unwrap()).unwrap();
+        let image = PeImage::from_file(std::fs::read(exe).unwrap()).unwrap();
         assert_eq!(check_places(&image), Ok(()));
     }
 
@@ -1459,8 +1351,14 @@ mod tests {
             base: BASE,
             end: BASE + 0x400,
             name: "eu4.exe".into(),
-            image: Image { data, sections: vec![(0, 0x400, 0)] },
-            functions: Functions { starts: vec![0x100, 0x300], ends: vec![0x200, 0x400], unwind: vec![0x10, 0x40], primary: vec![0x100, 0x300] },
+            image: PeImage::from_sections(
+                data,
+                vec![eu4_harmony_analysis::Section { name: *b".text\0\0\0", rva: 0, virtual_size: 0x400, raw_size: 0x400, raw_offset: 0 }],
+            ),
+            functions: ExceptionTable::from_entries(vec![
+                eu4_harmony_analysis::ExceptionEntry { begin: 0x100, end: 0x200, unwind: 0x10, primary: 0x100 },
+                eu4_harmony_analysis::ExceptionEntry { begin: 0x300, end: 0x400, unwind: 0x40, primary: 0x300 },
+            ]),
             stub_table: None,
             stubs: Vec::new(),
         }
@@ -1541,8 +1439,11 @@ mod tests {
             base: CORE,
             end: CORE + 0x400,
             name: "eu4_harmony_core.dll".into(),
-            image: Image { data, sections: vec![(0, 0x400, 0)] },
-            functions: Functions { starts: vec![0x100], ends: vec![0x200], unwind: vec![0x10], primary: vec![0x100] },
+            image: PeImage::from_sections(
+                data,
+                vec![eu4_harmony_analysis::Section { name: *b".text\0\0\0", rva: 0, virtual_size: 0x400, raw_size: 0x400, raw_offset: 0 }],
+            ),
+            functions: ExceptionTable::from_entries(vec![eu4_harmony_analysis::ExceptionEntry { begin: 0x100, end: 0x200, unwind: 0x10, primary: 0x100 }]),
             stub_table: None,
             stubs: vec![(CORE + 0x300, BASE + 0x120)],
         }

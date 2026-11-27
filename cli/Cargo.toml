@@ -11,7 +11,6 @@ name = "eu4-harmony"
 path = "src/main.rs"
 
 [dependencies]
-eu4-harmony-checks = { path = "../checks" }
 eu4-harmony-client = { path = "../client" }
 eu4-harmony-folders = { path = "../folders" }
 eu4-harmony-loc = { path = "../loc" }

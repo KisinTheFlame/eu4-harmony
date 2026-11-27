@@ -589,8 +589,12 @@ groups! {
 }
 
 pub mod binary;
+pub mod checks;
 pub mod choices;
+mod date;
+pub mod form;
 pub use binary::Binary;
+pub use date::Date;
 pub mod lua;
 pub mod shape;
 
@@ -998,11 +1002,11 @@ pub struct ArmyList(pub Vec<ArmyId>);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ArmyId(pub u64);
 
-/// A decimal string, or in Lua's form (`eu4_harmony_checks::form`) the
+/// A decimal string, or in Lua's form (`crate::form`) the
 /// integer itself.
 impl Serialize for ArmyId {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        if eu4_harmony_checks::form::lua() {
+        if crate::form::lua() {
             return serializer.serialize_u64(self.0);
         }
         serializer.collect_str(&self.0)
@@ -1027,10 +1031,6 @@ impl<'de> Deserialize<'de> for ArmyId {
         deserializer.deserialize_str(Visitor)
     }
 }
-
-/// A game date (`eu4_harmony_checks::Date`), in JSON `"year.month.day"`,
-/// such as `"1444.11.11"`.
-pub use eu4_harmony_checks::Date;
 
 // ---------- responses ----------
 
@@ -1136,20 +1136,6 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}: {}", self.code.name(), self.message)
-    }
-}
-
-/// A refusal of the framework's own checks, as remote clients get it.
-impl From<eu4_harmony_checks::Refusal> for Error {
-    fn from(refusal: eu4_harmony_checks::Refusal) -> Self {
-        use eu4_harmony_checks::Status;
-        let code = match refusal.status {
-            Status::NotReady => Code::NotReady,
-            Status::NotFound => Code::NotFound,
-            Status::Rejected => Code::Rejected,
-            Status::InvalidArgument => Code::InvalidArgument,
-        };
-        Self::new(code, refusal.message)
     }
 }
 

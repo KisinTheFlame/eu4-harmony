@@ -1,4 +1,4 @@
-//! The core's side of the Lua host (`eu4_harmony_lua`,
+﻿//! The core's side of the Lua host (`eu4_harmony_lua`,
 //! ADR extensions-are-lua-in-a-sandbox): loads every mod's extension at startup
 //! on [`LuaHost`], the running game, and calls its handlers at safe points
 //! (`crate::safe_point`).
@@ -15,14 +15,13 @@ use crate::{
     base::mods::DiscoveredMod,
     base::notice::{Message, Repeat},
     capabilities::catalogue::{self, Catalogue, Place, Wait},
-    capabilities::game::map,
-    capabilities::game::{self, map_coloring, Caller},
+    capabilities::game::{self, map, Caller},
     interface::ui,
     session::saves,
 };
 use eu4_harmony_lua::{
     dispatch::{self, Heard},
-    fetch, Answered, Arg, Called, Element, Extension, Host, Mod, Pending, Popup, WindowChange,
+    fetch, Answered, Called, Element, Extension, Host, Mod, Pending, Popup, WindowChange,
 };
 use eu4_harmony_remote::extensions::args;
 use eu4_harmony_remote::{Code, Error, Request, Response};
@@ -182,12 +181,12 @@ impl Surface for CoreSurface {
     }
 
     fn paint(&self, extension: usize, colors: &[(u32, [u8; 4])]) -> Result<(), Error> {
-        let colors: Vec<_> = colors.iter().map(|&(province, rgba)| map_coloring::MapColor { province, rgba }).collect();
-        map_coloring::paint(Caller::Extension(extension), &colors).map_err(Error::from)
+        let colors: Vec<_> = colors.iter().map(|&(province, rgba)| map::MapColor { province, rgba }).collect();
+        map::paint(Caller::Extension(extension), &colors).map_err(Error::from)
     }
 
     fn release_map(&self, extension: usize) -> Result<(), Error> {
-        map_coloring::clear(Caller::Extension(extension)).map_err(Error::from)
+        map::clear(Caller::Extension(extension)).map_err(Error::from)
     }
 
     fn cleanup_extension(&self, extension: usize, reloaded: Option<&Extension>) {
@@ -363,54 +362,38 @@ impl<S: Surface> ExtensionRuntime<S> {
             };
             (host, i, entry.opened.clone(), entry.extension.clone())
         };
-        let host_dyn: Arc<dyn Host> = host.clone();
-        let harmony = opened.dir.join("eu4-harmony");
-        let rejected = |message: String| game::Fail { status: game::Status::Rejected, message };
-        let manifest = eu4_harmony_manifest::HarmonyMod::read(&opened.dir).map_err(rejected)?.manifest;
-        if manifest.id != id {
-            return Err(rejected(format!("the manifest's id is now {:?}; a changed id takes a restart of the game", manifest.id)));
-        }
-        if manifest.permissions != opened.permissions {
-            return Err(rejected(
-                "the manifest's permissions changed; the player saw them as they were, and they change only with a restart of the game".into(),
-            ));
-        }
-        if let Some(why) = manifest.unsupported(eu4_harmony_remote::API_VERSION) {
-            return Err(rejected(why));
-        }
-        // The new texts first: the new code's windows are checked against them.
-        let (problems, earlier) = host.surface.reload_loc(id, &harmony);
-        let opening = Mod { id, name: &opened.name, harmony: harmony.clone(), permissions: &opened.permissions, data: Some(opened.data.clone()) };
-        let new = match eu4_harmony_lua::open(index, &opening, host_dyn) {
-            Ok(new) => new,
-            Err(e) => {
-                host.surface.restore_loc(id, earlier);
-                return Err(rejected(format!("the new code did not load, and the old goes on: {e}")));
-            }
-        };
-        if new.images() != old.images() {
-            host.surface.restore_loc(id, earlier);
-            return Err(rejected("entry images changed; their native resources take effect at the next start, and the old extension goes on".into()));
-        }
         let session = host.surface.session().1;
-        let outcome = eu4_harmony_lua::reload_handoff(&old, &new, host.as_ref(), session);
-        {
-            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(slot) = state.loaded.get_mut(index).filter(|l| l.opened.id == id) else {
-                return refuse(game::Status::NotFound, format!("no extension of a mod {id:?} is loaded"));
-            };
-            slot.extension = new.clone();
-        }
-        for problem in problems {
+        let req = eu4_harmony_lua::Reload {
+            dir: &opened.dir,
+            id,
+            name: &opened.name,
+            permissions: &opened.permissions,
+            data: Some(opened.data.clone()),
+            in_session: session,
+        };
+        let host_dyn: Arc<dyn Host> = host.clone();
+        let reloaded = eu4_harmony_lua::reload(
+            &old,
+            &req,
+            host_dyn,
+            |harmony| host.surface.reload_loc(id, harmony),
+            |earlier| host.surface.restore_loc(id, earlier),
+            |new, outcome| {
+                let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(slot) = state.loaded.get_mut(index).filter(|l| l.opened.id == id) {
+                    slot.extension = new.clone();
+                }
+                drop(state);
+                host.surface.saves_reloaded(id, outcome.saved.clone());
+            },
+        )
+        .map_err(|message| game::Fail { status: game::Status::Rejected, message })?;
+        for problem in reloaded.loc_problems {
             log!("extension {id:?} reloaded: localisation/{problem}");
         }
-        log!("extension {id:?} reloaded{}", outcome.lost.as_ref().map(|l| format!("; its state was not carried: {l}")).unwrap_or_default());
-        host.surface.saves_reloaded(id, outcome.saved.clone());
-        if session {
-            new.handle("on_session", &[Arg::Json(outcome.saved.unwrap_or(serde_json::Value::Null))]);
-        }
+        log!("extension {id:?} reloaded{}", reloaded.lost.as_ref().map(|l| format!("; its state was not carried: {l}")).unwrap_or_default());
         self.refresh_report(&host.surface, true);
-        Ok(Reloaded { session, lost: outcome.lost })
+        Ok(Reloaded { session, lost: reloaded.lost })
     }
 
     fn frame(&self, heard: &[game::Heard]) {
@@ -569,7 +552,7 @@ impl<S: Surface> Pending<Answered> for Later<S> {
 /// A response as the Lua host takes it: the answer written in Lua's form.
 fn lua_form(response: Response) -> Answered {
     let answer = response?;
-    eu4_harmony_checks::form::as_lua(|| serde_json::to_value(&answer)).map_err(|e| Error::new(Code::Internal, format!("the answer cannot be written: {e}")))
+    eu4_harmony_remote::form::as_lua(|| serde_json::to_value(&answer)).map_err(|e| Error::new(Code::Internal, format!("the answer cannot be written: {e}")))
 }
 
 impl<S: Surface> Host for LuaHost<S> {
