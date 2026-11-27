@@ -1,5 +1,5 @@
 //! Speed-up descriptors, switch validation, point-plan assembly, and answer
-//! comparison (`ADR the-game-may-be-made-faster-with-reasoned-differences`).
+//! comparison (`ADR speed-ups-preserve-game-answers`).
 //!
 //! In a player build (`not(feature = "dev")`), [`game_path`] and [`checked`]
 //! compile to constant `false`, eliminating hot-path registry lookups.

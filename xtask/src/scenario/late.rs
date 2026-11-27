@@ -141,7 +141,7 @@ impl Scenario for Long {
             Parameter {
                 name: "may_differ",
                 default: "",
-                about: "the speed-ups whose differences have their reasons (ADR the-game-may-be-made-faster-with-reasoned-differences), by commas: counted, not failed",
+                about: "speed-ups explicitly allowed to differ during debugging (empty by default under ADR speed-ups-preserve-game-answers), by commas: counted, not failed",
             },
         ];
         if self.checked {

@@ -157,7 +157,7 @@ A defect of the game's own that the framework puts right where the game goes wro
 _Avoid_: fix, patch, workaround (where players see them, as on the front page, "bugs fixed" is fine)
 
 **Speed-up**:
-One change the framework makes to how the game does its work so that the game runs faster, such as music it knows without reading it at startup or a save's provinces written on several threads, its differences from the game's own code of a kind ADR the-game-may-be-made-faster-with-reasoned-differences allows. Each is declared once in the core's `speed` module, by a name and a group; a developer build can leave any to the game, or check its answers against the game's.
+One change the framework makes to how the game does its work so that the game runs faster, such as music it knows without reading it at startup, a save's provinces written on several threads, or exact per-search caching of invariant army checks, preserving the game's answers as required by ADR speed-ups-preserve-game-answers. Each is declared once in the core's `speed` module, by a name and a group; a developer build can leave any to the game, or check its answers against the game's.
 _Avoid_: optimization, fast path, patch
 
 ### Capabilities
