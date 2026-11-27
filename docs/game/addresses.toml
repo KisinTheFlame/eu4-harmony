@@ -299,7 +299,7 @@
 "0xe9b10" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0xe9f30" = { kind = "function", name = "army agent's think", notes = ["game/ai/ai.md", "game/ai/work-scheduling.md"] }
 "0xe9fd3" = { kind = "code", name = "army agent draws from the world's or its own generator", notes = ["game/ai/work-scheduling.md"] }
-"0xea250" = { kind = "function", notes = ["game/ai/ai.md", "game/ai/work-scheduling.md"] }
+"0xea250" = { kind = "function", notes = ["game/ai/ai.md", "game/ai/support-checks.md", "game/ai/work-scheduling.md"] }
 "0xea430" = { kind = "code", notes = ["game/ai/support-checks.md"] }
 "0xeab50" = { kind = "function", notes = ["game/ai/ai.md", "game/military/army-orders.md"] }
 "0xeae58" = { kind = "code", notes = ["game/ai/work-scheduling.md"] }
@@ -337,6 +337,8 @@
 "0x106e01" = { kind = "code", notes = ["game/ai/support-checks.md"] }
 "0x107194" = { kind = "code", notes = ["game/ai/support-checks.md"] }
 "0x107328" = { kind = "code", notes = ["game/ai/support-checks.md"] }
+"0x10739a" = { kind = "code", notes = ["game/ai/support-checks.md"] }
+"0x1073d3" = { kind = "code", notes = ["game/ai/support-checks.md"] }
 "0x107401" = { kind = "code", notes = ["game/ai/support-checks.md"] }
 "0x107433" = { kind = "code", notes = ["game/ai/support-checks.md"] }
 "0x107459" = { kind = "code", notes = ["game/ai/support-checks.md"] }
@@ -2567,7 +2569,7 @@
 "0x88a1a0" = { kind = "function", notes = ["game/program/saves.md"] }
 "0x88a1fb" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x88a230" = { kind = "function", notes = ["game/program/saves.md"] }
-"0x88a390" = { kind = "function", notes = ["game/program/saves.md", "game/provinces/trade-range-and-naval-supply.md"] }
+"0x88a390" = { kind = "function", notes = ["game/ai/support-checks.md", "game/program/saves.md", "game/provinces/trade-range-and-naval-supply.md"] }
 "0x88b4b0" = { kind = "function", notes = ["game/program/load-preparation.md"] }
 "0x88bb80" = { kind = "function", notes = ["game/program/world-interface-coupling.md"] }
 "0x891a80" = { kind = "function", notes = ["game/interface/main-menu.md"] }
@@ -2843,7 +2845,7 @@
 "0x96bd00" = { kind = "function", notes = ["game/military/routes.md"] }
 "0x96bd65" = { kind = "code", notes = ["game/military/routes.md", "game/provinces/provinces.md"] }
 "0x96c400" = { kind = "function", notes = ["game/military/routes.md"] }
-"0x96c520" = { kind = "function", name = "route query", notes = ["game/ai/ai.md", "game/military/army-checks-in-searches.md", "game/military/army-orders.md", "game/military/routes.md"] }
+"0x96c520" = { kind = "function", name = "route query", notes = ["game/ai/ai.md", "game/ai/support-checks.md", "game/military/army-checks-in-searches.md", "game/military/army-orders.md", "game/military/routes.md"] }
 "0x96c555" = { kind = "code", notes = ["game/military/routes.md"] }
 "0x96c56d" = { kind = "code", notes = ["game/military/routes.md"] }
 "0x96c58d" = { kind = "code", notes = ["game/military/routes.md"] }
@@ -3674,7 +3676,7 @@
 "0xd45d1b" = { kind = "code", notes = ["game/military/routes.md"] }
 "0xd45d70" = { kind = "function", name = "troop ships", notes = ["game/military/units.md"] }
 "0xd45de0" = { kind = "function", notes = ["game/military/armies.md", "game/military/army-checks-in-searches.md", "game/military/units.md"] }
-"0xd46800" = { kind = "function", notes = ["game/day/country-daily-update.md", "game/military/armies.md"] }
+"0xd46800" = { kind = "function", notes = ["game/ai/support-checks.md", "game/day/country-daily-update.md", "game/military/armies.md"] }
 "0xd47780" = { kind = "function", notes = ["game/provinces/fog-of-war.md"] }
 "0xd4a9e0" = { kind = "function", notes = ["game/countries/defeat.md", "game/military/army-checks-in-searches.md"] }
 "0xd4b270" = { kind = "function", notes = ["game/countries/defeat.md", "game/military/army-checks-in-searches.md"] }

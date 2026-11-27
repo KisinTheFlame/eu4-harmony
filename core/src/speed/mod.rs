@@ -11,3 +11,4 @@ pub(crate) mod modifier_sums;
 pub(crate) mod pool;
 pub(crate) mod pops;
 pub(crate) mod saving;
+pub(crate) mod support_checks;
