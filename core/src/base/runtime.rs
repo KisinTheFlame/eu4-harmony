@@ -163,6 +163,27 @@ pub(crate) fn fatal(detail: &str) -> ! {
     panic!("fatal: {detail}")
 }
 
+/// Records a broken framework invariant that should never happen.
+///
+/// In unit tests and test-game builds (`dev-test-games` / `dev`), panics
+/// immediately so the failure surfaces loudly instead of silently degrading.
+/// In player builds, records the failure once in both `core.log` and
+/// `report.txt` without terminating the player's game.
+pub(crate) fn broken_invariant(reported: &AtomicBool, detail: impl std::fmt::Display) {
+    #[cfg(any(test, feature = "dev-test-games"))]
+    {
+        let _ = reported;
+        panic!("broken invariant: {detail}");
+    }
+    #[cfg(not(any(test, feature = "dev-test-games")))]
+    if !reported.swap(true, Ordering::Relaxed) {
+        let text = format!("broken invariant: {detail}");
+        log!("{text}");
+        report::line(text);
+        report::write();
+    }
+}
+
 /// Logs every panic in framework code as it happens, with its thread and
 /// backtrace, which only the panic itself still has: the first step of the
 /// one way a panic goes. [`guarded`], around every function the game calls
@@ -218,5 +239,17 @@ pub(crate) fn reopen_log(user_dir: Option<&Path>) {
             }
         }
         None => open_fallback_log(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[should_panic(expected = "broken invariant: sample mismatch")]
+    fn broken_invariant_panics_in_tests() {
+        let reported = AtomicBool::new(false);
+        broken_invariant(&reported, "sample mismatch");
     }
 }

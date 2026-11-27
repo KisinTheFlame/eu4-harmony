@@ -571,13 +571,14 @@ extern "C" fn defer_texture_upload(slot_ptr: usize, renderer: usize, pixels: usi
         return false;
     }
     let m = crate::native::hooked_memory();
-    let mut state = PENDING_TEXTURES.lock().unwrap_or_else(|e| e.into_inner());
-    match state.stage(&m, TextureUpload { slot_ptr, renderer, pixels, width, height, texture }) {
+    let staged = {
+        let mut state = PENDING_TEXTURES.lock().unwrap_or_else(|e| e.into_inner());
+        state.stage(&m, TextureUpload { slot_ptr, renderer, pixels, width, height, texture })
+    };
+    match staged {
         Ok(staged) => staged,
         Err(reason) => {
-            if !SLOT_MISMATCH_LOGGED.swap(true, Ordering::Relaxed) {
-                log!("drawing: texture upload fallback ({reason}): slot={slot_ptr:#x} texture={texture:#x}");
-            }
+            crate::base::broken_invariant(&SLOT_MISMATCH_LOGGED, format_args!("drawing texture upload ({reason}): slot={slot_ptr:#x} texture={texture:#x}"));
             false
         }
     }
