@@ -549,7 +549,7 @@ resume!(SETUP_BACK_RESUME: SETUP_BACK_NEXT = SETUP_BACK_RESTART_DONE);
 #[unsafe(naked)]
 extern "C" fn setup_back_stub() {
     std::arch::naked_asm!(
-        call_rust!("mov rcx, rbx", call back, "cmp byte ptr [rsp + 0x48], 0"),
+        call_rust!("mov rcx, rbx", call back => bool),
         "jne 2f",
         "mov word ptr [rbx + 0x83], 0x101",
         "2:",

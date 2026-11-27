@@ -569,7 +569,7 @@ extern "C" fn open_takes_stub() {
 #[unsafe(naked)]
 extern "C" fn open_gives_stub() {
     std::arch::naked_asm!(
-        call_rust!("mov ecx, r14d", call give_open_lock, "mov rax, [rsp + 0x48]"),
+        call_rust!("mov ecx, r14d", call give_open_lock -> rax),
         "jmp qword ptr [rip + {given}]",
         give_open_lock = sym give_open_lock,
         given = sym OPEN_GIVEN_AT,

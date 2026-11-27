@@ -201,7 +201,7 @@ extern "C" fn border_reader(idler: usize) -> usize {
 #[unsafe(naked)]
 extern "C" fn reader_stub() {
     std::arch::naked_asm!(
-        call_rust!("mov rcx, r11", call border_reader, "mov r11, [rsp + 0x48]"),
+        call_rust!("mov rcx, r11", call border_reader -> r11),
         "movzx eax, byte ptr [r11 + 0x30d]",
         "movzx edx, byte ptr [r11 + 0x30c]",
         "jmp qword ptr [rip + {goes_on}]",

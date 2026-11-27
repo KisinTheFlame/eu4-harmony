@@ -192,7 +192,7 @@ resume!(TAKE_AWAY_RESUME: TAKE_AWAY_FOUND_AT = TAKE_AWAY_FOUND, TAKE_AWAY_NOT_FO
 #[unsafe(naked)]
 extern "C" fn add_search_stub() {
     std::arch::naked_asm!(
-        call_rust!("mov rcx, [rbp]", "mov edx, edi", call find_for_stub, "mov r11, [rsp + 0x48]"),
+        call_rust!("mov rcx, [rbp]", "mov edx, edi", call find_for_stub -> r11),
         "test r11, r11",
         "js 2f",
         "mov rcx, r11",
@@ -209,7 +209,7 @@ extern "C" fn add_search_stub() {
 #[unsafe(naked)]
 extern "C" fn take_away_search_stub() {
     std::arch::naked_asm!(
-        call_rust!("mov rcx, [rbp]", "mov edx, edi", call find_for_stub, "mov r11, [rsp + 0x48]"),
+        call_rust!("mov rcx, [rbp]", "mov edx, edi", call find_for_stub -> r11),
         "test r11, r11",
         "js 2f",
         "mov rax, r11",

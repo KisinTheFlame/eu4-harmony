@@ -198,7 +198,7 @@ extern "C" fn owner_told(map: usize, province: i32) -> bool {
 #[unsafe(naked)]
 extern "C" fn owner_told_stub() {
     std::arch::naked_asm!(
-        call_rust!(call owner_told, "cmp byte ptr [rsp + 0x48], 0"),
+        call_rust!(call owner_told => bool),
         "jne 2f",
         "mov r9, rcx",
         "cmp edx, -1",
@@ -238,7 +238,7 @@ extern "C" fn map_mode_set(idler: usize, mode: u32, first: u32, second: u32, fro
 #[unsafe(naked)]
 extern "C" fn map_mode_stub() {
     std::arch::naked_asm!(
-        call_rust!("mov rax, qword ptr [rbp + 8]", "mov qword ptr [rsp + 0x20], rax", call map_mode_set, "cmp byte ptr [rsp + 0x48], 0"),
+        call_rust!("mov rax, qword ptr [rbp + 8]", "mov qword ptr [rsp + 0x20], rax", call map_mode_set => bool),
         "jne 2f",
         "mov qword ptr [rsp + 8], rbx",
         "mov qword ptr [rsp + 0x10], rbp",
@@ -264,7 +264,7 @@ extern "C" fn port_model(entry: usize, province: usize, map: usize, flag: u32, f
 #[unsafe(naked)]
 extern "C" fn port_model_stub() {
     std::arch::naked_asm!(
-        call_rust!("mov rax, qword ptr [rbp + 8]", "mov qword ptr [rsp + 0x20], rax", call port_model, "cmp byte ptr [rsp + 0x48], 0"),
+        call_rust!("mov rax, qword ptr [rbp + 8]", "mov qword ptr [rsp + 0x20], rax", call port_model => bool),
         "jne 2f",
         "mov rax, rsp",
         "mov qword ptr [rax + 0x18], r8",
@@ -279,7 +279,7 @@ extern "C" fn port_model_stub() {
 #[unsafe(naked)]
 extern "C" fn minimap_stub() {
     std::arch::naked_asm!(
-        call_rust!(call minimap, "cmp byte ptr [rsp + 0x48], 0"),
+        call_rust!(call minimap => bool),
         "jne 2f",
         "mov rax, rsp",
         "mov qword ptr [rax + 0x10], rbx",

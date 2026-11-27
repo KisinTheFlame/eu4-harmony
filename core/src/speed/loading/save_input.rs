@@ -107,7 +107,7 @@ resume!(LOAD_RESUME: LOAD_CONTINUE = LOAD_NEXT);
 #[unsafe(naked)]
 extern "C" fn load_stub() {
     std::arch::naked_asm!(
-        call_rust!(call load, "mov rax, [rsp + 0x48]"),
+        call_rust!(call load -> rax),
         "jmp qword ptr [rip + {next}]",
         load = sym load,
         next = sym LOAD_CONTINUE,

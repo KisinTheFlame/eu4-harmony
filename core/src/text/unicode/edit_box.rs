@@ -331,8 +331,7 @@ extern "C" fn left_stub() {
         "2:",
         call_rust!(
             "mov rcx, rdi",
-            call column,
-            "mov eax, dword ptr [rsp + 0x48]",
+            call column -> eax,
         ),
         "mov word ptr [rdi + {caret_column}], ax",
         "jmp qword ptr [rip + {done}]",
@@ -386,8 +385,7 @@ extern "C" fn right_stub() {
         call_rust!(
             "mov rcx, rdi",
             "mov edx, eax",
-            call index,
-            "mov edx, dword ptr [rsp + 0x48]",
+            call index -> edx,
         ),
         "mov rcx, rdi",
         "jmp qword ptr [rip + {done}]",
@@ -403,8 +401,7 @@ extern "C" fn backspace_stub() {
         call_rust!(
             "mov rcx, rdi",
             "mov edx, eax",
-            call prepare,
-            "mov edx, dword ptr [rsp + 0x48]",
+            call prepare -> edx,
         ),
         "mov rcx, rdi",
         "jmp qword ptr [rip + {done}]",
@@ -420,8 +417,7 @@ extern "C" fn delete_stub() {
         call_rust!(
             "mov rcx, rbx",
             "mov edx, eax",
-            call prepare,
-            "mov edx, dword ptr [rsp + 0x48]",
+            call prepare -> edx,
         ),
         "mov rcx, rbx",
         "jmp qword ptr [rip + {done}]",
@@ -438,8 +434,7 @@ extern "C" fn click_stub() {
         call_rust!(
             "mov rcx, rdi",
             "mov edx, esi",
-            call column,
-            "mov esi, dword ptr [rsp + 0x48]",
+            call column -> esi,
         ),
         "mov word ptr [r15 + {caret_line}], ax",
         "mov word ptr [r15 + {caret_column}], si",
@@ -463,8 +458,7 @@ macro_rules! cut_stub {
                 call_rust!(
                     "mov edx, ecx",
                     $text,
-                    call cut,
-                    "mov ecx, dword ptr [rsp + 0x48]",
+                    call cut -> ecx,
                 ),
                 "mov r8d, ecx",
                 "jmp qword ptr [rip + {done}]",
@@ -482,7 +476,7 @@ cut_stub!(prepend_cut_stub, "mov rcx, rbx", PREPEND_DONE);
 #[unsafe(naked)]
 extern "C" fn paste_stub() {
     std::arch::naked_asm!(
-        call_rust!(call text, "mov rax, [rsp + 0x48]"),
+        call_rust!(call text -> rax),
         "jmp qword ptr [rip + {done}]",
         text = sym paste_text,
         done = sym PASTED,
@@ -494,7 +488,7 @@ extern "C" fn paste_stub() {
 #[unsafe(naked)]
 extern "C" fn copy_stub() {
     std::arch::naked_asm!(
-        call_rust!(call copy, "mov rax, [rsp + 0x48]"),
+        call_rust!(call copy -> rax),
         "jmp qword ptr [rip + {done}]",
         copy = sym copy_text,
         done = sym COPIED,

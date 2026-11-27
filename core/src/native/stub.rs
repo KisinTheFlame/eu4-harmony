@@ -14,7 +14,21 @@
 //!   caller so SEH exceptions and stack walks unwind cleanly across the stub.
 //!
 //! A stub gives the instructions that set up the arguments, the function to
-//! call, and the instructions that use the result. Inside the frame:
+//! call, and how to consume its return value:
+//!
+//! - `call f` — ignore the return value and restore all volatile registers
+//!   (including `rax`);
+//! - `call f -> reg` — load the return value into `reg` (`rax`–`r15`,
+//!   `eax`–`r15d`, or `xmm0`–`xmm5`) after restoring every other register;
+//! - `call f => bool` / `call f => u32` — compare the low byte or low 32 bits
+//!   of the return value against `0` so flags survive frame teardown for an
+//!   immediate `jz`/`jnz`/`je`/`jne`, while keeping `rax` restored;
+//! - optional trailing `"then"` instructions run after register restore and
+//!   return loading, and may read `[rsp + 0x48]` directly for custom operations
+//!   (such as `add edi, dword ptr [rsp + 0x48]` or comparing against a non-zero
+//!   constant).
+//!
+//! Inside the frame:
 //!
 //! - `[rsp + 0x20]`..`[rsp + 0x40]` hold stack arguments 5 to 9;
 //! - `[rsp + 0x40]` may also serve as an 8-byte slot an argument points at when
@@ -45,7 +59,53 @@ pub extern "C" fn eu4h_resolve_stub(return_address: usize) -> u32 {
 }
 
 macro_rules! call_rust {
+    ($($arg:literal,)* call $f:ident -> $ret:ident $(, $then:literal)* $(,)?) => {
+        call_rust!(@emit [$($arg),*] $f [call_rust!(@load_ret $ret), $($then),*])
+    };
+    ($($arg:literal,)* call $f:ident => bool $(, $then:literal)* $(,)?) => {
+        call_rust!(@emit [$($arg),*] $f ["cmp byte ptr [rsp + 0x48], 0", $($then),*])
+    };
+    ($($arg:literal,)* call $f:ident => u32 $(, $then:literal)* $(,)?) => {
+        call_rust!(@emit [$($arg),*] $f ["cmp dword ptr [rsp + 0x48], 0", $($then),*])
+    };
     ($($arg:literal,)* call $f:ident $(, $then:literal)* $(,)?) => {
+        call_rust!(@emit [$($arg),*] $f [$($then),*])
+    };
+    (@load_ret rax) => { "mov rax, [rsp + 0x48]" };
+    (@load_ret rbx) => { "mov rbx, [rsp + 0x48]" };
+    (@load_ret rcx) => { "mov rcx, [rsp + 0x48]" };
+    (@load_ret rdx) => { "mov rdx, [rsp + 0x48]" };
+    (@load_ret rsi) => { "mov rsi, [rsp + 0x48]" };
+    (@load_ret rdi) => { "mov rdi, [rsp + 0x48]" };
+    (@load_ret r8) => { "mov r8, [rsp + 0x48]" };
+    (@load_ret r9) => { "mov r9, [rsp + 0x48]" };
+    (@load_ret r10) => { "mov r10, [rsp + 0x48]" };
+    (@load_ret r11) => { "mov r11, [rsp + 0x48]" };
+    (@load_ret r12) => { "mov r12, [rsp + 0x48]" };
+    (@load_ret r13) => { "mov r13, [rsp + 0x48]" };
+    (@load_ret r14) => { "mov r14, [rsp + 0x48]" };
+    (@load_ret r15) => { "mov r15, [rsp + 0x48]" };
+    (@load_ret eax) => { "mov eax, dword ptr [rsp + 0x48]" };
+    (@load_ret ebx) => { "mov ebx, dword ptr [rsp + 0x48]" };
+    (@load_ret ecx) => { "mov ecx, dword ptr [rsp + 0x48]" };
+    (@load_ret edx) => { "mov edx, dword ptr [rsp + 0x48]" };
+    (@load_ret esi) => { "mov esi, dword ptr [rsp + 0x48]" };
+    (@load_ret edi) => { "mov edi, dword ptr [rsp + 0x48]" };
+    (@load_ret r8d) => { "mov r8d, dword ptr [rsp + 0x48]" };
+    (@load_ret r9d) => { "mov r9d, dword ptr [rsp + 0x48]" };
+    (@load_ret r10d) => { "mov r10d, dword ptr [rsp + 0x48]" };
+    (@load_ret r11d) => { "mov r11d, dword ptr [rsp + 0x48]" };
+    (@load_ret r12d) => { "mov r12d, dword ptr [rsp + 0x48]" };
+    (@load_ret r13d) => { "mov r13d, dword ptr [rsp + 0x48]" };
+    (@load_ret r14d) => { "mov r14d, dword ptr [rsp + 0x48]" };
+    (@load_ret r15d) => { "mov r15d, dword ptr [rsp + 0x48]" };
+    (@load_ret xmm0) => { "movd xmm0, dword ptr [rsp + 0x48]" };
+    (@load_ret xmm1) => { "movd xmm1, dword ptr [rsp + 0x48]" };
+    (@load_ret xmm2) => { "movd xmm2, dword ptr [rsp + 0x48]" };
+    (@load_ret xmm3) => { "movd xmm3, dword ptr [rsp + 0x48]" };
+    (@load_ret xmm4) => { "movd xmm4, dword ptr [rsp + 0x48]" };
+    (@load_ret xmm5) => { "movd xmm5, dword ptr [rsp + 0x48]" };
+    (@emit [$($arg:literal),*] $f:ident [$($then:expr),* $(,)?]) => {
         concat!(
             "push rbp\n",
             "mov rbp, rsp\n",
@@ -117,47 +177,52 @@ mod tests {
         assert!(found.is_empty(), "hand-written calls into Rust: {found:?}");
     }
 
-    /// `call_rust!` restores the caller's `rax` before exiting; testing `al`/`eax`/`rax`
-    /// right after a `call_rust!` that did not read `[rsp + 0x48]` checks stale register
-    /// contents instead of the Rust return value.
+    extern "C" fn is_even(n: u32) -> u8 {
+        u8::from(n.is_multiple_of(2))
+    }
+
+    extern "C" fn non_zero_u32(n: u32) -> u32 {
+        n
+    }
+
+    /// Calls `is_even(ecx)` via `=> bool`, proving flags reflect the Rust return
+    /// value while caller's `rax` (set to `0x55`) is preserved intact.
+    #[unsafe(naked)]
+    extern "C" fn bool_probe(_n: u32) -> usize {
+        std::arch::naked_asm!(
+            "mov rax, 0x55",
+            call_rust!(call is_even => bool),
+            "jnz 2f",
+            "ret",
+            "2:",
+            "add rax, 0x100",
+            "ret",
+            is_even = sym is_even,
+        );
+    }
+
+    /// Calls `non_zero_u32(ecx)` via `=> u32` (including values whose low byte
+    /// is 0, such as `0x100`, where a byte compare would wrongly see 0).
+    #[unsafe(naked)]
+    extern "C" fn u32_probe(_n: u32) -> usize {
+        std::arch::naked_asm!(
+            "mov rax, 0x22",
+            call_rust!(call non_zero_u32 => u32),
+            "jnz 2f",
+            "ret",
+            "2:",
+            "add rax, 0x200",
+            "ret",
+            non_zero_u32 = sym non_zero_u32,
+        );
+    }
+
     #[test]
-    fn stubs_do_not_test_rax_after_call_rust_without_reading_return_slot() {
-        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let mut stack = vec![src];
-        let mut bad = Vec::new();
-        while let Some(dir) = stack.pop() {
-            for entry in std::fs::read_dir(dir).unwrap() {
-                let path = entry.unwrap().path();
-                if path.is_dir() {
-                    stack.push(path);
-                } else if path.extension().is_some_and(|e| e == "rs") && !path.ends_with("stub.rs") {
-                    let text = std::fs::read_to_string(&path).unwrap();
-                    let lines: Vec<&str> = text.lines().collect();
-                    let mut i = 0;
-                    while i < lines.len() {
-                        if lines[i].contains("call_rust!(") {
-                            let start = i;
-                            let mut block = String::new();
-                            while i < lines.len() {
-                                block.push_str(lines[i]);
-                                if lines[i].contains("),") {
-                                    break;
-                                }
-                                i += 1;
-                            }
-                            if !block.contains("[rsp + 0x48]") && i + 1 < lines.len() {
-                                let next = lines[i + 1].trim();
-                                if next.starts_with("\"test al,") || next.starts_with("\"test eax,") || next.starts_with("\"test rax,") {
-                                    bad.push(format!("{}:{}: {next}", path.display(), start + 1));
-                                }
-                            }
-                        }
-                        i += 1;
-                    }
-                }
-            }
-        }
-        assert!(bad.is_empty(), "stub tests restored rax instead of [rsp + 0x48]: {bad:?}");
+    fn return_forms_set_flags_or_registers_while_preserving_caller_rax() {
+        assert_eq!(bool_probe(3), 0x55);
+        assert_eq!(bool_probe(4), 0x155);
+        assert_eq!(u32_probe(0), 0x22);
+        assert_eq!(u32_probe(0x100), 0x222);
     }
 
     extern "C" fn sum(a: usize, b: usize, c: usize, d: usize, e: usize, out: *mut u32) -> usize {
@@ -184,8 +249,7 @@ mod tests {
                 "mov qword ptr [rsp + 0x20], 5",
                 "lea rax, [rsp + 0x40]",
                 "mov [rsp + 0x28], rax",
-                call sum,
-                "mov rax, [rsp + 0x48]",
+                call sum -> rax,
                 "add eax, dword ptr [rsp + 0x40]",
             ),
             "add rax, rbx",
@@ -225,15 +289,13 @@ mod tests {
                 "mov qword ptr [rsp + 0x30], 7",
                 "mov qword ptr [rsp + 0x38], 8",
                 "mov qword ptr [rsp + 0x40], 9",
-                call nine_sum,
-                "mov r10, [rsp + 0x48]",
+                call nine_sum -> r10,
             ),
             call_rust!(
                 "mov eax, 0x40a00000",
                 "movd xmm0, eax",
                 "movd xmm1, eax",
-                call float_bits,
-                "mov eax, dword ptr [rsp + 0x48]",
+                call float_bits -> eax,
             ),
             "add rax, r10",
             "ret",
@@ -261,7 +323,7 @@ mod tests {
     #[unsafe(naked)]
     extern "C" fn seh_called_stub(_trigger: usize) -> usize {
         std::arch::naked_asm!(
-            call_rust!("mov rcx, rcx", call seh_probe, "mov rax, [rsp + 0x48]"),
+            call_rust!("mov rcx, rcx", call seh_probe -> rax),
             "ret",
             seh_probe = sym seh_probe,
         );

@@ -246,7 +246,7 @@ extern "C" fn inline_1_stores_stub() {
     std::arch::naked_asm!(
         "lea rax, [r14 + rbp]",
         "push rcx",
-        call_rust!(call object, "mov rcx, [rsp + 0x48]"),
+        call_rust!(call object -> rcx),
         "mov byte ptr [rcx + 0x18], r12b",
         "mov [rcx + 0x10], rax",
         "pop rcx",
@@ -260,7 +260,7 @@ extern "C" fn inline_1_stores_stub() {
 #[unsafe(naked)]
 extern "C" fn inline_1_object_stub() {
     std::arch::naked_asm!(
-        call_rust!(call object, "mov rcx, [rsp + 0x48]"),
+        call_rust!(call object -> rcx),
         "mov rax, [rcx]",
         "jmp qword ptr [rip + {next}]",
         object = sym value_object,
@@ -273,7 +273,7 @@ extern "C" fn inline_1_object_stub() {
 #[unsafe(naked)]
 extern "C" fn inline_2_stub() {
     std::arch::naked_asm!(
-        call_rust!(call object, "mov rcx, [rsp + 0x48]"),
+        call_rust!(call object -> rcx),
         "lea rax, [rdi + 8]",
         "mov byte ptr [rcx + 0x18], r15b",
         "mov [rcx + 0x10], rax",
@@ -290,7 +290,7 @@ extern "C" fn inline_3_stores_stub() {
     std::arch::naked_asm!(
         "lea rax, [rbx + 8]",
         "push rcx",
-        call_rust!(call object, "mov rcx, [rsp + 0x48]"),
+        call_rust!(call object -> rcx),
         "mov [rcx + 0x10], rax",
         "mov byte ptr [rcx + 0x18], 0",
         "pop rcx",
@@ -304,7 +304,7 @@ extern "C" fn inline_3_stores_stub() {
 #[unsafe(naked)]
 extern "C" fn inline_3_object_stub() {
     std::arch::naked_asm!(
-        call_rust!(call object, "mov rcx, [rsp + 0x48]"),
+        call_rust!(call object -> rcx),
         "jmp qword ptr [rip + {next}]",
         object = sym value_object,
         next = sym INLINE_3_OBJECT_AT,
@@ -318,7 +318,7 @@ extern "C" fn inline_3_object_stub() {
 extern "C" fn inline_4_stub() {
     std::arch::naked_asm!(
         "lea rax, [rsp + 0x498]",
-        call_rust!(call object, "mov rcx, [rsp + 0x48]"),
+        call_rust!(call object -> rcx),
         "mov byte ptr [rcx + 0x18], r15b",
         "mov [rcx + 0x10], rax",
         "mov rax, [rcx]",
@@ -334,7 +334,7 @@ extern "C" fn inline_5_stores_stub() {
     std::arch::naked_asm!(
         "lea rax, [rbx + 4]",
         "push rcx",
-        call_rust!(call object, "mov rcx, [rsp + 0x48]"),
+        call_rust!(call object -> rcx),
         "mov [rcx + 0x10], rax",
         "mov byte ptr [rcx + 0x18], 0",
         "pop rcx",
@@ -348,7 +348,7 @@ extern "C" fn inline_5_stores_stub() {
 #[unsafe(naked)]
 extern "C" fn inline_5_object_stub() {
     std::arch::naked_asm!(
-        call_rust!(call object, "mov rcx, [rsp + 0x48]"),
+        call_rust!(call object -> rcx),
         "jmp qword ptr [rip + {next}]",
         object = sym value_object,
         next = sym INLINE_5_OBJECT_AT,
@@ -366,7 +366,7 @@ resume!(COUNTRIES_RESUME: COUNTRIES_GAME = COUNTRIES_ITEMS, COUNTRIES_DONE = COU
 #[unsafe(naked)]
 extern "C" fn provinces_stub() {
     std::arch::naked_asm!(
-        call_rust!("mov rcx, r14", "mov rdx, rsi", call write, "cmp byte ptr [rsp + 0x48], 0"),
+        call_rust!("mov rcx, r14", "mov rdx, rsi", call write => bool),
         "jne 2f",
         "mov edi, r13d",
         "mov rax, [r14 + 0x1c98]",
@@ -384,7 +384,7 @@ extern "C" fn provinces_stub() {
 #[unsafe(naked)]
 extern "C" fn countries_stub() {
     std::arch::naked_asm!(
-        call_rust!("mov rcx, r14", "mov rdx, rsi", call write, "cmp byte ptr [rsp + 0x48], 0"),
+        call_rust!("mov rcx, r14", "mov rdx, rsi", call write => bool),
         "jne 2f",
         "mov edi, r13d",
         "mov rax, [r14]",
