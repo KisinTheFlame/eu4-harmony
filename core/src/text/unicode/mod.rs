@@ -50,6 +50,11 @@ pub(crate) fn grow_pages() {
     fill::grow_pages();
 }
 
+/// Registers a callback invoked when a font page replaces `*wrapper` directly.
+pub(crate) fn set_on_texture_replaced(f: fn(usize, usize)) {
+    fill::set_on_texture_replaced(f);
+}
+
 /// Logs Unicode text-rendering timing costs when the reporting interval elapses.
 pub(crate) fn log_costs_when_due() {
     costs::log_when_due();

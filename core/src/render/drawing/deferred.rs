@@ -715,6 +715,19 @@ pub(super) fn clear_texture_desc_cache() {
     TEX_DESC_CACHE.write().unwrap_or_else(|e| e.into_inner()).clear();
 }
 
+/// Evicts cached texture descriptors matching `wrapper` or `d3d_tex`, called
+/// from `0x16d8080` and whenever framework code replaces `*wrapper` directly.
+pub(super) fn evict_texture_desc(wrapper: usize, d3d_tex: usize) {
+    if wrapper == 0 && d3d_tex == 0 {
+        return;
+    }
+    let mut cache = TEX_DESC_CACHE.write().unwrap_or_else(|e| e.into_inner());
+    if wrapper != 0 && d3d_tex != 0 {
+        cache.remove(&(wrapper, d3d_tex));
+    }
+    cache.retain(|&(w, t), _| (wrapper == 0 || w != wrapper) && (d3d_tex == 0 || t != d3d_tex));
+}
+
 #[called_by_game]
 unsafe extern "C" fn get_texture_desc(wrapper: usize, out: *mut u32) {
     if wrapper == 0 || out.is_null() {
@@ -755,12 +768,7 @@ unsafe extern "C" fn get_texture_desc(wrapper: usize, out: *mut u32) {
 unsafe extern "C" fn release_texture(wrapper: usize) {
     if wrapper != 0 {
         let d3d_tex = unsafe { *(wrapper as *const usize) };
-        let mut cache = TEX_DESC_CACHE.write().unwrap_or_else(|e| e.into_inner());
-        if d3d_tex != 0 {
-            cache.remove(&(wrapper, d3d_tex));
-        }
-        // Also evict any stale entry for the same wrapper or D3D9 texture address.
-        cache.retain(|&(w, t), _| w != wrapper && (d3d_tex == 0 || t != d3d_tex));
+        evict_texture_desc(wrapper, d3d_tex);
     }
     unsafe { ORIGINAL_TEXTURE_RELEASE.get()(wrapper) };
 }
@@ -1003,5 +1011,25 @@ mod tests {
     fn map_colors_slot_ptr_uses_saved_game_rbp_through_call_rust() {
         let base = 0x1000_0000usize;
         assert_eq!(map_colors_rbp_slot_probe(base), base + MAP_COLORS_TEXTURE);
+    }
+
+    #[test]
+    fn evict_texture_desc_clears_matching_wrapper_or_texture_entries() {
+        let desc = CachedTexDesc { width: 512, height: 512, format_and_bpp: Some((0xb, 4)) };
+        {
+            let mut cache = TEX_DESC_CACHE.write().unwrap_or_else(|e| e.into_inner());
+            cache.insert((0x9001, 0xa001), desc);
+            cache.insert((0x9001, 0xa002), desc);
+            cache.insert((0x9002, 0xa001), desc);
+            cache.insert((0x9003, 0xa003), desc);
+        }
+        evict_texture_desc(0x9001, 0xa001);
+        let cache = TEX_DESC_CACHE.read().unwrap_or_else(|e| e.into_inner());
+        assert!(!cache.contains_key(&(0x9001, 0xa001)));
+        assert!(!cache.contains_key(&(0x9001, 0xa002)), "same wrapper evicted");
+        assert!(!cache.contains_key(&(0x9002, 0xa001)), "same d3d texture evicted");
+        assert!(cache.contains_key(&(0x9003, 0xa003)), "unrelated entry preserved");
+        drop(cache);
+        evict_texture_desc(0x9003, 0xa003);
     }
 }

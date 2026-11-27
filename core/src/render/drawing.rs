@@ -224,6 +224,12 @@ pub(super) fn device_reset() {
     deferred::clear_texture_desc_cache();
 }
 
+/// Evicts cached texture descriptors when framework code replaces `*wrapper`
+/// without going through `0x16d8080`.
+pub(crate) fn evict_texture_desc(wrapper: usize, d3d_tex: usize) {
+    deferred::evict_texture_desc(wrapper, d3d_tex);
+}
+
 resume!(FRAME_RESUME: FRAME_DRAWN_AT = FRAME_DRAWN);
 resume!(HEAD_RESUME: HEAD_GOES_ON_AT = HEAD_GOES_ON, HEAD_END_AT = HEAD_END);
 static HEAD_AT: AtomicUsize = AtomicUsize::new(0);

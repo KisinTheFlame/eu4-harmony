@@ -57,7 +57,7 @@ use crate::native::objects::text::{self as objects, font::OWN_GLYPHS, texture_de
 use crate::native::points::Point;
 use std::cell::RefCell;
 use std::ffi::c_void;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, OnceLock};
 use windows::core::Interface;
 use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::Graphics::Direct3D9::*;
@@ -162,6 +162,19 @@ struct Look {
 
 static SYSTEM: LazyLock<Option<SystemFonts>> = LazyLock::new(|| SystemFonts::new().ok());
 static PAGES: LazyLock<Shared<PageTexture, Look>> = LazyLock::new(Default::default);
+static ON_TEXTURE_REPLACED: OnceLock<fn(usize, usize)> = OnceLock::new();
+
+/// Registers a callback invoked with `(wrapper, old_d3d_tex)` right before a
+/// font page replaces `*wrapper` directly outside `0x16d8080`.
+pub(super) fn set_on_texture_replaced(f: fn(usize, usize)) {
+    let _ = ON_TEXTURE_REPLACED.set(f);
+}
+
+fn notify_texture_replaced(wrapper: usize, old: *mut c_void) {
+    if let Some(f) = ON_TEXTURE_REPLACED.get() {
+        f(wrapper, old as usize);
+    }
+}
 
 /// The largest page: glyphs' places are read as signed 16-bit numbers.
 const LARGEST: u32 = 16384;
@@ -763,6 +776,7 @@ fn loaded(font: usize) -> bool {
                 // ours, and its old texture is released.
                 let old = m.ptr(wrapper)? as *mut c_void;
                 let (width, height) = made.size;
+                notify_texture_replaced(wrapper, old);
                 unsafe {
                     *(wrapper as *mut *mut c_void) = made.texture.texture.clone().into_raw();
                     drop(IDirect3DTexture9::from_raw(old));
@@ -833,6 +847,7 @@ impl Game<PageTexture> for InGame<'_> {
             return Err("the font's page is not in its entry".into());
         }
         let old = m.ptr(wrapper)? as *mut c_void;
+        notify_texture_replaced(wrapper, old);
         unsafe {
             *(wrapper as *mut *mut c_void) = texture.texture.clone().into_raw();
             drop(IDirect3DTexture9::from_raw(old));
