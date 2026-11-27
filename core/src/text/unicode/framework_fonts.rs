@@ -3,7 +3,7 @@
 //! draws in a system font of its own, such as the game console's. Each is a
 //! bitmap font as the game's are: a definition in a `.gfx` file, a `.fnt` file
 //! with its lines and no characters, and a page, all among the framework's
-//! files (`crate::native::files`). So it has a page of its own, which `fill` draws in
+//! files (`crate::native::physfs`). So it has a page of its own, which `fill` draws in
 //! the system font of its [`Kind`], whatever the game's and the mods' fonts
 //! are.
 //!
@@ -16,7 +16,7 @@
 use super::fill::Kind;
 use crate::base::pdx;
 use crate::base::Result;
-use crate::native::files::File;
+use crate::native::physfs::File;
 use crate::native::splice::{Addition, Plan};
 use std::collections::HashSet;
 use std::sync::Mutex;

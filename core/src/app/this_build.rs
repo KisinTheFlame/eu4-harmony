@@ -12,7 +12,6 @@ use crate::native::points::Point;
 /// installs.
 fn framework() -> Vec<Point> {
     let mut all = crate::native::physfs::points();
-    all.extend(crate::native::files::points());
     all.extend(crate::native::objects::points());
     all.extend(crate::native::game_string::points());
     all.extend(crate::native::game_heap::points());

@@ -10,7 +10,6 @@ pub(crate) mod points;
 pub(crate) mod baseline;
 pub(crate) mod containers;
 pub(crate) mod crash;
-pub(crate) mod files;
 pub(crate) mod game_heap;
 pub(crate) mod game_string;
 pub(crate) mod game_text;
