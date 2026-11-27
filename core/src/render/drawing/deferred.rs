@@ -472,6 +472,15 @@ struct PendingTexture {
     pixels: Vec<u8>,
 }
 
+struct TextureUpload {
+    slot_ptr: usize,
+    renderer: usize,
+    pixels: usize,
+    width: u32,
+    height: u32,
+    texture: usize,
+}
+
 struct PendingTextures {
     staged: Vec<PendingTexture>,
     recycle: Vec<Vec<u8>>,
@@ -502,9 +511,48 @@ impl PendingTextures {
             self.recycle.push(buf);
         }
     }
+
+    fn stage(&mut self, m: &Memory, upload: TextureUpload) -> Result<bool, &'static str> {
+        if !m.ptr(upload.slot_ptr).is_ok_and(|t| t == upload.texture) {
+            return Err("slot pointer does not hold texture");
+        }
+        let len = (upload.width as usize) * (upload.height as usize) * 4;
+        if let Some(idx) = self.staged.iter().position(|p| p.slot_ptr == upload.slot_ptr) {
+            let mut buf = self.take_buffer(len);
+            if m.read_into(upload.pixels, &mut buf).is_err() {
+                self.return_buffer(buf);
+                let old = self.staged.swap_remove(idx);
+                self.return_buffer(old.pixels);
+                return Ok(false);
+            }
+            let existing = &mut self.staged[idx];
+            let old_buf = std::mem::replace(&mut existing.pixels, buf);
+            existing.renderer = upload.renderer;
+            existing.texture = upload.texture;
+            existing.width = upload.width;
+            existing.height = upload.height;
+            self.return_buffer(old_buf);
+            return Ok(true);
+        }
+        let mut buf = self.take_buffer(len);
+        if m.read_into(upload.pixels, &mut buf).is_err() {
+            self.return_buffer(buf);
+            return Ok(false);
+        }
+        self.staged.push(PendingTexture {
+            slot_ptr: upload.slot_ptr,
+            renderer: upload.renderer,
+            texture: upload.texture,
+            width: upload.width,
+            height: upload.height,
+            pixels: buf,
+        });
+        Ok(true)
+    }
 }
 
 static PENDING_TEXTURES: Mutex<PendingTextures> = Mutex::new(PendingTextures::new());
+static SLOT_MISMATCH_LOGGED: AtomicBool = AtomicBool::new(false);
 
 #[called_by_game]
 extern "C" fn defer_texture_upload(slot_ptr: usize, renderer: usize, pixels: usize, width: u32, height: u32, texture: usize) -> bool {
@@ -522,27 +570,17 @@ extern "C" fn defer_texture_upload(slot_ptr: usize, renderer: usize, pixels: usi
     {
         return false;
     }
-    let len = (width as usize) * (height as usize) * 4;
     let m = crate::native::hooked_memory();
     let mut state = PENDING_TEXTURES.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(existing) = state.staged.iter_mut().find(|p| p.slot_ptr == slot_ptr) {
-        existing.pixels.resize(len, 0);
-        if m.read_into(pixels, &mut existing.pixels).is_err() {
-            return false;
+    match state.stage(&m, TextureUpload { slot_ptr, renderer, pixels, width, height, texture }) {
+        Ok(staged) => staged,
+        Err(reason) => {
+            if !SLOT_MISMATCH_LOGGED.swap(true, Ordering::Relaxed) {
+                log!("drawing: texture upload fallback ({reason}): slot={slot_ptr:#x} texture={texture:#x}");
+            }
+            false
         }
-        existing.renderer = renderer;
-        existing.texture = texture;
-        existing.width = width;
-        existing.height = height;
-        return true;
     }
-    let mut buf = state.take_buffer(len);
-    if m.read_into(pixels, &mut buf).is_err() {
-        state.return_buffer(buf);
-        return false;
-    }
-    state.staged.push(PendingTexture { slot_ptr, renderer, texture, width, height, pixels: buf });
-    true
 }
 
 #[unsafe(naked)]
@@ -575,13 +613,16 @@ extern "C" fn minimap_upload_stub() {
 #[unsafe(naked)]
 extern "C" fn map_colors_upload_stub() {
     std::arch::naked_asm!(
+        // `call_rust!` saves the game's `rbp` (`pdxmap`) at `[rbp]` before setting
+        // up its own frame pointer, so dereference `[rbp]` for `slot_ptr`.
         call_rust!(
             "mov qword ptr [rsp + 0x28], rax",
             "mov dword ptr [rsp + 0x20], r9d",
             "mov r9d, r10d",
             "mov r8, r11",
             "mov rdx, r14",
-            "lea rcx, [rbp + {slot_off}]",
+            "mov rcx, qword ptr [rbp]",
+            "add rcx, {slot_off}",
             call defer_texture_upload => bool
         ),
         "jne 2f",
@@ -857,5 +898,110 @@ mod tests {
         assert_eq!(queue.decide(true, true, DeferPolicy::DeferOrCross { caller_matches: true }), DeferredAction::RunNow);
         assert_eq!(queue.decide(true, true, DeferPolicy::DeferOrCross { caller_matches: false }), DeferredAction::RunNow);
         assert_eq!(queue.decide(true, true, DeferPolicy::AlwaysDefer), DeferredAction::Defer);
+    }
+
+    #[test]
+    fn pending_textures_rejects_mismatched_slot_and_coalesces_matching_uploads() {
+        let m = Memory { base: 0 };
+        let mut pending = PendingTextures::new();
+        let tex_a: usize = 0x1111_2222;
+        let tex_b: usize = 0x3333_4444;
+        let wrong_slot: usize = 0xdead_beef;
+        let pixels_1: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
+        let pixels_2: [u8; 8] = [9, 10, 11, 12, 13, 14, 15, 16];
+
+        // A wrong slot_ptr (such as reading call_rust!'s frame pointer instead of the
+        // game's saved rbp) must be rejected instead of staging an upload that
+        // flush_textures would silently drop.
+        assert!(pending
+            .stage(
+                &m,
+                TextureUpload {
+                    slot_ptr: &wrong_slot as *const usize as usize,
+                    renderer: 1,
+                    pixels: pixels_1.as_ptr() as usize,
+                    width: 2,
+                    height: 1,
+                    texture: tex_a
+                }
+            )
+            .is_err());
+        assert!(pending.staged.is_empty());
+
+        // Matching slots stage cleanly, coalesce by slot_ptr, and keep distinct slots separate.
+        assert_eq!(
+            pending.stage(
+                &m,
+                TextureUpload {
+                    slot_ptr: &tex_a as *const usize as usize,
+                    renderer: 1,
+                    pixels: pixels_1.as_ptr() as usize,
+                    width: 2,
+                    height: 1,
+                    texture: tex_a
+                }
+            ),
+            Ok(true)
+        );
+        assert_eq!(
+            pending.stage(
+                &m,
+                TextureUpload {
+                    slot_ptr: &tex_a as *const usize as usize,
+                    renderer: 2,
+                    pixels: pixels_2.as_ptr() as usize,
+                    width: 2,
+                    height: 1,
+                    texture: tex_a
+                }
+            ),
+            Ok(true)
+        );
+        assert_eq!(
+            pending.stage(
+                &m,
+                TextureUpload {
+                    slot_ptr: &tex_b as *const usize as usize,
+                    renderer: 3,
+                    pixels: pixels_1.as_ptr() as usize,
+                    width: 2,
+                    height: 1,
+                    texture: tex_b
+                }
+            ),
+            Ok(true)
+        );
+        assert_eq!(pending.staged.len(), 2);
+        assert_eq!(pending.staged[0].renderer, 2);
+        assert_eq!(pending.staged[0].pixels, pixels_2);
+        assert_eq!(pending.staged[1].slot_ptr, &tex_b as *const usize as usize);
+        assert_eq!(pending.staged[1].pixels, pixels_1);
+    }
+
+    extern "C" fn capture_slot(slot_ptr: usize) -> usize {
+        slot_ptr
+    }
+
+    #[unsafe(naked)]
+    extern "C" fn map_colors_rbp_slot_probe(_game_rbp: usize) -> usize {
+        std::arch::naked_asm!(
+            "push rbp",
+            "mov rbp, rcx",
+            call_rust!(
+                "mov rcx, qword ptr [rbp]",
+                "add rcx, {slot_off}",
+                call capture_slot -> rax
+            ),
+            "pop rbp",
+            "ret",
+            slot_off = const MAP_COLORS_TEXTURE,
+            capture_slot = sym capture_slot,
+        );
+    }
+
+    #[test]
+    fn map_colors_slot_ptr_uses_saved_game_rbp_through_call_rust() {
+        let base = 0x1000_0000usize;
+        assert_eq!(map_colors_rbp_slot_probe(base), base + MAP_COLORS_TEXTURE);
     }
 }
