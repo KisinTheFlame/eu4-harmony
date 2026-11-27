@@ -265,6 +265,7 @@ dependencies = [
 name = "eu4-harmony-proxy"
 version = "0.4.0"
 dependencies = [
+ "eu4-harmony-analysis",
  "eu4-harmony-folders",
  "eu4-harmony-logging",
  "windows-sys",

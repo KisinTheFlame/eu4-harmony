@@ -18,9 +18,306 @@
 //! `lea rbp, [rsp + x]`); the body is read in address order within the
 //! function's bounds from the exception directory.
 use iced_x86::{Code, Decoder, DecoderOptions, Instruction, InstructionInfoFactory, Mnemonic, OpAccess, OpKind, Register};
+use std::ops::Range;
+
+/// `UNW_FLAG_CHAININFO`: the unwind data continues another runtime function's.
+pub const UNW_FLAG_CHAININFO: u8 = 4;
+
+fn checked_u16(bytes: &[u8], at: usize) -> Option<u16> {
+    Some(u16::from_le_bytes(bytes.get(at..at + 2)?.try_into().ok()?))
+}
+
+fn checked_u32(bytes: &[u8], at: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?))
+}
 
 fn u32_at(image: &[u8], at: usize) -> usize {
     u32::from_le_bytes(image[at..at + 4].try_into().unwrap()) as usize
+}
+
+/// One section header of a PE image.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Section {
+    pub name: [u8; 8],
+    pub rva: u32,
+    pub virtual_size: u32,
+    pub raw_size: u32,
+    pub raw_offset: u32,
+}
+
+impl Section {
+    /// Span of RVAs covered by this section.
+    pub fn rva_size(self) -> u32 {
+        self.virtual_size.max(self.raw_size)
+    }
+}
+
+/// One named export of a PE image.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Export {
+    pub name: String,
+    pub ordinal: u32,
+    pub rva: u32,
+}
+
+/// A checked view over a PE64 image, either as an unmapped file on disk
+/// ([`PeImage::from_file`]) or already laid out at its RVAs
+/// ([`PeImage::from_mapped`]).
+#[derive(Clone, Debug, Default)]
+pub struct PeImage {
+    data: Vec<u8>,
+    pe_offset: usize,
+    sections: Vec<Section>,
+    mapped: bool,
+}
+
+impl PeImage {
+    /// Parses an unmapped PE64 file on disk, translating RVAs through its
+    /// section table without allocating a full virtual image.
+    pub fn from_file(data: Vec<u8>) -> Option<Self> {
+        let (pe_offset, sections) = parse_headers(&data)?;
+        Some(Self { data, pe_offset, sections, mapped: false })
+    }
+
+    /// Wraps a PE64 image already laid out at its RVAs (for example from
+    /// [`map_file`]).
+    pub fn from_mapped(data: Vec<u8>) -> Option<Self> {
+        let (pe_offset, sections) = parse_headers(&data)?;
+        Some(Self { data, pe_offset, sections, mapped: true })
+    }
+
+    /// Constructs a synthetic image directly from backing bytes and explicit
+    /// section mappings, for unit tests that build minimal unwind tables.
+    pub fn from_sections(data: Vec<u8>, sections: Vec<Section>) -> Self {
+        Self { data, pe_offset: 0, sections, mapped: false }
+    }
+
+    /// Reads `len` bytes starting at `rva`, returning `None` if out of bounds.
+    pub fn at(&self, rva: u32, len: usize) -> Option<&[u8]> {
+        let offset = self.rva_to_offset(rva)?;
+        self.data.get(offset..offset.checked_add(len)?)
+    }
+
+    /// Reads a NUL-terminated string starting at `rva`.
+    pub fn cstr(&self, rva: u32) -> Option<&[u8]> {
+        let offset = self.rva_to_offset(rva)?;
+        let tail = self.data.get(offset..)?;
+        let end = tail.iter().position(|&b| b == 0)?;
+        Some(&tail[..end])
+    }
+
+    fn rva_to_offset(&self, rva: u32) -> Option<usize> {
+        if self.mapped {
+            return Some(rva as usize);
+        }
+        let section = self.sections.iter().find(|s| {
+            let end = s.rva.saturating_add(s.rva_size());
+            s.rva <= rva && rva < end
+        })?;
+        let offset = section.raw_offset.checked_add(rva - section.rva)?;
+        Some(offset as usize)
+    }
+
+    /// Returns `(rva, size)` of PE32+ data directory `index` (0 = export,
+    /// 3 = exception, 5 = base relocation).
+    pub fn data_directory(&self, index: usize) -> Option<(u32, u32)> {
+        let dir = self.pe_offset.checked_add(24 + 112)?.checked_add(index.checked_mul(8)?)?;
+        let rva = checked_u32(&self.data, dir)?;
+        let size = checked_u32(&self.data, dir + 4)?;
+        Some((rva, size))
+    }
+
+    /// Returns the RVA bounds `start..end` of the first section whose 8-byte
+    /// name starts with `prefix` (for example `b".text"`).
+    pub fn section_bounds(&self, prefix: &[u8]) -> Option<Range<u32>> {
+        let section = self.sections.iter().find(|s| s.name.starts_with(prefix))?;
+        Some(section.rva..section.rva.saturating_add(section.virtual_size))
+    }
+
+    /// Lists every named export with its name, ordinal, and RVA.
+    pub fn exports(&self) -> Vec<Export> {
+        let Some((directory, _)) = self.data_directory(0) else { return Vec::new() };
+        if directory == 0 {
+            return Vec::new();
+        }
+        let Some(head) = self.at(directory, 40) else { return Vec::new() };
+        let (Some(base), Some(count), Some(functions), Some(name_rvas), Some(ordinals)) =
+            (checked_u32(head, 16), checked_u32(head, 24), checked_u32(head, 28), checked_u32(head, 32), checked_u32(head, 36))
+        else {
+            return Vec::new();
+        };
+        let mut out = Vec::with_capacity(count as usize);
+        for i in 0..count {
+            let Some(name_rva) = self.at(name_rvas.wrapping_add(4 * i), 4).and_then(|b| checked_u32(b, 0)) else { continue };
+            let Some(name_bytes) = self.cstr(name_rva) else { continue };
+            let Some(ordinal_index) = self.at(ordinals.wrapping_add(2 * i), 2).and_then(|b| checked_u16(b, 0)) else { continue };
+            let Some(rva) = self.at(functions.wrapping_add(4 * u32::from(ordinal_index)), 4).and_then(|b| checked_u32(b, 0)) else {
+                continue;
+            };
+            out.push(Export { name: String::from_utf8_lossy(name_bytes).into_owned(), ordinal: base.wrapping_add(u32::from(ordinal_index)), rva });
+        }
+        out
+    }
+
+    /// Returns the RVA of the named export `name`, if present.
+    pub fn export(&self, name: &str) -> Option<u32> {
+        let (directory, _) = self.data_directory(0)?;
+        if directory == 0 {
+            return None;
+        }
+        let head = self.at(directory, 40)?;
+        let (count, functions, name_rvas, ordinals) = (checked_u32(head, 24)?, checked_u32(head, 28)?, checked_u32(head, 32)?, checked_u32(head, 36)?);
+        let needle = name.as_bytes();
+        for i in 0..count {
+            let name_rva = checked_u32(self.at(name_rvas.wrapping_add(4 * i), 4)?, 0)?;
+            if self.cstr(name_rva)? == needle {
+                let ordinal = u32::from(checked_u16(self.at(ordinals.wrapping_add(2 * i), 2)?, 0)?);
+                return checked_u32(self.at(functions.wrapping_add(4 * ordinal), 4)?, 0);
+            }
+        }
+        None
+    }
+}
+
+fn parse_headers(data: &[u8]) -> Option<(usize, Vec<Section>)> {
+    if data.get(0..2) != Some(b"MZ") {
+        return None;
+    }
+    let pe = checked_u32(data, 0x3c)? as usize;
+    if data.get(pe..pe + 4) != Some(b"PE\0\0") {
+        return None;
+    }
+    let count = usize::from(checked_u16(data, pe + 6)?);
+    let optional = usize::from(checked_u16(data, pe + 20)?);
+    // Require PE32+ optional header (magic 0x20b) so data directories sit at +112.
+    if checked_u16(data, pe + 24)? != 0x20b || optional < 112 {
+        return None;
+    }
+    let table = pe.checked_add(24)?.checked_add(optional)?;
+    let mut sections = Vec::with_capacity(count);
+    for i in 0..count {
+        let s = table.checked_add(40 * i)?;
+        let name: [u8; 8] = data.get(s..s + 8)?.try_into().ok()?;
+        let virtual_size = checked_u32(data, s + 8)?;
+        let rva = checked_u32(data, s + 12)?;
+        let raw_size = checked_u32(data, s + 16)?;
+        let raw_offset = checked_u32(data, s + 20)?;
+        sections.push(Section { name, rva, virtual_size, raw_size, raw_offset });
+    }
+    Some((pe, sections))
+}
+
+/// One `.pdata` runtime-function entry with its resolved primary function RVA.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExceptionEntry {
+    pub begin: u32,
+    pub end: u32,
+    pub unwind: u32,
+    /// Entry RVA of the primary function this chunk belongs to (following any
+    /// `UNW_FLAG_CHAININFO` chain).
+    pub primary: u32,
+}
+
+/// A PE64 image's exception directory (`.pdata`), sorted by [`ExceptionEntry::begin`],
+/// with every `UNW_FLAG_CHAININFO` chunk resolved to its primary function entry.
+#[derive(Clone, Debug, Default)]
+pub struct ExceptionTable {
+    entries: Vec<ExceptionEntry>,
+}
+
+impl ExceptionTable {
+    /// Parses the exception directory from `image` (unmapped or mapped).
+    pub fn from_image(image: &PeImage) -> Option<Self> {
+        let (directory, size) = image.data_directory(3)?;
+        if directory == 0 || size == 0 {
+            return Some(Self::default());
+        }
+        let table = image.at(directory, size as usize)?;
+        let mut entries = Vec::with_capacity(table.len() / 12);
+        for chunk in table.chunks_exact(12) {
+            let begin = checked_u32(chunk, 0)?;
+            let end = checked_u32(chunk, 4)?;
+            let unwind = checked_u32(chunk, 8)?;
+            if begin == 0 && end == 0 {
+                continue;
+            }
+            let primary = resolve_primary(|rva, len| image.at(rva, len), begin, unwind).unwrap_or(begin);
+            entries.push(ExceptionEntry { begin, end, unwind, primary });
+        }
+        entries.sort_by_key(|e| (e.begin, e.end));
+        Some(Self { entries })
+    }
+
+    /// Parses the exception directory directly from a mapped image slice
+    /// (such as the output of [`map_file`] or [`loaded`]).
+    pub fn from_mapped(mapped: &[u8]) -> Option<Self> {
+        let (pe, _) = parse_headers(mapped)?;
+        let dir = pe.checked_add(24 + 112 + 3 * 8)?;
+        let directory = checked_u32(mapped, dir)?;
+        let size = checked_u32(mapped, dir + 4)?;
+        if directory == 0 || size == 0 {
+            return Some(Self::default());
+        }
+        let start = directory as usize;
+        let end = start.checked_add(size as usize)?;
+        let table = mapped.get(start..end)?;
+        let mut entries = Vec::with_capacity(table.len() / 12);
+        for chunk in table.chunks_exact(12) {
+            let begin = checked_u32(chunk, 0)?;
+            let end = checked_u32(chunk, 4)?;
+            let unwind = checked_u32(chunk, 8)?;
+            if begin == 0 && end == 0 {
+                continue;
+            }
+            let primary = resolve_primary(|rva, len| mapped.get(rva as usize..(rva as usize).checked_add(len)?), begin, unwind).unwrap_or(begin);
+            entries.push(ExceptionEntry { begin, end, unwind, primary });
+        }
+        entries.sort_by_key(|e| (e.begin, e.end));
+        Some(Self { entries })
+    }
+
+    /// Constructs a table directly from explicit entries, sorting by `begin`.
+    pub fn from_entries(mut entries: Vec<ExceptionEntry>) -> Self {
+        entries.sort_by_key(|e| (e.begin, e.end));
+        Self { entries }
+    }
+
+    /// Returns the runtime-function entry covering `rva`, or `None` for a leaf
+    /// function or non-code address.
+    pub fn entry(&self, rva: u32) -> Option<ExceptionEntry> {
+        let i = self.entries.partition_point(|e| e.begin <= rva).checked_sub(1)?;
+        let entry = self.entries[i];
+        (rva < entry.end).then_some(entry)
+    }
+
+    /// Returns the primary function entry RVA covering `rva` (following
+    /// `UNW_FLAG_CHAININFO`), or `None` when `rva` has no `.pdata` entry.
+    pub fn primary(&self, rva: u32) -> Option<u32> {
+        self.entry(rva).map(|e| e.primary)
+    }
+
+    /// All entries in ascending `begin` order.
+    pub fn entries(&self) -> &[ExceptionEntry] {
+        &self.entries
+    }
+}
+
+/// Follows `UNW_FLAG_CHAININFO` records from `(start, unwind)` to the primary
+/// function's begin RVA, bounded to 32 hops against cyclic/corrupt tables.
+fn resolve_primary<'a>(read: impl Fn(u32, usize) -> Option<&'a [u8]>, start: u32, unwind: u32) -> Option<u32> {
+    let (mut at, mut info) = (start, unwind & !1);
+    for _ in 0..32 {
+        let head = read(info, 4)?;
+        if (head[0] >> 3) & UNW_FLAG_CHAININFO == 0 {
+            break;
+        }
+        let codes = u32::from(head[2]);
+        let chained_rva = info.checked_add(4)?.checked_add(2 * (codes + (codes & 1)))?;
+        let chained = read(chained_rva, 12)?;
+        at = checked_u32(chained, 0)?;
+        info = checked_u32(chained, 8)? & !1;
+    }
+    Some(at)
 }
 
 /// `file`, a PE image, laid out as the loader would: headers and sections at
@@ -273,7 +570,167 @@ pub fn arguments(code: &[u8], rva: usize) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{arguments, instructions, values};
+    use super::{arguments, bounds, instructions, map_file, values, ExceptionTable, Export, PeImage, UNW_FLAG_CHAININFO};
+
+    fn write_u16(buf: &mut [u8], at: usize, value: u16) {
+        buf[at..at + 2].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn write_u32(buf: &mut [u8], at: usize, value: u32) {
+        buf[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn write_u64(buf: &mut [u8], at: usize, value: u64) {
+        buf[at..at + 8].copy_from_slice(&value.to_le_bytes());
+    }
+
+    /// Builds a valid minimal PE64 file with `.text`, `.rdata`, `.pdata`, and
+    /// `.edata` sections containing:
+    /// - primary function A (`0x1000..0x1040`)
+    /// - contiguous chained chunk A1 (`0x1040..0x1060` -> A)
+    /// - unrelated primary function B (`0x1100..0x1140`)
+    /// - non-adjacent cold chained chunk A2 (`0x1200..0x1230` -> A1 -> A)
+    /// - leaf function C (`0x1300..0x1310`, absent from `.pdata`)
+    /// - two exports with ordinal base 10: `alpha` -> `0x1000`, `beta` -> `0x1100`
+    fn synthetic_pe() -> Vec<u8> {
+        let mut file = vec![0u8; 0x1000];
+        // DOS header
+        file[0..2].copy_from_slice(b"MZ");
+        let pe = 0x80usize;
+        write_u32(&mut file, 0x3c, pe as u32);
+        // PE signature + COFF header (4 sections, 0xf0 optional header)
+        file[pe..pe + 4].copy_from_slice(b"PE\0\0");
+        write_u16(&mut file, pe + 4, 0x8664);
+        write_u16(&mut file, pe + 6, 4);
+        write_u16(&mut file, pe + 20, 0xf0);
+        // Optional header (PE32+)
+        let opt = pe + 24;
+        write_u16(&mut file, opt, 0x20b);
+        write_u64(&mut file, opt + 24, 0x1_4000_0000);
+        write_u32(&mut file, opt + 56, 0x5000); // SizeOfImage
+        write_u32(&mut file, opt + 60, 0x400); // SizeOfHeaders
+        write_u32(&mut file, opt + 108, 16); // NumberOfRvaAndSizes
+                                             // Data directory 0 (export) at .edata (RVA 0x4000, size 0x100)
+        write_u32(&mut file, opt + 112, 0x4000);
+        write_u32(&mut file, opt + 116, 0x100);
+        // Data directory 3 (exception) at .pdata (RVA 0x3000, size 48 = 4 entries)
+        write_u32(&mut file, opt + 112 + 3 * 8, 0x3000);
+        write_u32(&mut file, opt + 116 + 3 * 8, 48);
+
+        // Section headers (at pe + 24 + 0xf0 = 0x188)
+        let sections: [([u8; 8], u32, u32, u32, u32, u32); 4] = [
+            (*b".text\0\0\0", 0x400, 0x1000, 0x200, 0x400, 0x6000_0020),
+            (*b".rdata\0\0", 0x200, 0x2000, 0x200, 0x600, 0x4000_0040),
+            (*b".pdata\0\0", 0x100, 0x3000, 0x200, 0x800, 0x4000_0040),
+            (*b".edata\0\0", 0x200, 0x4000, 0x200, 0xa00, 0x4000_0040),
+        ];
+        let table = opt + 0xf0;
+        for (i, (name, vsize, rva, rsize, raw, chars)) in sections.into_iter().enumerate() {
+            let s = table + 40 * i;
+            file[s..s + 8].copy_from_slice(&name);
+            write_u32(&mut file, s + 8, vsize);
+            write_u32(&mut file, s + 12, rva);
+            write_u32(&mut file, s + 16, rsize);
+            write_u32(&mut file, s + 20, raw);
+            write_u32(&mut file, s + 36, chars);
+        }
+
+        // .rdata (file 0x600 -> RVA 0x2000): UNWIND_INFO records
+        // 0x2000: primary A (no chain, 0 codes)
+        file[0x600..0x604].copy_from_slice(&[1, 0, 0, 0]);
+        // 0x2010: chained A1 (UNW_FLAG_CHAININFO, 1 code -> padded to 2 slots = 4 bytes, then RUNTIME_FUNCTION for A)
+        file[0x610..0x614].copy_from_slice(&[1 | (UNW_FLAG_CHAININFO << 3), 0, 1, 0]);
+        write_u32(&mut file, 0x618, 0x1000);
+        write_u32(&mut file, 0x61c, 0x1040);
+        write_u32(&mut file, 0x620, 0x2000);
+        // 0x2030: primary B (no chain, 0 codes)
+        file[0x630..0x634].copy_from_slice(&[1, 0, 0, 0]);
+        // 0x2040: non-adjacent chained A2 -> points to A1 (2-hop chain!)
+        file[0x640..0x644].copy_from_slice(&[1 | (UNW_FLAG_CHAININFO << 3), 0, 0, 0]);
+        write_u32(&mut file, 0x644, 0x1040);
+        write_u32(&mut file, 0x648, 0x1060);
+        write_u32(&mut file, 0x64c, 0x2010);
+
+        // .pdata (file 0x800 -> RVA 0x3000): 4 RUNTIME_FUNCTION entries
+        let pdata: [(u32, u32, u32); 4] = [(0x1000, 0x1040, 0x2000), (0x1040, 0x1060, 0x2010), (0x1100, 0x1140, 0x2030), (0x1200, 0x1230, 0x2040)];
+        for (i, (begin, end, unwind)) in pdata.into_iter().enumerate() {
+            let o = 0x800 + 12 * i;
+            write_u32(&mut file, o, begin);
+            write_u32(&mut file, o + 4, end);
+            write_u32(&mut file, o + 8, unwind);
+        }
+
+        // .edata (file 0xa00 -> RVA 0x4000): export directory
+        write_u32(&mut file, 0xa00 + 16, 10); // Base ordinal
+        write_u32(&mut file, 0xa00 + 20, 2); // NumberOfFunctions
+        write_u32(&mut file, 0xa00 + 24, 2); // NumberOfNames
+        write_u32(&mut file, 0xa00 + 28, 0x4040); // AddressOfFunctions
+        write_u32(&mut file, 0xa00 + 32, 0x4050); // AddressOfNames
+        write_u32(&mut file, 0xa00 + 36, 0x4060); // AddressOfNameOrdinals
+                                                  // Functions table (ordinal index 0 -> 0x1100, ordinal index 1 -> 0x1000)
+        write_u32(&mut file, 0xa40, 0x1100);
+        write_u32(&mut file, 0xa44, 0x1000);
+        // Names RVA table: "alpha" (0x4070) -> ordinal index 1, "beta" (0x4080) -> ordinal index 0
+        write_u32(&mut file, 0xa50, 0x4070);
+        write_u32(&mut file, 0xa54, 0x4080);
+        write_u16(&mut file, 0xa60, 1);
+        write_u16(&mut file, 0xa62, 0);
+        file[0xa70..0xa76].copy_from_slice(b"alpha\0");
+        file[0xa80..0xa85].copy_from_slice(b"beta\0");
+        file
+    }
+
+    #[test]
+    fn pe_image_and_exception_table_resolve_chained_chunks_and_exports_on_file_and_mapped() {
+        let raw = synthetic_pe();
+        let mapped = map_file(&raw);
+
+        let file_img = PeImage::from_file(raw).unwrap();
+        let mapped_img = PeImage::from_mapped(mapped.clone()).unwrap();
+
+        for img in [&file_img, &mapped_img] {
+            assert_eq!(img.section_bounds(b".text"), Some(0x1000..0x1400));
+            assert_eq!(img.section_bounds(b".nope"), None);
+            assert_eq!(img.export("alpha"), Some(0x1000));
+            assert_eq!(img.export("beta"), Some(0x1100));
+            assert_eq!(img.export("missing"), None);
+            assert_eq!(
+                img.exports(),
+                vec![Export { name: "alpha".into(), ordinal: 11, rva: 0x1000 }, Export { name: "beta".into(), ordinal: 10, rva: 0x1100 },]
+            );
+        }
+
+        let from_file = ExceptionTable::from_image(&file_img).unwrap();
+        let from_mapped_img = ExceptionTable::from_image(&mapped_img).unwrap();
+        let from_mapped_slice = ExceptionTable::from_mapped(&mapped).unwrap();
+
+        for table in [&from_file, &from_mapped_img, &from_mapped_slice] {
+            // Primary entry A and its contiguous chained chunk A1 both resolve to A.
+            assert_eq!(table.primary(0x1000), Some(0x1000));
+            assert_eq!(table.primary(0x1020), Some(0x1000));
+            assert_eq!(table.primary(0x1048), Some(0x1000));
+            // Unrelated function B resolves to B.
+            assert_eq!(table.primary(0x1110), Some(0x1100));
+            // Non-adjacent cold chunk A2 follows the 2-hop chain A2 -> A1 -> A,
+            // instead of mistakenly walking back into B.
+            assert_eq!(table.primary(0x1210), Some(0x1000));
+            // Leaf function C has no .pdata entry.
+            assert_eq!(table.primary(0x1304), None);
+        }
+
+        // Contiguous chained bounds still merge A + A1.
+        assert_eq!(bounds(&mapped, 0x1000), Some(0x1000..0x1060));
+    }
+
+    #[test]
+    fn corrupt_or_truncated_pe_returns_none_without_panicking() {
+        assert!(PeImage::from_file(Vec::new()).is_none());
+        assert!(PeImage::from_file(b"NOT_A_PE".to_vec()).is_none());
+        let mut truncated = synthetic_pe();
+        truncated.truncate(0x90);
+        assert!(PeImage::from_file(truncated.clone()).is_none());
+        assert!(ExceptionTable::from_mapped(&truncated).is_none());
+    }
 
     #[test]
     fn values_are_displacements_targets_and_immediates() {

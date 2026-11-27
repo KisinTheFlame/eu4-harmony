@@ -23,5 +23,8 @@ windows-sys = { workspace = true, features = [
     "Win32_System_Threading",
 ] }
 
+[dev-dependencies]
+eu4-harmony-analysis = { path = "../analysis" }
+
 [lints]
 workspace = true
