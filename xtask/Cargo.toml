@@ -21,6 +21,8 @@ tokio = { workspace = true }
 toml = { workspace = true }
 # Formatting the disassembler's instructions; decoding is shared by analysis/.
 iced-x86 = { workspace = true, features = ["intel"] }
+# Decompressing `gamestate` from compressed `.eu4` saves (great powers, capital).
+miniz_oxide = { workspace = true }
 windows = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Graphics_Imaging",

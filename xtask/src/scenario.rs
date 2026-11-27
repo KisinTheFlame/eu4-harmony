@@ -185,7 +185,8 @@ fn all() -> Vec<&'static dyn Scenario> {
         &crash_dumps::CrashDumps,
         &late::LONG_1800,
         &late::CHECKED,
-        &perf::Perf,
+        &perf::PERF_EARLY,
+        &perf::PERF_LATE,
         &leak::GROWTH,
         &leak::LEAK,
     ]
@@ -193,6 +194,12 @@ fn all() -> Vec<&'static dyn Scenario> {
 
 fn find(name: &str) -> Option<&'static dyn Scenario> {
     all().into_iter().find(|s| s.name() == name)
+}
+
+/// Renderer for `report.md`, including historical `perf` records from before
+/// `perf` became a set of `perf-early` and `perf-late`.
+fn find_reporter(name: &str) -> Option<&'static dyn Scenario> {
+    find(name).or_else(|| (name == "perf").then_some(&perf::PERF_EARLY as &dyn Scenario))
 }
 
 /// A name for several scenarios played together, as if named one by one.
@@ -205,12 +212,53 @@ pub struct Set {
 }
 
 /// The sets, in `cargo xtask scenario`'s list after the scenarios.
-const SETS: &[Set] = &[Set {
-    name: "release",
-    about: "the release gate: end-to-end framework regression checks across the real game",
-    scenarios: &["sweep", "sessions", "achievements", "extensions", "windows", "repairs", "font-growth", "crash-dumps", "long-1800", "checked"],
-    jobs: claim::AT_ONCE,
-}];
+const SETS: &[Set] = &[
+    Set {
+        name: "release",
+        about: "the release gate: end-to-end framework regression checks across the real game",
+        scenarios: &["sweep", "sessions", "achievements", "extensions", "windows", "repairs", "font-growth", "crash-dumps", "long-1800", "checked"],
+        jobs: claim::AT_ONCE,
+    },
+    Set {
+        name: "perf",
+        about: "the standard performance suite: early (1444, Ming) and late (1780, rank-1 great power) in observe mode",
+        scenarios: &["perf-early", "perf-late"],
+        jobs: 1,
+    },
+];
+
+/// Expands set-level parameters (`--<set>.<param> <value>`) onto every member
+/// scenario in that set that declares `<param>`, preserving explicit
+/// per-scenario parameters in command-line order.
+fn expand_parameters(asked_names: &[String], played_names: &[String], raw: &[(String, String, String)]) -> Result<Vec<(String, String, String)>> {
+    let mut out = Vec::new();
+    for (target, parameter, value) in raw {
+        if let Some(set) = SETS.iter().find(|s| s.name == target) {
+            if !asked_names.iter().any(|n| n == target) {
+                return Err(format!("--{target}.{parameter} is for a scenario set this run does not play"));
+            }
+            let members = expanded(&[set.name.to_string()]);
+            let mut matched = 0usize;
+            for member in &members {
+                if let Some(scenario) = find(member) {
+                    if scenario.parameters().iter().any(|p| p.name == parameter) {
+                        out.push((member.clone(), parameter.clone(), value.clone()));
+                        matched += 1;
+                    }
+                }
+            }
+            if matched == 0 {
+                return Err(format!("{target} has no parameter {parameter}; cargo xtask scenario lists them"));
+            }
+        } else {
+            if !played_names.iter().any(|n| n == target) {
+                return Err(format!("--{target}.{parameter} is for a scenario this run does not play"));
+            }
+            out.push((target.clone(), parameter.clone(), value.clone()));
+        }
+    }
+    Ok(out)
+}
 
 /// The names asked for, each set's in its place by the scenarios it names,
 /// a set it names by its own.
@@ -308,13 +356,11 @@ pub fn run(raw: &[String]) -> Result<()> {
         return Ok(());
     }
     let names = expanded(&asked.names);
+    let expanded_params = expand_parameters(&asked.names, &names, &asked.parameters)?;
     let mut playing = Vec::new();
     for name in &names {
         let scenario = find(name).ok_or_else(|| format!("no scenario {name}; cargo xtask scenario lists them"))?;
-        playing.push((scenario, Parameters::of(scenario, &asked.parameters)?));
-    }
-    if let Some((name, parameter, _)) = asked.parameters.iter().find(|(name, _, _)| !names.contains(name)) {
-        return Err(format!("--{name}.{parameter} is for a scenario this run does not play"));
+        playing.push((scenario, Parameters::of(scenario, &expanded_params)?));
     }
     let missing = missing_saves(&playing, &crate::saves::saves_dir()?);
     if !missing.is_empty() {
@@ -738,7 +784,7 @@ fn markdown(report: &Value) -> String {
                 md.push("```".into());
             }
         }
-        if let Some(scenario) = find(&text(&s["name"])) {
+        if let Some(scenario) = find_reporter(&text(&s["name"])) {
             let record = &s["record"];
             if record.as_object().is_some_and(|r| !r.is_empty()) {
                 md.push(String::new());
@@ -818,22 +864,44 @@ mod tests {
     #[test]
     fn release_is_the_single_gate_set_and_excludes_diagnostics() {
         let set_names: Vec<&str> = SETS.iter().map(|set| set.name).collect();
-        assert_eq!(set_names, ["release"]);
+        assert_eq!(set_names, ["release", "perf"]);
         assert_eq!(SETS[0].jobs, claim::AT_ONCE);
+        assert_eq!(SETS[1].jobs, 1);
         let alone: Vec<&str> = all().iter().filter(|s| s.alone()).map(|s| s.name()).collect();
-        assert_eq!(alone, ["perf"]);
+        assert_eq!(alone, ["perf-early", "perf-late"]);
         let release = expanded(&words("release"));
         assert!(release.iter().all(|s| find(s).is_some()), "{release:?}");
         for required in ["sweep", "sessions", "achievements", "extensions", "windows", "repairs", "font-growth", "crash-dumps", "long-1800", "checked"] {
             assert!(release.iter().any(|s| s == required), "{required} missing from release: {release:?}");
         }
-        for diagnostic in ["perf", "growth", "leak"] {
+        let perf = expanded(&words("perf"));
+        assert_eq!(perf, ["perf-early", "perf-late"]);
+        for diagnostic in ["perf-early", "perf-late", "growth", "leak"] {
             assert!(!release.iter().any(|s| s == diagnostic), "release must not include diagnostic {diagnostic}: {release:?}");
             assert!(find(diagnostic).is_some(), "diagnostic {diagnostic} must stay registered");
         }
         for removed in ["late", "long", "long-1444", "long-1600", "long-1700", "long-1760", "long-1780", "long-1820", "window-ordering"] {
             assert!(find(removed).is_none(), "removed scenario {removed} still registered");
         }
+    }
+
+    #[test]
+    fn set_parameters_propagate_to_matching_members_and_allow_member_overrides() {
+        let names = expanded(&words("perf"));
+        let raw = vec![
+            ("perf".to_string(), "running_seconds".to_string(), "60".to_string()),
+            ("perf-late".to_string(), "running_seconds".to_string(), "90".to_string()),
+            ("perf".to_string(), "save".to_string(), "observer-1800.7.1".to_string()),
+        ];
+        let expanded_params = expand_parameters(&words("perf"), &names, &raw).unwrap();
+        let early = Parameters::of(&perf::PERF_EARLY, &expanded_params).unwrap();
+        let late = Parameters::of(&perf::PERF_LATE, &expanded_params).unwrap();
+        assert_eq!(early.text("running_seconds"), "60");
+        assert_eq!(late.text("running_seconds"), "90");
+        assert_eq!(late.text("save"), "observer-1800.7.1");
+
+        let unknown = vec![("perf".to_string(), "rounds".to_string(), "1".to_string())];
+        assert!(expand_parameters(&words("perf"), &names, &unknown).unwrap_err().contains("perf has no parameter rounds"));
     }
 
     #[test]
@@ -845,13 +913,13 @@ mod tests {
 
     #[test]
     fn a_parameter_keeps_its_value_unless_given_one_of_its_kind() {
-        let given = |v: &str| vec![("perf".to_string(), "menu_only".to_string(), v.to_string())];
-        let p = Parameters::of(&perf::Perf, &[]).unwrap();
-        assert_eq!((p.text("country"), p.flag("menu_only")), ("MNG".to_string(), Ok(false)));
-        assert_eq!(Parameters::of(&perf::Perf, &given("true")).unwrap().flag("menu_only"), Ok(true));
-        assert!(Parameters::of(&perf::Perf, &given("yes")).unwrap_err().contains("of the kind of false"));
-        let unknown = vec![("perf".to_string(), "rounds".to_string(), "1".to_string())];
-        assert!(Parameters::of(&perf::Perf, &unknown).unwrap_err().contains("perf has no parameter rounds"));
+        let given = |v: &str| vec![("perf-early".to_string(), "menu_only".to_string(), v.to_string())];
+        let p = Parameters::of(&perf::PERF_EARLY, &[]).unwrap();
+        assert_eq!((p.text("running_seconds"), p.flag("menu_only")), ("120".to_string(), Ok(false)));
+        assert_eq!(Parameters::of(&perf::PERF_EARLY, &given("true")).unwrap().flag("menu_only"), Ok(true));
+        assert!(Parameters::of(&perf::PERF_EARLY, &given("yes")).unwrap_err().contains("of the kind of false"));
+        let unknown = vec![("perf-early".to_string(), "rounds".to_string(), "1".to_string())];
+        assert!(Parameters::of(&perf::PERF_EARLY, &unknown).unwrap_err().contains("perf-early has no parameter rounds"));
     }
 
     #[test]
