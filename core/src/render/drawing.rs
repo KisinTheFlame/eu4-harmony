@@ -836,22 +836,8 @@ fn pace() {
     PACED.fetch_add(began.elapsed().as_micros() as u64, Ordering::Relaxed);
 }
 
-pub(crate) struct DrawingHooks {
-    pub(crate) on_prepared_safe_point: fn(),
-    pub(crate) prepare_scene: fn(&Memory) -> crate::base::Result<()>,
-}
-
-static DRAWING_HOOKS: std::sync::OnceLock<DrawingHooks> = std::sync::OnceLock::new();
-
-pub(crate) fn set_hooks(hooks: DrawingHooks) {
-    let _ = DRAWING_HOOKS.set(hooks);
-}
-
 pub(super) fn prepare_scene_hook(m: &Memory) -> crate::base::Result<()> {
-    match DRAWING_HOOKS.get() {
-        Some(h) => (h.prepare_scene)(m),
-        None => Ok(()),
-    }
+    super::present::prepare_scene(m)
 }
 
 /// The daily update begins (`game::events`): it lets the lock go.
@@ -934,15 +920,12 @@ impl StageOps for LiveStage<'_> {
             let _guard = PREPARED_WAKE.0.lock().unwrap_or_else(|e| e.into_inner());
             PREPARED_WAKE.1.notify_all();
         }
-        // What the main thread does as it presents a frame: the safe point of a
-        // frame outside a game, and the input taken for the next.
-        if let Some(h) = DRAWING_HOOKS.get() {
-            (h.on_prepared_safe_point)();
-        }
+        // Run main-thread frame-boundary maintenance (font page growth, safe
+        // point, text costs, and remote input playback) through `present` so
+        // inline main-thread frames and drawing-thread frames share one path.
         let screen = SCREEN.load(Ordering::Relaxed);
-        if screen != 0 {
-            super::input::presenting(((screen >> 32) as u32, screen as u32));
-        }
+        let screen = (screen != 0).then_some(((screen >> 32) as u32, screen as u32));
+        super::present::main_frame_prepared(screen);
     }
 
     fn log(&mut self, line: &str) {
