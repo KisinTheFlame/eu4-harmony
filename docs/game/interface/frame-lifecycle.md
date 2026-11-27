@@ -30,6 +30,10 @@ Then it keeps the frame's times (`[idler+0x11f8]`, a timer made from `[0x23494a0
 
 So the drawing can be cut where the drawing proper begins: the two steps that read the world run where the frame calls the drawing, on the main thread, and the rest elsewhere.
 
+After the drawing calls Direct3D Present via `0x14ddc40` (`0x81aa86`–`0x81ab0a`), `0x14ddc40` only stores Present's return byte into `[map+0x530]` and returns, and `0x8183b0` only clears the two-byte screenshot/map-saved toast flag at `[idler+0x1608]`, reads the read-only timer `[idler+0x11f8]` (`vtable+0x28`), writes the frame time float to `0x2458f00` (read only inside `0x8183b0` at `0x81869e`), and returns.
+
+The interface's monthly refresh (`0x81e280`, vtable slot `+0x2b0` of `world+0x1e00`) is called only at `0x758c29` inside `0x758430` with its return value ignored; it flushes unreferenced textures/sounds (`0x14e6170`), marks map colors dirty (`0x6ea0b0`), sets the autosave flag at `idler+0x588` read on the next frame, posts floating tax text (`0x6e9860`), and updates the UI (`0x7ed360`).
+
 ## The camera in a frame (read 2026-11-09)
 
 The camera is updated in the in-game frame's input (`0x830fd0`): it is offered the frame's events (`0x109c9e0`, at `0x83117b`), then updated (`0x109bee0`, at `0x8311b3`, only while the application's `+0xb8` is set; its arguments the camera `[idler+0x1200]`, `[idler+0x68]`, `[idler+0x60]`, the input's state and, on the stack, the float at `idler+0x1658`): it takes the frame's movement from the input (`0x109e750`), it glides towards its goal (`0x109f240` → `0x109f3e0`, `0x109cd80`), and is kept on the map (`0x109ec30` → `0x109d0e0`) ([camera.md](camera.md)). The main menu's frame (`0x10dc4f0`) and the nudge editor's (`0x1253d80`) call the same two. Later in the in-game frame, between the time step and the map's markers, `0x109c020` is called (at `0x815711`); what it does was not read. So the camera moves once a frame, from the events of that frame, on the main thread; nothing found moves it from the drawing.
