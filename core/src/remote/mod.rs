@@ -173,6 +173,12 @@ impl Engine {
         self.submit_as(request, As::Player)
     }
 
+    /// How many requests are currently queued waiting to run.
+    #[cfg(test)]
+    pub fn queued(&self) -> usize {
+        self.queue().requests.len()
+    }
+
     /// Queues a request that acts `acting`, from any thread; once the
     /// process ends, answers it at once.
     pub fn submit_as(&self, request: Request, acting: As) -> Reply {
@@ -242,7 +248,19 @@ impl Engine {
     /// [`run`](Self::run) with the time the requests' waits are measured
     /// against: now, but for a test that lets time pass without waiting.
     pub(crate) fn run_at(&self, catalogue: &mut dyn Catalogue, place: &Place, budget: Duration, now: Instant) {
-        let started = Instant::now();
+        self.run_with(catalogue, place, budget, now, &mut Instant::now);
+    }
+
+    /// [`run`](Self::run) driven by `clock` for both request waits and the
+    /// frame's time budget, so tests can advance time without sleeping.
+    #[cfg(test)]
+    pub(crate) fn run_with_clock(&self, catalogue: &mut dyn Catalogue, place: &Place, budget: Duration, mut clock: impl FnMut() -> Instant) {
+        let now = clock();
+        self.run_with(catalogue, place, budget, now, &mut clock);
+    }
+
+    fn run_with(&self, catalogue: &mut dyn Catalogue, place: &Place, budget: Duration, now: Instant, clock: &mut impl FnMut() -> Instant) {
+        let started = clock();
         self.delivering().retain(|slot| !slot.released());
         let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
         let running = &mut *running;
@@ -292,13 +310,13 @@ impl Engine {
                 kept.push_back(q);
                 continue;
             }
-            if ran && started.elapsed() >= budget {
+            if ran && clock().saturating_duration_since(started) >= budget {
                 kept.push_back(q);
                 kept.append(&mut queued);
                 break;
             }
             ran = true;
-            self.start(running, catalogue, q, now);
+            self.start(running, catalogue, q, now, clock);
             // What the request made happen, for the requests after it.
             self.take_recorded(running);
         }
@@ -309,13 +327,13 @@ impl Engine {
     }
 
     /// Runs a request at `now`, acting as it asks.
-    fn start(&self, running: &mut Running, catalogue: &mut dyn Catalogue, q: Queued, now: Instant) {
-        let started = Instant::now();
+    fn start(&self, running: &mut Running, catalogue: &mut dyn Catalogue, q: Queued, now: Instant, clock: &mut impl FnMut() -> Instant) {
+        let started = clock();
         match catalogue.run(q.request.clone(), q.acting, Some(&running.signals), now) {
-            catalogue::Outcome::Done(response) => self.answer(&q, response, started.elapsed()),
+            catalogue::Outcome::Done(response) => self.answer(&q, response, clock().saturating_duration_since(started)),
             catalogue::Outcome::Held(response, hold) => {
                 running.holds.push(hold);
-                self.answer(&q, response, started.elapsed());
+                self.answer(&q, response, clock().saturating_duration_since(started));
             }
             catalogue::Outcome::Later(wait) => {
                 (self.log)(&format!("remote #{} {}: answers later", q.number, json(&q.request, q.acting)));

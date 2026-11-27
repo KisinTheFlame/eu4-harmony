@@ -236,19 +236,6 @@ fn files_keep_the_extension_s_data_in_its_own_folder() {
     assert!(why.contains("files.read: the manifest does not declare the files permission (permissions = { files = true }"), "{why}");
 }
 
-/// Polls `e`'s waiting tasks until the global `name` is set.
-fn poll_until(e: &Extension, name: &str) -> LuaValue {
-    let started = Instant::now();
-    loop {
-        e.poll();
-        let value: LuaValue = e.lua.globals().get(name).unwrap();
-        if !value.is_nil() || started.elapsed() > Duration::from_secs(10) {
-            return value;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-}
-
 #[test]
 fn a_request_waits_for_its_response_and_the_task_goes_on() {
     let manifest = "id = \"t\"\napi_version = \"0.3\"\npermissions = { network = [\"api.example.com\"] }";
@@ -283,10 +270,16 @@ fn a_request_waits_for_its_response_and_the_task_goes_on() {
 #[test]
 fn a_request_with_no_answer_in_time_fails_with_timeout() {
     let manifest = "id = \"t\"\napi_version = \"0.3\"\npermissions = { network = [\"api.example.com\"] }";
-    let main = "return { on_frame = function(game) local r, err = http.fetch('https://api.example.com/', { timeout = 0.3 }) GOT = tostring(r) .. ' ' .. err.code end }";
+    let main =
+        "return { on_frame = function(game) local r, err = http.fetch('https://api.example.com/', { timeout = 60 }) GOT = tostring(r) .. ' ' .. err.code end }";
     let e = load_one("fetch-timeout", main, &[("eu4-harmony/manifest.toml", manifest)]).unwrap();
     e.handle("on_frame", &[]);
-    assert_eq!(text(poll_until(&e, "GOT")), "nil timeout");
+    e.poll();
+    assert_eq!(e.waiting(), 1);
+    assert!(e.lua.globals().get::<LuaValue>("GOT").unwrap().is_nil());
+    e.poll_at(Instant::now() + Duration::from_secs(61));
+    assert_eq!(text(e.lua.globals().get("GOT").unwrap()), "nil timeout");
+    assert_eq!(e.waiting(), 0);
 }
 
 #[test]
