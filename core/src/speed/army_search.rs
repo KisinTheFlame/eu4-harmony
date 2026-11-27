@@ -386,6 +386,7 @@ unsafe fn prepare(agent: usize, argument: usize) -> Option<Call> {
 unsafe fn search_as_the_game(agent: usize, call: &Call, cache: usize) -> Outcome {
     let callback = [base() + CALLBACK, agent];
     let mut call = *call;
+    let _scope = super::army_checks::search_scope();
     let province = unsafe {
         ORIGINAL_SEARCH.get()(
             callback.as_ptr() as usize,
@@ -457,6 +458,7 @@ unsafe extern "C" fn search(
         given
     };
     let Some(outcome) = course::search(agent, given, argument) else {
+        let _scope = super::army_checks::search_scope();
         return unsafe { ORIGINAL_SEARCH.get()(callback, depth, unit, argument, score, a, b, c, d, flag, other, out) };
     };
     unsafe {

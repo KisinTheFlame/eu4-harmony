@@ -337,6 +337,8 @@
 "0x106e01" = { kind = "code", notes = ["game/ai/support-checks.md"] }
 "0x107194" = { kind = "code", notes = ["game/ai/support-checks.md"] }
 "0x107328" = { kind = "code", notes = ["game/ai/support-checks.md"] }
+"0x10739a" = { kind = "code", notes = ["game/ai/support-checks.md"] }
+"0x1073d3" = { kind = "code", notes = ["game/ai/support-checks.md"] }
 "0x107401" = { kind = "code", notes = ["game/ai/support-checks.md"] }
 "0x107433" = { kind = "code", notes = ["game/ai/support-checks.md"] }
 "0x107459" = { kind = "code", notes = ["game/ai/support-checks.md"] }
@@ -2843,7 +2845,7 @@
 "0x96bd00" = { kind = "function", notes = ["game/military/routes.md"] }
 "0x96bd65" = { kind = "code", notes = ["game/military/routes.md", "game/provinces/provinces.md"] }
 "0x96c400" = { kind = "function", notes = ["game/military/routes.md"] }
-"0x96c520" = { kind = "function", name = "route query", notes = ["game/ai/ai.md", "game/military/army-checks-in-searches.md", "game/military/army-orders.md", "game/military/routes.md"] }
+"0x96c520" = { kind = "function", name = "route query", notes = ["game/ai/ai.md", "game/ai/support-checks.md", "game/military/army-checks-in-searches.md", "game/military/army-orders.md", "game/military/routes.md"] }
 "0x96c555" = { kind = "code", notes = ["game/military/routes.md"] }
 "0x96c56d" = { kind = "code", notes = ["game/military/routes.md"] }
 "0x96c58d" = { kind = "code", notes = ["game/military/routes.md"] }
@@ -3667,6 +3669,8 @@
 "0xd44e00" = { kind = "function", notes = ["game/military/armies.md"] }
 "0xd45250" = { kind = "function", notes = ["game/military/army-checks-in-searches.md", "game/military/routes.md"] }
 "0xd45291" = { kind = "code", notes = ["game/military/army-checks-in-searches.md"] }
+"0xd4533a" = { kind = "code", notes = ["game/military/army-checks-in-searches.md"] }
+"0xd45482" = { kind = "code", notes = ["game/military/army-checks-in-searches.md"] }
 "0xd45910" = { kind = "function", notes = ["game/military/units.md"] }
 "0xd45c60" = { kind = "function", notes = ["game/military/routes.md"] }
 "0xd45d1b" = { kind = "code", notes = ["game/military/routes.md"] }

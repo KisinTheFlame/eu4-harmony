@@ -4,7 +4,7 @@ use crate::native::points::Point;
 use crate::native::speed_up::{self, SpeedUp};
 
 /// Every speed-up, in the order the report names them.
-pub(crate) static ALL: [&SpeedUp; 26] = [
+pub(crate) static ALL: [&SpeedUp; 28] = [
     &crate::speed::pops::SPEED_UP,
     &crate::render::drawing::SPEED_UP,
     &crate::speed::loading::music::SPEED_UP,
@@ -30,6 +30,8 @@ pub(crate) static ALL: [&SpeedUp; 26] = [
     &crate::speed::saving::sum::SPEED_UP,
     &crate::speed::saving::update_thread::SPEED_UP,
     &crate::speed::army_search::SPEED_UP,
+    &crate::speed::army_checks::SPEED_UP,
+    &crate::speed::support_checks::SPEED_UP,
     &crate::speed::modifier_sums::SPEED_UP,
 ];
 
@@ -99,6 +101,8 @@ mod tests {
                 "dlc-verify",
                 "parallel-saves",
                 "army-searches",
+                "army-checks",
+                "support-checks",
                 "modifier-sums"
             ]
             .iter()
