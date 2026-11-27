@@ -117,21 +117,43 @@ pub struct Client {
     pipe: File,
 }
 
-/// Opens the pipe `name`, waiting until `deadline` for a process to open it,
-/// once the process serving it is a `game`'s run by this Windows user.
-pub fn connect(name: &str, game: &str, deadline: Instant) -> Result<Client, Failure> {
-    let pipe = loop {
-        match File::options().read(true).write(true).security_qos_flags(SECURITY_IDENTIFICATION).open(name) {
-            Ok(pipe) => break pipe,
+/// Monotonic clock and sleep boundary for retry/timeout loops.
+trait Waiter {
+    fn now(&mut self) -> Instant;
+    fn sleep(&mut self, duration: Duration);
+}
+
+struct RealWaiter;
+
+impl Waiter for RealWaiter {
+    fn now(&mut self) -> Instant {
+        Instant::now()
+    }
+
+    fn sleep(&mut self, duration: Duration) {
+        std::thread::sleep(duration);
+    }
+}
+
+fn connect_with<P>(deadline: Instant, waiter: &mut impl Waiter, mut open: impl FnMut() -> io::Result<P>) -> Result<P, Failure> {
+    loop {
+        match open() {
+            Ok(pipe) => return Ok(pipe),
             Err(e) => match e.raw_os_error().map(|code| code as u32) {
                 // Not there yet, or every instance taken for a moment.
-                Some(ERROR_FILE_NOT_FOUND | ERROR_PIPE_BUSY) if Instant::now() < deadline => std::thread::sleep(LOOK),
+                Some(ERROR_FILE_NOT_FOUND | ERROR_PIPE_BUSY) if waiter.now() < deadline => waiter.sleep(LOOK),
                 Some(ERROR_FILE_NOT_FOUND | ERROR_PIPE_BUSY) => return Err(Failure::NotOpen),
                 Some(ERROR_ACCESS_DENIED) => return Err(Failure::Denied),
                 _ => return Err(Failure::Io(e)),
             },
         }
-    };
+    }
+}
+
+/// Opens the pipe `name`, waiting until `deadline` for a process to open it,
+/// once the process serving it is a `game`'s run by this Windows user.
+pub fn connect(name: &str, game: &str, deadline: Instant) -> Result<Client, Failure> {
+    let pipe = connect_with(deadline, &mut RealWaiter, || File::options().read(true).write(true).security_qos_flags(SECURITY_IDENTIFICATION).open(name))?;
     check(&serving(&pipe)?, game)?;
     Ok(Client { pipe })
 }
@@ -249,30 +271,48 @@ impl Client {
     /// The next line, without its line break. The pipe is looked at until
     /// bytes are there, so that the wait can end at the deadline.
     fn read_line(&mut self, deadline: Option<Instant>) -> Result<String, Failure> {
-        let mut line = Line::default();
-        let mut chunk = vec![0u8; CHUNK];
-        loop {
-            let mut available = 0u32;
-            let peeked =
-                unsafe { PeekNamedPipe(self.pipe.as_raw_handle(), std::ptr::null_mut(), 0, std::ptr::null_mut(), &mut available, std::ptr::null_mut()) };
-            if peeked == 0 {
-                return Err(io_failure(io::Error::last_os_error()));
-            }
-            if available == 0 {
-                if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-                    return Err(Failure::TimedOut);
+        let handle = self.pipe.as_raw_handle();
+        let pipe = &mut self.pipe;
+        read_line_with(
+            deadline,
+            &mut RealWaiter,
+            || {
+                let mut available = 0u32;
+                let peeked = unsafe { PeekNamedPipe(handle, std::ptr::null_mut(), 0, std::ptr::null_mut(), &mut available, std::ptr::null_mut()) };
+                if peeked == 0 {
+                    return Err(io_failure(io::Error::last_os_error()));
                 }
-                std::thread::sleep(POLL);
-                continue;
+                Ok(available)
+            },
+            |buf| pipe.read(buf).map_err(io_failure),
+        )
+    }
+}
+
+fn read_line_with(
+    deadline: Option<Instant>,
+    waiter: &mut impl Waiter,
+    mut peek: impl FnMut() -> Result<u32, Failure>,
+    mut read_chunk: impl FnMut(&mut [u8]) -> Result<usize, Failure>,
+) -> Result<String, Failure> {
+    let mut line = Line::default();
+    let mut chunk = vec![0u8; CHUNK];
+    loop {
+        let available = peek()?;
+        if available == 0 {
+            if deadline.is_some_and(|deadline| waiter.now() >= deadline) {
+                return Err(Failure::TimedOut);
             }
-            let wanted = (available as usize).min(CHUNK);
-            let read = self.pipe.read(&mut chunk[..wanted]).map_err(io_failure)?;
-            if read == 0 {
-                return Err(Failure::Broken);
-            }
-            if let Some(line) = line.add(&chunk[..read]) {
-                return String::from_utf8(line).map_err(|_| Failure::Io(io::Error::new(io::ErrorKind::InvalidData, "the answer is not UTF-8")));
-            }
+            waiter.sleep(POLL);
+            continue;
+        }
+        let wanted = (available as usize).min(CHUNK);
+        let read = read_chunk(&mut chunk[..wanted])?;
+        if read == 0 {
+            return Err(Failure::Broken);
+        }
+        if let Some(line) = line.add(&chunk[..read]) {
+            return String::from_utf8(line).map_err(|_| Failure::Io(io::Error::new(io::ErrorKind::InvalidData, "the answer is not UTF-8")));
         }
     }
 }
@@ -303,6 +343,25 @@ const MENU_LOOK: Duration = Duration::from_secs(1);
 /// How long between looks for the main menu.
 const MENU_EVERY: Duration = Duration::from_millis(500);
 
+fn main_menu_with<C, E>(
+    deadline: Instant,
+    waiter: &mut impl Waiter,
+    mut going_on: impl FnMut() -> Result<(), E>,
+    mut look: impl FnMut(Instant) -> Option<C>,
+) -> Result<C, NoMainMenu<E>> {
+    loop {
+        going_on().map_err(NoMainMenu::Stopped)?;
+        let until = deadline.min(waiter.now() + MENU_LOOK);
+        if let Some(client) = look(until) {
+            return Ok(client);
+        }
+        if waiter.now() >= deadline {
+            return Err(NoMainMenu::TimedOut);
+        }
+        waiter.sleep(MENU_EVERY);
+    }
+}
+
 /// Waits until `deadline` for the `game` serving the pipe `name` to answer
 /// that its main menu is up, in this process or the next: when the game
 /// starts again, as a return to the main menu may make it, its pipe breaks
@@ -310,23 +369,13 @@ const MENU_EVERY: Duration = Duration::from_millis(500);
 /// missing or breaks is waited through. `going_on` is asked before each
 /// look, and its error ends the wait. The connection to the game at its
 /// main menu.
-pub fn main_menu<E>(name: &str, game: &str, deadline: Instant, mut going_on: impl FnMut() -> Result<(), E>) -> Result<Client, NoMainMenu<E>> {
+pub fn main_menu<E>(name: &str, game: &str, deadline: Instant, going_on: impl FnMut() -> Result<(), E>) -> Result<Client, NoMainMenu<E>> {
     use eu4_harmony_remote::menu::{Menu, MenuRequest, Place};
-    loop {
-        going_on().map_err(NoMainMenu::Stopped)?;
-        let look = deadline.min(Instant::now() + MENU_LOOK);
-        if let Ok(mut client) = connect(name, game, look) {
-            if let Ok(Ok(menu)) = client.ask_for::<_, Menu>(&MenuRequest::State {}, Some(look)) {
-                if menu.place == Place::MainMenu {
-                    return Ok(client);
-                }
-            }
-        }
-        if Instant::now() >= deadline {
-            return Err(NoMainMenu::TimedOut);
-        }
-        std::thread::sleep(MENU_EVERY);
-    }
+    main_menu_with(deadline, &mut RealWaiter, going_on, |look| {
+        let mut client = connect(name, game, look).ok()?;
+        let menu = client.ask_for::<_, Menu>(&MenuRequest::State {}, Some(look)).ok()?.ok()?;
+        (menu.place == Place::MainMenu).then_some(client)
+    })
 }
 
 /// A line read in pieces.
