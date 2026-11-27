@@ -4,7 +4,7 @@ use crate::native::points::Point;
 use crate::native::speed_up::{self, SpeedUp};
 
 /// Every speed-up, in the order the report names them.
-pub(crate) static ALL: [&SpeedUp; 28] = [
+pub(crate) static ALL: [&SpeedUp; 29] = [
     &crate::speed::pops::SPEED_UP,
     &crate::render::drawing::SPEED_UP,
     &crate::speed::loading::music::SPEED_UP,
@@ -33,6 +33,7 @@ pub(crate) static ALL: [&SpeedUp; 28] = [
     &crate::speed::support_checks::SPEED_UP,
     &crate::speed::settlement_growth::SPEED_UP,
     &crate::speed::modifier_sums::SPEED_UP,
+    &crate::speed::regiment_upkeep::SPEED_UP,
 ];
 
 /// Every speed-up's points: what the offline checks check and the framework
@@ -103,7 +104,8 @@ mod tests {
                 "army-checks",
                 "support-checks",
                 "settlement-growth",
-                "modifier-sums"
+                "modifier-sums",
+                "regiment-upkeep"
             ]
             .iter()
             .fold(0, |b, n| b | bit(n))
@@ -134,7 +136,7 @@ mod tests {
         let chosen = Chosen::of_list(&ALL, &strings(&["frames"]), &strings(&["army-checks"])).unwrap();
         assert_eq!(
             lines(&ALL, chosen),
-            ["speed-ups left to the game: pops-polling, drawing-thread, modifier-sums", "speed-ups checked against the game: army-checks"]
+            ["speed-ups left to the game: pops-polling, drawing-thread, modifier-sums, regiment-upkeep", "speed-ups checked against the game: army-checks"]
         );
     }
 

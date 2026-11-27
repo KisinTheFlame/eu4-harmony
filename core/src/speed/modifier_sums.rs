@@ -32,10 +32,10 @@ const ADDED_VEC: usize = 0x38;
 const ADDED_END: usize = 0x40;
 const ADDED_CAP: usize = 0x48;
 const PAIRS_OWNER: usize = 0x50;
-const CAP: usize = 0x60;
+pub(super) const CAP: usize = 0x60;
 
 /// Sentinel stored in empty slots of a by-modifier set, skipped during merges.
-const EMPTY_MODIFIER: i32 = 0x286;
+pub(super) const EMPTY_MODIFIER: i32 = 0x286;
 /// Number of built-in modifier indices (`0..0x287`).
 const BUILTIN_MODIFIERS: usize = 0x287;
 /// Minimum destination pair count and incoming count before indexing pays off.
@@ -44,9 +44,9 @@ const ADDED_FOR_INDEX: usize = 5;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct Pair {
-    modifier: i32,
-    value: i32,
+pub(super) struct Pair {
+    pub(super) modifier: i32,
+    pub(super) value: i32,
 }
 
 type Sum = unsafe extern "C" fn(usize, usize) -> usize;
@@ -58,7 +58,7 @@ static ORIGINAL_TAKE_AWAY: Function<Sum> = Function::new();
 
 /// Linear search matching the game's loop: first pair holding `modifier`.
 #[inline]
-unsafe fn linear_search(pairs: *const Pair, count: usize, modifier: i32) -> Option<usize> {
+pub(super) unsafe fn linear_search(pairs: *const Pair, count: usize, modifier: i32) -> Option<usize> {
     let mut i = 0;
     while i < count {
         if unsafe { (*pairs.add(i)).modifier } == modifier {
@@ -223,7 +223,7 @@ unsafe fn grow_pairs(set: usize, needed: i32) -> *mut Pair {
 }
 
 #[inline]
-unsafe fn append_pair(set: usize, set_pairs: &mut *mut Pair, set_count: &mut usize, set_cap: &mut i32, modifier: i32, value: i32) -> usize {
+pub(super) unsafe fn append_pair(set: usize, set_pairs: &mut *mut Pair, set_count: &mut usize, set_cap: &mut i32, modifier: i32, value: i32) -> usize {
     let needed = (*set_count as i32).wrapping_add(1);
     if needed > *set_cap {
         *set_pairs = unsafe { grow_pairs(set, needed) };
@@ -254,7 +254,185 @@ unsafe fn push_added_source(set: usize, added: usize) {
     }
 }
 
-unsafe fn sum_sets(set: usize, added: usize, subtract: bool) -> usize {
+/// Fast path for merging a non-aliased `by_modifier` source into a `by_modifier`
+/// destination (`0x286` slots, ~85-90% empty): hoists `subtract` and skips four
+/// empty slots per step.
+#[inline]
+unsafe fn sum_by_modifier_into_by_modifier<const SUBTRACT: bool>(
+    set: usize,
+    set_pairs: &mut *mut Pair,
+    set_count: &mut usize,
+    set_cap: &mut i32,
+    added_pairs: *const Pair,
+    added_count: usize,
+) {
+    let mut i = 0;
+    while i + 4 <= added_count {
+        let p = unsafe { added_pairs.add(i) };
+        let m0 = unsafe { (*p).modifier };
+        let m1 = unsafe { (*p.add(1)).modifier };
+        let m2 = unsafe { (*p.add(2)).modifier };
+        let m3 = unsafe { (*p.add(3)).modifier };
+        if (m0 == EMPTY_MODIFIER) & (m1 == EMPTY_MODIFIER) & (m2 == EMPTY_MODIFIER) & (m3 == EMPTY_MODIFIER) {
+            i += 4;
+            continue;
+        }
+        for k in 0..4 {
+            let idx = i + k;
+            let entry = unsafe { *added_pairs.add(idx) };
+            let modifier = entry.modifier;
+            if modifier == EMPTY_MODIFIER {
+                continue;
+            }
+            let raw = if modifier == idx as i32 {
+                entry.value
+            } else if modifier <= EMPTY_MODIFIER {
+                unsafe { (*added_pairs.offset(modifier as isize)).value }
+            } else {
+                entry.value
+            };
+            let val = if SUBTRACT { raw.wrapping_neg() } else { raw };
+            if modifier < EMPTY_MODIFIER {
+                let slot = unsafe { &mut *(*set_pairs).offset(modifier as isize) };
+                slot.modifier = modifier;
+                slot.value = slot.value.wrapping_add(val);
+            } else if let Some(place) = unsafe { linear_search(*set_pairs, *set_count, modifier) } {
+                let dst = unsafe { &mut (*(*set_pairs).add(place)).value };
+                *dst = dst.wrapping_add(val);
+            } else {
+                unsafe { append_pair(set, set_pairs, set_count, set_cap, modifier, val) };
+            }
+        }
+        i += 4;
+    }
+    while i < added_count {
+        let entry = unsafe { *added_pairs.add(i) };
+        let modifier = entry.modifier;
+        if modifier != EMPTY_MODIFIER {
+            let raw = if modifier == i as i32 {
+                entry.value
+            } else if modifier <= EMPTY_MODIFIER {
+                unsafe { (*added_pairs.offset(modifier as isize)).value }
+            } else {
+                entry.value
+            };
+            let val = if SUBTRACT { raw.wrapping_neg() } else { raw };
+            if modifier < EMPTY_MODIFIER {
+                let slot = unsafe { &mut *(*set_pairs).offset(modifier as isize) };
+                slot.modifier = modifier;
+                slot.value = slot.value.wrapping_add(val);
+            } else if let Some(place) = unsafe { linear_search(*set_pairs, *set_count, modifier) } {
+                let dst = unsafe { &mut (*(*set_pairs).add(place)).value };
+                *dst = dst.wrapping_add(val);
+            } else {
+                unsafe { append_pair(set, set_pairs, set_count, set_cap, modifier, val) };
+            }
+        }
+        i += 1;
+    }
+}
+
+/// Fast path for merging a non-aliased pair-mode source into a `by_modifier`
+/// destination with `subtract` hoisted out of the loop.
+#[inline]
+unsafe fn sum_pairs_into_by_modifier<const SUBTRACT: bool>(
+    set: usize,
+    set_pairs: &mut *mut Pair,
+    set_count: &mut usize,
+    set_cap: &mut i32,
+    added_pairs: *const Pair,
+    added_count: usize,
+) {
+    for i in 0..added_count {
+        let entry = unsafe { *added_pairs.add(i) };
+        let modifier = entry.modifier;
+        if modifier == EMPTY_MODIFIER {
+            continue;
+        }
+        let val = if SUBTRACT { entry.value.wrapping_neg() } else { entry.value };
+        if modifier < EMPTY_MODIFIER {
+            let slot = unsafe { &mut *(*set_pairs).offset(modifier as isize) };
+            slot.modifier = modifier;
+            slot.value = slot.value.wrapping_add(val);
+        } else if let Some(place) = unsafe { linear_search(*set_pairs, *set_count, modifier) } {
+            let dst = unsafe { &mut (*(*set_pairs).add(place)).value };
+            *dst = dst.wrapping_add(val);
+        } else {
+            unsafe { append_pair(set, set_pairs, set_count, set_cap, modifier, val) };
+        }
+    }
+}
+
+/// Fast path for merging a non-aliased `by_modifier` source into a small
+/// pair-mode destination, skipping four empty slots per step.
+#[inline]
+unsafe fn sum_by_modifier_into_pairs<const SUBTRACT: bool>(
+    set: usize,
+    set_pairs: &mut *mut Pair,
+    set_count: &mut usize,
+    set_cap: &mut i32,
+    added_pairs: *const Pair,
+    added_count: usize,
+) {
+    let mut i = 0;
+    while i + 4 <= added_count {
+        let p = unsafe { added_pairs.add(i) };
+        let m0 = unsafe { (*p).modifier };
+        let m1 = unsafe { (*p.add(1)).modifier };
+        let m2 = unsafe { (*p.add(2)).modifier };
+        let m3 = unsafe { (*p.add(3)).modifier };
+        if (m0 == EMPTY_MODIFIER) & (m1 == EMPTY_MODIFIER) & (m2 == EMPTY_MODIFIER) & (m3 == EMPTY_MODIFIER) {
+            i += 4;
+            continue;
+        }
+        for k in 0..4 {
+            let idx = i + k;
+            let entry = unsafe { *added_pairs.add(idx) };
+            let modifier = entry.modifier;
+            if modifier == EMPTY_MODIFIER {
+                continue;
+            }
+            let raw = if modifier == idx as i32 {
+                entry.value
+            } else if modifier <= EMPTY_MODIFIER {
+                unsafe { (*added_pairs.offset(modifier as isize)).value }
+            } else {
+                entry.value
+            };
+            let val = if SUBTRACT { raw.wrapping_neg() } else { raw };
+            if let Some(place) = unsafe { linear_search(*set_pairs, *set_count, modifier) } {
+                let dst = unsafe { &mut (*(*set_pairs).add(place)).value };
+                *dst = dst.wrapping_add(val);
+            } else {
+                unsafe { append_pair(set, set_pairs, set_count, set_cap, modifier, val) };
+            }
+        }
+        i += 4;
+    }
+    while i < added_count {
+        let entry = unsafe { *added_pairs.add(i) };
+        let modifier = entry.modifier;
+        if modifier != EMPTY_MODIFIER {
+            let raw = if modifier == i as i32 {
+                entry.value
+            } else if modifier <= EMPTY_MODIFIER {
+                unsafe { (*added_pairs.offset(modifier as isize)).value }
+            } else {
+                entry.value
+            };
+            let val = if SUBTRACT { raw.wrapping_neg() } else { raw };
+            if let Some(place) = unsafe { linear_search(*set_pairs, *set_count, modifier) } {
+                let dst = unsafe { &mut (*(*set_pairs).add(place)).value };
+                *dst = dst.wrapping_add(val);
+            } else {
+                unsafe { append_pair(set, set_pairs, set_count, set_cap, modifier, val) };
+            }
+        }
+        i += 1;
+    }
+}
+
+pub(super) unsafe fn sum_sets(set: usize, added: usize, subtract: bool) -> usize {
     let added_count = unsafe { *((added + COUNT) as *const i32) };
     if added_count > 0 {
         let added_count_usize = added_count as usize;
@@ -267,18 +445,57 @@ unsafe fn sum_sets(set: usize, added: usize, subtract: bool) -> usize {
         let mut set_count = unsafe { *((set + COUNT) as *const i32) }.max(0) as usize;
         let mut set_cap = unsafe { *((set + CAP) as *const i32) };
 
-        if !set_by_mod && set_count >= PAIRS_FOR_INDEX && added_count_usize >= ADDED_FOR_INDEX {
+        if !aliased && set_by_mod {
+            let added_pairs = unsafe { *((added + PAIRS) as *const *const Pair) };
+            match (added_by_mod, subtract) {
+                (true, false) => unsafe {
+                    sum_by_modifier_into_by_modifier::<false>(set, &mut set_pairs, &mut set_count, &mut set_cap, added_pairs, added_count_usize)
+                },
+                (true, true) => unsafe {
+                    sum_by_modifier_into_by_modifier::<true>(set, &mut set_pairs, &mut set_count, &mut set_cap, added_pairs, added_count_usize)
+                },
+                (false, false) => unsafe {
+                    sum_pairs_into_by_modifier::<false>(set, &mut set_pairs, &mut set_count, &mut set_cap, added_pairs, added_count_usize)
+                },
+                (false, true) => unsafe {
+                    sum_pairs_into_by_modifier::<true>(set, &mut set_pairs, &mut set_count, &mut set_cap, added_pairs, added_count_usize)
+                },
+            }
+        } else if !set_by_mod && set_count >= PAIRS_FOR_INDEX && added_count_usize >= ADDED_FOR_INDEX {
             INDEX.with(|cell| {
                 let mut index = cell.borrow_mut();
                 index.populate(set_pairs, set_count);
-                for i in 0..added_count_usize {
+                let mut i = 0;
+                while i < added_count_usize {
                     let added_pairs = if aliased { set_pairs as *const Pair } else { unsafe { *((added + PAIRS) as *const *const Pair) } };
+                    if added_by_mod && !aliased && i + 4 <= added_count_usize {
+                        let p = unsafe { added_pairs.add(i) };
+                        let all_empty = unsafe {
+                            ((*p).modifier == EMPTY_MODIFIER)
+                                & ((*p.add(1)).modifier == EMPTY_MODIFIER)
+                                & ((*p.add(2)).modifier == EMPTY_MODIFIER)
+                                & ((*p.add(3)).modifier == EMPTY_MODIFIER)
+                        };
+                        if all_empty {
+                            i += 4;
+                            continue;
+                        }
+                    }
                     let entry = unsafe { *added_pairs.add(i) };
                     let modifier = entry.modifier;
                     if modifier == EMPTY_MODIFIER {
+                        i += 1;
                         continue;
                     }
-                    let raw = if added_by_mod && modifier <= EMPTY_MODIFIER { unsafe { (*added_pairs.offset(modifier as isize)).value } } else { entry.value };
+                    let raw = if added_by_mod && modifier <= EMPTY_MODIFIER {
+                        if modifier == i as i32 {
+                            entry.value
+                        } else {
+                            unsafe { (*added_pairs.offset(modifier as isize)).value }
+                        }
+                    } else {
+                        entry.value
+                    };
                     let val = if subtract { raw.wrapping_neg() } else { raw };
                     let found = index.get(modifier);
                     if checked {
@@ -294,8 +511,16 @@ unsafe fn sum_sets(set: usize, added: usize, subtract: bool) -> usize {
                         let place = unsafe { append_pair(set, &mut set_pairs, &mut set_count, &mut set_cap, modifier, val) };
                         index.insert_if_absent(modifier, place);
                     }
+                    i += 1;
                 }
             });
+        } else if !aliased && !set_by_mod && added_by_mod {
+            let added_pairs = unsafe { *((added + PAIRS) as *const *const Pair) };
+            if subtract {
+                unsafe { sum_by_modifier_into_pairs::<true>(set, &mut set_pairs, &mut set_count, &mut set_cap, added_pairs, added_count_usize) };
+            } else {
+                unsafe { sum_by_modifier_into_pairs::<false>(set, &mut set_pairs, &mut set_count, &mut set_cap, added_pairs, added_count_usize) };
+            }
         } else {
             let mut added_pairs = unsafe { *((added + PAIRS) as *const *const Pair) };
             for i in 0..added_count_usize {
@@ -394,5 +619,47 @@ mod tests {
         assert_eq!(index.get(700), None);
         assert_eq!(index.get(10), Some(0));
         assert_eq!(index.get(800), Some(1));
+    }
+
+    #[test]
+    fn by_modifier_fast_paths_match_add_and_subtract_semantics() {
+        let mut dst = vec![Pair { modifier: EMPTY_MODIFIER, value: 0 }; BUILTIN_MODIFIERS];
+        dst[3] = Pair { modifier: 3, value: 100 };
+        dst[19] = Pair { modifier: 19, value: -50 };
+
+        let mut src = vec![Pair { modifier: EMPTY_MODIFIER, value: 0 }; BUILTIN_MODIFIERS];
+        src[3] = Pair { modifier: 3, value: 25 };
+        src[7] = Pair { modifier: 7, value: 400 };
+        src[19] = Pair { modifier: 19, value: 50 };
+        src[EMPTY_MODIFIER as usize - 1] = Pair { modifier: EMPTY_MODIFIER - 1, value: 12 };
+
+        let mut set_pairs = dst.as_mut_ptr();
+        let mut set_count = dst.len();
+        let mut set_cap = dst.len() as i32;
+        unsafe {
+            sum_by_modifier_into_by_modifier::<false>(0, &mut set_pairs, &mut set_count, &mut set_cap, src.as_ptr(), src.len());
+        }
+        assert_eq!(dst[3].value, 125);
+        assert_eq!(dst[7].modifier, 7);
+        assert_eq!(dst[7].value, 400);
+        assert_eq!(dst[19].value, 0);
+        assert_eq!(dst[EMPTY_MODIFIER as usize - 1].value, 12);
+        assert_eq!(dst[0].modifier, EMPTY_MODIFIER);
+
+        unsafe {
+            sum_by_modifier_into_by_modifier::<true>(0, &mut set_pairs, &mut set_count, &mut set_cap, src.as_ptr(), src.len());
+        }
+        assert_eq!(dst[3].value, 100);
+        assert_eq!(dst[7].value, 0);
+        assert_eq!(dst[19].value, -50);
+        assert_eq!(dst[EMPTY_MODIFIER as usize - 1].value, 0);
+
+        let extra = [Pair { modifier: 3, value: 10 }, Pair { modifier: EMPTY_MODIFIER, value: 999 }, Pair { modifier: 12, value: -5 }];
+        unsafe {
+            sum_pairs_into_by_modifier::<false>(0, &mut set_pairs, &mut set_count, &mut set_cap, extra.as_ptr(), extra.len());
+        }
+        assert_eq!(dst[3].value, 110);
+        assert_eq!(dst[12].modifier, 12);
+        assert_eq!(dst[12].value, -5);
     }
 }

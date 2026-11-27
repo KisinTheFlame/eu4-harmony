@@ -9,6 +9,7 @@ pub(crate) mod loading_times;
 pub(crate) mod modifier_sums;
 pub(crate) mod pool;
 pub(crate) mod pops;
+pub(crate) mod regiment_upkeep;
 pub(crate) mod saving;
 pub(crate) mod settlement_growth;
 pub(crate) mod support_checks;
