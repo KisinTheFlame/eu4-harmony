@@ -130,6 +130,9 @@ pub(super) fn points() -> Vec<Point> {
         // where they return to.
         Point::keep(MAP_MODE_FROM_CAPITAL - 5, "e8 5c 7e e0 ff", "a moved capital's map mode set"),
         Point::keep(PORT_MODEL_FROM_TRADE - 5, "e8 9a eb ea 00", "a center of trade's port model"),
+        Point::keep(PORT_MODEL_FROM_MARKERS_A - 5, "e8 49 1e 00 00", "a port's model in the markers update, first"),
+        Point::keep(PORT_MODEL_FROM_MARKERS_B - 5, "e8 13 1e 00 00", "a port's model in the markers update, second"),
+        Point::keep(PORT_MODEL_FROM_MARKERS_C - 5, "e8 03 1d 00 00", "a port's model in the markers update, third"),
         Point::jump(OWNER_TOLD, "4c 8b c9 83 fa ff", "the map told of a province's new owner", owner_told_stub as *const () as usize, &OWNER_TOLD_RESUME),
         // mov rcx, [r13 + 0x1e00]; test rcx, rcx; je; mov rax, [rcx];
         // call [rax + 0x2a8]: the day's call of the interface's daily refresh.
@@ -194,6 +197,13 @@ resume!(MAP_MODE_RESUME: MAP_MODE_GOES_ON_AT = MAP_MODE_GOES_ON);
 const PORT_MODEL: usize = 0x13238b0;
 const PORT_MODEL_GOES_ON: usize = 0x13238b7;
 const PORT_MODEL_FROM_TRADE: usize = 0x474d16;
+/// Calls to `PORT_MODEL` inside the map's markers update (`0x1321880`), which
+/// runs on the main thread during the frame update while already holding the
+/// presentation lock right before `frame_draws`. They are part of the update
+/// itself, not a crossing.
+const PORT_MODEL_FROM_MARKERS_A: usize = 0x1321a67;
+const PORT_MODEL_FROM_MARKERS_B: usize = 0x1321a9d;
+const PORT_MODEL_FROM_MARKERS_C: usize = 0x1321bad;
 resume!(PORT_MODEL_RESUME: PORT_MODEL_GOES_ON_AT = PORT_MODEL_GOES_ON);
 const MINIMAP_GOES_ON: usize = 0x10b6c57;
 resume!(MINIMAP_RESUME: MINIMAP_GOES_ON_AT = MINIMAP_GOES_ON);
@@ -346,10 +356,17 @@ extern "C" fn map_mode_stub() {
 }
 
 /// Whether a port's model waits for the next frame: from the center of
-/// trade's update.
+/// trade's update. Calls from the map's markers update (`0x1321880`) run
+/// inline without crossing since that update already owns the presentation
+/// lock immediately before `frame_draws`.
 #[called_by_game]
 extern "C" fn port_model(entry: usize, province: usize, map: usize, flag: u32, from: usize) -> bool {
-    if !defer_or_cross(from == crate::native::hooked_memory().at(PORT_MODEL_FROM_TRADE), PORT_MODEL) {
+    let base = crate::native::hooked_memory().base;
+    let rva = from.wrapping_sub(base);
+    if matches!(rva, PORT_MODEL_FROM_MARKERS_A | PORT_MODEL_FROM_MARKERS_B | PORT_MODEL_FROM_MARKERS_C) {
+        return false;
+    }
+    if !defer_or_cross(rva == PORT_MODEL_FROM_TRADE, PORT_MODEL) {
         return false;
     }
     defer(Deferred::PortModel { entry, province, map, flag: flag & 0xff });
