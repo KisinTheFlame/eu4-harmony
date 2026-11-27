@@ -17,7 +17,7 @@ use eu4_harmony_remote::{
 
 /// `(country + MODIFIERS)`: the country's modifiers, brought up to date;
 /// their values are at its answer's [`VALUES`].
-pub(crate) const OF_COUNTRY: GameFunction<1> = GameFunction::at(0x93d750);
+pub(crate) const OF_COUNTRY: GameFunction<1> = crate::native::objects::campaign::functions::COUNTRY_MODIFIERS;
 /// `(values, modifier) -> bool`: whether a yes-or-no modifier is set.
 pub(crate) const HAS: GameFunction<2> = GameFunction::at(0x8e7b60);
 /// Where the getter's answer holds the values the game's getters of one

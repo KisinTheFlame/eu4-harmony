@@ -13,3 +13,4 @@ pub(crate) mod regiment_upkeep;
 pub(crate) mod saving;
 pub(crate) mod settlement_growth;
 pub(crate) mod support_checks;
+pub(crate) mod threat_queries;

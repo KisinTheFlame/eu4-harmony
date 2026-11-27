@@ -68,6 +68,8 @@ pub mod functions {
     pub const SUBJECT_TYPE: crate::native::points::GameFunction<1> = crate::native::points::GameFunction::at(0x3d79f0);
     /// The A* route query for an army or fleet.
     pub const ROUTE_QUERY: crate::native::points::GameFunction<8> = crate::native::points::GameFunction::at(0x96c520);
+    /// `(country + MODIFIERS)`: the country's modifiers, brought up to date.
+    pub const COUNTRY_MODIFIERS: crate::native::points::GameFunction<1> = crate::native::points::GameFunction::at(0x93d750);
     /// `()`: answers yes; answers no. Many classes' methods are one of them.
     pub const YES: usize = 0x8f440;
     pub const NO: usize = 0x8f450;

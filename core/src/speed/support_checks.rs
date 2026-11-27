@@ -32,14 +32,14 @@ use crate::native::speed_up::{self as speed, SpeedUp};
 use std::cell::RefCell;
 
 const SUPPORT_CHECK: usize = 0x106320;
-const ARMY_STRENGTH: usize = 0xd46800;
+pub(super) const ARMY_STRENGTH: usize = 0xd46800;
 const ROLL_FACTOR: usize = 0x10cd80;
 const MAP_DISTANCE_SQ: usize = 0x88a390;
 const PROVINCE_BY_ID: usize = 0x9aa80;
 
 const BASE_FRIENDLY_STRENGTH: usize = 0x1fd3b38;
 const MAX_SUPPORT_DISTANCE: usize = 0x233fc7c;
-const ZERO_STRENGTH_CONST: usize = 0x23582d0;
+pub(super) const ZERO_STRENGTH_CONST: usize = 0x23582d0;
 
 const AGENT_COUNTRY_TAG: usize = 0x28;
 const COUNTRY_WAR_ALLIES: usize = 0x1bc0;

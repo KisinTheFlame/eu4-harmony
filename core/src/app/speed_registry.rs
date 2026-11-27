@@ -4,7 +4,7 @@ use crate::native::points::Point;
 use crate::native::speed_up::{self, SpeedUp};
 
 /// Every speed-up, in the order the report names them.
-pub(crate) static ALL: [&SpeedUp; 29] = [
+pub(crate) static ALL: [&SpeedUp; 30] = [
     &crate::speed::pops::SPEED_UP,
     &crate::render::drawing::SPEED_UP,
     &crate::speed::loading::music::SPEED_UP,
@@ -32,6 +32,7 @@ pub(crate) static ALL: [&SpeedUp; 29] = [
     &crate::speed::army_checks::SPEED_UP,
     &crate::speed::support_checks::SPEED_UP,
     &crate::speed::settlement_growth::SPEED_UP,
+    &crate::speed::threat_queries::SPEED_UP,
     &crate::speed::modifier_sums::SPEED_UP,
     &crate::speed::regiment_upkeep::SPEED_UP,
 ];
@@ -104,6 +105,7 @@ mod tests {
                 "army-checks",
                 "support-checks",
                 "settlement-growth",
+                "threat-queries",
                 "modifier-sums",
                 "regiment-upkeep"
             ]

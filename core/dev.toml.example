@@ -62,13 +62,13 @@ panic = false
 # opens, listed-folders, transfer-copy, save-input, distance-scratch, script-parameters,
 # localisation, trigger-profile, loading-screen and dlc-verify ("loading"); background-compression,
 # stored-copy, parallel-saves, save-sum and update-thread ("saving");
-# army-checks, support-checks and settlement-growth ("ai").
+# army-checks, support-checks, settlement-growth and threat-queries ("ai").
 game-paths = []
 # The speed-ups whose answers are checked against the game's own, named the
 # same way; those that can be are music, lookups, country-distances, flag-atlas,
 # token-lookup, listed-folders, script-parameters, localisation, trigger-profile,
 # dlc-verify, parallel-saves, army-checks, support-checks, settlement-growth,
-# modifier-sums and regiment-upkeep. Each difference is
+# threat-queries, modifier-sums and regiment-upkeep. Each difference is
 # logged, and the startup report counts the answers checked and those that differed.
 checked = []
 # A subject relation's end is the game's own: its walk of the subject's
