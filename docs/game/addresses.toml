@@ -191,6 +191,8 @@
 "0xb26ca" = { kind = "code", notes = ["game/countries/countries.md"] }
 "0xb270a" = { kind = "code", notes = ["game/countries/countries.md"] }
 "0xb7a54" = { kind = "code", notes = ["game/countries/power-spending.md"] }
+"0xbcb50" = { kind = "function", notes = ["game/ai/ai.md"] }
+"0xbde10" = { kind = "function", notes = ["game/ai/ai.md"] }
 "0xbe370" = { kind = "function", notes = ["game/ai/ai.md"] }
 "0xbfe50" = { kind = "function", notes = ["game/ai/ai.md", "game/diplomacy/diplomacy.md", "game/military/army-orders.md", "game/scripts/command-lifecycle.md", "game/scripts/commands.md"] }
 "0xc00a0" = { kind = "leaf", notes = ["game/countries/countries.md"] }
@@ -529,8 +531,11 @@
 "0x1b2290" = { kind = "function", name = "modifier set deleting destructor", notes = ["game/interface/main-menu.md"] }
 "0x1b39a0" = { kind = "function", notes = ["game/ai/ai.md"] }
 "0x1b4180" = { kind = "function", notes = ["game/ai/ai.md"] }
+"0x1b44b0" = { kind = "function", notes = ["game/ai/ai.md"] }
 "0x1b46b1" = { kind = "code", notes = ["game/scripts/game-console.md"] }
 "0x1b4e27" = { kind = "code", notes = ["game/diplomacy/envoys.md"] }
+"0x1b5170" = { kind = "function", notes = ["game/ai/ai.md"] }
+"0x1b528b" = { kind = "code", notes = ["game/ai/ai.md"] }
 "0x1b58f0" = { kind = "function", notes = ["game/countries/advisors.md"] }
 "0x1b6020" = { kind = "function", notes = ["game/countries/advisors.md"] }
 "0x1b6120" = { kind = "function", notes = ["game/countries/advisors.md"] }
@@ -765,7 +770,7 @@
 "0x25dbc0" = { kind = "leaf", notes = ["game/provinces/provinces.md"] }
 "0x25faf0" = { kind = "function", name = "great project manpower boost check", notes = ["game/provinces/institutions-ages-monuments.md"] }
 "0x25fbf0" = { kind = "function", name = "great project money boost check", notes = ["game/provinces/institutions-ages-monuments.md"] }
-"0x262060" = { kind = "function", name = "may promote settlement growth", notes = ["game/diplomacy/envoys.md"] }
+"0x262060" = { kind = "function", name = "may promote settlement growth", notes = ["game/ai/ai.md", "game/diplomacy/envoys.md"] }
 "0x264ec0" = { kind = "function", name = "may expel minorities", notes = ["game/diplomacy/envoys.md"] }
 "0x264f50" = { kind = "function", name = "lists a province to expel from", notes = ["game/diplomacy/envoys.md"] }
 "0x264fb0" = { kind = "function", name = "takes expelled minorities", notes = ["game/diplomacy/envoys.md"] }
@@ -5097,7 +5102,7 @@
 "0x14c6500" = { kind = "function", name = "make a command", notes = ["game/scripts/command-lifecycle.md", "game/scripts/commands.md"] }
 "0x14c6930" = { kind = "function", notes = ["game/scripts/command-lifecycle.md", "game/scripts/commands.md"] }
 "0x14c6f00" = { kind = "function", notes = ["game/scripts/commands.md"] }
-"0x14c71b0" = { kind = "function", name = "random generator stepped", notes = ["game/ai/work-scheduling.md", "game/countries/names.md", "game/day/monthly-update.md", "game/day/random.md"] }
+"0x14c71b0" = { kind = "function", name = "random generator stepped", notes = ["game/ai/ai.md", "game/ai/work-scheduling.md", "game/countries/names.md", "game/day/monthly-update.md", "game/day/random.md"] }
 "0x14c723c" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x14c72c2" = { kind = "code", notes = ["game/day/random.md"] }
 "0x14c7420" = { kind = "function", notes = ["game/countries/names.md", "game/day/monthly-update.md", "game/day/random.md"] }
