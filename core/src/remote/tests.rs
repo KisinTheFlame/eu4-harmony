@@ -58,8 +58,6 @@ struct Scripted {
     ran: Vec<String>,
     /// What a capability answers, by its full name.
     answers: HashMap<String, Response>,
-    /// How long each request takes.
-    delay: Duration,
     /// What running a request does besides.
     does: Option<Box<dyn FnMut() + Send>>,
     /// How the request run last acts, and those run before it.
@@ -79,7 +77,6 @@ fn nothing() -> Response {
 
 impl Catalogue for Scripted {
     fn run(&mut self, request: Request, acting: As, signals: Option<&signals::Buffer>, now: Instant) -> Outcome {
-        std::thread::sleep(self.delay);
         self.acted.push(acting);
         let name = request.name();
         self.ran.push(name.clone());
@@ -228,14 +225,15 @@ fn waiting_requests_keep_their_order_and_run_at_the_game_frame() {
 #[test]
 fn the_time_budget_ends_a_frame_and_the_rest_runs_at_the_next() {
     let engine = Engine::new(remember);
-    let mut game = Scripted { delay: Duration::from_millis(20), ..Default::default() };
+    let clock = Arc::new(Mutex::new(Instant::now()));
+    let tick = clock.clone();
+    let mut game = Scripted { does: Some(Box::new(move || *tick.lock().unwrap() += Duration::from_millis(20))), ..Default::default() };
     let replies: Vec<Reply> = (0..3).map(|_| engine.submit(Request::Session(SessionRequest::Get {}))).collect();
     // At least one request runs, however small the budget, and once it is
-    // spent the rest wait for the next frame. (Each takes 20 ms at least,
-    // however loaded the machine, so the budget is spent after the first.)
-    engine.run(&mut game, &Place::Game, Duration::from_millis(1));
+    // spent the rest wait for the next frame.
+    engine.run_with_clock(&mut game, &Place::Game, Duration::from_millis(1), || *clock.lock().unwrap());
     assert_eq!(game.ran.len(), 1);
-    engine.run(&mut game, &Place::Game, PLENTY);
+    engine.run_with_clock(&mut game, &Place::Game, PLENTY, || *clock.lock().unwrap());
     assert_eq!(game.ran.len(), 3);
     assert!(replies.iter().all(|r| answer(r)["ok"] == true));
 }
@@ -299,10 +297,10 @@ fn a_read_that_waits_is_answered_at_a_later_safe_point() {
     // its time is up, in the main menu too.
     let at_once = engine.submit(read(10_000));
     let short = engine.submit(Request::Signals(SignalsRequest::Read { since: Some(1), wait_ms: Some(1), process: None, kinds: None, countries: None }));
-    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    let t0 = Instant::now();
+    engine.run_at(&mut game, &Place::Outside(None), PLENTY, t0);
     assert_eq!(answer(&at_once)["result"]["last"], 1);
-    std::thread::sleep(Duration::from_millis(5));
-    engine.run(&mut game, &Place::Outside(Some(Error::new(Code::NotInGame, "no game"))), PLENTY);
+    engine.run_at(&mut game, &Place::Outside(Some(Error::new(Code::NotInGame, "no game"))), PLENTY, t0 + Duration::from_millis(5));
     assert_eq!(answer(&short), ok(json!({"process": process(), "signals": [], "last": 1, "missed": false})));
 
     let too_long = engine.submit(read(signals::LONGEST_WAIT + 1));

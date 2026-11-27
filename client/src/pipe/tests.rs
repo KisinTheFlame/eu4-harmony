@@ -191,9 +191,9 @@ fn reads_an_answer_that_comes_in_pieces() {
     let served = serve_one(&name, move |pipe, _| {
         let (first, rest) = sent.split_at(100_000);
         answer(pipe, first);
-        thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(10));
         answer(pipe, rest);
-        thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(10));
         answer(pipe, "\n");
     });
     let mut client = connect_to(&name);
@@ -241,23 +241,19 @@ fn waits_for_the_pipe_to_open() {
     let late = {
         let name = name.clone();
         thread::spawn(move || {
-            thread::sleep(Duration::from_millis(300));
+            thread::sleep(Duration::from_millis(50));
             serve_one(&name, |pipe, _| answer(pipe, "{\"ok\":true,\"result\":null}\n")).join().unwrap();
         })
     };
-    let started = Instant::now();
     let mut client = connect_to(&name);
-    assert!(started.elapsed() >= Duration::from_millis(300));
     assert_eq!(client.ask("{\"capability\":\"text.language\"}", None).unwrap(), "{\"ok\":true,\"result\":null}");
     late.join().unwrap();
 }
 
 #[test]
 fn gives_up_on_a_pipe_that_does_not_open_in_time() {
-    let started = Instant::now();
-    let failure = connect(&pipe_name("never"), &this_program(), started + Duration::from_millis(200)).err().unwrap();
+    let failure = connect(&pipe_name("never"), &this_program(), Instant::now() + Duration::from_millis(20)).err().unwrap();
     assert!(matches!(failure, Failure::NotOpen), "{failure:?}");
-    assert!((Duration::from_millis(200)..Duration::from_secs(5)).contains(&started.elapsed()));
 }
 
 #[test]
@@ -315,21 +311,18 @@ fn a_pipe_closed_to_this_user_is_refused_at_once() {
     let name = pipe_name("closed");
     // A protected access list with no entry lets nobody in.
     let _pipe = instance(&name, Some("D:P"));
-    let started = Instant::now();
-    let failure = connect(&name, &this_program(), started + PLENTY).err().unwrap();
+    let failure = connect(&name, &this_program(), Instant::now() + PLENTY).err().unwrap();
     assert!(matches!(failure, Failure::Denied), "{failure:?}");
-    assert!(started.elapsed() < Duration::from_secs(2));
 }
 
 #[test]
 fn a_pipe_that_breaks_ends_the_wait_at_once() {
     let name = pipe_name("breaks");
-    let served = serve_one(&name, |_, _| thread::sleep(Duration::from_millis(100)));
+    // `serve_one` reads the request line and then closes the pipe without answering.
+    let served = serve_one(&name, |_, _| {});
     let mut client = connect_to(&name);
-    let started = Instant::now();
     let failure = client.ask("{\"capability\":\"signals\",\"wait_ms\":60000}", None).unwrap_err();
     assert!(matches!(failure, Failure::Broken), "{failure:?}");
-    assert!(started.elapsed() < Duration::from_secs(5));
     served.join().unwrap();
 
     // Gone before the request was written.
@@ -355,10 +348,8 @@ fn a_request_without_an_answer_in_time_is_given_up() {
     let (gone, told) = mpsc::channel();
     let served = serve_one(&name, move |pipe, _| gone.send(client_gone(pipe)).unwrap());
     let mut client = connect_to(&name);
-    let started = Instant::now();
-    let failure = client.ask("{\"capability\":\"signals\",\"wait_ms\":60000}", Some(started + Duration::from_millis(200))).unwrap_err();
+    let failure = client.ask("{\"capability\":\"signals\",\"wait_ms\":60000}", Some(Instant::now() + Duration::from_millis(50))).unwrap_err();
     assert!(matches!(failure, Failure::TimedOut), "{failure:?}");
-    assert!(started.elapsed() >= Duration::from_millis(200));
     // Closing the pipe is what gives the request up.
     drop(client);
     assert!(told.recv_timeout(PLENTY).unwrap() < PLENTY);
@@ -388,7 +379,7 @@ fn the_wait_for_the_main_menu_goes_on_across_a_restart() {
         let name = name.clone();
         thread::spawn(move || {
             first.join().unwrap();
-            thread::sleep(Duration::from_millis(300));
+            thread::sleep(Duration::from_millis(50));
             serve_one(&name, |pipe, _| answer(pipe, "{\"ok\":true,\"result\":{\"process\":8,\"place\":\"main_menu\"}}\n")).join().unwrap();
         })
     };
@@ -407,8 +398,146 @@ fn the_wait_for_the_main_menu_ends_when_told_or_at_its_deadline() {
     let name = pipe_name("menu-none");
     let stopped = main_menu(&name, &this_program(), Instant::now() + PLENTY, || Err::<(), _>(3));
     assert_eq!(stopped.err(), Some(NoMainMenu::Stopped(3)));
-    let started = Instant::now();
-    let timed_out = main_menu(&name, &this_program(), started + Duration::from_millis(300), || Ok::<(), ()>(()));
+    let timed_out = main_menu(&name, &this_program(), Instant::now() + Duration::from_millis(50), || Ok::<(), ()>(()));
     assert_eq!(timed_out.err(), Some(NoMainMenu::TimedOut));
-    assert!(started.elapsed() < PLENTY);
+}
+
+#[cfg(test)]
+struct FakeWaiter {
+    now: Instant,
+    slept: Vec<Duration>,
+}
+
+#[cfg(test)]
+impl FakeWaiter {
+    fn new() -> Self {
+        Self { now: Instant::now(), slept: Vec::new() }
+    }
+}
+
+#[cfg(test)]
+impl Waiter for FakeWaiter {
+    fn now(&mut self) -> Instant {
+        self.now
+    }
+
+    fn sleep(&mut self, duration: Duration) {
+        self.slept.push(duration);
+        self.now += duration;
+    }
+}
+
+#[test]
+fn connect_retries_until_open_or_deadline_and_stops_on_denied() {
+    let mut waiter = FakeWaiter::new();
+    let deadline = waiter.now + LOOK * 5;
+    let mut attempts = 0;
+    let opened = connect_with(deadline, &mut waiter, || {
+        attempts += 1;
+        match attempts {
+            1 => Err(io::Error::from_raw_os_error(ERROR_FILE_NOT_FOUND as i32)),
+            2 => Err(io::Error::from_raw_os_error(ERROR_PIPE_BUSY as i32)),
+            _ => Ok("opened"),
+        }
+    })
+    .unwrap();
+    assert_eq!(opened, "opened");
+    assert_eq!(waiter.slept, [LOOK, LOOK]);
+
+    let mut waiter = FakeWaiter::new();
+    let deadline = waiter.now + LOOK * 3;
+    let failure = connect_with(deadline, &mut waiter, || Err::<(), _>(io::Error::from_raw_os_error(ERROR_FILE_NOT_FOUND as i32))).unwrap_err();
+    assert!(matches!(failure, Failure::NotOpen), "{failure:?}");
+    assert_eq!(waiter.slept, [LOOK, LOOK, LOOK]);
+
+    let mut waiter = FakeWaiter::new();
+    let deadline = waiter.now + PLENTY;
+    let failure = connect_with(deadline, &mut waiter, || Err::<(), _>(io::Error::from_raw_os_error(ERROR_ACCESS_DENIED as i32))).unwrap_err();
+    assert!(matches!(failure, Failure::Denied), "{failure:?}");
+    assert!(waiter.slept.is_empty());
+}
+
+#[test]
+fn read_line_polls_until_data_or_deadline_and_fails_on_broken() {
+    use std::{cell::RefCell, collections::VecDeque};
+
+    let mut waiter = FakeWaiter::new();
+    let deadline = Some(waiter.now + POLL * 10);
+    let pieces = RefCell::new(VecDeque::from([b"".as_slice(), b"", b"{\"ok\":", b"", b"true}\r\n"]));
+    let line = read_line_with(
+        deadline,
+        &mut waiter,
+        || {
+            let mut pieces = pieces.borrow_mut();
+            if pieces.front().is_some_and(|p| p.is_empty()) {
+                pieces.pop_front();
+                return Ok(0);
+            }
+            Ok(pieces.front().map_or(0, |p| p.len() as u32))
+        },
+        |buf| {
+            let piece = pieces.borrow_mut().pop_front().unwrap();
+            buf[..piece.len()].copy_from_slice(piece);
+            Ok(piece.len())
+        },
+    )
+    .unwrap();
+    assert_eq!(line, "{\"ok\":true}");
+    assert_eq!(waiter.slept, [POLL, POLL, POLL]);
+
+    let mut waiter = FakeWaiter::new();
+    let deadline = Some(waiter.now + POLL * 4);
+    let failure = read_line_with(deadline, &mut waiter, || Ok(0), |_| unreachable!()).unwrap_err();
+    assert!(matches!(failure, Failure::TimedOut), "{failure:?}");
+    assert_eq!(waiter.slept, [POLL, POLL, POLL, POLL]);
+
+    let mut waiter = FakeWaiter::new();
+    let failure = read_line_with(Some(waiter.now + PLENTY), &mut waiter, || Err(Failure::Broken), |_| unreachable!()).unwrap_err();
+    assert!(matches!(failure, Failure::Broken), "{failure:?}");
+    assert!(waiter.slept.is_empty());
+}
+
+#[test]
+fn main_menu_retries_across_restarts_until_ready_stopped_or_deadline() {
+    let mut waiter = FakeWaiter::new();
+    let start = waiter.now;
+    let deadline = start + Duration::from_secs(3);
+    let mut look_deadlines = Vec::new();
+    let mut looks = 0;
+    let client = main_menu_with(
+        deadline,
+        &mut waiter,
+        || Ok::<(), u32>(()),
+        |until| {
+            looks += 1;
+            look_deadlines.push(until.duration_since(start));
+            (looks == 3).then_some("menu")
+        },
+    )
+    .unwrap();
+    assert_eq!(client, "menu");
+    assert_eq!(waiter.slept, [MENU_EVERY, MENU_EVERY]);
+    assert_eq!(look_deadlines, [MENU_LOOK, MENU_EVERY + MENU_LOOK, MENU_EVERY * 2 + MENU_LOOK]);
+
+    let mut waiter = FakeWaiter::new();
+    let stopped = main_menu_with(waiter.now + PLENTY, &mut waiter, || Err(3), |_| Some("menu"));
+    assert_eq!(stopped, Err(NoMainMenu::Stopped(3)));
+    assert!(waiter.slept.is_empty());
+
+    let mut waiter = FakeWaiter::new();
+    let start = waiter.now;
+    let deadline = start + Duration::from_millis(1200);
+    let mut capped = Vec::new();
+    let timed_out = main_menu_with(
+        deadline,
+        &mut waiter,
+        || Ok::<(), u32>(()),
+        |until| {
+            capped.push(until.duration_since(start));
+            None::<()>
+        },
+    );
+    assert_eq!(timed_out, Err(NoMainMenu::TimedOut));
+    assert_eq!(waiter.slept, [MENU_EVERY, MENU_EVERY, MENU_EVERY]);
+    assert_eq!(capped, [MENU_LOOK, Duration::from_millis(1200), Duration::from_millis(1200), Duration::from_millis(1200)]);
 }

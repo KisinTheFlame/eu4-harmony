@@ -447,11 +447,22 @@ mod tests {
 
     #[test]
     fn the_new_crash_folders_are_those_not_known_the_last_written_last() {
+        use std::{
+            fs::{FileTimes, OpenOptions},
+            os::windows::fs::OpenOptionsExt,
+            time::Duration,
+        };
+        const FILE_WRITE_ATTRIBUTES: u32 = 0x0100;
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+
         let user = UserFolder::new(scratch("crashes"));
         assert_eq!(user.crash_folders().unwrap(), Vec::<String>::new(), "no crashes folder");
-        for name in ["old", "b", "a"] {
-            fs::create_dir_all(user.crashes().join(name)).unwrap();
-            std::thread::sleep(std::time::Duration::from_millis(20));
+        let base = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        for (index, name) in ["old", "b", "a"].into_iter().enumerate() {
+            let dir = user.crashes().join(name);
+            fs::create_dir_all(&dir).unwrap();
+            let handle = OpenOptions::new().access_mode(FILE_WRITE_ATTRIBUTES).custom_flags(FILE_FLAG_BACKUP_SEMANTICS).open(&dir).unwrap();
+            handle.set_times(FileTimes::new().set_modified(base + Duration::from_secs((index as u64 + 1) * 10))).unwrap();
         }
         fs::write(user.crashes().join("not a folder.txt"), "").unwrap();
         assert_eq!(user.crash_folders().unwrap(), ["a", "b", "old"]);

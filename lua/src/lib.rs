@@ -759,15 +759,21 @@ impl Extension {
     /// Takes up every waiting task whose answer has come, and those
     /// awaiting a task that ended meanwhile, within the same poll.
     pub fn poll(&self) {
+        self.poll_at(Instant::now());
+    }
+
+    /// [`poll`](Self::poll) with an explicit monotonic time for fetch
+    /// deadlines, so tests can trigger timeouts without waiting.
+    pub(crate) fn poll_at(&self, now: Instant) {
         for _ in 0..PASSES {
-            if !self.pass() {
+            if !self.pass(now) {
                 break;
             }
         }
     }
 
     /// One pass over the waiting tasks: whether it took any up.
-    fn pass(&self) -> bool {
+    fn pass(&self, now: Instant) -> bool {
         let tasks = std::mem::take(&mut self.state().tasks);
         let mut still = Vec::new();
         let mut took = false;
@@ -782,7 +788,7 @@ impl Extension {
                 Waiting::Capability(pending) => pending.poll().map(|response| answer(&self.lua, &task.from, response)),
                 Waiting::Fetch(pending, deadline) => match pending.poll() {
                     Some(response) => Some(fetch::answer(&self.lua, response)),
-                    None if Instant::now() >= *deadline => Some(fetch::answer(&self.lua, Err(fetch::Failure::Timeout))),
+                    None if now >= *deadline => Some(fetch::answer(&self.lua, Err(fetch::Failure::Timeout))),
                     None => None,
                 },
                 Waiting::Tasks(handles) => handles.iter().any(|h| h.raw_get::<bool>("ended").unwrap_or(false)).then(|| Ok(MultiValue::new())),

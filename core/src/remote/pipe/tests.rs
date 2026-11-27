@@ -99,6 +99,18 @@ impl Test {
         false
     }
 
+    /// Waits until at least `count` requests sit in the engine's queue.
+    fn wait_queued(&self, count: usize) {
+        let until = Instant::now() + PLENTY;
+        while Instant::now() < until {
+            if self.engine.queued() >= count {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        panic!("expected at least {count} queued request(s), saw {}", self.engine.queued());
+    }
+
     /// Stops the game, which tells what it was asked.
     fn stop(mut self) -> Fake {
         self.stop.store(true, Ordering::Relaxed);
@@ -230,7 +242,7 @@ fn a_client_that_closes_the_pipe_gives_its_request_up() {
     let test = test_pipe!("give-up", Place::Outside(None));
     let mut client = test.connect();
     client.send("{\"capability\": \"time.set_speed\", \"speed\": 3}\n");
-    std::thread::sleep(Duration::from_millis(200));
+    test.wait_queued(1);
     drop(client);
     assert!(test.logged("remote pipe: client 1 closed the pipe before its answer came, which gave the request up, after 0 answer(s)"), "{:#?}", test.log());
     test.set(Place::Game);
@@ -250,7 +262,7 @@ fn a_client_that_closes_the_pipe_gives_its_request_up_with_later_ones_unread() {
     let test = test_pipe!("give-up-unread", Place::Outside(None));
     let mut client = test.connect();
     client.send("{\"capability\": \"time.set_speed\", \"speed\": 3}\n");
-    std::thread::sleep(Duration::from_millis(200));
+    test.wait_queued(1);
     // The transport reads the next line only once the first is answered, so
     // this one is still in the pipe when the client closes it.
     client.send("{\"capability\": \"time.get\"}\n");

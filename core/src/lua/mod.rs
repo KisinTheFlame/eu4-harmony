@@ -504,8 +504,9 @@ impl<S: Surface> LuaHost<S> {
 
     fn with_journal(&self, id: &str, write: impl FnOnce(&mut eu4_harmony_logging::Journal) -> std::io::Result<()>) {
         let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
-        let state = open.entry(id.to_string()).or_insert_with(|| ExtensionLog { file: None, retry: Instant::now(), unconfirmed: 0 });
-        if state.file.is_none() && Instant::now() >= state.retry {
+        let now = self.surface.now();
+        let state = open.entry(id.to_string()).or_insert_with(|| ExtensionLog { file: None, retry: now, unconfirmed: 0 });
+        if state.file.is_none() && now >= state.retry {
             match eu4_harmony_logging::Journal::open(&self.logs, &eu4_harmony_logging::extension_source(id)) {
                 Ok(mut file) => {
                     if state.unconfirmed != 0
@@ -521,7 +522,7 @@ impl<S: Surface> LuaHost<S> {
                     state.file = Some(file);
                 }
                 Err(error) => {
-                    state.retry = Instant::now() + Duration::from_secs(60);
+                    state.retry = now + Duration::from_secs(60);
                     log!("cannot open extension log {id:?}: {error}");
                 }
             }
@@ -1246,7 +1247,9 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let logs = dir.join("logs");
         std::fs::write(&logs, "not a folder").unwrap();
-        let host = LuaHost::new(logs.clone(), Arc::new(FakeSurface::new()));
+        let surface = Arc::new(FakeSurface::new());
+        let began = surface.now();
+        let host = LuaHost::new(logs.clone(), surface.clone());
         host.log("recovery", "first");
         host.log("recovery", "second");
         {
@@ -1254,14 +1257,20 @@ mod tests {
             let log = open.get("recovery").unwrap();
             assert!(log.file.is_none());
             assert_eq!(log.unconfirmed, 2);
-            assert!(log.retry > Instant::now());
+            assert_eq!(log.retry, began + Duration::from_secs(60));
         }
         std::fs::remove_file(&logs).unwrap();
         std::fs::create_dir_all(&logs).unwrap();
-        host.open.lock().unwrap().get_mut("recovery").unwrap().retry = Instant::now();
+        // Before the backoff elapses, logging still skips reopening.
+        *surface.now.lock().unwrap() = began + Duration::from_secs(59);
+        host.log("recovery", "still backing off");
+        assert!(!log_file(&logs, "recovery").exists());
+        // Once the backoff elapses, the next record reopens and reports all
+        // unconfirmed records.
+        *surface.now.lock().unwrap() = began + Duration::from_secs(60);
         host.log("recovery", "working again");
         let text = std::fs::read_to_string(log_file(&logs, "recovery")).unwrap();
-        assert!(text.contains("2 earlier records were not confirmed persisted"));
+        assert!(text.contains("3 earlier records were not confirmed persisted"));
         assert!(text.contains("working again"));
         drop(host);
         std::fs::remove_dir_all(dir).unwrap();
