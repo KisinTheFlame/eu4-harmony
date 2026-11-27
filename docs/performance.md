@@ -1,6 +1,31 @@
 # Performance
 
-`scenario perf` now collects completed days, frame submission intervals and interface updates in bounded in-process windows on a dedicated performance developer build. [Performance windows](dev-tools.md#performance-windows) explains its output and collection-off comparisons; the [metric plan](plans/README.md#measurement) also defines action response, which remains unmeasured. The historical results below retain their original methods: their date-based rates and frame counts are not retrospectively redefined as the new measurements.
+## Standard performance benchmark
+
+The fixed benchmark command is `cargo xtask scenario perf --owner <name>`, which runs two standalone scenarios sequentially on the `dev` build with `[performance] enabled = true` ([performance windows](dev-tools.md#performance-windows)):
+
+| Scenario | Era / start | Mode & country in view | Capital camera | Default windows |
+| --- | --- | --- | --- | --- |
+| `perf-early` | Early game: fresh `1444.11.11` | Observe mode, fixed Ming (`MNG`) in view | Beijing (`1816`) | 30 s paused, 120 s speed 5 |
+| `perf-late` | Late game: `observer-1780.7.1` | Observe mode, rank-1 great power at start (`TUR`, read from `great_powers`) in view | Capital read from save (`151`) | 30 s paused, 120 s speed 5 |
+
+Running in observe mode with the top great power put in view ensures the AI drives every nation (avoiding an idle player country) while exercising a realistic major-power HUD, fog-of-war, outliner and capital map view. The [metric plan](plans/README.md#measurement) also defines action response, which remains unmeasured. The historical results below retain their original methods: their date-based rates and frame counts are not retrospectively redefined as the new measurements.
+
+### Standard baseline (2026-11-28, `643bf7a0`)
+
+Measured with `cargo xtask scenario perf` on the `dev` build (`[performance] enabled = true`, clean synthetic hidden 1920x1080 unmodded full-DLC test game, 0 other games running, 30 s paused + 120 s speed 5, 0 lost events):
+
+| Measure | `perf-early` (1444, `MNG` @ 1816) | `perf-late` (`observer-1780.7.1`, `TUR` @ 151) |
+| --- | --- | --- |
+| Completed days/min (speed 5) | 900.5 (1,801 days) | 837.0 (1,674 days) |
+| Whole daily call mean / P50 / P95, ms | 52.492 / 28.012 / 277.996 | 48.027 / 32.651 / 94.433 |
+| Ordinary / month-start daily call mean, ms | 39.544 / 433.680 | 37.005 / 377.673 |
+| Day completion interval mean / P50, ms | 66.559 / 38.083 | 71.492 / 56.470 |
+| Submissions/s (speed 5) | 27.392 (0 main-thread) | 25.458 (0 main-thread) |
+| Submission interval P50 / P95 / P99, ms | 34.341 / 41.836 / 98.835 | 35.602 / 48.422 / 92.314 |
+| Interface age mean / P95 / P99, ms | 66.424 / 105.063 / 133.577 | 73.072 / 113.768 / 156.834 |
+| CPU paused / speed 5, cores | 0.219 / 2.671 | 0.381 / 2.813 |
+| Memory at speed 5 (WS / private MB) | 2,923 / 3,868 | 2,961 / 3,898 |
 
 ## Completed days, submissions and updates (2026-11-14)
 
