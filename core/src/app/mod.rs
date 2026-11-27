@@ -100,6 +100,14 @@ fn wire_all() {
         join_parallel_save: speed::saving::parallel::join,
         wait_background_save: speed::saving::background::wait,
     });
+    session::transition::set_hooks(session::transition::TransitionHooks {
+        ui_still: framework_ui::still,
+        in_day: capabilities::game::signals::in_day,
+        mode_before_load: capabilities::game::map::mode_before_load,
+        restore_after_load: capabilities::game::map::restore_after_load,
+        pause_game: capabilities::game::menu::pause_for_transition,
+        is_still: capabilities::game::menu::is_still_for_transition,
+    });
     interface::set_hooks(interface::InterfaceHooks {
         mod_id: lua::mod_id,
         on_main_menu_frame: |frontend, show_corner| {
@@ -117,7 +125,6 @@ fn wire_all() {
             let r = lua::reload(caller, args)?;
             Ok(eu4_harmony_remote::extensions::Reloaded { session: r.session, lost: r.lost })
         },
-        ui_still: framework_ui::still,
         #[cfg(feature = "dev")]
         answer_memory: dev::answer_memory,
         #[cfg(feature = "dev")]

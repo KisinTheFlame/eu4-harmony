@@ -191,7 +191,7 @@ pub fn main_menu_frame(frontend: usize) {
     if let Some(m) = crate::native::memory() {
         sessions::frame_ran();
         repairs::main_menu_shown(m);
-        game::menu::main_menu_frame(m, frontend);
+        crate::session::transition::main_menu_frame(m, frontend);
     }
 }
 
@@ -204,7 +204,7 @@ pub fn game_frame() {
     crate::base::log::poll();
     // An in-game load remote control asked for takes the frame: the next
     // one is the new session's.
-    if game::menu::game_frame(&m) {
+    if crate::session::transition::game_frame(&m) {
         GAME_FRAME.store(true, Ordering::Relaxed);
         return;
     }
@@ -282,7 +282,7 @@ pub fn presented() {
         PresentedAction::MainMenu(frontend) => {
             let Some(m) = crate::native::memory() else { return };
             sessions::set_at(At::MainMenu(frontend));
-            let open = !game::menu::starting(m, frontend);
+            let open = !crate::session::transition::starting(m, frontend);
             remote::run_outside(open.then(|| game::Fail { status: game::Status::NotInGame, message: "the main menu is open".into() }));
         }
         PresentedAction::Elsewhere => {
