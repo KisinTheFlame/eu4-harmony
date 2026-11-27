@@ -56,6 +56,7 @@ const REQUIRED_CHECKED: &[&str] = &[
     "parallel-saves",
     "army-checks",
     "support-checks",
+    "settlement-growth",
     "modifier-sums",
     "country-distances",
     "flag-atlas",

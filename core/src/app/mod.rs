@@ -53,6 +53,7 @@ fn wire_all() {
         },
     });
     render::window_input::set_hooks(render::window_input::InputHooks { is_modal: framework_ui::modal, on_wheel: tweaks::camera_zoom::before_sdl_wheel });
+    text::unicode::set_on_texture_replaced(render::drawing::evict_texture_desc);
     tweaks::hidden::set_hooks(tweaks::hidden::HiddenHooks { on_early_sync: proxy::sync_once });
     session::sessions::set_listener(|happening| {
         use session::sessions::Happening;
