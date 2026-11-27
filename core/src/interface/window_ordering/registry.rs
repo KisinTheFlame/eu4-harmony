@@ -53,6 +53,10 @@ pub(super) struct Registry {
     nodes: BTreeMap<usize, Key>,
     hosts: BTreeMap<usize, Key>,
     host_roots: BTreeMap<usize, usize>,
+    /// Top-level native backdrop windows (such as map icons) kept below
+    /// ordinary HUD and panel windows: maps root -> container node.
+    backdrop_roots: BTreeMap<usize, usize>,
+    backdrop_nodes: BTreeSet<usize>,
     dirty: bool,
     held: usize,
 }
@@ -271,6 +275,14 @@ impl Registry {
     /// Called before Kill/destruction, never after its memory was released.
     /// Framework-owned logical order survives a native incarnation's death.
     pub fn retire(&mut self, root: usize) {
+        if let Some(node) = self.backdrop_roots.remove(&root) {
+            self.backdrop_nodes.remove(&node);
+            if let Some(&key) = self.nodes.get(&node) {
+                if self.entries[&key].role == Role::Original {
+                    self.remove(key);
+                }
+            }
+        }
         self.detach_host(root);
         let gone: Vec<_> = self.entries.iter().filter_map(|(&key, entry)| (entry.root == Some(root)).then_some((key, entry.role))).collect();
         for (key, role) in gone {
@@ -283,13 +295,48 @@ impl Registry {
         self.host_roots.retain(|_, old| *old != root);
     }
 
+    /// Marks an ordinary top-level native window as a backdrop window (such as
+    /// a map icon). Backdrop windows never activate above framework windows,
+    /// and a leading backdrop prefix forms the top-level scope's floor.
+    pub fn mark_backdrop(&mut self, m: &Memory, root: usize) -> Result<()> {
+        if self.backdrop_roots.contains_key(&root) {
+            return Ok(());
+        }
+        if m.ptr(root + crate::native::objects::gui::window::GUI)? != m.at(crate::native::objects::gui::classes::WINDOW_GUI) {
+            return Ok(());
+        }
+        let Some((_, scene)) = native::scene(m)? else {
+            return Ok(());
+        };
+        let node = native::window_node(m, root)?;
+        if m.ptr(node + native::PARENT)? != scene + native::ROOT {
+            return Ok(());
+        }
+        if let Some(&key) = self.nodes.get(&node) {
+            match self.entries[&key].role {
+                Role::Owned | Role::Attached => return Ok(()),
+                Role::Original => {
+                    self.entries.get_mut(&key).expect("registered original").root = None;
+                    self.course.cancel_pending(key);
+                }
+            }
+        }
+        self.backdrop_roots.insert(root, node);
+        self.backdrop_nodes.insert(node);
+        Ok(())
+    }
+
+    fn scope_prefix(&self, parent: usize, full: &[usize]) -> Result<usize> {
+        match self.scopes[&parent].floor {
+            Some(floor) => Ok(full.iter().position(|&node| node == floor).ok_or("host background disappeared")? + 1),
+            None => Ok(full.iter().take_while(|node| self.backdrop_nodes.contains(node)).count()),
+        }
+    }
+
     /// Refresh only registered scopes. Other scene trees remain outside policy.
     fn adopt(&mut self, m: &Memory, parent: usize, first_root: usize) -> Result<Vec<usize>> {
         let full = placement::snapshot(m, parent)?;
-        let prefix = match self.scopes[&parent].floor {
-            Some(floor) => full.iter().position(|&node| node == floor).ok_or("host background disappeared")? + 1,
-            None => 0,
-        };
+        let prefix = self.scope_prefix(parent, &full)?;
         let included = &full[prefix..];
         let absent: Vec<_> = self
             .entries
@@ -305,7 +352,7 @@ impl Registry {
             if self.nodes.contains_key(&node) {
                 continue;
             }
-            let root = native::window_of(m, node)?;
+            let root = if self.backdrop_nodes.contains(&node) { None } else { native::window_of(m, node)? };
             let shown = root.map(|root| native::visible(m, root, first_root)).transpose()?.unwrap_or(false);
             let key = self.add(parent, Role::Original, root, vec![node], shown)?;
             if let Some(root) = root {
@@ -329,7 +376,7 @@ impl Registry {
     /// Before a display operation, adopt its still-hidden ordinary window if
     /// it belongs to an already-related scope. No tree mutation happens here.
     pub fn before_visibility(&mut self, m: &Memory, root: usize) -> Result<()> {
-        if self.scopes.is_empty() {
+        if self.scopes.is_empty() || self.backdrop_roots.contains_key(&root) {
             return Ok(());
         }
         // Derived windows also enter the shared display methods. Only an
@@ -380,6 +427,9 @@ impl Registry {
         };
         let mut visited = BTreeSet::new();
         while node != 0 && visited.len() < 1024 && visited.insert(node) {
+            if self.backdrop_nodes.contains(&node) {
+                return Ok(None);
+            }
             if let Some(entry) = self.nodes.get(&node).and_then(|key| self.entries.get(key)) {
                 if entry.root.is_some() {
                     return Ok(entry.token);
@@ -424,10 +474,7 @@ impl Registry {
                 .collect::<Vec<_>>();
             let plan = self.course.plan(parent as u64, &tokens)?;
             let order = plan.as_ref().map_or(tokens.as_slice(), |plan| plan.after.as_slice());
-            let prefix = match self.scopes[&parent].floor {
-                Some(floor) => full.iter().position(|&node| node == floor).ok_or("host background disappeared")? + 1,
-                None => 0,
-            };
+            let prefix = self.scope_prefix(parent, &full)?;
             let mut after = full[..prefix].to_vec();
             let mut movable = BTreeSet::new();
             for token in order {
@@ -457,6 +504,8 @@ impl Registry {
         self.nodes.clear();
         self.hosts.clear();
         self.host_roots.clear();
+        self.backdrop_roots.clear();
+        self.backdrop_nodes.clear();
         self.dirty = false;
     }
 }

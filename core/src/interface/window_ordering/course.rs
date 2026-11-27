@@ -148,6 +148,11 @@ impl Course {
         true
     }
 
+    /// Discards any unapplied activation for `key` while keeping its slot.
+    pub fn cancel_pending(&mut self, key: Key) {
+        self.pending.retain(|event| event.key != key);
+    }
+
     /// Forget a logical identity, as on extension unload or session reset.
     pub fn remove(&mut self, key: Key) {
         let Some(entry) = self.entries.remove(&key) else { return };
