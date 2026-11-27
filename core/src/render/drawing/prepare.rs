@@ -24,6 +24,7 @@ use super::{direct1, direct3, is_drawing_thread, APP, APP_MAP, IDLER_CAMERA, IDL
 use crate::base::called_by_game;
 use crate::native::memory::Memory;
 use crate::native::points::{GameFunction, Point};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 pub(super) fn points() -> Vec<Point> {
     vec![
@@ -54,6 +55,17 @@ pub(super) fn points() -> Vec<Point> {
         Point::keep(PASSES_ASKED_GO_ON, "48 89 44 24 30 4c 89 54 24 28 4c 89 5c 24 20 49 8b 97 00 12 00 00 e8 26 c9 88 00", "the off-screen passes called")
             .uses(&[IDLER_CAMERA]),
         Point::keep(PASSES, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 57 41 54", "the off-screen passes"),
+        Point::jump(
+            PASSES_SUFFIX,
+            "48 8b 3d c4 11 15 01",
+            "the off-screen passes' camera suffix",
+            passes_suffix_stub as *const () as usize,
+            &PASSES_SUFFIX_RESUME,
+        )
+        .uses(&[SETTINGS])
+        .recorded(&PASSES_SUFFIX_AT),
+        Point::keep(PASSES_SUFFIX_GO_ON, "80 bf 3b 01 00 00 00", "the off-screen passes' camera suffix goes on"),
+        Point::keep(PASSES_SUFFIX_EPILOGUE, "48 8b 5c 24 30 48 8b 74 24 38 48 83 c4 20 5f c3", "the off-screen passes' epilogue"),
     ]
 }
 
@@ -103,7 +115,41 @@ const PASSES: usize = 0x10a51e0;
 const PASSES_ASKED: usize = 0x81887c;
 const PASSES_ASKED_GO_ON: usize = 0x81889f;
 resume!(PASSES_RESUME: PASSES_ASKED_GO_ON_AT = PASSES_ASKED_GO_ON);
+/// Inside `0x12dab90`, after the flagged rebuilds (`0x12efe40`, trees,
+/// `0x13bd3a0`) and right where the camera-dependent suffix (`0x12e8c00`,
+/// `0x12e5d30`, `0x12dac90`) begins: `mov rdi, [SETTINGS]`. Main-thread
+/// preparation skips this suffix (jumping to the common epilogue `0x12dac7a`)
+/// so the drawing thread runs it once with its live camera and without
+/// colliding with Direct3D 9's device lock during `Present`
+/// (docs/game/interface/drawing-boundaries.md).
+const PASSES_SUFFIX: usize = 0x12dac1d;
+const PASSES_SUFFIX_GO_ON: usize = 0x12dac24;
+const PASSES_SUFFIX_EPILOGUE: usize = 0x12dac7a;
+resume!(PASSES_SUFFIX_RESUME: PASSES_SUFFIX_GO_ON_AT = PASSES_SUFFIX_GO_ON, PASSES_SUFFIX_EPILOGUE_AT = PASSES_SUFFIX_EPILOGUE);
+static PASSES_SUFFIX_AT: AtomicUsize = AtomicUsize::new(0);
+/// Thread ID currently running main-thread `prepare::passes`, or 0.
+static SKIP_PASSES_SUFFIX_THREAD: AtomicU32 = AtomicU32::new(0);
 const IDLER_PASSES: usize = 0x338;
+
+#[unsafe(naked)]
+extern "C" fn passes_suffix_stub() {
+    std::arch::naked_asm!(
+        "mov eax, dword ptr gs:[0x48]",
+        "cmp eax, dword ptr [rip + {skip}]",
+        "je 2f",
+        "mov rdi, qword ptr [rip + {at}]",
+        "add rdi, {to_settings}",
+        "mov rdi, qword ptr [rdi]",
+        "jmp qword ptr [rip + {goes_on}]",
+        "2:",
+        "jmp qword ptr [rip + {epilogue}]",
+        skip = sym SKIP_PASSES_SUFFIX_THREAD,
+        at = sym PASSES_SUFFIX_AT,
+        to_settings = const SETTINGS - PASSES_SUFFIX,
+        goes_on = sym PASSES_SUFFIX_GO_ON_AT,
+        epilogue = sym PASSES_SUFFIX_EPILOGUE_AT,
+    );
+}
 
 /// The bytes the drawing thread's passes are given: never set, so no
 /// rebuild is asked for; the passes write zeros into them as they clear them.
@@ -192,13 +238,29 @@ fn first_steps(m: &Memory, idler: usize) -> crate::base::Result<()> {
 }
 
 /// The off-screen passes ([`PASSES`]) as the drawing calls them, with the
-/// idler's own bytes: the rebuilds they ask for, done here.
+/// idler's own bytes: only the rebuilds they ask for are done here; when no
+/// rebuild byte is set, `0x10a51e0` does nothing to flags or world-derived
+/// state and is skipped, and when a rebuild runs, `passes_suffix_stub` skips
+/// the camera-dependent suffix (`0x12dac1d..0x12dac7a`) so the drawing thread
+/// runs it once without colliding with `Present`.
 fn passes(m: &Memory, idler: usize) -> crate::base::Result<()> {
     let map = m.ptr(m.ptr(m.at(APP))? + APP_MAP)?;
     let camera = m.ptr(idler + IDLER_CAMERA)?;
     if map == 0 || camera == 0 {
         return Ok(());
     }
+    let asked = [0usize, 1, 2, 4, 5].iter().any(|&i| m.u8(idler + IDLER_PASSES + i).is_ok_and(|b| b != 0));
+    if !asked {
+        return Ok(());
+    }
+    struct SkipSuffixGuard;
+    impl Drop for SkipSuffixGuard {
+        fn drop(&mut self) {
+            SKIP_PASSES_SUFFIX_THREAD.store(0, Ordering::Release);
+        }
+    }
+    SKIP_PASSES_SUFFIX_THREAD.store(crate::base::thread_id(), Ordering::Release);
+    let _guard = SkipSuffixGuard;
     let byte = |i: usize| (idler + IDLER_PASSES + i) as *mut u8;
     type Passes = unsafe extern "C" fn(usize, usize, *mut u8, *mut u8, *mut u8, *mut u8, *mut u8);
     let run: Passes = unsafe { std::mem::transmute(m.at(PASSES)) };
