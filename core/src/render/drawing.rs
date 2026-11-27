@@ -785,7 +785,7 @@ fn app_frame_before(_: &mut Call) {
     if !on_main() {
         return;
     }
-    if !FRAMES.take_day_ran() {
+    if main_side(|s| s.may_pace()) && !FRAMES.take_day_ran() {
         pace();
     }
     main_side(|s| s.frame_begins(&MainLock));
