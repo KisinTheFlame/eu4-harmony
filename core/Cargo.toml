@@ -9,7 +9,7 @@ build = "build.rs"
 
 [lib]
 name = "eu4_harmony_core"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [dependencies]
 eu4-harmony-core-macros = { path = "macros" }
