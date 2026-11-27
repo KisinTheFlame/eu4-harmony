@@ -123,18 +123,43 @@ pub struct Game {
     started: u64,
 }
 
+/// The interactive window station and its default desktop.
+const INTERACTIVE_STATION: &str = "WinSta0";
+const DEFAULT_DESKTOP: &str = "Default";
+const INTERACTIVE_DEFAULT_DESKTOP: &str = r"WinSta0\Default";
+/// `WSF_VISIBLE` in `USEROBJECTFLAGS.dwFlags` for a visible window station.
+const WSF_VISIBLE: u32 = 0x0001;
+/// Desktop access rights needed for a GUI process on `WinSta0\Default`:
+/// `DESKTOP_READOBJECTS | DESKTOP_CREATEWINDOW | DESKTOP_WRITEOBJECTS`.
+const DESKTOP_LAUNCH_ACCESS: u32 = 0x0001 | 0x0002 | 0x0080;
+
 impl Game {
     /// Starts `exe` from `dir` with `switches`, with none of this program's
     /// handles: one that kept this program's output, a pipe, would keep
     /// whoever reads it waiting until the game ends, and every inheritable
     /// handle is passed on unless none is.
+    ///
+    /// When the caller runs on a non-default desktop inside the visible
+    /// interactive window station (`WinSta0`, such as an agent runner's hidden
+    /// desktop), targets `WinSta0\Default` if that desktop can be opened so
+    /// visible starts appear on the screen and hidden starts (`-harmony_hidden`)
+    /// avoid inactive-desktop DWM/Direct3D 9 frame throttling. Falls back to
+    /// inheriting the caller's desktop otherwise.
     pub fn spawn(exe: &Path, switches: &[String], dir: &Path) -> Result<Self> {
+        Self::spawn_with_desktop(exe, switches, dir, interactive_default_desktop())
+    }
+
+    fn spawn_with_desktop(exe: &Path, switches: &[String], dir: &Path, desktop: Option<&str>) -> Result<Self> {
         use windows_sys::Win32::System::Threading::{CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW};
         let wide = |text: &str| text.encode_utf16().chain([0]).collect::<Vec<u16>>();
         let mut line = wide(&std::iter::once(format!("\"{}\"", exe.display())).chain(switches.iter().cloned()).collect::<Vec<_>>().join(" "));
         let (exe_w, dir_w) = (wide(&exe.display().to_string()), wide(&dir.display().to_string()));
+        let mut desktop_w = desktop.map(wide);
         let mut startup: STARTUPINFOW = unsafe { std::mem::zeroed() };
         startup.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+        if let Some(name) = desktop_w.as_mut() {
+            startup.lpDesktop = name.as_mut_ptr();
+        }
         let mut info: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
         let made = unsafe {
             CreateProcessW(exe_w.as_ptr(), line.as_mut_ptr(), std::ptr::null(), std::ptr::null(), 0, 0, std::ptr::null(), dir_w.as_ptr(), &startup, &mut info)
@@ -244,6 +269,93 @@ fn start_time(handle: usize) -> Option<u64> {
         .then(|| (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
 }
 
+/// Chooses the `STARTUPINFOW.lpDesktop` value for a spawned game process.
+///
+/// Returns `Some(r"WinSta0\Default")` only when the caller belongs to the
+/// visible interactive window station (`WinSta0`), its thread is attached to a
+/// non-default desktop, and `Default` can be opened for window creation. In
+/// all other cases (already on `WinSta0\Default`, or in a non-interactive
+/// session/service whose own window station also contains a `Default` desktop),
+/// returns `None` so `CreateProcessW` inherits the caller's desktop.
+fn default_desktop_for(station: Option<(&str, bool)>, desktop: Option<&str>, can_open_default: impl FnOnce() -> bool) -> Option<&'static str> {
+    let (station_name, visible) = station?;
+    if !visible || !station_name.eq_ignore_ascii_case(INTERACTIVE_STATION) {
+        return None;
+    }
+    let desktop_name = desktop?;
+    if desktop_name.eq_ignore_ascii_case(DEFAULT_DESKTOP) {
+        return None;
+    }
+    can_open_default().then_some(INTERACTIVE_DEFAULT_DESKTOP)
+}
+
+/// Returns `Some(r"WinSta0\Default")` when the current process runs on another
+/// desktop inside the visible `WinSta0` window station and can open `Default`.
+fn interactive_default_desktop() -> Option<&'static str> {
+    let station = current_window_station();
+    let desktop = current_desktop();
+    default_desktop_for(station.as_ref().map(|(name, visible)| (name.as_str(), *visible)), desktop.as_deref(), can_open_default_desktop)
+}
+
+/// The calling process's window station name and whether `WSF_VISIBLE` is set.
+fn current_window_station() -> Option<(String, bool)> {
+    use windows_sys::Win32::System::StationsAndDesktops::{GetProcessWindowStation, GetUserObjectInformationW, UOI_FLAGS, USEROBJECTFLAGS};
+    let station = unsafe { GetProcessWindowStation() };
+    if station.is_null() {
+        return None;
+    }
+    let name = user_object_name(station)?;
+    let mut flags: USEROBJECTFLAGS = unsafe { std::mem::zeroed() };
+    let mut needed = 0u32;
+    let ok = unsafe {
+        GetUserObjectInformationW(station, UOI_FLAGS, (&mut flags as *mut USEROBJECTFLAGS).cast(), std::mem::size_of::<USEROBJECTFLAGS>() as u32, &mut needed)
+    };
+    if ok == 0 {
+        return None;
+    }
+    Some((name, (flags.dwFlags & WSF_VISIBLE) != 0))
+}
+
+/// The calling thread's current desktop name.
+fn current_desktop() -> Option<String> {
+    use windows_sys::Win32::System::{StationsAndDesktops::GetThreadDesktop, Threading::GetCurrentThreadId};
+    let desktop = unsafe { GetThreadDesktop(GetCurrentThreadId()) };
+    if desktop.is_null() {
+        return None;
+    }
+    user_object_name(desktop)
+}
+
+/// Reads the UTF-16 `UOI_NAME` of a window station or desktop handle.
+fn user_object_name(handle: *mut std::ffi::c_void) -> Option<String> {
+    use windows_sys::Win32::System::StationsAndDesktops::{GetUserObjectInformationW, UOI_NAME};
+    let mut needed = 0u32;
+    unsafe { GetUserObjectInformationW(handle, UOI_NAME, std::ptr::null_mut(), 0, &mut needed) };
+    if needed == 0 || !needed.is_multiple_of(2) {
+        return None;
+    }
+    let mut buf = vec![0u16; (needed as usize) / 2];
+    let ok = unsafe { GetUserObjectInformationW(handle, UOI_NAME, buf.as_mut_ptr().cast(), needed, &mut needed) };
+    if ok == 0 {
+        return None;
+    }
+    let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    Some(String::from_utf16_lossy(&buf[..len]))
+}
+
+/// Whether `"Default"` in the calling process's current window station can be
+/// opened with window-creation access.
+fn can_open_default_desktop() -> bool {
+    use windows_sys::Win32::System::StationsAndDesktops::{CloseDesktop, OpenDesktopW};
+    let name: Vec<u16> = DEFAULT_DESKTOP.encode_utf16().chain([0]).collect();
+    let desktop = unsafe { OpenDesktopW(name.as_ptr(), 0, 0, DESKTOP_LAUNCH_ACCESS) };
+    if desktop.is_null() {
+        return false;
+    }
+    unsafe { CloseDesktop(desktop) };
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,6 +377,46 @@ mod tests {
         assert!(counts_as_running(&Err("no snapshot".into())));
     }
 
+    #[test]
+    fn non_default_desktop_in_visible_winsta0_targets_default_when_accessible() {
+        assert_eq!(default_desktop_for(Some(("WinSta0", true)), Some("exebox-123"), || true), Some(INTERACTIVE_DEFAULT_DESKTOP));
+        assert_eq!(default_desktop_for(Some(("winsta0", true)), Some("CustomDesktop"), || true), Some(INTERACTIVE_DEFAULT_DESKTOP));
+        assert_eq!(default_desktop_for(Some(("WinSta0", true)), Some("exebox-123"), || false), None);
+    }
+
+    #[test]
+    fn already_default_or_non_interactive_station_inherits_without_probing() {
+        let must_not_probe = || -> bool { panic!("OpenDesktopW probe must not run") };
+        assert_eq!(default_desktop_for(Some(("WinSta0", true)), Some("Default"), must_not_probe), None);
+        assert_eq!(default_desktop_for(Some(("WinSta0", true)), Some("default"), must_not_probe), None);
+        assert_eq!(default_desktop_for(Some(("WinSta0", false)), Some("exebox-123"), must_not_probe), None);
+        assert_eq!(default_desktop_for(Some(("Service-0x0-3e7$", false)), Some("Hidden"), must_not_probe), None);
+        assert_eq!(default_desktop_for(Some(("Service-0x0-3e7$", true)), Some("Hidden"), must_not_probe), None);
+        assert_eq!(default_desktop_for(None, Some("exebox-123"), must_not_probe), None);
+        assert_eq!(default_desktop_for(Some(("WinSta0", true)), None, must_not_probe), None);
+    }
+
+    #[test]
+    fn desktop_probe_queries_the_current_session_and_supports_explicit_lpdesktop() {
+        let station = current_window_station();
+        let desktop = current_desktop();
+        assert!(station.as_ref().is_some_and(|(name, _)| !name.is_empty()));
+        assert!(desktop.as_ref().is_some_and(|name| !name.is_empty()));
+        let chosen = interactive_default_desktop();
+        assert!(chosen.is_none() || chosen == Some(INTERACTIVE_DEFAULT_DESKTOP));
+
+        // Exercise the non-null `STARTUPINFOW.lpDesktop` path against the
+        // caller's own desktop so the test works in both interactive and CI
+        // sessions without flashing a console window on another desktop.
+        let (station_name, _) = station.unwrap();
+        let desktop_name = desktop.unwrap();
+        let current = format!(r"{station_name}\{desktop_name}");
+        let root = system_root();
+        let cmd = root.join(r"System32\cmd.exe");
+        let proc = Game::spawn_with_desktop(&cmd, &["/c".into(), "exit".into(), "5".into()], &root, Some(&current)).unwrap();
+        assert_eq!(proc.wait(), Some(5));
+    }
+
     fn system_root() -> std::path::PathBuf {
         std::env::var_os("SystemRoot").map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"))
     }
@@ -276,7 +428,7 @@ mod tests {
         let root = system_root();
         let cmd = root.join(r"System32\cmd.exe");
         let line = ["/c", "ping", "-n", "2", "127.0.0.1", ">nul", "&", "exit", "9"].map(String::from);
-        let started = Game::spawn(&cmd, &line, &root).unwrap();
+        let started = Game::spawn_with_desktop(&cmd, &line, &root, None).unwrap();
         let found = Game::open(started.id()).expect("it runs");
         drop(started);
         assert_ne!(found.started(), 0);
@@ -297,7 +449,7 @@ mod tests {
     fn a_started_process_keeps_its_exit_code_however_soon_it_ends() {
         let root = system_root();
         let cmd = root.join(r"System32\cmd.exe");
-        let game = Game::spawn(&cmd, &["/c".into(), "exit".into(), "7".into()], &root).unwrap();
+        let game = Game::spawn_with_desktop(&cmd, &["/c".into(), "exit".into(), "7".into()], &root, None).unwrap();
         assert_ne!(game.started(), 0);
         // However long a busy computer takes to run it, its code is kept.
         let mut code = None;
