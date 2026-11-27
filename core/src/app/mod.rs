@@ -43,13 +43,11 @@ fn wire_all() {
         before_main_present: |renderer, device| {
             // Font page growth touches game font objects and map names; it must
             // run on the main thread only (ADR font-pages-grow).
-            base::guarded("font pages", text::unicode::grow_pages);
-            unsafe { before_any_present(renderer, device) };
+            run_main_present_before(|| base::guarded("font pages", text::unicode::grow_pages), || unsafe { before_any_present(renderer, device) });
         },
         before_drawing_present: before_any_present,
         after_main_present: |_device| {
-            base::guarded("safe point", safe_point::presented);
-            base::guarded("text costs", text::unicode::log_costs_when_due);
+            run_main_frame_tail(|| base::guarded("safe point", safe_point::presented), || base::guarded("text costs", text::unicode::log_costs_when_due));
         },
         before_reset: || {
             interface::tooltips::clear();
@@ -62,14 +60,13 @@ fn wire_all() {
             // While the drawing thread presents in-game frames, the main thread
             // never enters `before_main_present`; grow font pages here while
             // the main thread holds the presentation lock (ADR font-pages-grow).
-            base::guarded("font pages", text::unicode::grow_pages);
-            base::guarded("safe point", safe_point::presented);
-            base::guarded("text costs", text::unicode::log_costs_when_due);
+            run_prepared_safe_point(
+                || base::guarded("font pages", text::unicode::grow_pages),
+                || base::guarded("safe point", safe_point::presented),
+                || base::guarded("text costs", text::unicode::log_costs_when_due),
+            );
         },
-        prepare_scene: |m| {
-            base::guarded("font pages", text::unicode::grow_pages);
-            interface::window_ordering::prepare_scene(m)
-        },
+        prepare_scene: |m| run_prepare_scene(|| base::guarded("font pages", text::unicode::grow_pages), || interface::window_ordering::prepare_scene(m)),
     });
     tweaks::hidden::set_hooks(tweaks::hidden::HiddenHooks { on_early_sync: proxy::sync_once });
     session::sessions::set_listener(|happening| {
@@ -141,6 +138,33 @@ fn wire_all() {
         #[cfg(feature = "dev")]
         answer_performance: dev::answer_performance,
     });
+}
+
+/// Main-thread work run just before `Present` when the main thread presents directly.
+fn run_main_present_before(grow_pages: impl FnOnce(), draw_overlay: impl FnOnce()) {
+    grow_pages();
+    draw_overlay();
+}
+
+/// Main-thread end-of-frame safe-point and cost reporting work shared by both
+/// direct main-thread presentation and drawing-thread prepared frames.
+fn run_main_frame_tail(safe_point: impl FnOnce(), log_costs: impl FnOnce()) {
+    safe_point();
+    log_costs();
+}
+
+/// Main-thread work run while preparing a frame for the drawing thread.
+fn run_prepare_scene<R>(grow_pages: impl FnOnce(), prepare_scene: impl FnOnce() -> R) -> R {
+    grow_pages();
+    prepare_scene()
+}
+
+/// Main-thread safe point while the drawing thread presents in-game frames:
+/// grows font pages (since `before_main_present` is skipped) and runs the shared
+/// end-of-frame tail.
+fn run_prepared_safe_point(grow_pages: impl FnOnce(), safe_point: impl FnOnce(), log_costs: impl FnOnce()) {
+    grow_pages();
+    run_main_frame_tail(safe_point, log_costs);
 }
 
 unsafe fn before_any_present(renderer: usize, device: Option<*mut std::ffi::c_void>) {
@@ -333,5 +357,44 @@ pub(crate) fn bootstrap_entry() -> u32 {
             fail_startup("panic during startup".into(), None, false, None);
             2
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{run_main_frame_tail, run_main_present_before, run_prepare_scene, run_prepared_safe_point};
+    use std::cell::RefCell;
+
+    #[test]
+    fn both_main_present_and_drawing_thread_paths_grow_pages_and_run_tail_on_main_thread() {
+        // 1. Direct main-thread present path (main menu or drawing-thread off).
+        let main_events = RefCell::new(Vec::new());
+        run_main_present_before(|| main_events.borrow_mut().push("main:grow_pages"), || main_events.borrow_mut().push("main:overlay"));
+        run_main_frame_tail(|| main_events.borrow_mut().push("main:safe_point"), || main_events.borrow_mut().push("main:text_costs"));
+        assert_eq!(*main_events.borrow(), vec!["main:grow_pages", "main:overlay", "main:safe_point", "main:text_costs"]);
+
+        // 2. Drawing-thread path (in-game with drawing-thread on): main thread
+        // grows pages before preparing the scene and at the prepared safe point,
+        // while the drawing thread only draws the overlay.
+        let draw_events = RefCell::new(Vec::new());
+        let prepared = run_prepare_scene(
+            || draw_events.borrow_mut().push("main:grow_pages"),
+            || {
+                draw_events.borrow_mut().push("main:prepare_scene");
+                true
+            },
+        );
+        assert!(prepared);
+        draw_events.borrow_mut().push("drawing:overlay");
+        run_prepared_safe_point(
+            || draw_events.borrow_mut().push("main:grow_pages"),
+            || draw_events.borrow_mut().push("main:safe_point"),
+            || draw_events.borrow_mut().push("main:text_costs"),
+        );
+        assert_eq!(
+            *draw_events.borrow(),
+            vec!["main:grow_pages", "main:prepare_scene", "drawing:overlay", "main:grow_pages", "main:safe_point", "main:text_costs"]
+        );
+        assert!(!draw_events.borrow().iter().any(|e| e.starts_with("drawing:grow_pages")));
     }
 }
