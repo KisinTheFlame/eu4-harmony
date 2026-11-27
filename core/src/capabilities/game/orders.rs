@@ -30,7 +30,7 @@ pub enum RouteSource {
     OtherExtension,
 }
 
-pub const ROUTE_QUERY: GameFunction<8> = GameFunction::at(0x96c520);
+pub use crate::native::objects::campaign::functions::ROUTE_QUERY;
 pub const MOVE: usize = 0xd50340;
 pub const STOP: usize = 0xd4fcb0;
 

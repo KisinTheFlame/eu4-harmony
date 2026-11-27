@@ -66,6 +66,8 @@ pub mod functions {
     /// The subject type a country is to its overlord: `(country)`, null for
     /// none.
     pub const SUBJECT_TYPE: crate::native::points::GameFunction<1> = crate::native::points::GameFunction::at(0x3d79f0);
+    /// The A* route query for an army or fleet.
+    pub const ROUTE_QUERY: crate::native::points::GameFunction<8> = crate::native::points::GameFunction::at(0x96c520);
     /// `()`: answers yes; answers no. Many classes' methods are one of them.
     pub const YES: usize = 0x8f440;
     pub const NO: usize = 0x8f450;
