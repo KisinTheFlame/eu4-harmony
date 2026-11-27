@@ -117,6 +117,212 @@ pub fn save_name(spec: &str) -> String {
     }
 }
 
+/// Summary metadata read from a `.eu4` save's `gamestate` (compressed ZIP or
+/// plain text).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SaveStartInfo {
+    /// The rank-1 great power at the start of the save (`great_powers` ->
+    /// `original` entry with `rank=1`), if present.
+    pub top_great_power: Option<CountryTag>,
+    /// The capital province ID of the requested country (or of
+    /// `top_great_power` when none was requested), if found.
+    pub capital: Option<u32>,
+}
+
+/// Reads a `.eu4` save's `gamestate` (decompressing the ZIP entry when the
+/// save is compressed) and extracts the rank-1 great power and the capital of
+/// `target` (or of the rank-1 great power when `target` is `None`).
+pub fn read_start_info(path: &Path, target: Option<CountryTag>) -> Result<SaveStartInfo> {
+    let gamestate = read_gamestate_bytes(path)?;
+    Ok(parse_start_info(&gamestate, target))
+}
+
+fn read_gamestate_bytes(path: &Path) -> Result<Vec<u8>> {
+    let data = fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    if !data.starts_with(b"PK\x03\x04") {
+        return Ok(data);
+    }
+    extract_zip_entry(&data, b"gamestate").map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Extracts `wanted` from an in-memory ZIP archive using the central directory
+/// (which carries reliable sizes even when local headers set the data
+/// descriptor flag).
+fn extract_zip_entry(data: &[u8], wanted: &[u8]) -> Result<Vec<u8>> {
+    let eocd_start = data.len().saturating_sub(65_557);
+    let eocd = (eocd_start..=data.len().saturating_sub(22))
+        .rev()
+        .find(|&i| &data[i..i + 4] == b"PK\x05\x06")
+        .ok_or_else(|| "invalid zip: missing end-of-central-directory record".to_string())?;
+    let entries = u16::from_le_bytes(data[eocd + 10..eocd + 12].try_into().expect("2 bytes")) as usize;
+    let cd_offset = u32::from_le_bytes(data[eocd + 16..eocd + 20].try_into().expect("4 bytes")) as usize;
+    let mut pos = cd_offset;
+    for _ in 0..entries {
+        if pos + 46 > data.len() || &data[pos..pos + 4] != b"PK\x01\x02" {
+            return Err("invalid zip: malformed central directory entry".into());
+        }
+        let method = u16::from_le_bytes(data[pos + 10..pos + 12].try_into().expect("2 bytes"));
+        let comp_size = u32::from_le_bytes(data[pos + 20..pos + 24].try_into().expect("4 bytes")) as usize;
+        let name_len = u16::from_le_bytes(data[pos + 28..pos + 30].try_into().expect("2 bytes")) as usize;
+        let extra_len = u16::from_le_bytes(data[pos + 30..pos + 32].try_into().expect("2 bytes")) as usize;
+        let comment_len = u16::from_le_bytes(data[pos + 32..pos + 34].try_into().expect("2 bytes")) as usize;
+        let local_offset = u32::from_le_bytes(data[pos + 42..pos + 46].try_into().expect("4 bytes")) as usize;
+        let name_start = pos + 46;
+        let name_end = name_start + name_len;
+        if name_end > data.len() {
+            return Err("invalid zip: central directory entry truncated".into());
+        }
+        if &data[name_start..name_end] == wanted {
+            if local_offset + 30 > data.len() || &data[local_offset..local_offset + 4] != b"PK\x03\x04" {
+                return Err("invalid zip: malformed local file header".into());
+            }
+            let l_name_len = u16::from_le_bytes(data[local_offset + 26..local_offset + 28].try_into().expect("2 bytes")) as usize;
+            let l_extra_len = u16::from_le_bytes(data[local_offset + 28..local_offset + 30].try_into().expect("2 bytes")) as usize;
+            let payload_start = local_offset + 30 + l_name_len + l_extra_len;
+            let payload_end = payload_start.checked_add(comp_size).ok_or_else(|| "invalid zip: entry size overflow".to_string())?;
+            if payload_end > data.len() {
+                return Err("invalid zip: entry payload truncated".into());
+            }
+            let payload = &data[payload_start..payload_end];
+            return match method {
+                0 => Ok(payload.to_vec()),
+                8 => miniz_oxide::inflate::decompress_to_vec(payload).map_err(|e| format!("deflate error: {e:?}")),
+                other => Err(format!("unsupported zip compression method {other}")),
+            };
+        }
+        pos = name_end + extra_len + comment_len;
+    }
+    Err(format!("zip archive has no {:?} entry", String::from_utf8_lossy(wanted)))
+}
+
+/// Parses `great_powers` (`rank=1`) and the capital of `target` (or the
+/// rank-1 great power when `target` is `None`) from raw `gamestate` bytes.
+pub fn parse_start_info(gamestate: &[u8], target: Option<CountryTag>) -> SaveStartInfo {
+    let mut top_great_power: Option<CountryTag> = None;
+    let mut capital: Option<u32> = None;
+
+    let mut in_gp = false;
+    let mut gp_depth: i32 = 0;
+    let mut in_original = false;
+    let mut orig_rank: Option<u32> = None;
+    let mut orig_country: Option<CountryTag> = None;
+
+    let mut in_countries = false;
+    let mut countries_depth: i32 = 0;
+    let mut in_target_country = false;
+    let mut country_depth: i32 = 0;
+    let mut target_prefix: Option<String> = target.map(|t| format!("\t{t}={{"));
+
+    for raw_line in gamestate.split(|&b| b == b'\n') {
+        let line = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
+        if in_gp {
+            let trimmed = trim_ascii(line);
+            if gp_depth == 1 && trimmed == b"original={" {
+                in_original = true;
+                orig_rank = None;
+                orig_country = None;
+            } else if in_original && gp_depth == 2 {
+                if let Some(rest) = trimmed.strip_prefix(b"rank=") {
+                    orig_rank = parse_ascii_u32(rest);
+                } else if let Some(rest) = trimmed.strip_prefix(b"country=") {
+                    orig_country = parse_quoted_tag(rest);
+                }
+            }
+            gp_depth += brace_delta(line);
+            if in_original && gp_depth <= 1 {
+                if orig_rank == Some(1) {
+                    if let Some(tag) = orig_country {
+                        top_great_power = Some(tag);
+                        if target_prefix.is_none() {
+                            target_prefix = Some(format!("\t{tag}={{"));
+                        }
+                    }
+                }
+                in_original = false;
+            }
+            if gp_depth <= 0 {
+                in_gp = false;
+            }
+            continue;
+        }
+
+        if in_countries {
+            if in_target_country {
+                if country_depth == 1 {
+                    if let Some(rest) = line.strip_prefix(b"\t\tcapital=") {
+                        capital = parse_ascii_u32(trim_ascii(rest));
+                        if capital.is_some() {
+                            break;
+                        }
+                    }
+                }
+                country_depth += brace_delta(line);
+                if country_depth <= 0 {
+                    break;
+                }
+            } else {
+                if countries_depth == 1 {
+                    if let Some(prefix) = &target_prefix {
+                        if line == prefix.as_bytes() {
+                            in_target_country = true;
+                            country_depth = 1;
+                            countries_depth += 1;
+                            continue;
+                        }
+                    }
+                }
+                countries_depth += brace_delta(line);
+                if countries_depth <= 0 {
+                    in_countries = false;
+                }
+            }
+            continue;
+        }
+
+        if line == b"great_powers={" && top_great_power.is_none() {
+            in_gp = true;
+            gp_depth = 1;
+        } else if line == b"countries={" && target_prefix.is_some() {
+            in_countries = true;
+            countries_depth = 1;
+        }
+    }
+
+    SaveStartInfo { top_great_power, capital }
+}
+
+fn trim_ascii(bytes: &[u8]) -> &[u8] {
+    let start = bytes.iter().position(|b| !b.is_ascii_whitespace()).unwrap_or(bytes.len());
+    let end = bytes.iter().rposition(|b| !b.is_ascii_whitespace()).map_or(start, |i| i + 1);
+    &bytes[start..end]
+}
+
+fn brace_delta(bytes: &[u8]) -> i32 {
+    let mut delta = 0i32;
+    let mut in_quotes = false;
+    for &b in bytes {
+        if b == b'"' {
+            in_quotes = !in_quotes;
+        } else if !in_quotes {
+            if b == b'{' {
+                delta += 1;
+            } else if b == b'}' {
+                delta -= 1;
+            }
+        }
+    }
+    delta
+}
+
+fn parse_ascii_u32(bytes: &[u8]) -> Option<u32> {
+    std::str::from_utf8(bytes).ok()?.parse().ok()
+}
+
+fn parse_quoted_tag(bytes: &[u8]) -> Option<CountryTag> {
+    let inner = bytes.strip_prefix(b"\"")?.strip_suffix(b"\"")?;
+    CountryTag::parse(std::str::from_utf8(inner).ok()?)
+}
+
 /// Resolves a save specification as an explicit `.eu4` file path first, then
 /// inside `dir` (with or without `.eu4`).
 pub fn resolve_save(spec: &str, dir: &Path) -> Result<PathBuf> {
@@ -768,6 +974,117 @@ mod tests {
 
         fs::write(dir.join(MILESTONES[2].3), &valid_zip).unwrap();
         assert_eq!(resume_index(&MILESTONES, &dir), Some(2));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn make_zip(entries: &[(&str, &[u8], bool)]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut central = Vec::new();
+        for &(name, raw, compress) in entries {
+            let local_offset = out.len() as u32;
+            let (method, payload): (u16, Vec<u8>) = if compress { (8, miniz_oxide::deflate::compress_to_vec(raw, 6)) } else { (0, raw.to_vec()) };
+            let name_bytes = name.as_bytes();
+            // Local file header (with zeroed sizes + data-descriptor bit to test CD reliance).
+            out.extend_from_slice(b"PK\x03\x04");
+            out.extend_from_slice(&20u16.to_le_bytes());
+            out.extend_from_slice(&0x0008u16.to_le_bytes());
+            out.extend_from_slice(&method.to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(name_bytes);
+            out.extend_from_slice(&payload);
+
+            // Central directory entry.
+            central.extend_from_slice(b"PK\x01\x02");
+            central.extend_from_slice(&20u16.to_le_bytes());
+            central.extend_from_slice(&20u16.to_le_bytes());
+            central.extend_from_slice(&0x0008u16.to_le_bytes());
+            central.extend_from_slice(&method.to_le_bytes());
+            central.extend_from_slice(&0u32.to_le_bytes());
+            central.extend_from_slice(&0u32.to_le_bytes());
+            central.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+            central.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+            central.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u32.to_le_bytes());
+            central.extend_from_slice(&local_offset.to_le_bytes());
+            central.extend_from_slice(name_bytes);
+        }
+        let cd_offset = out.len() as u32;
+        let cd_size = central.len() as u32;
+        out.extend_from_slice(&central);
+        // End of central directory.
+        out.extend_from_slice(b"PK\x05\x06");
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+        out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+        out.extend_from_slice(&cd_size.to_le_bytes());
+        out.extend_from_slice(&cd_offset.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out
+    }
+
+    #[test]
+    fn start_info_parses_top_great_power_and_capital_from_plain_and_zipped_saves() {
+        let gamestate = concat!(
+            "EU4txt\n",
+            "date=1780.7.1\n",
+            "great_powers={\n",
+            "\tfrenzy=600\n",
+            "\toriginal={\n",
+            "\t\trank=2\n",
+            "\t\tcountry=\"AUH\"\n",
+            "\t\tvalue=3958.000\n",
+            "\t}\n",
+            "\toriginal={\n",
+            "\t\trank=1\n",
+            "\t\tcountry=\"TUR\"\n",
+            "\t\tvalue=4505.000\n",
+            "\t}\n",
+            "\tleaving={\n",
+            "\t\tcountry=\"PLC\"\n",
+            "\t\tdate=1781.8.1\n",
+            "\t}\n",
+            "}\n",
+            "countries={\n",
+            "\tAUH={\n",
+            "\t\tcapital=134\n",
+            "\t}\n",
+            "\tTUR={\n",
+            "\t\thistory={\n",
+            "\t\t\tcapital=149\n",
+            "\t\t}\n",
+            "\t\tcapital=151\n",
+            "\t\toriginal_capital=151\n",
+            "\t}\n",
+            "}\n",
+        );
+        let plain = parse_start_info(gamestate.as_bytes(), None);
+        assert_eq!(plain, SaveStartInfo { top_great_power: Some(CountryTag(*b"TUR")), capital: Some(151) });
+
+        let explicit = parse_start_info(gamestate.as_bytes(), Some(CountryTag(*b"AUH")));
+        assert_eq!(explicit, SaveStartInfo { top_great_power: Some(CountryTag(*b"TUR")), capital: Some(134) });
+
+        let dir = std::env::temp_dir().join(format!("eu4h-saves-startinfo-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let zip_path = dir.join("compressed.eu4");
+        fs::write(&zip_path, make_zip(&[("meta", b"meta", false), ("gamestate", gamestate.as_bytes(), true)])).unwrap();
+        assert_eq!(read_start_info(&zip_path, None).unwrap(), plain);
+
+        let plain_path = dir.join("plain.eu4");
+        fs::write(&plain_path, gamestate.as_bytes()).unwrap();
+        assert_eq!(read_start_info(&plain_path, Some(CountryTag(*b"AUH"))).unwrap(), explicit);
 
         let _ = fs::remove_dir_all(&dir);
     }

@@ -1644,6 +1644,7 @@ dependencies = [
  "eu4-harmony-manifest",
  "eu4-harmony-remote",
  "iced-x86",
+ "miniz_oxide",
  "reqwest",
  "serde",
  "serde_json",
