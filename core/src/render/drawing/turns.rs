@@ -9,7 +9,7 @@
 //! outermost normal return; a cold path, fault or crossing retains it. Where the
 //! drawing thread may be in a frame of its own, at an idler's switch and as
 //! the game quits, the main thread lets the lock go until that frame has
-//! ended. The drawing thread holds it for each frame it draws, but for
+//! ended. The drawing thread holds it for each frame it draws, up to
 //! Direct3D's Present, unless the write watch holds every other thread for
 //! that frame.
 //!
@@ -30,8 +30,6 @@ pub(super) enum At {
     DayEnd,
     /// The drawing thread, before a frame of its own.
     DrawingFrame,
-    /// The drawing thread, after Present.
-    AfterPresent,
 }
 
 /// The presentation lock, as the turns take and give it.
@@ -227,6 +225,8 @@ impl MainSide {
 /// The drawing thread's side of the lock.
 #[derive(Default)]
 pub(super) struct DrawingSide {
+    /// Whether the drawing thread currently holds the presentation lock.
+    holds: bool,
     /// The lock is kept through Present: in a frame the write watch holds
     /// every other thread for, where the main thread may be held waiting its
     /// turn for the lock, which given to it would never come back.
@@ -237,7 +237,9 @@ impl DrawingSide {
     /// The drawing thread's turn begins: it takes the lock; how long it
     /// waited.
     pub(super) fn turn_begins(&mut self, lock: &impl Lock) -> Duration {
-        lock.take(At::DrawingFrame)
+        let waited = lock.take(At::DrawingFrame);
+        self.holds = true;
+        waited
     }
 
     /// A frame of the drawing thread's begins, held by the write watch or
@@ -247,20 +249,15 @@ impl DrawingSide {
     }
 
     /// The frame goes into Present, which touches only the device: the lock
-    /// goes for it, unless it is kept.
-    pub(super) fn present_begins(&self, lock: &impl Lock) {
-        if !self.keeps_in_present {
+    /// goes for the rest of the frame, unless it is kept. After Present, the
+    /// game's drawing only updates its own frame-timing state before returning,
+    /// while `IN_FRAME` keeps main-thread fallback drawing, idler switches, and
+    /// shutdown from overlapping it.
+    pub(super) fn present_begins(&mut self, lock: &impl Lock) {
+        if !self.keeps_in_present && self.holds {
+            self.holds = false;
             lock.give();
         }
-    }
-
-    /// Present has returned: the lock again, for what the drawing does
-    /// after it; how long it waited.
-    pub(super) fn present_ends(&self, lock: &impl Lock) -> Duration {
-        if self.keeps_in_present {
-            return Duration::ZERO;
-        }
-        lock.take(At::AfterPresent)
     }
 
     /// The frame's drawing has returned.
@@ -268,9 +265,14 @@ impl DrawingSide {
         self.keeps_in_present = false;
     }
 
-    /// The drawing thread's turn ends: the lock goes.
+    /// The drawing thread's turn ends: the lock goes if it was not already
+    /// released at Present (no frame drawn, a watched frame, or an early return
+    /// before Present).
     pub(super) fn turn_ends(&mut self, lock: &impl Lock) {
-        lock.give();
+        if self.holds {
+            self.holds = false;
+            lock.give();
+        }
     }
 }
 
@@ -631,15 +633,23 @@ mod tests {
     }
 
     #[test]
-    fn the_drawing_thread_lets_the_lock_go_for_present() {
+    fn the_drawing_thread_lets_the_lock_go_for_present_and_does_not_reacquire() {
         let (lock, mut drawing) = (Recorder::default(), DrawingSide::default());
         drawing.turn_begins(&lock);
         drawing.frame_begins(false);
         drawing.present_begins(&lock);
-        drawing.present_ends(&lock);
+        assert_eq!(lock.done(), [Took(At::DrawingFrame), Gave]);
         drawing.frame_ends();
         drawing.turn_ends(&lock);
-        assert_eq!(lock.done(), [Took(At::DrawingFrame), Gave, Took(At::AfterPresent), Gave]);
+        assert_eq!(lock.done(), [], "already released at Present");
+    }
+
+    #[test]
+    fn the_drawing_thread_releases_at_turn_end_when_present_is_skipped() {
+        let (lock, mut drawing) = (Recorder::default(), DrawingSide::default());
+        drawing.turn_begins(&lock);
+        drawing.turn_ends(&lock);
+        assert_eq!(lock.done(), [Took(At::DrawingFrame), Gave]);
     }
 
     #[test]
@@ -648,15 +658,16 @@ mod tests {
         drawing.turn_begins(&lock);
         drawing.frame_begins(true);
         drawing.present_begins(&lock);
-        assert_eq!(drawing.present_ends(&lock), Duration::ZERO);
+        assert_eq!(lock.done(), [Took(At::DrawingFrame)]);
         drawing.frame_ends();
         drawing.turn_ends(&lock);
-        assert_eq!(lock.done(), [Took(At::DrawingFrame), Gave]);
-        // The next frame, not watched, lets it go again.
+        assert_eq!(lock.done(), [Gave]);
+        // The next frame, not watched, lets it go at Present again.
         drawing.turn_begins(&lock);
         drawing.frame_begins(false);
         drawing.present_begins(&lock);
-        drawing.present_ends(&lock);
-        assert_eq!(lock.done(), [Took(At::DrawingFrame), Gave, Took(At::AfterPresent)]);
+        drawing.frame_ends();
+        drawing.turn_ends(&lock);
+        assert_eq!(lock.done(), [Took(At::DrawingFrame), Gave]);
     }
 }
