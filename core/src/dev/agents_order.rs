@@ -17,16 +17,16 @@
 //! its country wrote that day.
 use super::options::{self, AgentsOrder};
 use crate::base::called_by_game;
-use crate::{
-    native::points::Point,
-    speed::army_search::{ARMIES_WALK, ARMIES_WALKED as WALKED, CHILDREN_WALK as WALKS},
-};
+use crate::native::points::Point;
 
 // In the top agent's step `0x14b370`, once it has thought, the walk of its
 // children (`WALKS`: `mov rbx, [rdi + 0x40]; test rbx, rbx; je`, `rdi` the
-// top agent, `rbp` the day's argument it hands on), and what follows the
-// walk of its armies' agents (`WALKED`: `mov edx, esi; mov rcx, rdi; call`),
-// as `core/src/army_search.rs` names them.
+// top agent, `rbp` the day's argument it hands on), the walk of its armies'
+// agents (`ARMIES_WALK`), and what follows it (`WALKED`: `mov edx, esi; mov
+// rcx, rdi; call`).
+const WALKS: usize = 0x14b622;
+const ARMIES_WALK: usize = 0x14b645;
+const WALKED: usize = 0x14b675;
 use crate::native::objects::{
     campaign::ai_king::{AGENTS as ARMIES, CHILDREN},
     list::{NEXT, PREVIOUS, TAIL as LAST},
@@ -52,11 +52,9 @@ unsafe fn walk_list(list: usize, from: usize, step: usize, day: usize) {
     }
 }
 
-/// The two walks, in the switch's order, its armies' searches handed out
-/// first as the framework's own walk does (`core/src/army_search.rs`).
+/// The two walks, in the switch's order.
 #[called_by_game]
 unsafe extern "C" fn walk(top: usize, day: usize) {
-    crate::speed::army_search::children_begin(top, day);
     let (from, step) = if order() == AgentsOrder::Reversed { (LAST, PREVIOUS) } else { (0, NEXT) };
     for list in [CHILDREN, ARMIES] {
         unsafe { walk_list(top + list, from, step, day) };

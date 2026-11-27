@@ -510,6 +510,7 @@ pub mod ai_king {
     /// nodes go, not the agents.
     pub const AGENTS: usize = 0xc50;
     /// Its children's list, the agents working for it.
+    #[cfg(feature = "dev")]
     pub const CHILDREN: usize = 0x40;
     /// The agents that retired since its last update, a [`super::list`],
     /// which that update deletes; its destructor lets the nodes go.

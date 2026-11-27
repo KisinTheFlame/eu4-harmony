@@ -249,12 +249,6 @@ pub(crate) fn differences(speed_up: &SpeedUp) -> (u64, u64) {
     (counts[0].load(Ordering::Relaxed), counts[1].load(Ordering::Relaxed))
 }
 
-#[cfg(not(feature = "dev"))]
-#[inline(always)]
-pub(crate) const fn differences(_speed_up: &SpeedUp) -> (u64, u64) {
-    (0, 0)
-}
-
 /// The startup report's lines: the speed-ups left to the game and checked;
 /// none when every speed-up is on and none is checked.
 pub(crate) fn report_lines() -> Vec<String> {

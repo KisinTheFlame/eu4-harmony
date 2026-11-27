@@ -190,6 +190,7 @@ pub(crate) fn points() -> Vec<Point> {
     all.extend(census::points());
     all.extend(crossings::points());
     all.extend(performance_hooks::points());
+    all.extend(agents_order::points());
     all
 }
 
@@ -215,7 +216,6 @@ pub(crate) fn installed_points(m: Memory, all: &mut Vec<Point>) {
         all.extend(performance_hooks::points());
     }
     if agents_order::chosen() {
-        all.retain(|p| !matches!(p.place, crate::native::points::Place::Rva(crate::speed::army_search::CHILDREN_WALK)));
         all.extend(agents_order::points());
     }
     let watch = write_watch::chosen(&m);

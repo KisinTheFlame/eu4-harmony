@@ -30,6 +30,17 @@ Fresh-process loads with `-seed=1` often reproduced a late-game half-year after 
 
 Reversing a country's AI-agent order changed approximately 14,950 diff lines after one month, versus zero or six for unchanged order. Per-agent random generators therefore do not make decisions independent of execution order. The first per-country stream implementation crashed by returning full 32-bit values where native callers expect nonnegative 31-bit draws. Restricting output allowed 120 days, with 307,678 streamed draws in 11,500 tasks and none observed outside a task. Loaded-machine alternating timings established no speed gain. See [AI scheduling](../game/ai/work-scheduling.md) and [native random generators](../game/day/random.md).
 
+## Parallel army searches (removed)
+
+On 2026-11-28, `army-searches` (speculative background `0x1022b0` searches on an 8-thread pool) was re-measured on base `643bf7a0` (after exact `army-checks` and `support-checks` landed) in isolated hidden muted test games (synthetic 1920×1080 English settings, full DLC, single `dev` release build toggled via `game-paths = ["army-searches"]`, 60 s speed-5 windows, all complete with zero crashes):
+
+- **Late game (`observer-1800.7.1`, 6 alternating runs ON/OFF/OFF/ON/ON/OFF)**: ON averaged 1,197.0 completed days/min (1,216 / 1,188 / 1,187; ordinary day mean 31.69 ms, P50 28.29 ms; 3.047 cores) vs OFF 1,154.0 days/min (1,159 / 1,125 / 1,178; ordinary day mean 33.57 ms, P50 30.65 ms; 2.952 cores) — **+3.7% mean (+2.5% median)** throughput for +0.095 cores and unchanged submission P95/P99.
+- **Mid-late game (`observer-1780.7.1`, 4 alternating runs ON/OFF/OFF/ON)**: ON averaged 1,182.5 days/min (1,189 / 1,176) vs OFF 1,108.5 days/min (1,066 / 1,151) — **+6.7% mean** throughput for +0.100 cores.
+- **Early game (1444.11.11 Ming, 4 alternating runs ON/OFF/OFF/ON)**: ON averaged 827.5 days/min (875 / 780) vs OFF 843.5 days/min (859 / 828) — **-1.9%**, within campaign-variance noise.
+- **Why the net gain stayed in low single digits**: 60 s `--threads --waiting-in 0x179e90` profiles on `observer-1800.7.1` showed `[day]: the AI` took only 27.9% (ON) vs 30.6% (OFF) of main-thread time. Although `army-searches` cut `0x1022b0` on the AI critical path by 74% (4.79 to 1.23 ms/day), other AI tail work (`0x168070` recruitment, `0x96c520` offensive route queries) became the remaining bottleneck, shrinking total AI main-thread wait by only 1.35 ms/day (12.66 to 11.31 ms/day). Per ~40,000 prepared searches, 43–46% were canceled before starting, `prepare` spent ~1.8–1.9 s serially on King threads, and taken searches ran without the country access cache.
+
+Because `army-searches` was the sole speed-up introducing vanilla-divergent AI decisions (4–7% differing answers in checked mode) for a small late-game-only gain, it was removed while keeping `0x1022b0` wrapped by `army-checks`'s exact per-search scope. Limits: single 8-core/16-thread Windows machine, unmodded full-DLC saves, 60 s windows without player-controlled late-game wars.
+
 ## Memory and crash probes
 
 Holding worker threads made Direct3D-dependent write watches hang. Access-group watchdogs recovered some truncated runs; later page-protection probes could themselves stop the graphics driver. Incomplete watches do not establish absence of races.
