@@ -64,6 +64,11 @@ $s=(gp HKCU:\Software\Valve\Steam).SteamPath; $libs=@($s)+((sls '"path"\s+"([^"]
 
 Harmony のサブスクライブを解除し、ゲームフォルダの `version.dll` を削除してください（`version.dll.bak` があれば戻します）。**Harmony 設定 → 詳細設定** で Windows クラッシュダンプを有効にしていた場合は、先に同画面の **無効にする** ボタンを押してください。
 
+### おすすめの Harmony 対応 Mod
+
+- **[Convenience Tools（便利ツール）](https://steamcommunity.com/sharedfiles/filedetails/?id=3838535796)** — ワンクリックで全国一括ステート化・解除・略奪（Raze）をバニラ規則準拠で実行。
+- **[Regional Combat（地域戦闘）](https://steamcommunity.com/sharedfiles/filedetails/?id=3837793510)** — 部隊に作戦半径を指定し、範囲内の敵軍追撃・失地奪還・待機帰還を自動化。
+
 ### よくある質問（FAQ）
 
 - **サブスクライブしたのにメインメニューに Harmony が表示されません。**

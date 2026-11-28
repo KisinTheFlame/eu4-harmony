@@ -1,10 +1,10 @@
-![Harmony for Europa Universalis IV](docs/images/banner.jpg)
+![和鸣（Harmony）for Europa Universalis IV](docs/images/banner.zh-CN.jpg)
 
 [![CI](https://github.com/KisinTheFlame/eu4-harmony/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/KisinTheFlame/eu4-harmony/actions/workflows/ci.yml)
 
 [English](README.md) | 简体中文 | [日本語](README.ja.md) | [한국어](README.ko.md)
 
-**从内部把《欧陆风云4》变得更好。** 清晰锐利的中日韩字体、返回主菜单免重启、后期更流畅、修复多项引擎缺陷，并让 Mod 拥有更强扩展能力，同时保持原版游戏规则不变。
+**和鸣（Harmony）——从内部把《欧陆风云4》变得更好。** 清晰锐利的中日韩字体、返回主菜单免重启、后期更流畅、修复多项引擎缺陷，并让 Mod 拥有更强扩展能力，同时保持原版游戏规则不变。
 
 > 快速跳转：[面向玩家](#面向玩家) · [面向 Mod 开发者](#面向-mod-开发者) · [面向贡献者](#面向贡献者)
 
@@ -63,6 +63,11 @@ Steam 会自动保持 Harmony 最新。当更新包含新版 `version.dll` 时�
 #### 卸载
 
 取消订阅 Harmony 并删除游戏目录里的 `version.dll`（如有 `version.dll.bak` 可改名恢复）。如之前在 **Harmony 设置 → 高级** 中启用过 Windows 闪退转储，建议先在那里点击 **关闭 EU4 的 Windows 闪退转储（需管理员权限）**。
+
+### 精选 Harmony 生态 Mod
+
+- **[Convenience Tools（便捷工具）](https://steamcommunity.com/sharedfiles/filedetails/?id=3838535796)** — 一键全国批量设立/取消直辖州与焚掠，原生风格面板，严格遵守原版规则。
+- **[Regional Combat（区域战斗）](https://steamcommunity.com/sharedfiles/filedetails/?id=3837793510)** — 为部队划定作战半径，自动追击区域内敌军、收复失陷省份并在空闲时返回驻守。
 
 ### 常见问题（FAQ）
 

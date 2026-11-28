@@ -1,13 +1,13 @@
 [h1]Harmony[/h1]
-[b]Europa Universalis IV를 내부에서부터 더 쾌적하게.[/b] 선명한 한국어·중국어·일본어 글꼴, 재시작 없는 메인 메뉴 복귀, 후반 성능 향상, 버그 수정, 강력한 모드 확장 기능을 게임 규칙 변경 없이 제공합니다.
+[b]Europa Universalis IV를 내부에서부터 더 쾌적하게.[/b] 선명한 한·중·일 글꼴, 재시작 없는 메인 메뉴 복귀, 실측으로 검증된 성능 향상과 엔진 버그 수정을 바닐라 규칙 변경 없이 제공합니다.
 
-[b]중요 (시작 전 확인):[/b]
 [list]
-[*][b]구독만으로는 적용되지 않습니다.[/b] 아래 1줄 명령 또는 마우스 3단계로 [b]version.dll[/b]을 게임 폴더에 한 번 복사해 주세요. 이후 업데이트는 자동입니다.
-[*][b]백신 경고 안내:[/b] MIT 오픈소스이며 [b]version.dll[/b]로 로드되는 특성상 간혹 휴리스틱 오탐이 뜰 수 있습니다. GitHub에서 코드를 확인하거나 EU4 폴더를 예외에 추가하세요.
+[*][b]선명한 고해상도 글꼴:[/b] 네이티브 UTF-8＋시스템 글꼴과 한국어(고도 M/B)·일본어·중국어 무료 기본 글꼴 내장, 실시간 미리보기 지원. 기존 한글 패치 모드와 세이브 그대로 호환.
+[*][b]재시작 없는 복귀 & 철인 모드 불러오기:[/b] 메인 메뉴 복귀 시 매번 재시작할 필요 없이 수 초 만에 복귀하며, 철인 모드에서도 게임 중 불러오기 지원(사전 자동 저장 옵션).
+[*][b]실측으로 확인된 성능 향상:[/b] 55 MB 철인 저장 멈춤 ~1.2초 → ~0.35초(약 2/3 단축), 5배속 프레임 끊김 P99 약 70% 감소, 대형 모드 실행 약 1/3 단축.
+[*][b]바닐라 밸런스 유지 & MIT 오픈소스:[/b] 후계자 이름 중복·메모리 누수 수정, 음악 음량 평준화, 선택적 도전과제 완화.
 [/list]
-
-번역 텍스트는 기존 한국어 패치 모드가 담당하며, 구형 2바이트 패치용 번역 모드와 저장 파일도 그대로 사용합니다.
+[i]안내: 구독 후 아래 「설치 방법」에 따라 [b]version.dll[/b]을 한 번 복사하면 적용되며, 이후 업데이트는 자동입니다.[/i]
 
 [h2]바닐라 게임과의 비교[/h2]
 [table]
@@ -17,37 +17,37 @@
 [th]Harmony 적용 후[/th]
 [/tr]
 [tr]
-[td][b]한국어·CJK 글꼴[/b][/td]
-[td]패치 없이 깨짐; 구형 비트맵 글꼴은 흐릿하고 줄바꿈·IME 불안정.[/td]
-[td]네이티브 UTF-8＋시스템 글꼴과 한국어(고도 M/B)·일본어·간체 무료 기본 글꼴 내장. 실시간 미리보기, 깔끔한 줄바꿈, IME, 동아시아식 날짜·인명 지원.[/td]
+[td][b]한국어·CJK[/b][/td]
+[td]패치 없이 깨짐; 구형 비트맵은 흐릿하고 줄바꿈 불안정.[/td]
+[td]UTF-8＋시스템 글꼴 및 무료 기본 글꼴(고도 M/B 등), 실시간 미리보기·IME·동아시아 날짜 지원.[/td]
 [/tr]
 [tr]
-[td][b]복귀 및 불러오기[/b][/td]
-[td]메인 메뉴 복귀 시 전체 재시작; 철인 모드 게임 중 불러오기 불가.[/td]
-[td]재시작 없이 몇 초 만에 복귀; 철인 모드도 게임 중 불러오기 지원(사전 자동 저장 옵션).[/td]
+[td][b]복귀 및 로드[/b][/td]
+[td]메인 메뉴 복귀 시 전체 재시작; 철인 게임 중 로드 불가.[/td]
+[td]재시작 없이 몇 초 만에 복귀; 철인 모드도 게임 중 불러오기 지원.[/td]
 [/tr]
 [tr]
 [td][b]성능[/b][/td]
-[td]후반 지연, 저장 시 멈춤, 불필요한 CPU 점유.[/td]
-[td]일간/월간 연산 가속, 멀티스레드 백그라운드 저장, 합리적 프레임 제한, 부드러운 지도 줌.[/td]
+[td]후반 지연, 저장 멈춤, 메뉴 CPU 낭비.[/td]
+[td]일간/월간 가속, 멀티스레드 저장(멈춤 1/3), 합리적 프레임 제한, 부드러운 줌.[/td]
 [/tr]
 [tr]
-[td][b]버그 수정 및 편의[/b][/td]
-[td]후계자 이름 중복, 음량 불균형, 급격한 볼륨 슬라이더, 메모리 누수.[/td]
-[td]중복·메모리 누수 수정; 음악 음량 평준화, 자연스러운 볼륨 곡선, 도전과제 완화 옵션.[/td]
+[td][b]수정 및 편의[/b][/td]
+[td]후계자 중복, 음량 불균형, 복귀 시 메모리 누수.[/td]
+[td]중복·누수 수정, 음량 평준화, 자연스러운 볼륨 곡선, 도전과제 완화 옵션.[/td]
 [/tr]
 [tr]
-[td][b]모드 확장성[/b][/td]
+[td][b]모드 확장[/b][/td]
 [td]Paradox 스크립트만 지원.[/td]
-[td]샌드박스 Lua 확장과 기본 스타일 UI 패널 지원, 외부 권한 투명 공개.[/td]
+[td]샌드박스 Lua 확장과 기본 스타일 UI 패널, 외부 권한 투명 공개.[/td]
 [/tr]
 [/table]
 
-[h2]설치 방법 (둘 중 선택)[/h2]
-먼저 [b]Harmony를 구독[/b]하고 다운로드가 끝난 뒤 [b]version.dll[/b]을 한 번 복사하세요:
+[h2]설치 방법 (파일 1개 한 번만 복사 — 둘 중 선택)[/h2]
+[b]중요: 구독만으로는 적용되지 않습니다.[/b] 구독 완료 후 [b]version.dll[/b]을 게임 폴더에 한 번 복사해 주세요. MIT 오픈소스이며 [b]version.dll[/b]로 로드되는 특성상 간혹 백신 휴리스틱 오탐이 뜰 수 있습니다(GitHub 코드 확인 또는 EU4 폴더 예외 추가 가능).
 
 [b]방법 A — PowerShell 1줄 명령 (가장 빠름, 선택)[/b]
-[b]Win + X[/b] → [b]터미널[/b](또는 PowerShell)에 아래 1줄을 붙여넣고 Enter. 로컬 Steam 라이브러리 검색, 기존 [b]version.dll[/b]의 [b]version.dll.bak[/b] 백업 및 복사만 수행합니다(다운로드 없음):
+[b]Win + X[/b] → [b]터미널[/b](또는 PowerShell)에 붙여넣고 Enter. 로컬 Steam 라이브러리 검색, 기존 [b]version.dll[/b]의 [b]version.dll.bak[/b] 백업 및 복사만 수행(다운로드 없음):
 [code]$s=(gp HKCU:\Software\Valve\Steam).SteamPath; $libs=@($s)+((sls '"path"\s+"([^"]+)"' "$s\steamapps\libraryfolders.vdf" -EA 0|%{$_.Matches[0].Groups[1].Value -replace '\\\\','\'})|?{$_}); $g=$libs|%{"$_\steamapps\common\Europa Universalis IV"}|?{Test-Path "$_\eu4.exe"}|select -First 1; $src=$libs|%{"$_\steamapps\workshop\content\236850\3837775887\version.dll"}|?{Test-Path $_}|select -First 1; if(!$g -or !$src){throw "Not found (subscribe in Steam first): game='$g' workshop='$src'"}; $dst="$g\version.dll"; if((Test-Path $dst) -and !(Test-Path "$dst.bak") -and (Get-FileHash $dst).Hash -ne (Get-FileHash $src).Hash){Copy-Item $dst "$dst.bak"}; Copy-Item $src $dst -Force; "Installed to $dst"[/code]
 
 [b]방법 B — 마우스 수동 복사 (3단계)[/b]
@@ -56,26 +56,18 @@
 [*]런처 → [b]모드 라이브러리[/b] → [b]Harmony[/b] → [b]… → 폴더에서 보기[/b] (또는 [b]steamapps\workshop\content\236850\3837775887[/b]).
 [*][b]version.dll[/b]을 [b]eu4.exe[/b] 옆에 복사(확장자 숨김 시 [b]version[/b], [b]eu4[/b]; 기존 파일은 덮어쓰기 또는 백업).
 [/olist]
+평소처럼 실행하세요. Harmony 본체는 플레이세트에 넣을 필요 없습니다(기반 모드만 활성화). 적용 시 오른쪽 아래에 [b]Harmony v…[/b], [b]모드 목록[/b], [b]설정[/b]이 표시됩니다.
 
-평소처럼 실행하세요. Harmony 자체는 플레이세트에 넣지 않아도 됩니다(기반 모드만 활성화). 적용 시 오른쪽 아래에 [b]Harmony v…[/b], [b]모드 목록[/b], [b]설정[/b]이 표시됩니다. 이후 [b]version.dll[/b] 업데이트도 시작 시 자동 갱신 및 재시작됩니다.
-
-[h2]요구 사항[/h2]
+[h2]추천 Harmony 기반 모드[/h2]
 [list]
-[*]Steam Windows 버전 Europa Universalis IV [b]1.37.5[/b] (싱글플레이 전용, 멀티플레이 개발 중).
+[*][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3838535796][b]Convenience Tools (편의 도구)[/b][/url] — 바닐라 규칙을 지키면서 클릭 한 번으로 전국 주(State) 일괄 지정·해제 및 약탈(Raze) 실행.
+[*][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3837793510][b]Regional Combat (지역 전투)[/b][/url] — 부대에 작전 반경을 지정해 구역 내 적군 추격, 실지 탈환 및 유휴 복귀를 자동화.
 [/list]
 
-[h2]자주 묻는 질문 (FAQ)[/h2]
+[h2]요구 사항 · FAQ · 문제 제보[/h2]
 [list]
-[*][b]구독했는데 안 보여요.[/b] 방법 A/B대로 [b]version.dll[/b]을 [b]eu4.exe[/b] 옆에 복사했는지, Steam Windows 1.37.5인지 확인하세요.
-[*][b]기존 2바이트 패치/글꼴 모드에서 옮기려면?[/b] 기존 [b]version.dll[/b]을 교체하고 구형 비트맵 글꼴 모드는 비활성화하세요(번역 모드는 유지). 기존 세이브도 바로 열립니다.
-[*][b]멀티플레이는 어떻게 하나요?[/b] Harmony 구독을 취소하거나 게임 폴더의 [b]version.dll[/b]을 잠시 옮겨 주세요.
-[*][b]제거 후에도 세이브를 쓸 수 있나요?[/b] 본체만 썼다면 구조는 안전하나, 직접 입력한 한글 이름은 UTF-8 저장이라 제거 시 깨집니다. 자체 데이터를 저장하는 모드는 미지원입니다.
-[*][b]소리가 작아졌거나 비철인 도전과제가 기존 세이브에 안 먹혀요.[/b] 제곱 볼륨 곡선으로 100 미만은 작게 들립니다(한 번 재조절). 도전과제 완화는 새 게임부터 적용됩니다.
-[*][b]깔끔히 제거하려면?[/b] 구독 취소 후 [b]version.dll[/b] 삭제([b]version.dll.bak[/b] 복원). 「Harmony 설정 → 고급」에서 충돌 덤프를 켰다면 먼저 비활성화하세요.
+[*][b]요구 사항:[/b] Steam Windows EU4 [b]1.37.5[/b], 싱글플레이 전용(멀티플레이 개발 중; 멀티 시 구독 취소 또는 [b]version.dll[/b] 임시 이동).
+[*][b]구형 패치에서 이전:[/b] 기존 [b]version.dll[/b]을 교체하고 구형 비트맵 글꼴 모드는 비활성화(번역 모드는 유지).
+[*][b]깔끔한 제거:[/b] 구독 취소 후 [b]version.dll[/b] 삭제([b]version.dll.bak[/b] 복원). 「Harmony 설정 → 고급」의 충돌 덤프도 먼저 비활성화하세요.
 [/list]
-
-[h2]문제 해결 및 제보[/h2]
-[b]Harmony 설정 → 정보[/b]에서 [b]문제 해결 파일을 바탕 화면에 저장[/b](저장 파일 제외, 사용자 경로 가림 및 덤프 경량화, 24 MB 미만) 후 [url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url]에 첨부하세요. 로그 폴더는 [b]Harmony 설정 → 고급[/b]에서 바로 열 수 있습니다.
-
-[h2]모드 제작자 안내[/h2]
-샌드박스 Lua 확장과 기본 스타일 UI를 추가할 수 있습니다. 자세한 내용은 [url=https://github.com/KisinTheFlame/eu4-harmony/blob/master/README.ko.md]GitHub 한국어 README[/url]를 참고하세요.
+문제 제보는 [b]Harmony 설정 → 정보[/b]에서 문제 해결 zip(세이브 제외, 경로 가림·경량화, 24 MB 미만)을 저장해 [url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url]에 첨부하세요. 모드 제작 가이드는 [url=https://github.com/KisinTheFlame/eu4-harmony/blob/master/README.ko.md]GitHub 한국어 README[/url] 참고.

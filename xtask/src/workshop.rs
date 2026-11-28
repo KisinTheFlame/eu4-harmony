@@ -81,9 +81,9 @@ pub fn pack(built: &Path) -> Result<()> {
     let template = sources().join("descriptor.mod");
     let template = fs::read_to_string(&template).map_err(|e| format!("cannot read {}: {e}", template.display()))?;
     write(&item.join("descriptor.mod"), &descriptor(&template, version(), published_file_id()?))?;
-    let thumbnail = sources().join("thumbnail.png");
+    let thumbnail = repo().join("target").join("workshop-media").join("thumbnail.png");
     if !thumbnail.is_file() {
-        return Err(format!("{} is missing: the item's cover, a square PNG under 1 MB", thumbnail.display()));
+        return Err(format!("{} is missing: run `python workshop/media/build.py` to build the Workshop cover from workshop/media/raw/", thumbnail.display()));
     }
     copy(&thumbnail, &item.join("thumbnail.png"))?;
     write(&out.join("harmony.commit"), &commit_stamp()?)?;
@@ -223,8 +223,8 @@ struct Item<'a> {
 }
 
 impl Item<'_> {
-    /// The build file, with no description: the page's, by language, stays
-    /// as written there.
+    /// The build file, with no description (and title only on creation):
+    /// the page's titles and descriptions, by language, stay as written there.
     fn vdf(&self) -> String {
         let mut fields = vec![
             ("appid", APP_ID.to_string()),
@@ -234,8 +234,8 @@ impl Item<'_> {
         ];
         if self.private {
             fields.push(("visibility", "2".into()));
+            fields.push(("title", "Harmony".into()));
         }
-        fields.push(("title", "Harmony".into()));
         fields.push(("changenote", self.change_note.clone()));
         let mut text = String::from("\"workshopitem\"\n{\n");
         for (key, value) in fields {
@@ -369,9 +369,20 @@ mod tests {
              \t\"changenote\"\t\t\"Line one\\n[list]\\n[*]x\\n[/list]\"\n\
              }\n"
         );
-        assert!(!Item { private: false, ..item }.vdf().contains("visibility"), "an update leaves the visibility alone");
+        let update_vdf = Item { private: false, ..item }.vdf();
+        assert!(!update_vdf.contains("visibility"), "an update leaves the visibility alone");
+        assert!(!update_vdf.contains("\"title\""), "an update leaves the localized page titles alone");
         assert_eq!(vdf_id(&vdf), Some(0));
         assert_eq!(vdf_id("\"workshopitem\"\n{\n\t\"appid\"\t\t\"236850\"\n\t\"publishedfileid\"\t\t\"3300000001\"\n}\n"), Some(3300000001));
+    }
+
+    #[test]
+    fn raw_workshop_media_sources_exist() {
+        let media = sources().join("media");
+        for rel in ["build.py", "raw/thumbnail-base.png", "raw/banner-base.png"] {
+            let path = media.join(rel);
+            assert!(path.is_file(), "missing Workshop media source {}", path.display());
+        }
     }
 
     #[test]
