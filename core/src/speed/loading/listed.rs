@@ -251,10 +251,10 @@ fn changes(buffer: &[u32], bytes: usize) -> Vec<String> {
     paths
 }
 
-/// After the game made or removed something through PhysFS: the listings of
-/// the path's ancestor folders are let go of.
-fn written(call: &mut Call) {
-    let path = call.arg(0) as *const c_char;
+fn invalidate_relative(path: *const c_char) {
+    if WRITE_DIR.address() == 0 {
+        return;
+    }
     let dir = WRITE_DIR.get()();
     if path.is_null() || dir.is_null() {
         return;
@@ -263,6 +263,20 @@ fn written(call: &mut Call) {
     let path = unsafe { CStr::from_ptr(path) }.to_string_lossy();
     let Some(roots) = ROOTS.read().unwrap_or_else(|e| e.into_inner()).clone() else { return };
     DirectoryCache::invalidate_written(roots.values().flatten().map(Arc::as_ref), &dir, &path);
+}
+
+/// After the game made or removed something through PhysFS: the listings of
+/// the path's ancestor folders are let go of.
+fn written(call: &mut Call) {
+    invalidate_relative(call.arg(0) as *const c_char);
+}
+
+/// Called after the game's file move (`0x1715bb0`) renames `from` to `to`
+/// inside the write folder via `_wrename` (bypassing PhysFS's own write hooks),
+/// closing the race window before `ReadDirectoryChangesW` fires.
+pub(crate) fn file_moved(from: *const c_char, to: *const c_char) {
+    invalidate_relative(from);
+    invalidate_relative(to);
 }
 
 /// Answers PhysFS's question to an entry of the search path, if it is a

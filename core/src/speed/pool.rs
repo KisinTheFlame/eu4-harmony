@@ -115,40 +115,11 @@ impl WorkerPool {
     }
 
     /// Helps finish the current batch on the calling thread, waits up to
-    /// `timeout` for all workers, and releases the pool. Returns the thread
-    /// width, or marks the pool broken and abandons `work` on timeout.
-    pub(crate) fn finish(&self, work: &dyn Work, timeout: Duration, timeout_note: &str) -> usize {
-        work.work(false);
-        let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
-        let deadline = Instant::now() + timeout;
-        while state.busy > 0 {
-            let left = deadline.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                self.broken.store(true, Ordering::SeqCst);
-                work.abandon();
-                log!("{timeout_note}");
-                break;
-            }
-            state = self.inner.done.wait_timeout(state, left).unwrap_or_else(|e| e.into_inner()).0;
-        }
-        state.work = None;
-        self.in_use.store(false, Ordering::SeqCst);
-        self.width()
-    }
-
-    /// Runs `work` synchronously across the pool and the calling thread.
-    pub(crate) fn run(&self, work: Arc<dyn Work>, timeout: Duration, timeout_note: &str) -> Option<usize> {
-        self.begin(work.clone()).then(|| self.finish(&*work, timeout, timeout_note))
-    }
-
-    /// Runs `work` synchronously and, if `timeout` elapses, abandons remaining
+    /// `timeout` for all workers, and if `timeout` elapses, abandons remaining
     /// chunks and waits until every active worker exits `work()` before
-    /// returning `None`. Use this when the caller will immediately mutate or
-    /// free memory read by workers after this call returns.
-    pub(crate) fn run_draining(&self, work: Arc<dyn Work>, timeout: Duration, timeout_note: &str) -> Option<usize> {
-        if !self.begin(work.clone()) {
-            return None;
-        }
+    /// returning `None`. Use this when the caller will mutate or free memory
+    /// read by workers after this call returns.
+    pub(crate) fn finish_draining(&self, work: &dyn Work, timeout: Duration, timeout_note: &str) -> Option<usize> {
         work.work(false);
         let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
         let deadline = Instant::now() + timeout;
@@ -171,6 +142,17 @@ impl WorkerPool {
         state.work = None;
         self.in_use.store(false, Ordering::SeqCst);
         (!timed_out).then(|| self.width())
+    }
+
+    /// Runs `work` synchronously and, if `timeout` elapses, abandons remaining
+    /// chunks and waits until every active worker exits `work()` before
+    /// returning `None`. Use this when the caller will immediately mutate or
+    /// free memory read by workers after this call returns.
+    pub(crate) fn run_draining(&self, work: Arc<dyn Work>, timeout: Duration, timeout_note: &str) -> Option<usize> {
+        if !self.begin(work.clone()) {
+            return None;
+        }
+        self.finish_draining(&*work, timeout, timeout_note)
     }
 
     /// Evaluates `f(0..count)` across the pool and calling thread, returning
@@ -278,8 +260,8 @@ mod tests {
     #[test]
     fn worker_pool_timeout_abandons_task_and_marks_pool_broken() {
         struct Stuck {
-            release: Arc<(Mutex<bool>, Condvar)>,
             abandoned: AtomicBool,
+            release: Arc<(Mutex<bool>, Condvar)>,
         }
         impl Work for Stuck {
             fn work(&self, on_worker: bool) {
@@ -293,19 +275,47 @@ mod tests {
             }
             fn abandon(&self) {
                 self.abandoned.store(true, Ordering::SeqCst);
+                let (lock, cv) = &*self.release;
+                *lock.lock().unwrap() = true;
+                cv.notify_all();
             }
         }
         let release = Arc::new((Mutex::new(false), Condvar::new()));
-        let task = Arc::new(Stuck { release: release.clone(), abandoned: AtomicBool::new(false) });
+        let task = Arc::new(Stuck { abandoned: AtomicBool::new(false), release });
         let pool = WorkerPool::new("test-timeout", "test timeout", 1, || {});
-        let width = pool.run(task.clone(), Duration::from_millis(20), "test timed out");
-        assert_eq!(width, Some(2));
+        let width = pool.run_draining(task.clone(), Duration::from_millis(20), "test timed out");
+        assert_eq!(width, None);
         assert!(task.abandoned.load(Ordering::SeqCst));
         assert!(pool.is_broken());
         // Broken pool refuses further batches.
         assert!(pool.each(4, Duration::from_secs(1), "timeout", |i| i).is_none());
-        // Release worker thread cleanly.
-        *release.0.lock().unwrap() = true;
-        release.1.notify_all();
+    }
+
+    #[test]
+    fn finish_draining_waits_for_abandoned_worker_to_exit_before_returning() {
+        struct Slow {
+            abandoned: AtomicBool,
+            exited: AtomicBool,
+        }
+        impl Work for Slow {
+            fn work(&self, on_worker: bool) {
+                if on_worker {
+                    while !self.abandoned.load(Ordering::Acquire) {
+                        std::thread::sleep(Duration::from_millis(2));
+                    }
+                    std::thread::sleep(Duration::from_millis(15));
+                    self.exited.store(true, Ordering::Release);
+                }
+            }
+            fn abandon(&self) {
+                self.abandoned.store(true, Ordering::Release);
+            }
+        }
+        let task = Arc::new(Slow { abandoned: AtomicBool::new(false), exited: AtomicBool::new(false) });
+        let pool = WorkerPool::new("test-drain", "test drain", 1, || {});
+        assert!(pool.begin(task.clone()));
+        assert_eq!(pool.finish_draining(&*task, Duration::from_millis(10), "drain timed out"), None);
+        assert!(task.exited.load(Ordering::Acquire), "finish_draining returned while worker was still active");
+        assert!(pool.is_broken());
     }
 }
