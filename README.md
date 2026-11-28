@@ -64,6 +64,11 @@ Download `eu4-harmony-<version>-windows-x64.zip` from [GitHub Releases](https://
 
 Unsubscribe from Harmony and delete `version.dll` from the game folder (restore `version.dll.bak` if you kept one). If you enabled Windows crash dumps from **Harmony settings → Advanced**, click **Disable Windows crash dumps for EU4 (admin)** there first.
 
+### Featured Harmony Mods
+
+- **[Convenience Tools](https://steamcommunity.com/sharedfiles/filedetails/?id=3838535796)** — One-click country-wide Make States, Abandon States, and Raze in a native-style panel following vanilla rules.
+- **[Regional Combat](https://steamcommunity.com/sharedfiles/filedetails/?id=3837793510)** — Assign an army an operating radius to automatically pursue enemies, retake lost provinces, and return when idle.
+
 ### FAQ
 
 - **I subscribed, why is Harmony not showing in the main menu?**

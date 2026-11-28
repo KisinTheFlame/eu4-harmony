@@ -1,13 +1,13 @@
 [h1]Harmony[/h1]
-[b]Europa Universalis IV を内部からより快適に。[/b]鮮明な日本語・中国語・韓国語フォント、再起動なしでのメインメニュー復帰、後半の高速化、不具合修正、高機能な Mod 基盤を、ゲーム本来のルールを変えずに提供します。
+[b]Europa Universalis IV を内部からより快適に。[/b]高精細な日本語・中・韓フォント、再起動なしでのメインメニュー復帰、実測でわかる高速化とエンジン修正を、バニラのルールを変えずに提供します。
 
-[b]重要（導入前にご確認ください）：[/b]
 [list]
-[*][b]サブスクライブだけでは有効になりません。[/b]下の 1 行コマンドまたはマウス 3 ステップで [b]version.dll[/b] をゲームフォルダへ一度コピーしてください。以降の更新は自動です。
-[*][b]セキュリティ警告について：[/b]MIT ライセンスの完全オープンソースです。[b]version.dll[/b] で読み込む仕組み上、まれに誤検知が起きます。GitHub でコードを確認するか EU4 フォルダを除外設定してください。
+[*][b]滲みのない高精細フォント：[/b]ネイティブ UTF-8＋システムフォントに加え、日本語（源ノ明朝 JP）・簡体字・韓国語の無料標準フォントを同梱。既存の日本語化 Mod・セーブもそのまま動作。
+[*][b]数秒で再起動なし復帰 & アイアンマン内ロード：[/b]メインメニュー復帰のたびの再起動を解消。アイアンマン中でも別セーブを直接ロード可能（事前自動保存あり）。
+[*][b]実測でわかる高速化：[/b]55 MB アイアンマンセーブの停止時間を ~1.2 秒 → ~0.35 秒へ短縮（約 2/3 削減）、速度 5 フレーム落ち P99 を約 70% 低減、大型 Mod 起動を約 1/3 高速化。
+[*][b]バニラ規則不変 & MIT オープンソース：[/b]後継者名重複やメモリリークを修正、BGM 音量均一化、任意 Mod での実績獲得オプション搭載。
 [/list]
-
-日本語訳テキストは従来の日本語化 Mod が担当します。旧パッチ向け翻訳 Mod やセーブデータもそのまま使えます。
+[i]ご案内：サブスクライブ後、下の「インストール手順」で [b]version.dll[/b] を一度コピーすると有効になります（以降の更新は自動）。[/i]
 
 [h2]バニラ版との比較[/h2]
 [table]
@@ -17,65 +17,57 @@
 [th]Harmony 導入後[/th]
 [/tr]
 [tr]
-[td][b]日本語・CJK フォント[/b][/td]
-[td]パッチなしでは文字化け。旧ビットマップフォントは滲みやすく改行も不安定。[/td]
-[td]ネイティブ UTF-8＋システムフォント、さらに日本語（源ノ明朝 JP）・簡体字・韓国語の無料標準フォントを同梱。ライブプレビュー・自然な改行・IME・日本語順の日付/人名に対応。[/td]
+[td][b]日本語・CJK[/b][/td]
+[td]パッチなしでは文字化け。旧ビットマップは滲みやすい。[/td]
+[td]UTF-8＋システムフォント＆無料標準フォント（源ノ明朝 JP 等）、ライブプレビュー・IME・日本語日付対応。[/td]
 [/tr]
 [tr]
 [td][b]復帰とロード[/b][/td]
-[td]メインメニュー復帰で毎回再起動。アイアンマンはゲーム内ロード不可。[/td]
-[td]再起動なしで数秒でメインメニューへ復帰。アイアンマンでもゲーム内ロード可能（事前自動保存あり）。[/td]
+[td]メインメニュー復帰で再起動。アイアンマンはロード不可。[/td]
+[td]再起動なしで数秒復帰。アイアンマンでもゲーム内ロード可能。[/td]
 [/tr]
 [tr]
 [td][b]パフォーマンス[/b][/td]
-[td]後半処理が重くセーブ時に固まりやすい。[/td]
-[td]日次・月次処理を高速化、マルチスレッド背景セーブ、賢い FPS 上限、滑らかなマップズーム。[/td]
+[td]後半処理が重く、セーブ時に画面が固まりやすい。[/td]
+[td]日次/月次高速化、マルチスレッド背景セーブ（停止約 1/3）、賢い FPS 上限、滑らかなズーム。[/td]
 [/tr]
 [tr]
-[td][b]不具合修正と快適化[/b][/td]
-[td]後継者名の重複、BGM 音量差、急な音量スライダー、メモリリーク。[/td]
-[td]重複やメモリリークを修正。BGM 音量均一化、自然な音量カーブ、実績条件の緩和オプション搭載。[/td]
+[td][b]修正と快適化[/b][/td]
+[td]後継者名重複、BGM 音量差、復帰時メモリリーク。[/td]
+[td]重複・リーク修正、BGM 均一化、自然な音量カーブ、実績緩和オプション。[/td]
 [/tr]
 [tr]
 [td][b]Mod 拡張[/b][/td]
 [td]Paradox スクリプトのみ。[/td]
-[td]サンドボックス Lua 拡張と標準風 UI パネルに対応し、外部権限も透明に表示。[/td]
+[td]サンドボックス Lua 拡張と標準風 UI パネル、外部権限を透明表示。[/td]
 [/tr]
 [/table]
 
-[h2]インストール手順（どちらかを選択）[/h2]
-まず [b]Harmony をサブスクライブ[/b]し、ダウンロード完了後に [b]version.dll[/b] を一度コピーします：
+[h2]インストール手順（1 ファイルのコピーのみ・二択）[/h2]
+[b]重要：サブスクライブしただけでは有効になりません。[/b]サブスクライブ完了後、[b]version.dll[/b] を一度ゲームフォルダへコピーしてください。MIT 完全オープンソースですが、[b]version.dll[/b] 経由で読み込む仕組み上まれにセキュリティ誤検知が起きます（GitHub でソース確認または EU4 フォルダ除外が可能）。
 
 [b]方法 A：1 行 PowerShell コマンド（最速・任意）[/b]
-[b]Win + X[/b] → [b]ターミナル[/b]（または PowerShell）で下を貼り付けて Enter。ローカル検索・既存 [b]version.dll[/b] の [b]version.dll.bak[/b] 退避・コピーのみ行います（通信なし）：
+[b]Win + X[/b] → [b]ターミナル[/b]（または PowerShell）に貼り付けて Enter。ローカル検索・既存 [b]version.dll[/b] の [b]version.dll.bak[/b] 退避・コピーのみ実行（通信なし）：
 [code]$s=(gp HKCU:\Software\Valve\Steam).SteamPath; $libs=@($s)+((sls '"path"\s+"([^"]+)"' "$s\steamapps\libraryfolders.vdf" -EA 0|%{$_.Matches[0].Groups[1].Value -replace '\\\\','\'})|?{$_}); $g=$libs|%{"$_\steamapps\common\Europa Universalis IV"}|?{Test-Path "$_\eu4.exe"}|select -First 1; $src=$libs|%{"$_\steamapps\workshop\content\236850\3837775887\version.dll"}|?{Test-Path $_}|select -First 1; if(!$g -or !$src){throw "Not found (subscribe in Steam first): game='$g' workshop='$src'"}; $dst="$g\version.dll"; if((Test-Path $dst) -and !(Test-Path "$dst.bak") -and (Get-FileHash $dst).Hash -ne (Get-FileHash $src).Hash){Copy-Item $dst "$dst.bak"}; Copy-Item $src $dst -Force; "Installed to $dst"[/code]
 
 [b]方法 B：マウス手動コピー（3 ステップ）[/b]
 [olist]
-[*]Steam で [b]Europa Universalis IV[/b] を右クリック → [b]管理 → ローカルファイルを閲覧[/b]。
+[*]Steam で [b]Europa Universalis IV[/b] 右クリック → [b]管理 → ローカルファイルを閲覧[/b]。
 [*]ランチャー → [b]Mod ライブラリ[/b] → [b]Harmony[/b] → [b]… → フォルダで表示[/b]（または [b]steamapps\workshop\content\236850\3837775887[/b]）。
-[*][b]version.dll[/b] を [b]eu4.exe[/b] の隣へコピー（拡張子非表示時は [b]version[/b]・[b]eu4[/b]。旧ファイルがあれば置換または退避）。
+[*][b]version.dll[/b] を [b]eu4.exe[/b] の隣へコピー（拡張子非表示時は [b]version[/b]・[b]eu4[/b]。旧ファイルは置換または退避）。
 [/olist]
+通常通り起動してください。Harmony 本体はプレイセット追加不要です（対応 Mod のみ有効化）。導入後は右下に [b]Harmony v…[/b]・[b]Mod一覧[/b]・[b]設定[/b] が表示されます。
 
-通常通り起動してください。Harmony 自体はプレイセット不要です（対応 Mod のみ有効化）。有効になると右下に [b]Harmony v…[/b]・[b]Mod一覧[/b]・[b]設定[/b] が出ます。今後の [b]version.dll[/b] 更新も起動時に自動で反映・再起動されます。
-
-[h2]動作要件[/h2]
+[h2]おすすめの Harmony 対応 Mod[/h2]
 [list]
-[*]Steam Windows 版 Europa Universalis IV [b]1.37.5[/b]（シングルプレイ専用・マルチ対応開発中）。
+[*][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3838535796][b]Convenience Tools（便利ツール）[/b][/url] — ワンクリックで全国一括ステート化・解除・略奪（Raze）をバニラ規則準拠で実行。
+[*][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3837793510][b]Regional Combat（地域戦闘）[/b][/url] — 部隊に作戦半径を指定し、範囲内の敵軍追撃・失地奪還・待機帰還を自動化。
 [/list]
 
-[h2]よくある質問（FAQ）[/h2]
+[h2]要件・FAQ・不具合報告[/h2]
 [list]
-[*][b]導入したのに表示されません。[/b] 方法 A/B で [b]version.dll[/b] を [b]eu4.exe[/b] の隣へコピーしたか、Steam Windows 版 1.37.5 か確認してください。
-[*][b]旧パッチやフォント Mod からの移行は？[/b] 旧 [b]version.dll[/b] を置換し、旧ビットマップフォント Mod を無効化（翻訳 Mod は有効のまま）。既存セーブもそのまま読めます。
-[*][b]マルチプレイを遊ぶには？[/b] サブスクライブを解除するか、ゲームフォルダの [b]version.dll[/b] を一時移動してください。
-[*][b]外した後もセーブは使えますか？[/b] 本体のみなら構造は壊れませんが、導入中に入力した日本語名などは UTF-8 保存のため外すと文字化けします。独自データを保存する Mod 利用時は互換性を保証しません。
-[*][b]音が小さくなった／既存セーブで非アイアンマン実績が効かない？[/b] 二乗カーブ採用のため 100 未満は静かに聞こえます（調整し直してください）。実績緩和は新規開始時から有効です。
-[*][b]アンインストール方法は？[/b] サブスクライブ解除後、[b]version.dll[/b] を削除（[b]version.dll.bak[/b] があれば復元）。「Harmony 設定 → 詳細設定」でクラッシュダンプを有効にした場合は先に無効化してください。
+[*][b]要件：[/b]Steam Windows 版 EU4 [b]1.37.5[/b]、シングルプレイ専用（マルチ対応開発中。マルチ時はサブスクライブ解除か [b]version.dll[/b] を一時移動）。
+[*][b]旧パッチからの移行：[/b]旧 [b]version.dll[/b] を置換し、旧ビットマップフォント Mod を無効化（翻訳 Mod は有効のまま）。
+[*][b]アンインストール：[/b]サブスクライブ解除後、[b]version.dll[/b] を削除（[b]version.dll.bak[/b] があれば復元）。「Harmony 設定 → 詳細設定」のクラッシュダンプも先に無効化してください。
 [/list]
-
-[h2]不具合報告[/h2]
-[b]Harmony 設定 → 情報[/b] で [b]トラブルシューティング用ファイルをデスクトップに保存[/b]（セーブなし、ユーザー名パス伏せ字・ダンプ軽量化済み、24 MB 未満）を作成し、[url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url] へ添付してください。ログフォルダは [b]Harmony 設定 → 詳細設定[/b] から直接開けます。
-
-[h2]Mod 制作者向け[/h2]
-サンドボックス Lua 拡張と標準風 UI を追加できます。詳細は [url=https://github.com/KisinTheFlame/eu4-harmony/blob/master/README.ja.md]GitHub 日本語 README[/url] へ。
+不具合は [b]Harmony 設定 → 情報[/b] でトラブルシューティング用 zip（セーブなし、パス伏せ字・軽量化済み、24 MB 未満）を作成し [url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url] へ。Mod 制作者向けガイドは [url=https://github.com/KisinTheFlame/eu4-harmony/blob/master/README.ja.md]GitHub 日本語 README[/url] をご覧ください。

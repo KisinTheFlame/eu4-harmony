@@ -1,15 +1,15 @@
 [h1]Harmony[/h1]
-[b]Europa Universalis IV, made better from within.[/b] Crisp Chinese, Japanese and Korean text, no restarts when returning to the main menu, faster late-game ticks, fewer engine bugs, and richer mods — with game rules untouched.
+[b]Europa Universalis IV, made better from within.[/b] Crisp CJK & system fonts, instant no-restart returns to the main menu, measurably faster saves and ticks, and engine bug fixes — with vanilla rules untouched.
 
-[b]Important — before starting:[/b]
 [list]
-[*][b]Subscribing alone does not activate Harmony.[/b] Copy one file ([b]version.dll[/b]) into your EU4 folder once via the one-line PowerShell command or 3-step guide below. Future updates are automatic.
-[*][b]Antivirus note:[/b] Harmony is open source (MIT) and loads into [b]eu4.exe[/b] via [b]version.dll[/b], which can occasionally trigger heuristic warnings. Inspect the code on GitHub, add an exclusion for the EU4 folder, or build from source.
+[*][b]Sharp CJK & system fonts:[/b] Native UTF-8 rendering with free bundled defaults for Simplified Chinese, Japanese and Korean plus live font preview — works directly with existing translation mods and saves.
+[*][b]No-restart main menu & Ironman loading:[/b] Return to the main menu in seconds instead of restarting the game; load saves directly inside Ironman (with optional auto-save first).
+[*][b]Measured speed-ups:[/b] 55 MB Ironman save freeze cut from ~1.2 s to ~0.35 s (~2/3 shorter), speed-5 frame stutter P99 reduced by ~70%, large-mod startup ~1/3 faster, smoother map zoom.
+[*][b]Vanilla balance intact & open source:[/b] Fixes duplicate heir names and reload memory leaks, equalizes music loudness, optional relaxed achievements; 100% MIT open source.
 [/list]
+[i]Quick note: after subscribing, follow Installing below to copy [b]version.dll[/b] once — all future updates are automatic.[/i]
 
-Your translation mod still supplies translations; mods made for the old double-byte patch — and their saves — work directly.
-
-[h2]What Harmony improves over unmodified EU4[/h2]
+[h2]Comparison with unmodified EU4[/h2]
 [table]
 [tr]
 [th]Area[/th]
@@ -17,68 +17,60 @@ Your translation mod still supplies translations; mods made for the old double-b
 [th]With Harmony[/th]
 [/tr]
 [tr]
-[td][b]CJK text & fonts[/b][/td]
-[td]Broken CJK text without old patches; blurry bitmap fonts, broken line wraps and search.[/td]
-[td]Native UTF-8 CJK rendering with system fonts plus free bundled defaults for Simplified Chinese, Japanese and Korean, live font preview, clean wrapping, IME input, and East Asian dates/names.[/td]
+[td][b]CJK & fonts[/b][/td]
+[td]Broken CJK without old patches; blurry bitmap fonts and broken wraps.[/td]
+[td]Native UTF-8 with system fonts + free bundled SC/JP/KR defaults, live preview, IME input and East Asian dates/names.[/td]
 [/tr]
 [tr]
-[td][b]Returning & loading[/b][/td]
-[td]Returning to the main menu restarts the game; Ironman blocks loading.[/td]
-[td]Return to the main menu in seconds without restarting; load saves directly in Ironman (optional auto-save first).[/td]
+[td][b]Return & load[/b][/td]
+[td]Main menu restarts the whole game; Ironman blocks loading.[/td]
+[td]Return to the main menu in seconds without restarting; load directly during Ironman.[/td]
 [/tr]
 [tr]
 [td][b]Performance[/b][/td]
-[td]Late-game stutter, long save freezes, and uncapped menu CPU usage.[/td]
-[td]Faster daily/monthly ticks, multi-threaded saving, smarter frame rate cap, and smoother map zoom.[/td]
+[td]Late-game stutter, long save freezes, uncapped menu CPU load.[/td]
+[td]Faster ticks, multi-threaded saving (~3x shorter pause), smarter FPS cap, smoother map zoom.[/td]
 [/tr]
 [tr]
-[td][b]Bug fixes & QoL[/b][/td]
-[td]Duplicate heir names, uneven music loudness, steep volume sliders, reload leaks, Ironman-only achievements.[/td]
-[td]Fixes duplicate heir names and reload leaks; equalized music loudness, natural volume sliders, and optional relaxed achievement rules.[/td]
+[td][b]Fixes & QoL[/b][/td]
+[td]Duplicate heir names, reload leaks, uneven music, Ironman-only achievements.[/td]
+[td]Fixes duplicate heirs & leaks; equalized music, natural volume curve, optional relaxed achievements.[/td]
 [/tr]
 [tr]
-[td][b]Mods[/b][/td]
+[td][b]Mod platform[/b][/td]
 [td]Limited to Paradox script files.[/td]
 [td]Sandboxed Lua extensions with native-style panels and transparent permission disclosures.[/td]
 [/tr]
 [/table]
 
-[h2]Installing (pick either option)[/h2]
-First, [b]subscribe to Harmony[/b] here and let Steam finish downloading. Then copy [b]version.dll[/b] into your game folder once:
+[h2]Installing (copy 1 file once — pick either option)[/h2]
+[b]Important: subscribing alone does not activate Harmony.[/b] Subscribe here, wait for Steam to download, then copy [b]version.dll[/b] once. Harmony is MIT open source and loads into [b]eu4.exe[/b] via [b]version.dll[/b], which can occasionally trigger antivirus heuristics — inspect the code on GitHub or add an exclusion for your EU4 folder.
 
 [b]Option A — One-line PowerShell copy (fastest, optional)[/b]
-Press [b]Win + X[/b] → [b]Terminal[/b] (or [b]Windows PowerShell[/b]), paste this line and press Enter. It only locates your Steam libraries locally, backs up any existing [b]version.dll[/b] to [b]version.dll.bak[/b], and copies Harmony's [b]version.dll[/b] (nothing is downloaded):
+Press [b]Win + X[/b] → [b]Terminal[/b] (or PowerShell), paste and press Enter. Runs purely locally: finds your Steam libraries, backs up any existing [b]version.dll[/b] to [b]version.dll.bak[/b], and copies the file (nothing is downloaded):
 [code]$s=(gp HKCU:\Software\Valve\Steam).SteamPath; $libs=@($s)+((sls '"path"\s+"([^"]+)"' "$s\steamapps\libraryfolders.vdf" -EA 0|%{$_.Matches[0].Groups[1].Value -replace '\\\\','\'})|?{$_}); $g=$libs|%{"$_\steamapps\common\Europa Universalis IV"}|?{Test-Path "$_\eu4.exe"}|select -First 1; $src=$libs|%{"$_\steamapps\workshop\content\236850\3837775887\version.dll"}|?{Test-Path $_}|select -First 1; if(!$g -or !$src){throw "Not found (subscribe in Steam first): game='$g' workshop='$src'"}; $dst="$g\version.dll"; if((Test-Path $dst) -and !(Test-Path "$dst.bak") -and (Get-FileHash $dst).Hash -ne (Get-FileHash $src).Hash){Copy-Item $dst "$dst.bak"}; Copy-Item $src $dst -Force; "Installed to $dst"[/code]
 
 [b]Option B — Manual copy (mouse only, 3 steps)[/b]
 [olist]
-[*]In Steam, right-click [b]Europa Universalis IV[/b] → [b]Manage → Browse local files[/b] to open the game folder.
-[*]Open Paradox Launcher → [b]Mod library[/b] → [b]Harmony[/b] → [b]… → Show in folder[/b] (or open [b]steamapps\workshop\content\236850\3837775887[/b]).
-[*]Copy [b]version.dll[/b] next to [b]eu4.exe[/b] (Windows may hide extensions and show [b]version[/b] / [b]eu4[/b]; replace any old [b]version.dll[/b] or back it up first).
+[*]In Steam, right-click [b]Europa Universalis IV[/b] → [b]Manage → Browse local files[/b].
+[*]Paradox Launcher → [b]Mod library[/b] → [b]Harmony[/b] → [b]… → Show in folder[/b] (or open [b]steamapps\workshop\content\236850\3837775887[/b]).
+[*]Copy [b]version.dll[/b] next to [b]eu4.exe[/b] (if extensions are hidden, they show as [b]version[/b] / [b]eu4[/b]; replace or back up any old copy).
 [/olist]
+Launch EU4 normally. Harmony does [b]not[/b] need to be in a playset (enable mods built on Harmony in your playset as usual). When active, the main menu shows [b]Harmony v…[/b], [b]Mods[/b] and [b]Settings[/b] at bottom-right. Future [b]version.dll[/b] updates apply and restart automatically.
 
-Launch EU4 as usual. Harmony does not need to be in a playset; mods built on it are enabled like any normal mod. When active, the main menu shows [b]Harmony v…[/b], [b]Mods[/b] and [b]Settings[/b] at bottom-right.
-
-Steam updates Harmony automatically. When an update includes a newer [b]version.dll[/b], Harmony updates your game folder's copy on startup and restarts automatically (notifying you in-game only if the folder is read-only).
-
-[h2]Requirements[/h2]
+[h2]Featured Harmony mods[/h2]
 [list]
-[*]Steam Windows build of Europa Universalis IV [b]1.37.5[/b].
-[*]Single player only (multiplayer support is on the way; the Multiplayer button is disabled while active).
+[*][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3838535796][b]Convenience Tools[/b][/url] — One-click country-wide Make States, Abandon States, and Raze in a native-style panel following vanilla rules.
+[*][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3837793510][b]Regional Combat[/b][/url] — Assign an army an operating radius to automatically pursue enemies, retake lost provinces, and return when idle.
 [/list]
 
-[h2]FAQ[/h2]
+[h2]Requirements & FAQ[/h2]
 [list]
-[*][b]I subscribed — why is Harmony not showing?[/b] Copy [b]version.dll[/b] next to [b]eu4.exe[/b] (Option A or B) and verify Steam Windows EU4 1.37.5.
-[*][b]Migrating from the old double-byte patch or bitmap font mods?[/b] Replace old [b]version.dll[/b] with Harmony's, disable old bitmap font mods (they conflict with system fonts), and keep your translation mod. Existing saves load directly.
-[*][b]How do I play multiplayer?[/b] Unsubscribe from Harmony or temporarily move [b]version.dll[/b] out of the game folder.
-[*][b]Are saves safe if I disable Harmony later?[/b] Harmony itself does not break saves, though custom text typed with Harmony is stored in UTF-8 (garbled without Harmony). Harmony mods storing their own save data may not load without Harmony.
-[*][b]Why is sound quieter, or why did non-Ironman achievements not apply to an old save?[/b] Volume sliders use a smoother quadratic curve, so values under 100 sound quieter until adjusted once. Relaxed achievement rules apply to new campaigns.
-[*][b]How do I uninstall cleanly?[/b] Unsubscribe and delete [b]version.dll[/b] from the game folder (restore [b]version.dll.bak[/b] if kept). If you enabled crash dumps in [b]Harmony settings → Advanced[/b], click [b]Disable Windows crash dumps for EU4 (admin)[/b] there first.
+[*][b]Requirements:[/b] Steam Windows EU4 [b]1.37.5[/b], single player only (multiplayer support in progress; unsubscribe or temporarily move [b]version.dll[/b] out to play multiplayer).
+[*][b]Migrating from old CJK patches / bitmap fonts:[/b] Replace old [b]version.dll[/b], disable old bitmap font mods, keep your translation mod — existing saves load directly.
+[*][b]Quieter sound / achievements on old saves:[/b] Volume uses a smoother quadratic curve (turn up once); relaxed achievements apply to new campaigns.
+[*][b]Uninstall cleanly:[/b] Unsubscribe and delete [b]version.dll[/b] (restore [b]version.dll.bak[/b] if kept). If you enabled crash dumps in [b]Harmony settings → Advanced[/b], disable them there first.
 [/list]
 
-[h2]Troubleshooting & feedback[/h2]
-Open [b]Harmony settings → About[/b] and click [b]Save troubleshooting files to the desktop[/b] for a compact zip (under 24 MB, no saves, username paths redacted, crash dumps slimmed), then attach it on [url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url]. You can also open the log folder from [b]Harmony settings → Advanced[/b].
-
-[h2]For mod authors[/h2]
-Harmony mods are standard Paradox mods with sandboxed Lua extensions and native-style UI panels. See the [url=https://github.com/KisinTheFlame/eu4-harmony]GitHub README[/url] for documentation and tools.
+[h2]Troubleshooting & mod authors[/h2]
+Open [b]Harmony settings → About[/b] → [b]Save troubleshooting files to the desktop[/b] (no saves, username paths redacted, crash dumps slimmed, under 24 MB) and attach it on [url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url]. Mod docs & CLI tools: [url=https://github.com/KisinTheFlame/eu4-harmony]GitHub README[/url].
