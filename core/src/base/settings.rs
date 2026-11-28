@@ -110,6 +110,94 @@ pub const ZOOM_STEP_BOUNDS: std::ops::RangeInclusive<u32> = 105..=200;
 /// Default map zoom step (`130` = `1.30×` per wheel notch).
 pub const DEFAULT_ZOOM_STEP: u32 = 130;
 
+/// Minimum and maximum finite game speeds accepted from `settings.txt`, in
+/// days per second.
+pub const GAME_SPEED_MIN_DAYS_PER_SEC: f32 = 0.01;
+pub const GAME_SPEED_MAX_DAYS_PER_SEC: f32 = 1000.0;
+
+/// Piecewise-increasing presets offered by each game-speed slider, in days per
+/// second; the final slider step (`GAME_SPEED_PRESETS.len()`) is
+/// [`GameSpeed::Unlimited`].
+pub const GAME_SPEED_PRESETS: [f32; 21] = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0, 20.0, 25.0, 30.0, 40.0, 50.0, 60.0];
+
+/// Vanilla speeds 1..=5 in days per second (`0.5, 1, 2, 5, unlimited`).
+pub const DEFAULT_GAME_SPEEDS: [GameSpeed; 5] =
+    [GameSpeed::days_per_second(0.5), GameSpeed::days_per_second(1.0), GameSpeed::days_per_second(2.0), GameSpeed::days_per_second(5.0), GameSpeed::Unlimited];
+
+/// Target pace of one game speed level (speeds 1 to 5).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum GameSpeed {
+    /// Target days per second, stored as canonical positive finite `f32::to_bits()`.
+    DaysPerSecond(u32),
+    /// No artificial day-interval limit (vanilla speed 5).
+    Unlimited,
+}
+
+impl std::fmt::Debug for GameSpeed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::DaysPerSecond(bits) => write!(f, "DaysPerSecond({})", f32::from_bits(bits)),
+            Self::Unlimited => f.write_str("Unlimited"),
+        }
+    }
+}
+
+impl GameSpeed {
+    /// Constructs a finite speed from a positive finite rate in days per second.
+    pub const fn days_per_second(rate: f32) -> Self {
+        Self::DaysPerSecond(rate.to_bits())
+    }
+
+    /// Finite days per second, or `None` for [`Self::Unlimited`].
+    pub fn rate(self) -> Option<f32> {
+        match self {
+            Self::DaysPerSecond(bits) => Some(f32::from_bits(bits)),
+            Self::Unlimited => None,
+        }
+    }
+
+    /// Formats a finite rate as a compact decimal string (e.g. `0.25`, `1`, `5`).
+    pub fn format_rate(rate: f32) -> String {
+        format!("{rate}")
+    }
+
+    /// Whether `self` matches one of [`GAME_SPEED_PRESETS`] (or is unlimited).
+    pub fn is_preset(self) -> bool {
+        match self {
+            Self::Unlimited => true,
+            Self::DaysPerSecond(bits) => {
+                let rate = f32::from_bits(bits);
+                GAME_SPEED_PRESETS.iter().any(|&p| (p - rate).abs() <= 1e-6)
+            }
+        }
+    }
+
+    /// Index on the `0..=GAME_SPEED_PRESETS.len()` game-speed slider.
+    /// Non-preset finite rates snap to the nearest preset in log-space.
+    pub fn slider_index(self) -> u32 {
+        match self {
+            Self::Unlimited => GAME_SPEED_PRESETS.len() as u32,
+            Self::DaysPerSecond(bits) => {
+                let rate = f32::from_bits(bits);
+                if let Some(exact) = GAME_SPEED_PRESETS.iter().position(|&p| (p - rate).abs() <= 1e-6) {
+                    return exact as u32;
+                }
+                let log_rate = rate.ln();
+                GAME_SPEED_PRESETS
+                    .iter()
+                    .enumerate()
+                    .min_by(|(_, a), (_, b)| (a.ln() - log_rate).abs().total_cmp(&(b.ln() - log_rate).abs()))
+                    .map_or(0, |(idx, _)| idx as u32)
+            }
+        }
+    }
+
+    /// Speed for slider step `index` (`0..=GAME_SPEED_PRESETS.len()`).
+    pub fn from_slider_index(index: u32) -> Self {
+        GAME_SPEED_PRESETS.get(index as usize).copied().map_or(Self::Unlimited, Self::days_per_second)
+    }
+}
+
 fn format_percent(value: u32) -> String {
     format!("{value}%")
 }
@@ -145,6 +233,12 @@ pub struct Settings {
     /// without it, loading the same save again is an undo
     /// (ADR in-game-load-in-ironman).
     pub save_ironman_before_load: bool,
+    /// Target pace of game speeds 1 to 5, in days per second or unlimited.
+    pub game_speed_1: GameSpeed,
+    pub game_speed_2: GameSpeed,
+    pub game_speed_3: GameSpeed,
+    pub game_speed_4: GameSpeed,
+    pub game_speed_5: GameSpeed,
     /// Whether a game that is not ironman can earn achievements
     /// (ADR achievement-rules-can-be-relaxed).
     pub achievements_outside_ironman: bool,
@@ -213,6 +307,9 @@ pub enum Shows {
     /// its right; in the file, `scale == 1` writes the integer (`50`) and
     /// `scale == 100` writes hundredths (`1.30`).
     Slider { label: &'static str, min: u32, max: u32, scale: u32, format: fn(u32) -> String, field: Field<u32> },
+    /// A piecewise-preset slider for one game speed level (days per second or
+    /// `unlimited` in the file).
+    GameSpeed { label: &'static str, field: Field<GameSpeed> },
 }
 
 /// When a change to a [`Setting`] made in the settings window takes effect.
@@ -236,6 +333,8 @@ pub enum Effect {
 /// and whenever settings are saved.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Listener {
+    /// The game speed pacing and speed-linked animation/frame-check thresholds.
+    GameSpeed,
     /// The achievement rules.
     Achievements,
     /// The music's loudness.
@@ -265,6 +364,7 @@ impl Listener {
 pub enum Page {
     LanguageFonts,
     Sessions,
+    GameSpeed,
     Achievements,
     Display,
     Sound,
@@ -275,7 +375,8 @@ pub enum Page {
 }
 
 impl Page {
-    pub const ALL: [Page; 7] = [Page::LanguageFonts, Page::Sessions, Page::Achievements, Page::Display, Page::Sound, Page::Advanced, Page::About];
+    pub const ALL: [Page; 8] =
+        [Page::LanguageFonts, Page::Sessions, Page::GameSpeed, Page::Achievements, Page::Display, Page::Sound, Page::Advanced, Page::About];
 
     /// Whether the player can use or change this page during a session.
     pub fn editable_in_game(self) -> bool {
@@ -287,6 +388,7 @@ impl Page {
         match self {
             Page::LanguageFonts => "EU4HARMONY_SETTINGS_PAGE_LANGUAGE_FONTS",
             Page::Sessions => "EU4HARMONY_SETTINGS_PAGE_SESSIONS",
+            Page::GameSpeed => "EU4HARMONY_SETTINGS_PAGE_GAME_SPEED",
             Page::Achievements => "EU4HARMONY_SETTINGS_PAGE_ACHIEVEMENTS",
             Page::Display => "EU4HARMONY_SETTINGS_PAGE_DISPLAY",
             Page::Sound => "EU4HARMONY_SETTINGS_PAGE_SOUND",
@@ -299,7 +401,7 @@ impl Page {
 /// Every [`Setting`], in the order the file writes them and each page of
 /// the settings window shows them; those on the language and fonts page show
 /// after the map's font. Their defaults are [`Settings::default`]'s.
-pub static SETTINGS: [Setting; 11] = [
+pub static SETTINGS: [Setting; 16] = [
     Setting {
         key: "map_outline",
         page: Page::LanguageFonts,
@@ -317,6 +419,36 @@ pub static SETTINGS: [Setting; 11] = [
         page: Page::Sessions,
         shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_SAVE_IRONMAN_BEFORE_LOAD", field: field!(save_ironman_before_load) },
         effect: Effect::WhenSaved { tells: None },
+    },
+    Setting {
+        key: "game_speed_1",
+        page: Page::GameSpeed,
+        shows: Shows::GameSpeed { label: "EU4HARMONY_SETTINGS_GAME_SPEED_1", field: field!(game_speed_1) },
+        effect: Effect::WhenSaved { tells: Some(Listener::GameSpeed) },
+    },
+    Setting {
+        key: "game_speed_2",
+        page: Page::GameSpeed,
+        shows: Shows::GameSpeed { label: "EU4HARMONY_SETTINGS_GAME_SPEED_2", field: field!(game_speed_2) },
+        effect: Effect::WhenSaved { tells: Some(Listener::GameSpeed) },
+    },
+    Setting {
+        key: "game_speed_3",
+        page: Page::GameSpeed,
+        shows: Shows::GameSpeed { label: "EU4HARMONY_SETTINGS_GAME_SPEED_3", field: field!(game_speed_3) },
+        effect: Effect::WhenSaved { tells: Some(Listener::GameSpeed) },
+    },
+    Setting {
+        key: "game_speed_4",
+        page: Page::GameSpeed,
+        shows: Shows::GameSpeed { label: "EU4HARMONY_SETTINGS_GAME_SPEED_4", field: field!(game_speed_4) },
+        effect: Effect::WhenSaved { tells: Some(Listener::GameSpeed) },
+    },
+    Setting {
+        key: "game_speed_5",
+        page: Page::GameSpeed,
+        shows: Shows::GameSpeed { label: "EU4HARMONY_SETTINGS_GAME_SPEED_5", field: field!(game_speed_5) },
+        effect: Effect::WhenSaved { tells: Some(Listener::GameSpeed) },
     },
     Setting {
         key: "achievements_outside_ironman",
@@ -415,6 +547,10 @@ impl Setting {
                 let value = (field.get)(settings).clamp(min, max);
                 Some(if scale == 1 { value.to_string() } else { format!("{:.2}", value as f64 / scale as f64) })
             }
+            Shows::GameSpeed { field, .. } => Some(match (field.get)(settings) {
+                GameSpeed::Unlimited => "unlimited".to_string(),
+                GameSpeed::DaysPerSecond(bits) => GameSpeed::format_rate(f32::from_bits(bits)),
+            }),
         }
     }
 
@@ -437,6 +573,11 @@ impl Setting {
                     (field.set)(settings, parsed);
                 }
             }
+            Shows::GameSpeed { field, .. } => {
+                if let Some(speed) = game_speed(value) {
+                    (field.set)(settings, speed);
+                }
+            }
         }
     }
 
@@ -446,6 +587,7 @@ impl Setting {
             Shows::Toggle { field, .. } => (field.set)(to, (field.get)(from)),
             Shows::FrameRate { field, .. } => (field.set)(to, (field.get)(from)),
             Shows::Slider { field, .. } => (field.set)(to, (field.get)(from)),
+            Shows::GameSpeed { field, .. } => (field.set)(to, (field.get)(from)),
         }
     }
 
@@ -464,6 +606,13 @@ impl Setting {
             ),
             Shows::Slider { min, max, field, .. } => {
                 let next = if (field.get)(settings) == max { min } else { max };
+                (field.set)(settings, next);
+            }
+            Shows::GameSpeed { field, .. } => {
+                let next = match (field.get)(settings) {
+                    GameSpeed::Unlimited => GameSpeed::days_per_second(15.0),
+                    _ => GameSpeed::Unlimited,
+                };
                 (field.set)(settings, next);
             }
         }
@@ -607,6 +756,11 @@ impl Default for Settings {
             map_outline: true,
             return_without_restart: true,
             save_ironman_before_load: true,
+            game_speed_1: DEFAULT_GAME_SPEEDS[0],
+            game_speed_2: DEFAULT_GAME_SPEEDS[1],
+            game_speed_3: DEFAULT_GAME_SPEEDS[2],
+            game_speed_4: DEFAULT_GAME_SPEEDS[3],
+            game_speed_5: DEFAULT_GAME_SPEEDS[4],
             achievements_outside_ironman: false,
             achievements_with_changed_checksum: false,
             frame_rate_limit: FrameRateLimit::Display,
@@ -620,6 +774,11 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// Configured pace of game speeds 1 to 5, indexed `0..=4`.
+    pub fn game_speeds(&self) -> [GameSpeed; 5] {
+        [self.game_speed_1, self.game_speed_2, self.game_speed_3, self.game_speed_4, self.game_speed_5]
+    }
+
     /// The font chosen for `role`, if one is.
     pub fn chosen(&self, role: Role) -> Option<&Face> {
         match role {
@@ -771,6 +930,19 @@ fn frame_rate(value: &str) -> Option<FrameRateLimit> {
         "unlimited" => Some(FrameRateLimit::Unlimited),
         other => other.parse().ok().filter(|r| FRAME_RATE_BOUNDS.contains(r)).map(FrameRateLimit::Hz),
     }
+}
+
+/// A game speed as the file keeps it: positive days per second within
+/// `GAME_SPEED_MIN_DAYS_PER_SEC..=GAME_SPEED_MAX_DAYS_PER_SEC`, or `unlimited`.
+fn game_speed(value: &str) -> Option<GameSpeed> {
+    if value == "unlimited" {
+        return Some(GameSpeed::Unlimited);
+    }
+    let parsed = value.parse::<f32>().ok()?;
+    if !parsed.is_finite() || !(GAME_SPEED_MIN_DAYS_PER_SEC..=GAME_SPEED_MAX_DAYS_PER_SEC).contains(&parsed) {
+        return None;
+    }
+    Some(GameSpeed::days_per_second(parsed))
 }
 
 /// A slider value as the file keeps it, within `min..=max` (scaled by `scale`).
@@ -1013,6 +1185,11 @@ mod tests {
             map_outline: false,
             return_without_restart: false,
             save_ironman_before_load: false,
+            game_speed_1: GameSpeed::days_per_second(0.25),
+            game_speed_2: GameSpeed::days_per_second(1.5),
+            game_speed_3: GameSpeed::days_per_second(7.5),
+            game_speed_4: GameSpeed::Unlimited,
+            game_speed_5: GameSpeed::days_per_second(20.0),
             achievements_outside_ironman: true,
             achievements_with_changed_checksum: true,
             frame_rate_limit: FrameRateLimit::Hz(120),
@@ -1038,7 +1215,7 @@ mod tests {
         assert_eq!(following.render().lines().next(), Some("language=\"english\""));
         assert_eq!(
             following.render(),
-            "language=\"english\"\nmap_outline=yes\nreturn_without_restart=yes\nsave_ironman_before_load=yes\nachievements_outside_ironman=no\nachievements_with_changed_checksum=no\nzoom_smoothing=50\nzoom_step=1.30\nmusic_loudness=yes\nmusic_leveling=no\nremote_control=no\n"
+            "language=\"english\"\nmap_outline=yes\nreturn_without_restart=yes\nsave_ironman_before_load=yes\ngame_speed_1=0.5\ngame_speed_2=1\ngame_speed_3=2\ngame_speed_4=5\ngame_speed_5=unlimited\nachievements_outside_ironman=no\nachievements_with_changed_checksum=no\nzoom_smoothing=50\nzoom_step=1.30\nmusic_loudness=yes\nmusic_leveling=no\nremote_control=no\n"
         );
         assert!(!following.render().contains("_font"));
         assert!(!following.render().contains("frame_rate_limit"));
@@ -1199,8 +1376,8 @@ mod tests {
         current.take_immediate(&Settings { language: Some(Language::German), body_font: Some(Face::regular("SimSun")), ..Settings::default() }, false);
         assert_eq!(current, Settings::default());
         // Each part is told once; in-game saves never re-notify Achievements.
-        assert_eq!(listeners(false), [Listener::Achievements, Listener::Drawing, Listener::CameraZoom, Listener::Sound]);
-        assert_eq!(listeners(true), [Listener::Drawing, Listener::CameraZoom, Listener::Sound]);
+        assert_eq!(listeners(false), [Listener::GameSpeed, Listener::Achievements, Listener::Drawing, Listener::CameraZoom, Listener::Sound]);
+        assert_eq!(listeners(true), [Listener::GameSpeed, Listener::Drawing, Listener::CameraZoom, Listener::Sound]);
 
         // Saving in-game preserves pending next-start and main-menu-only choices.
         let existing = Settings {
@@ -1246,7 +1423,9 @@ mod tests {
             for value in ["maybe", "\"maybe\"", "", "-1", "1001", "YES"] {
                 assert_eq!(Settings::parse(&format!("{}={value}\n", setting.key)), Settings::default(), "{}={value}", setting.key);
             }
-            if !matches!(setting.shows, Shows::Slider { min, max, scale: 1, .. } if (min..=max).contains(&1)) {
+            if !matches!(setting.shows, Shows::Slider { min, max, scale: 1, .. } if (min..=max).contains(&1))
+                && !matches!(setting.shows, Shows::GameSpeed { .. })
+            {
                 assert_eq!(Settings::parse(&format!("{}=1\n", setting.key)), Settings::default(), "{}=1", setting.key);
             }
             // Away from the default, a line it cannot read keeps the one before.
@@ -1256,7 +1435,32 @@ mod tests {
         }
         assert_eq!(Settings::parse("zoom_smoothing=101\nzoom_step=1.04\nzoom_step=2.01\n"), Settings::default());
         assert_eq!(Settings::parse("zoom_step=1.2\n").zoom_step, 120);
+        assert_eq!(Settings::parse("game_speed_1=0\ngame_speed_2=0.009\ngame_speed_3=1001\ngame_speed_4=NaN\ngame_speed_5=inf\n"), Settings::default());
+        assert_eq!(Settings::parse("game_speed_3=7.5\ngame_speed_5=\"unlimited\"\n").game_speed_3, GameSpeed::days_per_second(7.5));
         assert_eq!(Settings::parse("unknown=yes\nmap_outlines=no\n"), Settings::default());
+    }
+
+    #[test]
+    fn game_speed_presets_snap_and_round_trip() {
+        for (idx, &rate) in GAME_SPEED_PRESETS.iter().enumerate() {
+            let speed = GameSpeed::days_per_second(rate);
+            assert!(speed.is_preset());
+            assert_eq!(speed.slider_index(), idx as u32);
+            assert_eq!(GameSpeed::from_slider_index(idx as u32), speed);
+        }
+        let unlimited_idx = GAME_SPEED_PRESETS.len() as u32;
+        assert!(GameSpeed::Unlimited.is_preset());
+        assert_eq!(GameSpeed::Unlimited.slider_index(), unlimited_idx);
+        assert_eq!(GameSpeed::from_slider_index(unlimited_idx), GameSpeed::Unlimited);
+        // Vanilla defaults align with exact presets.
+        assert_eq!(DEFAULT_GAME_SPEEDS.map(GameSpeed::is_preset), [true; 5]);
+        // Non-preset manual values snap to the nearest preset in log-space.
+        let custom = GameSpeed::days_per_second(7.5);
+        assert!(!custom.is_preset());
+        assert_eq!(GameSpeed::from_slider_index(custom.slider_index()), GameSpeed::days_per_second(8.0));
+        let very_fast = GameSpeed::days_per_second(100.0);
+        assert!(!very_fast.is_preset());
+        assert_eq!(GameSpeed::from_slider_index(very_fast.slider_index()), GameSpeed::days_per_second(60.0));
     }
 
     #[test]

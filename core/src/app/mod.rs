@@ -32,6 +32,7 @@ fn wire_all() {
     log::set_maintenance(lua::maintain_logs);
     report::set_providers(lua::timing_lines, native::speed_up::check_lines);
     settings::set_listener(|listener, current| match listener {
+        settings::Listener::GameSpeed => tweaks::game_speed::configure(current.game_speeds()),
         settings::Listener::Achievements => tweaks::achievements::follow(current),
         settings::Listener::Sound => tweaks::sound::choose(current),
         settings::Listener::Drawing => render::drawing::set(current.frame_rate_limit),

@@ -128,6 +128,32 @@ pub struct RowButton {
     pub align_right: bool,
 }
 
+/// How a [`Widget::Slider`] formats its value on the right of its track.
+#[derive(Clone)]
+pub enum SliderFormat {
+    /// Computed from the raw integer value.
+    Fn(fn(u32) -> String),
+    /// Pre-formatted text per step (`value - min`), letting the track reserve
+    /// enough room for the widest formatted label.
+    Labels(Vec<String>),
+}
+
+impl SliderFormat {
+    fn text(&self, min: u32, value: u32) -> String {
+        match self {
+            Self::Fn(f) => f(value),
+            Self::Labels(labels) => labels.get(value.saturating_sub(min) as usize).cloned().unwrap_or_else(|| value.to_string()),
+        }
+    }
+
+    fn value_width(&self, measure: &dyn Measure) -> f32 {
+        match self {
+            Self::Fn(_) => SLIDER_VALUE_W,
+            Self::Labels(labels) => labels.iter().map(|label| measure.width(label, TEXT_SIZE).ceil()).fold(SLIDER_VALUE_W, f32::max),
+        }
+    }
+}
+
 pub enum Widget {
     /// Presentation state belongs to this visual element, not its layout
     /// parent. The native tooltip adapter consumes the same text description
@@ -189,13 +215,13 @@ pub enum Widget {
         selected: usize,
     },
     /// A slider: sets a number on `min..=max` by clicking or dragging along
-    /// its track, showing `format(value)` on the right.
+    /// its track, showing its formatted value on the right.
     Slider {
         id: &'static str,
         min: u32,
         max: u32,
         value: u32,
-        format: fn(u32) -> String,
+        format: SliderFormat,
     },
     /// A modern horizontal setting/action row: label (and optional dynamic
     /// status line) on the left, compact interactive control on the right.
@@ -900,7 +926,14 @@ impl Window {
                 let widest = options.iter().map(|o| measure.width(o, TEXT_SIZE) + 14.0).fold(34.0, f32::max);
                 (widest * options.len().max(1) as f32 + 6.0).clamp(148.0, row_w * 0.72).round()
             }
-            Widget::Slider { .. } => (row_w * 0.48).clamp(180.0, 250.0).min(row_w * 0.56).round(),
+            Widget::Slider { format, .. } => {
+                let extra = (format.value_width(measure) - SLIDER_VALUE_W).max(0.0);
+                if extra == 0.0 {
+                    (row_w * 0.48).clamp(180.0, 250.0).min(row_w * 0.56).round()
+                } else {
+                    (row_w * 0.48 + extra).clamp(180.0 + extra, 250.0 + extra).min(row_w * 0.68).round()
+                }
+            }
             Widget::Button { label, .. } => (measure.width(label, TEXT_SIZE) + 28.0).clamp(108.0, row_w * 0.56).round(),
             _ => (row_w * 0.45).round(),
         }
@@ -983,8 +1016,8 @@ impl Window {
 
     /// A slider's horizontal track inside its row, leaving room on the right
     /// for its formatted value.
-    fn slider_track(row: Rect) -> Rect {
-        let w = (row.w - SLIDER_VALUE_W - SLIDER_GAP).max(SLIDER_THUMB_W);
+    fn slider_track(row: Rect, value_w: f32) -> Rect {
+        let w = (row.w - value_w - SLIDER_GAP).max(SLIDER_THUMB_W);
         Rect { x: row.x, y: row.y + ((row.h - SLIDER_TRACK_H) / 2.0).round(), w, h: SLIDER_TRACK_H }
     }
 
@@ -1407,7 +1440,7 @@ impl Window {
         self.sliding = None;
     }
 
-    fn handle_leaf_click(&mut self, target_id: Option<&'static str>, r: Rect, x: f32, y: f32, slot_i: usize) -> Option<Action> {
+    fn handle_leaf_click(&mut self, measure: &dyn Measure, target_id: Option<&'static str>, r: Rect, x: f32, y: f32, slot_i: usize) -> Option<Action> {
         let _ = target_id;
         // Handles Choice / Slider / Dropdown / Button / DangerButton when direct or wrapped in Labeled.
         let (is_choice, is_slider, is_dropdown, is_button) = match self.widget(slot_i) {
@@ -1444,8 +1477,8 @@ impl Window {
                 Widget::Labeled { control, .. } => control.kind_mut(),
                 w => w,
             };
-            if let Widget::Slider { id, min, max, value, .. } = control {
-                let track = Self::slider_track(r);
+            if let Widget::Slider { id, min, max, value, format } = control {
+                let track = Self::slider_track(r, format.value_width(measure));
                 let next = Self::slider_value_at(x, track.x, track.w, *min, *max);
                 let changed = next != *value;
                 *value = next;
@@ -1500,7 +1533,7 @@ impl Window {
             }
             let layout = Self::labeled_rects(measure, r, label, status.as_deref(), control);
             if layout.control.contains(x, y) {
-                return self.handle_leaf_click(control.control_id(), layout.control, x, y, i);
+                return self.handle_leaf_click(measure, control.control_id(), layout.control, x, y, i);
             }
             return None;
         }
@@ -1552,7 +1585,9 @@ impl Window {
                 }
                 None
             }
-            Widget::Button { .. } | Widget::Dropdown { .. } | Widget::Choice { .. } | Widget::Slider { .. } => self.handle_leaf_click(None, r, x, y, i),
+            Widget::Button { .. } | Widget::Dropdown { .. } | Widget::Choice { .. } | Widget::Slider { .. } => {
+                self.handle_leaf_click(measure, None, r, x, y, i)
+            }
             Widget::Label(_)
             | Widget::Heading(_)
             | Widget::PageHeader(_)
@@ -1786,12 +1821,12 @@ impl Window {
         min: u32,
         max: u32,
         value: u32,
-        format: fn(u32) -> String,
+        format: &SliderFormat,
         enabled: bool,
         allow_hover: bool,
     ) {
         let hovered = allow_hover && r.contains(self.mouse.0, self.mouse.1);
-        let track = Self::slider_track(r);
+        let track = Self::slider_track(r, format.value_width(measure));
         let active = enabled && (self.sliding.is_some_and(|(s, ..)| s == id) || hovered);
         let track_color = if !enabled {
             DISABLED_CONTROL
@@ -1817,7 +1852,7 @@ impl Window {
         }
         let thumb = Rect { x: thumb_x, y: r.y + ((r.h - SLIDER_THUMB_H) / 2.0).round(), w: SLIDER_THUMB_W, h: SLIDER_THUMB_H };
         out.push(Command::RoundFill { rect: thumb, color: if enabled { TITLE_TEXT } else { DISABLED_KNOB }, radius: SLIDER_THUMB_H / 2.0 });
-        let text = format(value);
+        let text = format.text(min, value);
         let tw = measure.width(&text, TEXT_SIZE);
         let tx = (r.x + r.w - tw).max(track.x + track.w + SLIDER_GAP);
         out.push(Command::text(tx, r.y + ((r.h - TEXT_SIZE) / 2.0).round() - 2.0, text, TEXT_SIZE, if enabled { MUTED_TEXT } else { DISABLED_TEXT }));
@@ -1938,7 +1973,7 @@ impl Window {
                         self.draw_choice_bar(out, measure, cr, id, options, *selected, enabled, allow_hover);
                     }
                     Widget::Slider { id, min, max, value, format } => {
-                        self.draw_slider(out, measure, cr, id, *min, *max, *value, *format, enabled, allow_hover);
+                        self.draw_slider(out, measure, cr, id, *min, *max, *value, format, enabled, allow_hover);
                     }
                     Widget::Button { label, style, .. } => {
                         Self::draw_button(out, measure, cr, label, *style, enabled, hover(&cr));
@@ -2012,7 +2047,7 @@ impl Window {
             Slot::Control(i, r) if matches!(self.widget(i), Widget::Slider { .. }) => {
                 let enabled = self.raw_widget(i).enabled();
                 let Widget::Slider { id, min, max, value, format } = self.widget(i) else { return };
-                self.draw_slider(out, measure, r, id, *min, *max, *value, *format, enabled, allow_hover);
+                self.draw_slider(out, measure, r, id, *min, *max, *value, format, enabled, allow_hover);
             }
             Slot::Control(i, r) if matches!(self.widget(i), Widget::ButtonRow(_)) => {
                 let row_enabled = self.raw_widget(i).enabled();
@@ -2605,7 +2640,8 @@ mod tests {
 
     #[test]
     fn a_slider_clicks_drags_clamps_and_steps_with_the_wheel() {
-        let mut w = Window::new("Display", vec![Widget::Slider { id: "smooth", min: 0, max: 100, value: 50, format: |v| format!("{v}%") }], 300.0);
+        let mut w =
+            Window::new("Display", vec![Widget::Slider { id: "smooth", min: 0, max: 100, value: 50, format: SliderFormat::Fn(|v| format!("{v}%")) }], 300.0);
         w.center(&Mono, 1000.0, 800.0);
         assert_eq!(w.value("smooth"), Some(50));
         assert_eq!(w.value("none"), None);
@@ -2674,7 +2710,7 @@ mod tests {
                 Widget::Toggle { id: "t", label: "Opt".into(), on: true }.with_enabled(false),
                 Widget::Dropdown { id: "d", options: vec!["One".into(), "Two".into()], selected: 0 }.with_enabled(false),
                 Widget::Choice { id: "c", options: vec!["A".into(), "B".into()], tooltips: Vec::new(), selected: 0 }.with_enabled(false),
-                Widget::Slider { id: "s", min: 0, max: 100, value: 50, format: |v| format!("{v}%") }.with_enabled(false),
+                Widget::Slider { id: "s", min: 0, max: 100, value: 50, format: SliderFormat::Fn(|v| format!("{v}%")) }.with_enabled(false),
             ],
             300.0,
         );

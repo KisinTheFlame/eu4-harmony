@@ -14,7 +14,7 @@ pub mod mods_window;
 pub mod text;
 pub mod widgets;
 
-use crate::base::settings::{self, FrameRateLimit, Page, Settings, Shows};
+use crate::base::settings::{self, FrameRateLimit, GameSpeed, Page, Settings, Shows};
 use crate::base::troubleshooting::local_dumps;
 use crate::render::window_input as input;
 use crate::text::unicode::system_font::SystemFonts;
@@ -24,7 +24,7 @@ use fonts_page::{FontSystem, FontsPage};
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
-use widgets::{Action, ButtonStyle, Command, Measure, Rect, RowButton, Side, Widget, Window};
+use widgets::{Action, ButtonStyle, Command, Measure, Rect, RowButton, Side, SliderFormat, Widget, Window};
 
 fn words(key: &str) -> String {
     loc::framework(lang::player(), key, &[])
@@ -402,7 +402,8 @@ fn disable_main_menu_only(widgets: Vec<Widget>) -> Vec<Widget> {
 /// in their order there, showing the values `shown` has on a `display_hz`
 /// display; each interactive widget's id is its setting's key. When `in_game`
 /// is true, settings that cannot be modified during a session are disabled.
-fn setting_widgets(page: Page, shown: &Settings, display_hz: u32, in_game: bool, words: &dyn Fn(&str) -> String) -> Vec<Widget> {
+fn setting_widgets(page: Page, shown: &Settings, display_hz: u32, in_game: bool, words_with: mods_window::Words) -> Vec<Widget> {
+    let words = |key: &str| words_with(key, &[]);
     let mut out = Vec::new();
     for (idx, setting) in settings::SETTINGS.iter().filter(|s| s.page == page).enumerate() {
         if idx > 0 {
@@ -433,8 +434,39 @@ fn setting_widgets(page: Page, shown: &Settings, display_hz: u32, in_game: bool,
             Shows::Slider { label, min, max, format, field, .. } => Widget::Labeled {
                 label: words(label),
                 status: None,
-                control: Box::new(Widget::Slider { id: setting.key, min, max, value: (field.get)(shown).clamp(min, max), format }),
+                control: Box::new(Widget::Slider { id: setting.key, min, max, value: (field.get)(shown).clamp(min, max), format: SliderFormat::Fn(format) }),
             },
+            Shows::GameSpeed { label, field } => {
+                let current = (field.get)(shown);
+                let index = current.slider_index();
+                let mut labels: Vec<String> = settings::GAME_SPEED_PRESETS
+                    .iter()
+                    .map(|&rate| {
+                        let text = GameSpeed::format_rate(rate);
+                        words_with("EU4HARMONY_SETTINGS_GAME_SPEED_RATE", &[("RATE", &text)])
+                    })
+                    .collect();
+                labels.push(words("EU4HARMONY_SETTINGS_GAME_SPEED_UNLIMITED"));
+                if !current.is_preset() {
+                    if let Some(rate) = current.rate() {
+                        let text = GameSpeed::format_rate(rate);
+                        if let Some(slot) = labels.get_mut(index as usize) {
+                            *slot = words_with("EU4HARMONY_SETTINGS_GAME_SPEED_RATE", &[("RATE", &text)]);
+                        }
+                    }
+                }
+                Widget::Labeled {
+                    label: words(label),
+                    status: None,
+                    control: Box::new(Widget::Slider {
+                        id: setting.key,
+                        min: 0,
+                        max: settings::GAME_SPEED_PRESETS.len() as u32,
+                        value: index,
+                        format: SliderFormat::Labels(labels),
+                    }),
+                }
+            }
         };
         out.push(if enabled { row } else { disable_widget(row) });
     }
@@ -442,9 +474,9 @@ fn setting_widgets(page: Page, shown: &Settings, display_hz: u32, in_game: bool,
 }
 
 /// A page with nothing but settings from [`settings::SETTINGS`].
-fn settings_page(page: Page, shown: &Settings, display_hz: u32, in_game: bool, words: &dyn Fn(&str) -> String) -> Vec<Widget> {
-    let mut out = vec![Widget::PageHeader(words(page.title()))];
-    out.extend(setting_widgets(page, shown, display_hz, in_game, words));
+fn settings_page(page: Page, shown: &Settings, display_hz: u32, in_game: bool, words_with: mods_window::Words) -> Vec<Widget> {
+    let mut out = vec![Widget::PageHeader(words_with(page.title(), &[]))];
+    out.extend(setting_widgets(page, shown, display_hz, in_game, words_with));
     out
 }
 
@@ -509,7 +541,7 @@ fn advanced_page(
     words_with: mods_window::Words,
 ) -> Vec<Widget> {
     let mut page = vec![Widget::PageHeader(words("EU4HARMONY_SETTINGS_PAGE_ADVANCED"))];
-    page.extend(setting_widgets(Page::Advanced, shown, display_hz, in_game, words));
+    page.extend(setting_widgets(Page::Advanced, shown, display_hz, in_game, words_with));
     page.push(Widget::Gap);
     page.push(Widget::Divider);
     page.push(Widget::Gap);
@@ -644,6 +676,16 @@ fn read_back(w: &Window, next: &Settings, display_hz: u32, in_game: bool, chosen
                     (field.set)(chosen, value);
                 }
             }
+            Shows::GameSpeed { field, .. } => {
+                if let Some(index) = w.value(setting.key) {
+                    let before = (field.get)(next);
+                    if index == before.slider_index() {
+                        (field.set)(chosen, before);
+                    } else {
+                        (field.set)(chosen, GameSpeed::from_slider_index(index));
+                    }
+                }
+            }
         }
     }
 }
@@ -680,7 +722,7 @@ fn settings_window(
             }
             Page::Advanced => advanced_page(next, display_hz, dumps, in_game, &words, words_with),
             Page::About => about_page(troubleshooting, &words, words_with),
-            _ => settings_page(page, next, display_hz, in_game, &words),
+            _ => settings_page(page, next, display_hz, in_game, words_with),
         })
         .collect();
     let footer = vec![
@@ -898,7 +940,8 @@ impl<H: UiHost> Shell<H> {
             Page::About => {}
             _ => {
                 let defaults = Settings::default();
-                let widgets = settings_page(page, &defaults, settings.display_hz, settings.in_game, &w);
+                let ww = |key: &str, args: &[(&str, &str)]| self.host.words(key, args);
+                let widgets = settings_page(page, &defaults, settings.display_hz, settings.in_game, &ww);
                 replace_page(&mut settings.window, index, widgets);
             }
         }
@@ -1379,7 +1422,7 @@ mod tests {
     }
 
     fn pages(shown: &Settings, display_hz: u32) -> Vec<Vec<Widget>> {
-        Page::ALL.into_iter().map(|page| settings_page(page, shown, display_hz, false, &keys)).collect()
+        Page::ALL.into_iter().map(|page| settings_page(page, shown, display_hz, false, &keys_with)).collect()
     }
 
     fn every_setting_changed() -> Settings {
@@ -1405,6 +1448,12 @@ mod tests {
                 assert!(matches!(content[0], Widget::Labeled { control, .. } if matches!(control.as_ref(), Widget::Choice { id: "frame_rate_limit", .. })));
                 assert!(matches!(content[1], Widget::Labeled { control, .. } if matches!(control.as_ref(), Widget::Slider { id: "zoom_smoothing", .. })));
                 assert!(matches!(content[2], Widget::Labeled { control, .. } if matches!(control.as_ref(), Widget::Slider { id: "zoom_step", .. })));
+            } else if page == Page::GameSpeed {
+                assert_eq!(content.len(), 5);
+                for (i, widget) in content.iter().enumerate() {
+                    let expected = format!("game_speed_{}", i + 1);
+                    assert!(matches!(widget, Widget::Labeled { control, .. } if matches!(control.as_ref(), Widget::Slider { id, .. } if *id == expected)));
+                }
             } else {
                 assert!(content.iter().all(|w| matches!(w, Widget::Toggle { .. })), "{page:?}");
             }
@@ -1423,6 +1472,28 @@ mod tests {
         let mut kept = every_setting_changed();
         read_back(&Window::new("", Vec::new(), SETTINGS_WIDTH), &Settings::default(), 60, false, &mut kept);
         assert_eq!(kept, every_setting_changed());
+
+        // A manually configured non-preset game speed stays intact unless slid.
+        let manual = Settings { game_speed_3: GameSpeed::days_per_second(7.5), ..Settings::default() };
+        let side = Side::new("pages", Page::ALL.iter().map(|p| keys(p.title())).collect(), SETTINGS_LIST);
+        let mut window = Window::new("", Vec::new(), SETTINGS_WIDTH).with_side(side).with_pages(pages(&manual, 60));
+        let mut unchanged = Settings::default();
+        read_back(&window, &manual, 60, false, &mut unchanged);
+        assert_eq!(unchanged.game_speed_3, GameSpeed::days_per_second(7.5));
+        // Sliding it to another step replaces the manual value with the new preset.
+        let speed_page = Page::ALL.iter().position(|&p| p == Page::GameSpeed).unwrap();
+        window.select_page(speed_page);
+        let target_idx = GameSpeed::days_per_second(15.0).slider_index();
+        for widget in &mut window.body {
+            if let Widget::Labeled { control, .. } = widget {
+                if let Widget::Slider { id: "game_speed_3", value, .. } = control.as_mut() {
+                    *value = target_idx;
+                }
+            }
+        }
+        let mut slid = manual.clone();
+        read_back(&window, &manual, 60, false, &mut slid);
+        assert_eq!(slid.game_speed_3, GameSpeed::days_per_second(15.0));
     }
 
     #[test]
@@ -1561,8 +1632,9 @@ mod tests {
         window.center(&Mono, 1200.0, 900.0);
         assert_eq!(chosen_settings(&window, &current, &page, 180, false).frame_rate_limit, FrameRateLimit::Display);
 
+        let display_idx = Page::ALL.iter().position(|&p| p == Page::Display).unwrap();
         let (dx, dy) = text_pos(&window, "Display");
-        assert_eq!(window.mouse_down(&Mono, dx, dy), Some(Action::Chose("pages", 3)));
+        assert_eq!(window.mouse_down(&Mono, dx, dy), Some(Action::Chose("pages", display_idx)));
         let _ = text_pos(&window, "Frame rate limit");
         let (hx, hy) = text_pos(&window, "180");
         let (fx, fy) = text_pos(&window, "60");
