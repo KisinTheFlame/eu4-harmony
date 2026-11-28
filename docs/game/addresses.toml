@@ -436,6 +436,7 @@
 "0x1741d0" = { kind = "function", notes = ["game/provinces/tolerance-in-a-province.md"] }
 "0x17437d" = { kind = "code", notes = ["game/provinces/tolerance-in-a-province.md"] }
 "0x177830" = { kind = "function", notes = ["game/military/army-checks-in-searches.md"] }
+"0x177df0" = { kind = "function", notes = ["game/ai/ai.md"] }
 "0x178530" = { kind = "function", notes = ["game/ai/work-scheduling.md"] }
 "0x179690" = { kind = "leaf", notes = ["game/provinces/provinces.md"] }
 "0x1796c0" = { kind = "leaf", name = "mission completed", notes = ["game/countries/government.md", "game/scripts/triggers.md"] }
@@ -463,10 +464,15 @@
 "0x195b40" = { kind = "function", notes = ["game/military/army-checks-in-searches.md"] }
 "0x195e10" = { kind = "function", notes = ["game/day/country-daily-update.md"] }
 "0x195e86" = { kind = "code", notes = ["game/day/country-daily-update.md"] }
+"0x197540" = { kind = "function", notes = ["game/ai/ai.md"] }
 "0x197cd0" = { kind = "function", notes = ["game/ai/ai.md"] }
 "0x197f50" = { kind = "function", notes = ["game/ai/ai.md"] }
 "0x1980c0" = { kind = "function", notes = ["game/ai/ai.md"] }
+"0x198b00" = { kind = "function", notes = ["game/ai/ai.md"] }
+"0x198c70" = { kind = "function", notes = ["game/ai/ai.md"] }
 "0x1990f0" = { kind = "function", notes = ["game/day/country-daily-update.md"] }
+"0x199500" = { kind = "function", notes = ["game/ai/ai.md"] }
+"0x1998f0" = { kind = "function", notes = ["game/ai/ai.md"] }
 "0x199ef0" = { kind = "function", notes = ["game/day/country-daily-update.md"] }
 "0x1a0000" = { kind = "code", notes = ["game/military/army-checks-in-searches.md"] }
 "0x1a0f80" = { kind = "function", notes = ["game/military/army-checks-in-searches.md"] }
@@ -1739,9 +1745,9 @@
 "0x6e80ee" = { kind = "code", notes = ["game/interface/frame-lifecycle.md", "game/interface/rendering-architecture.md"] }
 "0x6e8a90" = { kind = "function", notes = ["game/day/frame-and-idlers.md", "game/provinces/map-modes.md"] }
 "0x6e90f0" = { kind = "function", notes = ["game/interface/main-menu.md", "game/scripts/game-console.md"] }
-"0x6e9860" = { kind = "function", name = "a text floating on the map", notes = ["game/program/loading.md", "game/program/world-interface-coupling.md"] }
+"0x6e9860" = { kind = "function", name = "a text floating on the map", notes = ["game/interface/frame-lifecycle.md", "game/program/loading.md", "game/program/world-interface-coupling.md"] }
 "0x6e9f68" = { kind = "code", name = "a floating text's strings destroyed", notes = ["game/interface/frame-lifecycle.md"] }
-"0x6ea0b0" = { kind = "function", notes = ["game/interface/timeline.md"] }
+"0x6ea0b0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/timeline.md"] }
 "0x6ea0b9" = { kind = "code", notes = ["game/interface/timeline.md"] }
 "0x6ea0be" = { kind = "code", notes = ["game/interface/timeline.md"] }
 "0x6ea127" = { kind = "code", notes = ["game/interface/timeline.md"] }
@@ -1936,6 +1942,7 @@
 "0x7584f9" = { kind = "code", notes = ["game/day/time.md"] }
 "0x758aef" = { kind = "code", notes = ["game/day/time.md"] }
 "0x758af4" = { kind = "code", notes = ["game/interface/stream-locks.md"] }
+"0x758c29" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x758c2f" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x758cf2" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x758eee" = { kind = "code", notes = ["game/day/time.md"] }
@@ -1950,12 +1957,14 @@
 "0x75b2d0" = { kind = "function", notes = ["game/day/frame-and-idlers.md", "game/day/random.md", "game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md"] }
 "0x75b321" = { kind = "code", notes = ["game/day/random.md"] }
 "0x75b4b0" = { kind = "function", name = "AI's phase of the day", notes = ["game/ai/ai.md", "game/ai/update-architecture.md", "game/day/frame-and-idlers.md", "game/day/time-architecture.md", "game/interface/frame-lifecycle.md", "game/interface/stream-locks.md"] }
+"0x75b54a" = { kind = "code", notes = ["game/ai/ai.md"] }
 "0x75b891" = { kind = "code", notes = ["game/ai/work-scheduling.md"] }
 "0x75b990" = { kind = "code", notes = ["game/ai/work-scheduling.md"] }
 "0x75b9f8" = { kind = "code", notes = ["game/ai/ai.md"] }
 "0x75ba10" = { kind = "code", notes = ["game/ai/ai.md"] }
 "0x75ba18" = { kind = "code", notes = ["game/interface/stream-locks.md"] }
 "0x75ba1f" = { kind = "code", notes = ["game/ai/ai.md"] }
+"0x75ba6e" = { kind = "code", notes = ["game/ai/ai.md"] }
 "0x75bbe0" = { kind = "function", notes = ["game/day/random.md", "game/day/time-architecture.md", "game/day/time.md", "game/interface/frame-lifecycle.md"] }
 "0x75c0ca" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x75c313" = { kind = "code", notes = ["game/interface/stream-locks.md"] }
@@ -2144,6 +2153,7 @@
 "0x7e9b70" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x7ea2c0" = { kind = "function", notes = ["game/day/threads.md", "game/interface/main-menu.md", "game/program/startup.md"] }
 "0x7ec7c0" = { kind = "function", notes = ["game/interface/main-menu.md"] }
+"0x7ed360" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
 "0x7ee9b0" = { kind = "function", notes = ["game/provinces/religion.md"] }
 "0x7eff60" = { kind = "function", name = "holy order's cost", notes = ["game/provinces/religion.md"] }
 "0x7f2820" = { kind = "function", notes = ["game/countries/empires.md"] }
@@ -2277,6 +2287,7 @@
 "0x818619" = { kind = "code", name = "the map mode's colors' flags", notes = ["game/interface/frame-lifecycle.md", "game/interface/timeline.md"] }
 "0x818652" = { kind = "code", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md"] }
 "0x81865c" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
+"0x81869e" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x8186c2" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x8186d1" = { kind = "code", notes = ["game/program/headless.md"] }
 "0x818719" = { kind = "code", notes = ["game/interface/camera.md"] }
@@ -2306,10 +2317,11 @@
 "0x819c4f" = { kind = "code", notes = ["game/interface/camera.md"] }
 "0x819cb9" = { kind = "code", notes = ["game/interface/camera.md"] }
 "0x81a66d" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
-"0x81aa86" = { kind = "code", notes = ["game/program/headless.md"] }
+"0x81aa86" = { kind = "code", notes = ["game/interface/frame-lifecycle.md", "game/program/headless.md"] }
 "0x81aa92" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x81aaa3" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x81aab0" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
+"0x81ab0a" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x81ab20" = { kind = "function", notes = ["game/interface/main-menu.md", "game/program/saves.md"] }
 "0x81ac3a" = { kind = "code", notes = ["game/program/saves.md"] }
 "0x81ace3" = { kind = "code", notes = ["game/program/saves.md"] }
@@ -3301,11 +3313,12 @@
 "0xae66f4" = { kind = "code", notes = ["game/military/discipline.md"] }
 "0xae7190" = { kind = "function", name = "regiment local modifiers", notes = ["game/military/discipline.md", "game/military/drill.md"] }
 "0xae71ad" = { kind = "code", notes = ["game/military/drill.md"] }
-"0xae7230" = { kind = "function", name = "regiment drill modifiers", notes = ["game/military/drill.md"] }
+"0xae7230" = { kind = "function", name = "regiment drill modifiers", notes = ["game/countries/modifiers.md", "game/military/drill.md"] }
 "0xae72da" = { kind = "code", notes = ["game/military/drill.md"] }
 "0xae7300" = { kind = "code", notes = ["game/military/drill.md"] }
-"0xae7600" = { kind = "function", notes = ["game/military/discipline.md", "game/military/drill.md"] }
+"0xae7600" = { kind = "function", notes = ["game/countries/modifiers.md", "game/military/discipline.md", "game/military/drill.md"] }
 "0xae8c10" = { kind = "function", notes = ["game/provinces/provinces.md"] }
+"0xaebeb0" = { kind = "function", notes = ["game/countries/modifiers.md"] }
 "0xaf0c50" = { kind = "function", notes = ["game/countries/countries.md"] }
 "0xaf1390" = { kind = "leaf", notes = ["game/countries/countries.md"] }
 "0xaf1399" = { kind = "leaf", notes = ["game/countries/countries.md"] }
@@ -3681,7 +3694,8 @@
 "0xd45d1b" = { kind = "code", notes = ["game/military/routes.md"] }
 "0xd45d70" = { kind = "function", name = "troop ships", notes = ["game/military/units.md"] }
 "0xd45de0" = { kind = "function", notes = ["game/military/armies.md", "game/military/army-checks-in-searches.md", "game/military/units.md"] }
-"0xd46800" = { kind = "function", notes = ["game/ai/support-checks.md", "game/day/country-daily-update.md", "game/military/armies.md"] }
+"0xd462b0" = { kind = "function", notes = ["game/ai/ai.md"] }
+"0xd46800" = { kind = "function", notes = ["game/ai/ai.md", "game/ai/support-checks.md", "game/day/country-daily-update.md", "game/military/armies.md"] }
 "0xd47780" = { kind = "function", notes = ["game/provinces/fog-of-war.md"] }
 "0xd4a9e0" = { kind = "function", notes = ["game/countries/defeat.md", "game/military/army-checks-in-searches.md"] }
 "0xd4b270" = { kind = "function", notes = ["game/countries/defeat.md", "game/military/army-checks-in-searches.md"] }
@@ -3724,7 +3738,10 @@
 "0xd511f0" = { kind = "function", notes = ["game/military/army-checks-in-searches.md"] }
 "0xd51320" = { kind = "function", notes = ["game/military/army-checks-in-searches.md"] }
 "0xd51520" = { kind = "function", notes = ["game/day/country-daily-update.md"] }
-"0xd54600" = { kind = "function", notes = ["game/day/monthly-update.md", "game/military/sieges.md"] }
+"0xd54600" = { kind = "function", notes = ["game/countries/modifiers.md", "game/day/monthly-update.md", "game/military/sieges.md"] }
+"0xd546f7" = { kind = "code", notes = ["game/countries/modifiers.md"] }
+"0xd54747" = { kind = "code", notes = ["game/countries/modifiers.md"] }
+"0xd54757" = { kind = "code", notes = ["game/countries/modifiers.md"] }
 "0xd54a60" = { kind = "function", name = "attack permission query", notes = ["game/military/armies.md"] }
 "0xd55c20" = { kind = "function", notes = ["game/military/army-checks-in-searches.md"] }
 "0xd55e70" = { kind = "function", name = "may attach to transport", notes = ["game/military/armies.md", "game/military/units.md"] }
@@ -5189,7 +5206,7 @@
 "0x14dda40" = { kind = "code", notes = ["game/interface/window-input-refresh.md"] }
 "0x14dda50" = { kind = "function", name = "collect GUI node hits in draw order", notes = ["game/interface/extension-windows.md", "game/interface/gui-drawing.md", "game/interface/window-activation.md", "game/interface/window-construction.md", "game/interface/window-input-refresh.md", "game/interface/window-ordering.md"] }
 "0x14ddc10" = { kind = "function", notes = ["game/interface/map-drawing-reads.md"] }
-"0x14ddc40" = { kind = "function", notes = ["game/program/headless.md"] }
+"0x14ddc40" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/program/headless.md"] }
 "0x14ddc70" = { kind = "function", notes = ["game/interface/rendering-architecture.md", "game/program/load-preparation.md", "game/program/loading.md"] }
 "0x14ddd50" = { kind = "function", notes = ["game/interface/rendering-architecture.md", "game/program/loading.md"] }
 "0x14dde00" = { kind = "function", name = "append a distinct GUI input candidate", notes = ["game/interface/window-ordering.md"] }

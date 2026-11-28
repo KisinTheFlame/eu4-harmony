@@ -127,6 +127,21 @@ fn points() -> Vec<Point> {
     vec![
         Point::jump(FRAME_DRAWS, "49 8b cd e8 8f 2a 00 00", "the in-game frame calls its drawing", frame_draws_stub as *const () as usize, &FRAME_RESUME),
         Point::keep(DRAWING, "48 8b c4 48 89 58 08 55 56 57 41 54 41 55 41 56 41 57", "the in-game frame's drawing"),
+        // After Present (`[0x1fd1300]`), `0x14ddc40` only stores `al` into
+        // `[map+0x530]` and returns, and `0x8183b0` only clears the screenshot
+        // toast flag `[idler+0x1608]` and records frame time into `[0x2458f00]`.
+        // Neither touches shared simulation or UI state, so the drawing thread
+        // does not re-acquire the presentation lock after Present.
+        Point::keep(
+            0x14ddc40,
+            "40 53 48 83 ec 20 80 b9 30 05 00 00 00 48 8b d9 74 16 48 8b 05 a7 36 af 00 48 8b 89 88 00 00 00 ff d0 88 83 30 05 00 00 48 83 c4 20 5b c3",
+            "the map's Present wrapper returns immediately after Present",
+        ),
+        Point::keep(
+            0x81aa86,
+            "49 8b 8f c0 11 00 00 e8 ae 31 cc 00 66 41 c7 87 08 16 00 00 00 00 49 8b 8f f8 11 00 00 48 8b 01 ff 50 28 0f 57 c9 f2 0f 5a c8 f3 0f 11 0d 48 e4 c3 01",
+            "the in-game drawing's post-Present tail touches only drawing-private timing state",
+        ),
         Point::jump(HEAD, "48 8b 05 fa 37 c1 01", "the drawing's first steps", head_stub as *const () as usize, &HEAD_RESUME)
             .uses(&[SETTINGS])
             .recorded(&HEAD_AT),
@@ -367,13 +382,12 @@ impl Tickets {
 }
 
 /// Owns the fair ticket presentation lock, the main thread's lock state, its
-/// lock-free atomic mirrors (`main_holds`, `main_protects_changes`), and lock
-/// wait accounting in one place so the mirrors never drift from `MainSide`.
+/// lock-free atomic mirror (`main_holds`), and lock wait accounting in one
+/// place so the mirror never drifts from `MainSide`.
 struct PresentationLock {
     tickets: Tickets,
     main: Mutex<MainSide>,
     main_holds: AtomicBool,
-    main_protects_changes: AtomicBool,
     main_waited: AtomicU64,
     waited_at: [AtomicU64; 3],
     drawing_waited: AtomicU64,
@@ -385,7 +399,6 @@ impl PresentationLock {
             tickets: Tickets::new(),
             main: Mutex::new(MainSide::new()),
             main_holds: AtomicBool::new(false),
-            main_protects_changes: AtomicBool::new(false),
             main_waited: AtomicU64::new(0),
             waited_at: [const { AtomicU64::new(0) }; 3],
             drawing_waited: AtomicU64::new(0),
@@ -397,7 +410,7 @@ impl PresentationLock {
         let place = match at {
             At::Crossing => AT_CROSSING,
             At::DayEnd => AT_DAY_END,
-            At::Frame | At::DrawingFrame | At::AfterPresent => AT_FRAME,
+            At::Frame | At::DrawingFrame => AT_FRAME,
         };
         let micros = waited.as_micros() as u64;
         self.main_waited.fetch_add(micros, Ordering::Relaxed);
@@ -425,16 +438,11 @@ impl PresentationLock {
         let mut guard = self.main.lock().unwrap_or_else(|e| e.into_inner());
         let out = f(&mut guard);
         self.main_holds.store(guard.holds(), Ordering::Release);
-        self.main_protects_changes.store(guard.protects_changes(), Ordering::Release);
         out
     }
 
     fn main_holds(&self) -> bool {
         self.main_holds.load(Ordering::Acquire)
-    }
-
-    fn main_protects_changes(&self) -> bool {
-        self.main_protects_changes.load(Ordering::Acquire)
     }
 
     fn swap_waits(&self) -> (u64, [u64; 3], u64) {
@@ -603,15 +611,15 @@ trait StageOps {
     fn log(&mut self, line: &str);
 }
 
-const LATE_BY: [&str; 6] = ["held back", "the lock before", "drawing", "Present", "the lock after Present", "other"];
+const LATE_BY: [&str; 5] = ["held back", "the lock before", "drawing", "Present", "other"];
 
 /// Late-frame gap accounting across ten-second windows.
 #[derive(Default)]
 struct Gaps {
     last: Option<Instant>,
     held: Option<usize>,
-    parts: [Duration; 4],
-    late: [u32; 6],
+    parts: [Duration; 3],
+    late: [u32; 5],
     by: Vec<(usize, u32)>,
     longest: Duration,
     drawing: (Duration, u32, Duration),
@@ -626,12 +634,11 @@ impl Gaps {
         self.parts[0] += waited;
     }
 
-    fn drawn(&mut self, now: Instant, interval: Duration, drawing: Duration, present: Duration, lock_after: Duration) {
-        let own = drawing.saturating_sub(present + lock_after);
+    fn drawn(&mut self, now: Instant, interval: Duration, drawing: Duration, present: Duration) {
+        let own = drawing.saturating_sub(present);
         self.parts[1] += own;
         self.drawing = (self.drawing.0 + own, self.drawing.1 + 1, self.drawing.2.max(own));
         self.parts[2] += present;
-        self.parts[3] += lock_after;
         if let Some(last) = self.last.replace(now) {
             let gap = now.saturating_duration_since(last);
             if gap > interval * 2 {
@@ -639,8 +646,8 @@ impl Gaps {
                 let why = match self.held {
                     Some(_) => 0,
                     None => {
-                        let parts = [self.parts[0], self.parts[1], self.parts[2], self.parts[3], rest];
-                        1 + (0..parts.len()).max_by_key(|&i| parts[i]).unwrap_or(4)
+                        let parts = [self.parts[0], self.parts[1], self.parts[2], rest];
+                        1 + (0..parts.len()).max_by_key(|&i| parts[i]).unwrap_or(3)
                     }
                 };
                 self.late[why] += 1;
@@ -654,7 +661,7 @@ impl Gaps {
             self.longest = self.longest.max(gap);
         }
         self.held = None;
-        self.parts = [Duration::ZERO; 4];
+        self.parts = [Duration::ZERO; 3];
     }
 
     fn told(&mut self, base: usize) -> String {
@@ -673,7 +680,7 @@ impl Gaps {
             longest.as_secs_f64() * 1000.0
         );
         self.drawing = Default::default();
-        self.late = [0; 6];
+        self.late = [0; 5];
         self.by.clear();
         self.longest = Duration::ZERO;
         told
@@ -711,10 +718,6 @@ static SCREEN: AtomicU64 = AtomicU64::new(0);
 
 fn main_side<T>(f: impl FnOnce(&mut MainSide) -> T) -> T {
     PRESENTATION.with_main(f)
-}
-
-pub(super) fn main_protects_changes() -> bool {
-    PRESENTATION.main_protects_changes()
 }
 
 thread_local! {
@@ -982,50 +985,40 @@ pub fn presented(width: u32, height: u32) {
     SCREEN.store((width as u64) << 32 | height as u64, Ordering::Relaxed);
 }
 
-/// The drawing thread is in Direct3D's Present, which may wait for the
-/// display: the main thread does not draw a frame of its own meanwhile.
-static PRESENTING: AtomicBool = AtomicBool::new(false);
-
 /// The drawing thread's frame goes into Direct3D's Present (the framework's
-/// Present observer, `framework_ui::hook`): it lets the lock go for it, as
-/// the frame is drawn and Present touches only the device, which serves
-/// several threads.
+/// Present observer, `framework_ui::hook`): it lets the lock go for the rest of
+/// the frame, as the frame is drawn and Present touches only the device, which
+/// serves several threads.
 pub fn present_begins() {
-    PRESENTING.store(true, Ordering::Release);
     PRESENT.with(|p| p.began.set(Some(Instant::now())));
     drawing_side(|d| d.present_begins(&DrawingLock));
 }
 
-/// Present has returned: the drawing thread takes the lock again for what
-/// the drawing does after it (the idler's `+0x1608`, its clock).
+/// Present has returned: records its duration for [`Gaps`] without re-taking
+/// the presentation lock.
 pub fn present_ends() {
-    PRESENTING.store(false, Ordering::Release);
     PRESENT.with(|p| {
         if let Some(began) = p.began.take() {
             p.spent.set(p.spent.get() + began.elapsed());
         }
     });
-    let waited = drawing_side(|d| d.present_ends(&DrawingLock));
-    PRESENT.with(|p| p.lock_after.set(p.lock_after.get() + waited));
 }
 
-/// The drawing thread's time in Present and waiting for the lock after it,
-/// in the frame drawn now, for [`Gaps`].
+/// The drawing thread's time in Present in the frame drawn now, for [`Gaps`].
 #[derive(Default)]
 struct PresentTimes {
     began: std::cell::Cell<Option<Instant>>,
     spent: std::cell::Cell<Duration>,
-    lock_after: std::cell::Cell<Duration>,
 }
 
 thread_local! {
     static PRESENT: PresentTimes = PresentTimes::default();
 }
 
-/// The main thread draws a frame of its own: once the drawing thread's
-/// Present has returned.
+/// The main thread draws a frame of its own: once the drawing thread's frame
+/// (including Present and its post-Present timing tail) has returned.
 fn draw_here(m: &Memory, idler: usize) {
-    while PRESENTING.load(Ordering::Acquire) {
+    while IN_FRAME.load(Ordering::Acquire) {
         std::thread::yield_now();
     }
     deferred::flush_textures(m);
@@ -1233,13 +1226,13 @@ fn run() {
             let began = Instant::now();
             unsafe { direct1(&m, DRAWING)(idler) };
             let drawing = began.elapsed();
-            let (present, lock_after) = PRESENT.with(|p| (p.spent.take(), p.lock_after.take()));
+            let present = PRESENT.with(|p| p.spent.take());
             drawing_side(DrawingSide::frame_ends);
             crate::native::probes::drawing_frame_ends(watched);
             IN_FRAME.store(false, Ordering::Release);
             DRAWN.fetch_add(1, Ordering::Relaxed);
             FRAMES.note_drawn(seq);
-            gaps.drawn(Instant::now(), interval, drawing, present, lock_after);
+            gaps.drawn(Instant::now(), interval, drawing, present);
             drew = true;
         }
         drawing_side(|d| d.turn_ends(&DrawingLock));
@@ -1269,36 +1262,20 @@ mod tests {
         let lock = PresentationLock::new();
         let adapter = LocalLock(&lock);
         assert!(!lock.main_holds());
-        assert!(!lock.main_protects_changes());
 
         lock.with_main(|s| s.frame_begins(&adapter));
         assert!(lock.main_holds());
-        assert!(lock.main_protects_changes());
 
         lock.with_main(|s| s.day_begins(&adapter));
         assert!(!lock.main_holds());
-        assert!(!lock.main_protects_changes());
 
         lock.with_main(|s| {
-            s.order_scope_begins();
-            assert!(s.lock_order(&adapter));
+            assert!(s.crossing(&adapter));
         });
         assert!(lock.main_holds());
-        assert!(!lock.main_protects_changes(), "order-only scope must not claim change protection");
-
-        lock.with_main(|s| {
-            let _ = s.crossing(&adapter);
-        });
-        assert!(lock.main_holds());
-        assert!(lock.main_protects_changes());
-
-        lock.with_main(|s| s.order_scope_ends(&adapter, false));
-        assert!(lock.main_holds(), "promoted crossing keeps ownership past scope exit");
-        assert!(lock.main_protects_changes());
 
         lock.with_main(|s| s.frame_check(&adapter));
         assert!(!lock.main_holds());
-        assert!(!lock.main_protects_changes());
     }
 
     #[test]
@@ -1334,12 +1311,12 @@ mod tests {
         let mut gaps = Gaps::default();
         let t0 = Instant::now();
         let interval = Duration::from_millis(10);
-        gaps.drawn(t0, interval, Duration::from_millis(2), Duration::from_millis(1), Duration::ZERO);
+        gaps.drawn(t0, interval, Duration::from_millis(2), Duration::from_millis(1));
 
         gaps.held_by(0x1400_0500);
-        gaps.drawn(t0 + Duration::from_millis(30), interval, Duration::from_millis(3), Duration::from_millis(1), Duration::ZERO);
+        gaps.drawn(t0 + Duration::from_millis(30), interval, Duration::from_millis(3), Duration::from_millis(1));
 
-        gaps.drawn(t0 + Duration::from_millis(65), interval, Duration::from_millis(28), Duration::from_millis(25), Duration::from_millis(1));
+        gaps.drawn(t0 + Duration::from_millis(65), interval, Duration::from_millis(28), Duration::from_millis(25));
 
         let line = gaps.told(0x1400_0000);
         assert!(line.starts_with("2 late (held back 1 by 0x500 1,"), "{line}");

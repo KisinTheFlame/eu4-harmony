@@ -6,7 +6,7 @@ The native stream initializer `0x1a14f0` initializes state flags, formatting fie
 
 At `0x1a1553` the initializer calls `0x1a0c408` with a true flag and returns to `0x1a1558`. The getter constructs numbered guard zero through `0x1a0c750`, reads cached state `0x233b2e0`, initializes it if absent, conditionally retains it through a virtual method, destroys its guard through `0x1a0c7c8` and returns the shared state.
 
-Guard zero enters the critical section at `0x233cdd0` through `0x1a5f504` and IAT slot `0x1b66750`. Its destructor uses `0x1a5f520` and IAT slot `0x1b66758`; the imports identify `EnterCriticalSection` and `LeaveCriticalSection`. Normal getter return follows release of this native critical section. Once-only initialization and all exceptional paths were not exhaustively reconstructed.
+Guard zero enters the critical section at `0x233cdd0` through `0x1a5f504` and IAT slot `0x1b66750`. Its destructor uses `0x1a5f520` and IAT slot `0x1b66758`; the imports identify `EnterCriticalSection` and `LeaveCriticalSection`. `0x1a5f504` is the sole reference to `0x233cdd0` in `eu4.exe`, and `0x1a0c750` is its sole caller. Across all 175 callers of `0x1a0c750` (including the 15 `std::use_facet` templates outside the CRT), every path touches only MSVC STL locale/facet internals and heap allocation; none reaches EU4 graphics, the renderer table, or any crossing. `0x233cdd0` is therefore a leaf lock with respect to Harmony's presentation lock. Once-only initialization and all exceptional paths were not exhaustively reconstructed.
 
 ## AI caller context
 

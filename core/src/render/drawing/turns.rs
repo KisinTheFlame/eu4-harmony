@@ -4,12 +4,10 @@
 //! The main thread holds it through each application frame, but lets it go
 //! while the daily update runs, taking it again for a frame inside the day,
 //! at the day's end, and at each crossing the day reaches, which keeps it
-//! until the next of the game's checks for a frame inside a day. Checked
-//! stream helpers may instead release lock-order-only ownership at their
-//! outermost normal return; a cold path, fault or crossing retains it. Where the
+//! until the next of the game's checks for a frame inside a day. Where the
 //! drawing thread may be in a frame of its own, at an idler's switch and as
 //! the game quits, the main thread lets the lock go until that frame has
-//! ended. The drawing thread holds it for each frame it draws, but for
+//! ended. The drawing thread holds it for each frame it draws, up to
 //! Direct3D's Present, unless the write watch holds every other thread for
 //! that frame.
 //!
@@ -30,8 +28,6 @@ pub(super) enum At {
     DayEnd,
     /// The drawing thread, before a frame of its own.
     DrawingFrame,
-    /// The drawing thread, after Present.
-    AfterPresent,
 }
 
 /// The presentation lock, as the turns take and give it.
@@ -51,14 +47,11 @@ pub(super) struct MainSide {
     in_day: bool,
     /// A crossing took the lock, kept until the next check for a frame.
     crossing: bool,
-    /// Number of nested, checked native lock-order scopes.
-    order_scopes: u32,
-    order_only: bool,
 }
 
 impl MainSide {
     pub(super) const fn new() -> Self {
-        Self { holds: false, frames: Vec::new(), day_gave: false, in_day: false, crossing: false, order_scopes: 0, order_only: false }
+        Self { holds: false, frames: Vec::new(), day_gave: false, in_day: false, crossing: false }
     }
 
     /// Whether the main thread holds the lock.
@@ -81,7 +74,6 @@ impl MainSide {
     }
 
     fn give(&mut self, lock: &impl Lock) {
-        self.order_only = false;
         if self.holds {
             self.holds = false;
             lock.give();
@@ -91,7 +83,6 @@ impl MainSide {
     /// An application frame begins: it holds the lock, taking it unless a
     /// frame it is inside of holds it already.
     pub(super) fn frame_begins(&mut self, lock: &impl Lock) {
-        self.retain_order();
         let took = !self.holds;
         self.take(lock, At::Frame);
         self.frames.push(took);
@@ -120,7 +111,6 @@ impl MainSide {
             return;
         }
         self.in_day = false;
-        self.order_only = false;
         self.crossing = false;
         if self.day_gave {
             self.take(lock, At::DayEnd);
@@ -128,62 +118,9 @@ impl MainSide {
         }
     }
 
-    // a known native scope owns only the lock-order acquisition
-    // it caused. Existing frame/crossing ownership is never borrowed for release.
-    pub(super) fn order_scope_begins(&mut self) {
-        self.order_scopes += 1;
-    }
-
-    #[cfg(test)]
-    pub(super) fn order_only(&self) -> bool {
-        self.order_only
-    }
-
-    /// Whether the main thread holds the presentation lock for more than a
-    /// transient lock-order scope, so graphics changes need no promotion.
-    pub(super) fn protects_changes(&self) -> bool {
-        self.holds && !self.order_only
-    }
-
-    /// the facet cold path is outside the proven release scope.
-    pub(super) fn order_scope_cold(&mut self) {
-        self.retain_order();
-    }
-
-    fn retain_order(&mut self) {
-        if self.order_only {
-            self.order_only = false;
-            self.crossing = true;
-        }
-    }
-
-    pub(super) fn order_scope_ends(&mut self, lock: &impl Lock, faulted: bool) {
-        if faulted {
-            self.retain_order();
-        }
-        self.order_scopes -= 1;
-        if self.order_scopes == 0 && self.order_only {
-            self.give(lock);
-        }
-    }
-
-    pub(super) fn lock_order(&mut self, lock: &impl Lock) -> bool {
-        if self.in_day && !self.holds {
-            self.take(lock, At::Crossing);
-            if self.order_scopes != 0 {
-                self.order_only = true;
-            } else {
-                self.crossing = true;
-            }
-            return true;
-        }
-        false
-    }
-
-    /// The day reaches a crossing: the lock first, kept until the next check
-    /// for a frame. Whether it was taken here.
+    /// The day reaches a shared game lock or a crossing: the lock first, kept
+    /// until the next check for a frame. Whether it was taken here.
     pub(super) fn crossing(&mut self, lock: &impl Lock) -> bool {
-        self.retain_order();
         if self.in_day && !self.holds {
             self.take(lock, At::Crossing);
             self.crossing = true;
@@ -194,7 +131,7 @@ impl MainSide {
 
     /// The game checks for a frame inside the day: a crossing's lock goes.
     pub(super) fn frame_check(&mut self, lock: &impl Lock) {
-        if self.crossing && self.order_scopes == 0 {
+        if self.crossing {
             self.crossing = false;
             self.give(lock);
         }
@@ -205,7 +142,6 @@ impl MainSide {
     /// lets the lock go until `in_frame` says it has ended, then takes it
     /// again. As an idler is switched.
     pub(super) fn drawing_frame_ends(&mut self, lock: &impl Lock, in_frame: impl Fn() -> bool) {
-        self.retain_order();
         if in_frame() {
             self.give(lock);
             while in_frame() {
@@ -218,7 +154,6 @@ impl MainSide {
     /// The game quits: the main thread holds the lock to the end, once the
     /// drawing thread's frame, if it is in one, has ended.
     pub(super) fn quits(&mut self, lock: &impl Lock, in_frame: impl Fn() -> bool) {
-        self.order_only = false;
         self.take(lock, At::Frame);
         self.drawing_frame_ends(lock, in_frame);
     }
@@ -227,6 +162,8 @@ impl MainSide {
 /// The drawing thread's side of the lock.
 #[derive(Default)]
 pub(super) struct DrawingSide {
+    /// Whether the drawing thread currently holds the presentation lock.
+    holds: bool,
     /// The lock is kept through Present: in a frame the write watch holds
     /// every other thread for, where the main thread may be held waiting its
     /// turn for the lock, which given to it would never come back.
@@ -237,7 +174,9 @@ impl DrawingSide {
     /// The drawing thread's turn begins: it takes the lock; how long it
     /// waited.
     pub(super) fn turn_begins(&mut self, lock: &impl Lock) -> Duration {
-        lock.take(At::DrawingFrame)
+        let waited = lock.take(At::DrawingFrame);
+        self.holds = true;
+        waited
     }
 
     /// A frame of the drawing thread's begins, held by the write watch or
@@ -247,20 +186,15 @@ impl DrawingSide {
     }
 
     /// The frame goes into Present, which touches only the device: the lock
-    /// goes for it, unless it is kept.
-    pub(super) fn present_begins(&self, lock: &impl Lock) {
-        if !self.keeps_in_present {
+    /// goes for the rest of the frame, unless it is kept. After Present, the
+    /// game's drawing only updates its own frame-timing state before returning,
+    /// while `IN_FRAME` keeps main-thread fallback drawing, idler switches, and
+    /// shutdown from overlapping it.
+    pub(super) fn present_begins(&mut self, lock: &impl Lock) {
+        if !self.keeps_in_present && self.holds {
+            self.holds = false;
             lock.give();
         }
-    }
-
-    /// Present has returned: the lock again, for what the drawing does
-    /// after it; how long it waited.
-    pub(super) fn present_ends(&self, lock: &impl Lock) -> Duration {
-        if self.keeps_in_present {
-            return Duration::ZERO;
-        }
-        lock.take(At::AfterPresent)
     }
 
     /// The frame's drawing has returned.
@@ -268,9 +202,14 @@ impl DrawingSide {
         self.keeps_in_present = false;
     }
 
-    /// The drawing thread's turn ends: the lock goes.
+    /// The drawing thread's turn ends: the lock goes if it was not already
+    /// released at Present (no frame drawn, a watched frame, or an early return
+    /// before Present).
     pub(super) fn turn_ends(&mut self, lock: &impl Lock) {
-        lock.give();
+        if self.holds {
+            self.holds = false;
+            lock.give();
+        }
     }
 }
 
@@ -305,151 +244,6 @@ mod tests {
         fn done(&self) -> Vec<Done> {
             std::mem::take(&mut self.0.borrow_mut())
         }
-    }
-
-    #[test]
-    fn order_scope_releases_only_its_own_acquisition() {
-        let (lock, mut main) = (Recorder::default(), MainSide::new());
-        main.day_begins(&lock);
-        main.order_scope_begins();
-        assert!(main.lock_order(&lock));
-        assert!(main.order_only());
-        main.order_scope_ends(&lock, false);
-        assert!(!main.holds());
-        assert_eq!(lock.done(), [Took(At::Crossing), Gave]);
-        assert!(main.lock_order(&lock));
-        main.frame_check(&lock);
-        assert_eq!(lock.done(), [Took(At::Crossing), Gave], "unscoped locks keep the old lifetime");
-    }
-
-    #[test]
-    fn successive_scopes_do_not_restore_the_old_long_hold() {
-        let (lock, mut main) = (Recorder::default(), MainSide::new());
-        main.day_begins(&lock);
-        for _ in 0..2 {
-            main.order_scope_begins();
-            assert!(main.lock_order(&lock));
-            main.order_scope_ends(&lock, false);
-            assert!(!main.holds());
-        }
-        assert_eq!(lock.done(), [Took(At::Crossing), Gave, Took(At::Crossing), Gave]);
-    }
-
-    #[test]
-    fn cold_path_cancels_release_even_after_nested_normal_returns() {
-        let (lock, mut main) = (Recorder::default(), MainSide::new());
-        main.day_begins(&lock);
-        main.order_scope_begins();
-        main.lock_order(&lock);
-        main.order_scope_cold();
-        main.order_scope_begins();
-        main.order_scope_ends(&lock, false);
-        main.frame_check(&lock);
-        main.order_scope_ends(&lock, false);
-        assert!(main.holds() && !main.order_only());
-        assert_eq!(lock.done(), [Took(At::Crossing)]);
-        main.frame_check(&lock);
-        assert_eq!(lock.done(), [Gave]);
-    }
-
-    #[test]
-    fn nested_scope_keeps_the_outer_game_lock_protected() {
-        let (lock, mut main) = (Recorder::default(), MainSide::new());
-        main.day_begins(&lock);
-        main.order_scope_begins();
-        main.lock_order(&lock);
-        main.order_scope_begins();
-        assert!(!main.lock_order(&lock));
-        main.order_scope_ends(&lock, false);
-        main.frame_check(&lock);
-        assert!(main.holds() && main.order_only());
-        assert_eq!(lock.done(), [Took(At::Crossing)]);
-        main.order_scope_ends(&lock, false);
-        assert_eq!(lock.done(), [Gave]);
-    }
-
-    #[test]
-    fn scope_does_not_release_existing_frame_or_crossing_ownership() {
-        for crossing in [false, true] {
-            let (lock, mut main) = (Recorder::default(), MainSide::new());
-            main.frame_begins(&lock);
-            if crossing {
-                main.day_begins(&lock);
-                main.crossing(&lock);
-            }
-            lock.done();
-            main.order_scope_begins();
-            assert!(!main.lock_order(&lock));
-            main.order_scope_ends(&lock, false);
-            assert!(main.holds() && !main.order_only());
-            assert_eq!(lock.done(), []);
-        }
-    }
-
-    #[test]
-    fn real_crossing_promotes_ownership_and_cannot_release_inside_scope() {
-        let (lock, mut main) = (Recorder::default(), MainSide::new());
-        main.day_begins(&lock);
-        main.order_scope_begins();
-        main.lock_order(&lock);
-        assert!(!main.crossing(&lock));
-        assert!(!main.order_only());
-        main.frame_check(&lock);
-        main.order_scope_begins();
-        main.order_scope_ends(&lock, false);
-        main.order_scope_ends(&lock, false);
-        assert!(main.holds());
-        assert_eq!(lock.done(), [Took(At::Crossing)]);
-        main.frame_check(&lock);
-        assert_eq!(lock.done(), [Gave]);
-    }
-
-    #[test]
-    fn faulted_scope_retains_the_old_frame_check_lifetime() {
-        let (lock, mut main) = (Recorder::default(), MainSide::new());
-        main.day_begins(&lock);
-        main.order_scope_begins();
-        main.lock_order(&lock);
-        main.order_scope_begins();
-        main.order_scope_ends(&lock, true);
-        main.order_scope_ends(&lock, false);
-        assert!(main.holds() && !main.order_only());
-        assert_eq!(lock.done(), [Took(At::Crossing)]);
-        main.frame_check(&lock);
-        assert_eq!(lock.done(), [Gave]);
-    }
-
-    #[test]
-    fn reentry_into_a_frame_cancels_early_release() {
-        let (lock, mut main) = (Recorder::default(), MainSide::new());
-        main.frame_begins(&lock);
-        main.day_begins(&lock);
-        lock.done();
-        main.order_scope_begins();
-        main.lock_order(&lock);
-        main.frame_begins(&lock);
-        main.frame_ends(&lock);
-        main.order_scope_ends(&lock, false);
-        assert!(main.holds() && !main.order_only());
-        assert_eq!(lock.done(), [Took(At::Crossing)]);
-        main.frame_check(&lock);
-        assert_eq!(lock.done(), [Gave]);
-    }
-
-    #[test]
-    fn day_end_transfers_ownership_back_to_the_application_frame() {
-        let (lock, mut main) = (Recorder::default(), MainSide::new());
-        main.frame_begins(&lock);
-        main.day_begins(&lock);
-        lock.done();
-        main.order_scope_begins();
-        main.lock_order(&lock);
-        main.day_ends(&lock);
-        main.order_scope_ends(&lock, false);
-        assert!(main.holds() && !main.order_only());
-        assert_eq!(lock.done(), [Took(At::Crossing)]);
-        main.frame_ends(&lock);
-        assert_eq!(lock.done(), [Gave]);
     }
 
     #[test]
@@ -631,15 +425,23 @@ mod tests {
     }
 
     #[test]
-    fn the_drawing_thread_lets_the_lock_go_for_present() {
+    fn the_drawing_thread_lets_the_lock_go_for_present_and_does_not_reacquire() {
         let (lock, mut drawing) = (Recorder::default(), DrawingSide::default());
         drawing.turn_begins(&lock);
         drawing.frame_begins(false);
         drawing.present_begins(&lock);
-        drawing.present_ends(&lock);
+        assert_eq!(lock.done(), [Took(At::DrawingFrame), Gave]);
         drawing.frame_ends();
         drawing.turn_ends(&lock);
-        assert_eq!(lock.done(), [Took(At::DrawingFrame), Gave, Took(At::AfterPresent), Gave]);
+        assert_eq!(lock.done(), [], "already released at Present");
+    }
+
+    #[test]
+    fn the_drawing_thread_releases_at_turn_end_when_present_is_skipped() {
+        let (lock, mut drawing) = (Recorder::default(), DrawingSide::default());
+        drawing.turn_begins(&lock);
+        drawing.turn_ends(&lock);
+        assert_eq!(lock.done(), [Took(At::DrawingFrame), Gave]);
     }
 
     #[test]
@@ -648,15 +450,16 @@ mod tests {
         drawing.turn_begins(&lock);
         drawing.frame_begins(true);
         drawing.present_begins(&lock);
-        assert_eq!(drawing.present_ends(&lock), Duration::ZERO);
+        assert_eq!(lock.done(), [Took(At::DrawingFrame)]);
         drawing.frame_ends();
         drawing.turn_ends(&lock);
-        assert_eq!(lock.done(), [Took(At::DrawingFrame), Gave]);
-        // The next frame, not watched, lets it go again.
+        assert_eq!(lock.done(), [Gave]);
+        // The next frame, not watched, lets it go at Present again.
         drawing.turn_begins(&lock);
         drawing.frame_begins(false);
         drawing.present_begins(&lock);
-        drawing.present_ends(&lock);
-        assert_eq!(lock.done(), [Took(At::DrawingFrame), Gave, Took(At::AfterPresent)]);
+        drawing.frame_ends();
+        drawing.turn_ends(&lock);
+        assert_eq!(lock.done(), [Took(At::DrawingFrame), Gave]);
     }
 }

@@ -37,8 +37,10 @@ The King's day as a whole, its children's included, was 65 ms a day of all count
 
 Before the AI stage, on the main thread, each country's daily update (`0x2ee280`) recalculates its strategy when it needs it (`0x182580`: objectives `0x184360`, attitudes `0x184180`; the first time, then once a month on the country's own day when `country+0x2897` is set, and once a year), its budget once a month (`0x122790`) and the money set aside every day (`0x18e7f0`). The stage (`0x75b4b0`) then rebuilds the threat map (`0x1950e0`, `0x242ba00`) and the table of planned strength (`0x197cd0`, `0x2357bb0`), and runs each AI country's task (`0xb0fa0`):
 
-- **Without `-seed`**, sorted by the AI object's `+0x88` (most likely the last task's time), on the parallel stage `0x77d8a0`: each country on a worker thread, the main thread waiting ([late-game.md](work-scheduling.md), "The AI stage").
+- **Without `-seed`**, sorted by the AI object's `+0x88` (most likely the last task's time), on the parallel stage `0x77d8a0` (called solely from `0x75ba6e`): each country on a worker thread, the main thread waiting ([late-game.md](work-scheduling.md), "The AI stage").
 - **With `-seed`** (`[0x23581c0]`), sorted by the country's index (`0x75ba10`), one after another on the main thread (`0x75b9f8`..`0x75ba1f`).
+
+The threat map at `0x242ba00` (initialized flag `+0x74`, land/naval province bucket vectors at `+0x00` and `+0x18`, unit-stamp `unordered_map` at `+0x30`) is rebuilt once per day by `0x1950e0` (called solely from `0x75b54a`) and remains read-only throughout `0x77d8a0`. Its two hot queries are `0x1998f0` (army threat ratio, called solely from `0x198c70`) and `0x199500` (recruitment threat sum, called solely from `0x198b00`). Both evaluate unit strength through the per-country cached virtual evaluator `0x177df0` (backed by the pure land/naval evaluators `0xd46800` and `0xd462b0`) and check neutral countries via the read-only helper `0x197540`.
 
 A country's task steps its King (`0x14b370`), which, in order:
 

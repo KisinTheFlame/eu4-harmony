@@ -2,8 +2,9 @@
 //! thread asks of the interface and the graphics and waits for nothing of,
 //! kept and done by it as the next frame is prepared ([`done`]), while it
 //! holds the lock and the frame's update has finished: a text floating on the
-//! map, the interface's daily refresh, the map told of a province's new
-//! owner, the minimap drawn again, a mesh object let go; and, from the
+//! map, the interface's daily and monthly refreshes, the map told of a
+//! province's new owner, the minimap drawn again, a mesh object let go; and,
+//! from the
 //! day's and the commands' code, the map mode set and a port's model. Until then the drawing thread draws on, as
 //! nothing changed. Done anywhere else, each would be a crossing, which holds
 //! the frame prepared back to the next update: from the commands' step before
@@ -124,6 +125,13 @@ pub(super) fn points() -> Vec<Point> {
         // mov rcx, rsi; call string destructor: the text's type destroyed.
         Point::keep(0x6e9f68, "48 8b ce e8 f0 b6 9a ff 90 48 8b 8d a8 00 00 00", "a floating text's strings destroyed"),
         Point::replace(DAILY_REFRESH, "4c 8b dc 49 89 5b 18 55 56 57", "the interface's daily refresh", daily_refresh as DailyRefresh, &ORIGINAL_DAILY_REFRESH),
+        Point::replace(
+            MONTHLY_REFRESH,
+            "40 55 53 56 57 41 54 41 55 41 56 41 57",
+            "the interface's monthly refresh",
+            monthly_refresh as MonthlyRefresh,
+            &ORIGINAL_MONTHLY_REFRESH,
+        ),
         Point::jump(MINIMAP, "48 8b c4 48 89 58 10", "the minimap drawn again", minimap_stub as *const () as usize, &MINIMAP_RESUME),
         Point::jump(MAP_MODE_SET, "48 89 5c 24 08 48 89 6c 24 10", "the map mode set", map_mode_stub as *const () as usize, &MAP_MODE_RESUME),
         Point::jump(PORT_MODEL, "48 8b c4 4c 89 40 18", "a port's model", port_model_stub as *const () as usize, &PORT_MODEL_RESUME),
@@ -186,6 +194,9 @@ pub(super) fn points() -> Vec<Point> {
         // call [rax + 0x2a8]: the day's call of the interface's daily refresh.
         Point::keep(0x75c5e7, "49 8b 8d 00 1e 00 00 48 85 c9 74 09 48 8b 01 ff 90 a8 02 00 00", "the day's daily refresh of the interface")
             .uses(&[WORLD_INTERFACE, 0x2a8]),
+        // mov rcx, [rsi + 0x1e00]; mov rax, [rcx]; call [rax + 0x2b0]: the
+        // day's call of the interface's monthly refresh (`0x81e280`).
+        Point::keep(0x758c1f, "48 8b 8e 00 1e 00 00 48 8b 01 ff 90 b0 02 00 00", "the day's monthly refresh of the interface").uses(&[WORLD_INTERFACE, 0x2b0]),
     ]
 }
 
@@ -203,6 +214,13 @@ static ORIGINAL_MAP_TEXT: Function<MapText> = Function::new();
 const DAILY_REFRESH: usize = 0x8339f0;
 type DailyRefresh = unsafe extern "C" fn(usize) -> usize;
 static ORIGINAL_DAILY_REFRESH: Function<DailyRefresh> = Function::new();
+/// The interface's monthly refresh, its method `+0x2b0`, called only from
+/// `0x758c29` in `0x758430` (return value ignored): flushes unreferenced
+/// textures and sounds, marks map colors dirty, sets the autosave flag read on
+/// the next frame, posts floating tax text, and updates the UI.
+const MONTHLY_REFRESH: usize = 0x81e280;
+type MonthlyRefresh = unsafe extern "C" fn(usize) -> usize;
+static ORIGINAL_MONTHLY_REFRESH: Function<MonthlyRefresh> = Function::new();
 const WORLD_INTERFACE: usize = 0x1e00;
 /// The graphical map told that a province changed owner (`0xa00598`,
 /// `0xa0e734`): its map entry's flag `+0x13f8` gets bit 3 (`|= 8`), or every
@@ -313,6 +331,7 @@ static ORIGINAL_MESH_LET_GO: Function<MeshLetGo> = Function::new();
 enum Deferred {
     MapText { idler: usize, province: u32, kind: Vec<u8>, text: Vec<u8>, number: usize, last: usize },
     DailyRefresh { interface: usize },
+    MonthlyRefresh { interface: usize },
     OwnerTold { map: usize, province: i32 },
     Minimap { idler: usize, minimap: usize, flag: u32 },
     MapMode { idler: usize, mode: u32, first: u32, second: u32 },
@@ -374,6 +393,15 @@ unsafe extern "C" fn daily_refresh(interface: usize) -> usize {
         return 0;
     }
     unsafe { ORIGINAL_DAILY_REFRESH.get()(interface) }
+}
+
+#[called_by_game]
+unsafe extern "C" fn monthly_refresh(interface: usize) -> usize {
+    if deferring() {
+        defer(Deferred::MonthlyRefresh { interface });
+        return 1;
+    }
+    unsafe { ORIGINAL_MONTHLY_REFRESH.get()(interface) }
 }
 
 /// Whether the map's owner mark waits for the next frame.
@@ -845,6 +873,9 @@ pub(super) fn done(m: &Memory) {
             },
             Deferred::DailyRefresh { interface: of } if of == interface => unsafe {
                 ORIGINAL_DAILY_REFRESH.get()(of);
+            },
+            Deferred::MonthlyRefresh { interface: of } if of == interface => unsafe {
+                ORIGINAL_MONTHLY_REFRESH.get()(of);
             },
             Deferred::Minimap { idler: of, minimap, flag } if of == idler => unsafe {
                 let draw: unsafe extern "C" fn(usize, u32) = std::mem::transmute(m.at(MINIMAP));

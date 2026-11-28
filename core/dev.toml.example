@@ -57,18 +57,18 @@ crash = false
 panic = false
 # The speed-ups left to the game, so that its own code can be measured against
 # them: their points are not installed. Each is named by its name, its group or
-# "all": pops-polling, drawing-thread and modifier-sums (group "frames"); music,
+# "all": pops-polling, drawing-thread, modifier-sums and regiment-upkeep (group "frames"); music,
 # lookups, children, province-shapes, country-distances, flag-atlas, token-lookup,
 # opens, listed-folders, transfer-copy, save-input, distance-scratch, script-parameters,
 # localisation, trigger-profile, loading-screen and dlc-verify ("loading"); background-compression,
 # stored-copy, parallel-saves, save-sum and update-thread ("saving");
-# army-checks, support-checks and settlement-growth ("ai").
+# army-checks, support-checks, settlement-growth and threat-queries ("ai").
 game-paths = []
 # The speed-ups whose answers are checked against the game's own, named the
 # same way; those that can be are music, lookups, country-distances, flag-atlas,
 # token-lookup, listed-folders, script-parameters, localisation, trigger-profile,
-# dlc-verify, parallel-saves, army-checks, support-checks, settlement-growth and
-# modifier-sums. Each difference is
+# dlc-verify, parallel-saves, army-checks, support-checks, settlement-growth,
+# threat-queries, modifier-sums and regiment-upkeep. Each difference is
 # logged, and the startup report counts the answers checked and those that differed.
 checked = []
 # A subject relation's end is the game's own: its walk of the subject's
