@@ -279,9 +279,26 @@ impl SystemFonts {
     }
 
     /// The weights of a bundled or installed family: its faces as wide and as
-    /// upright as its regular one, as their maker made them.
+    /// upright as its regular one, as their maker made them. When a family
+    /// exists both bundled and installed on Windows, merges weights from both
+    /// (preferring bundled faces for matching weights) so extra system weights
+    /// remain available.
     fn load(&self, family: &str) -> Option<Vec<Weight>> {
-        self.bundled.as_ref().and_then(|collection| load_from(collection, family)).or_else(|| load_from(&self.collection, family))
+        let bundled = self.bundled.as_ref().and_then(|collection| load_from(collection, family));
+        let system = load_from(&self.collection, family);
+        match (bundled, system) {
+            (Some(mut weights), Some(sys)) => {
+                for w in sys {
+                    if !weights.iter().any(|existing| existing.weight == w.weight) {
+                        weights.push(w);
+                    }
+                }
+                weights.sort_by_key(|w| w.weight);
+                Some(weights)
+            }
+            (Some(weights), None) | (None, Some(weights)) => Some(weights),
+            (None, None) => None,
+        }
     }
 
     /// What `f` makes of `family`'s weights, when it is available.

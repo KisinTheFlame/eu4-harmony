@@ -872,7 +872,25 @@ impl<H: UiHost> Shell<H> {
         self.main_menu_frame = main_menu_frame;
         self.in_game_menu = in_game_menu;
         self.scale = scale;
-        self.screen = (pixels.0 / scale, pixels.1 / scale);
+        let next_screen = (pixels.0 / scale, pixels.1 / scale);
+        if next_screen != self.screen {
+            self.screen = next_screen;
+            if let Some((_, window)) = self.notice.as_mut() {
+                window.set_screen(next_screen.0, next_screen.1);
+            }
+            if let Some(settings) = self.settings.as_mut() {
+                settings.window.set_screen(next_screen.0, next_screen.1);
+            }
+            if let Some(mods) = self.mods.as_mut() {
+                mods.window.set_screen(next_screen.0, next_screen.1);
+            }
+            if let Some(prompt) = self.restart_prompt.as_mut() {
+                prompt.set_screen(next_screen.0, next_screen.1);
+            }
+            if let Some(prompt) = self.discard_prompt.as_mut() {
+                prompt.set_screen(next_screen.0, next_screen.1);
+            }
+        }
     }
 
     fn display_language(&self) -> Language {
@@ -1020,18 +1038,28 @@ impl<H: UiHost> Shell<H> {
         let wi = |language: Language, key: &str| host.words_in(language, key, &[]);
         let Some(index) = settings.window.side.as_ref().map(|s| s.selected) else { return };
         let Some(&page) = Page::ALL.get(index) else { return };
+        let defaults = Settings::default();
+        // Reset the page's read-back baseline to defaults so manual values
+        // snapping to the default slider/choice index (e.g. `game_speed_4=5.1`
+        // or `FrameRateLimit::Hz(display_hz)`) are cleared rather than preserved.
+        for setting in settings::SETTINGS.iter().filter(|s| s.page == page && (!settings.in_game || s.editable_in_game())) {
+            match setting.shows {
+                Shows::Toggle { field, .. } => (field.set)(&mut settings.opened_next, (field.get)(&defaults)),
+                Shows::FrameRate { field, .. } => (field.set)(&mut settings.opened_next, (field.get)(&defaults)),
+                Shows::Slider { field, .. } => (field.set)(&mut settings.opened_next, (field.get)(&defaults)),
+                Shows::GameSpeed { field, .. } => (field.set)(&mut settings.opened_next, (field.get)(&defaults)),
+            }
+        }
         match page {
             Page::LanguageFonts => {
                 settings.fonts.reset_defaults(&mut settings.window, &w, &wi);
             }
             Page::Advanced => {
-                let defaults = Settings::default();
                 let widgets = advanced_page(&defaults, settings.display_hz, &dumps, settings.in_game, &w, &ww);
                 replace_page(&mut settings.window, index, widgets);
             }
             Page::About => {}
             _ => {
-                let defaults = Settings::default();
                 let widgets = settings_page(page, &defaults, &settings.opened_next, settings.display_hz, settings.in_game, &ww);
                 replace_page(&mut settings.window, index, widgets);
             }
