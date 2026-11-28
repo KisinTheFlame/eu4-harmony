@@ -215,12 +215,14 @@ pub enum Widget {
         weight_id: &'static str,
         weights: Vec<String>,
         weight_selected: usize,
+        weight_enabled: bool,
         preview_id: &'static str,
         preview_text: String,
-        preview_face: Face,
+        preview_face: Option<Face>,
         preview_size: f32,
         preview_outline: bool,
         outline_toggle: Option<(&'static str, String, bool)>,
+        outline_enabled: bool,
     },
 }
 
@@ -245,6 +247,13 @@ impl Widget {
 
     fn enabled(&self) -> bool {
         !matches!(self, Self::Managed { enabled: false, .. })
+    }
+
+    fn id(&self) -> Option<&'static str> {
+        match self.kind() {
+            Self::Button { id, .. } | Self::Dropdown { id, .. } | Self::Toggle { id, .. } | Self::Choice { id, .. } | Self::Slider { id, .. } => Some(*id),
+            _ => None,
+        }
     }
 
     pub fn tooltip(&self) -> eu4_harmony_lua::Text {
@@ -700,7 +709,7 @@ impl Window {
     }
 
     /// Updates a [`Widget::FontGroup`] preview by id.
-    pub fn set_preview(&mut self, id: &str, text: Option<String>, face: Option<Face>, outline: Option<bool>) {
+    pub fn set_preview(&mut self, id: &str, text: Option<String>, face: Option<Option<Face>>, outline: Option<bool>) {
         for w in self.body.iter_mut().chain(self.pages.iter_mut().flatten()).chain(&mut self.footer) {
             if let Widget::FontGroup { preview_id: i, preview_text: t, preview_face: f, preview_outline: o, .. } = w.kind_mut() {
                 if *i == id {
@@ -731,6 +740,53 @@ impl Window {
                 }
             }
         }
+    }
+
+    /// Enables or disables an interactive widget or [`Widget::FontGroup`]
+    /// sub-control (`weight_id` or `outline_toggle`) by id.
+    pub fn set_enabled(&mut self, id: &str, enabled: bool) {
+        for w in self.body.iter_mut().chain(self.pages.iter_mut().flatten()).chain(&mut self.footer) {
+            if w.id() == Some(id) {
+                w.set_enabled(enabled);
+                if !enabled && self.open == Some(id) {
+                    self.open = None;
+                }
+                return;
+            }
+            if let Widget::FontGroup { weight_id, weight_enabled, outline_toggle, outline_enabled, .. } = w.kind_mut() {
+                if *weight_id == id {
+                    *weight_enabled = enabled;
+                    if !enabled && self.open == Some(*weight_id) {
+                        self.open = None;
+                    }
+                    return;
+                }
+                if outline_toggle.as_ref().is_some_and(|(oid, ..)| *oid == id) {
+                    *outline_enabled = enabled;
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Whether the interactive widget or [`Widget::FontGroup`] sub-control `id`
+    /// is enabled.
+    #[cfg(test)]
+    pub fn is_enabled(&self, id: &str) -> Option<bool> {
+        for w in self.body.iter().chain(self.pages.iter().flatten()).chain(&self.footer) {
+            if w.id() == Some(id) {
+                return Some(w.enabled());
+            }
+            if let Widget::FontGroup { weight_id, weight_enabled, outline_toggle, outline_enabled, .. } = w.kind() {
+                if *weight_id == id {
+                    return Some(w.enabled() && *weight_enabled);
+                }
+                if outline_toggle.as_ref().is_some_and(|(oid, ..)| *oid == id) {
+                    return Some(w.enabled() && *outline_enabled);
+                }
+            }
+        }
+        None
     }
 
     /// Horizontal padding inside the right content column (or whole window when
@@ -1448,7 +1504,19 @@ impl Window {
             }
             return None;
         }
-        if let Widget::FontGroup { family_id, families, family_selected, weight_id, weights, weight_selected, outline_toggle, .. } = self.widget(i) {
+        if let Widget::FontGroup {
+            family_id,
+            families,
+            family_selected,
+            weight_id,
+            weights,
+            weight_selected,
+            weight_enabled,
+            outline_toggle,
+            outline_enabled,
+            ..
+        } = self.widget(i)
+        {
             let sub = Self::font_group_rects(r, outline_toggle.is_some());
             if sub.family.contains(x, y) {
                 let (id, len, selected) = (*family_id, families.len(), *family_selected);
@@ -1457,7 +1525,7 @@ impl Window {
                 self.open = Some(id);
                 return None;
             }
-            if sub.weight.contains(x, y) {
+            if sub.weight.contains(x, y) && *weight_enabled {
                 let (id, len, selected) = (*weight_id, weights.len(), *weight_selected);
                 let (rows, _) = self.rows_for(sub.weight, len);
                 self.scroll = selected.saturating_sub(rows / 2).min(len.saturating_sub(rows));
@@ -1465,7 +1533,7 @@ impl Window {
                 return None;
             }
             if let Some(outline_rect) = sub.outline {
-                if outline_rect.contains(x, y) {
+                if outline_rect.contains(x, y) && *outline_enabled {
                     if let Widget::FontGroup { outline_toggle: Some((id, _, on)), .. } = self.widget_mut(i) {
                         *on = !*on;
                         return Some(Action::Switched(id, *on));
@@ -1888,11 +1956,13 @@ impl Window {
                     weight_id,
                     weights,
                     weight_selected,
+                    weight_enabled,
                     preview_text,
                     preview_face,
                     preview_size,
                     preview_outline,
                     outline_toggle,
+                    outline_enabled,
                     ..
                 } = self.widget(i)
                 else {
@@ -1905,20 +1975,23 @@ impl Window {
                 let role_color = if enabled { TITLE_TEXT } else { DISABLED_TEXT };
                 out.push(Command::text(sub.role.x, sub.role.y + ((sub.role.h - TEXT_SIZE) / 2.0).round() - 2.0, role_shown, TEXT_SIZE, role_color));
                 self.draw_dropdown_box(out, measure, sub.family, family_id, families, *family_selected, enabled, hover(&sub.family));
-                self.draw_dropdown_box(out, measure, sub.weight, weight_id, weights, *weight_selected, enabled, hover(&sub.weight));
+                let weight_active = enabled && *weight_enabled;
+                self.draw_dropdown_box(out, measure, sub.weight, weight_id, weights, *weight_selected, weight_active, weight_active && hover(&sub.weight));
                 out.push(Command::RoundFill { rect: sub.preview, color: PREVIEW_BG, radius: RADIUS_INNER });
-                let shown = elide_with(measure, Some(preview_face), preview_text, *preview_size, (sub.preview.w - 20.0).max(16.0));
+                let preview_active = enabled && preview_face.is_some();
+                let shown = elide_with(measure, preview_face.as_ref(), preview_text, *preview_size, (sub.preview.w - 20.0).max(16.0));
                 let ty = sub.preview.y + ((sub.preview.h - *preview_size) / 2.0).round() - 2.0;
                 out.push(Command::Text {
                     x: sub.preview.x + 10.0,
                     y: ty,
                     text: shown,
                     size: *preview_size,
-                    color: if enabled { TEXT } else { DISABLED_TEXT },
-                    face: Some(preview_face.clone()),
-                    outline: *preview_outline,
+                    color: if preview_active { TEXT } else { DISABLED_TEXT },
+                    face: preview_face.clone(),
+                    outline: *preview_outline && preview_face.is_some(),
                 });
                 if let (Some(or), Some((_, toggle_label, on))) = (sub.outline, outline_toggle) {
+                    let outline_active = enabled && *outline_enabled;
                     out.push(Command::Fill { rect: Rect { x: or.x, y: or.y - 4.0, w: or.w, h: 1.0 }, color: BORDER_SUBTLE });
                     let label_shown = elide(measure, toggle_label, (or.w - SWITCH_W - 12.0).max(40.0));
                     out.push(Command::text(
@@ -1926,9 +1999,9 @@ impl Window {
                         or.y + ((or.h - TEXT_SIZE) / 2.0).round() - 2.0,
                         label_shown,
                         TEXT_SIZE,
-                        if enabled { TEXT } else { DISABLED_TEXT },
+                        if outline_active { TEXT } else { DISABLED_TEXT },
                     ));
-                    Self::draw_toggle_switch(out, Self::switch(or), *on, enabled, hover(&or));
+                    Self::draw_toggle_switch(out, Self::switch(or), *on, outline_active, outline_active && hover(&or));
                 }
             }
             Slot::Control(i, r) if matches!(self.widget(i), Widget::Choice { .. }) => {
@@ -2565,12 +2638,14 @@ mod tests {
                 weight_id: "map_weight",
                 weights: vec!["Regular".into(), "Bold".into()],
                 weight_selected: 0,
+                weight_enabled: true,
                 preview_id: "preview_map",
                 preview_text: "MING".into(),
-                preview_face: Face::regular("Georgia"),
+                preview_face: Some(Face::regular("Georgia")),
                 preview_size: 18.0,
                 preview_outline: true,
                 outline_toggle: Some(("map_outline", "Outline".into(), true)),
+                outline_enabled: true,
             }],
             560.0,
         );

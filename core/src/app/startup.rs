@@ -180,10 +180,20 @@ fn tell_missing_fonts(chosen: &settings::Settings) {
     let Ok(fonts) = unicode::system_font::SystemFonts::new() else { return };
     let installed = |family: &str| fonts.has_family(family);
     for (font, role) in chosen.missing_fonts(installed) {
-        let default = settings::default_face(chosen.language(), role, installed).family;
-        log!("settings: the font {font:?} is not installed; {default} draws instead");
-        let shown =
-            if settings::is_bundled_default_family(&default) { loc::framework(chosen.language(), "EU4HARMONY_SETTINGS_FONT_DEFAULT", &[]) } else { default };
+        let (logged, shown) = match settings::default_font(chosen.language(), role, installed) {
+            settings::DrawnFont::GameOriginal => {
+                ("the game's original font".to_string(), loc::framework(chosen.language(), "EU4HARMONY_SETTINGS_FONT_GAME_ORIGINAL", &[]))
+            }
+            settings::DrawnFont::System(default) => {
+                let shown = if settings::is_bundled_default_family(&default.family) {
+                    loc::framework(chosen.language(), "EU4HARMONY_SETTINGS_FONT_DEFAULT", &[])
+                } else {
+                    default.family.clone()
+                };
+                (default.family, shown)
+            }
+        };
+        log!("settings: the font {font:?} is not installed; {logged} draws instead");
         notice::post(&format!("font:{font}"), notice::Repeat::Run, notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", &shown));
     }
     for face in settings::Role::ALL.into_iter().filter_map(|role| chosen.chosen(role)) {

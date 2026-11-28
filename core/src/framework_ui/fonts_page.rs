@@ -7,9 +7,23 @@
 //! that cover the new language are preserved, while custom fonts lacking its
 //! glyphs reset to the new language default.
 use super::widgets::{Widget, Window};
-use crate::base::settings::{self, Role, Settings};
+use crate::base::settings::{self, DrawnFont, Role, Settings};
 use crate::text::unicode::system_font::{self, Face, SystemFonts, REGULAR};
 use eu4_harmony_loc::Language;
+
+/// Placeholder shown in a disabled weight drop-down and preview strip while
+/// the role uses the game's original bitmap font.
+const NO_WEIGHT: &str = "—";
+
+/// What, if anything, occupies index 0 of a role's font drop-down list.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TopOption {
+    None,
+    /// Bundled default Chinese font (Simplified Chinese, body/heading/map).
+    BundledDefault,
+    /// Game's original bitmap font (vanilla languages, body/heading/map).
+    GameOriginal,
+}
 
 /// What the page asks of the system's fonts.
 pub trait FontSystem {
@@ -87,22 +101,41 @@ fn labels(role: Role) -> (&'static str, &'static str, &'static str, f32) {
 /// What the page offers and tracks for one font role.
 struct Lists {
     /// The families offered, by English name, in their drop-down list's order.
+    /// Index 0 is empty when [`Self::top`] is [`TopOption::GameOriginal`].
     families: Vec<String>,
-    /// The same, as the preview language names them. When [`Self::has_default`]
-    /// is true, index 0's display text comes from localisation instead.
+    /// The same, as the preview language names them. When [`Self::top`] is not
+    /// [`TopOption::None`], index 0's display text comes from localisation.
     names: Vec<String>,
-    /// Whether index 0 is the Simplified Chinese bundled default entry.
-    has_default: bool,
-    /// The weights offered for the family selected, in their list's order.
+    /// Whether index 0 is a special default entry.
+    top: TopOption,
+    /// The weights offered for the family selected, in their list's order;
+    /// empty while the game's original bitmap font is selected.
     weights: Vec<u16>,
-    /// The face the role initially showed when the page was made, in its drawn weight.
-    shown: Face,
-    /// Current face shown in the UI (updated on family/weight/language/reset changes).
-    current: Face,
+    /// What the role initially showed when the page was made, in its drawn
+    /// weight when a system font draws it.
+    shown: DrawnFont,
+    /// Current state shown in the UI (updated on family/weight/language/reset changes).
+    current: DrawnFont,
     /// Current custom override (`None` = follows `language` default).
     custom: Option<Face>,
     /// Whether this role has been explicitly changed since the page opened.
     dirty: bool,
+}
+
+impl Lists {
+    fn option_faces(&self) -> Vec<Option<Face>> {
+        self.families.iter().map(|family| (!family.is_empty()).then(|| Face::regular(family.clone()))).collect()
+    }
+
+    fn display_options(&self, words: &dyn Fn(&str) -> String) -> Vec<String> {
+        let mut options = self.names.clone();
+        match self.top {
+            TopOption::None => {}
+            TopOption::BundledDefault => options[0] = words("EU4HARMONY_SETTINGS_FONT_DEFAULT"),
+            TopOption::GameOriginal => options[0] = words("EU4HARMONY_SETTINGS_FONT_GAME_ORIGINAL"),
+        }
+        options
+    }
 }
 
 /// The language and fonts page of one opening of the settings window.
@@ -129,20 +162,26 @@ impl<F: FontSystem> FontsPage<F> {
     }
 
     fn build_roles(&self, language: Language, source: &Settings, dirty: bool) -> Vec<Lists> {
-        let shown: Vec<Face> = Role::ALL
+        let shown: Vec<DrawnFont> = Role::ALL
             .into_iter()
-            .map(|role| {
-                let face = source.face(role, |f| self.fonts.has_family(f));
-                self.fonts.drawn(&face).unwrap_or(face)
+            .map(|role| match source.font(role, |f| self.fonts.has_family(f)) {
+                DrawnFont::GameOriginal => DrawnFont::GameOriginal,
+                DrawnFont::System(face) => DrawnFont::System(self.fonts.drawn(&face).unwrap_or(face)),
             })
             .collect();
         let offered = |text: &str, roles: &[Role]| {
             let (mut families, mut names): (Vec<String>, Vec<String>) =
                 self.fonts.families_with(text, language).into_iter().filter(|(english, _)| !settings::is_bundled_default_family(english)).unzip();
-            for family in roles.iter().flat_map(|&role| source.chosen(role).into_iter().chain([&shown[at(role)]])).map(|face| &face.family) {
-                if !settings::is_bundled_default_family(family) && !families.contains(family) {
-                    families.push(family.clone());
-                    names.push(family.clone());
+            for &role in roles {
+                let shown_face = match &shown[at(role)] {
+                    DrawnFont::System(face) => Some(face),
+                    DrawnFont::GameOriginal => None,
+                };
+                for family in source.chosen(role).into_iter().chain(shown_face).map(|face| &face.family) {
+                    if !settings::is_bundled_default_family(family) && !families.contains(family) {
+                        families.push(family.clone());
+                        names.push(family.clone());
+                    }
                 }
             }
             (families, names)
@@ -154,19 +193,26 @@ impl<F: FontSystem> FontsPage<F> {
             .zip(shown)
             .map(|(role, shown)| {
                 let (mut families, mut names) = if role == Role::Console { latin.clone() } else { written.clone() };
-                let default_family = (language == Language::SimpChinese)
+                let bundled_family = (language == Language::SimpChinese)
                     .then(|| settings::bundled_default_family(role))
                     .flatten()
                     .filter(|family| self.fonts.has_family(family));
-                let has_default = if let Some(family) = default_family {
+                let top = if let Some(family) = bundled_family {
                     families.insert(0, family.to_string());
                     names.insert(0, String::new());
-                    true
+                    TopOption::BundledDefault
+                } else if settings::has_game_original(language, role) {
+                    families.insert(0, String::new());
+                    names.insert(0, String::new());
+                    TopOption::GameOriginal
                 } else {
-                    false
+                    TopOption::None
                 };
-                let (weights, ..) = weight_options(&self.fonts, &shown, &|k| k.to_string());
-                Lists { families, names, has_default, weights, current: shown.clone(), shown, custom: source.chosen(role).cloned(), dirty }
+                let weights = match &shown {
+                    DrawnFont::GameOriginal => Vec::new(),
+                    DrawnFont::System(face) => weight_options(&self.fonts, face, &|k| k.to_string()).0,
+                };
+                Lists { families, names, top, weights, current: shown.clone(), shown, custom: source.chosen(role).cloned(), dirty }
             })
             .collect()
     }
@@ -179,8 +225,7 @@ impl<F: FontSystem> FontsPage<F> {
     pub fn apply_option_faces(&self, window: &mut Window) {
         for role in Role::ALL {
             let (family_id, _, _) = ids(role);
-            let faces: Vec<Option<Face>> = self.lists(role).families.iter().map(|family| Some(Face::regular(family.clone()))).collect();
-            window.set_option_faces(family_id, faces);
+            window.set_option_faces(family_id, self.lists(role).option_faces());
         }
     }
 
@@ -209,12 +254,24 @@ impl<F: FontSystem> FontsPage<F> {
         let (family_id, weight_id, preview_id) = ids(role);
         let (family_label, _, preview_key, preview_size) = labels(role);
         let lists = self.lists(role);
-        let (_, weight_names, weight_selected) = weight_options(&self.fonts, &lists.current, words);
-        let mut options = lists.names.clone();
-        if lists.has_default {
-            options[0] = words("EU4HARMONY_SETTINGS_FONT_DEFAULT");
-        }
-        let family_selected = lists.families.iter().position(|f| *f == lists.current.family).unwrap_or(0);
+        let options = lists.display_options(words);
+        let (family_selected, weights, weight_selected, weight_enabled, preview_text, preview_face, preview_outline, outline_enabled) = match &lists.current {
+            DrawnFont::GameOriginal => (0, vec![NO_WEIGHT.to_string()], 0, false, NO_WEIGHT.to_string(), None, false, false),
+            DrawnFont::System(face) => {
+                let (_, weight_names, weight_selected) = weight_options(&self.fonts, face, words);
+                let family_selected = lists.families.iter().position(|f| *f == face.family).unwrap_or(0);
+                (
+                    family_selected,
+                    weight_names,
+                    weight_selected,
+                    true,
+                    words_in(self.language, preview_key),
+                    Some(face.clone()),
+                    role == Role::Map && self.map_outline,
+                    true,
+                )
+            }
+        };
         let outline_toggle = (role == Role::Map).then(|| ("map_outline", words("EU4HARMONY_SETTINGS_MAP_OUTLINE"), next.map_outline));
         Widget::FontGroup {
             role_label: words(family_label),
@@ -222,21 +279,24 @@ impl<F: FontSystem> FontsPage<F> {
             families: options,
             family_selected,
             weight_id,
-            weights: weight_names,
+            weights,
             weight_selected,
+            weight_enabled,
             preview_id,
-            preview_text: words_in(self.language, preview_key),
-            preview_face: lists.current.clone(),
+            preview_text,
+            preview_face,
             preview_size,
-            preview_outline: role == Role::Map && self.map_outline,
+            preview_outline,
             outline_toggle,
+            outline_enabled,
         }
     }
 
     /// Updates the map preview outline when the `map_outline` toggle changes.
     pub fn set_map_outline(&mut self, window: &mut Window, outline: bool) {
         self.map_outline = outline;
-        window.set_preview(ids(Role::Map).2, None, None, Some(outline));
+        let show_outline = outline && self.lists(Role::Map).current != DrawnFont::GameOriginal;
+        window.set_preview(ids(Role::Map).2, None, None, Some(show_outline));
     }
 
     /// Resets the four font roles and map outline to defaults while preserving
@@ -249,29 +309,41 @@ impl<F: FontSystem> FontsPage<F> {
         self.sync_window(window, words, words_in);
     }
 
-    /// Pushes all four role dropdowns, option faces, and live previews to `window`.
+    /// Pushes all four role dropdowns, option faces, disabled states, and live
+    /// previews to `window`.
     fn sync_window(&mut self, window: &mut Window, words: &dyn Fn(&str) -> String, words_in: &dyn Fn(Language, &str) -> String) {
         for role in Role::ALL {
             let (family_id, weight_id, preview_id) = ids(role);
             let (_, _, preview_key, _) = labels(role);
             let lists = &mut self.roles[at(role)];
-            let mut options = lists.names.clone();
-            if lists.has_default {
-                options[0] = words("EU4HARMONY_SETTINGS_FONT_DEFAULT");
+            let options = lists.display_options(words);
+            let faces = lists.option_faces();
+            match lists.current.clone() {
+                DrawnFont::GameOriginal => {
+                    lists.weights.clear();
+                    window.set_options(family_id, options, 0);
+                    window.set_option_faces(family_id, faces);
+                    window.set_options(weight_id, vec![NO_WEIGHT.to_string()], 0);
+                    window.set_enabled(weight_id, false);
+                    window.set_preview(preview_id, Some(NO_WEIGHT.to_string()), Some(None), Some(false));
+                    if role == Role::Map {
+                        window.set_enabled("map_outline", false);
+                    }
+                }
+                DrawnFont::System(face) => {
+                    let family_selected = lists.families.iter().position(|f| *f == face.family).unwrap_or(0);
+                    let (weights, weight_names, weight_selected) = weight_options(&self.fonts, &face, words);
+                    lists.weights = weights;
+                    window.set_options(family_id, options, family_selected);
+                    window.set_option_faces(family_id, faces);
+                    window.set_options(weight_id, weight_names, weight_selected);
+                    window.set_enabled(weight_id, true);
+                    window.set_preview(preview_id, Some(words_in(self.language, preview_key)), Some(Some(face)), Some(role == Role::Map && self.map_outline));
+                    if role == Role::Map {
+                        window.set_enabled("map_outline", true);
+                    }
+                }
             }
-            let family_selected = lists.families.iter().position(|f| *f == lists.current.family).unwrap_or(0);
-            let (weights, weight_names, weight_selected) = weight_options(&self.fonts, &lists.current, words);
-            lists.weights = weights;
-            let faces: Vec<Option<Face>> = lists.families.iter().map(|family| Some(Face::regular(family.clone()))).collect();
-            window.set_options(family_id, options, family_selected);
-            window.set_option_faces(family_id, faces);
-            window.set_options(weight_id, weight_names, weight_selected);
-            window.set_preview(
-                preview_id,
-                Some(words_in(self.language, preview_key)),
-                Some(lists.current.clone()),
-                Some(role == Role::Map && self.map_outline),
-            );
         }
     }
 
@@ -331,32 +403,55 @@ impl<F: FontSystem> FontsPage<F> {
         }
         if let Some(role) = Role::ALL.into_iter().find(|&role| ids(role).0 == id) {
             let (_, weight_id, preview_id) = ids(role);
+            let (_, _, preview_key, _) = labels(role);
             let idx = at(role);
+            if self.roles[idx].top == TopOption::GameOriginal && index == 0 {
+                self.roles[idx].weights.clear();
+                self.roles[idx].current = DrawnFont::GameOriginal;
+                self.roles[idx].custom = None;
+                self.roles[idx].dirty = true;
+                window.set_options(weight_id, vec![NO_WEIGHT.to_string()], 0);
+                window.set_enabled(weight_id, false);
+                window.set_preview(preview_id, Some(NO_WEIGHT.to_string()), Some(None), Some(false));
+                if role == Role::Map {
+                    window.set_enabled("map_outline", false);
+                }
+                return;
+            }
             let Some(family) = self.roles[idx].families.get(index).cloned() else { return };
-            let prev_weight = window.selected(weight_id).and_then(|i| self.roles[idx].weights.get(i).copied()).unwrap_or(REGULAR);
+            let prev_weight = if self.roles[idx].weights.is_empty() {
+                REGULAR
+            } else {
+                window.selected(weight_id).and_then(|i| self.roles[idx].weights.get(i).copied()).unwrap_or(REGULAR)
+            };
             let (weights, names, selected) = weight_options(&self.fonts, &Face::new(family.clone(), prev_weight), words);
             let drawn_weight = weights.get(selected).copied().unwrap_or(prev_weight);
             let face = Face::new(family, drawn_weight);
             window.set_options(weight_id, names, selected);
-            let is_bundled_default = self.roles[idx].has_default && index == 0;
+            window.set_enabled(weight_id, true);
+            let is_bundled_default = self.roles[idx].top == TopOption::BundledDefault && index == 0;
             self.roles[idx].weights = weights;
-            self.roles[idx].current = face.clone();
+            self.roles[idx].current = DrawnFont::System(face.clone());
             self.roles[idx].custom = if is_bundled_default { None } else { Some(face.clone()) };
             self.roles[idx].dirty = true;
-            window.set_preview(preview_id, None, Some(face), None);
+            window.set_preview(preview_id, Some(words_in(self.language, preview_key)), Some(Some(face)), Some(role == Role::Map && self.map_outline));
+            if role == Role::Map {
+                window.set_enabled("map_outline", true);
+            }
             return;
         }
         if let Some(role) = Role::ALL.into_iter().find(|&role| ids(role).1 == id) {
             let (family_id, _, preview_id) = ids(role);
             let idx = at(role);
+            let DrawnFont::System(cur_face) = &self.roles[idx].current else { return };
             let Some(&weight) = self.roles[idx].weights.get(index) else { return };
             let family_idx = window.selected(family_id).unwrap_or(0);
-            let face = Face::new(self.roles[idx].current.family.clone(), weight);
-            let is_bundled_default = self.roles[idx].has_default && family_idx == 0;
-            self.roles[idx].current = face.clone();
+            let face = Face::new(cur_face.family.clone(), weight);
+            let is_bundled_default = self.roles[idx].top == TopOption::BundledDefault && family_idx == 0;
+            self.roles[idx].current = DrawnFont::System(face.clone());
             self.roles[idx].custom = if is_bundled_default { None } else { Some(face.clone()) };
             self.roles[idx].dirty = true;
-            window.set_preview(preview_id, None, Some(face), None);
+            window.set_preview(preview_id, None, Some(Some(face)), None);
         }
     }
 
@@ -370,14 +465,29 @@ impl<F: FontSystem> FontsPage<F> {
         for role in Role::ALL {
             let (family_id, weight_id, _) = ids(role);
             let lists = self.lists(role);
-            let selected = window.selected(family_id);
-            let family = selected.and_then(|i| lists.families.get(i)).cloned().unwrap_or_else(|| lists.current.family.clone());
-            let weight = window.selected(weight_id).and_then(|i| lists.weights.get(i).copied()).unwrap_or(lists.current.weight);
-            let face = Face::new(family, weight);
             if lists.dirty {
-                *chosen.chosen_mut(role) = if lists.custom.is_none() || (lists.has_default && selected == Some(0)) { None } else { Some(face) };
-            } else if face != lists.shown {
-                *chosen.chosen_mut(role) = if lists.has_default && selected == Some(0) { None } else { Some(face) };
+                *chosen.chosen_mut(role) = lists.custom.clone();
+                continue;
+            }
+            let selected = window.selected(family_id);
+            if lists.top == TopOption::GameOriginal && selected == Some(0) {
+                if lists.shown != DrawnFont::GameOriginal {
+                    *chosen.chosen_mut(role) = None;
+                }
+                continue;
+            }
+            let fallback_face = match &lists.current {
+                DrawnFont::System(face) => Some(face),
+                DrawnFont::GameOriginal => None,
+            };
+            let Some(family) = selected.and_then(|i| lists.families.get(i)).cloned().or_else(|| fallback_face.map(|f| f.family.clone())) else {
+                continue;
+            };
+            let weight = window.selected(weight_id).and_then(|i| lists.weights.get(i).copied()).unwrap_or_else(|| fallback_face.map_or(REGULAR, |f| f.weight));
+            let face = Face::new(family, weight);
+            let current = DrawnFont::System(face.clone());
+            if current != lists.shown {
+                *chosen.chosen_mut(role) = if lists.top == TopOption::BundledDefault && selected == Some(0) { None } else { Some(face) };
             }
         }
     }
@@ -471,27 +581,33 @@ pub mod tests {
         window
             .body
             .iter()
-            .find_map(|widget| match widget {
-                Widget::Dropdown { id: i, options, .. } if *i == id => Some(options.clone()),
-                Widget::Labeled { control, .. } => match control.as_ref() {
+            .find_map(|widget| {
+                let inner = match widget {
+                    Widget::Managed { element, .. } => element.as_ref(),
+                    other => other,
+                };
+                match inner {
                     Widget::Dropdown { id: i, options, .. } if *i == id => Some(options.clone()),
-                    _ => None,
-                },
-                Widget::FontGroup { family_id, families, weight_id, weights, .. } => {
-                    if *family_id == id {
-                        Some(families.clone())
-                    } else if *weight_id == id {
-                        Some(weights.clone())
-                    } else {
-                        None
+                    Widget::Labeled { control, .. } => match control.as_ref() {
+                        Widget::Dropdown { id: i, options, .. } if *i == id => Some(options.clone()),
+                        _ => None,
+                    },
+                    Widget::FontGroup { family_id, families, weight_id, weights, .. } => {
+                        if *family_id == id {
+                            Some(families.clone())
+                        } else if *weight_id == id {
+                            Some(weights.clone())
+                        } else {
+                            None
+                        }
                     }
+                    _ => None,
                 }
-                _ => None,
             })
             .unwrap_or_default()
     }
 
-    fn preview(window: &Window, id: &str) -> (String, Face, bool) {
+    fn preview(window: &Window, id: &str) -> (String, Option<Face>, bool) {
         window
             .body
             .iter()
@@ -514,15 +630,15 @@ pub mod tests {
 
     #[test]
     fn a_family_chosen_keeps_its_weight_or_takes_the_one_below() {
-        let english = Settings { language: Some(Language::English), ..Settings::default() };
-        let (mut page, mut window) = opened(&english);
+        let polish = Settings { language: Some(Language::Polish), ..Settings::default() };
+        let (mut page, mut window) = opened(&polish);
         let bold = select(&mut window, "body_weight", "EU4HARMONY_WEIGHT_700");
         page.chose(&mut window, "body_weight", bold, &keys, &keys_in);
         let georgia = select(&mut window, "body", "Georgia");
         page.chose(&mut window, "body", georgia, &keys, &keys_in);
         assert_eq!(options(&window, "body_weight"), ["EU4HARMONY_WEIGHT_400", "EU4HARMONY_WEIGHT_700"]);
         assert_eq!(window.selected("body_weight"), Some(1));
-        assert_eq!(preview(&window, "preview_body").1, Face::new("Georgia", 700));
+        assert_eq!(preview(&window, "preview_body").1, Some(Face::new("Georgia", 700)));
         let kaiti = select(&mut window, "body", "KaiTi");
         page.chose(&mut window, "body", kaiti, &keys, &keys_in);
         assert_eq!((options(&window, "body_weight"), window.selected("body_weight")), (vec!["EU4HARMONY_WEIGHT_400".to_string()], Some(0)));
@@ -532,13 +648,13 @@ pub mod tests {
             (options(&window, "body_weight"), window.selected("body_weight")),
             (vec!["EU4HARMONY_WEIGHT_800".to_string(), "EU4HARMONY_WEIGHT_900".to_string()], Some(0))
         );
-        let mut chosen = english.clone();
+        let mut chosen = polish.clone();
         page.read_back(&window, &mut chosen);
         assert_eq!(chosen.body_font, Some(Face::new("Heavy Sans", 800)));
         assert_eq!((chosen.heading_font, chosen.map_font, chosen.console_font), (None, None, None));
         // Selecting the same language leaves the weight list untouched.
-        let en_idx = Language::ALL.iter().position(|&l| l == Language::English).unwrap();
-        page.chose(&mut window, "language", en_idx, &keys, &keys_in);
+        let pl_idx = Language::ALL.iter().position(|&l| l == Language::Polish).unwrap();
+        page.chose(&mut window, "language", pl_idx, &keys, &keys_in);
         assert_eq!(options(&window, "body_weight"), ["EU4HARMONY_WEIGHT_800", "EU4HARMONY_WEIGHT_900"]);
     }
 
@@ -553,6 +669,8 @@ pub mod tests {
         };
         let (mut page, mut window) = opened_with(installed_with_bundled(), &english);
         assert!(options(&window, "body").contains(&"Georgia".to_string()));
+        assert_eq!(window.is_enabled("map_weight"), Some(false));
+        assert_eq!(window.is_enabled("map_outline"), Some(false));
         let zh_idx = Language::ALL.iter().position(|&l| l == Language::SimpChinese).unwrap();
         window.set_options("language", Language::ALL.iter().map(|l| l.native_name().to_string()).collect(), zh_idx);
         page.chose(&mut window, "language", zh_idx, &keys, &keys_in);
@@ -560,15 +678,30 @@ pub mod tests {
         assert!(!options(&window, "body").contains(&"Georgia".to_string()));
         assert_eq!(options(&window, "body").first().map(String::as_str), Some("EU4HARMONY_SETTINGS_FONT_DEFAULT"));
         assert_eq!(window.selected("body"), Some(0));
+        // Map moved from English Game original to Chinese Default, enabling weight and outline.
+        assert_eq!(window.is_enabled("map_weight"), Some(true));
+        assert_eq!(window.is_enabled("map_outline"), Some(true));
         // Heading custom font (Microsoft YaHei 700) covers Chinese and is preserved.
         assert_eq!(options(&window, "heading")[window.selected("heading").unwrap()], "Microsoft YaHei");
-        assert_eq!(preview(&window, "preview_heading").1, Face::new("Microsoft YaHei", 700));
+        assert_eq!(preview(&window, "preview_heading").1, Some(Face::new("Microsoft YaHei", 700)));
         assert_eq!(preview(&window, "preview_body").0, "simp_chinese:EU4HARMONY_PREVIEW_BODY");
         let mut saved = english.clone();
         page.read_back(&window, &mut saved);
         assert_eq!(saved.language, Some(Language::SimpChinese));
         assert_eq!(saved.body_font, None);
         assert_eq!(saved.heading_font, Some(Face::new("Microsoft YaHei", 700)));
+
+        // Switching back to English restores Game original for unchosen roles
+        // and disables weight and map outline again.
+        let en_idx = Language::ALL.iter().position(|&l| l == Language::English).unwrap();
+        window.set_options("language", Language::ALL.iter().map(|l| l.native_name().to_string()).collect(), en_idx);
+        page.chose(&mut window, "language", en_idx, &keys, &keys_in);
+        assert_eq!(options(&window, "body").first().map(String::as_str), Some("EU4HARMONY_SETTINGS_FONT_GAME_ORIGINAL"));
+        assert_eq!(window.selected("body"), Some(0));
+        assert_eq!(window.is_enabled("body_weight"), Some(false));
+        assert_eq!(window.is_enabled("map_weight"), Some(false));
+        assert_eq!(window.is_enabled("map_outline"), Some(false));
+        assert_eq!(preview(&window, "preview_body"), (NO_WEIGHT.to_string(), None, false));
     }
 
     #[test]
@@ -583,16 +716,134 @@ pub mod tests {
         page.read_back(&window, &mut saved);
         assert_eq!(saved.language, Some(Language::Japanese));
         assert_eq!(saved.body_font, None);
+
+        // Resetting defaults in English returns body/heading/map to Game original.
+        let custom_en = Settings {
+            language: Some(Language::English),
+            body_font: Some(Face::new("Segoe UI", 700)),
+            map_font: Some(Face::regular("Georgia")),
+            map_outline: false,
+            ..Settings::default()
+        };
+        let (mut page, mut window) = opened(&custom_en);
+        assert_eq!(window.is_enabled("map_weight"), Some(true));
+        assert_eq!(window.is_enabled("map_outline"), Some(true));
+        page.reset_defaults(&mut window, &keys, &keys_in);
+        assert_eq!(window.selected("body"), Some(0));
+        assert_eq!(window.selected("map"), Some(0));
+        assert_eq!(window.is_enabled("body_weight"), Some(false));
+        assert_eq!(window.is_enabled("map_weight"), Some(false));
+        assert_eq!(window.is_enabled("map_outline"), Some(false));
+        assert_eq!(window.is_on("map_outline"), Some(true));
+        assert_eq!(preview(&window, "preview_map"), (NO_WEIGHT.to_string(), None, false));
+        let mut saved = custom_en.clone();
+        page.read_back(&window, &mut saved);
+        assert_eq!(saved.language, Some(Language::English));
+        assert_eq!((saved.body_font, saved.map_font), (None, None));
     }
 
     #[test]
     fn a_heading_left_lighter_than_its_default_follows_the_language() {
-        let english = Settings { language: Some(Language::English), ..Settings::default() };
-        let (page, window) = opened(&english);
+        // Polish headings ask for Segoe UI 600, which the table lacks: the
+        // page shows its regular.
+        let polish = Settings { language: Some(Language::Polish), ..Settings::default() };
+        let (page, window) = opened(&polish);
         assert_eq!(options(&window, "heading_weight")[window.selected("heading_weight").unwrap()], "EU4HARMONY_WEIGHT_400");
-        let mut chosen = english.clone();
+        let mut chosen = polish.clone();
         page.read_back(&window, &mut chosen);
-        assert_eq!(chosen, english);
+        assert_eq!(chosen, polish);
+    }
+
+    #[test]
+    fn vanilla_languages_offer_and_default_to_game_original_with_disabled_controls() {
+        for language in [Language::English, Language::French, Language::German, Language::Spanish] {
+            let settings = Settings { language: Some(language), ..Settings::default() };
+            let (mut page, mut window) = opened(&settings);
+            for (id, weight_id, preview_id) in
+                [("body", "body_weight", "preview_body"), ("heading", "heading_weight", "preview_heading"), ("map", "map_weight", "preview_map")]
+            {
+                let list = options(&window, id);
+                assert_eq!(list.first().map(String::as_str), Some("EU4HARMONY_SETTINGS_FONT_GAME_ORIGINAL"), "{language:?} {id}");
+                assert_eq!(window.selected(id), Some(0));
+                assert_eq!(options(&window, weight_id), [NO_WEIGHT]);
+                assert_eq!(window.is_enabled(weight_id), Some(false));
+                assert_eq!(preview(&window, preview_id), (NO_WEIGHT.to_string(), None, false));
+            }
+            assert_eq!(window.is_enabled("map_outline"), Some(false));
+            // Console stays a system font without Game original.
+            assert!(!options(&window, "console").contains(&"EU4HARMONY_SETTINGS_FONT_GAME_ORIGINAL".to_string()));
+            assert_eq!(window.is_enabled("console_weight"), Some(true));
+            // Saving unchanged keeps all fonts following the language.
+            let mut unchanged = settings.clone();
+            page.read_back(&window, &mut unchanged);
+            assert_eq!(unchanged, settings);
+
+            // Switching map from Game original to a system font enables weight
+            // (defaulting to Regular), live preview, and map_outline; switching
+            // back disables them again.
+            let segoe = select(&mut window, "map", "Segoe UI");
+            page.chose(&mut window, "map", segoe, &keys, &keys_in);
+            assert_eq!(window.is_enabled("map_weight"), Some(true));
+            assert_eq!(window.is_enabled("map_outline"), Some(true));
+            assert_eq!(
+                (options(&window, "map_weight"), window.selected("map_weight")),
+                (vec!["EU4HARMONY_WEIGHT_300".to_string(), "EU4HARMONY_WEIGHT_400".to_string(), "EU4HARMONY_WEIGHT_700".to_string()], Some(1))
+            );
+            assert_eq!(preview(&window, "preview_map"), (format!("{}:EU4HARMONY_PREVIEW_MAP", language.id()), Some(Face::regular("Segoe UI")), true));
+            let mut with_system = settings.clone();
+            page.read_back(&window, &mut with_system);
+            assert_eq!(with_system.map_font, Some(Face::regular("Segoe UI")));
+
+            let original = select(&mut window, "map", "EU4HARMONY_SETTINGS_FONT_GAME_ORIGINAL");
+            assert_eq!(original, 0);
+            page.chose(&mut window, "map", original, &keys, &keys_in);
+            assert_eq!(window.is_enabled("map_weight"), Some(false));
+            assert_eq!(window.is_enabled("map_outline"), Some(false));
+            assert_eq!(options(&window, "map_weight"), [NO_WEIGHT]);
+            assert_eq!(preview(&window, "preview_map"), (NO_WEIGHT.to_string(), None, false));
+
+            let mut back_to_original = Settings { map_font: Some(Face::regular("Segoe UI")), ..settings.clone() };
+            let (mut page_from_system, mut window_from_system) = opened(&back_to_original);
+            assert_eq!(window_from_system.is_enabled("map_weight"), Some(true));
+            assert_eq!(window_from_system.is_enabled("map_outline"), Some(true));
+            let original = select(&mut window_from_system, "map", "EU4HARMONY_SETTINGS_FONT_GAME_ORIGINAL");
+            page_from_system.chose(&mut window_from_system, "map", original, &keys, &keys_in);
+            assert_eq!(window_from_system.is_enabled("map_weight"), Some(false));
+            assert_eq!(window_from_system.is_enabled("map_outline"), Some(false));
+            page_from_system.read_back(&window_from_system, &mut back_to_original);
+            assert_eq!(back_to_original.map_font, None);
+        }
+
+        // Non-vanilla languages never offer Game original.
+        for language in [
+            Language::SimpChinese,
+            Language::TradChinese,
+            Language::Russian,
+            Language::Polish,
+            Language::BrazPor,
+            Language::Japanese,
+            Language::Korean,
+            Language::Turkish,
+        ] {
+            let settings = Settings { language: Some(language), ..Settings::default() };
+            let (_, window) = opened(&settings);
+            for id in ["body", "heading", "map", "console"] {
+                assert!(!options(&window, id).contains(&"EU4HARMONY_SETTINGS_FONT_GAME_ORIGINAL".to_string()), "{language:?} {id}");
+            }
+            assert_eq!(window.is_enabled("map_outline"), Some(true));
+        }
+
+        // A missing chosen font in English falls back to Game original in the
+        // UI, yet leaving it untouched preserves the saved setting.
+        let gone = Settings { language: Some(Language::English), map_font: Some(Face::new("Gone", 700)), ..Settings::default() };
+        let (page, window) = opened(&gone);
+        assert!(options(&window, "map").contains(&"Gone".to_string()));
+        assert_eq!(window.selected("map"), Some(0));
+        assert_eq!(window.is_enabled("map_weight"), Some(false));
+        assert_eq!(window.is_enabled("map_outline"), Some(false));
+        let mut kept = gone.clone();
+        page.read_back(&window, &mut kept);
+        assert_eq!(kept, gone);
     }
 
     #[test]

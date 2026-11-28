@@ -14,7 +14,7 @@ pub mod mods_window;
 pub mod text;
 pub mod widgets;
 
-use crate::base::settings::{self, FrameRateLimit, Page, Role, Settings, Shows};
+use crate::base::settings::{self, FrameRateLimit, Page, Settings, Shows};
 use crate::base::troubleshooting::local_dumps;
 use crate::render::window_input as input;
 use crate::text::unicode::system_font::SystemFonts;
@@ -1168,7 +1168,7 @@ impl<H: UiHost> Shell<H> {
 
 impl FrameworkUi {
     fn new() -> crate::base::Result<Self> {
-        let face = SystemFonts::new().map(|fonts| settings::current().face(Role::Body, |f| fonts.has_family(f)))?;
+        let face = SystemFonts::new().map(|fonts| settings::current().ui_face(|f| fonts.has_family(f)))?;
         let font = text::UiFont::new(&face)?;
         Ok(Self { font, backend: d3d9::Backend::default(), shell: Shell::new(LiveHost::new()) })
     }

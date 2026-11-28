@@ -1,5 +1,5 @@
 ---
-status: superseded in part by player-language-in-the-settings
+status: superseded in part by player-language-in-the-settings and original-fonts-for-vanilla-languages
 ---
 
 # The game's text is drawn in system fonts

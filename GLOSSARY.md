@@ -495,11 +495,11 @@ How heavy a system font's strokes are, such as Light, Regular or Bold, numbered 
 _Avoid_: boldness, thickness, style (that is upright or italic)
 
 **Body text**:
-The smaller interface text used for window contents, tooltips, lists and numbers, as distinct from headings. It uses one system font and weight.
+The smaller interface text used for window contents, tooltips, lists and numbers, as distinct from headings. It uses one system font and weight, or the game's original bitmap fonts in vanilla languages.
 _Avoid_: text font, normal text, small text
 
 **Headings**:
-The larger interface text used for window titles and headings, with its own system font and weight.
+The larger interface text used for window titles and headings, with its own system font and weight, or the game's original bitmap fonts in vanilla languages.
 _Avoid_: titles (a ruler's title is a game concept), large text
 
 **Framework font**:
