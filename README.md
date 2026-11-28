@@ -66,8 +66,8 @@ Unsubscribe from Harmony and delete `version.dll` from the game folder (restore 
 
 ### Featured Harmony Mods
 
-- **[Convenience Tools](https://steamcommunity.com/sharedfiles/filedetails/?id=3838535796)** — One-click country-wide Make States, Abandon States, and Raze in a native-style panel following vanilla rules.
-- **[Regional Combat](https://steamcommunity.com/sharedfiles/filedetails/?id=3837793510)** — Assign an army an operating radius to automatically pursue enemies, retake lost provinces, and return when idle.
+- **[Convenience Tools](https://steamcommunity.com/sharedfiles/filedetails/?id=3838535796)** ([GitHub](https://github.com/KisinTheFlame/eu4-convenience-tools)) — One-click country-wide Make States, Abandon States, and Raze in a native-style panel following vanilla rules.
+- **[Regional Combat](https://steamcommunity.com/sharedfiles/filedetails/?id=3837793510)** ([GitHub](https://github.com/KisinTheFlame/eu4-regional-combat)) — Assign an army an operating radius to automatically pursue enemies, retake lost provinces, and return when idle.
 
 ### FAQ
 

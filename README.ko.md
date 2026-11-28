@@ -66,8 +66,8 @@ Harmony 구독을 취소하고 게임 폴더의 `version.dll`을 삭제하세요
 
 ### 추천 Harmony 기반 모드
 
-- **[Convenience Tools (편의 도구)](https://steamcommunity.com/sharedfiles/filedetails/?id=3838535796)** — 바닐라 규칙을 지키면서 클릭 한 번으로 전국 주(State) 일괄 지정·해제 및 약탈(Raze) 실행.
-- **[Regional Combat (지역 전투)](https://steamcommunity.com/sharedfiles/filedetails/?id=3837793510)** — 부대에 작전 반경을 지정해 구역 내 적군 추격, 실지 탈환 및 유휴 복귀를 자동화.
+- **[Convenience Tools (편의 도구)](https://steamcommunity.com/sharedfiles/filedetails/?id=3838535796)** ([GitHub](https://github.com/KisinTheFlame/eu4-convenience-tools)) — 바닐라 규칙을 지키면서 클릭 한 번으로 전국 주(State) 일괄 지정·해제 및 약탈(Raze) 실행.
+- **[Regional Combat (지역 전투)](https://steamcommunity.com/sharedfiles/filedetails/?id=3837793510)** ([GitHub](https://github.com/KisinTheFlame/eu4-regional-combat)) — 부대에 작전 반경을 지정해 구역 내 적군 추격, 실지 탈환 및 유휴 복귀를 자동화.
 
 ### 자주 묻는 질문 (FAQ)
 

@@ -66,8 +66,8 @@ Steam 会自动保持 Harmony 最新。当更新包含新版 `version.dll` 时�
 
 ### 精选 Harmony 生态 Mod
 
-- **[Convenience Tools（便捷工具）](https://steamcommunity.com/sharedfiles/filedetails/?id=3838535796)** — 一键全国批量设立/取消直辖州与焚掠，原生风格面板，严格遵守原版规则。
-- **[Regional Combat（区域战斗）](https://steamcommunity.com/sharedfiles/filedetails/?id=3837793510)** — 为部队划定作战半径，自动追击区域内敌军、收复失陷省份并在空闲时返回驻守。
+- **[Convenience Tools（便捷工具）](https://steamcommunity.com/sharedfiles/filedetails/?id=3838535796)**（[GitHub](https://github.com/KisinTheFlame/eu4-convenience-tools)）— 一键全国批量设立/取消直辖州与焚掠，原生风格面板，严格遵守原版规则。
+- **[Regional Combat（区域战斗）](https://steamcommunity.com/sharedfiles/filedetails/?id=3837793510)**（[GitHub](https://github.com/KisinTheFlame/eu4-regional-combat)）— 为部队划定作战半径，自动追击区域内敌军、收复失陷省份并在空闲时返回驻守。
 
 ### 常见问题（FAQ）
 

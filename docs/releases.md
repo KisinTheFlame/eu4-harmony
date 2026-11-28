@@ -76,17 +76,17 @@ SteamCMD handles authentication locally. Public uploads require the existing loc
 
 ## Synchronized major-release trio launch
 
-Harmony (`eu4-harmony`) and its two first-party companion extensions (`eu4-regional-combat` and `eu4-convenience-tools`) each maintain an existing beta Workshop item and defer creation of their new public Workshop items until launch day so all three enter Steam's newly-published discovery window together with zero broken cross-links.
+Harmony (`eu4-harmony`) and its two first-party companion extensions ([eu4-regional-combat](https://github.com/KisinTheFlame/eu4-regional-combat) and [eu4-convenience-tools](https://github.com/KisinTheFlame/eu4-convenience-tools)) each maintain an existing beta Workshop item and defer creation of their new public Workshop items until launch day so all three enter Steam's newly-published discovery window together with zero broken cross-links.
 
 1. **Create the three private public items on launch day** (do not flip visibility to Public yet):
    - In `eu4-harmony`: run `python workshop/media/build.py`, `cargo xtask release`, and `cargo xtask workshop-upload --user <steam-login> --create` to obtain Harmony's new public `published_file_id`.
-   - In `eu4-regional-combat` and `eu4-convenience-tools`: run each repository's first-time `--create` upload (visibility `2`, private) to obtain their new public `published_file_id` values.
+   - In `eu4-regional-combat` and `eu4-convenience-tools`: run `.\workshop\upload.ps1 -Channel public -User <steam-login> -Create` in each repository (visibility `2`, private) to obtain and automatically record their new public `published_file_id` values in `workshop/item.toml`.
 2. **Backfill all three public IDs and bump Harmony's version**:
    - In `eu4-harmony`: set `workspace.package.version = "1.0.0"`, `[workspace.metadata.harmony].codename = "Constantinople"` in `Cargo.toml`, update `Cargo.lock` and `CHANGELOG.md`, update `published_file_id` and `[featured_mods]` in `workshop/item.toml`, and update the Workshop IDs in `README*.md` and `workshop/description.*.bbcode`. Merge the version PR so GitHub publishes the `v1.0.0` tag and ZIPs.
    - In `eu4-regional-combat` and `eu4-convenience-tools`: record the new `published_file_id`, `required_public_item`, and companion mod ID in each repository's `workshop/item.toml`, update `workshop/description.*.bbcode` and `README*.md`, and update `minimum_harmony_version` if needed.
 3. **Upload the final public packages with baked IDs**:
    - In `eu4-harmony`: from a clean checkout of `v1.0.0`, rebuild media (`python workshop/media/build.py`), run `cargo xtask release`, and run `cargo xtask workshop-upload --user <steam-login>` so `version.dll` ships with both the new public ID and the beta ID whitelisted.
-   - In both companion repositories: rebuild showcase media (`python workshop/media/build.py`) and upload their final public mod files via SteamCMD.
+   - In both companion repositories: run `.\workshop\upload.ps1 -Channel public -User <steam-login> -Note "Initial public release for Harmony 1.0.0"` (which rebuilds showcase media, checks/packages `mod/`, stamps the public `descriptor.mod`, and uploads via SteamCMD).
 4. **Configure Steam Workshop pages and cross-links while still Private**:
    - Paste all 5 localized titles and BBCode descriptions (`english`, `schinese`, `tchinese`, `japanese`, `korean`) and upload each item's 16:9 showcase slides from `target/workshop-media/`.
    - On Regional Combat and Convenience Tools, add Harmony's new public item under **Add/Remove Required Items**.
