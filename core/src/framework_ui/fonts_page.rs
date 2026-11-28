@@ -496,7 +496,7 @@ impl<F: FontSystem> FontsPage<F> {
             let face = Face::new(family, weight);
             let current = DrawnFont::System(face.clone());
             if current != lists.shown {
-                *chosen.chosen_mut(role) = if lists.top == TopOption::BundledDefault && selected == Some(0) { None } else { Some(face) };
+                *chosen.chosen_mut(role) = if lists.top == TopOption::BundledDefault && selected == Some(0) && weight == REGULAR { None } else { Some(face) };
             }
         }
     }

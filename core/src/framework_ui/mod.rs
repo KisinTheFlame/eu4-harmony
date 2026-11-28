@@ -1186,15 +1186,37 @@ impl<H: UiHost> Shell<H> {
         self.mods = None;
     }
 
-    /// Reconciles notices, in-game modal lifetime, async dump operations
-    /// (even after Settings closed), and troubleshooting packing status once
-    /// per frame.
+    fn cancel_interactions(&mut self) {
+        if let Some((_, window)) = self.notice.as_mut() {
+            window.cancel_interaction();
+        }
+        if let Some(settings) = self.settings.as_mut() {
+            settings.window.cancel_interaction();
+        }
+        if let Some(mods) = self.mods.as_mut() {
+            mods.window.cancel_interaction();
+        }
+        if let Some(prompt) = self.restart_prompt.as_mut() {
+            prompt.cancel_interaction();
+        }
+        if let Some(prompt) = self.discard_prompt.as_mut() {
+            prompt.cancel_interaction();
+        }
+    }
+
+    /// Reconciles notices, in-game and main-menu modal lifetimes, async dump
+    /// operations (even after Settings closed), and troubleshooting packing
+    /// status once per frame.
     fn tick(&mut self, measure: &dyn Measure) {
-        if self.settings.as_ref().is_some_and(|s| s.in_game) && !self.in_game_menu {
+        let left_main_menu = (self.main_menu_frame.is_some() || self.in_game_menu) && !self.in_main_menu();
+        if self.settings.as_ref().is_some_and(|s| (s.in_game && !self.in_game_menu) || (!s.in_game && left_main_menu)) {
             self.close_settings();
         }
-        if self.mods.as_ref().is_some_and(|m| m.in_game) && !self.in_game_menu {
+        if self.mods.as_ref().is_some_and(|m| (m.in_game && !self.in_game_menu) || (!m.in_game && left_main_menu)) {
             self.close_mods();
+        }
+        if left_main_menu {
+            self.restart_prompt = None;
         }
         match (self.host.notice_current(), &mut self.notice) {
             (None, _) => self.notice = None,
@@ -1208,7 +1230,9 @@ impl<H: UiHost> Shell<H> {
             }
             (Some(showing), _) => {
                 let mut window = Window::new(showing.title, vec![Widget::Label(showing.text)], 460.0);
-                window.center(measure, self.screen.0, self.screen.1 * 0.6);
+                window.center(measure, self.screen.0, self.screen.1);
+                window.y = ((self.screen.1 * 0.6 - window.height(measure)) / 2.0).max(0.0).round();
+                window.clamp_to_screen(measure);
                 self.notice = Some((showing.number, window));
             }
         }
@@ -1242,6 +1266,10 @@ impl<H: UiHost> Shell<H> {
         };
         if let Move(x, y) | Down(x, y) | Up(x, y) = event {
             self.mouse = (x, y);
+        }
+        if matches!(event, FocusLost) {
+            self.cancel_interactions();
+            return false;
         }
         if let Some(prompt) = self.restart_prompt.as_mut() {
             match Self::modal_event(prompt, measure, event) {
@@ -1377,6 +1405,10 @@ impl<H: UiHost> Shell<H> {
             Down(..) => None,
             Wheel(notches) => w.wheel(measure, notches),
             Escape => Some(Action::Closed),
+            FocusLost => {
+                w.cancel_interaction();
+                None
+            }
         }
     }
 
@@ -2526,5 +2558,28 @@ mod tests {
         let mods = &shell.mods.as_ref().unwrap().window;
         assert_eq!(mods.title, zh("EU4HARMONY_MODS_TITLE"));
         assert!(has_status_text(&mods.body, "simp_chinese:rc:RC_DESC"));
+    }
+
+    #[test]
+    fn narrow_screen_shrinks_settings_and_mods_so_save_and_close_stay_inside_viewport() {
+        let mut shell = Shell::new(FakeHost::default());
+        // 1280x720 at 2.0x GUI scale -> 640x360 effective GUI units.
+        shell.sync_frame(1, Some(1), false, (1280.0, 720.0), 2.0);
+        shell.open_settings(&FixedMeasure);
+        let settings = &shell.settings.as_ref().unwrap().window;
+        assert!(settings.width <= 640.0, "settings width {} must fit inside 640", settings.width);
+        assert!(settings.x >= 0.0 && settings.x + settings.width <= 640.0);
+        let (save_x, _save_y) = text_pos(settings, "EU4HARMONY_SETTINGS_SAVE");
+        assert!(save_x > 0.0 && save_x < 640.0, "Save button at x={save_x} must stay clickable");
+
+        // Growing back to 1080p restores the preferred 800-unit width.
+        assert!(shell.sync_frame(2, Some(2), false, (1920.0, 1080.0), 1.0));
+        shell.clamp_open_windows(&FixedMeasure);
+        assert_eq!(shell.settings.as_ref().unwrap().window.width, SETTINGS_WIDTH);
+
+        // Leaving the main menu closes main-menu modals so MODAL does not leak into gameplay.
+        shell.sync_frame(10, Some(2), false, (1920.0, 1080.0), 1.0);
+        shell.tick(&FixedMeasure);
+        assert!(!shell.modal());
     }
 }

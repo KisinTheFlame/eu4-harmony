@@ -99,11 +99,13 @@ fn main_menu_page(m: &Memory, frontend: usize) -> Result<bool> {
 static MULTIPLAYER_BUTTON: AtomicUsize = AtomicUsize::new(0);
 
 /// Tooltip text for the disabled main-menu multiplayer button when hovered.
+/// Rendered by EU4's native `ToolTip_Font`, so it follows the startup session
+/// language (`lang::player()`) whose font pages are loaded rather than `lang::ui()`.
 pub(super) fn multiplayer_tooltip(target: usize) -> Option<Vec<u8>> {
     if target == 0 || MULTIPLAYER_BUTTON.load(Ordering::Relaxed) != target {
         return None;
     }
-    let words = crate::base::loc::framework(crate::base::lang::ui(), "EU4HARMONY_MULTIPLAYER_UNSUPPORTED", &[]);
+    let words = crate::base::loc::framework(crate::base::lang::player(), "EU4HARMONY_MULTIPLAYER_UNSUPPORTED", &[]);
     Some(crate::text::unicode::game_text::from_str(&words))
 }
 
