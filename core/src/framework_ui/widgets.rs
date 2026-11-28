@@ -641,6 +641,18 @@ impl Window {
         self.clamp_to_screen(measure);
     }
 
+    /// Preserves screen position, scroll offset, screen bounds and pointer
+    /// coordinates from `previous` when rebuilding a window in place.
+    pub fn restore_view_from(&mut self, previous: &Window, measure: &dyn Measure) {
+        self.x = previous.x;
+        self.y = previous.y;
+        self.screen_w = previous.screen_w;
+        self.screen_h = previous.screen_h;
+        self.body_scroll = previous.body_scroll;
+        self.mouse = previous.mouse;
+        self.clamp_to_screen(measure);
+    }
+
     pub fn selected(&self, id: &str) -> Option<usize> {
         self.widgets().find_map(|w| match w {
             Widget::Dropdown { id: i, selected, .. } | Widget::Choice { id: i, selected, .. } if *i == id => Some(*selected),

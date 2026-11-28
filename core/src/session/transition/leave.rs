@@ -333,7 +333,7 @@ extern "C" fn question_text(out: usize, key: usize, values: usize, name: usize) 
     let saved = (|| {
         let end = (0..1024).find(|&i| m.u8(name + i).is_ok_and(|b| b == 0)).ok_or("the save's name has no end")?;
         let name: String = game_text::chars(&m.bytes(name, end)?).map(|(c, _)| c).collect();
-        let words = crate::base::loc::framework(crate::base::lang::player(), "EU4HARMONY_CONFIRM_LOAD_IRONMAN", &[("NAME", &name)]);
+        let words = crate::base::loc::framework(crate::base::lang::ui(), "EU4HARMONY_CONFIRM_LOAD_IRONMAN", &[("NAME", &name)]);
         game_string::read(&m, out)?;
         unsafe { game_string::truncate(out as *mut u8, 0) };
         game_string::append_checked(&m, out, &game_text::from_str(&words))

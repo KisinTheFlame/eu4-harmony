@@ -53,9 +53,15 @@ pub fn framework_own(language: Language, key: &str, args: &[(&str, &str)]) -> Op
     FRAMEWORK.raw_in(language, key).map(|raw| format::fill(&format::unescape(raw), args))
 }
 
+/// A mod's text in `language` (falling back to English); `None` when the mod
+/// has no such key.
+pub fn mod_text_in(language: Language, id: &str, key: &str) -> Option<String> {
+    MODS.read().unwrap_or_else(|e| e.into_inner()).get(id)?.text(language, key)
+}
+
 /// A mod's text in the player language; `None` when the mod has no such key.
 pub fn mod_text(id: &str, key: &str) -> Option<String> {
-    MODS.read().unwrap_or_else(|e| e.into_inner()).get(id)?.text(lang::player(), key)
+    mod_text_in(lang::player(), id, key)
 }
 
 /// The texts a mod had before an extension reload read them again, which
