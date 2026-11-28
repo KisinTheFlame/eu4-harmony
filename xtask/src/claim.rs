@@ -63,7 +63,12 @@ pub fn run(raw: &[String]) -> Result<()> {
     if command == "follow" {
         return follow(rest);
     }
-    let args = Args::parse_repeated(rest, &["sound", "visible"], &["purpose", "owner", "timeout", "game-dir", "seed"], &["save", "mod"])?;
+    let args = Args::parse_repeated(
+        rest,
+        &["sound", "visible", "player", "player-settings", "player-framework-settings", "player-playset"],
+        &["purpose", "owner", "timeout", "game-dir", "seed"],
+        &["save", "mod"],
+    )?;
     match command.as_str() {
         "claim" => course::claim(&ThisComputer, &owner(&args)?, args.value("purpose").unwrap_or(""), &args.game_dir()?).map(|_| ()),
         "release" => course::release(&ThisComputer, &owner(&args)?),
@@ -174,18 +179,71 @@ pub fn start_game_as(owner: &str, game_dir: &Path, starting: &Starting, wait: Du
 /// `cargo xtask game start`: starts this owner's test game (hidden and muted
 /// by default) and waits for its main menu. `--visible` starts with its window
 /// shown from launch (still allowing `desktop.hide` / `desktop.show` later),
-/// and `--sound` keeps its sound; the two flags are independent. `--seed`
-/// starts it with the game's own `-seed`; each `--save` copies a save
-/// (explicit path or name in `%LOCALAPPDATA%\eu4-harmony-dev\saves\`) into the
-/// test game's user folder first, and each `--mod` puts a mod's folder in its
-/// playset, as a scenario's test mods are.
+/// and `--sound` keeps its sound; the two flags are independent. `--player`
+/// copies the player's game settings, framework settings and active playset
+/// into the test game's user folder (`--player-settings`,
+/// `--player-framework-settings` and `--player-playset` choose them
+/// individually). `--seed` starts it with the game's own `-seed`; each
+/// `--save` copies a save (explicit path or name in
+/// `%LOCALAPPDATA%\eu4-harmony-dev\saves\`) into the test game's user folder
+/// first, and each `--mod` puts a mod's folder in its playset, as a scenario's
+/// test mods are.
 fn start(args: &Args) -> Result<f64> {
     let wait = args
         .value("timeout")
         .map_or(Ok(eu4_harmony_client::start::WAIT), |v| v.parse().map(Duration::from_secs).map_err(|_| format!("--timeout {v}: seconds")))?;
-    let seed = args.value("seed").map(|v| v.parse::<u32>().map_err(|_| format!("--seed {v}: a whole number below 2^32"))).transpose()?;
     let owner = owner(args)?;
-    let mods = args.values("mod").into_iter().map(std::path::PathBuf::from).collect();
-    let starting = Starting { visible: args.flag("visible"), sound: args.flag("sound"), seed, saves: args.values("save"), options: None, mods, build: None };
+    let starting = starting_from_args(args)?;
     start_game_as(&owner, &args.game_dir()?, &starting, wait)
+}
+
+fn starting_from_args(args: &Args) -> Result<Starting> {
+    let seed = args.value("seed").map(|v| v.parse::<u32>().map_err(|_| format!("--seed {v}: a whole number below 2^32"))).transpose()?;
+    let player = args.flag("player");
+    let mods = args.values("mod").into_iter().map(std::path::PathBuf::from).collect();
+    Ok(Starting {
+        visible: args.flag("visible"),
+        sound: args.flag("sound"),
+        player_settings: player || args.flag("player-settings"),
+        player_framework_settings: player || args.flag("player-framework-settings"),
+        player_playset: player || args.flag("player-playset"),
+        seed,
+        saves: args.values("save"),
+        options: None,
+        mods,
+        build: None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_start(line: &str) -> Starting {
+        let words: Vec<String> = line.split_whitespace().map(String::from).collect();
+        let args = Args::parse_repeated(
+            &words,
+            &["sound", "visible", "player", "player-settings", "player-framework-settings", "player-playset"],
+            &["purpose", "owner", "timeout", "game-dir", "seed"],
+            &["save", "mod"],
+        )
+        .unwrap();
+        starting_from_args(&args).unwrap()
+    }
+
+    #[test]
+    fn player_flags_enable_all_or_individual_player_sources() {
+        let clean = parse_start("--owner a");
+        assert!(!clean.player_settings && !clean.player_framework_settings && !clean.player_playset);
+
+        let all = parse_start("--owner a --visible --sound --player");
+        assert!(all.visible && all.sound && all.player_settings && all.player_framework_settings && all.player_playset);
+
+        let settings_only = parse_start("--owner a --player-settings --player-framework-settings");
+        assert!(settings_only.player_settings && settings_only.player_framework_settings && !settings_only.player_playset);
+
+        let playset_only = parse_start("--owner a --player-playset --mod D:\\mods\\extra");
+        assert!(!playset_only.player_settings && !playset_only.player_framework_settings && playset_only.player_playset);
+        assert_eq!(playset_only.mods, [std::path::PathBuf::from(r"D:\mods\extra")]);
+    }
 }

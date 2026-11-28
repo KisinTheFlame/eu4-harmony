@@ -33,7 +33,7 @@ usage:
       game finds it so; game, install and scenario take --game-dir for
       another.
   cargo xtask game claim --owner <name> --purpose <text>
-  cargo xtask game start --owner <name> [--save <name>]... [--visible] [--sound] [--seed <n>] [--timeout <seconds>]
+  cargo xtask game start --owner <name> [--save <name>]... [--mod <folder>]... [--visible] [--sound] [--player | --player-settings | --player-framework-settings | --player-playset] [--seed <n>] [--timeout <seconds>]
   cargo xtask game stop | release --owner <name>
   cargo xtask game status
       Claims of test games: games started from the game folder with a pure,
@@ -47,7 +47,11 @@ usage:
       %LOCALAPPDATA%\\eu4-harmony-dev\\saves\\), then starts it hidden
       and without sound and waits for its main menu, ending a start that
       does not get there; --visible shows its window from startup, --sound keeps
-      its sound, --seed passes the game its own -seed=<n>, and each --mod
+      its sound, --player copies the player's current game settings, framework
+      settings and active playset (relocated descriptors, without copying mod
+      trees) into the test game's user folder (--player-settings,
+      --player-framework-settings and --player-playset select them
+      individually), --seed passes the game its own -seed=<n>, and each --mod
       <folder> enables a test mod. Its pipe is the owner's:
       eu4-harmony game --test-game <owner>, or
       EU4_HARMONY_TEST_GAME. stop ends it. release ends it, keeps its logs
