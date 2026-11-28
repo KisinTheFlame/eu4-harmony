@@ -31,6 +31,7 @@
 //! game's original rebuild table slot by slot.
 use crate::base::called_by_game;
 use crate::native::objects::campaign::{
+    countries,
     functions::SUBJECT_TYPE,
     globals::{COUNTRY_MANAGER, MAP, WORLD},
 };
@@ -365,12 +366,9 @@ unsafe fn compute_distances(country: usize, record_only: bool, scratch: &mut Scr
         return false;
     }
 
-    let countries_by_tag = read_usize(country_db + 0x118);
-    let countries_by_tag_end = read_usize(country_db + 0x120);
-    let countries_by_tag_len = (countries_by_tag_end.saturating_sub(countries_by_tag)) / 8;
-    if countries_by_tag == 0 || countries_by_tag_len == 0 {
+    let Some((countries_by_tag, countries_by_tag_len)) = countries::list_and_count(country_db) else {
         return false;
-    }
+    };
     let country_by_idx = |idx: i16| -> Option<usize> {
         if idx < 0 {
             return None;

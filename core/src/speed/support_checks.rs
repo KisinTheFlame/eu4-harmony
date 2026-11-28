@@ -20,7 +20,7 @@
 use crate::base::called_by_game;
 use crate::native::game_heap::DELETE;
 use crate::native::objects::campaign::{
-    countries::LIST as COUNTRY_LIST,
+    countries,
     country::{TECHNOLOGY, UNITS},
     functions::ROUTE_QUERY,
     globals::{COUNTRY_MANAGER, MAP, ROUTE_POLICY, SPECIAL_COUNTRIES},
@@ -401,15 +401,7 @@ unsafe fn evaluate_support(m: &crate::native::memory::Memory, args: &SupportArgs
     }
 
     let country_mgr = unsafe { *(m.at(COUNTRY_MANAGER) as *const usize) };
-    if country_mgr == 0 {
-        return None;
-    }
-    let countries = unsafe { *((country_mgr + COUNTRY_LIST) as *const usize) };
-    let countries_end = unsafe { *((country_mgr + COUNTRY_LIST + 8) as *const usize) };
-    let country_count = countries_end.saturating_sub(countries) / 8;
-    if countries == 0 || country_count == 0 {
-        return None;
-    }
+    let (countries, country_count) = unsafe { countries::list_and_count(country_mgr) }?;
     let agent_tag = unsafe { *((args.agent + AGENT_COUNTRY_TAG) as *const u64) };
     let agent_idx = (agent_tag >> tag::INDEX) as i16 as isize;
     if agent_idx < 0 || (agent_idx as usize) >= country_count {

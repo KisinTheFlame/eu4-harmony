@@ -223,6 +223,25 @@ pub mod countries {
     pub const ARRAY: usize = 0x110;
     pub const LIST: usize = ARRAY + 8;
     pub const COUNT: usize = ARRAY + 0x14;
+
+    /// Reads `(data_ptr, count)` from `CCountryManager`'s `CArray<CCountry*>`
+    /// (`+0x118` data pointer, `+0x120` capacity `i32`, `+0x124` count `i32`).
+    ///
+    /// # Safety
+    /// `country_mgr` must be a valid `CCountryManager` pointer (or `0`, which
+    /// returns `None`).
+    #[inline]
+    pub unsafe fn list_and_count(country_mgr: usize) -> Option<(usize, usize)> {
+        if country_mgr == 0 {
+            return None;
+        }
+        let list = unsafe { *((country_mgr + LIST) as *const usize) };
+        let count = unsafe { *((country_mgr + COUNT) as *const i32) };
+        if list == 0 || count <= 0 {
+            return None;
+        }
+        Some((list, count as usize))
+    }
 }
 
 pub mod country {

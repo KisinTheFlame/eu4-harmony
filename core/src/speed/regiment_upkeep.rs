@@ -81,8 +81,15 @@ unsafe fn upkeep_transforms_absent() -> bool {
 }
 
 /// Merges only `UPKEEP_MODIFIERS` from `added_pairs` (a `by_modifier` array of
-/// at least `0x240` slots) into pair-mode `set`.
-unsafe fn merge_upkeep_modifiers(set: usize, set_pairs: &mut *mut Pair, set_count: &mut usize, set_cap: &mut i32, added_pairs: *const Pair) {
+/// `added_count` slots, at least `0x240`) into pair-mode `set`.
+unsafe fn merge_upkeep_modifiers(
+    set: usize,
+    set_pairs: &mut *mut Pair,
+    set_count: &mut usize,
+    set_cap: &mut i32,
+    added_pairs: *const Pair,
+    added_count: usize,
+) {
     for &id in &UPKEEP_MODIFIERS {
         let entry = unsafe { *added_pairs.add(id as usize) };
         if entry.modifier == EMPTY_MODIFIER {
@@ -90,7 +97,7 @@ unsafe fn merge_upkeep_modifiers(set: usize, set_pairs: &mut *mut Pair, set_coun
         }
         let val = if entry.modifier == id {
             entry.value
-        } else if (0..EMPTY_MODIFIER).contains(&entry.modifier) {
+        } else if (0..EMPTY_MODIFIER).contains(&entry.modifier) && (entry.modifier as usize) < added_count {
             unsafe { (*added_pairs.offset(entry.modifier as isize)).value }
         } else {
             entry.value
@@ -137,7 +144,7 @@ unsafe extern "C" fn filter_country_modifiers(set: usize, country_mods: usize) {
         return;
     }
 
-    unsafe { merge_upkeep_modifiers(set, &mut set_pairs, &mut set_count, &mut set_cap, added_pairs) };
+    unsafe { merge_upkeep_modifiers(set, &mut set_pairs, &mut set_count, &mut set_cap, added_pairs, added_count as usize) };
     PENDING_CHECK_COUNTRY_MODS.with(|c| c.set(if checked { country_mods } else { 0 }));
 }
 
@@ -315,7 +322,7 @@ mod tests {
         let mut set_cap = 8i32;
 
         unsafe {
-            merge_upkeep_modifiers(set_addr, &mut set_pairs, &mut set_count, &mut set_cap, country.as_ptr());
+            merge_upkeep_modifiers(set_addr, &mut set_pairs, &mut set_count, &mut set_cap, country.as_ptr(), country.len());
         }
 
         assert_eq!(set_count, 4);
