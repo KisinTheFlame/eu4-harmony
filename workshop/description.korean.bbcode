@@ -1,13 +1,13 @@
 [h1]Harmony[/h1]
-[b]Europa Universalis IV를 내부에서부터 더 쾌적하게.[/b] 선명한 한국어·중국어·일본어 글꼴, 재시작 없는 메인 메뉴 복귀, 후반 성능 향상, 엔진 버그 수정, 그리고 더 강력한 모드 확장 기능을 게임 본래의 규칙은 그대로 둔 채 제공합니다.
+[b]Europa Universalis IV를 내부에서부터 더 쾌적하게.[/b] 선명한 한국어·중국어·일본어 글꼴, 재시작 없는 메인 메뉴 복귀, 후반 성능 향상, 버그 수정, 강력한 모드 확장 기능을 게임 규칙 변경 없이 제공합니다.
 
-[b]중요 (시작 전 확인 사항):[/b]
+[b]중요 (시작 전 확인):[/b]
 [list]
-[*][b]구독만으로는 Harmony가 적용되지 않습니다.[/b] 구독 후 아래 1줄 명령 또는 마우스 3단계로 [b]version.dll[/b] 파일 1개를 게임 폴더에 한 번만 복사해 주세요. 이후 업데이트는 모두 자동입니다.
-[*][b]백신 오탐 안내:[/b] Harmony는 MIT 라이선스의 완전한 오픈소스이며 [b]version.dll[/b]을 통해 게임 프로세스에 로드되므로 간혹 휴리스틱 경고가 뜰 수 있습니다. GitHub에서 코드를 직접 확인하거나 EU4 폴더를 백신 예외에 추가할 수 있습니다.
+[*][b]구독만으로는 적용되지 않습니다.[/b] 아래 1줄 명령 또는 마우스 3단계로 [b]version.dll[/b]을 게임 폴더에 한 번 복사해 주세요. 이후 업데이트는 자동입니다.
+[*][b]백신 경고 안내:[/b] MIT 오픈소스이며 [b]version.dll[/b]로 로드되는 특성상 간혹 휴리스틱 오탐이 뜰 수 있습니다. GitHub에서 코드를 확인하거나 EU4 폴더를 예외에 추가하세요.
 [/list]
 
-게임 번역 텍스트는 기존처럼 한국어 패치 모드가 담당하며, 기존 2바이트 패치용 번역 모드와 해당 저장 파일도 그대로 사용할 수 있습니다.
+번역 텍스트는 기존 한국어 패치 모드가 담당하며, 구형 2바이트 패치용 번역 모드와 저장 파일도 그대로 사용합니다.
 
 [h2]바닐라 게임과의 비교[/h2]
 [table]
@@ -17,69 +17,65 @@
 [th]Harmony 적용 후[/th]
 [/tr]
 [tr]
-[td][b]한국어·CJK 표시 및 글꼴[/b][/td]
-[td]패치 없이는 글자 깨짐; 구형 비트맵 글꼴은 흐릿하고 줄바꿈·검색·IME 입력이 불안정함.[/td]
-[td]네이티브 UTF-8 및 선명한 시스템 글꼴에 더해 한국어(고도 M/B)·일본어·중국어 간체 무료 기본 글꼴을 내장. 실시간 글꼴 미리보기, 깔끔한 줄바꿈, IME 입력, 동아시아식 날짜·인명·전투명 지원.[/td]
+[td][b]한국어·CJK 글꼴[/b][/td]
+[td]패치 없이 깨짐; 구형 비트맵 글꼴은 흐릿하고 줄바꿈·IME 불안정.[/td]
+[td]네이티브 UTF-8＋시스템 글꼴과 한국어(고도 M/B)·일본어·간체 무료 기본 글꼴 내장. 실시간 미리보기, 깔끔한 줄바꿈, IME, 동아시아식 날짜·인명 지원.[/td]
 [/tr]
 [tr]
-[td][b]메인 메뉴 복귀 및 불러오기[/b][/td]
-[td]메인 메뉴로 돌아갈 때마다 게임 전체 재시작; 철인 모드에서는 게임 중 불러오기 불가.[/td]
-[td]재시작 없이 몇 초 만에 메인 메뉴로 복귀; 철인 모드에서도 게임 중 불러오기 지원(불러오기 전 자동 저장 옵션 제공).[/td]
+[td][b]복귀 및 불러오기[/b][/td]
+[td]메인 메뉴 복귀 시 전체 재시작; 철인 모드 게임 중 불러오기 불가.[/td]
+[td]재시작 없이 몇 초 만에 복귀; 철인 모드도 게임 중 불러오기 지원(사전 자동 저장 옵션).[/td]
 [/tr]
 [tr]
 [td][b]성능[/b][/td]
-[td]후반 일간/월간 처리 지연 및 저장 시 화면 멈춤; 불필요한 CPU 점유.[/td]
-[td]일간/월간 연산 가속, 멀티스레드 백그라운드 저장, 합리적인 프레임 제한, 부드러운 지도 확대/축소.[/td]
+[td]후반 지연, 저장 시 멈춤, 불필요한 CPU 점유.[/td]
+[td]일간/월간 연산 가속, 멀티스레드 백그라운드 저장, 합리적 프레임 제한, 부드러운 지도 줌.[/td]
 [/tr]
 [tr]
-[td][b]버그 수정 및 편의성[/b][/td]
-[td]후계자 이름 중복, 배경음악 음량 불균형, 부자연스러운 볼륨 슬라이더, 복귀 시 메모리 누수.[/td]
-[td]후계자 이름 중복 및 메모리 누수 수정; 음악 음량 평준화, 자연스러운 볼륨 곡선, 도전과제 조건 완화 옵션 제공.[/td]
+[td][b]버그 수정 및 편의[/b][/td]
+[td]후계자 이름 중복, 음량 불균형, 급격한 볼륨 슬라이더, 메모리 누수.[/td]
+[td]중복·메모리 누수 수정; 음악 음량 평준화, 자연스러운 볼륨 곡선, 도전과제 완화 옵션.[/td]
 [/tr]
 [tr]
 [td][b]모드 확장성[/b][/td]
-[td]Paradox 스크립트 파일로 제한됨.[/td]
-[td]샌드박스 Lua 확장과 게임 기본 스타일의 UI 패널 지원, 외부 권한 투명 공개.[/td]
+[td]Paradox 스크립트만 지원.[/td]
+[td]샌드박스 Lua 확장과 기본 스타일 UI 패널 지원, 외부 권한 투명 공개.[/td]
 [/tr]
 [/table]
 
 [h2]설치 방법 (둘 중 선택)[/h2]
-먼저 이 페이지에서 [b]Harmony를 구독[/b]하고 Steam 다운로드가 완료된 뒤, [b]version.dll[/b]을 게임 폴더에 한 번만 복사해 주세요:
+먼저 [b]Harmony를 구독[/b]하고 다운로드가 끝난 뒤 [b]version.dll[/b]을 한 번 복사하세요:
 
-[b]방법 A — PowerShell 1줄 명령으로 자동 복사 (가장 빠름, 선택)[/b]
-[b]Win + X[/b] → [b]터미널[/b](또는 [b]Windows PowerShell[/b])을 열고 아래 1줄을 붙여넣어 Enter를 누르세요. 로컬 Steam 라이브러리 검색, 기존 [b]version.dll[/b]의 [b]version.dll.bak[/b] 백업 및 파일 복사만 수행합니다(인터넷 다운로드 없음):
+[b]방법 A — PowerShell 1줄 명령 (가장 빠름, 선택)[/b]
+[b]Win + X[/b] → [b]터미널[/b](또는 PowerShell)에 아래 1줄을 붙여넣고 Enter. 로컬 Steam 라이브러리 검색, 기존 [b]version.dll[/b]의 [b]version.dll.bak[/b] 백업 및 복사만 수행합니다(다운로드 없음):
 [code]$s=(gp HKCU:\Software\Valve\Steam).SteamPath; $libs=@($s)+((sls '"path"\s+"([^"]+)"' "$s\steamapps\libraryfolders.vdf" -EA 0|%{$_.Matches[0].Groups[1].Value -replace '\\\\','\'})|?{$_}); $g=$libs|%{"$_\steamapps\common\Europa Universalis IV"}|?{Test-Path "$_\eu4.exe"}|select -First 1; $src=$libs|%{"$_\steamapps\workshop\content\236850\3837775887\version.dll"}|?{Test-Path $_}|select -First 1; if(!$g -or !$src){throw "Not found (subscribe in Steam first): game='$g' workshop='$src'"}; $dst="$g\version.dll"; if((Test-Path $dst) -and !(Test-Path "$dst.bak") -and (Get-FileHash $dst).Hash -ne (Get-FileHash $src).Hash){Copy-Item $dst "$dst.bak"}; Copy-Item $src $dst -Force; "Installed to $dst"[/code]
 
-[b]방법 B — 마우스만으로 수동 복사 (3단계)[/b]
+[b]방법 B — 마우스 수동 복사 (3단계)[/b]
 [olist]
-[*]Steam에서 [b]Europa Universalis IV[/b] 우클릭 → [b]관리 → 로컬 파일 보기[/b]로 게임 폴더를 엽니다.
-[*]Paradox 런처 → [b]모드 라이브러리[/b] → [b]Harmony[/b] → 오른쪽 [b]… → 폴더에서 보기[/b]를 클릭합니다(Steam 라이브러리의 [b]steamapps\workshop\content\236850\3837775887[/b] 폴더를 직접 열어도 됩니다).
-[*][b]version.dll[/b]을 게임 폴더의 [b]eu4.exe[/b] 옆에 복사합니다(확장자가 숨겨져 [b]version[/b], [b]eu4[/b]로 보일 수 있으며, 기존 [b]version.dll[/b]이 있으면 덮어쓰거나 먼저 백업하세요).
+[*]Steam에서 [b]Europa Universalis IV[/b] 우클릭 → [b]관리 → 로컬 파일 보기[/b].
+[*]런처 → [b]모드 라이브러리[/b] → [b]Harmony[/b] → [b]… → 폴더에서 보기[/b] (또는 [b]steamapps\workshop\content\236850\3837775887[/b]).
+[*][b]version.dll[/b]을 [b]eu4.exe[/b] 옆에 복사(확장자 숨김 시 [b]version[/b], [b]eu4[/b]; 기존 파일은 덮어쓰기 또는 백업).
 [/olist]
 
-평소처럼 Paradox 런처에서 게임을 실행하면 됩니다. Harmony 자체는 플레이세트에 넣을 필요가 없으며, Harmony 기반 모드만 평소처럼 플레이세트에서 활성화하면 됩니다. 정상 적용되면 메인 메뉴 오른쪽 아래에 [b]Harmony v…[/b], [b]모드 목록[/b], [b]설정[/b]이 표시됩니다.
-
-업데이트는 Steam이 자동으로 유지합니다. 새 [b]version.dll[/b]이 포함된 업데이트 시 Harmony가 시작할 때 자동으로 복사본을 갱신하고 게임을 재시작합니다(폴더가 읽기 전용인 경우에만 게임 내에서 수동 복사를 안내합니다).
+평소처럼 실행하세요. Harmony 자체는 플레이세트에 넣지 않아도 됩니다(기반 모드만 활성화). 적용 시 오른쪽 아래에 [b]Harmony v…[/b], [b]모드 목록[/b], [b]설정[/b]이 표시됩니다. 이후 [b]version.dll[/b] 업데이트도 시작 시 자동 갱신 및 재시작됩니다.
 
 [h2]요구 사항[/h2]
 [list]
-[*]Steam Windows 버전 Europa Universalis IV [b]1.37.5[/b].
-[*]싱글플레이 전용 (멀티플레이 지원은 현재 준비 중이며, Harmony 적용 중에는 메인 메뉴의 멀티플레이 버튼이 비활성화됩니다).
+[*]Steam Windows 버전 Europa Universalis IV [b]1.37.5[/b] (싱글플레이 전용, 멀티플레이 개발 중).
 [/list]
 
 [h2]자주 묻는 질문 (FAQ)[/h2]
 [list]
-[*][b]구독했는데 메인 메뉴에 Harmony가 안 보여요.[/b] 구독만으로는 적용되지 않습니다. 위 방법 A 또는 B대로 [b]version.dll[/b]이 [b]eu4.exe[/b] 옆에 복사되어 있는지, Steam Windows 1.37.5 버전인지 확인해 주세요.
-[*][b]백신이 version.dll이나 eu4_harmony_core.dll을 경고합니다. 안전한가요?[/b] Harmony는 GitHub에 소스 코드 전체가 공개된 오픈소스입니다. 게임 프로세스에 로드되는 특성상 간혹 휴리스틱 오탐이 발생할 수 있습니다. 코드를 직접 확인하거나 게임 폴더를 백신 예외로 추가하거나 직접 빌드해 사용할 수 있습니다.
-[*][b]기존 2바이트 한글 패치나 글꼴 모드에서 어떻게 옮기나요?[/b] 기존 [b]version.dll[/b]을 Harmony의 파일로 교체하고, 구형 비트맵 글꼴 모드는 비활성화하세요(번역 텍스트 모드는 유지). 기존 저장 파일도 그대로 불러올 수 있습니다.
-[*][b]멀티플레이를 지원하나요?[/b] 멀티플레이 지원은 현재 준비 중입니다. 지금은 싱글플레이 전용이므로 멀티플레이를 하려면 Harmony 구독을 취소하거나 게임 폴더의 [b]version.dll[/b]을 잠시 밖으로 옮겨 주세요.
-[*][b]나중에 Harmony를 제거해도 저장 파일을 쓸 수 있나요?[/b] Harmony 본체만 사용했다면 저장 구조는 손상되지 않지만, 게임 중 직접 입력한 한글 이름 등은 UTF-8로 저장되어 제거 시 글자가 깨져 보입니다. 자체 데이터를 저장 파일에 기록하는 Harmony 모드를 사용한 경우에는 Harmony 없이 불러오는 것이 보장되지 않습니다.
-[*][b]소리가 작아졌거나, 비철인 도전과제가 기존 세이브에 적용되지 않아요.[/b] 볼륨 슬라이더를 청감에 맞는 제곱 곡선으로 개선해 100 미만 값이 이전보다 작게 들릴 수 있으니 한 번 다시 조절해 주세요. 도전과제 완화 설정은 새 게임을 시작할 때 적용됩니다.
-[*][b]깔끔하게 제거하려면 어떻게 하나요?[/b] Harmony 구독을 취소하고 게임 폴더의 [b]version.dll[/b]을 삭제하세요([b]version.dll.bak[/b] 백업이 있다면 복원). 「Harmony 설정 → 고급」에서 Windows 충돌 덤프를 켰다면 먼저 해당 화면에서 「비활성화」를 눌러 정리해 주세요.
+[*][b]구독했는데 안 보여요.[/b] 방법 A/B대로 [b]version.dll[/b]을 [b]eu4.exe[/b] 옆에 복사했는지, Steam Windows 1.37.5인지 확인하세요.
+[*][b]기존 2바이트 패치/글꼴 모드에서 옮기려면?[/b] 기존 [b]version.dll[/b]을 교체하고 구형 비트맵 글꼴 모드는 비활성화하세요(번역 모드는 유지). 기존 세이브도 바로 열립니다.
+[*][b]멀티플레이는 어떻게 하나요?[/b] Harmony 구독을 취소하거나 게임 폴더의 [b]version.dll[/b]을 잠시 옮겨 주세요.
+[*][b]제거 후에도 세이브를 쓸 수 있나요?[/b] 본체만 썼다면 구조는 안전하나, 직접 입력한 한글 이름은 UTF-8 저장이라 제거 시 깨집니다. 자체 데이터를 저장하는 모드는 미지원입니다.
+[*][b]소리가 작아졌거나 비철인 도전과제가 기존 세이브에 안 먹혀요.[/b] 제곱 볼륨 곡선으로 100 미만은 작게 들립니다(한 번 재조절). 도전과제 완화는 새 게임부터 적용됩니다.
+[*][b]깔끔히 제거하려면?[/b] 구독 취소 후 [b]version.dll[/b] 삭제([b]version.dll.bak[/b] 복원). 「Harmony 설정 → 고급」에서 충돌 덤프를 켰다면 먼저 비활성화하세요.
 [/list]
 
 [h2]문제 해결 및 제보[/h2]
-메인 메뉴 또는 게임 내 메뉴에서 [b]Harmony 설정 → 정보[/b]로 이동해 [b]문제 해결 파일을 바탕 화면에 저장[/b]을 클릭하면 로그, 최근 충돌 정보, 설정 및 플레이세트(저장 파일 제외, 사용자 이름 경로 가림 및 덤프 경량화 적용, 24 MB 미만)가 zip으로 저장됩니다. 이 파일을 첨부해 [url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url]에 제보해 주세요. 로그 폴더는 [b]Harmony 설정 → 고급[/b]에서도 바로 열 수 있습니다.
+[b]Harmony 설정 → 정보[/b]에서 [b]문제 해결 파일을 바탕 화면에 저장[/b](저장 파일 제외, 사용자 경로 가림 및 덤프 경량화, 24 MB 미만) 후 [url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url]에 첨부하세요. 로그 폴더는 [b]Harmony 설정 → 고급[/b]에서 바로 열 수 있습니다.
 
 [h2]모드 제작자 안내[/h2]
-Harmony 기반 모드는 일반 Paradox 모드에 샌드박스 Lua 확장과 게임 기본 스타일의 UI 패널을 추가할 수 있습니다. 자세한 문서와 도구는 [url=https://github.com/KisinTheFlame/eu4-harmony/blob/master/README.ko.md]GitHub 한국어 README[/url]를 참고하세요.
+샌드박스 Lua 확장과 기본 스타일 UI를 추가할 수 있습니다. 자세한 내용은 [url=https://github.com/KisinTheFlame/eu4-harmony/blob/master/README.ko.md]GitHub 한국어 README[/url]를 참고하세요.
