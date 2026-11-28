@@ -7,7 +7,10 @@ use crate::{
     base::Result,
     native::hooks::Call,
     native::memory::Memory,
-    native::objects::{gui::element, text::text_texture},
+    native::objects::{
+        gui::{element, functions::SETUP_RENDER_STATE as SETUP},
+        text::text_texture,
+    },
     native::points::{GameFunction, Point},
 };
 use std::{
@@ -18,7 +21,6 @@ use std::{
 const DRAW: GameFunction<2> = GameFunction::at(0x14dd350);
 const DRAW_FIRST_RETURN: usize = 0x14dd2bd;
 const DRAW_SECOND_RETURN: usize = 0x14dd742;
-const SETUP: GameFunction<1> = GameFunction::at(0x14dcf90);
 const BEGIN: GameFunction<1> = GameFunction::at(crate::render::drawing::SCENE_BEGINS);
 const END: GameFunction<1> = GameFunction::at(0x16d4e50);
 const INVALIDATE: usize = 0x1414e50;

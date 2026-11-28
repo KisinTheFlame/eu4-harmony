@@ -50,14 +50,14 @@ impl SpeedUp {
     }
 }
 
-const MAX_SPEED_UPS: usize = 32;
+const MAX_SPEED_UPS: usize = 64;
 
 /// The speed-ups `dev.toml` leaves to the game and checks, each a bit of its
 /// place in the registered speed-up list.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Chosen {
-    pub(crate) game_paths: u32,
-    pub(crate) checked: u32,
+    pub(crate) game_paths: u64,
+    pub(crate) checked: u64,
 }
 
 impl Chosen {
@@ -91,12 +91,12 @@ impl<'a> SpeedUpPlan<'a> {
 
     #[cfg(any(test, feature = "dev"))]
     pub(crate) fn is_game_path(&self, speed_up: &SpeedUp) -> bool {
-        self.place(speed_up).is_some_and(|i| self.chosen.game_paths & (1 << i) != 0)
+        self.place(speed_up).is_some_and(|i| self.chosen.game_paths & (1u64 << i) != 0)
     }
 
     #[cfg(any(test, feature = "dev"))]
     pub(crate) fn is_checked(&self, speed_up: &SpeedUp) -> bool {
-        self.place(speed_up).is_some_and(|i| self.chosen.checked & (1 << i) != 0)
+        self.place(speed_up).is_some_and(|i| self.chosen.checked & (1u64 << i) != 0)
     }
 
     /// Every point declared by this list (including developer check-mode
@@ -124,9 +124,9 @@ impl<'a> SpeedUpPlan<'a> {
     pub(crate) fn installed_points(&self, keep_shared: bool) -> Vec<Point> {
         let mut all = Vec::new();
         for (i, s) in self.list.iter().enumerate() {
-            if self.chosen.game_paths & (1 << i) == 0 {
+            if self.chosen.game_paths & (1u64 << i) == 0 {
                 all.extend((s.points)());
-                if self.chosen.checked & (1 << i) != 0 {
+                if self.chosen.checked & (1u64 << i) != 0 {
                     if let Some(replace) = s.compare_points {
                         replace(&mut all);
                     }
@@ -170,8 +170,8 @@ pub(crate) fn installed_points(all: &[&SpeedUp], keep_shared: bool) -> Vec<Point
 
 /// The speed-ups `names` names among those `taking` takes, as bits; a name
 /// that names none of them is refused.
-fn named(all: &[&SpeedUp], names: &[String], list: &str, taking: impl Fn(&SpeedUp) -> bool) -> Result<u32> {
-    let mut bits = 0;
+fn named(all: &[&SpeedUp], names: &[String], list: &str, taking: impl Fn(&SpeedUp) -> bool) -> Result<u64> {
+    let mut bits = 0u64;
     for name in names {
         let these: Vec<usize> = (0..all.len()).filter(|&i| name == "all" || all[i].name == name || all[i].group == name).collect();
         if these.is_empty() {
@@ -182,7 +182,7 @@ fn named(all: &[&SpeedUp], names: &[String], list: &str, taking: impl Fn(&SpeedU
         if taken.is_empty() {
             return Err(format!("[test-switches] {list}: {name:?} cannot be checked against the game"));
         }
-        bits |= taken.iter().fold(0, |b, &i| b | 1 << i);
+        bits |= taken.iter().fold(0u64, |b, &i| b | (1u64 << i));
     }
     Ok(bits)
 }
@@ -256,7 +256,7 @@ pub(crate) fn report_lines() -> Vec<String> {
 }
 
 pub(crate) fn lines(list: &[&SpeedUp], chosen: Chosen) -> Vec<String> {
-    let names = |bits: u32| list.iter().enumerate().filter(|(i, _)| bits & 1 << i != 0).map(|(_, s)| s.name).collect::<Vec<_>>().join(", ");
+    let names = |bits: u64| list.iter().enumerate().filter(|(i, _)| bits & (1u64 << i) != 0).map(|(_, s)| s.name).collect::<Vec<_>>().join(", ");
     let mut lines = Vec::new();
     if chosen.game_paths != 0 {
         lines.push(format!("speed-ups left to the game: {}", names(chosen.game_paths)));
@@ -274,7 +274,7 @@ pub(crate) fn check_lines() -> Vec<String> {
     plan.list
         .iter()
         .enumerate()
-        .filter(|(i, _)| plan.chosen.checked & 1 << i != 0)
+        .filter(|(i, _)| plan.chosen.checked & (1u64 << i) != 0)
         .map(|(_, s)| {
             let (checked, differed) = differences(s);
             format!("{}: {checked} answer(s) checked, {differed} differing from the game's", s.name)

@@ -462,8 +462,9 @@
 "0x1950e0" = { kind = "function", notes = ["game/ai/ai.md", "game/day/country-daily-update.md"] }
 "0x195750" = { kind = "function", notes = ["game/day/country-daily-update.md", "game/military/army-checks-in-searches.md"] }
 "0x195b40" = { kind = "function", notes = ["game/military/army-checks-in-searches.md"] }
-"0x195e10" = { kind = "function", notes = ["game/day/country-daily-update.md"] }
+"0x195e10" = { kind = "function", notes = ["game/day/country-daily-update.md", "game/military/army-checks-in-searches.md"] }
 "0x195e86" = { kind = "code", notes = ["game/day/country-daily-update.md"] }
+"0x19680a" = { kind = "code", notes = ["game/day/country-daily-update.md", "game/military/army-checks-in-searches.md"] }
 "0x197540" = { kind = "function", notes = ["game/ai/ai.md"] }
 "0x197cd0" = { kind = "function", notes = ["game/ai/ai.md"] }
 "0x197f50" = { kind = "function", notes = ["game/ai/ai.md"] }
@@ -1042,7 +1043,8 @@
 "0x2e3806" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x2e3a8c" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x2ec1d0" = { kind = "function", notes = ["game/day/monthly-update.md", "game/provinces/trade-range-and-naval-supply.md"] }
-"0x2ee280" = { kind = "function", notes = ["game/ai/ai.md", "game/countries/countries.md", "game/countries/country-knowledge.md", "game/day/time-architecture.md", "game/interface/frame-lifecycle.md"] }
+"0x2ee280" = { kind = "function", notes = ["game/ai/ai.md", "game/countries/countries.md", "game/countries/country-knowledge.md", "game/day/country-daily-update.md", "game/day/time-architecture.md", "game/interface/frame-lifecycle.md"] }
+"0x2ee4cc" = { kind = "code", notes = ["game/day/country-daily-update.md"] }
 "0x2ee4e6" = { kind = "code", notes = ["game/day/country-daily-update.md"] }
 "0x2ee526" = { kind = "code", notes = ["game/day/country-daily-update.md"] }
 "0x2f0854" = { kind = "code", notes = ["game/countries/country-knowledge.md"] }
@@ -1138,7 +1140,7 @@
 "0x33e390" = { kind = "function", notes = ["game/countries/countries.md"] }
 "0x33eb70" = { kind = "function", notes = ["game/countries/power-spending.md"] }
 "0x33f410" = { kind = "function", notes = ["game/military/leaders.md"] }
-"0x341820" = { kind = "function", name = "country ordinary discipline", notes = ["game/military/discipline.md"] }
+"0x341820" = { kind = "function", name = "country ordinary discipline", notes = ["game/day/country-daily-update.md", "game/military/discipline.md"] }
 "0x342170" = { kind = "function", name = "fleets that may carry an army", notes = ["game/military/units.md"] }
 "0x3428c0" = { kind = "function", name = "may disband a unit", notes = ["game/military/units.md"] }
 "0x342f60" = { kind = "function", name = "may merge units", notes = ["game/military/units.md"] }
@@ -1269,6 +1271,8 @@
 "0x3c6143" = { kind = "code", name = "country technology levels", notes = ["game/countries/countries.md"] }
 "0x3c6970" = { kind = "function", notes = ["game/military/leaders.md"] }
 "0x3c6ee0" = { kind = "function", notes = ["game/military/army-checks-in-searches.md"] }
+"0x3c74a0" = { kind = "function", notes = ["game/day/country-daily-update.md"] }
+"0x3c77c0" = { kind = "function", notes = ["game/day/country-daily-update.md"] }
 "0x3c9250" = { kind = "function", notes = ["game/countries/power-spending.md"] }
 "0x3c93d0" = { kind = "function", notes = ["game/countries/power-spending.md"] }
 "0x3c9550" = { kind = "function", notes = ["game/countries/power-spending.md"] }
@@ -1950,11 +1954,14 @@
 "0x759640" = { kind = "function", notes = ["game/day/time-architecture.md"] }
 "0x75ab30" = { kind = "function", notes = ["game/program/architecture.md"] }
 "0x75ae70" = { kind = "function", name = "update and remove reformation centers each day", notes = ["game/provinces/reformation-centers.md"] }
-"0x75b0d0" = { kind = "function", notes = ["game/day/frame-and-idlers.md", "game/interface/frame-lifecycle.md"] }
+"0x75b0d0" = { kind = "function", notes = ["game/day/country-daily-update.md", "game/day/frame-and-idlers.md", "game/interface/frame-lifecycle.md"] }
+"0x75b1f3" = { kind = "code", notes = ["game/day/country-daily-update.md"] }
+"0x75b1fc" = { kind = "code", notes = ["game/day/country-daily-update.md"] }
 "0x75b20b" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x75b210" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x75b212" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x75b22f" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
+"0x75b242" = { kind = "code", notes = ["game/day/country-daily-update.md"] }
 "0x75b2d0" = { kind = "function", notes = ["game/day/frame-and-idlers.md", "game/day/random.md", "game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md"] }
 "0x75b321" = { kind = "code", notes = ["game/day/random.md"] }
 "0x75b4b0" = { kind = "function", name = "AI's phase of the day", notes = ["game/ai/ai.md", "game/ai/update-architecture.md", "game/day/frame-and-idlers.md", "game/day/time-architecture.md", "game/interface/frame-lifecycle.md", "game/interface/stream-locks.md"] }
@@ -2752,7 +2759,7 @@
 "0x93c790" = { kind = "function", notes = ["game/day/country-daily-update.md"] }
 "0x93ca70" = { kind = "function", notes = ["game/day/country-daily-update.md"] }
 "0x93d130" = { kind = "function", notes = ["game/interface/main-menu.md", "game/military/army-checks-in-searches.md", "game/provinces/tolerance-in-a-province.md"] }
-"0x93d750" = { kind = "function", name = "country modifiers", notes = ["game/countries/countries.md", "game/countries/government.md", "game/countries/modifiers.md", "game/countries/power-spending.md", "game/interface/frame-lifecycle.md", "game/military/army-checks-in-searches.md", "game/military/drill.md", "game/military/leaders.md", "game/provinces/provinces.md", "game/provinces/tolerance-in-a-province.md", "game/provinces/trade-range-and-naval-supply.md"] }
+"0x93d750" = { kind = "function", name = "country modifiers", notes = ["game/countries/countries.md", "game/countries/government.md", "game/countries/modifiers.md", "game/countries/power-spending.md", "game/day/country-daily-update.md", "game/interface/frame-lifecycle.md", "game/military/army-checks-in-searches.md", "game/military/drill.md", "game/military/leaders.md", "game/provinces/provinces.md", "game/provinces/tolerance-in-a-province.md", "game/provinces/trade-range-and-naval-supply.md"] }
 "0x93da40" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x93dcc8" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x93e630" = { kind = "function", notes = ["game/diplomacy/dependency-teardown.md"] }
@@ -3076,7 +3083,7 @@
 "0xa228a0" = { kind = "function", notes = ["game/diplomacy/diplomacy.md"] }
 "0xa255d0" = { kind = "function", notes = ["game/day/monthly-update.md"] }
 "0xa26f20" = { kind = "function", notes = ["game/military/sieges.md"] }
-"0xa273a0" = { kind = "function", notes = ["game/military/army-checks-in-searches.md"] }
+"0xa273a0" = { kind = "function", notes = ["game/ai/ai.md", "game/military/army-checks-in-searches.md"] }
 "0xa275d0" = { kind = "function", notes = ["game/military/army-checks-in-searches.md"] }
 "0xa28630" = { kind = "leaf", notes = ["game/provinces/provinces.md"] }
 "0xa28650" = { kind = "leaf", name = "province institution progress", notes = ["game/provinces/provinces.md"] }
@@ -3306,7 +3313,9 @@
 "0xadde10" = { kind = "function", notes = ["game/military/army-checks-in-searches.md"] }
 "0xadf040" = { kind = "function", notes = ["game/military/discipline.md"] }
 "0xadf180" = { kind = "function", notes = ["game/military/discipline.md"] }
+"0xae01d0" = { kind = "function", notes = ["game/day/country-daily-update.md"] }
 "0xae0f00" = { kind = "function", notes = ["game/day/country-daily-update.md"] }
+"0xae1330" = { kind = "function", notes = ["game/day/country-daily-update.md"] }
 "0xae1a40" = { kind = "function", name = "regiments a ship carries", notes = ["game/military/units.md"] }
 "0xae6580" = { kind = "function", name = "regiment discipline including mercenary discipline", notes = ["game/military/discipline.md"] }
 "0xae65ce" = { kind = "code", notes = ["game/military/discipline.md"] }
@@ -3318,9 +3327,10 @@
 "0xae7230" = { kind = "function", name = "regiment drill modifiers", notes = ["game/countries/modifiers.md", "game/military/drill.md"] }
 "0xae72da" = { kind = "code", notes = ["game/military/drill.md"] }
 "0xae7300" = { kind = "code", notes = ["game/military/drill.md"] }
-"0xae7600" = { kind = "function", notes = ["game/countries/modifiers.md", "game/military/discipline.md", "game/military/drill.md"] }
+"0xae7600" = { kind = "function", notes = ["game/countries/modifiers.md", "game/day/country-daily-update.md", "game/military/discipline.md", "game/military/drill.md"] }
 "0xae8c10" = { kind = "function", notes = ["game/provinces/provinces.md"] }
 "0xaebeb0" = { kind = "function", notes = ["game/countries/modifiers.md"] }
+"0xaedf20" = { kind = "function", notes = ["game/day/country-daily-update.md"] }
 "0xaf0c50" = { kind = "function", notes = ["game/countries/countries.md"] }
 "0xaf1390" = { kind = "leaf", notes = ["game/countries/countries.md"] }
 "0xaf1399" = { kind = "leaf", notes = ["game/countries/countries.md"] }
@@ -3701,7 +3711,7 @@
 "0xd47780" = { kind = "function", notes = ["game/provinces/fog-of-war.md"] }
 "0xd4a9e0" = { kind = "function", notes = ["game/countries/defeat.md", "game/military/army-checks-in-searches.md"] }
 "0xd4b270" = { kind = "function", notes = ["game/countries/defeat.md", "game/military/army-checks-in-searches.md"] }
-"0xd4c060" = { kind = "function", name = "unit morale", notes = ["game/military/units.md"] }
+"0xd4c060" = { kind = "function", name = "unit morale", notes = ["game/ai/ai.md", "game/military/units.md"] }
 "0xd4c390" = { kind = "function", notes = ["game/military/army-checks-in-searches.md"] }
 "0xd4c6e0" = { kind = "function", notes = ["game/military/army-checks-in-searches.md"] }
 "0xd4ca70" = { kind = "function", notes = ["game/military/army-checks-in-searches.md", "game/military/drill.md"] }
@@ -5174,6 +5184,7 @@
 "0x14cf730" = { kind = "leaf", name = "object lookup by ID", notes = ["game/countries/advisors.md", "game/countries/power-spending.md", "game/diplomacy/questions-and-offers.md", "game/interface/main-menu.md", "game/military/armies.md", "game/military/leaders.md", "game/program/saves.md", "game/provinces/provinces.md"] }
 "0x14cf9b0" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x14cfee0" = { kind = "function", notes = ["game/interface/main-menu.md"] }
+"0x14d4c80" = { kind = "function", notes = ["game/day/country-daily-update.md"] }
 "0x14d4e30" = { kind = "function", notes = ["game/scripts/commands.md"] }
 "0x14d4e62" = { kind = "code", notes = ["game/interface/main-menu.md", "game/military/recruiting.md", "game/scripts/commands.md"] }
 "0x14d4e70" = { kind = "function", name = "run a function object", notes = ["game/scripts/commands.md"] }
@@ -5195,9 +5206,11 @@
 "0x14dcde0" = { kind = "function", notes = ["game/day/frame-scheduling.md", "game/interface/map-drawing-reads.md"] }
 "0x14dcf90" = { kind = "function", name = "set up native GUI drawing state", notes = ["game/interface/gui-drawing.md", "game/interface/panel-entry-text.md"] }
 "0x14dd010" = { kind = "function", name = "prepare and draw the first gui list", notes = ["game/interface/frame-lifecycle.md", "game/interface/gui-drawing.md", "game/interface/map-drawing-reads.md", "game/interface/message-button-drawing.md", "game/interface/rendering-architecture.md", "game/interface/window-input-refresh.md", "game/interface/window-ordering.md"] }
+"0x14dd049" = { kind = "code", notes = ["game/interface/gui-drawing.md"] }
 "0x14dd073" = { kind = "code", notes = ["game/interface/message-button-drawing.md"] }
 "0x14dd076" = { kind = "code", notes = ["game/interface/message-button-drawing.md"] }
 "0x14dd23f" = { kind = "code", notes = ["game/interface/window-input-refresh.md"] }
+"0x14dd2b2" = { kind = "code", notes = ["game/interface/gui-drawing.md"] }
 "0x14dd2b8" = { kind = "code", notes = ["game/interface/message-button-drawing.md"] }
 "0x14dd2bd" = { kind = "code", name = "first ordinary GUI draw-list return", notes = ["game/interface/message-button-drawing.md", "game/interface/panel-entry-text.md"] }
 "0x14dd350" = { kind = "function", name = "draw a prepared GUI node list", notes = ["game/day/frame-scheduling.md", "game/interface/frame-lifecycle.md", "game/interface/gui-drawing.md", "game/interface/message-button-drawing.md", "game/interface/panel-entry-text.md", "game/interface/window-input-refresh.md", "game/interface/window-ordering.md"] }
@@ -6186,7 +6199,7 @@
 "0x1a32f2a" = { kind = "code", notes = ["game/program/saves.md"] }
 "0x1a32f8a" = { kind = "code", notes = ["game/program/saves.md"] }
 "0x1a332d4" = { kind = "function", name = "operator new", notes = ["game/diplomacy/dependency-teardown.md", "game/interface/unicode-text.md", "game/interface/window-elements.md", "game/military/recruiting.md", "game/military/routes.md", "game/program/allocation.md"] }
-"0x1a33310" = { kind = "leaf", notes = ["game/military/army-checks-in-searches.md", "game/provinces/tolerance-in-a-province.md"] }
+"0x1a33310" = { kind = "leaf", notes = ["game/provinces/tolerance-in-a-province.md"] }
 "0x1a334c0" = { kind = "leaf", notes = ["game/military/armies.md", "game/provinces/tolerance-in-a-province.md"] }
 "0x1a33654" = { kind = "function", notes = ["game/interface/gui-loading.md", "game/program/startup.md"] }
 "0x1a337c8" = { kind = "function", notes = ["game/interface/gui-loading.md", "game/program/architecture.md", "game/program/startup.md"] }

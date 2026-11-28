@@ -65,6 +65,9 @@ pub mod manager {
 pub mod scene {
     /// The screen's width and height in GUI units, i32 each.
     pub const SIZE: usize = 0x490;
+    /// Start of the first GUI scene's prepared draw/hit/owner list rebuild in
+    /// `0x14dd010`, immediately after `functions::SETUP_RENDER_STATE`.
+    pub const FIRST_SCENE_WALK_START: usize = 0x14dd051;
 }
 
 /// What buttons and text boxes share.
@@ -448,6 +451,8 @@ pub mod functions {
     pub const BUTTON_PLACE: GameFunction<2> = GameFunction::at(0x15ae930);
     pub const ICON_PLACES: [usize; 2] = [0x1585c80, 0x1571cf0];
     pub const PLACED: GameFunction<2> = GameFunction::at(0x1571dc0);
+    /// Sets viewport, blend, and rasterizer state for a GUI scene pass (`0x14dcf90`).
+    pub const SETUP_RENDER_STATE: GameFunction<1> = GameFunction::at(0x14dcf90);
 }
 
 use super::campaign;

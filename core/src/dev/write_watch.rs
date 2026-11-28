@@ -271,10 +271,12 @@ fn open_threads(a: &Arena) -> usize {
     let mut entry = THREADENTRY32 { dwSize: std::mem::size_of::<THREADENTRY32>() as u32, ..Default::default() };
     let mut more = unsafe { Thread32First(snapshot, &mut entry) } != 0;
     while more && n < HELD {
-        // The threads that write a save's countries and provinces with the
-        // main thread go on, and their writes are watched too.
-        let writes_saves = crate::speed::saving::parallel::threads().contains(&entry.th32ThreadID);
-        if entry.th32OwnerProcessID == process && entry.th32ThreadID != me && entry.th32ThreadID != watchdog && !writes_saves {
+        // The threads that write a save's countries and provinces or
+        // precompute daily army strengths with the main thread go on, and
+        // their writes are watched too.
+        let framework_worker =
+            crate::speed::saving::parallel::threads().contains(&entry.th32ThreadID) || crate::speed::daily_strength::threads().contains(&entry.th32ThreadID);
+        if entry.th32OwnerProcessID == process && entry.th32ThreadID != me && entry.th32ThreadID != watchdog && !framework_worker {
             let h = unsafe { OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, 0, entry.th32ThreadID) };
             // A thread of a module `let-run` names goes on, what it reads and
             // writes recorded as another thread's.

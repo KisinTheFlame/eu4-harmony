@@ -170,24 +170,25 @@ extern "C" fn placed(tooltips: usize, cursor: usize, place_at: usize) {
 
 /// Before the drawing thread draws a frame, under the lock: the tooltip
 /// moved by what the cursor moved since the main thread placed it, kept on
-/// the screen as the game keeps it, and set as the game sets it.
-pub(super) fn follow_cursor(m: &Memory, idler: usize) -> crate::base::Result<()> {
+/// the screen as the game keeps it, and set as the game sets it. Returns
+/// whether the tooltip changed position.
+pub(super) fn follow_cursor(m: &Memory, idler: usize) -> crate::base::Result<bool> {
     let mut placing = PLACING.lock().unwrap_or_else(|e| e.into_inner());
     let Some((placed, set)) = placing.as_mut() else {
-        return Ok(());
+        return Ok(false);
     };
     // A tooltip placed by another idler's tooltips (the main menu's, before
     // a game was loaded) is not this frame's, and they may be gone.
     if m.ptr(idler + IDLER_TOOLTIPS)? != placed.tooltips {
         *placing = None;
-        return Ok(());
+        return Ok(false);
     }
     // Another camera's tooltip is placed otherwise (`0x1415816`).
     if m.u8(m.at(OTHER_CAMERA))? != 0 {
-        return Ok(());
+        return Ok(false);
     }
     let Some(now) = crate::render::input::cursor_now() else {
-        return Ok(());
+        return Ok(false);
     };
     let manager = m.ptr(placed.tooltips + TOOLTIPS_MANAGER)?;
     let graphics_of: unsafe extern "C" fn(usize) -> usize = unsafe { std::mem::transmute(m.ptr(m.ptr(manager)? + MANAGER_GRAPHICS)?) };
@@ -201,7 +202,7 @@ pub(super) fn follow_cursor(m: &Memory, idler: usize) -> crate::base::Result<()>
     unsafe { size_of(gui, &mut size) };
     let place = followed(placed.place, placed.cursor, now, to_gui, screen, size);
     if place == *set {
-        return Ok(());
+        return Ok(false);
     }
     *set = place;
     let mut out = 0u64;
@@ -211,7 +212,7 @@ pub(super) fn follow_cursor(m: &Memory, idler: usize) -> crate::base::Result<()>
     let pair = [window_place as u32 as i32, (window_place >> 32) as u32 as i32];
     let set_place: unsafe extern "C" fn(usize, *const [i32; 2]) -> usize = unsafe { std::mem::transmute(m.ptr(m.ptr(gui)? + GUI_SET_PLACE)?) };
     unsafe { set_place(gui, &pair) };
-    Ok(())
+    Ok(true)
 }
 
 /// Where a tooltip placed at `place` for the cursor at `was` goes for the

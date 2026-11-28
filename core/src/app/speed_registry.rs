@@ -4,7 +4,7 @@ use crate::native::points::Point;
 use crate::native::speed_up::{self, SpeedUp};
 
 /// Every speed-up, in the order the report names them.
-pub(crate) static ALL: [&SpeedUp; 30] = [
+pub(crate) static ALL: [&SpeedUp; 31] = [
     &crate::speed::pops::SPEED_UP,
     &crate::render::drawing::SPEED_UP,
     &crate::speed::loading::music::SPEED_UP,
@@ -35,6 +35,7 @@ pub(crate) static ALL: [&SpeedUp; 30] = [
     &crate::speed::threat_queries::SPEED_UP,
     &crate::speed::modifier_sums::SPEED_UP,
     &crate::speed::regiment_upkeep::SPEED_UP,
+    &crate::speed::daily_strength::SPEED_UP,
 ];
 
 /// Every speed-up's points: what the offline checks check and the framework
@@ -62,8 +63,8 @@ mod tests {
         names.iter().map(|n| n.to_string()).collect()
     }
 
-    fn bit(name: &str) -> u32 {
-        1 << ALL.iter().position(|s| s.name == name).unwrap()
+    fn bit(name: &str) -> u64 {
+        1u64 << ALL.iter().position(|s| s.name == name).unwrap()
     }
 
     #[test]
@@ -73,7 +74,7 @@ mod tests {
             assert!(ALL.iter().all(|t| t.group != s.name), "{} is a group's name too", s.name);
             assert!(["frames", "loading", "saving", "ai"].contains(&s.group), "{}'s group {}", s.name, s.group);
         }
-        assert!(ALL.len() <= 32);
+        assert!(ALL.len() <= 64);
     }
 
     #[test]
@@ -107,7 +108,8 @@ mod tests {
                 "settlement-growth",
                 "threat-queries",
                 "modifier-sums",
-                "regiment-upkeep"
+                "regiment-upkeep",
+                "daily-strength"
             ]
             .iter()
             .fold(0, |b, n| b | bit(n))
@@ -138,7 +140,10 @@ mod tests {
         let chosen = Chosen::of_list(&ALL, &strings(&["frames"]), &strings(&["army-checks"])).unwrap();
         assert_eq!(
             lines(&ALL, chosen),
-            ["speed-ups left to the game: pops-polling, drawing-thread, modifier-sums, regiment-upkeep", "speed-ups checked against the game: army-checks"]
+            [
+                "speed-ups left to the game: pops-polling, drawing-thread, modifier-sums, regiment-upkeep, daily-strength",
+                "speed-ups checked against the game: army-checks"
+            ]
         );
     }
 

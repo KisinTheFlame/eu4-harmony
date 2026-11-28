@@ -40,12 +40,14 @@ const SCREEN_SIZE: usize = 0x490;
 /// The window's slot that puts it at a place (`0x132e58c`).
 const SET_PLACE: usize = 0x30;
 
-/// One icon placed: its window, where the window was put, where the point
-/// showed on the screen, the point on the map, and what the matrix is in.
+/// One icon placed: its window, where the window was put originally, where the
+/// drawing thread last moved it, where the point showed on the screen, the
+/// point on the map, and what the matrix is in.
 #[derive(Clone, Copy, Debug)]
 struct Icon {
     window: usize,
     put: [i32; 2],
+    last_put: [i32; 2],
     screen: [f32; 2],
     point: [f32; 3],
     matrix: usize,
@@ -92,9 +94,11 @@ extern "C" fn placed(window: usize, frame: usize) {
     let read = || -> crate::base::Result<Icon> {
         let put = m.u64(frame + 0xb8)?;
         let point_at = m.ptr(frame + 0xd8)?;
+        let put = [put as u32 as i32, (put >> 32) as u32 as i32];
         Ok(Icon {
             window,
-            put: [put as u32 as i32, (put >> 32) as u32 as i32],
+            put,
+            last_put: put,
             screen: [f32::from_bits(m.u32(frame + 0xc0)?), f32::from_bits(m.u32(frame + 0xc4)?)],
             point: [f32::from_bits(m.u32(point_at)?), f32::from_bits(m.u32(point_at + 4)?), f32::from_bits(m.u32(point_at + 8)?)],
             matrix: m.ptr(frame + 0xe0)?,
@@ -126,18 +130,20 @@ pub(super) fn clear() {
 }
 
 /// Before the drawing thread draws a frame, under the lock: each icon of the
-/// frame prepared moved to where its point shows now.
-pub(super) fn follow_camera(m: &Memory) -> crate::base::Result<()> {
-    let icons = PREPARED.lock().unwrap_or_else(|e| e.into_inner());
+/// frame prepared moved to where its point shows now. Returns whether any icon
+/// changed position.
+pub(super) fn follow_camera(m: &Memory) -> crate::base::Result<bool> {
+    let mut icons = PREPARED.lock().unwrap_or_else(|e| e.into_inner());
     if icons.is_empty() {
-        return Ok(());
+        return Ok(false);
     }
     let f32_at = |at: usize| m.u32(at).map(f32::from_bits);
     let (half, minus_half) = (f32_at(m.at(HALF))?, f32_at(m.at(MINUS_HALF))?);
     let size = m.u64(m.ptr(m.at(GRAPHICS))? + SCREEN_SIZE)?;
     let (width, height) = (size as u32 as i32 as f32, (size >> 32) as u32 as i32 as f32);
     let mut cached_matrix: Option<(usize, [[f32; 4]; 4])> = None;
-    for icon in icons.iter() {
+    let mut any_moved = false;
+    for icon in icons.iter_mut() {
         let row = match cached_matrix {
             Some((addr, row)) if addr == icon.matrix => row,
             _ => {
@@ -160,13 +166,15 @@ pub(super) fn follow_camera(m: &Memory) -> crate::base::Result<()> {
         }
         let screen = [(v[0] / v[3] * half + half) * width, (v[1] / v[3] * minus_half + half) * height];
         let put = [moved(icon.put[0], icon.screen[0], screen[0]), moved(icon.put[1], icon.screen[1], screen[1])];
-        if put == icon.put {
+        if put == icon.last_put {
             continue;
         }
         let set: unsafe extern "C" fn(usize, u64) = unsafe { std::mem::transmute(m.ptr(m.ptr(icon.window)? + SET_PLACE)?) };
         unsafe { set(icon.window, put[0] as u32 as u64 | (put[1] as u32 as u64) << 32) };
+        icon.last_put = put;
+        any_moved = true;
     }
-    Ok(())
+    Ok(any_moved)
 }
 
 /// Where a window put at `put` for a point shown at `was` goes for the point

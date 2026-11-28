@@ -60,6 +60,7 @@ const REQUIRED_CHECKED: &[&str] = &[
     "threat-queries",
     "modifier-sums",
     "regiment-upkeep",
+    "daily-strength",
     "country-distances",
     "flag-atlas",
     "token-lookup",
