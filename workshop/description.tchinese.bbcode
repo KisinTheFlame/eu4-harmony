@@ -1,7 +1,11 @@
 [h1]Harmony[/h1]
 [b]從內部把《歐陸風雲 IV》變得更好。[/b]清晰銳利的中日韓字型、返回主選單免重啟、後期更流暢、修正多項引擎缺陷，並讓 Mod 擁有更強擴充能力，同時保持原版遊戲規則不變。
 
-[b]重要提醒：只按訂閱不會生效。[/b]訂閱後需依下方步驟把 1 個檔案（[b]version.dll[/b]）複製到遊戲資料夾，只需操作一次，後續全部自動更新。
+[b]重要提醒（開始前請看這兩條）：[/b]
+[list]
+[*][b]只按訂閱不會生效。[/b]訂閱後需把 1 個檔案（[b]version.dll[/b]）複製到遊戲資料夾——用下方一行指令或純滑鼠 3 步皆可，只需一次，後續全部自動更新。
+[*][b]防毒誤報說明：[/b]Harmony 以 MIT 授權完全開源，因透過 [b]version.dll[/b] 載入遊戲處理程序，偶爾會觸發防毒軟體啟發式誤報。你可隨時檢視 GitHub 原始碼、將遊戲資料夾加入排除清單或自行編譯。
+[/list]
 
 遊戲的中文文本仍來自你訂閱的漢化 Mod，照常啟用即可；為舊雙位元組補丁製作的漢化 Mod 與對應存檔皆可直接使用。
 
@@ -15,7 +19,7 @@
 [tr]
 [td][b]中日韓文字與字型[/b][/td]
 [td]無補丁時亂碼；舊點陣字型模糊、換行錯亂、搜尋與輸入法受限。[/td]
-[td]原生 UTF-8 與清晰系統字型，支援字型即時預覽、正確換行、輸入法輸入，以及符合東亞習慣的日期、人名與戰役名。[/td]
+[td]原生 UTF-8 與清晰系統字型，並為簡體中文、日語、韓語內建免費預設字型；支援字型即時預覽、正確換行、輸入法輸入，以及符合東亞習慣的日期、人名與戰役名。[/td]
 [/tr]
 [tr]
 [td][b]返回主選單與讀檔[/b][/td]
@@ -39,19 +43,23 @@
 [/tr]
 [/table]
 
-[h2]安裝步驟[/h2]
-Harmony 運行於遊戲處理程序內部，因此只需手動複製 1 個檔案到遊戲資料夾（僅此一次）：
+[h2]安裝步驟（二選一）[/h2]
+請先在本頁點擊[b]訂閱 Harmony[/b]，待 Steam 下載完成，再將 [b]version.dll[/b] 複製到遊戲資料夾（僅需一次）：
 
+[b]方法 A：一行 PowerShell 指令自動複製（最快，選用）[/b]
+按 [b]Win + X[/b] → 開啟 [b]終端機[/b]（或 [b]Windows PowerShell[/b]），貼上下方整行指令並按 Enter。指令僅在本機尋找 Steam 收藏庫、自動將既有 [b]version.dll[/b] 備份為 [b]version.dll.bak[/b] 並複製檔案，不會連線下載任何檔案：
+[code]$s=(gp HKCU:\Software\Valve\Steam).SteamPath; $libs=@($s)+((sls '"path"\s+"([^"]+)"' "$s\steamapps\libraryfolders.vdf" -EA 0|%{$_.Matches[0].Groups[1].Value -replace '\\\\','\'})|?{$_}); $g=$libs|%{"$_\steamapps\common\Europa Universalis IV"}|?{Test-Path "$_\eu4.exe"}|select -First 1; $src=$libs|%{"$_\steamapps\workshop\content\236850\3837775887\version.dll"}|?{Test-Path $_}|select -First 1; if(!$g -or !$src){throw "Not found (subscribe in Steam first): game='$g' workshop='$src'"}; $dst="$g\version.dll"; if((Test-Path $dst) -and !(Test-Path "$dst.bak") -and (Get-FileHash $dst).Hash -ne (Get-FileHash $src).Hash){Copy-Item $dst "$dst.bak"}; Copy-Item $src $dst -Force; "Installed to $dst"[/code]
+
+[b]方法 B：純滑鼠手動複製（3 步）[/b]
 [olist]
-[*]在本頁點擊訂閱 Harmony。
-[*]在 Steam 收藏庫中右鍵點擊[b]《歐陸風雲 IV》[/b] → [b]管理 → 瀏覽本機檔案[/b]，開啟遊戲資料夾（保持視窗開啟）。
-[*]開啟 Paradox 啟動器 → [b]Mod 庫[/b] → 找到 [b]Harmony[/b] → 點擊右側 [b]… → 在資料夾中顯示[/b]。（如暫未顯示，請重啟 Steam；也可在 EU4 所在 Steam 收藏庫直接開啟 [b]steamapps\workshop\content\236850\3837775887[/b]。）
-[*]將 Harmony 資料夾中的 [b]version.dll[/b] 複製到遊戲資料夾，放在 [b]eu4.exe[/b] 旁邊。（Windows 預設可能隱藏副檔名，顯示為 [b]version[/b] 與 [b]eu4[/b]。若已有舊版 [b]version.dll[/b]，直接選擇[b]取代[/b]即可；想留作備份請先移走或改名。）
+[*]在 Steam 收藏庫中右鍵點擊[b]《歐陸風雲 IV》[/b] → [b]管理 → 瀏覽本機檔案[/b]，開啟遊戲資料夾。
+[*]開啟 Paradox 啟動器 → [b]Mod 庫[/b] → 找到 [b]Harmony[/b] → 點擊右側 [b]… → 在資料夾中顯示[/b]（也可在 Steam 收藏庫開啟 [b]steamapps\workshop\content\236850\3837775887[/b]）。
+[*]將 [b]version.dll[/b] 複製到遊戲資料夾，放在 [b]eu4.exe[/b] 旁邊（Windows 可能隱藏副檔名而顯示為 [b]version[/b] 與 [b]eu4[/b]；若有舊版 [b]version.dll[/b] 選擇取代，想留作備份請先改名）。
 [/olist]
 
 照常從 Paradox 啟動器啟動遊戲即可。Harmony [b]不需要[/b]放進播放清單；基於 Harmony 製作的 Mod 照常在播放清單中啟用。生效後，主選單右下角會顯示 [b]Harmony v…[/b]、[b]Mod 列表[/b] 與 [b]設定[/b]。
 
-Steam 會自動更新 Harmony。當更新包含新版 [b]version.dll[/b] 時，Harmony 會在啟動時自動更新副本並為你重啟遊戲。
+Steam 會自動更新 Harmony。當更新包含新版 [b]version.dll[/b] 時，Harmony 會在啟動時自動更新副本並為你重啟遊戲（僅資料夾唯讀時才會在遊戲內提示手動複製）。
 
 [h2]執行需求[/h2]
 [list]
@@ -61,17 +69,17 @@ Steam 會自動更新 Harmony。當更新包含新版 [b]version.dll[/b] 時，H
 
 [h2]常見問題（FAQ）[/h2]
 [list]
-[*][b]我訂閱了，為什麼進遊戲看不到 Harmony？[/b] 只訂閱不會生效，請確認已將 [b]version.dll[/b] 複製到 [b]eu4.exe[/b] 旁（見上方第 4 步），且遊戲為 Steam Windows 版 1.37.5。
+[*][b]我訂閱了，為什麼進遊戲看不到 Harmony？[/b] 只訂閱不會生效，請確認已依上方方法 A 或 B 將 [b]version.dll[/b] 複製到 [b]eu4.exe[/b] 旁，且遊戲為 Steam Windows 版 1.37.5。
 [*][b]防毒軟體把 version.dll 或 eu4_harmony_core.dll 報毒，安全嗎？[/b] Harmony 在 GitHub 完全開源，因透過 DLL 載入遊戲實現增強功能，偶爾會觸發啟發式誤報。你可檢視原始碼、將遊戲資料夾加入排除清單，或自行編譯。
 [*][b]以前用過雙位元組補丁或字型 Mod，該怎麼移轉？[/b] 以 Harmony 的 [b]version.dll[/b] 取代舊檔，並[b]停用舊點陣字型 Mod[/b]，保留漢化文本 Mod 即可。舊存檔可直接讀取。
 [*][b]支援多人連線嗎？[/b] Harmony 的多人遊戲支援正在路上。目前僅支援單人遊戲；如需連線，請取消訂閱 Harmony 或暫時移走遊戲資料夾中的 [b]version.dll[/b]。
 [*][b]之後移除 Harmony，存檔還能讀嗎？[/b] 僅使用 Harmony 本體不會破壞存檔結構，但遊戲中手動輸入的中日韓名稱以 UTF-8 儲存，移除後會顯示為亂碼。若使用了會將資料寫入存檔的 Harmony Mod，則不保證無 Harmony 時可正常讀取。
 [*][b]為什麼音量變小了？為什麼非鐵人成就沒套用到舊檔？[/b] Harmony 將音量滑桿改為更符合聽覺的平方曲線，原本低於 100 的音量會偏小，重新調高一次即可。成就放寬選項會在開啟新局時生效。
-[*][b]如何徹底移除？[/b] 取消訂閱 Harmony 並刪除遊戲資料夾中的 [b]version.dll[/b]。若曾在「Harmony 設定 → 關於」啟用 Windows 當機傾印，建議先於該頁點擊「關閉 EU4 的 Windows 當機傾印」。
+[*][b]如何徹底移除？[/b] 取消訂閱 Harmony 並刪除遊戲資料夾中的 [b]version.dll[/b]（如有 [b]version.dll.bak[/b] 可改名復原）。若曾在「Harmony 設定 → 進階」啟用 Windows 當機傾印，建議先於該頁點擊「關閉 EU4 的 Windows 當機傾印」。
 [/list]
 
 [h2]問題排查與回報[/h2]
-在主選單開啟 [b]Harmony 設定 → 關於[/b]，點擊[b]將問題排查檔案存到桌面[/b]，會自動打包日誌、近期當機資訊、設定與 Mod 清單（不含存檔，控制在 24 MB 以內），再至 [url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url] 回報並附上壓縮檔。
+在主選單或局內選單開啟 [b]Harmony 設定 → 關於[/b]，點擊[b]將問題排查檔案存到桌面[/b]，會自動打包日誌、近期當機資訊、設定與 Mod 清單（不含存檔、自動遮蔽使用者名稱路徑並瘦身傾印檔，控制在 24 MB 以內），再至 [url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url] 回報並附上壓縮檔。也可在 [b]Harmony 設定 → 進階[/b] 一鍵開啟日誌資料夾。
 
 [h2]給 Mod 作者[/h2]
 基於 Harmony 的 Mod 是標準 Paradox Mod，並支援沙箱化 Lua 擴充與原生風格介面面板。開發文件請見 [url=https://github.com/KisinTheFlame/eu4-harmony]GitHub README[/url]。

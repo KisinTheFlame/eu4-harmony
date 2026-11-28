@@ -1,7 +1,11 @@
 [h1]Harmony[/h1]
 [b]Europa Universalis IV を内部からより快適に。[/b]くっきりとした日本語・中国語・韓国語フォント表示、メインメニュー復帰時の再起動不要、後半の動作高速化、エンジン不具合の修正、そしてより高機能な Mod 基盤を、ゲーム本来のルールを変えずに提供します。
 
-[b]重要：サブスクライブしただけでは有効になりません。[/b]サブスクライブ後、下の案内通りに 1 つのファイル（[b]version.dll[/b]）をゲームフォルダへ一度だけコピーしてください。以降のアップデートは自動で行われます。
+[b]重要（導入前にご確認ください）：[/b]
+[list]
+[*][b]サブスクライブしただけでは有効になりません。[/b]サブスクライブ後、下の 1 行コマンドまたはマウス操作 3 ステップで [b]version.dll[/b] をゲームフォルダへ一度だけコピーしてください。以降の更新は自動です。
+[*][b]セキュリティソフトの警告について：[/b]Harmony は MIT ライセンスで完全オープンソースです。[b]version.dll[/b] 経由でゲームに読み込まれる仕組み上、まれにヒューリスティック誤検知が起きることがあります。GitHub でコードを確認するか、EU4 フォルダを除外設定に追加してください。
+[/list]
 
 ゲームの日本語訳テキストはこれまで通り日本語化 Mod が担当します。従来のマルチバイトパッチ向け翻訳 Mod やそのセーブデータもそのまま利用できます。
 
@@ -15,7 +19,7 @@
 [tr]
 [td][b]日本語・CJK 表示とフォント[/b][/td]
 [td]パッチなしでは文字化け。旧ビットマップフォントは滲みやすく改行や検索も不安定。[/td]
-[td]ネイティブ UTF-8 と鮮明なシステムフォント描画。ライブプレビュー付きフォント設定、自然な改行、IME 入力、日本語順の日付・人名・戦闘名に対応。[/td]
+[td]ネイティブ UTF-8 と鮮明なシステムフォントに加え、日本語（源ノ明朝 JP）・簡体字中国語・韓国語の無料標準フォントを同梱。ライブプレビュー、自然な改行、IME 入力、日本語順の日付・人名・戦闘名に対応。[/td]
 [/tr]
 [tr]
 [td][b]メインメニュー復帰とロード[/b][/td]
@@ -39,19 +43,23 @@
 [/tr]
 [/table]
 
-[h2]インストール手順[/h2]
-Harmony はゲーム内部で動作するため、初回のみ 1 ファイルをゲームフォルダへコピーする必要があります：
+[h2]インストール手順（どちらかを選択）[/h2]
+まずこのページで [b]Harmony をサブスクライブ[/b]し、Steam のダウンロード完了後に [b]version.dll[/b] を一度だけゲームフォルダへコピーします：
 
+[b]方法 A：1 行 PowerShell コマンドで自動コピー（最速・任意）[/b]
+[b]Win + X[/b] → [b]ターミナル[/b]（または [b]Windows PowerShell[/b]）を開き、下の 1 行を貼り付けて Enter を押してください。ローカルの Steam ライブラリ検索、既存 [b]version.dll[/b] の [b]version.dll.bak[/b] への退避、およびファイルコピーのみを行います（通信・ダウンロードは一切行いません）：
+[code]$s=(gp HKCU:\Software\Valve\Steam).SteamPath; $libs=@($s)+((sls '"path"\s+"([^"]+)"' "$s\steamapps\libraryfolders.vdf" -EA 0|%{$_.Matches[0].Groups[1].Value -replace '\\\\','\'})|?{$_}); $g=$libs|%{"$_\steamapps\common\Europa Universalis IV"}|?{Test-Path "$_\eu4.exe"}|select -First 1; $src=$libs|%{"$_\steamapps\workshop\content\236850\3837775887\version.dll"}|?{Test-Path $_}|select -First 1; if(!$g -or !$src){throw "Not found (subscribe in Steam first): game='$g' workshop='$src'"}; $dst="$g\version.dll"; if((Test-Path $dst) -and !(Test-Path "$dst.bak") -and (Get-FileHash $dst).Hash -ne (Get-FileHash $src).Hash){Copy-Item $dst "$dst.bak"}; Copy-Item $src $dst -Force; "Installed to $dst"[/code]
+
+[b]方法 B：マウスのみで手動コピー（3 ステップ）[/b]
 [olist]
-[*]このページで Harmony をサブスクライブします。
-[*]Steam で [b]Europa Universalis IV[/b] を右クリック → [b]管理 → ローカルファイルを閲覧[/b] でゲームフォルダを開きます（そのままにしておきます）。
-[*]Paradox ランチャー → [b]Mod ライブラリ[/b] → [b]Harmony[/b] を探し、右側の [b]… → フォルダで表示[/b] をクリックします。（表示されない場合は Steam を再起動するか、EU4 と同じ Steam ライブラリ内の [b]steamapps\workshop\content\236850\3837775887[/b] を開いてください。）
-[*]Harmony フォルダ内の [b]version.dll[/b] を、ゲームフォルダの [b]eu4.exe[/b] と同じ場所へコピーします。（Windows の設定によっては拡張子が隠れ [b]version[/b]・[b]eu4[/b] と表示されます。旧パッチ等の [b]version.dll[/b] が既にある場合は[b]置き換え[/b]てください。戻せるようにしたい場合は先に退避してください。）
+[*]Steam で [b]Europa Universalis IV[/b] を右クリック → [b]管理 → ローカルファイルを閲覧[/b] でゲームフォルダを開きます。
+[*]Paradox ランチャー → [b]Mod ライブラリ[/b] → [b]Harmony[/b] → 右側の [b]… → フォルダで表示[/b] をクリックします（Steam ライブラリ内の [b]steamapps\workshop\content\236850\3837775887[/b] でも開けます）。
+[*][b]version.dll[/b] をゲームフォルダの [b]eu4.exe[/b] の隣へコピーします（拡張子非表示の場合は [b]version[/b]・[b]eu4[/b]。旧 [b]version.dll[/b] があれば置き換えるか先に退避してください）。
 [/olist]
 
 あとは通常通り Paradox ランチャーから起動してください。Harmony 自体はプレイセットに追加する必要はありません（Harmony 対応 Mod は通常通りプレイセットで有効化します）。有効になると、メインメニュー右下に [b]Harmony v…[/b]・[b]Mod一覧[/b]・[b]設定[/b] が表示されます。
 
-更新は Steam が自動で行います。新しい [b]version.dll[/b] が含まれる更新では、起動時に自動でコピーを更新してゲームを再起動します。
+更新は Steam が自動で行います。新しい [b]version.dll[/b] が含まれる更新では、起動時に自動でコピーを更新してゲームを再起動します（フォルダが読み取り専用の場合のみゲーム内で通知します）。
 
 [h2]動作要件[/h2]
 [list]
@@ -61,17 +69,17 @@ Harmony はゲーム内部で動作するため、初回のみ 1 ファイルを
 
 [h2]よくある質問（FAQ）[/h2]
 [list]
-[*][b]サブスクライブしたのにメインメニューに Harmony が出ません。[/b] サブスクライブだけでは有効になりません。手順 4 の通り [b]version.dll[/b] が [b]eu4.exe[/b] の隣にコピーされているか、また Steam Windows 版 1.37.5 であるか確認してください。
+[*][b]サブスクライブしたのにメインメニューに Harmony が出ません。[/b] サブスクライブだけでは有効になりません。上の方法 A または B で [b]version.dll[/b] が [b]eu4.exe[/b] の隣にコピーされているか、また Steam Windows 版 1.37.5 であるか確認してください。
 [*][b]セキュリティソフトが version.dll や eu4_harmony_core.dll を警告しました。安全ですか？[/b] Harmony は GitHub で全ソースコードを公開しています。ゲーム内部へ読み込まれる仕組み上、ヒューリスティック誤検知が起きることがあります。ソースを確認するか、EU4 フォルダを除外設定に追加、またはご自身でビルドできます。
 [*][b]旧マルチバイト化パッチやフォント Mod から移行するには？[/b] 旧 [b]version.dll[/b] を Harmony のものに置き換え、旧ビットマップフォント Mod を無効化してください（翻訳テキスト Mod はそのまま有効にします）。既存セーブもそのまま読み込めます。
 [*][b]マルチプレイは遊べますか？[/b] マルチプレイ対応は現在開発中です。現状はシングルプレイ専用のため、マルチプレイを遊ぶ際はサブスクライブを解除するか、ゲームフォルダの [b]version.dll[/b] を一時的に移動してください。
 [*][b]後で Harmony を外してもセーブデータは使えますか？[/b] Harmony 本体のみであればセーブ構造は壊れませんが、Harmony 導入中に手動入力した日本語名などは UTF-8 で保存されるため、外すと文字化けします。独自データをセーブに書き込む Harmony Mod を使った場合、Harmony なしでの読み込みは保証されません。
 [*][b]音が小さくなった／非アイアンマン実績が既存セーブに反映されないのはなぜ？[/b] 音量スライダーを聴感に沿った二乗カーブへ変更したため、100 未満の設定は以前より静かに聞こえます（一度上げ直してください）。実績条件の緩和は新しいゲームの開始時から有効になります。
-[*][b]きれいにアンインストールするには？[/b] Harmony のサブスクライブを解除し、ゲームフォルダの [b]version.dll[/b] を削除してください。「Harmony 設定 → 情報」で Windows クラッシュダンプを有効にした場合は、先に同画面の「無効にする」ボタンを押してください。
+[*][b]きれいにアンインストールするには？[/b] Harmony のサブスクライブを解除し、ゲームフォルダの [b]version.dll[/b] を削除してください（[b]version.dll.bak[/b] があれば戻します）。「Harmony 設定 → 詳細設定」で Windows クラッシュダンプを有効にした場合は、先に同画面の「無効にする」ボタンを押してください。
 [/list]
 
 [h2]不具合報告・トラブルシューティング[/h2]
-メインメニューで [b]Harmony 設定 → 情報[/b] を開き、[b]トラブルシューティング用ファイルをデスクトップに保存[/b] をクリックすると、ログ・直近のクラッシュ情報・設定・プレイセット（セーブなし、24 MB 未満）が zip 化されます。そのファイルを添えて [url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url] へご報告ください。
+メインメニューまたはゲーム内メニューで [b]Harmony 設定 → 情報[/b] を開き、[b]トラブルシューティング用ファイルをデスクトップに保存[/b] をクリックすると、ログ・直近のクラッシュ情報・設定・プレイセット（セーブなし、ユーザー名パス伏せ字済み、ダンプ軽量化済み、24 MB 未満）が zip 化されます。そのファイルを添えて [url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url] へご報告ください。ログフォルダは [b]Harmony 設定 → 詳細設定[/b] からも直接開けます。
 
 [h2]Mod 制作者向け[/h2]
 Harmony 対応 Mod は通常の Paradox Mod にサンドボックス化 Lua 拡張とゲーム標準風 UI を追加できます。詳細は [url=https://github.com/KisinTheFlame/eu4-harmony/blob/master/README.ja.md]GitHub 日本語 README[/url] をご覧ください。

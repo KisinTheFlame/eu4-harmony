@@ -3,9 +3,11 @@
 //! archive cap (GitHub Issues attachment friendly). No saves.
 //!
 //! Packing runs on its own thread. Text files are read one at a time for
-//! credential redaction. Oversized minidumps that would exceed the archive
-//! budget are slimmed in memory to `MiniDumpNormal`-equivalent stacks/modules
-//! before compression without modifying the original files on disk.
+//! credential, player-name and user-profile path redaction. Game logs are
+//! filtered to an explicit allowlist so account, chat and multiplayer logs are
+//! never packed. Valid minidumps are always slimmed in memory to
+//! `MiniDumpNormal`-equivalent stacks/modules with module paths redacted,
+//! without modifying the original files on disk.
 use crate::base::zip;
 use eu4_harmony_folders::UserFolder;
 use std::fs::{File, OpenOptions};
@@ -27,8 +29,11 @@ const ARCHIVE_RESERVE_BYTES: u64 = 256 * 1024;
 const MAX_CRASH_FOLDERS: usize = 3;
 /// Maximum recent matched Windows minidumps included in one troubleshooting archive.
 const MAX_WINDOWS_DUMPS: usize = 3;
-/// Binary dumps larger than this on disk are slimmed first when budget is tight.
-const SLIM_THRESHOLD_BYTES: u64 = 8 * 1024 * 1024;
+/// Explicit allowlist of game log files included in troubleshooting archives.
+/// Excludes Paradox online, multiplayer, chat and telemetry logs.
+const ALLOWED_GAME_LOGS: &[&str] = &["error.log", "game.log", "system.log", "setup.log", "exceptions.log", "memory.log"];
+/// Keys in EU4's `settings.txt` whose values are redacted before packing.
+const REDACTED_GAME_SETTINGS_KEYS: &[&str] = &["last_player_name", "last_server", "server_ip", "last_host_ip"];
 
 /// Where the packing is.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -89,6 +94,10 @@ impl Source {
 }
 
 fn files_in(dir: &Path, under: &str, out: &mut Vec<Source>) -> std::io::Result<()> {
+    files_in_matching(dir, under, |_| true, out)
+}
+
+fn files_in_matching(dir: &Path, under: &str, allow: impl Fn(&str) -> bool, out: &mut Vec<Source>) -> std::io::Result<()> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -97,11 +106,178 @@ fn files_in(dir: &Path, under: &str, out: &mut Vec<Source>) -> std::io::Result<(
     for entry in entries {
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().into_owned();
-        if entry.file_type()?.is_file() && !matches!(eu4_harmony_logging::classify_file(&name), eu4_harmony_logging::Artifact::Staging) {
+        if entry.file_type()?.is_file() && allow(&name) && !matches!(eu4_harmony_logging::classify_file(&name), eu4_harmony_logging::Artifact::Staging) {
             out.push(Source::new(format!("{under}/{name}"), entry.path()));
         }
     }
     Ok(())
+}
+
+/// Redacts the current Windows user's profile directory and `\Users\<name>`
+/// segments in troubleshooting archives while leaving on-disk logs untouched.
+#[derive(Clone, Debug, Default)]
+struct UserRedactor {
+    /// `(needle, replacement)` pairs matched case-insensitively on path boundaries.
+    rules: Vec<(String, String)>,
+}
+
+impl UserRedactor {
+    fn from_env() -> Self {
+        let profile = std::env::var("USERPROFILE").ok();
+        let username = std::env::var("USERNAME").ok();
+        Self::new(profile.as_deref(), username.as_deref())
+    }
+
+    fn new(profile: Option<&str>, username: Option<&str>) -> Self {
+        let mut rules = Vec::new();
+        let mut push_unique = |needle: String, replacement: String| {
+            if !needle.is_empty() && !rules.iter().any(|(n, _): &(String, String)| n.eq_ignore_ascii_case(&needle)) {
+                rules.push((needle, replacement));
+            }
+        };
+        if let Some(raw) = profile.map(|s| s.trim().trim_end_matches(['\\', '/'])).filter(|s| !s.is_empty()) {
+            let bs = raw.replace('/', "\\");
+            let bs_rep = match bs.rfind('\\') {
+                Some(idx) => format!("{}\\<USER>", &bs[..idx]),
+                None => "<USER>".into(),
+            };
+            push_unique(bs.clone(), bs_rep);
+            let fs = raw.replace('\\', "/");
+            let fs_rep = match fs.rfind('/') {
+                Some(idx) => format!("{}/<USER>", &fs[..idx]),
+                None => "<USER>".into(),
+            };
+            push_unique(fs, fs_rep);
+        }
+        if let Some(user) = username.map(str::trim).filter(|s| !s.is_empty()) {
+            push_unique(format!("\\Users\\{user}"), "\\Users\\<USER>".into());
+            push_unique(format!("/Users/{user}"), "/Users/<USER>".into());
+        }
+        Self { rules }
+    }
+
+    fn redact(&self, text: &str) -> String {
+        let mut current = text.to_string();
+        for (needle, replacement) in &self.rules {
+            current = replace_path_segment_ci(&current, needle, replacement);
+        }
+        current
+    }
+}
+
+fn is_path_boundary(ch: char) -> bool {
+    matches!(ch, '\\' | '/' | '"' | '\'' | ' ' | '\t' | '\r' | '\n' | ')' | ']' | '}' | ',' | ';' | '>' | '|' | ':')
+}
+
+/// Case-insensitively replaces `needle` with `replacement` whenever the match
+/// ends at EOF or a path/delimiter boundary, preserving valid UTF-8 boundaries.
+fn replace_path_segment_ci(text: &str, needle: &str, replacement: &str) -> String {
+    if needle.is_empty() || text.is_empty() {
+        return text.to_string();
+    }
+    if needle.is_ascii() {
+        let n_bytes = needle.as_bytes();
+        let t_bytes = text.as_bytes();
+        if t_bytes.len() < n_bytes.len() {
+            return text.to_string();
+        }
+        let first_lo = n_bytes[0].to_ascii_lowercase();
+        let first_hi = n_bytes[0].to_ascii_uppercase();
+        let mut out = String::with_capacity(text.len());
+        let mut i = 0;
+        let mut copied = 0;
+        while i + n_bytes.len() <= t_bytes.len() {
+            let b = t_bytes[i];
+            if (b == first_lo || b == first_hi) && t_bytes[i..i + n_bytes.len()].eq_ignore_ascii_case(n_bytes) {
+                let end = i + n_bytes.len();
+                let at_boundary = end == t_bytes.len() || text[end..].chars().next().is_some_and(is_path_boundary);
+                if at_boundary && text.is_char_boundary(i) && text.is_char_boundary(end) {
+                    out.push_str(&text[copied..i]);
+                    out.push_str(replacement);
+                    i = end;
+                    copied = end;
+                    continue;
+                }
+            }
+            i += 1;
+        }
+        if copied == 0 {
+            return text.to_string();
+        }
+        out.push_str(&text[copied..]);
+        return out;
+    }
+
+    let needle_chars: Vec<char> = needle.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut iter = text.char_indices().peekable();
+    let mut copied = 0usize;
+    while let Some((start, ch)) = iter.next() {
+        if !ch.to_lowercase().eq(needle_chars[0].to_lowercase()) {
+            continue;
+        }
+        let mut rest = text[start..].char_indices();
+        let mut matched_end = None;
+        let mut ok = true;
+        for &nc in &needle_chars {
+            match rest.next() {
+                Some((rel, tc)) if tc.to_lowercase().eq(nc.to_lowercase()) => {
+                    matched_end = Some(start + rel + tc.len_utf8());
+                }
+                _ => {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if ok {
+            if let Some(end) = matched_end {
+                let at_boundary = end == text.len() || text[end..].chars().next().is_some_and(is_path_boundary);
+                if at_boundary {
+                    out.push_str(&text[copied..start]);
+                    out.push_str(replacement);
+                    copied = end;
+                    while iter.peek().is_some_and(|&(idx, _)| idx < end) {
+                        iter.next();
+                    }
+                }
+            }
+        }
+    }
+    if copied == 0 {
+        return text.to_string();
+    }
+    out.push_str(&text[copied..]);
+    out
+}
+
+/// Redacts player/network identifier lines in EU4's `settings.txt`.
+fn redact_game_settings(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for line in text.split_inclusive('\n') {
+        let (body, ending) = if let Some(s) = line.strip_suffix("\r\n") {
+            (s, "\r\n")
+        } else if let Some(s) = line.strip_suffix('\n') {
+            (s, "\n")
+        } else {
+            (line, "")
+        };
+        let trimmed = body.trim_start();
+        let indent = &body[..body.len() - trimmed.len()];
+        let matched = REDACTED_GAME_SETTINGS_KEYS
+            .iter()
+            .find(|&&key| trimmed.len() > key.len() && trimmed[..key.len()].eq_ignore_ascii_case(key) && trimmed[key.len()..].trim_start().starts_with('='));
+        if let Some(&key) = matched {
+            let orig_key = &trimmed[..key.len()];
+            out.push_str(indent);
+            out.push_str(orig_key);
+            out.push_str("=\"[redacted]\"");
+            out.push_str(ending);
+        } else {
+            out.push_str(line);
+        }
+    }
+    out
 }
 
 fn format_bytes(bytes: u64) -> String {
@@ -121,7 +297,8 @@ fn format_bytes(bytes: u64) -> String {
 fn sources(user: &UserFolder) -> crate::base::Result<(Vec<Source>, usize)> {
     let mut out = Vec::new();
     files_in(&user.logs(), "harmony-logs", &mut out).map_err(|e| format!("cannot list framework logs: {e}"))?;
-    files_in(&user.game_logs(), "game-logs", &mut out).map_err(|e| format!("cannot list game logs: {e}"))?;
+    files_in_matching(&user.game_logs(), "game-logs", |name| ALLOWED_GAME_LOGS.iter().any(|allowed| name.eq_ignore_ascii_case(allowed)), &mut out)
+        .map_err(|e| format!("cannot list game logs: {e}"))?;
     let mut crash_dirs: Vec<(SystemTime, String)> = user
         .crash_folders()?
         .into_iter()
@@ -159,7 +336,7 @@ fn about(user: &UserFolder, now: &str) -> Vec<String> {
         format!("command line: {}", eu4_harmony_logging::redact(crate::base::paths::command_line())),
         format!("run: {}", eu4_harmony_logging::run_id()),
         format!(
-            "collection: logs, settings, up to {MAX_CRASH_FOLDERS} recent crash folders and {MAX_WINDOWS_DUMPS} matched Windows minidumps within {} MiB cap; oversized minidumps slimmed to stacks/modules in-memory without changing disk files; text credentials redacted; no saves",
+            "collection: framework logs, allowlisted game logs, settings, up to {MAX_CRASH_FOLDERS} recent crash folders and {MAX_WINDOWS_DUMPS} matched Windows minidumps within {} MiB cap; minidumps slimmed in-memory with module paths redacted without changing disk files; text credentials, player names and user profile paths redacted; no saves",
             MAX_ARCHIVE_BYTES / (1024 * 1024)
         ),
         "playset:".into(),
@@ -280,16 +457,31 @@ fn deflate_file_bounded(file: &mut File, original: u64, budget: u64) -> std::io:
 }
 
 fn collect<W: std::io::Write>(output: W, sources: Vec<Source>, summary: Vec<String>, windows_crashes: Option<&str>, when: (u16, u16)) -> std::io::Result<W> {
-    collect_with_cap(output, sources, summary, windows_crashes, when, MAX_ARCHIVE_BYTES)
+    let redactor = UserRedactor::from_env();
+    collect_with_cap_and_redactor(output, sources, summary, windows_crashes, when, MAX_ARCHIVE_BYTES, &redactor)
 }
 
+#[cfg(test)]
 fn collect_with_cap<W: std::io::Write>(
+    output: W,
+    sources: Vec<Source>,
+    summary: Vec<String>,
+    windows_crashes: Option<&str>,
+    when: (u16, u16),
+    max_archive_bytes: u64,
+) -> std::io::Result<W> {
+    let redactor = UserRedactor::from_env();
+    collect_with_cap_and_redactor(output, sources, summary, windows_crashes, when, max_archive_bytes, &redactor)
+}
+
+fn collect_with_cap_and_redactor<W: std::io::Write>(
     output: W,
     sources: Vec<Source>,
     mut summary: Vec<String>,
     windows_crashes: Option<&str>,
     when: (u16, u16),
     max_archive_bytes: u64,
+    redactor: &UserRedactor,
 ) -> std::io::Result<W> {
     summary.push("files:".into());
     let mut stream = zip::Stream::new(output);
@@ -318,12 +510,16 @@ fn collect_with_cap<W: std::io::Write>(
         if input.limit() != 0 {
             return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, format!("{} shrank while being collected", source.name)));
         }
-        let text = eu4_harmony_logging::redact(&String::from_utf8_lossy(&bytes));
+        let mut text = eu4_harmony_logging::redact(&String::from_utf8_lossy(&bytes));
+        if source.name == "settings/settings.txt" {
+            text = redact_game_settings(&text);
+        }
+        text = redactor.redact(&text);
         let budget = max_archive_bytes.saturating_sub(ARCHIVE_RESERVE_BYTES).saturating_sub(stream.estimated_bytes());
         if let Some((compressed, crc)) = deflate_bounded(text.as_bytes(), budget) {
             let entry = stream.write_deflated(source.name.as_bytes(), &compressed, text.len(), crc, when)?;
             summary.push(format!(
-                "  {}: original_bytes={original} collected_bytes={} packed_bytes={} credential_redaction=true",
+                "  {}: original_bytes={original} collected_bytes={} packed_bytes={} credential_redaction=true path_redaction=true",
                 source.name, entry.unpacked, entry.packed
             ));
             payload += entry.unpacked as u64;
@@ -333,18 +529,18 @@ fn collect_with_cap<W: std::io::Write>(
     }
 
     if let Some(text) = windows_crashes {
-        let text = eu4_harmony_logging::redact(text);
+        let text = redactor.redact(&eu4_harmony_logging::redact(text));
         let entry = stream.deflate(b"windows-crashes.txt", text.as_bytes(), when)?;
         summary.push(format!(
-            "  windows-crashes.txt: generated from Windows Application Error events; collected_bytes={} packed_bytes={} credential_redaction=true",
+            "  windows-crashes.txt: generated from Windows Application Error events; collected_bytes={} packed_bytes={} credential_redaction=true path_redaction=true",
             entry.unpacked, entry.packed
         ));
         payload += entry.unpacked as u64;
     }
 
     // 2. Pack binary dumps newest first within the remaining archive cap.
-    //    Oversized dumps are slimmed in memory to stack/module/exception streams
-    //    when full compression would exceed the budget.
+    //    Valid MDMP files are always slimmed in memory to stack/module/exception
+    //    streams with module paths redacted, even when small on disk.
     for source in dumps {
         let mut file = match source.opened.map_or_else(|| File::open(&source.path), Ok) {
             Ok(file) => file,
@@ -361,49 +557,31 @@ fn collect_with_cap<W: std::io::Write>(
             continue;
         }
 
-        // Try full dump first if it is modest in size; otherwise slim oversized dumps first.
-        let try_full_first = original <= SLIM_THRESHOLD_BYTES;
         let mut written = false;
-
-        if try_full_first {
-            if let Some((compressed, crc, unpacked)) = deflate_file_bounded(&mut file, original, budget)? {
-                let entry = stream.write_deflated(source.name.as_bytes(), &compressed, unpacked, crc, when)?;
-                summary.push(format!(
-                    "  {}: original_bytes={original} collected_bytes={} packed_bytes={} slimmed=false credential_redaction=false",
-                    source.name, entry.unpacked, entry.packed
-                ));
-                payload += entry.unpacked as u64;
-                written = true;
-            }
-        }
-
-        if !written {
-            match minidump::slim(&mut file) {
-                Ok(slimmed) if (slimmed.len() as u64) < original => {
-                    if let Some((compressed, crc)) = deflate_bounded(&slimmed, budget) {
-                        let entry = stream.write_deflated(source.name.as_bytes(), &compressed, slimmed.len(), crc, when)?;
-                        summary.push(format!(
-                            "  {}: original_bytes={original} collected_bytes={} packed_bytes={} slimmed=true credential_redaction=false",
-                            source.name, entry.unpacked, entry.packed
-                        ));
-                        payload += entry.unpacked as u64;
-                        written = true;
-                    }
+        let redact_path = |p: &str| redactor.redact(p);
+        match minidump::slim(&mut file, &redact_path) {
+            Ok(slimmed) => {
+                if let Some((compressed, crc)) = deflate_bounded(&slimmed, budget) {
+                    let entry = stream.write_deflated(source.name.as_bytes(), &compressed, slimmed.len(), crc, when)?;
+                    summary.push(format!(
+                        "  {}: original_bytes={original} collected_bytes={} packed_bytes={} slimmed=true path_redaction=true credential_redaction=false",
+                        source.name, entry.unpacked, entry.packed
+                    ));
+                    payload += entry.unpacked as u64;
+                    written = true;
                 }
-                _ => {}
             }
-        }
-
-        // If slimming was unavailable (e.g. non-MDMP binary or already slim) and we skipped trying full first, try full within budget.
-        if !written && !try_full_first {
-            if let Some((compressed, crc, unpacked)) = deflate_file_bounded(&mut file, original, budget)? {
-                let entry = stream.write_deflated(source.name.as_bytes(), &compressed, unpacked, crc, when)?;
-                summary.push(format!(
-                    "  {}: original_bytes={original} collected_bytes={} packed_bytes={} slimmed=false credential_redaction=false",
-                    source.name, entry.unpacked, entry.packed
-                ));
-                payload += entry.unpacked as u64;
-                written = true;
+            Err(_) => {
+                // Non-MDMP binary fallback: pack verbatim only if it fits within budget.
+                if let Some((compressed, crc, unpacked)) = deflate_file_bounded(&mut file, original, budget)? {
+                    let entry = stream.write_deflated(source.name.as_bytes(), &compressed, unpacked, crc, when)?;
+                    summary.push(format!(
+                        "  {}: original_bytes={original} collected_bytes={} packed_bytes={} slimmed=false path_redaction=false credential_redaction=false",
+                        source.name, entry.unpacked, entry.packed
+                    ));
+                    payload += entry.unpacked as u64;
+                    written = true;
+                }
             }
         }
 
@@ -413,7 +591,8 @@ fn collect_with_cap<W: std::io::Write>(
     }
 
     summary.push(format!("payload_bytes={payload}; about.txt is additional metadata"));
-    stream.deflate(b"about.txt", (summary.join("\r\n") + "\r\n").as_bytes(), when)?;
+    let summary_text = redactor.redact(&(summary.join("\r\n") + "\r\n"));
+    stream.deflate(b"about.txt", summary_text.as_bytes(), when)?;
     stream.finish()
 }
 
@@ -503,6 +682,9 @@ mod tests {
         put(&user.report(), "report");
         put(&user.logs().join("core.snapshot-run-1.new"), "in progress");
         put(&user.game_logs().join("error.log"), "error");
+        put(&user.game_logs().join("pops.log"), "account info");
+        put(&user.game_logs().join("chat.log"), "private chat");
+        put(&user.game_logs().join("multiplayer.log"), "mp ip");
         for name in ["eu4_2026_11_08", "eu4_2026_11_09", "eu4_2026_11_10", "eu4_2026_11_11"] {
             put(&user.crashes().join(name).join("exception.txt"), name);
         }
@@ -671,7 +853,58 @@ mod tests {
         candidates.extend(dumps);
         let mut archive = std::io::Cursor::new(collect(Vec::new(), candidates, Vec::new(), None, (0, 0x21)).unwrap());
         let path = format!("windows-dumps/{run}/minidump.dmp");
-        assert_eq!(zip::find(&mut archive, path.as_bytes(), 4096).unwrap(), payload);
+        let packed = zip::find(&mut archive, path.as_bytes(), 4096).unwrap();
+        let expected = minidump::slim(&mut std::io::Cursor::new(&payload), &|s| s.to_string()).unwrap();
+        assert_eq!(packed, expected);
+        let summary = String::from_utf8(zip::find(&mut archive, b"about.txt", 4096).unwrap()).unwrap();
+        assert!(summary.contains("slimmed=true path_redaction=true"), "{summary}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn troubleshooting_redacts_user_paths_and_game_settings_player_fields() {
+        let dir = scratch("redaction");
+        let log_path = dir.join("core.log");
+        let settings_path = dir.join("settings.txt");
+        put(&log_path, "loaded C:\\Users\\Alice\\Documents\\Paradox\\eu4\nunix c:/users/alice/mod.txt\nother C:\\Users\\AliceSmith\\keep.txt\n");
+        put(&settings_path, "gui_scale=1.0\nlast_player_name=\"SecretNick\"\n  server_ip=192.0.2.42\nlast_server=\"lobby.example\"\nlanguage=\"l_english\"\n");
+        let candidates = vec![Source::new("harmony-logs/core.log".into(), log_path), Source::new("settings/settings.txt".into(), settings_path)];
+        let redactor = UserRedactor::new(Some(r"C:\Users\Alice"), Some("Alice"));
+        let summary = vec![
+            r"user folder: C:\Users\Alice\Documents\Paradox Interactive\Europa Universalis IV".into(),
+            r"game: D:\SteamLibrary\steamapps\common\Europa Universalis IV".into(),
+        ];
+        let mut archive = std::io::Cursor::new(
+            collect_with_cap_and_redactor(
+                Vec::new(),
+                candidates,
+                summary,
+                Some(r"Faulting module path: C:\Users\Alice\eu4_harmony_core.dll"),
+                (0, 0x21),
+                MAX_ARCHIVE_BYTES,
+                &redactor,
+            )
+            .unwrap(),
+        );
+        let log_text = String::from_utf8(zip::find(&mut archive, b"harmony-logs/core.log", 4096).unwrap()).unwrap();
+        assert!(log_text.contains(r"C:\Users\<USER>\Documents\Paradox\eu4"), "{log_text}");
+        assert!(log_text.contains("c:/Users/<USER>/mod.txt") || log_text.contains("C:/Users/<USER>/mod.txt"), "{log_text}");
+        assert!(log_text.contains(r"C:\Users\AliceSmith\keep.txt"), "{log_text}");
+        assert!(!log_text.contains(r"C:\Users\Alice\"));
+
+        let settings_text = String::from_utf8(zip::find(&mut archive, b"settings/settings.txt", 4096).unwrap()).unwrap();
+        assert!(!settings_text.contains("SecretNick"), "{settings_text}");
+        assert!(!settings_text.contains("192.0.2.42"), "{settings_text}");
+        assert!(!settings_text.contains("lobby.example"), "{settings_text}");
+        assert!(settings_text.contains("last_player_name=\"[redacted]\""), "{settings_text}");
+        assert!(settings_text.contains("language=\"l_english\""), "{settings_text}");
+
+        let about_text = String::from_utf8(zip::find(&mut archive, b"about.txt", 4096).unwrap()).unwrap();
+        assert!(about_text.contains(r"user folder: C:\Users\<USER>\Documents"), "{about_text}");
+        assert!(!about_text.contains(r"\Alice\"), "{about_text}");
+
+        let crashes_text = String::from_utf8(zip::find(&mut archive, b"windows-crashes.txt", 4096).unwrap()).unwrap();
+        assert!(crashes_text.contains(r"C:\Users\<USER>\eu4_harmony_core.dll"), "{crashes_text}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

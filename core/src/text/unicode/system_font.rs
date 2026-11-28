@@ -26,8 +26,8 @@ use windows::Win32::Graphics::DirectWrite::*;
 const LETTERS: &[&str] = &["Segoe UI"];
 const SIMPLIFIED: &[&str] = &["Microsoft YaHei", "SimSun", "SimSun-ExtB", "SimSun-ExtG", "FZPingXianYaSongS-R-GB"];
 const TRADITIONAL: &[&str] = &["Microsoft JhengHei", "MingLiU", "MingLiU-ExtB"];
-const JAPANESE: &[&str] = &["Yu Gothic", "Meiryo"];
-const KOREAN: &[&str] = &["Malgun Gothic"];
+const JAPANESE: &[&str] = &["Yu Gothic", "Meiryo", "Source Han Serif JP"];
+const KOREAN: &[&str] = &["Malgun Gothic", "Godo M"];
 const OTHERS: &[&str] = &["Segoe UI Symbol", "Segoe UI Emoji", "Nirmala UI"];
 
 /// The families tried after the chosen one for `language`, in order: its
@@ -419,8 +419,8 @@ mod tests {
         let order = |language| fallback(language).collect::<Vec<_>>();
         assert_eq!(order(Language::English)[..2], ["Segoe UI", "Microsoft YaHei"]);
         assert_eq!(order(Language::SimpChinese)[..2], ["Microsoft YaHei", "SimSun"]);
-        assert_eq!(order(Language::Japanese)[..2], ["Yu Gothic", "Meiryo"]);
-        assert_eq!(order(Language::Korean)[..2], ["Malgun Gothic", "Segoe UI"]);
+        assert_eq!(order(Language::Japanese)[..3], ["Yu Gothic", "Meiryo", "Source Han Serif JP"]);
+        assert_eq!(order(Language::Korean)[..2], ["Malgun Gothic", "Godo M"]);
         // Every family once, whatever the language.
         for language in Language::ALL {
             let mut families = order(language);
@@ -554,6 +554,21 @@ mod tests {
             assert_eq!(offered.iter().filter(|(e, _)| e == english).count(), 1, "{english} appears once");
             assert!(offered.contains(&(english.to_string(), chinese.to_string())), "{english} shown as {chinese}");
         }
+
+        // Bundled Japanese (Source Han Serif JP, Regular + SemiBold) and Korean (Godo M / Godo B) defaults.
+        assert_eq!(default_face(Language::Japanese, Role::Body, |f| fonts.has_family(f)), Face::new("Source Han Serif JP", 400));
+        assert_eq!(default_face(Language::Japanese, Role::Heading, |f| fonts.has_family(f)), Face::new("Source Han Serif JP", 600));
+        assert_eq!(default_face(Language::Japanese, Role::Map, |f| fonts.has_family(f)), Face::new("Source Han Serif JP", 600));
+        let jp_weights: Vec<u16> = fonts.weights("Source Han Serif JP").into_iter().map(|(w, _)| w).collect();
+        assert!(jp_weights.contains(&400) && jp_weights.contains(&600), "Source Han Serif JP weights: {jp_weights:?}");
+        let jp_offered = fonts.families_with(Language::Japanese.native_name(), Language::Japanese);
+        assert!(jp_offered.iter().any(|(e, _)| e == "Source Han Serif JP"), "Source Han Serif JP missing from {jp_offered:?}");
+
+        assert_eq!(default_face(Language::Korean, Role::Body, |f| fonts.has_family(f)), Face::regular("Godo M"));
+        assert_eq!(default_face(Language::Korean, Role::Heading, |f| fonts.has_family(f)), Face::regular("Godo B"));
+        assert_eq!(default_face(Language::Korean, Role::Map, |f| fonts.has_family(f)), Face::regular("Godo B"));
+        let ko_offered = fonts.families_with(Language::Korean.native_name(), Language::Korean);
+        assert!(ko_offered.iter().any(|(e, _)| e == "Godo M") && ko_offered.iter().any(|(e, _)| e == "Godo B"), "Godo missing from {ko_offered:?}");
     }
 
     #[test]

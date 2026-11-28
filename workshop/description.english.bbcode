@@ -1,7 +1,11 @@
 [h1]Harmony[/h1]
 [b]Europa Universalis IV, made better from within.[/b] Crisp Chinese, Japanese and Korean text everywhere, no restarts when returning to the main menu, faster late-game ticks, fewer engine bugs, and richer mods — while leaving the game's rules untouched.
 
-[b]Important: subscribing alone does not activate Harmony.[/b] After subscribing, copy one file ([b]version.dll[/b]) into your EU4 game folder once. All future updates happen automatically.
+[b]Important — two things to know before starting:[/b]
+[list]
+[*][b]Subscribing alone does not activate Harmony.[/b] After subscribing, copy one file ([b]version.dll[/b]) into your EU4 game folder once — either with the one-line PowerShell copy command below or in 3 clicks. All future updates happen automatically.
+[*][b]Antivirus note:[/b] Harmony is 100% open source (MIT) and loads into [b]eu4.exe[/b] via [b]version.dll[/b], which can occasionally trigger heuristic warnings. You can inspect the code on GitHub, add the EU4 folder to your antivirus exclusion list, or build from source.
+[/list]
 
 Your translation mod still supplies the game's translations; translation mods made for the older double-byte patch — and saves played with them — continue to work directly.
 
@@ -15,7 +19,7 @@ Your translation mod still supplies the game's translations; translation mods ma
 [tr]
 [td][b]CJK text & fonts[/b][/td]
 [td]Broken Chinese/Japanese/Korean text without old patches; blurry bitmap fonts, broken line wraps and search.[/td]
-[td]Native UTF-8 CJK rendering using sharp system/bundled fonts with live font preview, clean line wrapping, IME input, and proper East Asian dates, names and battle titles.[/td]
+[td]Native UTF-8 CJK rendering with sharp system fonts plus free bundled defaults for Simplified Chinese, Japanese and Korean, live font preview, clean line wrapping, IME input, and proper East Asian dates, names and battle titles.[/td]
 [/tr]
 [tr]
 [td][b]Returning & loading[/b][/td]
@@ -39,19 +43,23 @@ Your translation mod still supplies the game's translations; translation mods ma
 [/tr]
 [/table]
 
-[h2]Installing[/h2]
-Harmony runs inside the game process, so one file must be copied into the game folder once:
+[h2]Installing (pick either option)[/h2]
+First, [b]subscribe to Harmony[/b] on this page and let Steam finish downloading it. Then copy [b]version.dll[/b] into your game folder once:
 
+[b]Option A — One-line PowerShell copy (fastest, optional)[/b]
+Press [b]Win + X[/b] → [b]Terminal[/b] (or [b]Windows PowerShell[/b]), paste this line and press Enter. It only locates your Steam libraries locally, backs up any existing [b]version.dll[/b] to [b]version.dll.bak[/b], and copies Harmony's [b]version.dll[/b] (nothing is downloaded):
+[code]$s=(gp HKCU:\Software\Valve\Steam).SteamPath; $libs=@($s)+((sls '"path"\s+"([^"]+)"' "$s\steamapps\libraryfolders.vdf" -EA 0|%{$_.Matches[0].Groups[1].Value -replace '\\\\','\'})|?{$_}); $g=$libs|%{"$_\steamapps\common\Europa Universalis IV"}|?{Test-Path "$_\eu4.exe"}|select -First 1; $src=$libs|%{"$_\steamapps\workshop\content\236850\3837775887\version.dll"}|?{Test-Path $_}|select -First 1; if(!$g -or !$src){throw "Not found (subscribe in Steam first): game='$g' workshop='$src'"}; $dst="$g\version.dll"; if((Test-Path $dst) -and !(Test-Path "$dst.bak") -and (Get-FileHash $dst).Hash -ne (Get-FileHash $src).Hash){Copy-Item $dst "$dst.bak"}; Copy-Item $src $dst -Force; "Installed to $dst"[/code]
+
+[b]Option B — Manual copy (mouse only, 3 steps)[/b]
 [olist]
-[*]Subscribe to Harmony on this page.
-[*]In Steam, right-click [b]Europa Universalis IV[/b] → [b]Manage → Browse local files[/b] to open the game folder (keep it open).
-[*]Open the Paradox Launcher → [b]Mod library[/b] → find [b]Harmony[/b] → click [b]… → Show in folder[/b]. (If it does not appear yet, restart Steam, or open [b]steamapps\workshop\content\236850\3837775887[/b] in the same Steam library as EU4.)
-[*]Copy [b]version.dll[/b] from Harmony's folder into the game folder, next to [b]eu4.exe[/b]. (Windows may hide file extensions, showing [b]version[/b] and [b]eu4[/b]. If an older [b]version.dll[/b] is already there — e.g. from a double-byte patch — choose [b]Replace[/b], or back it up first if you want to switch back later.)
+[*]In Steam, right-click [b]Europa Universalis IV[/b] → [b]Manage → Browse local files[/b] to open the game folder.
+[*]Open the Paradox Launcher → [b]Mod library[/b] → find [b]Harmony[/b] → click [b]… → Show in folder[/b] (or open [b]steamapps\workshop\content\236850\3837775887[/b] in your Steam library).
+[*]Copy [b]version.dll[/b] into the game folder next to [b]eu4.exe[/b] (Windows may hide extensions and show [b]version[/b] and [b]eu4[/b]; replace any old [b]version.dll[/b], or back it up first).
 [/olist]
 
 Launch EU4 as usual. Harmony does not need to be added to a playset; mods built on Harmony are enabled in your playset like any normal mod. When Harmony is active, the main menu shows [b]Harmony v…[/b], [b]Mods[/b] and [b]Settings[/b] in the bottom-right corner.
 
-Steam keeps Harmony updated automatically. When an update includes a newer [b]version.dll[/b], Harmony updates the copy in your game folder on startup and restarts the game for you.
+Steam keeps Harmony updated automatically. When an update includes a newer [b]version.dll[/b], Harmony updates the copy in your game folder on startup and restarts the game for you (only notifying you if the folder is read-only).
 
 [h2]Requirements[/h2]
 [list]
@@ -61,17 +69,17 @@ Steam keeps Harmony updated automatically. When an update includes a newer [b]ve
 
 [h2]FAQ[/h2]
 [list]
-[*][b]I subscribed, why don't I see Harmony in the main menu?[/b] Subscribing alone is not enough — make sure you copied [b]version.dll[/b] next to [b]eu4.exe[/b] (Step 4 above), and verify EU4 is on version 1.37.5 on Steam Windows.
-[*][b]My antivirus flagged version.dll or eu4_harmony_core.dll — is it safe?[/b] Harmony is 100% open source on GitHub and injects into `eu4.exe` to improve the game, which can occasionally trigger heuristic false positives. You can inspect the source code, add the EU4 folder to your antivirus exclusion list, or build it yourself.
+[*][b]I subscribed, why don't I see Harmony in the main menu?[/b] Subscribing alone is not enough — make sure you copied [b]version.dll[/b] next to [b]eu4.exe[/b] (Option A or B above), and verify EU4 is on version 1.37.5 on Steam Windows.
+[*][b]My antivirus flagged version.dll or eu4_harmony_core.dll — is it safe?[/b] Harmony is 100% open source on GitHub and loads into [b]eu4.exe[/b] to improve the game, which can occasionally trigger heuristic false positives. You can inspect the source code, add the EU4 folder to your antivirus exclusion list, or build it yourself.
 [*][b]I used the old double-byte CJK patch or bitmap font mods — how do I migrate?[/b] Replace the old [b]version.dll[/b] with Harmony's, disable old bitmap font mods (which are no longer needed and conflict with system fonts), and keep your translation mod enabled. Your existing saves load directly.
 [*][b]Does Harmony support multiplayer?[/b] Multiplayer support is on the way. Right now Harmony is single-player only. To play multiplayer, unsubscribe from Harmony or temporarily move [b]version.dll[/b] out of the game folder.
 [*][b]Are my saves safe if I disable Harmony later?[/b] Harmony itself does not break save structure, though custom text you typed with Harmony is stored in UTF-8 (which shows as garbled characters without Harmony). If you use a Harmony mod that stores its own data inside saves, those saves are not guaranteed to load without Harmony.
 [*][b]Why does the game sound quieter, or why did non-Ironman achievements not apply to an old save?[/b] Harmony switches volume sliders to a smooth quadratic curve, so values below 100 sound quieter — simply turn them up once. Achievement rules take effect when starting a new campaign (or on the next load according to the game's achievement flag).
-[*][b]How do I uninstall cleanly?[/b] Unsubscribe from Harmony and delete [b]version.dll[/b] from the game folder (restore any earlier backup if you kept one). If you previously enabled Windows crash dumps in Harmony Settings → About, click [b]Disable Windows crash dumps for EU4[/b] there first.
+[*][b]How do I uninstall cleanly?[/b] Unsubscribe from Harmony and delete [b]version.dll[/b] from the game folder (restore [b]version.dll.bak[/b] if you kept one). If you previously enabled Windows crash dumps in [b]Harmony settings → Advanced[/b], click [b]Disable Windows crash dumps for EU4 (admin)[/b] there first.
 [/list]
 
 [h2]Troubleshooting & feedback[/h2]
-In the main menu, open [b]Harmony settings → About[/b] and click [b]Save troubleshooting files to the desktop[/b] to create a compact zip (under 24 MB, no saves) with logs, recent crashes, settings and playset, then report the issue on [url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url] with that zip attached.
+In the main menu or in-game menu, open [b]Harmony settings → About[/b] and click [b]Save troubleshooting files to the desktop[/b] to create a compact zip (under 24 MB, no saves, username paths redacted, crash dumps slimmed) with logs, recent crashes, settings and playset, then report the issue on [url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url] with that zip attached. You can also open the log folder directly from [b]Harmony settings → Advanced[/b].
 
 [h2]For mod authors[/h2]
 Harmony mods are standard Paradox mods with sandboxed Lua extensions that read game state, issue player-equivalent orders, and splice native-style UI panels. See the [url=https://github.com/KisinTheFlame/eu4-harmony]GitHub README[/url] for documentation and tools.

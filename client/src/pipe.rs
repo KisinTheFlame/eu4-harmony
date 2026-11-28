@@ -82,7 +82,10 @@ pub enum Failure {
 impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::NotOpen => write!(f, "no game with Harmony opened its pipe in time: the game is not running, is still starting, or is starting again after returning to the main menu"),
+            Self::NotOpen => write!(
+                f,
+                "no game with Harmony opened its pipe in time: the game is not running, is still starting, is restarting, or remote control is disabled (enable it in Harmony settings -> Advanced and restart the game, or launch with eu4-harmony start)"
+            ),
             Self::Denied => write!(f, "the pipe is there but not open to this Windows user: a game run by another user, or another program, has it"),
             Self::NotTheGame(why) => write!(f, "nothing was sent: {why}"),
             Self::Unknown(why) => write!(f, "nothing was sent: who serves the pipe cannot be told ({why})"),

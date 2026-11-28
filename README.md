@@ -16,7 +16,7 @@ English | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국�
 
 | | Unmodified game | With Harmony |
 | --- | :-: | :-: |
-| Crisp Chinese, Japanese and Korean text with system/bundled fonts and live font preview (no double-byte patch or bitmap font mod) | ✗ | ✓ |
+| Crisp Chinese, Japanese and Korean text with system fonts plus free bundled defaults (Simplified Chinese, Japanese, Korean) and live font preview (no double-byte patch or bitmap font mod) | ✗ | ✓ |
 | Return to the main menu in seconds without restarting the game | ✗ | ✓ |
 | Load another save directly from an Ironman campaign | ✗ | ✓ |
 | Smoother map panning and zooming even at speed 5, with less late-game stutter | ✗ | ✓ |
@@ -32,16 +32,29 @@ Your translation mod is still what translates the game; translation mods made fo
 
 ### Installing
 
-**Important: subscribing alone does not activate Harmony.** Copy one file (`version.dll`) into your game folder once:
+**Important:**
+- **Subscribing alone does not activate Harmony.** Copy one file (`version.dll`) into your game folder once — either with the one-line PowerShell copy command below or in 3 clicks.
+- **Antivirus note:** Harmony is open source (MIT) and loads into `eu4.exe` via `version.dll`, which can occasionally trigger heuristic warnings. You can inspect the code, add the EU4 folder to your antivirus exclusion list, or build from source.
 
-1. Subscribe to **Harmony** on the Steam Workshop.
-2. In Steam, right-click **Europa Universalis IV** → **Manage → Browse local files** to open the game folder (keep it open).
-3. Open the Paradox launcher → **Mod library** → find **Harmony** → click **… → Show in folder**. (If Harmony does not appear yet, restart Steam, or open `steamapps\workshop\content\236850\<id>\` in the same Steam library as EU4.)
-4. Copy `version.dll` from Harmony's folder into the game folder, next to `eu4.exe`. (Windows may hide file extensions, showing `version` and `eu4`. If an older `version.dll` already exists — e.g. from a double-byte patch — choose **Replace**, or back it up first if you want to switch back later.)
+First, subscribe to **Harmony** on the Steam Workshop and let Steam finish downloading it. Then pick either option:
+
+#### Option A — One-line PowerShell copy (fastest, optional)
+
+Press **Win + X** → **Terminal** (or **Windows PowerShell**), paste this line and press Enter. It only searches your local Steam libraries, backs up any existing `version.dll` to `version.dll.bak`, and copies Harmony's `version.dll` (nothing is downloaded):
+
+```powershell
+$s=(gp HKCU:\Software\Valve\Steam).SteamPath; $libs=@($s)+((sls '"path"\s+"([^"]+)"' "$s\steamapps\libraryfolders.vdf" -EA 0|%{$_.Matches[0].Groups[1].Value -replace '\\\\','\'})|?{$_}); $g=$libs|%{"$_\steamapps\common\Europa Universalis IV"}|?{Test-Path "$_\eu4.exe"}|select -First 1; $src=$libs|%{"$_\steamapps\workshop\content\236850\3837775887\version.dll"}|?{Test-Path $_}|select -First 1; if(!$g -or !$src){throw "Not found (subscribe in Steam first): game='$g' workshop='$src'"}; $dst="$g\version.dll"; if((Test-Path $dst) -and !(Test-Path "$dst.bak") -and (Get-FileHash $dst).Hash -ne (Get-FileHash $src).Hash){Copy-Item $dst "$dst.bak"}; Copy-Item $src $dst -Force; "Installed to $dst"
+```
+
+#### Option B — Manual copy (mouse only, 3 steps)
+
+1. In Steam, right-click **Europa Universalis IV** → **Manage → Browse local files** to open the game folder.
+2. Open the Paradox launcher → **Mod library** → find **Harmony** → click **… → Show in folder** (or open `steamapps\workshop\content\236850\3837775887\` in your Steam library).
+3. Copy `version.dll` into the game folder next to `eu4.exe`. (Windows may hide file extensions, showing `version` and `eu4`. Replace any older `version.dll`, or back it up first if you want to switch back later.)
 
 Start EU4 from the Paradox launcher as usual. Harmony needs no place in your playset; mods built on it are enabled in your playset like any mod. The main menu and in-game menu now show **Harmony v…**, **Mods** and **Settings** in the bottom-right corner.
 
-Steam keeps Harmony up to date. When an update includes a newer `version.dll`, Harmony updates the copy in the game folder on startup and restarts the game automatically (only asking you to copy it manually if the game folder is read-only).
+Steam keeps Harmony up to date. When an update includes a newer `version.dll`, Harmony updates the copy in the game folder on startup and restarts the game automatically (only notifying you in-game if the folder is read-only).
 
 #### Manual install (GitHub Releases)
 
@@ -49,12 +62,12 @@ Download `eu4-harmony-<version>-windows-x64.zip` from [GitHub Releases](https://
 
 #### Uninstalling
 
-Unsubscribe from Harmony and delete `version.dll` from the game folder (restore any earlier backup if you kept one). If you enabled Windows crash dumps from **Harmony settings → About**, click **Disable Windows crash dumps for EU4 (admin)** there first.
+Unsubscribe from Harmony and delete `version.dll` from the game folder (restore `version.dll.bak` if you kept one). If you enabled Windows crash dumps from **Harmony settings → Advanced**, click **Disable Windows crash dumps for EU4 (admin)** there first.
 
 ### FAQ
 
 - **I subscribed, why is Harmony not showing in the main menu?**
-  Subscribing alone does not load Harmony. Make sure you copied `version.dll` next to `eu4.exe` (Step 4 above), and confirm your game is Steam Windows EU4 1.37.5.
+  Subscribing alone does not load Harmony. Make sure you copied `version.dll` next to `eu4.exe` (Option A or B above), and confirm your game is Steam Windows EU4 1.37.5.
 - **My antivirus warned about `version.dll` or `eu4_harmony_core.dll`. Is it safe?**
   Harmony is open source under MIT and works by loading into `eu4.exe`, which can occasionally trigger heuristic false positives. You can review the code, add the EU4 game folder to your antivirus exclusion list, or build from source.
 - **How do I migrate from the old double-byte CJK patch or bitmap font mods?**
@@ -68,9 +81,9 @@ Unsubscribe from Harmony and delete `version.dll` from the game folder (restore 
 
 ### Troubleshooting
 
-In the main menu or in-game menu, open **Harmony settings → About** and click **Save troubleshooting files to the desktop**. It creates a zip under 24 MiB (no saves) containing Harmony logs, game logs, recent crashes (oversized dumps are slimmed automatically), settings and playset. Click the GitHub Issues link right on the About page and attach that zip to your report.
+In the main menu or in-game menu, open **Harmony settings → About** and click **Save troubleshooting files to the desktop**. It creates a zip under 24 MiB (no saves) containing Harmony logs, allowlisted game logs (no account/multiplayer/chat logs), recent crashes (minidumps are slimmed in memory with module paths redacted), settings and playset, with username paths and player identifiers redacted. Click the GitHub Issues link right on the About page and attach that zip to your report.
 
-Logs live in `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`. See [docs/logs.md](docs/logs.md) for retention limits and crash-dump controls.
+You can also open the log folder (`Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`) directly from **Harmony settings → Advanced**. See [docs/logs.md](docs/logs.md) for retention limits, redaction rules and crash-dump controls.
 
 ---
 
@@ -129,7 +142,7 @@ eu4-harmony game screenshot --out shot.png
 eu4-harmony game menu return               # return to the main menu
 ```
 
-In observe mode (`menu start` without a tag), use `session view FRA` / `session leave_view` to switch perspectives ([docs/game/countries/countries.md](docs/game/countries/countries.md)). Remote control listens only for the active Windows user on localhost; add `--as-game` for omniscient/script-level access ([ADR requests-act-as-the-player-or-as-the-game](docs/adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md)). Run `eu4-harmony wiki remote` for details.
+In observe mode (`menu start` without a tag), use `session view FRA` / `session leave_view` to switch perspectives ([docs/game/countries/countries.md](docs/game/countries/countries.md)). Remote control is off by default: `eu4-harmony start` enables it for that session automatically, or you can enable **Enable remote control** in **Harmony settings → Advanced** and restart the game. When enabled, it listens only for the active Windows user on localhost; add `--as-game` for omniscient/script-level access ([ADR requests-act-as-the-player-or-as-the-game](docs/adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md)). Run `eu4-harmony wiki remote` for details.
 
 ---
 

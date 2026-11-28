@@ -40,13 +40,17 @@ use crate::native::points::{Function, Point};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 
-/// The visibility, audio and test-game switches on the game's command line.
+/// The visibility, audio, remote-control and test-game switches on the game's
+/// command line.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Switches {
     /// `-harmony_hidden`: start with the game window hidden.
     pub hidden: bool,
     /// `-harmony_mute`: silence audio via SDL's `dummy` driver.
     pub mute: bool,
+    /// `-harmony_remote`: enable the remote-control named pipe for this run
+    /// without changing saved settings (ADR remote-control-is-opt-in).
+    pub remote: bool,
     /// `-harmony_test_game=<name>`: isolated test game (only in `dev-test-games` builds).
     pub test_game: bool,
 }
@@ -60,12 +64,18 @@ impl Switches {
         let test_game = eu4_harmony_folders::switch_value(command_line, "-harmony_test_game").is_some();
         #[cfg(not(feature = "dev-test-games"))]
         let test_game = false;
-        Self { hidden: has("-harmony_hidden"), mute: has("-harmony_mute"), test_game }
+        Self { hidden: has("-harmony_hidden"), mute: has("-harmony_mute"), remote: has("-harmony_remote"), test_game }
     }
 
     /// Whether this run is unattended (a hidden start or a test game).
     pub fn unattended(self) -> bool {
         self.hidden || self.test_game
+    }
+
+    /// Whether the command line requests remote control for this run
+    /// (`-harmony_remote`, `-harmony_hidden`, or `-harmony_test_game`).
+    pub fn remote_requested(self) -> bool {
+        self.remote || self.hidden || self.test_game
     }
 }
 
@@ -141,6 +151,12 @@ pub fn hidden_start() -> bool {
 /// Whether this run is unattended (`-harmony_hidden` or `-harmony_test_game`).
 pub fn unattended() -> bool {
     SWITCHES.get().is_some_and(|s| s.unattended())
+}
+
+/// Whether the command line requests remote control for this run
+/// (`-harmony_remote`, `-harmony_hidden`, or `-harmony_test_game`).
+pub fn remote_requested() -> bool {
+    SWITCHES.get().is_some_and(|s| s.remote_requested())
 }
 
 /// Whether the game plays sound (`false` when started with `-harmony_mute`).
@@ -432,26 +448,30 @@ mod tests {
     #[test]
     fn the_switches_are_words_of_the_command_line_in_any_case() {
         let both = Switches::of(r#""E:\Steam\Europa Universalis IV\eu4.exe" -harmony_hidden -HARMONY_MUTE"#);
-        assert_eq!(both, Switches { hidden: true, mute: true, test_game: false });
-        assert!(both.unattended());
+        assert_eq!(both, Switches { hidden: true, mute: true, remote: false, test_game: false });
+        assert!(both.unattended() && both.remote_requested());
 
-        assert_eq!(Switches::of(r#""E:\eu4.exe" "-harmony_hidden""#), Switches { hidden: true, mute: false, test_game: false });
-        assert_eq!(Switches::of(r#""E:\eu4.exe" -harmony_mute"#), Switches { hidden: false, mute: true, test_game: false });
+        assert_eq!(Switches::of(r#""E:\eu4.exe" "-harmony_hidden""#), Switches { hidden: true, mute: false, remote: false, test_game: false });
+        assert_eq!(Switches::of(r#""E:\eu4.exe" -harmony_mute"#), Switches { hidden: false, mute: true, remote: false, test_game: false });
         assert!(!Switches::of(r#""E:\eu4.exe" -harmony_mute"#).unattended());
-        assert_eq!(Switches::of(r#""E:\harmony_hidden\eu4.exe" -harmony_hiddenx -harmony_mutex -debug"#), Switches::default());
+        assert!(!Switches::of(r#""E:\eu4.exe" -harmony_mute"#).remote_requested());
+        let remote = Switches::of(r#""E:\eu4.exe" --HARMONY_REMOTE"#);
+        assert_eq!(remote, Switches { hidden: false, mute: false, remote: true, test_game: false });
+        assert!(!remote.unattended() && remote.remote_requested());
+        assert_eq!(Switches::of(r#""E:\harmony_hidden\eu4.exe" -harmony_hiddenx -harmony_mutex -harmony_remotex -debug"#), Switches::default());
         assert_eq!(
-            Switches::of(r#"--E:\eu4.exe --harmony_hidden --harmony_mute --userdir="E:\u" -skiplauncher"#),
-            Switches { hidden: true, mute: true, test_game: false }
+            Switches::of(r#"--E:\eu4.exe --harmony_hidden --harmony_mute --harmony_remote --userdir="E:\u" -skiplauncher"#),
+            Switches { hidden: true, mute: true, remote: true, test_game: false }
         );
 
         let test_game = Switches::of(r#""E:\eu4.exe" -harmony_mute -harmony_test_game=qa"#);
         #[cfg(feature = "dev-test-games")]
-        assert_eq!(test_game, Switches { hidden: false, mute: true, test_game: true });
+        assert_eq!(test_game, Switches { hidden: false, mute: true, remote: false, test_game: true });
         #[cfg(feature = "dev-test-games")]
-        assert!(test_game.unattended());
+        assert!(test_game.unattended() && test_game.remote_requested());
         #[cfg(not(feature = "dev-test-games"))]
-        assert_eq!(test_game, Switches { hidden: false, mute: true, test_game: false });
+        assert_eq!(test_game, Switches { hidden: false, mute: true, remote: false, test_game: false });
         #[cfg(not(feature = "dev-test-games"))]
-        assert!(!test_game.unattended());
+        assert!(!test_game.unattended() && !test_game.remote_requested());
     }
 }

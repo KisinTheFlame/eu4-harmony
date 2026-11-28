@@ -16,7 +16,7 @@
 
 | | バニラ版 | Harmony 導入後 |
 | --- | :-: | :-: |
-| システムフォントとライブプレビューによる鮮明な日本語・中国語・韓国語表示（旧パッチ・ビットマップフォント Mod 不要） | ✗ | ✓ |
+| システムフォント＋無料同梱標準フォント（日本語・簡体字中国語・韓国語）とライブプレビューによる鮮明な表示（旧パッチ・ビットマップフォント Mod 不要） | ✗ | ✓ |
 | 再起動なしで数秒でメインメニューへ復帰 | ✗ | ✓ |
 | アイアンマン進行中でも別セーブを直接ロード可能 | ✗ | ✓ |
 | 速度 5 でも滑らかなマップ移動・ズームと、後半カクつきの軽減 | ✗ | ✓ |
@@ -32,16 +32,29 @@
 
 ### インストール
 
-**重要：サブスクライブしただけでは有効になりません。** 初回のみ 1 ファイル（`version.dll`）をゲームフォルダへコピーしてください：
+**重要：**
+- **サブスクライブしただけでは有効になりません。** 初回のみ 1 ファイル（`version.dll`）をゲームフォルダへコピーしてください（下の 1 行コマンドまたはマウス操作 3 ステップ）。
+- **セキュリティソフトの警告について：** Harmony は MIT ライセンスで全ソースコードを公開しています。`version.dll` 経由で `eu4.exe` に読み込む仕組み上、まれにヒューリスティック誤検知が起きることがあります。コードの確認、EU4 フォルダの除外設定、または自己ビルドが可能です。
 
-1. Steam ワークショップで **Harmony** をサブスクライブします。
-2. Steam で **Europa Universalis IV** を右クリック → **管理 → ローカルファイルを閲覧** でゲームフォルダを開きます（開いたままにします）。
-3. Paradox ランチャー → **Mod ライブラリ** → **Harmony** → 右側の **… → フォルダで表示** をクリックします。（表示されない場合は Steam を再起動するか、EU4 と同じ Steam ライブラリ内の `steamapps\workshop\content\236850\<id>\` を開いてください。）
-4. Harmony フォルダの `version.dll` をゲームフォルダの `eu4.exe` の隣へコピーします。（拡張子が非表示の場合は `version` と `eu4` と表示されます。旧パッチの `version.dll` が既にある場合は**置き換え**てください。元に戻せるようにしたい場合は先に退避してください。）
+まず Steam ワークショップで **Harmony** をサブスクライブし、ダウンロード完了後にいずれかの方法を実行してください：
+
+#### 方法 A：1 行 PowerShell コマンドで自動コピー（最速・任意）
+
+**Win + X** → **ターミナル**（または **Windows PowerShell**）を開き、下の 1 行を貼り付けて Enter を押してください。ローカルの Steam ライブラリ検索、既存 `version.dll` の `version.dll.bak` への退避、およびコピーのみを行います（通信・ダウンロードは一切行いません）：
+
+```powershell
+$s=(gp HKCU:\Software\Valve\Steam).SteamPath; $libs=@($s)+((sls '"path"\s+"([^"]+)"' "$s\steamapps\libraryfolders.vdf" -EA 0|%{$_.Matches[0].Groups[1].Value -replace '\\\\','\'})|?{$_}); $g=$libs|%{"$_\steamapps\common\Europa Universalis IV"}|?{Test-Path "$_\eu4.exe"}|select -First 1; $src=$libs|%{"$_\steamapps\workshop\content\236850\3837775887\version.dll"}|?{Test-Path $_}|select -First 1; if(!$g -or !$src){throw "Not found (subscribe in Steam first): game='$g' workshop='$src'"}; $dst="$g\version.dll"; if((Test-Path $dst) -and !(Test-Path "$dst.bak") -and (Get-FileHash $dst).Hash -ne (Get-FileHash $src).Hash){Copy-Item $dst "$dst.bak"}; Copy-Item $src $dst -Force; "Installed to $dst"
+```
+
+#### 方法 B：マウスのみで手動コピー（3 ステップ）
+
+1. Steam で **Europa Universalis IV** を右クリック → **管理 → ローカルファイルを閲覧** でゲームフォルダを開きます。
+2. Paradox ランチャー → **Mod ライブラリ** → **Harmony** → 右側の **… → フォルダで表示** をクリックします（Steam ライブラリ内の `steamapps\workshop\content\236850\3837775887\` でも開けます）。
+3. `version.dll` をゲームフォルダの `eu4.exe` の隣へコピーします。（拡張子非表示の場合は `version`・`eu4` と表示されます。旧 `version.dll` があれば置き換えるか先に退避してください。）
 
 通常通り Paradox ランチャーから起動してください。Harmony 自体はプレイセットに追加不要です（Harmony 対応 Mod は通常通りプレイセットで有効化します）。有効化されるとメインメニューとゲーム内メニュー右下に **Harmony v…**・**Mod一覧**・**設定** が表示されます。
 
-更新は Steam が自動で行います。新しい `version.dll` が含まれる更新では、起動時に自動でコピーを更新してゲームを再起動します。
+更新は Steam が自動で行います。新しい `version.dll` が含まれる更新では、起動時に自動でコピーを更新してゲームを再起動します（フォルダが読み取り専用の場合のみゲーム内で通知します）。
 
 #### 手動インストール（GitHub Releases）
 
@@ -49,12 +62,12 @@
 
 #### アンインストール
 
-Harmony のサブスクライブを解除し、ゲームフォルダの `version.dll` を削除してください（退避していた旧ファイルがあれば戻します）。**Harmony 設定 → 情報** で Windows クラッシュダンプを有効にしていた場合は、先に同画面の **無効にする** ボタンを押してください。
+Harmony のサブスクライブを解除し、ゲームフォルダの `version.dll` を削除してください（`version.dll.bak` があれば戻します）。**Harmony 設定 → 詳細設定** で Windows クラッシュダンプを有効にしていた場合は、先に同画面の **無効にする** ボタンを押してください。
 
 ### よくある質問（FAQ）
 
 - **サブスクライブしたのにメインメニューに Harmony が表示されません。**
-  サブスクライブだけでは有効になりません。手順 4 の通り `version.dll` が `eu4.exe` の隣にコピーされているか、また Steam Windows 版 1.37.5 であるか確認してください。
+  サブスクライブだけでは有効になりません。上の方法 A または B の通り `version.dll` が `eu4.exe` の隣にコピーされているか、また Steam Windows 版 1.37.5 であるか確認してください。
 - **セキュリティソフトが `version.dll` や `eu4_harmony_core.dll` を警告します。安全ですか？**
   Harmony は MIT ライセンスで全ソースコードを公開しています。ゲームプロセス内へ読み込む仕組み上、まれにヒューリスティック誤検知が起きることがあります。コードの確認、EU4 フォルダの除外設定、または自己ビルドが可能です。
 - **旧マルチバイトパッチやフォント Mod から移行するには？**
@@ -68,9 +81,9 @@ Harmony のサブスクライブを解除し、ゲームフォルダの `version
 
 ### トラブルシューティング
 
-メインメニューまたはゲーム内メニューで **Harmony 設定 → 情報** を開き、**トラブルシューティング用ファイルをデスクトップに保存** をクリックすると、ログ・直近のクラッシュ情報（大きいダンプは自動軽量化）・設定・プレイセット（セーブなし、24 MiB 未満）をまとめた zip が作成されます。情報ページの GitHub Issues リンクから、その zip を添付して報告してください。
+メインメニューまたはゲーム内メニューで **Harmony 設定 → 情報** を開き、**トラブルシューティング用ファイルをデスクトップに保存** をクリックすると、Harmony ログ・対象ゲームログ（アカウント／マルチ／チャット系ログは除外）・直近のクラッシュ情報（ダンプはメモリ上で自動軽量化・パス伏せ字済み）・設定・プレイセット（セーブなし、ユーザー名パスとプレイヤー識別子を伏せ字済み、24 MiB 未満）をまとめた zip が作成されます。情報ページの GitHub Issues リンクから、その zip を添付して報告してください。
 
-ログは `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\` に保存されます。詳細は [docs/logs.md](docs/logs.md) を参照してください。
+ログフォルダ（`Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`）は **Harmony 設定 → 詳細設定** からも直接開けます。詳細は [docs/logs.md](docs/logs.md) を参照してください。
 
 ---
 
@@ -129,7 +142,7 @@ eu4-harmony game screenshot --out shot.png
 eu4-harmony game menu return               # メインメニューへ復帰
 ```
 
-観戦モード（国タグなしで `menu start`）では `session view FRA` / `session leave_view` で視点を切り替えられます（[docs/game/countries/countries.md](docs/game/countries/countries.md)）。リモート制御はローカルの実行ユーザー専用です。詳細は `eu4-harmony wiki remote` を参照してください。
+観戦モード（国タグなしで `menu start`）では `session view FRA` / `session leave_view` で視点を切り替えられます（[docs/game/countries/countries.md](docs/game/countries/countries.md)）。リモート制御は既定で無効です。`eu4-harmony start` で起動した場合はそのセッションで自動的に有効化され、通常起動で使う場合は **Harmony 設定 → 詳細設定** で **リモートコントロールを有効にする** をオンにして再起動してください。有効時もローカルの実行ユーザー専用です。詳細は `eu4-harmony wiki remote` を参照してください。
 
 ---
 

@@ -1,0 +1,11 @@
+Godo Font License (Godo M / Godo B)
+Copyright (c) 2012 GodoSoft / NHN Commerce Corp. & YoonDesign Inc. All rights reserved.
+
+The intellectual property rights to the Godo font family (Godo M, Godo B) belong to
+NHN Commerce Corp. (formerly NHN godo / GodoSoft).
+
+- Free for personal and commercial use across all media (print, web, software,
+  video, mobile, etc.) without separate permission.
+- Free to bundle and redistribute with other software, provided this copyright
+  notice and license terms are included.
+- Selling the font files themselves for a fee is prohibited.
