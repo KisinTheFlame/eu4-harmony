@@ -328,6 +328,14 @@ pub(crate) fn set_hooks(hooks: SaveHooks) {
     let _ = SAVE_HOOKS.set(hooks);
 }
 
+/// Waits for any background save compression to finish before opening or
+/// replacing a save file.
+pub(super) fn wait_background_save() {
+    if let Some(h) = SAVE_HOOKS.get() {
+        (h.wait_background_save)();
+    }
+}
+
 /// Writes the entry with the game's writer, after the world's game state and
 /// before the checksum is taken of it.
 fn write_entry(m: Memory, writer: usize) -> Result<()> {
@@ -506,9 +514,7 @@ fn world_state(m: &Memory) -> Result<(usize, u8)> {
 
 fn load_before(call: &mut Call) {
     // A save compressed in the background is in its place before any is read.
-    if let Some(h) = SAVE_HOOKS.get() {
-        (h.wait_background_save)();
-    }
+    wait_background_save();
     super::sessions::load_began();
     with_data(|d| d.load_began(call.arg(2), call.arg(1)));
 }

@@ -226,6 +226,10 @@ pub(super) fn load(m: &Memory, request: usize) -> u32 {
     QUIET_RESET.store(true, Ordering::Relaxed);
     LOADING_IN_GAME.store(true, Ordering::Relaxed);
     SETUP_SAVE_WAITED.store(false, Ordering::Relaxed);
+    // `0x5d0580` opens the target `.eu4` file (`0x1710440`) before resetting
+    // the world or calling `0x5cdc60`. Wait for any in-flight background
+    // compression first so its rename does not collide with that open handle.
+    crate::session::saves::wait_background_save();
     let took = Took::begin();
     let code = unsafe { ORIGINAL.get()(request) };
     LOADING_IN_GAME.store(false, Ordering::Relaxed);
@@ -465,6 +469,9 @@ fn main_menu(m: &Memory, app: usize) -> crate::base::Result<()> {
     if task != 0 {
         WAIT_TASK.call(m, [task])?;
     }
+    // Wait for any background compression (e.g. an ironman exit save) before
+    // `0x212810` opens the newest save to refresh the continue box.
+    crate::session::saves::wait_background_save();
     CONTINUE.call(m, [app])?;
     Ok(())
 }

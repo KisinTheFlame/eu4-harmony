@@ -461,6 +461,9 @@ fn observe_now(m: &Memory, frontend: usize) -> Result<()> {
 }
 
 fn load_now(m: &Memory, frontend: usize, path: &str, player: Tag) -> Result<()> {
+    // Wait for any background compression before `CHOOSE_SAVE` (`0x1132ca0`)
+    // opens the save file via PhysFS.
+    crate::session::saves::wait_background_save();
     let world = world_now(m)?;
     m.write(world + world::MULTIPLAYER, &0i32.to_le_bytes())?;
     m.write(world + world::SETUP, &1i32.to_le_bytes())?;
