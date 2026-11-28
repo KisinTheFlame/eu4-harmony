@@ -35,7 +35,7 @@ pub struct Skipped {
 }
 
 impl Skipped {
-    fn other(text: String) -> Self {
+    pub(crate) fn other(text: String) -> Self {
         Self { text, notice: None }
     }
 }
@@ -55,7 +55,7 @@ pub fn playset() -> &'static [String] {
 /// every entry that was skipped and why. Keeps the playset for [`playset`].
 pub fn discover(user_dir: &Path) -> Result<(Vec<DiscoveredMod>, Vec<Skipped>)> {
     let dlc_load = user_dir.join("dlc_load.json");
-    let enabled = Playset::read(&dlc_load)?.enabled();
+    let enabled = if dlc_load.exists() { Playset::read(&dlc_load)?.enabled() } else { Vec::new() };
     let _ = PLAYSET.set(enabled.clone());
     let mut mods = Vec::new();
     let mut notes = Vec::new();
@@ -123,5 +123,16 @@ mod tests {
         assert!(same_descriptor("mod/ugc_2976470733.mod", "mod/ugc_2976470733.mod"));
         assert!(same_descriptor("mod\\Harmony.mod", " MOD/harmony.mod"));
         assert!(!same_descriptor("mod/ugc_2976470733.mod", "mod/ugc_3047072888.mod"));
+    }
+
+    #[test]
+    fn discover_treats_missing_dlc_load_as_empty_playset() {
+        let dir = std::env::temp_dir().join(format!("eu4-harmony-mods-missing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mods, notes) = discover(&dir).unwrap();
+        assert!(mods.is_empty());
+        assert!(notes.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

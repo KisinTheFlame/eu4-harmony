@@ -59,7 +59,8 @@ impl Switches {
     /// The switches among a command line's words, in any case and with one
     /// dash or two, as the game writes them again when it restarts.
     pub fn of(command_line: &str) -> Self {
-        let has = |switch: &str| command_line.split_whitespace().any(|word| eu4_harmony_folders::same_switch(word.trim_matches('"'), switch));
+        let words = eu4_harmony_folders::command_words(command_line);
+        let has = |switch: &str| words.iter().any(|word| eu4_harmony_folders::same_switch(word, switch));
         #[cfg(feature = "dev-test-games")]
         let test_game = eu4_harmony_folders::switch_value(command_line, "-harmony_test_game").is_some();
         #[cfg(not(feature = "dev-test-games"))]
@@ -459,6 +460,7 @@ mod tests {
         assert_eq!(remote, Switches { hidden: false, mute: false, remote: true, test_game: false });
         assert!(!remote.unattended() && remote.remote_requested());
         assert_eq!(Switches::of(r#""E:\harmony_hidden\eu4.exe" -harmony_hiddenx -harmony_mutex -harmony_remotex -debug"#), Switches::default());
+        assert_eq!(Switches::of(r#""E:\eu4.exe" -userdir="D:\EU4 -harmony_remote -harmony_hidden -harmony_mute\data""#), Switches::default());
         assert_eq!(
             Switches::of(r#"--E:\eu4.exe --harmony_hidden --harmony_mute --harmony_remote --userdir="E:\u" -skiplauncher"#),
             Switches { hidden: true, mute: true, remote: true, test_game: false }
