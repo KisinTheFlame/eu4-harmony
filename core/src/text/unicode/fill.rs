@@ -56,8 +56,9 @@ use crate::native::memory::Memory;
 use crate::native::objects::text::{self as objects, font::OWN_GLYPHS, texture_description, texture_level, textures};
 use crate::native::points::Point;
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::ffi::c_void;
-use std::sync::{LazyLock, OnceLock};
+use std::sync::{LazyLock, Mutex, OnceLock};
 use windows::core::Interface;
 use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::Graphics::Direct3D9::*;
@@ -163,6 +164,9 @@ struct Look {
 static SYSTEM: LazyLock<Option<SystemFonts>> = LazyLock::new(|| SystemFonts::new().ok());
 static PAGES: LazyLock<Shared<PageTexture, Look>> = LazyLock::new(Default::default);
 static ON_TEXTURE_REPLACED: OnceLock<fn(usize, usize)> = OnceLock::new();
+/// Texture wrappers kept as the game's original bitmap pages, so a later font
+/// sharing one of them does not replace it with a system page underneath.
+static ORIGINAL_PAGES: LazyLock<Mutex<HashSet<usize>>> = LazyLock::new(Default::default);
 
 /// Registers a callback invoked with `(wrapper, old_d3d_tex)` right before a
 /// font page replaces `*wrapper` directly outside `0x16d8080`.
@@ -609,26 +613,51 @@ fn shown(ink: u32, color: u32, kind: Kind) -> u32 {
     channel(16) | channel(8) | channel(0)
 }
 
-/// The system font and weight fonts of `kind` draw in: the player's choice,
-/// else the player language's default.
-fn chosen_face(kind: Kind) -> Face {
+/// The system font and weight fonts of `kind` draw in: `Some(face)` when a
+/// system font draws them, `None` when the game's original bitmap fonts keep
+/// drawing them.
+fn chosen_face(kind: Kind) -> Option<Face> {
     let role = match kind {
         Kind::Body => settings::Role::Body,
         Kind::Heading => settings::Role::Heading,
         Kind::Map => settings::Role::Map,
         Kind::Console => settings::Role::Console,
     };
-    settings::current().face(role, |family| SYSTEM.as_ref().is_some_and(|fonts| fonts.has_family(family)))
+    match settings::current().font(role, |family| SYSTEM.as_ref().is_some_and(|fonts| fonts.has_family(family))) {
+        settings::DrawnFont::System(face) => Some(face),
+        settings::DrawnFont::GameOriginal => None,
+    }
 }
 
-/// An empty page for `font`, which draws `kind`, in the ink and the outline
-/// of its own page (`own`, when the game decoded it).
-fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<&Own>, kind: Kind) -> crate::base::Result<(Made<PageTexture>, Look)> {
+/// How a loading font shares its page texture wrapper when fonts of different
+/// roles may mix system fonts and the game's original bitmap fonts: whichever
+/// font loaded the wrapper first decides its mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PageMode {
+    UseSystem,
+    KeepOriginal,
+    FollowExistingSystem,
+    FollowExistingOriginal,
+}
+
+fn decide_page_mode(has_system_page: bool, has_original_page: bool, wanted_system: bool) -> PageMode {
+    match (has_system_page, has_original_page, wanted_system) {
+        (true, _, true) => PageMode::UseSystem,
+        (true, _, false) => PageMode::FollowExistingSystem,
+        (false, true, false) => PageMode::KeepOriginal,
+        (false, true, true) => PageMode::FollowExistingOriginal,
+        (false, false, true) => PageMode::UseSystem,
+        (false, false, false) => PageMode::KeepOriginal,
+    }
+}
+
+/// An empty page for `font`, which draws `kind` in `face`, in the ink and the
+/// outline of its own page (`own`, when the game decoded it).
+fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<&Own>, kind: Kind, face: Face) -> crate::base::Result<(Made<PageTexture>, Look)> {
     let fonts = SYSTEM.as_ref().ok_or("no system fonts")?;
     let line = m.i32(font + objects::font::LINE_HEIGHT)?.max(1);
     let current = settings::current();
     let map = kind == Kind::Map;
-    let face = chosen_face(kind);
     let letter = own.and_then(|own| letter(m, font, own));
     let outline = letter.as_ref().and_then(|l| l.outline.clone()).filter(|_| map && current.map_outline);
     let name = String::from_utf8_lossy(&game_string::read(m, font + objects::font::NAME).unwrap_or_default()).into_owned();
@@ -763,42 +792,68 @@ fn loaded(font: usize) -> bool {
         let kind = kind(&name, m.i32(font + objects::font::LINE_HEIGHT)?);
         let framework_font = framework_fonts::named(&name);
         let name = String::from_utf8_lossy(&name);
+        let wanted = chosen_face(kind);
         let mut pages = PAGES.lock();
-        match pages.with(wrapper) {
-            // The page's glyphs are its first font's, in that font's face.
-            Some(look) if look.face != chosen_face(kind) => {
-                log!("fill: font {name:?} ({kind:?}) draws from a page in {}", look.face);
+        let mode = {
+            let mut originals = ORIGINAL_PAGES.lock().unwrap_or_else(|e| e.into_inner());
+            let mode = decide_page_mode(pages.with(wrapper).is_some(), originals.contains(&wrapper), wanted.is_some());
+            if mode == PageMode::KeepOriginal {
+                originals.insert(wrapper);
             }
-            Some(_) => {}
-            None => {
-                let (made, look) = costs::PAGES.time(|| make_page(&m, font, &device(&m, manager)?, own.as_ref(), kind))?;
-                // The wrapper holds the game's reference: it gets one of
-                // ours, and its old texture is released.
-                let old = m.ptr(wrapper)? as *mut c_void;
-                let (width, height) = made.size;
-                notify_texture_replaced(wrapper, old);
-                unsafe {
-                    *(wrapper as *mut *mut c_void) = made.texture.texture.clone().into_raw();
-                    drop(IDirect3DTexture9::from_raw(old));
-                    *((entry + textures::ENTRY_SIZE) as *mut u32) = width;
-                    *((entry + textures::ENTRY_SIZE + 4) as *mut u32) = height;
+            mode
+        };
+        match mode {
+            PageMode::KeepOriginal => {
+                log!("fill: font {name:?} ({kind:?}) keeps the game's original bitmap font");
+                return Ok(false);
+            }
+            PageMode::FollowExistingOriginal => {
+                log!("fill: font {name:?} ({kind:?}) keeps the game's original page shared with an earlier font");
+                return Ok(false);
+            }
+            PageMode::FollowExistingSystem => {
+                let look = pages.with(wrapper).expect("system page exists");
+                log!("fill: font {name:?} ({kind:?}) draws from a system page in {} instead of the game's original font", look.face);
+            }
+            PageMode::UseSystem => {
+                let face = wanted.expect("UseSystem requires a chosen system face");
+                match pages.with(wrapper) {
+                    // The page's glyphs are its first font's, in that font's face.
+                    Some(look) if look.face != face => {
+                        log!("fill: font {name:?} ({kind:?}) draws from a page in {}", look.face);
+                    }
+                    Some(_) => {}
+                    None => {
+                        let (made, look) = costs::PAGES.time(|| make_page(&m, font, &device(&m, manager)?, own.as_ref(), kind, face))?;
+                        // The wrapper holds the game's reference: it gets one of
+                        // ours, and its old texture is released.
+                        let old = m.ptr(wrapper)? as *mut c_void;
+                        let (width, height) = made.size;
+                        notify_texture_replaced(wrapper, old);
+                        unsafe {
+                            *(wrapper as *mut *mut c_void) = made.texture.texture.clone().into_raw();
+                            drop(IDirect3DTexture9::from_raw(old));
+                            *((entry + textures::ENTRY_SIZE) as *mut u32) = width;
+                            *((entry + textures::ENTRY_SIZE + 4) as *mut u32) = height;
+                        }
+                        let outline = look.outline.as_ref().map_or("none".to_string(), |o| format!("{:06x}, {} px", o.color, o.reach()));
+                        let grows = made.max.map_or("keeps its size".to_string(), |(w, h)| format!("grows up to {w}x{h}"));
+                        let holds = match (look.field, made.texture.mips) {
+                            (Some(spread), true) => format!("distance fields of spread {spread}, with mip levels"),
+                            (Some(spread), false) => format!("distance fields of spread {spread}, without mip levels: the card makes none"),
+                            (None, _) => "colors".to_string(),
+                        };
+                        log!(
+                            "fill: system page {width}x{height} ({grows}, holding {holds}) for font {name:?} ({kind:?}) in {0} at {1:.1} px (baseline {2:.0}), {3:.2} px a GUI unit, ink {4:06x}, outline {outline}",
+                            look.face,
+                            look.em,
+                            look.base,
+                            look.density,
+                            look.ink
+                        );
+                        pages.add(wrapper, made, look);
+                    }
                 }
-                let outline = look.outline.as_ref().map_or("none".to_string(), |o| format!("{:06x}, {} px", o.color, o.reach()));
-                let grows = made.max.map_or("keeps its size".to_string(), |(w, h)| format!("grows up to {w}x{h}"));
-                let holds = match (look.field, made.texture.mips) {
-                    (Some(spread), true) => format!("distance fields of spread {spread}, with mip levels"),
-                    (Some(spread), false) => format!("distance fields of spread {spread}, without mip levels: the card makes none"),
-                    (None, _) => "colors".to_string(),
-                };
-                log!(
-                    "fill: system page {width}x{height} ({grows}, holding {holds}) for font {name:?} ({kind:?}) in {0} at {1:.1} px (baseline {2:.0}), {3:.2} px a GUI unit, ink {4:06x}, outline {outline}",
-                    look.face,
-                    look.em,
-                    look.base,
-                    look.density,
-                    look.ink
-                );
-                pages.add(wrapper, made, look);
             }
         }
         let look = pages.with_mut(wrapper).expect("just made");
@@ -901,7 +956,9 @@ pub fn grow_pages() {
 }
 
 fn destroy_before(call: &mut Call) {
-    PAGES.lock().destroyed(call.arg(0));
+    let wrapper = call.arg(0);
+    PAGES.lock().destroyed(wrapper);
+    ORIGINAL_PAGES.lock().unwrap_or_else(|e| e.into_inner()).remove(&wrapper);
 }
 
 /// The font is being destroyed.
@@ -947,9 +1004,19 @@ pub fn points() -> Vec<Point> {
 
 #[cfg(test)]
 mod tests {
-    use super::{dense_line, draws_the_map, first_side, kind, page_side, record, shown, Kind, Loading, Own, BODY, HEADINGS};
+    use super::{decide_page_mode, dense_line, draws_the_map, first_side, kind, page_side, record, shown, Kind, Loading, Own, PageMode, BODY, HEADINGS};
     use crate::text::unicode::system_font::Bitmap;
     use crate::text::unicode::tone::Tone;
+
+    #[test]
+    fn shared_page_wrapper_follows_first_loaded_font_mode() {
+        assert_eq!(decide_page_mode(false, false, true), PageMode::UseSystem);
+        assert_eq!(decide_page_mode(false, false, false), PageMode::KeepOriginal);
+        assert_eq!(decide_page_mode(true, false, true), PageMode::UseSystem);
+        assert_eq!(decide_page_mode(true, false, false), PageMode::FollowExistingSystem);
+        assert_eq!(decide_page_mode(false, true, false), PageMode::KeepOriginal);
+        assert_eq!(decide_page_mode(false, true, true), PageMode::FollowExistingOriginal);
+    }
 
     #[test]
     fn a_font_draws_what_its_name_says() {

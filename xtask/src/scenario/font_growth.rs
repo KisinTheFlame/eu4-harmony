@@ -5,7 +5,7 @@
 //! Catches regressions where `text::unicode::grow_pages` is only wired to
 //! `before_main_present` (which is skipped while `drawing-thread` presents
 //! in-game frames), leaving newly rasterized CJK glyphs stuck as `?`.
-use super::{logs::Mark, text, Build, Game, Parameter, Parameters, Played, Scenario};
+use super::{game::set_setting, logs::Mark, text, Build, Game, Parameter, Parameters, Played, Scenario};
 use eu4_harmony_remote::{menu::MenuRequest, session::Session, CountryTag};
 use serde_json::{json, Value};
 
@@ -38,6 +38,15 @@ impl Scenario for FontGrowth {
 
     fn play(&self, game: &mut Game, _: &Parameters, record: &mut Value) -> Played<()> {
         let user = game.user()?;
+        // English defaults to the game's original bitmap fonts (ADR
+        // original-fonts-for-vanilla-languages); configure system fonts
+        // explicitly so system pages and map-name rebuilds are exercised.
+        game.end();
+        let settings = user.harmony().join("settings.txt");
+        set_setting(&settings, "body_font", "\"Segoe UI\"")?;
+        set_setting(&settings, "heading_font", "\"Segoe UI\"")?;
+        set_setting(&settings, "map_font", "\"Georgia\"")?;
+        game.restart()?;
         let mark = Mark::of(&user);
 
         let _: Session = game.ask(&MenuRequest::Start { country: Some(CountryTag(*b"FRA")) })?;

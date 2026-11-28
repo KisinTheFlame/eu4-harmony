@@ -1,3 +1,7 @@
+---
+status: superseded in part by original-fonts-for-vanilla-languages
+---
+
 # The player chooses the player language in the framework settings, out of twelve
 
 The player language is a framework setting. The first time the framework starts, when the settings name no language, it takes the language Windows displays, if that is one of twelve, and English otherwise, and writes it into the settings; from then on the player changes it in the settings window, and the change takes effect at the next start. The twelve are Paradox's: `english`, `french`, `german`, `spanish`, `simp_chinese`, `trad_chinese`, `russian`, `polish`, `braz_por`, `japanese`, `korean` and `turkish`. Windows' Traditional Chinese (Taiwan, Hong Kong, Macao) is `trad_chinese`, every Portuguese `braz_por`. A text missing in the player language is English's, with nothing in between. The language in the game's own settings plays no part.

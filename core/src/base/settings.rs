@@ -28,6 +28,14 @@ pub struct Face {
     pub weight: u16,
 }
 
+/// How text of a role is drawn in the game: the game's own bitmap fonts, or a
+/// system font in one weight.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum DrawnFont {
+    GameOriginal,
+    System(Face),
+}
+
 impl Face {
     pub fn new(family: impl Into<String>, weight: u16) -> Self {
         Self { family: family.into(), weight }
@@ -519,6 +527,13 @@ pub fn is_bundled_default_family(family: &str) -> bool {
     Role::ALL.into_iter().filter_map(bundled_default_family).any(|f| f == family)
 }
 
+/// Whether `role` in `language` offers and defaults to the game's own bitmap
+/// fonts: body text, headings and the map in the four vanilla languages, whose
+/// characters the game's `.fnt` files already carry.
+pub fn has_game_original(language: Language, role: Role) -> bool {
+    matches!(language, Language::English | Language::French | Language::German | Language::Spanish) && matches!(role, Role::Body | Role::Heading | Role::Map)
+}
+
 /// The system font family that draws when none of a role's [`defaults`] is
 /// installed: one Windows has in every language.
 pub const LAST_RESORT: &str = "Segoe UI";
@@ -546,10 +561,21 @@ pub fn defaults(language: Language, role: Role) -> &'static [(&'static str, u16)
     }
 }
 
-/// The face `role` is drawn in for `language` when the player chose none:
-/// the first of its [`defaults`] that is installed, else [`LAST_RESORT`].
+/// The system face `role` is drawn in for `language` when the player chose
+/// none and a system font draws it: the first of its [`defaults`] that is
+/// installed, else [`LAST_RESORT`].
 pub fn default_face(language: Language, role: Role, installed: impl Fn(&str) -> bool) -> Face {
     defaults(language, role).iter().find(|(family, _)| installed(family)).map_or(Face::regular(LAST_RESORT), |&(family, weight)| Face::new(family, weight))
+}
+
+/// How `role` is drawn in `language` when the player chose none: the game's
+/// own bitmap fonts where [`has_game_original`] holds, else [`default_face`].
+pub fn default_font(language: Language, role: Role, installed: impl Fn(&str) -> bool) -> DrawnFont {
+    if has_game_original(language, role) {
+        DrawnFont::GameOriginal
+    } else {
+        DrawnFont::System(default_face(language, role, installed))
+    }
 }
 
 /// The fonts a file from before the language could be chosen held when the
@@ -604,12 +630,21 @@ impl Settings {
         self.language.unwrap_or(Language::English)
     }
 
-    /// The face `role` is drawn in: the one chosen when it is installed, else
-    /// the language's default ([`default_face`]).
-    pub fn face(&self, role: Role, installed: impl Fn(&str) -> bool) -> Face {
+    /// How `role` is drawn in the game: the system font chosen when it is
+    /// installed, else the language's default ([`default_font`]).
+    pub fn font(&self, role: Role, installed: impl Fn(&str) -> bool) -> DrawnFont {
         match self.chosen(role) {
-            Some(face) if installed(&face.family) => face.clone(),
-            _ => default_face(self.language(), role, installed),
+            Some(face) if installed(&face.family) => DrawnFont::System(face.clone()),
+            _ => default_font(self.language(), role, installed),
+        }
+    }
+
+    /// The system font the framework UI draws with: the body text font when it
+    /// is a system font, else [`LAST_RESORT`].
+    pub fn ui_face(&self, installed: impl Fn(&str) -> bool) -> Face {
+        match self.font(Role::Body, installed) {
+            DrawnFont::System(face) => face,
+            DrawnFont::GameOriginal => Face::regular(LAST_RESORT),
         }
     }
 
@@ -907,21 +942,39 @@ mod tests {
     fn a_font_not_chosen_follows_the_language() {
         let installed = |f: &str| ["Microsoft YaHei", "KaiTi", "Segoe UI", "Georgia", "Consolas", "Yu Gothic UI"].contains(&f);
         let chinese = Settings { language: Some(Language::SimpChinese), ..Settings::default() };
-        assert_eq!(chinese.face(Role::Body, installed), Face::regular("Microsoft YaHei"));
-        assert_eq!(chinese.face(Role::Body, |_| true), Face::regular("FZPingXianYaSongS-R-GB"));
-        assert_eq!(chinese.face(Role::Map, installed), Face::regular("KaiTi"));
-        let english = Settings { language: Some(Language::English), ..Settings::default() };
-        assert_eq!(english.face(Role::Heading, installed), Face::new("Segoe UI", 600));
-        assert_eq!(english.face(Role::Map, installed), Face::regular("Georgia"));
-        assert_eq!(english.face(Role::Console, installed), Face::regular("Consolas"));
+        assert_eq!(chinese.font(Role::Body, installed), DrawnFont::System(Face::regular("Microsoft YaHei")));
+        assert_eq!(chinese.font(Role::Body, |_| true), DrawnFont::System(Face::regular("FZPingXianYaSongS-R-GB")));
+        assert_eq!(chinese.font(Role::Map, installed), DrawnFont::System(Face::regular("KaiTi")));
+        assert_eq!(chinese.ui_face(installed), Face::regular("Microsoft YaHei"));
+        // Vanilla languages keep the game's original bitmap fonts for body,
+        // headings and the map; the game console stays Consolas and the
+        // framework UI falls back to Segoe UI.
+        for language in [Language::English, Language::French, Language::German, Language::Spanish] {
+            let vanilla = Settings { language: Some(language), ..Settings::default() };
+            assert_eq!(vanilla.font(Role::Body, installed), DrawnFont::GameOriginal);
+            assert_eq!(vanilla.font(Role::Heading, installed), DrawnFont::GameOriginal);
+            assert_eq!(vanilla.font(Role::Map, installed), DrawnFont::GameOriginal);
+            assert_eq!(vanilla.font(Role::Console, installed), DrawnFont::System(Face::regular("Consolas")));
+            assert_eq!(vanilla.ui_face(installed), Face::regular(LAST_RESORT));
+        }
+        // Non-vanilla Latin/Cyrillic languages still default to system fonts.
+        let polish = Settings { language: Some(Language::Polish), ..Settings::default() };
+        assert_eq!(polish.font(Role::Body, installed), DrawnFont::System(Face::regular("Segoe UI")));
+        assert_eq!(polish.font(Role::Heading, installed), DrawnFont::System(Face::new("Segoe UI", 600)));
+        assert_eq!(polish.font(Role::Map, installed), DrawnFont::System(Face::regular("Georgia")));
+        assert_eq!(polish.font(Role::Console, installed), DrawnFont::System(Face::regular("Consolas")));
         // Japanese without its map font installed.
         let japanese = Settings { language: Some(Language::Japanese), ..Settings::default() };
-        assert_eq!(japanese.face(Role::Body, installed), Face::regular("Yu Gothic UI"));
-        assert_eq!(japanese.face(Role::Map, installed), Face::regular(LAST_RESORT));
-        // One chosen draws while it is installed.
-        let chosen = Settings { map_font: Some(Face::new("SimSun", 700)), ..english.clone() };
-        assert_eq!(chosen.face(Role::Map, |f| f == "SimSun"), Face::new("SimSun", 700));
-        assert_eq!(chosen.face(Role::Map, installed), Face::regular("Georgia"));
+        assert_eq!(japanese.font(Role::Body, installed), DrawnFont::System(Face::regular("Yu Gothic UI")));
+        assert_eq!(japanese.font(Role::Map, installed), DrawnFont::System(Face::regular(LAST_RESORT)));
+        // One chosen draws while it is installed; when missing, a vanilla
+        // language falls back to the game's original font.
+        let english = Settings { language: Some(Language::English), ..Settings::default() };
+        let chosen = Settings { body_font: Some(Face::new("SimSun", 700)), map_font: Some(Face::new("SimSun", 700)), ..english };
+        assert_eq!(chosen.font(Role::Map, |f| f == "SimSun"), DrawnFont::System(Face::new("SimSun", 700)));
+        assert_eq!(chosen.ui_face(|f| f == "SimSun"), Face::new("SimSun", 700));
+        assert_eq!(chosen.font(Role::Map, installed), DrawnFont::GameOriginal);
+        assert_eq!(chosen.ui_face(installed), Face::regular(LAST_RESORT));
     }
 
     #[test]
@@ -931,7 +984,7 @@ mod tests {
             eprintln!("Segoe UI is not installed; skipped");
             return;
         }
-        let heading = default_face(Language::French, Role::Heading, |f| fonts.has_family(f));
+        let heading = default_face(Language::Polish, Role::Heading, |f| fonts.has_family(f));
         assert_eq!(fonts.drawn(&heading), Some(heading));
     }
 
