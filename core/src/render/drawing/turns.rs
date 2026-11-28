@@ -212,6 +212,25 @@ impl MainSide {
         }
     }
 
+    /// Waits for any in-flight drawing-thread frame (including an unlocked
+    /// `Present` and its post-Present tail) to finish while preserving whether
+    /// the main thread held the presentation lock.
+    pub(super) fn wait_for_drawing_frame(&mut self, lock: &impl Lock, in_frame: impl Fn() -> bool) {
+        if !in_frame() {
+            return;
+        }
+        let had = self.holds;
+        if had {
+            self.give(lock);
+        }
+        while in_frame() {
+            std::thread::yield_now();
+        }
+        if had {
+            self.take(lock, At::Frame);
+        }
+    }
+
     /// The game quits: the main thread holds the lock to the end, once the
     /// drawing thread's frame, if it is in one, has ended.
     pub(super) fn quits(&mut self, lock: &impl Lock, in_frame: impl Fn() -> bool) {

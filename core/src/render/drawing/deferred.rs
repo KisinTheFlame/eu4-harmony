@@ -723,9 +723,12 @@ struct CachedTexDesc {
 }
 
 static TEX_DESC_CACHE: std::sync::LazyLock<RwLock<HashMap<(usize, usize), CachedTexDesc>>> = std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
+static TEX_DESC_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
-/// Clears cached texture descriptors (called before Direct3D device reset).
+/// Clears cached texture descriptors (called before Direct3D device reset and
+/// on idler switches).
 pub(super) fn clear_texture_desc_cache() {
+    TEX_DESC_GEN.fetch_add(1, Ordering::AcqRel);
     TEX_DESC_CACHE.write().unwrap_or_else(|e| e.into_inner()).clear();
 }
 
@@ -735,6 +738,7 @@ pub(super) fn evict_texture_desc(wrapper: usize, d3d_tex: usize) {
     if wrapper == 0 && d3d_tex == 0 {
         return;
     }
+    TEX_DESC_GEN.fetch_add(1, Ordering::AcqRel);
     let mut cache = TEX_DESC_CACHE.write().unwrap_or_else(|e| e.into_inner());
     if wrapper != 0 && d3d_tex != 0 {
         cache.remove(&(wrapper, d3d_tex));
@@ -742,11 +746,24 @@ pub(super) fn evict_texture_desc(wrapper: usize, d3d_tex: usize) {
     cache.retain(|&(w, t), _| (wrapper == 0 || w != wrapper) && (d3d_tex == 0 || t != d3d_tex));
 }
 
+fn cache_texture_desc_if_fresh(key: (usize, usize), desc: CachedTexDesc, generation: u64, current_d3d_tex: impl FnOnce() -> usize) -> bool {
+    if desc.width == 0 || desc.height == 0 {
+        return false;
+    }
+    let mut cache = TEX_DESC_CACHE.write().unwrap_or_else(|e| e.into_inner());
+    if TEX_DESC_GEN.load(Ordering::Acquire) != generation || current_d3d_tex() != key.1 {
+        return false;
+    }
+    cache.insert(key, desc);
+    true
+}
+
 #[called_by_game]
 unsafe extern "C" fn get_texture_desc(wrapper: usize, out: *mut u32) {
     if wrapper == 0 || out.is_null() {
         return;
     }
+    let generation = TEX_DESC_GEN.load(Ordering::Acquire);
     let d3d_tex = unsafe { *(wrapper as *const usize) };
     if d3d_tex == 0 {
         return;
@@ -775,7 +792,7 @@ unsafe extern "C" fn get_texture_desc(wrapper: usize, out: *mut u32) {
             *out.add(3) = bpp;
         }
     }
-    TEX_DESC_CACHE.write().unwrap_or_else(|e| e.into_inner()).insert(key, desc);
+    cache_texture_desc_if_fresh(key, desc, generation, || unsafe { *(wrapper as *const usize) });
 }
 
 #[called_by_game]
@@ -1048,5 +1065,17 @@ mod tests {
         assert!(cache.contains_key(&(0x9003, 0xa003)), "unrelated entry preserved");
         drop(cache);
         evict_texture_desc(0x9003, 0xa003);
+    }
+
+    #[test]
+    fn texture_desc_cache_skips_zero_results_and_stale_generations() {
+        let valid = CachedTexDesc { width: 256, height: 128, format_and_bpp: Some((0xb, 4)) };
+        let empty = CachedTexDesc { width: 0, height: 0, format_and_bpp: None };
+        let gen = TEX_DESC_GEN.load(Ordering::Acquire);
+        assert!(!cache_texture_desc_if_fresh((0x9100, 0xa100), empty, gen, || 0xa100));
+        assert!(!cache_texture_desc_if_fresh((0x9100, 0xa100), valid, gen, || 0xa101));
+        assert!(!cache_texture_desc_if_fresh((0x9100, 0xa100), valid, gen.wrapping_sub(1), || 0xa100));
+        assert!(cache_texture_desc_if_fresh((0x9100, 0xa100), valid, gen, || 0xa100));
+        evict_texture_desc(0x9100, 0xa100);
     }
 }
