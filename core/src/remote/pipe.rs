@@ -1,6 +1,6 @@
 //! Remote control's transport (ADR remote-control-engine-and-transports): the
 //! named pipe `\\.\pipe\eu4-harmony`, open to the Windows user running the game
-//! and nobody else (ADR remote-control-is-always-on), with one JSON request per
+//! and nobody else when enabled (ADR remote-control-is-opt-in), with one JSON request per
 //! line in and one JSON response per line out (`sent_from_json`, which reads
 //! how the request acts beside it, and `response_json`). A developer build with the test games' pipes serves a
 //! test game's own instead, `\\.\pipe\eu4-harmony-<name>`, when
@@ -207,7 +207,7 @@ fn listen(pipe: &Arc<Pipe>) {
             }
         }
     };
-    pipe.log(&format!("open at {}, to {} only", pipe.name, pipe.security.user));
+    pipe.log(&format!("open at {}, to the current Windows user only", pipe.name));
     loop {
         instance = accept(pipe, instance);
     }
@@ -368,8 +368,6 @@ fn open(instance: &File) -> bool {
 /// nobody else, use the pipe.
 struct Security {
     descriptor: PSECURITY_DESCRIPTOR,
-    /// The user's SID, such as `S-1-5-21-…`.
-    user: String,
 }
 
 // The descriptor is only read once made.
@@ -385,7 +383,7 @@ impl Security {
         if unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut descriptor, std::ptr::null_mut()) } == 0 {
             return Err(io::Error::last_os_error());
         }
-        Ok(Self { descriptor, user })
+        Ok(Self { descriptor })
     }
 }
 

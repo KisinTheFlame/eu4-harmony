@@ -139,8 +139,14 @@ pub(crate) fn run(game_dir: PathBuf, installed: &str) {
     for line in found.lines() {
         report::line(line);
     }
-    // Remote control is always on (ADR remote-control-is-always-on).
-    pipe::start();
+    // Remote control is opt-in (ADR remote-control-is-opt-in): enabled in
+    // settings or for this run via `-harmony_remote` / `-harmony_hidden` /
+    // `-harmony_test_game`.
+    if chosen.remote_control || crate::tweaks::hidden::remote_requested() {
+        pipe::start();
+    } else {
+        log!("remote pipe: disabled (enable in Harmony settings -> Advanced or pass -harmony_remote)");
+    }
     let Some((mods, discovery_notes)) = discover(&user_dir) else { return };
     // Texts first: an extension may read its own at the top of main.lua.
     let mut plan = Plan::default();

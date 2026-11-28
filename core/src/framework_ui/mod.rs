@@ -37,6 +37,7 @@ fn words_with(key: &str, args: &[(&str, &str)]) -> String {
 struct SettingsState<F: FontSystem> {
     window: Window,
     opened_next: Settings,
+    opened_draft: Settings,
     fonts: FontsPage<F>,
     display_hz: u32,
     in_game: bool,
@@ -83,6 +84,7 @@ trait UiHost {
     fn poll_dump_op(&mut self) -> Option<(DumpAction, std::io::Result<()>)>;
     fn dump_pending(&self) -> Option<DumpAction>;
     fn open_url(&mut self, url: &str) -> Result<(), String>;
+    fn open_logs_folder(&mut self) -> Result<(), String>;
     fn request_restart(&mut self) -> Result<(), String>;
 }
 
@@ -212,6 +214,14 @@ impl UiHost for LiveHost {
         open_url_in_browser(url)
     }
 
+    fn open_logs_folder(&mut self) -> Result<(), String> {
+        let game = crate::base::game_dir().ok_or("the game folder is not known")?;
+        let user = crate::base::paths::user_dir(game)?;
+        let logs = eu4_harmony_folders::UserFolder::new(user).logs();
+        let _ = std::fs::create_dir_all(&logs);
+        open_url_in_browser(&logs.to_string_lossy())
+    }
+
     fn request_restart(&mut self) -> Result<(), String> {
         crate::session::transition::request_restart()
     }
@@ -234,6 +244,8 @@ struct Shell<H: UiHost> {
     settings: Option<SettingsState<H::Fonts>>,
     mods: Option<ModsState>,
     restart_prompt: Option<Window>,
+    discard_prompt: Option<Window>,
+    dumps_status: DumpStatus,
     last_dump_outcome: Option<DumpStatus>,
 }
 
@@ -439,8 +451,9 @@ fn settings_page(page: Page, shown: &Settings, display_hz: u32, in_game: bool, w
 /// Where problems with the framework are reported, as the About page names it.
 const ISSUES: &str = "https://github.com/KisinTheFlame/eu4-harmony/issues";
 
-/// Interactive widget IDs on the About page and settings/restart dialogs.
+/// Interactive widget IDs on the Advanced/About pages and settings/confirmation dialogs.
 const OPEN_ISSUES: &str = "open_issues";
+const OPEN_LOGS: &str = "open_logs";
 const TROUBLESHOOTING: &str = "troubleshooting";
 const ENABLE_DUMPS: &str = "enable_windows_dumps";
 const DISABLE_DUMPS: &str = "disable_windows_dumps";
@@ -449,14 +462,17 @@ const SAVE: &str = "save";
 const CANCEL: &str = "cancel";
 const RESTART_NOW: &str = "restart_now";
 const RESTART_LATER: &str = "restart_later";
+const DISCARD_CONFIRM: &str = "discard_confirm";
+const DISCARD_CANCEL: &str = "discard_cancel";
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum DumpStatus {
     NotConfigured,
     Harmony,
     External,
     Pending,
     Cancelled(DumpAction),
-    Failed(DumpAction, std::io::Error),
+    Failed(DumpAction, String),
 }
 
 impl DumpStatus {
@@ -466,7 +482,7 @@ impl DumpStatus {
             Ok(local_dumps::Configuration::Harmony) => Self::Harmony,
             Ok(local_dumps::Configuration::External) => Self::External,
             Err(e) if e.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_CANCELLED as i32) => Self::Cancelled(DumpAction::Enable),
-            Err(e) => Self::Failed(DumpAction::Enable, e),
+            Err(e) => Self::Failed(DumpAction::Enable, e.to_string()),
         }
     }
 
@@ -477,34 +493,30 @@ impl DumpStatus {
                 DumpAction::Disable => Self::NotConfigured,
             },
             Err(e) if e.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_CANCELLED as i32) => Self::Cancelled(action),
-            Err(e) => Self::Failed(action, e),
+            Err(e) => Self::Failed(action, e.to_string()),
         }
     }
 }
 
-/// The About page: brand hero card with version badge and clickable issue
-/// tracker link, compact troubleshooting export button, and Windows crash dump
-/// management.
-fn about_page(
+/// The Advanced page: opt-in remote control toggle (main-menu only), log
+/// folder shortcut, and Windows crash dump management.
+fn advanced_page(
+    shown: &Settings,
+    display_hz: u32,
     dumps: &DumpStatus,
-    troubleshooting: &crate::base::troubleshooting::State,
+    in_game: bool,
     words: &dyn Fn(&str) -> String,
     words_with: mods_window::Words,
 ) -> Vec<Widget> {
-    let mut page = vec![
-        Widget::PageHeader(words("EU4HARMONY_SETTINGS_PAGE_ABOUT")),
-        Widget::AboutHero {
-            name: "Harmony".into(),
-            version: format!("v{}", env!("CARGO_PKG_VERSION")),
-            link_id: OPEN_ISSUES,
-            link_label: words_with("EU4HARMONY_ABOUT_ISSUES", &[("ISSUES", ISSUES)]),
-        },
-        Widget::Button { id: TROUBLESHOOTING, label: words("EU4HARMONY_ABOUT_TROUBLESHOOTING"), style: ButtonStyle::Normal },
-        Widget::Label(troubleshooting_line(troubleshooting, words_with)),
-        Widget::Gap,
-        Widget::Divider,
-        Widget::Gap,
-    ];
+    let mut page = vec![Widget::PageHeader(words("EU4HARMONY_SETTINGS_PAGE_ADVANCED"))];
+    page.extend(setting_widgets(Page::Advanced, shown, display_hz, in_game, words));
+    page.push(Widget::Gap);
+    page.push(Widget::Divider);
+    page.push(Widget::Gap);
+    page.push(Widget::Button { id: OPEN_LOGS, label: words("EU4HARMONY_ADVANCED_OPEN_LOGS"), style: ButtonStyle::Normal });
+    page.push(Widget::Gap);
+    page.push(Widget::Divider);
+    page.push(Widget::Gap);
     let enable_button = || Widget::Button { id: ENABLE_DUMPS, label: words("EU4HARMONY_DUMPS_ENABLE"), style: ButtonStyle::Normal };
     let disable_button = || Widget::Button { id: DISABLE_DUMPS, label: words("EU4HARMONY_DUMPS_DISABLE"), style: ButtonStyle::Danger };
     match dumps {
@@ -532,15 +544,33 @@ fn about_page(
         }
         DumpStatus::Failed(DumpAction::Enable, e) => {
             page.push(enable_button());
-            page.push(Widget::Label(words_with("EU4HARMONY_DUMPS_FAILED", &[("ERROR", &e.to_string())])));
+            page.push(Widget::Label(words_with("EU4HARMONY_DUMPS_FAILED", &[("ERROR", e)])));
         }
         DumpStatus::Failed(DumpAction::Disable, e) => {
             page.push(Widget::Label(words("EU4HARMONY_DUMPS_CONFIGURED")));
             page.push(disable_button());
-            page.push(Widget::Label(words_with("EU4HARMONY_DUMPS_DISABLE_FAILED", &[("ERROR", &e.to_string())])));
+            page.push(Widget::Label(words_with("EU4HARMONY_DUMPS_DISABLE_FAILED", &[("ERROR", e)])));
         }
     }
     page
+}
+
+/// The About page: brand hero card with version badge and clickable issue
+/// tracker link, compact troubleshooting export button, and privacy note.
+fn about_page(troubleshooting: &crate::base::troubleshooting::State, words: &dyn Fn(&str) -> String, words_with: mods_window::Words) -> Vec<Widget> {
+    vec![
+        Widget::PageHeader(words("EU4HARMONY_SETTINGS_PAGE_ABOUT")),
+        Widget::AboutHero {
+            name: "Harmony".into(),
+            version: format!("v{}", env!("CARGO_PKG_VERSION")),
+            link_id: OPEN_ISSUES,
+            link_label: words_with("EU4HARMONY_ABOUT_ISSUES", &[("ISSUES", ISSUES)]),
+        },
+        Widget::Button { id: TROUBLESHOOTING, label: words("EU4HARMONY_ABOUT_TROUBLESHOOTING"), style: ButtonStyle::Normal },
+        Widget::Label(troubleshooting_line(troubleshooting, words_with)),
+        Widget::Gap,
+        Widget::Label(words("EU4HARMONY_ABOUT_TROUBLESHOOTING_PRIVACY")),
+    ]
 }
 
 /// What the troubleshooting files' packing has come to, as the line under
@@ -648,7 +678,8 @@ fn settings_window(
                     widgets
                 }
             }
-            Page::About => about_page(dumps, troubleshooting, &words, words_with),
+            Page::Advanced => advanced_page(next, display_hz, dumps, in_game, &words, words_with),
+            Page::About => about_page(troubleshooting, &words, words_with),
             _ => settings_page(page, next, display_hz, in_game, &words),
         })
         .collect();
@@ -689,6 +720,16 @@ fn restart_prompt_window(words: &dyn Fn(&str) -> String) -> Window {
     Window::new(words("EU4HARMONY_RESTART_PROMPT_TITLE"), body, 460.0).with_footer(footer)
 }
 
+/// Modal confirmation dialog shown when closing Settings with unsaved changes.
+fn discard_prompt_window(words: &dyn Fn(&str) -> String) -> Window {
+    let body = vec![Widget::Label(words("EU4HARMONY_DISCARD_PROMPT_BODY"))];
+    let footer = vec![Widget::ButtonRow(vec![
+        RowButton { id: DISCARD_CANCEL, label: words("EU4HARMONY_DISCARD_CANCEL"), style: ButtonStyle::Normal, enabled: true, align_right: true },
+        RowButton { id: DISCARD_CONFIRM, label: words("EU4HARMONY_DISCARD_CONFIRM"), style: ButtonStyle::Danger, enabled: true, align_right: true },
+    ])];
+    Window::new(words("EU4HARMONY_DISCARD_PROMPT_TITLE"), body, 460.0).with_footer(footer)
+}
+
 /// The settings the settings window `w` saves: `next`, which it was opened
 /// with, as `w` changed it.
 fn chosen_settings(w: &Window, next: &Settings, fonts: &FontsPage<impl FontSystem>, display_hz: u32, in_game: bool) -> Settings {
@@ -724,18 +765,20 @@ impl<H: UiHost> Shell<H> {
             settings: None,
             mods: None,
             restart_prompt: None,
+            discard_prompt: None,
+            dumps_status: DumpStatus::NotConfigured,
             last_dump_outcome: None,
         }
     }
 
     fn modal(&self) -> bool {
-        self.restart_prompt.is_some() || self.mods.is_some() || self.settings.is_some()
+        self.restart_prompt.is_some() || self.discard_prompt.is_some() || self.mods.is_some() || self.settings.is_some()
     }
 
     /// Single source of truth for the topmost modal window, shared by drawing,
     /// event dispatch, and tooltip hit-testing.
     fn active_modal(&self) -> Option<&Window> {
-        self.restart_prompt.as_ref().or(self.mods.as_ref().map(|m| &m.window)).or(self.settings.as_ref().map(|s| &s.window))
+        self.restart_prompt.as_ref().or(self.discard_prompt.as_ref()).or(self.mods.as_ref().map(|m| &m.window)).or(self.settings.as_ref().map(|s| &s.window))
     }
 
     fn in_main_menu(&self) -> bool {
@@ -777,21 +820,24 @@ impl<H: UiHost> Shell<H> {
         } else {
             DumpStatus::from_status(self.host.dumps_status())
         };
+        self.dumps_status = dumps.clone();
         let troubleshooting = self.host.troubleshooting_state();
         let ww = |key: &str, args: &[(&str, &str)]| self.host.words(key, args);
         let wi = |language: Language, key: &str| self.host.words_in(language, key);
         let mut window = settings_window(&current, &next, &fonts, display_hz, &dumps, &troubleshooting, in_game, initial_page, &ww, &wi);
         window.center(measure, self.screen.0, self.screen.1);
-        self.settings = Some(SettingsState { window, opened_next: next, fonts, display_hz, in_game });
+        let opened_draft = chosen_settings(&window, &next, &fonts, display_hz, in_game);
+        self.settings = Some(SettingsState { window, opened_next: next, opened_draft, fonts, display_hz, in_game });
     }
 
     fn show_dump_status(&mut self, status: &DumpStatus) {
-        let index = Page::ALL.iter().position(|&p| p == Page::About).expect("About page");
-        let troubleshooting = self.host.troubleshooting_state();
+        self.dumps_status = status.clone();
+        let index = Page::ALL.iter().position(|&p| p == Page::Advanced).expect("Advanced page");
         let w = |key: &str| self.host.words(key, &[]);
         let ww = |key: &str, args: &[(&str, &str)]| self.host.words(key, args);
-        let widgets = about_page(status, &troubleshooting, &w, &ww);
         if let Some(settings) = self.settings.as_mut() {
+            let draft = chosen_settings(&settings.window, &settings.opened_next, &settings.fonts, settings.display_hz, settings.in_game);
+            let widgets = advanced_page(&draft, settings.display_hz, status, settings.in_game, &w, &ww);
             replace_page(&mut settings.window, index, widgets);
         }
     }
@@ -831,7 +877,9 @@ impl<H: UiHost> Shell<H> {
     /// Resets only the currently active settings page in the open draft window.
     fn reset_active_page(&mut self) {
         let w = |key: &str| self.host.words(key, &[]);
+        let ww = |key: &str, args: &[(&str, &str)]| self.host.words(key, args);
         let wi = |language: Language, key: &str| self.host.words_in(language, key);
+        let dumps = self.dumps_status.clone();
         let Some(settings) = self.settings.as_mut() else { return };
         if !page_resettable(&settings.window, settings.in_game) {
             return;
@@ -842,6 +890,11 @@ impl<H: UiHost> Shell<H> {
             Page::LanguageFonts => {
                 settings.fonts.reset_defaults(&mut settings.window, &w, &wi);
             }
+            Page::Advanced => {
+                let defaults = Settings::default();
+                let widgets = advanced_page(&defaults, settings.display_hz, &dumps, settings.in_game, &w, &ww);
+                replace_page(&mut settings.window, index, widgets);
+            }
             Page::About => {}
             _ => {
                 let defaults = Settings::default();
@@ -850,6 +903,22 @@ impl<H: UiHost> Shell<H> {
             }
         }
         self.settings_changed();
+    }
+
+    fn settings_dirty(&self) -> bool {
+        let Some(settings) = self.settings.as_ref() else { return false };
+        chosen_settings(&settings.window, &settings.opened_next, &settings.fonts, settings.display_hz, settings.in_game) != settings.opened_draft
+    }
+
+    fn request_close_settings(&mut self, measure: &dyn Measure) {
+        if self.settings_dirty() {
+            let w = |key: &str| self.host.words(key, &[]);
+            let mut prompt = discard_prompt_window(&w);
+            prompt.center(measure, self.screen.0, self.screen.1);
+            self.discard_prompt = Some(prompt);
+        } else {
+            self.close_settings();
+        }
     }
 
     fn save_and_close_settings(&mut self, measure: &dyn Measure) {
@@ -879,6 +948,7 @@ impl<H: UiHost> Shell<H> {
     }
 
     fn close_settings(&mut self) {
+        self.discard_prompt = None;
         self.settings = None;
     }
 
@@ -975,6 +1045,16 @@ impl<H: UiHost> Shell<H> {
             }
             return true;
         }
+        if let Some(prompt) = self.discard_prompt.as_mut() {
+            match Self::modal_event(prompt, measure, event) {
+                Some(Action::Pressed(DISCARD_CONFIRM)) => self.close_settings(),
+                Some(Action::Pressed(DISCARD_CANCEL)) | Some(Action::Closed) => {
+                    self.discard_prompt = None;
+                }
+                _ => {}
+            }
+            return true;
+        }
         if let Some(mods) = self.mods.as_mut() {
             match Self::modal_event(&mut mods.window, measure, event) {
                 Some(Action::Chose("mods", index)) => self.mod_chosen(index),
@@ -999,11 +1079,16 @@ impl<H: UiHost> Shell<H> {
                         log!("framework UI: failed to open {ISSUES}: {e}");
                     }
                 }
+                Some(Action::Pressed(OPEN_LOGS)) => {
+                    if let Err(e) = self.host.open_logs_folder() {
+                        log!("framework UI: failed to open log folder: {e}");
+                    }
+                }
                 Some(Action::Pressed(ENABLE_DUMPS)) => {
                     if self.host.dump_pending().is_none() {
                         let status = match self.host.start_enable_dumps() {
                             Ok(()) => DumpStatus::Pending,
-                            Err(e) => DumpStatus::Failed(DumpAction::Enable, e),
+                            Err(e) => DumpStatus::Failed(DumpAction::Enable, e.to_string()),
                         };
                         self.show_dump_status(&status);
                     }
@@ -1012,7 +1097,7 @@ impl<H: UiHost> Shell<H> {
                     if self.host.dump_pending().is_none() {
                         let status = match self.host.start_disable_dumps() {
                             Ok(()) => DumpStatus::Pending,
-                            Err(e) => DumpStatus::Failed(DumpAction::Disable, e),
+                            Err(e) => DumpStatus::Failed(DumpAction::Disable, e.to_string()),
                         };
                         self.show_dump_status(&status);
                     }
@@ -1024,7 +1109,7 @@ impl<H: UiHost> Shell<H> {
                         settings.window.set_label_after(TROUBLESHOOTING, line);
                     }
                 }
-                Some(Action::Pressed(CANCEL)) | Some(Action::Pressed(_)) | Some(Action::Closed) => self.close_settings(),
+                Some(Action::Pressed(CANCEL)) | Some(Action::Pressed(_)) | Some(Action::Closed) => self.request_close_settings(measure),
                 None => {}
             }
             return true;
@@ -1542,7 +1627,7 @@ mod tests {
     #[test]
     fn the_dump_controls_handle_not_configured_harmony_external_and_retry() {
         let cancelled = std::io::Error::from_raw_os_error(windows_sys::Win32::Foundation::ERROR_CANCELLED as i32);
-        let idle = crate::base::troubleshooting::State::Idle;
+        let settings = Settings::default();
         for (state, has_enable, has_disable, feedback) in [
             (DumpStatus::NotConfigured, true, false, None),
             (DumpStatus::Pending, false, false, Some("EU4HARMONY_DUMPS_PENDING")),
@@ -1552,7 +1637,8 @@ mod tests {
             (DumpStatus::from_op(DumpAction::Enable, Err(std::io::Error::other("denied"))), true, false, Some("EU4HARMONY_DUMPS_FAILED ERROR=denied")),
             (DumpStatus::from_op(DumpAction::Disable, Err(std::io::Error::other("locked"))), false, true, Some("EU4HARMONY_DUMPS_DISABLE_FAILED ERROR=locked")),
         ] {
-            let page = about_page(&state, &idle, &keys, &keys_with);
+            let page = advanced_page(&settings, 60, &state, false, &keys, &keys_with);
+            assert!(has_action_button(&page, OPEN_LOGS));
             assert_eq!(has_action_button(&page, ENABLE_DUMPS), has_enable);
             assert_eq!(has_action_button(&page, DISABLE_DUMPS), has_disable);
             if let Some(expected) = feedback {
@@ -1607,6 +1693,7 @@ mod tests {
         troubleshooting: crate::base::troubleshooting::State,
         cards: Vec<mods_window::Card>,
         opened_urls: Vec<String>,
+        opened_logs: usize,
         restarts: usize,
     }
 
@@ -1625,6 +1712,7 @@ mod tests {
                 troubleshooting: crate::base::troubleshooting::State::Idle,
                 cards: Vec::new(),
                 opened_urls: Vec::new(),
+                opened_logs: 0,
                 restarts: 0,
             }
         }
@@ -1704,6 +1792,10 @@ mod tests {
         }
         fn open_url(&mut self, url: &str) -> Result<(), String> {
             self.opened_urls.push(url.to_string());
+            Ok(())
+        }
+        fn open_logs_folder(&mut self) -> Result<(), String> {
+            self.opened_logs += 1;
             Ok(())
         }
         fn request_restart(&mut self) -> Result<(), String> {
@@ -1909,8 +2001,8 @@ mod tests {
         assert!(shell.host.dump_pending().is_none());
 
         shell.open_settings(&FixedMeasure);
-        let about = Page::ALL.iter().position(|&p| p == Page::About).unwrap();
-        let page = &shell.settings.as_ref().unwrap().window.pages[about];
+        let advanced = Page::ALL.iter().position(|&p| p == Page::Advanced).unwrap();
+        let page = &shell.settings.as_ref().unwrap().window.pages[advanced];
         assert!(has_status_text(page, "EU4HARMONY_DUMPS_CONFIGURED"));
         assert!(has_action_button(page, DISABLE_DUMPS));
 
@@ -1918,7 +2010,78 @@ mod tests {
         shell.host.start_disable_dumps().unwrap();
         shell.host.dump_finished = Some((DumpAction::Disable, Ok(())));
         shell.tick(&FixedMeasure);
-        let page = &shell.settings.as_ref().unwrap().window.pages[about];
+        let page = &shell.settings.as_ref().unwrap().window.pages[advanced];
         assert!(has_action_button(page, ENABLE_DUMPS));
+    }
+
+    #[test]
+    fn shell_confirms_before_discarding_unsaved_settings_changes() {
+        let mut shell = Shell::new(FakeHost::default());
+        shell.sync_frame(1, Some(1), false, (1280.0, 720.0), 1.0);
+        shell.open_settings(&FixedMeasure);
+
+        // Clean settings close directly on Escape without a confirmation dialog.
+        assert!(shell.event(&FixedMeasure, input::Event::Escape));
+        assert!(shell.settings.is_none());
+        assert!(shell.discard_prompt.is_none());
+
+        // Dirty settings prompt before closing; Keep editing preserves the draft, Discard closes.
+        shell.open_settings(&FixedMeasure);
+        let (sx, sy) = side_pos(&shell.settings.as_ref().unwrap().window, Page::Sound);
+        assert!(shell.event(&FixedMeasure, input::Event::Down(sx, sy)));
+        let (ml_x, ml_y) = text_pos(&shell.settings.as_ref().unwrap().window, "EU4HARMONY_SETTINGS_MUSIC_LOUDNESS");
+        assert!(shell.event(&FixedMeasure, input::Event::Down(ml_x, ml_y)));
+
+        assert!(shell.event(&FixedMeasure, input::Event::Escape));
+        assert!(shell.settings.is_some());
+        assert!(shell.discard_prompt.is_some());
+
+        let (keep_x, keep_y) = text_pos(shell.discard_prompt.as_ref().unwrap(), "EU4HARMONY_DISCARD_CANCEL");
+        assert!(shell.event(&FixedMeasure, input::Event::Down(keep_x, keep_y)));
+        assert!(shell.discard_prompt.is_none());
+        assert!(shell.settings.is_some());
+        assert_eq!(shell.settings.as_ref().unwrap().window.is_on("music_loudness"), Some(!Settings::default().music_loudness));
+
+        let (cancel_x, cancel_y) = text_pos(&shell.settings.as_ref().unwrap().window, "EU4HARMONY_SETTINGS_CANCEL");
+        assert!(shell.event(&FixedMeasure, input::Event::Down(cancel_x, cancel_y)));
+        assert!(shell.discard_prompt.is_some());
+        let (disc_x, disc_y) = text_pos(shell.discard_prompt.as_ref().unwrap(), "EU4HARMONY_DISCARD_CONFIRM");
+        assert!(shell.event(&FixedMeasure, input::Event::Down(disc_x, disc_y)));
+        assert!(shell.discard_prompt.is_none());
+        assert!(shell.settings.is_none());
+        assert!(shell.host.saved.is_empty());
+    }
+
+    #[test]
+    fn shell_advanced_page_handles_remote_control_open_logs_and_in_game_locking() {
+        let mut shell = Shell::new(FakeHost::default());
+        shell.sync_frame(1, Some(1), false, (1280.0, 720.0), 1.0);
+        shell.open_settings_at(&FixedMeasure, Some(Page::Advanced));
+
+        let (logs_x, logs_y) = text_pos(&shell.settings.as_ref().unwrap().window, "EU4HARMONY_ADVANCED_OPEN_LOGS");
+        assert!(shell.event(&FixedMeasure, input::Event::Down(logs_x, logs_y)));
+        assert_eq!(shell.host.opened_logs, 1);
+
+        // Enabling remote control requires restart and triggers the restart prompt on Save.
+        let (rc_x, rc_y) = text_pos(&shell.settings.as_ref().unwrap().window, "EU4HARMONY_SETTINGS_REMOTE_CONTROL");
+        assert!(shell.event(&FixedMeasure, input::Event::Down(rc_x, rc_y)));
+        assert_eq!(shell.settings.as_ref().unwrap().window.is_on("remote_control"), Some(true));
+        assert_eq!(restart_shown(&mut shell.settings.as_mut().unwrap().window), "EU4HARMONY_SETTINGS_RESTART");
+        let (sv_x, sv_y) = text_pos(&shell.settings.as_ref().unwrap().window, "EU4HARMONY_SETTINGS_SAVE");
+        assert!(shell.event(&FixedMeasure, input::Event::Down(sv_x, sv_y)));
+        assert!(shell.restart_prompt.is_some());
+        assert!(shell.host.saved[0].0.remote_control);
+        shell.restart_prompt = None;
+
+        // In-game: remote control toggle is locked, while Open log folder and dump controls remain usable.
+        shell.sync_frame(20, None, true, (1280.0, 720.0), 1.0);
+        shell.open_settings_at(&FixedMeasure, Some(Page::Advanced));
+        let (rc_x, rc_y) = text_pos(&shell.settings.as_ref().unwrap().window, "EU4HARMONY_SETTINGS_REMOTE_CONTROL");
+        assert_eq!(shell.settings.as_ref().unwrap().window.tooltip_at(&FixedMeasure, rc_x, rc_y), Some(main_menu_only_tooltip()));
+        assert!(shell.event(&FixedMeasure, input::Event::Down(rc_x, rc_y)));
+        assert_eq!(shell.settings.as_ref().unwrap().window.is_on("remote_control"), Some(true));
+        let (logs_x, logs_y) = text_pos(&shell.settings.as_ref().unwrap().window, "EU4HARMONY_ADVANCED_OPEN_LOGS");
+        assert!(shell.event(&FixedMeasure, input::Event::Down(logs_x, logs_y)));
+        assert_eq!(shell.host.opened_logs, 2);
     }
 }

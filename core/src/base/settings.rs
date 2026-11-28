@@ -165,6 +165,9 @@ pub struct Settings {
     /// Whether quiet and loud passages of the music are brought closer
     /// (GLOSSARY: Music leveling).
     pub music_leveling: bool,
+    /// Whether the remote-control named pipe opens at startup
+    /// (ADR remote-control-is-opt-in).
+    pub remote_control: bool,
 }
 
 /// A framework setting the settings window shows as a toggle or a choice
@@ -265,17 +268,18 @@ pub enum Page {
     Achievements,
     Display,
     Sound,
+    Advanced,
     /// The framework's version, where to report a problem, and the
     /// troubleshooting files; no settings.
     About,
 }
 
 impl Page {
-    pub const ALL: [Page; 6] = [Page::LanguageFonts, Page::Sessions, Page::Achievements, Page::Display, Page::Sound, Page::About];
+    pub const ALL: [Page; 7] = [Page::LanguageFonts, Page::Sessions, Page::Achievements, Page::Display, Page::Sound, Page::Advanced, Page::About];
 
     /// Whether the player can use or change this page during a session.
     pub fn editable_in_game(self) -> bool {
-        !matches!(self, Page::LanguageFonts | Page::Achievements)
+        !matches!(self, Page::LanguageFonts | Page::Achievements | Page::Advanced)
     }
 
     /// The key of its name in the side list.
@@ -286,6 +290,7 @@ impl Page {
             Page::Achievements => "EU4HARMONY_SETTINGS_PAGE_ACHIEVEMENTS",
             Page::Display => "EU4HARMONY_SETTINGS_PAGE_DISPLAY",
             Page::Sound => "EU4HARMONY_SETTINGS_PAGE_SOUND",
+            Page::Advanced => "EU4HARMONY_SETTINGS_PAGE_ADVANCED",
             Page::About => "EU4HARMONY_SETTINGS_PAGE_ABOUT",
         }
     }
@@ -294,7 +299,7 @@ impl Page {
 /// Every [`Setting`], in the order the file writes them and each page of
 /// the settings window shows them; those on the language and fonts page show
 /// after the map's font. Their defaults are [`Settings::default`]'s.
-pub static SETTINGS: [Setting; 10] = [
+pub static SETTINGS: [Setting; 11] = [
     Setting {
         key: "map_outline",
         page: Page::LanguageFonts,
@@ -372,6 +377,12 @@ pub static SETTINGS: [Setting; 10] = [
         page: Page::Sound,
         shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_MUSIC_LEVELING", field: field!(music_leveling) },
         effect: Effect::WhenSaved { tells: Some(Listener::Sound) },
+    },
+    Setting {
+        key: "remote_control",
+        page: Page::Advanced,
+        shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_REMOTE_CONTROL", field: field!(remote_control) },
+        effect: Effect::NextStart,
     },
 ];
 
@@ -603,6 +614,7 @@ impl Default for Settings {
             zoom_step: DEFAULT_ZOOM_STEP,
             music_loudness: true,
             music_leveling: false,
+            remote_control: false,
         }
     }
 }
@@ -1008,11 +1020,12 @@ mod tests {
             zoom_step: 145,
             music_loudness: false,
             music_leveling: true,
+            remote_control: true,
         };
         assert_eq!(Settings::parse(&custom.render()), custom);
         assert!(custom.render().starts_with("language=\"braz_por\"\nbody_font=\"SimSun\"\nbody_weight=700\n"));
         assert!(custom.render().ends_with(
-            "\nachievements_with_changed_checksum=yes\nframe_rate_limit=120\nzoom_smoothing=75\nzoom_step=1.45\nmusic_loudness=no\nmusic_leveling=yes\n"
+            "\nachievements_with_changed_checksum=yes\nframe_rate_limit=120\nzoom_smoothing=75\nzoom_step=1.45\nmusic_loudness=no\nmusic_leveling=yes\nremote_control=yes\n"
         ));
         assert!(custom.render().contains("\nheading_font=\"Microsoft YaHei\"\nheading_weight=700\n"));
         assert!(custom.render().contains("\nconsole_font=\"Cascadia Mono\"\nconsole_weight=600\nmap_outline=no\nreturn_without_restart=no\n"));
@@ -1025,7 +1038,7 @@ mod tests {
         assert_eq!(following.render().lines().next(), Some("language=\"english\""));
         assert_eq!(
             following.render(),
-            "language=\"english\"\nmap_outline=yes\nreturn_without_restart=yes\nsave_ironman_before_load=yes\nachievements_outside_ironman=no\nachievements_with_changed_checksum=no\nzoom_smoothing=50\nzoom_step=1.30\nmusic_loudness=yes\nmusic_leveling=no\n"
+            "language=\"english\"\nmap_outline=yes\nreturn_without_restart=yes\nsave_ironman_before_load=yes\nachievements_outside_ironman=no\nachievements_with_changed_checksum=no\nzoom_smoothing=50\nzoom_step=1.30\nmusic_loudness=yes\nmusic_leveling=no\nremote_control=no\n"
         );
         assert!(!following.render().contains("_font"));
         assert!(!following.render().contains("frame_rate_limit"));

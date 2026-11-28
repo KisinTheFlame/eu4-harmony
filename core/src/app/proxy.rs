@@ -88,7 +88,22 @@ pub(crate) fn sync_once() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         if let Some(dir) = crate::base::game_dir() {
-            let _ = sync_and_restart(dir, None);
+            match sync_and_restart(dir, None) {
+                Outcome::Unchanged => {}
+                Outcome::UpdatedRestartFailed => {
+                    // `prepare_feedback` already decided the player language.
+                    crate::base::notice::tell_and_wait(&crate::base::notice::Message::new("EU4HARMONY_PROXY_UPDATED_RESTART"));
+                }
+                Outcome::Failed => {
+                    // The loaded proxy is still compatible, so let the game start and
+                    // post a one-time in-game notice once the UI is up.
+                    crate::base::notice::post(
+                        "proxy-update-failed",
+                        crate::base::notice::Repeat::Run,
+                        crate::base::notice::Message::new("EU4HARMONY_PROXY_UPDATE_FAILED"),
+                    );
+                }
+            }
         }
     });
 }

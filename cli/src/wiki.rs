@@ -214,7 +214,9 @@ remote: playing a game through remote control
 
 A remote client uses the running game through the framework's capabilities
 over the named pipe \\\\.\\pipe\\eu4-harmony; the command line is eu4-harmony game
-(eu4-harmony game -h for its form).
+(eu4-harmony game -h for its form). Remote control is off by default: enable
+it in Harmony settings -> Advanced and restart the game, or launch the game
+with eu4-harmony start (which passes -harmony_remote for that run).
 
 as the player or as the game:
   A request acts as the player unless it asks to act as the game: it reads

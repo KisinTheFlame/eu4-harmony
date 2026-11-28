@@ -85,7 +85,7 @@ impl Start {
                 word
             }
         };
-        let mut words = Vec::new();
+        let mut words = vec!["-harmony_remote".to_string()];
         if self.hidden {
             words.push("-harmony_hidden".to_string());
         }
@@ -250,7 +250,10 @@ mod tests {
         let game = TestGame { name: "b".into(), user_dir: PathBuf::from(r"C:\claims\b\user"), core: PathBuf::from(r"C:\a b\core.dll") };
         let start = Start { hidden: true, mute: true, seed: None, user_dir: None, test_game: Some(game) };
         let words = start.switches();
-        assert_eq!(words, ["-harmony_hidden", "-harmony_mute", r"-userdir=C:\claims\b\user", r#""-harmony_core=C:\a b\core.dll""#, "-harmony_test_game=b"]);
+        assert_eq!(
+            words,
+            ["-harmony_remote", "-harmony_hidden", "-harmony_mute", r"-userdir=C:\claims\b\user", r#""-harmony_core=C:\a b\core.dll""#, "-harmony_test_game=b"]
+        );
         assert_eq!(start.pipe().unwrap(), r"\\.\pipe\eu4-harmony-b");
         assert_eq!(Start::default().pipe().unwrap(), eu4_harmony_remote::PIPE);
     }
@@ -258,7 +261,7 @@ mod tests {
     #[test]
     fn explicit_user_dir_adds_switch_and_framework_has_checks_workshop_and_shown_starts() {
         let with_user = Start { user_dir: Some(PathBuf::from(r"C:\my user\dir")), ..Default::default() };
-        assert_eq!(with_user.switches(), [r#""-userdir=C:\my user\dir""#]);
+        assert_eq!(with_user.switches(), ["-harmony_remote", r#""-userdir=C:\my user\dir""#]);
 
         let root = std::env::temp_dir().join(format!("eu4h-client-framework-has-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -295,17 +298,17 @@ mod tests {
 
     #[test]
     fn hidden_and_mute_are_independent_switches() {
-        assert_eq!(switches(false, false, None), Vec::<String>::new());
-        assert_eq!(switches(false, true, None), ["-harmony_mute"]);
-        assert_eq!(switches(true, false, None), ["-harmony_hidden"]);
-        assert_eq!(switches(true, true, None), ["-harmony_hidden", "-harmony_mute"]);
+        assert_eq!(switches(false, false, None), ["-harmony_remote"]);
+        assert_eq!(switches(false, true, None), ["-harmony_remote", "-harmony_mute"]);
+        assert_eq!(switches(true, false, None), ["-harmony_remote", "-harmony_hidden"]);
+        assert_eq!(switches(true, true, None), ["-harmony_remote", "-harmony_hidden", "-harmony_mute"]);
     }
 
     #[test]
     fn a_seed_is_the_game_s_own_switch() {
-        assert_eq!(switches(true, false, Some(7)), ["-harmony_hidden", "-seed=7"]);
-        assert_eq!(switches(false, true, Some(0)), ["-harmony_mute", "-seed=0"]);
-        assert_eq!(switches(false, false, Some(0)), ["-seed=0"]);
+        assert_eq!(switches(true, false, Some(7)), ["-harmony_remote", "-harmony_hidden", "-seed=7"]);
+        assert_eq!(switches(false, true, Some(0)), ["-harmony_remote", "-harmony_mute", "-seed=0"]);
+        assert_eq!(switches(false, false, Some(0)), ["-harmony_remote", "-seed=0"]);
     }
 
     #[test]

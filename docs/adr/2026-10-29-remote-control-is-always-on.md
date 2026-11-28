@@ -1,3 +1,7 @@
+---
+status: superseded by remote-control-is-opt-in
+---
+
 # Remote control is always on
 
 Remote control has no setting and shows nothing on screen. Whenever the framework runs, the named pipe is open to the Windows user running the game, and every request is written to the framework log. The game console is open to remote clients and extensions in every build.
