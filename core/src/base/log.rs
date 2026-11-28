@@ -80,6 +80,10 @@ pub fn rotate(path: &Path) {
 
 pub fn open(path: &Path) -> std::io::Result<()> {
     let dir = path.parent().ok_or_else(|| std::io::Error::other("the log has no folder"))?;
+    // Release any lease already held by this process (for example when a proxy
+    // self-update reopened `core.log` after a failed restart and startup then
+    // calls `open` again) so `Journal::open` reuses the primary `core.log`.
+    close();
     let mut file = Journal::open(dir, eu4_harmony_logging::CORE)?;
     let mut sink = SINK.lock().unwrap_or_else(|e| e.into_inner());
     for (kind, message) in sink.pending.drain(..) {

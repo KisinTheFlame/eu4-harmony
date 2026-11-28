@@ -32,6 +32,11 @@ const MAX_WINDOWS_DUMPS: usize = 3;
 /// Explicit allowlist of game log files included in troubleshooting archives.
 /// Excludes Paradox online, multiplayer, chat and telemetry logs.
 const ALLOWED_GAME_LOGS: &[&str] = &["error.log", "game.log", "system.log", "setup.log", "exceptions.log", "memory.log"];
+/// Explicit allowlist of files collected from each `crashes/<name>/` folder.
+/// Excludes raw uncompressed `screenshot.bmp` captures (which would be decoded
+/// as text, bloat the archive, and evict `minidump.dmp` under the 24 MiB cap)
+/// as well as any unexpected binary or save files.
+const ALLOWED_CRASH_FILES: &[&str] = &["exception.txt", "minidump.dmp", "meta.yml", "settings.txt", "dlc_load.json"];
 /// Keys in EU4's `settings.txt` whose values are redacted before packing.
 const REDACTED_GAME_SETTINGS_KEYS: &[&str] = &["last_player_name", "last_server", "server_ip", "last_host_ip"];
 
@@ -319,7 +324,13 @@ fn sources(user: &UserFolder) -> crate::base::Result<(Vec<Source>, usize)> {
     crash_dirs.sort_unstable_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
     let omitted_crashes = crash_dirs.len().saturating_sub(MAX_CRASH_FOLDERS);
     for (_, name) in crash_dirs.into_iter().take(MAX_CRASH_FOLDERS) {
-        files_in(&user.crashes().join(&name), &format!("crashes/{name}"), &mut out).map_err(|e| format!("cannot list crash folder {name}: {e}"))?;
+        files_in_matching(
+            &user.crashes().join(&name),
+            &format!("crashes/{name}"),
+            |file_name| ALLOWED_CRASH_FILES.iter().any(|allowed| file_name.eq_ignore_ascii_case(allowed)),
+            &mut out,
+        )
+        .map_err(|e| format!("cannot list crash folder {name}: {e}"))?;
     }
     for (name, path) in [
         ("settings/harmony-settings.txt", user.harmony().join("settings.txt")),
@@ -1033,5 +1044,22 @@ mod tests {
         assert!(redacted.contains("server_ip=\"[redacted]\""));
         assert!(!redacted.contains("玩家"));
         assert!(!redacted.contains("192.0.2.1"));
+    }
+
+    #[test]
+    fn crash_folder_sources_exclude_raw_screenshots_and_keep_crash_evidence() {
+        let dir = scratch("crash-allowlist");
+        let user = UserFolder::new(dir.clone());
+        put(&dir.join("crashes").join("eu4_20261128").join("exception.txt"), "stack");
+        put(&dir.join("crashes").join("eu4_20261128").join("meta.yml"), "version: 1.37.5");
+        put(&dir.join("crashes").join("eu4_20261128").join("screenshot.bmp"), "BMxxxxxx");
+        put(&dir.join("crashes").join("eu4_20261128").join("minidump.dmp"), "MDMP");
+        let (found, _) = sources(&user).unwrap();
+        let names: Vec<&str> = found.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"crashes/eu4_20261128/exception.txt"), "{names:?}");
+        assert!(names.contains(&"crashes/eu4_20261128/meta.yml"), "{names:?}");
+        assert!(names.contains(&"crashes/eu4_20261128/minidump.dmp"), "{names:?}");
+        assert!(!names.iter().any(|n| n.ends_with("screenshot.bmp")), "{names:?}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
