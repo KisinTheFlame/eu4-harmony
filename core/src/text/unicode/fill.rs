@@ -829,12 +829,14 @@ fn loaded(font: usize) -> bool {
                         // ours, and its old texture is released.
                         let old = m.ptr(wrapper)? as *mut c_void;
                         let (width, height) = made.size;
-                        notify_texture_replaced(wrapper, old);
                         unsafe {
                             *(wrapper as *mut *mut c_void) = made.texture.texture.clone().into_raw();
-                            drop(IDirect3DTexture9::from_raw(old));
                             *((entry + textures::ENTRY_SIZE) as *mut u32) = width;
                             *((entry + textures::ENTRY_SIZE + 4) as *mut u32) = height;
+                        }
+                        notify_texture_replaced(wrapper, old);
+                        if !old.is_null() {
+                            unsafe { drop(IDirect3DTexture9::from_raw(old)) };
                         }
                         let outline = look.outline.as_ref().map_or("none".to_string(), |o| format!("{:06x}, {} px", o.color, o.reach()));
                         let grows = made.max.map_or("keeps its size".to_string(), |(w, h)| format!("grows up to {w}x{h}"));
@@ -902,10 +904,8 @@ impl Game<PageTexture> for InGame<'_> {
             return Err("the font's page is not in its entry".into());
         }
         let old = m.ptr(wrapper)? as *mut c_void;
-        notify_texture_replaced(wrapper, old);
         unsafe {
             *(wrapper as *mut *mut c_void) = texture.texture.clone().into_raw();
-            drop(IDirect3DTexture9::from_raw(old));
             *((entry + textures::ENTRY_SIZE) as *mut u32) = width;
             *((entry + textures::ENTRY_SIZE + 4) as *mut u32) = height;
             for &font in fonts {
@@ -914,6 +914,10 @@ impl Game<PageTexture> for InGame<'_> {
                 // A text whose slot has no key is laid out again.
                 std::ptr::write_bytes((font + objects::font::TEXT_KEYS) as *mut i32, 0, objects::font::TEXT_SLOTS);
             }
+        }
+        notify_texture_replaced(wrapper, old);
+        if !old.is_null() {
+            unsafe { drop(IDirect3DTexture9::from_raw(old)) };
         }
         Ok(())
     }

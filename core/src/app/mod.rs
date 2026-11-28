@@ -51,6 +51,7 @@ fn wire_all() {
         before_reset: || {
             interface::tooltips::clear();
             framework_ui::device_reset();
+            speed::loading::flag_atlas::on_device_reset();
         },
     });
     render::window_input::set_hooks(render::window_input::InputHooks { is_modal: framework_ui::modal, on_wheel: tweaks::camera_zoom::before_sdl_wheel });
@@ -103,7 +104,10 @@ fn wire_all() {
         wait_background_save: speed::saving::background::wait,
     });
     session::transition::set_hooks(session::transition::TransitionHooks {
-        ui_still: framework_ui::still,
+        ui_still: |key| {
+            render::drawing::pause_for_main_draw();
+            framework_ui::still(key);
+        },
         in_day: capabilities::game::signals::in_day,
         mode_before_load: capabilities::game::map::mode_before_load,
         restore_after_load: capabilities::game::map::restore_after_load,

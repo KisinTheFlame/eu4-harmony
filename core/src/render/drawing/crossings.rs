@@ -143,8 +143,20 @@ impl<const N: usize> LockOrder<N> {
         Self { locks: [const { AtomicUsize::new(0) }; N], known: AtomicUsize::new(0), overflow_logged: AtomicBool::new(false) }
     }
 
-    fn clear(&self) {
-        self.known.store(0, Ordering::Release);
+    /// Retains only locks whose addresses fall inside `[start, end)` (e.g.
+    /// static globals in the game image) and drops transient heap locks.
+    /// Must be called only when the drawing thread is idle and cannot append.
+    fn retain_range(&self, start: usize, end: usize) {
+        let count = self.known.load(Ordering::Acquire).min(N);
+        let mut kept = 0usize;
+        for i in 0..count {
+            let addr = self.locks[i].load(Ordering::Relaxed);
+            if addr >= start && addr < end {
+                self.locks[kept].store(addr, Ordering::Relaxed);
+                kept += 1;
+            }
+        }
+        self.known.store(kept, Ordering::Release);
         self.overflow_logged.store(false, Ordering::Relaxed);
     }
 
@@ -377,11 +389,16 @@ static ORIGINAL_ACQUIRE_SRW: AtomicUsize = AtomicUsize::new(0);
 const LOCK_ORDER_CAPACITY: usize = 256;
 static LOCK_ORDER: LockOrder<LOCK_ORDER_CAPACITY> = LockOrder::new();
 
-/// Clears learned drawing-thread lock addresses once the drawing thread has
-/// stopped drawing the previous idler, so transient heap locks from prior
-/// sessions never exhaust [`LOCK_ORDER`].
-pub(super) fn reset_lock_order() {
-    LOCK_ORDER.clear();
+/// Drops transient heap locks from [`LOCK_ORDER`] once the drawing thread has
+/// stopped drawing the previous idler, while keeping static locks inside the
+/// game image so the next session's first frames do not reopen an AB-BA window.
+pub(super) fn reset_lock_order(m: &crate::native::memory::Memory) {
+    let image_size = m.u32(m.base + 0x3c).ok().and_then(|pe| m.u32(m.base.checked_add(pe as usize)?.checked_add(0x50)?).ok()).map_or(0, |size| size as usize);
+    if let Some(end) = m.base.checked_add(image_size).filter(|&end| end > m.base) {
+        LOCK_ORDER.retain_range(m.base, end);
+    } else {
+        LOCK_ORDER.retain_range(0, 0);
+    }
 }
 
 #[called_by_game]
@@ -547,6 +564,18 @@ mod tests {
         assert_eq!(order.observe(0xaa, false, false), LockAction::None, "main already holds presentation lock");
         assert_eq!(order.observe(0xcc, false, false), LockAction::None, "worker threads bypass lock-order scan");
         assert_eq!(order.observe(0xcc, false, true), LockAction::None, "unknown lock untouched");
+    }
+
+    #[test]
+    fn lock_order_retain_range_keeps_static_locks_and_drops_heap_locks() {
+        let order: LockOrder<4> = LockOrder::new();
+        order.observe(0x1400_1000, true, false);
+        order.observe(0x0000_0200_1000, true, false);
+        order.observe(0x1400_2000, true, false);
+        order.retain_range(0x1400_0000, 0x1401_0000);
+        assert_eq!(order.observe(0x1400_1000, false, true), LockAction::TakePresentationFirst);
+        assert_eq!(order.observe(0x1400_2000, false, true), LockAction::TakePresentationFirst);
+        assert_eq!(order.observe(0x0000_0200_1000, false, true), LockAction::None);
     }
 
     #[test]
