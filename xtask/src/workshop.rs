@@ -373,4 +373,25 @@ mod tests {
         assert_eq!(vdf_id(&vdf), Some(0));
         assert_eq!(vdf_id("\"workshopitem\"\n{\n\t\"appid\"\t\t\"236850\"\n\t\"publishedfileid\"\t\t\"3300000001\"\n}\n"), Some(3300000001));
     }
+
+    #[test]
+    fn workshop_descriptions_fit_steams_8000_byte_limit() {
+        // Steam's Workshop editor enforces both an 8,000-character textarea cap
+        // and an 8,000-byte UTF-8 server limit (k_cchPublishedDocumentDescriptionMax).
+        const STEAM_DESCRIPTION_MAX_BYTES: usize = 8000;
+        let mut count = 0;
+        for entry in fs::read_dir(sources()).unwrap() {
+            let path = entry.unwrap().path();
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+            if !(name.starts_with("description.") && name.ends_with(".bbcode")) {
+                continue;
+            }
+            count += 1;
+            let raw = fs::read_to_string(&path).unwrap();
+            let normalized = raw.trim_end().replace("\r\n", "\n");
+            let crlf_bytes = normalized.len() + normalized.bytes().filter(|&b| b == b'\n').count();
+            assert!(crlf_bytes <= STEAM_DESCRIPTION_MAX_BYTES, "{name} is {crlf_bytes} UTF-8 bytes with CRLF (limit {STEAM_DESCRIPTION_MAX_BYTES})");
+        }
+        assert!(count >= 5, "expected at least 5 workshop description files, found {count}");
+    }
 }
