@@ -31,8 +31,11 @@ use crate::native::objects::{
     campaign::{
         countries::LIST as COUNTRY_LIST,
         functions::COUNTRY_MODIFIERS,
-        globals::{COUNTRY_MANAGER, SPECIAL_COUNTRIES},
+        globals::{COUNTRY_MANAGER, SPECIAL_COUNTRIES, WORLD},
+        leader::REAL as LEADER_REAL_SLOT,
+        province::SIZE as PROVINCE_SIZE,
         unit::{ATTACHED_TO, LOCATION, OWNER},
+        world::{DATE as WORLD_DATE, PROVINCES as WORLD_PROVINCES},
     },
 };
 use crate::native::points::{Function, Point};
@@ -41,7 +44,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::{
-    atomic::{AtomicU64, AtomicUsize, Ordering},
+    atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering},
     LazyLock, OnceLock,
 };
 
@@ -64,6 +67,10 @@ impl Hasher for FastHash {
         self.0 = (self.0 ^ i).wrapping_mul(0x517c_c1b7_2722_0a95);
     }
     #[inline]
+    fn write_usize(&mut self, i: usize) {
+        self.0 = (self.0 ^ i as u64).wrapping_mul(0x517c_c1b7_2722_0a95);
+    }
+    #[inline]
     fn write_i16(&mut self, i: i16) {
         self.0 = (self.0 ^ (i as u16 as u64)).wrapping_mul(0x517c_c1b7_2722_0a95);
     }
@@ -76,6 +83,13 @@ const AI_STAGE: usize = 0x77d8a0;
 /// Threat-map query functions: army threat ratio (`0x1998f0`) and recruitment threat sum (`0x199500`).
 const THREAT_RATIO_QUERY: usize = 0x1998f0;
 const THREAT_SUM_QUERY: usize = 0x199500;
+/// Pure unit morale calculation (`0xd4c060(unit, out_ptr, flag) -> out_ptr`), read-only during `0x77d8a0`.
+const UNIT_MORALE_FN: usize = 0xd4c060;
+/// Pure province highest-fort ZoC neighbor lookup (`0xa273a0(province) -> province_or_null`), read-only during `0x77d8a0`.
+const PROVINCE_FORT_ZOC_FN: usize = 0xa273a0;
+/// Date year and day-of-year helpers used by `0xeab50` to pick army-search days (`(day % 3) == (country_index % 3)`).
+const DATE_YEAR_FN: usize = 0xcfd70;
+const DATE_DAY_OF_YEAR_FN: usize = 0xcfe10;
 /// Global threat map updated by `0x1950e0` immediately before `0x77d8a0`.
 const THREAT_MAP: usize = 0x242ba00;
 const THREAT_MAP_LAND: usize = 0x00;
@@ -92,6 +106,11 @@ const POTENTIAL_ALLY_FN: usize = 0x197540;
 
 const UNIT_IS_FLEET_SLOT: usize = 0x88;
 const UNIT_OWNER_TAG_SLOT: usize = 0x138;
+const UNIT_LEADER: usize = 0xd8;
+const LEADER_FIRE_PIPS: usize = 0x4c;
+const LEADER_SHOCK_PIPS: usize = 0x50;
+const AI_COUNTRY_TAG: usize = 0x20;
+const AI_EMA_TIME: usize = 0x88;
 const PROVINCE_GEOM: usize = 0x28;
 const GEOM_TERRAIN_TYPE: usize = 0x30;
 const TERRAIN_INLAND_SEA: usize = 0x109;
@@ -107,6 +126,8 @@ const COUNTRY_ENEMIES_COUNT: usize = 0x1554;
 
 const BUCKET_STRIDE: usize = 0x18;
 const RAW_ENTRY_STRIDE: usize = 0x10;
+const MORALE_UNSET: i64 = i64::MIN;
+const FORT_ZOC_UNSET: usize = usize::MAX;
 
 /// Exact IEEE-754 constants loaded by `0x1998f0` and `0x199500`.
 const SCALE_Q15: f32 = f32::from_bits(0x3800_0000); // 1.0 / 32768.0
@@ -114,10 +135,16 @@ const SCALE_001: f32 = f32::from_bits(0x3c23_d70a); // 0.01f
 
 type AiStageFn = unsafe extern "C" fn(usize, usize);
 type ThreatQueryFn = unsafe extern "C" fn(*mut i32, usize, i32, usize, usize) -> *mut i32;
+type StrengthEvalFn = unsafe extern "C" fn(usize, *mut i64, usize, *mut i32) -> *mut i64;
+type UnitMoraleFn = unsafe extern "C" fn(usize, *mut i32, u8) -> *mut i32;
+type ProvinceFortZocFn = unsafe extern "C" fn(usize) -> usize;
 
 static ORIGINAL_AI_STAGE: Function<AiStageFn> = Function::new();
 static ORIGINAL_THREAT_RATIO: Function<ThreatQueryFn> = Function::new();
 static ORIGINAL_THREAT_SUM: Function<ThreatQueryFn> = Function::new();
+static ORIGINAL_STRENGTH_EVAL: Function<StrengthEvalFn> = Function::new();
+static ORIGINAL_UNIT_MORALE: Function<UnitMoraleFn> = Function::new();
+static ORIGINAL_FORT_ZOC: Function<ProvinceFortZocFn> = Function::new();
 
 /// Active immutable snapshot for the current `0x77d8a0` AI stage (0 outside it).
 /// Written on the main thread before workers start and cleared after `0x77d8a0`
@@ -187,13 +214,32 @@ struct LiveUnit {
     owner_is_special: bool,
     owner_can_shift: bool,
     factor_idx: u8,
-    strength: OnceLock<i64>,
+    strength_and_pips: OnceLock<(i64, i32)>,
+    morale: [AtomicI64; 2],
 }
 
 impl LiveUnit {
     #[inline]
+    fn strength_and_pips(&self, m: &crate::native::memory::Memory) -> (i64, i32) {
+        *self.strength_and_pips.get_or_init(|| unsafe { compute_unit_strength_and_pips(m, self.unit_ptr) })
+    }
+
+    #[inline]
     fn strength(&self, m: &crate::native::memory::Memory) -> i64 {
-        *self.strength.get_or_init(|| unsafe { compute_unit_strength(m, self.unit_ptr) })
+        self.strength_and_pips(m).0
+    }
+
+    #[inline]
+    fn morale(&self, flag: u8) -> i32 {
+        let slot = usize::from(flag != 0);
+        let cached = self.morale[slot].load(Ordering::Relaxed);
+        if cached != MORALE_UNSET {
+            return cached as i32;
+        }
+        let mut out = 0i32;
+        unsafe { ORIGINAL_UNIT_MORALE.get()(self.unit_ptr, &mut out, flag) };
+        self.morale[slot].store(out as i64, Ordering::Relaxed);
+        out
     }
 }
 
@@ -203,6 +249,8 @@ struct ThreatSnapshot {
     strength_fn_addr: usize,
     countries: usize,
     special: [i32; 3],
+    provinces_base: usize,
+    fort_zoc: Vec<AtomicUsize>,
     land_begin: usize,
     land_end: usize,
     land_offsets: Vec<u32>,
@@ -212,6 +260,7 @@ struct ThreatSnapshot {
     naval_offsets: Vec<u32>,
     naval_entries: Vec<CompactEntry>,
     units: Vec<LiveUnit>,
+    unit_by_ptr: FastMap<usize, u32>,
 }
 
 impl ThreatSnapshot {
@@ -244,13 +293,27 @@ impl ThreatSnapshot {
 }
 
 #[derive(Default)]
-struct AllyCache {
+struct WorkerCache {
     generation: u64,
-    map: FastMap<(i16, i16), bool>,
+    ally: FastMap<(i16, i16), bool>,
+    extra_strength: FastMap<usize, (i64, i32)>,
+    extra_morale: FastMap<(usize, bool), i32>,
+}
+
+impl WorkerCache {
+    #[inline]
+    fn sync_generation(&mut self, generation: u64) {
+        if self.generation != generation {
+            self.ally.clear();
+            self.extra_strength.clear();
+            self.extra_morale.clear();
+            self.generation = generation;
+        }
+    }
 }
 
 thread_local! {
-    static ALLY_CACHE: RefCell<AllyCache> = RefCell::new(AllyCache::default());
+    static WORKER_CACHE: RefCell<WorkerCache> = RefCell::new(WorkerCache::default());
 }
 
 #[inline]
@@ -262,20 +325,17 @@ unsafe fn potential_ally_cached(
     target_idx: i16,
     countries: usize,
 ) -> bool {
-    ALLY_CACHE.with(|cell| {
+    WORKER_CACHE.with(|cell| {
         let mut cache = cell.borrow_mut();
-        if cache.generation != generation {
-            cache.map.clear();
-            cache.generation = generation;
-        }
-        if let Some(&val) = cache.map.get(&(q_owner_idx, target_idx)) {
+        cache.sync_generation(generation);
+        if let Some(&val) = cache.ally.get(&(q_owner_idx, target_idx)) {
             return val;
         }
         let target_country = unsafe { *((countries as isize + (target_idx as isize) * 8) as *const usize) };
         type PotentialAlly = unsafe extern "C" fn(usize, usize) -> u8;
         let f: PotentialAlly = unsafe { std::mem::transmute(m.at(POTENTIAL_ALLY_FN)) };
         let val = unsafe { f(q_country, target_country) } != 0;
-        cache.map.insert((q_owner_idx, target_idx), val);
+        cache.ally.insert((q_owner_idx, target_idx), val);
         val
     })
 }
@@ -290,15 +350,13 @@ unsafe fn unit_owner_tag(unit: usize) -> u64 {
 }
 
 #[inline]
-unsafe fn is_country_enemy(country: usize, target_idx: i16) -> bool {
-    let count = unsafe { *((country + COUNTRY_ENEMIES_COUNT) as *const i32) };
-    if count <= 0 {
+unsafe fn is_enemy_in_list(enemies_ptr: usize, enemies_count: i32, target_idx: i16) -> bool {
+    if enemies_count <= 0 {
         return false;
     }
-    let ptr = unsafe { *((country + COUNTRY_ENEMIES_PTR) as *const usize) };
     let target = target_idx as i32;
-    let mut cur = ptr;
-    let end = ptr + (count as usize) * 16;
+    let mut cur = enemies_ptr;
+    let end = enemies_ptr + (enemies_count as usize) * 16;
     while cur != end {
         if unsafe { *(cur as *const i32) } == target {
             return true;
@@ -308,22 +366,23 @@ unsafe fn is_country_enemy(country: usize, target_idx: i16) -> bool {
     false
 }
 
-/// Pure unit-strength computation matching `0x177df0` for both land and naval units.
-unsafe fn compute_unit_strength(m: &crate::native::memory::Memory, unit: usize) -> i64 {
+/// Pure unit strength and leader-pip computation matching `0x177df0` for both
+/// land and naval units.
+unsafe fn compute_unit_strength_and_pips(m: &crate::native::memory::Memory, unit: usize) -> (i64, i32) {
     let vtable = unsafe { *(unit as *const usize) };
     let is_fleet: unsafe extern "C" fn(usize) -> u8 = unsafe { std::mem::transmute(*((vtable + UNIT_IS_FLEET_SLOT) as *const usize)) };
     if unsafe { is_fleet(unit) } == 0 {
         let attached = unsafe { *((unit + ATTACHED_TO) as *const usize) };
         let loc = unsafe { *((unit + LOCATION) as *const usize) };
         if attached != 0 && unsafe { *((attached + LOCATION) as *const usize) } == loc {
-            unsafe { *(m.at(ZERO_STRENGTH_CONST) as *const i64) }
+            (unsafe { *(m.at(ZERO_STRENGTH_CONST) as *const i64) }, 0)
         } else {
             let mut out = 0i64;
             let mut pips = 0i32;
             type ArmyStr = unsafe extern "C" fn(usize, *mut i64, usize, u8, u8, *mut i32) -> *mut i64;
             let f: ArmyStr = unsafe { std::mem::transmute(m.at(ARMY_STRENGTH)) };
             unsafe { f(unit, &mut out, 0, 1, 1, &mut pips) };
-            out
+            (out, pips)
         }
     } else {
         let loc = unsafe { *((unit + LOCATION) as *const usize) };
@@ -353,7 +412,16 @@ unsafe fn compute_unit_strength(m: &crate::native::memory::Memory, unit: usize) 
         type FleetStr = unsafe extern "C" fn(usize, *mut i64, usize, u8, u8, u8, *mut i32, u8, i32, usize) -> *mut i64;
         let f: FleetStr = unsafe { std::mem::transmute(m.at(FLEET_STRENGTH)) };
         unsafe { f(unit, &mut out, mods + 8, 1, 0, flag, &mut dummy, 0, 7, 0) };
-        out
+        let mut pips = 0i32;
+        let leader = unsafe { *((unit + UNIT_LEADER) as *const usize) };
+        if leader != 0 {
+            let l_vtable = unsafe { *(leader as *const usize) };
+            let is_real: unsafe extern "C" fn(usize) -> u8 = unsafe { std::mem::transmute(*((l_vtable + LEADER_REAL_SLOT) as *const usize)) };
+            if unsafe { is_real(leader) } != 0 {
+                pips = unsafe { *((leader + LEADER_SHOCK_PIPS) as *const i32) + *((leader + LEADER_FIRE_PIPS) as *const i32) };
+            }
+        }
+        (out, pips)
     }
 }
 
@@ -418,6 +486,7 @@ unsafe fn build_snapshot(m: &crate::native::memory::Memory) -> Option<Box<Threat
 
     let mut units = Vec::with_capacity(map_size);
     let mut live_map: FastMap<u64, (u8, u32)> = FastMap::with_capacity_and_hasher(map_size, Default::default());
+    let mut unit_by_ptr: FastMap<usize, u32> = FastMap::with_capacity_and_hasher(map_size, Default::default());
 
     let mut node = unsafe { *(sentinel as *const usize) };
     while node != 0 && node != sentinel {
@@ -436,8 +505,17 @@ unsafe fn build_snapshot(m: &crate::native::memory::Memory) -> Option<Box<Threat
             let owner_can_shift = owner_b7 != 0 && owner_b6 != 7 && !owner_is_special;
 
             let unit_idx = units.len() as u32;
-            units.push(LiveUnit { unit_ptr, owner_idx, owner_is_special, owner_can_shift, factor_idx, strength: OnceLock::new() });
+            units.push(LiveUnit {
+                unit_ptr,
+                owner_idx,
+                owner_is_special,
+                owner_can_shift,
+                factor_idx,
+                strength_and_pips: OnceLock::new(),
+                morale: [AtomicI64::new(MORALE_UNSET), AtomicI64::new(MORALE_UNSET)],
+            });
             live_map.insert(unit_id, (stamp, unit_idx));
+            unit_by_ptr.insert(unit_ptr, unit_idx);
         }
         node = unsafe { *(node as *const usize) };
     }
@@ -450,6 +528,11 @@ unsafe fn build_snapshot(m: &crate::native::memory::Memory) -> Option<Box<Threat
     let (land_offsets, land_entries) = unsafe { compact_buckets(land_begin, land_end, &live_map) };
     let (naval_offsets, naval_entries) = unsafe { compact_buckets(naval_begin, naval_end, &live_map) };
 
+    let world = unsafe { *(m.at(WORLD) as *const usize) };
+    let provinces_base = if world != 0 { unsafe { *((world + WORLD_PROVINCES) as *const usize) } } else { 0 };
+    let province_count = if provinces_base != 0 { land_offsets.len().saturating_sub(1) } else { 0 };
+    let fort_zoc = (0..province_count).map(|_| AtomicUsize::new(FORT_ZOC_UNSET)).collect();
+
     let generation = SNAPSHOT_GENERATION.fetch_add(1, Ordering::Relaxed) + 1;
     // Ensure POW_TABLE is initialized before parallel workers start reading it.
     let _ = &*POW_TABLE;
@@ -460,6 +543,8 @@ unsafe fn build_snapshot(m: &crate::native::memory::Memory) -> Option<Box<Threat
         strength_fn_addr: m.at(STRENGTH_EVAL_FN),
         countries,
         special,
+        provinces_base,
+        fort_zoc,
         land_begin,
         land_end,
         land_offsets,
@@ -469,7 +554,60 @@ unsafe fn build_snapshot(m: &crate::native::memory::Memory) -> Option<Box<Threat
         naval_offsets,
         naval_entries,
         units,
+        unit_by_ptr,
     }))
+}
+
+/// Priority score for parallel AI task dispatch (non-`-seed` mode only):
+/// countries at war on their army-search day (`(day % 3) == (country_index % 3)`)
+/// spend multiples of their 30-day EMA in `0x1022b0`, so scheduling them first
+/// reduces single-country straggler tail waits.
+#[inline]
+fn schedule_priority(ema: f64, is_search_day: bool, at_war: bool) -> f64 {
+    let ema = if ema.is_finite() && ema > 0.0 { ema } else { 0.0 };
+    let factor = match (is_search_day, at_war) {
+        (true, true) => 3.0,
+        (true, false) => 1.5,
+        (false, _) => 1.0,
+    };
+    ema * factor
+}
+
+unsafe fn prioritize_search_day_tasks(m: &crate::native::memory::Memory, list_obj: usize, countries: usize) {
+    if list_obj == 0 || countries == 0 {
+        return;
+    }
+    let count = unsafe { *((list_obj + 0x14) as *const i32) };
+    let data = unsafe { *((list_obj + 8) as *const *mut usize) };
+    if count <= 1 || data.is_null() {
+        return;
+    }
+    let world = unsafe { *(m.at(WORLD) as *const usize) };
+    if world == 0 {
+        return;
+    }
+    type DatePartFn = unsafe extern "C" fn(usize) -> i32;
+    let date_year: DatePartFn = unsafe { std::mem::transmute(m.at(DATE_YEAR_FN)) };
+    let date_doy: DatePartFn = unsafe { std::mem::transmute(m.at(DATE_DAY_OF_YEAR_FN)) };
+    let date_ptr = world + WORLD_DATE;
+    let today_mod3 = (unsafe { date_year(date_ptr) * 365 + date_doy(date_ptr) }).rem_euclid(3);
+
+    let slice = unsafe { std::slice::from_raw_parts_mut(data, count as usize) };
+    let mut keyed: Vec<(f64, usize)> = slice
+        .iter()
+        .map(|&ai| {
+            let ema = unsafe { *((ai + AI_EMA_TIME) as *const f64) };
+            let country_idx = ((unsafe { *((ai + AI_COUNTRY_TAG) as *const u64) }) >> 32) as i16 as i32;
+            let is_search_day = country_idx.rem_euclid(3) == today_mod3;
+            let country = unsafe { *((countries as isize + (country_idx as isize) * 8) as *const usize) };
+            let at_war = country != 0 && unsafe { *((country + COUNTRY_ENEMIES_COUNT) as *const i32) } > 0;
+            (schedule_priority(ema, is_search_day, at_war), ai)
+        })
+        .collect();
+    keyed.sort_by(|a, b| b.0.total_cmp(&a.0));
+    for (slot, (_, ai)) in slice.iter_mut().zip(keyed) {
+        *slot = ai;
+    }
 }
 
 struct SnapshotGuard {
@@ -490,6 +628,7 @@ unsafe extern "C" fn ai_stage_hook(a0: usize, a1: usize) {
     let _guard = if SNAPSHOT_PTR.load(Ordering::Acquire) == 0 {
         let m = crate::native::hooked_memory();
         if let Some(snap) = unsafe { build_snapshot(&m) } {
+            unsafe { prioritize_search_day_tasks(&m, a0, snap.countries) };
             let raw = Box::into_raw(snap) as usize;
             SNAPSHOT_PTR.store(raw, Ordering::Release);
             SnapshotGuard { raw }
@@ -545,10 +684,14 @@ unsafe fn eval_threat_ratio(m: &crate::native::memory::Memory, snap: &ThreatSnap
     let q_country_24 = unsafe { *((q_country + COUNTRY_TAG_INDEX) as *const i16) };
     let q_is_special = snap.is_special(q_country_24 as i32);
     let relations_ptr = unsafe { *((q_country + COUNTRY_RELATIONS) as *const usize) };
+    let enemies_count = unsafe { *((q_country + COUNTRY_ENEMIES_COUNT) as *const i32) };
+    let enemies_ptr = if enemies_count > 0 { unsafe { *((q_country + COUNTRY_ENEMIES_PTR) as *const usize) } } else { 0 };
 
     let pow = &*POW_TABLE;
     let mut enemy_sum = 0.0_f32;
     let mut friendly_sum = 0.0_f32;
+    let mut last_owner = i16::MIN;
+    let mut last_enemy = false;
 
     for entry in entries {
         if (entry.days as i32) > max_days {
@@ -558,7 +701,15 @@ unsafe fn eval_threat_ratio(m: &crate::native::memory::Memory, snap: &ThreatSnap
         if u.unit_ptr == query_unit {
             continue;
         }
-        let enemy_or_special = u.owner_idx != q_country_tag_idx && (u.owner_is_special || q_is_special || unsafe { is_country_enemy(q_country, u.owner_idx) });
+        let enemy_or_special = if u.owner_idx == last_owner {
+            last_enemy
+        } else {
+            let v = u.owner_idx != q_country_tag_idx
+                && (u.owner_is_special || q_is_special || unsafe { is_enemy_in_list(enemies_ptr, enemies_count, u.owner_idx) });
+            last_owner = u.owner_idx;
+            last_enemy = v;
+            v
+        };
         let shifted = u.owner_can_shift && enemy_or_special;
         let mut weight = pow[u.factor_idx as usize][usize::from(shifted)][entry.dist as usize];
         if entry.quarter_flag != 0 {
@@ -594,9 +745,13 @@ unsafe fn eval_threat_sum(m: &crate::native::memory::Memory, snap: &ThreatSnapsh
     let q_country_tag_idx = (unsafe { *((q_country + COUNTRY_TAG) as *const u64) } >> 32) as i16;
     let q_country_24 = unsafe { *((q_country + COUNTRY_TAG_INDEX) as *const i16) };
     let q_is_special = snap.is_special(q_country_24 as i32);
+    let enemies_count = unsafe { *((q_country + COUNTRY_ENEMIES_COUNT) as *const i32) };
+    let enemies_ptr = if enemies_count > 0 { unsafe { *((q_country + COUNTRY_ENEMIES_PTR) as *const usize) } } else { 0 };
 
     let pow = &*POW_TABLE;
     let mut threat_sum = 0.0_f32;
+    let mut last_owner = i16::MIN;
+    let mut last_hostile = false;
 
     for entry in entries {
         if (entry.days as i32) > max_days {
@@ -610,7 +765,15 @@ unsafe fn eval_threat_sum(m: &crate::native::memory::Memory, snap: &ThreatSnapsh
         let strength = u.strength(m);
         let contrib = (((strength as f32) * SCALE_Q15) * SCALE_001) * weight;
 
-        let is_hostile = u.owner_idx != q_country_tag_idx && (u.owner_is_special || q_is_special || unsafe { is_country_enemy(q_country, u.owner_idx) });
+        let is_hostile = if u.owner_idx == last_owner {
+            last_hostile
+        } else {
+            let v = u.owner_idx != q_country_tag_idx
+                && (u.owner_is_special || q_is_special || unsafe { is_enemy_in_list(enemies_ptr, enemies_count, u.owner_idx) });
+            last_owner = u.owner_idx;
+            last_hostile = v;
+            v
+        };
         if is_hostile {
             threat_sum += contrib;
         } else if include_neutral_quarter && !unsafe { potential_ally_cached(m, snap.generation, q_owner_idx, q_country, u.owner_idx, snap.countries) } {
@@ -669,8 +832,106 @@ unsafe extern "C" fn threat_sum_query(out: *mut i32, bucket_ptr: usize, max_days
     unsafe { ORIGINAL_THREAT_SUM.get()(out, bucket_ptr, max_days, stamp_map, ctx) }
 }
 
-/// Checked, every snapshot threat query is compared against the game's original
-/// `0x1998f0` / `0x199500`.
+#[called_by_game]
+unsafe extern "C" fn strength_eval_hook(eval_obj: usize, out_strength: *mut i64, unit: usize, in_out_pips: *mut i32) -> *mut i64 {
+    let ptr = SNAPSHOT_PTR.load(Ordering::Acquire);
+    if ptr != 0 && unit != 0 && !out_strength.is_null() && !in_out_pips.is_null() {
+        let snap = unsafe { &*(ptr as *const ThreatSnapshot) };
+        let m = crate::native::hooked_memory();
+        let (strength, pips) = if let Some(&idx) = snap.unit_by_ptr.get(&unit) {
+            snap.units[idx as usize].strength_and_pips(&m)
+        } else {
+            WORKER_CACHE.with(|cell| {
+                let mut cache = cell.borrow_mut();
+                cache.sync_generation(snap.generation);
+                *cache.extra_strength.entry(unit).or_insert_with(|| unsafe { compute_unit_strength_and_pips(&m, unit) })
+            })
+        };
+        let orig_pips = unsafe { *in_out_pips };
+        let new_pips = orig_pips.max(pips);
+        if speed::checked(&SPEED_UP) {
+            let mut game_str = 0i64;
+            let mut game_pips = orig_pips;
+            unsafe { ORIGINAL_STRENGTH_EVAL.get()(eval_obj, &mut game_str, unit, &mut game_pips) };
+            speed::compared(&SPEED_UP, strength == game_str && new_pips == game_pips, || {
+                format!("strength eval unit {unit:#x}: snapshot=({strength}, {new_pips}), game=({game_str}, {game_pips})")
+            });
+        }
+        unsafe {
+            *in_out_pips = new_pips;
+            *out_strength = strength;
+        }
+        return out_strength;
+    }
+    unsafe { ORIGINAL_STRENGTH_EVAL.get()(eval_obj, out_strength, unit, in_out_pips) }
+}
+
+#[called_by_game]
+unsafe extern "C" fn unit_morale_hook(unit: usize, out: *mut i32, flag: u8) -> *mut i32 {
+    let ptr = SNAPSHOT_PTR.load(Ordering::Acquire);
+    if ptr != 0 && unit != 0 && !out.is_null() {
+        let snap = unsafe { &*(ptr as *const ThreatSnapshot) };
+        let ours = if let Some(&idx) = snap.unit_by_ptr.get(&unit) {
+            snap.units[idx as usize].morale(flag)
+        } else {
+            WORKER_CACHE.with(|cell| {
+                let mut cache = cell.borrow_mut();
+                cache.sync_generation(snap.generation);
+                let key = (unit, flag != 0);
+                if let Some(&v) = cache.extra_morale.get(&key) {
+                    v
+                } else {
+                    let mut v = 0i32;
+                    unsafe { ORIGINAL_UNIT_MORALE.get()(unit, &mut v, flag) };
+                    cache.extra_morale.insert(key, v);
+                    v
+                }
+            })
+        };
+        if speed::checked(&SPEED_UP) {
+            let mut game = 0i32;
+            unsafe { ORIGINAL_UNIT_MORALE.get()(unit, &mut game, flag) };
+            speed::compared(&SPEED_UP, ours == game, || format!("unit morale unit {unit:#x} (flag={flag}): snapshot={ours}, game={game}"));
+        }
+        unsafe { *out = ours };
+        return out;
+    }
+    unsafe { ORIGINAL_UNIT_MORALE.get()(unit, out, flag) }
+}
+
+#[called_by_game]
+unsafe extern "C" fn province_fort_zoc_hook(province: usize) -> usize {
+    let ptr = SNAPSHOT_PTR.load(Ordering::Acquire);
+    if ptr != 0 {
+        let snap = unsafe { &*(ptr as *const ThreatSnapshot) };
+        if snap.provinces_base != 0 && province >= snap.provinces_base {
+            let off = province - snap.provinces_base;
+            if off.is_multiple_of(PROVINCE_SIZE) {
+                let idx = off / PROVINCE_SIZE;
+                if let Some(slot) = snap.fort_zoc.get(idx) {
+                    let cached = slot.load(Ordering::Relaxed);
+                    let ours = if cached != FORT_ZOC_UNSET {
+                        cached
+                    } else {
+                        let val = unsafe { ORIGINAL_FORT_ZOC.get()(province) };
+                        slot.store(val, Ordering::Relaxed);
+                        val
+                    };
+                    if speed::checked(&SPEED_UP) {
+                        let game = unsafe { ORIGINAL_FORT_ZOC.get()(province) };
+                        speed::compared(&SPEED_UP, ours == game, || format!("province fort ZoC {province:#x} (idx={idx}): snapshot={ours:#x}, game={game:#x}"));
+                    }
+                    return ours;
+                }
+            }
+        }
+    }
+    unsafe { ORIGINAL_FORT_ZOC.get()(province) }
+}
+
+/// Checked, every snapshot query (threat queries, shared unit strength, unit
+/// morale, and province fort ZoC) is compared against the game's original
+/// functions.
 pub const SPEED_UP: SpeedUp = SpeedUp::new("threat-queries", "ai", points, true);
 
 fn points() -> Vec<Point> {
@@ -690,8 +951,37 @@ fn points() -> Vec<Point> {
             threat_sum_query as ThreatQueryFn,
             &ORIGINAL_THREAT_SUM,
         ),
+        Point::replace(
+            STRENGTH_EVAL_FN,
+            "48 89 5c 24 10 48 89 6c 24 20 4c 89 44 24 18 56 57 41 56",
+            "AI cached unit strength evaluator",
+            strength_eval_hook as StrengthEvalFn,
+            &ORIGINAL_STRENGTH_EVAL,
+        ),
+        Point::replace(
+            UNIT_MORALE_FN,
+            "48 89 5c 24 18 55 56 57 48 83 ec 20 48 8b 41 38",
+            "unit morale calculation",
+            unit_morale_hook as UnitMoraleFn,
+            &ORIGINAL_UNIT_MORALE,
+        ),
+        Point::replace(
+            PROVINCE_FORT_ZOC_FN,
+            "40 53 4c 8b 91 b8 00 00 00 33 db 48 8b 81 c0 00 00 00",
+            "province highest-fort ZoC lookup",
+            province_fort_zoc_hook as ProvinceFortZocFn,
+            &ORIGINAL_FORT_ZOC,
+        ),
         Point::keep(0x75b543, "48 8d 0d b6 04 cd 01 e8 91 9b a3 ff", "AI phase updates global threat map").uses(&[THREAT_MAP]),
-        Point::keep(STRENGTH_EVAL_FN, "48 89 5c 24 10 48 89 6c 24 20 4c 89 44 24 18 56 57 41 56", "AI cached unit strength evaluator"),
+        Point::keep(0x177ff1, "48 8b 88 d8 00 00 00 8b 79 50 03 79 4c", "fleet strength leader fire and shock pips").uses(&[
+            UNIT_LEADER,
+            LEADER_FIRE_PIPS,
+            LEADER_SHOCK_PIPS,
+        ]),
+        Point::keep(0x75b791, "49 8b 46 20 48 c1 e8 20 48 0f bf c8", "AI country tag index in AI phase").uses(&[AI_COUNTRY_TAG]),
+        Point::keep(0x784449, "f2 0f 10 87 88 00 00 00 66 0f 2f 80 88 00 00 00", "AI task EMA time sort comparator").uses(&[AI_EMA_TIME]),
+        Point::keep(DATE_YEAR_FN, "44 8b 01 41 b9 01 00 00 00 41 81 e8 c0 55 9c 02", "date year helper"),
+        Point::keep(DATE_DAY_OF_YEAR_FN, "48 83 ec 28 44 8b 11 41 81 ea c0 55 9c 02", "date day-of-year helper"),
         Point::keep(FLEET_STRENGTH, "48 89 5c 24 18 44 88 4c 24 20 48 89 54 24 10 48 89 4c 24 08", "fleet strength evaluation"),
         Point::keep(POTENTIAL_ALLY_FN, "48 89 6c 24 18 48 89 74 24 20 57 48 83 ec 20 48 8b 41 20", "threat query potential ally check"),
     ]
@@ -771,5 +1061,16 @@ mod tests {
         assert_eq!(compact.len(), 2);
         assert_eq!((compact[0].days, compact[0].dist, compact[0].quarter_flag, compact[0].unit_idx), (5, 2, 0, 10));
         assert_eq!((compact[1].days, compact[1].dist, compact[1].quarter_flag, compact[1].unit_idx), (9, 4, 1, 20));
+    }
+
+    #[test]
+    fn schedule_priority_boosts_search_day_war_countries_above_off_day_peers() {
+        let war_search = schedule_priority(4.0, true, true);
+        let peace_search = schedule_priority(4.0, true, false);
+        let war_off = schedule_priority(8.0, false, true);
+        assert!(war_search > war_off, "4ms EMA on search day at war ({war_search}) outranks 8ms off-day ({war_off})");
+        assert!(peace_search > schedule_priority(4.0, false, false));
+        assert_eq!(schedule_priority(f64::NAN, true, true), 0.0);
+        assert_eq!(schedule_priority(-1.0, true, true), 0.0);
     }
 }

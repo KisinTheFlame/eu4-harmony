@@ -62,8 +62,8 @@ mod tests {
         names.iter().map(|n| n.to_string()).collect()
     }
 
-    fn bit(name: &str) -> u32 {
-        1 << ALL.iter().position(|s| s.name == name).unwrap()
+    fn bit(name: &str) -> u64 {
+        1u64 << ALL.iter().position(|s| s.name == name).unwrap()
     }
 
     #[test]
@@ -73,7 +73,7 @@ mod tests {
             assert!(ALL.iter().all(|t| t.group != s.name), "{} is a group's name too", s.name);
             assert!(["frames", "loading", "saving", "ai"].contains(&s.group), "{}'s group {}", s.name, s.group);
         }
-        assert!(ALL.len() <= 32);
+        assert!(ALL.len() <= 64);
     }
 
     #[test]
