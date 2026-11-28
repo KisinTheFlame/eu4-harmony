@@ -16,7 +16,7 @@
 
 | | 바닐라 게임 | Harmony 적용 후 |
 | --- | :-: | :-: |
-| 시스템 글꼴과 실시간 미리보기로 선명한 한국어·중국어·일본어 표시 (구형 2바이트 패치·비트맵 글꼴 모드 불필요) | ✗ | ✓ |
+| 시스템 글꼴 + 한국어·일본어·중국어 간체 무료 내장 기본 글꼴 및 실시간 미리보기 (구형 2바이트 패치·비트맵 글꼴 모드 불필요) | ✗ | ✓ |
 | 재시작 없이 몇 초 만에 메인 메뉴로 복귀 | ✗ | ✓ |
 | 철인 모드에서도 게임 중 다른 저장 파일 바로 불러오기 | ✗ | ✓ |
 | 5배속에서도 부드러운 지도 이동·확대/축소 및 후반 끊김 완화 | ✗ | ✓ |
@@ -32,16 +32,29 @@
 
 ### 설치 방법
 
-**중요: 구독만으로는 Harmony가 적용되지 않습니다.** 최초 1회 파일 1개(`version.dll`)를 게임 폴더에 복사해 주세요:
+**중요:**
+- **구독만으로는 Harmony가 적용되지 않습니다.** 최초 1회 파일 1개(`version.dll`)를 게임 폴더에 복사해 주세요(아래 1줄 명령 또는 마우스 3단계).
+- **백신 오탐 안내:** Harmony는 MIT 라이선스의 완전한 오픈소스이며 `version.dll`을 통해 `eu4.exe`에 로드되므로 간혹 휴리스틱 경고가 뜰 수 있습니다. 소스 코드를 직접 확인하거나 EU4 폴더를 예외에 추가하거나 직접 빌드할 수 있습니다.
 
-1. Steam 창작마당에서 **Harmony**를 구독합니다.
-2. Steam에서 **Europa Universalis IV** 우클릭 → **관리 → 로컬 파일 보기**로 게임 폴더를 엽니다(창을 유지하세요).
-3. Paradox 런처 → **모드 라이브러리** → **Harmony** → 오른쪽 **… → 폴더에서 보기**를 클릭합니다. (아직 보이지 않으면 Steam을 재시작하거나, EU4가 설치된 Steam 라이브러리의 `steamapps\workshop\content\236850\<id>\` 폴더를 직접 여세요.)
-4. Harmony 폴더의 `version.dll`을 게임 폴더의 `eu4.exe` 옆에 복사합니다. (확장자가 숨겨져 있으면 `version`, `eu4`로 표시됩니다. 기존 2바이트 패치 등의 `version.dll`이 이미 있다면 **덮어쓰기**를 선택하거나, 필요시 먼저 백업해 두세요.)
+먼저 Steam 창작마당에서 **Harmony**를 구독하고 다운로드가 끝난 뒤, 아래 방법 중 하나를 선택하세요:
+
+#### 방법 A — PowerShell 1줄 명령으로 자동 복사 (가장 빠름, 선택)
+
+**Win + X** → **터미널**(또는 **Windows PowerShell**)을 열고 아래 1줄을 붙여넣어 Enter를 누르세요. 로컬 Steam 라이브러리 검색, 기존 `version.dll`의 `version.dll.bak` 백업 및 복사만 수행합니다(인터넷 다운로드 없음):
+
+```powershell
+$s=(gp HKCU:\Software\Valve\Steam).SteamPath; $libs=@($s)+((sls '"path"\s+"([^"]+)"' "$s\steamapps\libraryfolders.vdf" -EA 0|%{$_.Matches[0].Groups[1].Value -replace '\\\\','\'})|?{$_}); $g=$libs|%{"$_\steamapps\common\Europa Universalis IV"}|?{Test-Path "$_\eu4.exe"}|select -First 1; $src=$libs|%{"$_\steamapps\workshop\content\236850\3837775887\version.dll"}|?{Test-Path $_}|select -First 1; if(!$g -or !$src){throw "Not found (subscribe in Steam first): game='$g' workshop='$src'"}; $dst="$g\version.dll"; if((Test-Path $dst) -and !(Test-Path "$dst.bak") -and (Get-FileHash $dst).Hash -ne (Get-FileHash $src).Hash){Copy-Item $dst "$dst.bak"}; Copy-Item $src $dst -Force; "Installed to $dst"
+```
+
+#### 방법 B — 마우스만으로 수동 복사 (3단계)
+
+1. Steam에서 **Europa Universalis IV** 우클릭 → **관리 → 로컬 파일 보기**로 게임 폴더를 엽니다.
+2. Paradox 런처 → **모드 라이브러리** → **Harmony** → 오른쪽 **… → 폴더에서 보기**를 클릭합니다(Steam 라이브러리의 `steamapps\workshop\content\236850\3837775887\` 폴더를 직접 열어도 됩니다).
+3. `version.dll`을 게임 폴더의 `eu4.exe` 옆에 복사합니다. (확장자가 숨겨져 `version`, `eu4`로 보일 수 있으며, 기존 `version.dll`이 있다면 덮어쓰거나 먼저 백업해 두세요.)
 
 평소처럼 Paradox 런처에서 게임을 실행하면 됩니다. Harmony 자체는 플레이세트에 추가할 필요가 없으며, Harmony 기반 모드만 플레이세트에서 활성화하면 됩니다. 적용 후 메인 메뉴와 게임 내 메뉴 오른쪽 아래에 **Harmony v…**, **모드 목록**, **설정**이 표시됩니다.
 
-Steam이 Harmony를 자동으로 최신 상태로 유지합니다. 새 `version.dll`이 포함된 업데이트 시 시작할 때 복사본을 자동 갱신하고 게임을 재시작합니다.
+Steam이 Harmony를 자동으로 최신 상태로 유지합니다. 새 `version.dll`이 포함된 업데이트 시 시작할 때 복사본을 자동 갱신하고 게임을 재시작합니다(폴더가 읽기 전용인 경우에만 게임 내에서 수동 복사를 안내합니다).
 
 #### 수동 설치 (GitHub Releases)
 
@@ -49,12 +62,12 @@ Steam이 Harmony를 자동으로 최신 상태로 유지합니다. 새 `version.
 
 #### 제거 방법
 
-Harmony 구독을 취소하고 게임 폴더의 `version.dll`을 삭제하세요(기존 백업이 있다면 복원). **Harmony 설정 → 정보**에서 Windows 충돌 덤프를 활성화했다면 먼저 해당 화면에서 **비활성화** 버튼을 눌러 정리해 주세요.
+Harmony 구독을 취소하고 게임 폴더의 `version.dll`을 삭제하세요(`version.dll.bak` 백업이 있다면 복원). **Harmony 설정 → 고급**에서 Windows 충돌 덤프를 활성화했다면 먼저 해당 화면에서 **비활성화** 버튼을 눌러 정리해 주세요.
 
 ### 자주 묻는 질문 (FAQ)
 
 - **구독했는데 메인 메뉴에 Harmony가 보이지 않아요.**
-  구독만으로는 적용되지 않습니다. 위 4단계대로 `version.dll`이 `eu4.exe` 옆에 복사되어 있는지, Steam Windows 1.37.5 버전인지 확인해 주세요.
+  구독만으로는 적용되지 않습니다. 위 방법 A 또는 B대로 `version.dll`이 `eu4.exe` 옆에 복사되어 있는지, Steam Windows 1.37.5 버전인지 확인해 주세요.
 - **백신이 `version.dll`이나 `eu4_harmony_core.dll`을 경고합니다. 안전한가요?**
   Harmony는 MIT 라이선스의 완전한 오픈소스이며, 게임 프로세스에 로드되는 특성상 간혹 휴리스틱 오탐이 발생할 수 있습니다. 소스 코드를 직접 확인하거나 EU4 폴더를 예외로 추가하거나 직접 빌드할 수 있습니다.
 - **기존 2바이트 패치나 글꼴 모드에서 어떻게 옮기나요?**
@@ -68,9 +81,9 @@ Harmony 구독을 취소하고 게임 폴더의 `version.dll`을 삭제하세요
 
 ### 문제 해결
 
-메인 메뉴 또는 게임 내 메뉴에서 **Harmony 설정 → 정보**로 이동해 **문제 해결 파일을 바탕 화면에 저장**을 클릭하면 로그, 최근 충돌 기록(큰 덤프는 자동 경량화), 설정 및 플레이세트(저장 파일 제외, 24 MiB 미만)가 하나의 zip으로 저장됩니다. 정보 페이지의 GitHub Issues 링크를 클릭해 해당 파일을 첨부해 제보해 주세요.
+메인 메뉴 또는 게임 내 메뉴에서 **Harmony 설정 → 정보**로 이동해 **문제 해결 파일을 바탕 화면에 저장**을 클릭하면 Harmony 로그, 허용 목록 게임 로그(계정/멀티플레이/채팅 로그 제외), 최근 충돌 기록(충돌 덤프는 메모리에서 자동 경량화 및 모듈 경로 가림 적용), 설정 및 플레이세트(저장 파일 제외, 사용자 이름 경로 및 플레이어 식별자 가림 적용, 24 MiB 미만)가 하나의 zip으로 저장됩니다. 정보 페이지의 GitHub Issues 링크를 클릭해 해당 파일을 첨부해 제보해 주세요.
 
-로그는 `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`에 저장됩니다. 자세한 내용은 [docs/logs.md](docs/logs.md)를 참고하세요.
+로그 폴더(`Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`)는 **Harmony 설정 → 고급**에서도 바로 열 수 있습니다. 자세한 내용은 [docs/logs.md](docs/logs.md)를 참고하세요.
 
 ---
 
@@ -129,7 +142,7 @@ eu4-harmony game screenshot --out shot.png
 eu4-harmony game menu return               # 메인 메뉴로 복귀
 ```
 
-관전 모드(국가 태그 없이 `menu start`)에서는 `session view FRA` / `session leave_view`로 시점을 전환할 수 있습니다([docs/game/countries/countries.md](docs/game/countries/countries.md)). 원격 제어는 로컬 Windows 사용자에게만 열려 있습니다. 자세한 내용은 `eu4-harmony wiki remote`를 참고하세요.
+관전 모드(국가 태그 없이 `menu start`)에서는 `session view FRA` / `session leave_view`로 시점을 전환할 수 있습니다([docs/game/countries/countries.md](docs/game/countries/countries.md)). 원격 제어는 기본적으로 꺼져 있습니다. `eu4-harmony start`로 실행하면 해당 세션에서 자동으로 활성화되며, 일반 실행에서 사용하려면 **Harmony 설정 → 고급**에서 **원격 제어 활성화**를 켜고 재시작하세요. 활성화 시 로컬 Windows 사용자에게만 열려 있습니다. 자세한 내용은 `eu4-harmony wiki remote`를 참고하세요.
 
 ---
 

@@ -16,7 +16,7 @@
 
 | | 原版游戏 | 使用 Harmony 后 |
 | --- | :-: | :-: |
-| 清晰显示中/日/韩文字，支持系统与内置字体及实时预览（无需双字节补丁或位图字体 Mod） | ✗ | ✓ |
+| 清晰显示中/日/韩文字，支持系统字体与简中/日/韩免费内置默认字体及实时预览（无需双字节补丁或位图字体 Mod） | ✗ | ✓ |
 | 几秒内返回主菜单，无需重启游戏 | ✗ | ✓ |
 | 铁人模式下支持直接局内读档 | ✗ | ✓ |
 | 即使 5 速运行，地图拖动与缩放依然流畅，显著减少卡顿 | ✗ | ✓ |
@@ -32,16 +32,29 @@
 
 ### 安装步骤
 
-**重要提示：光点订阅不会生效。** 订阅后需把 1 个文件（`version.dll`）复制到游戏目录，只需一次：
+**重要提示：**
+- **光点订阅不会生效。** 订阅后需把 1 个文件（`version.dll`）复制到游戏目录一次——使用下方一行命令或纯鼠标 3 步均可。
+- **杀毒误报说明：** Harmony 以 MIT 协议完全开源，因通过 `version.dll` 加载进 `eu4.exe`，偶发触发启发式警告。你可随时查阅源码、将 EU4 目录加入杀毒排除项，或自行从源码编译。
 
-1. 在 Steam 创意工坊订阅 **Harmony**。
-2. 在 Steam 里右键《欧陆风云4》→ **管理 → 浏览本地文件**，打开游戏目录（先保持窗口开着）。
-3. 打开 Paradox 启动器 → **Mod 库** → 找到 **Harmony** → 点右侧 **… → 在文件夹中显示**。（如果暂未出现，重启 Steam 即可；也可在 EU4 所在 Steam 库直接打开 `steamapps\workshop\content\236850\<id>\`。）
-4. 将 Harmony 目录里的 `version.dll` 复制到游戏目录，和 `eu4.exe` 放在一起。（Windows 默认可能隐藏后缀，显示为 `version` 和 `eu4`。若已有旧版 `version.dll`——例如旧双字节补丁——直接选择**替换**；想保留备用可先移走或改名。）
+请先在 Steam 创意工坊订阅 **Harmony** 并等下载完成，再任选一种方式复制 `version.dll`：
+
+#### 方法 A：一行 PowerShell 命令自动复制（最快，可选）
+
+按 **Win + X** → 打开 **终端**（或 **Windows PowerShell**），粘贴下方整行命令并回车。该命令仅在本机查找 Steam 库目录、将已有 `version.dll` 自动备份为 `version.dll.bak` 并复制新文件，不联网下载任何内容：
+
+```powershell
+$s=(gp HKCU:\Software\Valve\Steam).SteamPath; $libs=@($s)+((sls '"path"\s+"([^"]+)"' "$s\steamapps\libraryfolders.vdf" -EA 0|%{$_.Matches[0].Groups[1].Value -replace '\\\\','\'})|?{$_}); $g=$libs|%{"$_\steamapps\common\Europa Universalis IV"}|?{Test-Path "$_\eu4.exe"}|select -First 1; $src=$libs|%{"$_\steamapps\workshop\content\236850\3837775887\version.dll"}|?{Test-Path $_}|select -First 1; if(!$g -or !$src){throw "Not found (subscribe in Steam first): game='$g' workshop='$src'"}; $dst="$g\version.dll"; if((Test-Path $dst) -and !(Test-Path "$dst.bak") -and (Get-FileHash $dst).Hash -ne (Get-FileHash $src).Hash){Copy-Item $dst "$dst.bak"}; Copy-Item $src $dst -Force; "Installed to $dst"
+```
+
+#### 方法 B：纯鼠标手动复制（3 步）
+
+1. 在 Steam 里右键《欧陆风云4》→ **管理 → 浏览本地文件**，打开游戏目录。
+2. 打开 Paradox 启动器 → **Mod 库** → 找到 **Harmony** → 点右侧 **… → 在文件夹中显示**（也可在 Steam 库直接打开 `steamapps\workshop\content\236850\3837775887\`）。
+3. 将 `version.dll` 复制到游戏目录，和 `eu4.exe` 放在一起。（Windows 默认可能隐藏后缀，显示为 `version` 和 `eu4`。若已有旧版 `version.dll` 可直接替换，或先改名备份。）
 
 照常从 Paradox 启动器启动游戏即可。Harmony 不需要放进合集；基于 Harmony 的 Mod 照常在合集里启用。生效后，主菜单与局内菜单右下角会出现 **Harmony v…**、**Mod 列表** 和 **设置**。
 
-Steam 会自动保持 Harmony 最新。当更新包含新版 `version.dll` 时，Harmony 会在启动时自动更新游戏目录里的副本并为你重启游戏（仅在游戏目录不可写时才会提示手动复制）。
+Steam 会自动保持 Harmony 最新。当更新包含新版 `version.dll` 时，Harmony 会在启动时自动更新游戏目录里的副本并为你重启游戏（仅在游戏目录只读时才会在游戏内提示手动复制）。
 
 #### 手动安装（GitHub Releases）
 
@@ -49,12 +62,12 @@ Steam 会自动保持 Harmony 最新。当更新包含新版 `version.dll` 时�
 
 #### 卸载
 
-取消订阅 Harmony 并删除游戏目录里的 `version.dll`（如有旧备份可放回）。如之前在 **Harmony 设置 → 关于** 中启用过 Windows 闪退转储，建议先在那里点击 **关闭 EU4 的 Windows 闪退转储（需管理员权限）**。
+取消订阅 Harmony 并删除游戏目录里的 `version.dll`（如有 `version.dll.bak` 可改名恢复）。如之前在 **Harmony 设置 → 高级** 中启用过 Windows 闪退转储，建议先在那里点击 **关闭 EU4 的 Windows 闪退转储（需管理员权限）**。
 
 ### 常见问题（FAQ）
 
 - **我订阅了，为什么进游戏看不到 Harmony？**
-  光点订阅不会加载 Harmony。请确认已将 `version.dll` 复制到 `eu4.exe` 同目录（见上方第 4 步），并确认游戏是 Steam Windows 版 1.37.5。
+  光点订阅不会加载 Harmony。请确认已按上方方法 A 或 B 将 `version.dll` 复制到 `eu4.exe` 同目录，并确认游戏是 Steam Windows 版 1.37.5。
 - **杀毒软件把 `version.dll` 或 `eu4_harmony_core.dll` 报毒了，安全吗？**
   Harmony 以 MIT 协议完全开源，因通过 DLL 加载进游戏进程实现功能，偶发触发启发式误报。你可以查阅源码、将游戏目录加入杀毒排除项，或自行从源码编译。
 - **之前用过双字节补丁或位图字体 Mod，怎么迁移？**
@@ -68,9 +81,9 @@ Steam 会自动保持 Harmony 最新。当更新包含新版 `version.dll` 时�
 
 ### 故障排查
 
-在主菜单或局内菜单打开 **Harmony 设置 → 关于**，点击 **把排查问题用的文件存到桌面**，它会把 Harmony 日志、游戏日志、最近几次崩溃记录（超大转储会自动瘦身）、设置和模组列表（不含存档，总大小严格控制在 24 MiB 以内）打包成桌面上的一个 zip。点击「关于」页上的 GitHub Issues 链接并附上该压缩包即可反馈。
+在主菜单或局内菜单打开 **Harmony 设置 → 关于**，点击 **把排查问题用的文件存到桌面**，它会把 Harmony 日志、白名单游戏日志（不含账号/联机/聊天日志）、最近几次崩溃记录（转储文件会在内存中自动瘦身并脱敏模块路径）、设置和模组列表（不含存档，自动脱敏用户名路径与玩家标识，总大小严格控制在 24 MiB 以内）打包成桌面上的一个 zip。点击「关于」页上的 GitHub Issues 链接并附上该压缩包即可反馈。
 
-日志位于 `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`，详见 [docs/logs.md](docs/logs.md)。
+你也可以直接在 **Harmony 设置 → 高级** 中点击 **打开日志文件夹**（`Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\`），详见 [docs/logs.md](docs/logs.md)。
 
 ---
 
@@ -129,7 +142,7 @@ eu4-harmony game screenshot --out shot.png
 eu4-harmony game menu return               # 返回主菜单
 ```
 
-观察模式下（不带国家执行 `menu start`）可用 `session view FRA` / `session leave_view` 切换视角（[docs/game/countries/countries.md](docs/game/countries/countries.md)）。远程控制仅对当前 Windows 用户在本机开放；加 `--as-game` 可切换为游戏视角权限（[ADR requests-act-as-the-player-or-as-the-game](docs/adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md)）。详见 `eu4-harmony wiki remote`。
+观察模式下（不带国家执行 `menu start`）可用 `session view FRA` / `session leave_view` 切换视角（[docs/game/countries/countries.md](docs/game/countries/countries.md)）。远程控制默认关闭：通过 `eu4-harmony start` 启动会自动为该次运行启用，也可在 **Harmony 设置 → 高级** 中开启 **启用远程控制** 并重启游戏。开启后仅对当前 Windows 用户在本机开放；加 `--as-game` 可切换为游戏视角权限（[ADR requests-act-as-the-player-or-as-the-game](docs/adr/2026-11-11-requests-act-as-the-player-or-as-the-game.md)）。详见 `eu4-harmony wiki remote`。
 
 ---
 
