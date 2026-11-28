@@ -4,6 +4,7 @@
 //! top level so `speed` and `render` remain independent siblings.
 
 pub(crate) mod army_checks;
+pub(crate) mod daily_strength;
 pub(crate) mod loading;
 pub(crate) mod loading_times;
 pub(crate) mod modifier_sums;
