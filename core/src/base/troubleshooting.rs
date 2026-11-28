@@ -524,12 +524,17 @@ fn collect_with_cap_and_redactor<W: std::io::Write>(
             summary.push(format!("  {}: not read, {e}", source.name));
             continue;
         }
-        let mut text = eu4_harmony_logging::redact(&String::from_utf8_lossy(&bytes));
-        if source.name == "settings/settings.txt" {
+        // When seeking to the tail of an oversized log, drop the leading
+        // partial line so redaction never sees a split credential/path or
+        // broken UTF-8 sequence.
+        let slice = if truncated_tail { bytes.iter().position(|&b| b == b'\n').map_or(&bytes[..], |pos| &bytes[pos + 1..]) } else { &bytes[..] };
+        let mut text = eu4_harmony_logging::redact(&String::from_utf8_lossy(slice));
+        if source.name == "settings/settings.txt" || source.name.ends_with("/settings.txt") {
             text = redact_game_settings(&text);
         }
         text = redactor.redact(&text);
-        let budget = max_archive_bytes.saturating_sub(ARCHIVE_RESERVE_BYTES).saturating_sub(stream.estimated_bytes());
+        let entry_overhead = 256u64 + source.name.len() as u64 * 2;
+        let budget = max_archive_bytes.saturating_sub(ARCHIVE_RESERVE_BYTES).saturating_sub(stream.estimated_bytes()).saturating_sub(entry_overhead);
         if let Some((compressed, crc)) = deflate_bounded(text.as_bytes(), budget) {
             let entry = stream.write_deflated(source.name.as_bytes(), &compressed, text.len(), crc, when)?;
             let tail_note = if truncated_tail { " truncated_tail=true" } else { "" };
@@ -599,14 +604,21 @@ fn collect_with_cap_and_redactor<W: std::io::Write>(
                     continue;
                 }
                 // Non-MDMP binary fallback: pack verbatim only if it fits within budget.
-                if let Some((compressed, crc, unpacked)) = deflate_file_bounded(&mut file, original, budget)? {
-                    let entry = stream.write_deflated(source.name.as_bytes(), &compressed, unpacked, crc, when)?;
-                    summary.push(format!(
-                        "  {}: original_bytes={original} collected_bytes={} packed_bytes={} slimmed=false path_redaction=false credential_redaction=false",
-                        source.name, entry.unpacked, entry.packed
-                    ));
-                    payload += entry.unpacked as u64;
-                    written = true;
+                match deflate_file_bounded(&mut file, original, budget) {
+                    Ok(Some((compressed, crc, unpacked))) => {
+                        let entry = stream.write_deflated(source.name.as_bytes(), &compressed, unpacked, crc, when)?;
+                        summary.push(format!(
+                            "  {}: original_bytes={original} collected_bytes={} packed_bytes={} slimmed=false path_redaction=false credential_redaction=false",
+                            source.name, entry.unpacked, entry.packed
+                        ));
+                        payload += entry.unpacked as u64;
+                        written = true;
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        summary.push(format!("  {}: not read, {e}", source.name));
+                        continue;
+                    }
                 }
             }
         }
@@ -967,6 +979,22 @@ mod tests {
         assert!(zip::find(&mut archive, b"crashes/broken.dmp", 4096).is_err(), "corrupt MDMP must not be packed verbatim");
         let about = String::from_utf8(zip::find(&mut archive, b"about.txt", 4096).unwrap()).unwrap();
         assert!(about.contains("refusing to pack unredacted MDMP"), "{about}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn crash_folder_settings_are_redacted_like_top_level_settings() {
+        let dir = scratch("crash-settings-redact");
+        let crash_settings = dir.join("settings.txt");
+        std::fs::write(&crash_settings, "last_player_name=\"SecretPlayer\"\nserver_ip=\"198.51.100.7\"\nlanguage=\"l_english\"\n").unwrap();
+        let candidates = vec![Source::new("crashes/eu4_2026/settings.txt".into(), crash_settings)];
+        let redactor = UserRedactor::new(None, None);
+        let mut archive =
+            std::io::Cursor::new(collect_with_cap_and_redactor(Vec::new(), candidates, Vec::new(), None, (0, 0x21), MAX_ARCHIVE_BYTES, &redactor).unwrap());
+        let packed = String::from_utf8(zip::find(&mut archive, b"crashes/eu4_2026/settings.txt", 4096).unwrap()).unwrap();
+        assert!(!packed.contains("SecretPlayer"), "{packed}");
+        assert!(!packed.contains("198.51.100.7"), "{packed}");
+        assert!(packed.contains("language=\"l_english\""), "{packed}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

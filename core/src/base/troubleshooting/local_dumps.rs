@@ -55,7 +55,9 @@ pub(crate) fn status() -> io::Result<Configuration> {
     match status {
         ERROR_SUCCESS => {
             unsafe { RegCloseKey(key) };
-            let own = read_folder_single(HKEY_LOCAL_MACHINE, &game_key())?;
+            let Ok(own) = read_folder_single(HKEY_LOCAL_MACHINE, &game_key()) else {
+                return Ok(Configuration::External);
+            };
             let expected = harmony_wer_folder();
             match (own, expected) {
                 (Some(folder), Some(expected)) if same_folder(&folder, &expected) => Ok(Configuration::Harmony),
@@ -182,7 +184,8 @@ pub(crate) fn enable() -> io::Result<Configuration> {
     run_system_tool(crate::base::game_window().unwrap_or(null_mut()), r"\cmd.exe", w!("runas"), &enable_cmd_arguments(&format!(r"HKLM\{}", game_key())))?;
     let expected = harmony_wer_folder();
     let after = status()?;
-    if expected.is_none() || dump_folder()? != expected || after != Configuration::Harmony {
+    let matches_expected = matches!((dump_folder()?, expected.as_ref()), (Some(actual), Some(exp)) if same_folder(&actual, exp));
+    if !matches_expected || after != Configuration::Harmony {
         return Err(io::Error::other("Windows did not save the requested EU4 dump folder"));
     }
     Ok(after)
