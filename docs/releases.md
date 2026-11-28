@@ -30,7 +30,7 @@ After those checks it creates the annotated version tag at the selected commit, 
 
 The tag and Release are created in the same workflow. A tag created with GitHub's normal workflow token does not trigger another push workflow. Only the publication job has contents-write permission; no personal token, Steam credentials or self-hosted runner is required.
 
-CI runs formatting, builds, tests and both clippy configurations. It does not have EU4 and cannot perform offline dependency-point checks or running-game scenarios. The actual packages use the optimized `player` profile, separate from CI's unoptimized release-profile checks. GitHub packaging neither needs the game nor renders Workshop images.
+CI runs formatting, builds, tests and both clippy configurations. It does not have EU4 and cannot perform offline dependency-point checks or running-game scenarios. The actual packages use the optimized `player` profile, separate from CI's unoptimized release-profile checks. GitHub packaging needs neither the game nor SteamCMD.
 
 ## Optional preparation
 
@@ -54,7 +54,7 @@ Do not move a version tag. A fix to source used for publication, including workf
 
 `cargo xtask release-check --out target/dist` checks clean source merged into master and writes internal `release.json` metadata. It does not need the tag yet. Add `--tag vX.Y.Z` when checking an existing local and remote tag at HEAD. This metadata is passed between workflow jobs and is not a Release attachment.
 
-`cargo xtask release` creates the two ZIPs in `target/dist`, preserving that metadata, and also packs `target/workshop/harmony` and renders its comparison images. Use `--out <folder>` for another package folder or `--no-workshop` to skip the Workshop and image work. Every archive is checked for its exact file set and bytes against the player build.
+`cargo xtask release` creates the two ZIPs in `target/dist`, preserving that metadata, and also packs `target/workshop/harmony`. Use `--out <folder>` for another package folder or `--no-workshop` to skip the Workshop item. Every archive is checked for its exact file set and bytes against the player build.
 
 Workshop upload is independent of GitHub publication. From a clean checkout of the automatically created version tag, pack the item and upload locally:
 

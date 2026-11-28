@@ -1,7 +1,6 @@
 //! Harmony's item on the Steam Workshop (docs/releases.md): the
-//! folder `cargo xtask release` packs for it, the comparison images rendered
-//! for its page, and `cargo xtask workshop-upload`, which uploads the folder
-//! with SteamCMD.
+//! folder `cargo xtask release` packs for it, and `cargo xtask workshop-upload`,
+//! which uploads the folder with SteamCMD.
 use crate::{repo, run, Args, Result};
 use eu4_harmony_folders::APP_ID;
 use std::{
@@ -10,59 +9,13 @@ use std::{
     process::Command,
 };
 
-/// The languages the item's page is written in, by Steam's names, which
-/// name the description and comparison files in `workshop/`.
-const LANGUAGES: [&str; 2] = ["english", "schinese"];
-/// The window a comparison page is rendered in, unless the page names
-/// another in `<meta name="workshop-size" content="<width>x<height>">`: taller
-/// than the page, whose image is then cut where its content ends.
-const IMAGE_SIZE: (u32, u32) = (1200, 4000);
-/// Cuts off the rows at the foot of the image `HARMONY_IMAGE` names that are
-/// all the color of its last row's first pixel, the page's plain paper below
-/// its content, with Windows' own System.Drawing; prints the height kept.
-/// Exits 3 when there is nothing to cut, so that the content may go on below
-/// the window.
-const TRIM: &str = r#"$ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.Drawing
-Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
-using System;
-using System.Drawing;
-using System.Drawing.Imaging;
-using System.Runtime.InteropServices;
-public static class HarmonyTrim {
-    public static int ContentHeight(Bitmap image) {
-        var data = image.LockBits(new Rectangle(0, 0, image.Width, image.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-        var pixels = new byte[data.Stride * image.Height];
-        Marshal.Copy(data.Scan0, pixels, 0, pixels.Length);
-        image.UnlockBits(data);
-        int paper = (image.Height - 1) * data.Stride;
-        for (int y = image.Height - 1; y >= 0; y--) {
-            int row = y * data.Stride;
-            for (int x = 0; x < image.Width * 4; x++) {
-                if (Math.Abs(pixels[row + x] - pixels[paper + x % 4]) > 2) return y + 1;
-            }
-        }
-        return 0;
-    }
-}
-'@
-$path = $env:HARMONY_IMAGE
-$image = [System.Drawing.Bitmap]::FromFile($path)
-$height = [HarmonyTrim]::ContentHeight($image)
-if ($height -le 0 -or $height -ge $image.Height) { $image.Dispose(); exit 3 }
-$kept = $image.Clone((New-Object System.Drawing.Rectangle 0, 0, $image.Width, $height), $image.PixelFormat)
-$image.Dispose()
-$kept.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
-$kept.Dispose()
-Write-Output $height
-"#;
 /// The repository's `workshop/`: the sources of what the Workshop shows.
 fn sources() -> PathBuf {
     repo().join("workshop")
 }
 
 /// Where the release packs for the Workshop: the item's folder `harmony\`,
-/// the images for its page, and the files SteamCMD is given.
+/// and the files SteamCMD is given.
 fn packed() -> PathBuf {
     repo().join("target").join("workshop")
 }
@@ -109,7 +62,7 @@ fn descriptor(template: &str, version: &str, id: u64) -> String {
 }
 
 /// Packs Harmony's item from the player build in `built` into
-/// `target\workshop\harmony\`, made anew, and renders the comparison images.
+/// `target\workshop\harmony\`, made anew.
 /// Records which commit it was packed from, for the upload to check.
 pub fn pack(built: &Path) -> Result<()> {
     let out = packed();
@@ -135,7 +88,7 @@ pub fn pack(built: &Path) -> Result<()> {
     copy(&thumbnail, &item.join("thumbnail.png"))?;
     write(&out.join("harmony.commit"), &commit_stamp()?)?;
     println!("packed for the Workshop:\n  {}", item.display());
-    render_images(&out.join("images"))
+    Ok(())
 }
 
 /// The commit HEAD names, and whether the checkout has changes besides.
@@ -143,147 +96,6 @@ fn commit_stamp() -> Result<String> {
     let head = git(&["rev-parse", "HEAD"])?;
     let clean = git(&["status", "--porcelain"])?.is_empty();
     Ok(format!("{head}{}\n", if clean { "" } else { " dirty" }))
-}
-
-/// Renders each `workshop/comparison.<language>.html` into
-/// `<images>\comparison.<language>.png` with Microsoft Edge, headless.
-fn render_images(images: &Path) -> Result<()> {
-    let pages: Vec<(&str, PathBuf)> = LANGUAGES.iter().map(|l| (*l, sources().join(format!("comparison.{l}.html")))).collect();
-    if pages.iter().all(|(_, page)| !page.is_file()) {
-        println!("no comparison pages in {}: no images rendered", sources().display());
-        return Ok(());
-    }
-    let Some(edge) = edge() else {
-        println!("Microsoft Edge not found: the comparison images were not rendered");
-        return Ok(());
-    };
-    fs::create_dir_all(images).map_err(|e| format!("cannot make {}: {e}", images.display()))?;
-    // Edge may still hold a profile as it closes; an earlier run's goes now.
-    for language in LANGUAGES {
-        let _ = fs::remove_dir_all(packed().join(format!("edge-profile-{language}")));
-    }
-    for (language, page) in pages {
-        // A profile of its own for each page, apart from the user's running
-        // Edge and from the page before, which may still be closing.
-        let profile = packed().join(format!("edge-profile-{language}"));
-        if !page.is_file() {
-            println!("no {}: its image was not rendered", page.display());
-            continue;
-        }
-        let html = fs::read_to_string(&page).map_err(|e| format!("cannot read {}: {e}", page.display()))?;
-        let (width, height) = image_size(&html).unwrap_or(IMAGE_SIZE);
-        let image = images.join(format!("comparison.{language}.png"));
-        let _ = fs::remove_file(&image);
-        let mut render = Command::new(&edge);
-        render
-            .arg("--headless")
-            .arg("--disable-gpu")
-            .arg("--hide-scrollbars")
-            .arg("--force-device-scale-factor=1")
-            .arg(format!("--user-data-dir={}", profile.display()))
-            .arg(format!("--window-size={width},{height}"))
-            .arg(format!("--screenshot={}", image.display()))
-            .arg(file_url(&page));
-        run(render, "Microsoft Edge")?;
-        wait_for(&image)?;
-        let _ = fs::remove_dir_all(profile);
-        let kept = trim(&image, height)?;
-        println!("  {} ({width}×{kept})", image.display());
-    }
-    Ok(())
-}
-
-/// Cuts the plain paper off the foot of the rendered `image`, which was
-/// rendered `height` tall; the height kept.
-fn trim(image: &Path, height: u32) -> Result<u32> {
-    let script = encoded_command(TRIM);
-    let run = || {
-        Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-EncodedCommand", &script])
-            .env("HARMONY_IMAGE", image)
-            .output()
-            .map_err(|e| format!("cannot run PowerShell: {e}"))
-    };
-    // Edge, closing, may hold the image open a while after writing it.
-    let mut output = run()?;
-    for _ in 0..10 {
-        if matches!(output.status.code(), Some(0 | 3)) {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        output = run()?;
-    }
-    match output.status.code() {
-        Some(0) => {
-            String::from_utf8_lossy(&output.stdout).trim().parse().map_err(|_| format!("PowerShell did not say how much of {} it kept", image.display()))
-        }
-        Some(3) => Err(format!(
-            "{} has no plain paper at its foot: its page is taller than the {height} px it was rendered in; name a taller size in its workshop-size meta",
-            image.display()
-        )),
-        code => Err(format!(
-            "cannot trim {} (PowerShell exited with {code:?}): {} {}",
-            image.display(),
-            String::from_utf8_lossy(&output.stdout).trim(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        )),
-    }
-}
-
-/// `script` as PowerShell's `-EncodedCommand` takes it: UTF-16LE in base64.
-fn encoded_command(script: &str) -> String {
-    const DIGITS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
-    let mut out = String::new();
-    for chunk in bytes.chunks(3) {
-        let n = chunk.iter().enumerate().fold(0u32, |n, (i, &b)| n | u32::from(b) << (16 - 8 * i));
-        for i in 0..4 {
-            out.push(if i <= chunk.len() { DIGITS[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
-        }
-    }
-    out
-}
-
-/// Waits for Edge to have written `image`: the program it was started as
-/// returns before the browser it hands the page to has written it.
-fn wait_for(image: &Path) -> Result<()> {
-    let size = || fs::metadata(image).map_or(0, |m| m.len());
-    let mut last = 0;
-    for _ in 0..120 {
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        let now = size();
-        if now != 0 && now == last {
-            return Ok(());
-        }
-        last = now;
-    }
-    Err(format!("Microsoft Edge wrote no {} within a minute", image.display()))
-}
-
-/// The size a comparison page asks to be rendered at.
-fn image_size(html: &str) -> Option<(u32, u32)> {
-    let at = html.find("name=\"workshop-size\"")?;
-    let rest = &html[at..];
-    let content = rest.split("content=\"").nth(1)?.split('"').next()?;
-    let (width, height) = content.split_once('x')?;
-    Some((width.trim().parse().ok()?, height.trim().parse().ok()?))
-}
-
-/// Microsoft Edge, where Windows installs it.
-fn edge() -> Option<PathBuf> {
-    ["ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"]
-        .iter()
-        .filter_map(std::env::var_os)
-        .map(|root| PathBuf::from(root).join("Microsoft").join("Edge").join("Application").join("msedge.exe"))
-        .find(|path| path.is_file())
-}
-
-/// A `file:` URL of the absolute path `path`.
-fn file_url(path: &Path) -> String {
-    let path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
-    let text = path.display().to_string().replace('\\', "/");
-    let text = text.strip_prefix("//?/").unwrap_or(&text);
-    format!("file:///{}", text.replace(' ', "%20"))
 }
 
 /// `cargo xtask workshop-upload --user <login> [--create]`.
@@ -560,20 +372,5 @@ mod tests {
         assert!(!Item { private: false, ..item }.vdf().contains("visibility"), "an update leaves the visibility alone");
         assert_eq!(vdf_id(&vdf), Some(0));
         assert_eq!(vdf_id("\"workshopitem\"\n{\n\t\"appid\"\t\t\"236850\"\n\t\"publishedfileid\"\t\t\"3300000001\"\n}\n"), Some(3300000001));
-    }
-
-    #[test]
-    fn encodes_a_script_for_powershell() {
-        // "ab": 61 00 62 00; "a": 61 00.
-        assert_eq!(encoded_command("ab"), "YQBiAA==");
-        assert_eq!(encoded_command("a"), "YQA=");
-        assert_eq!(encoded_command("abc"), "YQBiAGMA");
-    }
-
-    #[test]
-    fn reads_a_page_size_and_makes_file_urls() {
-        assert_eq!(image_size("<meta name=\"workshop-size\" content=\"1000x1600\">"), Some((1000, 1600)));
-        assert_eq!(image_size("<meta name=\"viewport\">"), None);
-        assert_eq!(file_url(Path::new("C:\\a b\\c.html")), "file:///C:/a%20b/c.html");
     }
 }

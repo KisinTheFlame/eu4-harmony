@@ -1,44 +1,77 @@
 [h1]Harmony[/h1]
-[b]从内部把《欧陆风云4》变得更好。[/b]处处能显示中日韩文字、不用重启、游戏更快、bug 更少，Mod 也能做到多得多的事，而游戏的规则保持原样。
+[b]从内部把《欧陆风云4》变得更好。[/b]清晰锐利的中日韩字体、返回主菜单免重启、后期更流畅、修复多项引擎缺陷，并让 Mod 拥有更强扩展能力，同时保持原版游戏规则不变。
 
-[b]注意：光点订阅不会生效[/b]——订阅后还需按下方步骤，把 1 个文件（[b]version.dll[/b]）复制到游戏目录，只需一次，之后自动更新。
+[b]重要提示：光点订阅不会生效。[/b]订阅后需按下方步骤把 1 个文件（[b]version.dll[/b]）复制到游戏目录，只需操作一次，后续全部自动更新。
 
-[img]https://images.steamusercontent.com/ugc/13140031535680090330/F4C764E83D9596D200FC76C6022FEE06B82F5086/[/img]
+游戏的中文文本仍来自你订阅的汉化 Mod，照常启用即可；为旧双字节补丁制作的汉化 Mod 以及对应存档均可直接使用。
 
-游戏的中文文本仍然来自汉化 Mod，照常订阅即可；为双字节补丁制作的汉化 Mod 和用它们玩的存档都能直接使用。
+[h2]与原版游戏对比[/h2]
+[table]
+[tr]
+[th]体验项目[/th]
+[th]原版 EU4[/th]
+[th]使用 Harmony 后[/th]
+[/tr]
+[tr]
+[td][b]中日韩文字与字体[/b][/td]
+[td]无补丁时乱码；旧位图字体模糊、换行错乱、搜索与输入法受限。[/td]
+[td]原生 UTF-8 与清晰系统/内置中文字体，支持字体实时预览、正确换行、输入法输入，以及符合东亚习惯的日期、人名与战役名。[/td]
+[/tr]
+[tr]
+[td][b]返回主菜单与读档[/b][/td]
+[td]返回主菜单必重启游戏；铁人模式下禁止局内读档。[/td]
+[td]数秒内直接返回主菜单免重启；支持铁人模式局内读档（可选读档前自动保存）。[/td]
+[/tr]
+[tr]
+[td][b]运行性能[/b][/td]
+[td]后期跑图卡顿、存档时画面冻结；菜单与后台白白拉满 CPU。[/td]
+[td]日/月结算提速、多线程后台存档、更合理的帧率上限与更丝滑的地图缩放。[/td]
+[/tr]
+[tr]
+[td][b]问题修复与体验[/b][/td]
+[td]继承人重名、配乐忽大忽小、音量滑块调节生硬、退出重进易泄漏内存。[/td]
+[td]修复继承人重名与内存泄漏；配乐响度均衡、音量曲线更自然，并可选放宽成就条件。[/td]
+[/tr]
+[tr]
+[td][b]Mod 扩展能力[/b][/td]
+[td]仅限原版脚本文本。[/td]
+[td]支持沙箱化 Lua 扩展与原生风格界面面板，并在「Harmony Mod」中透明展示外部权限。[/td]
+[/tr]
+[/table]
 
-[h2]安装[/h2]
-Harmony 运行在游戏内部，需要手动把 1 个文件放进游戏目录，只需一次。
+[h2]安装步骤[/h2]
+Harmony 运行在游戏进程内部，因此只需手动复制 1 个文件到游戏目录（仅此一次）：
 
 [olist]
-[*]在本页订阅 Harmony。
-[*]在 Steam 里右键《欧陆风云4》，选[b]管理 → 浏览本地文件[/b]，打开游戏目录（先保持这个窗口开着）。
-[*]打开 Paradox 启动器，进入[b]Mod 库[/b]，找到 [b]Harmony[/b]，点右侧 [b]… → 在文件夹中显示[/b]，打开 Harmony 的目录。（如果在启动器里暂时没看到 Harmony，重启一下 Steam；也可以在游戏目录所在的 Steam 库里手动打开 [b]steamapps\workshop\content\236850\3837775887[/b]。）
-[*]把 Harmony 目录里的 [b]version.dll[/b] 复制到刚才打开的游戏目录，和 [b]eu4.exe[/b] 放在一起。（Windows 默认可能隐藏后缀，文件会显示为 [b]version[/b] 和 [b]eu4[/b]。如果提示游戏目录里已有 [b]version.dll[/b]，例如之前装过双字节补丁，直接选择[b]替换[/b]即可；想保留旧文件方便日后换回的话，先将它改名或移到别处。）
+[*]在本页点击订阅 Harmony。
+[*]在 Steam 库中右键[b]《欧陆风云4》[/b] → [b]管理 → 浏览本地文件[/b]，打开游戏目录（保持窗口打开）。
+[*]打开 Paradox 启动器 → [b]Mod 库[/b] → 找到 [b]Harmony[/b] → 点击右侧 [b]… → 在文件夹中显示[/b]。（如暂未显示，请重启 Steam；也可在 EU4 所在 Steam 库中直接打开 [b]steamapps\workshop\content\236850\3837775887[/b]。）
+[*]将 Harmony 文件夹中的 [b]version.dll[/b] 复制到游戏目录，与 [b]eu4.exe[/b] 放在一起。（Windows 默认可能隐藏后缀，显示为 [b]version[/b] 和 [b]eu4[/b]。若游戏目录里已有旧版 [b]version.dll[/b]，例如旧双字节补丁，直接选择[b]替换[/b]即可；想留作备用可先移走或改名。）
 [/olist]
 
-照常从 Paradox 启动器启动游戏。Harmony 不用放进合集；基于它的 Mod 照常在合集里启用。主菜单角落会多出两个按钮：[b]Harmony 设置[/b]和 [b]Harmony Mod[/b]。
+照常从 Paradox 启动器启动游戏即可。Harmony [b]不需要[/b]放进游戏合集；基于 Harmony 开发的 Mod 则照常在合集里启用。生效后，主菜单右下角会出现 [b]Harmony v…[/b]、[b]Mod 列表[/b] 与 [b]设置[/b]。
 
-Steam 会让 Harmony 保持最新。更新包含新的 version.dll 时，Harmony 会在启动时自动更新游戏目录里的副本并为你重启游戏。
-
-[h2]卸载[/h2]
-取消订阅 Harmony，游戏就回到原样。想不留痕迹，再删掉游戏目录里的 version.dll；如果之前留了旧 version.dll 的备份，把它放回去。
+Steam 会自动更新 Harmony。当更新包含新版 [b]version.dll[/b] 时，Harmony 会在启动时自动更新游戏目录里的副本并为你重启游戏。
 
 [h2]运行要求[/h2]
 [list]
-[*]Windows 上的《欧陆风云4》1.37.5。
-[*]仅支持单人游戏。
+[*]Steam 平台的 Windows 版《欧陆风云4》[b]1.37.5[/b]。
+[*]目前仅支持单人游戏（多人游戏支持正在路上，启用 Harmony 时主菜单的多人游戏入口会自动禁用）。
 [/list]
 
-[h2]关于存档[/h2]
+[h2]常见问题（FAQ）[/h2]
 [list]
-[*]用 Harmony 玩的游戏里，你输入的名字以 UTF-8 保存，没有 Harmony 时会显示成乱码。
-[*]会保存自己数据的 Mod 把数据写进存档；这样的存档不保证在没有 Harmony 时还能读取。
-[*]装上 Harmony 后，游戏自己的音量滑块按位置的平方变化，每一格听起来变化差不多大。原来低于 100 的音量会比以前轻，重新调一次即可。
+[*][b]我订阅了，为什么进游戏看不到 Harmony？[/b] 光订阅不会生效，请确认已将 [b]version.dll[/b] 复制到 [b]eu4.exe[/b] 同目录（见上方第 4 步），并确认游戏是 Steam Windows 版 1.37.5。
+[*][b]杀毒软件把 version.dll 或 eu4_harmony_core.dll 报毒了，安全吗？[/b] Harmony 在 GitHub 上完全开源，因需要以 DLL 方式注入游戏实现增强功能，偶发触发启发式误报。你可以查看源码、将游戏目录加入杀毒白名单，或自行编译。
+[*][b]之前用过双字节汉化补丁或字体 Mod，怎么迁移？[/b] 用 Harmony 的 [b]version.dll[/b] 替换旧的即可，同时请[b]关闭旧版位图字体 Mod[/b]（不再需要且会影响系统字体渲染），保留汉化文本 Mod。旧存档可直接读取。
+[*][b]支持多人联机吗？[/b] Harmony 的多人游戏支持正在路上。目前仅支持单人游戏；如需联机，请取消订阅 Harmony 或暂时把游戏目录中的 [b]version.dll[/b] 移走。
+[*][b]以后卸载 Harmony，存档还能用吗？[/b] 仅使用 Harmony 本体不会破坏存档结构，但你在游戏里手动输入的中日韩自定义名称按 UTF-8 保存，卸掉 Harmony 后这些自定义名称会显示为乱码。若启用了会向存档写入自有数据的 Harmony Mod，则不保证在无 Harmony 时正常读取。
+[*][b]为什么音量变轻了？为什么改了非铁人成就后旧档没生效？[/b] Harmony 把音量滑块改成了更符合听觉的平方曲线，原先低于 100 的刻度听起来会偏轻，调大一次即可。成就放宽设置会在开启新档时生效。
+[*][b]怎么彻底卸载？[/b] 取消订阅 Harmony，并删除游戏目录中的 [b]version.dll[/b]（如有旧备份可放回）。若之前在「Harmony 设置 → 关于」开启过 Windows 闪退转储，建议先在那里点一次「关闭 EU4 的 Windows 闪退转储」。
 [/list]
 
-[h2]出问题时[/h2]
-在主菜单打开 Harmony 的设置，进入[b]关于[/b]，点[b]把排查问题用的文件存到桌面[/b]：它把 Harmony 的日志、游戏的日志、最近几次崩溃的文件夹、你的设置和模组列表（不含存档）打成一个 zip 文件放到桌面上。到 [url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url] 反馈问题，附上这个文件。
+[h2]故障排查与问题反馈[/h2]
+在主菜单打开 [b]Harmony 设置 → 关于[/b]，点击[b]把排查问题用的文件存到桌面[/b]：它会自动打包日志、最近崩溃信息、设置和模组列表（不含存档，严格控制在 24 MB 以内）。前往 [url=https://github.com/KisinTheFlame/eu4-harmony/issues]GitHub Issues[/url] 反馈问题并附上该压缩包。
 
 [h2]写给 Mod 作者[/h2]
-基于 Harmony 的 Mod 就是一个普通的 Paradox Mod，多了 Lua 脚本：它读取游戏、像玩家一样操作，添加与游戏风格一致的按钮和窗口，并运行在沙箱里，游戏之外只能做 Mod 自己声明的事。怎么写见 [url=https://github.com/KisinTheFlame/eu4-harmony/blob/master/README.zh-CN.md]GitHub 上的 README[/url]。
+基于 Harmony 的 Mod 是普通的 Paradox Mod，额外支持沙箱化 Lua 脚本与原生风格界面面板。开发文档与工具请见 [url=https://github.com/KisinTheFlame/eu4-harmony/blob/master/README.zh-CN.md]GitHub 中文 README[/url]。
