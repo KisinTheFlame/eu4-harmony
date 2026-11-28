@@ -138,8 +138,8 @@ pub fn resume(state: *const std::ffi::c_void) {
 pub fn resumed(state: *const std::ffi::c_void) {
     let mut all = running();
     let here = std::thread::current().id();
-    let Some(at) = all.iter().rposition(|r| r.thread == here) else { return };
-    if all[at].coroutine && all[at].state == state as usize && all.remove(at).hooked {
+    let Some(at) = all.iter().rposition(|r| r.thread == here && r.coroutine && r.state == state as usize) else { return };
+    if all.remove(at).hooked {
         hook(state as usize, false);
     }
 }
