@@ -1301,6 +1301,7 @@ fn maybe_log_pace(base: usize, gaps: &mut Gaps, last_drawn: &mut u64, logged: &m
 fn run() {
     crate::base::set_drawing_thread(crate::base::thread_id());
     let m = crate::native::hooked_memory();
+    crossings::seed_persistent_locks(&m);
     let mut display_rate = display_refresh_rate();
     let mut display_checked = Instant::now();
     let mut current_perf_rate = match FRAME_RATE_LIMIT.load(Ordering::Relaxed) {
