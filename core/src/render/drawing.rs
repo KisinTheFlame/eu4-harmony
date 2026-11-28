@@ -101,6 +101,17 @@ const COMMANDS_UPDATE: usize = 0x14ca360;
 /// normal, ironman, and autosaves): pure simulation read + zip + disk I/O, run
 /// without holding the presentation lock.
 const SAVE_WRITE: usize = 0x5cde60;
+/// In `0x14dd010` (first GUI scene pass): `mov rcx, r14; call 0x14dcf90` right
+/// before clearing and walking the GUI tree (`0x14dd051..0x14dd2b1`), and
+/// `mov rdx, rdi; mov rcx, r14; call 0x14dd350` (`0x14dd2b2`), where the
+/// prepared draw list at `r14 + 0x298` is drawn. On repeated drawing-thread
+/// frames of the same prepared `seq` with no icon or tooltip movement, the
+/// tree and input lists are unchanged and the CPU walk is skipped.
+const GUI_WALK_GATE: usize = 0x14dd049;
+const GUI_WALK_START: usize = 0x14dd051;
+const GUI_DRAW_LIST_CALL: usize = 0x14dd2b2;
+const GUI_SETUP_STATE: usize = 0x14dcf90;
+const GUI_DRAW_LIST_OFFSET: usize = 0x298;
 /// The game's check for a frame inside a day, between the day's phases.
 const FRAME_CHECK: usize = 0x769ea0;
 /// The camera's update in the in-game frame's input (docs/plans/README.md#drawing,
@@ -222,6 +233,17 @@ fn points() -> Vec<Point> {
         // switches its idler, the pending one at hand.
         Point::jump(IDLER_SWITCH, "48 8d 5f 78 48 3b de", "the application switches its idler", idler_switch_stub as *const () as usize, &SWITCH_RESUME),
         Point::keep(IDLER_SWITCH_GOES_ON, "74 19 48 8b 06", "the idler switch goes on"),
+        Point::jump(
+            GUI_WALK_GATE,
+            "49 8b ce e8 3f ff ff ff",
+            "the first GUI scene's list walk gate",
+            gui_walk_gate_stub as *const () as usize,
+            &GUI_WALK_RESUME,
+        ),
+        Point::keep(GUI_WALK_START, "49 8b 46 58 49 8d 56 58", "the first GUI scene's list walk starts"),
+        Point::keep(GUI_DRAW_LIST_CALL, "48 8b d7 49 8b ce", "the first GUI scene's prepared list drawn"),
+        Point::keep(GUI_SETUP_STATE, "48 89 5c 24 08 57 48 83 ec 20 48 8b f9 48 8d 91 bc 25 03 00", "the first GUI scene's render state setup")
+            .recorded(&GUI_SETUP_AT),
     ]
     .into_iter()
     .chain(prepare::points())
@@ -273,6 +295,7 @@ extern "C" fn idler_switches() {
 
 /// Clears any staged texture uploads and cached texture descriptors before a Direct3D device reset.
 pub(super) fn device_reset() {
+    GUI_REUSE_EPOCH.fetch_add(1, Ordering::Release);
     deferred::clear_textures();
     deferred::clear_texture_desc_cache();
 }
@@ -288,6 +311,71 @@ resume!(HEAD_RESUME: HEAD_GOES_ON_AT = HEAD_GOES_ON, HEAD_END_AT = HEAD_END);
 static HEAD_AT: AtomicUsize = AtomicUsize::new(0);
 resume!(CAMERA_RESUME: CAMERA_LENGTH_TAKEN_AT = CAMERA_LENGTH_TAKEN);
 resume!(MAP_RESUME: MAP_LENGTH_TAKEN_AT = MAP_LENGTH_TAKEN);
+resume!(GUI_WALK_RESUME: GUI_WALK_START_AT = GUI_WALK_START, GUI_DRAW_LIST_CALL_AT = GUI_DRAW_LIST_CALL);
+static GUI_SETUP_AT: AtomicUsize = AtomicUsize::new(0);
+/// Monotonic invalidation epoch for drawing-thread GUI list reuse (bumped on
+/// main-thread fallback drawing, idler switches, and device resets).
+static GUI_REUSE_EPOCH: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Default)]
+struct GuiReuseState {
+    current: Option<(u64, u64, bool)>,
+    walked: Option<(usize, u64, u64, bool)>,
+}
+
+impl GuiReuseState {
+    fn begin_frame(&mut self, seq: u64, epoch: u64, dirty: bool) {
+        self.current = Some((seq, epoch, dirty));
+    }
+
+    fn end_frame(&mut self) {
+        self.current = None;
+    }
+
+    fn can_reuse(&mut self, graphics: usize, other_camera: bool) -> bool {
+        let Some((seq, epoch, dirty)) = self.current else {
+            return false;
+        };
+        if !dirty && self.walked == Some((graphics, seq, epoch, other_camera)) {
+            return true;
+        }
+        self.walked = Some((graphics, seq, epoch, other_camera));
+        false
+    }
+}
+
+thread_local! {
+    static GUI_REUSE: RefCell<GuiReuseState> = RefCell::new(GuiReuseState::default());
+}
+
+#[unsafe(naked)]
+extern "C" fn gui_walk_gate_stub() {
+    std::arch::naked_asm!(
+        "mov rcx, r14",
+        "call qword ptr [rip + {setup}]",
+        call_rust!("mov rcx, r14", call reuse_gui_lists => bool),
+        "jne 2f",
+        "jmp qword ptr [rip + {walk}]",
+        "2:",
+        "lea rdi, [r14 + {draw_list}]",
+        "jmp qword ptr [rip + {draw}]",
+        setup = sym GUI_SETUP_AT,
+        reuse_gui_lists = sym reuse_gui_lists,
+        walk = sym GUI_WALK_START_AT,
+        draw_list = const GUI_DRAW_LIST_OFFSET,
+        draw = sym GUI_DRAW_LIST_CALL_AT,
+    );
+}
+
+#[called_by_game]
+extern "C" fn reuse_gui_lists(graphics: usize) -> bool {
+    if !is_drawing_thread() {
+        return false;
+    }
+    let m = crate::native::hooked_memory();
+    let other_camera = m.u8(m.at(OTHER_CAMERA)).is_ok_and(|b| b != 0);
+    GUI_REUSE.with(|cell| cell.borrow_mut().can_reuse(graphics, other_camera))
+}
 /// The length of the drawing thread's frame, in seconds (a float's bits).
 static DRAWING_LENGTH: AtomicU32 = AtomicU32::new(0);
 
@@ -590,6 +678,7 @@ impl FrameCoordinator {
     }
 
     fn clear_idler(&self) {
+        GUI_REUSE_EPOCH.fetch_add(1, Ordering::Release);
         self.prepared_idler.store(0, Ordering::Release);
         self.invalidated_by_main.store(false, Ordering::Release);
     }
@@ -1100,6 +1189,7 @@ fn draw_here(m: &Memory, idler: usize) {
     while IN_FRAME.load(Ordering::Acquire) {
         std::thread::yield_now();
     }
+    GUI_REUSE_EPOCH.fetch_add(1, Ordering::Release);
     deferred::flush_textures(m);
     HERE.fetch_add(1, Ordering::Relaxed);
     unsafe { direct1(m, DRAWING)(idler) };
@@ -1292,12 +1382,22 @@ fn run() {
         let mut drew = false;
         if let Some((idler, seq)) = FRAMES.drawable(current, held, must_draw_here(&m)) {
             DRAWING_LENGTH.store(length.to_bits(), Ordering::Relaxed);
-            if let Err(e) = icons::follow_camera(&m) {
-                log!("drawing: the map icons could not follow the camera: {e}");
-            }
-            if let Err(e) = tooltip::follow_cursor(&m, idler) {
-                log!("drawing: the tooltip could not follow the cursor: {e}");
-            }
+            let icons_moved = match icons::follow_camera(&m) {
+                Ok(moved) => moved,
+                Err(e) => {
+                    log!("drawing: the map icons could not follow the camera: {e}");
+                    true
+                }
+            };
+            let tooltip_moved = match tooltip::follow_cursor(&m, idler) {
+                Ok(moved) => moved,
+                Err(e) => {
+                    log!("drawing: the tooltip could not follow the cursor: {e}");
+                    true
+                }
+            };
+            let reuse_epoch = GUI_REUSE_EPOCH.load(Ordering::Acquire);
+            GUI_REUSE.with(|cell| cell.borrow_mut().begin_frame(seq, reuse_epoch, icons_moved || tooltip_moved));
             deferred::flush_textures(&m);
             IN_FRAME.store(true, Ordering::Release);
             let watched = crate::native::probes::drawing_frame_begins(&m);
@@ -1305,6 +1405,7 @@ fn run() {
             let began = Instant::now();
             unsafe { direct1(&m, DRAWING)(idler) };
             let drawing = began.elapsed();
+            GUI_REUSE.with(|cell| cell.borrow_mut().end_frame());
             let present = PRESENT.with(|p| p.spent.take());
             drawing_side(DrawingSide::frame_ends);
             crate::native::probes::drawing_frame_ends(watched);
@@ -1508,5 +1609,44 @@ mod tests {
         assert_eq!(frames.prepared_idler(), 0);
         assert!(!stage.staged_dirty, "artifacts dirtied during deferred work must be cleared again");
         assert!(stage.clears >= 2);
+    }
+
+    #[test]
+    fn gui_reuse_state_walks_once_per_seq_and_invalidates_on_dirty_or_epoch_change() {
+        let mut reuse = GuiReuseState::default();
+        // Outside a drawing-thread frame, never reuse.
+        assert!(!reuse.can_reuse(0x1000, false));
+
+        // First draw of seq 1 walks once and records (graphics, seq, epoch, other_camera).
+        reuse.begin_frame(1, 1, false);
+        assert!(!reuse.can_reuse(0x1000, false));
+        reuse.end_frame();
+
+        // Second draw of seq 1 with no movement reuses.
+        reuse.begin_frame(1, 1, false);
+        assert!(reuse.can_reuse(0x1000, false));
+        reuse.end_frame();
+
+        // Movement marks frame dirty -> walks once, then subsequent still frame reuses again.
+        reuse.begin_frame(1, 1, true);
+        assert!(!reuse.can_reuse(0x1000, false));
+        reuse.end_frame();
+        reuse.begin_frame(1, 1, false);
+        assert!(reuse.can_reuse(0x1000, false));
+        reuse.end_frame();
+
+        // New seq, epoch bump, different graphics, or other_camera toggle forces a walk.
+        reuse.begin_frame(2, 1, false);
+        assert!(!reuse.can_reuse(0x1000, false));
+        reuse.end_frame();
+        reuse.begin_frame(2, 2, false);
+        assert!(!reuse.can_reuse(0x1000, false));
+        reuse.end_frame();
+        reuse.begin_frame(2, 2, false);
+        assert!(!reuse.can_reuse(0x2000, false));
+        reuse.end_frame();
+        reuse.begin_frame(2, 2, false);
+        assert!(!reuse.can_reuse(0x2000, true));
+        reuse.end_frame();
     }
 }
