@@ -115,9 +115,12 @@ fn system_directory() -> io::Result<Vec<u16>> {
 
 /// Runs `reg.exe` twice in one elevated `cmd.exe` invocation so setting both
 /// `DumpFolder` and `DumpType = 1` (MiniDump) requires only a single UAC prompt.
+/// `%LOCALAPPDATA%` is unquoted with `^%` escapes so `cmd.exe` passes the
+/// literal `REG_EXPAND_SZ` placeholder to `reg.exe` instead of expanding it
+/// against the elevated administrator account's profile.
 fn enable_cmd_arguments(key: &str) -> Vec<u16> {
     wide(&format!(
-        r#"/d /c reg.exe add "{key}" /v DumpFolder /t REG_EXPAND_SZ /d "%LOCALAPPDATA%\CrashDumps\eu4-harmony-wer" /f /reg:64 && reg.exe add "{key}" /v DumpType /t REG_DWORD /d 1 /f /reg:64"#
+        r#"/d /c reg.exe add "{key}" /v DumpFolder /t REG_EXPAND_SZ /d ^%LOCALAPPDATA^%\CrashDumps\eu4-harmony-wer /f /reg:64 && reg.exe add "{key}" /v DumpType /t REG_DWORD /d 1 /f /reg:64"#
     ))
 }
 
@@ -227,7 +230,25 @@ fn clear_wer_dumps_in(dir: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use windows_sys::Win32::System::Registry::{RegDeleteKeyW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+    use windows_sys::Win32::System::Registry::{RegDeleteKeyW, HKEY_CURRENT_USER, RRF_NOEXPAND, RRF_RT_REG_DWORD, RRF_RT_REG_EXPAND_SZ};
+
+    fn read_raw_expand_sz(hive: windows_sys::Win32::System::Registry::HKEY, subkey: &str, name: PCWSTR) -> io::Result<Option<String>> {
+        let mut bytes = 0u32;
+        let flags = RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND | RRF_SUBKEY_WOW6464KEY;
+        let status = unsafe { RegGetValueW(hive, wide(subkey).as_ptr(), name, flags, null_mut(), null_mut(), &mut bytes) };
+        match status {
+            ERROR_SUCCESS => {}
+            ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND => return Ok(None),
+            code => return Err(io::Error::from_raw_os_error(code as i32)),
+        }
+        let mut raw = vec![0u16; (bytes as usize) / 2];
+        let status = unsafe { RegGetValueW(hive, wide(subkey).as_ptr(), name, flags, null_mut(), raw.as_mut_ptr().cast(), &mut bytes) };
+        if status != ERROR_SUCCESS {
+            return Err(io::Error::from_raw_os_error(status as i32));
+        }
+        let len = raw.iter().position(|&c| c == 0).unwrap_or(raw.len());
+        Ok(Some(String::from_utf16_lossy(&raw[..len])))
+    }
 
     fn read_dword(hive: windows_sys::Win32::System::Registry::HKEY, subkey: &str, name: PCWSTR) -> io::Result<Option<u32>> {
         let mut value = 0u32;
@@ -258,6 +279,11 @@ mod tests {
         let _game = Scratch(game.clone());
         assert_eq!(read_folder(HKEY_CURRENT_USER, [&game, &base]).unwrap(), None);
         run_system_tool(null_mut(), r"\cmd.exe", w!("open"), &enable_cmd_arguments(&format!(r"HKCU\{game}"))).unwrap();
+        assert_eq!(
+            read_raw_expand_sz(HKEY_CURRENT_USER, &game, w!("DumpFolder")).unwrap().as_deref(),
+            Some(r"%LOCALAPPDATA%\CrashDumps\eu4-harmony-wer"),
+            "DumpFolder must preserve unexpanded %LOCALAPPDATA% for cross-account UAC elevation"
+        );
         assert_eq!(read_folder(HKEY_CURRENT_USER, [&game, &base]).unwrap(), Some(expected));
         assert_eq!(read_dword(HKEY_CURRENT_USER, &game, w!("DumpType")).unwrap(), Some(1));
         run_system_tool(null_mut(), r"\reg.exe", w!("open"), &delete_key_arguments(&format!(r"HKCU\{game}"))).unwrap();
