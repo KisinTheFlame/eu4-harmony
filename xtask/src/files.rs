@@ -18,12 +18,18 @@ pub(super) const GAME_FILES: [(&str, &str); 3] = [
     ("eu4_harmony_crash_dumps.dll", "eu4-harmony\\eu4_harmony_crash_dumps.dll"),
 ];
 
-/// Default Chinese fonts bundled beside the core: each one's file name in
-/// `fonts/` and its path in the game folder and packages.
-pub(super) const BUNDLED_FONTS: [(&str, &str); 3] = [
+/// Default fonts and third-party font licenses bundled beside the core: each
+/// file's name in `fonts/` and its path in the game folder and packages.
+pub(super) const BUNDLED_FONTS: [(&str, &str); 9] = [
     ("simp_chinese_default_body.ttf", "eu4-harmony\\fonts\\simp_chinese_default_body.ttf"),
     ("simp_chinese_default_heading.ttf", "eu4-harmony\\fonts\\simp_chinese_default_heading.ttf"),
     ("simp_chinese_default_map.ttf", "eu4-harmony\\fonts\\simp_chinese_default_map.ttf"),
+    ("japanese_default_body.otf", "eu4-harmony\\fonts\\japanese_default_body.otf"),
+    ("japanese_default_heading.otf", "eu4-harmony\\fonts\\japanese_default_heading.otf"),
+    ("korean_default_body.ttf", "eu4-harmony\\fonts\\korean_default_body.ttf"),
+    ("korean_default_heading.ttf", "eu4-harmony\\fonts\\korean_default_heading.ttf"),
+    ("LICENSE-SourceHanSerif.txt", "eu4-harmony\\fonts\\LICENSE-SourceHanSerif.txt"),
+    ("LICENSE-Godo.txt", "eu4-harmony\\fonts\\LICENSE-Godo.txt"),
 ];
 
 /// The repository's `fonts/` directory, holding the bundled default fonts.
