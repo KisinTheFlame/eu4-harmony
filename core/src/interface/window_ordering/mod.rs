@@ -136,15 +136,15 @@ impl Orderer {
     }
 
     fn mouse_before(&self, m: &Memory, event: usize, ops: &mut impl SceneOps) -> Result<()> {
-        self.flush(m, ops)?;
+        let flushed = self.flush(m, ops);
         self.with_input(|input| input.begin(event));
-        Ok(())
+        flushed
     }
 
     fn passive_before(&self, m: &Memory, event: usize, ops: &mut impl SceneOps) -> Result<()> {
-        self.flush(m, ops)?;
+        let flushed = self.flush(m, ops);
         self.with_input(|input| input.begin_passive(event));
-        Ok(())
+        flushed
     }
 
     fn event_after(&self, m: &Memory, faulted: bool, ops: &mut impl SceneOps) -> Result<()> {
@@ -162,10 +162,22 @@ impl Orderer {
     }
 
     fn handler_before(&self, m: &Memory, gui: usize, event: usize) -> Result<()> {
-        let eligible = native::press_unhandled(m, event)? && self.with_input(|input| input.accepts(event));
-        let target = if eligible { self.with_registry(|state| state.target(m, gui))? } else { None };
-        self.with_input(|input| input.push_capture(event, eligible, target));
-        Ok(())
+        let resolved = (|| -> Result<(bool, Option<course::Token>)> {
+            let eligible = native::press_unhandled(m, event)? && self.with_input(|input| input.accepts(event));
+            let target = if eligible { self.with_registry(|state| state.target(m, gui))? } else { None };
+            Ok((eligible, target))
+        })();
+        match resolved {
+            Ok((eligible, target)) => {
+                self.with_input(|input| input.push_capture(event, eligible, target));
+                Ok(())
+            }
+            Err(error) => {
+                // Keep the capture stack paired with `handler_after` even on error.
+                self.with_input(|input| input.push_capture(event, false, None));
+                Err(error)
+            }
+        }
     }
 
     fn handler_after(&self, m: &Memory, event: usize, faulted: bool) {
@@ -282,7 +294,9 @@ fn handler_after(call: &mut Call) {
 
 fn gui_visibility_before(call: &mut Call) {
     if crate::base::thread_id() == crate::base::main_thread() {
-        checked(live().before_visibility(&call.memory(), call.arg(0) - crate::native::objects::gui::window::GUI));
+        if let Some(root) = call.arg(0).checked_sub(crate::native::objects::gui::window::GUI) {
+            checked(live().before_visibility(&call.memory(), root));
+        }
     }
 }
 fn root_visibility_before(call: &mut Call) {
@@ -310,7 +324,9 @@ fn map_markers_after(_: &mut Call) {
 }
 fn prepend_to_first_root_before(call: &mut Call) {
     if crate::base::thread_id() == crate::base::main_thread() {
-        checked(live().prepend_backdrop(&call.memory(), call.arg(0) - crate::native::objects::gui::window::GUI));
+        if let Some(root) = call.arg(0).checked_sub(crate::native::objects::gui::window::GUI) {
+            checked(live().prepend_backdrop(&call.memory(), root));
+        }
     }
 }
 fn batch_after(call: &mut Call) {
