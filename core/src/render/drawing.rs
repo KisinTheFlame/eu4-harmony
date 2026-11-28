@@ -90,8 +90,12 @@ const APP_FRAME: usize = 0x14c25a0;
 const APP_QUITS: usize = 0x83;
 const APP_PUMP_QUITS: usize = 0x2f8;
 const APP_MINIMIZED: usize = 0x2f9;
-/// Graphics context global and its last-Present-succeeded byte (`0x14c26b3`).
-const GRAPHICS_GLOBAL: usize = 0x23494b8;
+/// Graphics context global (`gui::globals::SCALE`) and its last-Present-succeeded byte (`0x14c26b3`).
+use crate::native::objects::gui::{
+    functions::SETUP_RENDER_STATE,
+    globals::{OTHER_CAMERA, SCALE as GRAPHICS_GLOBAL},
+    scene::FIRST_SCENE_WALK_START as GUI_WALK_START,
+};
 const GRAPHICS_PRESENT_OK: usize = 0x530;
 /// Session command runner (`0x14ca360`, called from `0x20f810`): executes
 /// queued commands and the daily update; non-UI work runs without the
@@ -108,9 +112,7 @@ const SAVE_WRITE: usize = 0x5cde60;
 /// frames of the same prepared `seq` with no icon or tooltip movement, the
 /// tree and input lists are unchanged and the CPU walk is skipped.
 const GUI_WALK_GATE: usize = 0x14dd049;
-const GUI_WALK_START: usize = 0x14dd051;
 const GUI_DRAW_LIST_CALL: usize = 0x14dd2b2;
-const GUI_SETUP_STATE: usize = 0x14dcf90;
 const GUI_DRAW_LIST_OFFSET: usize = 0x298;
 /// The game's check for a frame inside a day, between the day's phases.
 const FRAME_CHECK: usize = 0x769ea0;
@@ -139,7 +141,6 @@ const IDLER_CAMERA_B: usize = 0x60;
 /// application's focus (`+0xb8`).
 const IDLER_HOLDS_CAMERA: usize = 0x1b80;
 const IDLER_HOLDS_CAMERA_2: usize = 0x3b0;
-use crate::native::objects::gui::globals::OTHER_CAMERA;
 const APP_FOCUS: usize = 0xb8;
 
 #[cfg(feature = "dev")]
@@ -240,10 +241,7 @@ fn points() -> Vec<Point> {
             gui_walk_gate_stub as *const () as usize,
             &GUI_WALK_RESUME,
         ),
-        Point::keep(GUI_WALK_START, "49 8b 46 58 49 8d 56 58", "the first GUI scene's list walk starts"),
         Point::keep(GUI_DRAW_LIST_CALL, "48 8b d7 49 8b ce", "the first GUI scene's prepared list drawn"),
-        Point::keep(GUI_SETUP_STATE, "48 89 5c 24 08 57 48 83 ec 20 48 8b f9 48 8d 91 bc 25 03 00", "the first GUI scene's render state setup")
-            .recorded(&GUI_SETUP_AT),
     ]
     .into_iter()
     .chain(prepare::points())
@@ -311,8 +309,7 @@ resume!(HEAD_RESUME: HEAD_GOES_ON_AT = HEAD_GOES_ON, HEAD_END_AT = HEAD_END);
 static HEAD_AT: AtomicUsize = AtomicUsize::new(0);
 resume!(CAMERA_RESUME: CAMERA_LENGTH_TAKEN_AT = CAMERA_LENGTH_TAKEN);
 resume!(MAP_RESUME: MAP_LENGTH_TAKEN_AT = MAP_LENGTH_TAKEN);
-resume!(GUI_WALK_RESUME: GUI_WALK_START_AT = GUI_WALK_START, GUI_DRAW_LIST_CALL_AT = GUI_DRAW_LIST_CALL);
-static GUI_SETUP_AT: AtomicUsize = AtomicUsize::new(0);
+resume!(GUI_WALK_RESUME: GUI_WALK_START_AT = GUI_WALK_START, GUI_DRAW_LIST_CALL_AT = GUI_DRAW_LIST_CALL, GUI_SETUP_AT = SETUP_RENDER_STATE.rva());
 /// Monotonic invalidation epoch for drawing-thread GUI list reuse (bumped on
 /// main-thread fallback drawing, idler switches, and device resets).
 static GUI_REUSE_EPOCH: AtomicU64 = AtomicU64::new(1);

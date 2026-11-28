@@ -27,7 +27,7 @@
 use super::support_checks::{ARMY_STRENGTH, ZERO_STRENGTH_CONST};
 use crate::base::called_by_game;
 use crate::native::objects::{
-    army_rva::FIND_ID,
+    army_rva::{FIND_ID, MORALE as UNIT_MORALE_FN},
     campaign::{
         countries::LIST as COUNTRY_LIST,
         functions::COUNTRY_MODIFIERS,
@@ -83,8 +83,6 @@ const AI_STAGE: usize = 0x77d8a0;
 /// Threat-map query functions: army threat ratio (`0x1998f0`) and recruitment threat sum (`0x199500`).
 const THREAT_RATIO_QUERY: usize = 0x1998f0;
 const THREAT_SUM_QUERY: usize = 0x199500;
-/// Pure unit morale calculation (`0xd4c060(unit, out_ptr, flag) -> out_ptr`), read-only during `0x77d8a0`.
-const UNIT_MORALE_FN: usize = 0xd4c060;
 /// Pure province highest-fort ZoC neighbor lookup (`0xa273a0(province) -> province_or_null`), read-only during `0x77d8a0`.
 const PROVINCE_FORT_ZOC_FN: usize = 0xa273a0;
 /// Date year and day-of-year helpers used by `0xeab50` to pick army-search days (`(day % 3) == (country_index % 3)`).
@@ -959,7 +957,7 @@ fn points() -> Vec<Point> {
             &ORIGINAL_STRENGTH_EVAL,
         ),
         Point::replace(
-            UNIT_MORALE_FN,
+            UNIT_MORALE_FN.rva(),
             "48 89 5c 24 18 55 56 57 48 83 ec 20 48 8b 41 38",
             "unit morale calculation",
             unit_morale_hook as UnitMoraleFn,

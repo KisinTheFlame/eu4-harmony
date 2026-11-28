@@ -13,7 +13,10 @@ const HITS: GameFunction<4> = GameFunction::at(0x14dda50);
 const INSERT: GameFunction<3> = GameFunction::at(0xcc220);
 const QUALIFY: GameFunction<1> = GameFunction::at(0x14defd0);
 const COUNT: usize = 0x23494d0;
-use crate::native::objects::{campaign::functions::YES, gui::globals::OTHER_CAMERA};
+use crate::native::objects::{
+    campaign::functions::YES,
+    gui::{globals::OTHER_CAMERA, scene::FIRST_SCENE_WALK_START},
+};
 const DRAW_LIST: usize = 0x298;
 const HIT_LIST: usize = 0x58;
 const OWNER_LIST: usize = 0x70;
@@ -193,7 +196,7 @@ pub(super) fn points() -> Vec<Point> {
         Point::keep(INSERT, "40 53 55 41 55 41 57 48 83 ec 28 48 8b 41 08", "native pointer vector insertion"),
         Point::keep(QUALIFY, "48 89 5c 24 10 56 48 83 ec 20 48 8d 71 30 48 8b d9", "GUI hit eligibility refresh"),
         Point::keep(0x14dd8b3usize, "ff 05 17 bc e6 00", "traversal node statistic").uses(&[COUNT]),
-        Point::keep(0x14dd051usize, "49 8b 46 58 49 8d 56 58 48 89 42 08 49 8d be 98 02 00 00 49 8b 46 70", "GUI prepared vector headers")
+        Point::keep(FIRST_SCENE_WALK_START, "49 8b 46 58 49 8d 56 58 48 89 42 08 49 8d be 98 02 00 00 49 8b 46 70", "GUI prepared vector headers")
             .uses(&[HIT_LIST, DRAW_LIST, OWNER_LIST]),
         Point::keep(0x14dd23fusize, "48 8b 02 4d 8d 46 48 48 89 42 08 4c 8b ca 49 8b 00 48 8b d7 49 8b ce 49 89 46 50", "current and prepared GUI cursor")
             .uses(&[CURSOR, PREPARED_CURSOR]),

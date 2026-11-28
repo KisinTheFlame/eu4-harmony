@@ -28,7 +28,7 @@ use crate::native::objects::campaign::{
     country,
     modifier_set::{BY_MODIFIER, COUNT, PAIRS},
     modifiers::OWN as MODIFIERS_OWN,
-    regiment, tag, unit, world,
+    regiment, tag, unit,
 };
 use crate::native::points::{Function, Point};
 use crate::native::speed_up::{self as speed, SpeedUp};
@@ -474,7 +474,7 @@ fn points() -> Vec<Point> {
             country_army_strength_hook as CountryArmyStrength,
             &ORIGINAL_ARMY_STRENGTH,
         ),
-        Point::keep(0x2ee4cc, "44 38 a0 84 74 00 00 74 5f", "country daily update checks AI active flag").uses(&[WORLD_AI_ACTIVE, world::DATE]),
+        Point::keep(0x2ee4cc, "44 38 a0 84 74 00 00 74 5f", "country daily update checks AI active flag").uses(&[WORLD_AI_ACTIVE]),
         Point::keep(0x93c7b5, "48 8b 9b 18 0d 00 00", "country army strength walks units").uses(&[country::UNITS]),
         Point::keep(0x93c8ac, "49 8b 86 20 02 00 00 48 8b 8d a0 17 00 00 48 63 95 ac 17 00 00", "country army strength reads hired mercenary list").uses(&[
             UNIT_MERC_TAG,
