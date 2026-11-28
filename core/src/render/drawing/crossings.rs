@@ -143,6 +143,11 @@ impl<const N: usize> LockOrder<N> {
         Self { locks: [const { AtomicUsize::new(0) }; N], known: AtomicUsize::new(0), overflow_logged: AtomicBool::new(false) }
     }
 
+    fn clear(&self) {
+        self.known.store(0, Ordering::Release);
+        self.overflow_logged.store(false, Ordering::Relaxed);
+    }
+
     fn observe(&self, lock: usize, on_drawing: bool, on_main_unheld: bool) -> LockAction {
         if !on_drawing && !on_main_unheld {
             return LockAction::None;
@@ -369,7 +374,15 @@ const ENTER_SECTION: usize = 0x1b66750;
 const ACQUIRE_SRW: usize = 0x1b66538;
 static ORIGINAL_ENTER_SECTION: AtomicUsize = AtomicUsize::new(0);
 static ORIGINAL_ACQUIRE_SRW: AtomicUsize = AtomicUsize::new(0);
-static LOCK_ORDER: LockOrder<64> = LockOrder::new();
+const LOCK_ORDER_CAPACITY: usize = 256;
+static LOCK_ORDER: LockOrder<LOCK_ORDER_CAPACITY> = LockOrder::new();
+
+/// Clears learned drawing-thread lock addresses once the drawing thread has
+/// stopped drawing the previous idler, so transient heap locks from prior
+/// sessions never exhaust [`LOCK_ORDER`].
+pub(super) fn reset_lock_order() {
+    LOCK_ORDER.clear();
+}
 
 #[called_by_game]
 unsafe extern "system" fn section_entered(section: usize) {
@@ -397,7 +410,7 @@ fn lock_taken(lock: usize, by: usize) {
     }
     match LOCK_ORDER.observe(lock, on_drawing, on_main_unheld) {
         LockAction::WarnOverflow => {
-            log!("drawing: the drawing thread took more than 64 of the game's locks; the rest are not kept in order");
+            log!("drawing: the drawing thread took more than {LOCK_ORDER_CAPACITY} of the game's locks; the rest are not kept in order");
         }
         LockAction::TakePresentationFirst => {
             main_side(|s| {

@@ -36,6 +36,18 @@ fn pixels(r: Rect, scale: f32) -> Rect {
     Rect { x: x0, y: y0, w: ((r.x + r.w) * scale).round() - x0, h: ((r.y + r.h) * scale).round() - y0 }
 }
 
+/// Clamps a GUI clip rectangle to the active Direct3D viewport bounds. Returns
+/// `None` when the clamped scissor rectangle is empty or inverted, so callers
+/// skip drawing instead of passing an invalid `RECT` to `SetScissorRect`.
+fn clamp_scissor_rect(rect: Rect, scale: f32, bounds: RECT) -> Option<RECT> {
+    let p = pixels(rect, scale);
+    let left = (p.x.round() as i32).clamp(bounds.left, bounds.right);
+    let top = (p.y.round() as i32).clamp(bounds.top, bounds.bottom);
+    let right = ((p.x + p.w).round() as i32).clamp(bounds.left, bounds.right);
+    let bottom = ((p.y + p.h).round() as i32).clamp(bounds.top, bounds.bottom);
+    (left < right && top < bottom).then_some(RECT { left, top, right, bottom })
+}
+
 fn quad(out: &mut Vec<Vertex>, r: Rect, color: Color, uv: Option<Rect>) {
     // Direct3D 9 puts pixel centres on whole coordinates.
     let (x0, y0, x1, y1) = (r.x - 0.5, r.y - 0.5, r.x + r.w - 0.5, r.y + r.h - 0.5);
@@ -234,31 +246,43 @@ impl Backend {
         }
         let state = self.state.clone().expect("state block just made");
         state.Capture()?;
+        let mut viewport = D3DVIEWPORT9::default();
+        device.GetViewport(&mut viewport)?;
+        let bounds = RECT {
+            left: viewport.X as i32,
+            top: viewport.Y as i32,
+            right: (viewport.X.saturating_add(viewport.Width)).min(i32::MAX as u32) as i32,
+            bottom: (viewport.Y.saturating_add(viewport.Height)).min(i32::MAX as u32) as i32,
+        };
         let outline_step = scale.max(1.0).round();
         let drawn = (|| {
             Self::set_states(device)?;
             let mut vertices = Vec::new();
             let mut textured = false;
+            let mut clipped_out = false;
             let mut next_text = texts.iter();
             for c in commands {
                 match c {
                     Command::Clip(clip) => {
                         Self::flush(device, &mut vertices, textured.then_some(&texture))?;
                         if let Some(rect) = clip {
-                            let p = pixels(*rect, scale);
-                            let scissor = RECT {
-                                left: p.x.round().max(0.0) as i32,
-                                top: p.y.round().max(0.0) as i32,
-                                right: (p.x + p.w).round().max(0.0) as i32,
-                                bottom: (p.y + p.h).round().max(0.0) as i32,
-                            };
-                            device.SetScissorRect(&scissor)?;
-                            device.SetRenderState(D3DRS_SCISSORTESTENABLE, 1)?;
+                            if let Some(scissor) = clamp_scissor_rect(*rect, scale, bounds) {
+                                clipped_out = false;
+                                device.SetScissorRect(&scissor)?;
+                                device.SetRenderState(D3DRS_SCISSORTESTENABLE, 1)?;
+                            } else {
+                                clipped_out = true;
+                                device.SetRenderState(D3DRS_SCISSORTESTENABLE, 0)?;
+                            }
                         } else {
+                            clipped_out = false;
                             device.SetRenderState(D3DRS_SCISSORTESTENABLE, 0)?;
                         }
                     }
                     Command::Fill { rect, color } => {
+                        if clipped_out {
+                            continue;
+                        }
                         if textured {
                             Self::flush(device, &mut vertices, Some(&texture))?;
                             textured = false;
@@ -266,6 +290,9 @@ impl Backend {
                         quad(&mut vertices, pixels(*rect, scale), *color, None);
                     }
                     Command::RoundFill { rect, color, radius } => {
+                        if clipped_out {
+                            continue;
+                        }
                         if textured {
                             Self::flush(device, &mut vertices, Some(&texture))?;
                             textured = false;
@@ -273,6 +300,9 @@ impl Backend {
                         round_quad(&mut vertices, pixels(*rect, scale), *color, *radius * scale);
                     }
                     Command::RoundStroke { rect, color, radius, thickness } => {
+                        if clipped_out {
+                            continue;
+                        }
                         if textured {
                             Self::flush(device, &mut vertices, Some(&texture))?;
                             textured = false;
@@ -280,11 +310,14 @@ impl Backend {
                         round_stroke(&mut vertices, pixels(*rect, scale), *color, *radius * scale, (*thickness * scale).max(1.0));
                     }
                     Command::Text { color, outline, .. } => {
+                        let quads = next_text.next().expect("one layout per text");
+                        if clipped_out {
+                            continue;
+                        }
                         if !textured {
                             Self::flush(device, &mut vertices, None)?;
                             textured = true;
                         }
-                        let quads = next_text.next().expect("one layout per text");
                         if *outline {
                             const OFFSETS: [(f32, f32); 8] =
                                 [(-1.0, -1.0), (0.0, -1.0), (1.0, -1.0), (-1.0, 0.0), (1.0, 0.0), (-1.0, 1.0), (0.0, 1.0), (1.0, 1.0)];
@@ -305,5 +338,25 @@ impl Backend {
         })();
         state.Apply()?;
         drawn
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clamp_scissor_rect_bounds_and_rejects_empty_or_offscreen_clips() {
+        let bounds = RECT { left: 0, top: 0, right: 1280, bottom: 720 };
+        // Partially off-screen right/bottom (e.g., 720p at 2x GUI scale) clamps safely.
+        assert_eq!(
+            clamp_scissor_rect(Rect { x: -10.0, y: 100.0, w: 800.0, h: 500.0 }, 2.0, bounds),
+            Some(RECT { left: 0, top: 200, right: 1280, bottom: 720 })
+        );
+        // Entirely below viewport returns None instead of an inverted/empty RECT.
+        assert_eq!(clamp_scissor_rect(Rect { x: 20.0, y: 800.0, w: 400.0, h: 200.0 }, 1.0, bounds), None);
+        // Zero or negative dimensions return None.
+        assert_eq!(clamp_scissor_rect(Rect { x: 10.0, y: 10.0, w: 0.0, h: 50.0 }, 1.0, bounds), None);
+        assert_eq!(clamp_scissor_rect(Rect { x: 10.0, y: 10.0, w: -5.0, h: 50.0 }, 1.0, bounds), None);
     }
 }

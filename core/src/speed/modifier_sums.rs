@@ -286,13 +286,13 @@ unsafe fn sum_by_modifier_into_by_modifier<const SUBTRACT: bool>(
             }
             let raw = if modifier == idx as i32 {
                 entry.value
-            } else if modifier <= EMPTY_MODIFIER {
+            } else if (0..EMPTY_MODIFIER).contains(&modifier) {
                 unsafe { (*added_pairs.offset(modifier as isize)).value }
             } else {
                 entry.value
             };
             let val = if SUBTRACT { raw.wrapping_neg() } else { raw };
-            if modifier < EMPTY_MODIFIER {
+            if (0..EMPTY_MODIFIER).contains(&modifier) {
                 let slot = unsafe { &mut *(*set_pairs).offset(modifier as isize) };
                 slot.modifier = modifier;
                 slot.value = slot.value.wrapping_add(val);
@@ -311,13 +311,13 @@ unsafe fn sum_by_modifier_into_by_modifier<const SUBTRACT: bool>(
         if modifier != EMPTY_MODIFIER {
             let raw = if modifier == i as i32 {
                 entry.value
-            } else if modifier <= EMPTY_MODIFIER {
+            } else if (0..EMPTY_MODIFIER).contains(&modifier) {
                 unsafe { (*added_pairs.offset(modifier as isize)).value }
             } else {
                 entry.value
             };
             let val = if SUBTRACT { raw.wrapping_neg() } else { raw };
-            if modifier < EMPTY_MODIFIER {
+            if (0..EMPTY_MODIFIER).contains(&modifier) {
                 let slot = unsafe { &mut *(*set_pairs).offset(modifier as isize) };
                 slot.modifier = modifier;
                 slot.value = slot.value.wrapping_add(val);
@@ -350,7 +350,7 @@ unsafe fn sum_pairs_into_by_modifier<const SUBTRACT: bool>(
             continue;
         }
         let val = if SUBTRACT { entry.value.wrapping_neg() } else { entry.value };
-        if modifier < EMPTY_MODIFIER {
+        if (0..EMPTY_MODIFIER).contains(&modifier) {
             let slot = unsafe { &mut *(*set_pairs).offset(modifier as isize) };
             slot.modifier = modifier;
             slot.value = slot.value.wrapping_add(val);
@@ -394,7 +394,7 @@ unsafe fn sum_by_modifier_into_pairs<const SUBTRACT: bool>(
             }
             let raw = if modifier == idx as i32 {
                 entry.value
-            } else if modifier <= EMPTY_MODIFIER {
+            } else if (0..EMPTY_MODIFIER).contains(&modifier) {
                 unsafe { (*added_pairs.offset(modifier as isize)).value }
             } else {
                 entry.value
@@ -415,7 +415,7 @@ unsafe fn sum_by_modifier_into_pairs<const SUBTRACT: bool>(
         if modifier != EMPTY_MODIFIER {
             let raw = if modifier == i as i32 {
                 entry.value
-            } else if modifier <= EMPTY_MODIFIER {
+            } else if (0..EMPTY_MODIFIER).contains(&modifier) {
                 unsafe { (*added_pairs.offset(modifier as isize)).value }
             } else {
                 entry.value
@@ -487,7 +487,7 @@ pub(super) unsafe fn sum_sets(set: usize, added: usize, subtract: bool) -> usize
                         i += 1;
                         continue;
                     }
-                    let raw = if added_by_mod && modifier <= EMPTY_MODIFIER {
+                    let raw = if added_by_mod && (0..EMPTY_MODIFIER).contains(&modifier) {
                         if modifier == i as i32 {
                             entry.value
                         } else {
@@ -532,9 +532,13 @@ pub(super) unsafe fn sum_sets(set: usize, added: usize, subtract: bool) -> usize
                 if modifier == EMPTY_MODIFIER {
                     continue;
                 }
-                let raw = if added_by_mod && modifier <= EMPTY_MODIFIER { unsafe { (*added_pairs.offset(modifier as isize)).value } } else { entry.value };
+                let raw = if added_by_mod && (0..EMPTY_MODIFIER).contains(&modifier) {
+                    unsafe { (*added_pairs.offset(modifier as isize)).value }
+                } else {
+                    entry.value
+                };
                 let val = if subtract { raw.wrapping_neg() } else { raw };
-                if set_by_mod && modifier < EMPTY_MODIFIER {
+                if set_by_mod && (0..EMPTY_MODIFIER).contains(&modifier) {
                     let slot = unsafe { &mut *set_pairs.offset(modifier as isize) };
                     slot.modifier = modifier;
                     slot.value = slot.value.wrapping_add(val);
@@ -661,5 +665,18 @@ mod tests {
         assert_eq!(dst[3].value, 110);
         assert_eq!(dst[12].modifier, 12);
         assert_eq!(dst[12].value, -5);
+
+        // Negative modifier IDs must not index negatively before `set_pairs`;
+        // when already present in the tail, they update via linear search.
+        dst.push(Pair { modifier: -5, value: 7 });
+        let mut set_pairs = dst.as_mut_ptr();
+        let mut set_count = dst.len();
+        let mut set_cap = dst.len() as i32;
+        let neg = [Pair { modifier: -5, value: 4 }];
+        unsafe {
+            sum_pairs_into_by_modifier::<false>(0, &mut set_pairs, &mut set_count, &mut set_cap, neg.as_ptr(), neg.len());
+        }
+        assert_eq!(dst.last().unwrap().modifier, -5);
+        assert_eq!(dst.last().unwrap().value, 11);
     }
 }

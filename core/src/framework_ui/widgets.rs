@@ -618,6 +618,13 @@ impl Window {
         }
     }
 
+    /// Updates the known screen size (in GUI units) when the game window or
+    /// GUI scale changes while this window is already open.
+    pub fn set_screen(&mut self, screen_w: f32, screen_h: f32) {
+        self.screen_w = screen_w;
+        self.screen_h = screen_h;
+    }
+
     /// Clamps the window position inside the known screen bounds so the title
     /// bar and buttons cannot move off-screen.
     pub fn clamp_to_screen(&mut self, measure: &dyn Measure) {

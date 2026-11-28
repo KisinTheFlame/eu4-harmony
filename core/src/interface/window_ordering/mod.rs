@@ -13,14 +13,17 @@ pub(crate) use registry::{Identity, Owned};
 use std::{
     collections::BTreeSet,
     sync::{
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc, Mutex, OnceLock,
     },
 };
 
+static ORDERING_BROKEN_LOGGED: AtomicBool = AtomicBool::new(false);
+static ACTIVATION_BROKEN_LOGGED: AtomicBool = AtomicBool::new(false);
+
 fn checked(result: Result<()>) {
     if let Err(error) = result {
-        panic!("native window ordering: {error}");
+        crate::base::broken_invariant(&ORDERING_BROKEN_LOGGED, format_args!("native window ordering: {error}"));
     }
 }
 
@@ -270,7 +273,7 @@ fn event_after(call: &mut Call) {
 }
 fn handler_before(call: &mut Call) {
     if let Err(error) = live().handler_before(&call.memory(), call.arg(0), call.arg(1)) {
-        panic!("native window activation: {error}");
+        crate::base::broken_invariant(&ACTIVATION_BROKEN_LOGGED, format_args!("native window activation: {error}"));
     }
 }
 fn handler_after(call: &mut Call) {

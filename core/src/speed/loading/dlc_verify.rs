@@ -115,23 +115,23 @@ enum Prepared {
 
 struct BatchState {
     in_verify_all: bool,
-    prepared_for_mgr: usize,
+    prepared_for: Option<(usize, i32)>,
     entries: HashMap<usize, Prepared>,
 }
 
-static BATCH: LazyLock<Mutex<BatchState>> = LazyLock::new(|| Mutex::new(BatchState { in_verify_all: false, prepared_for_mgr: 0, entries: HashMap::new() }));
+static BATCH: LazyLock<Mutex<BatchState>> = LazyLock::new(|| Mutex::new(BatchState { in_verify_all: false, prepared_for: None, entries: HashMap::new() }));
 
 fn before_verify_all(_: &mut Call) {
     let mut st = BATCH.lock().unwrap_or_else(|e| e.into_inner());
     st.in_verify_all = true;
-    st.prepared_for_mgr = 0;
+    st.prepared_for = None;
     st.entries.clear();
 }
 
 fn after_verify_all(_: &mut Call) {
     let mut st = BATCH.lock().unwrap_or_else(|e| e.into_inner());
     st.in_verify_all = false;
-    st.prepared_for_mgr = 0;
+    st.prepared_for = None;
     st.entries.clear();
 }
 
@@ -299,7 +299,7 @@ fn prepare_batch(mgr: usize, platform: i32) {
     }
 
     let mut st = BATCH.lock().unwrap_or_else(|e| e.into_inner());
-    st.prepared_for_mgr = mgr;
+    st.prepared_for = Some((mgr, platform));
     st.entries = prepared;
 }
 
@@ -308,7 +308,7 @@ unsafe extern "C" fn verify_one(mgr: usize, dlc: usize, platform: i32, flag: u8)
     crate::base::guarded("DLC verification", || {
         let needs_prepare = {
             let st = BATCH.lock().unwrap_or_else(|e| e.into_inner());
-            st.in_verify_all && st.prepared_for_mgr != mgr
+            st.in_verify_all && st.prepared_for != Some((mgr, platform))
         };
         if needs_prepare {
             prepare_batch(mgr, platform);

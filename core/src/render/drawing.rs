@@ -97,10 +97,6 @@ use crate::native::objects::gui::{
     scene::FIRST_SCENE_WALK_START as GUI_WALK_START,
 };
 const GRAPHICS_PRESENT_OK: usize = 0x530;
-/// Session command runner (`0x14ca360`, called from `0x20f810`): executes
-/// queued commands and the daily update; non-UI work runs without the
-/// presentation lock while crossings stay guarded.
-const COMMANDS_UPDATE: usize = 0x14ca360;
 /// Save serialization and file write (`0x5cde60`, called from `0x74ba20` for
 /// normal, ironman, and autosaves): pure simulation read + zip + disk I/O, run
 /// without holding the presentation lock.
@@ -195,14 +191,6 @@ fn points() -> Vec<Point> {
         Point::keep(0x81590d, "48 8b 0d 3c 66 c1 01", "the application, in the in-game frame").uses(&[APP]),
         Point::observe(APP_FRAME, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18", "the application's frame", 2, Some(app_frame_before), Some(app_frame_after)),
         Point::observe(
-            COMMANDS_UPDATE,
-            "48 89 5c 24 08 48 89 74 24 18 48 89 7c 24 20",
-            "session command execution",
-            1,
-            Some(commands_before),
-            Some(commands_after),
-        ),
-        Point::observe(
             SAVE_WRITE,
             "40 55 53 56 57 41 54 41 56 48 8d ac 24 78 fe ff ff",
             "save serialization and write",
@@ -289,12 +277,23 @@ extern "C" fn idler_switches() {
         main_side(|s| s.drawing_frame_ends(&MainLock, || IN_FRAME.load(Ordering::Acquire)));
     });
     deferred::clear_textures();
+    deferred::clear_texture_desc_cache();
+    crossings::reset_lock_order();
 }
 
-/// Clears any staged texture uploads and cached texture descriptors before a Direct3D device reset.
+/// Waits for any in-flight drawing-thread `Present` and invalidates cached
+/// GUI draw lists and texture descriptors before a Direct3D device reset.
 pub(super) fn device_reset() {
+    if !is_drawing_thread() {
+        if on_main() {
+            main_side(|s| s.wait_for_drawing_frame(&MainLock, || IN_FRAME.load(Ordering::Acquire)));
+        } else {
+            while IN_FRAME.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+        }
+    }
     GUI_REUSE_EPOCH.fetch_add(1, Ordering::Release);
-    deferred::clear_textures();
     deferred::clear_texture_desc_cache();
 }
 
@@ -322,6 +321,9 @@ struct GuiReuseState {
 
 impl GuiReuseState {
     fn begin_frame(&mut self, seq: u64, epoch: u64, dirty: bool) {
+        if dirty {
+            self.walked = None;
+        }
         self.current = Some((seq, epoch, dirty));
     }
 
@@ -939,6 +941,11 @@ fn app_frame_before(_: &mut Call) {
         let _ = FRAMES.take_day_ran();
     }
     main_side(|s| s.frame_begins(&MainLock));
+    // Step 1 of an application frame can mutate or destroy GUI nodes while
+    // holding the presentation lock before `frame_draws` advances `seq`.
+    // Invalidate prior cached draw lists so an unlocked day/save draw cannot
+    // reuse stale node pointers from the previous frame.
+    GUI_REUSE_EPOCH.fetch_add(1, Ordering::Release);
 }
 
 fn app_frame_after(call: &mut Call) {
@@ -949,7 +956,8 @@ fn app_frame_after(call: &mut Call) {
     let app = call.arg(0);
     let quits = [APP_QUITS, APP_PUMP_QUITS].iter().any(|&at| m.u8(app + at).is_ok_and(|b| b != 0));
     let minimized = m.u8(app + APP_MINIMIZED).is_ok_and(|b| b != 0);
-    let present_ok = m.ptr(m.at(GRAPHICS_GLOBAL)).and_then(|g| if g == 0 { Ok(1) } else { m.u8(g + GRAPHICS_PRESENT_OK) }).is_ok_and(|b| b != 0);
+    let in_frame = IN_FRAME.load(Ordering::Acquire);
+    let present_ok = !in_frame && m.ptr(m.at(GRAPHICS_GLOBAL)).and_then(|g| if g == 0 { Ok(1) } else { m.u8(g + GRAPHICS_PRESENT_OK) }).is_ok_and(|b| b != 0);
     let carry = !quits && !minimized && present_ok && drawing_on() && FRAMES.prepared_idler() != 0 && FRAMES.day_ran();
     main_side(|s| s.frame_ends_or_carry(&MainLock, carry));
     if quits {
@@ -957,25 +965,11 @@ fn app_frame_after(call: &mut Call) {
     }
 }
 
-fn commands_before(_: &mut Call) {
-    if !on_main() {
-        return;
-    }
-    main_side(|s| s.unlocked_begins(&MainLock));
-}
-
-fn commands_after(_: &mut Call) {
-    if !on_main() {
-        return;
-    }
-    let at = if FRAMES.day_ran() { At::DayEnd } else { At::Frame };
-    main_side(|s| s.unlocked_ends(&MainLock, at));
-}
-
 fn save_before(_: &mut Call) {
     if !on_main() {
         return;
     }
+    GUI_REUSE_EPOCH.fetch_add(1, Ordering::Release);
     main_side(|s| s.unlocked_begins(&MainLock));
 }
 
@@ -1029,6 +1023,7 @@ pub fn day_begins() {
     if !on_main() || !drawing_on() {
         return;
     }
+    GUI_REUSE_EPOCH.fetch_add(1, Ordering::Release);
     FRAMES.note_day_ran();
     crate::native::probes::drawing_day_begins(&crate::native::hooked_memory());
     main_side(|s| s.day_begins(&MainLock));
@@ -1630,6 +1625,14 @@ mod tests {
         reuse.end_frame();
         reuse.begin_frame(1, 1, false);
         assert!(reuse.can_reuse(0x1000, false));
+        reuse.end_frame();
+
+        // An early return before `can_reuse` on a dirty frame must not lose the
+        // invalidation on the next still frame.
+        reuse.begin_frame(1, 1, true);
+        reuse.end_frame();
+        reuse.begin_frame(1, 1, false);
+        assert!(!reuse.can_reuse(0x1000, false));
         reuse.end_frame();
 
         // New seq, epoch bump, different graphics, or other_camera toggle forces a walk.

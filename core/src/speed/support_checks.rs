@@ -169,10 +169,15 @@ struct SupportArgs {
 }
 
 /// Evaluates whether a unit passes the support check's eligibility filters,
-/// returning `Some((effective_distance, free_reachable))` when in range.
-unsafe fn check_unit_eligible(m: &crate::native::memory::Memory, unit: usize, check_siege: bool, p: &ScanParams) -> Option<(i32, bool)> {
+/// returning `Ok(Some((effective_distance, free_reachable)))` when in range,
+/// `Ok(None)` when ineligible, or `Err(())` when unexpected pointers/IDs
+/// require falling back to the game's function.
+unsafe fn check_unit_eligible(m: &crate::native::memory::Memory, unit: usize, check_siege: bool, p: &ScanParams) -> Result<Option<(i32, bool)>, ()> {
+    if unit == 0 {
+        return Err(());
+    }
     if unit == p.self_army {
-        return None;
+        return Ok(None);
     }
     let owner = unsafe { *((unit + OWNER) as *const u64) };
     let unit_loc = unsafe { *((unit + LOCATION) as *const usize) };
@@ -181,25 +186,34 @@ unsafe fn check_unit_eligible(m: &crate::native::memory::Memory, unit: usize, ch
         idx != p.special[0] && idx != p.special[1] && idx != p.special[2]
     };
     if !valid_owner && unit_loc != p.target_province {
-        return None;
+        return Ok(None);
     }
     let vtable = unsafe { *(unit as *const usize) };
+    if vtable == 0 {
+        return Err(());
+    }
     let is_fleet: unsafe extern "C" fn(usize) -> u8 = unsafe { std::mem::transmute(*((vtable + UNIT_IS_FLEET_SLOT) as *const usize)) };
     if unsafe { is_fleet(unit) } != 0 {
-        return None;
+        return Ok(None);
     }
     if unsafe { *((unit + RETREATING[0]) as *const u8) } != 0 {
-        return None;
+        return Ok(None);
     }
     let task = unsafe { *((unit + TASK) as *const usize) };
+    if task == 0 {
+        return Err(());
+    }
     let task_vtable = unsafe { *(task as *const usize) };
+    if task_vtable == 0 {
+        return Err(());
+    }
     let task_kind_fn: unsafe extern "C" fn(usize) -> i32 = unsafe { std::mem::transmute(*((task_vtable + TASK_KIND_SLOT) as *const usize)) };
     let kind = unsafe { task_kind_fn(task) };
     if matches!(kind, 5 | 11 | 12) {
-        return None;
+        return Ok(None);
     }
     if check_siege && unsafe { *((unit + SIEGE) as *const usize) } != 0 && unsafe { *((unit + UNIT_SIEGE_ALLOW_FLAG) as *const u8) } == 0 {
-        return None;
+        return Ok(None);
     }
 
     let path_count = unsafe { *((unit + PATH + 0x10) as *const i32) };
@@ -207,6 +221,9 @@ unsafe fn check_unit_eligible(m: &crate::native::memory::Memory, unit: usize, ch
         unit_loc
     } else if path_count > 0 {
         let tail = unsafe { *((unit + PATH + 8) as *const usize) };
+        if tail == 0 {
+            return Err(());
+        }
         let dest_id = unsafe { *(tail as *const i32) } as i64;
         type ProvById = unsafe extern "C" fn(usize, i64) -> usize;
         let by_id: ProvById = unsafe { std::mem::transmute(m.at(PROVINCE_BY_ID)) };
@@ -214,17 +231,26 @@ unsafe fn check_unit_eligible(m: &crate::native::memory::Memory, unit: usize, ch
     } else {
         0
     };
+    if eff_prov == 0 {
+        return Err(());
+    }
 
     let mut dist = 0i32;
     if p.target_province != eff_prov {
         let target_id = unsafe { *((p.target_province + PROVINCE_ID) as *const i32) };
+        if target_id < 0 || target_id > i16::MAX as i32 {
+            return Err(());
+        }
         let geom = unsafe { *((eff_prov + PROVINCE_GEOM) as *const usize) };
+        if geom == 0 {
+            return Err(());
+        }
         let set_begin = unsafe { *((geom + GEOM_NEIGHBOR_SET_BEGIN) as *const usize) };
         let set_end = unsafe { *((geom + GEOM_NEIGHBOR_SET_END) as *const usize) };
         let len = ((set_end.wrapping_sub(set_begin)) as isize >> 2) as i32;
         let mut adjacent = false;
         if len > 0 {
-            let mut slot = ((target_id.wrapping_mul(2)) as i64 % (len as i64)) as u32 as usize;
+            let mut slot = ((target_id.wrapping_mul(2)) as i64).rem_euclid(len as i64) as usize;
             loop {
                 let entry = unsafe { *((set_begin + slot * 4) as *const i32) };
                 if entry == target_id {
@@ -240,11 +266,17 @@ unsafe fn check_unit_eligible(m: &crate::native::memory::Memory, unit: usize, ch
         }
         if !adjacent {
             let eff_id = unsafe { *((eff_prov + PROVINCE_ID) as *const i32) };
+            if eff_id < 0 || eff_id > i16::MAX as i32 {
+                return Err(());
+            }
             if eff_id != target_id {
                 let linear = unsafe { *((p.map + MAP_LINEAR_DISTANCE) as *const u8) };
                 let centers = unsafe { *((p.map + MAP_PROVINCE_CENTERS) as *const usize) };
-                let p_unit = unsafe { *((centers + (eff_id as i16 as i32 as u32 as usize) * MAP_CENTER_STRIDE + MAP_CENTER_POS) as *const u32) };
-                let p_target = unsafe { *((centers + (target_id as i16 as i32 as u32 as usize) * MAP_CENTER_STRIDE + MAP_CENTER_POS) as *const u32) };
+                if centers == 0 {
+                    return Err(());
+                }
+                let p_unit = unsafe { *((centers + (eff_id as usize) * MAP_CENTER_STRIDE + MAP_CENTER_POS) as *const u32) };
+                let p_target = unsafe { *((centers + (target_id as usize) * MAP_CENTER_STRIDE + MAP_CENTER_POS) as *const u32) };
                 let map_w = unsafe { *((p.map + MAP_WIDTH) as *const u32) };
                 let map_h = unsafe { *((p.map + MAP_HEIGHT) as *const u32) };
                 type DistSq = unsafe extern "C" fn(*const u32, *const u32, u32, u32, u8) -> i32;
@@ -262,7 +294,7 @@ unsafe fn check_unit_eligible(m: &crate::native::memory::Memory, unit: usize, ch
     }
 
     if dist > p.max_dist {
-        return None;
+        return Ok(None);
     }
 
     let free = if unit_loc != 0 && p.target_province != 0 {
@@ -290,7 +322,7 @@ unsafe fn check_unit_eligible(m: &crate::native::memory::Memory, unit: usize, ch
         false
     };
 
-    Some((dist, free))
+    Ok(Some((dist, free)))
 }
 
 /// Computes a unit's distance-scaled strength and leader fire+shock pips,
@@ -353,7 +385,10 @@ fn max_leader_of(base: i32, slice: &[PendingUnit]) -> i32 {
     slice.iter().fold(base, |acc, u| acc.max(u.leader))
 }
 
-unsafe fn evaluate_support(m: &crate::native::memory::Memory, args: &SupportArgs) -> bool {
+unsafe fn evaluate_support(m: &crate::native::memory::Memory, args: &SupportArgs) -> Option<bool> {
+    if args.agent == 0 || args.target_province == 0 || args.self_army == 0 || args.strength_ptr.is_null() || args.share_ptr.is_null() {
+        return None;
+    }
     let mut l_min = 0i32;
     let attached = unsafe { *((args.self_army + ATTACHED_TO) as *const usize) };
     if attached == 0 || unsafe { *((attached + LOCATION) as *const usize) } != unsafe { *((args.self_army + LOCATION) as *const usize) } {
@@ -364,17 +399,38 @@ unsafe fn evaluate_support(m: &crate::native::memory::Memory, args: &SupportArgs
     }
 
     let country_mgr = unsafe { *(m.at(COUNTRY_MANAGER) as *const usize) };
+    if country_mgr == 0 {
+        return None;
+    }
     let countries = unsafe { *((country_mgr + COUNTRY_LIST) as *const usize) };
+    if countries == 0 {
+        return None;
+    }
     let agent_tag = unsafe { *((args.agent + AGENT_COUNTRY_TAG) as *const u64) };
     let agent_idx = (agent_tag >> tag::INDEX) as i16 as isize;
+    if agent_idx < 0 {
+        return None;
+    }
     let agent_country = unsafe { *((countries as isize + agent_idx * 8) as *const usize) };
+    if agent_country == 0 {
+        return None;
+    }
 
     let tech = unsafe { *((agent_country + TECHNOLOGY) as *const usize) };
+    if tech == 0 {
+        return None;
+    }
     let width_scaled = unsafe { *((tech + TECH_COMBAT_WIDTH) as *const i32) }.wrapping_add(1000).wrapping_mul(20);
     let width_threshold = width_scaled / 1000;
 
     let prov_geom = unsafe { *((args.target_province + PROVINCE_GEOM) as *const usize) };
+    if prov_geom == 0 {
+        return None;
+    }
     let terrain_type = unsafe { *((prov_geom + GEOM_TERRAIN_TYPE) as *const usize) };
+    if terrain_type == 0 {
+        return None;
+    }
     let neg_terrain = -unsafe { *((terrain_type + TERRAIN_PENALTY) as *const i32) };
 
     let share = unsafe { *args.share_ptr };
@@ -382,6 +438,10 @@ unsafe fn evaluate_support(m: &crate::native::memory::Memory, args: &SupportArgs
 
     let ctx = EvalContext { only_enemies: args.only_enemies != 0, width_threshold, neg_terrain, share_q15 };
 
+    let map = unsafe { *(m.at(MAP) as *const usize) };
+    if map == 0 {
+        return None;
+    }
     let max_dist = unsafe { *(m.at(MAX_SUPPORT_DISTANCE) as *const i32) };
     let scan = ScanParams {
         self_army: args.self_army,
@@ -389,7 +449,7 @@ unsafe fn evaluate_support(m: &crate::native::memory::Memory, args: &SupportArgs
         special: unsafe {
             [*(m.at(SPECIAL_COUNTRIES[0]) as *const i32), *(m.at(SPECIAL_COUNTRIES[1]) as *const i32), *(m.at(SPECIAL_COUNTRIES[2]) as *const i32)]
         },
-        map: unsafe { *(m.at(MAP) as *const usize) },
+        map,
         max_dist,
         half_max: ((max_dist as i64 * 1000) / 2000) as i32,
     };
@@ -428,12 +488,18 @@ unsafe fn evaluate_support(m: &crate::native::memory::Memory, args: &SupportArgs
             let tag_val = unsafe { *(enemy_country_node as *const u64) };
             enemy_country_node = unsafe { *((enemy_country_node + 0x10) as *const usize) };
             let c_idx = (tag_val >> tag::INDEX) as i16 as isize;
+            if c_idx < 0 {
+                return None;
+            }
             let country = unsafe { *((countries as isize + c_idx * 8) as *const usize) };
+            if country == 0 {
+                return None;
+            }
             let mut unit_node = unsafe { *((country + UNITS) as *const usize) };
             while unit_node != 0 {
                 let unit = unsafe { *(unit_node as *const usize) };
                 unit_node = unsafe { *((unit_node + 0x10) as *const usize) };
-                let Some((dist, free)) = (unsafe { check_unit_eligible(m, unit, false, &scan) }) else {
+                let Some((dist, free)) = (unsafe { check_unit_eligible(m, unit, false, &scan) }).ok()? else {
                     continue;
                 };
                 let (strength, leader) = unsafe { scaled_unit_strength(m, unit, dist, &scan) };
@@ -463,20 +529,20 @@ unsafe fn evaluate_support(m: &crate::native::memory::Memory, args: &SupportArgs
         // Fast check before even scanning friends when only_enemies is set.
         if ctx.only_enemies {
             match decide_bounds(&bounds, &ctx, roll_factor) {
-                BoundDecision::True => return true,
-                BoundDecision::False => return false,
+                BoundDecision::True => return Some(true),
+                BoundDecision::False => return Some(false),
                 BoundDecision::Undecided => {}
             }
         }
 
         // Phase 1b: scan own and allied units without running route queries yet.
         if !ctx.only_enemies {
-            let mut scan_friendly_country = |country: usize| {
+            let mut scan_friendly_country = |country: usize| -> Result<(), ()> {
                 let mut unit_node = unsafe { *((country + UNITS) as *const usize) };
                 while unit_node != 0 {
                     let unit = unsafe { *(unit_node as *const usize) };
                     unit_node = unsafe { *((unit_node + 0x10) as *const usize) };
-                    let Some((dist, free)) = (unsafe { check_unit_eligible(m, unit, true, &scan) }) else {
+                    let Some((dist, free)) = (unsafe { check_unit_eligible(m, unit, true, &scan) })? else {
                         continue;
                     };
                     let (strength, leader) = unsafe { scaled_unit_strength(m, unit, dist, &scan) };
@@ -495,21 +561,28 @@ unsafe fn evaluate_support(m: &crate::native::memory::Memory, args: &SupportArgs
                         scratch.friends.push(PendingUnit { unit, start_province, strength, leader, regiments: 0 });
                     }
                 }
+                Ok(())
             };
-            scan_friendly_country(agent_country);
+            scan_friendly_country(agent_country).ok()?;
             let mut ally_node = unsafe { *((agent_country + COUNTRY_WAR_ALLIES) as *const usize) };
             while ally_node != 0 {
                 let tag_val = unsafe { *(ally_node as *const u64) };
                 ally_node = unsafe { *((ally_node + 0x10) as *const usize) };
                 let c_idx = (tag_val >> tag::INDEX) as i16 as isize;
+                if c_idx < 0 {
+                    return None;
+                }
                 let ally_country = unsafe { *((countries as isize + c_idx * 8) as *const usize) };
-                scan_friendly_country(ally_country);
+                if ally_country == 0 {
+                    return None;
+                }
+                scan_friendly_country(ally_country).ok()?;
             }
         }
 
         match decide_bounds(&bounds, &ctx, roll_factor) {
-            BoundDecision::True => return true,
-            BoundDecision::False => return false,
+            BoundDecision::True => return Some(true),
+            BoundDecision::False => return Some(false),
             BoundDecision::Undecided => {}
         }
 
@@ -559,18 +632,23 @@ unsafe fn evaluate_support(m: &crate::native::memory::Memory, args: &SupportArgs
             }
 
             match decide_bounds(&bounds, &ctx, roll_factor) {
-                BoundDecision::True => return true,
-                BoundDecision::False => return false,
+                BoundDecision::True => return Some(true),
+                BoundDecision::False => return Some(false),
                 BoundDecision::Undecided => {}
             }
         }
 
         // All units resolved: exact final evaluation.
         if ctx.only_enemies && bounds.regs_min <= ctx.width_threshold {
-            return true;
+            return Some(true);
+        }
+        // Guard against division by zero if negative modded strengths cancel out
+        // `ENEMY_BASE_STRENGTH`; fall back to the game's original routine.
+        if bounds.b_min <= 0 {
+            return None;
         }
         let factor = roll_factor(bounds.l_min - bounds.e_min, ctx.neg_terrain);
-        eval_ratio(bounds.f_min, bounds.b_min, factor, ctx.share_q15)
+        Some(eval_ratio(bounds.f_min, bounds.b_min, factor, ctx.share_q15))
     })
 }
 
@@ -587,7 +665,9 @@ unsafe extern "C" fn support_check(
 ) -> u8 {
     let m = crate::native::hooked_memory();
     let args = SupportArgs { agent, target_province: province, self_army: army, strength_ptr, share_ptr, route_arg, only_enemies };
-    let ours = unsafe { evaluate_support(&m, &args) };
+    let Some(ours) = (unsafe { evaluate_support(&m, &args) }) else {
+        return unsafe { ORIGINAL_SUPPORT_CHECK.get()(agent, province, army, strength_ptr, share_ptr, route_arg, only_enemies, a7) };
+    };
     if speed::checked(&SPEED_UP) {
         let game = unsafe { ORIGINAL_SUPPORT_CHECK.get()(agent, province, army, strength_ptr, share_ptr, route_arg, only_enemies, a7) != 0 };
         speed::compared(&SPEED_UP, ours == game, || {

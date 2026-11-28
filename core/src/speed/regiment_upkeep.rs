@@ -85,12 +85,12 @@ unsafe fn upkeep_transforms_absent() -> bool {
 unsafe fn merge_upkeep_modifiers(set: usize, set_pairs: &mut *mut Pair, set_count: &mut usize, set_cap: &mut i32, added_pairs: *const Pair) {
     for &id in &UPKEEP_MODIFIERS {
         let entry = unsafe { *added_pairs.add(id as usize) };
-        if entry.modifier == EMPTY_MODIFIER || entry.value == 0 {
+        if entry.modifier == EMPTY_MODIFIER {
             continue;
         }
         let val = if entry.modifier == id {
             entry.value
-        } else if entry.modifier <= EMPTY_MODIFIER {
+        } else if (0..EMPTY_MODIFIER).contains(&entry.modifier) {
             unsafe { (*added_pairs.offset(entry.modifier as isize)).value }
         } else {
             entry.value

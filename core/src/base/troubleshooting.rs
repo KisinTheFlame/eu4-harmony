@@ -141,7 +141,9 @@ impl UserRedactor {
                 Some(idx) => format!("{}\\<USER>", &bs[..idx]),
                 None => "<USER>".into(),
             };
-            push_unique(bs.clone(), bs_rep);
+            push_unique(bs.clone(), bs_rep.clone());
+            // Also match debug-formatted and JSON-escaped double-backslash paths.
+            push_unique(bs.replace('\\', "\\\\"), bs_rep.replace('\\', "\\\\"));
             let fs = raw.replace('\\', "/");
             let fs_rep = match fs.rfind('/') {
                 Some(idx) => format!("{}/<USER>", &fs[..idx]),
@@ -151,6 +153,7 @@ impl UserRedactor {
         }
         if let Some(user) = username.map(str::trim).filter(|s| !s.is_empty()) {
             push_unique(format!("\\Users\\{user}"), "\\Users\\<USER>".into());
+            push_unique(format!("\\\\Users\\\\{user}"), "\\\\Users\\\\<USER>".into());
             push_unique(format!("/Users/{user}"), "/Users/<USER>".into());
         }
         Self { rules }
@@ -495,8 +498,9 @@ fn collect_with_cap_and_redactor<W: std::io::Write>(
     });
 
     // 1. Pack all text logs, settings, and crash text summaries first.
+    const MAX_TEXT_READ_BYTES: u64 = 16 * 1024 * 1024;
     for source in texts {
-        let file = match source.opened.map_or_else(|| File::open(&source.path), Ok) {
+        let mut file = match source.opened.map_or_else(|| File::open(&source.path), Ok) {
             Ok(file) => file,
             Err(e) => {
                 summary.push(format!("  {}: not read, {e}", source.name));
@@ -504,11 +508,21 @@ fn collect_with_cap_and_redactor<W: std::io::Write>(
             }
         };
         let original = file.metadata()?.len();
-        let mut input = file.take(original);
-        let mut bytes = Vec::new();
-        input.read_to_end(&mut bytes)?;
-        if input.limit() != 0 {
-            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, format!("{} shrank while being collected", source.name)));
+        let mut truncated_tail = false;
+        let to_read = if original > MAX_TEXT_READ_BYTES {
+            if file.seek(SeekFrom::Start(original - MAX_TEXT_READ_BYTES)).is_ok() {
+                truncated_tail = true;
+                MAX_TEXT_READ_BYTES
+            } else {
+                original.min(MAX_TEXT_READ_BYTES)
+            }
+        } else {
+            original
+        };
+        let mut bytes = Vec::with_capacity(to_read.min(1024 * 1024) as usize);
+        if let Err(e) = file.take(to_read).read_to_end(&mut bytes) {
+            summary.push(format!("  {}: not read, {e}", source.name));
+            continue;
         }
         let mut text = eu4_harmony_logging::redact(&String::from_utf8_lossy(&bytes));
         if source.name == "settings/settings.txt" {
@@ -518,8 +532,9 @@ fn collect_with_cap_and_redactor<W: std::io::Write>(
         let budget = max_archive_bytes.saturating_sub(ARCHIVE_RESERVE_BYTES).saturating_sub(stream.estimated_bytes());
         if let Some((compressed, crc)) = deflate_bounded(text.as_bytes(), budget) {
             let entry = stream.write_deflated(source.name.as_bytes(), &compressed, text.len(), crc, when)?;
+            let tail_note = if truncated_tail { " truncated_tail=true" } else { "" };
             summary.push(format!(
-                "  {}: original_bytes={original} collected_bytes={} packed_bytes={} credential_redaction=true path_redaction=true",
+                "  {}: original_bytes={original} collected_bytes={} packed_bytes={} credential_redaction=true path_redaction=true{tail_note}",
                 source.name, entry.unpacked, entry.packed
             ));
             payload += entry.unpacked as u64;
@@ -571,7 +586,18 @@ fn collect_with_cap_and_redactor<W: std::io::Write>(
                     written = true;
                 }
             }
-            Err(_) => {
+            Err(err) => {
+                // Never pack a real MDMP dump verbatim if slimming/redaction
+                // failed: doing so would leak unredacted paths and raw heap memory.
+                let mut magic = [0u8; 4];
+                let is_mdmp = file.seek(SeekFrom::Start(0)).is_ok() && file.read_exact(&mut magic).is_ok() && &magic == b"MDMP";
+                if is_mdmp {
+                    summary.push(format!(
+                        "  {}: skipped (minidump slimming failed: {err}; refusing to pack unredacted MDMP; original_bytes={original})",
+                        source.name
+                    ));
+                    continue;
+                }
                 // Non-MDMP binary fallback: pack verbatim only if it fits within budget.
                 if let Some((compressed, crc, unpacked)) = deflate_file_bounded(&mut file, original, budget)? {
                     let entry = stream.write_deflated(source.name.as_bytes(), &compressed, unpacked, crc, when)?;
@@ -866,7 +892,10 @@ mod tests {
         let dir = scratch("redaction");
         let log_path = dir.join("core.log");
         let settings_path = dir.join("settings.txt");
-        put(&log_path, "loaded C:\\Users\\Alice\\Documents\\Paradox\\eu4\nunix c:/users/alice/mod.txt\nother C:\\Users\\AliceSmith\\keep.txt\n");
+        put(
+            &log_path,
+            "loaded C:\\Users\\Alice\\Documents\\Paradox\\eu4\nunix c:/users/alice/mod.txt\ndebug \"C:\\\\Users\\\\Alice\\\\Documents\\\\mod\"\nother C:\\Users\\AliceSmith\\keep.txt\n",
+        );
         put(&settings_path, "gui_scale=1.0\nlast_player_name=\"SecretNick\"\n  server_ip=192.0.2.42\nlast_server=\"lobby.example\"\nlanguage=\"l_english\"\n");
         let candidates = vec![Source::new("harmony-logs/core.log".into(), log_path), Source::new("settings/settings.txt".into(), settings_path)];
         let redactor = UserRedactor::new(Some(r"C:\Users\Alice"), Some("Alice"));
@@ -889,8 +918,10 @@ mod tests {
         let log_text = String::from_utf8(zip::find(&mut archive, b"harmony-logs/core.log", 4096).unwrap()).unwrap();
         assert!(log_text.contains(r"C:\Users\<USER>\Documents\Paradox\eu4"), "{log_text}");
         assert!(log_text.contains("c:/Users/<USER>/mod.txt") || log_text.contains("C:/Users/<USER>/mod.txt"), "{log_text}");
+        assert!(log_text.contains(r#"debug "C:\\Users\\<USER>\\Documents\\mod""#), "{log_text}");
         assert!(log_text.contains(r"C:\Users\AliceSmith\keep.txt"), "{log_text}");
         assert!(!log_text.contains(r"C:\Users\Alice\"));
+        assert!(!log_text.contains(r"C:\\Users\\Alice\\"));
 
         let settings_text = String::from_utf8(zip::find(&mut archive, b"settings/settings.txt", 4096).unwrap()).unwrap();
         assert!(!settings_text.contains("SecretNick"), "{settings_text}");
@@ -921,5 +952,21 @@ mod tests {
             wMilliseconds: 0,
         };
         assert_eq!(dos_time(&t), ((20 << 11) | (31 << 5) | 3, (46 << 9) | (11 << 5) | 11));
+    }
+
+    #[test]
+    fn corrupt_mdmp_is_skipped_instead_of_packed_unredacted() {
+        let dir = scratch("corrupt-mdmp");
+        let dump_path = dir.join("broken.dmp");
+        // Starts with valid MDMP magic followed by truncated/corrupt bytes + sensitive text.
+        std::fs::write(&dump_path, b"MDMP\x93\xa7\x00\x00C:\\Users\\SecretUser\\heap").unwrap();
+        let candidates = vec![Source::new("crashes/broken.dmp".into(), dump_path)];
+        let redactor = UserRedactor::new(Some(r"C:\Users\SecretUser"), Some("SecretUser"));
+        let mut archive =
+            std::io::Cursor::new(collect_with_cap_and_redactor(Vec::new(), candidates, Vec::new(), None, (0, 0x21), MAX_ARCHIVE_BYTES, &redactor).unwrap());
+        assert!(zip::find(&mut archive, b"crashes/broken.dmp", 4096).is_err(), "corrupt MDMP must not be packed verbatim");
+        let about = String::from_utf8(zip::find(&mut archive, b"about.txt", 4096).unwrap()).unwrap();
+        assert!(about.contains("refusing to pack unredacted MDMP"), "{about}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

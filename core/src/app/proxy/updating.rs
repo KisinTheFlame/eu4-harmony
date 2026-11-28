@@ -200,35 +200,47 @@ pub(super) fn with_restart_notice<T>(after_notice: impl FnOnce() -> T) -> Option
     Some(after_notice())
 }
 
+#[derive(Default)]
+struct NoticeState {
+    hwnd: Option<isize>,
+    closing: bool,
+}
+
 struct NoticeWindow {
-    hwnd: isize,
+    state: std::sync::Arc<(Mutex<NoticeState>, Condvar)>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl NoticeWindow {
     fn spawn() -> Option<Self> {
-        let ready = std::sync::Arc::new((Mutex::new(None::<isize>), Condvar::new()));
-        let ready_worker = ready.clone();
-        let thread = std::thread::Builder::new().name("harmony-proxy-restarting".into()).spawn(move || run_notice_window(ready_worker)).ok()?;
+        let state = std::sync::Arc::new((Mutex::new(NoticeState::default()), Condvar::new()));
+        let state_worker = state.clone();
+        let thread = std::thread::Builder::new().name("harmony-proxy-restarting".into()).spawn(move || run_notice_window(state_worker)).ok()?;
 
-        let (lock, cvar) = &*ready;
+        let (lock, cvar) = &*state;
         let deadline = Instant::now() + Duration::from_millis(250);
         let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-        while guard.is_none() {
+        while guard.hwnd.is_none() {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                 break;
             };
             let (next, _) = cvar.wait_timeout(guard, remaining).unwrap_or_else(|e| e.into_inner());
             guard = next;
         }
-        Some(Self { hwnd: guard.unwrap_or(0), thread: Some(thread) })
+        drop(guard);
+        Some(Self { state, thread: Some(thread) })
     }
 }
 
 impl Drop for NoticeWindow {
     fn drop(&mut self) {
-        if self.hwnd != 0 {
-            unsafe { PostMessageW(self.hwnd as HWND, WM_APP_CLOSE, 0, 0) };
+        let hwnd = {
+            let mut guard = self.state.0.lock().unwrap_or_else(|e| e.into_inner());
+            guard.closing = true;
+            guard.hwnd.unwrap_or(0)
+        };
+        if hwnd != 0 {
+            unsafe { PostMessageW(hwnd as HWND, WM_APP_CLOSE, 0, 0) };
         }
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
@@ -256,8 +268,14 @@ fn dpi_scale() -> f32 {
     }
 }
 
-fn run_notice_window(ready: std::sync::Arc<(Mutex<Option<isize>>, Condvar)>) {
+fn run_notice_window(state: std::sync::Arc<(Mutex<NoticeState>, Condvar)>) {
     unsafe {
+        if state.0.lock().unwrap_or_else(|e| e.into_inner()).closing {
+            let mut guard = state.0.lock().unwrap_or_else(|e| e.into_inner());
+            guard.hwnd = Some(0);
+            state.1.notify_all();
+            return;
+        }
         let instance = GetModuleHandleW(std::ptr::null());
         let class_name = wide(WINDOW_CLASS);
         let wc = WNDCLASSEXW {
@@ -291,19 +309,23 @@ fn run_notice_window(ready: std::sync::Arc<(Mutex<Option<isize>>, Condvar)>) {
             instance,
             std::ptr::null(),
         );
-        if !hwnd.is_null() {
-            ShowWindow(hwnd, SW_SHOWNA);
-            UpdateWindow(hwnd);
-        }
-
-        {
-            let (lock, cvar) = &*ready;
-            *lock.lock().unwrap_or_else(|e| e.into_inner()) = Some(hwnd as isize);
+        let already_closing = {
+            let (lock, cvar) = &*state;
+            let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+            guard.hwnd = Some(hwnd as isize);
+            let closing = guard.closing;
             cvar.notify_all();
-        }
+            closing
+        };
         if hwnd.is_null() {
             return;
         }
+        if already_closing {
+            DestroyWindow(hwnd);
+            return;
+        }
+        ShowWindow(hwnd, SW_SHOWNA);
+        UpdateWindow(hwnd);
 
         let mut msg: MSG = std::mem::zeroed();
         while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
@@ -444,5 +466,19 @@ mod tests {
         gate.begin();
         assert!(!gate.request_and_wait(Duration::from_millis(20)));
         assert!(gate.finish());
+    }
+
+    /// Dropping a `NoticeWindow` before the worker creates its window must not
+    /// deadlock when the worker subsequently initializes.
+    #[test]
+    fn notice_window_drop_before_worker_ready_does_not_deadlock() {
+        let state = Arc::new((Mutex::new(NoticeState::default()), Condvar::new()));
+        let worker_state = state.clone();
+        let thread = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(30));
+            run_notice_window(worker_state);
+        });
+        let window = NoticeWindow { state, thread: Some(thread) };
+        drop(window);
     }
 }
