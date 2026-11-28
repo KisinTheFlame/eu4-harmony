@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { GitHub, ensureTag, publishRelease, readArtifacts, resolveTag, validateMetadata } from "./release.mjs";
+import { GitHub, ensureTag, publishRelease, readArtifacts, releaseTitle, resolveTag, validateMetadata } from "./release.mjs";
 
 const commit = "a".repeat(40);
 const metadata = {
@@ -294,15 +294,30 @@ test("tag creation failure leaves no draft or public release", async () => {
   assert.equal(api.release, undefined);
 });
 
-test("malformed versions, source identities, notes and archive paths are refused", () => {
+test("malformed versions, codenames, source identities, notes and archive paths are refused", () => {
+  assert.equal(releaseTitle(metadata), "Harmony 0.2.0");
+  assert.equal(releaseTitle({ ...metadata, version: "1.0.0", codename: "Constantinople" }), 'Harmony 1.0.0 "Constantinople"');
   for (const change of [
     { version: "0.2.0-rc.1" },
     { version: "00.2.0" },
+    { codename: "" },
+    { codename: "   " },
+    { codename: "Line1\nLine2" },
     { tag: "v0.1.0" },
     { commit: "master" },
     { notes: " " },
     { framework_asset: "../framework.zip" },
   ]) assert.throws(() => validateMetadata({ ...metadata, ...change }));
+});
+
+test("release codename is included in the published GitHub Release title and tag annotation", async () => {
+  const api = new FakeGitHub();
+  api.tagObject = undefined;
+  const titled = { ...metadata, codename: "Constantinople" };
+  const result = await publishRelease({ api, metadata: titled, artifacts, createTag: true });
+  assert.equal(result.release.name, 'Harmony 0.2.0 "Constantinople"');
+  const tagPost = api.calls.find((call) => call.method === "POST" && call.route === "/git/tags");
+  assert.equal(tagPost.body.message, 'Release Harmony 0.2.0 "Constantinople"');
 });
 
 test("only the two declared ZIP archives are loaded and manual dispatch cannot publish", async () => {

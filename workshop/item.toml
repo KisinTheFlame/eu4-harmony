@@ -1,5 +1,6 @@
-# Harmony's Workshop item. The proxy is built with its published file id, so
-# that it loads the core from this item and no other (ADR
-# the-framework-ships-on-the-workshop). 0 until the item is created; the
-# proxy then looks for the core beside itself only.
-published_file_id = 3837775887
+# Harmony's Steam Workshop items. The proxy is built with both official ids so
+# that it loads the core from Harmony's own items and no other (ADR
+# the-framework-ships-on-the-workshop), preferring the beta item when both are
+# subscribed. 0 means an item has not been created yet.
+published_file_id = 0
+beta_published_file_id = 3837775887

@@ -122,3 +122,6 @@ l_spanish:
  EU4HARMONY_DUMPS_DISABLE:0 "Desactivar volcados de error para EU4 (admin.)"
  EU4HARMONY_DUMPS_EXTERNAL:0 "Los volcados de error de Windows para EU4 ya están configurados externamente."
  EU4HARMONY_DUMPS_DISABLE_FAILED:0 "No se pudieron desactivar los volcados de error: $ERROR$"
+ EU4HARMONY_VERSION_CODENAME_FORMAT:0 "$VERSION$ «$CODENAME$»"
+ EU4HARMONY_CHANNEL_BETA:0 "Beta"
+ EU4HARMONY_CODENAME_CONSTANTINOPLE:0 "Constantinopla"

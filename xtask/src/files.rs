@@ -206,7 +206,8 @@ pub fn release(args: &Args) -> Result<()> {
     let from = built_package();
     pack_from(&from, &fonts_dir(), &out, env!("CARGO_PKG_VERSION"))?;
     if !args.flag("no-workshop") {
-        crate::workshop::pack(&from)?;
+        let channel = crate::workshop::Channel::parse(args.value("channel"))?;
+        crate::workshop::pack(&from, channel)?;
     }
     Ok(())
 }

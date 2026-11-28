@@ -8,12 +8,36 @@ assets and this script are tracked in Git.
 from __future__ import annotations
 
 from pathlib import Path
+import tomllib
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ROOT = Path(__file__).resolve().parents[2]
 RAW = ROOT / "workshop" / "media" / "raw"
 FONTS = ROOT / "fonts"
 OUT = ROOT / "target" / "workshop-media"
+
+
+def load_workspace_release() -> tuple[str, str | None]:
+    data = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+    version = str(data["workspace"]["package"]["version"])
+    codename = data.get("workspace", {}).get("metadata", {}).get("harmony", {}).get("codename")
+    if isinstance(codename, str) and codename.strip():
+        return version, codename.strip()
+    return version, None
+
+
+def load_active_workshop_id() -> str:
+    data = tomllib.loads((ROOT / "workshop" / "item.toml").read_text(encoding="utf-8"))
+    public_id = int(data.get("published_file_id", 0))
+    beta_id = int(data.get("beta_published_file_id", 0))
+    active = public_id if public_id != 0 else beta_id
+    if active == 0:
+        raise ValueError("workshop/item.toml has neither published_file_id nor beta_published_file_id set")
+    return str(active)
+
+
+VERSION, CODENAME = load_workspace_release()
+ACTIVE_WORKSHOP_ID = load_active_workshop_id()
 
 # Palette aligned with the teal-gold parchment cover and Harmony's dark UI.
 BG_TOP = (13, 21, 32)
@@ -161,7 +185,16 @@ def draw_check(d: ImageDraw.ImageDraw, x: int, y: int, size: int, color: tuple[i
 
 
 def build_thumbnail() -> Path:
-    """Compose the Workshop cover from the clean text-free watercolor base."""
+    """Compose the public Workshop cover from the clean text-free watercolor base."""
+    return _compose_english_thumbnail(OUT / "thumbnail.png", beta=False)
+
+
+def build_thumbnail_beta() -> Path:
+    """Compose the beta Workshop cover with a clear BETA badge from the text-free base."""
+    return _compose_english_thumbnail(OUT / "thumbnail-beta.png", beta=True)
+
+
+def _compose_english_thumbnail(out: Path, *, beta: bool) -> Path:
     base = Image.open(RAW / "thumbnail-base.png").convert("RGBA")
     w, h = base.size  # 1254x1254 native artwork; compose at native resolution then downsample to 1024x1024
     s = w / 1254.0
@@ -191,6 +224,16 @@ def build_thumbnail() -> Path:
     d = ImageDraw.Draw(layer)
     draw_wordmark(d, (24, 84, 80, 255), (42, 96, 90, 245))
 
+    if beta:
+        bf = font_sans(int(36 * s), "bold")
+        btxt = "BETA CHANNEL"
+        bb = d.textbbox((0, 0), btxt, font=bf)
+        bw, bh = bb[2] - bb[0], bb[3] - bb[1]
+        bpw, bph = bw + int(60 * s), int(62 * s)
+        bx0, by0 = (w - bpw) // 2, int(112 * s)
+        d.rounded_rectangle((bx0, by0, bx0 + bpw, by0 + bph), radius=bph // 2, fill=(168, 92, 24, 238), outline=(238, 198, 122, 240), width=max(3, int(3 * s)))
+        d.text((bx0 + (bpw - bw) // 2, by0 + (bph - bh) // 2 - bb[1] - 1), btxt, font=bf, fill=(255, 248, 236, 255))
+
     # Crisp gold divider lines flanking a small diamond
     cx, dy = int(w / 2), int(536 * s)
     d.line((cx - int(290 * s), dy, cx - int(22 * s), dy), fill=(198, 162, 92, 210), width=max(2, int(2.5 * s)))
@@ -217,11 +260,10 @@ def build_thumbnail() -> Path:
     d.text((px0 + (pill_w - hw) // 2, py0 + (pill_h - hh) // 2 - hb[1] - 1), hook, font=hf, fill=(249, 244, 233, 255))
 
     composed = Image.alpha_composite(composed, layer).convert("RGB").resize((1024, 1024), Image.Resampling.LANCZOS)
-    out = OUT / "thumbnail.png"
     # Indexed-PNG compression keeps the 1024x1024 cover well under Steam's 1 MiB cap.
     quantized = composed.quantize(colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.FLOYDSTEINBERG)
     quantized.save(out, optimize=True)
-    assert out.stat().st_size < 1024 * 1024, f"thumbnail.png exceeds 1 MiB: {out.stat().st_size}"
+    assert out.stat().st_size < 1024 * 1024, f"{out.name} exceeds 1 MiB: {out.stat().st_size}"
     return out
 
 
@@ -737,7 +779,7 @@ def build_05_install_guide() -> Path:
     draw_check(d, sx_btn, by0 + 27, 24, (255, 255, 255), width=4)
     d.text((sx_btn + 38, by0 + 22), "Subscribed", font=bf, fill=(255, 255, 255))
     d.text((s1x + 28, top_y + 528), "Workshop ID:", font=font_sans(19, "semibold"), fill=TEXT_MUTED)
-    d.text((s1x + 28, top_y + 558), "3837775887", font=font_mono(26, bold=True), fill=TEAL)
+    d.text((s1x + 28, top_y + 558), ACTIVE_WORKSHOP_ID, font=font_mono(26, bold=True), fill=TEAL)
 
     # Step 2 (center, wide — hero visual)
     s2x, s2w = 536, 868
@@ -757,7 +799,7 @@ def build_05_install_guide() -> Path:
     d.rounded_rectangle((w1x, win_y, w1x + win_w, win_y + 44), radius=12, fill=(32, 48, 68))
     d.rectangle((w1x, win_y + 32, w1x + win_w, win_y + 44), fill=(32, 48, 68))
     d.text((w1x + 16, win_y + 11), "Harmony Workshop Folder", font=font_sans(18, "semibold"), fill=GOLD)
-    d.text((w1x + 16, win_y + 56), "...\\workshop\\content\\236850\\3837775887", font=font_mono(14), fill=TEXT_MUTED)
+    d.text((w1x + 16, win_y + 56), f"...\\workshop\\content\\236850\\{ACTIVE_WORKSHOP_ID}", font=font_mono(14), fill=TEXT_MUTED)
     for j, (fname, hl) in enumerate([("eu4-harmony\\", False), ("descriptor.mod", False), ("version.dll", True), ("thumbnail.png", False)]):
         fy = win_y + 96 + j * 48
         if hl:
@@ -810,10 +852,16 @@ def build_05_install_guide() -> Path:
     # Mock bottom-right Harmony corner bar
     cb_y = top_y + 426
     d.rounded_rectangle((s3x + 24, cb_y, s3x + s3w - 24, cb_y + 58), radius=10, fill=(17, 25, 36), outline=GOLD_SOFT, width=2)
-    cb_txt = "Harmony v0.4.0  |  Mods  |  Settings"
-    cbf = font_sans(19, "semibold")
+    ver_label = f'Harmony v{VERSION} "{CODENAME}"' if CODENAME else f"Harmony v{VERSION}"
+    cb_txt = f"{ver_label}  |  Mods  |  Settings"
+    cb_size = 19
+    cbf = font_sans(cb_size, "semibold")
     cbb = d.textbbox((0, 0), cb_txt, font=cbf)
-    d.text((s3x + (s3w - (cbb[2] - cbb[0])) // 2, cb_y + 16), cb_txt, font=cbf, fill=TEXT_PRIMARY)
+    while (cbb[2] - cbb[0]) > (s3w - 68) and cb_size > 13:
+        cb_size -= 1
+        cbf = font_sans(cb_size, "semibold")
+        cbb = d.textbbox((0, 0), cb_txt, font=cbf)
+    d.text((s3x + (s3w - (cbb[2] - cbb[0])) // 2, cb_y + (58 - (cbb[3] - cbb[1])) // 2 - cbb[1] - 1), cb_txt, font=cbf, fill=TEXT_PRIMARY)
 
     d.text((s3x + 28, top_y + 528), "Future Updates:", font=font_sans(19, "semibold"), fill=GOLD)
     for i, line in enumerate(wrap_text(d, "Steam updates Harmony automatically; newer version.dll syncs itself on launch.", font_sans(19), s3w - 56)):
@@ -836,6 +884,7 @@ def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     builders = [
         build_thumbnail,
+        build_thumbnail_beta,
         build_thumbnail_zh,
         build_banner_zh,
         build_01_cjk_fonts,

@@ -122,3 +122,6 @@ l_french:
  EU4HARMONY_DUMPS_DISABLE:0 "Désactiver les vidages sur incident pour EU4 (admin)"
  EU4HARMONY_DUMPS_EXTERNAL:0 "Les vidages sur incident Windows pour EU4 sont déjà configurés en externe."
  EU4HARMONY_DUMPS_DISABLE_FAILED:0 "Impossible de désactiver les vidages sur incident : $ERROR$"
+ EU4HARMONY_VERSION_CODENAME_FORMAT:0 "$VERSION$ « $CODENAME$ »"
+ EU4HARMONY_CHANNEL_BETA:0 "Bêta"
+ EU4HARMONY_CODENAME_CONSTANTINOPLE:0 "Constantinople"

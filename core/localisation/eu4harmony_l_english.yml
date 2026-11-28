@@ -122,3 +122,6 @@ l_english:
  EU4HARMONY_DUMPS_DISABLE:0 "Disable Windows crash dumps for EU4 (admin)"
  EU4HARMONY_DUMPS_EXTERNAL:0 "Windows crash dumps for EU4 are already configured externally."
  EU4HARMONY_DUMPS_DISABLE_FAILED:0 "Could not disable crash dumps: $ERROR$"
+ EU4HARMONY_VERSION_CODENAME_FORMAT:0 "$VERSION$ "$CODENAME$""
+ EU4HARMONY_CHANNEL_BETA:0 "Beta"
+ EU4HARMONY_CODENAME_CONSTANTINOPLE:0 "Constantinople"

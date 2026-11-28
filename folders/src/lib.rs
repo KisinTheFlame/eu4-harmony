@@ -11,7 +11,7 @@ use std::{
 mod item_id;
 pub mod windows_crash_callback;
 
-pub use item_id::parse_published_file_id;
+pub use item_id::{parse_beta_published_file_id, parse_published_file_id, parse_workspace_codename};
 
 /// The game's Steam app id, under which the Workshop keeps its items.
 pub const APP_ID: &str = "236850";
@@ -31,9 +31,22 @@ pub fn is_harmony_proxy(bytes: &[u8]) -> bool {
     bytes.windows(MARK.len()).any(|w| w == MARK)
 }
 
-/// Harmony's published file id on the Steam Workshop, from `workshop/item.toml`;
-/// `0` before the item is created.
+/// Harmony's public published file id on the Steam Workshop, from
+/// `workshop/item.toml`; `0` before the public item is created.
 pub const PUBLISHED_FILE_ID: u64 = include!(concat!(env!("OUT_DIR"), "/published_file_id.rs"));
+
+/// Harmony's beta published file id on the Steam Workshop, from
+/// `workshop/item.toml`; `0` when no beta item is configured.
+pub const BETA_PUBLISHED_FILE_ID: u64 = include!(concat!(env!("OUT_DIR"), "/beta_published_file_id.rs"));
+
+/// Official Workshop item ids searched by the proxy, in priority order: beta
+/// before public so subscribing to the beta item opts in without copying
+/// `version.dll` again, and unsubscribing falls back to public.
+pub const WORKSHOP_ITEM_IDS: [u64; 2] = [BETA_PUBLISHED_FILE_ID, PUBLISHED_FILE_ID];
+
+/// Optional major-version city codename from `[workspace.metadata.harmony]` in
+/// the root `Cargo.toml` (for example `Some("Constantinople")`).
+pub const VERSION_CODENAME: Option<&str> = include!(concat!(env!("OUT_DIR"), "/version_codename.rs"));
 
 pub type Result<T> = std::result::Result<T, String>;
 
@@ -189,19 +202,80 @@ pub fn workshop_item(game_dir: &Path, published_file_id: u64) -> Option<PathBuf>
 }
 
 /// Where the framework looks for `eu4_harmony_core.dll` when no explicit
-/// `-harmony_core` is given: `<game>\eu4-harmony\` first, then Harmony's own
-/// Workshop item in the same Steam library.
-pub fn core_places(game_dir: &Path, published_file_id: u64) -> Vec<PathBuf> {
+/// `-harmony_core` is given: `<game>\eu4-harmony\` first, then each non-zero
+/// official Workshop item in `published_file_ids` (in priority order, skipping
+/// duplicates).
+pub fn core_places_for(game_dir: &Path, published_file_ids: &[u64]) -> Vec<PathBuf> {
     let mut places = vec![game_dir.join(HARMONY).join("eu4_harmony_core.dll")];
-    if let Some(item) = workshop_item(game_dir, published_file_id) {
-        places.push(item.join(HARMONY).join("eu4_harmony_core.dll"));
+    let mut seen = Vec::new();
+    for &id in published_file_ids {
+        if id == 0 || seen.contains(&id) {
+            continue;
+        }
+        seen.push(id);
+        if let Some(item) = workshop_item(game_dir, id) {
+            places.push(item.join(HARMONY).join("eu4_harmony_core.dll"));
+        }
     }
     places
 }
 
-/// The first existing core DLL in [`core_places`] for [`PUBLISHED_FILE_ID`].
+/// Where the framework looks for `eu4_harmony_core.dll` for a single Workshop
+/// item id: `<game>\eu4-harmony\` first, then that Workshop item.
+pub fn core_places(game_dir: &Path, published_file_id: u64) -> Vec<PathBuf> {
+    core_places_for(game_dir, &[published_file_id])
+}
+
+/// Where the framework looks for `eu4_harmony_core.dll` using the configured
+/// official Workshop channels ([`WORKSHOP_ITEM_IDS`]).
+pub fn default_core_places(game_dir: &Path) -> Vec<PathBuf> {
+    core_places_for(game_dir, &WORKSHOP_ITEM_IDS)
+}
+
+/// The first existing core DLL in [`default_core_places`].
 pub fn active_core(game_dir: &Path) -> Option<PathBuf> {
-    core_places(game_dir, PUBLISHED_FILE_ID).into_iter().find(|p| p.is_file())
+    default_core_places(game_dir).into_iter().find(|p| p.is_file())
+}
+
+/// Which distribution channel the running core DLL came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InstallChannel {
+    /// Installed directly under `<game>\eu4-harmony\`.
+    Local,
+    /// Loaded from Harmony's official beta Workshop item.
+    Beta,
+    /// Loaded from Harmony's official public Workshop item.
+    Public,
+    /// Loaded from another path (such as a `-harmony_core=` test game).
+    Other,
+}
+
+fn normalized_dir(path: &Path) -> String {
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let text = resolved.to_string_lossy();
+    let text = text.strip_prefix(r"\\?\").unwrap_or(&text);
+    text.trim_end_matches(['\\', '/']).replace('/', "\\").to_ascii_lowercase()
+}
+
+/// Identifies which channel `core_dir` (the folder containing
+/// `eu4_harmony_core.dll`) belongs to for `game_dir`.
+pub fn install_channel_for(game_dir: &Path, core_dir: &Path, beta_id: u64, public_id: u64) -> InstallChannel {
+    let actual = normalized_dir(core_dir);
+    if actual == normalized_dir(&game_dir.join(HARMONY)) {
+        return InstallChannel::Local;
+    }
+    if beta_id != 0 && workshop_item(game_dir, beta_id).is_some_and(|item| actual == normalized_dir(&item.join(HARMONY))) {
+        return InstallChannel::Beta;
+    }
+    if public_id != 0 && workshop_item(game_dir, public_id).is_some_and(|item| actual == normalized_dir(&item.join(HARMONY))) {
+        return InstallChannel::Public;
+    }
+    InstallChannel::Other
+}
+
+/// Identifies the active channel using the compiled-in Workshop ids.
+pub fn install_channel(game_dir: &Path, core_dir: &Path) -> InstallChannel {
+    install_channel_for(game_dir, core_dir, BETA_PUBLISHED_FILE_ID, PUBLISHED_FILE_ID)
 }
 
 /// The words of a Windows command line, split at spaces and tabs outside
@@ -489,8 +563,18 @@ mod tests {
         assert_eq!(core_places(&game, 0).len(), 1);
         assert_eq!(workshop_item(Path::new(r"D:\Games\eu4"), 7), None);
 
-        let workshop_core = workshop_item(&game, PUBLISHED_FILE_ID).unwrap().join("eu4-harmony").join("eu4_harmony_core.dll");
-        if PUBLISHED_FILE_ID != 0 {
+        // Dual-channel priority: local -> beta -> public (skipping 0 and duplicates).
+        let beta_core = workshop_item(&game, 1001).unwrap().join("eu4-harmony").join("eu4_harmony_core.dll");
+        let public_core = workshop_item(&game, 2002).unwrap().join("eu4-harmony").join("eu4_harmony_core.dll");
+        assert_eq!(core_places_for(&game, &[1001, 2002]), [game.join("eu4-harmony").join("eu4_harmony_core.dll"), beta_core.clone(), public_core.clone()]);
+        assert_eq!(core_places_for(&game, &[1001, 0, 1001]), [game.join("eu4-harmony").join("eu4_harmony_core.dll"), beta_core.clone()]);
+        assert_eq!(install_channel_for(&game, &game.join("eu4-harmony"), 1001, 2002), InstallChannel::Local);
+        assert_eq!(install_channel_for(&game, beta_core.parent().unwrap(), 1001, 2002), InstallChannel::Beta);
+        assert_eq!(install_channel_for(&game, public_core.parent().unwrap(), 1001, 2002), InstallChannel::Public);
+        assert_eq!(install_channel_for(&game, &root.join("other"), 1001, 2002), InstallChannel::Other);
+
+        if let Some(workshop_dir) = WORKSHOP_ITEM_IDS.into_iter().find_map(|id| workshop_item(&game, id)) {
+            let workshop_core = workshop_dir.join("eu4-harmony").join("eu4_harmony_core.dll");
             assert_eq!(active_core(&game), None);
             fs::create_dir_all(workshop_core.parent().unwrap()).unwrap();
             fs::write(&workshop_core, b"").unwrap();
@@ -510,6 +594,17 @@ mod tests {
         assert_eq!(parse_published_file_id("# a note\npublished_file_id=3141592653\n"), Some(3141592653));
         assert_eq!(parse_published_file_id("# published_file_id = 9\n"), None);
         assert_eq!(parse_published_file_id("published_file_id = soon\n"), None);
+        assert_eq!(parse_beta_published_file_id("published_file_id = 0\nbeta_published_file_id = 3837775887\n"), Some(3837775887));
+        assert_eq!(parse_beta_published_file_id("published_file_id = 123\n"), None);
+    }
+
+    #[test]
+    fn workspace_codename_parser_reads_metadata_section_only() {
+        let toml = "[workspace.package]\nversion = \"1.0.0\"\n\n[workspace.metadata.harmony]\ncodename = \"Constantinople\" # 1444\n\n[profile.release]\ncodename = \"Ignored\"\n";
+        assert_eq!(parse_workspace_codename(toml).as_deref(), Some("Constantinople"));
+        assert_eq!(parse_workspace_codename("[workspace.package]\ncodename = \"WrongSection\"\n"), None);
+        assert_eq!(parse_workspace_codename("[workspace.metadata.harmony]\n# codename = \"Commented\"\n"), None);
+        assert_eq!(parse_workspace_codename("[workspace.metadata.harmony]\ncodename = \"  \"\n"), None);
     }
 
     #[test]

@@ -73,22 +73,25 @@ usage:
       versions, and the version's change note. --tag also requires that local
       and remote tag to name HEAD. Writes release.json under <dir>
       (target\\dist by default); without --tag checks before tag creation.
-  cargo xtask release [--out <dir>] [--no-workshop]
+  cargo xtask release [--out <dir>] [--no-workshop] [--channel public|beta]
       Builds the optimized player build and packs two versioned Windows x64
       ZIPs under <dir> (target\\dist by default): the framework's proxy and
       core, and the separate command line tool. Checks each archive's files
-      against the build. Packs Harmony's Workshop item too, unless
-      --no-workshop is given. GitHub publication uses --no-workshop and needs
-      neither the game nor Steam.
-  cargo xtask workshop-upload --user <steam login> [--create]
-      Uploads target\\workshop\\harmony\\ to Harmony's Workshop item with
-      SteamCMD (STEAMCMD, else on PATH), which asks for the password itself,
-      with the version's section of CHANGELOG.md as the change note and no
-      description. It needs clean source merged into master, the existing
-      local and remote vX.Y.Z tag at HEAD, and the item packed from that
-      commit. A detached checkout is supported; it never creates a tag. --create makes the item, private, and records its id in
-      workshop\\item.toml; commit that, release and upload again, so that the
-      proxy is built with it (docs/dev-tools.md).
+      against the build. Packs Harmony's Workshop item too (public by default,
+      or --channel beta for the beta item), unless --no-workshop is given.
+      GitHub publication uses --no-workshop and needs neither the game nor
+      Steam.
+  cargo xtask workshop-upload --user <steam login> [--channel public|beta] [--create] [--note <text>] [--allow-branch]
+      Uploads target\\workshop\\harmony\\ (or harmony-beta\\ for --channel beta)
+      to Harmony's Workshop item with SteamCMD (STEAMCMD, else on PATH), which
+      asks for the password itself, leaving localized page titles and
+      descriptions untouched on updates. Public updates need clean source
+      merged into master, the existing local and remote vX.Y.Z tag at HEAD, a
+      CHANGELOG.md section and the matching packed item. Beta updates accept
+      any clean commit merged into master (or any clean branch with
+      --allow-branch) without requiring a version tag, using --note or the
+      commit subject as the change note. --create makes the channel's item,
+      private, and records its id in workshop\\item.toml (docs/dev-tools.md).
   cargo xtask disasm [--module <file>] [--game-dir <dir>] <arg>...
       Reads the installed game's code (xtask/src/disasm.rs, whose arguments
       docs/dev-tools.md describes), without building the core or changing its
@@ -310,9 +313,9 @@ fn main() {
         Some("game-dir") => game::dir().map(|dir| println!("{}", dir.display())),
         Some("install") => Args::parse(rest, &["uninstall"], &["game-dir"]).and_then(|a| files::install(&a)),
         Some("game") => claim::run(rest),
-        Some("release") => Args::parse(rest, &["no-workshop"], &["out"]).and_then(|a| files::release(&a)),
+        Some("release") => Args::parse(rest, &["no-workshop"], &["out", "channel"]).and_then(|a| files::release(&a)),
         Some("release-check") => Args::parse(rest, &[], &["tag", "out"]).and_then(|a| release::run(&a)),
-        Some("workshop-upload") => Args::parse(rest, &["create"], &["user"]).and_then(|a| workshop::upload(&a)),
+        Some("workshop-upload") => Args::parse(rest, &["create", "allow-branch"], &["user", "channel", "note"]).and_then(|a| workshop::upload(&a)),
         Some("disasm") => disasm::run(rest),
         Some("decompile") => decompile::run(rest),
         // A player's build's points, then a developer build's with every
