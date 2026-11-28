@@ -159,11 +159,14 @@ pub(crate) fn draw_late(renderer: usize) {
 }
 
 fn owner_invalidated(call: &mut Call) {
-    with_handoff(|handoff| handoff.owner_invalidated(call.arg(0)));
+    let owner = call.arg(0);
+    with_handoff(|handoff| handoff.owner_invalidated(owner));
+    crate::render::drawing::tooltip_invalidated(owner);
 }
 
 fn holder_deleted(call: &mut Call) {
     with_handoff(|handoff| handoff.holder_deleted(call.arg(0)));
+    crate::render::drawing::tooltip_invalidated(0);
 }
 
 pub(super) fn points() -> Vec<Point> {

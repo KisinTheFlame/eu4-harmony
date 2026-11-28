@@ -11,8 +11,11 @@
 use super::{drawing_on, on_main, IDLER_MAP, OTHER_CAMERA};
 use crate::base::called_by_game;
 use crate::native::memory::Memory;
+use crate::native::objects::gui::element;
 use crate::native::points::Point;
 use std::sync::Mutex;
+
+const WINDOW_DEAD: usize = 0xc4;
 
 pub(super) fn points() -> Vec<Point> {
     vec![
@@ -172,6 +175,15 @@ extern "C" fn placed(tooltips: usize, cursor: usize, place_at: usize) {
 /// moved by what the cursor moved since the main thread placed it, kept on
 /// the screen as the game keeps it, and set as the game sets it. Returns
 /// whether the tooltip changed position.
+/// Clears the cached tooltip when its owner is invalidated or destroyed
+/// (`0` clears unconditionally).
+pub(super) fn owner_invalidated(owner: usize) {
+    let mut placing = PLACING.lock().unwrap_or_else(|e| e.into_inner());
+    if owner == 0 || placing.as_ref().is_some_and(|(p, _)| p.tooltips == owner) {
+        *placing = None;
+    }
+}
+
 pub(super) fn follow_cursor(m: &Memory, idler: usize) -> crate::base::Result<bool> {
     let mut placing = PLACING.lock().unwrap_or_else(|e| e.into_inner());
     let Some((placed, set)) = placing.as_mut() else {
@@ -191,12 +203,28 @@ pub(super) fn follow_cursor(m: &Memory, idler: usize) -> crate::base::Result<boo
         return Ok(false);
     };
     let manager = m.ptr(placed.tooltips + TOOLTIPS_MANAGER)?;
+    if manager == 0 {
+        return Ok(false);
+    }
     let graphics_of: unsafe extern "C" fn(usize) -> usize = unsafe { std::mem::transmute(m.ptr(m.ptr(manager)? + MANAGER_GRAPHICS)?) };
     let graphics = unsafe { graphics_of(manager) };
+    if graphics == 0 {
+        return Ok(false);
+    }
     let to_gui = [f32::from_bits(m.u32(graphics + GRAPHICS_TO_GUI)?), f32::from_bits(m.u32(graphics + GRAPHICS_TO_GUI + 4)?)];
     let screen = [m.u32(graphics + GRAPHICS_SCREEN)? as i32, m.u32(graphics + GRAPHICS_SCREEN + 4)? as i32];
     let window = m.ptr(placed.tooltips + TOOLTIPS_WINDOW)?;
+    if window == 0 || m.u8(window + WINDOW_DEAD)? != 0 {
+        *placing = None;
+        return Ok(false);
+    }
+    if m.u8(window + element::VISIBLE)? == 0 {
+        return Ok(false);
+    }
     let gui = m.ptr(window + WINDOW_GUI)?;
+    if gui == 0 {
+        return Ok(false);
+    }
     let mut size = [0i32; 2];
     let size_of: unsafe extern "C" fn(usize, *mut [i32; 2]) -> usize = unsafe { std::mem::transmute(m.ptr(m.ptr(gui)? + GUI_SIZE)?) };
     unsafe { size_of(gui, &mut size) };

@@ -346,15 +346,23 @@ pub(super) fn logged() -> u64 {
     DEFERRED.logged()
 }
 
+/// Whether threaded in-game drawing currently has an active prepared idler.
+/// Outside an active prepared frame (main menu, idler switches, in-process
+/// return, world reset, device reset), calls must run immediately instead of
+/// queuing stale pointers across sessions.
+fn defer_active() -> bool {
+    drawing_on() && super::FRAMES.prepared_idler() != 0
+}
+
 /// Whether a call of the main thread's waits for the next frame's preparation.
 fn deferring() -> bool {
-    DEFERRED.decide(on_main(), drawing_on(), DeferPolicy::DeferOnly) == DeferredAction::Defer
+    DEFERRED.decide(on_main(), defer_active(), DeferPolicy::DeferOnly) == DeferredAction::Defer
 }
 
 /// Decides a call that may either be deferred to frame preparation or cross
 /// immediately when called from another site while threaded drawing runs.
 fn defer_or_cross(caller_matches: bool, crossing_at: usize) -> bool {
-    match DEFERRED.decide(on_main(), drawing_on(), DeferPolicy::DeferOrCross { caller_matches }) {
+    match DEFERRED.decide(on_main(), defer_active(), DeferPolicy::DeferOrCross { caller_matches }) {
         DeferredAction::Defer => true,
         DeferredAction::RunWithCrossing => {
             super::crossings::crossing(crate::native::hooked_memory().at(crossing_at));
@@ -845,7 +853,7 @@ extern "C" fn minimap_stub() {
 /// the next update does, and the frame prepared meanwhile still draws it.
 #[called_by_game]
 unsafe extern "C" fn mesh_let_go(mesh: usize, free: u32) -> usize {
-    if free & 1 != 0 && DEFERRED.decide(on_main(), drawing_on(), DeferPolicy::AlwaysDefer) == DeferredAction::Defer {
+    if free & 1 != 0 && DEFERRED.decide(on_main(), defer_active(), DeferPolicy::AlwaysDefer) == DeferredAction::Defer {
         defer(Deferred::MeshLetGo { mesh, free });
         return mesh;
     }
