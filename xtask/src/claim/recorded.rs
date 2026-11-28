@@ -52,6 +52,8 @@ pub(crate) struct Recorded {
     pub(crate) end_while_waiting: Mutex<Vec<u32>>,
     /// The `Start` options passed to each `start_game` call, in order.
     pub(crate) starts: Mutex<Vec<Start>>,
+    /// The `Starting` options passed to each `prepare_start` call, in order.
+    pub(crate) prepared: Mutex<Vec<Starting>>,
 }
 
 impl Recorded {
@@ -68,6 +70,7 @@ impl Recorded {
             ends_before_menu: None,
             end_while_waiting: Mutex::new(Vec::new()),
             starts: Mutex::new(Vec::new()),
+            prepared: Mutex::new(Vec::new()),
         }
     }
 
@@ -143,8 +146,9 @@ impl Machine for Recorded {
         }
         Ok(())
     }
-    fn prepare_start(&self, folder: &Path, _: &Starting) -> Result<PathBuf> {
+    fn prepare_start(&self, folder: &Path, _: &Path, starting: &Starting) -> Result<PathBuf> {
         self.push(Did::Prepare);
+        self.prepared.lock().unwrap().push(starting.clone());
         Ok(folder.join("core").join("eu4_harmony_core.dll"))
     }
     fn start_game(&self, _: &Path, _: &Path, start: &Start, _: Duration) -> std::result::Result<(Process, f64), Failed> {

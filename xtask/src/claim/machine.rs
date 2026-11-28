@@ -85,10 +85,12 @@ pub trait Machine {
     /// `folder`; removes the `kept\` of claims released long ago.
     fn make_folder(&self, folder: &Path) -> Result<()>;
     /// Copies this checkout's built core and `dev.toml`, or the options
-    /// `starting` gives in its place, into the claim's `folder`, and the
-    /// saves it names from explicit paths or `%LOCALAPPDATA%\eu4-harmony-dev\saves\`;
-    /// the core's path.
-    fn prepare_start(&self, folder: &Path, starting: &Starting) -> Result<PathBuf>;
+    /// `starting` gives in its place, into the claim's `folder`, optionally
+    /// copies the player's game settings, framework settings and playset from
+    /// `game_dir`'s user folder, copies the saves it names from explicit paths
+    /// or `%LOCALAPPDATA%\eu4-harmony-dev\saves\`, and places any `--mod` test
+    /// mods; returns the core's path.
+    fn prepare_start(&self, folder: &Path, game_dir: &Path, starting: &Starting) -> Result<PathBuf>;
     /// Starts the game from `game_dir` as `start` says, waiting up to `wait`
     /// for its main menu, `log` being the framework's log: its owned game
     /// handle and the seconds it took. A test game that does not reach it is ended.
@@ -283,7 +285,7 @@ impl Machine for ThisComputer {
         make_user_folder(&folder.join("user"))
     }
 
-    fn prepare_start(&self, folder: &Path, starting: &Starting) -> Result<PathBuf> {
+    fn prepare_start(&self, folder: &Path, game_dir: &Path, starting: &Starting) -> Result<PathBuf> {
         let core = folder.join("core");
         fs::create_dir_all(&core).map_err(|e| format!("cannot make {}: {e}", core.display()))?;
         let dll = core.join("eu4_harmony_core.dll");
@@ -310,9 +312,18 @@ impl Machine for ThisComputer {
         } else {
             remove_file(&core.join("dev.toml"))?;
         }
+        let test_user = UserFolder::new(folder.join("user"));
+        let player_user =
+            if starting.player_settings || starting.player_framework_settings || starting.player_playset { Some(UserFolder::of(game_dir)?) } else { None };
+        if starting.player_settings {
+            apply_player_game_settings(player_user.as_ref().expect("player user folder resolved"), &test_user, !starting.visible)?;
+        }
+        if starting.player_framework_settings {
+            apply_player_framework_settings(player_user.as_ref().expect("player user folder resolved"), &test_user)?;
+        }
         let dev_saves = crate::saves::saves_dir()?;
-        copy_saves(&dev_saves, &UserFolder::new(folder.join("user")).save_games(), &starting.saves)?;
-        place_test_mods(folder, &starting.mods)?;
+        copy_saves(&dev_saves, &test_user.save_games(), &starting.saves)?;
+        place_mods(folder, starting.player_playset.then(|| player_user.as_ref().expect("player user folder resolved")), &starting.mods, |line| self.say(line))?;
         Ok(dll)
     }
 
@@ -575,27 +586,168 @@ fn private_mods(folder: &Path) -> Result<PathBuf> {
     }
 }
 
-fn place_test_mods(folder: &Path, mods: &[PathBuf]) -> Result<()> {
+/// Optional game settings companion files copied alongside `settings.txt`
+/// when `--player-settings` is given.
+const PLAYER_GAME_SETTINGS_EXTRAS: [&str; 4] = ["gameplaysettings.txt", "messagetypes_custom.txt", "shortcuts.txt", "pdx_settings.txt"];
+
+/// Copies the player's game settings (`settings.txt` and any optional companion
+/// settings files) into the test game's user folder. When `hidden` is set and
+/// `settings.txt` has `fullScreen=yes`, switches it to borderless so a hidden
+/// start does not fail at startup.
+fn apply_player_game_settings(player: &UserFolder, target: &UserFolder, hidden: bool) -> Result<()> {
+    let from = player.path().join("settings.txt");
+    let text = fs::read_to_string(&from).map_err(|e| format!("cannot read player game settings {}: {e}", from.display()))?;
+    let written = if hidden { disable_fullscreen_for_hidden(&text) } else { text };
+    let to = target.path().join("settings.txt");
+    fs::write(&to, written).map_err(|e| format!("cannot write {}: {e}", to.display()))?;
+    for name in PLAYER_GAME_SETTINGS_EXTRAS {
+        let extra = player.path().join(name);
+        if extra.is_file() {
+            copy(&extra, &target.path().join(name))?;
+        }
+    }
+    Ok(())
+}
+
+/// Rewrites `fullScreen=yes` to `fullScreen=no` (and `borderless=no` to
+/// `borderless=yes` when fullscreen was enabled) so a hidden start succeeds.
+fn disable_fullscreen_for_hidden(text: &str) -> String {
+    let has_fullscreen =
+        text.lines().any(|line| eu4_harmony_manifest::line_entry(line).is_some_and(|(k, v)| k == "fullScreen" && v.eq_ignore_ascii_case("yes")));
+    if !has_fullscreen {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    for chunk in text.split_inclusive('\n') {
+        let (body, ending) = match chunk.strip_suffix("\r\n") {
+            Some(stripped) => (stripped, "\r\n"),
+            None => match chunk.strip_suffix('\n') {
+                Some(stripped) => (stripped, "\n"),
+                None => (chunk, ""),
+            },
+        };
+        let indent_len = body.len() - body.trim_start_matches([' ', '\t']).len();
+        let indent = &body[..indent_len];
+        match eu4_harmony_manifest::line_entry(body) {
+            Some(("fullScreen", v)) if v.eq_ignore_ascii_case("yes") => {
+                out.push_str(indent);
+                out.push_str("fullScreen=no");
+            }
+            Some(("borderless", v)) if v.eq_ignore_ascii_case("no") => {
+                out.push_str(indent);
+                out.push_str("borderless=yes");
+            }
+            _ => out.push_str(body),
+        }
+        out.push_str(ending);
+    }
+    out
+}
+
+/// Copies the player's framework settings (`eu4-harmony/settings.txt`, plus
+/// `music.txt` loudness cache when present) into the test game's user folder.
+fn apply_player_framework_settings(player: &UserFolder, target: &UserFolder) -> Result<()> {
+    let harmony = target.harmony();
+    fs::create_dir_all(&harmony).map_err(|e| format!("cannot make {}: {e}", harmony.display()))?;
+    for name in ["settings.txt", "music.txt"] {
+        let from = player.harmony().join(name);
+        if from.is_file() {
+            copy(&from, &harmony.join(name))?;
+        }
+    }
+    Ok(())
+}
+
+/// Validates a `dlc_load.json` descriptor entry (such as `mod/ugc_1.mod`) and
+/// returns its safe relative path inside the `mod` directory.
+fn mod_descriptor_subpath(entry: &str) -> Result<PathBuf> {
+    use std::path::Component;
+    let normalized = entry.trim().replace('\\', "/");
+    let mut components = Path::new(&normalized).components();
+    let Some(Component::Normal(first)) = components.next() else {
+        return Err(format!("player playset entry {entry:?} is not under mod/"));
+    };
+    if !first.eq_ignore_ascii_case("mod") {
+        return Err(format!("player playset entry {entry:?} is not under mod/"));
+    }
+    let mut subpath = PathBuf::new();
+    for component in components {
+        match component {
+            Component::Normal(part) => subpath.push(part),
+            _ => return Err(format!("player playset entry {entry:?} has an unsafe path")),
+        }
+    }
+    if subpath.as_os_str().is_empty() || !subpath.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("mod")) {
+        return Err(format!("player playset entry {entry:?} is not a .mod descriptor"));
+    }
+    Ok(subpath)
+}
+
+/// Removes `.mod` descriptors inside the claim's marked private `mod` folder,
+/// keeping [`CLAIM_MODS_MARKER`] and any unrelated non-descriptor files.
+fn clear_mod_descriptors(dir: &Path) -> Result<()> {
+    for entry in fs::read_dir(dir).map_err(|e| format!("cannot read the private mod folder: {e}"))? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        let file_type = entry.file_type().map_err(|e| e.to_string())?;
+        if file_type.is_dir() {
+            clear_mod_descriptors(&path)?;
+            let _ = fs::remove_dir(&path);
+        } else if file_type.is_file() && path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("mod")) {
+            remove_file(&path)?;
+        }
+    }
+    Ok(())
+}
+
+fn place_mods(folder: &Path, player: Option<&UserFolder>, mods: &[PathBuf], mut say: impl FnMut(&str)) -> Result<()> {
     let dir = folder.join(TEST_MODS);
     let user = folder.join("user");
-    let registry = if !mods.is_empty() || user.join("mod").exists() { Some(private_mods(folder)?) } else { None };
+    let registry = if player.is_some() || !mods.is_empty() || user.join("mod").exists() { Some(private_mods(folder)?) } else { None };
     const PREFIX: &str = "eu4harmony-test-";
     if let Some(registry) = &registry {
-        for entry in fs::read_dir(registry).map_err(|e| format!("cannot read the private mod folder: {e}"))? {
-            let entry = entry.map_err(|e| e.to_string())?;
-            if entry.file_name().to_string_lossy().starts_with(PREFIX) && entry.file_type().is_ok_and(|t| t.is_file()) {
-                remove_file(&entry.path())?;
-            }
-        }
+        clear_mod_descriptors(registry)?;
     }
     if dir.exists() {
         fs::remove_dir_all(&dir).map_err(|e| format!("cannot remove {}: {e}", dir.display()))?;
     }
     let playset_path = user.join("dlc_load.json");
-    let mut playset = Playset::read_or_default(&playset_path);
-    // Keep test games purely isolated: every start enables only the test mods
-    // explicitly given, never host or leftover mods.
-    playset.retain(|_| false);
+    let mut playset = match player {
+        Some(player_user) => {
+            let source_path = player_user.path().join("dlc_load.json");
+            let mut inherited = if source_path.is_file() { Playset::read(&source_path)? } else { Playset::default() };
+            let enabled = inherited.enabled();
+            inherited.retain(|_| false);
+            let registry = registry.as_ref().expect("player playset has a private mod folder");
+            for entry in enabled {
+                let subpath = mod_descriptor_subpath(&entry)?;
+                let source_descriptor = player_user.path().join("mod").join(&subpath);
+                let text = match fs::read_to_string(&source_descriptor) {
+                    Ok(text) => text,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                        say(&format!("skipping missing player mod descriptor: {entry}"));
+                        continue;
+                    }
+                    Err(e) => return Err(format!("cannot read player mod descriptor {}: {e}", source_descriptor.display())),
+                };
+                let relocated = Descriptor::relocate(&text, player_user.path())?;
+                let target = registry.join(&subpath);
+                if let Some(parent) = target.parent() {
+                    fs::create_dir_all(parent).map_err(|e| format!("cannot make {}: {e}", parent.display()))?;
+                }
+                fs::write(&target, relocated).map_err(|e| format!("cannot write {}: {e}", target.display()))?;
+                inherited.enable(entry);
+            }
+            inherited
+        }
+        None => {
+            let mut clean = Playset::read_or_default(&playset_path);
+            // Keep test games purely isolated: every start without
+            // `--player-playset` enables only the test mods explicitly given.
+            clean.retain(|_| false);
+            clean
+        }
+    };
     for source in mods {
         let name = source.file_name().ok_or_else(|| format!("{} names no folder", source.display()))?;
         let to = dir.join(name);
@@ -830,7 +982,7 @@ mod tests {
         s.write("mods\\qa-steady\\descriptor.mod", "\u{feff}name=\"QA steady\"\npath=\"somewhere\"\narchive=\"old.zip\"\n");
         s.write("mods\\qa-steady\\eu4-harmony\\manifest.toml", "id = \"qa-steady\"");
         let folder = s.0.join("claim");
-        place_test_mods(&folder, &[s.0.join("mods\\qa-steady")]).unwrap();
+        place_mods(&folder, None, &[s.0.join("mods\\qa-steady")], |_| {}).unwrap();
         let descriptor = folder.join("user\\mod\\eu4harmony-test-qa-steady.mod");
         let text = fs::read_to_string(&descriptor).unwrap();
         assert!(text.contains("name=\"QA steady\"") && !text.contains("somewhere") && !text.contains("old.zip"), "{text}");
@@ -840,10 +992,94 @@ mod tests {
         assert_eq!(loaded(&folder)["enabled_mods"], serde_json::json!(["mod/eu4harmony-test-qa-steady.mod"]));
         assert_eq!(loaded(&folder)["disabled_dlcs"], serde_json::json!(["dlc/d1.dlc"]));
         assert!(!folder.join("mod-registry").exists());
-        place_test_mods(&folder, &[]).unwrap();
+        place_mods(&folder, None, &[], |_| {}).unwrap();
         assert_eq!(loaded(&folder)["enabled_mods"], serde_json::json!([]));
         assert!(!folder.join("test-mods").exists());
         assert!(!descriptor.exists());
+    }
+
+    #[test]
+    fn player_game_settings_copy_extras_and_disable_fullscreen_only_when_hidden() {
+        let s = Scratch::new("player-game-settings");
+        let player = UserFolder::new(s.0.join("player"));
+        let target = UserFolder::new(s.0.join("claim\\user"));
+        make_user_folder(target.path()).unwrap();
+
+        s.write("player\\settings.txt", "language=\"l_english\"\r\ngraphics={\r\n\tfullScreen=yes\r\n\tborderless=no\r\n}\r\n");
+        s.write("player\\gameplaysettings.txt", "gameplaysettings={}\n");
+        s.write("player\\shortcuts.txt", "menu_load={}\n");
+
+        apply_player_game_settings(&player, &target, false).unwrap();
+        let visible = fs::read_to_string(target.path().join("settings.txt")).unwrap();
+        assert!(visible.contains("\tfullScreen=yes\r\n") && visible.contains("\tborderless=no\r\n"), "{visible}");
+        assert_eq!(fs::read_to_string(target.path().join("gameplaysettings.txt")).unwrap(), "gameplaysettings={}\n");
+        assert_eq!(fs::read_to_string(target.path().join("shortcuts.txt")).unwrap(), "menu_load={}\n");
+
+        apply_player_game_settings(&player, &target, true).unwrap();
+        let hidden = fs::read_to_string(target.path().join("settings.txt")).unwrap();
+        assert!(hidden.contains("\tfullScreen=no\r\n") && hidden.contains("\tborderless=yes\r\n"), "{hidden}");
+    }
+
+    #[test]
+    fn player_framework_settings_copy_when_present_and_keep_defaults_when_missing() {
+        let s = Scratch::new("player-framework-settings");
+        let player = UserFolder::new(s.0.join("player"));
+        let target = UserFolder::new(s.0.join("claim\\user"));
+        make_user_folder(target.path()).unwrap();
+
+        // When the player has not saved framework settings yet, clean defaults remain.
+        apply_player_framework_settings(&player, &target).unwrap();
+        assert!(fs::read_to_string(target.harmony().join("settings.txt")).unwrap().contains("language=\"english\""));
+
+        s.write("player\\eu4-harmony\\settings.txt", "language=\"simp_chinese\"\nbody_font=\"MyFont\"\n");
+        s.write("player\\eu4-harmony\\music.txt", "track.ogg -14.0\n");
+        apply_player_framework_settings(&player, &target).unwrap();
+        assert_eq!(fs::read_to_string(target.harmony().join("settings.txt")).unwrap(), "language=\"simp_chinese\"\nbody_font=\"MyFont\"\n");
+        assert_eq!(fs::read_to_string(target.harmony().join("music.txt")).unwrap(), "track.ogg -14.0\n");
+    }
+
+    #[test]
+    fn player_playset_relocates_descriptors_layers_test_mods_and_clears_on_clean_start() {
+        let s = Scratch::new("player-playset");
+        let player = UserFolder::new(s.0.join("player"));
+        let folder = s.0.join("claim");
+        make_user_folder(&folder.join("user")).unwrap();
+
+        s.write("player\\dlc_load.json", r#"{"enabled_mods":["mod/ugc_1.mod","mod/local.mod","mod/missing.mod"],"disabled_dlcs":["dlc/d2.dlc"]}"#);
+        s.write("player\\mod\\ugc_1.mod", "name=\"Workshop\"\npath=\"E:/Steam/workshop/1\"\n");
+        s.write("player\\mod\\local.mod", "name=\"Local\"\npath=\"mod/local_dir\"\narchive=\"mod/local.zip\"\n");
+        s.write("mods\\qa-extra\\descriptor.mod", "name=\"QA extra\"\n");
+
+        let mut messages = Vec::new();
+        place_mods(&folder, Some(&player), &[s.0.join("mods\\qa-extra")], |m| messages.push(m.to_string())).unwrap();
+        assert_eq!(messages, ["skipping missing player mod descriptor: mod/missing.mod"]);
+
+        let loaded = read_json(&folder.join("user\\dlc_load.json")).unwrap();
+        assert_eq!(loaded["enabled_mods"], serde_json::json!(["mod/ugc_1.mod", "mod/local.mod", "mod/eu4harmony-test-qa-extra.mod"]));
+        assert_eq!(loaded["disabled_dlcs"], serde_json::json!(["dlc/d2.dlc"]));
+
+        let relocated_local = fs::read_to_string(folder.join("user\\mod\\local.mod")).unwrap();
+        let expected_dir = eu4_harmony_manifest::slash_path(&player.path().join("mod\\local_dir"));
+        let expected_zip = eu4_harmony_manifest::slash_path(&player.path().join("mod\\local.zip"));
+        assert!(relocated_local.contains(&format!("path=\"{expected_dir}\"")), "{relocated_local}");
+        assert!(relocated_local.contains(&format!("archive=\"{expected_zip}\"")), "{relocated_local}");
+        assert!(folder.join("user\\mod").join(CLAIM_MODS_MARKER).is_file());
+
+        // A later clean start removes previously inherited player descriptors and playset entries.
+        place_mods(&folder, None, &[], |_| {}).unwrap();
+        let clean = read_json(&folder.join("user\\dlc_load.json")).unwrap();
+        assert_eq!(clean["enabled_mods"], serde_json::json!([]));
+        assert!(!folder.join("user\\mod\\ugc_1.mod").exists());
+        assert!(!folder.join("user\\mod\\local.mod").exists());
+        assert!(folder.join("user\\mod").join(CLAIM_MODS_MARKER).is_file());
+    }
+
+    #[test]
+    fn unsafe_player_playset_entries_are_refused() {
+        for bad in ["../escape.mod", "mod/../escape.mod", "C:/abs.mod", "other/x.mod", "mod/not_a_mod.txt"] {
+            assert!(mod_descriptor_subpath(bad).is_err(), "{bad}");
+        }
+        assert_eq!(mod_descriptor_subpath("mod/ugc_1.mod").unwrap(), PathBuf::from("ugc_1.mod"));
     }
 
     /// A claim's user folder starts from a pure synthetic baseline without

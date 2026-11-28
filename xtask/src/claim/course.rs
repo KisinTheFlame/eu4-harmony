@@ -26,12 +26,19 @@ pub enum Claimed {
 }
 
 /// How a test game is started.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Starting {
     /// Start with the window shown from launch (instead of `-harmony_hidden`).
     pub visible: bool,
     /// Keep audio enabled (instead of `-harmony_mute`).
     pub sound: bool,
+    /// Copy the player's game settings into the test game's user folder.
+    pub player_settings: bool,
+    /// Copy the player's framework settings into the test game's user folder.
+    pub player_framework_settings: bool,
+    /// Copy the player's active playset (relocated `.mod` descriptors) into
+    /// the test game's user folder before layering any `--mod` test mods.
+    pub player_playset: bool,
     pub seed: Option<u32>,
     /// The saves to copy (explicit paths or names from `%LOCALAPPDATA%\eu4-harmony-dev\saves\`) into the test game's user folder.
     pub saves: Vec<String>,
@@ -231,7 +238,7 @@ pub fn start_game<M: Machine>(m: &M, owner: &str, game_dir: &Path, starting: &St
 /// Starts the claim's test game, which has a place to run in.
 fn start_in_place<M: Machine>(m: &M, owner: &str, claim: &Claim, game_dir: &Path, starting: &Starting, wait: Duration) -> Result<f64> {
     let folder = Path::new(&claim.folder);
-    let core = m.prepare_start(folder, starting)?;
+    let core = m.prepare_start(folder, game_dir, starting)?;
     let user = user_dir(claim);
     let log = user.join("eu4-harmony").join("logs").join("core.log");
     let test_game = TestGame { name: owner.to_string(), user_dir: user, core };
