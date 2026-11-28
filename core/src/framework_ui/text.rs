@@ -45,6 +45,10 @@ struct Cache {
     dirty: bool,
     /// A glyph did not fit since this was last taken.
     overflowed: bool,
+    /// Cached wrapped paragraphs keyed by `(text, size_bits, width_bits,
+    /// scale_bits)` so per-frame drawing and mouse-move hit-testing do not
+    /// re-open ICU break iterators on every call.
+    wraps: HashMap<(String, u32, u32, u32), Vec<String>>,
     /// The log said once that a frame needed more glyphs than the page holds.
     told: bool,
 }
@@ -72,6 +76,7 @@ impl UiFont {
                 pixels: vec![0; (PAGE * PAGE) as usize],
                 dirty: true,
                 overflowed: false,
+                wraps: HashMap::new(),
                 told: false,
             }),
             scale: Cell::new(1.0),
@@ -97,6 +102,7 @@ impl UiFont {
         *self.face.borrow_mut() = next;
         let mut cache = self.cache.borrow_mut();
         cache.glyphs.clear();
+        cache.wraps.clear();
         cache.page = Page::new(PAGE, PAGE);
         cache.pixels.fill(0);
         cache.dirty = true;
@@ -213,6 +219,10 @@ impl Measure for UiFont {
     }
 
     fn wrap(&self, text: &str, size: f32, width: f32) -> Vec<String> {
+        let key = (text.to_owned(), size.to_bits(), width.to_bits(), self.scale.get().to_bits());
+        if let Some(cached) = self.cache.borrow().wraps.get(&key) {
+            return cached.clone();
+        }
         let mut lines = Vec::new();
         for paragraph in text.split('\n') {
             let breaks: Vec<usize> = crate::base::icu::load()
@@ -245,6 +255,11 @@ impl Measure for UiFont {
                 lines.push(paragraph[start..].trim_end().to_string());
             }
         }
+        let mut cache = self.cache.borrow_mut();
+        if cache.wraps.len() >= 512 {
+            cache.wraps.clear();
+        }
+        cache.wraps.insert(key, lines.clone());
         lines
     }
 }

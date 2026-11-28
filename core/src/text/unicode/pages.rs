@@ -122,15 +122,26 @@ impl<T: Texture> Page<T> {
         if self.waiting.contains(&key) {
             return Err(NoRoom);
         }
-        let glyph = costs::GLYPHS.time(|| self.draw(draw)).inspect_err(|_| {
-            self.waiting.insert(key);
-        })?;
-        self.drawn.insert(key, glyph);
-        Ok(glyph)
+        match costs::GLYPHS.time(|| self.draw(draw)) {
+            Ok(Some(glyph)) => {
+                self.drawn.insert(key, Some(glyph));
+                Ok(Some(glyph))
+            }
+            Ok(None) => {
+                self.drawn.insert(key, None);
+                Ok(None)
+            }
+            Err(DrawError::NoRoom) => {
+                self.waiting.insert(key);
+                Err(NoRoom)
+            }
+            // Do not cache transient texture upload failures as missing glyphs.
+            Err(DrawError::Upload) => Ok(None),
+        }
     }
 
     /// Draws a glyph into the page; None when `draw` has none.
-    fn draw(&mut self, draw: impl FnOnce() -> Option<Drawn>) -> Result<Option<Glyph>, NoRoom> {
+    fn draw(&mut self, draw: impl FnOnce() -> Option<Drawn>) -> Result<Option<Glyph>, DrawError> {
         let Some(Drawn { mut glyph, pixels }) = draw() else { return Ok(None) };
         let (width, height) = (glyph.width as u32, glyph.height as u32);
         if width > 0 && height > 0 {
@@ -140,20 +151,25 @@ impl<T: Texture> Page<T> {
                     let (width, height) = self.size();
                     log!("fill: the {width}x{height} page of font {:?} is full; characters past it show as '?'", self.name);
                 }
-                return Err(NoRoom);
+                return Err(DrawError::NoRoom);
             };
             if self.atlas.claimed() > FULL_ENOUGH {
                 self.want_room();
             }
             if let Err(e) = self.texture.put(x, y, width, height, &pixels) {
                 log!("fill: cannot write a glyph: {e}");
-                return Ok(None);
+                return Err(DrawError::Upload);
             }
             self.mips_stale = true;
             (glyph.x, glyph.y) = (x as u16, y as u16);
         }
         Ok(Some(glyph))
     }
+}
+
+enum DrawError {
+    NoRoom,
+    Upload,
 }
 
 /// The size a page of `size` (width, height) grows to: twice as tall, or

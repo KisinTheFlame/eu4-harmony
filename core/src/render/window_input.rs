@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, Ordering};
 use windows_sys::core::BOOL;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetCapture, ReleaseCapture, SetCapture};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 /// What the framework UI hears from the window procedure.
@@ -93,7 +94,7 @@ enum MessageRoute {
 fn translate_message(message: u32, wparam: WPARAM, lparam: LPARAM, wheel_rest: &mut i32, modal: bool) -> Option<Event> {
     match message {
         WM_MOUSEMOVE => Some(Event::Move(position(lparam).0, position(lparam).1)),
-        WM_LBUTTONDOWN => Some(Event::Down(position(lparam).0, position(lparam).1)),
+        WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => Some(Event::Down(position(lparam).0, position(lparam).1)),
         WM_LBUTTONUP => Some(Event::Up(position(lparam).0, position(lparam).1)),
         WM_MOUSEWHEEL => {
             if !modal {
@@ -168,7 +169,7 @@ fn dispatch_message(
     modal_before: bool,
     mut handle: impl FnMut(Event) -> (bool, bool),
 ) -> MessageRoute {
-    if message == WM_KILLFOCUS {
+    if matches!(message, WM_KILLFOCUS | WM_CAPTURECHANGED | WM_CANCELMODE) {
         state.escape_swallowed = false;
         state.lbutton_swallowed = false;
         let _ = handle(Event::FocusLost);
@@ -199,7 +200,7 @@ fn dispatch_message(
     if message == WM_KEYDOWN && wparam == 0x1b && route == MessageRoute::Swallow {
         state.escape_swallowed = true;
     }
-    if message == WM_LBUTTONDOWN && route == MessageRoute::Swallow {
+    if matches!(message, WM_LBUTTONDOWN | WM_LBUTTONDBLCLK) && route == MessageRoute::Swallow {
         state.lbutton_swallowed = true;
     }
     route
@@ -228,6 +229,13 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, 
     WHEEL_REST.store(state.wheel_rest, Ordering::Relaxed);
     ESCAPE_SWALLOWED.store(state.escape_swallowed, Ordering::Relaxed);
     LBUTTON_SWALLOWED.store(state.lbutton_swallowed, Ordering::Relaxed);
+    if !INJECTING.load(Ordering::Relaxed) {
+        if matches!(message, WM_LBUTTONDOWN | WM_LBUTTONDBLCLK) && route == MessageRoute::Swallow {
+            SetCapture(window);
+        } else if matches!(message, WM_LBUTTONUP | WM_KILLFOCUS | WM_CANCELMODE) && GetCapture() == window {
+            ReleaseCapture();
+        }
+    }
     // While a modal window is open the game gets no input at all.
     match route {
         MessageRoute::Swallow => 0,

@@ -1364,9 +1364,19 @@ impl<H: UiHost> Shell<H> {
         if let Some((_, w)) = self.notice.as_mut() {
             match event {
                 Move(x, y) => {
+                    let dragging = w.is_dragging();
                     let _ = w.mouse_move(x, y);
+                    if dragging {
+                        return true;
+                    }
                 }
-                Up(..) => w.mouse_up(),
+                Up(..) => {
+                    let dragging = w.is_dragging();
+                    w.mouse_up();
+                    if dragging {
+                        return true;
+                    }
+                }
                 Down(x, y) if w.covers(measure, x, y) => {
                     if w.mouse_down(measure, x, y) == Some(Action::Closed) {
                         self.host.dismiss_notice();

@@ -1494,6 +1494,10 @@ impl Window {
         self.sliding = None;
     }
 
+    pub fn is_dragging(&self) -> bool {
+        self.drag.is_some() || self.sliding.is_some()
+    }
+
     fn handle_leaf_click(&mut self, measure: &dyn Measure, target_id: Option<&'static str>, r: Rect, x: f32, y: f32, slot_i: usize) -> Option<Action> {
         let _ = target_id;
         // Handles Choice / Slider / Dropdown / Button / DangerButton when direct or wrapped in Labeled.
