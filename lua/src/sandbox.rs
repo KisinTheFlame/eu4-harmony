@@ -212,14 +212,32 @@ pub fn open(at: &Opening) -> mlua::Result<Opened> {
         }
         at_close.host.close_popup(at_close.index, popup).map_err(|e| mlua::Error::runtime(format!("closing a pop-up: {e}")))
     })?;
-    // The coroutine of the mod's own that runs, for the time limit.
-    let resuming = lua.create_function(|_, co: Thread| {
-        super::watch::resume(co.to_pointer());
-        Ok(())
-    })?;
-    let resumed = lua.create_function(|_, co: Thread| {
-        super::watch::resumed(co.to_pointer());
-        Ok(())
+    // Wrap `coroutine.resume` for thread arguments in a Rust C closure so the
+    // resumed coroutine stays strongly rooted on the Rust stack and is always
+    // unregistered via `watch::resumed` before it can be garbage-collected,
+    // even if the outer thread's timeout hook fires right as `raw_resume`
+    // returns (a Lua `<close>` handler can itself be interrupted by the outer
+    // thread's `LUA_MASKCOUNT` hook on its first bytecode).
+    let raw_resume: Function = lua.globals().get::<Table>("coroutine")?.get("resume")?;
+    let resume_watched = lua.create_function(move |_, (co, rest): (Thread, MultiValue)| {
+        struct CoroutineWatchGuard {
+            _co: Thread,
+            ptr: *const std::ffi::c_void,
+        }
+        impl Drop for CoroutineWatchGuard {
+            fn drop(&mut self) {
+                super::watch::resumed(self.ptr);
+            }
+        }
+        let ptr = co.to_pointer();
+        super::watch::resume(ptr);
+        let _guard = CoroutineWatchGuard { _co: co.clone(), ptr };
+        let mut forward = MultiValue::with_capacity(rest.len() + 1);
+        forward.push_back(LuaValue::Thread(co));
+        for v in rest {
+            forward.push_back(v);
+        }
+        raw_resume.call::<MultiValue>(forward)
     })?;
     // Waiting for any of some tasks to end: the wait sentinel and its number.
     let at_await = calling.clone();
@@ -241,8 +259,7 @@ pub fn open(at: &Opening) -> mlua::Result<Opened> {
         names,
         set_element,
         fetch,
-        resuming,
-        resumed,
+        resume_watched,
         window,
         popup,
         close_popup,

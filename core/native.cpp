@@ -48,16 +48,18 @@ static Word call_with(Word target, const Word* args, unsigned count) {
 #undef CASE
 }
 
+extern "C" Word eu4h_invoke_original(Word target, const Word* args, void* xmms);
+
 // What the shared entry calls: `stack` is where the observed function's
 // caller left its return address, followed by the words its arguments are
 // passed in, the four registers spilled into their home space and then the
-// stack.
-extern "C" Word eu4h_observe(const Slot* slot, const Word* stack) {
+// stack. `xmms` points to the 16-byte-aligned spill area holding `xmm0..xmm3`.
+extern "C" Word eu4h_observe(const Slot* slot, const Word* stack, void* xmms) {
     HookFrame frame{{}, 0, stack[0], slot->observers, 0};
     for (unsigned i = 0; i < slot->argc; ++i) frame.args[i] = stack[1 + i];
     if (slot->before) slot->before(&frame);
     __try {
-        frame.result = call_with(slot->original, frame.args, slot->argc);
+        frame.result = eu4h_invoke_original(slot->original, frame.args, xmms);
     } __finally {
         if (AbnormalTermination()) {
             frame.fault = 1;

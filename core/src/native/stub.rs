@@ -59,17 +59,29 @@ pub extern "C" fn eu4h_resolve_stub(return_address: usize) -> u32 {
 }
 
 macro_rules! call_rust {
+    (called, $($arg:literal,)* call $f:ident -> $ret:ident $(, $then:literal)* $(,)?) => {
+        call_rust!(@emit "eu4h_call_rust_called" [$($arg),*] $f [call_rust!(@load_ret $ret), $($then),*])
+    };
+    (called, $($arg:literal,)* call $f:ident => bool $(, $then:literal)* $(,)?) => {
+        call_rust!(@emit "eu4h_call_rust_called" [$($arg),*] $f ["cmp byte ptr [rsp + 0x48], 0", $($then),*])
+    };
+    (called, $($arg:literal,)* call $f:ident => u32 $(, $then:literal)* $(,)?) => {
+        call_rust!(@emit "eu4h_call_rust_called" [$($arg),*] $f ["cmp dword ptr [rsp + 0x48], 0", $($then),*])
+    };
+    (called, $($arg:literal,)* call $f:ident $(, $then:literal)* $(,)?) => {
+        call_rust!(@emit "eu4h_call_rust_called" [$($arg),*] $f [$($then),*])
+    };
     ($($arg:literal,)* call $f:ident -> $ret:ident $(, $then:literal)* $(,)?) => {
-        call_rust!(@emit [$($arg),*] $f [call_rust!(@load_ret $ret), $($then),*])
+        call_rust!(@emit "eu4h_call_rust" [$($arg),*] $f [call_rust!(@load_ret $ret), $($then),*])
     };
     ($($arg:literal,)* call $f:ident => bool $(, $then:literal)* $(,)?) => {
-        call_rust!(@emit [$($arg),*] $f ["cmp byte ptr [rsp + 0x48], 0", $($then),*])
+        call_rust!(@emit "eu4h_call_rust" [$($arg),*] $f ["cmp byte ptr [rsp + 0x48], 0", $($then),*])
     };
     ($($arg:literal,)* call $f:ident => u32 $(, $then:literal)* $(,)?) => {
-        call_rust!(@emit [$($arg),*] $f ["cmp dword ptr [rsp + 0x48], 0", $($then),*])
+        call_rust!(@emit "eu4h_call_rust" [$($arg),*] $f ["cmp dword ptr [rsp + 0x48], 0", $($then),*])
     };
     ($($arg:literal,)* call $f:ident $(, $then:literal)* $(,)?) => {
-        call_rust!(@emit [$($arg),*] $f [$($then),*])
+        call_rust!(@emit "eu4h_call_rust" [$($arg),*] $f [$($then),*])
     };
     (@load_ret rax) => { "mov rax, [rsp + 0x48]" };
     (@load_ret rbx) => { "mov rbx, [rsp + 0x48]" };
@@ -105,7 +117,7 @@ macro_rules! call_rust {
     (@load_ret xmm3) => { "movd xmm3, dword ptr [rsp + 0x48]" };
     (@load_ret xmm4) => { "movd xmm4, dword ptr [rsp + 0x48]" };
     (@load_ret xmm5) => { "movd xmm5, dword ptr [rsp + 0x48]" };
-    (@emit [$($arg:literal),*] $f:ident [$($then:expr),* $(,)?]) => {
+    (@emit $trampoline:literal [$($arg:literal),*] $f:ident [$($then:expr),* $(,)?]) => {
         concat!(
             "push rbp\n",
             "mov rbp, rsp\n",
@@ -126,7 +138,7 @@ macro_rules! call_rust {
             "movdqa [rsp + 0xe0], xmm5\n",
             $($arg, "\n",)*
             "lea rax, [rip + {", stringify!($f), "}]\n",
-            "call eu4h_call_rust\n",
+            "call ", $trampoline, "\n",
             "mov [rsp + 0x48], rax\n",
             "mov rax, [rsp + 0x50]\n",
             "mov rcx, [rsp + 0x58]\n",
