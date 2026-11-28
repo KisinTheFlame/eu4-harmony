@@ -1,7 +1,8 @@
-//! Slims oversized Windows minidumps (such as EU4's ~77 MiB crash dumps that
-//! include data segments and indirectly referenced memory) into compact
+//! Slims Windows minidumps (such as EU4's ~77 MiB crash dumps that include data
+//! segments and indirectly referenced memory) into compact
 //! `MiniDumpNormal`-equivalent dumps while keeping everything needed for stack
-//! and symbol analysis (`.ecxr`, `kn 30`, module list, process/run identity).
+//! and symbol analysis (`.ecxr`, `kn 30`, module list, process/run identity)
+//! and redacting user profile paths in module and CodeView strings.
 //!
 //! The original dump on disk is never modified.
 use std::collections::BTreeMap;
@@ -77,15 +78,62 @@ fn read_minidump_string(file: &mut (impl Read + Seek), rva: u32, file_len: u64) 
     read_at(file, u64::from(rva), clamped, file_len)
 }
 
+/// Encodes `text` as a `MINIDUMP_STRING` (`u32 byte_len` + UTF-16LE + NUL).
+fn encode_minidump_string(text: &str) -> Vec<u8> {
+    let utf16: Vec<u16> = text.encode_utf16().collect();
+    let mut out = Vec::with_capacity(4 + utf16.len() * 2 + 2);
+    out.extend_from_slice(&((utf16.len() * 2) as u32).to_le_bytes());
+    for unit in utf16 {
+        out.extend_from_slice(&unit.to_le_bytes());
+    }
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out
+}
+
+/// Decodes a raw `MINIDUMP_STRING`, applies `redact_path`, and re-encodes it.
+fn redact_minidump_string(raw: &[u8], redact_path: &dyn Fn(&str) -> String) -> Vec<u8> {
+    if raw.len() < 4 {
+        return raw.to_vec();
+    }
+    let byte_len = (u32_le(raw, 0) as usize).min(raw.len() - 4);
+    let even_len = byte_len & !1;
+    let units: Vec<u16> = raw[4..4 + even_len].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+    let text = String::from_utf16_lossy(&units);
+    let redacted = redact_path(&text);
+    if redacted == text {
+        return raw.to_vec();
+    }
+    encode_minidump_string(&redacted)
+}
+
+/// Redacts the NUL-terminated PDB path in an `RSDS` CodeView record, if any.
+fn redact_cv_record(bytes: &[u8], redact_path: &dyn Fn(&str) -> String) -> Vec<u8> {
+    if bytes.len() <= 24 || &bytes[0..4] != b"RSDS" {
+        return bytes.to_vec();
+    }
+    let path_slice = &bytes[24..];
+    let nul_pos = path_slice.iter().position(|&b| b == 0).unwrap_or(path_slice.len());
+    let path = String::from_utf8_lossy(&path_slice[..nul_pos]);
+    let redacted = redact_path(&path);
+    if redacted == path {
+        return bytes.to_vec();
+    }
+    let mut out = Vec::with_capacity(24 + redacted.len() + 1);
+    out.extend_from_slice(&bytes[..24]);
+    out.extend_from_slice(redacted.as_bytes());
+    out.push(0);
+    out
+}
+
 /// Produces a compact `MiniDumpNormal`-style dump from `file`, preserving:
 /// - `ExceptionStream` (including its `ThreadContext`),
 /// - `ThreadListStream` (including every thread's `ThreadContext` and `Stack`),
-/// - `ModuleListStream` (including module names, `CvRecord`, and `MiscRecord`),
+/// - `ModuleListStream` (including path-redacted module names, `CvRecord`, and `MiscRecord`),
 /// - `SystemInfoStream` (including `CSDVersion`),
 /// - `MiscInfoStream` (PID and process creation time),
-/// - `UnloadedModuleListStream` and `SystemMemoryInfoStream` when small,
+/// - `UnloadedModuleListStream` (path-redacted) and `SystemMemoryInfoStream` when small,
 /// - `MemoryListStream` rebuilt exclusively from the threads' stack ranges.
-pub(super) fn slim<F: Read + Seek>(file: &mut F) -> io::Result<Vec<u8>> {
+pub(super) fn slim<F: Read + Seek>(file: &mut F, redact_path: &dyn Fn(&str) -> String) -> io::Result<Vec<u8>> {
     let file_len = file.seek(SeekFrom::End(0))?;
     if file_len < 32 {
         return Err(invalid("minidump shorter than header"));
@@ -207,7 +255,8 @@ pub(super) fn slim<F: Read + Seek>(file: &mut F) -> io::Result<Vec<u8>> {
                     if name_rva != 0 {
                         let sbytes = read_minidump_string(file, name_rva, file_len)?;
                         if !sbytes.is_empty() {
-                            let off = alloc_blob(&mut blob_pool, &sbytes)?;
+                            let redacted = redact_minidump_string(&sbytes, redact_path);
+                            let off = alloc_blob(&mut blob_pool, &redacted)?;
                             rva_patches.push((stream_idx, base + 20, off));
                         } else {
                             put_u32(&mut data, base + 20, 0);
@@ -216,7 +265,11 @@ pub(super) fn slim<F: Read + Seek>(file: &mut F) -> io::Result<Vec<u8>> {
                     // CvRecord at +76 (DataSize: u32, Rva: u32)
                     let cv_size = u32_le(&data, base + 76);
                     let cv_rva = u32_le(&data, base + 80);
-                    if let Some(off) = copy_blob(file, file_len, &mut blob_pool, &mut blob_dedup, cv_rva, cv_size, MAX_SMALL_BLOB)? {
+                    if cv_rva != 0 && cv_size != 0 && cv_size <= MAX_SMALL_BLOB {
+                        let cv_bytes = read_at(file, u64::from(cv_rva), cv_size, file_len)?;
+                        let redacted = redact_cv_record(&cv_bytes, redact_path);
+                        let off = alloc_blob(&mut blob_pool, &redacted)?;
+                        put_u32(&mut data, base + 76, redacted.len() as u32);
                         rva_patches.push((stream_idx, base + 80, off));
                     } else {
                         put_u32(&mut data, base + 76, 0);
@@ -298,7 +351,8 @@ pub(super) fn slim<F: Read + Seek>(file: &mut F) -> io::Result<Vec<u8>> {
                     if name_rva != 0 {
                         if let Ok(sbytes) = read_minidump_string(file, name_rva, file_len) {
                             if !sbytes.is_empty() {
-                                let off = alloc_blob(&mut blob_pool, &sbytes)?;
+                                let redacted = redact_minidump_string(&sbytes, redact_path);
+                                let off = alloc_blob(&mut blob_pool, &redacted)?;
                                 rva_patches.push((stream_idx, base + 20, off));
                                 continue;
                             }
@@ -407,10 +461,13 @@ mod tests {
         let stack_rva = alloc(&mut payload, stack_bytes);
         let ctx_bytes = vec![0xAAu8; 64];
         let ctx_rva = alloc(&mut payload, &ctx_bytes);
-        let mod_name = mdmp_string(r"C:\Games\EU4\eu4.exe");
+        let mod_name = mdmp_string(r"C:\Users\Alice\Games\EU4\eu4.exe");
         let mod_name_rva = alloc(&mut payload, &mod_name);
-        let cv_bytes = b"RSDS\x01\x02\x03\x04eu4.pdb\0";
-        let cv_rva = alloc(&mut payload, cv_bytes);
+        let mut cv_bytes = b"RSDS".to_vec();
+        cv_bytes.extend_from_slice(&[0x01; 20]);
+        cv_bytes.extend_from_slice(br"C:\Users\Alice\build\eu4.pdb");
+        cv_bytes.push(0);
+        let cv_rva = alloc(&mut payload, &cv_bytes);
         let bloat_rva = alloc(&mut payload, &vec![0x55u8; extra_memory_bytes]);
 
         // ThreadListStream (1 thread)
@@ -486,7 +543,8 @@ mod tests {
     #[test]
     fn slim_drops_bloated_memory_while_preserving_stack_exception_modules_and_misc() {
         let bloated = synthetic_bloated_dump(2 * 1024 * 1024);
-        let slimmed = slim(&mut Cursor::new(&bloated)).unwrap();
+        let redact = |s: &str| s.replace(r"C:\Users\Alice", r"C:\Users\<USER>");
+        let slimmed = slim(&mut Cursor::new(&bloated), &redact).unwrap();
         assert!(slimmed.len() < 4096, "expected < 4 KiB, got {} bytes", slimmed.len());
         assert_eq!(&slimmed[0..4], b"MDMP");
         assert_eq!(u64_le(&slimmed, 24), 0, "flags reset to MiniDumpNormal");
@@ -518,9 +576,15 @@ mod tests {
                     saw_stack = true;
                 }
                 STREAM_MODULE_LIST => {
+                    let name_rva = u32_le(data, 4 + 20) as usize;
+                    let name_len = u32_le(&slimmed, name_rva) as usize;
+                    let units: Vec<u16> = slimmed[name_rva + 4..name_rva + 4 + name_len].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+                    assert_eq!(String::from_utf16_lossy(&units), r"C:\Users\<USER>\Games\EU4\eu4.exe");
                     let cv_sz = u32_le(data, 4 + 76) as usize;
                     let cv_rva = u32_le(data, 4 + 80) as usize;
-                    assert_eq!(&slimmed[cv_rva..cv_rva + cv_sz], b"RSDS\x01\x02\x03\x04eu4.pdb\0");
+                    let cv = &slimmed[cv_rva..cv_rva + cv_sz];
+                    assert!(cv.starts_with(b"RSDS"));
+                    assert_eq!(&cv[24..], b"C:\\Users\\<USER>\\build\\eu4.pdb\0");
                     saw_mod = true;
                 }
                 STREAM_MISC_INFO => {
