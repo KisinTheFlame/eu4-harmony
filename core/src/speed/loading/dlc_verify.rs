@@ -183,7 +183,9 @@ unsafe fn store_will_fail(mgr: usize, dlc: usize, platform: i32) -> bool {
     }
     let store = unsafe { *((mgr + MGR_STORE) as *const usize) };
     if store == 0 {
-        return true;
+        // Without a store backend (offline / non-standard launcher), let the
+        // game run its own archive hash rather than fabricating a checksum.
+        return false;
     }
     let store_vt = unsafe { *(store as *const usize) };
     if store_vt == 0 {
@@ -277,17 +279,19 @@ fn prepare_batch(mgr: usize, platform: i32) {
                     let next = &next;
                     let results = &results;
                     scope.spawn(move || {
-                        let mut local = Vec::new();
-                        loop {
-                            let idx = next.fetch_add(1, Ordering::Relaxed);
-                            let Some(item) = items.get(idx) else { break };
-                            if let Some(digest) = unsafe { compute_native_digest(item.dlc) } {
-                                local.push((item.dlc, digest));
+                        crate::base::guarded("DLC archive hash worker", || {
+                            let mut local = Vec::new();
+                            loop {
+                                let idx = next.fetch_add(1, Ordering::Relaxed);
+                                let Some(item) = items.get(idx) else { break };
+                                if let Some(digest) = unsafe { compute_native_digest(item.dlc) } {
+                                    local.push((item.dlc, digest));
+                                }
                             }
-                        }
-                        if !local.is_empty() {
-                            results.lock().unwrap_or_else(|e| e.into_inner()).extend(local);
-                        }
+                            if !local.is_empty() {
+                                results.lock().unwrap_or_else(|e| e.into_inner()).extend(local);
+                            }
+                        });
                     });
                 }
             });

@@ -305,9 +305,12 @@ unsafe fn check_target_adjacency(q_id: i32, runtime_q: usize, src_mark: &[u32], 
         return (true, true);
     }
     let static_q = read_usize(runtime_q + 0x28);
+    if static_q == 0 {
+        return (adj_near, adj_any);
+    }
     let adj_begin = read_usize(static_q + 0x180);
     let adj_end = read_usize(static_q + 0x188);
-    if adj_begin != adj_end {
+    if adj_begin != 0 && adj_end > adj_begin {
         let table = std::slice::from_raw_parts(adj_begin as *const i32, (adj_end - adj_begin) / 4);
         for &nbr in table {
             if nbr == 0 {
@@ -358,14 +361,32 @@ unsafe fn compute_distances(country: usize, record_only: bool, scratch: &mut Scr
     let runtime_begin = read_usize(map + 0x6f0);
     let runtime_end = read_usize(map + 0x6f8);
     let num_provs = (runtime_end.saturating_sub(runtime_begin)) / RUNTIME_PROV_STRIDE;
-    if num_provs == 0 {
+    if static_provs == 0 || runtime_begin == 0 || num_provs == 0 {
         return false;
     }
 
     let countries_by_tag = read_usize(country_db + 0x118);
+    let countries_by_tag_end = read_usize(country_db + 0x120);
+    let countries_by_tag_len = (countries_by_tag_end.saturating_sub(countries_by_tag)) / 8;
+    if countries_by_tag == 0 || countries_by_tag_len == 0 {
+        return false;
+    }
+    let country_by_idx = |idx: i16| -> Option<usize> {
+        if idx < 0 {
+            return None;
+        }
+        let u = idx as usize;
+        if u >= countries_by_tag_len {
+            return None;
+        }
+        let entry = read_usize(countries_by_tag + u * 8);
+        (entry != 0).then_some(entry)
+    };
     let self_tag = read_u64(country + 0x20);
     let self_idx = (self_tag >> 32) as i16;
-    let self_entry = read_usize(countries_by_tag + (self_idx as isize * 8) as usize);
+    let Some(self_entry) = country_by_idx(self_idx) else {
+        return false;
+    };
     let self_capital = read_usize(self_entry + 0x14b0);
 
     scratch.ensure_provinces(num_provs);
@@ -389,11 +410,13 @@ unsafe fn compute_distances(country: usize, record_only: bool, scratch: &mut Scr
     }
     let subj_begin = read_usize(country + 0x1a18);
     let subj_end = read_usize(country + 0x1a20);
-    if subj_begin != subj_end {
+    if subj_begin != 0 && subj_end > subj_begin {
         let subjects = std::slice::from_raw_parts(subj_begin as *const u64, (subj_end - subj_begin) / 8);
         for &tag in subjects {
             let sub_idx = (tag >> 32) as i16;
-            let sub = read_usize(countries_by_tag + (sub_idx as isize * 8) as usize);
+            let Some(sub) = country_by_idx(sub_idx) else {
+                return false;
+            };
             let st = subject_type_fn(sub);
             if st != 0 && read_u8(st + 0x151) != 0 {
                 if !collect_pdx_array_i32(read_usize(sub + 0x1338), read_i32(sub + 0x1344), num_provs, &mut scratch.src_mark, src_gen, &mut scratch.src_ids) {
@@ -440,6 +463,9 @@ unsafe fn compute_distances(country: usize, record_only: bool, scratch: &mut Scr
     let mut dst_ids_buf: Vec<i32> = Vec::new();
     for ci in 1..total_countries {
         let target = read_usize(world_countries_begin + ci * 8);
+        if target == 0 {
+            return false;
+        }
         let target_tag = read_u64(target + 0x20);
         let target_idx = (target_tag >> 32) as i16;
         if target_idx == self_idx {
@@ -447,7 +473,9 @@ unsafe fn compute_distances(country: usize, record_only: bool, scratch: &mut Scr
         }
 
         let (mut min_near, mut min_any) = (DEFAULT_DISTANCE, DEFAULT_DISTANCE);
-        let target_entry = read_usize(countries_by_tag + (target_idx as isize * 8) as usize);
+        let Some(target_entry) = country_by_idx(target_idx) else {
+            return false;
+        };
         let qualifies = !scratch.src_ids.is_empty() && (read_i32(target_entry + 0x1344) != 0 || read_u8(target_entry + 0x26) == 7);
 
         if qualifies {
@@ -471,11 +499,13 @@ unsafe fn compute_distances(country: usize, record_only: bool, scratch: &mut Scr
             }
             let t_subj_begin = read_usize(target_entry + 0x1a18);
             let t_subj_end = read_usize(target_entry + 0x1a20);
-            if t_subj_begin < t_subj_end {
+            if t_subj_begin != 0 && t_subj_begin < t_subj_end {
                 let t_subjects = std::slice::from_raw_parts(t_subj_begin as *const u64, (t_subj_end - t_subj_begin) / 8);
                 for &tag in t_subjects {
                     let sub_idx = (tag >> 32) as i16;
-                    let sub = read_usize(countries_by_tag + (sub_idx as isize * 8) as usize);
+                    let Some(sub) = country_by_idx(sub_idx) else {
+                        return false;
+                    };
                     let st = subject_type_fn(sub);
                     if st != 0
                         && read_u8(st + 0x151) != 0
@@ -620,6 +650,10 @@ unsafe extern "C" fn rebuild_distances(country: usize, arg2: u8) {
         return;
     }
 
+    if country == 0 || world == 0 {
+        ORIGINAL_REBUILD.get()(country, arg2);
+        return;
+    }
     // Native pre-checks (`0x2d0b98..0x2d0c35`).
     if read_usize(world + 0x74c8) == 0 && read_u8(world + 0x2521) == 0 {
         PRE_REBUILD_FN.get()(country);

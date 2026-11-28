@@ -246,6 +246,7 @@ struct ThreatSnapshot {
     stamp_map_addr: usize,
     strength_fn_addr: usize,
     countries: usize,
+    country_count: usize,
     special: [i32; 3],
     provinces_base: usize,
     fort_zoc: Vec<AtomicUsize>,
@@ -318,8 +319,9 @@ unsafe fn potential_ally_cached(
     q_country: usize,
     target_idx: i16,
     countries: usize,
+    country_count: usize,
 ) -> Option<bool> {
-    if target_idx < 0 || countries == 0 {
+    if target_idx < 0 || (target_idx as usize) >= country_count || countries == 0 {
         return None;
     }
     WORKER_CACHE.with(|cell| {
@@ -493,7 +495,9 @@ unsafe fn build_snapshot(m: &crate::native::memory::Memory) -> Option<Box<Threat
         return None;
     }
     let countries = unsafe { *((country_mgr + COUNTRY_LIST) as *const usize) };
-    if countries == 0 {
+    let countries_end = unsafe { *((country_mgr + COUNTRY_LIST + 8) as *const usize) };
+    let country_count = countries_end.saturating_sub(countries) / 8;
+    if countries == 0 || country_count == 0 {
         return None;
     }
 
@@ -569,6 +573,7 @@ unsafe fn build_snapshot(m: &crate::native::memory::Memory) -> Option<Box<Threat
         stamp_map_addr: stamp_map,
         strength_fn_addr: m.at(STRENGTH_EVAL_FN),
         countries,
+        country_count,
         special,
         provinces_base,
         fort_zoc,
@@ -600,8 +605,8 @@ fn schedule_priority(ema: f64, is_search_day: bool, at_war: bool) -> f64 {
     ema * factor
 }
 
-unsafe fn prioritize_search_day_tasks(m: &crate::native::memory::Memory, list_obj: usize, countries: usize) {
-    if list_obj == 0 || countries == 0 {
+unsafe fn prioritize_search_day_tasks(m: &crate::native::memory::Memory, list_obj: usize, countries: usize, country_count: usize) {
+    if list_obj == 0 || countries == 0 || country_count == 0 {
         return;
     }
     let count = unsafe { *((list_obj + 0x14) as *const i32) };
@@ -623,10 +628,17 @@ unsafe fn prioritize_search_day_tasks(m: &crate::native::memory::Memory, list_ob
     let mut keyed: Vec<(f64, usize)> = slice
         .iter()
         .map(|&ai| {
+            if ai == 0 {
+                return (0.0, 0);
+            }
             let ema = unsafe { *((ai + AI_EMA_TIME) as *const f64) };
             let country_idx = ((unsafe { *((ai + AI_COUNTRY_TAG) as *const u64) }) >> 32) as i16 as i32;
             let is_search_day = country_idx.rem_euclid(3) == today_mod3;
-            let country = unsafe { *((countries as isize + (country_idx as isize) * 8) as *const usize) };
+            let country = if country_idx >= 0 && (country_idx as usize) < country_count {
+                unsafe { *((countries + (country_idx as usize) * 8) as *const usize) }
+            } else {
+                0
+            };
             let at_war = country != 0 && unsafe { *((country + COUNTRY_ENEMIES_COUNT) as *const i32) } > 0;
             (schedule_priority(ema, is_search_day, at_war), ai)
         })
@@ -655,7 +667,7 @@ unsafe extern "C" fn ai_stage_hook(a0: usize, a1: usize) {
     let _guard = if SNAPSHOT_PTR.load(Ordering::Acquire) == 0 {
         let m = crate::native::hooked_memory();
         if let Some(snap) = unsafe { build_snapshot(&m) } {
-            unsafe { prioritize_search_day_tasks(&m, a0, snap.countries) };
+            unsafe { prioritize_search_day_tasks(&m, a0, snap.countries, snap.country_count) };
             let raw = Box::into_raw(snap) as usize;
             SNAPSHOT_PTR.store(raw, Ordering::Release);
             SnapshotGuard { raw }
@@ -709,7 +721,7 @@ unsafe fn eval_threat_ratio(m: &crate::native::memory::Memory, snap: &ThreatSnap
 
     let q_tag = unsafe { unit_owner_tag(query_unit) };
     let q_owner_idx = (q_tag >> 32) as i16;
-    if q_owner_idx < 0 {
+    if q_owner_idx < 0 || (q_owner_idx as usize) >= snap.country_count {
         return None;
     }
     let q_country = unsafe { *((snap.countries as isize + (q_owner_idx as isize) * 8) as *const usize) };
@@ -760,14 +772,16 @@ unsafe fn eval_threat_ratio(m: &crate::native::memory::Memory, snap: &ThreatSnap
             let is_friendly = if q_owner_idx == u.owner_idx {
                 true
             } else {
-                if u.owner_idx < 0 || relations_ptr == 0 {
+                if u.owner_idx < 0 || (u.owner_idx as usize) >= snap.country_count || relations_ptr == 0 {
                     return None;
                 }
                 unsafe { *((relations_ptr + COUNTRY_RELATION_FRIENDLY + (u.owner_idx as usize) * COUNTRY_RELATION_STRIDE) as *const i16) != 0 }
             };
             if is_friendly {
                 friendly_sum += contrib;
-            } else if include_neutral_quarter && !unsafe { potential_ally_cached(m, snap.generation, q_owner_idx, q_country, u.owner_idx, snap.countries)? } {
+            } else if include_neutral_quarter
+                && !unsafe { potential_ally_cached(m, snap.generation, q_owner_idx, q_country, u.owner_idx, snap.countries, snap.country_count)? }
+            {
                 enemy_sum += contrib * 0.25_f32;
             }
         }
@@ -781,7 +795,7 @@ unsafe fn eval_threat_sum(m: &crate::native::memory::Memory, snap: &ThreatSnapsh
         return Some(0);
     }
     let q_owner_idx = (unsafe { *(ctx as *const u64) } >> 32) as i16;
-    if q_owner_idx < 0 {
+    if q_owner_idx < 0 || (q_owner_idx as usize) >= snap.country_count {
         return None;
     }
     let include_neutral_quarter = unsafe { *((ctx + 8) as *const u8) } != 0;
@@ -823,7 +837,9 @@ unsafe fn eval_threat_sum(m: &crate::native::memory::Memory, snap: &ThreatSnapsh
         };
         if is_hostile {
             threat_sum += contrib;
-        } else if include_neutral_quarter && !unsafe { potential_ally_cached(m, snap.generation, q_owner_idx, q_country, u.owner_idx, snap.countries)? } {
+        } else if include_neutral_quarter
+            && !unsafe { potential_ally_cached(m, snap.generation, q_owner_idx, q_country, u.owner_idx, snap.countries, snap.country_count)? }
+        {
             threat_sum += contrib * 0.25_f32;
         }
     }

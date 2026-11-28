@@ -23,6 +23,7 @@
 //! publishing one fresh snapshot atomically through `AtomicPtr`.
 //! Non-ASCII inputs fall back to `0x6e4880` to preserve CRT locale semantics.
 use crate::base::called_by_game;
+use crate::native::hooks::Call;
 use crate::native::objects::commands_rva::TOKENS_READY;
 use crate::native::points::{Function, Point};
 use crate::native::speed_up::{self as speed, SpeedUp};
@@ -31,10 +32,12 @@ use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 const LOOKUP: usize = 0x6e4880;
+const DESTROY_TOKENS: usize = 0x170d910;
 const TOKEN_TREE: usize = 0x2326720;
 const TOKEN_TREE_ROOT: usize = 0x2326728;
 const DYNAMIC_TOKENS_BEGIN: usize = 0x242b8a0;
 const DYNAMIC_TOKENS_END: usize = 0x242b8a8;
+const MAX_TST_VISITS: usize = 4_000_000;
 
 type Lookup = unsafe extern "C" fn(usize, *const c_char) -> usize;
 
@@ -42,9 +45,14 @@ static ORIGINAL_LOOKUP: Function<Lookup> = Function::new();
 
 pub const SPEED_UP: SpeedUp = SpeedUp::new("token-lookup", "loading", points, true);
 
+fn on_destroy_tokens(_: &mut Call) {
+    TABLE.store(std::ptr::null_mut(), Ordering::Release);
+}
+
 fn points() -> Vec<Point> {
     vec![
         Point::replace(LOOKUP, "40 57 48 83 ec 20 48 83 79 08 00 48 8b fa 75 08", "ternary tree lookup", lookup_token as Lookup, &ORIGINAL_LOOKUP),
+        Point::observe(DESTROY_TOKENS, "48 89 5c 24 10 57 48 83 ec 20 48 8b 1d 7f df d1 00", "token table teardown", 0, Some(on_destroy_tokens), None),
         Point::keep(0x170ea0busize, "48 8d 0d 0e 7d c1 00 e8 69 5e fd fe", "text lexer looks up token in global table").uses(&[TOKEN_TREE]),
         Point::keep(0x170d48fusize, "48 8b 0d 12 e4 d1 00 48 2b 0d 03 e4 d1 00", "dynamic token vector bounds")
             .uses(&[DYNAMIC_TOKENS_BEGIN, DYNAMIC_TOKENS_END]),
@@ -196,8 +204,8 @@ static BUILD_LOCK: Mutex<Vec<Box<FlatTokenTable>>> = Mutex::new(Vec::new());
 
 /// Iterative traversal of the game's ternary search tree rooted at `root`.
 /// Node layout (`0x6e4800`): `+0x00` value ptr, `+0x08` i8 char, `+0x10` left,
-/// `+0x18` right, `+0x20` mid.
-unsafe fn collect_tst(root: usize, out: &mut Vec<(Vec<u8>, usize)>) {
+/// `+0x18` right, `+0x20` mid. Returns `false` if traversal exceeds the node cap.
+unsafe fn collect_tst(root: usize, out: &mut Vec<(Vec<u8>, usize)>) -> bool {
     enum Step {
         Visit(usize),
         PushAndMid { ch: u8, value: usize, mid: usize },
@@ -205,6 +213,7 @@ unsafe fn collect_tst(root: usize, out: &mut Vec<(Vec<u8>, usize)>) {
     }
     let mut stack = Vec::with_capacity(256);
     let mut prefix: Vec<u8> = Vec::with_capacity(64);
+    let mut visited = 0usize;
     stack.push(Step::Visit(root));
 
     while let Some(step) = stack.pop() {
@@ -228,6 +237,10 @@ unsafe fn collect_tst(root: usize, out: &mut Vec<(Vec<u8>, usize)>) {
                 if node == 0 {
                     continue;
                 }
+                visited += 1;
+                if visited > MAX_TST_VISITS {
+                    return false;
+                }
                 let value = (node as *const usize).read();
                 let ch = ((node + 0x08) as *const u8).read();
                 let left = ((node + 0x10) as *const usize).read();
@@ -247,6 +260,7 @@ unsafe fn collect_tst(root: usize, out: &mut Vec<(Vec<u8>, usize)>) {
             }
         }
     }
+    true
 }
 
 unsafe fn rebuild_table(m: &crate::native::memory::Memory, root: usize, dyn_end: usize) -> Option<*const FlatTokenTable> {
@@ -265,7 +279,9 @@ unsafe fn rebuild_table(m: &crate::native::memory::Memory, root: usize, dyn_end:
     }
     std::sync::atomic::fence(Ordering::SeqCst);
     let mut entries = Vec::with_capacity(16_384);
-    collect_tst(root, &mut entries);
+    if !collect_tst(root, &mut entries) {
+        return None;
+    }
     std::sync::atomic::fence(Ordering::SeqCst);
     let root_after = (m.at(TOKEN_TREE_ROOT) as *const usize).read_volatile();
     let dyn_after = (m.at(DYNAMIC_TOKENS_END) as *const usize).read_volatile();
@@ -415,7 +431,7 @@ mod tests {
             TstNode { value: 0, ch: b'c', _pad: [0; 7], left: &n_b as *const _ as usize, right: &n_d as *const _ as usize, mid: &n_ca as *const _ as usize };
 
         let mut out = Vec::new();
-        unsafe { collect_tst(&root as *const _ as usize, &mut out) };
+        assert!(unsafe { collect_tst(&root as *const _ as usize, &mut out) });
         let mut pairs: Vec<(String, usize)> = out.into_iter().map(|(k, v)| (String::from_utf8(k).unwrap(), v)).collect();
         pairs.sort();
         assert_eq!(pairs, vec![("ba".into(), 2), ("be".into(), 1), ("ca".into(), 4), ("do".into(), 3)]);

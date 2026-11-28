@@ -249,9 +249,9 @@ unsafe fn check_unit_eligible(m: &crate::native::memory::Memory, unit: usize, ch
         let set_end = unsafe { *((geom + GEOM_NEIGHBOR_SET_END) as *const usize) };
         let len = ((set_end.wrapping_sub(set_begin)) as isize >> 2) as i32;
         let mut adjacent = false;
-        if len > 0 {
+        if len > 0 && set_begin != 0 {
             let mut slot = ((target_id.wrapping_mul(2)) as i64).rem_euclid(len as i64) as usize;
-            loop {
+            for _ in 0..len {
                 let entry = unsafe { *((set_begin + slot * 4) as *const i32) };
                 if entry == target_id {
                     adjacent = true;
@@ -342,7 +342,9 @@ unsafe fn scaled_unit_strength(m: &crate::native::memory::Memory, unit: usize, d
     };
     if dist > p.half_max {
         let denom = ((ratio_1000 as i64 + 1000) << 30) / FIXED_SCALE;
-        strength = (strength << 15) / denom;
+        if denom != 0 {
+            strength = (strength << 15) / denom;
+        }
     }
     (strength, leader_pips)
 }
@@ -403,12 +405,14 @@ unsafe fn evaluate_support(m: &crate::native::memory::Memory, args: &SupportArgs
         return None;
     }
     let countries = unsafe { *((country_mgr + COUNTRY_LIST) as *const usize) };
-    if countries == 0 {
+    let countries_end = unsafe { *((country_mgr + COUNTRY_LIST + 8) as *const usize) };
+    let country_count = countries_end.saturating_sub(countries) / 8;
+    if countries == 0 || country_count == 0 {
         return None;
     }
     let agent_tag = unsafe { *((args.agent + AGENT_COUNTRY_TAG) as *const u64) };
     let agent_idx = (agent_tag >> tag::INDEX) as i16 as isize;
-    if agent_idx < 0 {
+    if agent_idx < 0 || (agent_idx as usize) >= country_count {
         return None;
     }
     let agent_country = unsafe { *((countries as isize + agent_idx * 8) as *const usize) };
@@ -478,7 +482,9 @@ unsafe fn evaluate_support(m: &crate::native::memory::Memory, args: &SupportArgs
     };
 
     SCRATCH.with(|cell| {
-        let mut scratch = cell.borrow_mut();
+        let Ok(mut scratch) = cell.try_borrow_mut() else {
+            return None;
+        };
         scratch.friends.clear();
         scratch.enemies.clear();
 
@@ -488,7 +494,7 @@ unsafe fn evaluate_support(m: &crate::native::memory::Memory, args: &SupportArgs
             let tag_val = unsafe { *(enemy_country_node as *const u64) };
             enemy_country_node = unsafe { *((enemy_country_node + 0x10) as *const usize) };
             let c_idx = (tag_val >> tag::INDEX) as i16 as isize;
-            if c_idx < 0 {
+            if c_idx < 0 || (c_idx as usize) >= country_count {
                 return None;
             }
             let country = unsafe { *((countries as isize + c_idx * 8) as *const usize) };
@@ -569,7 +575,7 @@ unsafe fn evaluate_support(m: &crate::native::memory::Memory, args: &SupportArgs
                 let tag_val = unsafe { *(ally_node as *const u64) };
                 ally_node = unsafe { *((ally_node + 0x10) as *const usize) };
                 let c_idx = (tag_val >> tag::INDEX) as i16 as isize;
-                if c_idx < 0 {
+                if c_idx < 0 || (c_idx as usize) >= country_count {
                     return None;
                 }
                 let ally_country = unsafe { *((countries as isize + c_idx * 8) as *const usize) };
