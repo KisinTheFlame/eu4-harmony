@@ -1942,11 +1942,15 @@
 "0x7579f0" = { kind = "function", name = "set speed", notes = ["game/day/time.md", "game/scripts/commands.md"] }
 "0x757ad0" = { kind = "function", notes = ["game/day/time-architecture.md", "game/day/time.md", "game/interface/frame-lifecycle.md"] }
 "0x757ad6" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
+"0x757b09" = { kind = "code", notes = ["game/day/time.md"] }
+"0x757b1c" = { kind = "code", notes = ["game/day/time.md"] }
+"0x757c83" = { kind = "code", notes = ["game/day/time.md"] }
 "0x758430" = { kind = "function", name = "daily update", notes = ["game/day/frame-and-idlers.md", "game/day/safe-points.md", "game/day/time-architecture.md", "game/day/time.md", "game/day/update-and-presentation-boundaries.md", "game/interface/frame-lifecycle.md", "game/interface/main-menu.md", "game/program/architecture.md"] }
 "0x7584a2" = { kind = "code", notes = ["game/day/time.md"] }
 "0x7584f9" = { kind = "code", notes = ["game/day/time.md"] }
 "0x758aef" = { kind = "code", notes = ["game/day/time.md"] }
 "0x758af4" = { kind = "code", notes = ["game/interface/stream-locks.md"] }
+"0x758b58" = { kind = "code", notes = ["game/day/time.md"] }
 "0x758c29" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x758c2f" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x758cf2" = { kind = "code", notes = ["game/interface/main-menu.md"] }
@@ -2015,6 +2019,7 @@
 "0x769bd0" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x769ea0" = { kind = "function", name = "the check for a frame inside a day", notes = ["game/day/frame-and-idlers.md", "game/day/frame-scheduling.md", "game/day/monthly-update.md", "game/day/safe-points.md", "game/interface/frame-lifecycle.md"] }
 "0x769f24" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
+"0x769f61" = { kind = "code", notes = ["game/day/time.md"] }
 "0x769fad" = { kind = "code", notes = ["game/day/safe-points.md"] }
 "0x769fb7" = { kind = "code", notes = ["game/provinces/reformation-centers.md"] }
 "0x769fd7" = { kind = "code", notes = ["game/day/safe-points.md"] }
@@ -3514,7 +3519,7 @@
 "0xb79920" = { kind = "leaf", notes = ["game/day/time.md"] }
 "0xb79970" = { kind = "leaf", name = "speed up command", notes = ["game/day/time.md", "game/scripts/commands.md"] }
 "0xb79ab0" = { kind = "function", notes = ["game/day/time.md", "game/scripts/commands.md"] }
-"0xb7caf0" = { kind = "function", notes = ["game/interface/extension-windows.md", "game/interface/window-elements.md", "game/military/leaders.md"] }
+"0xb7caf0" = { kind = "function", notes = ["game/day/time.md", "game/interface/extension-windows.md", "game/interface/window-elements.md", "game/military/leaders.md"] }
 "0xb7d0b6" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0xb7f578" = { kind = "code", notes = ["game/interface/unicode-text.md"] }
 "0xb7f87b" = { kind = "code", notes = ["game/day/time.md"] }
@@ -4733,7 +4738,7 @@
 "0x13132b1" = { kind = "code", notes = ["game/diplomacy/peace.md"] }
 "0x1313e70" = { kind = "function", notes = ["game/diplomacy/peace.md"] }
 "0x1316660" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
-"0x1321880" = { kind = "function", notes = ["game/day/frame-scheduling.md", "game/interface/drawing-boundaries.md", "game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md"] }
+"0x1321880" = { kind = "function", notes = ["game/day/frame-scheduling.md", "game/day/time.md", "game/interface/drawing-boundaries.md", "game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md"] }
 "0x1321a62" = { kind = "code", notes = ["game/interface/drawing-boundaries.md"] }
 "0x1321a98" = { kind = "code", notes = ["game/interface/drawing-boundaries.md"] }
 "0x1321ba8" = { kind = "code", notes = ["game/interface/drawing-boundaries.md"] }
@@ -4741,6 +4746,7 @@
 "0x13235a1" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
 "0x13238b0" = { kind = "function", name = "a port's model", notes = ["game/interface/drawing-boundaries.md", "game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md"] }
 "0x132390a" = { kind = "code", notes = ["game/interface/map-drawing-reads.md"] }
+"0x1323e50" = { kind = "function", notes = ["game/day/time.md"] }
 "0x1326c60" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
 "0x1326fd0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md", "game/interface/map-drawing-reads.md"] }
 "0x1327c6a" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
@@ -4937,11 +4943,14 @@
 "0x14317c0" = { kind = "function", notes = ["game/interface/main-menu.md", "game/interface/window-construction.md"] }
 "0x14318c0" = { kind = "function", notes = ["game/interface/window-construction.md"] }
 "0x1431a80" = { kind = "function", notes = ["game/interface/window-construction.md"] }
-"0x14321d0" = { kind = "function", notes = ["game/day/dates.md"] }
+"0x14321d0" = { kind = "function", notes = ["game/day/dates.md", "game/day/time.md"] }
 "0x1432256" = { kind = "code", notes = ["game/day/dates.md"] }
 "0x1435160" = { kind = "function", notes = ["game/countries/achievements.md"] }
 "0x143777b" = { kind = "code", notes = ["game/day/time.md"] }
 "0x1438790" = { kind = "function", notes = ["game/countries/achievements.md"] }
+"0x1447cf0" = { kind = "function", notes = ["game/day/time.md"] }
+"0x1447dff" = { kind = "code", notes = ["game/day/time.md"] }
+"0x1447f98" = { kind = "code", notes = ["game/day/time.md"] }
 "0x14486ea" = { kind = "code", notes = ["game/interface/frame-lifecycle.md"] }
 "0x1448880" = { kind = "function", name = "a unit's place worked out again", notes = ["game/interface/frame-lifecycle.md", "game/program/loading.md"] }
 "0x14488c3" = { kind = "code", name = "a unit's place's model let go", notes = ["game/interface/map-drawing-reads.md"] }
