@@ -53,20 +53,38 @@ fn points() -> Vec<Point> {
 type Stat = extern "C" fn(*const c_char, usize, i32) -> i32;
 static ORIGINAL_STAT: Function<Stat> = Function::new();
 
-/// The immutable roots answered from listings, plus the framework's own folder
-/// (which it writes to and excludes from negative caching).
+/// The immutable roots answered from listings, plus writable folders inside
+/// them (the framework's own folder, and the player's user folder when
+/// configured inside the game folder via `userdir.txt` or `-userdir`) excluded
+/// from negative caching.
 struct Lookups {
     roots: Vec<DirectoryCache>,
-    own: String,
+    excluded: Vec<String>,
 }
 
 impl Lookups {
-    fn new(game_dir: &Path) -> Self {
-        let mut roots = vec![DirectoryCache::new(&game_dir.to_string_lossy())];
-        if let Some(library) = game_dir.parent().and_then(Path::parent) {
-            roots.push(DirectoryCache::new(&library.join("workshop").join("content").join("236850").to_string_lossy()));
+    fn new(game_dir: &Path, user_dir: &Path) -> Self {
+        let game_norm = normalize_dir(game_dir);
+        let user_norm = normalize_dir(user_dir);
+        let mut roots = Vec::new();
+        // If `user_dir` is the game folder itself (e.g. `userdir.txt` = ".") or
+        // an ancestor of it, the game folder is writable and must not be
+        // permanently negative-cached.
+        if !game_norm.starts_with(user_norm.as_str()) {
+            roots.push(DirectoryCache::new(&game_dir.to_string_lossy()));
         }
-        Self { roots, own: normalize_dir(&game_dir.join("eu4-harmony")) }
+        if let Some(library) = game_dir.parent().and_then(Path::parent) {
+            let workshop = library.join("workshop").join("content").join("236850");
+            let workshop_norm = normalize_dir(&workshop);
+            if !workshop_norm.starts_with(user_norm.as_str()) {
+                roots.push(DirectoryCache::new(&workshop.to_string_lossy()));
+            }
+        }
+        let mut excluded = vec![normalize_dir(&game_dir.join("eu4-harmony"))];
+        if user_norm != excluded[0] {
+            excluded.push(user_norm);
+        }
+        Self { roots, excluded }
     }
 
     /// Whether the path is certainly missing (`Some(true)`), certainly there
@@ -74,7 +92,7 @@ impl Lookups {
     fn missing(&self, path: &[u8]) -> Option<bool> {
         let text = std::str::from_utf8(path).ok()?;
         let lower = text.replace('/', "\\").to_ascii_lowercase();
-        if lower.starts_with(self.own.as_str()) {
+        if self.excluded.iter().any(|dir| lower.starts_with(dir.as_str())) {
             return None;
         }
         let root = self.roots.iter().find(|r| lower.starts_with(r.lower()))?;
@@ -93,9 +111,9 @@ static ROOTS: OnceLock<Lookups> = OnceLock::new();
 static ANSWERED: AtomicU64 = AtomicU64::new(0);
 
 /// The game folder and, beside its library's `common`, the workshop's folder
-/// for the game.
-pub fn set_roots(game_dir: &Path) {
-    let _ = ROOTS.set(Lookups::new(game_dir));
+/// for the game, excluding `user_dir` when it overlaps either.
+pub fn set_roots(game_dir: &Path, user_dir: &Path) {
+    let _ = ROOTS.set(Lookups::new(game_dir, user_dir));
 }
 
 #[called_by_game]
@@ -134,7 +152,8 @@ mod tests {
         std::fs::write(dir.join("gfx").join("Interface").join("Icon.dds"), b"x").unwrap();
         std::fs::write(dir.join("1.310\u{66f4}\u{65b0}\u{5185}\u{5bb9}.txt"), b"x").unwrap();
         std::fs::create_dir_all(dir.join("eu4-harmony")).unwrap();
-        let lookups = Lookups::new(&dir);
+        let separate_user = dir.parent().unwrap().join("eu4-harmony-lookups-user");
+        let lookups = Lookups::new(&dir, &separate_user);
         let root = dir.to_string_lossy().into_owned();
         let ask = |rest: &str| lookups.missing(format!("{root}\\{rest}").as_bytes());
         assert_eq!(ask("gfx\\interface\\icon.dds"), Some(false));
@@ -150,6 +169,19 @@ mod tests {
         assert_eq!(ask("gfx\\..\\gfx\\interface\\icon.dds"), None);
         assert_eq!(ask("gfx\\interface\\ICON~1.DDS"), None);
         assert_eq!(lookups.missing(b"C:\\elsewhere\\file.txt"), None);
+
+        // User folder inside game_dir (e.g. userdir.txt = "./userdata") is excluded
+        // from negative caching so newly written saves/flags are never hidden.
+        let nested_user = dir.join("userdata");
+        let nested = Lookups::new(&dir, &nested_user);
+        assert_eq!(nested.missing(format!("{root}\\gfx\\interface\\other.dds").as_bytes()), Some(true));
+        assert_eq!(nested.missing(format!("{root}\\userdata\\save games\\ironman.eu4.tmp").as_bytes()), None);
+
+        // User folder equal to game_dir (e.g. userdir.txt = ".") disables caching of game_dir altogether.
+        let same = Lookups::new(&dir, &dir);
+        assert_eq!(same.missing(format!("{root}\\save games\\ironman.eu4.tmp").as_bytes()), None);
+        assert_eq!(same.missing(format!("{root}\\gfx\\interface\\other.dds").as_bytes()), None);
+
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -70,5 +70,5 @@ pub mod trigger_profile;
 /// reads its music.
 pub fn set_folders(game_dir: &Path, user_dir: &Path) {
     music::set_folder(user_dir);
-    lookups::set_roots(game_dir);
+    lookups::set_roots(game_dir, user_dir);
 }
