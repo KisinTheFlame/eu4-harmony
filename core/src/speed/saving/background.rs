@@ -123,7 +123,11 @@ fn entry_before(call: &mut Call) {
 }
 
 fn moved(call: &mut Call) {
-    if call.result_as::<u8>().unwrap_or(0) == 0 || call.arg(1) == 0 {
+    if call.result_as::<u8>().unwrap_or(0) == 0 {
+        return;
+    }
+    crate::speed::loading::listed::file_moved(call.arg(0) as *const std::ffi::c_char, call.arg(1) as *const std::ffi::c_char);
+    if call.arg(1) == 0 {
         return;
     }
     let to = unsafe { std::ffi::CStr::from_ptr(call.arg(1) as *const std::ffi::c_char) };
@@ -247,18 +251,26 @@ impl BackgroundCompactor {
             let worker_shared = shared.clone();
             let retry_delay = self.retry_delay;
             let thread = match std::thread::Builder::new().name("eu4-harmony saves".into()).spawn(move || {
+                struct PendingGuard<'a>(&'a SharedWorker);
+                impl Drop for PendingGuard<'_> {
+                    fn drop(&mut self) {
+                        let mut count = self.0.pending.lock().unwrap_or_else(|e| e.into_inner());
+                        *count = count.saturating_sub(1);
+                        self.0.done.notify_all();
+                    }
+                }
                 for path in receive {
+                    let _pending = PendingGuard(&worker_shared);
                     let start = Instant::now();
-                    match compact_file_with(&path, &worker_shared.waited_for, retry_delay) {
-                        Ok(Some((before, after))) => {
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| compact_file_with(&path, &worker_shared.waited_for, retry_delay)));
+                    match result {
+                        Ok(Ok(Some((before, after)))) => {
                             log!("saves: {} compressed in the background, {before} to {after} bytes, in {:.1?}", path.display(), start.elapsed())
                         }
-                        Ok(None) => {}
-                        Err(e) => log!("saves: {} stays uncompressed, as the game wrote it: {e}", path.display()),
+                        Ok(Ok(None)) => {}
+                        Ok(Err(e)) => log!("saves: {} stays uncompressed, as the game wrote it: {e}", path.display()),
+                        Err(_) => log!("saves: {} stays uncompressed: background compression panicked", path.display()),
                     }
-                    let mut count = worker_shared.pending.lock().unwrap_or_else(|e| e.into_inner());
-                    *count -= 1;
-                    worker_shared.done.notify_all();
                 }
             }) {
                 Ok(handle) => Some(handle),

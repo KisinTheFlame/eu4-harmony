@@ -317,7 +317,7 @@ impl Game for Real {
     fn gather(&mut self, loops: &[Self::Writing; 2]) -> usize {
         let ahead = Ahead { writings: loops.clone() };
         match pool() {
-            Some(pool) => pool.finish(&ahead, WAIT, TIMEOUT_NOTE),
+            Some(pool) => pool.finish_draining(&ahead, WAIT, TIMEOUT_NOTE).unwrap_or(1),
             // Only a finish that gave up waiting breaks the pool, and none
             // runs between the handing out and this: the runs left are
             // written here.
@@ -329,7 +329,7 @@ impl Game for Real {
     }
 
     fn alone(&mut self, writing: &Self::Writing) -> Option<usize> {
-        pool()?.run(writing.clone(), WAIT, TIMEOUT_NOTE)
+        pool()?.run_draining(writing.clone(), WAIT, TIMEOUT_NOTE)
     }
 
     fn runs(&mut self, writing: &Self::Writing) -> Result<Vec<Vec<u8>>> {

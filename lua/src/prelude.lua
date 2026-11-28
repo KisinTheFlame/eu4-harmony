@@ -21,16 +21,17 @@ local yield, running = coroutine.yield, coroutine.running
 -- that resumes it, which the host is told of: Lua's hook reaches only the
 -- thread it is set on.
 local create, raw_resume, close, status = coroutine.create, coroutine.resume, coroutine.close, coroutine.status
-local function left(co, ...)
-  resumed(co)
-  return ...
-end
 local function resume(co, ...)
   if type(co) ~= "thread" then
     return raw_resume(co, ...)
   end
   resuming(co)
-  return left(co, raw_resume(co, ...))
+  local _guard <close> = setmetatable({}, {
+    __close = function()
+      resumed(co)
+    end,
+  })
+  return raw_resume(co, ...)
 end
 coroutine.resume = resume
 

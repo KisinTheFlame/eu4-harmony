@@ -196,6 +196,46 @@ fn open_handle(
     }
 }
 
+/// Private-use range used to round-trip raw high bytes (`0x80..=0xFF`) from
+/// legacy Windows-1252 `.gui`/`.gfx` files through UTF-8 string splices
+/// without altering original bytes or corrupting UTF-8 additions.
+const RAW_BYTE_BASE: u32 = 0xE000;
+
+fn decode_splice_source(data: Vec<u8>) -> (String, bool) {
+    match String::from_utf8(data) {
+        Ok(text) => (text, false),
+        Err(err) => {
+            let raw = err.into_bytes();
+            let mut text = String::with_capacity(raw.len());
+            for b in raw {
+                if b < 0x80 {
+                    text.push(b as char);
+                } else {
+                    text.push(char::from_u32(RAW_BYTE_BASE + u32::from(b)).expect("valid PUA scalar"));
+                }
+            }
+            (text, true)
+        }
+    }
+}
+
+fn encode_splice_output(text: String, had_raw_bytes: bool) -> Vec<u8> {
+    if !had_raw_bytes {
+        return text.into_bytes();
+    }
+    let mut out = Vec::with_capacity(text.len());
+    let mut buf = [0u8; 4];
+    for ch in text.chars() {
+        let cp = ch as u32;
+        if (RAW_BYTE_BASE + 0x80..=RAW_BYTE_BASE + 0xFF).contains(&cp) {
+            out.push((cp - RAW_BYTE_BASE) as u8);
+        } else {
+            out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+        }
+    }
+    out
+}
+
 fn apply_plan(read_original: impl FnOnce() -> Result<Vec<u8>>, additions_for: impl FnOnce(&[u8]) -> Vec<Addition>) -> Result<(usize, Option<Vec<u8>>)> {
     let data = read_original()?;
     let len = data.len();
@@ -203,9 +243,18 @@ fn apply_plan(read_original: impl FnOnce() -> Result<Vec<u8>>, additions_for: im
     if additions.is_empty() {
         return Ok((len, None));
     }
-    let text = String::from_utf8(data).map_err(|e| format!("file is not UTF-8: {e}"))?;
-    let spliced = splice::apply(&text, &additions)?;
-    Ok((len, (spliced != text).then(|| spliced.into_bytes())))
+    let (text, had_raw_bytes) = decode_splice_source(data);
+    let (spliced, errors) = splice::apply_best_effort(&text, &additions);
+    if spliced == text {
+        if let Some(first) = errors.into_iter().next() {
+            return Err(first);
+        }
+        return Ok((len, None));
+    }
+    for error in errors {
+        log!("physfs: partial splice error: {error}");
+    }
+    Ok((len, Some(encode_splice_output(spliced, had_raw_bytes))))
 }
 
 static STATE: LazyLock<Mutex<VirtualFs>> = LazyLock::new(|| Mutex::new(VirtualFs::default()));
@@ -661,13 +710,24 @@ mod tests {
         assert!(rewound);
         assert_eq!(vfs.lock().unwrap().file_length(3), None);
 
-        // Read/UTF-8 failure rewinds the original handle and leaves it unintercepted.
+        // Non-UTF-8 (Windows-1252) .gui files preserve their raw bytes while still applying splices.
+        let win1252 = b"# caf\xe9 \xa7Y\nbase".to_vec();
+        let expected_len = win1252.len() + "\nextra".len();
+        assert_eq!(
+            open_handle(&vfs, 4, "interface/a.gui", || Ok(win1252.clone()), || panic!()),
+            OpenOutcome::Spliced { before: win1252.len(), after: expected_len }
+        );
+        let mut out1252 = vec![0u8; expected_len];
+        assert_eq!(vfs.lock().unwrap().read_bytes(4, &mut out1252), Some(expected_len));
+        assert_eq!(out1252, b"# caf\xe9 \xa7Y\nbase\nextra");
+
+        // Read failure rewinds the original handle and leaves it unintercepted.
         let mut failed_rewound = false;
         let failed = open_handle(
             &vfs,
-            4,
+            5,
             "interface/a.gui",
-            || Ok(vec![0xff, 0xfe]),
+            || Err("disk read error".into()),
             || {
                 failed_rewound = true;
                 true
@@ -675,7 +735,7 @@ mod tests {
         );
         assert!(matches!(failed, OpenOutcome::SpliceFailed { rewound: true, .. }));
         assert!(failed_rewound);
-        assert_eq!(vfs.lock().unwrap().file_length(4), None);
+        assert_eq!(vfs.lock().unwrap().file_length(5), None);
     }
 
     #[test]

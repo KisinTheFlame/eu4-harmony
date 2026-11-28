@@ -1213,3 +1213,28 @@ fn reload_handoff_skips_save_data_when_old_was_stopped() {
     assert!(outcome.lost.as_deref().is_some_and(|l| l.contains("timed out")), "{:?}", outcome.lost);
     assert!(!host.log.lock().unwrap().iter().any(|l| l.contains("save_data should not run")));
 }
+
+#[test]
+fn coroutine_resume_error_unregisters_watcher_before_gc() {
+    let main = r#"
+        return {
+          on_day = function()
+            for i = 1, 8 do
+              local co = coroutine.create(function()
+                -- Return enough values to stress stack/return path and also test normal error return.
+                if i % 2 == 0 then error("boom") end
+                return 1, 2, 3
+              end)
+              pcall(coroutine.resume, co)
+            end
+            collectgarbage("collect")
+            collectgarbage("collect")
+          end,
+        }
+    "#;
+    let (e, host) = load_with("co-watch-gc", main, &[]).unwrap();
+    e.handle("on_day", &[]);
+    assert!(errors(&e).is_empty(), "{:?}", host.log.lock().unwrap());
+    // Watch stack has no dangling coroutine entries left for this thread.
+    assert!(!watch::end());
+}

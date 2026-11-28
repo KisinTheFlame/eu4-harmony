@@ -61,8 +61,8 @@ pub fn discover(user_dir: &Path) -> Result<(Vec<DiscoveredMod>, Vec<Skipped>)> {
     let mut notes = Vec::new();
     for entry in enabled {
         let descriptor_file = user_dir.join(entry.replace('/', "\\"));
-        let text = match std::fs::read_to_string(&descriptor_file) {
-            Ok(t) => t,
+        let text = match std::fs::read(&descriptor_file) {
+            Ok(bytes) => String::from_utf8(bytes).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()),
             Err(e) => {
                 notes.push(Skipped::other(format!("{}: cannot read descriptor: {e}", descriptor_file.display())));
                 continue;
@@ -116,6 +116,23 @@ mod tests {
         let d = parse_descriptor("archive=\"mod/x.zip\"\n", user);
         assert!(d.path.is_none());
         assert_eq!(d.archive.as_deref(), Some("mod/x.zip"));
+    }
+
+    #[test]
+    fn discover_reads_non_utf8_mod_descriptors_without_skipping_harmony_mods() {
+        let dir = std::env::temp_dir().join(format!("eu4h-mods-nonutf8-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mod_dir = dir.join("mod").join("latin1_mod");
+        std::fs::create_dir_all(mod_dir.join("eu4-harmony")).unwrap();
+        std::fs::write(mod_dir.join("eu4-harmony").join("manifest.toml"), "id = \"latin1\"\napi_version = \"0.3\"\n").unwrap();
+        // Windows-1252 accented character in name= alongside an ASCII path=.
+        std::fs::write(dir.join("mod").join("latin1.mod"), b"name=\"Caf\xe9 Mod\"\npath=\"mod/latin1_mod\"\n").unwrap();
+        std::fs::write(dir.join("dlc_load.json"), r#"{"enabled_mods":["mod/latin1.mod"]}"#).unwrap();
+
+        let (mods, skipped) = discover(&dir).unwrap();
+        assert_eq!(mods.len(), 1, "skipped: {:?}", skipped.iter().map(|s| &s.text).collect::<Vec<_>>());
+        assert_eq!(mods[0].manifest.id, "latin1");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

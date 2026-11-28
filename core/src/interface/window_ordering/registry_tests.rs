@@ -487,3 +487,21 @@ fn hidden_map_icon_and_late_backdrop_classification_keep_ordering_consistent() {
     orderer.before_visibility(tree.memory(), tree.roots[0].at()).unwrap();
     assert!(orderer.with_registry(|r| r.target(tree.memory(), tree.roots[0].at() + window::GUI)).unwrap().is_some());
 }
+
+#[test]
+fn failed_attached_registration_does_not_poison_registry_for_next_flush() {
+    let tree = Tree::new(3);
+    let mut registry = Registry::default();
+    let m = tree.memory();
+
+    // Register node 0 as an owned top-level entry.
+    registry.owned(m, &[tree.owned(0, 1)]).unwrap();
+    // Attempt to register a duplicate entry reusing node 0 directly through `add`.
+    let err = registry.add(tree.parent(), course::Role::Owned, None, vec![tree.nodes[1].at(), tree.nodes[0].at()], true);
+    assert!(err.is_err());
+
+    // Failed `add` did not leave node 1 tracked, and subsequent `changes` does not panic.
+    assert!(!registry.tracks_node(tree.nodes[1].at()));
+    let _changes = registry.changes(m).unwrap();
+    assert!(registry.tracks_node(tree.nodes[0].at()));
+}

@@ -88,7 +88,8 @@ impl Plan {
     }
 }
 
-/// Applies `additions` to the text of a game file.
+/// Applies `additions` to the text of a game file, failing on the first error.
+#[cfg(test)]
 pub fn apply(text: &str, additions: &[Addition]) -> Result<String> {
     let mut text = text.to_string();
     for addition in additions {
@@ -102,6 +103,31 @@ pub fn apply(text: &str, additions: &[Addition]) -> Result<String> {
         }
     }
     Ok(text)
+}
+
+/// Applies each addition independently so one incompatible target window (for
+/// example, renamed by a UI overhaul mod) does not discard unrelated framework
+/// edits or other mods' splices on the same file. Returns the resulting text
+/// and any per-addition errors.
+pub fn apply_best_effort(text: &str, additions: &[Addition]) -> (String, Vec<String>) {
+    let mut current = text.to_string();
+    let mut errors = Vec::new();
+    for addition in additions {
+        let next = match addition {
+            Addition::Window { window, text: added } => pdx::splice_window(&current, window, added),
+            Addition::Append(added) => {
+                current.push('\n');
+                current.push_str(added);
+                continue;
+            }
+            Addition::Edit { what, edit } => edit(&current).map_err(|e| format!("{what}: {e}")),
+        };
+        match next {
+            Ok(updated) => current = updated,
+            Err(e) => errors.push(e),
+        }
+    }
+    (current, errors)
 }
 
 /// `include(i)` decides whether mod `i` takes part (its extension loaded, or it has none).
@@ -166,5 +192,12 @@ mod tests {
         assert!(edited.starts_with("GUITYPES"));
         let failed = apply(file, &[Addition::Edit { what: "nothing", edit: |_| Err("no".into()) }]);
         assert_eq!(failed.unwrap_err(), "nothing: no");
+
+        let (partial, errors) = super::apply_best_effort(
+            file,
+            &[Addition::Window { window: "missing".into(), text: " M ".into() }, Addition::Window { window: "w".into(), text: " OK ".into() }],
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(partial.contains(" OK }"), "{partial}");
     }
 }

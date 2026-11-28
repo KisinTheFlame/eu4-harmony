@@ -144,14 +144,22 @@ impl<const N: usize> LockOrder<N> {
     }
 
     /// Retains only locks whose addresses fall inside `[start, end)` (e.g.
-    /// static globals in the game image) and drops transient heap locks.
+    /// static globals in the game image) or appear in `persistent` (long-lived
+    /// heap-allocated critical sections such as the texture manager lock),
+    /// seeding any non-zero `persistent` lock that was not yet recorded.
     /// Must be called only when the drawing thread is idle and cannot append.
-    fn retain_range(&self, start: usize, end: usize) {
+    fn retain_range(&self, start: usize, end: usize, persistent: &[usize]) {
         let count = self.known.load(Ordering::Acquire).min(N);
         let mut kept = 0usize;
         for i in 0..count {
             let addr = self.locks[i].load(Ordering::Relaxed);
-            if addr >= start && addr < end {
+            if (addr >= start && addr < end) || persistent.contains(&addr) {
+                self.locks[kept].store(addr, Ordering::Relaxed);
+                kept += 1;
+            }
+        }
+        for &addr in persistent {
+            if addr != 0 && kept < N && !self.locks[..kept].iter().any(|l| l.load(Ordering::Relaxed) == addr) {
                 self.locks[kept].store(addr, Ordering::Relaxed);
                 kept += 1;
             }
@@ -190,6 +198,13 @@ impl<const N: usize> LockOrder<N> {
 /// leaf lock that can never nest a presentation-lock acquisition, it is exempt
 /// from `LOCK_ORDER` (docs/game/interface/stream-locks.md).
 const STREAM_LOCALE_LOCK: usize = 0x233cdd0;
+/// Pointer to the heap-allocated `CRITICAL_SECTION` guarding the texture
+/// manager (`0x16c40b0`, `0x16c35b0`, `0x16c3f10`, `0x16c4220`;
+/// `docs/game/interface/font-textures.md`). Because the critical section itself
+/// lives on the heap (outside the `eu4.exe` image), [`reset_lock_order`] must
+/// explicitly preserve and seed `*TEXTURE_MANAGER_LOCK` rather than relying on
+/// image-range retention alone.
+const TEXTURE_MANAGER_LOCK: usize = 0x242b818;
 
 pub(super) fn points() -> Vec<Point> {
     [
@@ -209,6 +224,7 @@ pub(super) fn points() -> Vec<Point> {
         Point::keep(0x1a5f504, "48 83 ec 28 e8 43 db 00 00 48 8d 0d bc d8 8d 00 48 83 c4 28 48 ff 25 31 72 10 00", "lock-zero EnterCriticalSection")
             .uses(&[STREAM_LOCALE_LOCK]),
         Point::keep(0x1a5f520, "48 8d 0d a9 d8 8d 00 48 ff 25 2a 72 10 00", "lock-zero LeaveCriticalSection").uses(&[STREAM_LOCALE_LOCK]),
+        Point::keep(0x16c40d6, "48 8b 0d 3b 77 d6 00 ff 15 6d 26 4a 00", "texture manager lock EnterCriticalSection").uses(&[TEXTURE_MANAGER_LOCK]),
     ]
     .into_iter()
     .chain(CROSSINGS_AT.iter().map(|&(rva, bytes, what, argc)| Point::observe(rva, bytes, what, argc, Some(crossed), None)))
@@ -389,15 +405,32 @@ static ORIGINAL_ACQUIRE_SRW: AtomicUsize = AtomicUsize::new(0);
 const LOCK_ORDER_CAPACITY: usize = 256;
 static LOCK_ORDER: LockOrder<LOCK_ORDER_CAPACITY> = LockOrder::new();
 
+fn persistent_locks(m: &crate::native::memory::Memory) -> [usize; 1] {
+    [m.ptr(m.at(TEXTURE_MANAGER_LOCK)).ok().unwrap_or(0)]
+}
+
+/// Seeds long-lived heap locks known to be taken by the drawing thread so the
+/// very first session's initial frames do not have an AB-BA window before the
+/// drawing thread enters them. Must be called on the drawing thread.
+pub(super) fn seed_persistent_locks(m: &crate::native::memory::Memory) {
+    for lock in persistent_locks(m) {
+        if lock != 0 {
+            let _ = LOCK_ORDER.observe(lock, true, false);
+        }
+    }
+}
+
 /// Drops transient heap locks from [`LOCK_ORDER`] once the drawing thread has
 /// stopped drawing the previous idler, while keeping static locks inside the
-/// game image so the next session's first frames do not reopen an AB-BA window.
+/// game image and long-lived heap locks (like `*TEXTURE_MANAGER_LOCK`) so the
+/// next session's first frames do not reopen an AB-BA window.
 pub(super) fn reset_lock_order(m: &crate::native::memory::Memory) {
+    let persistent = persistent_locks(m);
     let image_size = m.u32(m.base + 0x3c).ok().and_then(|pe| m.u32(m.base.checked_add(pe as usize)?.checked_add(0x50)?).ok()).map_or(0, |size| size as usize);
     if let Some(end) = m.base.checked_add(image_size).filter(|&end| end > m.base) {
-        LOCK_ORDER.retain_range(m.base, end);
+        LOCK_ORDER.retain_range(m.base, end, &persistent);
     } else {
-        LOCK_ORDER.retain_range(0, 0);
+        LOCK_ORDER.retain_range(0, 0, &persistent);
     }
 }
 
@@ -567,15 +600,21 @@ mod tests {
     }
 
     #[test]
-    fn lock_order_retain_range_keeps_static_locks_and_drops_heap_locks() {
+    fn lock_order_retain_range_keeps_static_and_persistent_heap_locks_and_drops_transient_heap_locks() {
         let order: LockOrder<4> = LockOrder::new();
+        let tex_lock = 0x0000_0200_9999;
+        let transient = 0x0000_0200_1000;
         order.observe(0x1400_1000, true, false);
-        order.observe(0x0000_0200_1000, true, false);
+        order.observe(transient, true, false);
         order.observe(0x1400_2000, true, false);
-        order.retain_range(0x1400_0000, 0x1401_0000);
+        order.retain_range(0x1400_0000, 0x1401_0000, &[tex_lock]);
         assert_eq!(order.observe(0x1400_1000, false, true), LockAction::TakePresentationFirst);
         assert_eq!(order.observe(0x1400_2000, false, true), LockAction::TakePresentationFirst);
-        assert_eq!(order.observe(0x0000_0200_1000, false, true), LockAction::None);
+        assert_eq!(order.observe(tex_lock, false, true), LockAction::TakePresentationFirst, "persistent heap lock must be seeded and retained");
+        assert_eq!(order.observe(transient, false, true), LockAction::None);
+        // Retaining again does not duplicate the persistent lock.
+        order.retain_range(0x1400_0000, 0x1401_0000, &[tex_lock]);
+        assert_eq!(order.known.load(Ordering::Acquire), 3);
     }
 
     #[test]

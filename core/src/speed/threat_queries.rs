@@ -29,7 +29,7 @@ use crate::base::called_by_game;
 use crate::native::objects::{
     army_rva::{FIND_ID, MORALE as UNIT_MORALE_FN},
     campaign::{
-        countries::LIST as COUNTRY_LIST,
+        countries,
         functions::COUNTRY_MODIFIERS,
         globals::{COUNTRY_MANAGER, SPECIAL_COUNTRIES, WORLD},
         leader::REAL as LEADER_REAL_SLOT,
@@ -420,11 +420,8 @@ unsafe fn compute_unit_strength_and_pips(m: &crate::native::memory::Memory, unit
             return None;
         }
         let country_mgr = unsafe { *(m.at(COUNTRY_MANAGER) as *const usize) };
-        if country_mgr == 0 {
-            return None;
-        }
-        let countries = unsafe { *((country_mgr + COUNTRY_LIST) as *const usize) };
-        if countries == 0 {
+        let (countries, country_count) = unsafe { countries::list_and_count(country_mgr) }?;
+        if (owner_idx as usize) >= country_count {
             return None;
         }
         let owner_country = unsafe { *((countries as isize + owner_idx * 8) as *const usize) };
@@ -491,15 +488,7 @@ unsafe fn build_snapshot(m: &crate::native::memory::Memory) -> Option<Box<Threat
         return None;
     }
     let country_mgr = unsafe { *(m.at(COUNTRY_MANAGER) as *const usize) };
-    if country_mgr == 0 {
-        return None;
-    }
-    let countries = unsafe { *((country_mgr + COUNTRY_LIST) as *const usize) };
-    let countries_end = unsafe { *((country_mgr + COUNTRY_LIST + 8) as *const usize) };
-    let country_count = countries_end.saturating_sub(countries) / 8;
-    if countries == 0 || country_count == 0 {
-        return None;
-    }
+    let (countries, country_count) = unsafe { countries::list_and_count(country_mgr) }?;
 
     let special =
         unsafe { [*(m.at(SPECIAL_COUNTRIES[0]) as *const i32), *(m.at(SPECIAL_COUNTRIES[1]) as *const i32), *(m.at(SPECIAL_COUNTRIES[2]) as *const i32)] };
@@ -1121,5 +1110,27 @@ mod tests {
         assert!(peace_search > schedule_priority(4.0, false, false));
         assert_eq!(schedule_priority(f64::NAN, true, true), 0.0);
         assert_eq!(schedule_priority(-1.0, true, true), 0.0);
+    }
+
+    #[test]
+    fn country_carray_list_and_count_reads_i32_count_regardless_of_high_heap_address() {
+        // CArray<CCountry*> at COUNTRY_MANAGER + 0x110:
+        // +0x118 data ptr, +0x120 capacity (i32), +0x124 count (i32).
+        // Under 64-bit high-entropy ASLR, data_ptr >> 32 frequently exceeds count;
+        // reading +0x120 as an end pointer would compute count == 0 or ~10^10.
+        #[repr(C, align(8))]
+        struct FakeManager {
+            _pad: [u8; 0x118],
+            data: usize,
+            capacity: i32,
+            count: i32,
+        }
+        let mgr = FakeManager { _pad: [0; 0x118], data: 0x0000_7ff0_1234_0000, capacity: 1024, count: 950 };
+        let got = unsafe { countries::list_and_count(&mgr as *const FakeManager as usize) };
+        assert_eq!(got, Some((0x0000_7ff0_1234_0000, 950)));
+
+        let empty = FakeManager { _pad: [0; 0x118], data: 0x0000_0100_0000_0000, capacity: 16, count: 0 };
+        assert_eq!(unsafe { countries::list_and_count(&empty as *const FakeManager as usize) }, None);
+        assert_eq!(unsafe { countries::list_and_count(0) }, None);
     }
 }

@@ -423,6 +423,11 @@ pub struct Window {
     pub x: f32,
     pub y: f32,
     pub width: f32,
+    /// The width requested when constructing the window, restored when the
+    /// screen grows back after shrinking on a narrow viewport.
+    preferred_width: f32,
+    /// The sidebar width requested when constructing the window.
+    preferred_side_width: Option<f32>,
     /// The dropdown whose list is open, by dropdown id.
     open: Option<&'static str>,
     /// The first option the open list shows.
@@ -502,6 +507,8 @@ impl Window {
             x: 0.0,
             y: 0.0,
             width,
+            preferred_width: width,
+            preferred_side_width: None,
             open: None,
             scroll: 0,
             body_scroll: 0.0,
@@ -517,6 +524,7 @@ impl Window {
 
     /// The window with a list down its left side.
     pub fn with_side(mut self, side: Side) -> Self {
+        self.preferred_side_width = Some(side.width);
         self.side = Some(side);
         self
     }
@@ -618,16 +626,35 @@ impl Window {
         }
     }
 
+    /// Fits the window (and optional sidebar) inside narrow viewports so right-
+    /// aligned controls such as Close, Save, and toggles never clip off-screen.
+    fn fit_width(&mut self) {
+        if self.screen_w >= 1e9 {
+            self.width = self.preferred_width;
+            if let (Some(side), Some(preferred)) = (self.side.as_mut(), self.preferred_side_width) {
+                side.width = preferred;
+            }
+            return;
+        }
+        let max_w = (self.screen_w - 16.0).max(280.0).min(self.screen_w.max(1.0));
+        self.width = self.preferred_width.min(max_w).round();
+        if let (Some(side), Some(preferred)) = (self.side.as_mut(), self.preferred_side_width) {
+            side.width = if self.width < self.preferred_width { preferred.min((self.width * 0.28).max(120.0)).round() } else { preferred };
+        }
+    }
+
     /// Updates the known screen size (in GUI units) when the game window or
     /// GUI scale changes while this window is already open.
     pub fn set_screen(&mut self, screen_w: f32, screen_h: f32) {
         self.screen_w = screen_w;
         self.screen_h = screen_h;
+        self.fit_width();
     }
 
-    /// Clamps the window position inside the known screen bounds so the title
-    /// bar and buttons cannot move off-screen.
+    /// Clamps the window size and position inside the known screen bounds so
+    /// the title bar and buttons cannot move off-screen.
     pub fn clamp_to_screen(&mut self, measure: &dyn Measure) {
+        self.fit_width();
         if self.screen_w < 1e9 {
             let max_x = (self.screen_w - self.width).max(0.0);
             self.x = self.x.clamp(0.0, max_x).round();
@@ -642,10 +669,18 @@ impl Window {
     pub fn center(&mut self, measure: &dyn Measure, screen_w: f32, screen_h: f32) {
         self.screen_w = screen_w;
         self.screen_h = screen_h;
+        self.fit_width();
         let h = self.height(measure);
         self.x = ((screen_w - self.width) / 2.0).round();
         self.y = ((screen_h - h) / 2.0).round();
         self.clamp_to_screen(measure);
+    }
+
+    /// Cancels any in-progress title-bar drag or slider capture (for example on
+    /// `WM_KILLFOCUS` when the mouse button was released outside the window).
+    pub fn cancel_interaction(&mut self) {
+        self.drag = None;
+        self.sliding = None;
     }
 
     /// Preserves screen position, scroll offset, screen bounds and pointer

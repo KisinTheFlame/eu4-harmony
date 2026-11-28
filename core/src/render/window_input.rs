@@ -25,6 +25,9 @@ pub enum Event {
     /// it last moved.
     Wheel(i32),
     Escape,
+    /// The game window lost keyboard focus (`WM_KILLFOCUS`): cancel any
+    /// in-progress drag or slider capture so controls cannot stick.
+    FocusLost,
 }
 
 static ORIGINAL: AtomicIsize = AtomicIsize::new(0);
@@ -55,6 +58,10 @@ static WHEEL_REST: AtomicI32 = AtomicI32::new(0);
 /// Whether a modal consumed `VK_ESCAPE` on key-down, so its auto-repeats and
 /// matching key-up are swallowed rather than leaking to the in-game menu.
 static ESCAPE_SWALLOWED: AtomicBool = AtomicBool::new(false);
+/// Whether the framework UI swallowed `WM_LBUTTONDOWN`, so its matching
+/// `WM_LBUTTONUP` is swallowed while a game drag started before a modal opened
+/// still receives its release.
+static LBUTTON_SWALLOWED: AtomicBool = AtomicBool::new(false);
 
 /// The whole notches the wheel turned, `delta` in [`WHEEL_DELTA`]ths of one,
 /// with what `rest` kept of a notch; `rest` keeps what is left. A turn the
@@ -103,35 +110,37 @@ fn translate_message(message: u32, wparam: WPARAM, lparam: LPARAM, wheel_rest: &
 /// Decides whether `message` is swallowed, sent to `DefWindowProcW`, or
 /// forwarded to the game's window procedure.
 fn route_message(message: u32, taken: bool, modal: bool) -> MessageRoute {
-    let input = matches!(
-        message,
-        WM_MOUSEMOVE
-            | WM_LBUTTONDOWN
-            | WM_LBUTTONUP
-            | WM_LBUTTONDBLCLK
-            | WM_RBUTTONDOWN
-            | WM_RBUTTONUP
-            | WM_RBUTTONDBLCLK
-            | WM_MBUTTONDOWN
-            | WM_MBUTTONUP
-            | WM_MBUTTONDBLCLK
-            | WM_MOUSEWHEEL
-            | WM_MOUSEHWHEEL
-            | WM_KEYDOWN
-            | WM_KEYUP
-            | WM_CHAR
-            | WM_UNICHAR
-            | WM_SYSKEYDOWN
-            | WM_SYSKEYUP
-    );
-    if taken || (modal && input && message != WM_MOUSEMOVE) {
-        return MessageRoute::Swallow;
+    // System key shortcuts (such as Alt+F4 or Alt+Space) stay responsive via
+    // DefWindowProcW while a modal is open, without leaking to game hotkeys.
+    if modal && matches!(message, WM_SYSKEYDOWN | WM_SYSKEYUP) {
+        return MessageRoute::DefaultProc;
     }
     // Text the input method makes would reach the game's edit box through
     // SDL: Windows' own handling turns it into characters, which the modal
     // window keeps as it keeps typed ones.
     if modal && matches!(message, WM_IME_STARTCOMPOSITION | WM_IME_COMPOSITION | WM_IME_ENDCOMPOSITION | WM_IME_CHAR) {
         return MessageRoute::DefaultProc;
+    }
+    // Key-up and non-swallowed mouse-up messages are forwarded even while a
+    // modal is open so keys/buttons held before the modal appeared never stick
+    // inside SDL. Escape key-up and swallowed left-button releases are handled
+    // explicitly in `dispatch_message`.
+    let modal_swallowed = matches!(
+        message,
+        WM_LBUTTONDOWN
+            | WM_LBUTTONDBLCLK
+            | WM_RBUTTONDOWN
+            | WM_RBUTTONDBLCLK
+            | WM_MBUTTONDOWN
+            | WM_MBUTTONDBLCLK
+            | WM_MOUSEWHEEL
+            | WM_MOUSEHWHEEL
+            | WM_KEYDOWN
+            | WM_CHAR
+            | WM_UNICHAR
+    );
+    if taken || (modal && modal_swallowed) {
+        return MessageRoute::Swallow;
     }
     MessageRoute::ForwardToGame
 }
@@ -140,39 +149,58 @@ fn position(lparam: LPARAM) -> (f32, f32) {
     ((lparam & 0xffff) as i16 as f32, ((lparam >> 16) & 0xffff) as i16 as f32)
 }
 
-/// Handles Escape key-repeat/key-up suppression around [`translate_message`]
-/// and [`route_message`] so closing a framework modal with Escape never leaks
-/// a matching release or repeat into the in-game menu beneath it.
+/// Per-window message pairing state tracked across `procedure` calls.
+#[derive(Default)]
+struct InputState {
+    wheel_rest: i32,
+    escape_swallowed: bool,
+    lbutton_swallowed: bool,
+}
+
+/// Handles Escape key-repeat/key-up suppression, left-button press/release
+/// pairing, and focus-loss cancellation around [`translate_message`] and
+/// [`route_message`].
 fn dispatch_message(
     message: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-    wheel_rest: &mut i32,
-    escape_swallowed: &mut bool,
+    state: &mut InputState,
     modal_before: bool,
     mut handle: impl FnMut(Event) -> (bool, bool),
 ) -> MessageRoute {
     if message == WM_KILLFOCUS {
-        *escape_swallowed = false;
+        state.escape_swallowed = false;
+        state.lbutton_swallowed = false;
+        let _ = handle(Event::FocusLost);
         return MessageRoute::ForwardToGame;
     }
     if wparam == 0x1b {
-        if message == WM_KEYDOWN && *escape_swallowed {
+        if message == WM_KEYDOWN && state.escape_swallowed {
             return MessageRoute::Swallow;
         }
-        if message == WM_KEYUP && *escape_swallowed {
-            *escape_swallowed = false;
+        if message == WM_KEYUP && state.escape_swallowed {
+            state.escape_swallowed = false;
             return MessageRoute::Swallow;
         }
     }
-    let event = translate_message(message, wparam, lparam, wheel_rest, modal_before);
+    let event = translate_message(message, wparam, lparam, &mut state.wheel_rest, modal_before);
     let (taken, modal_after) = match event {
         Some(e) => handle(e),
         None => (false, modal_before),
     };
+    if message == WM_LBUTTONUP {
+        if state.lbutton_swallowed {
+            state.lbutton_swallowed = false;
+            return MessageRoute::Swallow;
+        }
+        return MessageRoute::ForwardToGame;
+    }
     let route = route_message(message, taken, modal_after);
     if message == WM_KEYDOWN && wparam == 0x1b && route == MessageRoute::Swallow {
-        *escape_swallowed = true;
+        state.escape_swallowed = true;
+    }
+    if message == WM_LBUTTONDOWN && route == MessageRoute::Swallow {
+        state.lbutton_swallowed = true;
     }
     route
 }
@@ -184,18 +212,22 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, 
     }
     let handler = HANDLER.get().copied();
     let is_modal = || HOOKS.get().is_some_and(|h| (h.is_modal)());
-    let mut wheel_rest = WHEEL_REST.load(Ordering::Relaxed);
-    let mut escape_swallowed = ESCAPE_SWALLOWED.load(Ordering::Relaxed);
+    let mut state = InputState {
+        wheel_rest: WHEEL_REST.load(Ordering::Relaxed),
+        escape_swallowed: ESCAPE_SWALLOWED.load(Ordering::Relaxed),
+        lbutton_swallowed: LBUTTON_SWALLOWED.load(Ordering::Relaxed),
+    };
     let modal_before = is_modal();
-    let route = dispatch_message(message, wparam, lparam, &mut wheel_rest, &mut escape_swallowed, modal_before, |e| {
+    let route = dispatch_message(message, wparam, lparam, &mut state, modal_before, |e| {
         let taken = match handler {
             Some(h) => crate::base::guarded("framework UI input", || h(e)),
             None => false,
         };
         (taken, is_modal())
     });
-    WHEEL_REST.store(wheel_rest, Ordering::Relaxed);
-    ESCAPE_SWALLOWED.store(escape_swallowed, Ordering::Relaxed);
+    WHEEL_REST.store(state.wheel_rest, Ordering::Relaxed);
+    ESCAPE_SWALLOWED.store(state.escape_swallowed, Ordering::Relaxed);
+    LBUTTON_SWALLOWED.store(state.lbutton_swallowed, Ordering::Relaxed);
     // While a modal window is open the game gets no input at all.
     match route {
         MessageRoute::Swallow => 0,
@@ -224,16 +256,31 @@ unsafe fn of_game_class(window: HWND) -> bool {
     len > 0 && String::from_utf16_lossy(&class[..len as usize]) == GAME_CLASS
 }
 
-/// The game's window: a window of this process without an owner, which is
-/// shown, or, in an unattended run, of the game's class.
+struct FoundWindows {
+    game: HWND,
+    fallback: HWND,
+}
+
+/// The game's window: prefers an unowned window of this process with the game's
+/// `"SDL_app"` class (visible, or hidden in an unattended run), falling back to
+/// any visible unowned window of this process only if no `"SDL_app"` window is
+/// found.
 #[called_by_game]
 unsafe extern "system" fn find(window: HWND, found: LPARAM) -> BOOL {
     let mut process = 0;
     GetWindowThreadProcessId(window, &mut process);
-    let seen = IsWindowVisible(window) != 0 || (crate::base::unattended() && of_game_class(window));
-    if process == GetCurrentProcessId() && seen && GetWindow(window, GW_OWNER).is_null() {
-        *(found as *mut HWND) = window;
+    if process != GetCurrentProcessId() || !GetWindow(window, GW_OWNER).is_null() {
+        return 1;
+    }
+    let visible = IsWindowVisible(window) != 0;
+    let is_game = of_game_class(window);
+    let out = &mut *(found as *mut FoundWindows);
+    if is_game && (visible || crate::base::unattended()) {
+        out.game = window;
         return 0;
+    }
+    if visible && out.fallback.is_null() {
+        out.fallback = window;
     }
     1
 }
@@ -262,8 +309,9 @@ pub fn attach(handler: Handler) -> bool {
         return true;
     }
     let _ = HANDLER.set(handler);
-    let mut window: HWND = std::ptr::null_mut();
-    unsafe { EnumWindows(Some(find), &mut window as *mut HWND as LPARAM) };
+    let mut found = FoundWindows { game: std::ptr::null_mut(), fallback: std::ptr::null_mut() };
+    unsafe { EnumWindows(Some(find), &mut found as *mut FoundWindows as LPARAM) };
+    let window = if !found.game.is_null() { found.game } else { found.fallback };
     if window.is_null() {
         return false;
     }
@@ -310,6 +358,11 @@ mod tests {
         assert_eq!(route_message(WM_LBUTTONDOWN, false, true), MessageRoute::Swallow);
         assert_eq!(route_message(WM_KEYDOWN, false, true), MessageRoute::Swallow);
         assert_eq!(route_message(WM_CHAR, false, true), MessageRoute::Swallow);
+        assert_eq!(route_message(WM_KEYUP, false, true), MessageRoute::ForwardToGame);
+        assert_eq!(route_message(WM_RBUTTONUP, false, true), MessageRoute::ForwardToGame);
+        assert_eq!(route_message(WM_MBUTTONUP, false, true), MessageRoute::ForwardToGame);
+        assert_eq!(route_message(WM_SYSKEYDOWN, false, true), MessageRoute::DefaultProc);
+        assert_eq!(route_message(WM_SYSKEYUP, false, true), MessageRoute::DefaultProc);
         assert_eq!(route_message(WM_MOUSEMOVE, false, true), MessageRoute::ForwardToGame);
         assert_eq!(route_message(WM_MOUSEMOVE, true, true), MessageRoute::Swallow);
 
@@ -337,26 +390,39 @@ mod tests {
 
     #[test]
     fn escape_closing_a_modal_swallows_repeats_and_matching_key_up() {
-        let mut rest = 0;
-        let mut swallowed = false;
+        let mut state = InputState::default();
         // First Escape closes the modal and is swallowed.
-        assert_eq!(dispatch_message(WM_KEYDOWN, 0x1b, 0, &mut rest, &mut swallowed, true, |_| (true, false)), MessageRoute::Swallow);
-        assert!(swallowed);
+        assert_eq!(dispatch_message(WM_KEYDOWN, 0x1b, 0, &mut state, true, |_| (true, false)), MessageRoute::Swallow);
+        assert!(state.escape_swallowed);
         // Auto-repeat before release stays swallowed without invoking the handler.
-        assert_eq!(
-            dispatch_message(WM_KEYDOWN, 0x1b, 1 << 30, &mut rest, &mut swallowed, false, |_| panic!("repeat must be suppressed")),
-            MessageRoute::Swallow
-        );
-        assert!(swallowed);
+        assert_eq!(dispatch_message(WM_KEYDOWN, 0x1b, 1 << 30, &mut state, false, |_| panic!("repeat must be suppressed")), MessageRoute::Swallow);
+        assert!(state.escape_swallowed);
         // Matching key-up is swallowed and resets state.
-        assert_eq!(dispatch_message(WM_KEYUP, 0x1b, 0, &mut rest, &mut swallowed, false, |_| (false, false)), MessageRoute::Swallow);
-        assert!(!swallowed);
+        assert_eq!(dispatch_message(WM_KEYUP, 0x1b, 0, &mut state, false, |_| (false, false)), MessageRoute::Swallow);
+        assert!(!state.escape_swallowed);
         // Next Escape reaches the game (e.g. to close the in-game menu).
-        assert_eq!(dispatch_message(WM_KEYDOWN, 0x1b, 0, &mut rest, &mut swallowed, false, |_| (false, false)), MessageRoute::ForwardToGame);
-        assert!(!swallowed);
-        // Losing focus clears any pending Escape suppression.
-        swallowed = true;
-        assert_eq!(dispatch_message(WM_KILLFOCUS, 0, 0, &mut rest, &mut swallowed, false, |_| (false, false)), MessageRoute::ForwardToGame);
-        assert!(!swallowed);
+        assert_eq!(dispatch_message(WM_KEYDOWN, 0x1b, 0, &mut state, false, |_| (false, false)), MessageRoute::ForwardToGame);
+        assert!(!state.escape_swallowed);
+        // Left-button release without a swallowed press reaches the game even while modal is open.
+        assert_eq!(dispatch_message(WM_LBUTTONUP, 0, 0, &mut state, true, |_| (true, true)), MessageRoute::ForwardToGame);
+        // Left-button press swallowed by modal pairs with its matching release.
+        assert_eq!(dispatch_message(WM_LBUTTONDOWN, 0, 0, &mut state, true, |_| (true, true)), MessageRoute::Swallow);
+        assert!(state.lbutton_swallowed);
+        assert_eq!(dispatch_message(WM_LBUTTONUP, 0, 0, &mut state, true, |_| (true, true)), MessageRoute::Swallow);
+        assert!(!state.lbutton_swallowed);
+        // Losing focus clears pending suppressions and notifies the framework UI.
+        state.escape_swallowed = true;
+        state.lbutton_swallowed = true;
+        let mut got_focus_lost = false;
+        assert_eq!(
+            dispatch_message(WM_KILLFOCUS, 0, 0, &mut state, true, |e| {
+                got_focus_lost = e == Event::FocusLost;
+                (false, true)
+            }),
+            MessageRoute::ForwardToGame
+        );
+        assert!(got_focus_lost);
+        assert!(!state.escape_swallowed);
+        assert!(!state.lbutton_swallowed);
     }
 }

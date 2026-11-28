@@ -102,18 +102,33 @@ impl Registry {
         }
     }
 
-    fn add(&mut self, scope: usize, role: Role, root: Option<usize>, nodes: Vec<usize>, shown: bool) -> Result<Key> {
-        let key = self.key();
-        self.course.register(key, scope as u64, role, shown)?;
-        let token = self.course.bind(key)?;
+    pub(super) fn add(&mut self, scope: usize, role: Role, root: Option<usize>, nodes: Vec<usize>, shown: bool) -> Result<Key> {
+        let mut seen = BTreeSet::new();
         for &node in &nodes {
-            if self.nodes.insert(node, key).is_some() {
+            if !seen.insert(node) || self.nodes.contains_key(&node) {
                 return Err("a scene node belongs to two ordering entries".into());
             }
+        }
+        let key = self.key();
+        self.course.register(key, scope as u64, role, shown)?;
+        let token = match self.course.bind(key) {
+            Ok(token) => token,
+            Err(e) => {
+                self.course.remove(key);
+                return Err(e.into());
+            }
+        };
+        for &node in &nodes {
+            self.nodes.insert(node, key);
         }
         self.entries.insert(key, Entry { scope, role, root, nodes, token: Some(token), appearance: 0 });
         self.dirty = true;
         Ok(key)
+    }
+
+    #[cfg(test)]
+    pub(super) fn tracks_node(&self, node: usize) -> bool {
+        self.nodes.contains_key(&node)
     }
 
     /// Close intent retires logical identities before their native teardown.
@@ -251,7 +266,10 @@ impl Registry {
         }
         let ordered: Vec<_> = full.into_iter().filter(|node| requested.contains(node)).collect();
         self.scopes.insert(parent, Scope { floor, host: Some(host) });
-        self.add(parent, Role::Attached, None, ordered, true)?;
+        if let Err(e) = self.add(parent, Role::Attached, None, ordered, true) {
+            self.scopes.remove(&parent);
+            return Err(e);
+        }
         Ok(())
     }
 

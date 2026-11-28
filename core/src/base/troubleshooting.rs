@@ -61,15 +61,19 @@ pub fn start() {
         *state = State::Packing;
     }
     let spawned = std::thread::Builder::new().name("harmony troubleshooting".into()).spawn(|| {
-        let done = match pack() {
-            Ok((file, bytes)) => {
+        let done = match std::panic::catch_unwind(pack) {
+            Ok(Ok((file, bytes))) => {
                 log!("troubleshooting files saved to {} ({bytes} bytes)", file.display());
                 let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 State::Saved(format!("{name} ({})", format_bytes(bytes)))
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 log!("troubleshooting files not saved: {e}");
                 State::Failed(e)
+            }
+            Err(_) => {
+                log!("troubleshooting files not saved: internal error");
+                State::Failed("internal error".into())
             }
         };
         *STATE.lock().unwrap_or_else(|e| e.into_inner()) = done;
@@ -267,9 +271,10 @@ fn redact_game_settings(text: &str) -> String {
         };
         let trimmed = body.trim_start();
         let indent = &body[..body.len() - trimmed.len()];
-        let matched = REDACTED_GAME_SETTINGS_KEYS
-            .iter()
-            .find(|&&key| trimmed.len() > key.len() && trimmed[..key.len()].eq_ignore_ascii_case(key) && trimmed[key.len()..].trim_start().starts_with('='));
+        let matched = REDACTED_GAME_SETTINGS_KEYS.iter().find(|&&key| {
+            trimmed.as_bytes().get(..key.len()).is_some_and(|head| head.eq_ignore_ascii_case(key.as_bytes()))
+                && trimmed[key.len()..].trim_start().starts_with('=')
+        });
         if let Some(&key) = matched {
             let orig_key = &trimmed[..key.len()];
             out.push_str(indent);
@@ -688,10 +693,19 @@ fn pack() -> crate::base::Result<(PathBuf, u64)> {
         }
     }
     let (path, file) = chosen.ok_or("no unused troubleshooting filename")?;
+    struct RemoveOnDrop(Option<PathBuf>);
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            if let Some(p) = self.0.take() {
+                let _ = std::fs::remove_file(p);
+            }
+        }
+    }
+    let mut cleanup = RemoveOnDrop(Some(path.clone()));
     if let Err(e) = collect(file, sources, summary, Some(&windows_crashes), dos_time(&t)) {
-        let _ = std::fs::remove_file(&path);
         return Err(format!("cannot write {}: {e}", path.display()));
     }
+    cleanup.0 = None;
     let bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
     Ok((path, bytes))
 }
@@ -997,5 +1011,27 @@ mod tests {
         assert!(!packed.contains("198.51.100.7"), "{packed}");
         assert!(packed.contains("language=\"l_english\""), "{packed}");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn redact_game_settings_handles_multibyte_utf8_across_key_byte_lengths() {
+        let input = concat!(
+            "last_mods={\n",
+            "\t\"mod/中文测试.mod\"\n",
+            "\t\"mod/中文汉化.mod\"\n",
+            "\t\"mod/日本語テスト.mod\"\n",
+            "\t\"mod/café_über.mod\"\n",
+            "}\n",
+            "last_player_name=\"玩家\"\n",
+            "server_ip=\"192.0.2.1\"\n",
+        );
+        let redacted = redact_game_settings(input);
+        assert!(redacted.contains("\"mod/中文测试.mod\""));
+        assert!(redacted.contains("\"mod/中文汉化.mod\""));
+        assert!(redacted.contains("\"mod/日本語テスト.mod\""));
+        assert!(redacted.contains("last_player_name=\"[redacted]\""));
+        assert!(redacted.contains("server_ip=\"[redacted]\""));
+        assert!(!redacted.contains("玩家"));
+        assert!(!redacted.contains("192.0.2.1"));
     }
 }
