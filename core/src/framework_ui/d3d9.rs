@@ -5,6 +5,7 @@ use super::text::{UiFont, PAGE};
 use super::widgets::{Color, Command, Rect};
 use std::ffi::c_void;
 use windows::core::Interface;
+use windows::Win32::Foundation::RECT;
 use windows::Win32::Graphics::Direct3D9::*;
 
 #[repr(C)]
@@ -41,6 +42,68 @@ fn quad(out: &mut Vec<Vertex>, r: Rect, color: Color, uv: Option<Rect>) {
     let (u0, v0, u1, v1) = uv.map_or((0.0, 0.0, 0.0, 0.0), |t| (t.x / PAGE as f32, t.y / PAGE as f32, (t.x + t.w) / PAGE as f32, (t.y + t.h) / PAGE as f32));
     let v = |x, y, u, v| Vertex { x, y, z: 0.0, rhw: 1.0, color, u, v };
     out.extend([v(x0, y0, u0, v0), v(x1, y0, u1, v0), v(x0, y1, u0, v1), v(x1, y0, u1, v0), v(x1, y1, u1, v1), v(x0, y1, u0, v1)]);
+}
+
+const CORNER_STEPS: usize = 6;
+
+fn rounded_ring(r: Rect, radius: f32) -> [(f32, f32); (CORNER_STEPS + 1) * 4] {
+    use std::f32::consts::{FRAC_PI_2, PI};
+    let (x0, y0, x1, y1) = (r.x - 0.5, r.y - 0.5, r.x + r.w - 0.5, r.y + r.h - 0.5);
+    let rad = radius.min(r.w / 2.0).min(r.h / 2.0).max(0.0);
+    let corners = [(x0 + rad, y0 + rad, PI), (x1 - rad, y0 + rad, PI + FRAC_PI_2), (x1 - rad, y1 - rad, 0.0), (x0 + rad, y1 - rad, FRAC_PI_2)];
+    let mut ring = [(0.0, 0.0); (CORNER_STEPS + 1) * 4];
+    let mut k = 0;
+    for (cx, cy, start) in corners {
+        for s in 0..=CORNER_STEPS {
+            let a = start + FRAC_PI_2 * (s as f32 / CORNER_STEPS as f32);
+            ring[k] = (cx + a.cos() * rad, cy + a.sin() * rad);
+            k += 1;
+        }
+    }
+    ring
+}
+
+fn round_quad(out: &mut Vec<Vertex>, r: Rect, color: Color, radius: f32) {
+    if r.w <= 0.0 || r.h <= 0.0 {
+        return;
+    }
+    if radius <= 0.5 {
+        quad(out, r, color, None);
+        return;
+    }
+    let ring = rounded_ring(r, radius);
+    let center = Vertex { x: r.x + r.w / 2.0 - 0.5, y: r.y + r.h / 2.0 - 0.5, z: 0.0, rhw: 1.0, color, u: 0.0, v: 0.0 };
+    let v = |(x, y): (f32, f32)| Vertex { x, y, z: 0.0, rhw: 1.0, color, u: 0.0, v: 0.0 };
+    for i in 0..ring.len() {
+        let a = ring[i];
+        let b = ring[(i + 1) % ring.len()];
+        out.extend([center, v(a), v(b)]);
+    }
+}
+
+fn round_stroke(out: &mut Vec<Vertex>, r: Rect, color: Color, radius: f32, thickness: f32) {
+    if r.w <= 0.0 || r.h <= 0.0 {
+        return;
+    }
+    let t = thickness.max(1.0).min(r.w / 2.0).min(r.h / 2.0);
+    if radius <= 0.5 {
+        quad(out, Rect { x: r.x, y: r.y, w: r.w, h: t }, color, None);
+        quad(out, Rect { x: r.x, y: r.y + r.h - t, w: r.w, h: t }, color, None);
+        if r.h > 2.0 * t {
+            quad(out, Rect { x: r.x, y: r.y + t, w: t, h: r.h - 2.0 * t }, color, None);
+            quad(out, Rect { x: r.x + r.w - t, y: r.y + t, w: t, h: r.h - 2.0 * t }, color, None);
+        }
+        return;
+    }
+    let inner = Rect { x: r.x + t, y: r.y + t, w: (r.w - 2.0 * t).max(0.0), h: (r.h - 2.0 * t).max(0.0) };
+    let outer_ring = rounded_ring(r, radius);
+    let inner_ring = rounded_ring(inner, (radius - t).max(0.0));
+    let v = |(x, y): (f32, f32)| Vertex { x, y, z: 0.0, rhw: 1.0, color, u: 0.0, v: 0.0 };
+    for i in 0..outer_ring.len() {
+        let j = (i + 1) % outer_ring.len();
+        let (o0, o1, i0, i1) = (v(outer_ring[i]), v(outer_ring[j]), v(inner_ring[i]), v(inner_ring[j]));
+        out.extend([o0, o1, i0, o1, i1, i0]);
+    }
 }
 
 impl Backend {
@@ -157,11 +220,11 @@ impl Backend {
 
     unsafe fn draw_scene(&mut self, device: &IDirect3DDevice9, font: &UiFont, commands: &[Command], scale: f32) -> windows::core::Result<()> {
         // Lay out text first, so the page holds every glyph before it is uploaded.
-        let texts: Vec<(&str, f32, f32, f32)> = commands
+        let texts: Vec<(Option<&crate::base::settings::Face>, &str, f32, f32, f32)> = commands
             .iter()
             .filter_map(|c| match c {
-                Command::Text { x, y, text, size, .. } => Some((text.as_str(), *size, *x, *y)),
-                Command::Fill { .. } => None,
+                Command::Text { x, y, text, size, face, .. } => Some((face.as_ref(), text.as_str(), *size, *x, *y)),
+                Command::Fill { .. } | Command::RoundFill { .. } | Command::RoundStroke { .. } | Command::Clip(_) => None,
             })
             .collect();
         let texts = font.layout_frame(&texts);
@@ -171,6 +234,7 @@ impl Backend {
         }
         let state = self.state.clone().expect("state block just made");
         state.Capture()?;
+        let outline_step = scale.max(1.0).round();
         let drawn = (|| {
             Self::set_states(device)?;
             let mut vertices = Vec::new();
@@ -178,6 +242,22 @@ impl Backend {
             let mut next_text = texts.iter();
             for c in commands {
                 match c {
+                    Command::Clip(clip) => {
+                        Self::flush(device, &mut vertices, textured.then_some(&texture))?;
+                        if let Some(rect) = clip {
+                            let p = pixels(*rect, scale);
+                            let scissor = RECT {
+                                left: p.x.round().max(0.0) as i32,
+                                top: p.y.round().max(0.0) as i32,
+                                right: (p.x + p.w).round().max(0.0) as i32,
+                                bottom: (p.y + p.h).round().max(0.0) as i32,
+                            };
+                            device.SetScissorRect(&scissor)?;
+                            device.SetRenderState(D3DRS_SCISSORTESTENABLE, 1)?;
+                        } else {
+                            device.SetRenderState(D3DRS_SCISSORTESTENABLE, 0)?;
+                        }
+                    }
                     Command::Fill { rect, color } => {
                         if textured {
                             Self::flush(device, &mut vertices, Some(&texture))?;
@@ -185,12 +265,36 @@ impl Backend {
                         }
                         quad(&mut vertices, pixels(*rect, scale), *color, None);
                     }
-                    Command::Text { color, .. } => {
+                    Command::RoundFill { rect, color, radius } => {
+                        if textured {
+                            Self::flush(device, &mut vertices, Some(&texture))?;
+                            textured = false;
+                        }
+                        round_quad(&mut vertices, pixels(*rect, scale), *color, *radius * scale);
+                    }
+                    Command::RoundStroke { rect, color, radius, thickness } => {
+                        if textured {
+                            Self::flush(device, &mut vertices, Some(&texture))?;
+                            textured = false;
+                        }
+                        round_stroke(&mut vertices, pixels(*rect, scale), *color, *radius * scale, (*thickness * scale).max(1.0));
+                    }
+                    Command::Text { color, outline, .. } => {
                         if !textured {
                             Self::flush(device, &mut vertices, None)?;
                             textured = true;
                         }
                         let quads = next_text.next().expect("one layout per text");
+                        if *outline {
+                            const OFFSETS: [(f32, f32); 8] =
+                                [(-1.0, -1.0), (0.0, -1.0), (1.0, -1.0), (-1.0, 0.0), (1.0, 0.0), (-1.0, 1.0), (0.0, 1.0), (1.0, 1.0)];
+                            for q in quads {
+                                for (dx, dy) in OFFSETS {
+                                    let shifted = Rect { x: q.screen.x + dx * outline_step, y: q.screen.y + dy * outline_step, ..q.screen };
+                                    quad(&mut vertices, shifted, 0xd805080d, Some(q.page));
+                                }
+                            }
+                        }
                         for q in quads {
                             quad(&mut vertices, q.screen, *color, Some(q.page));
                         }

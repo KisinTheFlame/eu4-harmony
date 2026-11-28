@@ -77,10 +77,33 @@ const NAMES: &[(u16, &str)] = &[
     (950, "ExtraBlack"),
 ];
 
+/// The standard DirectWrite weight bucket nearest `weight`
+/// (`100, 200, 300, 350, 400, 500, 600, 700, 800, 900, 950`).
+pub fn weight_bucket(weight: u16) -> u16 {
+    NAMES.iter().min_by_key(|(w, _)| w.abs_diff(weight)).map_or(REGULAR, |&(w, _)| w)
+}
+
 /// The name of the standard weight nearest `weight`: for a weight whose font
 /// gives it no English name, or that no installed font has.
 pub fn weight_name(weight: u16) -> &'static str {
     NAMES.iter().min_by_key(|(w, _)| w.abs_diff(weight)).map_or("Regular", |(_, name)| name)
+}
+
+/// The framework localisation key for the standard weight bucket nearest `weight`.
+pub fn weight_key(weight: u16) -> &'static str {
+    match weight_bucket(weight) {
+        100 => "EU4HARMONY_WEIGHT_100",
+        200 => "EU4HARMONY_WEIGHT_200",
+        300 => "EU4HARMONY_WEIGHT_300",
+        350 => "EU4HARMONY_WEIGHT_350",
+        500 => "EU4HARMONY_WEIGHT_500",
+        600 => "EU4HARMONY_WEIGHT_600",
+        700 => "EU4HARMONY_WEIGHT_700",
+        800 => "EU4HARMONY_WEIGHT_800",
+        900 => "EU4HARMONY_WEIGHT_900",
+        950 => "EU4HARMONY_WEIGHT_950",
+        _ => "EU4HARMONY_WEIGHT_400",
+    }
 }
 
 /// One glyph's coverage, positioned against the pen on the baseline.
@@ -495,6 +518,12 @@ mod tests {
         assert_eq!(weight_name(290), "Light");
         assert_eq!(weight_name(350), "SemiLight");
         assert_eq!(weight_name(999), "ExtraBlack");
+        assert_eq!(weight_bucket(290), 300);
+        assert_eq!(weight_key(100), "EU4HARMONY_WEIGHT_100");
+        assert_eq!(weight_key(350), "EU4HARMONY_WEIGHT_350");
+        assert_eq!(weight_key(400), "EU4HARMONY_WEIGHT_400");
+        assert_eq!(weight_key(700), "EU4HARMONY_WEIGHT_700");
+        assert_eq!(weight_key(999), "EU4HARMONY_WEIGHT_950");
         assert_eq!(Face::new("KaiTi", 700).to_string(), "\"KaiTi\" 700");
     }
 

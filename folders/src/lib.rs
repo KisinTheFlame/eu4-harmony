@@ -5,7 +5,7 @@
 //! is found in one order and a file of the user folder is named in one place.
 use std::{
     path::{Path, PathBuf},
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 
 mod item_id;
@@ -49,6 +49,79 @@ pub fn captured_dump_id(name: &str) -> Option<(u32, u64)> {
 /// Windows Error Reporting's default folder for the current Windows account.
 pub fn windows_dump_root() -> Option<PathBuf> {
     std::env::var_os("LOCALAPPDATA").filter(|path| !path.is_empty()).map(PathBuf::from).filter(|path| path.is_absolute()).map(|path| path.join("CrashDumps"))
+}
+
+/// Default total-size and age limits for Harmony-owned Windows dump folders.
+pub const DUMP_MAX_BYTES: u64 = 256 * 1024 * 1024;
+pub const DUMP_MAX_AGE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+
+/// File names written by Windows Error Reporting LocalDumps for `eu4.exe`.
+pub fn is_wer_dump(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.strip_prefix("eu4.exe.").and_then(|rest| rest.strip_suffix(".dmp")).is_some_and(|pid| !pid.is_empty() && pid.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Prunes Harmony-owned dump files in `dir` matching `is_ours`: removes oldest
+/// files first until count (when `max_files` is set), total bytes (`max_bytes`)
+/// and age (`max_age`) are within limits, while always keeping at least the
+/// newest matching dump. Never follows symlinks or touches unrelated files.
+pub fn prune_dumps(dir: &Path, max_files: Option<usize>, max_bytes: u64, max_age: Duration, is_ours: impl Fn(&str) -> bool) -> usize {
+    prune_dumps_at(dir, SystemTime::now(), max_files, max_bytes, max_age, is_ours)
+}
+
+fn prune_dumps_at(dir: &Path, now: SystemTime, max_files: Option<usize>, max_bytes: u64, max_age: Duration, is_ours: impl Fn(&str) -> bool) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+    let mut dumps: Vec<(SystemTime, String, u64, PathBuf)> = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !is_ours(&name) {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
+        #[cfg(windows)]
+        let reparse = {
+            use std::os::windows::fs::MetadataExt;
+            meta.file_attributes() & 0x400 != 0
+        };
+        #[cfg(not(windows))]
+        let reparse = meta.file_type().is_symlink();
+        if !meta.is_file() || reparse {
+            continue;
+        }
+        let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+        dumps.push((modified, name, meta.len(), path));
+    }
+    if dumps.len() <= 1 {
+        return 0;
+    }
+    // Sort oldest first; tie-break by name (timestamp-bearing names sort chronologically).
+    dumps.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    let mut remaining_files = dumps.len();
+    let mut remaining_bytes: u64 = dumps.iter().map(|d| d.2).fold(0u64, u64::saturating_add);
+    let mut removed = 0;
+    // Never remove the newest matching file (last element).
+    for (modified, _, size, path) in &dumps[..dumps.len() - 1] {
+        let over_count = max_files.is_some_and(|limit| remaining_files > limit);
+        let over_bytes = remaining_bytes > max_bytes;
+        let expired = now.duration_since(*modified).unwrap_or_default() > max_age;
+        if (over_count || over_bytes || expired) && std::fs::remove_file(path).is_ok() {
+            remaining_files -= 1;
+            remaining_bytes = remaining_bytes.saturating_sub(*size);
+            removed += 1;
+        }
+    }
+    removed
+}
+
+/// Prunes both Harmony-owned Windows dump folders (`eu4-harmony` and
+/// `eu4-harmony-wer`) under `%LOCALAPPDATA%\CrashDumps`.
+pub fn prune_harmony_dumps() -> usize {
+    let Some(root) = windows_dump_root() else { return 0 };
+    let mut removed = 0;
+    removed += prune_dumps(&root.join("eu4-harmony"), Some(5), DUMP_MAX_BYTES, DUMP_MAX_AGE, |name| captured_dump_id(name).is_some());
+    removed += prune_dumps(&root.join("eu4-harmony-wer"), None, DUMP_MAX_BYTES, DUMP_MAX_AGE, is_wer_dump);
+    removed
 }
 
 /// The game folder: `given`, a command's `--game-dir`; else `EU4_GAME_DIR`,
@@ -504,5 +577,30 @@ mod tests {
         assert_eq!(user_dir_of("eu4.exe -userdir=", Some(&game)).unwrap(), Path::new(r"D:\named"));
         assert_eq!(user_dir_of("eu4.exe", Some(&game)).unwrap(), Path::new(r"D:\named"));
         let _ = fs::remove_dir_all(game);
+    }
+
+    #[test]
+    fn prune_dumps_enforces_byte_and_age_limits_while_keeping_newest_and_unrelated_files() {
+        let dir = scratch("prune-dumps");
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+        let old = now - Duration::from_secs(40 * 24 * 60 * 60);
+        let recent = now - Duration::from_secs(10);
+        let put = |name: &str, len: usize, time: SystemTime| {
+            let p = dir.join(name);
+            fs::write(&p, vec![0u8; len]).unwrap();
+            let f = fs::OpenOptions::new().write(true).open(&p).unwrap();
+            f.set_modified(time).unwrap();
+        };
+        put("eu4.exe.100.dmp", 100, old);
+        put("eu4.exe.101.dmp", 600, recent - Duration::from_secs(5));
+        put("eu4.exe.102.dmp", 600, recent);
+        put("unrelated.dmp", 5000, old);
+        let removed = prune_dumps_at(&dir, now, None, 800, Duration::from_secs(30 * 24 * 60 * 60), is_wer_dump);
+        assert_eq!(removed, 2);
+        assert!(!dir.join("eu4.exe.100.dmp").exists());
+        assert!(!dir.join("eu4.exe.101.dmp").exists());
+        assert!(dir.join("eu4.exe.102.dmp").exists(), "newest dump is always kept");
+        assert!(dir.join("unrelated.dmp").exists(), "unrelated files are never touched");
+        let _ = fs::remove_dir_all(dir);
     }
 }

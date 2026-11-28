@@ -267,6 +267,28 @@ pub(super) fn restart_game(app: usize, argument: usize) -> usize {
     unsafe { ORIGINAL_RESTART.get()(app, argument) }
 }
 
+/// Asks the game's application to exit the main loop and relaunch `eu4.exe`
+/// with `-skiplauncher`, using the same native path as returning to the main
+/// menu. Must run on the main thread from a main-menu frame.
+pub(super) fn request_restart_from_main_menu(m: &Memory, frontend: usize) -> Result<(), String> {
+    if m.ptr(frontend)? != m.at(gui::classes::MAIN_MENU) {
+        return Err("unexpected main menu object".into());
+    }
+    let app = m.ptr(frontend + gui::main_menu::APPLICATION)?;
+    if app == 0 {
+        return Err("main menu has no application".into());
+    }
+    let mut arg = game_string::empty();
+    let arg_ptr = arg.as_mut_ptr() as usize;
+    game_string::append_checked(m, arg_ptr, b"-skiplauncher")?;
+    let args = [arg_ptr, arg_ptr + game_string::OBJECT, arg_ptr + game_string::OBJECT];
+    sessions::restarting();
+    restart_game(app, args.as_ptr() as usize);
+    let _ = game_string::destroy_checked(m, arg_ptr);
+    log!("leave: requested graceful restart from the main menu");
+    Ok(())
+}
+
 /// The session stays: the map manager no longer returns.
 pub(super) fn stay(m: &Memory) {
     if let Ok(Some(manager)) = map_manager(m) {
@@ -612,6 +634,7 @@ pub fn points() -> Vec<Point> {
         Point::jump(RETURN_EXIT_SAVE, "e8 98 64 db ff", "return exit save", returning_stub as *const () as usize, &RETURN_RESUME),
         Point::keep(RETURN_EXIT_SAVE_DONE, "48 8b 1d 81 62 c1 01", "return asks for the restart"),
         Point::replace(RESTART, "66 c7 81 83 00 00 00 01 01 48 81 c1 88 00 00 00", "restart", restart as Restart, &ORIGINAL_RESTART),
+        Point::keep(0x14c2510usize, "48 3b ca 74 0c 4c 8b 42 08 48 8b 12 e9 9f c6 d2 fe c3", "restart extra arguments vector"),
         Point::keep(MAIN_MENU, "48 8b c4 48 89 58 10 48 89 70 18 48 89 78 20 48 89 48 08", "main menu constructor"),
         // Startup makes the main menu of this size.
         Point::keep(0x205830usize, "b9 48 0b 00 00 e8 9a da 82 01", "main menu size"),

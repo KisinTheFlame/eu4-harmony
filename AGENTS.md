@@ -5,8 +5,8 @@ These rules hold for everyone who changes this repository, people and coding age
 ## Language
 
 - Code, comments, documentation, commit messages, logs and the startup report are in English.
-- Chinese appears only in [README.zh-CN.md](README.zh-CN.md), in localisation files (`*_l_simp_chinese.yml`), in what the Steam Workshop shows in that language (`workshop/*.schinese.*`; each language's files there are in that language), and as data: test inputs and in-game text quoted in notes. When you change README.md, change README.zh-CN.md to match, and the same for each language's file in `workshop/`.
-- In Chinese localisation files, use corner brackets (`「」`, `『』`) for quotation marks, never single or double quotes (`“”`, `‘’`, `"`, `'`).
+- Non-English text appears only in translated READMEs ([README.zh-CN.md](README.zh-CN.md), [README.ja.md](README.ja.md), [README.ko.md](README.ko.md)), in localisation files (`*_l_<language>.yml`), in what the Steam Workshop shows in each language (`workshop/description.<language>.bbcode`), and as data: test inputs and in-game text quoted in notes. When you change `README.md`, keep its translated counterparts in sync, and the same for each language's file in `workshop/`.
+- In Chinese localisation files (`*_l_simp_chinese.yml` and `*_l_trad_chinese.yml`), use corner brackets (`「」`, `『』`) for quotation marks, never single or double quotes (`“”`, `‘’`, `"`, `'`).
 - Use the terms in [GLOSSARY.md](GLOSSARY.md), and none of the words it lists under _Avoid_.
 - Spelling is American (color, neighbor, initialize), as in the code, except "localisation", which follows the game.
 

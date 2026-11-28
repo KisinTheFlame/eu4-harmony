@@ -73,9 +73,9 @@ usage:
       Builds the optimized player build and packs two versioned Windows x64
       ZIPs under <dir> (target\\dist by default): the framework's proxy and
       core, and the separate command line tool. Checks each archive's files
-      against the build. Packs Harmony's Workshop item and renders its
-      comparison images too, unless --no-workshop is given. GitHub publication
-      uses --no-workshop and needs neither the game nor Steam.
+      against the build. Packs Harmony's Workshop item too, unless
+      --no-workshop is given. GitHub publication uses --no-workshop and needs
+      neither the game nor Steam.
   cargo xtask workshop-upload --user <steam login> [--create]
       Uploads target\\workshop\\harmony\\ to Harmony's Workshop item with
       SteamCMD (STEAMCMD, else on PATH), which asks for the password itself,

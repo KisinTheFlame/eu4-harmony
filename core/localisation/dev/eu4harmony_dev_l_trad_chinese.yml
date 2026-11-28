@@ -1,0 +1,3 @@
+l_trad_chinese:
+ # 開發版的測試提示（dev.toml 的 [test-switches] test-notice）。
+ EU4HARMONY_TEST_NOTICE:0 "Harmony 測試提示 $NUMBER$。按右上角的按鈕關閉。"

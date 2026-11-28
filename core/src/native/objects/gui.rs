@@ -32,6 +32,7 @@ pub mod classes {
     pub const WINDOW_GUI: usize = 0x1d929d0;
     pub const ARMY_PANEL: usize = 0x1d87088;
     pub const MAIN_MENU: usize = 0x1d5a8c8;
+    pub const MAIN_MENU_FIRST_PAGE: usize = 0x1d5bf10;
     pub const EDIT_BOX: usize = 0x1d91358;
     /// An edit box's keyboard listener, at [`super::edit_box::LISTENER`].
     pub const EDIT_BOX_LISTENER: usize = 0x1d917d8;
@@ -244,6 +245,8 @@ pub mod main_menu {
     /// The pages, an array of pointers by page number, each to the page's
     /// interface.
     pub const PAGES: usize = 0x8e8;
+    /// The root window (`mainmenu`) held on page 0 (`classes::MAIN_MENU_FIRST_PAGE`).
+    pub const FIRST_PAGE_WINDOW: usize = 0x20;
     /// The application, as every idler keeps it, whose idler switch starts
     /// a game.
     pub use crate::native::objects::application::idler::APPLICATION;
@@ -533,6 +536,12 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x1543ff4usize, "48 8d 05 d5 e9 84 00", "window interface class").uses(&[classes::WINDOW_GUI]),
         Point::keep(0x144dfceusize, "48 8d 05 b3 90 93 00", "army panel class").uses(&[classes::ARMY_PANEL]),
         Point::keep(0x10d24e3usize, "48 8d 05 de 83 c8 00", "main menu class").uses(&[classes::MAIN_MENU]),
+        Point::keep(
+            0x10eb695usize,
+            "4d 8b e0 48 8b f1 48 89 51 08 48 8d 15 6a 08 c7 00 48 89 11 48 8d 15 20 08 c7 00 48 89 51 10 48 8d 05 25 08 c7 00 48 89 41 18 4c 89 41 20",
+            "main menu first page class and window",
+        )
+        .uses(&[classes::MAIN_MENU_FIRST_PAGE, main_menu::FIRST_PAGE_WINDOW]),
         Point::keep(0x15333d7usize, "48 8d 05 7a df 85 00", "edit box class").uses(&[classes::EDIT_BOX]),
         Point::keep(0x15333e1usize, "48 8d 05 d8 e1 85 00", "editor class").uses(&[classes::EDITOR]),
         // Methods the framework calls or compares.

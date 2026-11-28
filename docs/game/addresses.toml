@@ -586,6 +586,7 @@
 "0x1e5500" = { kind = "function", notes = ["game/program/startup.md"] }
 "0x1e5ea6" = { kind = "code", notes = ["game/provinces/provinces.md"] }
 "0x1ed4aa" = { kind = "code", notes = ["game/scripts/triggers.md"] }
+"0x1eebc0" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x1ef660" = { kind = "function", notes = ["game/program/saves.md"] }
 "0x1f6b20" = { kind = "function", notes = ["game/scripts/scripts.md"] }
 "0x1f7860" = { kind = "function", notes = ["game/provinces/provinces.md"] }
@@ -2263,6 +2264,7 @@
 "0x815bce" = { kind = "code", notes = ["game/interface/extension-windows.md"] }
 "0x815c9f" = { kind = "code", name = "return to main menu", notes = ["game/interface/main-menu.md"] }
 "0x815ca9" = { kind = "code", notes = ["game/day/safe-points.md"] }
+"0x815cc8" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x815cf3" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x815d23" = { kind = "code", notes = ["game/day/safe-points.md"] }
 "0x815d5c" = { kind = "code", notes = ["game/interface/main-menu.md"] }
@@ -4425,6 +4427,7 @@
 "0x10d5c4d" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x10d5cb1" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x10d8330" = { kind = "function", name = "main menu switched out", notes = ["game/interface/main-menu.md", "game/interface/window-construction.md"] }
+"0x10d8440" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x10d8eb8" = { kind = "code", notes = ["game/countries/achievements.md"] }
 "0x10da420" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x10da520" = { kind = "function", notes = ["game/day/frame-and-idlers.md", "game/interface/main-menu.md", "game/interface/window-construction.md", "game/program/saves.md", "game/program/world-interface-coupling.md"] }
@@ -4435,6 +4438,7 @@
 "0x10dc4f0" = { kind = "function", notes = ["game/interface/frame-lifecycle.md"] }
 "0x10dcb00" = { kind = "function", notes = ["game/interface/window-construction.md"] }
 "0x10e17f0" = { kind = "function", notes = ["game/interface/camera.md"] }
+"0x10eb5c0" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x10eb670" = { kind = "function", name = "main menu first page constructor", notes = ["game/interface/main-menu.md"] }
 "0x10ecfdb" = { kind = "code", notes = ["game/interface/main-menu.md"] }
 "0x10ed0d9" = { kind = "code", notes = ["game/interface/main-menu.md"] }
@@ -4448,6 +4452,9 @@
 "0x10ef410" = { kind = "function", notes = ["game/interface/main-menu.md", "game/program/save-transfer-copy.md"] }
 "0x10ef7ee" = { kind = "code", notes = ["game/program/save-transfer-copy.md"] }
 "0x10efb10" = { kind = "function", notes = ["game/interface/main-menu.md"] }
+"0x10eff90" = { kind = "function", notes = ["game/interface/main-menu.md"] }
+"0x10f0510" = { kind = "function", notes = ["game/interface/main-menu.md"] }
+"0x10f0860" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x1108700" = { kind = "function", notes = ["game/interface/main-menu.md"] }
 "0x11087b0" = { kind = "code", name = "single player setup classes", notes = ["game/interface/main-menu.md"] }
 "0x110b5c1" = { kind = "code", notes = ["game/interface/main-menu.md"] }
@@ -4899,7 +4906,7 @@
 "0x141548f" = { kind = "code", name = "ordinary tooltip hit return", notes = ["game/interface/panel-entry-text.md"] }
 "0x1415703" = { kind = "code", name = "submit the final tooltip aggregate", notes = ["game/interface/panel-entry-text.md"] }
 "0x14159d2" = { kind = "code", name = "the tooltip's place worked out", notes = ["game/interface/frame-lifecycle.md"] }
-"0x1415bf0" = { kind = "function", name = "prepare the final tooltip content", notes = ["game/interface/panel-entry-text.md"] }
+"0x1415bf0" = { kind = "function", name = "prepare the final tooltip content", notes = ["game/interface/main-menu.md", "game/interface/panel-entry-text.md"] }
 "0x14164a0" = { kind = "function", name = "offset the tooltip and keep it wholly on screen", notes = ["game/interface/frame-lifecycle.md"] }
 "0x1417b90" = { kind = "function", notes = ["game/provinces/trade-range-and-naval-supply.md"] }
 "0x1418e70" = { kind = "function", notes = ["game/military/units.md", "game/provinces/trade-range-and-naval-supply.md"] }

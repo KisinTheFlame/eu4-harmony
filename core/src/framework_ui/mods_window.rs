@@ -9,8 +9,8 @@ use crate::base::mods::Permissions;
 use std::sync::OnceLock;
 
 /// The window's width, and its list's.
-const WIDTH: f32 = 640.0;
-const LIST: f32 = 200.0;
+const WIDTH: f32 = 720.0;
+const LIST: f32 = 210.0;
 
 /// What the window shows of one mod.
 pub struct Card {

@@ -32,8 +32,10 @@ pub struct Quad {
 
 struct Cache {
     /// A glyph that did not fit on the page is kept with its advance alone,
-    /// and draws nothing until the page starts over.
-    glyphs: HashMap<(char, u32), Option<Placed>>,
+    /// and draws nothing until the page starts over. `None` uses `UiFont`'s
+    /// default face; `Some(face)` renders a specific font family/weight (for
+    /// font dropdown rows and live previews).
+    glyphs: HashMap<(Option<Face>, char, u32), Option<Placed>>,
     page: Page,
     /// Coverage, `PAGE * PAGE` bytes.
     pixels: Vec<u8>,
@@ -77,19 +79,20 @@ impl UiFont {
         self.scale.set(scale);
     }
 
-    /// The glyph for `c` at `size` pixels.
-    fn glyph(&self, c: char, size: f32) -> Option<Placed> {
-        let key = (c, size.to_bits());
+    /// The glyph for `c` in `face` (or the UI's default face when `None`) at `size` pixels.
+    fn glyph(&self, face: Option<&Face>, c: char, size: f32) -> Option<Placed> {
+        let key = (face.cloned(), c, size.to_bits());
         if let Some(found) = self.cache.borrow().glyphs.get(&key) {
             return *found;
         }
-        let placed = self.draw(c, size);
+        let placed = self.draw(face, c, size);
         self.cache.borrow_mut().glyphs.insert(key, placed);
         placed
     }
 
-    fn draw(&self, c: char, size: f32) -> Option<Placed> {
-        let face = self.fonts.face_for(&self.face, c as u32)?;
+    fn draw(&self, requested: Option<&Face>, c: char, size: f32) -> Option<Placed> {
+        let target = requested.unwrap_or(&self.face);
+        let face = self.fonts.face_for(target, c as u32)?;
         let mut bitmap = self.fonts.rasterize(&face, c as u32, size).ok()?;
         Tone::Light.apply(&mut bitmap.alpha);
         let mut cache = self.cache.borrow_mut();
@@ -110,14 +113,14 @@ impl UiFont {
 
     /// The glyphs of one line of text whose top-left is at (x, y), all in GUI
     /// units; the quads are in pixels.
-    fn layout(&self, text: &str, size: f32, x: f32, y: f32) -> Vec<Quad> {
+    fn layout(&self, face: Option<&Face>, text: &str, size: f32, x: f32, y: f32) -> Vec<Quad> {
         let scale = self.scale.get();
         let size = (size * scale).round();
         let baseline = (y * scale).round() + (size * 0.95).round();
         let mut pen = (x * scale).round();
         let mut out = Vec::new();
         for c in text.chars() {
-            let Some(g) = self.glyph(c, size) else { continue };
+            let Some(g) = self.glyph(face, c, size) else { continue };
             if g.w > 0 && g.h > 0 {
                 out.push(Quad {
                     screen: Rect { x: (pen + g.left as f32).round(), y: baseline + g.top as f32, w: g.w as f32, h: g.h as f32 },
@@ -129,15 +132,15 @@ impl UiFont {
         out
     }
 
-    /// The glyphs of each of a frame's texts, `(text, size, x, y)` as for
+    /// The glyphs of each of a frame's texts, `(face, text, size, x, y)` as for
     /// [`Self::layout`], all on the page as it is uploaded after. When a
     /// glyph did not fit, the page starts over and the frame's text is laid
     /// out again, onto a page that holds this frame's glyphs alone. A frame
     /// that needs more than the page holds goes without those that do not
     /// fit; frames after it find them so and draw without them, rather than
     /// start the page over each frame, until a new glyph does not fit.
-    pub fn layout_frame(&self, texts: &[(&str, f32, f32, f32)]) -> Vec<Vec<Quad>> {
-        let lay_out = || texts.iter().map(|&(text, size, x, y)| self.layout(text, size, x, y)).collect::<Vec<_>>();
+    pub fn layout_frame(&self, texts: &[(Option<&Face>, &str, f32, f32, f32)]) -> Vec<Vec<Quad>> {
+        let lay_out = || texts.iter().map(|&(face, text, size, x, y)| self.layout(face, text, size, x, y)).collect::<Vec<_>>();
         let quads = lay_out();
         if !self.take_overflowed() {
             return quads;
@@ -174,9 +177,13 @@ impl UiFont {
 
 impl Measure for UiFont {
     fn width(&self, text: &str, size: f32) -> f32 {
+        self.width_with(None, text, size)
+    }
+
+    fn width_with(&self, face: Option<&Face>, text: &str, size: f32) -> f32 {
         let scale = self.scale.get();
         let pixels = (size * scale).round();
-        text.chars().filter_map(|c| self.glyph(c, pixels)).map(|g| g.advance).sum::<f32>() / scale
+        text.chars().filter_map(|c| self.glyph(face, c, pixels)).map(|g| g.advance).sum::<f32>() / scale
     }
 
     fn wrap(&self, text: &str, size: f32, width: f32) -> Vec<String> {
@@ -249,7 +256,7 @@ mod tests {
             return;
         }
         let font = UiFont::new(&Face::regular("Microsoft YaHei")).unwrap();
-        let quads = font.layout("汉字", 18.0, 100.0, 50.0);
+        let quads = font.layout(None, "汉字", 18.0, 100.0, 50.0);
         assert_eq!(quads.len(), 2);
         assert!(quads[1].screen.x > quads[0].screen.x);
         assert!(quads.iter().all(|q| q.screen.y >= 50.0 && q.screen.y < 50.0 + 18.0));
@@ -280,7 +287,7 @@ mod tests {
         let font = UiFont::new(&Face::regular("Microsoft YaHei")).unwrap();
         // Characters this large fill the page with about a hundred.
         let text = |from: u32, n: u32| (from..from + n).filter_map(char::from_u32).collect::<String>();
-        let frame = |texts: &[String]| font.layout_frame(&texts.iter().map(|t| (t.as_str(), 100.0, 0.0, 0.0)).collect::<Vec<_>>()).concat();
+        let frame = |texts: &[String]| font.layout_frame(&texts.iter().map(|t| (None, t.as_str(), 100.0, 0.0, 0.0)).collect::<Vec<_>>()).concat();
         let first = [text(0x4e00, 60)];
         frame(&first);
         font.take_page().expect("the first frame's glyphs");
