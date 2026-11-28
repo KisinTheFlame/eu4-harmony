@@ -122,3 +122,6 @@ l_german:
  EU4HARMONY_DUMPS_DISABLE:0 "Windows-Absturzabbilder für EU4 deaktivieren (Admin)"
  EU4HARMONY_DUMPS_EXTERNAL:0 "Windows-Absturzabbilder für EU4 sind bereits extern eingerichtet."
  EU4HARMONY_DUMPS_DISABLE_FAILED:0 "Absturzabbilder konnten nicht deaktiviert werden: $ERROR$"
+ EU4HARMONY_VERSION_CODENAME_FORMAT:0 "$VERSION$ „$CODENAME$“"
+ EU4HARMONY_CHANNEL_BETA:0 "Beta"
+ EU4HARMONY_CODENAME_CONSTANTINOPLE:0 "Konstantinopel"

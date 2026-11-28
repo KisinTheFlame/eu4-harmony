@@ -299,17 +299,44 @@ struct CornerItem {
 
 const CORNER_TEXT_SIZE: f32 = 18.0;
 
+/// Formats a version badge with its optional localized city codename and beta
+/// channel label (for example `v1.0.0 "Constantinople"` or
+/// `v1.0.0「君士坦丁堡」内测版`).
+fn format_version_badge(version: &str, codename: Option<&str>, channel: eu4_harmony_folders::InstallChannel, words_with: mods_window::Words) -> String {
+    let base = format!("v{version}");
+    let with_codename = match codename.filter(|c| !c.trim().is_empty()) {
+        Some(name) => {
+            let key = format!("EU4HARMONY_CODENAME_{}", name.trim().to_ascii_uppercase().replace([' ', '-'], "_"));
+            let translated = words_with(&key, &[]);
+            let shown = if translated == key { name.trim() } else { translated.as_str() };
+            words_with("EU4HARMONY_VERSION_CODENAME_FORMAT", &[("VERSION", &base), ("CODENAME", shown)])
+        }
+        None => base,
+    };
+    if channel == eu4_harmony_folders::InstallChannel::Beta {
+        format!("{with_codename} {}", words_with("EU4HARMONY_CHANNEL_BETA", &[]))
+    } else {
+        with_codename
+    }
+}
+
+/// The active build's version badge for the corner bar and About page.
+fn active_version_badge(words_with: mods_window::Words) -> String {
+    format_version_badge(env!("CARGO_PKG_VERSION"), eu4_harmony_folders::VERSION_CODENAME, crate::base::paths::install_channel(), words_with)
+}
+
 /// The unified corner bar at the bottom right of the main menu and in-game
-/// menu (`Harmony vX.Y.Z | Mods | Settings`), ordered left-to-right.
-fn corner(context: CornerContext, screen: (f32, f32), measure: &dyn Measure, words: &dyn Fn(&str) -> String) -> Vec<CornerItem> {
+/// menu (`Harmony vX.Y.Z ["Codename"] [Beta] | Mods | Settings`), ordered
+/// left-to-right.
+fn corner(context: CornerContext, screen: (f32, f32), measure: &dyn Measure, words_with: mods_window::Words) -> Vec<CornerItem> {
     if context == CornerContext::None {
         return Vec::new();
     }
-    let version = format!("Harmony v{}", env!("CARGO_PKG_VERSION"));
+    let version = format!("Harmony {}", active_version_badge(words_with));
     let entries = vec![
         (version, Opens::About, true),
-        (words("EU4HARMONY_MODS_BUTTON"), Opens::Mods, false),
-        (words("EU4HARMONY_SETTINGS_BUTTON"), Opens::Settings, false),
+        (words_with("EU4HARMONY_MODS_BUTTON", &[]), Opens::Mods, false),
+        (words_with("EU4HARMONY_SETTINGS_BUTTON", &[]), Opens::Settings, false),
     ];
 
     let pad_x = 16.0;
@@ -614,7 +641,7 @@ fn about_page(troubleshooting: &crate::base::troubleshooting::State, words: &dyn
         Widget::PageHeader(words("EU4HARMONY_SETTINGS_PAGE_ABOUT")),
         Widget::AboutHero {
             name: "Harmony".into(),
-            version: format!("v{}", env!("CARGO_PKG_VERSION")),
+            version: active_version_badge(words_with),
             link_id: OPEN_ISSUES,
             link_label: words_with("EU4HARMONY_ABOUT_ISSUES", &[("ISSUES", ISSUES)]),
         },
@@ -1303,7 +1330,7 @@ impl<H: UiHost> Shell<H> {
             }
         }
         if let Down(x, y) = event {
-            let w = |key: &str| self.host.words(key, &[]);
+            let w = |key: &str, args: &[(&str, &str)]| self.host.words(key, args);
             let ctx = self.corner_context();
             let hit = corner(ctx, self.screen, measure, &w).into_iter().find(|item| item.rect.contains(x, y));
             match hit.map(|item| item.opens) {
@@ -1337,7 +1364,7 @@ impl<H: UiHost> Shell<H> {
         let mut out = Vec::new();
         let ctx = self.corner_context();
         if ctx != CornerContext::None && !self.modal() {
-            let w = |key: &str| self.host.words(key, &[]);
+            let w = |key: &str, args: &[(&str, &str)]| self.host.words(key, args);
             let items = corner(ctx, self.screen, measure, &w);
             if let (Some(first), Some(last)) = (items.first(), items.last()) {
                 let bar = Rect { x: first.rect.x, y: first.rect.y, w: last.rect.x + last.rect.w - first.rect.x, h: first.rect.h };
@@ -1402,7 +1429,7 @@ impl<H: UiHost> Shell<H> {
         }
         let ctx = self.corner_context();
         if ctx != CornerContext::None {
-            let w = |key: &str| self.host.words(key, &[]);
+            let w = |key: &str, args: &[(&str, &str)]| self.host.words(key, args);
             if corner(ctx, self.screen, measure, &w).into_iter().any(|item| item.rect.contains(x, y)) {
                 return Some(Default::default());
             }
@@ -1891,10 +1918,27 @@ mod tests {
             &keys_in,
         );
         let about = Page::ALL.iter().position(|&p| p == Page::About).unwrap();
-        let version = format!("v{}", env!("CARGO_PKG_VERSION"));
+        let version = active_version_badge(&keys_with);
         assert!(matches!(&window.pages[about][1], Widget::AboutHero { version: v, link_id: OPEN_ISSUES, .. } if *v == version));
         window.set_label_after(TROUBLESHOOTING, troubleshooting_line(&crate::base::troubleshooting::State::Saved("a.zip".into()), &keys_with));
         assert!(has_status_text(&window.pages[about], "EU4HARMONY_ABOUT_SAVED FILE=a.zip"));
+    }
+
+    #[test]
+    fn version_badge_formats_localized_codename_and_beta_channel() {
+        use eu4_harmony_folders::InstallChannel;
+        let in_lang = |lang: Language| move |key: &str, args: &[(&str, &str)]| loc::framework(lang, key, args);
+        assert_eq!(format_version_badge("0.4.0", None, InstallChannel::Public, &in_lang(Language::English)), "v0.4.0");
+        assert_eq!(format_version_badge("0.4.0", None, InstallChannel::Beta, &in_lang(Language::SimpChinese)), "v0.4.0 内测版");
+        assert_eq!(format_version_badge("1.0.0", Some("Constantinople"), InstallChannel::Public, &in_lang(Language::English)), "v1.0.0 \"Constantinople\"");
+        assert_eq!(format_version_badge("1.0.0", Some("Constantinople"), InstallChannel::Public, &in_lang(Language::SimpChinese)), "v1.0.0「君士坦丁堡」");
+        assert_eq!(format_version_badge("1.0.0", Some("Constantinople"), InstallChannel::Beta, &in_lang(Language::SimpChinese)), "v1.0.0「君士坦丁堡」 内测版");
+        assert_eq!(
+            format_version_badge("1.0.0", Some("Constantinople"), InstallChannel::Public, &in_lang(Language::Japanese)),
+            "v1.0.0「コンスタンティノープル」"
+        );
+        // Unlocalized future codename falls back cleanly to its English name.
+        assert_eq!(format_version_badge("2.0.0", Some("Samarkand"), InstallChannel::Public, &in_lang(Language::SimpChinese)), "v2.0.0「Samarkand」");
     }
 
     struct FixedMeasure;
@@ -2085,7 +2129,7 @@ mod tests {
     fn shell_corner_buttons_version_link_modal_stacking_and_expiry() {
         let mut shell = Shell::new(FakeHost::default());
         shell.sync_frame(10, Some(10), false, (1280.0, 720.0), 1.0);
-        let items = corner(CornerContext::MainMenu, shell.screen, &FixedMeasure, &keys);
+        let items = corner(CornerContext::MainMenu, shell.screen, &FixedMeasure, &keys_with);
         assert_eq!(items.len(), 3);
         let brand = items.iter().find(|i| i.opens == Opens::About).unwrap();
         assert!(brand.label.contains(env!("CARGO_PKG_VERSION")));
@@ -2170,7 +2214,7 @@ mod tests {
 
         shell.sync_frame(21, None, true, (1280.0, 720.0), 1.0);
         assert_eq!(shell.corner_context(), CornerContext::InGameMenu);
-        let items = corner(CornerContext::InGameMenu, shell.screen, &FixedMeasure, &keys);
+        let items = corner(CornerContext::InGameMenu, shell.screen, &FixedMeasure, &keys_with);
         assert_eq!(items.len(), 3);
         let mods_rect = items.iter().find(|i| i.opens == Opens::Mods).unwrap().rect;
         let settings_rect = items.iter().find(|i| i.opens == Opens::Settings).unwrap().rect;

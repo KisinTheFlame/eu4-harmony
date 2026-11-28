@@ -77,3 +77,35 @@ pub fn core_dir() -> Result<PathBuf> {
     let dll = core_file()?;
     dll.parent().map(Path::to_path_buf).ok_or_else(|| "the core has no folder".into())
 }
+
+/// Which distribution channel this running core was loaded from.
+pub fn install_channel() -> eu4_harmony_folders::InstallChannel {
+    static CHANNEL: OnceLock<eu4_harmony_folders::InstallChannel> = OnceLock::new();
+    if let Some(&channel) = CHANNEL.get() {
+        return channel;
+    }
+    let Some(game) = crate::base::game_dir() else {
+        return eu4_harmony_folders::InstallChannel::Other;
+    };
+    let channel = core_dir().map_or(eu4_harmony_folders::InstallChannel::Other, |core| eu4_harmony_folders::install_channel(game, &core));
+    *CHANNEL.get_or_init(|| channel)
+}
+
+/// English version string with optional city codename, for logs and reports
+/// (for example `1.0.0 "Constantinople"` or `0.4.0`).
+pub fn version_identity() -> String {
+    match eu4_harmony_folders::VERSION_CODENAME {
+        Some(codename) => format!("{} \"{codename}\"", env!("CARGO_PKG_VERSION")),
+        None => env!("CARGO_PKG_VERSION").to_string(),
+    }
+}
+
+/// Short English label for the active install channel in logs and reports.
+pub fn channel_tag(channel: eu4_harmony_folders::InstallChannel) -> Option<&'static str> {
+    match channel {
+        eu4_harmony_folders::InstallChannel::Beta => Some("beta"),
+        eu4_harmony_folders::InstallChannel::Public => Some("public"),
+        eu4_harmony_folders::InstallChannel::Local => Some("local"),
+        eu4_harmony_folders::InstallChannel::Other => None,
+    }
+}

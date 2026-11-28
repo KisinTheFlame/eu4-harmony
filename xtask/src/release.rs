@@ -8,6 +8,8 @@ use std::{fs, path::Path, process::Command};
 #[derive(Debug, Serialize)]
 pub struct Release {
     pub version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub codename: Option<String>,
     pub tag: String,
     pub commit: String,
     pub notes: String,
@@ -55,6 +57,17 @@ fn metadata(root: &Path) -> Result<Release> {
     if !version_number(version) {
         return Err(format!("{version:?} is not a canonical X.Y.Z release version"));
     }
+    let codename = match manifest.get("workspace").and_then(|v| v.get("metadata")).and_then(|v| v.get("harmony")).and_then(|v| v.get("codename")) {
+        Some(value) => {
+            let text = value
+                .as_str()
+                .map(str::trim)
+                .filter(|s| !s.is_empty() && !s.contains(['\n', '\r']))
+                .ok_or("Cargo.toml [workspace.metadata.harmony].codename must be a nonempty single-line string")?;
+            Some(text.to_string())
+        }
+        None => None,
+    };
     let lock: toml::Value = toml::from_str(&read(root, "Cargo.lock")?).map_err(|e| format!("Cargo.lock: {e}"))?;
     let packages = lock.get("package").and_then(toml::Value::as_array).ok_or("Cargo.lock has no packages")?;
     let mut internal = 0;
@@ -69,7 +82,7 @@ fn metadata(root: &Path) -> Result<Release> {
     }
     let notes = changelog_section(&read(root, "CHANGELOG.md")?, version).ok_or_else(|| format!("CHANGELOG.md has no nonempty section for {version}"))?;
     let (framework_asset, cli_asset) = artifact_names(version);
-    Ok(Release { version: version.into(), tag: format!("v{version}"), commit: String::new(), notes, framework_asset, cli_asset })
+    Ok(Release { version: version.into(), codename, tag: format!("v{version}"), commit: String::new(), notes, framework_asset, cli_asset })
 }
 
 pub fn git(root: &Path, args: &[&str]) -> Result<String> {
@@ -209,7 +222,15 @@ mod tests {
     #[test]
     fn internal_versions_and_the_change_note_must_match() {
         let f = Fixture::new();
-        assert_eq!(metadata(&f.root).unwrap().version, "0.2.0");
+        let meta = metadata(&f.root).unwrap();
+        assert_eq!(meta.version, "0.2.0");
+        assert_eq!(meta.codename, None);
+        fs::write(f.root.join("Cargo.toml"), "[workspace.package]\nversion = \"0.2.0\"\n\n[workspace.metadata.harmony]\ncodename = \"Constantinople\"\n")
+            .unwrap();
+        assert_eq!(metadata(&f.root).unwrap().codename.as_deref(), Some("Constantinople"));
+        fs::write(f.root.join("Cargo.toml"), "[workspace.package]\nversion = \"0.2.0\"\n\n[workspace.metadata.harmony]\ncodename = \"   \"\n").unwrap();
+        assert!(metadata(&f.root).unwrap_err().contains("codename"));
+        fs::write(f.root.join("Cargo.toml"), "[workspace.package]\nversion = \"0.2.0\"\n").unwrap();
         let lock = read(&f.root, "Cargo.lock").unwrap();
         fs::write(f.root.join("Cargo.lock"), lock.replace("version = \"0.2.0\"", "version = \"0.1.5\"")).unwrap();
         assert!(metadata(&f.root).unwrap_err().contains("internal package"));

@@ -148,7 +148,7 @@ fn framework_has(game_dir: &Path, start: &Start) -> Result<()> {
                 return Err(format!("Harmony is not installed in {}: {} is missing", game_dir.display(), proxy.display()));
             }
             eu4_harmony_folders::active_core(game_dir).ok_or_else(|| {
-                let places = eu4_harmony_folders::core_places(game_dir, eu4_harmony_folders::PUBLISHED_FILE_ID);
+                let places = eu4_harmony_folders::default_core_places(game_dir);
                 let looked: Vec<String> = places.iter().map(|p| p.display().to_string()).collect();
                 format!("Harmony's core DLL was not found; looked at {}", looked.join(", "))
             })?
@@ -278,7 +278,7 @@ mod tests {
 
         // Workshop core satisfies shown start, hidden start once it carries `-harmony_hidden`,
         // and muted start once it carries `-harmony_mute`.
-        if let Some(workshop_dir) = eu4_harmony_folders::workshop_item(&game, eu4_harmony_folders::PUBLISHED_FILE_ID) {
+        if let Some(workshop_dir) = eu4_harmony_folders::WORKSHOP_ITEM_IDS.into_iter().find_map(|id| eu4_harmony_folders::workshop_item(&game, id)) {
             let core = workshop_dir.join("eu4-harmony").join("eu4_harmony_core.dll");
             std::fs::create_dir_all(core.parent().unwrap()).unwrap();
             std::fs::write(&core, b"plain core").unwrap();

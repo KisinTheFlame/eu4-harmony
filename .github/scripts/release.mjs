@@ -11,8 +11,15 @@ function requireThat(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+export function releaseTitle(metadata) {
+  return metadata.codename ? `Harmony ${metadata.version} "${metadata.codename}"` : `Harmony ${metadata.version}`;
+}
+
 export function validateMetadata(metadata) {
   requireThat(metadata && VERSION.test(metadata.version), "Invalid release version");
+  if (metadata.codename !== undefined) {
+    requireThat(typeof metadata.codename === "string" && metadata.codename.trim().length > 0 && !/[\r\n]/.test(metadata.codename), "Invalid release codename");
+  }
   requireThat(metadata.tag === `v${metadata.version}`, "The tag and version differ");
   requireThat(/^[a-f0-9]{40}$/.test(metadata.commit), "Invalid release commit");
   requireThat(typeof metadata.notes === "string" && metadata.notes.trim(), "Missing release notes");
@@ -67,7 +74,7 @@ export async function ensureTag(api, metadata) {
   }
   const annotated = await api.request("POST", "/git/tags", {
     tag: metadata.tag,
-    message: `Release Harmony ${metadata.version}`,
+    message: `Release ${releaseTitle(metadata)}`,
     object: metadata.commit,
     type: "commit",
   });
@@ -139,7 +146,7 @@ export async function publishRelease({ api, metadata, artifacts, createTag = fal
     release = await api.request("PATCH", `/releases/${release.id}`, {
       tag_name: metadata.tag,
       target_commitish: metadata.commit,
-      name: `Harmony ${metadata.version}`,
+      name: releaseTitle(metadata),
       body: metadata.notes,
       draft: true,
       prerelease: false,
@@ -148,7 +155,7 @@ export async function publishRelease({ api, metadata, artifacts, createTag = fal
     release = await api.request("POST", "/releases", {
       tag_name: metadata.tag,
       target_commitish: metadata.commit,
-      name: `Harmony ${metadata.version}`,
+      name: releaseTitle(metadata),
       body: metadata.notes,
       draft: true,
       prerelease: false,

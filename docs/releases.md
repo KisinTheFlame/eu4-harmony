@@ -15,7 +15,7 @@ A framework installed from the ZIP is updated by downloading and extracting a ne
 
 ## Publishing a version
 
-Raise `workspace.package.version` in `Cargo.toml`, update every internal package version in `Cargo.lock`, and add a nonempty `## X.Y.Z` section to `CHANGELOG.md`. Keep a canonical three-part version, for example `0.2.1`. The same changelog section supplies the GitHub notes and any local Workshop upload's change note.
+Raise `workspace.package.version` in `Cargo.toml` (and optionally set `[workspace.metadata.harmony].codename` to a major-version city codename such as `"Constantinople"`), update every internal package version in `Cargo.lock`, and add a nonempty `## X.Y.Z` section to `CHANGELOG.md`. Keep a canonical three-part version, for example `1.0.0`. The same changelog section supplies the GitHub notes and any local public Workshop upload's change note, and the optional codename appears in the GitHub Release title, in-game corner bar and About page, and framework logs.
 
 Complete the local game-dependent checks appropriate to the runtime changes and merge the version PR. That merge is the release approval. The Release workflow compares the workspace version before and after the merge. It publishes an increase, skips an unchanged version and refuses a lowered or malformed version.
 
@@ -54,16 +54,22 @@ Do not move a version tag. A fix to source used for publication, including workf
 
 `cargo xtask release-check --out target/dist` checks clean source merged into master and writes internal `release.json` metadata. It does not need the tag yet. Add `--tag vX.Y.Z` when checking an existing local and remote tag at HEAD. This metadata is passed between workflow jobs and is not a Release attachment.
 
-`cargo xtask release` creates the two ZIPs in `target/dist`, preserving that metadata, and also packs `target/workshop/harmony`. Use `--out <folder>` for another package folder or `--no-workshop` to skip the Workshop item. Every archive is checked for its exact file set and bytes against the player build.
+`cargo xtask release` creates the two ZIPs in `target/dist`, preserving that metadata, and also packs `target/workshop/harmony` (or `target/workshop/harmony-beta` with `--channel beta`). Use `--out <folder>` for another package folder or `--no-workshop` to skip the Workshop item. Every archive is checked for its exact file set and bytes against the player build.
 
-Workshop upload is independent of GitHub publication. From a clean checkout of the automatically created version tag, pack the item and upload locally:
+Workshop upload is independent of GitHub publication. For the public channel, from a clean checkout of the automatically created version tag, build the media covers, pack the item and upload locally:
 
 ```bash
+python workshop/media/build.py
 cargo xtask release
-```
-
-```bash
 cargo xtask workshop-upload --user <steam-login>
 ```
 
-SteamCMD handles authentication locally. The command requires the existing local and remote tag to select HEAD, that commit merged into master, and the packed stamp, version and item id to match. A detached checkout is supported. Upload never creates or moves a tag. The initial creation of a Workshop item still uses `--create` and records its id in `workshop/item.toml`; see [development tools](dev-tools.md#the-first-upload).
+For the beta channel (`beta_published_file_id` in `workshop/item.toml`), no version tag is required: pack and upload any clean commit merged into `origin/master` (or any clean branch with `--allow-branch`), optionally passing `--note "..."`:
+
+```bash
+python workshop/media/build.py
+cargo xtask release --channel beta
+cargo xtask workshop-upload --user <steam-login> --channel beta
+```
+
+SteamCMD handles authentication locally. Public uploads require the existing local and remote tag to select HEAD, that commit merged into master, and the packed stamp, version, channel and item id to match. A detached checkout is supported. Upload never creates or moves a tag. Initial creation of a channel's Workshop item uses `--create` (with `--channel public` or `--channel beta`) and records its id in `workshop/item.toml`; see [development tools](dev-tools.md#the-first-upload).

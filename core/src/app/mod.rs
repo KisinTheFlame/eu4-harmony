@@ -190,7 +190,7 @@ fn bootstrap() -> std::result::Result<(), Failure> {
     base::MAIN_THREAD.store(base::thread_id(), Ordering::Relaxed);
     let game_dir = paths::game_dir()?;
     // The log stays buffered until the user directory is known (deferred_init).
-    log!("eu4-harmony core {}{} bootstrap in {}", env!("CARGO_PKG_VERSION"), build(), game_dir.display());
+    log!("eu4-harmony core {}{} bootstrap in {}", paths::version_identity(), build(), game_dir.display());
     tweaks::hidden::read_switches();
     let found = proxy::interface(&game_dir);
     base::set_game_dir(game_dir);
@@ -210,20 +210,24 @@ fn bootstrap() -> std::result::Result<(), Failure> {
     Ok(())
 }
 
-/// What this core is, after its version: its api, and in a developer build
-/// or test-games build what it is.
+/// What this core is, after its version: its api, channel when known, and in a
+/// developer build or test-games build what it is.
 fn build() -> String {
-    let api = format!(" (api {})", eu4_harmony_remote::API_VERSION);
+    let mut parts = vec![format!("api {}", eu4_harmony_remote::API_VERSION)];
+    if let Some(channel) = paths::channel_tag(paths::install_channel()) {
+        parts.push(channel.to_string());
+    }
+    let meta = format!(" ({})", parts.join(", "));
     match base::build_label() {
-        Some(label) => format!("{api}, {label}"),
-        None => api,
+        Some(label) => format!("{meta}, {label}"),
+        None => meta,
     }
 }
 
 /// The report's first lines: this core, and the game folder when it is known;
 /// in a developer build, its tools' options.
 fn report_header(game_dir: Option<&std::path::Path>) {
-    report::line(format!("Harmony {}{}, started {}", env!("CARGO_PKG_VERSION"), build(), log::now()));
+    report::line(format!("Harmony {}{}, started {}", paths::version_identity(), build(), log::now()));
     report::line(format!("run: {}, process {}", eu4_harmony_logging::run_id(), std::process::id()));
     if let Ok(path) = paths::core_file() {
         let metadata = path.metadata().ok();

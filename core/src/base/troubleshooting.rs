@@ -331,8 +331,9 @@ fn sources(user: &UserFolder) -> crate::base::Result<(Vec<Source>, usize)> {
 
 /// This core, when and where it runs, the command line and the playset.
 fn about(user: &UserFolder, now: &str) -> Vec<String> {
+    let channel = crate::base::paths::channel_tag(crate::base::paths::install_channel()).map_or(String::new(), |c| format!(", {c}"));
     let mut lines = vec![
-        format!("Harmony {} (api {})", env!("CARGO_PKG_VERSION"), eu4_harmony_remote::API_VERSION),
+        format!("Harmony {} (api {}{channel})", crate::base::paths::version_identity(), eu4_harmony_remote::API_VERSION),
         format!("packed {now}"),
         format!("game: {}", crate::base::game_dir().map_or("not known".into(), |d| d.display().to_string())),
         format!("user folder: {}", user.path().display()),

@@ -170,7 +170,7 @@ fn attach(instance: HMODULE) {
     let core_path = match &named {
         Some(path) => path.clone(),
         None => {
-            let places = eu4_harmony_folders::core_places(&dir, eu4_harmony_folders::PUBLISHED_FILE_ID);
+            let places = eu4_harmony_folders::default_core_places(&dir);
             match places.iter().find(|p| p.is_file()) {
                 Some(found) => found.clone(),
                 None => {
