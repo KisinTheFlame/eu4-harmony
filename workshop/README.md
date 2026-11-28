@@ -4,7 +4,7 @@ The sources of what the Steam Workshop shows of Harmony ([docs/releases.md](../d
 
 | File | What it is |
 | --- | --- |
-| `item.toml` | `published_file_id` (public item, 0 until created) and `beta_published_file_id` (beta item). The proxy is built with both official ids, preferring beta over public when both are subscribed |
+| `item.toml` | `published_file_id` (public item, 0 until created), `beta_published_file_id` (beta item), and `[featured_mods]` companion Workshop ids used by `media/build.py`. The proxy is built with both official Harmony ids, preferring beta over public when both are subscribed |
 | `descriptor.mod` | The item's descriptor template, `{version}` filled in with the workspace's version, `name` rewritten to `Harmony (Beta)` on the beta channel, and `remote_file_id` added once the channel's item has an id |
 | `media/raw/` | Clean text-free raw source artwork (`thumbnail-base.png`, `banner-base.png`) and unannotated in-game captures. Generated text-overlaid images are never committed |
 | `media/build.py` | Deterministic Pillow build script (`python workshop/media/build.py`) that reads `Cargo.toml` and `item.toml` and renders the finished covers (`thumbnail.png`, `thumbnail-beta.png`, `thumbnail-zh.png`, 1024×1024, < 1 MiB), the Chinese README banner (`banner.zh-CN.jpg`), and 5 showcase slides (`01-cjk-fonts.png`–`05-install-guide.png`) into `target/workshop-media/`. Run it before `cargo xtask release` so the built cover is packed into `target\workshop\` |
