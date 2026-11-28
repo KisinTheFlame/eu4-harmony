@@ -103,7 +103,7 @@ pub(super) fn multiplayer_tooltip(target: usize) -> Option<Vec<u8>> {
     if target == 0 || MULTIPLAYER_BUTTON.load(Ordering::Relaxed) != target {
         return None;
     }
-    let words = crate::base::loc::framework(crate::base::lang::player(), "EU4HARMONY_MULTIPLAYER_UNSUPPORTED", &[]);
+    let words = crate::base::loc::framework(crate::base::lang::ui(), "EU4HARMONY_MULTIPLAYER_UNSUPPORTED", &[]);
     Some(crate::text::unicode::game_text::from_str(&words))
 }
 

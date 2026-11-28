@@ -330,12 +330,18 @@ impl SystemFonts {
     }
 
     /// The face that draws `scalar`: `face` when its family has it, else the
+    /// first fallback family for `language` that does, in the same weight.
+    pub fn face_for_language(&self, face: &Face, scalar: u32, language: Language) -> Option<Face> {
+        std::iter::once(face.clone())
+            .chain(fallback(language).map(|family| Face::new(family, face.weight)))
+            .find(|f| self.font(f).is_some_and(|font| unsafe { font.HasCharacter(scalar).is_ok_and(|has| has.as_bool()) }))
+    }
+
+    /// The face that draws `scalar`: `face` when its family has it, else the
     /// first fallback family for the player language that does, in the same
     /// weight.
     pub fn face_for(&self, face: &Face, scalar: u32) -> Option<Face> {
-        std::iter::once(face.clone())
-            .chain(fallback(crate::base::lang::player()).map(|family| Face::new(family, face.weight)))
-            .find(|f| self.font(f).is_some_and(|font| unsafe { font.HasCharacter(scalar).is_ok_and(|has| has.as_bool()) }))
+        self.face_for_language(face, scalar, crate::base::lang::player())
     }
 
     /// How far `face`'s lines reach above and below the baseline, in ems.

@@ -190,7 +190,7 @@ pub(super) fn with_restart_notice<T>(after_notice: impl FnOnce() -> T) -> Option
         return Some(after_notice());
     }
     let _handler = ConsoleRegistration::install();
-    let message = loc::framework(lang::player(), "EU4HARMONY_PROXY_RESTARTING", &[]);
+    let message = loc::framework(lang::ui(), "EU4HARMONY_PROXY_RESTARTING", &[]);
     *NOTICE_TEXT.lock().unwrap_or_else(|e| e.into_inner()) = message;
 
     let _window = NoticeWindow::spawn();

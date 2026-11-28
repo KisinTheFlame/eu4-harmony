@@ -1084,14 +1084,18 @@ pub fn next() -> Settings {
 /// settings editable in a session are merged and saved; main-menu-only and
 /// next-start choices already queued in [`next`] are preserved unchanged.
 pub fn save(settings: Settings, in_game: bool) -> crate::base::Result<()> {
-    let current = {
+    let (current, saved_language) = {
         let mut store = store().ok_or("settings not loaded")?;
         let to_write = merge_for_save(&store.next, &settings, in_game);
         write(&store.path, &to_write)?;
         store.current.take_immediate(&to_write, in_game);
+        let saved_language = (!in_game).then_some(to_write.language).flatten();
         store.next = to_write;
-        store.current.clone()
+        (store.current.clone(), saved_language)
     };
+    if let Some(language) = saved_language {
+        crate::base::lang::set_ui(language);
+    }
     tell_listeners(&current, in_game);
     Ok(())
 }

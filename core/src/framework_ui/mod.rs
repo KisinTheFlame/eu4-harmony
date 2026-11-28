@@ -27,11 +27,11 @@ use std::sync::Mutex;
 use widgets::{Action, ButtonStyle, Command, Measure, Rect, RowButton, Side, SliderFormat, Widget, Window};
 
 fn words(key: &str) -> String {
-    loc::framework(lang::player(), key, &[])
+    loc::framework(lang::ui(), key, &[])
 }
 
 fn words_with(key: &str, args: &[(&str, &str)]) -> String {
-    loc::framework(lang::player(), key, args)
+    loc::framework(lang::ui(), key, args)
 }
 
 struct SettingsState<F: FontSystem> {
@@ -39,6 +39,7 @@ struct SettingsState<F: FontSystem> {
     opened_next: Settings,
     opened_draft: Settings,
     fonts: FontsPage<F>,
+    preview_language: Option<Language>,
     display_hz: u32,
     in_game: bool,
 }
@@ -65,8 +66,9 @@ enum DumpAction {
 /// an in-process fake in unit tests.
 trait UiHost {
     type Fonts: FontSystem;
+    fn ui_language(&self) -> Language;
     fn words(&self, key: &str, args: &[(&str, &str)]) -> String;
-    fn words_in(&self, language: Language, key: &str) -> String;
+    fn words_in(&self, language: Language, key: &str, args: &[(&str, &str)]) -> String;
     fn mod_text(&self, id: &str, key: &str) -> Option<String>;
     fn current_settings(&self) -> Settings;
     fn next_settings(&self) -> Settings;
@@ -129,16 +131,20 @@ fn open_url_in_browser(url: &str) -> Result<(), String> {
 impl UiHost for LiveHost {
     type Fonts = Option<SystemFonts>;
 
+    fn ui_language(&self) -> Language {
+        lang::ui()
+    }
+
     fn words(&self, key: &str, args: &[(&str, &str)]) -> String {
         words_with(key, args)
     }
 
-    fn words_in(&self, language: Language, key: &str) -> String {
-        loc::framework(language, key, &[])
+    fn words_in(&self, language: Language, key: &str, args: &[(&str, &str)]) -> String {
+        loc::framework(language, key, args)
     }
 
     fn mod_text(&self, id: &str, key: &str) -> Option<String> {
-        loc::mod_text(id, key)
+        loc::mod_text_in(lang::ui(), id, key)
     }
 
     fn current_settings(&self) -> Settings {
@@ -400,9 +406,11 @@ fn disable_main_menu_only(widgets: Vec<Widget>) -> Vec<Widget> {
 
 /// The widgets of the settings in [`settings::SETTINGS`] that `page` shows,
 /// in their order there, showing the values `shown` has on a `display_hz`
-/// display; each interactive widget's id is its setting's key. When `in_game`
-/// is true, settings that cannot be modified during a session are disabled.
-fn setting_widgets(page: Page, shown: &Settings, display_hz: u32, in_game: bool, words_with: mods_window::Words) -> Vec<Widget> {
+/// display (with frame-rate choice options anchored to `options_base` so
+/// rebuilding preserves choice indices for [`read_back`]); each interactive
+/// widget's id is its setting's key. When `in_game` is true, settings that
+/// cannot be modified during a session are disabled.
+fn setting_widgets(page: Page, shown: &Settings, options_base: &Settings, display_hz: u32, in_game: bool, words_with: mods_window::Words) -> Vec<Widget> {
     let words = |key: &str| words_with(key, &[]);
     let mut out = Vec::new();
     for (idx, setting) in settings::SETTINGS.iter().filter(|s| s.page == page).enumerate() {
@@ -413,7 +421,19 @@ fn setting_widgets(page: Page, shown: &Settings, display_hz: u32, in_game: bool,
         let row = match setting.shows {
             Shows::Toggle { label, field } => Widget::Toggle { id: setting.key, label: words(label), on: (field.get)(shown) },
             Shows::FrameRate { label, unlimited_tooltip, field } => {
-                let (choices, selected) = settings::frame_rate_choices((field.get)(shown), display_hz);
+                let base_limit = (field.get)(options_base);
+                let (choices, initial) = settings::frame_rate_choices(base_limit, display_hz);
+                let current_limit = (field.get)(shown);
+                let display = if settings::FRAME_RATE_BOUNDS.contains(&display_hz) { display_hz } else { 60 };
+                let selected = if current_limit == base_limit {
+                    initial
+                } else {
+                    match current_limit {
+                        FrameRateLimit::Display => choices.iter().position(|&c| c == FrameRateLimit::Hz(display)).unwrap_or(initial),
+                        FrameRateLimit::Unlimited => choices.len() - 1,
+                        FrameRateLimit::Hz(r) => choices.iter().position(|&c| c == FrameRateLimit::Hz(r)).unwrap_or(initial),
+                    }
+                };
                 let options = choices
                     .iter()
                     .map(|choice| match choice {
@@ -474,9 +494,9 @@ fn setting_widgets(page: Page, shown: &Settings, display_hz: u32, in_game: bool,
 }
 
 /// A page with nothing but settings from [`settings::SETTINGS`].
-fn settings_page(page: Page, shown: &Settings, display_hz: u32, in_game: bool, words_with: mods_window::Words) -> Vec<Widget> {
+fn settings_page(page: Page, shown: &Settings, options_base: &Settings, display_hz: u32, in_game: bool, words_with: mods_window::Words) -> Vec<Widget> {
     let mut out = vec![Widget::PageHeader(words_with(page.title(), &[]))];
-    out.extend(setting_widgets(page, shown, display_hz, in_game, words_with));
+    out.extend(setting_widgets(page, shown, options_base, display_hz, in_game, words_with));
     out
 }
 
@@ -541,7 +561,7 @@ fn advanced_page(
     words_with: mods_window::Words,
 ) -> Vec<Widget> {
     let mut page = vec![Widget::PageHeader(words("EU4HARMONY_SETTINGS_PAGE_ADVANCED"))];
-    page.extend(setting_widgets(Page::Advanced, shown, display_hz, in_game, words_with));
+    page.extend(setting_widgets(Page::Advanced, shown, shown, display_hz, in_game, words_with));
     page.push(Widget::Gap);
     page.push(Widget::Divider);
     page.push(Widget::Gap);
@@ -690,15 +710,16 @@ fn read_back(w: &Window, next: &Settings, display_hz: u32, in_game: bool, chosen
     }
 }
 
-/// The settings window showing `next`, the settings the next start runs
-/// with, to a session running with `current`; its language and fonts page is
-/// `fonts`. When `in_game` is true, pages unavailable during a session are
-/// disabled and the first editable page is selected initially unless
-/// `initial_page` requests another.
-#[expect(clippy::too_many_arguments, reason = "builds the settings window from the current snapshot, host status and wording seam")]
+/// The settings window showing `draft` (the values currently displayed, anchored
+/// to `opened_next` for frame-rate choice options and read-back), to a session
+/// running with `current`; its language and fonts page is `fonts`. When `in_game`
+/// is true, pages unavailable during a session are disabled and the first
+/// editable page is selected initially unless `initial_page` requests another.
+#[expect(clippy::too_many_arguments, reason = "builds the settings window from the current snapshot, draft values, host status and wording seam")]
 fn settings_window(
     current: &Settings,
-    next: &Settings,
+    opened_next: &Settings,
+    draft: &Settings,
     fonts: &FontsPage<impl FontSystem>,
     display_hz: u32,
     dumps: &DumpStatus,
@@ -713,16 +734,16 @@ fn settings_window(
         .into_iter()
         .map(|page| match page {
             Page::LanguageFonts => {
-                let widgets = fonts.widgets(next, &words, words_in);
+                let widgets = fonts.widgets(draft, &words, words_in);
                 if in_game {
                     disable_main_menu_only(widgets)
                 } else {
                     widgets
                 }
             }
-            Page::Advanced => advanced_page(next, display_hz, dumps, in_game, &words, words_with),
+            Page::Advanced => advanced_page(draft, display_hz, dumps, in_game, &words, words_with),
             Page::About => about_page(troubleshooting, &words, words_with),
-            _ => settings_page(page, next, display_hz, in_game, words_with),
+            _ => settings_page(page, draft, opened_next, display_hz, in_game, words_with),
         })
         .collect();
     let footer = vec![
@@ -747,7 +768,7 @@ fn settings_window(
     }
     let resettable = page_resettable(&window, in_game);
     window.set_row_button_enabled(RESET_PAGE, resettable);
-    window.footer_mut()[RESTART_LINE] = footer_notice(&window, current, next, fonts, display_hz, in_game, &words);
+    window.footer_mut()[RESTART_LINE] = footer_notice(&window, current, opened_next, fonts, display_hz, in_game, &words);
     window
 }
 
@@ -790,6 +811,15 @@ fn replace_page(window: &mut Window, index: usize, widgets: Vec<Widget>) {
         window.body = widgets;
     } else {
         window.pages[index] = widgets;
+    }
+}
+
+/// Looks up framework wording in `language` when previewing a new language,
+/// or in the host's current UI language otherwise.
+fn host_words<H: UiHost>(host: &H, language: Option<Language>, key: &str, args: &[(&str, &str)]) -> String {
+    match language {
+        Some(language) => host.words_in(language, key, args),
+        None => host.words(key, args),
     }
 }
 
@@ -845,6 +875,10 @@ impl<H: UiHost> Shell<H> {
         self.screen = (pixels.0 / scale, pixels.1 / scale);
     }
 
+    fn display_language(&self) -> Language {
+        self.settings.as_ref().and_then(|s| s.preview_language).unwrap_or_else(|| self.host.ui_language())
+    }
+
     fn open_settings(&mut self, measure: &dyn Measure) {
         self.open_settings_at(measure, None);
     }
@@ -865,37 +899,92 @@ impl<H: UiHost> Shell<H> {
         self.dumps_status = dumps.clone();
         let troubleshooting = self.host.troubleshooting_state();
         let ww = |key: &str, args: &[(&str, &str)]| self.host.words(key, args);
-        let wi = |language: Language, key: &str| self.host.words_in(language, key);
-        let mut window = settings_window(&current, &next, &fonts, display_hz, &dumps, &troubleshooting, in_game, initial_page, &ww, &wi);
+        let wi = |language: Language, key: &str| self.host.words_in(language, key, &[]);
+        let mut window = settings_window(&current, &next, &next, &fonts, display_hz, &dumps, &troubleshooting, in_game, initial_page, &ww, &wi);
         window.center(measure, self.screen.0, self.screen.1);
         let opened_draft = chosen_settings(&window, &next, &fonts, display_hz, in_game);
-        self.settings = Some(SettingsState { window, opened_next: next, opened_draft, fonts, display_hz, in_game });
+        self.settings = Some(SettingsState { window, opened_next: next, opened_draft, fonts, preview_language: None, display_hz, in_game });
     }
 
     fn show_dump_status(&mut self, status: &DumpStatus) {
         self.dumps_status = status.clone();
         let index = Page::ALL.iter().position(|&p| p == Page::Advanced).expect("Advanced page");
-        let w = |key: &str| self.host.words(key, &[]);
-        let ww = |key: &str, args: &[(&str, &str)]| self.host.words(key, args);
-        if let Some(settings) = self.settings.as_mut() {
-            let draft = chosen_settings(&settings.window, &settings.opened_next, &settings.fonts, settings.display_hz, settings.in_game);
-            let widgets = advanced_page(&draft, settings.display_hz, status, settings.in_game, &w, &ww);
-            replace_page(&mut settings.window, index, widgets);
-        }
+        let Some(settings) = self.settings.as_mut() else { return };
+        let preview = settings.preview_language;
+        let host = &self.host;
+        let w = |key: &str| host_words(host, preview, key, &[]);
+        let ww = |key: &str, args: &[(&str, &str)]| host_words(host, preview, key, args);
+        let draft = chosen_settings(&settings.window, &settings.opened_next, &settings.fonts, settings.display_hz, settings.in_game);
+        let widgets = advanced_page(&draft, settings.display_hz, status, settings.in_game, &w, &ww);
+        replace_page(&mut settings.window, index, widgets);
+    }
+
+    /// Rebuilds the open settings window in its current preview language while
+    /// preserving all draft edits across pages, the active page, and window
+    /// position/scroll.
+    fn rebuild_settings_window(&mut self, measure: &dyn Measure, draft: &Settings, active_page: Option<Page>) {
+        let current = self.host.current_settings();
+        let troubleshooting = self.host.troubleshooting_state();
+        let dumps = self.dumps_status.clone();
+        let Some(settings) = self.settings.as_mut() else { return };
+        let preview = settings.preview_language;
+        let host = &self.host;
+        let ww = |key: &str, args: &[(&str, &str)]| host_words(host, preview, key, args);
+        let wi = |language: Language, key: &str| host.words_in(language, key, &[]);
+        let mut rebuilt = settings_window(
+            &current,
+            &settings.opened_next,
+            draft,
+            &settings.fonts,
+            settings.display_hz,
+            &dumps,
+            &troubleshooting,
+            settings.in_game,
+            active_page,
+            &ww,
+            &wi,
+        );
+        rebuilt.restore_view_from(&settings.window, measure);
+        settings.window = rebuilt;
     }
 
     /// The player chose the option at `index` in the settings window's
     /// drop-down list or choice bar `id`.
-    fn settings_chose(&mut self, id: &str, index: usize) {
-        let w = |key: &str| self.host.words(key, &[]);
-        let wi = |language: Language, key: &str| self.host.words_in(language, key);
-        if let Some(settings) = self.settings.as_mut() {
-            if !settings.in_game {
-                settings.fonts.chose(&mut settings.window, id, index, &w, &wi);
+    fn settings_chose(&mut self, measure: &dyn Measure, id: &str, index: usize) {
+        let language_change = self.settings.as_ref().and_then(|settings| {
+            if settings.in_game || id != "language" {
+                return None;
             }
-            let resettable = page_resettable(&settings.window, settings.in_game);
-            settings.window.set_row_button_enabled(RESET_PAGE, resettable);
+            let &new_lang = Language::ALL.get(index)?;
+            if new_lang == settings.fonts.language() {
+                return None;
+            }
+            let active_page = settings.window.side.as_ref().and_then(|s| Page::ALL.get(s.selected).copied());
+            let draft = chosen_settings(&settings.window, &settings.opened_next, &settings.fonts, settings.display_hz, false);
+            Some((new_lang, draft, active_page))
+        });
+        if let Some((new_lang, mut draft, active_page)) = language_change {
+            let host = &self.host;
+            let w = |key: &str| host.words_in(new_lang, key, &[]);
+            let wi = |language: Language, key: &str| host.words_in(language, key, &[]);
+            if let Some(settings) = self.settings.as_mut() {
+                settings.preview_language = Some(new_lang);
+                settings.fonts.chose(&mut settings.window, id, index, &w, &wi);
+                draft.language = Some(new_lang);
+            }
+            self.rebuild_settings_window(measure, &draft, active_page);
+            return;
         }
+        let Some(settings) = self.settings.as_mut() else { return };
+        let preview = settings.preview_language;
+        let host = &self.host;
+        let w = |key: &str| host_words(host, preview, key, &[]);
+        let wi = |language: Language, key: &str| host.words_in(language, key, &[]);
+        if !settings.in_game {
+            settings.fonts.chose(&mut settings.window, id, index, &w, &wi);
+        }
+        let resettable = page_resettable(&settings.window, settings.in_game);
+        settings.window.set_row_button_enabled(RESET_PAGE, resettable);
     }
 
     fn settings_switched(&mut self, id: &str, on: bool) {
@@ -909,23 +998,26 @@ impl<H: UiHost> Shell<H> {
 
     fn settings_changed(&mut self) {
         let current = self.host.current_settings();
-        let w = |key: &str| self.host.words(key, &[]);
-        if let Some(settings) = self.settings.as_mut() {
-            settings.window.footer_mut()[RESTART_LINE] =
-                footer_notice(&settings.window, &current, &settings.opened_next, &settings.fonts, settings.display_hz, settings.in_game, &w);
-        }
+        let Some(settings) = self.settings.as_mut() else { return };
+        let preview = settings.preview_language;
+        let host = &self.host;
+        let w = |key: &str| host_words(host, preview, key, &[]);
+        settings.window.footer_mut()[RESTART_LINE] =
+            footer_notice(&settings.window, &current, &settings.opened_next, &settings.fonts, settings.display_hz, settings.in_game, &w);
     }
 
     /// Resets only the currently active settings page in the open draft window.
     fn reset_active_page(&mut self) {
-        let w = |key: &str| self.host.words(key, &[]);
-        let ww = |key: &str, args: &[(&str, &str)]| self.host.words(key, args);
-        let wi = |language: Language, key: &str| self.host.words_in(language, key);
         let dumps = self.dumps_status.clone();
         let Some(settings) = self.settings.as_mut() else { return };
         if !page_resettable(&settings.window, settings.in_game) {
             return;
         }
+        let preview = settings.preview_language;
+        let host = &self.host;
+        let w = |key: &str| host_words(host, preview, key, &[]);
+        let ww = |key: &str, args: &[(&str, &str)]| host_words(host, preview, key, args);
+        let wi = |language: Language, key: &str| host.words_in(language, key, &[]);
         let Some(index) = settings.window.side.as_ref().map(|s| s.selected) else { return };
         let Some(&page) = Page::ALL.get(index) else { return };
         match page {
@@ -940,8 +1032,7 @@ impl<H: UiHost> Shell<H> {
             Page::About => {}
             _ => {
                 let defaults = Settings::default();
-                let ww = |key: &str, args: &[(&str, &str)]| self.host.words(key, args);
-                let widgets = settings_page(page, &defaults, settings.display_hz, settings.in_game, &ww);
+                let widgets = settings_page(page, &defaults, &settings.opened_next, settings.display_hz, settings.in_game, &ww);
                 replace_page(&mut settings.window, index, widgets);
             }
         }
@@ -955,7 +1046,8 @@ impl<H: UiHost> Shell<H> {
 
     fn request_close_settings(&mut self, measure: &dyn Measure) {
         if self.settings_dirty() {
-            let w = |key: &str| self.host.words(key, &[]);
+            let preview = self.settings.as_ref().and_then(|s| s.preview_language);
+            let w = |key: &str| host_words(&self.host, preview, key, &[]);
             let mut prompt = discard_prompt_window(&w);
             prompt.center(measure, self.screen.0, self.screen.1);
             self.discard_prompt = Some(prompt);
@@ -968,6 +1060,7 @@ impl<H: UiHost> Shell<H> {
         let Some(settings) = self.settings.as_ref() else { return };
         let chosen = chosen_settings(&settings.window, &settings.opened_next, &settings.fonts, settings.display_hz, settings.in_game);
         let in_game = settings.in_game;
+        let preview = settings.preview_language;
         let needs_restart = !in_game && self.host.current_settings().waits_for_restart(&chosen);
         match self.host.save_settings(chosen.clone(), in_game) {
             Ok(()) => {
@@ -982,7 +1075,7 @@ impl<H: UiHost> Shell<H> {
             }
             Err(e) => {
                 log!("settings not saved: {e}");
-                let line = self.host.words("EU4HARMONY_SETTINGS_SAVE_FAILED", &[("ERROR", &e)]);
+                let line = host_words(&self.host, preview, "EU4HARMONY_SETTINGS_SAVE_FAILED", &[("ERROR", &e)]);
                 if let Some(settings) = self.settings.as_mut() {
                     settings.window.footer_mut()[RESTART_LINE] = Widget::Label(line);
                 }
@@ -1030,7 +1123,14 @@ impl<H: UiHost> Shell<H> {
         }
         match (self.host.notice_current(), &mut self.notice) {
             (None, _) => self.notice = None,
-            (Some(showing), Some((shown, window))) if *shown == showing.number => window.title = showing.title,
+            (Some(showing), Some((shown, window))) if *shown == showing.number => {
+                window.title = showing.title;
+                let same_body = matches!(window.body.as_slice(), [Widget::Label(text)] if *text == showing.text);
+                if !same_body {
+                    window.body = vec![Widget::Label(showing.text)];
+                    window.clamp_to_screen(measure);
+                }
+            }
             (Some(showing), _) => {
                 let mut window = Window::new(showing.title, vec![Widget::Label(showing.text)], 460.0);
                 window.center(measure, self.screen.0, self.screen.1 * 0.6);
@@ -1048,8 +1148,8 @@ impl<H: UiHost> Shell<H> {
                 self.last_dump_outcome = Some(status);
             }
         }
-        if self.settings.is_some() {
-            let line = troubleshooting_line(&self.host.troubleshooting_state(), &|key, args| self.host.words(key, args));
+        if let Some(preview) = self.settings.as_ref().map(|s| s.preview_language) {
+            let line = troubleshooting_line(&self.host.troubleshooting_state(), &|key, args| host_words(&self.host, preview, key, args));
             if let Some(settings) = self.settings.as_mut() {
                 settings.window.set_label_after(TROUBLESHOOTING, line);
             }
@@ -1110,7 +1210,7 @@ impl<H: UiHost> Shell<H> {
             let action = Self::modal_event(&mut settings.window, measure, event);
             match action {
                 Some(Action::Chose(id, index)) => {
-                    self.settings_chose(id, index);
+                    self.settings_chose(measure, id, index);
                     self.settings_changed();
                 }
                 Some(Action::Switched(id, on)) => self.settings_switched(id, on),
@@ -1147,7 +1247,8 @@ impl<H: UiHost> Shell<H> {
                 }
                 Some(Action::Pressed(TROUBLESHOOTING)) => {
                     self.host.start_troubleshooting();
-                    let line = troubleshooting_line(&self.host.troubleshooting_state(), &|key, args| self.host.words(key, args));
+                    let preview = self.settings.as_ref().and_then(|s| s.preview_language);
+                    let line = troubleshooting_line(&self.host.troubleshooting_state(), &|key, args| host_words(&self.host, preview, key, args));
                     if let Some(settings) = self.settings.as_mut() {
                         settings.window.set_label_after(TROUBLESHOOTING, line);
                     }
@@ -1249,7 +1350,8 @@ impl<H: UiHost> Shell<H> {
             out.extend(w.draw(measure));
         }
         if let Some(content) = self.tooltip_content(measure) {
-            let text = content.resolve(|key| Some(self.host.words(key, &[])));
+            let preview = (self.restart_prompt.is_none() && self.mods.is_none()).then(|| self.settings.as_ref().and_then(|s| s.preview_language)).flatten();
+            let text = content.resolve(|key| Some(host_words(&self.host, preview, key, &[])));
             if !text.is_empty() {
                 draw_tooltip(&mut out, measure, self.screen, self.mouse, &text);
             }
@@ -1296,9 +1398,14 @@ impl<H: UiHost> Shell<H> {
 
 impl FrameworkUi {
     fn new() -> crate::base::Result<Self> {
-        let face = SystemFonts::new().map(|fonts| settings::current().ui_face(|f| fonts.has_family(f)))?;
+        let ui_settings = Settings { language: Some(lang::ui()), ..settings::current() };
+        let face = SystemFonts::new().map(|fonts| ui_settings.ui_face(|f| fonts.has_family(f)))?;
         let font = text::UiFont::new(&face)?;
         Ok(Self { font, backend: d3d9::Backend::default(), shell: Shell::new(LiveHost::new()) })
+    }
+
+    fn sync_font_language(&self) {
+        self.font.set_language(self.shell.display_language(), settings::current().body_font.as_ref());
     }
 }
 
@@ -1325,6 +1432,7 @@ pub fn still(key: &str) {
     let device = crate::render::d3d9::last_device();
     let mut guard = UI.lock().unwrap_or_else(|e| e.into_inner());
     let (Some(ui), false) = (guard.as_mut(), device.is_null()) else { return };
+    ui.sync_font_language();
     let commands = ui.shell.still_commands(&ui.font, words(key));
     let shown = unsafe { ui.backend.draw(device, &ui.font, &commands, ui.shell.scale) }.and_then(|()| unsafe { crate::render::d3d9::present(device) });
     match shown {
@@ -1336,7 +1444,9 @@ pub fn still(key: &str) {
 fn handle(event: input::Event) -> bool {
     let mut guard = UI.lock().unwrap_or_else(|e| e.into_inner());
     let Some(ui) = guard.as_mut() else { return false };
+    ui.sync_font_language();
     let taken = ui.shell.event(&ui.font, event);
+    ui.sync_font_language();
     MODAL.store(ui.shell.modal(), Ordering::Relaxed);
     taken
 }
@@ -1373,8 +1483,10 @@ pub unsafe fn frame(device: *mut c_void) {
     let menu = MAIN_MENU_FRAME.load(Ordering::Relaxed);
     let in_game_menu = crate::native::memory().is_some_and(crate::session::sessions::in_game_menu_open);
     ui.font.set_scale(scale);
+    ui.sync_font_language();
     ui.shell.sync_frame(frame_number, (menu != u64::MAX).then_some(menu), in_game_menu, pixels, scale);
     ui.shell.tick(&ui.font);
+    ui.sync_font_language();
     MODAL.store(ui.shell.modal(), Ordering::Relaxed);
     let commands = ui.shell.commands(&ui.font);
     if let Err(e) = unsafe { ui.backend.draw(device, &ui.font, &commands, scale) } {
@@ -1422,7 +1534,7 @@ mod tests {
     }
 
     fn pages(shown: &Settings, display_hz: u32) -> Vec<Vec<Widget>> {
-        Page::ALL.into_iter().map(|page| settings_page(page, shown, display_hz, false, &keys_with)).collect()
+        Page::ALL.into_iter().map(|page| settings_page(page, shown, shown, display_hz, false, &keys_with)).collect()
     }
 
     fn every_setting_changed() -> Settings {
@@ -1515,6 +1627,7 @@ mod tests {
                         let window = settings_window(
                             &next,
                             &next,
+                            &next,
                             &page,
                             180,
                             &DumpStatus::NotConfigured,
@@ -1535,8 +1648,19 @@ mod tests {
     fn the_settings_window_saves_the_language_chosen() {
         let next = Settings { language: Some(Language::English), ..Settings::default() };
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &next);
-        let mut window =
-            settings_window(&next, &next, &page, 60, &DumpStatus::NotConfigured, &crate::base::troubleshooting::State::Idle, false, None, &keys_with, &keys_in);
+        let mut window = settings_window(
+            &next,
+            &next,
+            &next,
+            &page,
+            60,
+            &DumpStatus::NotConfigured,
+            &crate::base::troubleshooting::State::Idle,
+            false,
+            None,
+            &keys_with,
+            &keys_in,
+        );
         let languages = Language::ALL.iter().map(|l| l.native_name().to_string()).collect();
         let korean = Language::ALL.iter().position(|&l| l == Language::Korean).unwrap();
         window.set_options("language", languages, korean);
@@ -1555,16 +1679,17 @@ mod tests {
         let current = Settings { language: Some(Language::English), ..Settings::default() };
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &current);
         let idle = crate::base::troubleshooting::State::Idle;
-        let mut window = settings_window(&current, &current, &page, 60, &DumpStatus::NotConfigured, &idle, false, None, &keys_with, &keys_in);
+        let mut window = settings_window(&current, &current, &current, &page, 60, &DumpStatus::NotConfigured, &idle, false, None, &keys_with, &keys_in);
         assert_eq!(restart_shown(&mut window), "");
         let mut sound = current.clone();
         sound.music_loudness = !sound.music_loudness;
-        let mut window = settings_window(&current, &sound, &page, 60, &DumpStatus::NotConfigured, &idle, false, None, &keys_with, &keys_in);
+        let mut window = settings_window(&current, &sound, &sound, &page, 60, &DumpStatus::NotConfigured, &idle, false, None, &keys_with, &keys_in);
         assert_eq!(restart_shown(&mut window), "");
         let mut outline = current.clone();
         outline.map_outline = !outline.map_outline;
         let mut window = settings_window(
             &current,
+            &outline,
             &outline,
             &FontsPage::new(Some(fonts_page::tests::installed()), &outline),
             60,
@@ -1576,7 +1701,7 @@ mod tests {
             &keys_in,
         );
         assert_eq!(restart_shown(&mut window), "EU4HARMONY_SETTINGS_RESTART");
-        let mut window = settings_window(&current, &current, &page, 60, &DumpStatus::NotConfigured, &idle, false, None, &keys_with, &keys_in);
+        let mut window = settings_window(&current, &current, &current, &page, 60, &DumpStatus::NotConfigured, &idle, false, None, &keys_with, &keys_in);
         let languages = Language::ALL.iter().map(|l| l.native_name().to_string()).collect();
         let korean = Language::ALL.iter().position(|&l| l == Language::Korean).unwrap();
         window.set_options("language", languages, korean);
@@ -1618,6 +1743,7 @@ mod tests {
         let page = FontsPage::new(Some(fonts_page::tests::installed()), &current);
         let short_words_with = |key: &str, args: &[(&str, &str)]| if args.is_empty() { short_words(key) } else { keys_with(key, args) };
         let mut window = settings_window(
+            &current,
             &current,
             &current,
             &page,
@@ -1726,6 +1852,7 @@ mod tests {
         let mut window = settings_window(
             &current,
             &current,
+            &current,
             &page,
             60,
             &DumpStatus::NotConfigured,
@@ -1753,11 +1880,14 @@ mod tests {
     }
 
     struct FakeHost {
+        ui_language: Language,
+        real_loc: bool,
         current: Settings,
         next: Settings,
         saved: Vec<(Settings, bool)>,
         save_error: Option<String>,
         notice: Option<crate::base::notice::Showing>,
+        notice_key: Option<(u64, &'static str, &'static str)>,
         dismissed: usize,
         dumps_config: local_dumps::Configuration,
         dump_pending: Option<DumpAction>,
@@ -1772,11 +1902,14 @@ mod tests {
     impl Default for FakeHost {
         fn default() -> Self {
             Self {
+                ui_language: Language::English,
+                real_loc: false,
                 current: Settings::default(),
                 next: Settings::default(),
                 saved: Vec::new(),
                 save_error: None,
                 notice: None,
+                notice_key: None,
                 dismissed: 0,
                 dumps_config: local_dumps::Configuration::NotConfigured,
                 dump_pending: None,
@@ -1792,14 +1925,25 @@ mod tests {
 
     impl UiHost for FakeHost {
         type Fonts = Option<fonts_page::Table>;
+        fn ui_language(&self) -> Language {
+            self.ui_language
+        }
         fn words(&self, key: &str, args: &[(&str, &str)]) -> String {
-            keys_with(key, args)
+            if self.real_loc {
+                loc::framework(self.ui_language, key, args)
+            } else {
+                keys_with(key, args)
+            }
         }
-        fn words_in(&self, language: Language, key: &str) -> String {
-            keys_in(language, key)
+        fn words_in(&self, language: Language, key: &str, args: &[(&str, &str)]) -> String {
+            if self.real_loc {
+                loc::framework(language, key, args)
+            } else {
+                format!("{}:{}", language.id(), keys_with(key, args))
+            }
         }
-        fn mod_text(&self, _: &str, _: &str) -> Option<String> {
-            None
+        fn mod_text(&self, id: &str, key: &str) -> Option<String> {
+            self.real_loc.then(|| format!("{}:{id}:{key}", self.ui_language.id()))
         }
         fn current_settings(&self) -> Settings {
             self.current.clone()
@@ -1810,6 +1954,11 @@ mod tests {
         fn save_settings(&mut self, chosen: Settings, in_game: bool) -> Result<(), String> {
             if let Some(err) = &self.save_error {
                 return Err(err.clone());
+            }
+            if !in_game {
+                if let Some(language) = chosen.language {
+                    self.ui_language = language;
+                }
             }
             self.next = chosen.clone();
             self.saved.push((chosen, in_game));
@@ -1825,11 +1974,15 @@ mod tests {
             &self.cards
         }
         fn notice_current(&self) -> Option<crate::base::notice::Showing> {
+            if let Some((number, title_key, body_key)) = self.notice_key {
+                return Some(crate::base::notice::Showing { number, title: self.words(title_key, &[]), text: self.words(body_key, &[]) });
+            }
             self.notice.clone()
         }
         fn dismiss_notice(&mut self) {
             self.dismissed += 1;
             self.notice = None;
+            self.notice_key = None;
         }
         fn troubleshooting_state(&self) -> crate::base::troubleshooting::State {
             self.troubleshooting.clone()
@@ -2155,5 +2308,126 @@ mod tests {
         let (logs_x, logs_y) = text_pos(&shell.settings.as_ref().unwrap().window, "EU4HARMONY_ADVANCED_OPEN_LOGS");
         assert!(shell.event(&FixedMeasure, input::Event::Down(logs_x, logs_y)));
         assert_eq!(shell.host.opened_logs, 2);
+    }
+
+    #[test]
+    fn switching_language_previews_settings_immediately_and_saving_updates_all_framework_ui() {
+        let initial = Settings { language: Some(Language::English), frame_rate_limit: FrameRateLimit::Hz(75), ..Settings::default() };
+        let host = FakeHost {
+            ui_language: Language::English,
+            real_loc: true,
+            current: initial.clone(),
+            next: initial,
+            notice_key: Some((1, "EU4HARMONY_NOTICE_TITLE", "EU4HARMONY_IRONMAN_SAVE_FAILED")),
+            cards: vec![mods_window::Card {
+                id: "rc".into(),
+                name: "Regional Combat".into(),
+                version: Some("1.0".into()),
+                description: Some("RC_DESC".into()),
+                permissions: Default::default(),
+                data_folder: "data/rc".into(),
+            }],
+            ..FakeHost::default()
+        };
+        let en = |key: &str| loc::framework(Language::English, key, &[]);
+        let zh = |key: &str| loc::framework(Language::SimpChinese, key, &[]);
+        let mut shell = Shell::new(host);
+        shell.sync_frame(1, Some(1), false, (1280.0, 720.0), 1.0);
+        shell.tick(&FixedMeasure);
+        assert_eq!(shell.notice.as_ref().unwrap().1.title, en("EU4HARMONY_NOTICE_TITLE"));
+        assert!(matches!(shell.notice.as_ref().unwrap().1.body.as_slice(), [Widget::Label(t)] if *t == en("EU4HARMONY_IRONMAN_SAVE_FAILED")));
+
+        // Open Settings, tweak Sound and Display (from custom 75 Hz to 60 Hz),
+        // move the window, then switch language to Simplified Chinese.
+        shell.open_settings(&FixedMeasure);
+        {
+            let w = &mut shell.settings.as_mut().unwrap().window;
+            w.x = 123.0;
+            w.y = 45.0;
+        }
+        let (sx, sy) = side_pos(&shell.settings.as_ref().unwrap().window, Page::Sound);
+        assert!(shell.event(&FixedMeasure, input::Event::Down(sx, sy)));
+        let (ml_x, ml_y) = text_pos(&shell.settings.as_ref().unwrap().window, &en("EU4HARMONY_SETTINGS_MUSIC_LOUDNESS"));
+        assert!(shell.event(&FixedMeasure, input::Event::Down(ml_x, ml_y)));
+
+        let (dx, dy) = side_pos(&shell.settings.as_ref().unwrap().window, Page::Display);
+        assert!(shell.event(&FixedMeasure, input::Event::Down(dx, dy)));
+        let (fx, fy) = text_pos(&shell.settings.as_ref().unwrap().window, "60");
+        assert!(shell.event(&FixedMeasure, input::Event::Down(fx, fy)));
+
+        let (lx, ly) = side_pos(&shell.settings.as_ref().unwrap().window, Page::LanguageFonts);
+        assert!(shell.event(&FixedMeasure, input::Event::Down(lx, ly)));
+        let zh_idx = Language::ALL.iter().position(|&l| l == Language::SimpChinese).unwrap();
+        shell.settings_chose(&FixedMeasure, "language", zh_idx);
+        shell.settings_changed();
+
+        // Preview takes effect immediately on the entire settings window while
+        // keeping window position and draft edits across pages; host ui_language
+        // stays English until saved.
+        assert_eq!(shell.display_language(), Language::SimpChinese);
+        assert_eq!(shell.host.ui_language(), Language::English);
+        let settings = shell.settings.as_mut().unwrap();
+        assert_eq!(settings.window.title, zh("EU4HARMONY_SETTINGS_TITLE"));
+        assert_eq!(settings.window.side.as_ref().unwrap().items[0], zh("EU4HARMONY_SETTINGS_PAGE_LANGUAGE_FONTS"));
+        assert_eq!(restart_shown(&mut settings.window), zh("EU4HARMONY_SETTINGS_RESTART"));
+        assert_eq!((settings.window.x, settings.window.y), (123.0, 45.0));
+        assert_eq!(settings.window.is_on("music_loudness"), Some(false));
+
+        // Cancelling opens the discard confirmation in the preview language;
+        // confirming discards the preview and restores the display language.
+        let (cx, cy) = text_pos(&shell.settings.as_ref().unwrap().window, &zh("EU4HARMONY_SETTINGS_CANCEL"));
+        assert!(shell.event(&FixedMeasure, input::Event::Down(cx, cy)));
+        let discard = shell.discard_prompt.as_ref().expect("discard prompt shown");
+        assert_eq!(discard.title, zh("EU4HARMONY_DISCARD_PROMPT_TITLE"));
+        let (dc_x, dc_y) = text_pos(discard, &zh("EU4HARMONY_DISCARD_CONFIRM"));
+        assert!(shell.event(&FixedMeasure, input::Event::Down(dc_x, dc_y)));
+        assert!(shell.settings.is_none());
+        assert!(shell.discard_prompt.is_none());
+        assert_eq!(shell.display_language(), Language::English);
+        assert_eq!(shell.host.ui_language(), Language::English);
+        assert!(shell.host.saved.is_empty());
+
+        // Reopen, edit Sound + Display + Language, and save.
+        shell.open_settings(&FixedMeasure);
+        let (sx, sy) = side_pos(&shell.settings.as_ref().unwrap().window, Page::Sound);
+        assert!(shell.event(&FixedMeasure, input::Event::Down(sx, sy)));
+        let (ml_x, ml_y) = text_pos(&shell.settings.as_ref().unwrap().window, &en("EU4HARMONY_SETTINGS_MUSIC_LOUDNESS"));
+        assert!(shell.event(&FixedMeasure, input::Event::Down(ml_x, ml_y)));
+        let (dx, dy) = side_pos(&shell.settings.as_ref().unwrap().window, Page::Display);
+        assert!(shell.event(&FixedMeasure, input::Event::Down(dx, dy)));
+        let (fx, fy) = text_pos(&shell.settings.as_ref().unwrap().window, "60");
+        assert!(shell.event(&FixedMeasure, input::Event::Down(fx, fy)));
+        let (lx, ly) = side_pos(&shell.settings.as_ref().unwrap().window, Page::LanguageFonts);
+        assert!(shell.event(&FixedMeasure, input::Event::Down(lx, ly)));
+        shell.settings_chose(&FixedMeasure, "language", zh_idx);
+        shell.settings_changed();
+        let (sv_x, sv_y) = text_pos(&shell.settings.as_ref().unwrap().window, &zh("EU4HARMONY_SETTINGS_SAVE"));
+        assert!(shell.event(&FixedMeasure, input::Event::Down(sv_x, sv_y)));
+
+        // Saved settings keep all draft edits; host UI language updated at once,
+        // and the restart prompt is shown in the new language.
+        assert_eq!(shell.host.ui_language(), Language::SimpChinese);
+        assert_eq!(shell.host.saved.len(), 1);
+        assert_eq!(shell.host.saved[0].0.language, Some(Language::SimpChinese));
+        assert!(!shell.host.saved[0].0.music_loudness);
+        assert_eq!(shell.host.saved[0].0.frame_rate_limit, FrameRateLimit::Hz(60));
+        let prompt = shell.restart_prompt.as_ref().expect("restart prompt shown");
+        assert_eq!(prompt.title, zh("EU4HARMONY_RESTART_PROMPT_TITLE"));
+        assert!(matches!(prompt.body.as_slice(), [Widget::Label(t)] if *t == zh("EU4HARMONY_RESTART_PROMPT_BODY")));
+
+        // Choosing "Restart later" leaves the corner bar, existing notice window,
+        // and newly opened Mods window all in the new language.
+        let (rl_x, rl_y) = text_pos(shell.restart_prompt.as_ref().unwrap(), &zh("EU4HARMONY_RESTART_LATER"));
+        assert!(shell.event(&FixedMeasure, input::Event::Down(rl_x, rl_y)));
+        shell.tick(&FixedMeasure);
+        assert_eq!(shell.notice.as_ref().unwrap().1.title, zh("EU4HARMONY_NOTICE_TITLE"));
+        assert!(matches!(shell.notice.as_ref().unwrap().1.body.as_slice(), [Widget::Label(t)] if *t == zh("EU4HARMONY_IRONMAN_SAVE_FAILED")));
+        let cmds = shell.commands(&FixedMeasure);
+        assert!(cmds.iter().any(|c| matches!(c, Command::Text { text, .. } if *text == zh("EU4HARMONY_SETTINGS_BUTTON"))));
+        assert!(cmds.iter().any(|c| matches!(c, Command::Text { text, .. } if *text == zh("EU4HARMONY_MODS_BUTTON"))));
+        shell.open_mods(&FixedMeasure);
+        let mods = &shell.mods.as_ref().unwrap().window;
+        assert_eq!(mods.title, zh("EU4HARMONY_MODS_TITLE"));
+        assert!(has_status_text(&mods.body, "simp_chinese:rc:RC_DESC"));
     }
 }

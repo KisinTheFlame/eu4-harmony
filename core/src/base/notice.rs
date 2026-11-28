@@ -134,7 +134,7 @@ pub(crate) fn current() -> Option<Showing> {
     if n.current.is_none() {
         n.current = n.queue.pop_front();
     }
-    let language = lang::player();
+    let language = lang::ui();
     let title = match n.queue.len() {
         0 => Message::new("EU4HARMONY_NOTICE_TITLE"),
         waiting => Message::new("EU4HARMONY_NOTICE_TITLE_MORE").arg("COUNT", waiting.to_string()),
@@ -165,7 +165,7 @@ fn show(message: &Message, style: u32) {
     if runtime::is_hidden() {
         return;
     }
-    let text: Vec<u16> = message.words(lang::player()).encode_utf16().chain([0]).collect();
+    let text: Vec<u16> = message.words(lang::ui()).encode_utf16().chain([0]).collect();
     let title: Vec<u16> = "Harmony\0".encode_utf16().collect();
     unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_OK | MB_SETFOREGROUND | style) };
 }

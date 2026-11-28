@@ -161,6 +161,11 @@ impl<F: FontSystem> FontsPage<F> {
         page
     }
 
+    /// The language currently selected on this page.
+    pub fn language(&self) -> Language {
+        self.language
+    }
+
     fn build_roles(&self, language: Language, source: &Settings, dirty: bool) -> Vec<Lists> {
         let shown: Vec<DrawnFont> = Role::ALL
             .into_iter()

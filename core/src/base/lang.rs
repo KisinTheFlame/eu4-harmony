@@ -1,17 +1,18 @@
-//! The player language: the one language the framework and every mod show
-//! their texts in this session. Everything else asks [`player`]; how it is
-//! chosen is known only here.
+//! The player language: the language the session started in for the game side
+//! (mod localisation spliced into the game, wording templates, game font
+//! defaults/fallbacks, and extension queries), plus the framework UI language
+//! ([`ui`]), which starts equal to [`player`] and updates immediately when the
+//! player saves a new language from the main menu so every framework window
+//! and notice switches without restarting.
 //!
-//! The player chooses it in the framework settings. The first time, when
-//! the settings name none, it is the language Windows displays, if it is one
-//! of [`Language::ALL`], else English (ADR player-language-in-the-settings).
+//! The player chooses the language in the framework settings. The first time,
+//! when the settings name none, it is the language Windows displays, if it is
+//! one of [`Language::ALL`], else English (ADR player-language-in-the-settings).
 //! The game's own language, from its settings, plays no part: players of a
 //! language the game lacks run it in English, with a language mod.
-//!
-//! Decided once, at startup: the game reads its localisation files once, so
-//! the mod texts spliced into them (`loc`) could not follow a later change.
 use eu4_harmony_loc::Language;
 use std::path::Path;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::OnceLock;
 
 pub struct Decision {
@@ -24,6 +25,9 @@ pub struct Decision {
 }
 
 static DECISION: OnceLock<Decision> = OnceLock::new();
+/// Index into [`Language::ALL`] when the framework UI language was updated
+/// after startup; `u8::MAX` until then (falls back to [`player`]).
+static UI_LANGUAGE: AtomicU8 = AtomicU8::new(u8::MAX);
 
 /// The languages the game itself runs in.
 const GAME: [Language; 4] = [Language::English, Language::French, Language::German, Language::Spanish];
@@ -60,9 +64,23 @@ pub(crate) fn decide(user_dir: &Path, chosen: Option<Language>) -> &'static Deci
     })
 }
 
-/// The language texts are shown in; English until it is decided.
+/// The language texts are shown in for this session; English until decided.
 pub fn player() -> Language {
     DECISION.get().map_or(Language::English, |d| d.player)
+}
+
+/// The language the framework's own UI and notices show in: follows the latest
+/// language saved from the main menu, or [`player`] until changed.
+pub fn ui() -> Language {
+    Language::ALL.get(UI_LANGUAGE.load(Ordering::Relaxed) as usize).copied().unwrap_or_else(player)
+}
+
+/// Updates the framework UI language for the remainder of this session without
+/// changing the startup session language returned by [`player`].
+pub fn set_ui(language: Language) {
+    if let Some(index) = Language::ALL.iter().position(|&l| l == language) {
+        UI_LANGUAGE.store(index as u8, Ordering::Relaxed);
+    }
 }
 
 #[cfg(test)]
@@ -75,5 +93,15 @@ mod tests {
         assert_eq!(game_language("language=\"l_simp_chinese\"\n"), Language::English);
         assert_eq!(game_language("language=\"l_russian\"\n"), Language::English);
         assert_eq!(game_language(""), Language::English);
+    }
+
+    #[test]
+    fn ui_language_updates_independently_of_session_language() {
+        let before = UI_LANGUAGE.load(Ordering::Relaxed);
+        let session = player();
+        set_ui(Language::Japanese);
+        assert_eq!(ui(), Language::Japanese);
+        assert_eq!(player(), session);
+        UI_LANGUAGE.store(before, Ordering::Relaxed);
     }
 }

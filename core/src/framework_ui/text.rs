@@ -4,9 +4,11 @@
 //! drawn at the size in pixels the game's GUI scale gives them, in the tone
 //! of light text, which is all the framework UI draws (`unicode::tone`).
 use super::widgets::{Measure, Rect};
+use crate::base::settings::{self, Settings};
 use crate::text::unicode::atlas::Page;
 use crate::text::unicode::system_font::{Face, SystemFonts};
 use crate::text::unicode::tone::Tone;
+use eu4_harmony_loc::Language;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
@@ -49,7 +51,8 @@ struct Cache {
 
 pub struct UiFont {
     fonts: SystemFonts,
-    face: Face,
+    face: RefCell<Face>,
+    language: Cell<Language>,
     cache: RefCell<Cache>,
     /// Pixels per GUI unit.
     scale: Cell<f32>,
@@ -58,10 +61,11 @@ pub struct UiFont {
 impl UiFont {
     pub fn new(face: &Face) -> crate::base::Result<Self> {
         let fonts = SystemFonts::new()?;
-        let face = if fonts.has_family(&face.family) { face.clone() } else { Face::new(crate::base::settings::LAST_RESORT, face.weight) };
+        let face = if fonts.has_family(&face.family) { face.clone() } else { Face::new(settings::LAST_RESORT, face.weight) };
         Ok(Self {
             fonts,
-            face,
+            face: RefCell::new(face),
+            language: Cell::new(crate::base::lang::ui()),
             cache: RefCell::new(Cache {
                 glyphs: HashMap::new(),
                 page: Page::new(PAGE, PAGE),
@@ -79,6 +83,27 @@ impl UiFont {
         self.scale.set(scale);
     }
 
+    /// Updates the language used for fallback glyph selection (and the default
+    /// UI body face when `custom_body` is absent or uninstalled), clearing the
+    /// private glyph cache when the language changes.
+    pub fn set_language(&self, language: Language, custom_body: Option<&Face>) {
+        if self.language.get() == language {
+            return;
+        }
+        self.language.set(language);
+        let ui_settings = Settings { language: Some(language), body_font: custom_body.cloned(), ..Settings::default() };
+        let next = ui_settings.ui_face(|family| self.fonts.has_family(family));
+        let next = if self.fonts.has_family(&next.family) { next } else { Face::new(settings::LAST_RESORT, next.weight) };
+        *self.face.borrow_mut() = next;
+        let mut cache = self.cache.borrow_mut();
+        cache.glyphs.clear();
+        cache.page = Page::new(PAGE, PAGE);
+        cache.pixels.fill(0);
+        cache.dirty = true;
+        cache.overflowed = false;
+        cache.told = false;
+    }
+
     /// The glyph for `c` in `face` (or the UI's default face when `None`) at `size` pixels.
     fn glyph(&self, face: Option<&Face>, c: char, size: f32) -> Option<Placed> {
         let key = (face.cloned(), c, size.to_bits());
@@ -91,8 +116,9 @@ impl UiFont {
     }
 
     fn draw(&self, requested: Option<&Face>, c: char, size: f32) -> Option<Placed> {
-        let target = requested.unwrap_or(&self.face);
-        let face = self.fonts.face_for(target, c as u32)?;
+        let default = self.face.borrow().clone();
+        let target = requested.unwrap_or(&default);
+        let face = self.fonts.face_for_language(target, c as u32, self.language.get())?;
         let mut bitmap = self.fonts.rasterize(&face, c as u32, size).ok()?;
         Tone::Light.apply(&mut bitmap.alpha);
         let mut cache = self.cache.borrow_mut();
@@ -304,5 +330,23 @@ mod tests {
         assert!(each_draws_its_own(&quads, &font.take_page().expect("the third frame's glyphs")));
         assert_eq!(frame(&third), quads);
         assert!(font.take_page().is_none(), "the page started over again");
+    }
+
+    #[test]
+    fn set_language_resets_the_cache_only_when_the_language_changes() {
+        let Ok(font) = UiFont::new(&Face::regular(settings::LAST_RESORT)) else { return };
+        font.set_language(Language::English, None);
+        let _ = font.layout(None, "A", 16.0, 0.0, 0.0);
+        assert!(font.take_page().is_some());
+        assert!(font.take_page().is_none());
+
+        // Setting the same language is a no-op and keeps the cache clean.
+        font.set_language(Language::English, None);
+        assert!(font.take_page().is_none());
+
+        // Switching language updates the language and marks the page dirty.
+        font.set_language(Language::Japanese, None);
+        assert!(font.take_page().is_some());
+        assert!(font.take_page().is_none());
     }
 }
