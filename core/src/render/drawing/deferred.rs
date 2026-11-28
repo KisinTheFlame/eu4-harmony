@@ -797,11 +797,16 @@ unsafe extern "C" fn get_texture_desc(wrapper: usize, out: *mut u32) {
 
 #[called_by_game]
 unsafe extern "C" fn release_texture(wrapper: usize) {
+    let d3d_tex = if wrapper != 0 { unsafe { *(wrapper as *const usize) } } else { 0 };
     if wrapper != 0 {
-        let d3d_tex = unsafe { *(wrapper as *const usize) };
         evict_texture_desc(wrapper, d3d_tex);
     }
     unsafe { ORIGINAL_TEXTURE_RELEASE.get()(wrapper) };
+    if wrapper != 0 {
+        // Evict again after `*wrapper` has been updated/cleared so a concurrent
+        // `get_texture_desc` that raced before release cannot repopulate a stale entry.
+        evict_texture_desc(wrapper, d3d_tex);
+    }
 }
 
 #[unsafe(naked)]

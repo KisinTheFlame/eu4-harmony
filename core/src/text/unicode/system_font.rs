@@ -384,6 +384,9 @@ impl SystemFonts {
             face.GetGlyphIndices(&scalar, 1, &mut index).map_err(|e| format!("glyph index: {e}"))?;
             let mut design = DWRITE_FONT_METRICS::default();
             face.GetMetrics(&mut design);
+            if design.designUnitsPerEm == 0 {
+                return Err("font has zero designUnitsPerEm".into());
+            }
             let mut metrics = DWRITE_GLYPH_METRICS::default();
             face.GetDesignGlyphMetrics(&index, 1, &mut metrics, false).map_err(|e| format!("glyph metrics: {e}"))?;
             let advance = metrics.advanceWidth as f32 * em / design.designUnitsPerEm as f32;

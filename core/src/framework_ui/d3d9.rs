@@ -135,14 +135,20 @@ impl Backend {
         let texture = self.texture.clone().expect("texture just made");
         if let Some(alpha) = font.take_page() {
             let mut locked = D3DLOCKED_RECT::default();
-            texture.LockRect(0, &mut locked, std::ptr::null(), D3DLOCK_DISCARD as u32)?;
+            if let Err(e) = texture.LockRect(0, &mut locked, std::ptr::null(), D3DLOCK_DISCARD as u32) {
+                font.mark_dirty();
+                return Err(e);
+            }
             for row in 0..PAGE as usize {
                 let line = (locked.pBits as *mut u8).add(row * locked.Pitch as usize) as *mut u32;
                 for col in 0..PAGE as usize {
                     *line.add(col) = (alpha[row * PAGE as usize + col] as u32) << 24 | 0x00ff_ffff;
                 }
             }
-            texture.UnlockRect(0)?;
+            if let Err(e) = texture.UnlockRect(0) {
+                font.mark_dirty();
+                return Err(e);
+            }
         }
         Ok(texture)
     }

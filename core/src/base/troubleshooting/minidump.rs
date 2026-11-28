@@ -21,6 +21,7 @@ const STREAM_SYSTEM_MEMORY_INFO: u32 = 21;
 /// corrupt length fields).
 const MAX_THREAD_STACK_BYTES: u32 = 2 * 1024 * 1024;
 const MAX_SMALL_BLOB: u32 = 256 * 1024;
+const MAX_SLIM_BLOB_POOL_BYTES: usize = 32 * 1024 * 1024;
 const MAX_STREAMS: u32 = 4096;
 
 #[derive(Clone, Copy)]
@@ -171,6 +172,10 @@ pub(super) fn slim<F: Read + Seek>(file: &mut F, redact_path: &dyn Fn(&str) -> S
     let mut rva_patches: Vec<(usize, usize, u32)> = Vec::new();
 
     fn alloc_blob(pool: &mut Vec<u8>, bytes: &[u8]) -> io::Result<u32> {
+        let padded = bytes.len().next_multiple_of(4);
+        if pool.len().checked_add(padded).is_none_or(|total| total > MAX_SLIM_BLOB_POOL_BYTES) {
+            return Err(invalid("slim minidump exceeded memory cap"));
+        }
         let off = u32::try_from(pool.len()).map_err(|_| invalid("slim minidump overflow"))?;
         pool.extend_from_slice(bytes);
         while !pool.len().is_multiple_of(4) {
@@ -275,15 +280,10 @@ pub(super) fn slim<F: Read + Seek>(file: &mut F, redact_path: &dyn Fn(&str) -> S
                         put_u32(&mut data, base + 76, 0);
                         put_u32(&mut data, base + 80, 0);
                     }
-                    // MiscRecord at +84 (DataSize: u32, Rva: u32)
-                    let misc_size = u32_le(&data, base + 84);
-                    let misc_rva = u32_le(&data, base + 88);
-                    if let Some(off) = copy_blob(file, file_len, &mut blob_pool, &mut blob_dedup, misc_rva, misc_size, MAX_SMALL_BLOB)? {
-                        rva_patches.push((stream_idx, base + 88, off));
-                    } else {
-                        put_u32(&mut data, base + 84, 0);
-                        put_u32(&mut data, base + 88, 0);
-                    }
+                    // MiscRecord at +84 (DataSize: u32, Rva: u32): legacy IMAGE_DEBUG_MISC
+                    // is unneeded for PDB symbolization and may contain unredacted paths.
+                    put_u32(&mut data, base + 84, 0);
+                    put_u32(&mut data, base + 88, 0);
                 }
                 out_streams.push((STREAM_MODULE_LIST, data));
             }

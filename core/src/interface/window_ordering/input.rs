@@ -67,7 +67,12 @@ impl Input {
     /// The event remains valid until the dispatcher returns. Its target may
     /// already be gone: the caller reads only the event's handled mask here.
     pub fn pop_capture(&mut self, handled: bool) {
-        let Some(capture) = self.captures.pop().expect("native GUI dispatch nesting").filter(|_| handled) else { return };
+        static NESTING_BROKEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let Some(entry) = self.captures.pop() else {
+            crate::base::broken_invariant(&NESTING_BROKEN, format_args!("native GUI dispatch nesting"));
+            return;
+        };
+        let Some(capture) = entry.filter(|_| handled) else { return };
         let Some(frame) = self.frames.iter_mut().find(|frame| frame.serial == capture.serial) else { return };
         if frame.accepted {
             return;

@@ -147,7 +147,7 @@ pub(crate) fn run(game_dir: PathBuf, installed: &str) {
     } else {
         log!("remote pipe: disabled (enable in Harmony settings -> Advanced or pass -harmony_remote)");
     }
-    let Some((mods, discovery_notes)) = discover(&user_dir) else { return };
+    let (mods, discovery_notes) = discover(&user_dir);
     // Texts first: an extension may read its own at the top of main.lua.
     let mut plan = Plan::default();
     let every: Vec<_> = mods.iter().collect();
@@ -210,16 +210,17 @@ fn tell_missing_fonts(chosen: &settings::Settings) {
 }
 
 /// The mods of the playset with an EU4 Harmony manifest, in its order, and
-/// what was skipped, which the player is told of; None when the playset
-/// cannot be read.
-fn discover(user_dir: &Path) -> Option<(Vec<mods::DiscoveredMod>, Vec<mods::Skipped>)> {
+/// what was skipped, which the player is told of; falls back to an empty mod
+/// list when the playset cannot be read so the framework still installs its
+/// own font shader, console font, and UI splices.
+fn discover(user_dir: &Path) -> (Vec<mods::DiscoveredMod>, Vec<mods::Skipped>) {
     let (mods, notes) = match mods::discover(user_dir) {
         Ok(v) => v,
         Err(e) => {
             log!("mod discovery failed: {e}");
             report::line(format!("mods: discovery failed: {e}"));
             report::write();
-            return None;
+            return (Vec::new(), vec![mods::Skipped::other(format!("playset could not be read: {e}"))]);
         }
     };
     for note in &notes {
@@ -245,7 +246,7 @@ fn discover(user_dir: &Path) -> Option<(Vec<mods::DiscoveredMod>, Vec<mods::Skip
             m.layout.ui.len()
         );
     }
-    Some((mods, notes))
+    (mods, notes)
 }
 
 #[cfg(test)]

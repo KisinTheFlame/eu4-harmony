@@ -25,6 +25,8 @@ struct BatchState {
 /// Reusable one-batch-at-a-time worker pool where the submitting thread works
 /// alongside the pool threads (`saving::parallel`, `saving::stored`, `saving::sum`).
 pub(crate) struct WorkerPool {
+    worker_count: usize,
+    #[cfg(feature = "dev")]
     threads: Vec<u32>,
     handles: Mutex<Vec<std::thread::JoinHandle<()>>>,
     inner: Arc<BatchInner>,
@@ -65,12 +67,22 @@ impl WorkerPool {
                     .ok()
             })
             .collect();
+        let worker_count = handles.len();
         let deadline = Instant::now() + Duration::from_secs(5);
-        while ids.lock().unwrap_or_else(|e| e.into_inner()).len() < handles.len() && Instant::now() < deadline {
+        while ids.lock().unwrap_or_else(|e| e.into_inner()).len() < worker_count && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(1));
         }
+        #[cfg(feature = "dev")]
         let threads = ids.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        Self { threads, handles: Mutex::new(handles), inner, in_use: AtomicBool::new(false), broken: AtomicBool::new(false) }
+        Self {
+            worker_count,
+            #[cfg(feature = "dev")]
+            threads,
+            handles: Mutex::new(handles),
+            inner,
+            in_use: AtomicBool::new(false),
+            broken: AtomicBool::new(false),
+        }
     }
 
     pub(crate) fn is_broken(&self) -> bool {
@@ -79,7 +91,7 @@ impl WorkerPool {
 
     /// Total concurrency: worker threads plus the submitting thread.
     pub(crate) fn width(&self) -> usize {
-        self.threads.len() + 1
+        self.worker_count + 1
     }
 
     /// OS thread IDs of the pool's worker threads.
@@ -97,7 +109,7 @@ impl WorkerPool {
         let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
         state.work = Some(work);
         state.round += 1;
-        state.busy = self.threads.len();
+        state.busy = self.worker_count;
         self.inner.start.notify_all();
         true
     }
@@ -170,11 +182,13 @@ impl WorkerPool {
         timeout_note: &str,
         f: impl Fn(usize) -> T + Send + Sync + 'static,
     ) -> Option<Vec<T>> {
-        let task = Arc::new(EachWork { next: AtomicUsize::new(0), f: Box::new(f), out: (0..count).map(|_| Mutex::new(None)).collect() });
-        self.run(task.clone(), timeout, timeout_note)?;
-        if self.is_broken() {
-            return None;
-        }
+        let task = Arc::new(EachWork {
+            next: AtomicUsize::new(0),
+            abandoned: AtomicBool::new(false),
+            f: Box::new(f),
+            out: (0..count).map(|_| Mutex::new(None)).collect(),
+        });
+        self.run_draining(task.clone(), timeout, timeout_note)?;
         task.out.iter().map(|o| o.lock().unwrap_or_else(|e| e.into_inner()).take()).collect()
     }
 }
@@ -213,13 +227,14 @@ fn batch_worker(inner: &BatchInner, guard_label: &str) {
             crate::base::guarded(guard_label, || work.work(true));
         }
         let mut state = inner.state.lock().unwrap_or_else(|e| e.into_inner());
-        state.busy -= 1;
+        state.busy = state.busy.saturating_sub(1);
         inner.done.notify_all();
     }
 }
 
 struct EachWork<T> {
     next: AtomicUsize,
+    abandoned: AtomicBool,
     f: Box<dyn Fn(usize) -> T + Send + Sync>,
     out: Vec<Mutex<Option<T>>>,
 }
@@ -227,6 +242,9 @@ struct EachWork<T> {
 impl<T: Send> Work for EachWork<T> {
     fn work(&self, _: bool) {
         loop {
+            if self.abandoned.load(Ordering::Acquire) {
+                return;
+            }
             let i = self.next.fetch_add(1, Ordering::SeqCst);
             let Some(out) = self.out.get(i) else { return };
             let value = (self.f)(i);
@@ -234,7 +252,9 @@ impl<T: Send> Work for EachWork<T> {
         }
     }
 
-    fn abandon(&self) {}
+    fn abandon(&self) {
+        self.abandoned.store(true, Ordering::Release);
+    }
 }
 
 #[cfg(test)]

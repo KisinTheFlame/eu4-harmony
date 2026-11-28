@@ -98,6 +98,7 @@ const UNIT_VTABLE_IS_ARMY: usize = 0x80;
 const UNIT_VTABLE_IS_MERC: usize = 0x90;
 const LEADER_FIRE_PIPS: usize = 0x4c;
 const LEADER_SHOCK_PIPS: usize = 0x50;
+const LEADER_MODIFIERS: usize = 0x68;
 
 const REGIMENT_DRILL: usize = 0x30;
 const REGIMENT_SPECIAL_CAT: usize = 0x64;
@@ -244,6 +245,9 @@ unsafe fn fingerprint_country(country: usize, army_vtable: usize) -> Option<u64>
             continue;
         }
         let vtable = unsafe { *(u as *const usize) };
+        if vtable == 0 {
+            return None;
+        }
         let is_army = if vtable == army_vtable {
             true
         } else {
@@ -262,6 +266,19 @@ unsafe fn fingerprint_country(country: usize, army_vtable: usize) -> Option<u64>
             let fire = unsafe { *((leader + LEADER_FIRE_PIPS) as *const i32) } as u32 as u64;
             let shock = unsafe { *((leader + LEADER_SHOCK_PIPS) as *const i32) } as u32 as u64;
             h = mix(h, (fire << 32) | shock);
+            let lmods = unsafe { *((leader + LEADER_MODIFIERS) as *const usize) };
+            h = mix(h, lmods as u64);
+            if lmods != 0 {
+                let l_by_mod = unsafe { *((lmods + BY_MODIFIER) as *const u8) };
+                let l_count = unsafe { *((lmods + COUNT) as *const i32) }.max(0) as usize;
+                let l_pairs = unsafe { *((lmods + PAIRS) as *const *const u64) };
+                h = mix(h, ((l_by_mod as u64) << 32) | (l_count as u64));
+                if !l_pairs.is_null() && l_count > 0 {
+                    for j in 0..l_count {
+                        h = mix(h, unsafe { *l_pairs.add(j) });
+                    }
+                }
+            }
         }
         h = mix(h, unsafe { *((u + UNIT_MERC_COMPANY) as *const usize) } as u64);
         h = mix(h, unsafe { *((u + unit::LOCATION) as *const usize) } as u64);
@@ -430,7 +447,12 @@ fn on_countries_phase_after(_: &mut hooks::Call<'_>) {
 
 #[called_by_game]
 unsafe extern "C" fn country_army_strength_hook(cached_data: usize, out: *mut i64, param_3: u8) -> *mut i64 {
-    if param_3 == 0 && ACTIVE.load(Ordering::Relaxed) && crate::base::thread_id() == MAIN_THREAD_ID.load(Ordering::Relaxed) && cached_data != 0 {
+    if param_3 == 0
+        && !out.is_null()
+        && ACTIVE.load(Ordering::Relaxed)
+        && crate::base::thread_id() == MAIN_THREAD_ID.load(Ordering::Relaxed)
+        && cached_data != 0
+    {
         let country = unsafe { *(cached_data as *const usize) };
         let entry = CACHE.with(|c| c.borrow().get(&country).copied());
         if let Some(cached) = entry {

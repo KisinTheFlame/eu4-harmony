@@ -129,6 +129,7 @@ impl MainSide {
 
     /// A non-UI scope inside a frame (command execution or save writing)
     /// begins: releases the presentation lock while crossings stay guarded.
+    #[cfg(test)]
     pub(super) fn unlocked_begins(&mut self, lock: &impl Lock) {
         let gave = self.holds;
         self.unlocked.push(gave);
@@ -138,12 +139,13 @@ impl MainSide {
     /// A non-UI scope has returned: re-takes the presentation lock if entering
     /// it released the lock, or drops a crossing lock if this outermost
     /// unlocked scope was entered without the lock.
+    #[cfg(test)]
     pub(super) fn unlocked_ends(&mut self, lock: &impl Lock, at: At) {
         let Some(gave) = self.unlocked.pop() else {
             return;
         };
         if gave {
-            if !self.in_day && self.unlocked.is_empty() {
+            if self.unlocked.is_empty() {
                 self.crossing = false;
             }
             self.take(lock, at);
@@ -214,20 +216,20 @@ impl MainSide {
 
     /// Waits for any in-flight drawing-thread frame (including an unlocked
     /// `Present` and its post-Present tail) to finish while preserving whether
-    /// the main thread held the presentation lock.
+    /// the main thread held the presentation lock. Loops until `in_frame()` is
+    /// still false after re-acquiring the lock.
     pub(super) fn wait_for_drawing_frame(&mut self, lock: &impl Lock, in_frame: impl Fn() -> bool) {
-        if !in_frame() {
-            return;
-        }
         let had = self.holds;
-        if had {
-            self.give(lock);
-        }
         while in_frame() {
-            std::thread::yield_now();
-        }
-        if had {
-            self.take(lock, At::Frame);
+            if had {
+                self.give(lock);
+            }
+            while in_frame() {
+                std::thread::yield_now();
+            }
+            if had {
+                self.take(lock, At::Frame);
+            }
         }
     }
 
@@ -611,5 +613,43 @@ mod tests {
         main.unlocked_ends(&lock, At::DayEnd);
         main.frame_ends_or_carry(&lock, false);
         assert_eq!(lock.done(), [Took(At::DayEnd), Gave]);
+    }
+
+    #[test]
+    fn wait_for_drawing_frame_reloops_if_drawing_reenters_before_retake() {
+        let (lock, mut main) = (Recorder::default(), MainSide::new());
+        main.frame_begins(&lock);
+        lock.done();
+        // Sequence: true (enter outer), true (inner spin), false (exit inner -> retake),
+        // true (re-check outer -> release again), false (exit inner -> retake), false (done).
+        let states = [true, true, false, true, false, false];
+        let idx = Cell::new(0usize);
+        main.wait_for_drawing_frame(&lock, || {
+            let i = idx.get();
+            idx.set(i + 1);
+            states[i]
+        });
+        assert!(main.holds());
+        assert_eq!(lock.done(), [Gave, Took(At::Frame), Gave, Took(At::Frame)]);
+    }
+
+    #[test]
+    fn unlocked_ends_inside_day_nested_frame_clears_crossing() {
+        let (lock, mut main) = (Recorder::default(), MainSide::new());
+        main.frame_begins(&lock);
+        main.day_begins(&lock);
+        main.frame_begins(&lock);
+        lock.done();
+
+        main.unlocked_begins(&lock);
+        assert!(main.crossing(&lock));
+        main.unlocked_ends(&lock, At::Frame);
+        lock.done();
+
+        // Outer nested frame still owns the presentation lock; frame_check must
+        // not mistakenly drop it due to a stale crossing flag.
+        main.frame_check(&lock);
+        assert!(main.holds());
+        assert_eq!(lock.done(), []);
     }
 }

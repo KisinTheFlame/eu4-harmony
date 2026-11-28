@@ -167,6 +167,19 @@ impl<F: FontSystem> FontsPage<F> {
     }
 
     fn build_roles(&self, language: Language, source: &Settings, dirty: bool) -> Vec<Lists> {
+        let written_raw = self.fonts.families_with(language.native_name(), language);
+        let latin_raw = self.fonts.families_with("A", language);
+        self.build_roles_with(language, source, dirty, written_raw, latin_raw)
+    }
+
+    fn build_roles_with(
+        &self,
+        language: Language,
+        source: &Settings,
+        dirty: bool,
+        written_raw: Vec<(String, String)>,
+        latin_raw: Vec<(String, String)>,
+    ) -> Vec<Lists> {
         let shown: Vec<DrawnFont> = Role::ALL
             .into_iter()
             .map(|role| match source.font(role, |f| self.fonts.has_family(f)) {
@@ -174,9 +187,9 @@ impl<F: FontSystem> FontsPage<F> {
                 DrawnFont::System(face) => DrawnFont::System(self.fonts.drawn(&face).unwrap_or(face)),
             })
             .collect();
-        let offered = |text: &str, roles: &[Role]| {
+        let offered = |raw: Vec<(String, String)>, roles: &[Role]| {
             let (mut families, mut names): (Vec<String>, Vec<String>) =
-                self.fonts.families_with(text, language).into_iter().filter(|(english, _)| !settings::is_bundled_default_family(english)).unzip();
+                raw.into_iter().filter(|(english, _)| !settings::is_bundled_default_family(english)).unzip();
             for &role in roles {
                 let shown_face = match &shown[at(role)] {
                     DrawnFont::System(face) => Some(face),
@@ -191,8 +204,8 @@ impl<F: FontSystem> FontsPage<F> {
             }
             (families, names)
         };
-        let written = offered(language.native_name(), &[Role::Body, Role::Heading, Role::Map]);
-        let latin = offered("A", &[Role::Console]);
+        let written = offered(written_raw, &[Role::Body, Role::Heading, Role::Map]);
+        let latin = offered(latin_raw, &[Role::Console]);
         Role::ALL
             .into_iter()
             .zip(shown)
@@ -363,29 +376,20 @@ impl<F: FontSystem> FontsPage<F> {
             self.language = new_lang;
             // Rebuild offered lists for the new language: keep custom fonts
             // that cover the new language; reset unsupported custom fonts to
-            // the new language's default.
-            let supported_written: Vec<String> = self
-                .fonts
-                .families_with(new_lang.native_name(), new_lang)
-                .into_iter()
-                .filter(|(english, _)| !settings::is_bundled_default_family(english))
-                .map(|(english, _)| english)
-                .collect();
-            let supported_latin: Vec<String> = self
-                .fonts
-                .families_with("A", new_lang)
-                .into_iter()
-                .filter(|(english, _)| !settings::is_bundled_default_family(english))
-                .map(|(english, _)| english)
-                .collect();
+            // the new language's default. Query DirectWrite once per sample and
+            // reuse both lists when rebuilding the role dropdowns.
+            let written_raw = self.fonts.families_with(new_lang.native_name(), new_lang);
+            let latin_raw = self.fonts.families_with("A", new_lang);
+            let supports =
+                |raw: &[(String, String)], family: &str| raw.iter().any(|(english, _)| !settings::is_bundled_default_family(english) && english == family);
             let mut next = Settings { language: Some(new_lang), map_outline: self.map_outline, ..Settings::default() };
             let mut dirty_flags = [false; 4];
             for role in Role::ALL {
                 let idx = at(role);
                 let prev = &self.roles[idx];
-                let supported = if role == Role::Console { &supported_latin } else { &supported_written };
+                let raw = if role == Role::Console { &latin_raw } else { &written_raw };
                 if let Some(custom) = &prev.custom {
-                    if supported.contains(&custom.family) {
+                    if supports(raw, &custom.family) {
                         *next.chosen_mut(role) = Some(custom.clone());
                         dirty_flags[idx] = prev.dirty;
                     } else {
@@ -398,7 +402,7 @@ impl<F: FontSystem> FontsPage<F> {
                     dirty_flags[idx] = prev.dirty;
                 }
             }
-            let mut rebuilt = self.build_roles(new_lang, &next, false);
+            let mut rebuilt = self.build_roles_with(new_lang, &next, false, written_raw, latin_raw);
             for (role, dirty) in rebuilt.iter_mut().zip(dirty_flags) {
                 role.dirty = dirty;
             }
@@ -434,7 +438,7 @@ impl<F: FontSystem> FontsPage<F> {
             let face = Face::new(family, drawn_weight);
             window.set_options(weight_id, names, selected);
             window.set_enabled(weight_id, true);
-            let is_bundled_default = self.roles[idx].top == TopOption::BundledDefault && index == 0;
+            let is_bundled_default = self.roles[idx].top == TopOption::BundledDefault && index == 0 && drawn_weight == REGULAR;
             self.roles[idx].weights = weights;
             self.roles[idx].current = DrawnFont::System(face.clone());
             self.roles[idx].custom = if is_bundled_default { None } else { Some(face.clone()) };
@@ -452,7 +456,7 @@ impl<F: FontSystem> FontsPage<F> {
             let Some(&weight) = self.roles[idx].weights.get(index) else { return };
             let family_idx = window.selected(family_id).unwrap_or(0);
             let face = Face::new(cur_face.family.clone(), weight);
-            let is_bundled_default = self.roles[idx].top == TopOption::BundledDefault && family_idx == 0;
+            let is_bundled_default = self.roles[idx].top == TopOption::BundledDefault && family_idx == 0 && weight == REGULAR;
             self.roles[idx].current = DrawnFont::System(face.clone());
             self.roles[idx].custom = if is_bundled_default { None } else { Some(face.clone()) };
             self.roles[idx].dirty = true;

@@ -131,6 +131,11 @@ unsafe extern "C" fn filter_country_modifiers(set: usize, country_mods: usize) {
     let mut set_count = unsafe { *((set + COUNT) as *const i32) }.max(0) as usize;
     let mut set_cap = unsafe { *((set + CAP) as *const i32) };
     let added_pairs = unsafe { *((country_mods + PAIRS) as *const *const Pair) };
+    if added_pairs.is_null() {
+        PENDING_CHECK_COUNTRY_MODS.with(|c| c.set(0));
+        unsafe { modifier_sums::sum_sets(set, country_mods, false) };
+        return;
+    }
 
     unsafe { merge_upkeep_modifiers(set, &mut set_pairs, &mut set_count, &mut set_cap, added_pairs) };
     PENDING_CHECK_COUNTRY_MODS.with(|c| c.set(if checked { country_mods } else { 0 }));
@@ -147,6 +152,9 @@ unsafe extern "C" fn checked_upkeep_calc(regiment: usize, set: usize) -> i32 {
         // `0xaebeb0` to verify that omitting them cannot change the answer.
         let added_count = unsafe { *((country_mods + COUNT) as *const i32) }.max(0) as usize;
         let added_pairs = unsafe { *((country_mods + PAIRS) as *const *const Pair) };
+        if added_pairs.is_null() {
+            return fast;
+        }
         let mut set_pairs = unsafe { *((set + PAIRS) as *const *mut Pair) };
         let mut set_count = unsafe { *((set + COUNT) as *const i32) }.max(0) as usize;
         let mut set_cap = unsafe { *((set + CAP) as *const i32) };
@@ -161,7 +169,7 @@ unsafe extern "C" fn checked_upkeep_calc(regiment: usize, set: usize) -> i32 {
             }
             let val = if modifier == i as i32 {
                 entry.value
-            } else if modifier <= EMPTY_MODIFIER {
+            } else if (0..EMPTY_MODIFIER).contains(&modifier) && (modifier as usize) < added_count {
                 unsafe { (*added_pairs.offset(modifier as isize)).value }
             } else {
                 entry.value

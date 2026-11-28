@@ -39,7 +39,6 @@ const PAGE_LOAD_CHECK: usize = 0x10c9f8f;
 const PAGE_LOAD_NEEDS_FILE: usize = 0x10c9fab;
 const PAGE_LOAD_SKIP: usize = 0x10ca110;
 const CHECK_RELOAD_NEEDED: usize = 0x16c10a0;
-const BEFORE_DEVICE_RESET: usize = 0x14ddc70;
 const FLAG_CONFIG_GLOBAL: usize = 0x233fe28;
 const DESTROY_TEXTURE_SLOT: usize = 0x1fd1330;
 
@@ -130,21 +129,18 @@ fn points() -> Vec<Point> {
         Point::keep(PAGE_LOAD_SKIP, "48 8d 8c 24 98 00 00 00 e8 43 b5 fc fe", "flag atlas page skips cached tga load"),
         Point::keep(CHECK_RELOAD_NEEDED, "48 83 ec 28 ff 15 76 01 91 00", "flag atlas check texture reload needed").recorded(CHECK_RELOAD_FN.slot()),
         Point::observe(LOAD_ATLAS, "4c 89 4c 24 20 4c 89 44 24 18 48 89 54 24 10 48 89 4c 24 08", "load flag atlas", 5, None, Some(after_load_atlas)),
-        Point::observe(
-            BEFORE_DEVICE_RESET,
-            "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 33 ff 48 8b f1",
-            "invalidate resources before device reset",
-            1,
-            Some(on_device_reset),
-            None,
-        ),
         Point::keep(0x10c602dusize, "48 8b 15 f4 9d 27 01", "flag validation config global").uses(&[FLAG_CONFIG_GLOBAL]),
         Point::keep(0x10c5ef0usize, "ff 15 3a b4 f0 00", "flag atlas destroys texture via graphics table").uses(&[DESTROY_TEXTURE_SLOT]),
     ]
 }
 
-fn on_device_reset(_call: &mut Call) {
+/// Invalidates cached GPU flag-atlas texture generations and releases any
+/// stashed handles before a Direct3D device reset.
+pub fn on_device_reset() {
     DEVICE_RESET_GEN.fetch_add(1, Ordering::AcqRel);
+    if crate::native::memory().is_some() {
+        unsafe { drain_stash() };
+    }
 }
 
 unsafe fn read_validation_key(flagmap: usize, dir_str: usize, flag_names_vec: usize) -> Option<ValidationKey> {
@@ -191,6 +187,9 @@ unsafe extern "C" fn validate_cache(flagmap: usize, dir_str: usize, flag_names_v
         }
     }
 
+    // Cache miss or changed validation key: discard any textures stashed from a
+    // different atlas before native validation decides whether to reuse disk cache.
+    drain_stash();
     let result = ORIGINAL_VALIDATE.get()(flagmap, dir_str, flag_names_vec);
     if result == 0 {
         if let Some(k) = key {
@@ -298,6 +297,13 @@ unsafe extern "C" fn try_reuse_page_texture(flagmap: usize, page_idx: usize, nee
 fn after_load_atlas(_call: &mut Call) {
     unsafe {
         drain_stash();
+    }
+    // `0x10c7280` has now uploaded any newly built atlas textures in the current
+    // device generation; refresh `valid_gen` so subsequent loads after a device
+    // reset can reuse the newly uploaded textures again.
+    let cur_gen = DEVICE_RESET_GEN.load(Ordering::Acquire);
+    if let Some((_, valid_gen)) = LAST_VALID.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        *valid_gen = cur_gen;
     }
 }
 

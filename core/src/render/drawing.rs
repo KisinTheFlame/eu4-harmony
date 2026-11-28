@@ -48,7 +48,7 @@ pub(crate) use crossings::SCENE_BEGINS;
 use crate::base::called_by_game;
 use crate::native::hooks::Call;
 use crate::native::memory::Memory;
-use crate::native::points::{GameFunction, Point};
+use crate::native::points::{Function, GameFunction, Point};
 use crate::native::speed_up::SpeedUp;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
@@ -97,10 +97,12 @@ use crate::native::objects::gui::{
     scene::FIRST_SCENE_WALK_START as GUI_WALK_START,
 };
 const GRAPHICS_PRESENT_OK: usize = 0x530;
-/// Save serialization and file write (`0x5cde60`, called from `0x74ba20` for
-/// normal, ironman, and autosaves): pure simulation read + zip + disk I/O, run
-/// without holding the presentation lock.
-const SAVE_WRITE: usize = 0x5cde60;
+/// Graphics device cooperative-level check and reset (`0x14df050`, called from
+/// `0x8187da` during drawing). `IDirect3DDevice9::Reset` must run on the main
+/// thread that created the device, never on the drawing thread.
+const CHECK_DEVICE: usize = 0x14df050;
+type CheckDevice = unsafe extern "C" fn(usize) -> u8;
+static ORIGINAL_CHECK_DEVICE: Function<CheckDevice> = Function::new();
 /// In `0x14dd010` (first GUI scene pass): `mov rcx, r14; call 0x14dcf90` right
 /// before clearing and walking the GUI tree (`0x14dd051..0x14dd2b1`), and
 /// `mov rdx, rdi; mov rcx, r14; call 0x14dd350` (`0x14dd2b2`), where the
@@ -190,13 +192,12 @@ fn points() -> Vec<Point> {
         // mov rcx, [application]: the in-game frame's GUI update takes it.
         Point::keep(0x81590d, "48 8b 0d 3c 66 c1 01", "the application, in the in-game frame").uses(&[APP]),
         Point::observe(APP_FRAME, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18", "the application's frame", 2, Some(app_frame_before), Some(app_frame_after)),
-        Point::observe(
-            SAVE_WRITE,
-            "40 55 53 56 57 41 54 41 56 48 8d ac 24 78 fe ff ff",
-            "save serialization and write",
-            7,
-            Some(save_before),
-            Some(save_after),
+        Point::replace(
+            CHECK_DEVICE,
+            "48 89 5c 24 10 48 89 74 24 18 48 89 7c 24 20 55",
+            "graphics device check and reset",
+            check_device as CheckDevice,
+            &ORIGINAL_CHECK_DEVICE,
         ),
         // cmp byte ptr [rdi + 0x2f9], 0; je: minimized sleep check in `0x14c25a0`.
         Point::keep(0x14c2692, "80 bf f9 02 00 00 00 74 18", "the frame's minimized check").uses(&[APP_MINIMIZED]),
@@ -278,12 +279,15 @@ extern "C" fn idler_switches() {
     });
     deferred::clear_textures();
     deferred::clear_texture_desc_cache();
-    crossings::reset_lock_order();
+    crossings::reset_lock_order(&m);
 }
 
-/// Waits for any in-flight drawing-thread `Present` and invalidates cached
-/// GUI draw lists and texture descriptors before a Direct3D device reset.
-pub(super) fn device_reset() {
+/// Freezes new drawing-thread frames, drains any in-flight `Present` (and its
+/// post-Present tail), and discards staged texture uploads before the main
+/// thread draws directly (such as a still transition notice) or resets the device.
+pub fn pause_for_main_draw() {
+    FRAMES.clear_idler();
+    deferred::clear_textures();
     if !is_drawing_thread() {
         if on_main() {
             main_side(|s| s.wait_for_drawing_frame(&MainLock, || IN_FRAME.load(Ordering::Acquire)));
@@ -293,8 +297,27 @@ pub(super) fn device_reset() {
             }
         }
     }
+    deferred::clear_textures();
     GUI_REUSE_EPOCH.fetch_add(1, Ordering::Release);
+}
+
+/// Waits for any in-flight drawing-thread `Present` and invalidates cached
+/// GUI draw lists, staged textures, and texture descriptors before a Direct3D
+/// device reset.
+pub(super) fn device_reset() {
+    pause_for_main_draw();
     deferred::clear_texture_desc_cache();
+}
+
+/// Refuses to run `IDirect3DDevice9::Reset` from the drawing thread: D3D9
+/// requires `Reset` on the device-creating main thread, which takes over on the
+/// next frame via [`main_draws`] once `[graphics + 0x530]` becomes 0.
+#[called_by_game]
+unsafe extern "C" fn check_device(graphics: usize) -> u8 {
+    if is_drawing_thread() && graphics != 0 && unsafe { *((graphics + GRAPHICS_PRESENT_OK) as *const u8) } == 0 {
+        return 0;
+    }
+    unsafe { ORIGINAL_CHECK_DEVICE.get()(graphics) }
 }
 
 /// Evicts cached texture descriptors when framework code replaces `*wrapper`
@@ -965,21 +988,6 @@ fn app_frame_after(call: &mut Call) {
     }
 }
 
-fn save_before(_: &mut Call) {
-    if !on_main() {
-        return;
-    }
-    GUI_REUSE_EPOCH.fetch_add(1, Ordering::Release);
-    main_side(|s| s.unlocked_begins(&MainLock));
-}
-
-fn save_after(_: &mut Call) {
-    if !on_main() {
-        return;
-    }
-    main_side(|s| s.unlocked_ends(&MainLock, At::Frame));
-}
-
 /// The game quits: its run takes the interface and the graphics down after
 /// this frame, which the drawing thread must not draw meanwhile. It ends the
 /// frame it is in, as at an idler's switch, and draws no more; the main
@@ -1122,11 +1130,13 @@ extern "C" fn frame_draws(idler: usize) {
 }
 
 /// Whether the main thread draws this frame itself: the console's debug
-/// text, which works a country's values out as it is drawn, or the framework
-/// holding frames back.
+/// text, which works a country's values out as it is drawn, the framework
+/// holding frames back, or a lost Direct3D device that must be reset on the
+/// main thread.
 fn main_draws(m: &Memory) -> bool {
     let debug_text = m.ptr(m.at(DEBUG_COUNTRY)).ok().is_none_or(|c| c != 0);
-    debug_text || super::present::holding()
+    let device_lost = m.ptr(m.at(GRAPHICS_GLOBAL)).and_then(|g| if g == 0 { Ok(1) } else { m.u8(g + GRAPHICS_PRESENT_OK) }).is_ok_and(|b| b == 0);
+    debug_text || super::present::holding() || device_lost
 }
 
 /// Whether the drawing thread must not draw the frame prepared: what makes

@@ -41,7 +41,7 @@ use crate::native::speed_up::{self as speed, SpeedUp};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
-use std::sync::{Arc, Barrier, Mutex};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 /// `0xb9b4e0(manager, trigger) -> u64`: looks `trigger` up in `manager + 0x48`.
@@ -527,26 +527,37 @@ unsafe fn process_triggers(index: &ProfileIndex, triggers: &[usize], worker_coun
 
     let chunk_size = triggers.len().div_ceil(workers);
     let chunks: Vec<&[usize]> = triggers.chunks(chunk_size).collect();
-    let barrier = Barrier::new(chunks.len());
+    // Run the cost pass and the sort pass in two separate scopes instead of a
+    // `Barrier`, so any panicking or failed worker cannot deadlock the others.
     std::thread::scope(|scope| {
-        for chunk in chunks {
-            let barrier = &barrier;
+        for chunk in &chunks {
+            let chunk = *chunk;
             scope.spawn(move || {
-                let mut memo = FastMap::default();
-                let mut scratch = Vec::new();
-                for &trigger in chunk {
-                    let cost = unsafe { index.lookup_cost(trigger, &mut memo, &mut scratch) };
-                    unsafe { *((trigger + TRIGGER_COST) as *mut u64) = cost };
-                }
-                barrier.wait();
-                if sort_enabled {
+                crate::base::guarded("trigger profile costs", || {
+                    let mut memo = FastMap::default();
+                    let mut scratch = Vec::new();
                     for &trigger in chunk {
-                        unsafe { sort_trigger_children(trigger) };
+                        let cost = unsafe { index.lookup_cost(trigger, &mut memo, &mut scratch) };
+                        unsafe { *((trigger + TRIGGER_COST) as *mut u64) = cost };
                     }
-                }
+                });
             });
         }
     });
+    if sort_enabled {
+        std::thread::scope(|scope| {
+            for chunk in &chunks {
+                let chunk = *chunk;
+                scope.spawn(move || {
+                    crate::base::guarded("trigger profile sort", || {
+                        for &trigger in chunk {
+                            unsafe { sort_trigger_children(trigger) };
+                        }
+                    });
+                });
+            }
+        });
+    }
 }
 
 #[called_by_game]
@@ -624,7 +635,7 @@ unsafe extern "C" fn free_registered() {
         }
         unsafe { *slot = 0 };
         match std::thread::Builder::new().name("harmony-trigger-free".into()).spawn(move || {
-            unsafe { free_detached_registry(reg) };
+            crate::base::guarded("registered triggers free worker", || unsafe { free_detached_registry(reg) });
         }) {
             Ok(handle) => {
                 *BG_FREE.lock().unwrap_or_else(|e| e.into_inner()) = Some(handle);

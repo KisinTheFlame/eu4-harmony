@@ -28,6 +28,10 @@ use std::sync::OnceLock;
 const PRESENT: usize = 0x16d4db0;
 const PRESENT_OCCLUDED: usize = 0x16d4ddb;
 const RENDERER_PRESENTED: usize = 0x132;
+/// `CGraphics::OnLostDevice` (`0x14ddc70`), which releases default-pool buffers
+/// and tail-calls `BEFORE_RESET` (`0x16d4bb0`). Observing it drains the drawing
+/// thread and releases framework resources before native buffers are torn down.
+const ON_LOST_DEVICE: usize = 0x14ddc70;
 const BEFORE_RESET: usize = 0x16d4bb0;
 
 type Present = unsafe extern "C" fn(usize) -> u8;
@@ -358,6 +362,14 @@ pub fn points() -> Vec<Point> {
     vec![
         Point::replace(PRESENT, "40 53 48 83 ec 30 48 8b d9 48 c7 44 24 20 00 00", "frame present", present as Present, &ORIGINAL_PRESENT),
         Point::keep(PRESENT_OCCLUDED, "3d 78 08 76 08 74 0f c6 83 32 01 00 00 01", "present occlusion check and presented flag").uses(&[RENDERER_PRESENTED]),
+        Point::observe(
+            ON_LOST_DEVICE,
+            "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 33 ff 48 8b f1",
+            "invalidate resources before device reset",
+            1,
+            Some(before_reset),
+            None,
+        ),
         Point::observe(BEFORE_RESET, "40 53 48 83 ec 20 48 8b d9 48 8b 49 10 48 85 c9", "before device reset", 1, Some(before_reset), None),
     ]
 }

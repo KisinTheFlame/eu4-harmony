@@ -894,7 +894,7 @@ impl<H: UiHost> Shell<H> {
         }
     }
 
-    fn sync_frame(&mut self, frame: u64, main_menu_frame: Option<u64>, in_game_menu: bool, pixels: (f32, f32), scale: f32) {
+    fn sync_frame(&mut self, frame: u64, main_menu_frame: Option<u64>, in_game_menu: bool, pixels: (f32, f32), scale: f32) -> bool {
         self.frame = frame;
         self.main_menu_frame = main_menu_frame;
         self.in_game_menu = in_game_menu;
@@ -917,6 +917,26 @@ impl<H: UiHost> Shell<H> {
             if let Some(prompt) = self.discard_prompt.as_mut() {
                 prompt.set_screen(next_screen.0, next_screen.1);
             }
+            return true;
+        }
+        false
+    }
+
+    fn clamp_open_windows(&mut self, measure: &dyn Measure) {
+        if let Some((_, window)) = self.notice.as_mut() {
+            window.clamp_to_screen(measure);
+        }
+        if let Some(settings) = self.settings.as_mut() {
+            settings.window.clamp_to_screen(measure);
+        }
+        if let Some(mods) = self.mods.as_mut() {
+            mods.window.clamp_to_screen(measure);
+        }
+        if let Some(prompt) = self.restart_prompt.as_mut() {
+            prompt.clamp_to_screen(measure);
+        }
+        if let Some(prompt) = self.discard_prompt.as_mut() {
+            prompt.clamp_to_screen(measure);
         }
     }
 
@@ -1492,7 +1512,10 @@ pub fn still(key: &str) {
     let shown = unsafe { ui.backend.draw(device, &ui.font, &commands, ui.shell.scale) }.and_then(|()| unsafe { crate::render::d3d9::present(device) });
     match shown {
         Ok(()) => log!("framework UI: still notice {key}"),
-        Err(e) => log!("framework UI: no still notice {key}: {e}"),
+        Err(e) => {
+            log!("framework UI: no still notice {key}: {e}");
+            ui.backend.release();
+        }
     }
 }
 
@@ -1539,7 +1562,9 @@ pub unsafe fn frame(device: *mut c_void) {
     let in_game_menu = crate::native::memory().is_some_and(crate::session::sessions::in_game_menu_open);
     ui.font.set_scale(scale);
     ui.sync_font_language();
-    ui.shell.sync_frame(frame_number, (menu != u64::MAX).then_some(menu), in_game_menu, pixels, scale);
+    if ui.shell.sync_frame(frame_number, (menu != u64::MAX).then_some(menu), in_game_menu, pixels, scale) {
+        ui.shell.clamp_open_windows(&ui.font);
+    }
     ui.shell.tick(&ui.font);
     ui.sync_font_language();
     MODAL.store(ui.shell.modal(), Ordering::Relaxed);

@@ -362,6 +362,22 @@ fn plan_proxy_sync(game_dir: &Path, source_dir: &Path, already_restarted: bool) 
 /// Stages `source_bytes` beside `<game_dir>\version.dll`, moves the loaded
 /// proxy aside as `version.dll.old-<...>`, and renames the staged file into
 /// place (rolling back if the final rename fails).
+fn rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut last_err = None;
+    for attempt in 0..10 {
+        match fs::rename(from, to) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                last_err = Some(e);
+                if attempt + 1 < 10 {
+                    std::thread::sleep(std::time::Duration::from_millis(30));
+                }
+            }
+        }
+    }
+    Err(last_err.expect("at least one attempt"))
+}
+
 fn replace_proxy_file(game_dir: &Path, source_bytes: &[u8]) -> Result<PathBuf, String> {
     let game_proxy = game_dir.join("version.dll");
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
@@ -381,12 +397,12 @@ fn replace_proxy_file(game_dir: &Path, source_bytes: &[u8]) -> Result<PathBuf, S
         let _ = fs::remove_file(&staged);
         return Err(format!("cannot stage {}: {e}", staged.display()));
     }
-    if let Err(e) = fs::rename(&game_proxy, &retired) {
+    if let Err(e) = rename_with_retry(&game_proxy, &retired) {
         let _ = fs::remove_file(&staged);
         return Err(format!("cannot move {} to {}: {e}", game_proxy.display(), retired.display()));
     }
-    if let Err(e) = fs::rename(&staged, &game_proxy) {
-        let rollback = match fs::rename(&retired, &game_proxy) {
+    if let Err(e) = rename_with_retry(&staged, &game_proxy) {
+        let rollback = match rename_with_retry(&retired, &game_proxy) {
             Ok(()) => "restored the previous version.dll".to_string(),
             Err(rb) => format!("and could not restore {}: {rb}", retired.display()),
         };
