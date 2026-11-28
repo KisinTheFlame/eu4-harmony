@@ -4,3 +4,9 @@
 # subscribed. 0 means an item has not been created yet.
 published_file_id = 0
 beta_published_file_id = 3837775887
+
+# Featured companion mods referenced by workshop/media/build.py (updated on
+# launch day alongside the descriptions when public items are created).
+[featured_mods]
+convenience_tools_id = 3838535796
+regional_combat_id = 3837793510

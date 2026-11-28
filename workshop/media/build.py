@@ -26,18 +26,21 @@ def load_workspace_release() -> tuple[str, str | None]:
     return version, None
 
 
-def load_active_workshop_id() -> str:
+def load_workshop_ids() -> tuple[str, str, str]:
     data = tomllib.loads((ROOT / "workshop" / "item.toml").read_text(encoding="utf-8"))
     public_id = int(data.get("published_file_id", 0))
     beta_id = int(data.get("beta_published_file_id", 0))
     active = public_id if public_id != 0 else beta_id
     if active == 0:
         raise ValueError("workshop/item.toml has neither published_file_id nor beta_published_file_id set")
-    return str(active)
+    featured = data.get("featured_mods", {})
+    ct_id = int(featured.get("convenience_tools_id", 3838535796))
+    rc_id = int(featured.get("regional_combat_id", 3837793510))
+    return str(active), str(ct_id), str(rc_id)
 
 
 VERSION, CODENAME = load_workspace_release()
-ACTIVE_WORKSHOP_ID = load_active_workshop_id()
+ACTIVE_WORKSHOP_ID, CONVENIENCE_TOOLS_ID, REGIONAL_COMBAT_ID = load_workshop_ids()
 
 # Palette aligned with the teal-gold parchment cover and Harmony's dark UI.
 BG_TOP = (13, 21, 32)
@@ -715,13 +718,13 @@ def build_04_qol_features() -> Path:
     mods = [
         (
             "Convenience Tools",
-            "Workshop ID 3838535796",
+            f"Workshop ID {CONVENIENCE_TOOLS_ID}",
             "One-click country-wide Make States, Abandon States, and Raze in a native EU4 panel — strictly obeying vanilla governing capacity, trade company, and raze rules.",
             TEAL,
         ),
         (
             "Regional Combat",
-            "Workshop ID 3837793510",
+            f"Workshop ID {REGIONAL_COMBAT_ID}",
             "Assign an army an operating radius: automatically pursues visible enemies inside its zone, retakes lost provinces, and returns to base when idle.",
             GOLD,
         ),
