@@ -42,16 +42,23 @@ pub(super) struct MainSide {
     holds: bool,
     /// For each application frame on the way, whether it took the lock.
     frames: Vec<bool>,
+    /// Whether the previous outermost frame kept the lock across the loop
+    /// boundary for the immediately following application frame.
+    carried: bool,
+    /// For each unlocked non-UI scope on the way (commands, save writing),
+    /// whether entering it released the lock.
+    unlocked: Vec<bool>,
     /// The day let the lock go as it began.
     day_gave: bool,
     in_day: bool,
-    /// A crossing took the lock, kept until the next check for a frame.
+    /// A crossing took the lock, kept until the next check for a frame or the
+    /// end of the unlocked scope.
     crossing: bool,
 }
 
 impl MainSide {
     pub(super) const fn new() -> Self {
-        Self { holds: false, frames: Vec::new(), day_gave: false, in_day: false, crossing: false }
+        Self { holds: false, frames: Vec::new(), carried: false, unlocked: Vec::new(), day_gave: false, in_day: false, crossing: false }
     }
 
     /// Whether the main thread holds the lock.
@@ -59,11 +66,17 @@ impl MainSide {
         self.holds
     }
 
+    /// Whether the lock was carried from the immediately preceding outermost
+    /// application frame.
+    pub(super) fn is_carried(&self) -> bool {
+        self.carried
+    }
+
     /// Whether a frame that runs no day may wait for the drawing thread to
     /// draw the last one: not while the main thread holds the lock (a frame
-    /// inside another) or is in a day.
+    /// inside another), is in a day, or is in an unlocked scope.
     pub(super) fn may_pace(&self) -> bool {
-        !self.holds && !self.in_day
+        !self.holds && !self.in_day && self.unlocked.is_empty()
     }
 
     fn take(&mut self, lock: &impl Lock, at: At) {
@@ -81,17 +94,60 @@ impl MainSide {
     }
 
     /// An application frame begins: it holds the lock, taking it unless a
-    /// frame it is inside of holds it already.
+    /// frame it is inside of holds it already or the previous outermost frame
+    /// carried it across the loop boundary.
     pub(super) fn frame_begins(&mut self, lock: &impl Lock) {
-        let took = !self.holds;
+        let took = self.carried || !self.holds;
+        self.carried = false;
         self.take(lock, At::Frame);
         self.frames.push(took);
     }
 
     /// An application frame has returned: the lock goes if that frame took
     /// it, with a crossing's.
+    #[cfg(test)]
     pub(super) fn frame_ends(&mut self, lock: &impl Lock) {
+        self.frame_ends_or_carry(lock, false);
+    }
+
+    /// An application frame has returned: if `carry` is set on an active
+    /// outermost frame that holds the lock, keeps the lock across the
+    /// microsecond loop boundary into the next `frame_begins` so the main
+    /// thread does not hand the lock away and immediately stall on the next
+    /// frame's brief preamble before releasing it again in commands.
+    pub(super) fn frame_ends_or_carry(&mut self, lock: &impl Lock, carry: bool) {
         if self.frames.pop() == Some(true) {
+            self.crossing = false;
+            if carry && self.frames.is_empty() && !self.in_day && self.unlocked.is_empty() && self.holds {
+                self.carried = true;
+            } else {
+                self.carried = false;
+                self.give(lock);
+            }
+        }
+    }
+
+    /// A non-UI scope inside a frame (command execution or save writing)
+    /// begins: releases the presentation lock while crossings stay guarded.
+    pub(super) fn unlocked_begins(&mut self, lock: &impl Lock) {
+        let gave = self.holds;
+        self.unlocked.push(gave);
+        self.give(lock);
+    }
+
+    /// A non-UI scope has returned: re-takes the presentation lock if entering
+    /// it released the lock, or drops a crossing lock if this outermost
+    /// unlocked scope was entered without the lock.
+    pub(super) fn unlocked_ends(&mut self, lock: &impl Lock, at: At) {
+        let Some(gave) = self.unlocked.pop() else {
+            return;
+        };
+        if gave {
+            if !self.in_day && self.unlocked.is_empty() {
+                self.crossing = false;
+            }
+            self.take(lock, at);
+        } else if !self.in_day && self.unlocked.is_empty() && self.crossing {
             self.crossing = false;
             self.give(lock);
         }
@@ -100,7 +156,11 @@ impl MainSide {
     /// The daily update begins: it lets the lock go.
     pub(super) fn day_begins(&mut self, lock: &impl Lock) {
         self.in_day = true;
-        self.day_gave = self.holds;
+        self.crossing = false;
+        // When an enclosing unlocked scope (such as command execution) already
+        // released the lock and will re-take it on return, leave the re-take
+        // to that outer scope instead of taking at `day_ends`.
+        self.day_gave = self.holds && !self.unlocked.iter().any(|&g| g);
         self.give(lock);
     }
 
@@ -118,10 +178,11 @@ impl MainSide {
         }
     }
 
-    /// The day reaches a shared game lock or a crossing: the lock first, kept
-    /// until the next check for a frame. Whether it was taken here.
+    /// The day or an unlocked non-UI scope reaches a shared game lock or a
+    /// crossing: the lock first, kept until the next check for a frame or the
+    /// scope's end. Whether it was taken here.
     pub(super) fn crossing(&mut self, lock: &impl Lock) -> bool {
-        if self.in_day && !self.holds {
+        if (self.in_day || !self.unlocked.is_empty()) && !self.holds {
             self.take(lock, At::Crossing);
             self.crossing = true;
             return true;
@@ -154,6 +215,7 @@ impl MainSide {
     /// The game quits: the main thread holds the lock to the end, once the
     /// drawing thread's frame, if it is in one, has ended.
     pub(super) fn quits(&mut self, lock: &impl Lock, in_frame: impl Fn() -> bool) {
+        self.carried = false;
         self.take(lock, At::Frame);
         self.drawing_frame_ends(lock, in_frame);
     }
@@ -461,5 +523,74 @@ mod tests {
         drawing.frame_ends();
         drawing.turn_ends(&lock);
         assert_eq!(lock.done(), [Took(At::DrawingFrame), Gave]);
+    }
+
+    #[test]
+    fn unlocked_scope_releases_around_commands_and_coalesces_with_day_and_carry() {
+        let (lock, mut main) = (Recorder::default(), MainSide::new());
+        // Frame 1 takes lock, releases for commands, runs day inside commands,
+        // re-takes once on command exit, and carries lock into Frame 2.
+        main.frame_begins(&lock);
+        assert_eq!(lock.done(), [Took(At::Frame)]);
+
+        main.unlocked_begins(&lock);
+        assert!(!main.holds() && !main.may_pace());
+        assert_eq!(lock.done(), [Gave]);
+
+        main.day_begins(&lock);
+        main.day_ends(&lock);
+        assert!(!main.holds(), "outer unlocked scope owns re-take");
+        assert_eq!(lock.done(), []);
+
+        main.unlocked_ends(&lock, At::DayEnd);
+        assert!(main.holds());
+        assert_eq!(lock.done(), [Took(At::DayEnd)]);
+
+        main.frame_ends_or_carry(&lock, true);
+        assert!(main.holds(), "lock carried across loop boundary");
+        assert_eq!(lock.done(), []);
+
+        // Frame 2 inherits the carried lock without waiting, releases in commands,
+        // runs no day, and gives the lock back when Frame 2 ends without carry.
+        main.frame_begins(&lock);
+        assert!(main.holds());
+        assert_eq!(lock.done(), []);
+
+        main.unlocked_begins(&lock);
+        assert_eq!(lock.done(), [Gave]);
+        assert!(main.crossing(&lock), "crossings inside unlocked scope take lock");
+        assert_eq!(lock.done(), [Took(At::Crossing)]);
+        main.unlocked_ends(&lock, At::Frame);
+        assert!(main.holds(), "crossing lock satisfies scope re-take");
+        assert_eq!(lock.done(), []);
+
+        main.frame_ends_or_carry(&lock, false);
+        assert!(!main.holds() && main.may_pace());
+        assert_eq!(lock.done(), [Gave]);
+    }
+
+    #[test]
+    fn unlocked_save_scope_inside_nested_frame_does_not_carry() {
+        let (lock, mut main) = (Recorder::default(), MainSide::new());
+        main.frame_begins(&lock);
+        main.unlocked_begins(&lock);
+        main.day_begins(&lock);
+        lock.done();
+
+        // Frame inside a day takes lock, runs save unlocked, re-takes, and releases.
+        main.frame_begins(&lock);
+        assert_eq!(lock.done(), [Took(At::Frame)]);
+        main.unlocked_begins(&lock);
+        assert_eq!(lock.done(), [Gave]);
+        main.unlocked_ends(&lock, At::Frame);
+        assert_eq!(lock.done(), [Took(At::Frame)]);
+        main.frame_ends_or_carry(&lock, true);
+        assert!(!main.holds(), "nested frame inside a day never carries");
+        assert_eq!(lock.done(), [Gave]);
+
+        main.day_ends(&lock);
+        main.unlocked_ends(&lock, At::DayEnd);
+        main.frame_ends_or_carry(&lock, false);
+        assert_eq!(lock.done(), [Took(At::DayEnd), Gave]);
     }
 }

@@ -85,9 +85,22 @@ const APP_FRAME: usize = 0x14c25a0;
 /// checks at `0x14c2dd0` and `0x14c2e18`): `+0x83`, set when the game quits,
 /// and `+0x2f8`, the event pump's answer that it is to (`0x14c267c`). The run
 /// then takes the game's interface and graphics down (`[app]+0x50` at
-/// `0x14c2e27`).
+/// `0x14c2e27`). `+0x2f9` is set while minimized (`0x14c2692`), where
+/// `0x14c25a0` sleeps 50 ms without calling the idler.
 const APP_QUITS: usize = 0x83;
 const APP_PUMP_QUITS: usize = 0x2f8;
+const APP_MINIMIZED: usize = 0x2f9;
+/// Graphics context global and its last-Present-succeeded byte (`0x14c26b3`).
+const GRAPHICS_GLOBAL: usize = 0x23494b8;
+const GRAPHICS_PRESENT_OK: usize = 0x530;
+/// Session command runner (`0x14ca360`, called from `0x20f810`): executes
+/// queued commands and the daily update; non-UI work runs without the
+/// presentation lock while crossings stay guarded.
+const COMMANDS_UPDATE: usize = 0x14ca360;
+/// Save serialization and file write (`0x5cde60`, called from `0x74ba20` for
+/// normal, ironman, and autosaves): pure simulation read + zip + disk I/O, run
+/// without holding the presentation lock.
+const SAVE_WRITE: usize = 0x5cde60;
 /// The game's check for a frame inside a day, between the day's phases.
 const FRAME_CHECK: usize = 0x769ea0;
 /// The camera's update in the in-game frame's input (docs/plans/README.md#drawing,
@@ -169,6 +182,31 @@ fn points() -> Vec<Point> {
         // mov rcx, [application]: the in-game frame's GUI update takes it.
         Point::keep(0x81590d, "48 8b 0d 3c 66 c1 01", "the application, in the in-game frame").uses(&[APP]),
         Point::observe(APP_FRAME, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18", "the application's frame", 2, Some(app_frame_before), Some(app_frame_after)),
+        Point::observe(
+            COMMANDS_UPDATE,
+            "48 89 5c 24 08 48 89 74 24 18 48 89 7c 24 20",
+            "session command execution",
+            1,
+            Some(commands_before),
+            Some(commands_after),
+        ),
+        Point::observe(
+            SAVE_WRITE,
+            "40 55 53 56 57 41 54 41 56 48 8d ac 24 78 fe ff ff",
+            "save serialization and write",
+            7,
+            Some(save_before),
+            Some(save_after),
+        ),
+        // cmp byte ptr [rdi + 0x2f9], 0; je: minimized sleep check in `0x14c25a0`.
+        Point::keep(0x14c2692, "80 bf f9 02 00 00 00 74 18", "the frame's minimized check").uses(&[APP_MINIMIZED]),
+        // mov rcx, [graphics]; ...; movzx eax, byte ptr [rcx + 0x530]: Present status check in `0x14c25a0`.
+        Point::keep(
+            0x14c26b3,
+            "48 8b 0d fe 6d e8 00 b0 01 0f 29 7c 24 50 48 85 c9 74 07 0f b6 81 30 05 00 00",
+            "the frame's Present status check",
+        )
+        .uses(&[GRAPHICS_GLOBAL, GRAPHICS_PRESENT_OK]),
         // cmp [rsi + 0x2f8], r14b; cmp [rsi + 0x83], r14b: the run's loop.
         Point::keep(0x14c2dd0, "44 38 b6 f8 02 00 00 75 48", "the run's loop, the pump's quit").uses(&[APP_PUMP_QUITS]),
         Point::keep(0x14c2e18, "44 38 b6 83 00 00 00 74 af", "the run's loop, the quit").uses(&[APP_QUITS]),
@@ -511,6 +549,10 @@ impl FrameCoordinator {
         self.day_ran.store(true, Ordering::Release);
     }
 
+    fn day_ran(&self) -> bool {
+        self.day_ran.load(Ordering::Acquire)
+    }
+
     fn take_day_ran(&self) -> bool {
         self.day_ran.swap(false, Ordering::AcqRel)
     }
@@ -802,8 +844,13 @@ fn app_frame_before(_: &mut Call) {
     if !on_main() {
         return;
     }
-    if main_side(|s| s.may_pace()) && !FRAMES.take_day_ran() {
-        pace();
+    let (may_pace, carried) = main_side(|s| (s.may_pace(), s.is_carried()));
+    if may_pace {
+        if !FRAMES.take_day_ran() {
+            pace();
+        }
+    } else if carried {
+        let _ = FRAMES.take_day_ran();
     }
     main_side(|s| s.frame_begins(&MainLock));
 }
@@ -815,10 +862,42 @@ fn app_frame_after(call: &mut Call) {
     let m = call.memory();
     let app = call.arg(0);
     let quits = [APP_QUITS, APP_PUMP_QUITS].iter().any(|&at| m.u8(app + at).is_ok_and(|b| b != 0));
-    main_side(|s| s.frame_ends(&MainLock));
+    let minimized = m.u8(app + APP_MINIMIZED).is_ok_and(|b| b != 0);
+    let present_ok = m.ptr(m.at(GRAPHICS_GLOBAL)).and_then(|g| if g == 0 { Ok(1) } else { m.u8(g + GRAPHICS_PRESENT_OK) }).is_ok_and(|b| b != 0);
+    let carry = !quits && !minimized && present_ok && drawing_on() && FRAMES.prepared_idler() != 0 && FRAMES.day_ran();
+    main_side(|s| s.frame_ends_or_carry(&MainLock, carry));
     if quits {
         stop();
     }
+}
+
+fn commands_before(_: &mut Call) {
+    if !on_main() {
+        return;
+    }
+    main_side(|s| s.unlocked_begins(&MainLock));
+}
+
+fn commands_after(_: &mut Call) {
+    if !on_main() {
+        return;
+    }
+    let at = if FRAMES.day_ran() { At::DayEnd } else { At::Frame };
+    main_side(|s| s.unlocked_ends(&MainLock, at));
+}
+
+fn save_before(_: &mut Call) {
+    if !on_main() {
+        return;
+    }
+    main_side(|s| s.unlocked_begins(&MainLock));
+}
+
+fn save_after(_: &mut Call) {
+    if !on_main() {
+        return;
+    }
+    main_side(|s| s.unlocked_ends(&MainLock, At::Frame));
 }
 
 /// The game quits: its run takes the interface and the graphics down after
