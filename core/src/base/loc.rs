@@ -16,6 +16,9 @@ static FRAMEWORK: LazyLock<Catalog> = LazyLock::new(|| {
         include_str!("../../localisation/eu4harmony_l_german.yml"),
         include_str!("../../localisation/eu4harmony_l_spanish.yml"),
         include_str!("../../localisation/eu4harmony_l_simp_chinese.yml"),
+        include_str!("../../localisation/eu4harmony_l_trad_chinese.yml"),
+        include_str!("../../localisation/eu4harmony_l_japanese.yml"),
+        include_str!("../../localisation/eu4harmony_l_korean.yml"),
     ] {
         catalog.add(format::parse(source).expect("the framework's localisation parses"));
     }
@@ -26,6 +29,9 @@ static FRAMEWORK: LazyLock<Catalog> = LazyLock::new(|| {
         include_str!("../../localisation/dev/eu4harmony_dev_l_german.yml"),
         include_str!("../../localisation/dev/eu4harmony_dev_l_spanish.yml"),
         include_str!("../../localisation/dev/eu4harmony_dev_l_simp_chinese.yml"),
+        include_str!("../../localisation/dev/eu4harmony_dev_l_trad_chinese.yml"),
+        include_str!("../../localisation/dev/eu4harmony_dev_l_japanese.yml"),
+        include_str!("../../localisation/dev/eu4harmony_dev_l_korean.yml"),
     ] {
         catalog.add(format::parse(source).expect("the developer build's localisation parses"));
     }

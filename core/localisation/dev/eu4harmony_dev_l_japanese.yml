@@ -1,0 +1,3 @@
+l_japanese:
+ # 開発ビルドのテスト通知（dev.toml の [test-switches] test-notice）。
+ EU4HARMONY_TEST_NOTICE:0 "Harmony テスト通知 $NUMBER$。右上のボタンで閉じてください。"
