@@ -229,7 +229,19 @@ fn collect_families_with(collection: &IDWriteFontCollection, text: &str, languag
             if english.starts_with('@') || seen.contains(&english) {
                 continue;
             }
-            let Ok(font) = family.GetFirstMatchingFont(DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL) else { continue };
+            let Ok(regular) = family.GetFirstMatchingFont(DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL) else { continue };
+            let (stretch, style) = (regular.GetStretch(), regular.GetStyle());
+            // Match `load_from`: only offer families that have at least one
+            // real (non-simulated) face in their regular stretch/style.
+            let mut candidate = None;
+            for j in 0..family.GetFontCount() {
+                let Ok(font) = family.GetFont(j) else { continue };
+                if font.GetStretch() == stretch && font.GetStyle() == style && font.GetSimulations() == DWRITE_FONT_SIMULATIONS_NONE {
+                    candidate = Some(font);
+                    break;
+                }
+            }
+            let Some(font) = candidate else { continue };
             let has = text.chars().all(|c| font.HasCharacter(c as u32).is_ok_and(|h| h.as_bool()));
             if has {
                 let shown = localized(&names, language.locale()).unwrap_or_else(|| english.clone());
@@ -365,7 +377,7 @@ impl SystemFonts {
     pub fn line_metrics(&self, face: &Face) -> Option<(f32, f32)> {
         let metrics = self.metrics(face)?;
         let em = metrics.designUnitsPerEm as f32;
-        (em > 0.0).then(|| (metrics.ascent as f32 / em, metrics.descent as f32 / em))
+        (em > 0.0 && (metrics.ascent as u32 + metrics.descent as u32) > 0).then(|| (metrics.ascent as f32 / em, metrics.descent as f32 / em))
     }
 
     fn metrics(&self, face: &Face) -> Option<DWRITE_FONT_METRICS> {

@@ -140,7 +140,7 @@ extern "C" fn substituted(definition: usize, text: usize, arguments: usize, para
 #[unsafe(naked)]
 unsafe extern "C" fn substitute_stub(_: usize, _: usize, _: usize, _: usize) {
     std::arch::naked_asm!(
-        call_rust!(call substituted -> r11, "test r11, r11"),
+        call_rust!(called, call substituted -> r11, "test r11, r11"),
         "jz 2f",
         "jmp r11",
         "2:",

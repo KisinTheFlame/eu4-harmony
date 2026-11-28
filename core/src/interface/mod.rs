@@ -146,6 +146,9 @@ fn disable_multiplayer_button(m: &Memory, frontend: usize) -> Result<()> {
     if button == 0 || m.ptr(button)? != m.at(classes::BUTTON) {
         return Err("multi_player_button not found".into());
     }
+    if native_gui::element_name(m, button)? != b"multi_player_button" {
+        return Err("multi_player_button lookup returned another element".into());
+    }
     if m.vslot(button, element::ENABLE)? != m.at(native_gui::SET_ENABLED) {
         return Err("multi_player_button enable method changed".into());
     }

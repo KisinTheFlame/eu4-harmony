@@ -598,7 +598,7 @@ impl Writing {
             holders,
             equals,
             mxcsr: mxcsr(),
-            first_buffer: if last == 0 { FIRST_BUFFER } else { last + last / 4 },
+            first_buffer: if last == 0 { FIRST_BUFFER } else { (last.saturating_add(last / 4)).min(8 * 1024 * 1024) },
         }))
     }
 

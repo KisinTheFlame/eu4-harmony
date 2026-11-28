@@ -472,10 +472,10 @@ pub fn functions(image: &[u8]) -> impl Iterator<Item = std::ops::Range<usize>> +
 
 fn arg_index(register: Register) -> Option<u32> {
     match register.full_register() {
-        Register::RCX => Some(1),
-        Register::RDX => Some(2),
-        Register::R8 => Some(3),
-        Register::R9 => Some(4),
+        Register::RCX | Register::XMM0 => Some(1),
+        Register::RDX | Register::XMM1 => Some(2),
+        Register::R8 | Register::XMM2 => Some(3),
+        Register::R9 | Register::XMM3 => Some(4),
         _ => None,
     }
 }

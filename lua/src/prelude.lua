@@ -1,6 +1,6 @@
 -- Run once in every extension's Lua state, before its main.lua, with what
 -- the Lua host gives it. It finishes the sandbox and builds `game`.
-local call, WAIT, task, names, set_element, fetch, resuming, resumed, set_window, show_popup, close_popup, start, cancel_task, awaiting, get_tooltip = ...
+local call, WAIT, task, names, set_element, fetch, resume_watched, set_window, show_popup, close_popup, start, cancel_task, awaiting, get_tooltip = ...
 
 -- The sandbox (ADR extensions-are-lua-in-a-sandbox): code from text only,
 -- nothing that reads files.
@@ -19,19 +19,14 @@ local yield, running = coroutine.yield, coroutine.running
 
 -- The time limit holds for a coroutine of the mod's own as for the task
 -- that resumes it, which the host is told of: Lua's hook reaches only the
--- thread it is set on.
+-- thread it is set on. Wrapping thread resumes in a Rust C closure keeps the
+-- coroutine rooted and always unregisters it on return, error, or timeout.
 local create, raw_resume, close, status = coroutine.create, coroutine.resume, coroutine.close, coroutine.status
 local function resume(co, ...)
   if type(co) ~= "thread" then
     return raw_resume(co, ...)
   end
-  resuming(co)
-  local _guard <close> = setmetatable({}, {
-    __close = function()
-      resumed(co)
-    end,
-  })
-  return raw_resume(co, ...)
+  return resume_watched(co, ...)
 end
 coroutine.resume = resume
 

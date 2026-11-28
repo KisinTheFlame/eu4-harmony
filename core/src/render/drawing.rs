@@ -96,13 +96,22 @@ use crate::native::objects::gui::{
     globals::{OTHER_CAMERA, SCALE as GRAPHICS_GLOBAL},
     scene::FIRST_SCENE_WALK_START as GUI_WALK_START,
 };
+const GRAPHICS_RENDERER: usize = 0x88;
 const GRAPHICS_PRESENT_OK: usize = 0x530;
+/// Function pointer slot (`[0x1fd12e0]`) called by `0x14df050` with
+/// `[graphics + 0x88]` to query the renderer's cooperative level (`0 = OK`,
+/// non-zero = lost or needs reset).
+const CHECK_DEVICE_STATE_FN: usize = 0x1fd12e0;
 /// Graphics device cooperative-level check and reset (`0x14df050`, called from
 /// `0x8187da` during drawing). `IDirect3DDevice9::Reset` must run on the main
 /// thread that created the device, never on the drawing thread.
 const CHECK_DEVICE: usize = 0x14df050;
 type CheckDevice = unsafe extern "C" fn(usize) -> u8;
 static ORIGINAL_CHECK_DEVICE: Function<CheckDevice> = Function::new();
+/// Set by the drawing thread when `check_device` observes a lost/not-reset
+/// device (even before `[graphics + 0x530]` clears to 0) so the main thread
+/// takes over on the next frame via [`main_draws`] and runs `Reset`.
+static DEVICE_NEEDS_MAIN_RESET: AtomicBool = AtomicBool::new(false);
 /// In `0x14dd010` (first GUI scene pass): `mov rcx, r14; call 0x14dcf90` right
 /// before clearing and walking the GUI tree (`0x14dd051..0x14dd2b1`), and
 /// `mov rdx, rdi; mov rcx, r14; call 0x14dd350` (`0x14dd2b2`), where the
@@ -199,6 +208,12 @@ fn points() -> Vec<Point> {
             check_device as CheckDevice,
             &ORIGINAL_CHECK_DEVICE,
         ),
+        Point::keep(
+            0x14df094,
+            "48 8b 05 45 22 af 00 48 8b 8f 88 00 00 00 ff d0 85 c0",
+            "graphics device cooperative-level check",
+        )
+        .uses(&[CHECK_DEVICE_STATE_FN, GRAPHICS_RENDERER]),
         // cmp byte ptr [rdi + 0x2f9], 0; je: minimized sleep check in `0x14c25a0`.
         Point::keep(0x14c2692, "80 bf f9 02 00 00 00 74 18", "the frame's minimized check").uses(&[APP_MINIMIZED]),
         // mov rcx, [graphics]; ...; movzx eax, byte ptr [rcx + 0x530]: Present status check in `0x14c25a0`.
@@ -283,9 +298,14 @@ extern "C" fn idler_switches() {
 }
 
 /// Freezes new drawing-thread frames, drains any in-flight `Present` (and its
-/// post-Present tail), and discards staged texture uploads before the main
-/// thread draws directly (such as a still transition notice) or resets the device.
+/// post-Present tail), discards staged texture uploads, and flushes deferred
+/// main-thread calls before the main thread draws directly (such as a still
+/// transition notice).
 pub fn pause_for_main_draw() {
+    pause_for_main_draw_inner(true);
+}
+
+fn pause_for_main_draw_inner(drain_deferred: bool) {
     FRAMES.clear_idler();
     deferred::clear_textures();
     if !is_drawing_thread() {
@@ -298,6 +318,11 @@ pub fn pause_for_main_draw() {
         }
     }
     deferred::clear_textures();
+    if drain_deferred && on_main() && !is_drawing_thread() {
+        let m = crate::native::hooked_memory();
+        deferred::done(&m);
+        deferred::clear_textures();
+    }
     GUI_REUSE_EPOCH.fetch_add(1, Ordering::Release);
 }
 
@@ -305,19 +330,43 @@ pub fn pause_for_main_draw() {
 /// GUI draw lists, staged textures, and texture descriptors before a Direct3D
 /// device reset.
 pub(super) fn device_reset() {
-    pause_for_main_draw();
+    pause_for_main_draw_inner(false);
     deferred::clear_texture_desc_cache();
 }
 
-/// Refuses to run `IDirect3DDevice9::Reset` from the drawing thread: D3D9
-/// requires `Reset` on the device-creating main thread, which takes over on the
-/// next frame via [`main_draws`] once `[graphics + 0x530]` becomes 0.
+/// Clears cached cursor-following tooltip state when the game invalidates or
+/// destroys a tooltip owner/holder.
+pub(crate) fn tooltip_invalidated(owner: usize) {
+    tooltip::owner_invalidated(owner);
+}
+
+/// Refuses to run `IDirect3DDevice9::Reset` (or the 1 s lost-device sleep) from
+/// the drawing thread: D3D9 requires `Reset` on the device-creating main
+/// thread, which takes over on the next frame via [`main_draws`].
 #[called_by_game]
 unsafe extern "C" fn check_device(graphics: usize) -> u8 {
-    if is_drawing_thread() && graphics != 0 && unsafe { *((graphics + GRAPHICS_PRESENT_OK) as *const u8) } == 0 {
-        return 0;
+    if is_drawing_thread() && graphics != 0 {
+        let present_ok = unsafe { *((graphics + GRAPHICS_PRESENT_OK) as *const u8) };
+        if present_ok == 0 {
+            DEVICE_NEEDS_MAIN_RESET.store(true, Ordering::Release);
+            return 0;
+        }
+        let m = crate::native::hooked_memory();
+        let state_fn = unsafe { *(m.at(CHECK_DEVICE_STATE_FN) as *const usize) };
+        let renderer = unsafe { *((graphics + GRAPHICS_RENDERER) as *const usize) };
+        if state_fn != 0 && renderer != 0 {
+            let check_state: unsafe extern "C" fn(usize) -> i32 = unsafe { std::mem::transmute(state_fn) };
+            if unsafe { check_state(renderer) } != 0 {
+                DEVICE_NEEDS_MAIN_RESET.store(true, Ordering::Release);
+                return 0;
+            }
+        }
     }
-    unsafe { ORIGINAL_CHECK_DEVICE.get()(graphics) }
+    let ok = unsafe { ORIGINAL_CHECK_DEVICE.get()(graphics) };
+    if !is_drawing_thread() && ok != 0 {
+        DEVICE_NEEDS_MAIN_RESET.store(false, Ordering::Release);
+    }
+    ok
 }
 
 /// Evicts cached texture descriptors when framework code replaces `*wrapper`
@@ -1135,7 +1184,8 @@ extern "C" fn frame_draws(idler: usize) {
 /// main thread.
 fn main_draws(m: &Memory) -> bool {
     let debug_text = m.ptr(m.at(DEBUG_COUNTRY)).ok().is_none_or(|c| c != 0);
-    let device_lost = m.ptr(m.at(GRAPHICS_GLOBAL)).and_then(|g| if g == 0 { Ok(1) } else { m.u8(g + GRAPHICS_PRESENT_OK) }).is_ok_and(|b| b == 0);
+    let device_lost = DEVICE_NEEDS_MAIN_RESET.load(Ordering::Acquire)
+        || m.ptr(m.at(GRAPHICS_GLOBAL)).and_then(|g| if g == 0 { Ok(1) } else { m.u8(g + GRAPHICS_PRESENT_OK) }).is_ok_and(|b| b == 0);
     debug_text || super::present::holding() || device_lost
 }
 

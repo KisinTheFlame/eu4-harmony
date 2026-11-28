@@ -19,6 +19,7 @@
 //! back to the game's original code.
 use crate::base::called_by_game;
 use crate::native::game_heap;
+use crate::native::hooks::Call;
 use crate::native::points::{Function, Point};
 use crate::native::speed_up::SpeedUp;
 use std::cell::RefCell;
@@ -53,6 +54,10 @@ type FastSet<K> = HashSet<K, FastHash>;
 
 /// `(parent, child)`: add a dated node to `parent`'s sorted child list.
 const ADD: usize = 0x7e7cd0;
+/// `(parent, child) -> bool`: remove a child node from `parent`'s list.
+const REMOVE: usize = 0x7e7e70;
+/// `(parent)`: recursively prune child nodes from `parent`'s list.
+const PRUNE: usize = 0x7e92a0;
 /// `(node, &date)`: propagate a date through a node's undated subtree.
 const SET_DATE: usize = 0x7e7f80;
 /// Sentinel date (year 5000.1.1) written to undated leaf nodes when their
@@ -82,11 +87,25 @@ pub const SPEED_UP: SpeedUp = SpeedUp::new("children", "loading", points, false)
 fn points() -> Vec<Point> {
     vec![
         Point::replace(ADD, "48 89 74 24 20 57 48 83 ec 20 48 8b 41 20 48 8b fa 48 8b f1", "dated node's add", add_child as AddChild, &ORIGINAL_ADD),
+        Point::observe(REMOVE, "48 89 5c 24 08 57 48 83 ec 20 48 8b 59 20 48 8b", "dated node's remove", 2, Some(invalidate_parent), None),
+        Point::observe(PRUNE, "48 89 74 24 18 57 48 83 ec 20 48 8b 79 20 48 8b", "dated node's prune", 1, Some(invalidate_parent), None),
         Point::keep(SET_DATE, "48 89 74 24 10 57 48 83 ec 20 48 8b 01 48 8b fa 48 8b f1", "dated node's date propagation").recorded(SET_DATE_FN.slot()),
         Point::keep(0x7e7d47usize, "3d d9 28 00 00 74 15 48 8d 54 24 30 c7 44 24 30 f8 77 9c 02", "dated node's sentinel date check")
             .uses(&[SKIP_TOKEN_ID as usize, UNDATED_SENTINEL as usize]),
         Point::keep(0x7e7d80usize, "48 8b 0b 83 79 30 00 0f 94 c0 3a d0 74 05 0f b6 c2 eb 09 8b 47 10 3b 41 10 0f 9c c0", "dated node's order key"),
     ]
+}
+
+fn evict_parent(parent: usize) {
+    INDEXES.with(|cell| {
+        if let Ok(mut map) = cell.try_borrow_mut() {
+            map.remove(&parent);
+        }
+    });
+}
+
+fn invalidate_parent(call: &mut Call) {
+    evict_parent(call.arg(0));
 }
 
 /// Sort key matching `0x7e7d80`: leaf nodes (`child_count == 0`) sort before
@@ -293,6 +312,10 @@ unsafe extern "C" fn add_child(parent: usize, child: usize) {
     }
     let count = read_i32(parent + 0x30) as u32;
     if count < INDEX_THRESHOLD {
+        // Evict any stale index for `parent` (e.g. a cached list that shrank
+        // below the threshold or a recreated list reusing the same address)
+        // before native `0x7e7cd0` mutates it back up to the threshold.
+        evict_parent(parent);
         ORIGINAL_ADD.get()(parent, child);
         return;
     }

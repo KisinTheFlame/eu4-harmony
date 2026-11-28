@@ -103,7 +103,11 @@ impl WorkerPool {
     /// Hands `work` to the pool's workers unless another batch is in progress
     /// or the pool has timed out.
     pub(crate) fn begin(&self, work: Arc<dyn Work>) -> bool {
-        if self.is_broken() || self.in_use.swap(true, Ordering::SeqCst) {
+        if self.in_use.swap(true, Ordering::SeqCst) {
+            return false;
+        }
+        if self.is_broken() {
+            self.in_use.store(false, Ordering::SeqCst);
             return false;
         }
         let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());

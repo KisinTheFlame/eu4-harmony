@@ -161,7 +161,7 @@ fn build_interface_going(call: &mut Call) {
     going(call.memory(), "the building interface's tabs", |m| {
         let begin = m.ptr(interface + BUILD_TABS)?;
         let end = m.ptr(interface + BUILD_TABS + 8)?;
-        if begin == 0 || end < begin || (end - begin) / 8 > BUILD_TAB_SIZES.len() {
+        if begin == 0 || end <= begin || (end - begin) / 8 > BUILD_TAB_SIZES.len() {
             return Ok(());
         }
         let count = (end - begin) / 8;
@@ -173,23 +173,25 @@ fn build_interface_going(call: &mut Call) {
             }
         }
         let within = |at: usize| tabs.iter().any(|&(tab, size)| (tab..tab + size).contains(&at));
-        let building = m.ptr(begin + BUILDING_TAB * 8)?;
-        if building != 0 && m.vslot(building, BUILD_TAB_DELETE_SLOT)? == m.at(BUILDING_TAB_DELETE) {
-            let list_box = m.ptr(building + TAB_LIST_BOX)?;
-            if list_box != 0 && m.vslot(list_box, LIST_BOX_DETACH_SLOT)? == m.at(LIST_BOX_DETACH) {
-                let mut theirs = false;
-                for node in crate::native::containers::chain(m, m.ptr(list_box + LIST_BOX_ENTRIES)?, LIST_BOX_NODE_NEXT, crate::native::containers::MOST)? {
-                    if within(m.ptr(node)?.wrapping_sub(ENTRY_PART)) {
-                        theirs = true;
-                        break;
+        if count > BUILDING_TAB {
+            let building = m.ptr(begin + BUILDING_TAB * 8)?;
+            if building != 0 && m.vslot(building, BUILD_TAB_DELETE_SLOT)? == m.at(BUILDING_TAB_DELETE) {
+                let list_box = m.ptr(building + TAB_LIST_BOX)?;
+                if list_box != 0 && m.vslot(list_box, LIST_BOX_DETACH_SLOT)? == m.at(LIST_BOX_DETACH) {
+                    let mut theirs = false;
+                    for node in crate::native::containers::chain(m, m.ptr(list_box + LIST_BOX_ENTRIES)?, LIST_BOX_NODE_NEXT, crate::native::containers::MOST)? {
+                        if within(m.ptr(node)?.wrapping_sub(ENTRY_PART)) {
+                            theirs = true;
+                            break;
+                        }
                     }
-                }
-                if theirs {
-                    LIST_BOX_DETACH.call(m, [list_box])?;
-                }
-                let part = list_box + LIST_BOX_PART;
-                if within(m.ptr(list_box + LIST_BOX_TOLD)?) && m.vslot(part, SET_TOLD_SLOT)? == m.at(SET_TOLD) {
-                    SET_TOLD.call(m, [part, 0])?;
+                    if theirs {
+                        LIST_BOX_DETACH.call(m, [list_box])?;
+                    }
+                    let part = list_box + LIST_BOX_PART;
+                    if within(m.ptr(list_box + LIST_BOX_TOLD)?) && m.vslot(part, SET_TOLD_SLOT)? == m.at(SET_TOLD) {
+                        SET_TOLD.call(m, [part, 0])?;
+                    }
                 }
             }
         }
