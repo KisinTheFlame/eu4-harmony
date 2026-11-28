@@ -29,7 +29,10 @@ use crate::{
     world::Tag,
 };
 use course::{Action, Course, Reads, Rules, Steps};
-use std::sync::OnceLock;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    OnceLock,
+};
 use std::time::Instant;
 
 /// `(main menu, page, animate)`: shows a page of the main menu.
@@ -103,6 +106,20 @@ pub enum Returned {
 /// Every request made of the main menu and of a session, and its course.
 static COURSE: Course = Course::new();
 
+/// Set from the UI thread when the player accepts an immediate restart from
+/// the main menu; consumed on the main thread's next main-menu frame.
+static RESTART_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// Schedules a graceful restart of `eu4.exe -skiplauncher` on the next
+/// main-menu frame. Refuses when not in the main menu.
+pub(crate) fn request_restart() -> std::result::Result<(), String> {
+    if !matches!(sessions::at(), At::MainMenu(_)) {
+        return Err("restart is only available from the main menu".into());
+    }
+    RESTART_REQUESTED.store(true, Ordering::Release);
+    Ok(())
+}
+
 /// Where the game is.
 pub(crate) fn place(m: &Memory) -> Place {
     let at = sessions::at();
@@ -164,9 +181,16 @@ pub(crate) fn day_ran() {
     COURSE.day_ran();
 }
 
-/// At the end of the main menu's frame: runs any pending load or start.
+/// At the end of the main menu's frame: runs any pending restart, load, or start.
 pub(crate) fn main_menu_frame(m: &Memory, frontend: usize) {
     leave::main_menu_frame(frontend);
+    if RESTART_REQUESTED.swap(false, Ordering::AcqRel) {
+        if let Err(e) = leave::request_restart_from_main_menu(m, frontend) {
+            log!("leave: graceful restart from main menu failed: {e}");
+            crate::base::notice::post("restart failed", crate::base::notice::Repeat::Always, crate::base::notice::Message::new("EU4HARMONY_RESTART_FAILED"));
+        }
+        return;
+    }
     COURSE.main_menu_frame(&mut InGame { frontend, ..InGame::new(m) });
 }
 

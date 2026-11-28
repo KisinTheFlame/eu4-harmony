@@ -66,7 +66,9 @@ fn content_before(call: &mut Call) {
             }
             Some(text)
         }
-        Some(Content::Managed(target)) => crate::interface::windows::managed_tooltip(target).or_else(|| crate::interface::ui::managed_tooltip(target)),
+        Some(Content::Managed(target)) => crate::interface::windows::managed_tooltip(target)
+            .or_else(|| crate::interface::ui::managed_tooltip(target))
+            .or_else(|| super::multiplayer_tooltip(target)),
         None => None,
     };
     // None is an unmanaged hit: preserve both native strings and every flag.

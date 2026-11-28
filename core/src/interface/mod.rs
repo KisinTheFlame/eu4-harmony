@@ -11,14 +11,15 @@ pub(crate) mod windows;
 use crate::{
     base::Result,
     native::{
+        game_string,
         hooks::Call,
         memory::Memory,
-        objects::gui::{classes, main_menu},
+        objects::gui::{classes, element, functions, main_menu, window},
         points::Point,
     },
 };
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     OnceLock,
 };
 
@@ -93,8 +94,67 @@ fn main_menu_page(m: &Memory, frontend: usize) -> Result<bool> {
     Ok(m.u32(frontend + main_menu::PAGE)? == 0)
 }
 
+/// The native main-menu multiplayer button while page 0 is alive, kept disabled
+/// because Harmony currently supports single player only.
+static MULTIPLAYER_BUTTON: AtomicUsize = AtomicUsize::new(0);
+
+/// Tooltip text for the disabled main-menu multiplayer button when hovered.
+pub(super) fn multiplayer_tooltip(target: usize) -> Option<Vec<u8>> {
+    if target == 0 || MULTIPLAYER_BUTTON.load(Ordering::Relaxed) != target {
+        return None;
+    }
+    let words = crate::base::loc::framework(crate::base::lang::player(), "EU4HARMONY_MULTIPLAYER_UNSUPPORTED", &[]);
+    Some(crate::text::unicode::game_text::from_str(&words))
+}
+
+/// Finds `multi_player_button` inside page 0's `mainmenu_panel_bottom` and
+/// disables it so the game's per-frame Steam/dialog refresh (`0x10eff90`,
+/// `0x10f0860`) cannot re-enable it.
+fn disable_multiplayer_button(m: &Memory, frontend: usize) -> Result<()> {
+    let pages = m.ptr(frontend + main_menu::PAGES)?;
+    if pages == 0 {
+        return Err("main menu has no pages array".into());
+    }
+    let page0 = m.ptr(pages)?;
+    if page0 == 0 || m.ptr(page0)? != m.at(classes::MAIN_MENU_FIRST_PAGE) {
+        return Err("unexpected main menu first page object".into());
+    }
+    let mainmenu = m.ptr(page0 + main_menu::FIRST_PAGE_WINDOW)?;
+    if mainmenu == 0 || m.ptr(mainmenu)? != m.at(classes::WINDOW) {
+        return Err("unexpected main menu root window".into());
+    }
+    let begin = m.ptr(mainmenu + window::SUBWINDOWS)?;
+    let end = m.ptr(mainmenu + window::SUBWINDOWS_END)?;
+    if begin == 0 || end < begin || !(end - begin).is_multiple_of(window::SUBWINDOW_ENTRY) {
+        return Err("unexpected main menu subwindows vector".into());
+    }
+    let count = ((end - begin) / window::SUBWINDOW_ENTRY).min(64);
+    let mut panel = 0usize;
+    for i in 0..count {
+        let entry = begin + i * window::SUBWINDOW_ENTRY;
+        if game_string::read(m, entry).is_ok_and(|name| name == b"mainmenu_panel_bottom") {
+            panel = m.ptr(entry + window::SUBWINDOW_PTR)?;
+            break;
+        }
+    }
+    if panel == 0 || m.ptr(panel)? != m.at(classes::WINDOW) {
+        return Err("mainmenu_panel_bottom subwindow not found".into());
+    }
+    let button = native_gui::lookup(m, panel, (window::FIND_BUTTON, functions::FIND_BUTTON), "multi_player_button")?;
+    if button == 0 || m.ptr(button)? != m.at(classes::BUTTON) {
+        return Err("multi_player_button not found".into());
+    }
+    if m.vslot(button, element::ENABLE)? != m.at(native_gui::SET_ENABLED) {
+        return Err("multi_player_button enable method changed".into());
+    }
+    native_gui::SET_ENABLED.call(m, [button, 0])?;
+    MULTIPLAYER_BUTTON.store(button, Ordering::Relaxed);
+    Ok(())
+}
+
 fn menu_after(call: &mut Call) {
     static PAGE_ERROR_LOGGED: AtomicBool = AtomicBool::new(false);
+    static MP_ERROR_LOGGED: AtomicBool = AtomicBool::new(false);
     let m = call.memory();
     if call.faulted() || crate::base::thread_id() != crate::base::main_thread() {
         return;
@@ -110,11 +170,19 @@ fn menu_after(call: &mut Call) {
             true
         }
     };
+    if show_corner {
+        if let Err(e) = disable_multiplayer_button(&m, call.arg(0)) {
+            if !MP_ERROR_LOGGED.swap(true, Ordering::Relaxed) {
+                log!("ui: could not disable multiplayer button: {e}");
+            }
+        }
+    }
     on_main_menu_frame(call.arg(0), show_corner);
 }
 
 fn button_destroy(call: &mut Call) {
     let button = call.arg(0);
+    let _ = MULTIPLAYER_BUTTON.compare_exchange(button, 0, Ordering::Relaxed, Ordering::Relaxed);
     native_gui::drop_taking_right(button);
     ui::button_gone(call.memory(), button);
 }
