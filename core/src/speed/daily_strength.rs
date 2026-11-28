@@ -96,6 +96,8 @@ const UNIT_REBEL_FACTION: usize = 0x188;
 const UNIT_MERC_TAG: usize = 0x220;
 const UNIT_VTABLE_IS_ARMY: usize = 0x80;
 const UNIT_VTABLE_IS_MERC: usize = 0x90;
+const LEADER_FIRE_PIPS: usize = 0x4c;
+const LEADER_SHOCK_PIPS: usize = 0x50;
 
 const REGIMENT_DRILL: usize = 0x30;
 const REGIMENT_SPECIAL_CAT: usize = 0x64;
@@ -166,6 +168,7 @@ unsafe fn fingerprint_country(country: usize, army_vtable: usize) -> Option<u64>
     }
 
     let mut h = 0xcbf2_9ce4_8422_2325u64;
+    h = mix(h, mod_state as u32 as u64);
     let max_morale = unsafe { *((country + COUNTRY_MAX_MORALE) as *const i32) };
     h = mix(h, max_morale as u32 as u64);
 
@@ -200,7 +203,19 @@ unsafe fn fingerprint_country(country: usize, army_vtable: usize) -> Option<u64>
             let entry = unsafe { *special_ptr.add(i) };
             h = mix(h, entry as u64);
             if entry != 0 {
-                h = mix(h, unsafe { *((entry + 0x30) as *const usize) } as u64);
+                let set = unsafe { *((entry + 0x30) as *const usize) };
+                h = mix(h, set as u64);
+                if set != 0 {
+                    let s_by_mod = unsafe { *((set + BY_MODIFIER) as *const u8) };
+                    let s_count = unsafe { *((set + COUNT) as *const i32) }.max(0) as usize;
+                    let s_pairs = unsafe { *((set + PAIRS) as *const *const u64) };
+                    h = mix(h, ((s_by_mod as u64) << 32) | (s_count as u64));
+                    if !s_pairs.is_null() && s_count > 0 {
+                        for j in 0..s_count {
+                            h = mix(h, unsafe { *s_pairs.add(j) });
+                        }
+                    }
+                }
             }
         }
     }
@@ -241,7 +256,13 @@ unsafe fn fingerprint_country(country: usize, army_vtable: usize) -> Option<u64>
         unit_count += 1;
         h = mix(h, u as u64);
         h = mix(h, unsafe { *((u + unit::OWNER) as *const u64) });
-        h = mix(h, unsafe { *((u + UNIT_LEADER) as *const usize) } as u64);
+        let leader = unsafe { *((u + UNIT_LEADER) as *const usize) };
+        h = mix(h, leader as u64);
+        if leader != 0 {
+            let fire = unsafe { *((leader + LEADER_FIRE_PIPS) as *const i32) } as u32 as u64;
+            let shock = unsafe { *((leader + LEADER_SHOCK_PIPS) as *const i32) } as u32 as u64;
+            h = mix(h, (fire << 32) | shock);
+        }
         h = mix(h, unsafe { *((u + UNIT_MERC_COMPANY) as *const usize) } as u64);
         h = mix(h, unsafe { *((u + unit::LOCATION) as *const usize) } as u64);
         let rebel = unsafe { *((u + UNIT_REBEL_FACTION) as *const usize) };
@@ -385,7 +406,7 @@ extern "C" fn precompute_daily_strengths(world_ptr: usize) {
     let results = (0..countries.len()).map(|_| UnsafeCell::new(None)).collect();
     let batch = Arc::new(Batch { countries, army_vtable, mxcsr: mxcsr(), next: AtomicUsize::new(0), abandoned: AtomicBool::new(false), results });
 
-    if pool.run(batch.clone(), WAIT, TIMEOUT_NOTE).is_none() || pool.is_broken() || batch.abandoned.load(Ordering::SeqCst) {
+    if pool.run_draining(batch.clone(), WAIT, TIMEOUT_NOTE).is_none() || pool.is_broken() || batch.abandoned.load(Ordering::SeqCst) {
         return;
     }
 
@@ -409,7 +430,7 @@ fn on_countries_phase_after(_: &mut hooks::Call<'_>) {
 
 #[called_by_game]
 unsafe extern "C" fn country_army_strength_hook(cached_data: usize, out: *mut i64, param_3: u8) -> *mut i64 {
-    if ACTIVE.load(Ordering::Relaxed) && crate::base::thread_id() == MAIN_THREAD_ID.load(Ordering::Relaxed) && cached_data != 0 {
+    if param_3 == 0 && ACTIVE.load(Ordering::Relaxed) && crate::base::thread_id() == MAIN_THREAD_ID.load(Ordering::Relaxed) && cached_data != 0 {
         let country = unsafe { *(cached_data as *const usize) };
         let entry = CACHE.with(|c| c.borrow().get(&country).copied());
         if let Some(cached) = entry {

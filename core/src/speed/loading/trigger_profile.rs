@@ -428,6 +428,9 @@ thread_local! {
 fn invalidate_all(_: &mut Call) {
     *BUILT.lock().unwrap_or_else(|e| e.into_inner()) = None;
     clear_thread_memo();
+    if let Some(handle) = BG_FREE.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        let _ = handle.join();
+    }
 }
 
 fn clear_thread_memo() {
@@ -547,20 +550,20 @@ unsafe fn process_triggers(index: &ProfileIndex, triggers: &[usize], worker_coun
 }
 
 #[called_by_game]
-extern "C" fn run_batch(registry: usize) -> u8 {
+extern "C" fn run_batch(registry: usize) -> bool {
     crate::base::guarded("trigger profile batch", || {
         if registry == 0 || speed::checked(&SPEED_UP) {
-            return 0;
+            return false;
         }
         let manager = unsafe { ORIGINAL_GET_MANAGER.get()() };
         let Some(index) = (unsafe { index_for(manager) }) else {
-            return 0;
+            return false;
         };
         let list1 = unsafe { *((registry + REGISTRY_LIST1) as *const usize) };
         let list2 = unsafe { *((registry + REGISTRY_LIST2) as *const usize) };
         let mut triggers = Vec::new();
         if !unsafe { collect_list(list1, &mut triggers) } || !unsafe { collect_list(list2, &mut triggers) } {
-            return 0;
+            return false;
         }
         // Deduplicating guarantees disjoint writes to `[trigger + 0x58]` and
         // `[trigger + 8]` across worker chunks while improving cache locality.
@@ -568,7 +571,7 @@ extern "C" fn run_batch(registry: usize) -> u8 {
         triggers.dedup();
         let workers = std::thread::available_parallelism().map_or(1, |n| n.get());
         unsafe { process_triggers(&index, &triggers, workers) };
-        1
+        true
     })
 }
 
@@ -578,9 +581,8 @@ extern "C" fn run_batch(registry: usize) -> u8 {
 #[unsafe(naked)]
 extern "C" fn batch_stub() {
     std::arch::naked_asm!(
-        call_rust!("mov rcx, r13", call run_batch -> rax),
-        "test al, al",
-        "jnz 2f",
+        call_rust!("mov rcx, r13", call run_batch => bool),
+        "jne 2f",
         "mov rsi, [r13 + 8]",
         "mov rbx, [rsi]",
         "cmp rbx, rsi",
@@ -640,12 +642,12 @@ unsafe extern "C" fn lookup(manager: usize, trigger: usize) -> u64 {
         };
         let ours = MEMO.with(|m| {
             let m = &mut *m.borrow_mut();
-            if m.manager != index.manager || m.head != index.head || m.count != index.count {
-                m.manager = index.manager;
-                m.head = index.head;
-                m.count = index.count;
-                m.memo.clear();
-            }
+            m.manager = index.manager;
+            m.head = index.head;
+            m.count = index.count;
+            // Clear per-call memoization so recycled `CTrigger*` addresses
+            // outside `InitGame` cannot hit stale entries from earlier lookups.
+            m.memo.clear();
             m.scratch.clear();
             unsafe { index.lookup_cost(trigger, &mut m.memo, &mut m.scratch) }
         });

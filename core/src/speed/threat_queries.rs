@@ -212,19 +212,19 @@ struct LiveUnit {
     owner_is_special: bool,
     owner_can_shift: bool,
     factor_idx: u8,
-    strength_and_pips: OnceLock<(i64, i32)>,
+    strength_and_pips: OnceLock<Option<(i64, i32)>>,
     morale: [AtomicI64; 2],
 }
 
 impl LiveUnit {
     #[inline]
-    fn strength_and_pips(&self, m: &crate::native::memory::Memory) -> (i64, i32) {
+    fn strength_and_pips(&self, m: &crate::native::memory::Memory) -> Option<(i64, i32)> {
         *self.strength_and_pips.get_or_init(|| unsafe { compute_unit_strength_and_pips(m, self.unit_ptr) })
     }
 
     #[inline]
-    fn strength(&self, m: &crate::native::memory::Memory) -> i64 {
-        self.strength_and_pips(m).0
+    fn strength(&self, m: &crate::native::memory::Memory) -> Option<i64> {
+        self.strength_and_pips(m).map(|(s, _)| s)
     }
 
     #[inline]
@@ -294,8 +294,6 @@ impl ThreatSnapshot {
 struct WorkerCache {
     generation: u64,
     ally: FastMap<(i16, i16), bool>,
-    extra_strength: FastMap<usize, (i64, i32)>,
-    extra_morale: FastMap<(usize, bool), i32>,
 }
 
 impl WorkerCache {
@@ -303,8 +301,6 @@ impl WorkerCache {
     fn sync_generation(&mut self, generation: u64) {
         if self.generation != generation {
             self.ally.clear();
-            self.extra_strength.clear();
-            self.extra_morale.clear();
             self.generation = generation;
         }
     }
@@ -322,19 +318,25 @@ unsafe fn potential_ally_cached(
     q_country: usize,
     target_idx: i16,
     countries: usize,
-) -> bool {
+) -> Option<bool> {
+    if target_idx < 0 || countries == 0 {
+        return None;
+    }
     WORKER_CACHE.with(|cell| {
         let mut cache = cell.borrow_mut();
         cache.sync_generation(generation);
         if let Some(&val) = cache.ally.get(&(q_owner_idx, target_idx)) {
-            return val;
+            return Some(val);
         }
         let target_country = unsafe { *((countries as isize + (target_idx as isize) * 8) as *const usize) };
+        if target_country == 0 {
+            return None;
+        }
         type PotentialAlly = unsafe extern "C" fn(usize, usize) -> u8;
         let f: PotentialAlly = unsafe { std::mem::transmute(m.at(POTENTIAL_ALLY_FN)) };
         let val = unsafe { f(q_country, target_country) } != 0;
         cache.ally.insert((q_owner_idx, target_idx), val);
-        val
+        Some(val)
     })
 }
 
@@ -365,27 +367,40 @@ unsafe fn is_enemy_in_list(enemies_ptr: usize, enemies_count: i32, target_idx: i
 }
 
 /// Pure unit strength and leader-pip computation matching `0x177df0` for both
-/// land and naval units.
-unsafe fn compute_unit_strength_and_pips(m: &crate::native::memory::Memory, unit: usize) -> (i64, i32) {
+/// land and naval units. Returns `None` if an unexpected null or negative
+/// index is encountered so the caller can fall back to the game's function.
+unsafe fn compute_unit_strength_and_pips(m: &crate::native::memory::Memory, unit: usize) -> Option<(i64, i32)> {
     let vtable = unsafe { *(unit as *const usize) };
+    if vtable == 0 {
+        return None;
+    }
     let is_fleet: unsafe extern "C" fn(usize) -> u8 = unsafe { std::mem::transmute(*((vtable + UNIT_IS_FLEET_SLOT) as *const usize)) };
     if unsafe { is_fleet(unit) } == 0 {
         let attached = unsafe { *((unit + ATTACHED_TO) as *const usize) };
         let loc = unsafe { *((unit + LOCATION) as *const usize) };
         if attached != 0 && unsafe { *((attached + LOCATION) as *const usize) } == loc {
-            (unsafe { *(m.at(ZERO_STRENGTH_CONST) as *const i64) }, 0)
+            Some((unsafe { *(m.at(ZERO_STRENGTH_CONST) as *const i64) }, 0))
         } else {
             let mut out = 0i64;
             let mut pips = 0i32;
             type ArmyStr = unsafe extern "C" fn(usize, *mut i64, usize, u8, u8, *mut i32) -> *mut i64;
             let f: ArmyStr = unsafe { std::mem::transmute(m.at(ARMY_STRENGTH)) };
             unsafe { f(unit, &mut out, 0, 1, 1, &mut pips) };
-            (out, pips)
+            Some((out, pips))
         }
     } else {
         let loc = unsafe { *((unit + LOCATION) as *const usize) };
+        if loc == 0 {
+            return None;
+        }
         let geom = unsafe { *((loc + PROVINCE_GEOM) as *const usize) };
+        if geom == 0 {
+            return None;
+        }
         let terrain_type = unsafe { *((geom + GEOM_TERRAIN_TYPE) as *const usize) };
+        if terrain_type == 0 {
+            return None;
+        }
         let flag: u8 = if unsafe { *((terrain_type + TERRAIN_INLAND_SEA) as *const u8) } != 0 {
             2
         } else {
@@ -399,9 +414,21 @@ unsafe fn compute_unit_strength_and_pips(m: &crate::native::memory::Memory, unit
             }
         };
         let owner_idx = ((unsafe { *((unit + OWNER) as *const u64) }) >> 32) as i16 as isize;
+        if owner_idx < 0 {
+            return None;
+        }
         let country_mgr = unsafe { *(m.at(COUNTRY_MANAGER) as *const usize) };
+        if country_mgr == 0 {
+            return None;
+        }
         let countries = unsafe { *((country_mgr + COUNTRY_LIST) as *const usize) };
+        if countries == 0 {
+            return None;
+        }
         let owner_country = unsafe { *((countries as isize + owner_idx * 8) as *const usize) };
+        if owner_country == 0 {
+            return None;
+        }
         type CountryMods = unsafe extern "C" fn(usize) -> usize;
         let get_mods: CountryMods = unsafe { std::mem::transmute(m.at(COUNTRY_MODIFIERS.rva())) };
         let mods = unsafe { get_mods(owner_country + COUNTRY_CACHED_DATA) };
@@ -414,12 +441,14 @@ unsafe fn compute_unit_strength_and_pips(m: &crate::native::memory::Memory, unit
         let leader = unsafe { *((unit + UNIT_LEADER) as *const usize) };
         if leader != 0 {
             let l_vtable = unsafe { *(leader as *const usize) };
-            let is_real: unsafe extern "C" fn(usize) -> u8 = unsafe { std::mem::transmute(*((l_vtable + LEADER_REAL_SLOT) as *const usize)) };
-            if unsafe { is_real(leader) } != 0 {
-                pips = unsafe { *((leader + LEADER_SHOCK_PIPS) as *const i32) + *((leader + LEADER_FIRE_PIPS) as *const i32) };
+            if l_vtable != 0 {
+                let is_real: unsafe extern "C" fn(usize) -> u8 = unsafe { std::mem::transmute(*((l_vtable + LEADER_REAL_SLOT) as *const usize)) };
+                if unsafe { is_real(leader) } != 0 {
+                    pips = unsafe { *((leader + LEADER_SHOCK_PIPS) as *const i32) + *((leader + LEADER_FIRE_PIPS) as *const i32) };
+                }
             }
         }
-        (out, pips)
+        Some((out, pips))
     }
 }
 
@@ -667,17 +696,26 @@ fn round_threat_sum(threat_sum: f32) -> i32 {
     rounded as i32
 }
 
-unsafe fn eval_threat_ratio(m: &crate::native::memory::Memory, snap: &ThreatSnapshot, entries: &[CompactEntry], max_days: i32, ctx: usize) -> i32 {
+unsafe fn eval_threat_ratio(m: &crate::native::memory::Memory, snap: &ThreatSnapshot, entries: &[CompactEntry], max_days: i32, ctx: usize) -> Option<i32> {
     let self_strength = unsafe { *((ctx + 0x18) as *const f32) };
     if entries.is_empty() {
-        return round_threat_ratio(0.0, 0.0, self_strength);
+        return Some(round_threat_ratio(0.0, 0.0, self_strength));
     }
     let query_unit = unsafe { *(ctx as *const usize) };
+    if query_unit == 0 {
+        return None;
+    }
     let include_neutral_quarter = unsafe { *((ctx + 8) as *const u8) } != 0;
 
     let q_tag = unsafe { unit_owner_tag(query_unit) };
     let q_owner_idx = (q_tag >> 32) as i16;
+    if q_owner_idx < 0 {
+        return None;
+    }
     let q_country = unsafe { *((snap.countries as isize + (q_owner_idx as isize) * 8) as *const usize) };
+    if q_country == 0 {
+        return None;
+    }
     let q_country_tag_idx = (unsafe { *((q_country + COUNTRY_TAG) as *const u64) } >> 32) as i16;
     let q_country_24 = unsafe { *((q_country + COUNTRY_TAG_INDEX) as *const i16) };
     let q_is_special = snap.is_special(q_country_24 as i32);
@@ -713,33 +751,44 @@ unsafe fn eval_threat_ratio(m: &crate::native::memory::Memory, snap: &ThreatSnap
         if entry.quarter_flag != 0 {
             weight *= 0.25_f32;
         }
-        let strength = u.strength(m);
+        let strength = u.strength(m)?;
         let contrib = ((strength as f32) * SCALE_Q15) * weight;
 
         if enemy_or_special {
             enemy_sum += contrib;
         } else {
-            let is_friendly = q_owner_idx == u.owner_idx
-                || unsafe { *((relations_ptr + COUNTRY_RELATION_FRIENDLY + (u.owner_idx as i32 as u32 as usize) * COUNTRY_RELATION_STRIDE) as *const i16) }
-                    != 0;
+            let is_friendly = if q_owner_idx == u.owner_idx {
+                true
+            } else {
+                if u.owner_idx < 0 || relations_ptr == 0 {
+                    return None;
+                }
+                unsafe { *((relations_ptr + COUNTRY_RELATION_FRIENDLY + (u.owner_idx as usize) * COUNTRY_RELATION_STRIDE) as *const i16) != 0 }
+            };
             if is_friendly {
                 friendly_sum += contrib;
-            } else if include_neutral_quarter && !unsafe { potential_ally_cached(m, snap.generation, q_owner_idx, q_country, u.owner_idx, snap.countries) } {
+            } else if include_neutral_quarter && !unsafe { potential_ally_cached(m, snap.generation, q_owner_idx, q_country, u.owner_idx, snap.countries)? } {
                 enemy_sum += contrib * 0.25_f32;
             }
         }
     }
 
-    round_threat_ratio(enemy_sum, friendly_sum, self_strength)
+    Some(round_threat_ratio(enemy_sum, friendly_sum, self_strength))
 }
 
-unsafe fn eval_threat_sum(m: &crate::native::memory::Memory, snap: &ThreatSnapshot, entries: &[CompactEntry], max_days: i32, ctx: usize) -> i32 {
+unsafe fn eval_threat_sum(m: &crate::native::memory::Memory, snap: &ThreatSnapshot, entries: &[CompactEntry], max_days: i32, ctx: usize) -> Option<i32> {
     if entries.is_empty() {
-        return 0;
+        return Some(0);
     }
     let q_owner_idx = (unsafe { *(ctx as *const u64) } >> 32) as i16;
+    if q_owner_idx < 0 {
+        return None;
+    }
     let include_neutral_quarter = unsafe { *((ctx + 8) as *const u8) } != 0;
     let q_country = unsafe { *((snap.countries as isize + (q_owner_idx as isize) * 8) as *const usize) };
+    if q_country == 0 {
+        return None;
+    }
     let q_country_tag_idx = (unsafe { *((q_country + COUNTRY_TAG) as *const u64) } >> 32) as i16;
     let q_country_24 = unsafe { *((q_country + COUNTRY_TAG_INDEX) as *const i16) };
     let q_is_special = snap.is_special(q_country_24 as i32);
@@ -760,7 +809,7 @@ unsafe fn eval_threat_sum(m: &crate::native::memory::Memory, snap: &ThreatSnapsh
         if entry.quarter_flag != 0 {
             weight *= 0.25_f32;
         }
-        let strength = u.strength(m);
+        let strength = u.strength(m)?;
         let contrib = (((strength as f32) * SCALE_Q15) * SCALE_001) * weight;
 
         let is_hostile = if u.owner_idx == last_owner {
@@ -774,12 +823,12 @@ unsafe fn eval_threat_sum(m: &crate::native::memory::Memory, snap: &ThreatSnapsh
         };
         if is_hostile {
             threat_sum += contrib;
-        } else if include_neutral_quarter && !unsafe { potential_ally_cached(m, snap.generation, q_owner_idx, q_country, u.owner_idx, snap.countries) } {
+        } else if include_neutral_quarter && !unsafe { potential_ally_cached(m, snap.generation, q_owner_idx, q_country, u.owner_idx, snap.countries)? } {
             threat_sum += contrib * 0.25_f32;
         }
     }
 
-    round_threat_sum(threat_sum)
+    Some(round_threat_sum(threat_sum))
 }
 
 #[called_by_game]
@@ -790,16 +839,17 @@ unsafe extern "C" fn threat_ratio_query(out: *mut i32, bucket_ptr: usize, max_da
         if stamp_map == snap.stamp_map_addr && unsafe { eval_strength_fn_matches(snap, *((ctx + 0x10) as *const usize)) } {
             if let Some(entries) = snap.bucket_entries(bucket_ptr) {
                 let m = crate::native::hooked_memory();
-                let ours = unsafe { eval_threat_ratio(&m, snap, entries, max_days, ctx) };
-                if speed::checked(&SPEED_UP) {
-                    let mut game = 0i32;
-                    unsafe { ORIGINAL_THREAT_RATIO.get()(&mut game, bucket_ptr, max_days, stamp_map, ctx) };
-                    speed::compared(&SPEED_UP, ours == game, || {
-                        format!("threat ratio bucket {bucket_ptr:#x} (max_days={max_days}): snapshot={ours}, game={game}")
-                    });
+                if let Some(ours) = unsafe { eval_threat_ratio(&m, snap, entries, max_days, ctx) } {
+                    if speed::checked(&SPEED_UP) {
+                        let mut game = 0i32;
+                        unsafe { ORIGINAL_THREAT_RATIO.get()(&mut game, bucket_ptr, max_days, stamp_map, ctx) };
+                        speed::compared(&SPEED_UP, ours == game, || {
+                            format!("threat ratio bucket {bucket_ptr:#x} (max_days={max_days}): snapshot={ours}, game={game}")
+                        });
+                    }
+                    unsafe { *out = ours };
+                    return out;
                 }
-                unsafe { *out = ours };
-                return out;
             }
         }
     }
@@ -814,16 +864,17 @@ unsafe extern "C" fn threat_sum_query(out: *mut i32, bucket_ptr: usize, max_days
         if stamp_map == snap.stamp_map_addr && unsafe { eval_strength_fn_matches(snap, *((ctx + 0x10) as *const usize)) } {
             if let Some(entries) = snap.bucket_entries(bucket_ptr) {
                 let m = crate::native::hooked_memory();
-                let ours = unsafe { eval_threat_sum(&m, snap, entries, max_days, ctx) };
-                if speed::checked(&SPEED_UP) {
-                    let mut game = 0i32;
-                    unsafe { ORIGINAL_THREAT_SUM.get()(&mut game, bucket_ptr, max_days, stamp_map, ctx) };
-                    speed::compared(&SPEED_UP, ours == game, || {
-                        format!("threat sum bucket {bucket_ptr:#x} (max_days={max_days}): snapshot={ours}, game={game}")
-                    });
+                if let Some(ours) = unsafe { eval_threat_sum(&m, snap, entries, max_days, ctx) } {
+                    if speed::checked(&SPEED_UP) {
+                        let mut game = 0i32;
+                        unsafe { ORIGINAL_THREAT_SUM.get()(&mut game, bucket_ptr, max_days, stamp_map, ctx) };
+                        speed::compared(&SPEED_UP, ours == game, || {
+                            format!("threat sum bucket {bucket_ptr:#x} (max_days={max_days}): snapshot={ours}, game={game}")
+                        });
+                    }
+                    unsafe { *out = ours };
+                    return out;
                 }
-                unsafe { *out = ours };
-                return out;
             }
         }
     }
@@ -835,31 +886,29 @@ unsafe extern "C" fn strength_eval_hook(eval_obj: usize, out_strength: *mut i64,
     let ptr = SNAPSHOT_PTR.load(Ordering::Acquire);
     if ptr != 0 && unit != 0 && !out_strength.is_null() && !in_out_pips.is_null() {
         let snap = unsafe { &*(ptr as *const ThreatSnapshot) };
-        let m = crate::native::hooked_memory();
-        let (strength, pips) = if let Some(&idx) = snap.unit_by_ptr.get(&unit) {
-            snap.units[idx as usize].strength_and_pips(&m)
-        } else {
-            WORKER_CACHE.with(|cell| {
-                let mut cache = cell.borrow_mut();
-                cache.sync_generation(snap.generation);
-                *cache.extra_strength.entry(unit).or_insert_with(|| unsafe { compute_unit_strength_and_pips(&m, unit) })
-            })
-        };
-        let orig_pips = unsafe { *in_out_pips };
-        let new_pips = orig_pips.max(pips);
-        if speed::checked(&SPEED_UP) {
-            let mut game_str = 0i64;
-            let mut game_pips = orig_pips;
-            unsafe { ORIGINAL_STRENGTH_EVAL.get()(eval_obj, &mut game_str, unit, &mut game_pips) };
-            speed::compared(&SPEED_UP, strength == game_str && new_pips == game_pips, || {
-                format!("strength eval unit {unit:#x}: snapshot=({strength}, {new_pips}), game=({game_str}, {game_pips})")
-            });
+        // Cache only live units anchored in the stage snapshot; transient
+        // stack/heap units constructed during AI planning can reuse raw
+        // addresses across evaluations within the same stage.
+        if let Some(&idx) = snap.unit_by_ptr.get(&unit) {
+            let m = crate::native::hooked_memory();
+            if let Some((strength, pips)) = snap.units[idx as usize].strength_and_pips(&m) {
+                let orig_pips = unsafe { *in_out_pips };
+                let new_pips = orig_pips.max(pips);
+                if speed::checked(&SPEED_UP) {
+                    let mut game_str = 0i64;
+                    let mut game_pips = orig_pips;
+                    unsafe { ORIGINAL_STRENGTH_EVAL.get()(eval_obj, &mut game_str, unit, &mut game_pips) };
+                    speed::compared(&SPEED_UP, strength == game_str && new_pips == game_pips, || {
+                        format!("strength eval unit {unit:#x}: snapshot=({strength}, {new_pips}), game=({game_str}, {game_pips})")
+                    });
+                }
+                unsafe {
+                    *in_out_pips = new_pips;
+                    *out_strength = strength;
+                }
+                return out_strength;
+            }
         }
-        unsafe {
-            *in_out_pips = new_pips;
-            *out_strength = strength;
-        }
-        return out_strength;
     }
     unsafe { ORIGINAL_STRENGTH_EVAL.get()(eval_obj, out_strength, unit, in_out_pips) }
 }
@@ -869,30 +918,16 @@ unsafe extern "C" fn unit_morale_hook(unit: usize, out: *mut i32, flag: u8) -> *
     let ptr = SNAPSHOT_PTR.load(Ordering::Acquire);
     if ptr != 0 && unit != 0 && !out.is_null() {
         let snap = unsafe { &*(ptr as *const ThreatSnapshot) };
-        let ours = if let Some(&idx) = snap.unit_by_ptr.get(&unit) {
-            snap.units[idx as usize].morale(flag)
-        } else {
-            WORKER_CACHE.with(|cell| {
-                let mut cache = cell.borrow_mut();
-                cache.sync_generation(snap.generation);
-                let key = (unit, flag != 0);
-                if let Some(&v) = cache.extra_morale.get(&key) {
-                    v
-                } else {
-                    let mut v = 0i32;
-                    unsafe { ORIGINAL_UNIT_MORALE.get()(unit, &mut v, flag) };
-                    cache.extra_morale.insert(key, v);
-                    v
-                }
-            })
-        };
-        if speed::checked(&SPEED_UP) {
-            let mut game = 0i32;
-            unsafe { ORIGINAL_UNIT_MORALE.get()(unit, &mut game, flag) };
-            speed::compared(&SPEED_UP, ours == game, || format!("unit morale unit {unit:#x} (flag={flag}): snapshot={ours}, game={game}"));
+        if let Some(&idx) = snap.unit_by_ptr.get(&unit) {
+            let ours = snap.units[idx as usize].morale(flag);
+            if speed::checked(&SPEED_UP) {
+                let mut game = 0i32;
+                unsafe { ORIGINAL_UNIT_MORALE.get()(unit, &mut game, flag) };
+                speed::compared(&SPEED_UP, ours == game, || format!("unit morale unit {unit:#x} (flag={flag}): snapshot={ours}, game={game}"));
+            }
+            unsafe { *out = ours };
+            return out;
         }
-        unsafe { *out = ours };
-        return out;
     }
     unsafe { ORIGINAL_UNIT_MORALE.get()(unit, out, flag) }
 }

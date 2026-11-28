@@ -249,22 +249,34 @@ unsafe fn collect_tst(root: usize, out: &mut Vec<(Vec<u8>, usize)>) {
     }
 }
 
-unsafe fn rebuild_table(root: usize, dyn_end: usize) -> *const FlatTokenTable {
+unsafe fn rebuild_table(m: &crate::native::memory::Memory, root: usize, dyn_end: usize) -> Option<*const FlatTokenTable> {
     let mut retired = BUILD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let cur = TABLE.load(Ordering::Acquire);
     if !cur.is_null() {
         let t = &*cur;
         if t.root == root && t.dyn_end == dyn_end {
-            return cur;
+            return Some(cur);
         }
     }
+    let root_before = (m.at(TOKEN_TREE_ROOT) as *const usize).read_volatile();
+    let dyn_before = (m.at(DYNAMIC_TOKENS_END) as *const usize).read_volatile();
+    if root_before != root || dyn_before != dyn_end {
+        return None;
+    }
+    std::sync::atomic::fence(Ordering::SeqCst);
     let mut entries = Vec::with_capacity(16_384);
     collect_tst(root, &mut entries);
+    std::sync::atomic::fence(Ordering::SeqCst);
+    let root_after = (m.at(TOKEN_TREE_ROOT) as *const usize).read_volatile();
+    let dyn_after = (m.at(DYNAMIC_TOKENS_END) as *const usize).read_volatile();
+    if root_after != root || dyn_after != dyn_end {
+        return None;
+    }
     let mut boxed = Box::new(FlatTokenTable::from_entries(root, dyn_end, &entries));
     let ptr: *mut FlatTokenTable = &mut *boxed;
     TABLE.store(ptr, Ordering::Release);
     retired.push(boxed);
-    ptr
+    Some(ptr)
 }
 
 #[called_by_game]
@@ -279,7 +291,7 @@ unsafe extern "C" fn lookup_token(tree: usize, text: *const c_char) -> usize {
     if (m.at(TOKENS_READY) as *const u8).read() == 0 {
         return ORIGINAL_LOOKUP.get()(tree, text);
     }
-    let root = (m.at(TOKEN_TREE_ROOT) as *const usize).read();
+    let root = (m.at(TOKEN_TREE_ROOT) as *const usize).read_volatile();
     if root == 0 {
         return 0;
     }
@@ -288,10 +300,13 @@ unsafe extern "C" fn lookup_token(tree: usize, text: *const c_char) -> usize {
         return ORIGINAL_LOOKUP.get()(tree, text);
     };
 
-    let dyn_end = (m.at(DYNAMIC_TOKENS_END) as *const usize).read();
+    let dyn_end = (m.at(DYNAMIC_TOKENS_END) as *const usize).read_volatile();
     let mut tbl = TABLE.load(Ordering::Acquire);
     if tbl.is_null() || (*tbl).root != root {
-        tbl = rebuild_table(root, dyn_end) as *mut FlatTokenTable;
+        let Some(rebuilt) = rebuild_table(&m, root, dyn_end) else {
+            return ORIGINAL_LOOKUP.get()(tree, text);
+        };
+        tbl = rebuilt as *mut FlatTokenTable;
         LAST_SEEN_DYN_END.store(dyn_end, Ordering::Relaxed);
         STABLE_LOOKUPS.store(0, Ordering::Relaxed);
     }
@@ -310,10 +325,14 @@ unsafe extern "C" fn lookup_token(tree: usize, text: *const c_char) -> usize {
         };
 
         if ready_to_rebuild {
-            tbl = rebuild_table(root, dyn_end) as *mut FlatTokenTable;
             STABLE_LOOKUPS.store(0, Ordering::Relaxed);
-            if fast == 0 {
-                fast = (*tbl).get(text as *const u8, hash, len);
+            if let Some(rebuilt) = rebuild_table(&m, root, dyn_end) {
+                tbl = rebuilt as *mut FlatTokenTable;
+                if fast == 0 {
+                    fast = (*tbl).get(text as *const u8, hash, len);
+                }
+            } else if fast == 0 {
+                return ORIGINAL_LOOKUP.get()(tree, text);
             }
         } else if fast == 0 {
             // Snapshot hit is always valid (tree is append-only); only a miss

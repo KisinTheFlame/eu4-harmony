@@ -129,6 +129,38 @@ impl WorkerPool {
         self.begin(work.clone()).then(|| self.finish(&*work, timeout, timeout_note))
     }
 
+    /// Runs `work` synchronously and, if `timeout` elapses, abandons remaining
+    /// chunks and waits until every active worker exits `work()` before
+    /// returning `None`. Use this when the caller will immediately mutate or
+    /// free memory read by workers after this call returns.
+    pub(crate) fn run_draining(&self, work: Arc<dyn Work>, timeout: Duration, timeout_note: &str) -> Option<usize> {
+        if !self.begin(work.clone()) {
+            return None;
+        }
+        work.work(false);
+        let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+        let deadline = Instant::now() + timeout;
+        let mut timed_out = false;
+        while state.busy > 0 {
+            if timed_out {
+                state = self.inner.done.wait(state).unwrap_or_else(|e| e.into_inner());
+                continue;
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                self.broken.store(true, Ordering::SeqCst);
+                work.abandon();
+                log!("{timeout_note}");
+                timed_out = true;
+                continue;
+            }
+            state = self.inner.done.wait_timeout(state, left).unwrap_or_else(|e| e.into_inner()).0;
+        }
+        state.work = None;
+        self.in_use.store(false, Ordering::SeqCst);
+        (!timed_out).then(|| self.width())
+    }
+
     /// Evaluates `f(0..count)` across the pool and calling thread, returning
     /// `None` if the pool is busy, broken, or any part was skipped.
     pub(crate) fn each<T: Send + 'static>(
