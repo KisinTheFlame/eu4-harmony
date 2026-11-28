@@ -164,16 +164,13 @@ pub(super) fn points() -> Vec<Point> {
         .uses(&[TEXTURE_UPLOAD_SLOT])
         .recorded(&MAP_COLORS_UPLOAD_AT),
         Point::keep(MAP_COLORS_UPLOAD_DONE, "39 5f 7c 7e 1d", "the map mode color texture upload done"),
-        Point::jump(
-            PROVINCE_MAP_UPLOAD_CALL,
-            "c7 44 24 20 04 00 00 00 ff 15 bc 1d ce 00",
+        Point::replace(
+            PROVINCE_MAP_UPLOAD_FN,
+            "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 70",
             "a province map texture uploaded",
-            province_map_upload_stub as *const () as usize,
-            &PROVINCE_MAP_UPLOAD_RESUME,
-        )
-        .uses(&[TEXTURE_UPLOAD_SLOT])
-        .recorded(&PROVINCE_MAP_UPLOAD_AT),
-        Point::keep(PROVINCE_MAP_UPLOAD_DONE, "4c 8d 5c 24 70 49 8b 5b 10", "a province map texture upload done"),
+            province_map_upload as ProvinceMapUploadFn,
+            &ORIGINAL_PROVINCE_MAP_UPLOAD,
+        ),
         Point::keep(TEXTURE_UPLOAD_FN, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 60 48 8b 84 24 98 00 00", "the graphics back end's texture upload"),
         Point::replace(
             TEXTURE_DESC_FN,
@@ -281,23 +278,22 @@ resume!(MINIMAP_RESUME: MINIMAP_GOES_ON_AT = MINIMAP_GOES_ON);
 /// lock stall without racing on world state:
 /// - `0x10b7e6d` in `0x10b6c50` (`eu3minimap.cpp`): minimap texture (`[minimap + 0x260]`).
 /// - `0x10a8d34` in `0x10a8c30` (`pdxmaptexturegeneration.cpp`): map-mode color texture (`[pdxmap + 0x1698]`).
-/// - `0x12ef5ae` in `0x12ef4e0` (`pdxmaptexturegeneration.cpp`): province color & stripe textures (`*slot_ptr`).
+/// - `0x12ef4e0` (`pdxmaptexturegeneration.cpp`): province color & stripe textures (`*slot_ptr`), replaced at entry when `*slot_ptr` is already created.
 const MINIMAP_TEXTURE: usize = 0x260;
 const MINIMAP_UPLOAD_CALL: usize = 0x10b7e6d;
 const MINIMAP_UPLOAD_DONE: usize = 0x10b7ea0;
 const MAP_COLORS_TEXTURE: usize = 0x1698;
 const MAP_COLORS_UPLOAD_CALL: usize = 0x10a8d34;
 const MAP_COLORS_UPLOAD_DONE: usize = 0x10a8d3d;
-const PROVINCE_MAP_UPLOAD_CALL: usize = 0x12ef5ae;
-const PROVINCE_MAP_UPLOAD_DONE: usize = 0x12ef5bc;
+const PROVINCE_MAP_UPLOAD_FN: usize = 0x12ef4e0;
+type ProvinceMapUploadFn = unsafe extern "C" fn(usize, usize, usize, u32, u32);
+static ORIGINAL_PROVINCE_MAP_UPLOAD: Function<ProvinceMapUploadFn> = Function::new();
 const TEXTURE_UPLOAD_SLOT: usize = 0x1fd1378;
 const TEXTURE_UPLOAD_FN: usize = 0x16d7e70;
 resume!(MINIMAP_UPLOAD_RESUME: MINIMAP_UPLOAD_DONE_AT = MINIMAP_UPLOAD_DONE);
 static MINIMAP_UPLOAD_AT: AtomicUsize = AtomicUsize::new(0);
 resume!(MAP_COLORS_UPLOAD_RESUME: MAP_COLORS_UPLOAD_DONE_AT = MAP_COLORS_UPLOAD_DONE);
 static MAP_COLORS_UPLOAD_AT: AtomicUsize = AtomicUsize::new(0);
-resume!(PROVINCE_MAP_UPLOAD_RESUME: PROVINCE_MAP_UPLOAD_DONE_AT = PROVINCE_MAP_UPLOAD_DONE);
-static PROVINCE_MAP_UPLOAD_AT: AtomicUsize = AtomicUsize::new(0);
 
 /// `0x16d7f30(wrapper, out[4])` calls `IDirect3DTexture9::GetLevelDesc(0)` to
 /// read the immutable `(width, height, format, bpp)` of a texture, blocking on
@@ -582,8 +578,7 @@ impl PendingTextures {
 static PENDING_TEXTURES: Mutex<PendingTextures> = Mutex::new(PendingTextures::new());
 static SLOT_MISMATCH_LOGGED: AtomicBool = AtomicBool::new(false);
 
-#[called_by_game]
-extern "C" fn defer_texture_upload(slot_ptr: usize, renderer: usize, pixels: usize, width: u32, height: u32, texture: usize) -> bool {
+fn defer_texture_upload_inner(slot_ptr: usize, renderer: usize, pixels: usize, width: u32, height: u32, texture: usize) -> bool {
     if !on_main()
         || !drawing_on()
         || super::FRAMES.prepared_idler() == 0
@@ -599,16 +594,33 @@ extern "C" fn defer_texture_upload(slot_ptr: usize, renderer: usize, pixels: usi
         return false;
     }
     let m = crate::native::hooked_memory();
-    let mut state = PENDING_TEXTURES.lock().unwrap_or_else(|e| e.into_inner());
-    match state.stage(&m, TextureUpload { slot_ptr, renderer, pixels, width, height, texture }) {
+    let staged = {
+        let mut state = PENDING_TEXTURES.lock().unwrap_or_else(|e| e.into_inner());
+        state.stage(&m, TextureUpload { slot_ptr, renderer, pixels, width, height, texture })
+    };
+    match staged {
         Ok(staged) => staged,
         Err(reason) => {
-            if !SLOT_MISMATCH_LOGGED.swap(true, Ordering::Relaxed) {
-                log!("drawing: texture upload fallback ({reason}): slot={slot_ptr:#x} texture={texture:#x}");
-            }
+            crate::base::broken_invariant(&SLOT_MISMATCH_LOGGED, format_args!("drawing texture upload ({reason}): slot={slot_ptr:#x} texture={texture:#x}"));
             false
         }
     }
+}
+
+#[called_by_game]
+extern "C" fn defer_texture_upload(slot_ptr: usize, renderer: usize, pixels: usize, width: u32, height: u32, texture: usize) -> bool {
+    defer_texture_upload_inner(slot_ptr, renderer, pixels, width, height, texture)
+}
+
+#[called_by_game]
+unsafe extern "C" fn province_map_upload(renderer: usize, slot_ptr: usize, pixels: usize, width: u32, height: u32) {
+    if slot_ptr != 0 {
+        let texture = unsafe { *(slot_ptr as *const usize) };
+        if texture != 0 && defer_texture_upload_inner(slot_ptr, renderer, pixels, width, height, texture) {
+            return;
+        }
+    }
+    unsafe { ORIGINAL_PROVINCE_MAP_UPLOAD.get()(renderer, slot_ptr, pixels, width, height) };
 }
 
 #[unsafe(naked)]
@@ -665,32 +677,6 @@ extern "C" fn map_colors_upload_stub() {
         at = sym MAP_COLORS_UPLOAD_AT,
         to_slot = const TEXTURE_UPLOAD_SLOT - MAP_COLORS_UPLOAD_CALL,
         done = sym MAP_COLORS_UPLOAD_DONE_AT,
-    );
-}
-
-#[unsafe(naked)]
-extern "C" fn province_map_upload_stub() {
-    std::arch::naked_asm!(
-        call_rust!(
-            "mov qword ptr [rsp + 0x28], rax",
-            "mov dword ptr [rsp + 0x20], r9d",
-            "mov r9d, r11d",
-            "mov r8, rbx",
-            "mov rdx, rdi",
-            "mov rcx, rsi",
-            call defer_texture_upload => bool
-        ),
-        "jne 2f",
-        "mov dword ptr [rsp + 0x20], 4",
-        "mov rax, qword ptr [rip + {at}]",
-        "add rax, {to_slot}",
-        "call qword ptr [rax]",
-        "2:",
-        "jmp qword ptr [rip + {done}]",
-        defer_texture_upload = sym defer_texture_upload,
-        at = sym PROVINCE_MAP_UPLOAD_AT,
-        to_slot = const TEXTURE_UPLOAD_SLOT - PROVINCE_MAP_UPLOAD_CALL,
-        done = sym PROVINCE_MAP_UPLOAD_DONE_AT,
     );
 }
 

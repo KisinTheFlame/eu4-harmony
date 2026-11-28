@@ -21,9 +21,6 @@ use std::cell::RefCell;
 
 /// AI colonization agent's settlement-growth candidate scan (`(colonize_agent)`).
 const SETTLEMENT_SCAN: usize = 0x1b5170;
-/// `call 0xbde10` inside `0x1b5170` (`e8 80 8b f0 ff`), followed by `cmp rdi, rax`.
-const BEST_DEV_CALL: usize = 0x1b528b;
-const BEST_DEV_RESUME_AT: usize = 0x1b5290;
 /// Best province to develop across country and subjects: `(country_ai, *const i32, i32) -> province`.
 const BEST_DEV_FN: usize = 0xbde10;
 
@@ -31,7 +28,7 @@ type SettlementScanFn = unsafe extern "C" fn(usize);
 type BestDevFn = unsafe extern "C" fn(usize, *const i32, i32) -> usize;
 
 static ORIGINAL_SETTLEMENT_SCAN: Function<SettlementScanFn> = Function::new();
-resume!(BEST_DEV_RESUME: BEST_DEV_DONE = BEST_DEV_RESUME_AT);
+static ORIGINAL_BEST_DEV: Function<BestDevFn> = Function::new();
 
 /// Five-slot cache for `dev_type in -2..=2` during one `0x1b5170` call.
 #[derive(Default)]
@@ -97,38 +94,30 @@ unsafe extern "C" fn settlement_scan(agent: usize) {
 
 #[called_by_game]
 unsafe extern "C" fn cached_best_dev(ai: usize, cost_ptr: *const i32, dev_type: i32) -> usize {
-    let m = crate::native::hooked_memory();
-    let best_dev: BestDevFn = unsafe { std::mem::transmute(m.at(BEST_DEV_FN)) };
+    let original = ORIGINAL_BEST_DEV.get();
+    let in_scan = ACTIVE.with(|stack| !stack.borrow().is_empty());
+    if !in_scan {
+        return unsafe { original(ai, cost_ptr, dev_type) };
+    }
     let cost = if cost_ptr.is_null() { -1 } else { unsafe { *cost_ptr } };
     if cost != 0 || Scope::slot_of(dev_type).is_none() {
-        return unsafe { best_dev(ai, cost_ptr, dev_type) };
+        return unsafe { original(ai, cost_ptr, dev_type) };
     }
     let cached = ACTIVE.with(|stack| stack.borrow().last().and_then(|s| s.get(ai, dev_type)));
     if let Some(province) = cached {
         if speed::checked(&SPEED_UP) {
-            let game = unsafe { best_dev(ai, cost_ptr, dev_type) };
+            let game = unsafe { original(ai, cost_ptr, dev_type) };
             speed::compared(&SPEED_UP, province == game, || format!("settlement-growth dev_type={dev_type}: cached {province:#x}, game {game:#x}"));
         }
         return province;
     }
-    let province = unsafe { best_dev(ai, cost_ptr, dev_type) };
+    let province = unsafe { original(ai, cost_ptr, dev_type) };
     ACTIVE.with(|stack| {
         if let Some(scope) = stack.borrow_mut().last_mut() {
             scope.put(ai, dev_type, province);
         }
     });
     province
-}
-
-#[unsafe(naked)]
-extern "C" fn best_dev_stub() {
-    std::arch::naked_asm!(
-        call_rust!(call cached_best_dev -> r11),
-        "mov rax, r11",
-        "jmp qword ptr [rip + {done}]",
-        cached_best_dev = sym cached_best_dev,
-        done = sym BEST_DEV_DONE,
-    );
 }
 
 /// Checked, every cached best-development answer is also recomputed and
@@ -144,15 +133,13 @@ fn points() -> Vec<Point> {
             settlement_scan as SettlementScanFn,
             &ORIGINAL_SETTLEMENT_SCAN,
         ),
-        Point::jump(
-            BEST_DEV_CALL,
-            "e8 80 8b f0 ff",
-            "best province to develop inside settlement-growth scan",
-            best_dev_stub as *const () as usize,
-            &BEST_DEV_RESUME,
+        Point::replace(
+            BEST_DEV_FN,
+            "48 89 5c 24 10 55 56 57 41 54 41 55 41 56 41 57",
+            "best province to develop",
+            cached_best_dev as BestDevFn,
+            &ORIGINAL_BEST_DEV,
         ),
-        Point::keep(BEST_DEV_RESUME_AT, "48 3b f8 75 67", "settlement-growth best-province compare"),
-        Point::keep(BEST_DEV_FN, "48 89 5c 24 10 55 56 57 41 54 41 55 41 56 41 57", "best province to develop"),
     ]
 }
 
