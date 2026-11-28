@@ -488,7 +488,14 @@ unsafe fn build_snapshot(m: &crate::native::memory::Memory) -> Option<Box<Threat
         return None;
     }
     let country_mgr = unsafe { *(m.at(COUNTRY_MANAGER) as *const usize) };
-    let (countries, country_count) = unsafe { countries::list_and_count(country_mgr) }?;
+    if country_mgr == 0 {
+        return None;
+    }
+    let Some((countries, country_count)) = (unsafe { countries::list_and_count(country_mgr) }) else {
+        static REPORTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        crate::base::broken_invariant(&REPORTED, "threat-queries: unexpected country table; falling back to game");
+        return None;
+    };
 
     let special =
         unsafe { [*(m.at(SPECIAL_COUNTRIES[0]) as *const i32), *(m.at(SPECIAL_COUNTRIES[1]) as *const i32), *(m.at(SPECIAL_COUNTRIES[2]) as *const i32)] };

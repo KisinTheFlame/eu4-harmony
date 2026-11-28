@@ -367,6 +367,8 @@ unsafe fn compute_distances(country: usize, record_only: bool, scratch: &mut Scr
     }
 
     let Some((countries_by_tag, countries_by_tag_len)) = countries::list_and_count(country_db) else {
+        static REPORTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        crate::base::broken_invariant(&REPORTED, "country-distances: unexpected country table; falling back to game");
         return false;
     };
     let country_by_idx = |idx: i16| -> Option<usize> {

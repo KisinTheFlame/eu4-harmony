@@ -401,7 +401,14 @@ unsafe fn evaluate_support(m: &crate::native::memory::Memory, args: &SupportArgs
     }
 
     let country_mgr = unsafe { *(m.at(COUNTRY_MANAGER) as *const usize) };
-    let (countries, country_count) = unsafe { countries::list_and_count(country_mgr) }?;
+    if country_mgr == 0 {
+        return None;
+    }
+    let Some((countries, country_count)) = (unsafe { countries::list_and_count(country_mgr) }) else {
+        static REPORTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        crate::base::broken_invariant(&REPORTED, "support-checks: unexpected country table; falling back to game");
+        return None;
+    };
     let agent_tag = unsafe { *((args.agent + AGENT_COUNTRY_TAG) as *const u64) };
     let agent_idx = (agent_tag >> tag::INDEX) as i16 as isize;
     if agent_idx < 0 || (agent_idx as usize) >= country_count {

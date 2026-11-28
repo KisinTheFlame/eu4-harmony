@@ -106,32 +106,45 @@ resume!(FIND_RESUME: FIND_ASKED_AT = FIND_ASKED);
 /// Not the listings' to answer: the game's stat answers.
 const LEFT: i32 = -1;
 
-/// The roots by the address of PhysFS's name for them, None for one that
-/// cannot be watched.
-static ROOTS: RwLock<Option<HashMap<usize, Option<Arc<DirectoryCache>>>>> = RwLock::new(None);
+/// Watched roots keyed by normalized path so remounts reuse existing watches
+/// instead of spawning duplicate threads, plus a pointer fast-path storing the
+/// path string alongside the result so address reuse cannot poison new roots.
+#[derive(Default)]
+struct RootTable {
+    by_ptr: HashMap<usize, (String, Option<Arc<DirectoryCache>>)>,
+    by_path: HashMap<String, Option<Arc<DirectoryCache>>>,
+}
+
+static ROOTS: RwLock<Option<RootTable>> = RwLock::new(None);
 
 fn root(name: *const c_char) -> Option<Arc<DirectoryCache>> {
     let path = unsafe { CStr::from_ptr(name) }.to_str().ok()?;
-    if let Some(found) = ROOTS.read().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|r| r.get(&(name as usize))) {
-        // The same address may be a root mounted after another unmounted.
-        match found {
-            Some(root) if root.path() == path => return Some(root.clone()),
-            None => return None,
-            Some(_) => {}
+    if let Some((cached_path, found)) = ROOTS.read().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|t| t.by_ptr.get(&(name as usize))) {
+        if cached_path == path {
+            return found.clone();
         }
     }
-    let mut roots = ROOTS.write().unwrap_or_else(|e| e.into_inner());
-    let roots = roots.get_or_insert_with(HashMap::new);
-    if let Some(Some(root)) = roots.get(&(name as usize)).filter(|r| r.as_ref().is_some_and(|r| r.path() == path)) {
-        return Some(root.clone());
+    let mut table = ROOTS.write().unwrap_or_else(|e| e.into_inner());
+    let table = table.get_or_insert_with(RootTable::default);
+    if let Some((cached_path, found)) = table.by_ptr.get(&(name as usize)) {
+        if cached_path == path {
+            return found.clone();
+        }
     }
-    let made = (path.ends_with('\\') && path.is_ascii()).then(|| Arc::new(DirectoryCache::new(path)));
-    let made = made.filter(|root| watch(root.clone()));
-    if made.is_none() {
-        log!("listed-folders: {path:?} left to the game's stat");
-    }
-    roots.insert(name as usize, made.clone());
-    made
+    let key = path.to_ascii_lowercase();
+    let entry = if let Some(existing) = table.by_path.get(&key) {
+        existing.clone()
+    } else {
+        let made = (path.ends_with('\\') && path.is_ascii()).then(|| Arc::new(DirectoryCache::new(path)));
+        let made = made.filter(|root| watch(root.clone()));
+        if made.is_none() {
+            log!("listed-folders: {path:?} left to the game's stat");
+        }
+        table.by_path.insert(key, made.clone());
+        made
+    };
+    table.by_ptr.insert(name as usize, (path.to_owned(), entry.clone()));
+    entry
 }
 
 /// The path in lower case into `out`, if the listings can answer for it:
@@ -147,6 +160,16 @@ fn watch(root: Arc<DirectoryCache>) -> bool {
         folder: HANDLE,
         overlapped: OVERLAPPED,
         buffer: [u32; 16384],
+    }
+    impl Drop for Watch {
+        fn drop(&mut self) {
+            if !self.overlapped.hEvent.is_null() {
+                unsafe { CloseHandle(self.overlapped.hEvent) };
+            }
+            if !self.folder.is_null() && self.folder != INVALID_HANDLE_VALUE {
+                unsafe { CloseHandle(self.folder) };
+            }
+        }
     }
     let wide: Vec<u16> = root.path().encode_utf16().chain([0]).collect();
     let folder = unsafe {
@@ -178,7 +201,6 @@ fn watch(root: Arc<DirectoryCache>) -> bool {
         ) != 0
     };
     if watch.overlapped.hEvent.is_null() || !ask(&mut watch) {
-        unsafe { CloseHandle(folder) };
         return false;
     }
     let watch = SendWatch(watch);
@@ -225,8 +247,13 @@ impl<T> SendWatch<T> {
 
 /// A root no longer watched: its paths go to the game's stat.
 fn forget(root: &Arc<DirectoryCache>) {
-    if let Some(roots) = ROOTS.write().unwrap_or_else(|e| e.into_inner()).as_mut() {
-        for slot in roots.values_mut() {
+    if let Some(table) = ROOTS.write().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        for (_, slot) in table.by_ptr.values_mut() {
+            if slot.as_ref().is_some_and(|r| Arc::ptr_eq(r, root)) {
+                *slot = None;
+            }
+        }
+        for slot in table.by_path.values_mut() {
             if slot.as_ref().is_some_and(|r| Arc::ptr_eq(r, root)) {
                 *slot = None;
             }
@@ -261,8 +288,12 @@ fn invalidate_relative(path: *const c_char) {
     }
     let dir = unsafe { CStr::from_ptr(dir) }.to_string_lossy();
     let path = unsafe { CStr::from_ptr(path) }.to_string_lossy();
-    let Some(roots) = ROOTS.read().unwrap_or_else(|e| e.into_inner()).clone() else { return };
-    DirectoryCache::invalidate_written(roots.values().flatten().map(Arc::as_ref), &dir, &path);
+    let caches: Vec<Arc<DirectoryCache>> = {
+        let guard = ROOTS.read().unwrap_or_else(|e| e.into_inner());
+        let Some(table) = guard.as_ref() else { return };
+        table.by_path.values().flatten().cloned().collect()
+    };
+    DirectoryCache::invalidate_written(caches.iter().map(Arc::as_ref), &dir, &path);
 }
 
 /// After the game made or removed something through PhysFS: the listings of

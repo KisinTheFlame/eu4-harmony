@@ -161,13 +161,18 @@ impl<G: Game> Course<G> {
         for (which, at) in [Loop::Provinces, Loop::Countries].into_iter().zip(flight.at) {
             let Some(at) = at else { continue };
             let writing = &flight.loops[which as usize];
-            let outputs = g.runs(writing).or_else(|e| {
-                g.note(format!("saves: {e}; the main thread writes the {} again", which.name()));
-                g.whole(writing).map(|all| vec![all])
-            });
+            let (outputs, from_runs) = match g.runs(writing) {
+                Ok(outputs) => (Ok(outputs), true),
+                Err(e) => {
+                    g.note(format!("saves: {e}; the main thread writes the {} again", which.name()));
+                    (g.whole(writing).map(|all| vec![all]), false)
+                }
+            };
             match outputs {
                 Ok(outputs) => {
-                    g.remember(which, outputs.iter().map(Vec::len).max().unwrap_or(0));
+                    if from_runs {
+                        g.remember(which, outputs.iter().map(Vec::len).max().unwrap_or(0));
+                    }
                     inserts.push((at, outputs));
                 }
                 Err(e) => {
