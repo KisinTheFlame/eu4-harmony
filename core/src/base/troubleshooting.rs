@@ -1,19 +1,34 @@
-//! The troubleshooting files: complete logs, crash folders, selected
-//! Windows crash evidence and settings, packed from the About page.
-//! No saves, file-size limits, payload budget or file-count limit.
+//! The troubleshooting files: logs, recent crash folders, selected Windows
+//! crash evidence and settings, packed from the About page within a 24 MiB
+//! archive cap (GitHub Issues attachment friendly). No saves.
 //!
-//! Packing runs on its own thread. Binary dumps are compressed in chunks;
-//! text files are read one at a time for credential redaction.
+//! Packing runs on its own thread. Text files are read one at a time for
+//! credential redaction. Oversized minidumps that would exceed the archive
+//! budget are slimmed in memory to `MiniDumpNormal`-equivalent stacks/modules
+//! before compression without modifying the original files on disk.
 use crate::base::zip;
 use eu4_harmony_folders::UserFolder;
 use std::fs::{File, OpenOptions};
-use std::io::Read as _;
+use std::io::{Read as _, Seek as _, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::SystemTime;
 
 pub(crate) mod local_dumps;
+mod minidump;
 mod windows_crashes;
 mod windows_dumps;
+
+/// Hard target for the output troubleshooting zip (fits GitHub Issues' 25 MiB cap).
+const MAX_ARCHIVE_BYTES: u64 = 24 * 1024 * 1024;
+/// Reserved headroom for `about.txt` and ZIP end-of-central-directory records.
+const ARCHIVE_RESERVE_BYTES: u64 = 256 * 1024;
+/// Maximum recent game crash folders included in one troubleshooting archive.
+const MAX_CRASH_FOLDERS: usize = 3;
+/// Maximum recent matched Windows minidumps included in one troubleshooting archive.
+const MAX_WINDOWS_DUMPS: usize = 3;
+/// Binary dumps larger than this on disk are slimmed first when budget is tight.
+const SLIM_THRESHOLD_BYTES: u64 = 8 * 1024 * 1024;
 
 /// Where the packing is.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,9 +57,10 @@ pub fn start() {
     }
     let spawned = std::thread::Builder::new().name("harmony troubleshooting".into()).spawn(|| {
         let done = match pack() {
-            Ok(file) => {
-                log!("troubleshooting files saved to {}", file.display());
-                State::Saved(file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
+            Ok((file, bytes)) => {
+                log!("troubleshooting files saved to {} ({bytes} bytes)", file.display());
+                let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                State::Saved(format!("{name} ({})", format_bytes(bytes)))
             }
             Err(e) => {
                 log!("troubleshooting files not saved: {e}");
@@ -88,12 +104,36 @@ fn files_in(dir: &Path, under: &str, out: &mut Vec<Source>) -> std::io::Result<(
     Ok(())
 }
 
-/// Every existing crash folder is included; saves are never enumerated.
-fn sources(user: &UserFolder) -> crate::base::Result<Vec<Source>> {
+fn format_bytes(bytes: u64) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = 1024.0 * 1024.0;
+    if bytes >= 1024 * 1024 {
+        format!("{:.1} MB", bytes as f64 / MIB)
+    } else if bytes >= 1024 {
+        format!("{:.0} KB", bytes as f64 / KIB)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
+/// Recent crash folders (up to [`MAX_CRASH_FOLDERS`], newest first) and logs/settings.
+/// Saves are never enumerated. Returns `(sources, omitted_crash_folder_count)`.
+fn sources(user: &UserFolder) -> crate::base::Result<(Vec<Source>, usize)> {
     let mut out = Vec::new();
     files_in(&user.logs(), "harmony-logs", &mut out).map_err(|e| format!("cannot list framework logs: {e}"))?;
     files_in(&user.game_logs(), "game-logs", &mut out).map_err(|e| format!("cannot list game logs: {e}"))?;
-    for name in user.crash_folders()? {
+    let mut crash_dirs: Vec<(SystemTime, String)> = user
+        .crash_folders()?
+        .into_iter()
+        .map(|name| {
+            let modified = std::fs::metadata(user.crashes().join(&name)).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
+            (modified, name)
+        })
+        .collect();
+    // Sort newest first; tie-break by descending folder name.
+    crash_dirs.sort_unstable_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
+    let omitted_crashes = crash_dirs.len().saturating_sub(MAX_CRASH_FOLDERS);
+    for (_, name) in crash_dirs.into_iter().take(MAX_CRASH_FOLDERS) {
         files_in(&user.crashes().join(&name), &format!("crashes/{name}"), &mut out).map_err(|e| format!("cannot list crash folder {name}: {e}"))?;
     }
     for (name, path) in [
@@ -106,7 +146,7 @@ fn sources(user: &UserFolder) -> crate::base::Result<Vec<Source>> {
         }
     }
     out.sort_unstable_by(|a, b| a.name.cmp(&b.name));
-    Ok(out)
+    Ok((out, omitted_crashes))
 }
 
 /// This core, when and where it runs, the command line and the playset.
@@ -118,7 +158,10 @@ fn about(user: &UserFolder, now: &str) -> Vec<String> {
         format!("user folder: {}", user.path().display()),
         format!("command line: {}", eu4_harmony_logging::redact(crate::base::paths::command_line())),
         format!("run: {}", eu4_harmony_logging::run_id()),
-        "collection: complete files at their opening length; all existing crash folders; no file-size, total-size or file-count limits; text credentials redacted; no saves".into(),
+        format!(
+            "collection: logs, settings, up to {MAX_CRASH_FOLDERS} recent crash folders and {MAX_WINDOWS_DUMPS} matched Windows minidumps within {} MiB cap; oversized minidumps slimmed to stacks/modules in-memory without changing disk files; text credentials redacted; no saves",
+            MAX_ARCHIVE_BYTES / (1024 * 1024)
+        ),
         "playset:".into(),
     ];
     lines.extend(crate::base::mods::playset().iter().map(|m| format!("  {m}")));
@@ -147,17 +190,120 @@ fn desktop() -> crate::base::Result<PathBuf> {
     Ok(PathBuf::from(dir))
 }
 
-fn collect<W: std::io::Write>(
+fn is_binary_dump(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| ["dmp", "mdmp", "bin"].iter().any(|x| e.eq_ignore_ascii_case(x)))
+}
+
+/// Deflates `data` into memory, stopping early and returning `None` if the
+/// compressed output would exceed `budget` bytes.
+fn deflate_bounded(data: &[u8], budget: u64) -> Option<(Vec<u8>, u32)> {
+    use miniz_oxide::deflate::core::CompressorOxide;
+    use miniz_oxide::deflate::stream::deflate;
+    use miniz_oxide::{DataFormat, MZFlush, MZStatus};
+    let mut compressor = Box::<CompressorOxide>::default();
+    compressor.set_format_and_level(DataFormat::Raw, 6);
+    let mut out = Vec::new();
+    let mut chunk = vec![0u8; 64 << 10];
+    let crc = !zip::crc32_update(!0, data);
+    let mut offset = 0;
+    loop {
+        let end = (offset + (64 << 10)).min(data.len());
+        let slice = &data[offset..end];
+        let flush = if end == data.len() { MZFlush::Finish } else { MZFlush::None };
+        let mut consumed = 0;
+        loop {
+            let res = deflate(&mut compressor, &slice[consumed..], &mut chunk, flush);
+            consumed += res.bytes_consumed;
+            if out.len() as u64 + res.bytes_written as u64 > budget {
+                return None;
+            }
+            out.extend_from_slice(&chunk[..res.bytes_written]);
+            match res.status {
+                Ok(MZStatus::StreamEnd) => return Some((out, crc)),
+                Ok(_) if consumed == slice.len() && flush == MZFlush::None => break,
+                Ok(_) if res.bytes_consumed != 0 || res.bytes_written != 0 => (),
+                _ => return None,
+            }
+        }
+        offset = end;
+    }
+}
+
+/// Deflates a file up to `original` bytes into memory, returning `None` if the
+/// compressed size exceeds `budget`.
+fn deflate_file_bounded(file: &mut File, original: u64, budget: u64) -> std::io::Result<Option<(Vec<u8>, u32, usize)>> {
+    use miniz_oxide::deflate::core::CompressorOxide;
+    use miniz_oxide::deflate::stream::deflate;
+    use miniz_oxide::{DataFormat, MZFlush, MZStatus};
+    file.seek(SeekFrom::Start(0))?;
+    let mut input = file.take(original);
+    let mut compressor = Box::<CompressorOxide>::default();
+    compressor.set_format_and_level(DataFormat::Raw, 6);
+    let mut out = Vec::new();
+    let mut in_buf = vec![0u8; 64 << 10];
+    let mut out_buf = vec![0u8; 64 << 10];
+    let mut crc = !0u32;
+    let mut unpacked = 0usize;
+    loop {
+        let len = match input.read(&mut in_buf) {
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
+        unpacked = unpacked.checked_add(len).ok_or_else(|| std::io::Error::other("dump size overflow"))?;
+        crc = zip::crc32_update(crc, &in_buf[..len]);
+        let flush = if len == 0 { MZFlush::Finish } else { MZFlush::None };
+        let mut consumed = 0;
+        loop {
+            let res = deflate(&mut compressor, &in_buf[consumed..len], &mut out_buf, flush);
+            consumed += res.bytes_consumed;
+            if out.len() as u64 + res.bytes_written as u64 > budget {
+                return Ok(None);
+            }
+            out.extend_from_slice(&out_buf[..res.bytes_written]);
+            match res.status {
+                Ok(MZStatus::StreamEnd) => {
+                    if input.limit() != 0 {
+                        return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "source shrank while being collected"));
+                    }
+                    return Ok(Some((out, !crc, unpacked)));
+                }
+                Ok(_) if consumed == len && len != 0 => break,
+                Ok(_) if res.bytes_consumed != 0 || res.bytes_written != 0 => (),
+                _ => return Err(std::io::Error::other("deflate failed to make progress")),
+            }
+        }
+        if len == 0 {
+            break;
+        }
+    }
+    Ok(Some((out, !crc, unpacked)))
+}
+
+fn collect<W: std::io::Write>(output: W, sources: Vec<Source>, summary: Vec<String>, windows_crashes: Option<&str>, when: (u16, u16)) -> std::io::Result<W> {
+    collect_with_cap(output, sources, summary, windows_crashes, when, MAX_ARCHIVE_BYTES)
+}
+
+fn collect_with_cap<W: std::io::Write>(
     output: W,
     sources: Vec<Source>,
     mut summary: Vec<String>,
     windows_crashes: Option<&str>,
     when: (u16, u16),
+    max_archive_bytes: u64,
 ) -> std::io::Result<W> {
     summary.push("files:".into());
     let mut stream = zip::Stream::new(output);
     let mut payload = 0u64;
-    for source in sources {
+
+    let (mut dumps, texts): (Vec<Source>, Vec<Source>) = sources.into_iter().partition(|s| is_binary_dump(&s.path));
+    // Pack newest dumps first so recent crash evidence gets priority in the budget.
+    dumps.sort_unstable_by(|a, b| {
+        let mtime = |s: &Source| std::fs::metadata(&s.path).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
+        mtime(b).cmp(&mtime(a)).then_with(|| b.name.cmp(&a.name))
+    });
+
+    // 1. Pack all text logs, settings, and crash text summaries first.
+    for source in texts {
         let file = match source.opened.map_or_else(|| File::open(&source.path), Ok) {
             Ok(file) => file,
             Err(e) => {
@@ -166,40 +312,113 @@ fn collect<W: std::io::Write>(
             }
         };
         let original = file.metadata()?.len();
-        // A live log may keep growing. Capture its opening length, without an
-        // arbitrary cap or waiting for its writer to stop.
         let mut input = file.take(original);
-        let binary = source.path.extension().and_then(|e| e.to_str()).is_some_and(|e| ["dmp", "mdmp", "bin"].iter().any(|x| e.eq_ignore_ascii_case(x)));
-        let entry = if binary {
-            stream.deflate(source.name.as_bytes(), &mut input, when)?
-        } else {
-            let mut bytes = Vec::new();
-            input.read_to_end(&mut bytes)?;
-            let text = eu4_harmony_logging::redact(&String::from_utf8_lossy(&bytes));
-            stream.deflate(source.name.as_bytes(), text.as_bytes(), when)?
-        };
+        let mut bytes = Vec::new();
+        input.read_to_end(&mut bytes)?;
         if input.limit() != 0 {
             return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, format!("{} shrank while being collected", source.name)));
         }
-        summary.push(format!("  {}: original_bytes={original} collected_bytes={} credential_redaction={}", source.name, entry.unpacked, !binary));
-        payload += entry.unpacked as u64;
+        let text = eu4_harmony_logging::redact(&String::from_utf8_lossy(&bytes));
+        let budget = max_archive_bytes.saturating_sub(ARCHIVE_RESERVE_BYTES).saturating_sub(stream.estimated_bytes());
+        if let Some((compressed, crc)) = deflate_bounded(text.as_bytes(), budget) {
+            let entry = stream.write_deflated(source.name.as_bytes(), &compressed, text.len(), crc, when)?;
+            summary.push(format!(
+                "  {}: original_bytes={original} collected_bytes={} packed_bytes={} credential_redaction=true",
+                source.name, entry.unpacked, entry.packed
+            ));
+            payload += entry.unpacked as u64;
+        } else {
+            summary.push(format!("  {}: skipped (exceeds {} MiB archive cap; original_bytes={original})", source.name, max_archive_bytes / (1024 * 1024)));
+        }
     }
+
     if let Some(text) = windows_crashes {
         let text = eu4_harmony_logging::redact(text);
         let entry = stream.deflate(b"windows-crashes.txt", text.as_bytes(), when)?;
         summary.push(format!(
-            "  windows-crashes.txt: generated from Windows Application Error events; collected_bytes={} credential_redaction=true",
-            entry.unpacked
+            "  windows-crashes.txt: generated from Windows Application Error events; collected_bytes={} packed_bytes={} credential_redaction=true",
+            entry.unpacked, entry.packed
         ));
         payload += entry.unpacked as u64;
     }
+
+    // 2. Pack binary dumps newest first within the remaining archive cap.
+    //    Oversized dumps are slimmed in memory to stack/module/exception streams
+    //    when full compression would exceed the budget.
+    for source in dumps {
+        let mut file = match source.opened.map_or_else(|| File::open(&source.path), Ok) {
+            Ok(file) => file,
+            Err(e) => {
+                summary.push(format!("  {}: not read, {e}", source.name));
+                continue;
+            }
+        };
+        let original = file.metadata()?.len();
+        let entry_overhead = 256u64 + source.name.len() as u64 * 2;
+        let budget = max_archive_bytes.saturating_sub(ARCHIVE_RESERVE_BYTES).saturating_sub(stream.estimated_bytes()).saturating_sub(entry_overhead);
+        if budget == 0 {
+            summary.push(format!("  {}: skipped (archive cap reached; original_bytes={original})", source.name));
+            continue;
+        }
+
+        // Try full dump first if it is modest in size; otherwise slim oversized dumps first.
+        let try_full_first = original <= SLIM_THRESHOLD_BYTES;
+        let mut written = false;
+
+        if try_full_first {
+            if let Some((compressed, crc, unpacked)) = deflate_file_bounded(&mut file, original, budget)? {
+                let entry = stream.write_deflated(source.name.as_bytes(), &compressed, unpacked, crc, when)?;
+                summary.push(format!(
+                    "  {}: original_bytes={original} collected_bytes={} packed_bytes={} slimmed=false credential_redaction=false",
+                    source.name, entry.unpacked, entry.packed
+                ));
+                payload += entry.unpacked as u64;
+                written = true;
+            }
+        }
+
+        if !written {
+            match minidump::slim(&mut file) {
+                Ok(slimmed) if (slimmed.len() as u64) < original => {
+                    if let Some((compressed, crc)) = deflate_bounded(&slimmed, budget) {
+                        let entry = stream.write_deflated(source.name.as_bytes(), &compressed, slimmed.len(), crc, when)?;
+                        summary.push(format!(
+                            "  {}: original_bytes={original} collected_bytes={} packed_bytes={} slimmed=true credential_redaction=false",
+                            source.name, entry.unpacked, entry.packed
+                        ));
+                        payload += entry.unpacked as u64;
+                        written = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // If slimming was unavailable (e.g. non-MDMP binary or already slim) and we skipped trying full first, try full within budget.
+        if !written && !try_full_first {
+            if let Some((compressed, crc, unpacked)) = deflate_file_bounded(&mut file, original, budget)? {
+                let entry = stream.write_deflated(source.name.as_bytes(), &compressed, unpacked, crc, when)?;
+                summary.push(format!(
+                    "  {}: original_bytes={original} collected_bytes={} packed_bytes={} slimmed=false credential_redaction=false",
+                    source.name, entry.unpacked, entry.packed
+                ));
+                payload += entry.unpacked as u64;
+                written = true;
+            }
+        }
+
+        if !written {
+            summary.push(format!("  {}: skipped (exceeds remaining archive budget of {budget} bytes; original_bytes={original})", source.name));
+        }
+    }
+
     summary.push(format!("payload_bytes={payload}; about.txt is additional metadata"));
     stream.deflate(b"about.txt", (summary.join("\r\n") + "\r\n").as_bytes(), when)?;
     stream.finish()
 }
 
-/// Packs the troubleshooting files onto the desktop; returns the file.
-fn pack() -> crate::base::Result<PathBuf> {
+/// Packs the troubleshooting files onto the desktop; returns `(path, archive_bytes)`.
+fn pack() -> crate::base::Result<(PathBuf, u64)> {
     let game = crate::base::game_dir().ok_or("the game folder is not known")?;
     let user = UserFolder::new(crate::base::paths::user_dir(game)?);
     let t = unsafe {
@@ -210,14 +429,26 @@ fn pack() -> crate::base::Result<PathBuf> {
     let now = format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
     crate::base::log::checkpoint();
     let mut summary = about(&user, &now);
-    let mut sources = sources(&user)?;
+    let (mut sources, omitted_crashes) = sources(&user)?;
+    if omitted_crashes > 0 {
+        summary.push(format!("game crash folders: kept newest {MAX_CRASH_FOLDERS}, omitted {omitted_crashes} older folder(s)"));
+    }
     if let Some(root) = eu4_harmony_folders::windows_dump_root() {
         let configured = local_dumps::dump_folder().unwrap_or_else(|e| {
             summary.push(format!("Windows minidumps: cannot read the configured dump folder: {e}"));
             None
         });
-        let (dumps, skipped) = windows_dumps::find(&root, configured.as_deref(), &sources);
-        summary.push(format!("Windows minidumps: {} matched to retained Harmony runs in this user folder, {skipped} unavailable or unmatched", dumps.len()));
+        let (mut dumps, skipped) = windows_dumps::find(&root, configured.as_deref(), &sources);
+        dumps.sort_unstable_by(|a, b| {
+            let mtime = |s: &Source| std::fs::metadata(&s.path).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
+            mtime(b).cmp(&mtime(a)).then_with(|| b.name.cmp(&a.name))
+        });
+        let omitted_dumps = dumps.len().saturating_sub(MAX_WINDOWS_DUMPS);
+        dumps.truncate(MAX_WINDOWS_DUMPS);
+        summary.push(format!(
+            "Windows minidumps: {} matched (kept up to {MAX_WINDOWS_DUMPS}, omitted {omitted_dumps} older), {skipped} unavailable or unmatched",
+            dumps.len() + omitted_dumps
+        ));
         sources.extend(dumps);
     } else {
         summary.push("Windows minidumps: cannot find LOCALAPPDATA".into());
@@ -243,13 +474,14 @@ fn pack() -> crate::base::Result<PathBuf> {
         let _ = std::fs::remove_file(&path);
         return Err(format!("cannot write {}: {e}", path.display()));
     }
-    Ok(path)
+    let bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
+    Ok((path, bytes))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Seek as _, Write as _};
+    use std::io::Write as _;
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("eu4h-troubleshooting-{name}-{}", std::process::id()));
@@ -264,7 +496,7 @@ mod tests {
     }
 
     #[test]
-    fn the_files_are_all_logs_crashes_and_settings_but_no_saves_or_staging_files() {
+    fn the_files_are_logs_settings_and_recent_crashes_but_no_saves_or_staging_files() {
         let dir = scratch("sources");
         let user = UserFolder::new(&dir);
         put(&user.core_log(), "core");
@@ -278,11 +510,12 @@ mod tests {
         put(&dir.join("settings.txt"), "game");
         put(&dir.join("dlc_load.json"), "{}");
         put(&user.save_games().join("a.eu4"), "save");
-        let names: Vec<String> = sources(&user).unwrap().into_iter().map(|s| s.name).collect();
+        let (listed, omitted) = sources(&user).unwrap();
+        assert_eq!(omitted, 1, "4 crash folders keep the newest 3");
+        let names: Vec<String> = listed.into_iter().map(|s| s.name).collect();
         assert_eq!(
             names,
             [
-                "crashes/eu4_2026_11_08/exception.txt",
                 "crashes/eu4_2026_11_09/exception.txt",
                 "crashes/eu4_2026_11_10/exception.txt",
                 "crashes/eu4_2026_11_11/exception.txt",
@@ -298,35 +531,26 @@ mod tests {
     }
 
     #[test]
-    fn crash_dumps_of_the_reported_size_are_kept_whole_beyond_the_old_total_budget() {
-        let dir = scratch("whole-dumps");
-        let dump_size = 76_924_260;
-        let mut candidates = Vec::new();
-        for n in 0..2 {
-            let path = dir.join(format!("dump-{n}.dmp"));
-            let mut file = File::create(&path).unwrap();
-            file.write_all(b"MDMP-start").unwrap();
-            file.set_len(dump_size).unwrap();
-            file.seek(std::io::SeekFrom::End(-8)).unwrap();
-            file.write_all(b"dump-end").unwrap();
-            candidates.push(Source::new(format!("crashes/eu4_20261114_19072{n}/minidump.dmp"), path));
+    fn oversized_dumps_stay_within_archive_cap_and_record_disposition() {
+        let dir = scratch("capped-dumps");
+        // Write a pseudo-random incompressible dump larger than a small test cap.
+        let path = dir.join("big.dmp");
+        let mut seed = 0x1234_5678_9abc_def0u64;
+        let mut noise = vec![0u8; 512 * 1024];
+        for b in &mut noise {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            *b = seed as u8;
         }
-        let output = File::create(dir.join("collected.zip")).unwrap();
-        drop(collect(output, candidates, Vec::new(), None, (0, 0x21)).unwrap());
-        let mut archive = File::open(dir.join("collected.zip")).unwrap();
-        let entries = zip::directory(&mut archive, 1 << 20).unwrap();
-        for n in 0..2 {
-            let name = format!("crashes/eu4_20261114_19072{n}/minidump.dmp");
-            let entry = entries.iter().find(|e| e.name == name.as_bytes()).expect("the crash dump must be present");
-            let bytes = zip::read(&mut archive, entry, dump_size as usize).unwrap();
-            assert_eq!(bytes.len(), dump_size as usize);
-            assert_eq!(&bytes[..10], b"MDMP-start");
-            assert_eq!(&bytes[bytes.len() - 8..], b"dump-end");
-            assert!(bytes[10..bytes.len() - 8].iter().all(|&byte| byte == 0));
-        }
-        let summary = String::from_utf8(zip::find(&mut archive, b"about.txt", 1 << 20).unwrap()).unwrap();
-        assert!(summary.contains("payload_bytes=153848520;"));
-        drop(archive);
+        std::fs::write(&path, &noise).unwrap();
+        let candidates = vec![Source::new("crashes/eu4_20261114/minidump.dmp".into(), path)];
+        let cap = 384 * 1024;
+        let archive_bytes = collect_with_cap(Vec::new(), candidates, Vec::new(), None, (0, 0x21), cap).unwrap();
+        assert!((archive_bytes.len() as u64) <= cap);
+        let mut archive = std::io::Cursor::new(archive_bytes);
+        let summary = String::from_utf8(zip::find(&mut archive, b"about.txt", 4096).unwrap()).unwrap();
+        assert!(summary.contains("skipped (exceeds remaining archive budget"), "{summary}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -394,7 +618,7 @@ mod tests {
             let mut archive = std::io::Cursor::new(collect(Vec::new(), Vec::new(), Vec::new(), Some(report), (0, 0x21)).unwrap());
             assert_eq!(zip::find(&mut archive, b"windows-crashes.txt", 4096).unwrap(), report.as_bytes());
             let summary = String::from_utf8(zip::find(&mut archive, b"about.txt", 4096).unwrap()).unwrap();
-            assert!(summary.contains(&format!("collected_bytes={} credential_redaction=true", report.len())));
+            assert!(summary.contains(&format!("collected_bytes={}", report.len())));
             assert!(summary.contains(&format!("payload_bytes={};", report.len())));
         }
     }
@@ -428,7 +652,7 @@ mod tests {
         let custom = dir.join("administrator-selected-folder");
         std::fs::create_dir(&custom).unwrap();
         std::fs::write(custom.join("eu4.exe.902.dmp"), &payload).unwrap();
-        let candidates = sources(&user).unwrap();
+        let (candidates, _) = sources(&user).unwrap();
         let (dumps, _) = windows_dumps::find(&root, Some(&custom), &candidates);
         assert_eq!(dumps.len(), 1);
         assert_eq!(dumps[0].path, custom.join("eu4.exe.902.dmp"));
@@ -441,7 +665,7 @@ mod tests {
         std::fs::write(root.join("eu4.exe.903.dmp"), dump(903, created)).unwrap();
         std::fs::write(root.join("other.exe.902.dmp"), &payload).unwrap();
         std::fs::write(root.join("eu4.exe.904.dmp"), &payload[..252]).unwrap();
-        let mut candidates = sources(&user).unwrap();
+        let (mut candidates, _) = sources(&user).unwrap();
         let (dumps, skipped) = windows_dumps::find(&root, Some(&local), &candidates);
         assert_eq!((dumps.len(), skipped), (1, 4));
         candidates.extend(dumps);

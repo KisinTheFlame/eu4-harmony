@@ -17,6 +17,10 @@ use std::time::Duration;
 use windows_sys::Win32::System::Diagnostics::Debug::{GetErrorMode, CONTEXT, SEM_NOGPFAULTERRORBOX};
 
 pub(crate) fn register_windows_dumps() {
+    let pruned = eu4_harmony_folders::prune_harmony_dumps();
+    if pruned > 0 {
+        log!("Windows crash minidumps: pruned {pruned} old dump(s)");
+    }
     let ready = crate::base::paths::core_dir().and_then(|core| eu4_harmony_folders::windows_crash_callback::register(&core));
     match ready {
         Ok(()) if unsafe { GetErrorMode() } & SEM_NOGPFAULTERRORBOX != 0 => {

@@ -84,23 +84,12 @@ fn delete_on_close(file: &File, delete: bool) -> io::Result<()> {
     Ok(())
 }
 
-/// Keep the last five completed Harmony captures. Leave Windows' own files alone.
+/// Keep the last five completed Harmony captures within the total-size and age
+/// bounds (always keeping at least the newest). Leave Windows' own files alone.
 fn prune(dir: &Path) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
-    let mut dumps = Vec::new();
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some((_, created)) = name.to_str().and_then(eu4_harmony_folders::captured_dump_id) else { continue };
-        if entry.file_type().is_ok_and(|t| t.is_file()) {
-            if let Ok(written) = entry.metadata().and_then(|metadata| metadata.modified()) {
-                dumps.push((written, created, entry.path()));
-            }
-        }
-    }
-    dumps.sort_unstable();
-    for (_, _, path) in dumps.iter().rev().skip(5) {
-        let _ = fs::remove_file(path);
-    }
+    eu4_harmony_folders::prune_dumps(dir, Some(5), eu4_harmony_folders::DUMP_MAX_BYTES, eu4_harmony_folders::DUMP_MAX_AGE, |name| {
+        eu4_harmony_folders::captured_dump_id(name).is_some()
+    });
 }
 
 // Windows requires these three export names. Declining ownership lets the

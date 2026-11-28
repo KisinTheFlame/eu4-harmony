@@ -44,6 +44,38 @@ impl<W: Write> Stream<W> {
         Self { output, directory: Vec::new(), position: 0, count: 0 }
     }
 
+    /// Bytes written to the output stream so far, plus the pending central directory.
+    pub fn estimated_bytes(&self) -> u64 {
+        self.position.saturating_add(self.directory.len() as u64).saturating_add(128)
+    }
+
+    /// Writes pre-deflated data with its known uncompressed size and CRC.
+    pub fn write_deflated(&mut self, name: &[u8], compressed: &[u8], unpacked: usize, crc: u32, when: (u16, u16)) -> io::Result<Entry> {
+        Self::check_name(name)?;
+        let entry = Entry {
+            flags: 0,
+            method: DEFLATED,
+            time: when.0,
+            date: when.1,
+            crc,
+            packed: compressed.len(),
+            unpacked,
+            attributes: 0,
+            local: self.position,
+            name: name.to_vec(),
+        };
+        let sizes64 = entry.packed >= u32::MAX as usize || entry.unpacked >= u32::MAX as usize;
+        let extra = extra(&if sizes64 { vec![entry.unpacked as u64, entry.packed as u64] } else { Vec::new() });
+        let mut local = LOCAL.to_vec();
+        local.extend_from_slice(&header(&entry, &extra, sizes64));
+        local.extend_from_slice(&entry.name);
+        local.extend_from_slice(&extra);
+        self.write(&local)?;
+        self.write(compressed)?;
+        self.central(&entry, sizes64);
+        Ok(entry)
+    }
+
     fn write(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.output.write_all(bytes)?;
         self.position = self.position.checked_add(bytes.len() as u64).ok_or_else(|| io::Error::other("zip length overflow"))?;
